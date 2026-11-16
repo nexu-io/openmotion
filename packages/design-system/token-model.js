@@ -15,7 +15,7 @@ export const labels = {
   border: '默认边框', 'border-strong': '强调边框', strong: '强调文字', text: '正文文字', muted: '次要文字',
   dim: '辅助文字', placeholder: '占位文字', brand: '品牌绿', accent: '强调色', 'accent-hover': '强调悬停',
   'accent-soft': '强调底色', 'brand-soft': '品牌底色', highlight: '高亮底色', action: '主要操作',
-  'action-hover': '主要操作悬停', 'on-action': '主要操作文字', success: '成功', danger: '错误',
+  'action-hover': '主要操作悬停', 'on-action': '主要操作文字', success: '成功', 'status-on': '运行状态点', danger: '错误',
   'danger-soft': '错误底色', warning: '警告', 'warning-soft': '警告底色', selected: '选中边框',
   'font-sans': '界面字体', 'font-mono': '等宽字体', 'font-display': '展示字体',
   'radius-xs': '微小圆角', 'radius-sm': '控件圆角', 'radius-md': '卡片圆角', 'radius-lg': '弹窗圆角',
@@ -28,7 +28,7 @@ export const labels = {
 export const colorGroups = [
   { title: '中性色', note: '背景、边框与文字，共同构成界面的基本层次。', keys: ['bg', 'panel', 'raised', 'inset', 'hover', 'border', 'border-strong', 'strong', 'text', 'muted', 'dim', 'placeholder'] },
   { title: '品牌与交互', note: '中性操作与克制的绿色，表达状态和重点。', keys: ['brand', 'accent', 'accent-hover', 'accent-soft', 'brand-soft', 'highlight', 'action', 'action-hover', 'on-action', 'selected'] },
-  { title: '功能色', note: '让成功、警告和错误拥有明确的语义。', keys: ['success', 'danger', 'danger-soft', 'warning', 'warning-soft'] },
+  { title: '功能色', note: '让成功、警告和错误拥有明确的语义。', keys: ['success', 'status-on', 'danger', 'danger-soft', 'warning', 'warning-soft'] },
 ];
 export const components = [
   { id: 'button', title: '按钮', description: '主要、次要与轻量操作', fields: ['action', 'on-action', 'action-hover', 'radius-sm', 'control', 'text-md', 'weight-semibold', 'space-12'], selector: '.ui-button' },

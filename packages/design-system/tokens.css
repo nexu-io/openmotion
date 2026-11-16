@@ -128,6 +128,7 @@
   --motion-action-hover: #353535;
   --motion-on-action: #fafafa;
   --motion-success: #007a3d;
+  --motion-status-on: #00aa54;
   --motion-danger: #c52b32;
   --motion-danger-soft: #fff1f1;
   --motion-warning: #925500;
@@ -203,6 +204,7 @@
   --motion-action-hover: #ededed;
   --motion-on-action: #202020;
   --motion-success: #69d99b;
+  --motion-status-on: #3bbf7d;
   --motion-danger: #ff9898;
   --motion-danger-soft: #472929;
   --motion-warning: #ffc740;
@@ -279,6 +281,7 @@
     --motion-action-hover: #ededed;
     --motion-on-action: #202020;
     --motion-success: #69d99b;
+    --motion-status-on: #3bbf7d;
     --motion-danger: #ff9898;
     --motion-danger-soft: #472929;
     --motion-warning: #ffc740;

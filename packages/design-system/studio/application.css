@@ -98,7 +98,7 @@
   [data-motion-studio] .om-switch::after { transition: none; }
 }
 
-[data-motion-studio] .om-status-dot { display: inline-block; width: var(--motion-space-6); height: var(--motion-space-6); border-radius: var(--motion-radius-full); background: var(--motion-accent); flex-shrink: 0; }
+[data-motion-studio] .om-status-dot { display: inline-block; width: var(--motion-space-6); height: var(--motion-space-6); border-radius: var(--motion-radius-full); background: var(--motion-status-on); flex-shrink: 0; }
 [data-motion-studio] .om-button[aria-pressed="true"] { background: var(--motion-hover); color: var(--motion-strong); border-color: var(--motion-border); }
 [data-motion-studio] .om-menu-caption { padding: var(--motion-space-6) var(--motion-space-8); color: var(--motion-muted); font-size: var(--motion-text-xs); }
 [data-motion-studio] .om-code-field textarea { font-family: var(--motion-font-mono); resize: vertical; }
