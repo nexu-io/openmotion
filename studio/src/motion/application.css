@@ -77,6 +77,7 @@
 .om-provider-item { width: 100%; min-height: 36px; flex-shrink: 0; }
 .om-provider-item .om-avatar { width: 24px; height: 24px; font-size: var(--motion-text-xs); }
 .om-provider-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.om-provider-item[data-status="disabled"] :is(.om-avatar, .om-provider-item-name) { opacity: .5; }
 
 .om-add-provider { flex-shrink: 0; width: 100%; margin-top: var(--motion-space-8); }
 .om-provider-detail { flex: 1; min-width: 0; overflow: auto; }

@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, expect, it, vi } from 'vitest';
-import { ModelSettings } from './ModelSettings';
+import { ModelSettings, providerListStatus } from './ModelSettings';
 import { I18nProvider } from '../i18n/I18n';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,4 +70,27 @@ it('searches providers without mutating credentials and recovers from failed dir
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Clear filters"]')!.click());
   expect(document.querySelectorAll('.om-provider-item')).toHaveLength(1);
   expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('marks only runnable providers with a dot and configured-but-switched-off providers as Disabled', async () => {
+  expect(providerListStatus({ configured: true, enabled: true, available: true })).toBe('available');
+  expect(providerListStatus({ configured: true, enabled: false, available: false })).toBe('disabled');
+  expect(providerListStatus({ configured: false, enabled: true, available: false })).toBeNull();
+  expect(providerListStatus({ configured: false, enabled: false, available: false })).toBeNull();
+  expect(providerListStatus({ configured: true, enabled: true, available: false })).toBeNull();
+  const media = { protocol: 'media', category: 'multimodal', kinds: ['image', 'video'], baseUrl: 'https://api.example', custom: false, credentialSource: 'stored' };
+  const providers = [
+    { ...media, id: 'ready', label: 'Ready', configured: true, enabled: true, available: true },
+    { ...media, id: 'off', label: 'Off', configured: true, enabled: false, available: false },
+    { ...media, id: 'empty', label: 'Empty', configured: false, enabled: false, available: false, credentialSource: 'none' },
+  ];
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ providers, models: [], defaults: {} })));
+  await mount();
+  const row = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('.om-provider-item')].find(node => node.textContent?.includes(label))!;
+  expect(row('Ready').querySelector('.om-status-dot')).toBeTruthy();
+  expect(row('Ready').getAttribute('aria-label')).toContain('Available');
+  expect(row('Off').dataset.status).toBe('disabled');
+  expect(row('Off').querySelector('.om-badge')?.textContent).toBe('Disabled');
+  expect(row('Off').querySelector('.om-status-dot')).toBeNull();
+  expect(row('Empty').querySelector('.om-status-dot, .om-badge, .ri-check-line')).toBeNull();
 });

@@ -334,7 +334,8 @@
     "Auto save on": "自动保存已开启",
     "Changes could not be saved. Resolve the error before continuing.": "更改未能保存，请先处理错误。",
     "Changes save automatically. Pending edits are checked every 15 seconds.": "更改会自动保存，每 15 秒检查一次待保存的编辑。",
-    "Send this instruction to your Agent. It will check installation, start OpenMotion if needed, and verify the connection.": "将指令发给你的 Agent，它会检查安装状态，按需启动 OpenMotion 并验证连接。"
+    "Send this instruction to your Agent. It will check installation, start OpenMotion if needed, and verify the connection.": "将指令发给你的 Agent，它会检查安装状态，按需启动 OpenMotion 并验证连接。",
+    "Available": "可用"
   },
   "ja": {
     "Local Agents": "ローカル Agent",
@@ -446,7 +447,8 @@
     "Auto saved: {time}": "自動保存：{time}",
     "Auto save on": "自動保存オン",
     "Changes could not be saved. Resolve the error before continuing.": "変更を保存できませんでした。先にエラーを解決してください。",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "変更は自動保存されます。15 秒ごとに未保存の編集を確認します。"
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "変更は自動保存されます。15 秒ごとに未保存の編集を確認します。",
+    "Available": "利用可能"
   },
   "ko": {
     "What's new": "새로운 소식",
