@@ -126,7 +126,7 @@ describe("studio write coordinator", () => {
       ok: false,
       kind: "invalid",
       reason: "the target handle is stale",
-      hint: "Call studio_look and retry.",
+      hint: "Call openmotion_studio_look and retry.",
       stage: "refused",
       operation: "set-text",
     });
@@ -151,7 +151,7 @@ describe("studio write coordinator", () => {
       ok: false,
       kind: "blocked",
       reason: "the target resolved to an element Studio cannot edit",
-      hint: "Try a parent or child element from studio_look.",
+      hint: "Try a parent or child element from openmotion_studio_look.",
       stage: "refused",
       operation: "set-text",
     });
@@ -193,7 +193,7 @@ describe("studio write coordinator", () => {
       ok: false,
       kind: "invalid",
       reason: "the target changed while it was resolving",
-      hint: "Call studio_look again.",
+      hint: "Call openmotion_studio_look again.",
       stage: "refused",
       operation: "set-text",
     });

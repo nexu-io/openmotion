@@ -7,6 +7,8 @@ import { usePlayerStore } from "../../player/store/playerStore";
 import { useAssetPreviewStore } from "../../utils/assetPreviewStore";
 import { AssetPreviewOverlay } from "./AssetPreviewOverlay";
 
+vi.mock("../../player/lib/mediaProbe", () => ({ probeMediaUrl: vi.fn(async () => null) }));
+
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null;
@@ -107,6 +109,22 @@ describe("AssetPreviewOverlay playback dismissal", () => {
 
 
 describe("modal shared media preview", () => {
+  it.each(["mp3", "wav", "ogg", "m4a", "aac", "flac"])("opens %s assets in the compact audio preview", async extension => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(<AssetPreviewOverlay modal />);
+      useAssetPreviewStore.getState().setPreviewAsset(`assets/music.${extension}`, "p1");
+    });
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.getAttribute("data-preview-kind")).toBe("audio");
+    expect(dialog.className).toContain("280px");
+    expect(dialog.querySelector("audio")?.getAttribute("src")).toContain(`music.${extension}`);
+    expect(dialog.querySelector(".motion-audio-preview-waveform")).not.toBeNull();
+    expect(dialog.querySelector("video")).toBeNull();
+  });
+
   it("pauses the composition, replaces sources, and returns without moving its playhead", async () => {
     const host = document.createElement("div");
     document.body.append(host);
@@ -126,5 +144,45 @@ describe("modal shared media preview", () => {
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(useAssetPreviewStore.getState().previewAsset).toBeNull();
     expect(usePlayerStore.getState().currentTime).toBe(2);
+  });
+});
+
+describe("explicit preview insertion", () => {
+  function mountModal() {
+    const host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => root!.render(<AssetPreviewOverlay modal />));
+  }
+  const addButton = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+    .find(button => /Use|Adding/.test(button.textContent ?? ""))!;
+
+  it("waits for the save, prevents duplicate requests, and keeps failures open for retry", async () => {
+    mountModal();
+    let finish!: (value: boolean) => void;
+    const add = vi.fn(() => new Promise<boolean>(resolve => { finish = resolve; }));
+    act(() => useAssetPreviewStore.getState().setPreviewAsset("assets/clip.mp4", "p1", add));
+    expect(add).not.toHaveBeenCalled();
+    act(() => { addButton().click(); addButton().click(); });
+    expect(add).toHaveBeenCalledOnce();
+    expect(addButton().disabled).toBe(true);
+    await act(async () => finish(false));
+    expect(document.querySelector('[role="alert"]')?.textContent).toBe("Failed to add media");
+    expect(useAssetPreviewStore.getState().previewAsset).toBe("assets/clip.mp4");
+    act(() => addButton().click());
+    await act(async () => finish(true));
+    expect(useAssetPreviewStore.getState().previewAsset).toBeNull();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("does not close a replacement preview when an older insertion finishes", async () => {
+    mountModal();
+    let finish!: (value: boolean) => void;
+    act(() => useAssetPreviewStore.getState().setCatalogPreview({ title: "Caption", videoUrl: "/caption.mp4", onAdd: () => new Promise<boolean>(resolve => { finish = resolve; }) }));
+    act(() => addButton().click());
+    act(() => useAssetPreviewStore.getState().setPreviewAsset("assets/photo.png", "p2"));
+    await act(async () => finish(true));
+    expect(useAssetPreviewStore.getState().previewProjectId).toBe("p2");
+    expect(document.querySelector('[role="dialog"] img')?.getAttribute("alt")).toBe("photo.png");
   });
 });

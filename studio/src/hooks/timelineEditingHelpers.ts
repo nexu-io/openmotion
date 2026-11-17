@@ -31,6 +31,7 @@ import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordin
 import type { TimelineZIndexReorderCommit } from "./useTimelineEditingTypes";
 import { setCompositionDurationToContent } from "../utils/timelineAssetDrop";
 import { rootCompositionDurationOf } from "../utils/rootDuration";
+import { isStillImageTimelineElement } from "../utils/timelineInspector";
 import { readFileContent } from "./timelineTimingSync";
 import {
   findElementForSelection,
@@ -205,6 +206,7 @@ function resolveResizePlaybackStart(
   element: TimelineElement,
   updates: Pick<TimelineElement, "start" | "playbackStart">,
 ): { attrName: string; value: number } | null {
+  if (isStillImageTimelineElement(element)) return null;
   if (updates.playbackStart != null) {
     const attrName = playbackStartAttributeForElement(element).slice("data-".length);
     return { attrName, value: updates.playbackStart };
@@ -227,6 +229,9 @@ function resolveResizePlaybackStart(
   };
 }
 
+/** Below any centisecond step, above float noise from authored-start round trips. */
+const AUTHORED_START_EPSILON = 1e-6;
+
 export function applyTimelineMoveAttributes(
   original: string,
   target: PatchTarget,
@@ -241,7 +246,14 @@ export function applyTimelineMoveAttributes(
     );
     return original;
   }
-  let patched = applyPatchByTarget(original, target, {
+  // A clip that only changes lane keeps its authored start text: re-rounding an
+  // unchanged start to centiseconds while data-duration keeps full precision
+  // shifts its end past the next clip's start and makes the pair overlap.
+  const authoredStart = readAttributeByTarget(original, target, "data-start");
+  const startUnchanged = authoredStart != null
+    && authoredStart.trim() !== ""
+    && Math.abs(Number(authoredStart) - start) < AUTHORED_START_EPSILON;
+  let patched = startUnchanged ? original : applyPatchByTarget(original, target, {
     type: "attribute",
     property: "start",
     value: formatTimelineAttributeNumber(start),
@@ -251,6 +263,11 @@ export function applyTimelineMoveAttributes(
       type: "attribute",
       property: "track-index",
       value: formatTimelineAttributeNumber(track),
+    });
+  }
+  if (patched !== original && readAttributeByTarget(original, target, "data-duration") == null) {
+    patched = applyPatchByTarget(patched, target, {
+      type: "attribute", property: "duration", value: formatTimelineAttributeNumber(duration),
     });
   }
   if (audioGroup === null)

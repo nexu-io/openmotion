@@ -69,12 +69,16 @@ test('guide rendering pins the exact npm package, built source and hash while re
   const text = await readFile(path.join(directory, 'install.md'), 'utf8');
   assert(text.includes(`npx --yes --package "${pkg.name}@${pkg.version}"`));
   assert(text.includes(manifest.commit) && text.includes(record.tgzSHA256));
+  assert(text.includes(`https://github.com/nexu-io/openmotion/blob/${manifest.commit}/docs/npm-installation.md`),
+    'Generated guides must use the renamed repository and immutable source SHA');
+  assert(!text.includes('nexu-io/html-anything'), 'Do not republish retired repository links');
   assert(!text.includes('{{') && !text.includes('see `{{...}}`'));
-  assert(text.includes('eleven public Tools') && text.includes('five Skills'));
+  assert(text.includes('public Tools') && text.includes('production Skills'));
   assert(text.includes('new test versions embed DEV defaults') && !text.includes('does not select DEV templates'),
     'A generated test guide must not claim test versions skip DEV templates');
   for (const host of ['codex', 'claude', 'deepseek', 'workbuddy']) assert(text.includes(`openmotion setup --host ${host}`), host);
   assert(text.includes('--profile PROFILE') && text.includes('Do not infer the current host'));
+  assert(text.includes('openmotion setup --host AGENT') && text.includes('agentRegistration') && text.includes('Never borrow another host\'s adapter'), 'Agents without an adapter must get their own setup route');
   assert(text.includes(`/blob/${manifest.commit}/docs/npm-installation.md#npm-download-failures`), 'Network recovery must link to this package source');
   assert(text.includes('automatically try `https://registry.npmjs.org` then `https://registry.npmmirror.com`'), 'Network recovery must name the ordered automatic fallback');
   assert(text.includes('at most once per registry, counting the initial failed attempt'), 'Recovery must not retry the same registry indefinitely');

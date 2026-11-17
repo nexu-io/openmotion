@@ -1,0 +1,64 @@
+/* Continuous editor surfaces. Dockview retains geometry and resize hit targets. */
+[data-motion-studio] .om-application .motion-studio-header-compact,
+[data-motion-studio] .motion-preview-transport { background: var(--motion-panel); color: var(--motion-text); border-radius: 0; }
+[data-motion-studio] .motion-studio-header-compact { border-bottom: 1px solid var(--motion-border-subtle); }
+[data-motion-studio] .motion-preview-transport { padding-block: var(--motion-space-4); border-top: 1px solid var(--motion-border-subtle); }
+[data-motion-studio] .motion-autosave-status { color: var(--motion-muted); font-size: var(--motion-text-xs); font-variant-numeric: tabular-nums; }
+[data-motion-studio] .motion-autosave-status[data-state="error"] { color: var(--motion-danger); }
+[data-motion-studio] .motion-autosave-status[data-state="saving"] > svg { animation: motion-autosave-spin var(--motion-duration-loading) linear infinite; }
+@keyframes motion-autosave-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { [data-motion-studio] .motion-autosave-status[data-state="saving"] > svg { animation: none; } }
+[data-motion-studio] .motion-header-project :is(.motion-project-name-input, .motion-project-name-measure) { height: var(--motion-control-sm); padding: var(--motion-space-4) var(--motion-space-12); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-medium); line-height: var(--motion-space-18); }
+[data-motion-studio] .motion-project-name-measure { border: 1px solid transparent; }
+[data-motion-studio] .motion-studio-header-compact :is(.motion-header-export, .motion-project-agent-trigger) { height: var(--motion-control-sm); padding-inline: var(--motion-space-16); border-radius: var(--motion-radius-md); flex-shrink: 0; font-size: var(--motion-text-sm); font-weight: var(--motion-weight-semibold); }
+@container (max-width: 420px) {
+  [data-motion-studio] .motion-studio-header-compact :is(.motion-header-export, .motion-project-agent-trigger) { padding-inline: var(--motion-space-12); }
+}
+@container (max-width: 360px) {
+  [data-motion-studio] .motion-studio-header-compact :is(.motion-header-export, .motion-project-agent-trigger) { padding-inline: var(--motion-space-8); }
+}
+:root[data-motion-ui] .motion-studio-header-centered { border-bottom: 1px solid var(--motion-border-subtle); }
+:root[data-motion-ui] .hf-dock .dv-view:has(> .dv-groupview) { padding: 0; }
+:root[data-motion-ui] .hf-dock .dv-groupview { border: 0; border-radius: 0; outline: 0; }
+:root[data-motion-ui] .dv-shell .dv-render-overlay { border-radius: 0; overflow: hidden; }
+:root[data-motion-ui] .hf-dock .dv-tabs-and-actions-container,
+:root[data-motion-ui] .motion-timeline-toolbar { border-bottom: 1px solid var(--motion-border-subtle); }
+/* Collapsed rails continue the same header baseline as expanded panels. */
+:root[data-motion-ui] .hf-dock .hf-dock-side-rail { padding: 0; gap: 0; }
+:root[data-motion-ui] .hf-dock .hf-dock-side-rail-header { display: grid; place-items: center; flex: none; width: 100%; height: calc(var(--dv-tabs-and-actions-container-height) - 1px); }
+:root[data-motion-ui] .hf-dock .hf-dock-side-rail-divider { width: 100%; border-top: 1px solid var(--motion-border-subtle); }
+:root[data-motion-ui] .hf-dock .hf-dock-side-rail-items { padding-block: var(--motion-space-6); }
+:root[data-motion-ui] .hf-dock .dv-sash::after { background: var(--motion-border-subtle); }
+:root[data-motion-ui] .hf-dock .dv-sash:is(:hover, :active, :focus-visible)::after { background: var(--motion-accent); }
+
+.motion-layout-menu-option { display: flex; align-items: center; gap: var(--motion-space-8); }
+.motion-layout-menu-option > svg { flex: none; color: var(--motion-muted); }
+
+.motion-track-controls-row { display: flex; align-items: center; padding-inline: var(--motion-space-4); }
+.motion-track-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0; width: 100%; }
+.motion-track-kind { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 24px; color: var(--motion-dim); }
+.motion-track-controls > div { margin-left: 0; }
+.motion-track-controls button { width: 24px; height: 24px; min-height: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--motion-radius-xs); color: var(--motion-muted); background: transparent; cursor: pointer; }
+.motion-track-controls button:hover:enabled { color: var(--motion-strong); background: var(--motion-hover); }
+.motion-track-controls button[aria-pressed="true"] { color: var(--motion-accent); }
+.motion-track-controls button:disabled { color: var(--motion-control-disabled); cursor: not-allowed; }
+.motion-track-column-resize { position: absolute; top: 0; bottom: 0; width: 8px; z-index: 45; cursor: col-resize; touch-action: none; }
+.motion-track-column-resize::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; }
+.motion-track-column-resize:is(:hover, :focus-visible, :active)::after { background: var(--motion-accent); }
+.motion-track-column-resize:focus-visible { outline: none; }
+
+/* One continuous control column; all lane content starts at its right edge. */
+:root[data-motion-ui] .motion-timeline-gutter-fill { background: var(--timeline-gutter-bg); border-right: 1px solid var(--timeline-gutter-border); }
+:root[data-motion-ui] .motion-timeline-ruler { border-bottom: 1px solid var(--timeline-row-border); }
+:root[data-motion-ui] .motion-timeline-ruler-corner { border-right: 1px solid var(--timeline-gutter-border); display: flex; align-items: center; padding-inline: var(--motion-space-12); }
+:root[data-motion-ui] [data-timeline-row] [role="rowheader"] { border-right: 1px solid var(--timeline-gutter-border); }
+.motion-timeline-timecode { font-family: var(--motion-font-mono); font-size: var(--motion-text-xs); font-weight: var(--motion-weight-semibold); font-variant-numeric: tabular-nums; color: var(--motion-text); }
+:root[data-motion-ui] [data-timeline-row] > [role="row"] > [role="gridcell"] {
+  background-image: linear-gradient(to right, var(--timeline-grid-line) 1px, transparent 1px);
+  background-size: var(--timeline-grid-step) 100%;
+}
+:root[data-motion-ui] [data-timeline-row]:has([data-clip][aria-pressed="true"]) > [role="row"] > [role="rowheader"] { box-shadow: inset 2px 0 var(--motion-accent); }
+.motion-track-id { flex: none; padding: 2px var(--motion-space-4); border-radius: var(--motion-radius-xs); font: var(--motion-weight-semibold) var(--motion-text-xs)/1.25 var(--motion-font-mono); color: var(--motion-text); background: var(--motion-inset); }
+:root[data-motion-ui] .motion-timeline-ghost-lane { border: 0; border-radius: 0; border-bottom: 1px solid var(--timeline-row-border); color: var(--motion-muted); font-size: var(--motion-text-xs); }
+:root[data-motion-ui] .motion-timeline-ghost-lane[data-active] { background: var(--motion-accent-soft); box-shadow: inset 0 0 0 1px var(--motion-accent); color: var(--motion-accent); }
+:root[data-motion-ui] .motion-empty-timeline-lane { border-radius: 0; }

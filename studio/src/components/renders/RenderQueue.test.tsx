@@ -359,18 +359,15 @@ describe("GIF frame-rate controls", () => {
   });
 });
 
-it("MVP offers native GIF and a disabled WebP placeholder", async () => {
+it("MVP offers only supported export formats", async () => {
   const host = mountRenderQueue(vi.fn(), undefined, true);
   act(() => triggerFor(host, "Format").click());
   await settle();
   const options = Array.from(document.querySelectorAll('[role="option"]'));
   const gif = options.find(option => option.textContent === "GIF");
-  const webp = options.find(option => option.textContent?.startsWith("WebP"));
-  expect(webp?.textContent).toBe("WebP");
-  expect(options.some(option => option.textContent === "MOV")).toBe(true);
+  expect(options.map(option => option.textContent)).toEqual(["MP4", "MOV", "WebM", "GIF"]);
   expect(gif).toBeDefined();
   expect(gif?.getAttribute("aria-disabled")).not.toBe("true");
-  expect(webp?.getAttribute("aria-disabled")).toBe("true");
 });
 
 it("MVP restores GIF preferences with the native frame-rate cap and ignores hidden GPU preferences", async () => {
@@ -379,7 +376,8 @@ it("MVP restores GIF preferences with the native frame-rate cap and ignores hidd
   const host = mountRenderQueue(start, undefined, true);
   expect(triggerFor(host, "Format").textContent).toContain("GIF");
   expect(triggerFor(host, "Frame rate").textContent).toContain("30 fps");
-  expect(host.querySelector<HTMLInputElement>('input[type="number"]')?.value).toBe("0");
+  expect(host.querySelector('input[type="number"]')).toBeNull();
+  expect(host.textContent).not.toContain("GIF loop count");
   expect(host.textContent).not.toContain("GPU");
   fire(exportButtonIn(host), "click");
   await settle();
@@ -412,5 +410,32 @@ describe("RenderQueue history", () => {
   expect(button.disabled).toBe(true);
   expect(host.textContent).toContain("No content to export. Add media first.");
   act(() => button.click());
+  expect(start).not.toHaveBeenCalled();
+});
+
+
+it("opens hover-styled format help on activation and dismisses with Escape without exporting", async () => {
+  const start = vi.fn<StartRenderHandler>();
+  const host = mountRenderQueue(start);
+  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="About video formats"]')!;
+  act(() => { trigger.focus(); trigger.click(); });
+  await settle();
+  const tip = document.querySelector('[role="dialog"][aria-label="About video formats"]')!;
+  expect(tip.classList.contains("studio-tooltip")).toBe(true);
+  expect(tip.classList.contains("pointer-events-none")).toBe(false);
+  for (const name of ["MP4", "MOV · ProRes", "WebM", "GIF"]) expect(tip.textContent).toContain(name);
+  expect(trigger.getAttribute("aria-controls")).toBe(tip.id);
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  fire(trigger, "keydown", "Escape");
+  await settle();
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(document.querySelector('[role="dialog"][data-open]')).toBeNull();
+  // Native click is also the activation synthesized by touch and keyboard.
+  act(() => trigger.click());
+  await settle();
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  act(() => trigger.click());
+  await settle();
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
   expect(start).not.toHaveBeenCalled();
 });

@@ -395,6 +395,55 @@ describe("ready to show", () => {
     return host;
   }
 
+  it("reveals a refreshed split soundtrack without waiting for its deferred second clip", async () => {
+    const onReadyToShowChange = vi.fn();
+    const { host, player } = await mountPlayer({ onReadyToShowChange });
+    document.body.appendChild(player.iframeElement);
+    const doc = player.iframeElement.contentDocument!;
+    const active = doc.createElement("audio");
+    active.preload = "auto";
+    Object.defineProperty(active, "readyState", { value: 4 });
+    const deferred = doc.createElement("audio");
+    deferred.preload = "none";
+    deferred.setAttribute("data-start", "7.245");
+    deferred.setAttribute("data-hf-clip-hidden", "");
+    Object.defineProperty(deferred, "readyState", { value: 0 });
+    doc.body.append(active, deferred);
+
+    loadAndReady(player);
+    painted(player);
+    await twoFrames();
+
+    expect(host.textContent).not.toContain("Preparing preview assets");
+    expect(onReadyToShowChange).toHaveBeenLastCalledWith(true);
+    expect(deferred.preload).toBe("none");
+  });
+
+  it("expires a stalled media wait after elapsed time even when only one poll runs", async () => {
+    vi.useFakeTimers();
+    const now = vi.spyOn(performance, "now").mockReturnValue(100);
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+    try {
+      const host = await loadWithUnloadedMedia({});
+      expect(host.textContent).toContain("Preparing preview assets");
+
+      // Simulate a background tab whose interval was suspended for 30 seconds.
+      now.mockReturnValue(30_100);
+      act(() => void vi.advanceTimersByTime(100));
+      act(() => void vi.advanceTimersByTime(240));
+
+      expect(host.textContent).not.toContain("Preparing preview assets");
+      expect(debug).toHaveBeenCalledTimes(1);
+      act(() => root?.unmount());
+      root = null;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      now.mockRestore();
+      debug.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps its asset wait on a later load that only skips the composition cover", async () => {
     const host = await loadWithUnloadedMedia({ suppressLoadingOverlay: true });
     expect(host.textContent).toContain("Preparing preview assets");
@@ -503,6 +552,31 @@ describe("composition loading overlay", () => {
 
     expect(hasUnloadedAssets(iframe, false)).toBe(true);
 
+    iframe.remove();
+  });
+
+  it.each(["audio", "video"])("honors deferred and metadata-only %s without starting downloads", (tag) => {
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const media = iframe.contentDocument!.createElement(tag) as HTMLMediaElement;
+    iframe.contentDocument!.body.appendChild(media);
+    Object.defineProperty(media, "networkState", { value: 1 });
+    let readyState = 0;
+    Object.defineProperty(media, "readyState", { get: () => readyState });
+    const load = vi.spyOn(media, "load");
+
+    media.preload = "none";
+    expect(hasUnloadedAssets(iframe, true)).toBe(false);
+    media.preload = "metadata";
+    expect(hasUnloadedAssets(iframe, false)).toBe(true);
+    readyState = 1;
+    expect(hasUnloadedAssets(iframe, true)).toBe(false);
+    // Once the runtime activates a clip, its requested data must still be ready.
+    media.preload = "auto";
+    expect(hasUnloadedAssets(iframe, false)).toBe(true);
+    readyState = 3;
+    expect(hasUnloadedAssets(iframe, true)).toBe(false);
+    expect(load).not.toHaveBeenCalled();
     iframe.remove();
   });
 

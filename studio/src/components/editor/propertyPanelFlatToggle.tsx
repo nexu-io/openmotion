@@ -1,3 +1,4 @@
+import { PropertyLabel } from "./PropertyLabel";
 import { useI18n } from "../../i18n/I18n";
 /* ------------------------------------------------------------------ */
 /*  FlatToggle — 24×14 pill switch                                     */
@@ -21,13 +22,8 @@ export function FlatToggle({
   const { t } = useI18n();
   const track = useTrackDesignInput();
   return (
-    <div className="flex min-h-[30px] items-center justify-between">
-      <span
-        data-flat-toggle-label="true"
-        className={`text-[11px] ${checked ? "text-panel-text-2" : "text-panel-text-3"}`}
-      >
-        {t(label)}
-      </span>
+    <div className="flex min-h-[30px] items-center justify-between gap-2">
+      <PropertyLabel data-flat-toggle-label="true" label={t(label)} className={checked ? "text-panel-text-2" : "text-panel-text-3"} />
       <button
         type="button"
         data-flat-toggle="true"

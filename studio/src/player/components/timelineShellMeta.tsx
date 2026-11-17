@@ -1,4 +1,4 @@
-import type { MutableRefObject, PointerEvent } from "react";
+import type { MutableRefObject, PointerEvent, RefObject } from "react";
 import type {
   TimelineContainerProps,
   TimelineMeta,
@@ -9,7 +9,7 @@ import {
   shouldIgnoreTimelinePointerDown,
 } from "./timelineProviderStateBuilders";
 import { TimelineRazorGuideOverlay } from "./TimelineRazorInteraction";
-import { LABEL_COL_W } from "./timelineLayout";
+import { GUTTER } from "./timelineLayout";
 import type { TimelineTheme } from "./timelineTheme";
 
 type ViewportHandlers = Pick<
@@ -32,10 +32,11 @@ export interface TimelineShellMetaInputs {
   shiftHeld: boolean;
   labelMode: boolean;
   contentOrigin: number;
+  contentGutter?: number;
   zoomMode: "fit" | "manual";
   theme: Pick<TimelineTheme, "shellBackground" | "shellBorder">;
   razor: {
-    razorGuideX: number | null;
+    razorGuideRef: RefObject<HTMLDivElement | null>;
     updateRazorGuide: TimelineContainerProps["onMouseMove"];
     clearRazorGuide: () => void;
     splitAllAtPointer: (event: PointerEvent<HTMLDivElement>) => boolean;
@@ -73,6 +74,7 @@ export function buildTimelineShellMeta(input: TimelineShellMetaInputs): Timeline
       contentOrigin: input.contentOrigin,
       zoomMode: input.zoomMode,
       onScroll: (e) => {
+        razor.clearRazorGuide();
         input.lastScrollLeftRef.current = e.currentTarget.scrollLeft;
         input.recordTimelineScroll(e.currentTarget);
         input.syncScrollViewport(e.currentTarget, true);
@@ -90,10 +92,10 @@ export function buildTimelineShellMeta(input: TimelineShellMetaInputs): Timeline
       onLostPointerCapture: pointer.onPointerCancel,
     },
     elementCount: input.elementCount,
-    labelColumnWidth: LABEL_COL_W,
+    labelColumnWidth: input.labelMode ? input.contentOrigin - (input.contentGutter ?? GUTTER) : 0,
     razorGuide:
-      activeTool === "razor" && razor.razorGuideX !== null ? (
-        <TimelineRazorGuideOverlay x={razor.razorGuideX} />
+      activeTool === "razor" ? (
+        <TimelineRazorGuideOverlay guideRef={razor.razorGuideRef} />
       ) : null,
   });
 }

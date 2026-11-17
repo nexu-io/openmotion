@@ -90,7 +90,7 @@ interface UseTimelineClipDragInput {
    * iframe + the canvas z-order persist path; forwarded straight to
    * commitDraggedClipMove. Both optional → absent = no-op (backward compatible).
    */
-  readZIndex?: (element: TimelineElement) => number;
+  readZIndex?: (element: TimelineElement, asTarget?: boolean) => number;
   onStackingPatches?: (patches: StackingPatch[]) => Promise<unknown> | void;
   refreshAfterLaneMove?: () => void;
   sessionEpoch?: number;
@@ -177,6 +177,7 @@ export function useTimelineClipDrag({
         playheadTime: usePlayerStore.getState().currentTime,
         beatTimes: includeBeats ? snapContextRef.current.beatTimes : [],
         excludeElementKey,
+        excludeElementKeys: gestureSelectedKeysRef.current,
       });
       snapTargetsCacheRef.current.set(cacheKey, targets);
       return targets;
@@ -196,6 +197,7 @@ export function useTimelineClipDrag({
   const [draggedClip, setDraggedClipState] = useState<DraggedClipState | null>(null);
   const draggedClipRef = useRef<DraggedClipState | null>(null);
   const publishDraggedClip = useCallback((next: DraggedClipState | null) => {
+    if (next?.started) markTimelineMotion();
     draggedClipRef.current = next;
     setDraggedClipState(next);
   }, []);
@@ -327,6 +329,7 @@ export function useTimelineClipDrag({
         buildSnapTargets,
         audioTracks: dragAudioTracksRef.current,
         gridStep: snapGridStep(),
+        rippleEditEnabled: usePlayerStore.getState().rippleEditEnabled,
       });
     },
     [

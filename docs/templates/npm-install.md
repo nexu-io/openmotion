@@ -1,0 +1,51 @@
+# Install OpenMotion {{VERSION}}
+
+This guide pins the complete npm application `{{PACKAGE_SPEC}}` on the **{{CHANNEL}}** software channel. It includes MCP, the built Studio and production Skills. The default template environment is **{{TEMPLATE_ENVIRONMENT}}**: new test versions embed DEV defaults, stable versions embed prod, and previously published versions keep their original environment.
+
+If you are reading this file in the source repository and see `{{...}}`, it is a template, not a published installation instruction. Do not guess a package name or version.
+
+## Instructions for the Agent
+
+1. Collect OS/CPU, Node.js/npm versions and the current Agent identity together, using the host's supplied context where available. Node.js 22.18+ with npm and the Agent must already be installed. Supported native targets: {{TARGETS}}. If a macOS target has no declared minimum version, proceed with setup and native executable checks; do not infer a minimum from the build/test machine's OS version. Do not claim support for another target from package-download success.
+2. Select the current host explicitly: `codex` (Codex), `claude` (Claude Code), `deepseek` (DeepSeek Harness) or `workbuddy` (WorkBuddy) have registration adapters. Any other local Agent, such as OpenCode, Cursor Agent or Gemini CLI, passes its own lowercase name (for example `opencode`); setup installs the same application and Skills, leaves that host's configuration unchanged and returns `agentRegistration` for the Agent to add to its own MCP configuration. Never borrow another host's adapter. An explicit user selection takes precedence. Do not infer the current host from which CLIs happen to be installed. Ask only when the current host or required profile cannot be established. Configure only that host; preserve projects, credentials and unrelated MCP/Skills settings.
+3. For a test candidate, use a separate host profile, application home, project data and Skills directory. Keep those paths and reuse them for prepare and future reconnects. The [platform installation recipes]({{DETAILS_URL}}) describe the actual supported options. Do not run a test candidate into the user's daily profile by default.
+4. Choose exactly one setup command below, applying the test isolation paths first when required. Setup starts checked video-component downloads in the background. Do not wait for prepare to connect MCP, create/edit projects or open ordinary preview. Studio shows preparation status and retry; media import, automated capture and export require their respective components. Compatible phase-one updates can keep existing connections; reconnect closed or incompatible transports. When the current host can discover the public Tools and production Skills, verify the version/environment and make an actual `openmotion_get_project` call. If this chat has not loaded them or still points at another installation, use `onboarding.directAccess` below; registration alone does not prove native loading. Do not postpone the installation reply or template library opening until a new chat or the first MCP call.
+5. On successful setup, follow the installation-success reply below in this same conversation. Open the template library without creating a project. Installation does not authorize downloading template project source, rendering or calling a paid model. Report a failed installation honestly; do not claim success until it is fixed.
+
+For npm network failures, automatically try `https://registry.npmjs.org` then `https://registry.npmmirror.com`, at most once per registry, counting the initial failed attempt. Respect an explicitly selected registry and host policy. Set `npm_config_registry` and `npm_config_fetch_retries=0` only for that attempt, including setup's npm child process. Keep the exact version; verify any mirrored tgz against the matching immutable guide's SHA256 before executing it. If both fail, follow [npm download recovery]({{DETAILS_URL}}#npm-download-failures) for network checks and a terminal handoff. Permission or checksum failures stop immediately. A local tgz still needs npm access for setup's production dependencies.
+
+{{ONBOARDING}}
+
+## Choose the selected host's setup command
+
+The commands below show normal installations. For test candidates, apply the separate configuration/profile, home, data and Skills paths from the [platform recipes]({{DETAILS_URL}}) first. Run only the selected row.
+
+| Current Agent | Setup command | Host-specific selection |
+| --- | --- | --- |
+| Codex | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host codex` | Preserve the selected `CODEX_HOME` and Skills root. |
+| Claude Code | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host claude` | Preserve the selected `CLAUDE_CONFIG_DIR` and Skills root. |
+| DeepSeek Harness | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host deepseek --profile PROFILE` | Replace `PROFILE` with the actual selected profile from the host context; do not guess `web` or `desktop`. The standard macOS Desktop CLI is detected even when `dsh` is absent from PATH; use `--dsh` for another executable location. |
+| WorkBuddy | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host workbuddy` | Preserve the selected `WORKBUDDY_CONFIG_DIR` and Skills root. |
+| Any other local Agent | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host AGENT` | Replace `AGENT` with the current Agent's lowercase name, such as `opencode`. Skills default to `~/.agents/skills`; use `--skills-dir` if this Agent reads another root. Add `agentRegistration.transport.command` and `args` exactly as returned to this Agent's documented local stdio MCP configuration, refresh MCP, then call `openmotion_get_project`. Until the native tools load, use `onboarding.directAccess`. [Other local Agents]({{DETAILS_URL}}#other-local-agents) |
+
+Optional: explicitly wait for all video components or retry preparation for the same installation:
+
+```sh
+npx --yes --package "{{PACKAGE_SPEC}}" openmotion prepare
+```
+
+Repeat an explicit `--home` from setup on prepare. Setup installs the selected host's MCP and Skills; a second installer or application/manifest download is unnecessary. Use `openmotion --help`, `setup --help` or `prepare --help` from this exact package for supported options. Inspect installer source or host internals only to investigate a concrete failure; a missing CLI on PATH alone is not a reason to create a wrapper.
+
+## Runtime and environment
+
+Setup copies the checked application into a managed writable directory and installs its locked production npm dependencies. The application and user projects do not run from the temporary npx cache. Setup starts a detached preparation worker for the platform's independent native archives concurrently: browser/FFmpeg/ffprobe separately on macOS, browser/combined media on Windows. The local backend and Studio start without waiting. Studio displays per-component download/verification/extraction/checking status and retries failed components. Installers, MCP and Studio join shared cache locks rather than downloading again. An explicit prepare waits for all components and reports failure; successful checked components remain reusable. No export starts automatically after preparation. This is not an offline package.
+
+There is no persisted switch-environment command in this version. Test versions embed DEV defaults and use an environment-specific installation; stable versions embed prod. DEV access still requires the service network/authentication. A public npm package does not grant access or bundle private catalog contents. When changing environment, use a separate home/data/profile; merely setting an environment variable while running setup does not configure a later desktop Agent. Do not silently fall back from one environment to another.
+
+## Upgrade, recovery and feedback
+
+Pin this exact version when reproducing an issue. Before an upgrade, back up project data and preserve the same installation/data paths. Compatible phase-one updates retain existing connections and active exports. For an incompatible protocol, finish active exports before updating only this installation's connection and idle backend together; reconnect after setup/prepare. Refresh host discovery for new Tools or Skills, and preserve unrelated settings. Older applications may not read newer data formats: compatible reinstall or backup restoration requires separate verification. Moving a server-side default does not downgrade installed clients.
+
+Include the exact version, OS/CPU, Node/Agent versions, template environment, project/revision, reproduction and redacted logs in a report. Installation, real Agent creation, technical MP4 export and human audiovisual acceptance are separate results.
+
+Release identity: source `{{COMMIT}}`; npm tgz SHA256 `{{TGZ_SHA256}}`. [Source and installation details]({{DETAILS_URL}}).

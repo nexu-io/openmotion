@@ -1,3 +1,5 @@
+import { PropertyLabel } from "./PropertyLabel";
+import { Tooltip } from "../ui/Tooltip";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -51,8 +53,8 @@ export function FlatRow({
   const { t } = useI18n();
   const track = useTrackDesignInput();
   return (
-    <div className="group flex min-h-[30px] items-center justify-between gap-3" title={tooltip ? t(tooltip) : undefined}>
-      <span className={`text-[11px] ${VALUE_TIER_LABEL_CLASS[tier]}`}>{t(label)}</span>
+    <Tooltip label={tooltip ? t(tooltip) : undefined} wrap><div className="group flex min-h-[30px] items-center justify-between gap-3">
+      <PropertyLabel label={t(label)} className={VALUE_TIER_LABEL_CLASS[tier]} />
       <span className="flex min-w-0 shrink-0 items-center gap-1.5">
         <span
           data-flat-row-value="true"
@@ -78,10 +80,9 @@ export function FlatRow({
         </span>
         {suffix}
         {tier === "explicitCustom" && onReset && (
-          <button
+          <Tooltip label={t("Remove and fall back to default")} wrap><button aria-label={t("Remove and fall back to default")}
             type="button"
             data-flat-row-reset="true"
-            title={t("Remove and fall back to default")}
             onClick={() => {
               track("button", `Reset ${label}`);
               onReset();
@@ -89,13 +90,13 @@ export function FlatRow({
             className="shrink-0 text-panel-text-3 opacity-0 transition-opacity hover:text-panel-text-1 group-hover:opacity-100"
           >
             <RotateCcw size={11} />
-          </button>
+          </button></Tooltip>
         )}
         {dropdown && (
           <RemixIcon name="arrow-down-s-line" size={14} className="shrink-0 text-panel-text-5" />
         )}
       </span>
-    </div>
+    </div></Tooltip>
   );
 }
 
@@ -133,16 +134,15 @@ export function FlatSegmentedRow({
   const { t } = useI18n();
   const track = useTrackDesignInput();
   return (
-    <div className="flex min-h-[32px] items-center justify-between">
-      <span className="text-[11px] text-panel-text-3">{t(label)}</span>
-      <span className="flex items-center gap-0.5">
+    <div className="flex min-h-[32px] items-center justify-between gap-2">
+      <PropertyLabel label={t(label)} className="text-panel-text-3" />
+      <span className="flex shrink-0 items-center gap-0.5">
         {options.map((option, index) => (
           <span key={option.key} className="flex items-center">
-            <button
+            <Tooltip label={typeof option.node === "string" ? undefined : t(option.label)} wrap><button
               type="button"
               data-flat-segment="true"
               aria-label={t(option.label)}
-              title={typeof option.node === "string" ? undefined : t(option.label)}
               aria-pressed={option.active}
               disabled={disabled}
               onClick={() => {
@@ -158,7 +158,7 @@ export function FlatSegmentedRow({
               }`}
             >
               {typeof option.node === "string" ? t(option.node) : option.node}
-            </button>
+            </button></Tooltip>
             {spacerAfterIndex === index && <span className="w-3" aria-hidden="true" />}
           </span>
         ))}
@@ -230,9 +230,9 @@ export function FlatGroupHeader({
       <span className="text-[12px] font-semibold text-panel-text-0">{t(title)}</span>
       <span className="flex items-center gap-2.5 text-panel-text-5">
         {accessory}
-        <button type="button" onClick={onToggleOpen} title={t("Collapse")} className="text-panel-text-3">
+        <Tooltip label={t("Collapse")} wrap><button aria-label={t("Collapse")} type="button" onClick={onToggleOpen} className="text-panel-text-3">
           <RemixIcon name="arrow-down-s-line" size={14} />
-        </button>
+        </button></Tooltip>
       </span>
     </div>
   );
@@ -420,8 +420,8 @@ export function FlatSlider({
   };
 
   return (
-    <div className="flex min-h-[28px] items-center gap-2.5">
-      <span className="w-[86px] shrink-0 text-[11px] text-panel-text-3">{t(label)}</span>
+    <div className="flex min-h-[28px] items-center gap-2.5 @max-[224px]/inspector:flex-wrap @max-[224px]/inspector:gap-y-1">
+      <PropertyLabel label={t(label)} className="max-w-[86px] text-panel-text-3 @max-[224px]/inspector:basis-full @max-[224px]/inspector:max-w-none" />
       <div
         data-flat-slider-track="true"
         role="slider"
@@ -552,10 +552,9 @@ export function FlatSlider({
       {(centerTick || onReset) && (
         <span data-flat-slider-reset-slot="true" className="w-3.5 shrink-0">
           {tier === "explicitCustom" && onReset && (
-            <button
+            <Tooltip label={t("Remove and fall back to default")} wrap><button aria-label={t("Remove and fall back to default")}
               type="button"
               data-flat-slider-reset="true"
-              title={t("Remove and fall back to default")}
               disabled={disabled}
               onClick={() => {
                 track("button", `Reset ${label}`);
@@ -564,7 +563,7 @@ export function FlatSlider({
               className="text-panel-text-3 hover:text-panel-text-1 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <RotateCcw size={11} />
-            </button>
+            </button></Tooltip>
           )}
         </span>
       )}

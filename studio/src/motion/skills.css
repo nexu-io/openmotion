@@ -1,0 +1,134 @@
+/* Skills page geometry. Materials, controls and colors come from the design-system package. */
+.om-skills-host { flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+.om-skills-host[hidden] { display: none; }
+/* The shared discovery surface sits inside the workspace on this page. */
+.om-skills-page.om-skills-library { position: relative; inset: auto; height: auto; flex: 1; display: flex; min-width: 0; min-height: 0; overflow: hidden; }
+.om-skills-main { flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; container-type: inline-size; }
+/* Skills show fewer, larger cards than templates so each demo is easy to read.
+   Column count follows the list's own width, so an open detail panel never crowds the cards. */
+.om-skills-library .om-skills-grid { columns: 4; column-gap: var(--motion-space-16); }
+@container (max-width: 1400px) { .om-skills-library .om-skills-grid { columns: 3; } }
+.om-skills-library .om-skills-grid > * { margin-bottom: var(--motion-space-16); }
+@container (max-width: 1000px) { .om-skills-library .om-skills-grid { columns: 2; } }
+@container (max-width: 560px) { .om-skills-library .om-skills-grid { columns: 1; } }
+.om-gallery-toolbar.om-skills-toolbar { padding-top: var(--motion-space-16); }
+.om-skills-toolbar > .om-gallery-categories { flex: 1 1 0; }
+.om-skills-toolbar > .om-search-field { flex: 0 1 min(38%, 360px); min-width: 0; margin-inline-start: auto; }
+@container (max-width: 720px) {
+  .om-skills-toolbar > :is(.om-gallery-categories, .om-search-field) { flex-basis: 100%; }
+}
+@container (max-width: 480px) {
+  .om-skills-toolbar .om-search-field kbd { display: none; }
+}
+.om-skills-library .om-gallery-card-caption small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.45; opacity: .85; }
+.om-skills-library .om-gallery-cover { border-radius: var(--motion-radius-lg); overflow: hidden; background: var(--motion-inset); }
+.om-skills-library .om-skill-gallery-card[data-selected="true"] .om-gallery-cover { outline: 2px solid var(--motion-accent); outline-offset: 3px; }
+.om-skills-library .om-gallery-cover .om-skill-cover { position: absolute; inset: 0; height: 100%; aspect-ratio: auto; border-radius: 0; }
+.om-skills-library .om-gallery-cover .om-skill-cover svg { width: 100%; height: 100%; }
+.om-skill-media { position: absolute; inset: 0; display: block; overflow: hidden; background: var(--motion-inset); }
+.om-skill-media[data-large="true"] { position: relative; display: block; aspect-ratio: 16 / 9; border-radius: var(--motion-radius-lg); }
+.om-skill-media :is(img, video) { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+@media (prefers-reduced-motion: no-preference) { .om-skill-media video { transition: opacity var(--motion-duration-normal); } }
+
+/* Cover illustrations draw in the accent token over the shared media surface. */
+.om-skill-cover { display: block; aspect-ratio: 16 / 9; width: 100%; overflow: hidden; color: var(--motion-accent); }
+.om-skill-cover svg { display: block; width: 100%; height: 100%; }
+.om-skill-cover .om-skill-line { fill: none; stroke: var(--motion-border); stroke-width: 2; }
+.om-skill-cover .om-skill-stroke { fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; }
+.om-skill-cover .om-skill-fill, .om-skill-cover .om-skill-dot { fill: currentColor; stroke: none; }
+.om-skill-cover .om-skill-pulse { fill: currentColor; }
+.om-skill-dot { opacity: .35; }
+@media (prefers-reduced-motion: no-preference) {
+  .om-skill-cover :is(.om-skill-dot, .om-skill-pulse, .om-skill-slide, .om-skill-morph, .om-skill-draw, .om-skill-spin, .om-skill-scrub, .om-skill-float, .om-skill-frame, .om-skill-drag, .om-skill-burst, .om-skill-wave, .om-skill-turn, .om-skill-grow, .om-skill-orbit) { animation-duration: 2.4s; animation-iteration-count: infinite; animation-timing-function: cubic-bezier(.65, 0, .35, 1); transform-box: fill-box; transform-origin: center; }
+  .om-skill-dot { animation-name: om-skill-stagger; animation-direction: alternate; }
+  .om-skill-pulse { animation-name: om-skill-pulse; }
+  .om-skill-slide { animation-name: om-skill-slide; animation-direction: alternate; }
+  .om-skill-morph { animation-name: om-skill-morph; animation-direction: alternate; transform-origin: left top; }
+  .om-skill-draw { stroke-dasharray: 260; animation-name: om-skill-draw; }
+  .om-skill-spin { animation-name: om-skill-spin; animation-timing-function: linear; }
+  .om-skill-scrub { animation-name: om-skill-scrub; animation-direction: alternate; }
+  .om-skill-float { animation-name: om-skill-float; animation-direction: alternate; }
+  .om-skill-frame { animation-name: om-skill-frame; animation-timing-function: steps(3, jump-none); animation-direction: alternate; }
+  .om-skill-drag { animation-name: om-skill-drag; animation-direction: alternate; }
+  .om-skill-burst { animation-name: om-skill-burst; transform-box: view-box; }
+  .om-skill-wave { animation-name: om-skill-wave; animation-direction: alternate; transform-origin: left bottom; }
+  .om-skill-turn { animation-name: om-skill-turn; animation-direction: alternate; }
+  .om-skill-grow { animation-name: om-skill-grow; transform-origin: left center; }
+  .om-skill-orbit { animation-name: om-skill-orbit; animation-timing-function: linear; transform-box: view-box; transform-origin: 80px 45px; }
+}
+@keyframes om-skill-stagger { to { opacity: 1; transform: translateY(-6px); } }
+@keyframes om-skill-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.35); } }
+@keyframes om-skill-slide { to { transform: translateX(-44px); } }
+@keyframes om-skill-morph { to { transform: scale(1.15, .42); } }
+@keyframes om-skill-draw { from { stroke-dashoffset: 260; } to { stroke-dashoffset: 0; } }
+@keyframes om-skill-spin { to { transform: rotate(360deg); } }
+@keyframes om-skill-scrub { to { transform: translateX(120px); } }
+@keyframes om-skill-float { to { transform: translateY(-8px); } }
+@keyframes om-skill-frame { to { transform: translateX(72px); } }
+@keyframes om-skill-drag { to { transform: translate(70px, 16px); } }
+@keyframes om-skill-wave { to { transform: rotate(-35deg); } }
+@keyframes om-skill-turn { to { transform: scaleX(.2); } }
+@keyframes om-skill-grow { from { transform: scaleX(.05); } to { transform: scaleX(1); } }
+@keyframes om-skill-orbit { to { transform: rotate(360deg) scaleY(1); } }
+@keyframes om-skill-burst { from { transform: rotate(var(--angle)) translateX(0); opacity: 1; } to { transform: rotate(var(--angle)) translateX(56px); opacity: 0; } }
+
+.om-skill-detail { width: 400px; max-width: 46%; flex: none; border-left: 1px solid var(--color-template-line); background: var(--color-template-surface); display: flex; flex-direction: column; gap: var(--motion-space-12); padding: var(--motion-space-20); overflow-y: auto; }
+.om-skill-detail > * { flex-shrink: 0; }
+.om-skill-detail-header { display: flex; justify-content: space-between; align-items: center; gap: var(--motion-space-8); }
+.om-skill-cover[data-large="true"] { border-radius: var(--motion-radius-lg); }
+.om-skill-output { display: grid; gap: var(--motion-space-4); margin: 0; color: var(--motion-strong); font-size: var(--motion-text-md); line-height: var(--motion-leading-body); }
+.om-skill-output > span { color: var(--motion-muted); font-size: var(--motion-text-sm); }
+.om-skill-source { display: flex; align-items: center; gap: var(--motion-space-8); min-width: 0; color: var(--motion-text); font-size: var(--motion-text-sm); text-decoration: none; }
+.om-skill-source > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.om-skill-source:hover > span:first-of-type { text-decoration: underline; }
+.om-skill-credit { margin: 0; color: var(--motion-muted); font-size: var(--motion-text-xs); overflow-wrap: anywhere; }
+.om-skill-credit > span { margin-inline-end: var(--motion-space-8); }
+.om-skill-credit a { color: inherit; }
+.om-skill-options { display: flex; flex-wrap: wrap; gap: var(--motion-space-6); }
+[data-motion-studio] .om-skill-options .om-nav-item { width: auto; padding-inline: var(--motion-space-12); }
+.om-skill-form { display: grid; gap: var(--motion-space-12); }
+.om-skill-form label, .om-skill-form fieldset { display: grid; gap: var(--motion-space-6); margin: 0; padding: 0; border: 0; min-width: 0; }
+.om-skill-form :is(label > span:first-child, legend) { padding: 0; color: var(--motion-muted); font-size: var(--motion-text-sm); }
+.om-skill-form .om-skill-options { margin-bottom: 0; }
+.om-skill-prompt { display: grid; gap: var(--motion-space-6); }
+.om-skill-prompt pre { max-height: 220px; overflow: auto; margin: 0; padding: var(--motion-space-12); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--motion-font-mono); font-size: var(--motion-text-sm); line-height: 1.6; color: var(--motion-text); background: var(--motion-inset); border-radius: var(--motion-radius-md); user-select: text; }
+.om-skill-prompt pre[data-manual="true"] { outline: 2px solid var(--motion-selected); }
+.om-skill-detail { padding-bottom: 0; }
+/* The copy and connect actions stay pinned to the panel bottom while the brief scrolls. */
+.om-skill-footer { position: sticky; bottom: 0; z-index: 1; display: grid; gap: var(--motion-space-8); margin-top: auto; margin-inline: calc(var(--motion-space-20) * -1); padding: var(--motion-space-12) var(--motion-space-20) var(--motion-space-16); background: var(--color-template-surface); border-top: 1px solid var(--color-template-line); }
+.om-skill-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--motion-space-8); }
+[data-motion-studio] .om-skill-actions .om-button { justify-content: center; }
+
+@media (max-width: 999px) {
+  .om-skills-page[data-detail="true"] .om-skills-main { display: none; }
+  .om-skill-detail { width: 100%; max-width: none; }
+}
+.om-skill-shortcut { display: grid; gap: var(--motion-space-8); width: min(380px, calc(100vw - 32px)); }
+.om-skill-shortcut p { margin: 0; }
+.om-skill-shortcut pre { margin: 0; padding: var(--motion-space-12); max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--motion-font-mono); font-size: var(--motion-text-sm); line-height: 1.6; color: var(--motion-text); background: var(--motion-inset); border-radius: var(--motion-radius-md); user-select: text; }
+[data-motion-studio] .om-skill-shortcut .om-button { justify-content: center; }
+/* Split before/after cover: the source video holds both versions side by side.
+   Each half shows the centre of its own version, filling one side of the card. */
+/* Doubled class beats the large-media display rule so the detail panel keeps both halves. */
+.om-skill-media.om-skill-split { display: grid; grid-template-columns: 1fr 1fr; }
+.om-skill-split-half { position: relative; overflow: hidden; }
+.om-skill-split-half :is(img, video) { position: absolute; top: 0; left: 50%; width: auto; height: 100%; max-width: none; object-fit: cover; }
+.om-skill-split-half[data-side="before"] :is(img, video) { transform: translateX(-25%); }
+.om-skill-split-half[data-side="after"] :is(img, video) { transform: translateX(-75%); }
+.om-skill-split { background: var(--motion-video-ink); }
+.om-skill-split-divider { position: absolute; top: 0; bottom: 0; left: 50%; width: 2px; transform: translateX(-50%); background: var(--motion-overlay-ink); }
+/* The skill's action sits on the divider, like an upscale preview. */
+.om-skill-split-label { position: absolute; top: 50%; left: 50%; z-index: 1; display: inline-flex; align-items: center; gap: var(--motion-space-6); transform: translate(-50%, -50%); padding: var(--motion-space-6) var(--motion-space-12); border-radius: var(--motion-radius-md); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-semibold); white-space: nowrap; color: var(--motion-overlay-ink); background: var(--motion-video-overlay); backdrop-filter: blur(10px); box-shadow: 0 0 0 1px var(--motion-gallery-border); }
+/* Before / After are written on the footage: plain white type over a light bottom shade. */
+.om-skill-split-half::after { content: ""; position: absolute; inset: 55% 0 0; background: linear-gradient(transparent, var(--motion-video-overlay)); pointer-events: none; }
+.om-skill-split-caption { position: absolute; bottom: var(--motion-space-12); z-index: 1; font-size: var(--motion-text-md); font-weight: var(--motion-weight-semibold); color: var(--motion-overlay-ink); text-shadow: 0 1px 3px var(--motion-video-overlay); }
+.om-skill-split-caption[data-side="before"] { left: var(--motion-space-12); }
+.om-skill-split-caption[data-side="after"] { left: calc(50% + var(--motion-space-12)); }
+.om-skill-card-meta { display: grid; gap: var(--motion-space-4); width: 100%; padding: var(--motion-space-10) var(--motion-space-2) var(--motion-space-4); border: 0; background: transparent; text-align: left; cursor: pointer; }
+.om-skill-card-meta strong { font-size: var(--motion-text-md); font-weight: var(--motion-weight-semibold); color: var(--color-template-text); }
+.om-skill-card-meta span { font-size: var(--motion-text-sm); line-height: var(--motion-leading-body); color: var(--color-template-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.om-skill-gallery-card:hover .om-gallery-card-top { opacity: 1; }
+.om-gallery-intro.om-skills-intro { min-height: 0; max-width: 640px; padding: var(--motion-space-8) 0 var(--motion-space-24); }
+.om-gallery-intro.om-skills-intro h1 { max-width: none; }
+.om-gallery-intro.om-skills-intro p { max-width: 560px; margin-bottom: 0; }
+.om-skills-intro > .om-gallery-intro-actions { margin-top: var(--motion-space-16); }

@@ -10,11 +10,13 @@ on:
         required: true
         default: '0.6.4-test.7'
   pull_request:
-    branches: [feature/motion]
+    branches: [main]
     paths:
       - '.github/workflows/motion-install-check.yml'
       - '.github/scripts/motion-registry*.mjs'
+      - '.github/scripts/template-runtime-check.mjs'
       - 'tests/registry-download.test.mjs'
+      - 'tests/template-registry-consumer.test.mjs'
 
 permissions:
   contents: read
@@ -26,7 +28,7 @@ env:
 
 jobs:
   candidate:
-    if: github.repository == 'nexu-io/html-anything' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.repository == 'nexu-io/openmotion' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -45,7 +47,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git fetch origin feature/motion:refs/remotes/origin/feature/motion
+          git fetch origin main:refs/remotes/origin/main
           node --input-type=module <<'JS'
           import { appendFile } from 'node:fs/promises';
           import { downloadCandidate, validateSource } from './.github/scripts/motion-release.mjs';
@@ -99,6 +101,7 @@ jobs:
           path: |
             ${{ runner.temp }}/candidate/registry-${{ matrix.platform }}.json
             ${{ runner.temp }}/candidate/registry-package.json
+            ${{ runner.temp }}/candidate/template-runtime-${{ matrix.platform }}/
           retention-days: 30
           if-no-files-found: warn
       - name: Show the installation result

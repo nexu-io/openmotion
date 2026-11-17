@@ -22,9 +22,9 @@ import { resolveMediaPreviewUrl } from "../../player/components/thumbnailUtils";
 
 /** Drag payload writer shared by the asset tile and the font row: copy effect
  *  plus the timeline-asset MIME and a plain-text path fallback. */
-function writeAssetDragData(e: React.DragEvent, asset: string): void {
+function writeAssetDragData(e: React.DragEvent, asset: string, duration?: number): void {
   e.dataTransfer.effectAllowed = "copy";
-  e.dataTransfer.setData(TIMELINE_ASSET_MIME, JSON.stringify({ path: asset }));
+  e.dataTransfer.setData(TIMELINE_ASSET_MIME, JSON.stringify({ path: asset, duration }));
   e.dataTransfer.setData("text/plain", asset);
 }
 
@@ -117,7 +117,7 @@ export interface AssetCardProps {
   copyFeedback: CopyFeedback;
   onDelete?: (path: string) => void;
   onRename?: (oldPath: string, newPath: string) => void;
-  onAddAssetToTimeline?: (path: string) => void;
+  onAddAssetToTimeline?: (path: string) => unknown;
 }
 
 /**
@@ -189,7 +189,7 @@ export function AssetCard({
       }
     }
     // Not added (or no matching clip found) → preview overlay
-    setPreviewAsset(asset, projectId);
+    setPreviewAsset(asset, projectId, onAddAssetToTimeline ? () => onAddAssetToTimeline(asset) : undefined);
   }, [
     mvp,
     used,
@@ -199,6 +199,7 @@ export function AssetCard({
     setSelectedElementId,
     requestTimelineFocus,
     setPreviewAsset,
+    onAddAssetToTimeline,
     clearPreviewAsset,
   ]);
 
@@ -229,7 +230,7 @@ export function AssetCard({
             activateCard();
           }
         }}
-        onDragStart={(e) => writeAssetDragData(e, asset)}
+        onDragStart={(e) => writeAssetDragData(e, asset, resolvedDuration)}
         onContextMenu={(e) => openAssetContextMenu(e, setContextMenu)}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
@@ -243,6 +244,7 @@ export function AssetCard({
             <img
               src={serveUrl}
               alt={name}
+              draggable={false}
               loading="lazy"
               className="w-full h-full object-cover"
               onError={() => setImgError(true)}
@@ -269,10 +271,10 @@ export function AssetCard({
             </div>
           )}
 
-          {/* "Added" badge — top-left */}
+          {/* Current-composition usage badge — top-left */}
           {used && (
             <span className="absolute top-1 left-1 text-[9px] font-semibold leading-none px-1.5 py-[3px] rounded-sm bg-neutral-950/80 text-panel-text-1">
-              {t("Added")}</span>
+              {t("In use")}</span>
           )}
 
           {/* Duration badge — top-right, media only */}
@@ -287,7 +289,7 @@ export function AssetCard({
             </span>
           </Tooltip>}
           <CopyChip feedback={copyFeedback} asset={asset} />
-          <button type="button" className="motion-asset-menu-button" aria-label={t("Actions for {value0}", { value0: fullName })} aria-haspopup="menu" onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }}><RemixIcon name="more-line" size={16} /></button>
+          <Tooltip label={t("Actions for {value0}", { value0: fullName })} wrap><button type="button" className="motion-asset-menu-button" aria-label={t("Actions for {value0}", { value0: fullName })} aria-haspopup="menu" onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }}><RemixIcon name="more-line" size={16} /></button></Tooltip>
         </div>
       </div>
 
@@ -317,7 +319,7 @@ export interface FontRowProps {
   copyFeedback: CopyFeedback;
   onDelete?: (path: string) => void;
   onRename?: (oldPath: string, newPath: string) => void;
-  onAddAssetToTimeline?: (path: string) => void;
+  onAddAssetToTimeline?: (path: string) => unknown;
 }
 
 /**
@@ -374,7 +376,7 @@ export function FontRow({
             <span className="text-[10px] text-neutral-600 truncate">{extension}</span>
             {used && (
               <span className="text-[9px] font-medium text-accent-ink bg-panel-accent/10 px-1.5 py-px rounded-sm">
-                {t("in use")}</span>
+                {t("In use")}</span>
             )}
             <CopyChip feedback={copyFeedback} asset={asset} />
           </div>

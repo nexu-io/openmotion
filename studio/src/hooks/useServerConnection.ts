@@ -61,7 +61,7 @@ async function resolveHashProject(id: string): Promise<ProjectHashVerdict> {
  * escape with the Back button.
  */
 function replaceProjectHash(projectId: string): void {
-  window.history.replaceState(null, "", buildProjectHash(projectId));
+  window.history.replaceState(window.history.state, "", buildProjectHash(projectId));
 }
 
 /**
@@ -89,12 +89,13 @@ function reportHashVerdict(stage: "mount" | "hashchange", verdict: ProjectHashVe
   });
 }
 
-export function useServerConnection(): ServerConnectionState {
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [resolving, setResolving] = useState(true);
+export function useServerConnection(resolvedProjectId?: string): ServerConnectionState {
+  const [projectId, setProjectId] = useState<string | null>(resolvedProjectId ?? null);
+  const [resolving, setResolving] = useState(!resolvedProjectId);
   const [waitingForServer, setWaitingForServer] = useState(false);
 
   useMountEffect(() => {
+    if (resolvedProjectId) return;
     const hashProjectId = parseProjectIdFromHash(window.location.hash);
     let cancelled = false;
     // Explicitly `number` (the DOM return of window.setTimeout) rather than
@@ -157,6 +158,8 @@ export function useServerConnection(): ServerConnectionState {
 
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
+    // The workspace validates navigation and remounts this editor per project.
+    if (resolvedProjectId) return;
     const onHashChange = () => {
       const next = parseProjectIdFromHash(window.location.hash);
       if (!next || next === projectId) return;
@@ -185,7 +188,7 @@ export function useServerConnection(): ServerConnectionState {
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [projectId]);
+  }, [projectId, resolvedProjectId]);
 
   return { projectId, resolving, waitingForServer };
 }

@@ -1,5 +1,5 @@
 /**
- * `studio_inspect`: everything about one element, in one call.
+ * `openmotion_studio_inspect`: everything about one element, in one call.
  *
  * The point is to prevent a failed write. Every field here either tells the
  * agent what it can change (`can`, with `reasonIfDisabled` verbatim) or what it
@@ -179,7 +179,7 @@ export async function studioInspect(
       return toolFailure(
         "invalid",
         "nothing is selected and no handle was given",
-        "Pass a handle from studio_look, or call studio_select first.",
+        "Pass a handle from openmotion_studio_look, or call openmotion_studio_select first.",
       );
     }
     return describe(current, deps, true);
@@ -188,7 +188,7 @@ export async function studioInspect(
     return toolFailure(
       "invalid",
       "the handle belongs to a different project",
-      "Call studio_look in the active project.",
+      "Call openmotion_studio_look in the active project.",
     );
   }
 
@@ -204,7 +204,7 @@ export async function studioInspect(
     return toolFailure(
       "invalid",
       `no element matches handle ${input.handle}`,
-      "Call studio_look for current handles.",
+      "Call openmotion_studio_look for current handles.",
     );
   }
   if (resolved.status === "unsupported") {
@@ -214,7 +214,7 @@ export async function studioInspect(
     return toolFailure(
       "invalid",
       "the target changed while it was resolving",
-      "Call studio_look again.",
+      "Call openmotion_studio_look again.",
     );
   }
 
@@ -231,7 +231,7 @@ export const STUDIO_INSPECT_INPUT_SCHEMA = {
   properties: {
     handle: {
       type: "string",
-      description: "An element handle from studio_look. Omit to inspect the current selection.",
+      description: "An element handle from openmotion_studio_look. Omit to inspect the current selection.",
     },
   },
   additionalProperties: false,

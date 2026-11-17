@@ -8,6 +8,7 @@ import {
   type DragCommitDeps,
   type TimelineMoveEdit,
 } from "./timelineClipDragCommit";
+import { persistTimelineMoveEditsAtomically } from "../../hooks/timelineMoveAdapter";
 import { normalizeToZones } from "./timelineZones";
 import { resolveZMirrorLaneMove } from "./timelineZMirror";
 import type { StackingPatch } from "./timelineStackingSync";
@@ -277,12 +278,7 @@ describe("commitDraggedClipMove", () => {
     expect(map.c3).toEqual({ start: 0, track: 8 });
   });
 
-  it("dropping onto an overlap spill sub-lane persists the base lane's shared authored track", () => {
-    // Authored track 2 holds two time-overlapping clips, which packTrackLanes
-    // spills onto display sub-lanes 1 and 2 (both authoredTrack 2). Dropping
-    // 'a' onto the spill sub-lane (2) is a legitimate same-track join: the
-    // persisted value is the shared authored track (2), even though the clip
-    // may re-pack onto a different sub-lane on the next normalize.
+  it("persists spill rows atomically when moving into them", () => {
     const elements = normalizeToZones([
       { ...el("a", 0, 30, 3), authoredTrack: 1 },
       { ...el("b1", 2, 0, 5), authoredTrack: 2 },
@@ -296,6 +292,44 @@ describe("commitDraggedClipMove", () => {
     );
     const map = editMap(onMoveElements.mock.calls[0][0]);
     expect(map.a).toEqual({ start: 30, track: 2 });
+    expect(map.b1).toEqual({ start: 0, track: 1 });
+    const reloaded = normalizeToZones(elements.map(e => ({ ...e, ...(map[e.id] ?? { track: e.authoredTrack! }) })));
+    expect(reloaded.find(e => e.id === "a")!.track).toBe(reloaded.find(e => e.id === "b2")!.track);
+  });
+
+  it("a time move on a spill row keeps that row after rediscovery without restacking", async () => {
+    const elements = [
+      { ...el("a", 0, 0, 10), authoredTrack: 0 },
+      { ...el("b", 1, 2, 3), authoredTrack: 0 },
+    ];
+    const onStackingPatches = vi.fn();
+    const spies = runClipMove(drag(elements[1], { previewStart: 12, previewTrack: 1 }), {
+      elements, trackOrder: [0, 1], readZIndex: () => 1, onStackingPatches,
+    });
+    expect(expectAtomicMoveMap(spies)).toEqual({ b: { start: 12, track: 1 } });
+    const [edits, coalesceKey, operation] = spies.onMoveElements.mock.calls[0];
+    const handleTimelineGroupMove = vi.fn().mockResolvedValue(undefined);
+    await persistTimelineMoveEditsAtomically(edits, coalesceKey, operation, { handleTimelineGroupMove });
+    expect(handleTimelineGroupMove.mock.calls[0][0]).toEqual([
+      expect.objectContaining({ start: 12, track: 1 }),
+    ]);
+    await flushMicrotasks();
+    expect(onStackingPatches).not.toHaveBeenCalled();
+  });
+
+  it("preserves foreign sparse authored tracks during a mixed selection spill-row move", () => {
+    const elements = [
+      { ...el("a", 0, 0, 10), authoredTrack: 0 },
+      { ...el("b", 1, 2, 3), authoredTrack: 0 },
+      { ...el("foreign", 3, 5, 2), authoredTrack: 12, sourceFile: "child.html" },
+      { ...el("audio", 4, 6, 2, "audio"), authoredTrack: 7 },
+    ];
+    const spies = runClipMove(drag(elements[1], { previewStart: 12, previewTrack: 1 }), {
+      elements, trackOrder: [0, 1, 3, 4], selectedKeys: new Set(["b", "foreign", "audio"]),
+    });
+    expect(expectAtomicMoveMap(spies)).toEqual({
+      b: { start: 12, track: 1 }, foreign: { start: 15, track: 12 }, audio: { start: 16, track: 7 },
+    });
   });
 
   it("multi-selection time-move shifts EVERY selected clip by the drag delta (atomic)", () => {
@@ -588,8 +622,8 @@ describe("commitDraggedClipMove", () => {
       expectZLiftedToSix(onStackingPatches);
     });
 
-    it("a multi-selection lane move restacks only the dragged clip", async () => {
-      // a moves up from row 2 to row 1 over c; the selected scene keeps its row, so it keeps its z.
+    it("a multi-selection lane move realizes conflicting legacy paint ranks in its scope", async () => {
+      // a moves up over c. The selected scene keeps its row and time; conflicting CSS ranks follow the visible lane order.
       const elements = [
         el("scene", 0, 0, 10),
         el("b", 1, 5, 5),
@@ -607,7 +641,7 @@ describe("commitDraggedClipMove", () => {
       });
       await flushMicrotasks();
       expect(onStackingPatches).toHaveBeenCalledTimes(1);
-      expect(onStackingPatches.mock.calls[0][0]).toEqual([{ key: "a", zIndex: 4 }]);
+      expect(onStackingPatches.mock.calls[0][0]).toEqual([{ key: "scene", zIndex: 5 }, { key: "a", zIndex: 4 }]);
     });
 
     it("partial z-sync deps (no readZIndex) → move persists but no stacking call", async () => {

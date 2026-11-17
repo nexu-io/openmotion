@@ -110,7 +110,7 @@ describe("studioSetText", () => {
     );
 
     expect(result.kind).toBe("failed");
-    expect(result.hint).toMatch(/studio_inspect/);
+    expect(result.hint).toMatch(/openmotion_studio_inspect/);
   });
 
   it("rejects a non-string text without dispatching", async () => {

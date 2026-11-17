@@ -1,6 +1,6 @@
 import { useOwnPreviewIframe, usePreviewIframeStore } from "./player/store/previewIframeStore";
 import { buildProjectApiPath } from "./utils/projectRouting";
-import { Fragment, useState, useCallback, useRef, useMemo, type SetStateAction } from "react";
+import { Fragment, useState, useCallback, useRef, useMemo, useEffect, type SetStateAction } from "react";
 import { useStableHandlers } from "./hooks/useStableHandlers";
 import { useHistoryFlags, useToolbarSession } from "./hooks/useShellSlices";
 import { useDismissingTabSetter, useRightPanelIntent } from "./hooks/useRightPanelIntents";
@@ -44,7 +44,7 @@ import {
   useGlobalFileDrop,
   useInspectorState,
 } from "./hooks/useStudioContextValue";
-import type { DomEditSelection } from "./components/editor/domEditing";
+import { resolveDomEditSelection, type DomEditSelection } from "./components/editor/domEditing";
 import { StudioHeader } from "./components/StudioHeader";
 import { useGestureCommit } from "./hooks/useGestureCommit";
 import { useGestureTrailOverlay } from "./hooks/useGestureTrailOverlay";
@@ -63,9 +63,12 @@ import { readStudioUrlStateFromWindow, resolveMasterCompositionPath } from "./ut
 import { useActiveComposition } from "./hooks/useActiveComposition";
 import { requestPreviewReload } from "./player/previewReloading";
 import { useStudioHost } from "./motion/StudioHost";
+import { preloadFontLists } from "./components/editor/propertyPanelFont";
 const getTimelineSelectionSet = () => usePlayerStore.getState().selectedElementIds;
 
 export interface StudioAppProps {
+  /** A project whose native context has already been prepared by the workspace. */
+  resolvedProjectId?: string;
   /** Clicks still select and report; the preview cannot move, edit or delete anything. */
   readOnlyPreview?: boolean;
   /** Short text shown on disabled hand-edit controls while `readOnlyPreview` is set. */
@@ -73,10 +76,14 @@ export interface StudioAppProps {
 }
 
 // fallow-ignore-next-line complexity
-export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: StudioAppProps = {}) {
+export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, resolvedProjectId }: StudioAppProps = {}) {
+  const mvpEditor = useStudioHost()?.mvpEditor ?? false;
   const AppFrame = useStudioHost()?.AppFrame ?? Fragment;
   const EditorFrame = useStudioHost()?.EditorFrame ?? Fragment;
-  const { projectId, resolving, waitingForServer } = useServerConnection();
+  const { projectId, resolving, waitingForServer } = useServerConnection(resolvedProjectId);
+  useEffect(() => {
+    if (!resolving && !waitingForServer && projectId) preloadFontLists();
+  }, [projectId, resolving, waitingForServer]);
   const initialUrlStateRef = useRef(readStudioUrlStateFromWindow());
   useStudioSessionStart(projectId, resolving, waitingForServer);
   const [compIdToSrc, setCompIdToSrc] = useState<Map<string, string>>(new Map());
@@ -235,7 +242,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: St
   const domEditDeleteBridge: DomEditDelete = (s, o) => handleDomEditElementDeleteRef.current(s, o);
   const resetKeyframesRef = useRef<() => boolean>(() => false);
   const deleteSelectedKeyframesRef = useRef<() => void>(() => {});
-  const { handleCopy, handlePaste, handleCut, handleDuplicate, canPaste } = useClipboard({
+  const { pastedDomElementRef, handleCopy, handlePaste, handleCut, handleDuplicate, canPaste } = useClipboard({
     projectId,
     activeCompPath,
     domEditSelectionRef: domEditSelectionBridgeRef,
@@ -249,11 +256,13 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: St
     waitForPendingDomEditSaves: previewPersistence.waitForPendingDomEditSaves,
   });
   const appHotkeys = useAppHotkeys({
+    disableRazorTool: mvpEditor,
     projectId,
     handleTimelineElementsDelete: timelineEditing.handleTimelineElementsDelete,
     handleLinkEdit: timelineEditing.handleLinkEdit,
     handleTimelineElementDeleteOnly: timelineEditing.handleTimelineElementDeleteOnly,
     handleTimelineElementSplit: timelineEditing.handleTimelineElementSplit,
+    handleSplitAtPlayhead: timelineEditing.handleSplitAtPlayhead,
     handleDomEditElementDelete: domEditDeleteBridge,
     domEditSelectionRef: domEditSelectionBridgeRef,
     clearDomSelectionRef,
@@ -305,6 +314,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: St
     editHistory: { recordEdit: editHistory.recordEdit },
     fileTree: fileManager.fileTree,
     importedFontAssetsRef: fileManager.importedFontAssetsRef,
+    fontAssets: fileManager.fontAssets,
     projectDir: fileManager.projectDir,
     projectIdRef: fileManager.projectIdRef,
     previewIframe,
@@ -324,6 +334,32 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: St
   });
   const domEditSession = useStableHandlers(domEditSessionResult, projectId);
   domEditSelectionBridgeRef.current = domEditSession.domEditSelection;
+  // Select the freshly saved element only after its preview node exists. Keep
+  // the clone's authored position; its outline and inspector expose the copy.
+  // eslint-disable-next-line no-restricted-syntax
+  useEffect(() => {
+    const pending = pastedDomElementRef.current;
+    if (!pending) return;
+    if (pending.projectId !== projectId || pending.path !== (activeCompPath || "index.html")) {
+      pastedDomElementRef.current = null;
+      return;
+    }
+    const doc = previewIframeRef.current?.contentDocument;
+    const element = Array.from(doc?.querySelectorAll<HTMLElement>("[data-hf-id]") ?? [])
+      .find((node) => node.getAttribute("data-hf-id") === pending.hfId);
+    if (!element) return;
+    let cancelled = false;
+    void resolveDomEditSelection(element, {
+      projectId, activeCompositionPath: activeCompPath,
+      isMasterView: !activeCompPath || activeCompPath === "index.html", exactTarget: true,
+    }).then((selection) => {
+      if (cancelled || pastedDomElementRef.current !== pending || !selection || !element.isConnected) return;
+      pastedDomElementRef.current = null;
+      domEditSession.applyDomSelection(selection);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [projectId, activeCompPath, previewDocumentVersion, pastedDomElementRef, previewIframeRef, domEditSession.applyDomSelection]);
+
   const { handleDomZIndexReorderCommit: zCommit, handleDomEditElementDelete: del } = domEditSession;
   handleDomZIndexReorderCommitRef.current = trackedStudioEdit(zCommit);
   clearDomSelectionRef.current = domEditSession.clearDomSelection;
@@ -452,10 +488,12 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: St
     () => (
       <TimelineToolbar
         domEditSession={toolbarSession}
+        onResizeElement={timelineEditing.handleTimelineElementResize}
         onSplitElement={timelineEditing.handleTimelineElementSplit}
+        onSplitAtPlayhead={timelineEditing.handleSplitAtPlayhead}
       />
     ),
-    [toolbarSession, timelineEditing.handleTimelineElementSplit],
+    [toolbarSession, timelineEditing.handleTimelineElementSplit, timelineEditing.handleSplitAtPlayhead, timelineEditing.handleTimelineElementResize],
   );
   const handleExport = useCallback(() => {
     void previewPersistence
@@ -554,6 +592,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason }: St
                   handleRazorSplitAll={timelineEditing.handleRazorSplitAll}
                   handleFreezeFrame={timelineEditing.handleFreezeFrame}
                   handleLinkEdit={timelineEditing.handleLinkEdit}
+                  handleTimelineTrackDelete={timelineEditing.handleTimelineTrackDelete}
                   handleTimelineElementDeleteOnly={timelineEditing.handleTimelineElementDeleteOnly}
                   onCopyClip={handleCopy}
                   onPasteClip={handlePaste}

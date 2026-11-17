@@ -51,9 +51,9 @@ const FAR_CLIPS: TimelineElement[] = Array.from({ length: 100 }, (_, track) => (
 function renderHarness(
   onAssetDrop: Mock,
   sessionEpoch = 1,
-  options: { onBlockDrop?: Mock; strict?: boolean; elements?: TimelineElement[] } = {},
+  options: { onBlockDrop?: Mock; onFileDrop?: Mock; strict?: boolean; elements?: TimelineElement[]; tracks?: number[] } = {},
 ) {
-  const tracks = Array.from({ length: 100 }, (_, index) => index);
+  const tracks = options.tracks ?? Array.from({ length: 100 }, (_, index) => index);
   const geometry = createTimelineRowGeometry(
     tracks,
     tracks.map(() => 48),
@@ -74,6 +74,7 @@ function renderHarness(
       contentOrigin: 0,
       sessionEpoch: epoch,
       onAssetDrop,
+      onFileDrop: options.onFileDrop,
       onBlockDrop: options.onBlockDrop,
     });
     return null;
@@ -110,6 +111,60 @@ afterEach(() => {
 });
 
 describe("useTimelineAssetDrop", () => {
+  it("reuses an internal image asset when the browser also supplies a thumbnail File", () => {
+    const onAssetDrop = vi.fn();
+    const onFileDrop = vi.fn();
+    const view = renderHarness(onAssetDrop, 1, { onFileDrop });
+    const transfer = assetTransfer('{"path":"assets/image.svg","duration":3}');
+    transfer.types.push("Files");
+    transfer.files.push(new File(["<svg />"], "image.svg", { type: "image/svg+xml" }));
+    const event = dragEvent(transfer, 80, ROW0_MID_Y);
+    act(() => { view.api.handleAssetDragOver(event); view.api.handleAssetDrop(event); });
+    expect(onAssetDrop).toHaveBeenCalledExactlyOnceWith("assets/image.svg", { start: 2, track: 0 }, 3);
+    expect(onFileDrop).not.toHaveBeenCalled();
+    act(() => view.root.unmount());
+  });
+
+  it("still uploads external files when an accompanying asset payload is invalid", () => {
+    const onAssetDrop = vi.fn();
+    const onFileDrop = vi.fn();
+    const view = renderHarness(onAssetDrop, 1, { onFileDrop });
+    const transfer = assetTransfer("invalid JSON");
+    transfer.types.push("Files");
+    transfer.files.push(new File(["<svg />"], "external.svg", { type: "image/svg+xml" }));
+    const event = dragEvent(transfer, 80, ROW0_MID_Y);
+    act(() => { view.api.handleAssetDragOver(event); view.api.handleAssetDrop(event); });
+    expect(onFileDrop).toHaveBeenCalledExactlyOnceWith(transfer.files, { start: 2, track: 0 });
+    expect(onAssetDrop).not.toHaveBeenCalled();
+    act(() => view.root.unmount());
+  });
+
+  it("does not persist a synthetic loading row as a clip track", () => {
+    const onAssetDrop = vi.fn();
+    usePlayerStore.setState({ pendingAssetDrops: [{
+      id: "loading", assetPath: "a.png",
+      placement: { start: 2, track: 0, insertRow: 0, trackOrder: [0] },
+    }] });
+    const view = renderHarness(onAssetDrop, 1, { elements: [FAR_CLIPS[0]], tracks: [-0.5, 0] });
+    const event = dragEvent(assetTransfer('{"path":"b.png"}'), 80, ROW0_MID_Y);
+    act(() => view.api.handleAssetDragOver(event));
+    expect(event.dataTransfer.dropEffect).toBe("none");
+    act(() => view.api.handleAssetDrop(event));
+    expect(onAssetDrop).not.toHaveBeenCalled();
+    expect(view.api.dropPreview).toBeNull();
+    act(() => view.root.unmount());
+  });
+  it("forwards a known duration so dropping does not need another probe", () => {
+    const onAssetDrop = vi.fn();
+    const view = renderHarness(onAssetDrop);
+    const event = dragEvent(assetTransfer('{"path":"music.mp3","duration":12.5}'), 80, ROW0_MID_Y);
+    act(() => {
+      view.api.handleAssetDragOver(event);
+      view.api.handleAssetDrop(event);
+    });
+    expect(onAssetDrop).toHaveBeenCalledWith("music.mp3", { start: 2, track: 0 }, 12.5);
+    act(() => view.root.unmount());
+  });
   it("edge-autoscrolls the sole timeline viewport while a supported asset is held", () => {
     let frame: FrameRequestCallback | null = null;
     vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
@@ -124,10 +179,33 @@ describe("useTimelineAssetDrop", () => {
     expect(frame).not.toBeNull();
     act(() => frame?.(0));
     expect(view.scroll.scrollLeft).toBeGreaterThan(0);
+    expect(view.api.dropPreview!.start).toBeGreaterThan(790 / 40);
     expect(view.scroll.scrollTop).toBe(0);
 
     act(() => view.api.clearDropPreview());
     expect(view.api.isDragOver).toBe(false);
+    act(() => view.root.unmount());
+  });
+
+  it("coalesces a dragover burst and commits the release coordinates before the queued frame", () => {
+    let frame!: FrameRequestCallback;
+    const request = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { frame = callback; return 1; });
+    const cancel = vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    const onAssetDrop = vi.fn();
+    const view = renderHarness(onAssetDrop);
+    const transfer = assetTransfer('{"path":"a.png"}');
+    act(() => view.api.handleAssetDragOver(dragEvent(transfer, 100, ROW0_MID_Y)));
+    const measure = vi.spyOn(view.scroll, "getBoundingClientRect");
+    act(() => {
+      for (let x = 101; x <= 300; x++) view.api.handleAssetDragOver(dragEvent(transfer, x, ROW0_MID_Y));
+    });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(measure).not.toHaveBeenCalled();
+    act(() => view.api.handleAssetDrop(dragEvent(transfer, 320, ROW0_MID_Y)));
+    expect(onAssetDrop).toHaveBeenCalledExactlyOnceWith("a.png", { start: 8, track: 0 });
+    expect(cancel).toHaveBeenCalledWith(1);
+    act(() => frame(0));
+    expect(view.api.dropPreview).toBeNull();
     act(() => view.root.unmount());
   });
 
@@ -159,8 +237,8 @@ describe("useTimelineAssetDrop", () => {
     });
 
     expect(onAssetDrop).toHaveBeenCalledTimes(1);
-    // The appended lane is empty, so the drop starts at 0.
-    expect(onAssetDrop).toHaveBeenCalledWith("/media/hero.mp4", { start: 0, track: 100 });
+    // Appended lanes retain the pointer time.
+    expect(onAssetDrop).toHaveBeenCalledWith("/media/hero.mp4", { start: 10, track: 100 });
     expect(view.api.isDragOver).toBe(false);
     act(() => view.root.unmount());
   });
@@ -249,10 +327,14 @@ describe("useTimelineAssetDrop", () => {
     act(() => view.root.unmount());
   });
 
-  it("moves the preview with the pointer and drops it when the drag leaves", () => {
+  it("moves the preview once per frame and drops it when the drag leaves", () => {
+    let frame!: FrameRequestCallback;
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation(callback => { frame = callback; return 1; });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
     const view = renderHarness(vi.fn());
     act(() => view.api.handleAssetDragOver(dragEvent(assetTransfer("{}"), 400, ROW0_MID_Y)));
     act(() => view.api.handleAssetDragOver(dragEvent(assetTransfer("{}"), 800, ROW0_MID_Y)));
+    act(() => frame(0));
     expect(view.api.dropPreview?.start).toBe(20);
 
     act(() =>
@@ -278,16 +360,16 @@ describe("useTimelineAssetDrop start", () => {
     return { preview, committed: onAssetDrop.mock.calls[0]?.[1] };
   }
 
-  it("starts a drop on an empty timeline at 0, in the preview and the commit", () => {
+  it("starts a drop on an empty timeline at the pointer, in the preview and the commit", () => {
     // pps=40, clientX=80 -> 2s at the pointer.
     const { preview, committed } = dropAt([], 80);
-    expect(preview).toEqual({ start: 0, track: 0 });
+    expect(preview).toEqual({ start: 2, track: 0 });
     expect(committed).toEqual(preview);
   });
 
-  it("starts a drop on an empty lane at 0 while other lanes hold clips", () => {
+  it("starts a drop on an empty lane at the pointer while other lanes hold clips", () => {
     const { committed } = dropAt([{ id: "c", tag: "div", start: 0, duration: 5, track: 1 }], 80);
-    expect(committed).toEqual({ start: 0, track: 0 });
+    expect(committed).toEqual({ start: 2, track: 0 });
   });
 
   it("snaps a drop within TIMELINE_SNAP_PX of a clip edge onto that edge", () => {
@@ -300,12 +382,12 @@ describe("useTimelineAssetDrop start", () => {
     expect(dropAt(lane, 212).committed).toEqual({ start: 5.3, track: 0 });
   });
 
-  it("keeps the pointer time with the magnet off, and still starts an empty lane at 0", () => {
+  it("keeps the pointer time with the magnet off, and also preserves it on an empty lane", () => {
     usePlayerStore.getState().setTimelineSnapEnabled(false);
     try {
       const lane: TimelineElement[] = [{ id: "c", tag: "div", start: 0, duration: 5, track: 0 }];
       expect(dropAt(lane, 206).committed).toEqual({ start: 5.15, track: 0 });
-      expect(dropAt([], 80).committed).toEqual({ start: 0, track: 0 });
+      expect(dropAt([], 80).committed).toEqual({ start: 2, track: 0 });
     } finally {
       usePlayerStore.getState().setTimelineSnapEnabled(true);
     }
@@ -314,6 +396,11 @@ describe("useTimelineAssetDrop start", () => {
 
 describe("resolveDropInsertRow", () => {
   const rows = [TRACK_H, TRACK_H, TRACK_H];
+  it("uses the same centered row geometry as the rendered lanes", () => {
+    const geometry = createTimelineRowGeometry([0, 1], [48, 48], { top: 90, bottom: 90 });
+    expect(resolveDropInsertRow(geometry.getRowTop(0) + 24, geometry.rowHeights, 2, geometry)).toBeNull();
+    expect(resolveDropInsertRow(geometry.getRowTop(0) - 4, geometry.rowHeights, 2, geometry)).toBe(0);
+  });
   it("stays on the row at the boundary between two rows", () => {
     for (const dy of [-1, 0, 1]) {
       expect(resolveDropInsertRow(getTimelineRowTop(1, rows) + dy, rows, 3)).toBeNull();
@@ -358,7 +445,7 @@ describe("useTimelineAssetDrop new-track drops", () => {
     expect(onAssetDrop).toHaveBeenCalledWith(
       "assets/a.png",
       expect.objectContaining({
-        start: 0,
+        start: 10,
         insertRow: 0,
         trackOrder: Array.from({ length: 100 }, (_, index) => index),
       }),

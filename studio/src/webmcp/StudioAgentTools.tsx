@@ -151,6 +151,12 @@ export function StudioAgentTools() {
       wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       getCurrentSelection: () => domEditSelection,
       getWriteBlockedReason: () => writeBlockedReason,
+      // Everything from here down feeds the retained editor write modules, which
+      // are not registered as page tools in this surface. They stay wired so the
+      // retained implementations remain callable from the host instead of
+      // decaying into orphaned modules; see the retention note in
+      // `useStudioAgentTools.ts`. Studio's manual editing uses the same handlers
+      // directly.
       setText: (selection, value, fieldKey) =>
         handleDomTextCommitForSelection(selection, value, fieldKey),
       setStyle: (selection, property, value) =>

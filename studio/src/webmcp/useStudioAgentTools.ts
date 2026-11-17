@@ -41,44 +41,16 @@ import {
   type StudioInspectInput,
   type StudioInspectResult,
 } from "./tools/inspectTools";
-import {
-  studioSetStyle,
-  studioSetText,
-  STUDIO_SET_STYLE_DESCRIPTION,
-  STUDIO_SET_STYLE_INPUT_SCHEMA,
-  STUDIO_SET_TEXT_DESCRIPTION,
-  STUDIO_SET_TEXT_INPUT_SCHEMA,
-  type ContentToolDeps,
-  type StudioSetStyleResult,
-  type StudioSetTextResult,
-} from "./tools/contentTools";
-import {
-  studioTransform,
-  STUDIO_TRANSFORM_DESCRIPTION,
-  STUDIO_TRANSFORM_INPUT_SCHEMA,
-  type StudioTransformInput,
-  type StudioTransformResult,
-  type TransformToolDeps,
-} from "./tools/transformTools";
-import {
-  studioAddAnimation,
-  studioAddKeyframe,
-  studioDeleteAnimation,
-  studioUpdateAnimation,
-  STUDIO_ADD_ANIMATION_DESCRIPTION,
-  STUDIO_ADD_ANIMATION_INPUT_SCHEMA,
-  STUDIO_ADD_KEYFRAME_DESCRIPTION,
-  STUDIO_ADD_KEYFRAME_INPUT_SCHEMA,
-  STUDIO_DELETE_ANIMATION_DESCRIPTION,
-  STUDIO_DELETE_ANIMATION_INPUT_SCHEMA,
-  STUDIO_UPDATE_ANIMATION_DESCRIPTION,
-  STUDIO_UPDATE_ANIMATION_INPUT_SCHEMA,
-  type AnimationToolDeps,
-  type StudioAddAnimationResult,
-  type StudioAddKeyframeResult,
-  type StudioDeleteAnimationResult,
-  type StudioUpdateAnimationResult,
-} from "./tools/animationTools";
+// Retention is deliberate, not an oversight: this pull request stops REGISTERING
+// the seven atomic editor write tools while keeping their implementations, so
+// Studio's manual editing handlers, the shared write coordinator and the receipt
+// lens stay in one maintained place and a future registration needs no new
+// host wiring. The list below registers observation and navigation only, and the
+// retained path is exercised by `retainedEditorWritePath.test.ts`. See
+// `docs/mcp-phase1-tools.md` ("WebMCP access from Studio").
+import type { ContentToolDeps } from "./tools/contentTools";
+import type { TransformToolDeps } from "./tools/transformTools";
+import type { AnimationToolDeps } from "./tools/animationTools";
 
 const log = makeStudioDebugLogger("webmcp");
 
@@ -92,6 +64,15 @@ function reportRegistration(report: ToolRegistrationReport, native: boolean): vo
   }
 }
 
+/**
+ * The five registered tools read `getSnapshot`, the selection, the playhead and
+ * the frame probe. The write dep groups (`ContentToolDeps`,
+ * `TransformToolDeps`, `AnimationToolDeps`) are retained on purpose: they keep
+ * the retained write modules reachable from the host, and their handlers are
+ * still wired in `StudioAgentTools.tsx`. Trimming them would delete the entry
+ * points this pull request deliberately kept while leaving the modules and the
+ * receipt lens orphaned instead.
+ */
 export interface StudioAgentToolsDeps
   extends
     SelectionToolDeps,
@@ -105,7 +86,11 @@ export interface StudioAgentToolsDeps
 }
 
 /**
- * Build the tool list once.
+ * Build the observation and navigation tools once.
+ * Video content changes go through version-checked openmotion_edit_project.
+ *
+ * The atomic editor write tools are intentionally absent from this list while
+ * their modules stay maintained; see the retention note on the imports above.
  *
  * Every `execute` reads `depsRef.current` at CALL time rather than closing over
  * a snapshot, which is what lets the list be built once and still see live
@@ -114,37 +99,12 @@ export interface StudioAgentToolsDeps
 export function buildStudioTools(depsRef: {
   readonly current: StudioAgentToolsDeps;
 }): ModelContextTool[] {
-  /**
-   * `execute` for a tool whose handler takes the caller's abort signal.
-   *
-   * The spec shape is `execute(input, { signal })`, but `@mcp-b/global` (5.0.1
-   * through 5.1.0; the polyfill chunk is byte-identical across them) invokes a
-   * registered `execute` with the input ALONE, both from its in-page
-   * `BrowserMcpServer` wrapper and from the descriptor it mirrors into a native
-   * `document.modelContext`. A handler that destructures its second argument
-   * throws before it runs, so every write tool failed with "Cannot destructure
-   * property 'signal' of 'undefined'" while the read tools, which ignore the
-   * argument, kept working. This is the one boundary that tolerates the missing
-   * options object. Each handler already defaults an undefined signal to a
-   * never-aborted one, so nothing downstream has to.
-   */
-  const writeTool =
-    <T>(
-      name: string,
-      run: (
-        deps: StudioAgentToolsDeps,
-        input: object,
-        signal: AbortSignal | undefined,
-      ) => Promise<ToolResult<T>>,
-    ): ModelContextTool["execute"] =>
-    (input, options) =>
-      runToolBody<T>(name, () => run(depsRef.current, input, options?.signal));
-
   return [
     {
-      name: "studio_look",
+      name: "openmotion_studio_look",
       title: "Look at the composition",
-      description: STUDIO_LOOK_DESCRIPTION,
+      description: STUDIO_LOOK_DESCRIPTION +
+        " Content changes use openmotion_get_project and openmotion_edit_project. The can flags describe Studio manual editing capabilities.",
       inputSchema: STUDIO_LOOK_INPUT_SCHEMA,
       annotations: {
         readOnlyHint: true,
@@ -153,123 +113,52 @@ export function buildStudioTools(depsRef: {
         untrustedContentHint: true,
       },
       execute: (input): Promise<ToolResult<StudioLook>> =>
-        runToolBody("studio_look", async () =>
+        runToolBody("openmotion_studio_look", async () =>
           buildStudioLook(depsRef.current.getSnapshot(), input as StudioLookInput),
         ),
     },
     {
-      name: "studio_select",
+      name: "openmotion_studio_select",
       title: "Select an element",
       description: STUDIO_SELECT_DESCRIPTION,
       inputSchema: STUDIO_SELECT_INPUT_SCHEMA,
       annotations: { readOnlyHint: false, untrustedContentHint: true },
       execute: (input): Promise<ToolResult<StudioSelectResult>> =>
-        runToolBody("studio_select", () =>
+        runToolBody("openmotion_studio_select", () =>
           studioSelect(depsRef.current, readStringInput(input, "handle")),
         ),
     },
     {
-      name: "studio_seek",
+      name: "openmotion_studio_seek",
       title: "Move the playhead",
       description: STUDIO_SEEK_DESCRIPTION,
       inputSchema: STUDIO_SEEK_INPUT_SCHEMA,
       annotations: { readOnlyHint: false },
       execute: (input): Promise<ToolResult<StudioSeekResult>> =>
-        runToolBody("studio_seek", async () =>
+        runToolBody("openmotion_studio_seek", async () =>
           studioSeek(depsRef.current, readNumberInput(input, "time")),
         ),
     },
     {
-      name: "studio_frame",
+      name: "openmotion_studio_frame",
       title: "See the composition",
       description: STUDIO_FRAME_DESCRIPTION,
       inputSchema: STUDIO_FRAME_INPUT_SCHEMA,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: (input): Promise<ToolResult<StudioFrameResult>> =>
-        runToolBody("studio_frame", () => studioFrame(depsRef.current, input as StudioFrameInput)),
+        runToolBody("openmotion_studio_frame", () => studioFrame(depsRef.current, input as StudioFrameInput)),
     },
     {
-      name: "studio_inspect",
+      name: "openmotion_studio_inspect",
       title: "Inspect one element",
-      description: STUDIO_INSPECT_DESCRIPTION,
+      description: STUDIO_INSPECT_DESCRIPTION +
+        " Content changes use openmotion_get_project and openmotion_edit_project. The can flags describe Studio manual editing capabilities.",
       inputSchema: STUDIO_INSPECT_INPUT_SCHEMA,
       annotations: { readOnlyHint: true, untrustedContentHint: true },
       execute: (input): Promise<ToolResult<StudioInspectResult>> =>
-        runToolBody("studio_inspect", () =>
+        runToolBody("openmotion_studio_inspect", () =>
           studioInspect(depsRef.current, input as StudioInspectInput),
         ),
-    },
-    {
-      name: "studio_set_text",
-      title: "Set an element's text",
-      description: STUDIO_SET_TEXT_DESCRIPTION,
-      inputSchema: STUDIO_SET_TEXT_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false, untrustedContentHint: true },
-      execute: writeTool<StudioSetTextResult>("studio_set_text", (deps, input, signal) =>
-        studioSetText(deps, input, signal),
-      ),
-    },
-    {
-      name: "studio_set_style",
-      title: "Set an element's styles",
-      description: STUDIO_SET_STYLE_DESCRIPTION,
-      inputSchema: STUDIO_SET_STYLE_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false },
-      execute: writeTool<StudioSetStyleResult>("studio_set_style", (deps, input, signal) =>
-        studioSetStyle(deps, input, signal),
-      ),
-    },
-    {
-      name: "studio_transform",
-      title: "Move, resize or rotate",
-      description: STUDIO_TRANSFORM_DESCRIPTION,
-      inputSchema: STUDIO_TRANSFORM_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false },
-      execute: writeTool<StudioTransformResult>("studio_transform", (deps, input, signal) =>
-        studioTransform(deps, input as StudioTransformInput, signal),
-      ),
-    },
-    {
-      name: "studio_add_animation",
-      title: "Add an animation",
-      description: STUDIO_ADD_ANIMATION_DESCRIPTION,
-      inputSchema: STUDIO_ADD_ANIMATION_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false },
-      execute: writeTool<StudioAddAnimationResult>("studio_add_animation", (deps, input, signal) =>
-        studioAddAnimation(deps, input, signal),
-      ),
-    },
-    {
-      name: "studio_update_animation",
-      title: "Change an animation",
-      description: STUDIO_UPDATE_ANIMATION_DESCRIPTION,
-      inputSchema: STUDIO_UPDATE_ANIMATION_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false },
-      execute: writeTool<StudioUpdateAnimationResult>(
-        "studio_update_animation",
-        (deps, input, signal) => studioUpdateAnimation(deps, input, signal),
-      ),
-    },
-    {
-      name: "studio_add_keyframe",
-      title: "Add a keyframe",
-      description: STUDIO_ADD_KEYFRAME_DESCRIPTION,
-      inputSchema: STUDIO_ADD_KEYFRAME_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false },
-      execute: writeTool<StudioAddKeyframeResult>("studio_add_keyframe", (deps, input, signal) =>
-        studioAddKeyframe(deps, input, signal),
-      ),
-    },
-    {
-      name: "studio_delete_animation",
-      title: "Remove an animation",
-      description: STUDIO_DELETE_ANIMATION_DESCRIPTION,
-      inputSchema: STUDIO_DELETE_ANIMATION_INPUT_SCHEMA,
-      annotations: { readOnlyHint: false },
-      execute: writeTool<StudioDeleteAnimationResult>(
-        "studio_delete_animation",
-        (deps, input, signal) => studioDeleteAnimation(deps, input, signal),
-      ),
     },
   ];
 }

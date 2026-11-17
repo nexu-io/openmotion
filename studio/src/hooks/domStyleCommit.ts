@@ -7,7 +7,7 @@ import {
   isManualGeometryStyleProperty,
   normalizeDomEditStyleValue,
 } from "../utils/studioHelpers";
-import { injectPreviewGoogleFont, injectPreviewImportedFont } from "../utils/studioFontHelpers";
+import { injectPreviewImportedFont } from "../utils/studioFontHelpers";
 import {
   buildDomEditStylePatchOperation,
   findElementsForSelection,
@@ -100,7 +100,6 @@ export async function commitDomStyles(
         for (const [property, value] of liveStyles) el.style.setProperty(property, value);
       }
       if (fontFamily !== undefined && doc) {
-        injectPreviewGoogleFont(doc, fontFamily);
         if (importedFont) injectPreviewImportedFont(doc, importedFont);
       }
     },

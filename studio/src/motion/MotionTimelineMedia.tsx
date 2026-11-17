@@ -59,6 +59,7 @@ export function MotionTimelineMedia({ projectId, compositionId, disabled, onFile
     });
     return () => { bound = false; bind(null); };
   }, [bind, projectId, compositionId, t]);
-  if (!gateway) return null;
-  return <div className="motion-timeline-media-actions">{!mvp && <button disabled={disabled} onClick={event => gateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t('Generate media')}</button>}<button disabled={disabled || !onFileDrop} onClick={gateway.importFiles}>{t('Import files')}</button></div>;
+  // Keep the timeline gateway bound for asset imports and placement without an extra MVP toolbar entry.
+  if (!gateway || mvp) return null;
+  return <div className="motion-timeline-media-actions"><button disabled={disabled} onClick={event => gateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t('Generate media')}</button><button disabled={disabled || !onFileDrop} onClick={gateway.importFiles}>{t('Import files')}</button></div>;
 }

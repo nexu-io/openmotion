@@ -2,7 +2,7 @@
 
 Use this guide to ask a coding agent to add an event, implement it through the
 existing MCP/Studio tracking path, and verify its meaning and delivery. It describes
-the implementation in PR #189, not a released npm API. Check the current checkout
+the current in-repository implementation, originating in PR #189, not a released npm API. Check the current checkout
 before applying examples. `@openmotion/tracking` is private; application callers
 currently import repository sources rather than installing it from npm.
 
@@ -53,9 +53,14 @@ the agent can determine file paths and existing helpers from code.
 
 | Signal | Existing location | Extension rule |
 | --- | --- | --- |
-| Accepted MCP start and observed finish | `mcp.ts`, `toolNames` in `tracking/events.ts` | All eleven tools already use the wrapper. Do not add another start/finish pair inside a handler. Reconcile the tool contract and this list if adding a tool. |
+| Accepted MCP start and observed finish | `mcp.ts`, `toolNames` in `tracking/events.ts` | All registered tools use the wrapper; the preferred asset name shares the original motion_assets telemetry identity with its compatibility name. Do not add another start/finish pair inside a handler. Reconcile the tool contract and this list if adding a tool. |
+| WebMCP callback and registration result | `studio/src/webmcp/registrar.ts` and its tracking wrapper | All nineteen registered page tools share one reporting boundary. Keep `transport=webmcp`, correlate start/finish by `call_id`, and preserve callback results, cancellation and errors. Update the closed tool-name list and its descriptor-alignment test when the public set changes. |
 | Committed phase-one business result | `phase1.ts` and `trackPhase1Result` in `shared/tracking.ts` | Use the shared domain completion. Replayed operations skip new domain completions. A successful call need not have made a useful edit. |
 | Render/export terminal state | `renderNext` in `server.ts` | Emit from the worker's observed terminal state. A queued job is not a completed video. |
+| Export task ledger | `tracking/task-ledger.ts`, `workspace.ts`, `phase1.ts`, `server.ts` | Write the accepted export task before returning it, retain its deadline and terminal outcome, and preserve unknown/cancelled as distinct outcomes. |
+| Host run boundaries | `inline-video.ts`, `phase1.ts`, `mcp.ts`, `server.ts` | Use the work-round ID as `run_id`; emit start, observed preview delivery and verified export delivery only when the producer has evidence. |
+| Quality checks | `phase1.ts`, `server.ts` | Pair `check_required` with `check_completed` for technical export, host preview observation and recorded content review. Technical checks do not imply human acceptance. |
+| Queue and incidents | `server.ts`, explicit incident producers | Emit bounded queue snapshots/heartbeats at most once per minute; emit incident/recovery events only for confirmed evidence, never for ordinary failures. |
 | Studio interaction or readiness | Components under `studio/src/motion/`, using `tracking.ts` there | Track an intentional handler or a guarded readiness/completion callback. Avoid unguarded render/effect reporting. |
 | Browser admission | `producers` in `tracking/events.ts`; derived `studioEvents`; ingress in `server.ts` | Declare `producers: ['studio']` on the event. The wrapper's types and server validator use the derived registry. Preserve server-side rejection of identity, source, worker and credential overrides. |
 
@@ -64,6 +69,11 @@ intent and extend only its necessary enum values. Use a result event for persist
 effects; do not infer success from intent. If MCP and Studio reach the same operation,
 choose one domain owner. Two calls to `track()` create two UUIDs and are not
 automatically recognized as the same business action.
+
+Asset tool start/finish events also carry the shared, closed optional `action`
+category. Use `assetToolAction` from `tracking/events.ts` at the existing wrapper
+boundary; never report raw input actions. Read usage, success-rate and latency
+queries use finished events as described in [coverage](README.md#implemented-signals-and-limits).
 
 ## Register and call an event
 
@@ -141,9 +151,10 @@ acceptance; `trackMotion()` resolves with a local queue/configuration status. Ne
 that the event is queryable in PostHog. Normal calls do not need an explicit flush.
 
 Current field rules are closed enums, booleans, UUIDv4 values, safe-code strings,
-catalogue slugs (`slug`: letters, digits and single hyphens, at most 64 characters) or
-nonnegative safe integers up to 86,400,000. Use `slug` only for an identifier the
-catalogue assigns, such as a template id; it is not a channel for names or titles. Do not invent arbitrary string fields
+nonnegative safe integers up to 86,400,000, catalogue slugs (`slug`: letters, digits and single hyphens,
+at most 64 characters), or explicit finite numeric `{min,max}` bounds for fractional/signed measurements.
+Use `slug` only for an identifier the catalogue assigns, such as a template id; it is not a channel for
+names or titles. Do not invent arbitrary string fields
 or use the safe-code rule to tunnel user content. Omit unknown optional counts;
 missing is not zero. If the measurement needs a new type, review the validator and
 its tests rather than bypassing it. Do not silently change an existing event's
@@ -155,8 +166,23 @@ Business callers provide only registered semantic properties. The package/server
 adds event UUID/time, schema and app version, environment, entrypoint/runtime,
 installation/device identity, saved attribution, platform, locale and timezone.
 Do not place common fields inside an event's properties or copy a browser identity
-into Node. `device_id`, `installation_id` and `distinct_id` currently share one random
-installation UUID; they are not a hardware fingerprint or a unique-person count.
+into Node. `installation_id` is a random UUID per data directory. `device_id` is an
+OpenMotion-scoped HMAC of a validated OS device identifier, independent of directories,
+versions and hosts; raw OS identifiers are never stored or sent. `distinct_id`
+continues to equal `installation_id`, including for existing installations after
+upgrade, so the new device field does not create another analytics identity.
+Unavailable devices use `device_id=unknown`, not a substitute device ID.
+Device counts must filter `device_id_source=platform` and explicitly deduplicate
+`device_id`. Native unique-user charts and person-based funnels/retention remain
+installation-level; device-level analyses need their own device aggregation.
+Historical events without the source marker were not measured by this device scheme;
+this change does not backfill them or merge person profiles.
+Neither measure is a count of people. See [identity limits](README.md#identity-properties-and-privacy).
+Host Agent properties also belong to this trusted common context. Capture the
+declared MCP client on its connection/request and pass that immutable context to
+the domain operation and worker. An editor uses only its opening-link context;
+never copy a host name into semantic event properties or assign all pages to the
+most recently active Agent. See [attribution limits](README.md#host-agent-attribution).
 
 The current installation identity may retain `utm_source`; landing-to-installer
 `--source` propagation is separate work and an unknown source remains null. An event
@@ -170,15 +196,12 @@ Do not add client IP lookups or collect IP in callers.
 Device timezone is separate from GeoIP timezone; VPN/proxy egress may differ.
 See [configuration, privacy and limits](README.md) and [coarse GeoIP](posthog-geoip.hog).
 
-Tracking is on by default in stable releases. Studio **Privacy settings → Share
-usage data** disables collection for the installation, including MCP and Studio
-across restarts. Re-enabling resumes new reports without replaying discarded events.
-Test/prerelease/local application versions are always disabled at runtime, even
-with a saved opt-in, `OPENMOTION_TELEMETRY=1`, custom collector or test-run UUID.
-Their Privacy switch is locked and explains the test-build policy; opening a test
-build does not replace the saved stable-release preference.
-Test and stable MCP clients must use separate data directories; shared-backend
-discovery rejects cross-policy reuse without stopping or replacing the authority.
+Tracking is on by default in every application environment and version, including
+stable, test/prerelease and local builds. Studio **Privacy settings → Share usage
+data** disables collection for the installation, including MCP and Studio across
+restarts. Re-enabling resumes new reports without replaying discarded events.
+Application version and environment are event properties, not collection gates.
+DEV packages retain their separate installation/data directories and template routing.
 `OPENMOTION_TELEMETRY=0` or `DO_NOT_TRACK=1` forces it off; browser Do Not Track also
 suppresses browser collection. An added event must respect those controls.
 
@@ -266,9 +289,8 @@ checks and applicable repository gates, not invented product events.
 
 ## Read back a marked live run
 
-Use a stable-version application, an owned temporary data directory and fresh
-runtime processes. A test/prerelease package never reports, even for this check;
-do not change its version to bypass the policy. Apply the same
+Use an application of any version, an owned temporary data directory and fresh
+runtime processes. Apply the same
 test environment to every participating MCP/local service process, including ones
 launched by a host. An already-running shared service will not inherit new variables.
 For a POSIX shell, prepare the environment before starting the normal test runner

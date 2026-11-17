@@ -32,12 +32,12 @@ export type ContentVersion = { versionId: string; versionNumber: number; nativeP
 type VersionIndex = { versions: ContentVersion[]; ignored: string[] };
 const actor = { kind: 'agent', name: 'OpenMotion Agent' };
 
-function remoteHistory(base: string): NativeHistory {
+function remoteHistory(base: string, timeoutMs: number): NativeHistory {
   const url = new URL(base);
   if (url.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) throw new Error('INVALID_HISTORY_OWNER');
   async function call(action = '', body?: unknown, binary = false) {
     const response = await fetch(base.replace(/\/$/, '') + action, { method: body === undefined ? 'GET' : 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: url.origin }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(120_000) });
+      headers: { 'Content-Type': 'application/json', Origin: url.origin }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs) });
     if (!response.ok) throw new Error('NATIVE_HISTORY_FAILED: ' + (await response.text()).slice(0, 1200));
     return binary ? Buffer.from(await response.arrayBuffer()) : response.json();
   }
@@ -62,8 +62,17 @@ export class ProjectVersions {
   }
   get indexFile() { return path.join(this.root, 'versions', this.store.projectId + '.json'); }
   blob(hash: string) { if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error('INVALID_BLOB_HASH'); return path.join(this.root, 'retained', hash); }
-  async withHistory<T>(task: (history: NativeHistory) => Promise<T>): Promise<T> {
-    if (this.nativeUrl) return task(remoteHistory(new URL('/api/projects/' + this.store.projectId + '/history', this.nativeUrl).href));
+  async nativeBlob(hash: string) {
+    this.blob(hash);
+    const id = (await readFile(path.join(this.store.projectDirectory, '.hyperframes/history-id'), 'utf8')).trim();
+    if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new Error('INVALID_HISTORY_ID');
+    const native = await import(pathToFileURL(path.join(this.runtimeRoot, 'node_modules/@hyperframes/studio-server/dist/history/index.js')).href);
+    const home = path.join(process.env.HYPERFRAMES_HISTORY_ROOT || native.DEFAULT_HISTORY_ROOT, id);
+    const blob = path.join(home, 'blobs', hash.slice(0, 2), hash);
+    return await exists(blob) ? blob : path.join(home, 'aside', hash.slice(0, 2), hash);
+  }
+  async withHistory<T>(task: (history: NativeHistory) => Promise<T>, timeoutMs = 120_000): Promise<T> {
+    if (this.nativeUrl) return task(remoteHistory(new URL('/api/projects/' + this.store.projectId + '/history', this.nativeUrl).href, timeoutMs));
     const native = await import(pathToFileURL(path.join(this.runtimeRoot, 'node_modules/@hyperframes/studio-server/dist/history/index.js')).href);
     let history: any;
     try { history = await native.openProjectHistory({ projectDir: this.store.projectDirectory,
@@ -72,7 +81,7 @@ export class ProjectVersions {
       if (e instanceof native.HistoryBusyError && e.url) {
         const owner = new URL(e.url);
         if (!owner.pathname.endsWith('/projects/' + encodeURIComponent(this.store.projectId) + '/history')) throw e;
-        return task(remoteHistory(owner.href));
+        return task(remoteHistory(owner.href, timeoutMs));
       }
       throw e;
     }
@@ -86,7 +95,7 @@ export class ProjectVersions {
     for (const [name, hash] of Object.entries(manifest) as [string, string][]) {
       try { projectPath(name); } catch { continue; }
       const file: VersionFile = { path: name, hash, size: 0 };
-      try { file.size = (await history.readBlob(hash)).length; }
+      try { file.size = (await stat(await this.nativeBlob(hash))).size; }
       catch {
         file.retained = true;
         const retained = this.blob(hash);
@@ -126,12 +135,13 @@ export class ProjectVersions {
     await atomicJson(this.indexFile, index);
     return index;
   }
-  async publicVersion(version: ContentVersion, history: NativeHistory) {
+  async publicVersion(version: ContentVersion, history: NativeHistory, cached = false) {
     const { files, nativePoint, ...value } = version;
     const unavailableFiles: string[] = [];
     for (const file of files) {
       try {
-        const hash = file.retained ? await fileHash(this.blob(file.hash)) : createHash('sha256').update(await history.readBlob(file.hash)).digest('hex');
+        const hash = cached ? (await this.store.fileInfo(file.retained ? this.blob(file.hash) : await this.nativeBlob(file.hash))).hash
+          : file.retained ? await fileHash(this.blob(file.hash)) : createHash('sha256').update(await history.readBlob(file.hash)).digest('hex');
         if (hash !== file.hash) unavailableFiles.push(file.path);
       } catch { unavailableFiles.push(file.path); }
     }
@@ -147,7 +157,7 @@ export class ProjectVersions {
     requestId: string, changes: { path: string; content?: string | Buffer; source?: string; remove?: boolean }[],
     options: { label: string; restoredFromVersionId?: string }) {
     const current = await this.current(history);
-    if (current.revision !== expectedRevision || expectedVersionId && current.versionId !== expectedVersionId) throw new Error('VERSION_CONFLICT: 请重新读取当前工程与版本');
+    if (current.revision !== expectedRevision || expectedVersionId && current.versionId !== expectedVersionId) throw new Error(`VERSION_CONFLICT: 工程已更新。当前 revision=${current.revision}，versionId=${current.versionId}。请调用 openmotion_get_project 读取最新内容后，用这两个值重试。`);
     const paths = changes.map(change => projectPath(change.path));
     if (paths.some((name, i) => paths.some((other, j) => i !== j && (name === other || name.startsWith(other + '/'))))) throw new Error('CONFLICTING_FILE_PATHS');
     const window = await history.beginWindow(actor, options.label, { exclusive: true, idleMs: 600_000 });

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { isLocale, translate, type Locale, type MessageValues } from './messages';
+import { pageMetadata } from '../../../packages/design-system/metadata.js';
 export { languages, isLocale, translate, sourceMessage } from './messages';
 export type { Locale, MessageValues, Translate } from './messages';
 export const LOCALE_STORAGE_KEY = 'motion.studio.locale';
@@ -31,6 +32,19 @@ export function I18nProvider({ children, initialLocale }: { children: ReactNode;
   }, []);
   useEffect(() => {
     document.documentElement.lang = locale;
+    const metadata = pageMetadata(locale);
+    document.title = metadata.title;
+    for (const attribute of ['name', 'property'] as const) {
+      for (const [key, value] of Object.entries(metadata[attribute])) {
+        let element = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${key}"]`);
+        if (!element) {
+          element = document.createElement('meta');
+          element.setAttribute(attribute, key);
+          document.head.append(element);
+        }
+        element.content = value;
+      }
+    }
     const onStorage = (event: StorageEvent) => {
       if (event.storageArea && event.storageArea !== localStorage) return;
       if (event.key === LOCALE_STORAGE_KEY || event.key === null) updateLocale(isLocale(event.newValue) ? event.newValue : 'zh-CN');

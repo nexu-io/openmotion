@@ -23,6 +23,7 @@ import {
   createTimelineRowGeometry,
 } from "./timelineLayout";
 import { isMultiDragPassenger } from "./timelineMultiDragPreview";
+import { compactMainTrack } from "./timelineMainMagnet";
 import { resolveMultiDragPreview } from "./timelineProviderStateBuilders";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,7 +124,24 @@ function horizontalDrag(
 }
 
 describe("computeDragPreview — plain horizontal drag never arms a phantom insert (BUG 1)", () => {
-  it("opens the physical seam below a zero-padding ruler and keeps it armed inside the new lane", () => {
+  it("does not alternate between distant gaps for one-pixel pointer jitter over an occupied clip", () => {
+    const dragged = clip("ease", 0, 24, 4, 1);
+    const context = { ...ctx(undefined, [clip("left", 0, 0, 6, 1), clip("block", 0, 10, 10, 1), dragged]), trackOrder: [0], rippleEditEnabled: true };
+    const { drag, clientY } = horizontalDrag(dragged, 0.5, 0);
+    let current = drag;
+    const move = (time: number) => {
+      current = computeDragPreview(current, drag.originClientX + (time - dragged.start) * PPS, clientY, context);
+      return current.previewStart;
+    };
+    expect(move(12.9)).toBe(6);
+    for (const time of [13.01, 12.99, 13.02, 12.98]) expect(move(time)).toBe(6);
+    expect(move(13.3)).toBe(20);
+    for (const time of [12.99, 13.01, 12.98]) expect(move(time)).toBe(20);
+    expect(move(12.7)).toBe(6);
+    expect(move(22)).toBe(22); // Free space still follows the pointer without a dead zone.
+  });
+
+  it("keeps collision insertion when leaving a seam into an occupied ordinary lane", () => {
     const geometry = createTimelineRowGeometry([0, 1, 2], [104, 48, 48], { top: 0 });
     const context = { ...ctx(geometry.rowHeights), rowGeometry: geometry };
     const { drag, clientX } = horizontalDrag(moodboard, 0.5, 2);
@@ -132,9 +150,31 @@ describe("computeDragPreview — plain horizontal drag never arms a phantom inse
     const between = computeDragPreview(drag, clientX, 128, context);
     expect(between.insertRow).toBe(1);
     const inside = computeDragPreview(between, clientX, 150, context);
+    // This aim is inside the occupied secondary row: collision still requires an upper lane.
     expect(inside.insertRow).toBe(1);
     const below = computeDragPreview(inside, clientX, 202, context);
-    expect(below.insertRow).toBeNull();
+    // Pointer seams do not expand rows: y=202 aims at row 2, also occupied.
+    // Returning to the vacated origin would cancel the user's layer move.
+    expect(below.desiredTrack).toBe(2);
+    expect(below.previewTrack).toBe(2);
+    expect(below.insertRow).toBe(2);
+    expect(below.previewStart).toBe(21);
+  });
+
+  it.each([false, true])("crosses a seam in small pointer steps without being captured by a new lane (upward=%s)", (upward) => {
+    const element = clip("cut", upward ? 1 : 0, 7.87, 3.1, 2);
+    const geometry = createTimelineRowGeometry([0, 1, 2], [48, 48, 48], { top: 0 });
+    const context = { ...ctx(undefined, [element]), rowGeometry: geometry };
+    const from = geometry.getRowTop(element.track) + 24;
+    const to = geometry.getRowTop(upward ? 0 : 1) + 24;
+    let current = { ...horizontalDrag(element, element.track + 0.5, 0).drag,
+      originClientY: from, pointerClientY: from };
+    for (let y = from; upward ? y >= to : y <= to; y += upward ? -2 : 2) {
+      current = computeDragPreview(current, 800, y, context);
+    }
+    expect(current.insertRow).toBeNull();
+    expect(current.previewTrack).toBe(upward ? 0 : 1);
+    expect(current.previewStart).toBe(7.87);
   });
 
   it("dragging v-moodboard +2s while grabbing its clip body keeps it a pure time move", () => {
@@ -197,7 +237,7 @@ describe("computeDragPreview — plain horizontal drag never arms a phantom inse
     expect(next.previewTrack).toBe(0);
   });
 
-  it("an occupied aim in an expanded row stays on that row at the nearest free time", () => {
+  it("an unchanged expanded-row clip retains its own pointer time", () => {
     const rowHeights = [TRACK_H + 2 * LANE_H, TRACK_H];
     const dragged = clip("dragged", 0, 0, 1, 3);
     const occupied = [dragged, clip("block-0", 0, 0, 1, 2), clip("block-1", 1, 0, 1, 1)];
@@ -226,7 +266,7 @@ describe("computeDragPreview — plain horizontal drag never arms a phantom inse
     });
     expect(next.insertRow).toBeNull();
     expect(next.previewTrack).toBe(0);
-    expect(next.previewStart).toBe(1);
+    expect(next.previewStart).toBe(0);
   });
 });
 
@@ -567,32 +607,32 @@ describe("computeDragPreview — the ghost start is the committed start", () => 
     expect(committedStart(ghost, lower, elements)).toBe(10);
   });
 
-  it("a move onto an occupied row lands at its nearest free time, ghost and commit alike", () => {
+  it("a vertical move onto an occupied row opens a lane without retiming, ghost and commit alike", () => {
     const blocker = clip("blocker", 0, 8, 4, 5);
     const elements = [blocker, lower];
     const ghost = preview(lower, elements, 1, 0.5);
-    expect(ghost.insertRow).toBeNull();
+    expect(ghost.insertRow).toBe(0);
     expect(ghost.previewTrack).toBe(0);
-    expect(ghost.previewStart).toBe(12);
-    expect(committedStart(ghost, lower, elements)).toBe(12);
+    expect(ghost.previewStart).toBe(10);
+    expect(committedStart(ghost, lower, elements)).toBe(10);
   });
 
-  describe("a drop onto an occupied row stays on that row", () => {
+  describe("a vertical drop onto an occupied row preserves the scene time", () => {
     const title = clip("title", 0, 0, 10, 3, "text");
     const subtitle = clip("subtitle", 1, 0, 6, 2, "text");
     const tag = clip("tag", 2, 2, 5, 1, "text");
     const rows = [title, subtitle, tag];
 
-    it("Tag dropped on the Subtitle row lands right after Subtitle, with no new track", () => {
+    it("Tag dropped on the Subtitle row opens a lane above Subtitle", () => {
       const ghost = preview(tag, rows, 2, 1.5);
-      expect(ghost).toMatchObject({ insertRow: null, previewTrack: 1, previewStart: 6 });
-      expect(committedStart(ghost, tag, rows)).toBe(6);
+      expect(ghost).toMatchObject({ insertRow: 1, previewTrack: 1, previewStart: 2 });
+      expect(committedStart(ghost, tag, rows)).toBe(2);
     });
 
-    it("Tag dropped on the top Title row stays on track 0 after Title, not snapped to 0", () => {
+    it("Tag dropped on the top Title row opens a top lane at its original time", () => {
       const ghost = preview(tag, rows, 2, 0.5);
-      expect(ghost).toMatchObject({ insertRow: null, previewTrack: 0, previewStart: 10 });
-      expect(committedStart(ghost, tag, rows)).toBe(10);
+      expect(ghost).toMatchObject({ insertRow: 0, previewTrack: 0, previewStart: 2 });
+      expect(committedStart(ghost, tag, rows)).toBe(2);
     });
 
     it("a clip aimed at a seam opens a new track at that boundary", () => {
@@ -616,40 +656,33 @@ describe("computeDragPreview — the ghost start is the committed start", () => 
       expect(committedStart(ghost, m, row)).toBeUndefined();
     });
 
-    it("goes back to its own spot from a small nudge, snapped or not", () => {
-      const snapped = [{ time: 3.333, type: "clip-edge" as const }];
-      for (const targets of [[], snapped]) {
-        const { drag, clientX, clientY } = horizontalDrag(m, 0.5, 0.1);
-        const ghost = computeDragPreview(drag, clientX, clientY, {
-          ...ctx(undefined, row),
-          buildSnapTargets: () => targets,
-        });
-        expect(ghost).toMatchObject({ previewTrack: 0, previewStart: 3.333 });
-      }
+    it("follows a small nudge and opens above a collision instead of returning to its origin", () => {
+      const { drag, clientX, clientY } = horizontalDrag(m, 0.5, 0.1);
+      const ghost = computeDragPreview(drag, clientX, clientY, ctx(undefined, row));
+      expect(ghost).toMatchObject({ previewTrack: 0, insertRow: 0, previewStart: 3.43 });
     });
 
-    it("counts its own start only on its own row, where keeping it rewrites nothing", () => {
-      // Row 1 has the same off-grid slot, but a move there writes a rounded start that would overlap.
+    it("opens above a different occupied row without retiming", () => {
       const c = clip("c", 1, 0, 3.333, 1);
       const d = clip("d", 1, 6.666, 4, 1);
       const ghost = preview(m, [...row, c, d], 0, 1.5);
-      expect(ghost).toMatchObject({ previewTrack: 1, insertRow: null, previewStart: 10.67 });
+      expect(ghost).toMatchObject({ previewTrack: 1, insertRow: 1, previewStart: 3.33 });
     });
   });
 
-  it("drops the snap guide when the row moves the clip off the snapped time", () => {
+  it("keeps the snap guide when collision opens another row at the snapped time", () => {
     const a = clip("a", 0, 0, 6, 1);
-    const b = clip("b", 1, 3, 2, 1);
-    const { drag, clientX } = horizontalDrag(b, 1.5, 0);
+    const b = clip("b", 1, 2, 2, 1);
+    const { drag, clientX } = horizontalDrag(b, 1.5, 1);
     const ghost = computeDragPreview(drag, clientX, yForRow(0.5), {
       ...ctx(undefined, [a, b]),
       buildSnapTargets: () => [{ time: 3, type: "beat" }],
     });
     expect(ghost).toMatchObject({
       previewTrack: 0,
-      previewStart: 6,
-      snapTime: null,
-      snapType: null,
+      previewStart: 3,
+      snapTime: 3,
+      snapType: "beat",
     });
   });
 
@@ -688,7 +721,7 @@ describe("computeDragPreview — a group move keeps its shape", () => {
       onMoveElements,
       selectedKeys,
     });
-    return onMoveElements.mock.calls[0][0];
+    return onMoveElements.mock.calls[0]?.[0] ?? [];
   }
 
   it("never bumps the grabbed clip further left than the group's 0 limit", () => {
@@ -703,12 +736,12 @@ describe("computeDragPreview — a group move keeps its shape", () => {
       ...ctx(undefined, elements),
       selectedKeys,
     });
-    expect(ghost).toMatchObject({ previewTrack: 0, insertRow: null, previewStart: 10 });
+    expect(ghost).toMatchObject({ previewTrack: 0, insertRow: 0, previewStart: 6.5 });
     const edits = commitPreview(ghost, elements, selectedKeys);
     const moved = Object.fromEntries(
       edits.map((e) => [e.element.id, e.updates.start - e.element.start]),
     );
-    expect(moved).toEqual({ a: 3, b: 3 });
+    expect(moved).toMatchObject({ a: -0.5, b: -0.5 });
   });
 
   // Drags `grabbed` by `seconds` onto `row` and commits; returns each written clip's start.
@@ -752,8 +785,9 @@ describe("computeDragPreview — a group move keeps its shape", () => {
     const locked: TimelineElement = { ...clip("locked", 0, 4, 2, 1), timelineLocked: true };
     const b = clip("b", 1, 0, 1, 1);
     const written = groupMove(b, [locked, b], new Set(["locked", "b"]), 0, 4.5);
-    // 4.5 s overlaps the locked 4-6 s clip; 3 s and 6 s are equally near, and a tie goes later.
-    expect(written).toEqual({ b: { start: 6, track: 0 } });
+    // Opening above a locked lane would renumber it; the atomic commit
+    // refuses the whole operation instead of moving the protected member.
+    expect(written).toEqual({});
   });
 });
 
@@ -945,5 +979,44 @@ describe("trimPreviewTime", () => {
     useLinkedClipPreferences.getState().setCompositionFps(fps);
     expect(trimPreviewTime("end", 1, 2)).toBeCloseTo(3 - 1 / fps, 9);
     useLinkedClipPreferences.getState().setCompositionFps(30);
+  });
+});
+
+
+describe("magnet-aware collision preview and commit", () => {
+  it.each([
+    { name: "secondary track", magnet: true, track: 0, start: 12, aim: 6, landing: 6, insertRow: 0 },
+    { name: "magnetic main track", magnet: true, track: 1, start: 5, aim: 2, landing: 5, insertRow: null },
+    { name: "nonmagnetic main track", magnet: false, track: 1, start: 12, aim: 6, landing: 6, insertRow: 1 },
+  ])("shares the resolved landing with commit on $name", ({ magnet, track, start, aim, landing, insertRow }) => {
+    const moving = clip("moving", track, start, 5, 1);
+    const busy = clip("busy", track, start === 5 ? 0 : 5, 5, 1);
+    const other = clip("other", track === 0 ? 1 : 0, 0, 20, 1);
+    const elements = [busy, moving, other];
+    const { drag, clientX, clientY } = horizontalDrag(moving, track + 0.5, aim - start);
+    const ghost = computeDragPreview(drag, clientX, clientY, {
+      ...ctx(undefined, elements), trackOrder: [0, 1], rippleEditEnabled: magnet,
+    });
+    expect(ghost).toMatchObject({ previewTrack: track, previewStart: landing, insertRow });
+    const onMoveElement = vi.fn();
+    const onMoveElements = vi.fn();
+    commitDraggedClipMove(ghost, {
+      elements, trackOrder: [0, 1], updateElement: vi.fn(), onMoveElement, onMoveElements,
+      selectedKeys: new Set(),
+    });
+    const single = onMoveElement.mock.calls[0];
+    const batch = onMoveElements.mock.calls[0]?.[0] as TimelineMoveEdit[] | undefined;
+    const committed = single?.[1] ?? batch?.find(edit => edit.element.id === moving.id)?.updates;
+    if (insertRow === null) {
+      // Returning to the adjacent origin is a no-op, so no save or lane write is needed.
+      expect(onMoveElement).not.toHaveBeenCalled();
+      expect(onMoveElements).not.toHaveBeenCalled();
+      expect(moving.start).toBe(ghost.previewStart);
+      const changes = compactMainTrack(elements, [{ element: moving, start: ghost.previewStart, duration: 5 }], magnet, false);
+      expect(changes.find(change => change.element.id === moving.id)?.start).toBe(5);
+      expect(busy.start).toBe(0);
+    } else {
+      expect(committed?.start).toBe(ghost.previewStart);
+    }
   });
 });

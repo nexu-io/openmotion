@@ -79,7 +79,8 @@ export function useTimelineScrollViewport(
     scrollingRef.current = isScrolling;
     const publish = () => {
       viewportRafRef.current = 0;
-      setViewport(readTimelineScrollViewport(el, scrollingRef.current));
+      const next = readTimelineScrollViewport(el, scrollingRef.current);
+      setViewport(previous => Object.keys(next).every(key => previous[key as keyof typeof next] === next[key as keyof typeof next]) ? previous : next);
     };
     if (isScrolling) {
       if (!viewportRafRef.current) viewportRafRef.current = requestAnimationFrame(publish);
@@ -120,6 +121,8 @@ export function useTimelineScrollViewport(
       }
       scrollRef.current = el;
       if (!el) {
+        if (viewportRafRef.current) cancelAnimationFrame(viewportRafRef.current);
+        viewportRafRef.current = 0;
         if (scrollSettledTimerRef.current) clearTimeout(scrollSettledTimerRef.current);
         scrollSettledTimerRef.current = null;
         scrollingRef.current = false;
@@ -134,6 +137,8 @@ export function useTimelineScrollViewport(
       syncResize();
       roRef.current = new ResizeObserver(syncResize);
       roRef.current.observe(el);
+      // Row expansion changes the scroll extent without resizing the viewport.
+      if (el.firstElementChild) roRef.current.observe(el.firstElementChild);
     },
     [scrollRef, scheduleShortcutHintVisibilitySync, syncScrollViewport],
   );

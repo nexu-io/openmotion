@@ -3,6 +3,7 @@ import React, { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { I18nProvider, LOCALE_STORAGE_KEY, languages, readLocale, translate, useI18n } from './I18n';
+import { pageMetadata } from '../../../packages/design-system/metadata.js';
 import baseZhCN from './zh-CN.json';
 import mvpZhCN from './mvp-zh-CN.json';
 const zhCN = { ...baseZhCN, ...mvpZhCN };
@@ -94,6 +95,11 @@ it('restores and synchronizes every supported preference without replacing edito
     act(() => host.querySelector<HTMLButtonElement>(`[data-locale="${locale}"]`)!.click());
     expect(readLocale()).toBe(locale);
     expect(document.documentElement.lang).toBe(locale);
+    expect(document.title).toBe(pageMetadata(locale).title);
+    expect(document.head.querySelector('meta[name=description]')?.getAttribute('content')).toBe(pageMetadata(locale).name.description);
+    expect(document.head.querySelector('meta[property="og:locale"]')?.getAttribute('content')).toBe(pageMetadata(locale).property['og:locale']);
+    expect(document.head.querySelectorAll('meta[property="og:title"]')).toHaveLength(1);
+    expect(document.head.querySelector('meta[name="twitter:title"]')?.getAttribute('content')).toBe(pageMetadata(locale).name['twitter:title']);
     expect(host.querySelector('h1')?.textContent).toBe(translate(locale, 'Preview'));
     expect(host.querySelector('input')).toBe(input);
     expect(host.querySelector('iframe')).toBe(preview);
@@ -172,17 +178,17 @@ it('updates an already visible toast when the interface language changes', () =>
   expect(host.querySelector('[role="status"]')?.textContent).toContain('Undid: Edit layer style');
 });
 
-it('renders a dismissible restore error with a localized summary and unchanged diagnostic details', () => {
+it('renders a dismissible restore error with a concise localized cause and no details controls', () => {
   const dismiss = vi.fn();
   const message = 'VERSION_NOT_RESTORABLE: Historical files are missing, unreadable or corrupt: assets/原始配乐.wav';
   act(() => root.render(<I18nProvider initialLocale="zh-CN"><StudioToast message={message} tone="error" onDismiss={dismiss} /></I18nProvider>));
   const alert = host.querySelector('[role="alert"]')!;
-  expect(alert.textContent).toBe('操作未能完成，可查看错误详情。');
+  expect(alert.textContent).toBe('历史文件不可用，未恢复该版本');
   expect(host.textContent).not.toContain('assets/原始配乐.wav');
   expect(host.textContent).not.toContain('VERSION_NOT_RESTORABLE');
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-expanded]')!.click());
-  expect(host.querySelector('pre')?.textContent).toBe(message);
-  act(() => host.querySelector<HTMLButtonElement>('.motion-error-notice-close')!.click());
+  expect(host.querySelector('button[aria-expanded]')).toBeNull();
+  expect(host.querySelector('pre')).toBeNull();
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="关闭错误提示"]')!.click());
   expect(dismiss).toHaveBeenCalledOnce();
 });
 

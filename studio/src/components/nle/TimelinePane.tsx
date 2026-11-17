@@ -7,6 +7,7 @@ import type { BlockedTimelineEditIntent } from "../../player/components/timeline
 import { AudioMeterStrip } from "./AudioMeterStrip";
 import { useTimelineEditContext } from "../../contexts/TimelineEditContext";
 import { useNLEContext } from "./NLEContext";
+import { useTimelineDockSizing } from "./useTimelineDockSizing";
 import { MotionTimelineMedia } from "../../motion/MotionTimelineMedia";
 
 export interface TimelinePaneProps {
@@ -75,6 +76,7 @@ export function TimelinePane({
   splitShortcut,
 }: TimelinePaneProps) {
   const { t } = useI18n();
+  const sizing = useTimelineDockSizing();
   const {
     projectId,
     seek,
@@ -105,10 +107,11 @@ export function TimelinePane({
           }
         }}
       >
-        <div className="shrink-0 motion-timeline-toolbar">{timelineToolbar}<MotionTimelineMedia projectId={projectId} compositionId={compositionStack.at(-1)?.id ?? 'master'} disabled={timelineDisabled || !onAssetDrop} onFileDrop={onFileDrop} onAssetDrop={onAssetDrop} /></div>
+        <div ref={sizing.toolbar} className="shrink-0 motion-timeline-toolbar">{timelineToolbar}<MotionTimelineMedia projectId={projectId} compositionId={compositionStack.at(-1)?.id ?? 'master'} disabled={timelineDisabled || !onAssetDrop} onFileDrop={onFileDrop} onAssetDrop={onAssetDrop} /></div>
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1">
             <Timeline
+              onContentHeightChange={sizing.onContentHeightChange}
               sessionEpoch={timelineSessionEpoch}
               onSeek={seek}
               onDrillDown={handleDrillDown}
@@ -137,7 +140,7 @@ export function TimelinePane({
           <AudioMeterStrip />
         </div>
       </div>
-      {timelineFooter && <div className="shrink-0">{timelineFooter}</div>}
+      {timelineFooter && <div ref={sizing.footer} className="shrink-0">{timelineFooter}</div>}
       {timelineOverlay && (
         <div className="pointer-events-none absolute inset-0 z-20">{timelineOverlay}</div>
       )}

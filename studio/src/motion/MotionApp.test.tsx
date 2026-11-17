@@ -3,13 +3,53 @@ import { afterEach, expect, it, vi } from 'vitest';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { MotionApp, resolveWorkspaceProject } from './MotionApp';
-import { I18nProvider } from '../i18n/I18n';
+import { I18nProvider, translate } from '../i18n/I18n';
 import { trackMotion } from './tracking';
 
-vi.mock('../App', () => ({ StudioApp: () => null }));
+vi.mock('../App', () => ({ StudioApp: ({ resolvedProjectId }: { resolvedProjectId: string }) => <div data-viewer-project={resolvedProjectId} /> }));
+vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: { projectId: string } }) => <div data-viewer-project={artifact.projectId} /> }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
 const id = '11111111-1111-1111-1111-111111111111';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => vi.unstubAllGlobals());
+it.each([false, true])('prepares only existing projects while browsing, and creates only the selected template (existing=%s)', async existing => {
+  history.replaceState(null, '', '/?templates=1&embed=1');
+  vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+  const assign = vi.spyOn(location, 'assign').mockImplementation(() => {});
+  const artifact = { id, kind: 'motion-project', projectId: id, title: 'Existing project' };
+  const catalog = { activeId: existing ? id : 'project', projects: existing ? [{ id, title: 'Existing project' }] : [], sessions: existing ? [{ id, artifacts: [artifact] }] : [] };
+  const fetcher = vi.fn(async (url: string, init?: RequestInit) => Response.json(
+    url.includes('/template-catalog') ? { items: [{ id: 'product-promo', title: 'Product Promo', kind: 'builtin', tags: [], author: 'OpenMotion', hasHtmlProject: true }], total: 1, next: null, catalogVersion: 'test' }
+    : url.endsWith('/projects') ? catalog
+    : url.endsWith('/sessions') && init?.method === 'POST' ? { sessionId: id, session: { artifacts: [] } }
+    : url.split('?')[0].endsWith('/artifacts') ? { sessionId: id, projectId: id }
+    : url.includes('/sessions/') ? { id, artifacts: [artifact] }
+    : { projectId: existing ? id : 'project', revision: 'r' },
+  ));
+  vi.stubGlobal('fetch', fetcher);
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.querySelector('dialog[aria-label="Template library"]')).not.toBeNull();
+    expect(fetcher.mock.calls.some(([url]) => url.includes('/preview/open'))).toBe(existing);
+    const posts = () => fetcher.mock.calls.filter(([url, init]) => init?.method === 'POST' && !url.includes('/preview/open'));
+    expect(posts()).toHaveLength(0);
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-template-id="product-promo"] button')!.click());
+    expect(posts()).toHaveLength(0);
+    const open = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Open and edit'))!;
+    await act(async () => open.click());
+    expect(posts().map(([url]) => url.split('?')[0])).toEqual(['/design-api/sessions', `/design-api/sessions/${id}/artifacts`]);
+    expect(JSON.parse(String(posts()[0][1]!.body)).templateId).toBe('product-promo');
+    expect(assign).not.toHaveBeenCalled();
+    expect(location.search).toContain(`project=${id}`);
+    expect(location.search).not.toContain('templates=1');
+    expect(container.querySelector('dialog[aria-label="Template library"]')).toBeNull();
+  } finally {
+    act(() => root.unmount()); container.remove(); assign.mockRestore(); history.replaceState(null, '', '/');
+  }
+});
 it('resolves a bookmark without switching another page globally', async () => {
   const fetcher = vi.fn(async (url: string, _init?: RequestInit) => new Response(JSON.stringify(url.endsWith('/projects') ? { activeId: 'project', projects: [{ id }, { id: 'project' }] } : { projectId: id })));
   vi.stubGlobal('fetch', fetcher);
@@ -72,10 +112,11 @@ it.each(['deleted project', 'empty session'])('keeps the project drawer reachabl
   const root = createRoot(container);
   try {
     await act(async () => root.render(<I18nProvider><MotionApp /></I18nProvider>));
-    const toggle = container.querySelector<HTMLButtonElement>('.motion-workspace-menu');
+    const toggle = container.querySelector<HTMLButtonElement>(`.om-app-rail button[aria-label="${translate('zh-CN', 'Home')}"]`);
     expect(toggle).not.toBeNull();
     await act(async () => toggle!.click());
     expect(document.querySelector('.motion-session')?.textContent).toContain('Existing project');
+    expect(document.querySelector<HTMLButtonElement>('.motion-session')?.disabled).toBe(false);
   } finally {
     act(() => root.unmount());
     container.remove();
@@ -93,12 +134,92 @@ it('shows the brand while opening and exposes failures instead of leaving the sp
   try {
     await act(async () => root.render(<I18nProvider><MotionApp /></I18nProvider>));
     expect(container.querySelector('[role="status"] .motion-loading-mark')).not.toBeNull();
+    expect(container.querySelectorAll('[data-testid="project-list-skeleton"]')).toHaveLength(3);
+    expect(container.querySelector('.motion-session-list')?.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelector('.motion-session-list')?.textContent).toBe('');
     await act(async () => fail(new Error('Project unavailable')));
     expect(container.querySelector('.motion-loading')).toBeNull();
-    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Project unavailable');
+    expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    expect(container.querySelector('pre')).toBeNull();
+    const details = container.querySelector<HTMLButtonElement>('.motion-error-notice-actions button')!;
+    await act(async () => details.click());
+    expect(container.querySelector('pre')?.textContent).toBe('Project unavailable');
   } finally {
     act(() => root.unmount());
     container.remove();
     history.replaceState(null, '', '/');
+  }
+});
+
+it('keeps chrome, sidebar search and geometry mounted while replacing only the project viewer', async () => {
+  const second = '22222222-2222-2222-2222-222222222222';
+  const artifacts = [id, second].map((projectId, index) => ({ id: projectId, kind: 'motion-project', projectId, title: `Project ${index + 1}` }));
+  const catalog = { activeId: id, projects: artifacts.map((item, index) => ({ id: item.projectId, title: item.title, createdAt: 200 - index * 100, openedAt: 200 - index * 100 })), sessions: artifacts.map(item => ({ id: item.id, artifacts: [item] })) };
+  let finishOpening!: () => void;
+  const opening = new Promise<void>(resolve => { finishOpening = resolve; });
+  history.replaceState(null, '', `/?project=${id}&embed=1&tracking_context=33333333-3333-3333-3333-333333333333#project/${id}`);
+  const assign = vi.spyOn(location, 'assign').mockImplementation(() => {});
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    const projectId = new URL(url, location.origin).searchParams.get('projectId') ?? id;
+    if (init?.method === 'POST' && url.includes('/projects/') && url.split('?')[0].endsWith('/open')) {
+      const opened = new URL(url, location.origin).pathname.split('/').at(-2)!;
+      catalog.projects.find(project => project.id === opened)!.openedAt = Date.now();
+    }
+    if ((url.includes('/preview/open') || url.includes('/project/status')) && projectId === second) await opening;
+    return Response.json(url.endsWith('/projects') && !init?.method ? catalog
+      : url.includes('/design-api/sessions/') ? catalog.sessions.find(item => url.includes(item.id))
+      : url.includes('/open') && url.includes('/projects/') ? { projectId: new URL(url, location.origin).pathname.split('/').at(-2), revision: 'r' }
+      : { projectId, revision: 'r' });
+  }));
+  const container = document.createElement('div'); document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    const header = container.querySelector('.om-app-header');
+    const rail = container.querySelector('.om-app-rail');
+    const sidebar = container.querySelector('.motion-sidebar');
+    const content = container.querySelector('.motion-workspace-content');
+    const firstViewer = container.querySelector('[data-viewer-project]');
+    const search = container.querySelector<HTMLInputElement>('input[type="search"]')!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      setter.call(search, 'Project');
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const row = [...container.querySelectorAll<HTMLButtonElement>('.motion-session')].find(button => button.textContent === 'Project 2')!;
+    const originalRows = [...sidebar!.querySelectorAll('.motion-session')];
+    expect(originalRows.map(item => item.textContent)).toEqual(['Project 1', 'Project 2']);
+    await act(async () => row.click());
+    expect(assign).not.toHaveBeenCalled();
+    expect(container.querySelector('.om-app-header')).toBe(header);
+    expect(container.querySelector('.om-app-rail')).toBe(rail);
+    expect(container.querySelector('.motion-sidebar')).toBe(sidebar);
+    expect(container.querySelector('.motion-workspace-content')).toBe(content);
+    expect(search.value).toBe('Project');
+    expect(sidebar?.querySelector('[data-testid="project-list-skeleton"]')).toBeNull();
+    expect(sidebar?.querySelector('.motion-session-empty')).toBeNull();
+    expect([...sidebar!.querySelectorAll('.motion-session')]).toEqual(originalRows);
+    expect(firstViewer?.isConnected).toBe(false);
+    expect(content?.querySelectorAll('.motion-loading')).toHaveLength(1);
+    expect(row.disabled).toBe(true);
+    await act(async () => finishOpening());
+    expect(content?.querySelector('[data-viewer-project]')?.getAttribute('data-viewer-project')).toBe(second);
+    expect(content?.querySelector('.motion-loading')).toBeNull();
+    expect([...sidebar!.querySelectorAll('.motion-session')]).toEqual(originalRows);
+    expect(row.getAttribute('aria-current')).toBe('page');
+    expect(row.closest('.om-project-sidebar-row')?.getAttribute('data-active')).toBe('true');
+    expect(row.closest('.om-project-sidebar-row')?.querySelector('[aria-label="Actions for Project 2"]')).not.toBeNull();
+    expect(location.search).toContain('embed=1');
+    expect(location.search).toContain('tracking_context=33333333-3333-3333-3333-333333333333');
+    const firstRow = [...container.querySelectorAll<HTMLButtonElement>('.motion-session')].find(button => button.textContent === 'Project 1')!;
+    expect(firstRow.disabled).toBe(false);
+    await act(async () => firstRow.click());
+    expect(content?.querySelector('[data-viewer-project]')?.getAttribute('data-viewer-project')).toBe(id);
+    expect(container.querySelector('.motion-sidebar')).toBe(sidebar);
+    expect([...sidebar!.querySelectorAll('.motion-session')]).toEqual(originalRows);
+    expect(firstRow.closest('.om-project-sidebar-row')?.getAttribute('data-active')).toBe('true');
+    expect(row.closest('.om-project-sidebar-row')?.getAttribute('data-active')).toBe('false');
+  } finally {
+    act(() => root.unmount()); container.remove(); assign.mockRestore(); history.replaceState(null, '', '/');
   }
 });

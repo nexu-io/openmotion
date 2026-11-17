@@ -6,6 +6,7 @@
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import {
   cloneElement,
+  useEffect,
   useId,
   useRef,
   useState,
@@ -13,10 +14,10 @@ import {
   type ReactElement,
 } from "react";
 import { cn } from "./cn";
-import { floatingMotion, POPUP_LAYER } from "./Menu";
+import { floatingMotion, POPUP_LAYER } from "./floatingSurface";
 
 interface TooltipProps {
-  label: string;
+  label?: string;
   /** Optional plain-language explanation below the feature name. */
   description?: string;
   /** A single element, wrapped in a box-less span so a disabled one still gets hover. */
@@ -27,6 +28,10 @@ interface TooltipProps {
   side?: "top" | "bottom" | "left" | "right";
   /** Wraps a long label at a reading width and cuts it at this many lines with an ellipsis. Unset, one line. */
   lines?: number;
+  /** Wrap the complete label without clamping it. */
+  wrap?: boolean;
+  /** Keep this tooltip in its trigger's native dialog top layer. Enabled by default. */
+  withinDialog?: boolean;
 }
 
 /** Matches the old bubble's gap from its trigger, and its viewport margin. */
@@ -41,19 +46,26 @@ export function Tooltip({
   side = "top",
   disabled = false,
   lines,
+  wrap = false,
+  withinDialog = true,
 }: TooltipProps) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLSpanElement>(null);
   const tooltipId = useId();
+  const unavailable = disabled || !label;
+  useEffect(() => { if (unavailable) setOpen(false); }, [unavailable]);
 
   return (
-    <BaseTooltip.Root open={open} onOpenChange={setOpen} disabled={disabled}>
+    <BaseTooltip.Root open={open && !unavailable} onOpenChange={setOpen} disabled={unavailable}>
       <BaseTooltip.Trigger delay={delay} render={<span ref={boxRef} className="contents" />}>
         {cloneElement(children, {
-          "aria-describedby": open && !disabled ? tooltipId : children.props["aria-describedby"],
+          "aria-describedby": open && !unavailable
+            ? [children.props["aria-describedby"], tooltipId].filter(Boolean).join(" ")
+            : children.props["aria-describedby"],
         })}
       </BaseTooltip.Trigger>
-      <BaseTooltip.Portal>
+      {/* Native modal dialogs make body portals inert and paint above them. */}
+      <BaseTooltip.Portal container={withinDialog ? boxRef.current?.closest("dialog") ?? undefined : undefined}>
         <BaseTooltip.Positioner
           anchor={() => boxRef.current?.firstElementChild ?? null}
           side={side}
@@ -66,7 +78,7 @@ export function Tooltip({
             role="tooltip"
             className={cn(
               "studio-tooltip pointer-events-none rounded-md border border-border-input bg-surface px-2 py-1 text-step-10 font-medium text-text-1 shadow-menu",
-              lines || description ? "max-w-[300px] whitespace-normal break-words" : "whitespace-nowrap",
+              lines || description || wrap ? "max-w-[min(300px,calc(100vw-16px))] whitespace-normal break-words" : "whitespace-nowrap",
               description && "px-3 py-2",
               floatingMotion("duration-tooltip"),
             )}
@@ -74,7 +86,7 @@ export function Tooltip({
             {description ? (
               <>
                 <span className="block font-semibold">{label}</span>
-                <span className="mt-1 block font-normal leading-normal opacity-80">{description}</span>
+                <span className="mt-1 block whitespace-pre-line font-normal leading-normal">{description}</span>
               </>
             ) : lines ? (
               <span

@@ -82,8 +82,9 @@ beforeAll(async () => {
     base: STYLES_DIR,
     loadStylesheet,
   });
-  // The app imports the Motion adapter after Studio; semantic hooks live there.
-  const hostCss = readFileSync(path.join(STYLES_DIR, "../motion/theme.css"), "utf8");
+  // The shared package owns control recipes; feature CSS only composes them.
+  const hostCss = readFileSync(path.join(STYLES_DIR, "../../../packages/design-system/studio/adapter.css"), "utf8")
+    + readFileSync(path.join(STYLES_DIR, "../motion/theme.css"), "utf8");
   compileStudioCss = (candidates) => compiled.build(candidates) + hostCss;
 });
 
@@ -401,6 +402,26 @@ describe("Input", () => {
 });
 
 describe("Select", () => {
+  it("keeps rich option artwork and descriptions separate from its selected value", async () => {
+    const commits: string[] = [];
+    const host = render(<Select label="Agent" value="codex" onCommit={value => commits.push(value)} options={[
+      { value: 'codex', label: 'Codex', description: 'Signed in', icon: <svg data-testid="agent-icon" /> },
+      { value: 'claude', label: 'Claude Code', description: 'Signed in', icon: <svg /> },
+      { value: 'kimi', label: 'Kimi Code', description: 'Not installed', disabled: true, icon: <svg /> },
+    ]} />);
+    const trigger = host.querySelector<HTMLElement>('[role="combobox"]')!;
+    expect(trigger.textContent).toBe('Codex');
+    expect(trigger.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
+    act(() => trigger.click());
+    await settle();
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(options[0].textContent).toBe('CodexSigned in');
+    expect(options[2].getAttribute('aria-disabled')).toBe('true');
+    act(() => options[1].click());
+    await settle();
+    expect(commits).toEqual(['claude']);
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
   it("opens with Space, moves the highlight, and commits on Enter", async () => {
     const commits: string[] = [];
     const host = render(

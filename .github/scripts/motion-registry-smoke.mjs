@@ -4,11 +4,12 @@ import { createInterface } from 'node:readline';
 import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runFile, writeJSON } from '../../scripts/runtime-assets.mjs';
 import { verifyRegistryDownload } from './motion-registry.mjs';
 import { releaseTemplateEnvironment } from '../../scripts/release-version.mjs';
 import { verifyDownloaded } from './motion-release.mjs';
+import { checkTemplateRuntime } from './template-runtime-check.mjs';
 
 export function consumerEnvironment(work, source = process.env) {
   // Consumer code receives OS basics only, never CI credentials or Agent/browser IPC capabilities.
@@ -21,7 +22,7 @@ export function consumerEnvironment(work, source = process.env) {
     OPENMOTION_TELEMETRY: '0', HYPERFRAMES_NO_TELEMETRY: '1' };
 }
 
-async function discover(transport, env, version, tools) {
+async function discover(transport, env, version, tools, templateCheck) {
   const child = spawn(transport.command, transport.args, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
   const waiting = new Map(); let sequence = 0;
   const fail = error => { for (const p of waiting.values()) { clearTimeout(p.timer); p.reject(error); } waiting.clear(); };
@@ -35,6 +36,7 @@ async function discover(transport, env, version, tools) {
     const id = ++sequence, timer = setTimeout(() => { waiting.delete(id); reject(new Error('MCP timed out: ' + method)); }, 120_000);
     waiting.set(id, { resolve, reject, timer }); child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
   });
+  let editorRuntime;
   try {
     const hello = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'motion-registry-acceptance', version: '1' } });
     assert.equal(hello.serverInfo.version, version);
@@ -42,7 +44,27 @@ async function discover(transport, env, version, tools) {
     assert.deepEqual((await rpc('tools/list', {})).tools.map(t => t.name), tools);
     await rpc('resources/read', { uri: 'motion://workflow/production/start' });
     await rpc('resources/read', { uri: 'motion://engine/SKILL.md' });
-  } finally { child.stdin.end(); child.kill(); fail(new Error('MCP session closed')); }
+    if (templateCheck) {
+      const { nativeConfiguration } = await import(pathToFileURL(path.join(templateCheck.appRoot, 'scripts/npm-runtime.mjs')).href);
+      const native = await nativeConfiguration(templateCheck.appRoot);
+      assert(native?.paths.HYPERFRAMES_BROWSER_PATH, 'Installed package must supply its prepared browser');
+      editorRuntime = await import(pathToFileURL(path.join(templateCheck.appRoot, 'editor-runtime.ts')).href);
+      return await checkTemplateRuntime({ ...templateCheck, browserPath: native.paths.HYPERFRAMES_BROWSER_PATH,
+        call: async (name, args = {}) => {
+          const value = await rpc('tools/call', { name, arguments: args });
+          assert(!value.isError, 'Template tool failed: ' + name);
+          return value.structuredContent;
+        },
+      });
+    }
+    return { status: 'not-run-legacy-cms' };
+  } finally {
+    child.stdin.end(); child.kill(); fail(new Error('MCP session closed'));
+    if (editorRuntime?.sharedEditorEnabled) {
+      const editor = await editorRuntime.readEditor(templateCheck.dataDirectory);
+      if (editor) await editorRuntime.editorRequest(editor, '/editor-api/shutdown', {});
+    }
+  }
 }
 
 export async function registrySmoke(directory) {
@@ -88,11 +110,17 @@ export async function registrySmoke(directory) {
   const installed = JSON.parse(await runFile(process.execPath, [codex, 'mcp', 'get', 'openmotion', '--json'], { cwd: project, env }));
   assert.equal(installed.transport.command, process.execPath); assert.deepEqual(installed.transport.args, [first.launcher]);
   console.log('Checking the actual registered MCP transport and resources');
-  await checkpoint('mcp-discovery');
-  await discover(installed.transport, env, c.version, manifest.mcp.tools);
+  const templateCheck = templateConfig.source === 'hosted'
+    ? { appRoot: first.appRoot, dataDirectory: data, output: path.join(directory, `template-runtime-${platform}`) } : null;
+  const consumerInput = path.join(work, 'runtime-check.json'), consumerReport = path.join(work, 'runtime-result.json');
+  await writeJSON(consumerInput, { transport: installed.transport, version: c.version, tools: manifest.mcp.tools, templateCheck, report: consumerReport });
+  await checkpoint(templateCheck ? 'template-runtime' : 'mcp-discovery');
+  // Installed code and its browser dependencies execute only with consumer credentials.
+  await runFile(process.execPath, [fileURLToPath(import.meta.url), 'consumer', consumerInput], { cwd: project, env, timeout: 10 * 60_000 });
+  const templateRuntime = JSON.parse(await readFile(consumerReport, 'utf8'));
   const report = { status: 'passed', platform, version: c.version, sourceCommit: c.sourceCommit, tgzSHA256: c.tgzSHA256,
     node: process.version, codex: '0.166.0', templateEnvironment: templateConfig.environment, registryColdInstall: 'passed', repeatSetup: 'passed', unrelatedSettings: 'preserved',
-    nativePreparation: 'passed', mcpTools: manifest.mcp.tools.length, skills: manifest.skills.length, resources: 'passed',
+    nativePreparation: 'passed', mcpTools: manifest.mcp.tools.length, skills: manifest.skills.length, resources: 'passed', templateRuntime,
     realModelTurn: 'not-run', humanPlayback: 'not-run', windowsDesktopAcceptance: 'not-run' };
   await writeJSON(file, report); return report;
   } catch (error) {
@@ -101,4 +129,9 @@ export async function registrySmoke(directory) {
   }
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await registrySmoke(path.resolve(process.argv[2]));
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  if (process.argv[2] === 'consumer') {
+    const input = JSON.parse(await readFile(process.argv[3], 'utf8'));
+    await writeJSON(input.report, await discover(input.transport, process.env, input.version, input.tools, input.templateCheck));
+  } else await registrySmoke(path.resolve(process.argv[2]));
+}

@@ -3,21 +3,54 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#ededed" />
-    <title>OpenDesign · 创作工作区</title>
+    <!-- openmotion:metadata -->
+<title>OpenDesign Motion — AI Video &amp; Motion Design</title>
+<meta name="description" content="全栈 Agent 视频编辑器。把创意、品牌模板和参考视频变成可编辑作品；生成图片、视频、音乐与配音，完成剪辑、动效和动画，从灵感到成片。" />
+<meta name="application-name" content="OpenDesign Motion" />
+<meta name="apple-mobile-web-app-title" content="OpenDesign Motion" />
+<meta name="robots" content="noindex, nofollow" />
+<meta name="color-scheme" content="light dark" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="OpenDesign Motion — Create with your AI agent" />
+<meta name="twitter:description" content="全栈 Agent 视频编辑器。把创意、品牌模板和参考视频变成可编辑作品；生成图片、视频、音乐与配音，完成剪辑、动效和动画，从灵感到成片。" />
+<meta name="twitter:image" content="https://releases.open-design.ai/open-motion/media/sha256/730e1d6235820d39ba8adde42810d1165377992136a3b20290ad5d504abb527b.jpg" />
+<meta name="twitter:image:alt" content="OpenMotion video recreation: a reference beside its remake, with the editable Studio timeline below." />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="OpenDesign Motion" />
+<meta property="og:title" content="OpenDesign Motion — Create with your AI agent" />
+<meta property="og:description" content="全栈 Agent 视频编辑器。把创意、品牌模板和参考视频变成可编辑作品；生成图片、视频、音乐与配音，完成剪辑、动效和动画，从灵感到成片。" />
+<meta property="og:locale" content="zh_CN" />
+<meta property="og:image" content="https://releases.open-design.ai/open-motion/media/sha256/730e1d6235820d39ba8adde42810d1165377992136a3b20290ad5d504abb527b.jpg" />
+<meta property="og:image:secure_url" content="https://releases.open-design.ai/open-motion/media/sha256/730e1d6235820d39ba8adde42810d1165377992136a3b20290ad5d504abb527b.jpg" />
+<meta property="og:image:type" content="image/jpeg" />
+<meta property="og:image:width" content="1586" />
+<meta property="og:image:height" content="992" />
+<meta property="og:image:alt" content="OpenMotion video recreation: a reference beside its remake, with the editable Studio timeline below." />
+<link rel="icon" type="image/png" sizes="32x32" href="/design-system/brand/favicon-32.png" />
+<link rel="icon" type="image/svg+xml" sizes="any" href="/design-system/brand/favicon.svg?v=2" />
+<link rel="apple-touch-icon" sizes="180x180" href="/design-system/brand/apple-touch-icon.png" />
+<meta name="theme-color" content="#f4f4f4" data-light="#f4f4f4" data-dark="#292929" />
+<!-- /openmotion:metadata -->
     <script>
-      // Studio owns theme persistence; the product stylesheet maps its tokens.
+      // Embedded browsers receive the host's color scheme. Resolve it before paint;
+      // standalone Studio keeps its saved choice. main.tsx binds live host changes.
+      let preference = "light";
       try {
-        if (JSON.parse(localStorage.getItem("hf-studio-ui-preferences") || "{}").theme !== "dark")
-          document.documentElement.dataset.theme = "paper";
-      } catch (e) {
-        document.documentElement.dataset.theme = "paper";
-      }
+        const saved = JSON.parse(localStorage.getItem("hf-studio-ui-preferences") || "{}")?.theme;
+        if (saved === "light" || saved === "dark" || saved === "system") preference = saved;
+      } catch (e) {}
+      document.documentElement.dataset.themePreference = preference;
+      let theme = preference;
+      if (new URLSearchParams(location.search).get("embed") === "1" || preference === "system")
+        theme = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
+      if (theme === "light") document.documentElement.dataset.theme = "paper";
+      else delete document.documentElement.dataset.theme;
+      const chromeColor = document.querySelector('meta[name="theme-color"]');
+      if (chromeColor) chromeColor.content = chromeColor.dataset[theme];
     </script>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="stylesheet" href="/web/design-system/tokens.css" />
-    <link rel="stylesheet" href="/web/design-system/fonts.css" />
-    <link rel="stylesheet" href="/src/motion/loading.css" />
+    <link rel="stylesheet" href="/design-system/tokens.css" />
+    <link rel="stylesheet" href="/design-system/fonts.css" />
+    <link rel="stylesheet" href="/design-system/loading.css" />
   </head>
   <body>
     <div id="root">

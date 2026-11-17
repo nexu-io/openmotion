@@ -1,3 +1,5 @@
+import { usePlayerStore } from "../player/store/playerStore";
+import { compactMainTrack } from "../player/components/timelineMainMagnet";
 // fallow-ignore-file code-duplication
 // Move/resize operation families remain parallel until SDK graduation.
 import { useCallback, type MutableRefObject, type RefObject } from "react";
@@ -198,6 +200,7 @@ export function useTimelineGroupEditing({
       const sharedPath = allChangesSharePath(input.changes, activeCompPath);
       const canUseSdk =
         !input.needsExtension &&
+        input.changes.every(change => !change.element.implicitTextTiming) &&
         sharedPath !== null &&
         input.eligible &&
         input.sdkChanges.every((change) => change !== null);
@@ -238,12 +241,14 @@ export function useTimelineGroupEditing({
     (changes: TimelineGroupMoveChange[], options?: TimelineGroupCommitOptions) => {
       if (changes.length === 0) return Promise.resolve();
       for (const change of changes) {
-        const attrs: Array<[string, string]> = [
+        // Lane-only changes keep the live start too (see applyTimelineMoveAttributes).
+        const attrs: Array<[string, string]> = change.start === change.element.start ? [] : [
           [
             "data-start",
             formatTimelineAttributeNumber(toAuthoredStart(change.element, change.start)),
           ],
         ];
+        if (change.element.implicitTextTiming) attrs.push(["data-duration", formatTimelineAttributeNumber(change.element.duration)]);
         if (change.track != null) {
           attrs.push(["data-track-index", formatTimelineAttributeNumber(change.track)]);
         }
@@ -371,6 +376,9 @@ export function useTimelineGroupEditing({
 
   const handleTimelineGroupResize = useCallback(
     (changes: TimelineGroupResizeChange[], options?: TimelineGroupCommitOptions) => {
+      const state = usePlayerStore.getState();
+      const originals = new Map(changes.map(change => [change.element.key ?? change.element.id, change.element]));
+      changes = compactMainTrack(state.elements.map(element => originals.get(element.key ?? element.id) ?? element), changes, state.rippleEditEnabled, state.timelineLinkageEnabled);
       if (changes.length === 0) return Promise.resolve();
       for (const change of changes) {
         const liveAttrs: Array<[string, string]> = [

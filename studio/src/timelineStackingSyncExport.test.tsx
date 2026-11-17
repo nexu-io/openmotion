@@ -4,6 +4,7 @@ import { act } from "react";
 import { expect, it, vi } from "vitest";
 import { Timeline, usePlayerStore, type TimelineZIndexReorderCommit } from "@hyperframes/studio";
 import { installReactActEnvironment, mountReactHarness } from "./hooks/domSelectionTestHarness";
+import { getTimelineRowTop, TRACK_H } from "./player/components/timelineLayout";
 
 installReactActEnvironment();
 // happy-dom has no layout; the timeline only renders clips inside a sized viewport.
@@ -47,15 +48,18 @@ it("restacks the host's preview when a lane move puts a clip below another", asy
   );
   await settle();
   const tagClip = document.querySelector<HTMLElement>('.timeline-clip[aria-label^="tag,"]')!;
-  vi.spyOn(tagClip, "getBoundingClientRect").mockReturnValue(new DOMRect(80, 77, 360, 42));
+  vi.spyOn(tagClip, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(80, getTimelineRowTop(0), 360, 42),
+  );
+  const originY = getTimelineRowTop(0) + TRACK_H / 2;
+  const targetY = getTimelineRowTop(2) + TRACK_H / 2;
 
   // Drag tag from the top row to the bottom row, clear of note in time.
-  act(() => void tagClip.dispatchEvent(pointer("pointerdown", 98)));
+  act(() => void tagClip.dispatchEvent(pointer("pointerdown", originY)));
   act(() => {
-    window.dispatchEvent(pointer("pointermove", 140));
-    window.dispatchEvent(pointer("pointermove", 194));
+    window.dispatchEvent(pointer("pointermove", targetY));
   });
-  await act(async () => void window.dispatchEvent(pointer("pointerup", 194)));
+  await act(async () => void window.dispatchEvent(pointer("pointerup", targetY)));
   await settle();
 
   expect(usePlayerStore.getState().elements.find((e) => e.id === "tag")?.track).toBe(2);

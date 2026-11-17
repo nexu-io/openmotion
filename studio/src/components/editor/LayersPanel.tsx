@@ -1,3 +1,4 @@
+import { Tooltip } from "../ui/Tooltip";
 import { PanelEmptyState } from "../ui/PanelEmptyState";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { RemixIcon } from "../../icons/RemixIcons";
@@ -23,7 +24,6 @@ import { useDomEditContext } from "../../contexts/DomEditContext";
 import { usePlayerStore, liveTime } from "../../player";
 import {
   findMatchingTimelineElementId,
-  resolveTimelineSelectionSeekTime,
 } from "../../utils/studioHelpers";
 import {
   Film,
@@ -126,7 +126,6 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
     timelineElements,
     isPlaying,
   } = useLayersPanelHost(host);
-  const currentTime = usePlayerStore((s) => s.currentTime);
   // Flashless z commits (canvas menu, timeline lane-drag z-sync) mutate iframe
   // z-indexes with no reload and no refreshKey bump — while paused, nothing
   // else re-collects, so the panel's z-sorted order would go stale.
@@ -230,53 +229,37 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
     [activeCompPath, isMasterView, previewIframeRef, activeGroupElement],
   );
 
-  const seekToLayer = useCallback(
-    async (layer: DomEditLayerItem) => {
-      const selection = await resolveSelection(layer);
-      if (!selection) return;
-
-      let matchedId = findMatchingTimelineElementId(selection, timelineElements);
-
-      if (!matchedId) {
-        const sourceFile = selection.sourceFile ?? "index.html";
-        let ancestor = layer.element.parentElement;
-        while (ancestor && !matchedId) {
-          const elId = ancestor.id;
-          if (elId) {
-            const found = timelineElements.find(
-              (e) => e.domId === elId && (e.sourceFile ?? "index.html") === sourceFile,
-            );
-            if (found) matchedId = found.key ?? found.id;
-          }
-          ancestor = ancestor.parentElement;
-        }
-      }
-
-      if (matchedId) {
-        const el = timelineElements.find((e) => (e.key ?? e.id) === matchedId);
-        if (el) {
-          const nextTime = resolveTimelineSelectionSeekTime(currentTime, el);
-          if (nextTime != null) usePlayerStore.getState().requestSeek(nextTime);
-        }
-      }
-    },
-    [currentTime, resolveSelection, timelineElements],
-  );
-
   const handleSelectLayer = useCallback(
     async (layer: DomEditLayerItem) => {
       const selection = await resolveSelection(layer);
       if (!selection) return;
+      const matchedId = findMatchingTimelineElementId(selection, timelineElements);
+      let clip = timelineElements.find((item) => (item.key ?? item.id) === matchedId);
+      const sourceFile = selection.sourceFile ?? "index.html";
+      let ancestor = selection.element.parentElement;
+      while (!clip && ancestor) {
+        const id = ancestor.id;
+        if (id) {
+          clip = timelineElements.find((item) => item.domId === id &&
+            ((item.sourceFile ?? "index.html") === sourceFile || item.compositionSrc === sourceFile));
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (clip) {
+        const time = liveTime.latest();
+        if (time < clip.start || time >= clip.start + clip.duration) {
+          usePlayerStore.getState().requestSeek(clip.start);
+        }
+      }
       trackStudioClick("layers", "locate_layer");
-      applyDomSelection(selection);
-      await seekToLayer(layer);
+      applyDomSelection(selection, { revealPanel: false });
       // Force-reveal AFTER the seek's runtime visibility sync has had a beat:
       // a clip made active by the seek shows naturally and needs no override,
       // so the reveal only touches nodes that REMAIN hidden (animation-parked
       // opacity, non-clip display/visibility hides, hidden ancestors).
       scheduleReveal(selection.element, 150);
     },
-    [resolveSelection, applyDomSelection, seekToLayer, scheduleReveal],
+    [resolveSelection, applyDomSelection, timelineElements, scheduleReveal],
   );
 
   // Double-click a group row → drill into it; any other row → select it.
@@ -476,8 +459,7 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
             : "This layer can't be reordered";
 
           return (
-            <div
-              key={layer.key}
+            <Tooltip label={hint ? t(hint) : undefined} wrap key={layer.key}><div
               data-layer-index={index}
               role="button"
               tabIndex={0}
@@ -495,11 +477,10 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
                 isDragged
                   ? "opacity-40"
                   : selected
-                    ? "bg-panel-accent/14 text-accent-ink"
+                    ? mvp ? "bg-panel-hover text-panel-text-1" : "bg-panel-accent/14 text-accent-ink"
                     : "text-panel-text-2 hover:bg-panel-hover/40 hover:text-panel-text-1"
               } ${dragKey ? "cursor-grabbing" : "cursor-pointer"}`}
               style={{ paddingLeft: 8 + layer.depth * CHILD_INDENT }}
-              title={hint ? t(hint) : undefined}
             >
               {hasChildren ? (
                 <button
@@ -512,11 +493,12 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
                   <RemixIcon name="arrow-right-s-line" size={12} className={`transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
                 </button>
               ) : null}
-              <span
+              <Tooltip label={hint ? `${t(kindName)} · ${t(hint)}` : t(kindName)} wrap><span
                 data-layer-kind={kind}
-                title={hint ? `${t(kindName)} · ${t(hint)}` : t(kindName)}
                 className={`flex h-5 w-5 shrink-0 items-center justify-center rounded ${
-                  selected
+                  mvp
+                    ? selected ? "bg-panel-hover text-panel-text-1" : "bg-panel-hover text-panel-text-4"
+                    : selected
                     ? "bg-panel-accent/18 text-accent-ink"
                     : isCompHost
                       ? "bg-on text-accent-ink"
@@ -524,14 +506,14 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
                 }`}
               >
                 <KindIcon size={12} />
-              </span>
+              </span></Tooltip>
               <span className="min-w-0 flex-1 truncate text-[11px]">{layer.label}</span>
               {hasChildren && (
                 <span className="text-[9px] tabular-nums text-panel-text-5">
                   {layer.childCount}
                 </span>
               )}
-            </div>
+            </div></Tooltip>
           );
         })}
         {insertionLineY != null && (

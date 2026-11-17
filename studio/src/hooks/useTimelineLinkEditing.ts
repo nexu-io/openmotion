@@ -149,7 +149,26 @@ export function useTimelineLinkEditing({
     [handleTimelineElementsDelete],
   );
 
+  const handleDeleteTrack = useCallback(async (track: number) => {
+    const elements = usePlayerStore.getState().elements;
+    const selection = elements.filter(el => el.track === track);
+    if (!selection.length) return;
+    if (selection.some(el => el.timelineLocked)) {
+      showToast("Unlock the track before deleting it", "error");
+      return;
+    }
+    // Native deletion owns one source file per transaction. Never silently remove a subset.
+    if (new Set(selection.map(el => el.sourceFile || activeCompPath || "index.html")).size > 1) {
+      showToast("Open the composition to delete this track", "error");
+      return;
+    }
+    const removed = new Set(selection.map(keyOf));
+    const orphans = clipsToUnlink(selection, elements).filter(el => !removed.has(keyOf(el)));
+    await handleTimelineElementsDelete(selection, orphans);
+  }, [activeCompPath, handleTimelineElementsDelete, showToast]);
+
   return {
+    handleDeleteTrack,
     handleLinkEdit,
     handleLinkedElementsDelete,
     handleLinkedElementDelete,

@@ -258,7 +258,9 @@ describe("studio url state", () => {
       window.dispatchEvent(new HashChangeEvent("hashchange"));
     });
     await act(async () => {
-      await Promise.resolve();
+      // Drain Happy DOM's queued hashchange events from replaceState before
+      // measuring applications caused by the older deferred result.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
     });
     expect(applyDomSelection).toHaveBeenCalled();
     expect(applyDomSelection.mock.calls.every(([selection]) => selection === second)).toBe(true);
@@ -269,6 +271,7 @@ describe("studio url state", () => {
       await firstResolution;
     });
     expect(applyDomSelection).toHaveBeenCalledTimes(appliedBeforeOlderResolution);
+    expect(applyDomSelection.mock.calls.every(([selection]) => selection === second)).toBe(true);
     harness.unmount();
   });
 

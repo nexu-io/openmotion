@@ -317,7 +317,8 @@ describe("TimelineTrackHeader", () => {
     const eye = view.host.querySelector<HTMLButtonElement>('button[aria-label="Hide track 1"]');
 
     expect(eye).not.toBeNull();
-    expect(eye?.title).toBe("Hide track 1");
+    expect(eye?.getAttribute("aria-label")).toBe("Hide track 1");
+    expect(eye?.hasAttribute("title")).toBe(false);
     expect(view.host.innerHTML).not.toContain("0.16666666666666666");
 
     act(() => eye?.click());

@@ -119,6 +119,21 @@ describe("preview iframe hotkey forwarding", () => {
     });
   }
 
+  it('ignores editing shortcuts only while the project is initializing', async () => {
+    const inner = mountWithPreview();
+    const loading = document.body.appendChild(document.createElement('div'));
+    loading.setAttribute('data-editor-initializing', 'true');
+    await press(inner, { key: 'z', ctrlKey: true });
+    await press(inner, { key: 'Delete' });
+    expect(historyUndo).not.toHaveBeenCalled();
+    expect(domDelete).not.toHaveBeenCalled();
+    loading.setAttribute('data-editor-initializing', 'false');
+    await press(inner, { key: 'z', ctrlKey: true });
+    await press(inner, { key: 'Delete' });
+    expect(historyUndo).toHaveBeenCalledTimes(1);
+    expect(domDelete).toHaveBeenCalledTimes(1);
+  });
+
   it("takes one tracked undo step per Cmd+Z pressed inside the preview", async () => {
     await press(mountWithPreview(), { key: "z", ctrlKey: true });
 

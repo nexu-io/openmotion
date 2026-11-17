@@ -18,6 +18,8 @@ import {
 import type { TimelineTrackGroupInfo } from "./useTimelineTrackDerivations";
 import { groupAutomationElement } from "./groupAutomationElement";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
+import { useMvpEditor } from "../../motion/StudioHost";
+import { centerTimelineTracks } from "./timelineTrackAlignment";
 
 /** Automation rows the GROUP itself owns — its `data-automation`, not its members'. */
 function groupOwnLaneCount(group: TimelineTrackGroupInfo): number {
@@ -226,13 +228,9 @@ function useTimelineRowHeights(
     selectedElementId,
     selectedElementIds,
   ]);
-  const rowGeometryRef = useRef<TimelineRowGeometry>(rowGeometry);
-  rowGeometryRef.current = rowGeometry;
   return {
     laneCounts,
     rowGeometry,
-    rowGeometryRef,
-    rowHeights: rowGeometry.rowHeights,
   };
 }
 
@@ -242,7 +240,9 @@ export function useTimelineTrackLayout(
   selectedElementId: string | null,
   selectedElementIds: ReadonlySet<string>,
   trackPadding?: TimelineTrackPadding,
+  viewportHeight = 0,
 ) {
+  const centered = useMvpEditor();
   const { tracks, trackStyles, trackOrder, groups, trackGroupOf } =
     useTimelineTrackDerivations(expandedElements);
   const trackOrderRef = useRef(trackOrder);
@@ -253,14 +253,17 @@ export function useTimelineTrackLayout(
   );
   const trackInsertLayoutRef = useRef(trackInsertLayout);
   trackInsertLayoutRef.current = trackInsertLayout;
-  const { laneCounts, rowGeometry, rowGeometryRef, rowHeights } = useTimelineRowHeights(
+  const { laneCounts, rowGeometry: naturalGeometry } = useTimelineRowHeights(
     tracks,
     gsapAnimations,
     selectedElementId,
     selectedElementIds,
     groups,
-    trackPadding,
+    centered ? { top: trackPadding?.top ?? TRACK_H, bottom: trackPadding?.bottom ?? TRACK_H } : trackPadding,
   );
+  const rowGeometry = useMemo(() => centered ? centerTimelineTracks(naturalGeometry, viewportHeight) : naturalGeometry, [centered, naturalGeometry, viewportHeight]);
+  const rowGeometryRef = useRef(rowGeometry);
+  rowGeometryRef.current = rowGeometry;
 
   return {
     tracks,
@@ -271,7 +274,8 @@ export function useTimelineTrackLayout(
     laneCounts,
     rowGeometry,
     rowGeometryRef,
-    rowHeights,
+    rowHeights: rowGeometry.rowHeights,
+    intrinsicHeight: naturalGeometry.canvasHeight,
     groups,
     trackGroupOf,
   };
@@ -309,9 +313,13 @@ function useDisplayTrackOrder(draggedClip: DraggedClipState | null, trackOrder: 
   const started = draggedClip?.started === true;
   const insertRow = draggedClip?.insertRow ?? null;
   const previewTrack = draggedClip?.previewTrack;
+  const keyboardPickup = draggedClip?.pointerId === null;
   return useMemo(() => {
     if (!started || previewTrack === undefined) return trackOrder;
     if (insertRow !== null) {
+      // Interior pointer seams must not move existing rows under the pointer.
+      // Inserting above or below every row is safe and keeps the new-lane preview visible.
+      if (!keyboardPickup && insertRow > 0 && insertRow < trackOrder.length) return trackOrder;
       const pendingKey = trackOrder.reduce((lowest, key) => Math.min(lowest, key), 0) - 1;
       const displayOrder = [...trackOrder];
       displayOrder.splice(insertRow, 0, pendingKey);
@@ -324,7 +332,7 @@ function useDisplayTrackOrder(draggedClip: DraggedClipState | null, trackOrder: 
     // track only relative to other REAL (integer) tracks, leaving any
     // fractional group-anchor keys exactly where grouping placed them.
     return insertPreviewTrack(trackOrder, previewTrack);
-  }, [started, insertRow, previewTrack, trackOrder]);
+  }, [started, insertRow, previewTrack, trackOrder, keyboardPickup]);
 }
 
 export function useTimelineDisplayLayout(

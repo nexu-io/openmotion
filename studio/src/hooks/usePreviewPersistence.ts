@@ -154,14 +154,14 @@ export function usePreviewPersistence({
     return domEditSaveQueueRef.current?.enqueue(save) ?? save();
   }, []);
 
-  const drainPendingDomEditSaves = useCallback(async () => {
-    return drainStudioSaveQueues(flushStudioPendingEdits, async () => {
+  const drainPendingDomEditSaves = useCallback(async (options?: { blur?: boolean }) => {
+    return drainStudioSaveQueues(() => flushStudioPendingEdits(options), async () => {
       return (await domEditSaveQueueRef.current?.waitForIdle()) ?? { status: "clean" as const };
     });
   }, []);
 
-  const waitForPendingDomEditSaves = useCallback(async (): Promise<void> => {
-    const result = await drainPendingDomEditSaves();
+  const waitForPendingDomEditSaves = useCallback(async (options?: { blur?: boolean }): Promise<void> => {
+    const result = await drainPendingDomEditSaves(options);
     if (result.status !== "clean") throw result.error;
   }, [drainPendingDomEditSaves]);
 

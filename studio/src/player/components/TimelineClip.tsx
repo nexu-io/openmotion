@@ -1,3 +1,4 @@
+import { Tooltip } from "../../components/ui/Tooltip";
 import { useI18n } from "../../i18n/I18n";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { memo, type CSSProperties, type ReactNode } from "react";
@@ -65,7 +66,6 @@ export function clipZoomKey(el: TimelineElement, pps: number, interacting: boole
 // fallow-ignore-next-line complexity
 export const TimelineClip = memo(function TimelineClip({
   el,
-  trackLabel,
   pps,
   passengerStyle,
   clipY,
@@ -97,8 +97,9 @@ export const TimelineClip = memo(function TimelineClip({
   const isAudioClip = isAudioTimelineElement(el);
   const ladder = clipWidthLadder(widthPx);
   const showHandles = handleOpacity > 0.01 && (widthPx >= HANDLES_MIN_PX || isSelected);
-  const duplicateLabel = mvp && trackLabel === displayLabel;
-  const showLabel = !duplicateLabel && (!isAudioClip || ladder === "labeled");
+  // Center grips on the outer borders and leave the middle of short clips available to move.
+  const trimHitWidth = Math.min(CLIP_TRIM_HIT_PX, widthPx / 2);
+  const showLabel = !mvp && (!isAudioClip || ladder === "labeled");
   const showDefaultText = !hasCustomContent && ladder === "labeled";
   const startLabel = el.start.toFixed(1);
   const endLabel = (el.start + el.duration).toFixed(1);
@@ -123,7 +124,7 @@ export const TimelineClip = memo(function TimelineClip({
   const clipClassName = [
     "timeline-clip",
     "absolute",
-    hasCustomContent ? "overflow-visible" : "overflow-hidden",
+    "overflow-visible",
     isSelected ? "is-selected" : "",
     isHovered ? "is-hovered" : "",
     isDragging ? "is-dragging" : "",
@@ -150,6 +151,9 @@ export const TimelineClip = memo(function TimelineClip({
     ...passengerStyle,
   };
 
+  const tooltipLabel = isComposition
+          ? t("{value0} • Double-click to open", { value0: el.compositionSrc ?? "" })
+          : t("{displayLabel} • {startLabel}s to {endLabel}s", { displayLabel: displayLabel, startLabel: startLabel, endLabel: endLabel });
   const clip = (
     <button
       type="button"
@@ -159,7 +163,7 @@ export const TimelineClip = memo(function TimelineClip({
       data-clip-start={el.start}
       data-clip-end={el.start + el.duration}
       data-clip-hidden={el.hidden ? "true" : undefined}
-      data-label-in-track={duplicateLabel ? "true" : undefined}
+      data-label-in-track={mvp ? "true" : undefined}
       data-link-color={linkColor ?? undefined}
       data-ladder={ladder}
       data-active={isActive ? "" : undefined}
@@ -175,11 +179,6 @@ export const TimelineClip = memo(function TimelineClip({
       }
       className={clipClassName}
       style={style}
-      title={
-        isComposition
-          ? t("{value0} • Double-click to open", { value0: el.compositionSrc ?? "" })
-          : t("{displayLabel} • {startLabel}s to {endLabel}s", { displayLabel: displayLabel, startLabel: startLabel, endLabel: endLabel })
-      }
       onPointerEnter={onHoverStart}
       onPointerLeave={onHoverEnd}
       onPointerDown={onPointerDown}
@@ -191,13 +190,14 @@ export const TimelineClip = memo(function TimelineClip({
       {showHandles && capabilities.canTrimStart && (
         <div
           aria-hidden="true"
+          data-trim-edge="start"
           onPointerDown={(e) => onResizeStart?.("start", e)}
           style={{
             position: "absolute",
-            left: 0,
+            left: -trimHitWidth / 2,
             top: 0,
             bottom: 0,
-            width: CLIP_TRIM_HIT_PX,
+            width: trimHitWidth,
             cursor: "col-resize",
             zIndex: 4,
           }}
@@ -206,7 +206,7 @@ export const TimelineClip = memo(function TimelineClip({
             className="timeline-clip__handle-bar"
             style={{
               position: "absolute",
-              left: 4,
+              left: trimHitWidth / 2 - 1,
               top: 6,
               bottom: 6,
               width: 2,
@@ -221,13 +221,14 @@ export const TimelineClip = memo(function TimelineClip({
       {showHandles && capabilities.canTrimEnd && (
         <div
           aria-hidden="true"
+          data-trim-edge="end"
           onPointerDown={(e) => onResizeStart?.("end", e)}
           style={{
             position: "absolute",
-            right: 0,
+            right: -trimHitWidth / 2,
             top: 0,
             bottom: 0,
-            width: CLIP_TRIM_HIT_PX,
+            width: trimHitWidth,
             cursor: "col-resize",
             zIndex: 4,
           }}
@@ -236,7 +237,7 @@ export const TimelineClip = memo(function TimelineClip({
             className="timeline-clip__handle-bar"
             style={{
               position: "absolute",
-              right: 4,
+              right: trimHitWidth / 2 - 1,
               top: 6,
               bottom: 6,
               width: 2,
@@ -266,7 +267,7 @@ export const TimelineClip = memo(function TimelineClip({
       {/* Fade handles for anything the mixer hears: audio clips and videos marked
           data-has-audio. They write data-fade-in/out, the timeline half of the
           inspector's Fade rows. */}
-      {hasFades && (
+      {hasFades && !mvp && (
         <TimelineClipFades
           el={el}
           pps={pps}
@@ -279,5 +280,7 @@ export const TimelineClip = memo(function TimelineClip({
       )}
     </button>
   );
-  return isAudioClip || el.hasAudio ? <ClipPeakTooltip>{clip}</ClipPeakTooltip> : clip;
+  return isAudioClip || el.hasAudio
+    ? <ClipPeakTooltip label={tooltipLabel}>{clip}</ClipPeakTooltip>
+    : <Tooltip label={tooltipLabel} wrap disabled={isGestureActor || isDragging}>{clip}</Tooltip>;
 });

@@ -15,7 +15,6 @@ import { useTimelineEditPinning } from "./useTimelineEditPinning";
 import { useTimelineStackingSync } from "./useTimelineStackingSync";
 import { useTimelineGeometry } from "./useTimelineGeometry";
 import { useAutoExpandKeyframedClips } from "./useAutoExpandKeyframedClips";
-import { GUTTER } from "./timelineLayout";
 import { useTimelineLabelColumn } from "./useTimelineLabelColumn";
 import { useTimelineKeyframeData } from "./useTimelineKeyframeData";
 import { useTimelineScrollViewport } from "./useTimelineScrollViewport";
@@ -124,7 +123,6 @@ export function useTimelineProviderState({
   const selectedElementIds = usePlayerStore((s) => s.selectedElementIds);
   const focusedEaseSegment = usePlayerStore((s) => s.focusedEaseSegment);
   const { gsapAnimations, keyframeCache } = useTimelineKeyframeData(showKeyframes);
-  const { labelMode, contentOrigin } = useTimelineLabelColumn(gsapAnimations, timelineElements);
   const setSelectedElementId = usePlayerStore((s) => s.setSelectedElementId);
   const currentTime = usePlayerStore((s) => s.currentTime);
   const beatDragging = usePlayerStore((s) => s.beatDragging);
@@ -151,6 +149,7 @@ export function useTimelineProviderState({
     [duration, timelineElements],
   );
   useAutoExpandKeyframedClips(gsapAnimations);
+  const { viewport, showShortcutHint, setScrollRef, syncScrollViewport } = useTimelineScrollViewport(scrollRef, [timelineReady, timelineElements.length]);
   const {
     tracks,
     trackStyles,
@@ -160,6 +159,7 @@ export function useTimelineProviderState({
     laneCounts,
     rowGeometry,
     rowGeometryRef,
+    intrinsicHeight,
     groups,
     trackGroupOf,
   } = useTimelineTrackLayout(
@@ -168,6 +168,7 @@ export function useTimelineProviderState({
     selectedElementId,
     selectedElementIds,
     trackPadding,
+    viewport.clientHeight,
   );
   const timelineElementsRef = useRef(timelineElements);
   timelineElementsRef.current = timelineElements; // oxlint-disable-line react/refs -- event handlers read the latest elements
@@ -230,6 +231,17 @@ export function useTimelineProviderState({
     refreshAfterLaneMove,
     sessionEpoch,
   });
+  const displayLayout = useTimelineDisplayLayout(draggedClip, trackOrder, rowGeometry);
+  const { resizingElementIds, getPreviewElement, draggedElement, multiDragPreview, snapGuide } =
+    useTimelineDragPreviewState(draggedClip, resizingClip, selectedElementIds, timelineElements);
+  const { recordTimelineScroll } = useTimelinePerformanceTelemetry({
+    totalClipCount: timelineElements.length,
+    totalRowCount: displayLayout.displayTrackOrder.length,
+    zoomMode,
+  });
+  const { labelMode, contentOrigin, contentGutter, labelColumn } = useTimelineLabelColumn(
+    gsapAnimations, timelineElements, viewport.clientWidth,
+  );
   const assetDrop = useTimelineAssetDrop({
     scrollRef,
     ppsRef,
@@ -244,20 +256,6 @@ export function useTimelineProviderState({
     sessionEpoch,
     readOnlyPress,
   });
-  const displayLayout = useTimelineDisplayLayout(draggedClip, trackOrder, rowGeometry);
-  const { resizingElementIds, getPreviewElement, draggedElement, multiDragPreview, snapGuide } =
-    useTimelineDragPreviewState(draggedClip, resizingClip, selectedElementIds, timelineElements);
-  const { recordTimelineScroll } = useTimelinePerformanceTelemetry({
-    totalClipCount: timelineElements.length,
-    totalRowCount: displayLayout.displayTrackOrder.length,
-    zoomMode,
-  });
-  const { viewport, showShortcutHint, setScrollRef, syncScrollViewport } =
-    useTimelineScrollViewport(scrollRef, [
-      timelineReady,
-      timelineElements.length,
-      displayLayout.totalH,
-    ]);
   const { pps, fitPps, displayContentWidth, displayDuration, zoomModeRef } = useTimelineGeometry({
     viewportWidth: viewport.clientWidth,
     effectiveDuration,
@@ -352,12 +350,13 @@ export function useTimelineProviderState({
     onSeek,
     contentOrigin,
   });
-  const { razorGuideX, updateRazorGuide, clearRazorGuide, splitAllAtPointer } =
+  const { razorGuideRef, updateRazorGuide, clearRazorGuide, splitAllAtPointer } =
     useTimelineRazorInteraction({
       active: activeTool === "razor",
       scrollRef,
       contentOrigin,
       pixelsPerSecond: pps,
+      sessionEpoch,
       onSplitAll: oneShotEdits.onRazorSplitAll,
     });
   const overlaysProps = useTimelineOverlaysState({
@@ -455,9 +454,10 @@ export function useTimelineProviderState({
     minor,
     pps,
     contentOrigin,
-    contentGutter: labelMode ? GUTTER : 0,
+    contentGutter,
     trackContentWidth: displayContentWidth,
     totalH: displayLayout.totalH,
+    intrinsicHeight,
     effectiveDuration,
     majorTickInterval,
     tickFrameRate: frameRate,
@@ -566,10 +566,10 @@ export function useTimelineProviderState({
     activeTool,
     shiftHeld,
     labelMode,
-    contentOrigin,
+    contentOrigin, contentGutter,
     zoomMode,
     theme,
-    razor: { razorGuideX, updateRazorGuide, clearRazorGuide, splitAllAtPointer },
+    razor: { razorGuideRef, updateRazorGuide, clearRazorGuide, splitAllAtPointer },
     lastScrollLeftRef,
     recordTimelineScroll,
     syncScrollViewport,
@@ -585,6 +585,7 @@ export function useTimelineProviderState({
       overlays,
     },
     actions: {
+      labelColumn,
       renderClipContent: timelineRenderClipContent,
       renderClipOverlay,
       setFocusedEaseSegment,

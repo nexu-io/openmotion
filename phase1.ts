@@ -1,4 +1,15 @@
+import { projectArchive } from './project-archive.ts';
+import { manageProject } from './project-management.ts';
+import { probeLibraryMedia } from './gateway/asset-probe.ts';
+import { isFontFilePath, prepareImportedFont } from './shared/import-font.ts';
+import { publicToolName, legacyToolName, publicToolResult } from './shared/public-names.mjs';
 import { requireNativeRuntime } from './scripts/npm-runtime.mjs';
+import { recordDiagnostic } from './scripts/diagnostics.mjs';
+import { mediaUse } from './gateway/media-use.ts';
+import { assetOperation } from './gateway/asset-operations.ts';
+import { brandKitOperation } from './gateway/brand-kit-operation.ts';
+import { brandKitsFor } from './gateway/brand-kits.ts';
+import { MAX_ASSET_BYTES, isAssetFileWithinLimit } from './shared/asset-limits.ts';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { copyFile, lstat, mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -10,11 +21,17 @@ import { getTemplate } from './template-catalog.ts';
 import { execute, inspectProject, pluginRoot } from './hyperframes.ts';
 import { verificationBinaries } from './scripts/verify-export.ts';
 import { validateInstruction } from './shared/conversation.ts';
-import { sessionPath } from './shared/workspace-url.ts';
+import { sessionPath, templateLibraryPreview, providerSettingsPreview } from './shared/workspace-url.ts';
 import { phase1Tools, validateInput } from './shared/phase1-tools.ts';
 import { atomicJson, cloneFile, fileHash, jsonFile, ProjectVersions, recoverProjectTransactions } from './phase1-versions.ts';
 import type { ContentVersion } from './phase1-versions.ts';
-import { trackPhase1Result, type OmTracking } from './shared/tracking.ts';
+import { trackPhase1Result, trackingError, type OmTracking } from './shared/tracking.ts';
+import type { HostContext } from './tracking/host.ts';
+import { WorkRounds, workRoundMode } from './inline-video.ts';
+import { TaskLedger } from './tracking/task-ledger.ts';
+import { uuid } from './tracking/core.ts';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
 const metadataPath = 'motion-project.json', assetIndexPath = 'motion-assets.json';
 const textExtensions = new Set(['.html', '.css', '.js', '.mjs', '.json', '.svg', '.txt', '.md', '.vtt', '.srt', '.glsl', '.vert', '.frag']);
@@ -27,11 +44,11 @@ function previewHandoff(origin: string, target: { projectId: string; sessionId: 
   const confirmed = display?.visibility === 'visible' && display.contentVerified === true;
   const background = presentation === 'background';
   const now = presentation === 'now';
-  const onReturn = { tool: 'motion_open_preview', arguments: { projectId: target.projectId } };
-  const deferred = !now && display?.visibility !== 'visible' && (display?.hostStatus === 'queued' || display?.visibility === 'queued');
+  const onReturn = { tool: 'openmotion_open_preview', arguments: { projectId: target.projectId } };
+  const deferred = !now && display?.visibility === 'queued';
   const recovery = now ? { when: 'hidden_after_queued_ack', tool: 'navigate_to_codex_page', scope: 'calling_chat_only',
     threadIdFrom: 'open_in_codex.response.threadId', then: 'present_same_tab_and_recheck_visibility' } :
-    { when: 'calling_chat_not_visible', operation: 'wait_for_calling_chat', onReturn };
+    { when: 'calling_chat_confirmed_inactive', operation: 'wait_for_calling_chat', onReturn };
   return { ...target, previewUrl, placement: 'right', reuseExistingTab: true, presentation,
     focusPolicy: background ? 'background' : now ? 'switch_to_calling_chat' : 'preserve_current_chat',
     state: background ? 'background' : confirmed ? 'confirmed' : 'pending', openedByHost: confirmed,
@@ -39,16 +56,16 @@ function previewHandoff(origin: string, target: { projectId: string; sessionId: 
     nextAction: background || confirmed ? null : deferred ? { kind: 'host', operation: 'wait_for_calling_chat', onReturn } : prepared ? { kind: 'host', operation: 'present_preview',
       previewUrl, placement: 'right', reuseExistingTab: true, codex: { tool: 'open_in_codex', arguments: {
         placement: 'right', target: { type: 'browser', url: previewUrl, ...(hostTabId ? { tabId: hostTabId } : {}) } },
-        tabIdentity: 'Validate any stored Tab ID against the current host inventory; reuse the actual native host Tab ID (providerTabId), never a CUA wrapper id. After presenting, rebind the matching native panel tab before observing visibility; a hidden browser-use tab is separate.',
+        tabIdentity: 'Validate any stored Tab ID against the current host inventory; reuse the actual native host Tab ID (providerTabId), never a CUA wrapper id. After presenting, rebind the matching native panel tab before observing visibility. A separate visible:false or browser-use: automation tab and markDeliverable do not satisfy presentation; if the native project tab is missing, retry the same host presentation once, then report the gap.',
         visibilitySync: { capability: 'visibility', method: 'set', value: true,
           when: 'after_binding_native_tab', scope: 'calling_chat_only', navigation: false },
         observation: { visibility: 'get', settleTimeoutMs: 6000, content: 'latest_live_preview', recheckVisibilityAfterContent: true },
-        recovery } } : { kind: 'motion', tool: 'motion_open_preview', arguments: {
+        recovery } } : { kind: 'motion', tool: 'openmotion_open_preview', arguments: {
       projectId: target.projectId, expectedRevision: target.revision, expectedVersionId: target.versionId, presentation } },
     instructions: background ? 'Keep this edit in the background as explicitly requested by the user.' :
       (now ? 'The user explicitly requested immediate display for this turn; current-chat recovery may navigate to the calling chat. ' :
-        'Preserve the current chat. Queue the preview for its calling chat without navigating; if queued or hidden, wait for the user to return. On return, prepare the latest project version rather than replaying an old version-bound action. ') +
-      'Bind the native project tab and request Codex IAB visibility for the calling chat without navigation; inactive chats queue this request. Observe settled visibility and changed live content/time, recheck visibility, then record_display for the currently observed revision/version. A queued acknowledgment alone is not display confirmation. Follow motion://workflow/production/native#continuing-edits.' };
+        'Preserve the current chat. Wait for return only when the host confirms the calling chat is inactive; queued acknowledgment or hidden panel alone does not establish inactivity. On return, prepare the latest project version rather than replaying an old version-bound action. ') +
+      'For first delivery and continued edits, bind the native project tab and request Codex IAB visibility for the calling chat without navigation. Observe settled visibility and changed live content/time, recheck visibility, then record_display for the currently observed revision/version. Use visibility=queued only for confirmed inactive-chat deferral; otherwise record hidden or unavailable and report the display failure. Hidden-tab playback, markDeliverable and completed MP4 export do not complete editor delivery. Follow openmotion://workflow/production/native#continuing-edits.' };
 }
 function cursor(value: any) { return Buffer.from(JSON.stringify(value)).toString('base64url'); }
 function parseCursor(value: string | undefined, kind: string, scope: string) {
@@ -74,35 +91,59 @@ export class Phase1Service {
   readonly store: WorkspaceStore;
   readonly runtimeRoot: string;
   readonly context: Phase1Context;
-  constructor(store: WorkspaceStore, runtimeRoot: string, context: Phase1Context) { this.store = store; this.runtimeRoot = runtimeRoot; this.context = context; }
+  readonly ledger: TaskLedger;
+  constructor(store: WorkspaceStore, runtimeRoot: string, context: Phase1Context) { this.store = store; this.runtimeRoot = runtimeRoot; this.context = context; this.ledger = new TaskLedger(store.directory); }
   versions(projectId: string) { return new ProjectVersions(this.store.forProject(projectId), this.runtimeRoot, this.context.nativeUrl(projectId)); }
-  async call(name: string, args: any) {
+  get workRounds() { return new WorkRounds(this.store); }
+  async call(name: string, args: any, host?: HostContext) {
+    const requestedName = publicToolName(name);
+    name = legacyToolName(name);
     try {
-      const result = await this.invoke(name, args);
+      const result = await this.invoke(name, args, host, requestedName);
       if (name === 'motion_restore_version') this.restoreErrors.delete(args.projectId);
-      trackPhase1Result(this.context.tracking, name, args, result);
-      return result;
+      trackPhase1Result(this.context.tracking, name, args, result, undefined, host);
+      return publicToolResult(result);
     } catch (error) {
       if (name === 'motion_restore_version' && errorText(error).startsWith('VERSION_NOT_RESTORABLE:')) {
         this.restoreErrors.set(args.projectId, { requestId: args.requestId, message: errorText(error) });
       }
-      trackPhase1Result(this.context.tracking, name, args, undefined, error);
+      trackPhase1Result(this.context.tracking, name, args, undefined, error, host);
+      if (this.context.tracking && args?.workId && name !== 'motion_export_cancel') {
+        const work = await this.workRounds.get(args.projectId, args.workId).catch(() => null);
+        this.context.tracking.track('host_run_failed', { run_id: args.workId, task_type: work?.mode ?? 'modify', error_code: trackingError(error), stage: name }, undefined, undefined, host);
+        if (work?.state === 'failed') {
+          this.context.tracking.track('host_state_changed', { run_id: args.workId, sequence: 2, state: 'failed', phase: name }, undefined, undefined, host);
+        }
+      }
+      await recordDiagnostic(this.store.directory, { kind: 'mcp_failure', tool: name, requestId: args?.requestId,
+        projectId: args?.projectId, message: errorText(error), stack: error instanceof Error ? error.stack : undefined });
       throw error;
     }
   }
-  private async invoke(name: string, args: any) {
-    const definition = phase1Tools.find(tool => tool.name === name);
+  private async invoke(name: string, args: any, host?: HostContext, requestedName = publicToolName(name)) {
+    const definition = phase1Tools.find(tool => tool.name === requestedName);
     if (!definition) throw new Error('MCP_TOOL_NOT_EXPOSED: ' + name);
     validateInput(definition.inputSchema, args);
+    if (name === 'motion_open_preview' && (args.target === 'templates' || args.target === 'providers')) {
+      if (args.action && args.action !== 'open' || Object.keys(args).some(key => !['target', 'action', 'embedded', 'presentation'].includes(key))) {
+        throw new Error('INVALID_ARGUMENT: workspace page opening does not accept project, session or version arguments');
+      }
+      return args.target === 'providers' ? providerSettingsPreview(this.context.origin(), args) : templateLibraryPreview(this.context.origin(), args);
+    }
     if (name === 'motion_list_templates') return templateCatalogFor(this.store.directory).index();
     if (name === 'motion_get_template') return templateCatalogFor(this.store.directory).detail(args.templateId);
+    if (name === 'motion_get_project' && !args.projectId) return this.dispatch(name, args, host);
     const run = async () => {
       if (!this.recovered) { await recoverProjectTransactions(this.store, this.runtimeRoot); this.recovered = true; }
-      const result = await this.dispatch(name, args);
+      const result = await this.dispatch(name, args, host);
       if (name === 'motion_edit_project' || name === 'motion_restore_version') {
         const owner = this.store.projectCatalog().sessions!.find(session => session.artifacts.some(artifact => artifact.projectId === args.projectId))!;
         result.previewHandoff = previewHandoff(this.context.origin(), { projectId: args.projectId, sessionId: owner.id,
           revision: result.revision, versionId: result.version.versionId }, args.presentation);
+        if (args.workId && args.presentation !== 'now' && args.presentation !== 'background') {
+          result.previewHandoff = { ...result.previewHandoff, state: 'deferred', hostActionRequired: false, nextAction: null,
+            instructions: 'Production is still in progress. Keep the editor closed until the final authored video is complete and ready for preview. Then prepare and present the latest version with openmotion_open_preview; after MP4 export verification, present only the final video with the discovered openmotion_show_video.' };
+        }
       }
       return result;
     };
@@ -125,12 +166,14 @@ export class Phase1Service {
         if (version) {
           const versions = this.versions(args.projectId);
           const result = { projectId: args.projectId, version: await versions.withHistory(history => versions.publicVersion(version, history)), revision: version.revision, recovered: true };
+          if (args.workId) await this.workRounds.observed(name, args, result);
           await atomicJson(file, { ...previous, state: 'completed', result }); return result;
         }
         for (const id of await readdir(path.join(this.store.directory, 'jobs')).catch(e => { if (e.code === 'ENOENT') return []; throw e; })) {
           const job = await this.store.job(id).catch(() => null);
           if (job?.requestId === args.requestId && job.projectId === args.projectId) {
             const result = { projectId: args.projectId, job: await this.publicJob(job.id), recovered: true };
+            if (args.workId) await this.workRounds.observed(name, args, result);
             await atomicJson(file, { ...previous, state: 'completed', result }); return result;
           }
         }
@@ -141,14 +184,19 @@ export class Phase1Service {
       }
       throw new Error('REQUEST_STATE_UNKNOWN: 原请求未确认终态，未重复执行；请查询项目或任务状态');
     }
-    if (name === 'motion_import_assets') await requireNativeRuntime(pluginRoot, 'media');
+    if (name === 'motion_import_assets' && !args.items.every((item: any) => isFontFilePath(item.sourcePath))) await requireNativeRuntime(pluginRoot, 'media');
     if (name === 'motion_export_request' && args.action !== 'record_review') await requireNativeRuntime(pluginRoot, 'export');
     const record = { inputHash, name, state: 'pending', projectId: name === 'motion_create_project' ? crypto.randomUUID() : args.projectId,
       sessionId: args.sessionId ?? crypto.randomUUID(), createdAt: Date.now() };
     await atomicJson(file, record);
-    let result;
-    try { result = await task(record); }
+    let result, workAccepted = false;
+    try {
+      if (args.workId) { await this.workRounds.writable(name, args); workAccepted = true; }
+      result = await task(record);
+      if (args.workId) await this.workRounds.observed(name, args, result);
+    }
     catch (error) {
+      if (workAccepted) await this.workRounds.failed(args.projectId, args.workId, errorText(error));
       await atomicJson(file, { ...record, state: 'failed', error: errorText(error) }); throw error;
     }
     await atomicJson(file, { ...record, state: 'completed', result }); return result;
@@ -156,7 +204,7 @@ export class Phase1Service {
   async publicJob(jobId: string) {
     const job = (await this.store.status(jobId)).exportJob;
     if (!job) throw new Error('EXPORT_NOT_FOUND');
-    const { token, workerPid, ...safe } = job;
+    const { token, workerPid, trackingHost, ...safe } = job;
     return { ...safe, ...(job.state === 'completed' ? { path: path.join(this.store.directory, job.file!), downloadUrl: this.context.origin() + '/api/exports/' + job.id + '/file' } : {}) };
   }
   async detail(projectId: string, args: any = {}) {
@@ -193,15 +241,15 @@ export class Phase1Service {
       if (args.exportJobId && !jobs.some(job => job.id === args.exportJobId)) throw new Error('EXPORT_NOT_FOUND: 任务不属于该项目');
       const exportJob = args.exportJobId ? await this.publicJob(args.exportJobId) : jobs[0] ? await this.publicJob(jobs[0].id) : null;
       if ((await scoped.get()).revision !== state.revision) throw new Error('VERSION_CONFLICT: 读取期间工程已变化');
-      return { projectId, sessionId: owner.id, project: state.project, revision: state.revision, version: await versions.publicVersion(version, history),
+      return { projectId, sessionId: owner.id, project: state.project, revision: state.revision, version: await versions.publicVersion(version, history, true),
         currentVersionId: version.versionId, currentVersionNumber: version.versionNumber, dataDirectory: this.store.directory,
         hyperframesCli: path.join(this.runtimeRoot, 'node_modules/hyperframes/bin/hyperframes.mjs'), authoringGuide: path.join(this.runtimeRoot, 'node_modules/hyperframes/dist/skills/hyperframes/SKILL.md'),
         requirements: meta.requirements ?? (await scoped.conversation(projectId)).messages.map(message => message.content).join('\n'),
         projectType: meta.projectType ?? 'legacy', source: meta.source ?? null, assets, file, exportJob,
         previewDisplay: await this.previewDisplay(projectId, version),
-        exports: jobs.map(({ token, workerPid, ...job }) => job), reviews: await jsonFile(path.join(this.store.directory, 'phase1', 'reviews', projectId + '.json'), []),
-        limits: { textBatchFiles: 100, textBatchBytes: 8388608, textReadBytes: 2097152, assetBytes: 2147483648, attachmentTransport: 'local_path' } };
-    });
+        exports: jobs.map(({ token, workerPid, trackingHost, ...job }) => job), reviews: await jsonFile(path.join(this.store.directory, 'phase1', 'reviews', projectId + '.json'), []),
+        limits: { textBatchFiles: 100, textBatchBytes: 8388608, textReadBytes: 2097152, assetBytes: MAX_ASSET_BYTES, attachmentTransport: 'local_path' } };
+    }, 30_000);
   }
   async previewDisplay(projectId: string, version: ContentVersion) {
     const display = await jsonFile<any>(path.join(this.store.directory, 'phase1', 'preview-displays', projectId + '.json'), null);
@@ -220,8 +268,23 @@ export class Phase1Service {
     await atomicJson(path.join(this.store.directory, 'phase1', 'preview-displays', detail.projectId + '.json'), record);
     const current = await this.detail(detail.projectId);
     if (current.revision !== detail.revision || current.currentVersionId !== detail.currentVersionId) throw new Error('VERSION_CONFLICT: content changed during display confirmation');
+    // Evidence follows confirmation: a rejected display observed nothing, and delivery also needs the round's fixed version.
+    if (args.workId && this.context.tracking) {
+      const round = await this.workRounds.get(detail.projectId, args.workId).catch(() => null);
+      this.context.tracking.track('host_preview_observed', { run_id: args.workId, project_id: detail.projectId, revision: detail.revision,
+        version_id: detail.currentVersionId, visibility: display.visibility, content_verified: display.contentVerified, observation_source: 'host_reported' }, undefined, undefined, undefined);
+      const checkId = crypto.randomUUID();
+      this.context.tracking.track('check_required', { check_id: checkId, check_type: 'preview_observed', project_id: detail.projectId,
+        version_id: detail.currentVersionId, subject_id: checkId.slice(0, 32), checklist_version: 'preview-v1', checker_type: 'host', required: true });
+      this.context.tracking.track('check_completed', { check_id: checkId, check_type: 'preview_observed', project_id: detail.projectId,
+        version_id: detail.currentVersionId, subject_id: checkId.slice(0, 32), checklist_version: 'preview-v1', checker_type: 'host',
+        result: display.visibility === 'visible' && display.contentVerified ? 'pass' : 'unreviewed', evidence_ref: checkId.slice(0, 32) });
+      if (display.visibility === 'visible' && display.contentVerified && display.versionId === detail.currentVersionId
+        && round?.versionId === detail.currentVersionId) this.context.tracking.track('host_run_delivered', {
+        run_id: args.workId, delivery_mode: 'preview', project_id: detail.projectId, revision: detail.revision, delivery_evidence_ref: checkId.slice(0, 32) });
+    }
     return { projectId: detail.projectId, changed: false, previewHandoff: previewHandoff(this.context.origin(), {
-      projectId: detail.projectId, sessionId: detail.sessionId, revision: detail.revision, versionId: detail.currentVersionId }, args.presentation, record, true, display.previewUrl), display: record };
+      projectId: detail.projectId, sessionId: detail.sessionId, revision: detail.revision, versionId: detail.currentVersionId }, args.presentation, record, true, display.previewUrl, record.hostTabId), display: record };
   }
   async review(args: any, objectId?: string) {
     if (!args.review) throw new Error('INVALID_ARGUMENT: review is required');
@@ -232,20 +295,40 @@ export class Phase1Service {
     const file = path.join(this.store.directory, 'phase1', 'reviews', args.projectId + '.json');
     const reviews = await jsonFile<any[]>(file, []);
     const record = { ...review, projectId: args.projectId, requestId: args.requestId, createdAt: Date.now(), verifiedUserAdoption: false };
-    reviews.push(record); await atomicJson(file, reviews); return { projectId: args.projectId, review: record, changed: false };
+    reviews.push(record); await atomicJson(file, reviews);
+    if (this.context.tracking) {
+      const checkId = crypto.randomUUID(), versionId = review.versionId;
+      this.context.tracking.track('check_required', { check_id: checkId, check_type: 'content_review', project_id: args.projectId,
+        version_id: versionId, subject_id: digest(review.objectId).slice(0, 32), checklist_version: 'review-v1', checker_type: review.source === 'user' ? 'user' : 'agent', required: true });
+      this.context.tracking.track('check_completed', { check_id: checkId, check_type: 'content_review', project_id: args.projectId,
+        version_id: versionId, subject_id: digest(review.objectId).slice(0, 32), checklist_version: 'review-v1', checker_type: review.source === 'user' ? 'user' : 'agent',
+        result: review.conclusion === 'passed' ? 'pass' : review.conclusion === 'failed' ? 'fail' : review.conclusion === 'unable_to_view' ? 'error' : 'unreviewed', evidence_ref: checkId.slice(0, 32) });
+    }
+    return { projectId: args.projectId, review: record, changed: false };
   }
-  async dispatch(name: string, args: any): Promise<any> {
+  async dispatch(name: string, args: any, host?: HostContext): Promise<any> {
+    if (name === 'motion_manage_project') return manageProject(this.store, args, this.runtimeRoot);
+    if (name === 'motion_project_archive') {
+      const result = await projectArchive(this.store, args, this.runtimeRoot);
+      return 'downloadUrl' in result ? { ...result, downloadUrl: new URL(result.downloadUrl, this.context.origin()).href } : result;
+    }
+    if (name === 'motion_assets') {
+      if (args.action === 'brand_kit') return brandKitOperation(brandKitsFor(this.store.directory), args.brandKit, this.context.origin());
+      return assetOperation(this.store, args, input => this.importAssets(input), this.context.tracking);
+    }
+    if (name === 'motion_media_use') return mediaUse(this.store, args, this.context.tracking);
     if (name === 'motion_get_project' && !args.projectId) {
-      if (args.file || args.exportJobId || args.expectedRevision) throw new Error('INVALID_ARGUMENT: projectId is required for details');
-      const scope = args.sessionId ?? 'workspace';
+      if (args.file || args.exportJobId || args.expectedRevision || args.workId || args.includeVideo) throw new Error('INVALID_ARGUMENT: projectId is required for details');
+      const scope = (args.trashed ? 'trash:' : '') + (args.sessionId ?? 'workspace');
       const page = parseCursor(args.cursor, 'projects', scope);
       const catalog = this.store.projectCatalog();
       if (args.sessionId && !catalog.sessions!.some(session => session.id === args.sessionId)) throw new Error('SESSION_NOT_FOUND');
       const ids = args.sessionId ? new Set(catalog.sessions!.find(session => session.id === args.sessionId)!.artifacts.map(artifact => artifact.projectId)) : null;
       const all = [];
       for (const item of catalog.projects) {
+        if (Boolean(item.trashedAt) !== Boolean(args.trashed)) continue;
         if (ids && !ids.has(item.id)) continue;
-        if (await stat(path.join(this.store.projectDirectoryFor(item.id), 'index.html')).catch(() => null)) all.push(item);
+        if (args.trashed || await stat(path.join(this.store.projectDirectoryFor(item.id), 'index.html')).catch(() => null)) all.push(item);
       }
       all.sort((a, b) => -tupleCompare([a.createdAt ?? 0, a.id], [b.createdAt ?? 0, b.id]));
       const visible = all.filter(item => !page || tupleCompare([item.createdAt ?? 0, item.id], page.after) < 0);
@@ -255,8 +338,15 @@ export class Phase1Service {
       return { dataDirectory: this.store.directory, projects, pageSize: 5, hasMore: visible.length > 5, nextCursor: visible.length > 5 ? cursor({ kind: 'projects', scope, after: [last!.createdAt ?? 0, last!.id] }) : null };
     }
     if (name === 'motion_get_project') {
-      if (args.cursor) throw new Error('INVALID_ARGUMENT: cursor is for project lists');
+      if (args.cursor || args.trashed !== undefined) throw new Error('INVALID_ARGUMENT: cursor and trashed are for project lists');
       if (args.sessionId && !this.store.projectCatalog().sessions!.some(session => session.id === args.sessionId && session.artifacts.some(artifact => artifact.projectId === args.projectId))) throw new Error('PROJECT_SESSION_MISMATCH');
+      if (args.workId) {
+        if (args.file || args.exportJobId || args.expectedRevision) throw new Error('INVALID_ARGUMENT: workId cannot combine file or export queries');
+        this.store.forProject(args.projectId);
+        return { projectId: args.projectId, inlineWork: await this.workRounds.read(args.projectId, args.workId),
+          ...(args.includeVideo ? { _inlineMedia: await this.workRounds.media(args.projectId, args.workId) } : {}) };
+      }
+      if (args.includeVideo) throw new Error('INVALID_ARGUMENT: includeVideo requires workId');
       return this.detail(args.projectId, args);
     }
     if (name === 'motion_list_versions') {
@@ -266,9 +356,9 @@ export class Phase1Service {
         const all = [...index.versions].reverse().filter(item => !page || item.versionNumber < page.after[0]);
         const shown = all.slice(0, 5), current = index.versions.at(-1)!;
         return { projectId: args.projectId, currentVersionId: current.versionId, currentVersionNumber: current.versionNumber,
-          versions: await Promise.all(shown.map(async item => ({ ...await versions.publicVersion(item, history), isCurrent: item.versionId === current.versionId }))), pageSize: 5,
+          versions: await Promise.all(shown.map(async item => ({ ...await versions.publicVersion(item, history, true), isCurrent: item.versionId === current.versionId }))), pageSize: 5,
           hasMore: all.length > 5, nextCursor: all.length > 5 ? cursor({ kind: 'versions', scope: args.projectId, after: [shown.at(-1)!.versionNumber, shown.at(-1)!.versionId] }) : null };
-      });
+      }, 30_000);
     }
     if (name === 'motion_create_project') return this.writeRequest(name, args, async record => {
       if (args.projectType === 'natural_language' && (args.templateId || args.referenceVideoId || args.referenceUrl) || args.projectType === 'template' && (args.referenceVideoId || args.referenceUrl) || args.projectType === 'reference_video' && (args.templateId || args.referenceVideoId && args.referenceUrl)) throw new Error('INVALID_ARGUMENT: creation source must match projectType');
@@ -313,6 +403,18 @@ export class Phase1Service {
         if (args.display.revision !== detail.revision || args.display.versionId !== detail.currentVersionId) throw new Error('VERSION_CONFLICT: preview display refers to a different content version');
         return this.writeRequest(name, args, () => this.recordDisplay(args, detail));
       }
+      if (args.action === 'begin') {
+        if (!args.projectId || !args.mode) throw new Error('INVALID_ARGUMENT: begin requires projectId and mode');
+        return this.writeRequest(name, args, async () => {
+          const project = await this.detail(args.projectId);
+          const inlineWork = await this.workRounds.create(project, args.mode);
+          if (this.context.tracking) {
+            this.context.tracking.track('host_run_started', { run_id: inlineWork.id, entry_type: 'mcp', task_type: args.mode });
+            this.context.tracking.track('host_state_changed', { run_id: inlineWork.id, sequence: 1, state: 'active', phase: 'authoring' });
+          }
+          return { projectId: project.projectId, sessionId: project.sessionId, authoringGuide: project.authoringGuide, inlineWork };
+        });
+      }
       if (args.action === 'record_review') {
         if (!args.projectId) throw new Error('INVALID_ARGUMENT: projectId is required for review');
         return this.writeRequest(name, args, () => this.review(args));
@@ -322,15 +424,35 @@ export class Phase1Service {
       if (args.sessionId && !session) throw new Error('SESSION_NOT_FOUND');
       const projectId = args.projectId ?? session?.artifacts.find(item => item.id === session.activeArtifactId)?.projectId ?? session?.artifacts.at(-1)?.projectId;
       if (!projectId) throw new Error('PROJECT_NOT_BOUND: 请传入 projectId 或已绑定的 OpenMotion sessionId');
-      this.store.forProject(projectId);
+      const scoped = this.store.forProject(projectId);
       if (session && !session.artifacts.some(artifact => artifact.projectId === projectId)) throw new Error('PROJECT_SESSION_MISMATCH');
       const before = await this.detail(projectId);
       if (args.expectedRevision && args.expectedRevision !== before.revision || args.expectedVersionId && args.expectedVersionId !== before.currentVersionId) throw new Error('VERSION_CONFLICT');
+      let stampedRevision = before.revision;
+      if (args.expectedRevision || args.expectedVersionId) {
+        const require = createRequire(path.join(this.runtimeRoot, 'package.json'));
+        const parserManifest = require.resolve('@hyperframes/parsers/package.json');
+        const parser = JSON.parse(await readFile(parserManifest, 'utf8'));
+        const { stampHfIdsInPlace } = await import(pathToFileURL(path.join(path.dirname(parserManifest), parser.exports['./hf-ids'].import)).href);
+        const files = await Promise.all((before.project?.files ?? []).map(async file => {
+          if (!file.path.endsWith('.html')) return file;
+          const source = await readFile(await scoped.safePath(file.path), 'utf8');
+          if (digest(source) !== file.hash) throw new Error('VERSION_CONFLICT');
+          if (!/data-composition-id\s*=/.test(source)) return file;
+          const stamped = stampHfIdsInPlace(source);
+          // The pinned native stamper writes only when the ID attribute count increases.
+          if ((stamped.match(/\bdata-hf-id=/g) ?? []).length <= (source.match(/\bdata-hf-id=/g) ?? []).length) return file;
+          return { ...file, hash: digest(stamped), size: Buffer.byteLength(stamped) };
+        }));
+        stampedRevision = scoped.revision(files);
+      }
       const checked = await inspectProject(this.runtimeRoot, this.store.projectDirectoryFor(projectId), 'lint');
       if (checked.exitCode) throw new Error('PROJECT_VALIDATION_FAILED: ' + JSON.stringify(checked.result));
       await this.context.openProject(projectId);
       const detail = await this.detail(projectId);
-      if (args.expectedRevision && args.expectedRevision !== detail.revision || args.expectedVersionId && args.expectedVersionId !== detail.currentVersionId) throw new Error('VERSION_CONFLICT');
+      // Studio may add deterministic editor IDs; only that exact next-version change is compatible.
+      const stamped = stampedRevision !== before.revision && detail.revision === stampedRevision && detail.currentVersionNumber === before.currentVersionNumber + 1;
+      if (!stamped && (args.expectedRevision && args.expectedRevision !== detail.revision || args.expectedVersionId && args.expectedVersionId !== detail.currentVersionId)) throw new Error('VERSION_CONFLICT');
       return { ...detail, previewUrl: this.context.origin() + sessionPath(detail.sessionId, projectId, { embedded: args.embedded !== false }),
         sessionUrl: this.context.origin() + sessionPath(detail.sessionId, projectId), embeddedPreviewUrl: this.context.origin() + sessionPath(detail.sessionId, projectId, { embedded: true }),
         previewHandoff: previewHandoff(this.context.origin(), { projectId, sessionId: detail.sessionId, revision: detail.revision, versionId: detail.currentVersionId }, args.presentation, undefined, true,
@@ -367,7 +489,15 @@ export class Phase1Service {
       });
     })));
     if (name === 'motion_import_assets') return this.importAssets(args);
-    if (name === 'motion_export_cancel') return this.writeRequest(name, args, async () => ({ projectId: args.projectId, job: await this.context.cancel(args.projectId, args.jobId) }));
+    if (name === 'motion_export_cancel') return this.writeRequest(name, args, async () => {
+      const job = await this.context.cancel(args.projectId, args.jobId) as any;
+      if (job?.state === 'cancelled') {
+        await this.ledger.terminal(args.jobId, 'cancelled', 'unknown').catch(() => {});
+        this.context.tracking?.track('task_terminal', { task_id: args.jobId, task_type: 'export', project_id: args.projectId, outcome: 'cancelled', applied: 'unknown', terminal_at: new Date().toISOString() });
+        if (job.workId) this.context.tracking?.track('host_run_cancelled', { run_id: job.workId, task_type: await workRoundMode(this.store, args.projectId, job.workId) ?? 'modify', reason_code: 'EXPORT_CANCELLED' });
+      }
+      return { projectId: args.projectId, job };
+    });
     if (name === 'motion_export_request') return this.writeRequest(name, args, async () => {
       if (args.action === 'record_review') {
         if (!args.jobId) throw new Error('INVALID_ARGUMENT: jobId is required');
@@ -379,8 +509,17 @@ export class Phase1Service {
       if (!args.versionId || !args.expectedRevision) throw new Error('INVALID_ARGUMENT: versionId and expectedRevision are required');
       const detail = await this.detail(args.projectId);
       if (detail.currentVersionId !== args.versionId || detail.revision !== args.expectedRevision) throw new Error('VERSION_CONFLICT');
-      const job = await this.store.forProject(args.projectId).requestExport(args.expectedRevision, { phase1: true, versionId: args.versionId, requestId: args.requestId, audio: args.audio });
-      return { projectId: args.projectId, job: { ...job, token: undefined, workerPid: undefined }, technicalVerification: 'automatic_after_render', contentReview: 'pending' };
+      const job = await this.store.forProject(args.projectId).requestExport(args.expectedRevision, { phase1: true, versionId: args.versionId, requestId: args.requestId, workId: args.workId, audio: args.audio,
+        trackingHost: this.context.tracking?.enabled() ? host : undefined });
+      if (this.context.tracking) {
+        this.context.tracking.track('task_accepted', { task_id: job.id, task_type: 'export', project_id: args.projectId,
+          ...(args.workId ? { run_id: args.workId } : {}), ...(args.requestId && uuid.test(args.requestId) ? { operation_id: args.requestId } : {}),
+          accepted_at: new Date(job.acceptedAt ?? job.createdAt).toISOString(), deadline_at: new Date(job.deadlineAt ?? job.expiresAt).toISOString() });
+        const checkId = job.id;
+        this.context.tracking.track('check_required', { check_id: checkId, check_type: 'technical_export', project_id: args.projectId,
+          version_id: args.versionId, subject_id: job.id, checklist_version: 'export-v1', checker_type: 'automated', required: true });
+      }
+      return { projectId: args.projectId, job: { ...job, token: undefined, workerPid: undefined, trackingHost: undefined }, technicalVerification: 'automatic_after_render', contentReview: 'pending' };
     });
     throw new Error('MCP_TOOL_NOT_EXPOSED: ' + name);
   }
@@ -400,26 +539,29 @@ export class Phase1Service {
             if (prior) {
               if (prior.inputHash !== inputHash) throw new Error('ITEM_ID_CONFLICT');
               if (!await stat(path.join(scoped.projectDirectory, prior.path)).catch(() => null)) throw new Error('ASSET_NOT_IN_CURRENT_VERSION: 请恢复对应版本或使用新 itemId 重新导入');
+              if (item.expectedSha256 && await fileHash(path.join(scoped.projectDirectory, prior.path)) !== item.expectedSha256) throw new Error('ASSET_CONTENT_CHANGED: the imported copy no longer matches the pinned library version');
               items.push({ ...prior, status: 'completed', reused: true }); continue;
             }
             if (!path.isAbsolute(item.sourcePath)) throw new Error('ATTACHMENT_NOT_READABLE: 需要本机实际绝对路径');
             const info = await stat(item.sourcePath);
-            if (!info.isFile() || info.size >= 2147483648) throw new Error('ASSET_TOO_LARGE_OR_NOT_FILE');
+            if (!isAssetFileWithinLimit(info)) throw new Error('ASSET_TOO_LARGE_OR_NOT_FILE: max 500 MB (500000000 bytes)');
             const staged = path.join(staging, crypto.randomUUID()); await cloneFile(item.sourcePath, staged);
-            if ((await stat(staged)).size >= 2147483648) throw new Error('ASSET_TOO_LARGE_OR_NOT_FILE');
-            const probe = await execute(verificationBinaries().ffprobe, ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', staged], staging, 60_000);
-            if (probe.code) throw new Error('INVALID_MEDIA: 无法读取真实媒体');
-            const media = JSON.parse(probe.stdout), stream = media.streams?.find((s: any) => s.codec_type === 'video' && !s.disposition?.attached_pic) ?? media.streams?.find((s: any) => s.codec_type === 'audio');
-            if (!stream) throw new Error('UNSUPPORTED_MEDIA_TYPE');
-            const image: Record<string, [string, string]> = { png: ['image/png', 'png'], mjpeg: ['image/jpeg', 'jpg'], webp: ['image/webp', 'webp'], gif: ['image/gif', 'gif'] };
-            const format = String(media.format?.format_name ?? '');
-            const kind = (/image2|_pipe|^gif$/.test(format) ? image[stream.codec_name] : undefined) ?? (stream.codec_type === 'video' && format.includes('mov') ? ['video/mp4', 'mp4'] : stream.codec_type === 'video' && /webm|matroska/.test(format) ? ['video/webm', 'webm'] : stream.codec_type === 'audio' ? ({ wav: ['audio/wav', 'wav'], mp3: ['audio/mpeg', 'mp3'], ogg: ['audio/ogg', 'ogg'], flac: ['audio/flac', 'flac'], aac: ['audio/aac', 'aac'] } as any)[format] ?? (format.includes('mov') ? ['audio/mp4', 'm4a'] : null) : null);
-            if (!kind || stream.codec_type === 'video' && !(stream.width > 0 && stream.height > 0)) throw new Error('UNSUPPORTED_MEDIA_TYPE');
-            const decoded = await execute(verificationBinaries().ffmpeg, ['-v', 'error', '-xerror', '-err_detect', 'explode', '-i', staged, '-map', '0:' + stream.index, stream.codec_type === 'video' ? '-frames:v' : '-frames:a', '1', '-f', 'null', '-'], staging, 60_000);
-            if (decoded.code) throw new Error('INVALID_MEDIA: 媒体首帧无法解码');
-            const assetId = crypto.randomUUID(), relative = 'assets/imported/' + assetId + '.' + kind[1];
-            const asset = { itemId: item.itemId, assetId, inputHash, path: relative, mimeType: kind[0], size: (await stat(staged)).size,
-              sha256: await fileHash(staged), width: stream.width, height: stream.height, duration: Number(media.format.duration) || undefined, name: item.name ?? path.basename(item.sourcePath) };
+            if (!isAssetFileWithinLimit(await stat(staged))) throw new Error('ASSET_TOO_LARGE_OR_NOT_FILE: max 500 MB (500000000 bytes)');
+            const sha256 = await fileHash(staged);
+            if (item.expectedSha256 && sha256 !== item.expectedSha256) throw new Error('ASSET_CONTENT_CHANGED: library bytes no longer match this version');
+            if (isFontFilePath(item.sourcePath)) {
+              const assetId = crypto.randomUUID();
+              const prepared = await prepareImportedFont(staged, item.licensePath, assetId, staging, this.runtimeRoot);
+              const { changes: fontChanges, ...metadata } = prepared;
+              const asset = { itemId: item.itemId, assetId, inputHash, ...metadata, size: (await stat(staged)).size,
+                sha256: await fileHash(staged), name: item.name ?? path.basename(item.sourcePath) };
+              changes.push(...fontChanges); added.push(asset); items.push({ ...asset, status: 'completed' }); continue;
+            }
+            if (item.licensePath) throw new Error('FONT_LICENSE_REQUIRES_FONT');
+            const media = await probeLibraryMedia(staged).catch(error => { throw new Error('INVALID_MEDIA: ' + errorText(error)); });
+            const assetId = crypto.randomUUID(), relative = 'assets/imported/' + assetId + '.' + media.extension;
+            const asset = { itemId: item.itemId, assetId, inputHash, path: relative, mimeType: media.mimeType, size: media.bytes,
+              sha256, width: media.width, height: media.height, duration: media.duration, name: item.name ?? path.basename(item.sourcePath) };
             changes.push({ path: relative, source: staged }); added.push(asset); items.push({ ...asset, status: 'completed' });
           } catch (error) { items.push({ itemId: item.itemId, status: 'failed', error: errorText(error) }); }
         }

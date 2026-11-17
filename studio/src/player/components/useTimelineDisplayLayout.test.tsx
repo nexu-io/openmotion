@@ -8,7 +8,7 @@ import type { DraggedClipState } from "./timelineClipDragTypes";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-it("opens one full lane at the insertion index without changing committed tracks", () => {
+it("keeps interior pointer seams stable, previews top and bottom lanes, and expands keyboard pickup", () => {
   const order = [7, 3, 9];
   const geometry = createTimelineRowGeometry(order, [48, 104, 48], { top: 0 });
   const host = document.createElement("div");
@@ -45,6 +45,29 @@ it("opens one full lane at the insertion index without changing committed tracks
     );
   }
   act(() => root.render(<Probe active={drag} />));
+  const pointer = JSON.parse(host.textContent!);
+  expect(pointer.order).toEqual(order);
+  expect(pointer.heights).toEqual([48, 104, 48]);
+  expect(pointer.below).toBe(176);
+  act(() => root.render(<Probe active={{ ...drag, insertRow: 0 }} />));
+  const top = JSON.parse(host.textContent!);
+  expect(top.order).toEqual([-1, ...order]);
+  expect(top.pinned).toBe(-1);
+  expect(top.heights).toEqual([48, 48, 104, 48]);
+  expect(top.below).toBe(120);
+  act(() => root.render(<Probe active={{ ...drag, insertRow: order.length }} />));
+  const bottom = JSON.parse(host.textContent!);
+  expect(bottom.order.slice(0, order.length)).toEqual(order);
+  expect(bottom.order).toHaveLength(4);
+  expect(bottom.pinned).toBe(-1);
+  expect(bottom.heights).toEqual([48, 104, 48, 48]);
+  expect(bottom.below).toBe(pointer.below);
+  act(() => root.render(<Probe active={drag} />));
+  expect(JSON.parse(host.textContent!).order).toEqual(order);
+  // Moving through the seam must not move either existing lane underneath the pointer.
+  act(() => root.render(<Probe active={{ ...drag, insertRow: null }} />));
+  expect(JSON.parse(host.textContent!).heights).toEqual(pointer.heights);
+  act(() => root.render(<Probe active={{ ...drag, pointerId: null }} />));
   const seen = JSON.parse(host.textContent!);
   expect(seen.order).toHaveLength(4);
   expect(seen.pinned).toBe(-1);

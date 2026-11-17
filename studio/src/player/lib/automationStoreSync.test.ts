@@ -33,6 +33,17 @@ beforeEach(() => {
 });
 
 describe("syncStoredElementAttribute", () => {
+  it("synchronizes track locks across save, undo and redo", () => {
+    usePlayerStore.setState({ elements: [el()] });
+    syncStoredElementAttribute(el(), 'data-timeline-locked', '');
+    expect(usePlayerStore.getState().elements[0]?.timelineLocked).toBe(true);
+    syncStoredAutomationFromPreview(previewWith({}));
+    expect(usePlayerStore.getState().elements[0]?.timelineLocked).toBeUndefined();
+    syncStoredAutomationFromPreview(previewWith({ 'data-timeline-locked': '' }));
+    expect(usePlayerStore.getState().elements[0]?.timelineLocked).toBe(true);
+    syncStoredElementAttribute(el(), 'data-timeline-locked', null);
+    expect(usePlayerStore.getState().elements[0]?.timelineLocked).toBeUndefined();
+  });
   it("keeps mute state in sync across save, undo and redo without resetting gain", () => {
     usePlayerStore.setState({ elements: [el({ volume: 0.5 })] });
     syncStoredElementAttribute(el(), 'muted', '');

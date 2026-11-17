@@ -2,93 +2,739 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { I18nProvider, useI18n } from '../i18n/I18n';
+import { I18nProvider, useI18n, type Locale } from '../i18n/I18n';
+import { translate } from '../i18n/messages';
 import { TemplateLibraryDialog } from './TemplateLibraryDialog';
-import { reportTemplateEvent } from './editorTracking';
+import { MAX_TEMPLATE_PLAYERS } from './useTemplatePlayback';
+import { validProperties } from '../../../tracking/core.ts';
+import { studioEvents } from '../../../tracking/events.ts';
 
-vi.mock('./editorTracking', async original => ({ ...await original<typeof import('./editorTracking')>(), reportTemplateEvent: vi.fn() }));
+const tracked = vi.hoisted(() => [] as { event: string; properties: Record<string, unknown> }[]);
+vi.mock('./tracking', () => ({ trackMotion: async (event: string, properties: Record<string, unknown>) => { tracked.push({ event, properties }); return 'queued'; } }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, host: HTMLDivElement;
 const items = [
-  { id: 'one', title: 'First', author: 'Author', brand: 'Figma', uses: ['Demo'], styles: ['UI'], tags: [], kind: 'prism', hasHtmlProject: true, sortOrder: 2, featuredOrder: 0, motionDocumentUrl: 'https://example.com/motion.zip', motionGuideUrl: 'https://example.com/guide', styleDescription: 'Visual rules', reviewFocus: 'Production rules', posterUrl: '/one.jpg' },
-  { id: 'two', title: 'Second', author: 'Author', brand: 'Other', uses: ['Launch'], tags: [], kind: 'prism', hasHtmlProject: false, sortOrder: 1, posterUrl: '/two.jpg' },
+  { id: 'one', title: 'First', author: 'Author', authorName: 'Ada Designer', authorAvatarUrl: '/ada.jpg', brand: 'Figma', uses: ['Product launch', 'Product demo'], styles: ['UI'], tags: ['clean'], kind: 'prism', hasHtmlProject: true, sortOrder: 2, featuredOrder: 0, duration: 12, width: 1920, height: 1080, motionDocumentUrl: 'https://example.com/motion.zip', motionGuideUrl: 'https://example.com/guide', styleDescription: 'Visual rules', reviewFocus: 'Production rules', posterUrl: '/one.jpg', previewUrl: '/one.mp4' },
+  { id: 'two', title: 'Second', author: 'Author', brand: 'Other', uses: ['Product launch'], styles: ['UI'], tags: ['clean'], kind: 'prism', hasHtmlProject: false, sortOrder: 1, duration: 30, posterUrl: '/two.jpg', previewUrl: '/two.mp4' },
+  { id: 'three', title: 'Third', author: 'Elsewhere', brand: 'Other', uses: ['Brand promotion'], styles: ['3D'], tags: [], kind: 'prism', hasHtmlProject: false, sortOrder: 3, posterUrl: '/three.jpg' },
 ];
+class Observer {
+  static instances: Observer[] = [];
+  elements: Element[] = [];
+  disconnected = false;
+  constructor(public callback: IntersectionObserverCallback, public options?: IntersectionObserverInit) { Observer.instances.push(this); }
+  observe(element: Element) { this.elements.push(element); }
+  disconnect() { this.disconnected = true; }
+  emit(ratio = 1, subset = this.elements) { this.callback(subset.map(target => ({ target, isIntersecting: ratio > 0, intersectionRatio: ratio }) as IntersectionObserverEntry), this as unknown as IntersectionObserver); }
+}
+let motionPreference: EventTarget & { matches: boolean };
+function fetchItems(data = items, templateSource?: 'repository' | 'cms') {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/integration') ? { templateSource, templateEnvironment: 'dev', transport: { env: {} } } : { items: data, catalogVersion: 'v1', next: null, total: data.length })));
+}
 beforeEach(() => {
   window.happyDOM.settings.enableIframePageLoading = false;
-  vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
+  Observer.instances = []; tracked.length = 0;
+  vi.stubGlobal('IntersectionObserver', Observer);
+  motionPreference = Object.assign(new EventTarget(), { matches: false });
+  vi.stubGlobal('matchMedia', vi.fn(() => motionPreference));
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {});
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(async function () { this.dispatchEvent(new Event('playing')); });
   vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/integration') ? {
-    templateEnvironment: 'dev', transport: { env: {} },
-  } : { items, catalogVersion: 'v1', next: null, total: 2 })));
+  fetchItems();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === label)!;
-async function mount(onOpen = vi.fn()) {
-  await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><TemplateLibraryDialog open busy={false} error="" onClose={() => {}} onOpen={onOpen} /></I18nProvider>));
+const button = (label: string, scope: ParentNode = host) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === label || node.textContent === label)!;
+const cards = () => [...host.querySelectorAll('[data-template-id]')].map(el => el.getAttribute('data-template-id'));
+const current = () => host.querySelector('dialog[aria-label="Template preview"] h2')?.textContent;
+const preview = (title: string) => button(`Preview template ${title}`, host.querySelector('main')!).click();
+const observer = () => Observer.instances.filter(item => !item.disconnected).at(-1)!;
+const loadedVideos = () => host.querySelectorAll('main video[src]');
+async function mount(locale: Locale = 'en', onOpen = vi.fn()) {
+  await act(async () => root.render(<I18nProvider initialLocale={locale}><TemplateLibraryDialog open busy={false} error="" onClose={() => {}} onOpen={onOpen} /></I18nProvider>));
   return onOpen;
 }
-it('shows featured/order and combines website facets without site chrome', async () => {
+async function search(value: string) {
+  await act(async () => {
+    const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+it('uses one ordered gallery without a duplicate featured section and combines category, search and facets', async () => {
   await mount();
-  expect(host.textContent).toContain('热门模板');
-  expect([...host.querySelectorAll('[data-template-id]')].map(el => el.getAttribute('data-template-id'))).toEqual(['one', 'two', 'one']);
-  expect(host.querySelector('nav')).toBeNull();
-  expect(host.textContent).not.toContain('200+');
-  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('aside button')].find(el => el.textContent?.includes('Figma'))!.click());
-  expect([...host.querySelectorAll('[data-template-id]')].map(el => el.getAttribute('data-template-id'))).toEqual(['one']);
-  expect(host.textContent).not.toContain('热门模板');
-  await act(async () => button('清除筛选').click());
-  expect(host.querySelectorAll('[data-template-id]')).toHaveLength(3);
+  expect(host.textContent).not.toContain('Popular templates');
+  expect(cards()).toEqual(['two', 'one', 'three']);
+  await act(async () => button('Product launch films').click());
+  expect(cards()).toEqual(['two', 'one']);
+  const gallery = host.querySelector<HTMLDialogElement>('dialog[aria-label="Template library"]')!;
+  gallery.scrollTop = 900;
+  await search('Ada clean');
+  expect(gallery.scrollTop).toBe(0);
+  expect(cards()).toEqual(['one']);
+  await act(async () => button('Clear filters').click());
+  expect(cards()).toHaveLength(3);
+  await act(async () => button('Filters').click());
+  await act(async () => button('Reference brands').click());
+  await act(async () => button('Figma').click());
+  expect(cards()).toHaveLength(3);
+  expect(events('ui_click', { element: 'filter_option' })).toHaveLength(0);
+  expect(host.querySelector('[role=dialog][aria-label=Filters]')).not.toBeNull();
+  expect(host.querySelectorAll('dialog[open]')).toHaveLength(1);
+  await act(async () => button('Apply filters').click());
+  expect(cards()).toEqual(['one']);
+  expect(events('template_filter_result').at(-1)).toMatchObject({ action: 'filter_apply', result_count: 1 });
+  await act(async () => button('Remove filter Figma').click());
+  expect(cards()).toHaveLength(3);
 });
-it('copies the requested remote DEV prompt and preserves editable opening', async () => {
-  const onOpen = await mount();
-  await act(async () => button('First').click());
-  expect(host.querySelector('dialog[aria-label=模板预览] textarea')).toBeNull();
-  expect(host.querySelector('iframe[title=动效说明]')?.getAttribute('src')).toBe('https://example.com/guide');
+it.each(['en', 'zh-CN'] as const)('merges launch aliases in quick and grouped filters without losing templates in %s', async locale => {
+  fetchItems([
+    ...items,
+    { ...items[0], id: 'plural', uses: ['Product launches'], sortOrder: 4 },
+    { ...items[0], id: 'localized', uses: ['产品发布', 'Product launch films'], sortOrder: 5 },
+  ]);
+  await mount(locale);
+  const t = (message: string) => translate(locale, message);
+  const categories = host.querySelector(`[role=group][aria-label="${t('Video purpose')}"]`)!;
+  expect([...categories.querySelectorAll('button')].map(node => node.textContent).filter(label => label === t('Product launch films'))).toHaveLength(1);
+  expect(categories.textContent).not.toContain('Product launches');
+  await act(async () => button(t('Product launch films'), categories).click());
+  expect(cards()).toEqual(['two', 'one', 'plural', 'localized']);
+
+  await act(async () => button(t('Clear filters')).click());
+  expect(cards()).toHaveLength(5);
+  await act(async () => button(t('Filters')).click());
+  const filters = host.querySelector(`[role=dialog][aria-label="${t('Filters')}"]`)!;
+  expect(filters.querySelectorAll(`[role=checkbox][aria-label="${t('Product launch films')}"]`)).toHaveLength(1);
+  expect(filters.textContent).not.toContain('Product launches');
+  await act(async () => button(t('Product launch films'), filters).click());
+  expect(filters.querySelector('[role=status]')?.textContent).toBe(translate(locale, '{count} templates', { count: 4 }));
+  await act(async () => button(t('Apply filters'), filters).click());
+  expect(cards()).toEqual(['two', 'one', 'plural', 'localized']);
+});
+it('shows author avatars and falls back to initials for unavailable images', async () => {
+  await mount();
+  const card = host.querySelector('[data-template-id="one"]')!;
+  const avatar = card.querySelector('img[src="/ada.jpg"]')!;
+  await act(async () => avatar.dispatchEvent(new Event('error')));
+  expect(card.querySelector('img[src="/ada.jpg"]')).toBeNull();
+  expect(card.textContent).toContain('AFirst');
+});
+it('filters brand templates directly and preserves category, search and reset behavior', async () => {
+  fetchItems([
+    ...items,
+    { ...items[0], id: 'unbranded', brand: '', sortOrder: 4 },
+    { ...items[0], id: 'blank-brand', brand: '  ', sortOrder: 5 },
+  ]);
+  await mount();
+  const categories = host.querySelector('[role=group][aria-label="Video purpose"]')!;
+  expect(categories.children[1]).toBe(button('TOP 100 brands'));
+  expect(cards()).toHaveLength(5);
+
+  await act(async () => button('TOP 100 brands').click());
+  expect(cards()).toEqual(['two', 'one', 'three']);
+  expect(button('TOP 100 brands').getAttribute('aria-pressed')).toBe('true');
+  expect(button('All').getAttribute('aria-pressed')).toBe('false');
+  expect(host.querySelector('[role=menu]')).toBeNull();
+  expect(events('ui_click', { element: 'category_select', filter_value: 'top-100-brands' })).toEqual([
+    expect.objectContaining({ filter_group: 'brand', selected: true, applied_filter_count: 0 }),
+  ]);
+  expect(events('template_filter_result').at(-1)).toMatchObject({ action: 'category_select', result_count: 3, applied_filter_count: 1 });
+
+  await act(async () => button('Product launch films').click());
+  expect(cards()).toEqual(['two', 'one', 'unbranded', 'blank-brand']);
+  expect(button('TOP 100 brands').getAttribute('aria-pressed')).toBe('false');
+  await act(async () => button('TOP 100 brands').click());
+  expect(cards()).toEqual(['two', 'one', 'three']);
+  expect(button('Product launch films').getAttribute('aria-pressed')).toBe('false');
+
+  await search('Ada');
+  expect(cards()).toEqual(['one']);
+  await act(async () => button('Remove filter TOP 100 brands').click());
+  expect(cards()).toEqual(['one', 'unbranded', 'blank-brand']);
+  expect(events('ui_click', { element: 'filter_option', filter_value: 'top-100-brands' }).at(-1)).toMatchObject({ selected: false, applied_filter_count: 1 });
+  expect(events('template_filter_result').at(-1)).toMatchObject({ action: 'filter_apply', result_count: 3, applied_filter_count: 0 });
+  await act(async () => button('TOP 100 brands').click());
+  await act(async () => button('Clear filters').click());
+  expect(cards()).toHaveLength(5);
+  expect(button('All').getAttribute('aria-pressed')).toBe('true');
+
+  await act(async () => button('TOP 100 brands').click());
+  await act(async () => button('All').click());
+  expect(cards()).toHaveLength(5);
+  expect(button('Remove filter TOP 100 brands')).toBeUndefined();
+  expect(events('template_filter_result').at(-1)).toMatchObject({ action: 'category_select', result_count: 5, applied_filter_count: 0 });
+  for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+});
+it('tries the bundled brand logo after a published logo fails, then falls back to initials', async () => {
+  fetchItems([{ ...items[0], brand: 'Notion', brandLogoUrl: 'https://example.com/notion.svg' } as typeof items[0]]);
+  await mount();
+  await act(async () => button('Filters').click());
+  await act(async () => button('Reference brands').click());
+  const label = button('Notion');
+  const image = label.querySelector('img')!;
+  expect(image.getAttribute('src')).toBe('https://example.com/notion.svg');
+  await act(async () => image.dispatchEvent(new Event('error')));
+  expect(image.getAttribute('src')).toMatch(/notion\.png$/);
+  await act(async () => image.dispatchEvent(new Event('error')));
+  expect(label.querySelector('img')).toBeNull();
+  expect(label.textContent).toBe('NNotion');
+});
+it('copies the shared brief, retains guides and gates editable-project opening', async () => {
+  const onOpen = await mount('zh-CN');
+  await act(async () => button('预览模板 First', host.querySelector('main')!).click());
+  expect(host.querySelector('iframe[title=动效说明]')).toBeNull();
+  expect(host.querySelector('a[href="https://example.com/guide"]')).not.toBeNull();
   expect(button('下载 motion.md').disabled).toBe(false);
   await act(async () => button('复刻模板').click());
-  expect(host.querySelector('dialog[aria-label=复刻模板] textarea')).not.toBeNull();
-  expect(host.querySelector('dialog[aria-label=模板预览] textarea')).toBeNull();
-  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label=复制]')!.click());
-  expect(navigator.clipboard.writeText).toHaveBeenCalledWith('使用说明：请使用 OpenMotion 插件。如未安装，请按 https://releases.open-design.ai/open-motion/dev/install.md 安装并接入后继续。\n指定模板：First（one）\n创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。\n我的要求：\n');
-  await act(async () => button('打开并编辑 ↗').click());
+  expect(host.querySelector('dialog[aria-label=复刻模板]')).toBeNull();
+  expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('已复制，发给 Agent 即可。');
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith('使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。\n指定模板：First（one）\n创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。\n我的要求：\n');
+  await act(async () => button('打开并编辑').click());
   expect(onOpen).toHaveBeenCalledWith('one');
-  await act(async () => button('Second').click());
-  expect(button('打开并编辑 ↗')).toBeUndefined();
+  await act(async () => button('预览模板 Second', host.querySelector('main')!).click());
+  expect(button('打开并编辑')).toBeUndefined();
 });
+it.each(['repository', 'cms'] as const)('updates the displayed and copied title and ID when navigating %s templates', async templateSource => {
+  fetchItems(items.slice(0, 2), templateSource);
+  await mount('zh-CN');
+  await act(async () => button('预览模板 First', host.querySelector('main')!).click());
+  for (const [title, id] of [['First', 'one'], ['Second', 'two']]) {
+    const expected = [
+      '使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。',
+      `指定模板：${title}（${id}）`,
+      '创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。',
+      '我的要求：\n',
+    ].join('\n');
+    expect(host.querySelector('section[aria-label="模板复刻指令"] p')?.textContent).toBe(expected);
+    await act(async () => button('复刻模板').click());
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expected);
+    if (id === 'one') await act(async () => button('下一个模板').click());
+  }
+});
+it('random discovery honors filters, avoids consecutive repeats and handles a singleton', async () => {
+  vi.spyOn(Math, 'random').mockReturnValue(0);
+  await mount();
+  await act(async () => button('Product launch films').click());
+  await act(async () => button('Surprise me').click());
+  expect(current()).toBe('Second');
+  await act(async () => button('Close template preview').click());
+  await act(async () => button('Surprise me').click());
+  expect(current()).toBe('First');
+  await act(async () => button('Close template preview').click());
+  await search('Ada');
+  await act(async () => button('Surprise me').click());
+  expect(current()).toBe('First');
+});
+it('navigates the filtered order with wraparound and keyboard, then follows related metadata', async () => {
+  await mount();
+  await act(async () => button('Product launch films').click());
+  await act(async () => preview('First'));
+  await act(async () => button('Next template').click());
+  expect(current()).toBe('Second');
+  await act(async () => button('Close template preview').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })));
+  expect(current()).toBe('First');
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  await act(async () => button('Preview template Second', detail).click());
+  expect(current()).toBe('Second');
+  await act(async () => button('Other', detail).click());
+  expect(detail.hasAttribute('open')).toBe(false);
+  expect(cards()).toEqual(['two', 'three']);
+});
+it('returns an actionable empty state and disables random discovery for no matches', async () => {
+  await mount(); await search('nothing-matches');
+  expect(cards()).toHaveLength(0);
+  expect(button('Surprise me').disabled).toBe(true);
+  expect(host.textContent).toContain('No matching templates');
+  await act(async () => button('Clear filters').click());
+  expect(cards()).toHaveLength(3);
+});
+it('reveals metadata labels only while truncated and hides the tooltip when space becomes available', async () => {
+  const observers: ResizeObserverStub[] = [];
+  class ResizeObserverStub {
+    targets = new Set<Element>();
+    constructor(public callback: ResizeObserverCallback) { observers.push(this); }
+    observe(target: Element) { this.targets.add(target); }
+    unobserve(target: Element) { this.targets.delete(target); }
+    disconnect() { this.targets.clear(); }
+  }
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  await mount();
+  await act(async () => preview('First'));
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  const tag = button('Figma', detail);
+  let availableWidth = 100;
+  Object.defineProperties(tag, {
+    clientWidth: { get: () => availableWidth },
+    scrollWidth: { get: () => 80 },
+  });
+  const observer = observers.find(item => item.targets.has(tag))!;
+  const resize = () => observer.callback([], observer as unknown as ResizeObserver);
+  const settleTooltip = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
+  act(resize);
+  act(() => tag.focus());
+  await settleTooltip();
+  expect(detail.querySelector('[role="tooltip"]')).toBeNull();
 
-it('reloads template data when the editor language changes and clears language-specific filters', async () => {
+  act(() => tag.blur());
+  act(() => { availableWidth = 40; resize(); });
+  act(() => tag.focus());
+  await settleTooltip();
+  expect(detail.querySelector('[role="tooltip"]')?.textContent).toBe('Figma');
+
+  act(() => { availableWidth = 100; resize(); });
+  await settleTooltip();
+  expect(detail.querySelector('[role="tooltip"]')).toBeNull();
+  expect(tag.getAttribute('aria-describedby')).toBeNull();
+});
+it('reloads localized catalog content and clears language-specific filters', async () => {
   function App() {
     const { setLocale } = useI18n();
     return <><button onClick={() => setLocale('ja')}>Japanese</button><TemplateLibraryDialog open busy={false} error="" onClose={() => {}} onOpen={() => {}} /></>;
   }
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/integration') ? {
-    templateEnvironment: 'dev', transport: { env: {} },
-  } : { items: items.map(item => ({ ...item, title: url.includes('locale=ja') ? '日本語テンプレート' : item.title })), catalogVersion: 'v1', next: null, total: 2 })));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/integration') ? {} : { items: items.map(item => ({ ...item, title: url.includes('locale=ja') ? '日本語テンプレート' : item.title })), catalogVersion: 'v1', next: null, total: 3 })));
   await act(async () => root.render(<I18nProvider initialLocale="en"><App /></I18nProvider>));
-  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('aside button')].find(el => el.textContent?.includes('Figma'))!.click());
+  await act(async () => button('Product launch films').click());
   await act(async () => button('Japanese').click());
   expect(fetch).toHaveBeenCalledWith(expect.stringContaining('locale=ja'), expect.anything());
   expect(host.textContent).toContain('日本語テンプレート');
   expect(host.textContent).not.toContain('First');
-  expect(host.querySelectorAll('[data-template-id]')).toHaveLength(3);
+  expect(cards()).toHaveLength(3);
+});
+it('bounds autoplay decoders, prioritizes hover without rebuilding observers, and releases offscreen sources', async () => {
+  fetchItems(Array.from({ length: 14 }, (_, index) => ({ ...items[0], id: String(index), title: `Video ${index}` })));
+  await mount();
+  expect(loadedVideos()).toHaveLength(0);
+  const pool = observer();
+  await act(async () => pool.emit());
+  expect(loadedVideos()).toHaveLength(MAX_TEMPLATE_PLAYERS);
+  const last = host.querySelector<HTMLButtonElement>('[data-template-id="13"] button')!;
+  await act(async () => last.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  expect(observer()).toBe(pool);
+  expect(last.querySelector('video')?.hasAttribute('src')).toBe(true);
+  expect(loadedVideos()).toHaveLength(MAX_TEMPLATE_PLAYERS);
+  await act(async () => pool.emit(0));
+  expect(loadedVideos()).toHaveLength(0);
+  expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+  expect(HTMLMediaElement.prototype.load).toHaveBeenCalled();
+});
+it('keeps autoplay automatic and releases players for detail, background tabs and reduced motion', async () => {
+  await mount();
+  await act(async () => observer().emit());
+  expect(loadedVideos()).toHaveLength(2);
+  expect(button('Autoplay previews')).toBeUndefined();
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+  await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  expect(loadedVideos()).toHaveLength(0);
+  vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+  await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  expect(loadedVideos()).toHaveLength(2);
+  await act(async () => { motionPreference.matches = true; motionPreference.dispatchEvent(new Event('change')); });
+  expect(loadedVideos()).toHaveLength(0);
+  await act(async () => { motionPreference.matches = false; motionPreference.dispatchEvent(new Event('change')); });
+  await act(async () => preview('First'));
+  expect(loadedVideos()).toHaveLength(0);
+});
+it('uses posters on autoplay rejection or failed media without dropping the template', async () => {
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValue(new Error('Autoplay blocked'));
+  await mount();
+  await act(async () => observer().emit());
+  const video = host.querySelector<HTMLVideoElement>('main video')!;
+  expect(video.style.opacity).toBe('0');
+  await act(async () => video.dispatchEvent(new Event('error')));
+  expect(video.hasAttribute('src')).toBe(false);
+  expect(cards()).toHaveLength(3);
 });
 
-it('reports preview, facet, copy and open through the shared template reporter', async () => {
-  const reported = vi.mocked(reportTemplateEvent); reported.mockClear();
+it('keeps data-saving connections poster-only until a visible card is focused', async () => {
+  const connection = Object.assign(new EventTarget(), { saveData: true });
+  Object.defineProperty(navigator, 'connection', { configurable: true, value: connection });
+  try {
+    await mount();
+    await act(async () => observer().emit());
+    expect(loadedVideos()).toHaveLength(0);
+    await act(async () => button('Preview template First', host.querySelector('main')!).focus());
+    expect(loadedVideos()).toHaveLength(1);
+    await act(async () => { connection.saveData = false; connection.dispatchEvent(new Event('change')); });
+    expect(loadedVideos()).toHaveLength(2);
+  } finally { delete (navigator as Navigator & { connection?: EventTarget }).connection; }
+});
+
+it('does not duplicate a brand when the catalog has no author identity', async () => {
+  fetchItems([{ ...items[0], author: '', authorName: undefined }]);
   await mount();
-  await act(async () => [...host.querySelectorAll<HTMLButtonElement>('aside button')].find(el => el.textContent?.includes('Figma'))!.click());
-  await act(async () => button('First').click());
-  await act(async () => button('复刻模板').click());
-  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label=复制]')!.click());
-  await act(async () => button('打开并编辑 ↗').click());
-  expect(reported.mock.calls.map(([event]) => event)).toEqual([
-    { kind: 'category', category: 'brand' },
-    { kind: 'preview', templateId: 'one' },
-    { kind: 'copy_click', templateId: 'one' },
-    { kind: 'copy_result', templateId: 'one', host: 'codex', status: 'clipboard_written' },
-    { kind: 'use', templateId: 'one' },
+  await act(async () => preview('First'));
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  expect(detail.querySelector('strong')?.textContent).toBe('Figma');
+  expect(detail.querySelector('strong + small')).toBeNull();
+});
+
+
+it('copies contribution instructions with the selected template without opening another dialog', async () => {
+  await mount();
+  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md"]')?.textContent).toContain('Submit video');
+  await act(async () => preview('First'));
+  await act(async () => button('Recreate and submit').click());
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('First (one)'));
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('CONTRIBUTING.md'));
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('pull request'));
+  expect(host.querySelectorAll('dialog[open]')).toHaveLength(2);
+  expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('Copied. Paste into your Agent.');
+});
+
+it('keeps failed clipboard content selectable inline, including the contribution instruction', async () => {
+  vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Clipboard denied'));
+  await mount();
+  await act(async () => preview('First'));
+  await act(async () => button('Recreate and submit').click());
+  expect(host.querySelector<HTMLTextAreaElement>('textarea')?.value).toContain('pull request');
+  expect(host.querySelectorAll('dialog[open]')).toHaveLength(2);
+  expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('Copy failed. Select and copy the instruction below.');
+});
+
+it('uses the shared radio menu for sorting and industry filters inside the native dialog', async () => {
+  await mount();
+  expect(host.querySelector('select')).toBeNull();
+  await act(async () => { button('Sort').click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  const menu = host.querySelector('[role=menu][aria-label="Sort"]')!;
+  expect(menu.closest('dialog')?.getAttribute('aria-label')).toBe('Template library');
+  await act(async () => (menu.querySelector('[role=menuitemradio][data-unchecked]') as HTMLElement).click());
+  expect(cards()).toEqual(['one', 'two', 'three']);
+  await act(async () => { button('By industry').click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  const industry = [...host.querySelectorAll<HTMLElement>('[role=menuitemradio]')].find(el => el.textContent === 'Design & creative tools')!;
+  await act(async () => industry.click());
+  expect(cards()).toEqual(['one']);
+});
+
+it('keeps a loading layout until the catalog arrives, without a false empty result', async () => {
+  let finish!: (response: Response) => void;
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.endsWith('/integration') ? Promise.resolve(Response.json({})) : new Promise<Response>(resolve => { finish = resolve; })));
+  await mount();
+  expect(host.querySelector('main')?.getAttribute('aria-busy')).toBe('true');
+  expect(host.textContent).not.toContain('No matching templates');
+  await act(async () => finish(Response.json({ items, next: null, catalogVersion: 'v1' })));
+  expect(cards()).toHaveLength(3);
+  expect(host.querySelector('main')?.getAttribute('aria-busy')).toBe('false');
+});
+
+it('retains a usable poster and supports retry after detail video failure', async () => {
+  await mount();
+  await act(async () => preview('First'));
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  expect(detail.querySelector('[aria-busy=true]')).not.toBeNull();
+  expect(detail.textContent).toContain('Loading preview…');
+  const video = detail.querySelector('video')!;
+  await act(async () => video.dispatchEvent(new Event('error')));
+  expect(detail.querySelector('video')).toBeNull();
+  expect(detail.querySelector('img[src="/one.jpg"]')).not.toBeNull();
+  expect(detail.textContent).toContain('Preview unavailable. Try again.');
+  await act(async () => button('Retry', detail).click());
+  const retryVideo = detail.querySelector('video')!;
+  expect(retryVideo.getAttribute('src')).toBe('/one.mp4');
+  await act(async () => retryVideo.dispatchEvent(new Event('loadeddata')));
+  expect(detail.querySelector('[aria-busy=true]')).toBeNull();
+  expect(detail.textContent).not.toContain('Loading preview…');
+});
+
+it('shows a recoverable instruction error and copies only after a successful retry', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => { if (url.endsWith('/integration')) throw new Error('Offline'); return Response.json({ items, next: null, catalogVersion: 'v1' }); }));
+  await mount();
+  await act(async () => preview('First'));
+  expect(host.textContent).toContain('Could not load the instruction.');
+  expect(button('Recreate template').disabled).toBe(true);
+  expect(host.querySelector('[aria-label="Loading instruction…"]')).toBeNull();
+  fetchItems();
+  await act(async () => button('Retry').click());
+  expect(button('Recreate template').disabled).toBe(false);
+  await act(async () => button('Recreate template').click());
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('First (one)'));
+});
+
+it('keeps discovery available while project status prevents editable opening', async () => {
+  const onOpen = vi.fn(), onClose = vi.fn();
+  await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} openingDisabled error="" onClose={onClose} onOpen={onOpen} /></I18nProvider>));
+  await act(async () => preview('First'));
+  expect(button('Open and edit').disabled).toBe(true);
+  expect(button('Recreate template').disabled).toBe(false);
+  expect(document.querySelector('[data-feedback-layer]')?.textContent ?? '').not.toContain('Preparing editable project');
+  await act(async () => button('Open and edit').click());
+  expect(onOpen).not.toHaveBeenCalled();
+  await act(async () => button('Close template preview').click());
+  await act(async () => button('Close template library').click());
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+const events = (event: string, match: Record<string, unknown> = {}) => tracked.filter(item => item.event === event && Object.entries(match).every(([key, value]) => item.properties[key] === value)).map(item => item.properties);
+const impressions = () => Observer.instances.filter(item => !item.disconnected && item.options?.threshold === 0.5).at(-1)!;
+const uuid = /^[0-9a-f-]{36}$/;
+it('distinguishes brand-filtered impressions even when all templates have a brand', async () => {
+  vi.useFakeTimers();
+  try {
+    await mount();
+    const card = [host.querySelector('[data-template-id="two"]')!];
+    await act(async () => impressions().emit(1, card));
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(events('surface_view', { area: 'template_card' })).toHaveLength(1);
+
+    await act(async () => button('TOP 100 brands').click());
+    expect(cards()).toEqual(['two', 'one', 'three']);
+    await act(async () => impressions().emit(1, card));
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(events('surface_view', { area: 'template_card' })).toEqual([
+      expect.objectContaining({ template_id: 'two', applied_filter_count: 0 }),
+      expect.objectContaining({ template_id: 'two', applied_filter_count: 1 }),
+    ]);
+    for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+  } finally { vi.useRealTimers(); }
+});
+it('reports the library funnel with registered fields: library, card open, detail, instruction, copy and download', async () => {
+  await mount();
+  expect(events('surface_view', { area: 'template_library' })).toEqual([{ page_name: 'studio', area: 'template_library', element: 'library' }]);
+  await act(async () => preview('First'));
+  expect(events('ui_click', { element: 'open_detail' })).toEqual([{ page_name: 'studio', area: 'template_card', element: 'open_detail', template_id: 'one', resource_kind: 'editable_project', placement: 'catalog', position: 2, sort: 'recommended', applied_filter_count: 0 }]);
+  const [shown] = events('surface_view', { area: 'template_detail' });
+  expect(shown).toMatchObject({ template_id: 'one', placement: 'catalog', position: 2, detail_mode: 'modal' });
+  expect(shown.detail_view_id).toMatch(uuid);
+  await act(async () => Observer.instances.find(item => item.elements.some(element => element.matches('section[aria-label="Template instruction"] p')))!.emit());
+  expect(events('surface_view', { area: 'template_instruction' })).toEqual([expect.objectContaining({ template_id: 'one', instruction_kind: 'template_use', detail_view_id: shown.detail_view_id })]);
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  await act(async () => button('Recreate template', detail).click());
+  expect(events('ui_click', { element: 'start_use' })).toEqual([expect.objectContaining({ template_action: 'recreate', template_id: 'one', detail_view_id: shown.detail_view_id })]);
+  expect(events('ui_click', { element: 'select_template' })).toHaveLength(0);
+  expect(events('ui_click', { element: 'copy_template' })).toHaveLength(0);
+  expect(events('template_instruction_copy_result')).toEqual([expect.objectContaining({ copy_status: 'clipboard_written', host_product: 'codex', instruction_kind: 'template_use', template_id: 'one' })]);
+  await act(async () => button('Recreate and submit', detail).click());
+  expect(events('ui_click', { element: 'start_use', template_action: 'recreate_submit' })).toHaveLength(1);
+  expect(events('template_instruction_copy_result', { instruction_kind: 'recreate_submit' })).toHaveLength(1);
+  vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+  await act(async () => button('Recreate template', detail).click());
+  const click = events('ui_click', { element: 'start_use', template_action: 'recreate' }).at(-1)!;
+  expect(events('template_instruction_copy_result', { copy_status: 'manual_fallback_shown' })).toEqual([expect.objectContaining({ copy_attempt_id: click.copy_attempt_id })]);
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
+  await act(async () => button('Download motion.md', detail).click());
+  const [download] = events('ui_click', { element: 'download_guide' });
+  expect(events('resource_download_result')).toEqual([expect.objectContaining({ delivery_status: 'fetch_failed', error_code: 'HTTP_404', download_attempt_id: download.download_attempt_id, template_id: 'one' })]);
+  for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+});
+it('reports discovery choices with the list they produced, and one search per settled keyword', async () => {
+  vi.useFakeTimers();
+  try {
+    await mount();
+    await act(async () => button('Product launch films').click());
+    expect(events('ui_click', { element: 'category_select' })).toEqual([{ page_name: 'studio', area: 'template_discovery', element: 'category_select', filter_group: 'uses', filter_value: 'product-launch-films', selected: true, sort: 'recommended', applied_filter_count: 0 }]);
+    expect(events('template_filter_result')).toEqual([{ page_name: 'studio', area: 'template_discovery', action: 'category_select', result_count: 2, outcome: 'success', sort: 'recommended', applied_filter_count: 1 }]);
+    await search('Ad'); await search('Ada');
+    expect(events('template_search_result')).toHaveLength(0);
+    await act(async () => { vi.advanceTimersByTime(500); });
+    const [found] = events('template_search_result');
+    expect(found).toMatchObject({ search_keyword: 'Ada', query_length: 3, result_count: 1, applied_filter_count: 1 });
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    expect(events('template_search_result')).toHaveLength(1);
+    await act(async () => preview('First'));
+    expect(events('ui_click', { element: 'open_detail' })[0]).toMatchObject({ search_id: found.search_id, position: 1 });
+    await act(async () => host.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!.close());
+    await act(async () => button('Clear filters').click());
+    expect(events('ui_click', { element: 'filter_clear' })).toHaveLength(1);
+    expect(events('template_filter_result', { action: 'filter_clear' })).toEqual([expect.objectContaining({ result_count: 3, applied_filter_count: 0 })]);
+    await act(async () => button('Sort').click());
+    await act(async () => [...host.querySelectorAll<HTMLElement>('[role=menuitemradio]')].find(el => el.textContent === 'Duration')!.click());
+    expect(events('ui_click', { element: 'sort_option' })).toEqual([expect.objectContaining({ sort: 'duration', previous_sort: 'recommended', changed: true })]);
+    expect(events('template_filter_result', { action: 'sort_change' })).toHaveLength(1);
+    await act(async () => button('Surprise me').click());
+    expect(events('ui_click', { element: 'surprise_me' })).toEqual([expect.objectContaining({ result_count: 3, sort: 'duration' })]);
+    expect(events('surface_view', { area: 'template_detail', placement: 'random' })).toHaveLength(1);
+    await act(async () => button('Next template').click());
+    expect(events('ui_click', { element: 'detail_next' })).toHaveLength(1);
+    expect(events('surface_view', { area: 'template_detail', placement: 'navigation' })).toHaveLength(1);
+    for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+  } finally { vi.useRealTimers(); }
+});
+it('counts a card impression after an unbroken visible second, once per result set and never under the detail', async () => {
+  vi.useFakeTimers();
+  try {
+    await mount();
+    const seen = () => events('surface_view', { area: 'template_card' });
+    const card = (id: string) => [host.querySelector(`[data-template-id="${id}"]`)!];
+    await act(async () => impressions().emit(1, card('two')));
+    await act(async () => { vi.advanceTimersByTime(900); });
+    await act(async () => impressions().emit(0.3, card('two')));
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(seen()).toHaveLength(0);
+    await act(async () => impressions().emit(1, card('two')));
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(seen()).toEqual([{ page_name: 'studio', area: 'template_card', element: 'card', template_id: 'two', resource_kind: 'reference', placement: 'catalog', position: 1, sort: 'recommended', applied_filter_count: 0 }]);
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(seen()).toHaveLength(1);
+    await act(async () => button('Sort').click());
+    await act(async () => [...host.querySelectorAll<HTMLElement>('[role=menuitemradio]')].find(el => el.textContent === 'Name Z–A')!.click());
+    await act(async () => impressions().emit(1, card('two')));
+    await act(async () => { vi.advanceTimersByTime(1000); });
+    expect(seen()).toHaveLength(2);
+    expect(seen()[1]).toMatchObject({ template_id: 'two', sort: 'reverse', position: 2 });
+    await act(async () => preview('Third'));
+    expect(Observer.instances.filter(item => !item.disconnected && item.options?.threshold === 0.5)).toHaveLength(0);
+    await act(async () => { vi.advanceTimersByTime(3000); });
+    expect(seen()).toHaveLength(2);
+    for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+  } finally { vi.useRealTimers(); }
+});
+
+it('counts each library opening while catalog loading is pending or failed, without repeating on retry', async () => {
+  let fail!: (reason: Error) => void;
+  vi.stubGlobal('fetch', vi.fn((url: string) => url.endsWith('/integration') ? Promise.resolve(Response.json({}))
+    : new Promise<Response>((_resolve, reject) => { fail = reject; })));
+  await mount();
+  expect(events('surface_view', { area: 'template_library' })).toEqual([
+    { page_name: 'studio', area: 'template_library', element: 'library' },
   ]);
+  await act(async () => fail(new Error('CATALOG_OFFLINE')));
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('CATALOG_OFFLINE');
+  fetchItems();
+  await act(async () => button('Retry').click());
+  expect(cards()).toHaveLength(3);
+  expect(events('surface_view', { area: 'template_library' })).toHaveLength(1);
+  const render = (open: boolean) => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open={open} busy={false} error="" onClose={() => {}} onOpen={() => {}} /></I18nProvider>);
+  await act(async () => render(false));
+  await act(async () => render(true));
+  expect(events('surface_view', { area: 'template_library' })).toHaveLength(2);
+});
+
+it('counts instruction text only when visible, once per detail, and ignores callbacks from an old detail', async () => {
+  await mount();
+  await act(async () => preview('First'));
+  const exposures = () => events('surface_view', { area: 'template_instruction' });
+  const textObserver = () => Observer.instances.find(item => !item.disconnected
+    && item.elements.some(element => element.matches('section[aria-label="Template instruction"] p, section[aria-label="Template instruction"] textarea')))!;
+  expect(exposures()).toHaveLength(0);
+  const first = textObserver();
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+  await act(async () => first.emit());
+  expect(exposures()).toHaveLength(0);
+  hidden.mockReturnValue(false);
+  await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+  expect(exposures()).toHaveLength(1);
+  await act(async () => first.emit());
+  expect(exposures()).toHaveLength(1);
+  await act(async () => button('Close template preview').click());
+  await act(async () => preview('First'));
+  await act(async () => first.emit());
+  expect(exposures()).toHaveLength(1);
+  await act(async () => textObserver().emit());
+  expect(exposures()).toHaveLength(2);
+  expect(exposures()[0].detail_view_id).not.toBe(exposures()[1].detail_view_id);
+});
+
+it('joins repeated recreate and submit attempts to their own copy results', async () => {
+  await mount();
+  await act(async () => preview('First'));
+  await act(async () => button('Recreate template').click());
+  vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('Clipboard denied'));
+  await act(async () => button('Recreate and submit').click());
+  const intents = events('ui_click', { element: 'start_use' });
+  const results = events('template_instruction_copy_result');
+  expect(intents.map(item => item.copy_attempt_id)).toEqual(results.map(item => item.copy_attempt_id));
+  expect(new Set(results.map(item => item.copy_attempt_id)).size).toBe(2);
+  expect(results.map(item => item.copy_status)).toEqual(['clipboard_written', 'manual_fallback_shown']);
+  await act(async () => button('Open and edit').click());
+  expect(events('ui_click', { template_action: 'open_edit' })[0]).not.toHaveProperty('copy_attempt_id');
+});
+
+it('observes a positive instruction threshold so zero-area edge contact can progress to visible text', async () => {
+  await mount();
+  await act(async () => preview('First'));
+  const text = Observer.instances.find(item => !item.disconnected
+    && item.elements.some(element => element.matches('section[aria-label="Template instruction"] p')))!;
+  expect(text.options?.threshold).toBe(0.01);
+  const emit = async (intersectionRatio: number) => act(async () => text.callback([
+    { target: text.elements[0], isIntersecting: true, intersectionRatio } as IntersectionObserverEntry,
+  ], text as unknown as IntersectionObserver));
+  await emit(0);
+  await emit(0.005);
+  expect(events('surface_view', { area: 'template_instruction' })).toHaveLength(0);
+  await emit(0.01);
+  await emit(1);
+  expect(events('surface_view', { area: 'template_instruction' })).toHaveLength(1);
+});
+
+it('retains draft choices across groups, applies their intersection and clears one group or all choices', async () => {
+  await mount();
+  await search('clean');
+  await act(async () => button('Filters').click());
+  const popup = () => host.querySelector('[role=dialog][aria-label=Filters]')!;
+  await act(async () => button('Product launch films', popup()).click());
+  await act(async () => button('Motion style', popup()).click());
+  await act(async () => button('UI', popup()).click());
+  await act(async () => button('Reference brands', popup()).click());
+  await act(async () => button('Figma', popup()).click());
+  expect(popup().querySelector('[role=status]')?.textContent).toBe('1 templates');
+  expect(cards()).toEqual(['two', 'one']);
+  await act(async () => button('Other', popup()).click());
+  expect(popup().querySelector('[role=status]')?.textContent).toBe('2 templates');
+  await act(async () => button('Other', popup()).click());
+  expect(popup().querySelector('[role=status]')?.textContent).toBe('1 templates');
+  await act(async () => button('Clear selection', popup()).click());
+  expect(button('Figma', popup()).getAttribute('aria-checked')).toBe('false');
+  expect(popup().querySelector('[role=status]')?.textContent).toBe('2 templates');
+  await act(async () => button('Video purpose', popup()).click());
+  expect(button('Product launch films', popup()).getAttribute('aria-checked')).toBe('true');
+  await act(async () => button('Ready to edit', popup()).click());
+  await act(async () => button('Apply filters', popup()).click());
+  expect(cards()).toEqual(['one']);
+  await act(async () => button('Filters').click());
+  await act(async () => button('Clear filters', popup()).click());
+  expect(button('Ready to edit', popup()).getAttribute('aria-checked')).toBe('false');
+  expect(popup().querySelector('[role=status]')?.textContent).toBe('2 templates');
+  expect(cards()).toEqual(['one']);
+  await act(async () => button('Apply filters', popup()).click());
+  expect(cards()).toEqual(['two', 'one']);
+  expect(host.querySelector<HTMLInputElement>('input[type=search]')?.value).toBe('clean');
+});
+it('discards unapplied changes on dismissal and starts from the committed filters when reopened', async () => {
+  await mount();
+  await act(async () => button('Product launch films').click());
+  await act(async () => button('Filters').click());
+  await act(async () => button('Reference brands').click());
+  await act(async () => button('Figma').click());
+  await act(async () => button('Close filters').click());
+  expect(cards()).toEqual(['two', 'one']);
+  await act(async () => button('Filters').click());
+  expect(button('Figma').getAttribute('aria-checked')).toBe('false');
+  await act(async () => button('Video purpose').click());
+  const popup = host.querySelector('[role=dialog][aria-label=Filters]')!;
+  expect(button('Product launch films', popup).getAttribute('aria-checked')).toBe('true');
+});
+it('searches a long option group without losing selections hidden by the option search', async () => {
+  fetchItems(Array.from({ length: 14 }, (_, index) => ({ ...items[0], id: `brand-${index}`, brand: `Brand ${index}` })));
+  await mount();
+  await act(async () => button('Filters').click());
+  await act(async () => button('Reference brands').click());
+  await act(async () => button('Brand 0').click());
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="Search options…"]')!;
+  const find = async (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await find('Brand 13');
+  expect(button('Brand 0')).toBeUndefined();
+  await act(async () => button('Brand 13').click());
+  await find('No such brand');
+  expect(host.textContent).toContain('No matching options.');
+  expect(cards()).toHaveLength(14);
+  await act(async () => button('Apply filters').click());
+  expect(cards()).toEqual(['brand-0', 'brand-13']);
+});
+
+it('opens the template requested by the MCP page without selecting a different card', async () => {
+  function RoutedLibrary() {
+    const [templateId, setTemplateId] = React.useState<string | null>('two');
+    return <TemplateLibraryDialog open templateId={templateId} onTemplateChange={setTemplateId} busy={false} error="" onClose={() => {}} onOpen={() => {}} />;
+  }
+  await act(async () => root.render(<I18nProvider initialLocale="en"><RoutedLibrary /></I18nProvider>));
+  expect(current()).toBe('Second');
+  await act(async () => button('Close template preview').click());
+  expect(current()).toBeUndefined();
+  await act(async () => preview('First'));
+  expect(current()).toBe('First');
 });

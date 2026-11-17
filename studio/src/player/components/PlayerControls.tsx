@@ -50,7 +50,7 @@ function PlayPauseMorphIcon({ playing }: { playing: boolean }) {
   }, [playing]);
   return (
     <span className="relative inline-flex h-3 w-3 items-center justify-center" aria-hidden="true">
-      <svg width="12" height="12" viewBox="46 21 54 56" fill="#FAFAFA">
+      <svg width="12" height="12" viewBox="46 21 54 56" fill="currentColor">
         <path ref={pathRef} d={playing ? PAUSE_BARS_D : PLAY_BLADE_D} />
       </svg>
     </span>
@@ -246,7 +246,7 @@ export const PlayerControls = memo(function PlayerControls({
             setAudioMuted={setAudioMuted}
             setAudioVolume={setAudioVolume}
           />
-          <span className="motion-player-optional flex items-center gap-[inherit]">
+          <span className="flex items-center gap-[inherit]">
           <SpeedMenu
             playbackRate={playbackRate}
             setPlaybackRate={setPlaybackRate}

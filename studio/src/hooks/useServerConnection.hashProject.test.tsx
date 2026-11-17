@@ -16,6 +16,27 @@ function Probe() {
   return null;
 }
 
+it('uses a workspace-prepared native context without another connection splash or hash adoption', async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal('fetch', fetcher);
+  let state: ReturnType<typeof useServerConnection> | undefined;
+  function PreparedProbe() { state = useServerConnection('prepared'); return null; }
+  const root = createRoot(document.createElement('div'));
+  try {
+    await act(async () => root.render(<PreparedProbe />));
+    expect(state).toEqual({ projectId: 'prepared', resolving: false, waitingForServer: false });
+    await act(async () => {
+      history.replaceState(null, '', '#project/another-project');
+      window.dispatchEvent(new Event('hashchange'));
+    });
+    expect(state?.projectId).toBe('prepared');
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
 async function flush(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));

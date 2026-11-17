@@ -115,7 +115,7 @@ describe("snapMoveToTargets", () => {
 
   it("snaps the start edge when it is the closer edge", () => {
     const r = snapMoveToTargets(5.05, 2, targets, 100, 60);
-    expect(r).toEqual({ start: 5, snapTime: 5, snapType: "playhead" });
+    expect(r).toEqual({ start: 5, snapTime: 5, snapType: "playhead", snapEdge: "start" });
   });
 
   it("snaps the end edge, shifting start so the end lands on the target", () => {
@@ -140,6 +140,7 @@ describe("snapMoveToTargets", () => {
   it("snaps a clip edge to the ruler grid when no target is near", () => {
     expect(snapMoveToTargets(1.02, 2, [], 100, 60, 0.25)).toEqual({
       start: 1,
+      snapEdge: "start",
       snapTime: 1,
       snapType: "grid",
     });
@@ -148,7 +149,7 @@ describe("snapMoveToTargets", () => {
   it("prefers the edge on a real target over the other edge nearer a ruler line", () => {
     // start 2.99 is 1px from the 3s line; the end 4.94 is 6px from the playhead at 5
     const r = snapMoveToTargets(2.99, 1.95, targets, 100, 60, 0.25);
-    expect(r).toEqual({ start: 3.05, snapTime: 5, snapType: "playhead" });
+    expect(r).toEqual({ start: 3.05, snapTime: 5, snapType: "playhead", snapEdge: "end" });
   });
 
   it("TIMELINE_SNAP_PX matches the historical beat-snap threshold", () => {

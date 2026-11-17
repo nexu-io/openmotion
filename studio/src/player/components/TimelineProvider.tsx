@@ -46,6 +46,7 @@ export type TimelineCanvasState = Omit<
   major: number[];
   minor: number[];
   totalH: number;
+  intrinsicHeight: number;
   effectiveDuration: number;
   majorTickInterval: number;
   tickFrameRate: number | undefined;
@@ -162,6 +163,7 @@ export interface TimelineState {
 }
 
 export interface TimelineActions {
+  labelColumn?: { width: number; min: number; max: number; resize: (width: number, commit?: boolean) => void };
   renderClipContent: TimelineLaneBaseProps["renderClipContent"];
   renderClipOverlay: TimelineLaneBaseProps["renderClipOverlay"];
   setFocusedEaseSegment: (target: {

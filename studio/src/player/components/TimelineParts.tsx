@@ -55,7 +55,8 @@ export { TimelineOverlays } from "./TimelineOverlays";
 export function TimelineEmptyStatePart() {
   const { meta, state } = useTimelineContext();
   return <TimelineEmptyState {...meta.emptyState} contentOrigin={state.canvas.contentOrigin}
-    trackTopPadding={state.canvas.rowGeometry.padding.top} />;
+    trackTopPadding={state.canvas.rowGeometry.padding.top}
+    viewportRef={meta.viewportProps.ref} pixelsPerSecond={state.canvas.pps} />;
 }
 
 export function TimelineShortcutHint() {

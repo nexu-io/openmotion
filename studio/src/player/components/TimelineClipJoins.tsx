@@ -1,5 +1,6 @@
 import { CLIP_Y } from "./timelineLayout";
-import { sortedLaneClips, TRACK_GAP_EPSILON_S } from "./timelineGaps";
+import { sortedLaneClips } from "./timelineGaps";
+import { timelineTimesTouch } from "./timelineTimeBounds";
 import type { TimelineElement } from "../store/playerStore";
 import { TimelineTimeLayer, timeLayerPercent } from "./TimelineTimeLayer";
 
@@ -10,7 +11,7 @@ export function deriveTimelineClipJoins(elements: readonly TimelineElement[]): n
   for (let index = 1; index < sorted.length; index += 1) {
     const previous = sorted[index - 1]!;
     const end = previous.start + previous.duration;
-    if (Math.abs(sorted[index]!.start - end) < TRACK_GAP_EPSILON_S) joins.push(end);
+    if (timelineTimesTouch(sorted[index]!.start, end)) joins.push(end);
   }
   return joins;
 }

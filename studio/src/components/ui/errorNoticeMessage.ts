@@ -4,6 +4,9 @@ export type ErrorContext = 'operation' | 'export';
 
 /** Raw diagnostics stay in details; only recognized causes reach the summary. */
 export function errorNoticeMessage(message: string, context: ErrorContext = 'operation'): string {
+  if (/dynamically imported module|loading (?:css )?chunk|importing a module script|chunkloaderror/i.test(message)) {
+    return 'Interface resources could not be loaded. Reload the editor to try again.';
+  }
   if (/external change|changed elsewhere|revision.*(?:changed|mismatch)|version mismatch|conflict|项目已切换|工程状态.*不匹配/i.test(message)) {
     return 'The project changed elsewhere. Resolve the changes before continuing.';
   }

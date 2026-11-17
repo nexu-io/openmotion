@@ -46,7 +46,7 @@ function collectSourceContours(
 }
 
 /**
- * Resolve the same nested preorder used by studio_look. This keeps the lens on
+ * Resolve the same nested preorder used by openmotion_studio_look. This keeps the lens on
  * the agent's source-safe scene model instead of guessing hierarchy from an
  * unrelated presentation selector.
  */

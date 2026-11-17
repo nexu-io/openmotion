@@ -1,5 +1,5 @@
 {
-  "scope": "README viewing resources and local creative example asset closure. Not a full mirror of the 894-entry discovery catalog, an offline execution-tool installer, native Studio video-export acceptance, model creation, or human content acceptance.",
+  "scope": "README viewing resources and local creative example asset closure. Not a full mirror of the discovery catalog, an offline execution-tool installer, native Studio video-export acceptance, model creation, or human content acceptance.",
   "environment": {
     "node": "26.11.1",
     "chrome": "156.0.8078.80",

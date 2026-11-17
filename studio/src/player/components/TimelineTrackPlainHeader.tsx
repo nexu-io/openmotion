@@ -1,3 +1,5 @@
+import { Tooltip } from "../../components/ui/Tooltip";
+import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
 import type React from "react";
 import { Music } from "../../icons/SystemIcons";
@@ -12,6 +14,7 @@ export function VisibilityButton({
   trackDisplayNumber,
   asMute,
   onToggle,
+  disabled = false,
 }: {
   hidden: boolean;
   trackNumber: number;
@@ -19,19 +22,22 @@ export function VisibilityButton({
   /** `data-hidden` silences an audio-only track, so its toggle is a mute. */
   asMute: boolean;
   onToggle: TimelineEditCallbacks["onToggleTrackHidden"];
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
+  const mvp = useMvpEditor();
   // Display number in the text, real key in the callback. The two must not be
   // conflated in either direction.
   const suffix = trackDisplaySuffix(trackDisplayNumber);
   const label = t("{value0} track{suffix}", { value0: t(hiddenToggleVerb(asMute, hidden)), suffix: suffix });
   return (
-    <button
+    <Tooltip label={label} wrap><button
       type="button"
       aria-label={label}
-      title={label}
+      disabled={disabled}
+      aria-pressed={hidden}
       className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border-0 bg-transparent p-0 transition-colors focus-visible:outline-solid focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-[var(--timeline-accent)] ${
-        hidden
+        hidden && !mvp
           ? "text-[var(--timeline-accent)] hover:text-[var(--timeline-text-solid)]"
           : "text-[var(--timeline-text-faint)] hover:text-[var(--timeline-text-soft)]"
       }`}
@@ -44,7 +50,7 @@ export function VisibilityButton({
       }}
     >
       <HiddenToggleIcon asMute={asMute} hidden={hidden} size={14} />
-    </button>
+    </button></Tooltip>
   );
 }
 
@@ -79,6 +85,7 @@ export function PlainTrackHeader({
   hideVisibility?: boolean;
   audioControls?: React.ReactNode;
 }) {
+  const mvp = useMvpEditor();
   return (
     <>
       {/* One line: the name, then every control pushed to the right edge. The
@@ -87,7 +94,7 @@ export function PlainTrackHeader({
           `truncate`), and the controls are `shrink-0`, so they hold the edge
           and the name gives way instead. */}
       <div className="flex min-w-0 items-center gap-1">
-        {isAudioTrack && (
+        {isAudioTrack && !mvp && (
           <Music
             size={12}
             weight="fill"
@@ -98,10 +105,10 @@ export function PlainTrackHeader({
         {/* No `flex-1`: the name takes only the width it needs, so the clip
             count sits against it rather than being pushed out to meet the
             controls. The slack goes to the `ml-auto` group below instead. */}
-        {showTrackLabel && (
-          <span title={trackLabel} className="min-w-0 truncate text-[11px] leading-tight">
+        {showTrackLabel && !mvp && (
+          <Tooltip label={trackLabel} wrap><span className="min-w-0 truncate text-[11px] leading-tight">
             {trackLabel}
-          </span>
+          </span></Tooltip>
         )}
         {showTrackLabel && <TrackClipCount clipCount={clipCount} />}
         {/* `ml-auto` is what anchors the group right: it absorbs the slack the

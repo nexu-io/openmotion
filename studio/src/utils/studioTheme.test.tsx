@@ -28,6 +28,7 @@ afterEach(() => {
   cleanupMounted();
   localStorage.clear();
   delete document.documentElement.dataset.theme;
+  delete document.documentElement.dataset.themePreference;
 });
 
 describe("Studio's theme", () => {

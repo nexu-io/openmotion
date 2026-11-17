@@ -21,7 +21,7 @@ export interface StudioWriteTarget {
 }
 
 export type StudioWriteEvidence =
-  | { kind: "dispatch"; followUp: "studio_inspect" }
+  | { kind: "dispatch"; followUp: "openmotion_studio_inspect" }
   | { kind: "content-version"; sourceFile: string; version: string }
   | {
       kind: "readback";
@@ -178,7 +178,7 @@ async function resolveWriteSelection(
   if (resolved.status === "not-found") {
     return {
       ok: false,
-      failure: toolFailure("invalid", "the target handle is stale", "Call studio_look and retry."),
+      failure: toolFailure("invalid", "the target handle is stale", "Call openmotion_studio_look and retry."),
     };
   }
   if (resolved.status === "unsupported") {
@@ -187,7 +187,7 @@ async function resolveWriteSelection(
       failure: toolFailure(
         "blocked",
         "the target resolved to an element Studio cannot edit",
-        "Try a parent or child element from studio_look.",
+        "Try a parent or child element from openmotion_studio_look.",
       ),
     };
   }
@@ -197,7 +197,7 @@ async function resolveWriteSelection(
       failure: toolFailure(
         "invalid",
         "the target changed while it was resolving",
-        "Call studio_look again.",
+        "Call openmotion_studio_look again.",
       ),
     };
   }
@@ -251,8 +251,8 @@ function validateProjectScopedHandle<T extends object>(
       operation,
       toolFailure(
         "invalid",
-        "writes require a current project-scoped handle from studio_look",
-        "Call studio_look again and pass the returned handle unchanged.",
+        "writes require a current project-scoped handle from openmotion_studio_look",
+        "Call openmotion_studio_look again and pass the returned handle unchanged.",
       ),
     );
   }
@@ -262,7 +262,7 @@ function validateProjectScopedHandle<T extends object>(
     toolFailure(
       "invalid",
       "the handle belongs to a different project",
-      "Call studio_look in the active project.",
+      "Call openmotion_studio_look in the active project.",
     ),
   );
 }
@@ -286,7 +286,7 @@ function validateWriteAddress<T extends object>(
       ok: false,
       result: refusedResult(
         input.operation,
-        toolFailure("invalid", "handle must name an element from studio_look"),
+        toolFailure("invalid", "handle must name an element from openmotion_studio_look"),
       ),
     };
   }
@@ -350,6 +350,17 @@ async function prepareWriteSelection<T extends object>(
   return { ok: true, selection };
 }
 
+/**
+ * The coordinator behind the retained editor write modules.
+ *
+ * Its only callers are `contentTools`, `transformTools` and `animationTools`,
+ * which this pull request keeps maintained but no longer registers as page
+ * tools. `studioEditLifecycle.begin`/`finish` live here, so `TopologyLens`
+ * receipts currently have no page-tool trigger and the mounted lens stays
+ * hidden; it starts rendering again as soon as a write tool is registered, with
+ * no changes to this path. `retainedEditorWritePath.test.ts` keeps that
+ * reachability honest.
+ */
 export async function runTargetedWrite<T extends object>(
   deps: TargetedWriteDeps,
   input: TargetedWriteInput<T>,
@@ -371,7 +382,7 @@ export async function runTargetedWrite<T extends object>(
       toolFailure(
         "blocked",
         "the active project changed while the target was resolving",
-        "Call studio_look in the active project and retry.",
+        "Call openmotion_studio_look in the active project and retry.",
       ),
     );
   }
@@ -413,14 +424,14 @@ export function dispatched<T extends object>(
   changed: boolean,
 ): StudioWriteAdapterSuccess<T> & {
   stage: "dispatched";
-  evidence: { kind: "dispatch"; followUp: "studio_inspect" };
+  evidence: { kind: "dispatch"; followUp: "openmotion_studio_inspect" };
 } {
   return {
     ok: true,
     ...value,
     stage: "dispatched",
     changed,
-    evidence: { kind: "dispatch", followUp: "studio_inspect" },
+    evidence: { kind: "dispatch", followUp: "openmotion_studio_inspect" },
   };
 }
 

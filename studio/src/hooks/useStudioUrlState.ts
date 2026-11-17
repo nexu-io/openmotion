@@ -3,6 +3,7 @@ import { usePlayerStore } from "../player";
 import { findElementForSelection, type DomEditSelection } from "../components/editor/domEditing";
 import { clampNumber, type RightPanelTab } from "../utils/studioHelpers";
 import { parseProjectIdFromHash } from "../utils/projectRouting";
+import { writeWorkspaceHistory } from '../utils/workspaceHistory';
 import {
   buildStudioHash,
   parseStudioUrlStateFromHash,
@@ -88,7 +89,12 @@ function toPersistedSelection(
 function replaceHash(nextHash: string) {
   if (typeof window === "undefined") return;
   if (window.location.hash === nextHash) return;
-  window.history.replaceState(null, "", nextHash);
+  // A browser project navigation can be waiting for saves. The departing
+  // editor must not replace that destination with its previous project hash.
+  if (parseProjectIdFromHash(window.location.hash) !== parseProjectIdFromHash(nextHash)) return;
+  const requested = new URLSearchParams(window.location.search).get('project');
+  if (requested && requested !== parseProjectIdFromHash(nextHash)) return;
+  writeWorkspaceHistory(nextHash, true);
 }
 
 interface ResolveUrlSelectionsParams {

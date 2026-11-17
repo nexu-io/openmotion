@@ -221,8 +221,8 @@ describe("resolveMainTrackDeleteRippleShifts", () => {
   });
 
   it("returns null when nothing deleted was on the main track", () => {
-    const deletedOverlay = [el("o", 2, 2, 1)]; // track 1, not main
-    const survivors = [el("a", 0, 2), el("c", 8, 1)];
+    const deletedOverlay = [el("o", 2, 2, 0)]; // upper overlay, not main
+    const survivors = [el("a", 0, 2, 1), el("c", 8, 1, 1)];
     expect(resolveMainTrackDeleteRippleShifts(survivors, deletedOverlay, true)).toBeNull();
   });
 
@@ -239,10 +239,10 @@ describe("resolveMainTrackDeleteRippleShifts", () => {
   });
 
   it("ignores audio and non-main-track survivors even when a main-track clip was deleted", () => {
-    const deleted = [el("b", 2, 2)];
-    const survivors = [el("a", 0, 2), el("c", 8, 1), el("overlay", 3, 1, 1)];
+    const deleted = [el("b", 2, 2, 1)];
+    const survivors = [el("a", 0, 2, 1), el("c", 8, 1, 1), el("overlay", 3, 1, 0)];
     const shifts = resolveMainTrackDeleteRippleShifts(survivors, deleted, true);
-    expect(shifts).toEqual([{ key: "c", newStart: 6 }]); // "overlay" (track 1) untouched
+    expect(shifts).toEqual([{ key: "c", newStart: 6 }]); // upper overlay untouched
   });
 
   it("sums only the deleted spans that precede each survivor, for a multi-select delete", () => {

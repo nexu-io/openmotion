@@ -1,11 +1,74 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { startServer } from '../server.ts';
-import { WorkspaceStore } from '../workspace.ts';
+import { WorkspaceStore, createBlankProject } from '../workspace.ts';
 import { inspectProject, pluginRoot, startStudio } from '../hyperframes.ts';
 import { fixture } from './fixtures.ts';
+
+test('default project labels migrate while explicit names survive reopening', () => fixture(async store => {
+  assert.equal(store.projectCatalog().projects[0].titleKey, 'OpenMotion Sample Video');
+  for (const title of ['初始工程', 'OpenMotion 示例短片']) {
+    const otherId = crypto.randomUUID();
+    await writeFile(path.join(store.directory, 'projects.json'), JSON.stringify({ activeId: 'project', projects: [
+      { id: 'project', title }, { id: otherId, title },
+    ] }));
+    const migrated = store.projectCatalog();
+    assert.equal(migrated.projects[0].title, 'OpenMotion 示例短片');
+    assert.equal(migrated.projects[0].titleKey, 'OpenMotion Sample Video');
+    assert.equal(migrated.projects[1].title, title);
+    assert.equal(migrated.projects[1].titleKey, undefined);
+    await store.renameProject('project', title);
+    const reopened = new WorkspaceStore(store.directory).projectCatalog().projects[0];
+    assert.equal(reopened.title, title);
+    assert.equal(reopened.titleKey, null);
+  }
+  await writeFile(path.join(store.directory, 'projects.json'), JSON.stringify({ activeId: 'project', projects: [{ id: 'project', title: 'My own film' }] }));
+  assert.deepEqual(store.projectCatalog().projects[0], { id: 'project', title: 'My own film' });
+}, false));
+
+for (const entry of ['sidebar', 'direct preview'] as const) {
+  test(`missing initial project opens the bundled default through ${entry} without overwriting other projects`, { timeout: 60_000 }, () => fixture(async store => {
+    const id = crypto.randomUUID(), directory = store.projectDirectoryFor(id);
+    await createBlankProject(directory, pluginRoot, 'Agent project');
+    await store.selectProject(id, { id, title: 'Agent project' });
+    const before = await readFile(path.join(directory, 'index.html'), 'utf8');
+    assert.equal((await store.forProject('project').get()).project, null);
+    const running = await startServer(store, 0);
+    try {
+      const origin = `http://127.0.0.1:${(running.server.address() as { port: number }).port}`;
+      const stale = await fetch(origin + '/motion-api/projects/project/open', {
+        method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ expectedRevision: '0'.repeat(64), expectedProjectId: id }),
+      });
+      assert.equal(stale.status, 409);
+      assert.equal((await store.forProject('project').get()).project, null, 'stale switches cannot create defaults');
+      if (entry === 'sidebar') await running.openProject('project');
+      else await running.ensureStudio('project');
+      const initial = store.forProject('project');
+      const file = path.join(initial.projectDirectory, 'index.html');
+      const withoutStampedIds = (source: string) => source.replace(/ data-hf-id="[^"]*"/g, '');
+      assert.equal(withoutStampedIds(await readFile(file, 'utf8')), await readFile(path.join(pluginRoot, 'template-library/openmotion-welcome/index.html'), 'utf8'));
+      assert.ok((await initial.files()).some(file => file.path === 'compositions/intro.html'));
+      assert.equal(withoutStampedIds(await readFile(path.join(directory, 'index.html'), 'utf8')), before);
+      if (entry === 'direct preview') assert.equal(store.projectId, id, 'preview warming retains active project ownership');
+      const edited = (await readFile(file, 'utf8')).replace('OpenMotion Welcome', 'My saved title');
+      await writeFile(file, edited);
+      await running.openProject(id);
+      await running.openProject('project');
+      assert.equal(await readFile(file, 'utf8'), edited, 'reopening retains existing edits');
+    } finally { await running.close(); }
+  }, false));
+}
+
+test('default initialization refuses a partial initial project without replacing its files', () => fixture(async store => {
+  await mkdir(store.projectDirectoryFor('project'), { recursive: true });
+  const note = path.join(store.projectDirectoryFor('project'), 'note.txt');
+  await writeFile(note, 'Keep this unfinished project');
+  await assert.rejects(store.initialize(pluginRoot), /已有文件但缺少 index.html/);
+  assert.equal(await readFile(note, 'utf8'), 'Keep this unfinished project');
+}, false));
 
 test('project sessions create blank editable projects, isolate uploads and restore the selected project after restart', { timeout: 180_000 }, () => fixture(async store => {
   let running = await startServer(store, 0);

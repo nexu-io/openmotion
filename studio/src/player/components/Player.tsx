@@ -6,6 +6,7 @@ import { installAcceleratedCanvasTracker } from "@hyperframes/core/page-motion-b
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { applyPreviewVariablesToUrl } from "../../hooks/previewVariablesStore";
 import { HyperframesLoader } from "../../components/ui";
+import { brandPlayerLoading } from "../../components/ui/openDesignLoading";
 import { usePlayerStore } from "../store/playerStore";
 import { announcePreviewDocumentLoaded } from "../sceneSwap";
 import type { IframeWindow } from "../lib/playbackTypes";
@@ -52,7 +53,9 @@ interface HyperframesPlayerElement extends HTMLElement {
 }
 
 const MEDIA_HAVE_FUTURE_DATA = 3;
+const MEDIA_HAVE_METADATA = 1;
 const MEDIA_NETWORK_NO_SOURCE = 3;
+const ASSET_WAIT_DEADLINE_MS = 10_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -101,9 +104,11 @@ function isPreviewMediaElement(el: Element): el is HTMLMediaElement {
   return tagName === "video" || tagName === "audio";
 }
 
-// Assets are considered ready when every `<video>`/`<audio>` has enough data
-// to play through without buffering, and every registered Lottie animation has
-// finished loading.
+// Follow the runtime's preload policy. Deferred clips use preload="none"
+// until they approach the playhead; waiting for their data would keep a ready
+// first frame covered until the safety deadline on every page refresh.
+// Metadata-only media can likewise stop loading before HAVE_FUTURE_DATA.
+// Eager media still waits for playable data, and Lotties for their assets.
 //
 // Returns whichever value was returned last on cross-origin / transient DOM
 // races so a brief access failure (e.g. an iframe that just swapped src)
@@ -118,9 +123,10 @@ export function hasUnloadedAssets(iframe: HTMLIFrameElement, lastResult: boolean
     for (const el of doc.querySelectorAll("video, audio")) {
       if (
         isPreviewMediaElement(el) &&
+        el.preload !== "none" &&
         !el.error &&
         el.networkState !== MEDIA_NETWORK_NO_SOURCE &&
-        el.readyState < MEDIA_HAVE_FUTURE_DATA
+        el.readyState < (el.preload === "metadata" ? MEDIA_HAVE_METADATA : MEDIA_HAVE_FUTURE_DATA)
       ) {
         return true;
       }
@@ -240,6 +246,7 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
           player.setAttribute("src", retryUrl.pathname + retryUrl.search);
         };
         retryPreviewRef.current = retryPreview;
+        const stopLoadingBrand = brandPlayerLoading(player);
         const iframe = player.iframeElement;
         const preventToggle = (e: Event) => e.stopImmediatePropagation();
         const handleShaderTransitionState = (event: Event) => {
@@ -283,8 +290,8 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
           onLoadRef.current();
           announcePreviewDocumentLoaded(iframe);
 
-          // Show a loading overlay until every `<video>`/`<audio>` and Lottie
-          // asset is ready. Without this users can click play before audio has
+          // Show a loading overlay until requested media and Lottie assets
+          // are ready. Without this users can click play before audio has
           // buffered — the runtime is resilient (queued play() resolves once
           // data arrives), but the overlay communicates why the first frame
           // or first audio beat may lag.
@@ -294,7 +301,8 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
           // the first load, so they resolve near-instantly and the overlay
           // just creates a disruptive flash.
           //
-          // Poll with a 10 s safety cap (100 ticks × 100 ms). If the cap
+          // Poll with a 10 s elapsed-time safety cap. Counting interval ticks
+          // stretches the wait when background tabs throttle timers. If the cap
           // trips we hide the overlay so the UI doesn't appear stuck forever,
           // but we log a debug warning so the case is diagnosable — a long
           // cold video or a broken asset can legitimately exceed 10 s on a
@@ -304,12 +312,11 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
           let lastUnloaded = isContentRefresh ? false : hasUnloadedAssets(iframe, false);
           if (lastUnloaded) {
             setAssetsLoading(true);
-            let attempts = 0;
+            const deadline = performance.now() + ASSET_WAIT_DEADLINE_MS;
             assetPollRef.current = setInterval(() => {
-              attempts += 1;
               lastUnloaded = hasUnloadedAssets(iframe, lastUnloaded);
-              if (!lastUnloaded || attempts > 100) {
-                if (lastUnloaded && attempts > 100) {
+              if (!lastUnloaded || performance.now() >= deadline) {
+                if (lastUnloaded) {
                   console.debug(
                     "[studio] asset readiness poll hit the 10s cap, continuing with unloaded assets",
                   );
@@ -359,6 +366,7 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
         enableInteractiveIframe(player);
 
         cleanup = () => {
+          stopLoadingBrand();
           iframe.removeEventListener("load", handleLoad);
           player.removeEventListener("click", preventToggle, { capture: true });
           player.removeEventListener("shadertransitionstate", handleShaderTransitionState);

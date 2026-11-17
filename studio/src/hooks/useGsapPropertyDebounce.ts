@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { addStudioPendingEditFlushListener } from "../utils/studioPendingEdits";
 import type { Composition } from "@hyperframes/sdk";
 import { parseGsapScriptAcorn } from "@hyperframes/core/gsap-parser-acorn";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
@@ -133,6 +134,13 @@ export function useGsapPropertyDebounce(
     },
     [flushPendingPropertyEdit],
   );
+
+  useEffect(() => addStudioPendingEditFlushListener(() => {
+    if (!pendingPropertyEditRef.current) return;
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    debounceTimerRef.current = null;
+    return flushPendingPropertyEdit();
+  }), [flushPendingPropertyEdit]);
 
   useEffect(() => {
     return () => {

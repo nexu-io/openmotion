@@ -24,4 +24,8 @@ describe("deriveTimelineClipJoins", () => {
     expect(deriveTimelineClipJoins([clip("a", 0, 1), clip("b", 1 + 1 / 60, 1)])).toEqual([]);
     expect(deriveTimelineClipJoins([clip("a", 0, 1), clip("b", 0.8, 1)])).toEqual([]);
   });
+
+  it("draws the cut seam when native rounding leaves a millisecond of drift", () => {
+    expect(deriveTimelineClipJoins([clip("left", 0, 10.734), clip("right", 10.733, 3)])).toEqual([10.734]);
+  });
 });

@@ -690,3 +690,50 @@ describe("persistElementAttribute — unwind value", () => {
     fetchSpy.mockRestore();
   });
 });
+
+describe("applyTimelineMoveAttributes lane-only renumber", () => {
+  // Main track of template-library/openmotion-welcome: authored at 10-decimal
+  // precision so each clip ends exactly where the next one starts.
+  const WELCOME = `<div id="main" data-composition-id="main" data-start="0" data-duration="37.3">
+  <div id="welcome-reel" class="clip" data-start="10.7333333333" data-duration="8.5333333334" data-track-index="0"></div>
+  <div id="welcome-choice" class="clip" data-start="19.2666666667" data-duration="6.2666666666" data-track-index="0"></div>
+  <div id="welcome-editor" class="clip" data-start="25.5333333333" data-duration="4.3666666667" data-track-index="0"></div>
+</div>`;
+  const CLIPS = [
+    { id: "welcome-reel", start: 10.7333333333, duration: 8.5333333334 },
+    { id: "welcome-choice", start: 19.2666666667, duration: 6.2666666666 },
+    { id: "welcome-editor", start: 25.5333333333, duration: 4.3666666667 },
+  ];
+
+  function renumberAll(source: string, toTrack: number): string {
+    return CLIPS.reduce(
+      (current, clip) => applyTimelineMoveAttributes(current, { id: clip.id }, clip.start, clip.duration, toTrack),
+      source,
+    );
+  }
+
+  function attr(source: string, id: string, name: string): number {
+    const tag = new RegExp(`<div id="${id}"[^>]*>`).exec(source)?.[0] ?? "";
+    return Number(new RegExp(`${name}="([^"]*)"`).exec(tag)?.[1]);
+  }
+
+  it("keeps each clip's authored start text when only data-track-index changes", () => {
+    const out = renumberAll(WELCOME, 1);
+    for (const clip of CLIPS) {
+      expect(out).toContain(`<div id="${clip.id}" class="clip" data-start="${clip.start}" data-duration="${clip.duration}" data-track-index="1">`);
+    }
+  });
+
+  it("leaves adjacent clips butted instead of overlapping after the renumber", () => {
+    const out = renumberAll(WELCOME, 1);
+    for (let i = 0; i + 1 < CLIPS.length; i++) {
+      const end = attr(out, CLIPS[i].id, "data-start") + attr(out, CLIPS[i].id, "data-duration");
+      expect(end).toBeLessThanOrEqual(attr(out, CLIPS[i + 1].id, "data-start") + 1e-9);
+    }
+  });
+
+  it("still writes the start when the clip actually moves", () => {
+    const out = applyTimelineMoveAttributes(WELCOME, { id: "welcome-choice" }, 20, 6.2666666666, 1);
+    expect(attr(out, "welcome-choice", "data-start")).toBe(20);
+  });
+});

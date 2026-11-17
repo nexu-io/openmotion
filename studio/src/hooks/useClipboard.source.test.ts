@@ -109,16 +109,18 @@ function mountClipboard(
   const iframe = mountPreview(sub, bundle, saved);
   const writes: string[] = [];
   const deleted: string[] = [];
+  const domDeleted: DomEditSelection[] = [];
   const writeProjectFile = async (_path: string, content: string) => {
     writes.push(content);
   };
+  const showToast = vi.fn();
   let api: ReturnType<typeof useClipboard> | null = null;
   function Harness() {
     api = useClipboard({
       projectId: "p",
       activeCompPath: view.path,
       domEditSelectionRef: domSelectionRef,
-      showToast: () => {},
+      showToast,
       writeProjectFile,
       recordEdit: async () => {},
       reloadPreview: () => {},
@@ -126,7 +128,7 @@ function mountClipboard(
         deleted.push(...elements.map((el) => el.id));
         files["index.html"] = SAVED.replace(/<h1[\s\S]*<\/h1>/, "");
       },
-      handleDomEditElementDelete: async () => {},
+      handleDomEditElementDelete: async (selection) => { domDeleted.push(selection); },
       previewIframeRef: { current: iframe },
       waitForPendingDomEditSaves: () => domEditSave.pending,
     });
@@ -138,9 +140,11 @@ function mountClipboard(
   const rerender = () => act(() => root?.render(React.createElement(Harness)));
   return {
     rerender,
+    showToast,
     clipboard,
     writes,
     deleted,
+    domDeleted,
     files,
     fail,
     writeProjectFile,
@@ -297,6 +301,9 @@ describe("paste of an element styled by its id", () => {
     };
     expect(look("badge")).toEqual({ color: "rgb(200, 30, 40)", letterSpacing: "3px" });
     expect(look("badge-2")).toEqual(look("badge"));
+    expect(clipboard().pastedDomElementRef.current).toEqual({
+      projectId: "p", path: "index.html", hfId: doc.getElementById("badge-2")!.getAttribute("data-hf-id"),
+    });
   });
 });
 
@@ -389,11 +396,11 @@ describe("a copy in place, as the canvas makes one", () => {
     return [copy.match(/data-start="([^"]*)"/)?.[1], copy.match(/data-track-index="([^"]*)"/)?.[1]];
   };
 
-  it("duplicates at the clip's own time, on the next free track", async () => {
+  it("duplicates at the clip's own time, on a new top text track", async () => {
     selectTitle();
     const { clipboard, writes } = mountClipboard();
     await clipboard().handleDuplicate({ inPlace: true });
-    expect(copyAt(writes[0])).toEqual(["2", "1"]);
+    expect(copyAt(writes[0])).toEqual(["2", "-1"]);
   });
 
   it("pastes at the copied clip's time, not the playhead's", async () => {
@@ -401,7 +408,7 @@ describe("a copy in place, as the canvas makes one", () => {
     const { clipboard, writes } = mountClipboard();
     clipboard().handleCopy();
     await clipboard().handlePaste({ inPlace: true });
-    expect(copyAt(writes[0])).toEqual(["2", "1"]);
+    expect(copyAt(writes[0])).toEqual(["2", "-1"]);
   });
 
   // Host at 2 s: the clip's local 1-3 s shows as a 3-5 s master row, the clock the film's own timeline has.
@@ -435,12 +442,12 @@ describe("a copy in place, as the canvas makes one", () => {
     expect(pastedSubStarts(writes[0])).toEqual(["3"]);
   });
 
-  it("duplicates a sub-composition's clip at its own local time, on another track", async () => {
+  it("duplicates a sub-composition's clip at its own local time, on a new top text track", async () => {
     const { clipboard, writes } = mountSubClip();
     await clipboard().handleDuplicate({ inPlace: true });
     const copy = /<h2[^>]*data-hf-id[^>]*>/.exec(writes[0] ?? "")?.[0] ?? "";
     expect(copy).toContain('data-start="1"');
-    expect(copy).toContain('data-track-index="1"');
+    expect(copy).toContain('data-track-index="-1"');
   });
 
   it("pastes at the playhead once the edited composition is another, whose clock differs", async () => {
@@ -508,7 +515,7 @@ describe("duplicate of a clip inside a sub-composition", () => {
     );
     await clipboard().handleDuplicate();
     const copy = /<h2[^>]*data-start="3"[^>]*>/.exec(writes[0] ?? "")?.[0] ?? "";
-    expect(copy).toContain('data-track-index="1"');
+    expect(copy).toContain('data-track-index="-1"');
   });
 });
 
@@ -544,5 +551,65 @@ describe("with no DOM edit session", () => {
     expect(await clipboard().handleCut()).toBe(false);
     expect(await clipboard().handleDuplicate()).toBe(false);
     expect(deleted).toEqual([]);
+  });
+});
+
+
+it("copies the selected untimed canvas element even if a previous timeline clip stays selected", async () => {
+  selectTitle();
+  const saved = SAVED.replace("</h1>", '</h1><p id="badge">New</p>');
+  const selection = { hfId: stampedHfId(saved, "#badge"), selector: "#badge", selectorIndex: 0, sourceFile: "index.html" } as DomEditSelection;
+  const { clipboard, writes } = mountClipboard(selection, SUB, () => {}, saved);
+  clipboard().handleCopy();
+  await clipboard().handlePaste();
+  const doc = new DOMParser().parseFromString(writes[0]!, "text/html");
+  expect(doc.querySelectorAll("h1")).toHaveLength(1);
+  expect(doc.querySelectorAll("p")).toHaveLength(2);
+  expect(clipboard().pastedDomElementRef.current?.hfId).toBe(doc.querySelector("#badge-2")?.getAttribute("data-hf-id"));
+});
+
+
+it("cuts the copied canvas target without deleting the lingering timeline selection", async () => {
+  selectTitle();
+  const saved = SAVED.replace("</h1>", '</h1><p id="badge">New</p>');
+  const selection = { hfId: stampedHfId(saved, "#badge"), selector: "#badge", selectorIndex: 0, sourceFile: "index.html" } as DomEditSelection;
+  const { clipboard, deleted, domDeleted } = mountClipboard(selection, SUB, () => {}, saved);
+  expect(await clipboard().handleCut()).toBe(true);
+  expect(deleted).toEqual([]);
+  expect(domDeleted).toEqual([selection]);
+});
+
+
+describe("text insertion with locked visual layers", () => {
+  it.each(["paste", "duplicate", "canvas"])("preserves the text and reports no internal error during %s", async (entry) => {
+    selectTitle();
+    const lockedHtml = '<video id="locked-background" class="clip" data-start="0" data-duration="10" data-track-index="1" data-timeline-locked></video>';
+    const saved = SAVED.replace('</div>', lockedHtml + '</div>');
+    const locked: TimelineElement = {
+      id: 'locked-background', domId: 'locked-background', tag: 'video',
+      track: 1, authoredTrack: 1, start: 0, duration: 10, timelineLocked: true, sourceFile: 'index.html',
+    };
+    usePlayerStore.setState({ elements: [TITLE, locked] });
+    const selection = entry === "canvas" ? {
+      hfId: TITLE_HF_ID, selector: "h1", selectorIndex: 0, sourceFile: "index.html",
+    } as DomEditSelection : null;
+    if (selection) clearSelection();
+    const view = mountClipboard(selection, SUB, () => {}, saved);
+    if (entry === "duplicate") expect(await view.clipboard().handleDuplicate()).toBe(true);
+    else {
+      expect(view.clipboard().handleCopy()).toBe(true);
+      await view.clipboard().handlePaste();
+    }
+    expect(view.writes).toHaveLength(1);
+    const doc = new DOMParser().parseFromString(view.writes[0]!, "text/html");
+    const titles = doc.querySelectorAll("h1");
+    expect(titles).toHaveLength(2);
+    expect(Number(doc.querySelector("h1[data-hf-id]")!.getAttribute("data-track-index"))).toBeLessThan(0);
+    const originalLocked = new DOMParser().parseFromString(lockedHtml, "text/html").querySelector("video")!;
+    expect(doc.querySelector("#locked-background")?.outerHTML).toBe(originalLocked.outerHTML);
+    expect(doc.querySelector("h1:not([data-hf-id])")!.getAttribute("data-track-index")).toBe("0");
+    expect(view.showToast).toHaveBeenCalled();
+    expect(view.showToast.mock.calls.some(([, kind]) => kind === "error")).toBe(false);
+    expect(JSON.stringify(view.showToast.mock.calls)).not.toContain("locked clip would have to move");
   });
 });

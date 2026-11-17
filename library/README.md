@@ -6,20 +6,21 @@
 
 | Collection | Start here | What belongs here |
 | --- | --- | --- |
-| **🧠 Skills** | [Presenter Story](skills/presenter-story/SKILL.md) · [Motion Design Remix](skills/motion-design-remix/SKILL.md) · [Brandkit preparation](skills/brandkit/SKILL.md) | A focused, reusable method in `SKILL.md`, with examples and references when needed. |
+| **🧠 Skills** | [Presenter Story](skills/openmotion-presenter-story/SKILL.md) · [Motion Design Remix](skills/openmotion-design-remix/SKILL.md) · [Brandkit preparation](skills/openmotion-brandkit/SKILL.md) | A focused, reusable method in `SKILL.md`, with examples and references when needed. |
 | **🎞️ Templates** | [Studio starting points](templates/README.md) · [Presenter Tech](templates/presenter-tech/README.md) | A complete project, preview and adaptation instructions. |
 | **🧩 Motion components** | [Title reveal recipe](components/title-reveal/README.md) | A reusable title, transition, chart or scene with a clear timing and editing contract. |
 | **🎨 Motion design systems** | [Ink & Water](design-systems/ink-water/MOTION_DESIGN.md) | `MOTION_DESIGN.md`: typography, composition, pacing, movement and sound decisions. |
 | **💼 Brandkits** | [OpenMotion](brandkits/openmotion/BRANDKIT.md) | Brand facts, approved copy, colors, type, asset locations and usage rules. |
+| **Portable packages** | [Specification](../docs/motion-package-spec.md) · [Toolkit and Product Story example](../packages/motion-package/README.md) | A motion document referencing an independent design document, materials, exact dependencies and optional Agent instructions. |
 
 ```text
 library/
-├── skills/presenter-story/              → three presenter / motion recipes
-├── skills/motion-design-remix/           → six source / remix profiles
-├── skills/brandkit/SKILL.md
-├── templates/presenter-tech/            → local presenter / motion package
-├── templates/README.md                  → existing editable project sources
-├── components/title-reveal/README.md     → motion recipe
+├── skills/openmotion-presenter-story/          → three presenter / motion recipes
+├── skills/openmotion-design-remix/             → six source / remix profiles
+├── skills/openmotion-brandkit/SKILL.md
+├── templates/presenter-tech/                   → local presenter / motion package
+├── templates/README.md                         → existing editable project sources
+├── components/title-reveal/README.md           → motion recipe
 ├── design-systems/ink-water/MOTION_DESIGN.md
 ├── brandkits/openmotion/BRANDKIT.md
 └── ENTRY_TEMPLATE.md                    → contribution checklist
@@ -42,10 +43,18 @@ library/
 The optional library Skills can be selected individually from this checkout:
 
 ```sh
-npx skills add ./library/skills --skill brandkit
-npx skills add ./library/skills --skill motion-design-remix
-npx skills add ./library/skills --skill presenter-story
+npx skills add ./library/skills --skill openmotion-brandkit
+npx skills add ./library/skills --skill openmotion-design-remix
+npx skills add ./library/skills --skill openmotion-presenter-story
 ```
+
+For standalone installation or upgrade, use an explicit skills directory:
+
+```sh
+node scripts/install-library-skill.mjs openmotion-design-remix /absolute/path/to/host/skills
+```
+
+The helper accepts only the three canonical `openmotion-*` Library names. It reuses identical content and refuses to overwrite customized canonical folders. On upgrade, it removes an old forwarding folder only when every file matches the shipped original by hash. Customized folders, extra files and symlinks are preserved and reported in `preservedLegacy` for manual review. Run it for each installed Library Skill, then refresh host Skill discovery. Old Skill invocations are removed; update saved prompts and paths to canonical names.
 
 This library is browsable source today. It is not automatically imported into Studio or registered as MCP resources. The five core production Skills remain in [`skills/`](../skills/); the optional library Skills supply brand context, presenter-story design recipes or a specific source-remix method and do not add core production routes. The [Studio catalog](../docs/template-catalog.md) and [viewing references](../docs/collections/README.md) retain their existing sources and behavior.
 

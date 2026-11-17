@@ -32,8 +32,10 @@ export interface DraggedClipState {
   /** Snap target the clip will land on, for the guide highlight. */
   snapTime: number | null;
   snapType: TimelineSnapType | null;
+  snapEdge?: "start" | "end";
   started: boolean;
   altKey?: boolean;
+  snapDisabled?: boolean;
 }
 
 export interface ResizingClipState {
@@ -65,6 +67,7 @@ export interface ResizingClipState {
   }[];
   started: boolean;
   altKey?: boolean;
+  snapDisabled?: boolean;
 }
 
 export interface BlockedClipState {

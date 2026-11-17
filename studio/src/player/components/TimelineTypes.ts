@@ -25,6 +25,8 @@ export interface TimelineProps
   extends TimelineDropCallbacks, TimelineEditOverrides, TimelineStackingSyncProps {
   /** Project-scoped reset boundary; soft source refreshes retain the same epoch. */
   sessionEpoch?: number;
+  /** Intrinsic track geometry, excluding the host toolbar and footer. */
+  onContentHeightChange?: (height: number) => void;
   onSeek?: (time: number, options?: { keepPlaying?: boolean; follow?: boolean }) => void;
   onDrillDown?: (element: TimelineElement) => void;
   /** Picture only: takes no pointer input. Interactive content goes in renderClipOverlay. */

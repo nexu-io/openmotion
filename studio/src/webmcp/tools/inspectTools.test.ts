@@ -222,7 +222,7 @@ describe("studioInspect", () => {
     // false claim from "you did not say which element".
     expect(result.kind).toBe("invalid");
     expect(result.reason).toMatch(/nothing is selected/);
-    expect(result.hint).toMatch(/studio_select/);
+    expect(result.hint).toMatch(/openmotion_studio_select/);
   });
 
   it("reports an unknown handle distinctly from an unmounted preview", async () => {

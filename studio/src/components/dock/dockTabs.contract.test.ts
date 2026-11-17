@@ -38,12 +38,11 @@ const bodyOf = (selector: string) =>
   rules(dockCss).find((rule) => rule.selector === selector)?.body;
 
 describe("dock panel strip contract", () => {
-  it("limits borders to cards and rail separators, clearing hidden side groups", () => {
+  it("limits borders to cards and rail separators", () => {
     const bordered = rules(dockCss)
       .filter((rule) => /(^|[\s;{])border(-(top|right|bottom|left))?\s*:/.test(rule.body))
       .map((rule) => rule.selector);
-    expect(bordered).toEqual([".hf-dock .dv-groupview", ".hf-dock-side-rail-divider", ".hf-dock .hf-dock-side-hidden"]);
-    expect(bodyOf(".hf-dock .hf-dock-side-hidden")).toMatch(/border:\s*0\s*;/);
+    expect(bordered).toEqual([".hf-dock .dv-groupview", ".hf-dock-side-rail-divider"]);
     const dock = bodyOf(".hf-dock");
     expect(dock).toContain("--dv-tab-divider-color: transparent");
     expect(dock).toContain("--dv-separator-border: transparent");

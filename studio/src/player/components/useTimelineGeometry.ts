@@ -43,6 +43,8 @@ export function useTimelineGeometry({
   lastScrollLeftRef,
   contentOrigin,
 }: UseTimelineGeometryInput) {
+  const pendingDrops = usePlayerStore(s => s.pendingAssetDrops);
+  const pendingEnd = pendingDrops.reduce((end, drop) => Math.max(end, (drop.placement.start + (drop.duration ?? 5))), 0);
   const fitPps = getTimelineFitPps(viewportWidth, effectiveDuration, contentOrigin);
   const pps = getTimelinePixelsPerSecond(fitPps, zoomMode, manualZoomPercent);
   ppsRef.current = pps;
@@ -71,7 +73,7 @@ export function useTimelineGeometry({
     viewportWidth,
     contentOrigin,
     pps,
-    dragGhostEndPx,
+    dragGhostEndPx: Math.max(dragGhostEndPx, pendingEnd * pps),
     resizeGhostEndPx,
   });
   const displayDuration = pps > 0 ? displayContentWidth / pps : effectiveDuration;
@@ -113,7 +115,7 @@ export function useTimelineGeometry({
   }, [pps, fitPps]);
   // In manual zoom a length change keeps the on-screen scale instead of rescaling every
   // clip, whichever edit caused it. A composition switch empties the clips first, so it refits.
-  const hasClips = expandedElements.length > 0;
+  const hasClips = expandedElements.length > 0 || pendingDrops.length > 0;
   const lastScale = useRef({ effectiveDuration, pps, hasClips });
   useLayoutEffect(() => {
     const last = lastScale.current;

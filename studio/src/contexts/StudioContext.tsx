@@ -45,7 +45,7 @@ export interface StudioShellValue {
     recheckFfmpeg: () => void;
   };
   compositionDimensions: CompositionDimensions | null;
-  waitForPendingDomEditSaves: () => Promise<void>;
+  waitForPendingDomEditSaves: (options?: { blur?: boolean }) => Promise<void>;
   handlePreviewIframeRef: (iframe: HTMLIFrameElement | null) => void;
 }
 

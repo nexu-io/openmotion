@@ -7,8 +7,10 @@ export interface StudioHost {
   brand?: ReactNode;
   projectLabel?: ReactNode;
   headerActions?: ReactNode;
+  communityAction?: ReactNode;
   previewAction?: ReactNode;
   historyActions?: ReactNode;
+  projectAction?: ReactNode;
   windowMenu?: ReactNode;
   languageMenu?: ReactNode;
   panels?: ReactNode;

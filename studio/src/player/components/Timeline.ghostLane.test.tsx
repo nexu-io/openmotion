@@ -59,6 +59,7 @@ describe("Timeline ghost lane", () => {
     drag("dragover", ROW1_MID);
     expect(ghost()?.dataset.active).toBeUndefined();
     drag("dragover", GHOST_MID);
+    await act(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
     expect(ghost()?.dataset.active).toBe("true");
     drag("drop", GHOST_MID);
     expect(onAssetDrop).toHaveBeenCalledWith("a.png", expect.objectContaining({ track: 3 }));
@@ -74,9 +75,14 @@ describe("Timeline ghost lane", () => {
     pointer(host.querySelector(`[data-clip][data-el-id="c${track}"]`)!, "pointerdown", clipMid);
     pointer(window, "pointermove", ROW1_MID);
     expect(ghost()?.dataset.active).toBeUndefined();
-    pointer(window, "pointermove", GHOST_MID);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+    // A collision with row 1 may open a preview row. Aim at the rendered ghost,
+    // rather than the old bottom row's now-stale coordinates.
+    const ghostMid = Number.parseFloat(ghost()!.style.top) + TRACK_H / 2;
+    pointer(window, "pointermove", ghostMid);
+    await act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
     expect(ghost()?.dataset.active).toBe("true");
-    // Dragging the last track's clip adds a preview row; the lane must stay under the pointer.
+    // Once the bottom insert is armed, its preview occupies the committed bottom-pad row.
     expect(ghost()?.style.top).toBe(`${getTimelineRowTop(3) + CLIP_Y}px`);
     act(() => root.unmount());
   });

@@ -42,9 +42,12 @@ it('only editable templates open a new engineering project; references copy thei
   expect(container.querySelector('.motion-editable-badge')).toBeNull();
   await act(async () => button('一键复制').click());
   expect(clipboard).toHaveBeenCalledOnce();
-  expect(clipboard.mock.calls[0][0]).toContain('指定模板：Reference（hf-moment-M953）');
-  expect(clipboard.mock.calls[0][0]).toContain('https://releases.open-design.ai/open-motion/dev/install.md');
-  expect(clipboard.mock.calls[0][0]).not.toContain('localhost');
+  expect(clipboard.mock.calls[0][0]).toBe([
+    '使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。',
+    '指定模板：Reference（hf-moment-M953）',
+    '创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。',
+    '我的要求：\n',
+  ].join('\n'));
   expect(state.open).toHaveBeenCalledTimes(1);
   expect(container.textContent).toContain('已复制');
 });

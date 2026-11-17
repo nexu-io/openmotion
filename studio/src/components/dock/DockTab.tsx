@@ -1,3 +1,4 @@
+import { OverflowText } from "../ui/OverflowText";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useCallback, useSyncExternalStore } from "react";
 import { useI18n } from '../../i18n/I18n';
@@ -69,6 +70,7 @@ export function DockTab({ api }: IDockviewPanelHeaderProps) {
   return (
     <div
       className="hf-dock-tab"
+      data-preview-heading={mvp && api.id === "preview" || undefined}
       data-panel-zone={isPanelId(api.id) ? PANEL_DEFINITIONS[api.id].zone : undefined}
       // Capture runs before the dock activates the tab, so a press on the shown tab is not a switch.
       onPointerDownCapture={(event) => {
@@ -77,7 +79,7 @@ export function DockTab({ api }: IDockviewPanelHeaderProps) {
       }}
     >
       {TypeIcon ? <TypeIcon className="hf-dock-tab-icon" size={14} aria-hidden /> : null}
-      <span className="hf-dock-tab-label">{title}</span>
+      <OverflowText text={title} className="hf-dock-tab-label" />
       {/* Same shape as dockview's own close control: a tab cannot hold a focusable button. */}
       {!mvp && (
         <div

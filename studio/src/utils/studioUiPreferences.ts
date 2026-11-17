@@ -4,9 +4,11 @@ import { parseDockLayout } from "../components/dock/dockLayoutSchema";
 
 export type TimelineTimeDisplayMode = "time" | "frame";
 export type StudioTheme = "light" | "dark";
+export type StudioThemePreference = StudioTheme | "system";
 
 export interface StudioUiPreferences {
   timelineVisible?: boolean;
+  timelineLabelWidth?: number;
   playbackRate?: number;
   previewQuality?: PreviewQuality;
   audioMuted?: boolean;
@@ -26,6 +28,7 @@ export interface StudioUiPreferences {
   /** Keeps the main track gapless: deleting a clip closes the gap. Distinct
    *  from `timelineSnapEnabled` ("Magnet", drag/trim snapping). */
   rippleEditEnabled?: boolean;
+  timelineLinkageEnabled?: boolean;
   /** Transport + ruler readout mode: timecode or frame number. */
   timeDisplayMode?: TimelineTimeDisplayMode;
   /**
@@ -44,9 +47,10 @@ export interface StudioUiPreferences {
    * intentionally scoped to one mount.
    */
   agentToolsEnabled?: boolean;
-  theme?: StudioTheme;
+  theme?: StudioThemePreference;
   /** The dock's serialized panel tree; parsed by `parseDockLayout` on read. */
   dockLayout?: SerializedDockview;
+  workspaceLayout?: { left: boolean; right: boolean; preview?: boolean; timeline: boolean; timelineHeight: number | null };
   linkedSelectionEnabled?: boolean;
   syncIndicatorsVisible?: boolean;
 }
@@ -80,6 +84,8 @@ function readStorage(storage: Storage | null, key: string): StudioUiPreferences 
     if (!isRecord(parsed)) return {};
 
     const preferences: StudioUiPreferences = {};
+    if (typeof parsed.timelineLinkageEnabled === "boolean") preferences.timelineLinkageEnabled = parsed.timelineLinkageEnabled;
+    if (typeof parsed.timelineLabelWidth === "number" && Number.isFinite(parsed.timelineLabelWidth) && parsed.timelineLabelWidth >= 104 && parsed.timelineLabelWidth <= 320) preferences.timelineLabelWidth = parsed.timelineLabelWidth;
     if (typeof parsed.timelineVisible === "boolean") {
       preferences.timelineVisible = parsed.timelineVisible;
     }
@@ -137,7 +143,7 @@ function readStorage(storage: Storage | null, key: string): StudioUiPreferences 
     if (typeof parsed.rippleEditEnabled === "boolean") {
       preferences.rippleEditEnabled = parsed.rippleEditEnabled;
     }
-    if (parsed.theme === "light" || parsed.theme === "dark") preferences.theme = parsed.theme;
+    if (parsed.theme === "light" || parsed.theme === "dark" || parsed.theme === "system") preferences.theme = parsed.theme;
     if (parsed.timeDisplayMode === "time" || parsed.timeDisplayMode === "frame") {
       preferences.timeDisplayMode = parsed.timeDisplayMode;
     }
@@ -161,6 +167,12 @@ function readStorage(storage: Storage | null, key: string): StudioUiPreferences 
     }
     const dockLayout = parseDockLayout(parsed.dockLayout);
     if (dockLayout) preferences.dockLayout = dockLayout;
+    const layout = parsed.workspaceLayout;
+    if (isRecord(layout) && typeof layout.left === "boolean" && typeof layout.right === "boolean" && typeof layout.timeline === "boolean"
+      && (layout.timelineHeight === null || (typeof layout.timelineHeight === "number" && Number.isFinite(layout.timelineHeight) && layout.timelineHeight >= 96 && layout.timelineHeight <= 4000))) {
+      preferences.workspaceLayout = { left: layout.left, right: layout.right, timeline: layout.timeline, timelineHeight: layout.timelineHeight };
+      if (typeof layout.preview === "boolean") preferences.workspaceLayout.preview = layout.preview;
+    }
     return preferences;
   } catch {
     return {};

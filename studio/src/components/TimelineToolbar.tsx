@@ -1,3 +1,6 @@
+import { TimelineBehaviorToggles } from "./TimelineBehaviorToggles";
+import { TimelineTrimButtons } from "./TimelineTrimButtons";
+import type { TimelineEditCallbacks } from "../player/components/timelineCallbacks";
 import { RemixIcon } from "../icons/RemixIcons";
 import { trackStudioClick } from "../motion/editorTracking";
 import { useMvpEditor } from "../motion/StudioHost";
@@ -7,7 +10,6 @@ import {
   ArrowsOutLineHorizontal,
   ZoomSelection,
   Image,
-  Magnet,
   MagnifyingGlassMinus,
   MagnifyingGlassPlus,
 } from "../icons/RemixIcons";
@@ -32,13 +34,12 @@ import {
 import { usePlayerStore, type TimelineElement } from "../player";
 import { Tooltip } from "./ui";
 import { AudioMetersIcon } from "./icons/AudioMetersIcon";
-import { RippleEditIcon } from "./icons/RippleEditIcon";
 import { flatActive, flatBtn, flatDisabled, flatIdle } from "./timelineToolbarStyles";
 import { TimelineHistoryButtons, type TimelineHistoryButtonsProps } from "./TimelineHistoryButtons";
 import { TimelineToolPicker } from "./TimelineToolPicker";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import type { DomEditSelection } from "./editor/domEditingTypes";
-import { canSplitElement } from "../utils/timelineElementSplit";
+import { canSplitElementAt, selectPlayheadSplitElements } from "../utils/timelineElementSplit";
 import { useAudioMetersVisible } from "../utils/audioMeterVisibility";
 import { LinkedSelectionToggle } from "./LinkedSelectionToggle";
 import { useLinkedClipPreferences } from "../utils/linkedClipPreferences";
@@ -55,6 +56,8 @@ interface DomEditSessionSlice extends EnableKeyframesSession {
 
 export interface TimelineToolbarProps {
   domEditSession?: DomEditSessionSlice;
+  onResizeElement?: TimelineEditCallbacks["onResizeElement"];
+  onSplitAtPlayhead?: (splitTime: number) => void;
   onSplitElement?: (element: TimelineElement, splitTime: number) => void;
   splitShortcut?: TimelineProps["splitShortcut"];
   history?: TimelineHistoryButtonsProps;
@@ -157,6 +160,8 @@ function useKeyframeToggle(session?: DomEditSessionSlice) {
 export const TimelineToolbar = memo(function TimelineToolbar({
   domEditSession,
   onSplitElement,
+  onResizeElement,
+  onSplitAtPlayhead,
   splitShortcut,
   history,
   showHistory = true,
@@ -173,10 +178,6 @@ export const TimelineToolbar = memo(function TimelineToolbar({
   showKeyframes = showKeyframes && !mvp;
   const keys = useStudioKeys();
   const kf = keyHint("addKeyframe", keys);
-  const timelineSnapEnabled = usePlayerStore((s) => s.timelineSnapEnabled);
-  const setTimelineSnapEnabled = usePlayerStore((s) => s.setTimelineSnapEnabled);
-  const rippleEditEnabled = usePlayerStore((s) => s.rippleEditEnabled);
-  const setRippleEditEnabled = usePlayerStore((s) => s.setRippleEditEnabled);
   const autoKeyframeEnabled = usePlayerStore((s) => s.autoKeyframeEnabled);
   const setAutoKeyframeEnabled = usePlayerStore((s) => s.setAutoKeyframeEnabled);
   const thumbnailMode = usePlayerStore((s) => s.thumbnailMode);
@@ -225,7 +226,6 @@ export const TimelineToolbar = memo(function TimelineToolbar({
     if (!mvp) return;
     const store = usePlayerStore.getState();
     store.setThumbnailMode("adaptive");
-    store.setRippleEditEnabled(false);
     useAudioMetersVisible.getState().setVisible(false);
     useLinkedClipPreferences.getState().setLinkedSelection(false);
   }, [mvp]);
@@ -248,48 +248,38 @@ export const TimelineToolbar = memo(function TimelineToolbar({
       <div className="flex items-center justify-between px-2 py-0.5">
         <div className="flex items-center gap-0.5">
           {showHistory && <TimelineHistoryButtons {...history} />}
-          <TimelineToolPicker showSelectAroundPlayhead={showSelectAroundPlayhead} />
+          <TimelineToolPicker showSelectAroundPlayhead={showSelectAroundPlayhead} splitShortcut={splitShortcut} />
           {/* Divider: tool-mode | editing-actions */}
           <div aria-hidden="true" className="mx-1 h-4 w-px bg-neutral-800" />
+          {(onSplitAtPlayhead || onSplitElement) &&
+            (() => {
+              const el = elements.find((element) => (element.key ?? element.id) === selectedElementId);
+              const targets = onSplitAtPlayhead
+                ? selectPlayheadSplitElements({ elements, selectedElementId, selectedElementIds }, currentTime)
+                : el && canSplitElementAt(el, currentTime) ? [el] : [];
+              const canSplit = targets.length > 0;
+              return (
+                <Tooltip
+                  label={t("Split ({value0})", { value0: splitShortcut ?? keyHint("split", keys) })}
+                >
+                  <button
+                    type="button"
+                    disabled={!canSplit}
+                    aria-label={t("Split")}
+                    onClick={() => {
+                      if (!canSplit) return;
+                      if (onSplitAtPlayhead) onSplitAtPlayhead(currentTime);
+                      else if (el) onSplitElement?.(el, currentTime);
+                    }}
+                    className={canSplit ? flatIdle : flatDisabled}
+                  >
+                    <RemixIcon name="scissors-cut-line" size={16} />
+                  </button>
+                </Tooltip>
+              );
+            })()}
+          <TimelineTrimButtons onResize={onResizeElement} />
           {!mvp && <LinkedSelectionToggle />}
-          <Tooltip
-            label={
-              timelineSnapEnabled
-                ? t("Snapping on ({value0})", { value0: keyHint("timelineSnap", keys) })
-                : t("Snapping off ({value0})", { value0: keyHint("timelineSnap", keys) })
-            }
-            description={t("When enabled, dragged clips snap to nearby clip edges and the playhead for easier alignment.")}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                trackStudioClick("timeline", "snap_toggle", undefined, undefined, timelineSnapEnabled ? "off" : "on");
-                setTimelineSnapEnabled(!timelineSnapEnabled);
-              }}
-              aria-label={t("Toggle timeline snapping")}
-              aria-pressed={timelineSnapEnabled}
-              className={timelineSnapEnabled ? flatActive : flatIdle}
-            >
-              <Magnet size={16} weight="bold" aria-hidden="true" />
-            </button>
-          </Tooltip>
-{!mvp && <>           <Tooltip
-            label={
-              rippleEditEnabled
-                ? t("Ripple on: keeps the main track gapless")
-                : t("Ripple off: deleting a main-track clip leaves a gap")
-            }
-          >
-            <button
-              type="button"
-              onClick={() => setRippleEditEnabled(!rippleEditEnabled)}
-              aria-label={t("Toggle ripple edit")}
-              aria-pressed={rippleEditEnabled}
-              className={rippleEditEnabled ? flatActive : flatIdle}
-            >
-              <RippleEditIcon size={16} />
-            </button>
-          </Tooltip> </>}
           {!mvp && projectHasAudio && (
             <Tooltip label={audioMetersVisible ? t("Hide audio meters") : t("Show audio meters")}>
               <button
@@ -407,42 +397,6 @@ export const TimelineToolbar = memo(function TimelineToolbar({
               </Tooltip>
             </>
           )}
-          {!mvp && onSplitElement &&
-            (() => {
-              // Render the button unconditionally (disabled when unusable):
-              // mounting/unmounting mid-task shifts the neighboring controls.
-              // Mirrors the S-key gate: selected clip + playhead strictly inside it.
-              const el = selectedElementId
-                ? elements.find((e) => (e.key ?? e.id) === selectedElementId)
-                : null;
-              const splittable = el != null && canSplitElement(el);
-              const canSplit =
-                splittable && currentTime > el.start && currentTime < el.start + el.duration;
-              return (
-                <Tooltip
-                  label={
-                    canSplit
-                      ? t("Split at playhead ({value0})", { value0: splitShortcut ?? keyHint("split", keys) })
-                      : splittable
-                        ? t("Move the playhead inside the clip to split")
-                        : t("Select a clip to split")
-                  }
-                >
-                  <button
-                    type="button"
-                    disabled={!canSplit}
-                    aria-label={t("Split at playhead")}
-                    onClick={() => {
-                      if (canSplit && el) onSplitElement(el, currentTime);
-                    }}
-                    className={canSplit ? flatIdle : flatDisabled}
-                  >
-                    {/* "][" split glyph: two outward-facing brackets with a center gap */}
-                    <RemixIcon name="scissors-cut-line" size={16} />
-                  </button>
-                </Tooltip>
-              );
-            })()}
           {(() => {
             if (!showAddBeat) return null;
             // Rendered whenever shown (CapCut-style): before beat analysis loads (or when
@@ -487,6 +441,7 @@ export const TimelineToolbar = memo(function TimelineToolbar({
           })()}
         </div>
         <div className="flex items-center gap-0.5">
+          <TimelineBehaviorToggles />
           {rightActions}
 {!mvp && <>           <Tooltip
             label={
@@ -574,13 +529,12 @@ export const TimelineToolbar = memo(function TimelineToolbar({
               <MagnifyingGlassMinus size={16} aria-hidden="true" />
             </button>
           </Tooltip>
-          <input
+          <Tooltip label={`${displayedTimelineZoomPercent}%`} wrap><input
             type="range"
             disabled={zoomDisabled}
             min="0"
             max="100"
             value={timelineZoomPercentToSlider(displayedTimelineZoomPercent, timelineFitPps)}
-            title={`${displayedTimelineZoomPercent}%`}
             data-studio-control="timeline-zoom"
         aria-label={t("Timeline zoom")}
             onChange={(e) =>
@@ -591,7 +545,7 @@ export const TimelineToolbar = memo(function TimelineToolbar({
             // h-6 on the input is the 24x24 WCAG 2.2 (2.5.8) target: the visible
             // track stays 2px and the thumb 10px, only the pointer box grows.
             className="mx-1 h-6 w-[96px] cursor-pointer appearance-none bg-transparent [&::-webkit-slider-runnable-track]:h-[2px] [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-neutral-700 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-[10px] [&::-webkit-slider-thumb]:h-[10px] [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-text-0 [&::-webkit-slider-thumb]:-mt-1 [&::-webkit-slider-thumb]:shadow-[0_0_0_2px_#0a0a0a,0_1px_3px_rgba(0,0,0,0.5)] [&::-webkit-slider-thumb]:cursor-grab [&::-webkit-slider-thumb:active]:cursor-grabbing"
-          />
+          /></Tooltip>
           <Tooltip label={t("Zoom in")}>
             <button
               type="button"

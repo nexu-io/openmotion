@@ -38,3 +38,10 @@ export function sameTimelineText(a?: TimelineText, b?: TimelineText): boolean {
     a.background === b.background
   );
 }
+
+/** Runtime-inferred text windows are preview metadata until an editor saves them. */
+export function isImplicitRootText(el: Element): boolean {
+  return el.hasAttribute("data-hf-autostamped") && isTextBearingTag(el.localName) &&
+    Array.from(el.children).every(child => child.localName === "br") &&
+    el.parentElement?.closest("[data-start]") === el.ownerDocument.querySelector("[data-composition-id]");
+}

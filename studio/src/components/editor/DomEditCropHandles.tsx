@@ -1,3 +1,4 @@
+import { Tooltip } from "../ui/Tooltip";
 import { useI18n } from "../../i18n/I18n";
 import { trackPreviewEditResult, type PreviewMethod } from "../../utils/previewFeatureUsage";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -325,10 +326,9 @@ export function DomEditCropHandles({
             pan the crop window (which part of the element shows) without resizing
             the crop. It's a small, discrete target, so a body drag still MOVES. */}
         {hasCrop && repositionSize > 0 && (
-          <button
+          <Tooltip label={t("Reposition crop")} wrap><button
             type="button"
             aria-label={t("Reposition crop")}
-            title={t("Reposition crop")}
             data-dom-edit-crop-handle="true"
             className="pointer-events-auto absolute rounded-full border-2 border-studio-accent bg-studio-accent/30 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
             style={{
@@ -343,7 +343,7 @@ export function DomEditCropHandles({
             onPointerMove={updateCropGesture}
             onPointerUp={finishCropGesture}
             onPointerCancel={cancelCropGesture}
-          />
+          /></Tooltip>
         )}
         {/* Edge handles — drag a side to crop it. Positioned just OUTSIDE the crop
             edge (via edgeHandleLayout) so they never overlap the element body:
@@ -356,11 +356,9 @@ export function DomEditCropHandles({
           if (!layout) return null;
           const revealed = dragging || hasCrop || hotEdge === edge;
           return (
-            <button
-              key={edge}
+            <Tooltip label={t("Crop")} wrap key={edge}><button
               type="button"
               aria-label={t("Crop {edge}", { edge: t(edge) })}
-              title={t("Crop")}
               data-dom-edit-crop-handle="true"
               className="pointer-events-auto absolute flex items-center justify-center border-0 bg-transparent p-0"
               style={{
@@ -382,7 +380,7 @@ export function DomEditCropHandles({
                   opacity: revealed ? 1 : 0,
                 }}
               />
-            </button>
+            </button></Tooltip>
           );
         })}
       </div>

@@ -120,3 +120,21 @@ describe("useTimelineStackingSync", () => {
     iframe.remove();
   });
 });
+
+it("does not turn an inferred structural wrapper into a stacking context around independent text", () => {
+  const iframe = document.createElement("iframe");
+  document.body.appendChild(iframe);
+  iframe.contentDocument!.body.innerHTML = '<div id="wrapper" data-hf-autostamped="1"><h1 id="text" data-start="0" data-duration="4">Title</h1></div>';
+  const wrapper: TimelineElement = { id:"wrapper", domId:"wrapper", tag:"div", start:0, duration:4, track:0 };
+  const text: TimelineElement = { id:"text", domId:"text", tag:"h1", start:0, duration:4, track:1 };
+  let read: ((element: TimelineElement, asTarget?: boolean) => number) | undefined;
+  function Harness() {
+    read = useTimelineStackingSync({ previewIframeRef:{current:iframe}, expandedElementsRef:{current:[wrapper,text]} }).readClipZIndex;
+    return null;
+  }
+  const root = mountReactHarness(<Harness />);
+  expect(read!(wrapper)).toBeNaN();
+  expect(read!(wrapper, true)).toBe(0);
+  expect(read!(text)).toBe(0);
+  act(() => root.unmount()); iframe.remove();
+});

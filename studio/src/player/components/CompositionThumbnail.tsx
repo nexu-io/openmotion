@@ -10,6 +10,7 @@ import { TIMELINE_VIEWPORT_BUDGETS } from "../lib/timelineViewportBudgets";
 import { ThumbnailTiles } from "./ThumbnailTiles";
 import { computeThumbnailStrip, probeImageAspect } from "./thumbnailUtils";
 import { studioApiFetch } from "../../utils/studioApiFetch";
+import { Skeleton } from "../../components/ui/Skeleton";
 
 interface CompositionThumbnailProps {
   previewUrl: string;
@@ -180,7 +181,6 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           frameCount={frameCount}
           watchGap={watchGap}
           style={{
-            animation: "hf-thumb-fade 200ms ease-out",
             mixBlendMode:
               "var(--timeline-composition-thumbnail-blend)" as CSSProperties["mixBlendMode"],
           }}
@@ -202,8 +202,8 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           )}
         </ThumbnailTiles>
       )}
-      {snapshot.status === "loading" && (
-        <div className="absolute inset-0 animate-pulse bg-text-0/[0.035]" />
+      {!value && snapshot.status !== "error" && (
+        <Skeleton animated={false} style={{ position: "absolute", inset: 0 }} />
       )}
       {label && (
         <div className="absolute inset-y-0 left-3 z-10 flex items-center">

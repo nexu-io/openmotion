@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ModelSettings } from './ModelSettings';
 import { MediaGenerator } from './MediaGenerator';
 import { useArtifactViewActive } from './ArtifactViewState';
+import { useI18n } from '../i18n/I18n';
 import type { GenerateInput, GenerationJob, Modality } from './gatewayClient';
 import type { MediaPopoverAnchor } from './mediaPopoverPosition';
 import './media-gateway.css';
@@ -19,6 +20,7 @@ const MediaGatewayContext = createContext<GatewayUI | null>(null);
 export const useMediaGateway = () => useContext(MediaGatewayContext);
 
 export function MediaGatewayProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n();
   const active = useArtifactViewActive();
   const [settings, setSettings] = useState(false);
   const [request, setRequest] = useState<MediaRequest | null>(null);
@@ -40,7 +42,7 @@ export function MediaGatewayProvider({ children }: { children: ReactNode }) {
     }} />
     {active && settings && <ModelSettings onClose={() => setSettings(false)} />}
     {createPortal(<div hidden={!active} inert={!active}>
-      {importError && <div className="motion-media-notice" role="alert">{importError}<button onClick={() => setImportError('')}>×</button></div>}
+      {importError && <div className="motion-media-notice" role="alert">{importError}<button aria-label={t('Dismiss error')} onClick={() => setImportError('')}>×</button></div>}
       {request && <MediaGenerator key={request.id} request={request} onClose={() => setRequest(null)} onSettings={openSettings} />}
     </div>, document.body)}
   </MediaGatewayContext.Provider>;

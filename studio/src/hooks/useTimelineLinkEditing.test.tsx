@@ -97,6 +97,28 @@ describe("useTimelineLinkEditing", () => {
     unmount();
   });
 
+  it("deletes only the requested track and unlinks its surviving partner", async () => {
+    const del = vi.fn().mockResolvedValue(undefined);
+    const { api, unmount } = await renderLinkEditing(del);
+    const otherTrack = { ...audio, track: 2 };
+    usePlayerStore.getState().setElements([video, title, otherTrack]);
+    await act(async () => api.handleDeleteTrack(0));
+    expect(del).toHaveBeenCalledExactlyOnceWith([video, title], [otherTrack]);
+    unmount();
+  });
+
+  it("refuses locked or cross-source track deletion rather than deleting a subset", async () => {
+    const del = vi.fn();
+    const { api, unmount } = await renderLinkEditing(del);
+    usePlayerStore.getState().setElements([{ ...video, timelineLocked: true }, title]);
+    await act(async () => api.handleDeleteTrack(0));
+    expect(del).not.toHaveBeenCalled();
+    usePlayerStore.getState().setElements([video, { ...title, sourceFile: 'nested.html' }]);
+    await act(async () => api.handleDeleteTrack(0));
+    expect(del).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("unlink writes one undo step removing data-link from both", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ content: SOURCE }), { status: 200 }),

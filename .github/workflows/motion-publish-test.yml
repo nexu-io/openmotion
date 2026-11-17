@@ -40,7 +40,7 @@ env:
 
 jobs:
   verify:
-    if: github.repository == 'nexu-io/html-anything'
+    if: github.repository == 'nexu-io/openmotion'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -49,8 +49,8 @@ jobs:
     steps:
       - name: Require Motion integration branch
         run: |
-          if [ "$GITHUB_REF" != 'refs/heads/feature/motion' ]; then
-            echo '::error::Select feature/motion in Run workflow for Motion operations.'
+          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
+            echo '::error::Select main in Run workflow for Motion operations.'
             exit 1
           fi
       - uses: actions/checkout@v6.0.2
@@ -71,7 +71,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MOTION_EXPECTED_SHA256: ${{ steps.download.outputs.tgz_sha256 }}
         run: |
-          git fetch origin feature/motion:refs/remotes/origin/feature/motion
+          git fetch origin main:refs/remotes/origin/main
           node .github/scripts/motion-scan.mjs install "$RUNNER_TEMP/scanner"
           node .github/scripts/motion-release.mjs rescan "$RUNNER_TEMP/candidate" "$PWD" "$RUNNER_TEMP/scanner/gitleaks"
       - uses: actions/upload-artifact@v7.0.2
@@ -170,7 +170,9 @@ jobs:
         if: always()
         with:
           name: registry-darwin-arm64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/candidate/registry-darwin-arm64.json
+          path: |
+            ${{ runner.temp }}/candidate/registry-darwin-arm64.json
+            ${{ runner.temp }}/candidate/template-runtime-darwin-arm64/
           retention-days: 30
           if-no-files-found: warn
 
@@ -214,7 +216,9 @@ jobs:
         if: always()
         with:
           name: registry-win32-x64-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/candidate/registry-win32-x64.json
+          path: |
+            ${{ runner.temp }}/candidate/registry-win32-x64.json
+            ${{ runner.temp }}/candidate/template-runtime-win32-x64/
           retention-days: 30
           if-no-files-found: warn
 
@@ -273,11 +277,14 @@ jobs:
       MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
     needs: [verify, npm, promote-test]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.record.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -310,7 +317,18 @@ jobs:
           MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
           MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
         run: node .github/scripts/motion-release.mjs archive "$RUNNER_TEMP/candidate"
+      - name: Publish template sources and advance the shared release catalog when promoted
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          MOTION_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL }}
+          MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
+          MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
+        run: node .github/scripts/publish-template-catalog.mjs release "$MOTION_VERSION" "$RUNNER_TEMP/candidate"
       - name: Retain the attempt, immutable release identity and previous default guide
+        id: record
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -400,11 +418,14 @@ jobs:
       MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
     needs: [verify, npm, promote-stable, registry-mac, registry-windows]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    outputs:
+      artifact_id: ${{ steps.record.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
@@ -449,7 +470,18 @@ jobs:
           MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
           MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
         run: node .github/scripts/motion-release.mjs archive "$RUNNER_TEMP/candidate"
+      - name: Publish template sources and advance the shared release catalog when promoted
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          MOTION_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL }}
+          MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
+          MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
+        run: node .github/scripts/publish-template-catalog.mjs release "$MOTION_VERSION" "$RUNNER_TEMP/candidate"
       - name: Retain the attempt, immutable release identity and previous default guide
+        id: record
         if: always()
         uses: actions/upload-artifact@v7.0.2
         with:
@@ -471,3 +503,56 @@ jobs:
           const origin = process.env.MOTION_INSTALL_PUBLIC_ORIGIN;
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Stable publication result\n\nVersion: ${c.version}\n\nSource: ${c.sourceCommit}\n\nResult: ${a.stage}\n\n[Exact-version installation guide](${origin}/open-motion/${c.version}/install.md)\n\n[Default stable guide](${origin}/open-motion/install.md)\n\nThe stable default follows verified latest and both prod native checks; a superseded candidate keeps its version snapshot without moving the default. The test channel is not changed by stable publication.\n`);
           JS
+
+  release-notes:
+    name: Publish GitHub Release notes
+    if: ${{ always() && !cancelled() && inputs.archive_only != true && needs.verify.result == 'success' && (needs.snapshot.result == 'success' || needs.stable-snapshot.result == 'success') }}
+    needs: [verify, snapshot, stable-snapshot]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Notes can be retried without rolling back an already delivered npm version.
+    continue-on-error: true
+    permissions:
+      contents: write
+      actions: read
+    env:
+      MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
+      MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          artifact-ids: ${{ needs.snapshot.outputs.artifact_id || needs.stable-snapshot.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - name: Create the exact-source draft and publish its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/motion-release-notes.mjs "$RUNNER_TEMP/candidate"
+      - name: Report a release-note failure separately from package delivery
+        if: failure()
+        run: echo '::warning::npm and installation guides were delivered; GitHub Release notes failed. Inspect this job and rerun the publication with the same exact version to finish notes without republishing different bytes.'
+      - name: Retain generated notes and release identity
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: github-release-${{ inputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/candidate/release-notes.md
+            ${{ runner.temp }}/candidate/github-release-notes.md
+            ${{ runner.temp }}/candidate/github-release.json
+          retention-days: 30
+          if-no-files-found: warn

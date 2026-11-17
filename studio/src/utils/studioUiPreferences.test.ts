@@ -186,3 +186,25 @@ describe("audioMetersVisible preference", () => {
     expect(readStudioUiPreferences(storage).audioMetersVisible).toBeUndefined();
   });
 });
+
+describe("workspace layout preferences", () => {
+  it("remembers independent sides and automatic or manual height per project", () => {
+    const storage = createStorage();
+    const alpha = { left: true, right: true, timeline: true, timelineHeight: null };
+    const beta = { left: false, right: true, timeline: false, timelineHeight: 280 };
+    writeStudioUiPreferences({ workspaceLayout: alpha }, storage, "alpha");
+    writeStudioUiPreferences({ workspaceLayout: beta }, storage, "beta");
+    writeStudioUiPreferences({ playbackRate: 1.5 }, storage, "alpha");
+    expect(readStudioUiPreferences(storage, "alpha").workspaceLayout).toEqual(alpha);
+    expect(readStudioUiPreferences(storage, "beta").workspaceLayout).toEqual(beta);
+  });
+
+  it.each([undefined, -1, 95, 4001, "280"])("rejects an invalid saved height: %s", (timelineHeight) => {
+    const storage = createStorage();
+    storage.setItem("hf-studio-ui-preferences", JSON.stringify({
+      playbackRate: 1.5,
+      workspaceLayout: { left: true, right: true, timeline: true, timelineHeight },
+    }));
+    expect(readStudioUiPreferences(storage)).toEqual({ playbackRate: 1.5 });
+  });
+});

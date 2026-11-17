@@ -4,12 +4,13 @@ import type { TimelineElement } from "../player";
 import { usePlayerStore } from "../player";
 import { getTimelineElementLabel } from "../utils/studioHelpers";
 import { trackStudioRazorSplit } from "../telemetry/events";
-import { canSplitElementAt, selectSplittableElements } from "../utils/timelineElementSplit";
+import { canSplitElementAt, selectSplittableElements, selectPlayheadSplitElements } from "../utils/timelineElementSplit";
 import { linkedMembersOf } from "../player/components/audioClipLink";
 import { isLinkedSelectionOn } from "../utils/linkedClipPreferences";
 import { buildAtomicCutIntents, runAtomicCutTransaction } from "../utils/razorSplitTransaction";
 import type { RecordEditInput } from "./timelineEditingHelpers";
 import { useFreezeFrame } from "./useFreezeFrame";
+import { useMvpEditor } from "../motion/StudioHost";
 
 interface UseRazorSplitOptions {
   projectId: string | null;
@@ -35,6 +36,7 @@ export function useRazorSplit({
   forceReloadSdkSession,
   isRecordingRef,
 }: UseRazorSplitOptions) {
+  const mvpEditor = useMvpEditor();
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
 
@@ -150,6 +152,44 @@ export function useRazorSplit({
     [isRecordingRef, runCut, showToast],
   );
 
+  const playheadCutPendingRef = useRef(false);
+  const handleSplitAtPlayhead = useCallback(
+    async (splitTime: number) => {
+      if (playheadCutPendingRef.current) return;
+      if (isRecordingRef?.current) {
+        showToast("Cannot edit timeline while recording", "error");
+        return;
+      }
+      const state = usePlayerStore.getState();
+      const selectedElementId = state.selectedElementId;
+      if (
+        selectedElementId &&
+        selectedElementId.includes("#") &&
+        !state.elements.some((element) => (element.key ?? element.id) === selectedElementId)
+      ) {
+        showToast(mvpEditor
+          ? "Splitting clips inside a sub-composition is not supported in this editor."
+          : "Use the razor tool to split clips inside a sub-composition", "info");
+        return;
+      }
+      const targets = selectPlayheadSplitElements(state, splitTime);
+      if (targets.length === 0) return;
+      playheadCutPendingRef.current = true;
+      try {
+        const result = await runCut(targets, splitTime, targets.length === 1 ? "single" : "all");
+        if (result && !result.syncFailed) {
+          showToast(`Split ${result.splitCount} clips at ${splitTime.toFixed(2)}s`, "info");
+        }
+      } catch (error) {
+        console.warn("Timeline split failed", error);
+        showToast(splitFailureMessage(error), "error");
+      } finally {
+        playheadCutPendingRef.current = false;
+      }
+    },
+    [isRecordingRef, mvpEditor, runCut, showToast],
+  );
+
   const handleFreezeFrame = useFreezeFrame({
     projectId,
     activeCompPath,
@@ -162,5 +202,5 @@ export function useRazorSplit({
     isRecordingRef,
   });
 
-  return { handleRazorSplit, handleRazorSplitAll, handleFreezeFrame };
+  return { handleRazorSplit, handleRazorSplitAll, handleSplitAtPlayhead, handleFreezeFrame };
 }

@@ -1,0 +1,702 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "hyperframes": "0.9.7",
+    "gsap": "3.15.0"
+  },
+  "templates": [
+    {
+      "id": "product-promo",
+      "title": "Product Promo",
+      "description": "从图标开场到多人协作，查看多场景动画与字幕编排。",
+      "durationSeconds": 20,
+      "width": 960,
+      "height": 540,
+      "video": {
+        "path": "assets/product-promo.mp4",
+        "sha256": "f89384c0b9bc7b5e5662483524dcb7cc0714369a97b193b403b0da6df0339278",
+        "bytes": 137951,
+        "mimeType": "video/mp4"
+      },
+      "poster": {
+        "path": "assets/product-promo.jpg",
+        "sha256": "150e8c037923221e1b90ca315c342f8d6ff80e9bbf716d39476eb16131684bc7",
+        "bytes": 2958,
+        "mimeType": "image/jpeg"
+      },
+      "sourceFiles": [
+        {
+          "path": "template-library/product-promo/assets/figma-cursors.svg",
+          "sha256": "fc502bfd3a3068bdbcf9eae4e6db8d24961ade74c784f2874b087042c24dab2a",
+          "bytes": 1477
+        },
+        {
+          "path": "template-library/product-promo/assets/figma-logo-pieces.svg",
+          "sha256": "983a9465d8f3e58655a1a66f4dd9f294d720de046d68fa9e4540c7a821d4bb4b",
+          "bytes": 760
+        },
+        {
+          "path": "template-library/product-promo/assets/figma-logo-pills.svg",
+          "sha256": "0260247a846428be258ffa69a70cb94cb03de3dd99de9cb30d5df54ae31638ba",
+          "bytes": 446
+        },
+        {
+          "path": "template-library/product-promo/compositions/scene1-logo-intro.html",
+          "sha256": "beb49d57f541cfb71582b3e9031b70d5bf42f3f5a0863829024abd0173e35e71",
+          "bytes": 5610
+        },
+        {
+          "path": "template-library/product-promo/compositions/scene2-4-canvas.html",
+          "sha256": "a133b6a3aaee671035e66f50d5f070bd8d2ab8d578c62354efac69e7568ff724",
+          "bytes": 16229
+        },
+        {
+          "path": "template-library/product-promo/compositions/scene5-logo-outro.html",
+          "sha256": "d3fe96a2136ac198d7ecc690f5bf01b6f60c7fdf641928265ed28e8e777c4c09",
+          "bytes": 7298
+        },
+        {
+          "path": "template-library/product-promo/index.html",
+          "sha256": "619a962ed80ff2422accb00e8611cef825644718a5e26e527afe014c4859384c",
+          "bytes": 4494
+        },
+        {
+          "path": "template-library/product-promo/poster.jpg",
+          "sha256": "3eb71becfea30857a4bf54fed62f0a2afa5ac287908bfec92b273d784dfa9098",
+          "bytes": 27288
+        },
+        {
+          "path": "template-library/product-promo/registry-item.json",
+          "sha256": "79efd07c5523e6e91c1552aecbe07c2bef624d57660de1bf14d6751b71bcebdc",
+          "bytes": 3245
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-1b08e7fc267a.ttf",
+          "sha256": "1b08e7fc267a5c7e1d614100f604b83e7e8a0be241f0f288faa2b3ac93a683ba",
+          "bytes": 324820
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-5b717029a2c4.ttf",
+          "sha256": "5b717029a2c4cfca2167e97be1157edb24151591e5ec96eb484745c392817a7a",
+          "bytes": 327260
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-8c883f63b2c4.ttf",
+          "sha256": "8c883f63b2c4157d997319f2c8bc6995ed4357ef371940d31ca159004a4aae63",
+          "bytes": 325304
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-OFL.txt",
+          "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+          "bytes": 4377
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-b37284b5701b.ttf",
+          "sha256": "b37284b5701b6b168dfc770aa1a4ac492106422fd3ba76bc7641e37434e8019c",
+          "bytes": 326468
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-d0f4bc7faca4.ttf",
+          "sha256": "d0f4bc7faca468376e3db9b5e57afcdc2192134c9ac82a9511f32767b56853a4",
+          "bytes": 325748
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-e7a1aaf7eda9.ttf",
+          "sha256": "e7a1aaf7eda9f2fad4131725fa556265ec75ca7b2d756260173a040363e8d4f7",
+          "bytes": 326048
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter-eec66af7f233.ttf",
+          "sha256": "eec66af7f2337bd34fe6e801cf92ededcb57a20c0d7bc40a61d4eefcbe3dd40c",
+          "bytes": 327324
+        },
+        {
+          "path": "template-library/product-promo/vendor/fonts/inter.css",
+          "sha256": "49e25a73ba83dc58df53dc0035ee9802628d2eba9dfbd91fb1cc4a264ff4199d",
+          "bytes": 1113
+        },
+        {
+          "path": "template-library/product-promo/vendor/gsap-3.14.2/LICENSE.txt",
+          "sha256": "7a80b07c07db0ae2b7570bc0c8c32ccb0c99ae8b5c7fd3d8b6960b5fe1c81b3b",
+          "bytes": 5494
+        },
+        {
+          "path": "template-library/product-promo/vendor/gsap-3.14.2/README.md",
+          "sha256": "36224e521bdd9b79dc74ef262effc1a636d960b9be918bc2412ed69f9eee27b0",
+          "bytes": 6199
+        },
+        {
+          "path": "template-library/product-promo/vendor/gsap-3.14.2/dist/gsap.min.js",
+          "sha256": "c174bfce53a729418d57a8ad8625e7247c793a22fef8e2851e3cfa3de9cd8280",
+          "bytes": 72779
+        },
+        {
+          "path": "template-library/product-promo/vendor/manifest.json",
+          "sha256": "cfe5ffe56812842702877139a2a0ad223ba862f9e2ccd6b5c37e0e097d783ee0",
+          "bytes": 3642
+        }
+      ]
+    },
+    {
+      "id": "nyt-graph",
+      "title": "NYT Graph",
+      "description": "报刊风格的动态图表，查看数据、标注与图形的节奏。",
+      "durationSeconds": 15,
+      "width": 960,
+      "height": 540,
+      "video": {
+        "path": "assets/nyt-graph.mp4",
+        "sha256": "629781fe3d78874ab777819bfabbcd445b05e12862da8069299132622781c70d",
+        "bytes": 27580,
+        "mimeType": "video/mp4"
+      },
+      "poster": {
+        "path": "assets/nyt-graph.jpg",
+        "sha256": "37bf9ff043901396fba01400a01dbb9ea0d53d8a0aa98507e160edc33241af5d",
+        "bytes": 4271,
+        "mimeType": "image/jpeg"
+      },
+      "sourceFiles": [
+        {
+          "path": "template-library/nyt-graph/compositions/nyt-chart.html",
+          "sha256": "aab294f5cd9a598c00160866e3b0506057eca33c3773bf146cd29c5d6f75a2db",
+          "bytes": 13384
+        },
+        {
+          "path": "template-library/nyt-graph/index.html",
+          "sha256": "c30eccbea5721dc238b9c2bedeb6caa234ba3fc607c6e4268b5bd0dfa84ecdfe",
+          "bytes": 1164
+        },
+        {
+          "path": "template-library/nyt-graph/poster.jpg",
+          "sha256": "47e8d143dbbad5f9fb4ac1123367a0dc813fa0c4b3d6cbb7b9edb3d641cd3418",
+          "bytes": 25709
+        },
+        {
+          "path": "template-library/nyt-graph/registry-item.json",
+          "sha256": "c04f5a3e0c8721dd0a61869d2eefa491704531d6c785b65bff471b0556452a24",
+          "bytes": 2761
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-baskerville-8b008ffdae31.ttf",
+          "sha256": "8b008ffdae31b314657cb8e28d822da09893035d06bad9b1ab53ea762549cbd1",
+          "bytes": 106752
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-baskerville-OFL.txt",
+          "sha256": "3624eddd4c8f8a908130a417ae7cd089c9da69899c4e0ca1a5217d0a6fae16fd",
+          "bytes": 4542
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-baskerville-f5bc4341f15d.ttf",
+          "sha256": "f5bc4341f15de5e877d8d95b6b14b33e9a3da1f8fef4ed0700ed407f096cffb6",
+          "bytes": 106728
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-baskerville.css",
+          "sha256": "6a8c1130c87fa46e9f2cf0d6afe5a1f92d40813c346ad2127ba753f09bbc9b6e",
+          "bytes": 366
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-franklin-04f71a680a40.ttf",
+          "sha256": "04f71a680a400bb36a367d4347b243bb23867288c21e11705aa766968939fb96",
+          "bytes": 106412
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-franklin-OFL.txt",
+          "sha256": "2710268527181a27b8e938617551bae29e714e6525247be6679bf897a9942a60",
+          "bytes": 4495
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-franklin-b03fb188d888.ttf",
+          "sha256": "b03fb188d88811436d8b7d7b2b4964921a2c4416f0c042c7ecdb443dcd6e999d",
+          "bytes": 106428
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-franklin-fa16f76d2aff.ttf",
+          "sha256": "fa16f76d2affcb19286661cd13e58ae092eb8de8ec8638103371e7e37dd285db",
+          "bytes": 106392
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre-franklin.css",
+          "sha256": "53c1c2adc60ce580413fc701491e18a563b82b501f6a91393796b34bf9b49122",
+          "bytes": 531
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/fonts/libre.css",
+          "sha256": "805d83c653033ebf4e494147bd98cb84ef9de817dc8b4bc7f5eedee9ffe987d0",
+          "bytes": 77
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/gsap-3.14.2/LICENSE.txt",
+          "sha256": "7a80b07c07db0ae2b7570bc0c8c32ccb0c99ae8b5c7fd3d8b6960b5fe1c81b3b",
+          "bytes": 5494
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/gsap-3.14.2/README.md",
+          "sha256": "36224e521bdd9b79dc74ef262effc1a636d960b9be918bc2412ed69f9eee27b0",
+          "bytes": 6199
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/gsap-3.14.2/dist/gsap.min.js",
+          "sha256": "c174bfce53a729418d57a8ad8625e7247c793a22fef8e2851e3cfa3de9cd8280",
+          "bytes": 72779
+        },
+        {
+          "path": "template-library/nyt-graph/vendor/manifest.json",
+          "sha256": "a33fdf9502edad740d1bd2b27f4d84ec763aa85c3e04ed8f09f13eb81193ec79",
+          "bytes": 3941
+        }
+      ]
+    },
+    {
+      "id": "decision-tree",
+      "title": "Decision Tree",
+      "description": "逐步展开的决策树，查看节点、连线与分支动画。",
+      "durationSeconds": 10,
+      "width": 960,
+      "height": 540,
+      "video": {
+        "path": "assets/decision-tree.mp4",
+        "sha256": "5af976fdd53666b31611c5a48acb66582bed4ca4d27010f715fbab7a8452104f",
+        "bytes": 53942,
+        "mimeType": "video/mp4"
+      },
+      "poster": {
+        "path": "assets/decision-tree.jpg",
+        "sha256": "42489f17f7fb819e3c0fad4e5cdf6805ecef1d04bf4ef99ef67b5b46acd317b9",
+        "bytes": 3047,
+        "mimeType": "image/jpeg"
+      },
+      "sourceFiles": [
+        {
+          "path": "template-library/decision-tree/compositions/decision_tree.html",
+          "sha256": "0dcc6b19e76ff3ff69c20d5eb9645fa0005e36ae86d659e40ad6e47625aec366",
+          "bytes": 12828
+        },
+        {
+          "path": "template-library/decision-tree/index.html",
+          "sha256": "1c3d6deb8d290cbabaf075429c68a28edd731e65ca92f1ac726ef4671589fbf2",
+          "bytes": 1294
+        },
+        {
+          "path": "template-library/decision-tree/poster.jpg",
+          "sha256": "3aa941c14daf198406933651971cb0e9549fd82bc953b92cc7f2a5d35303d89e",
+          "bytes": 31940
+        },
+        {
+          "path": "template-library/decision-tree/registry-item.json",
+          "sha256": "2ef4ef0691d2593e3083b3b8d4fd12b3b979f0f20da29e687d0e5d1dd65677b8",
+          "bytes": 2501
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-1b08e7fc267a.ttf",
+          "sha256": "1b08e7fc267a5c7e1d614100f604b83e7e8a0be241f0f288faa2b3ac93a683ba",
+          "bytes": 324820
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-5b717029a2c4.ttf",
+          "sha256": "5b717029a2c4cfca2167e97be1157edb24151591e5ec96eb484745c392817a7a",
+          "bytes": 327260
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-8c883f63b2c4.ttf",
+          "sha256": "8c883f63b2c4157d997319f2c8bc6995ed4357ef371940d31ca159004a4aae63",
+          "bytes": 325304
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-OFL.txt",
+          "sha256": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57",
+          "bytes": 4377
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-b37284b5701b.ttf",
+          "sha256": "b37284b5701b6b168dfc770aa1a4ac492106422fd3ba76bc7641e37434e8019c",
+          "bytes": 326468
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-d0f4bc7faca4.ttf",
+          "sha256": "d0f4bc7faca468376e3db9b5e57afcdc2192134c9ac82a9511f32767b56853a4",
+          "bytes": 325748
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-e7a1aaf7eda9.ttf",
+          "sha256": "e7a1aaf7eda9f2fad4131725fa556265ec75ca7b2d756260173a040363e8d4f7",
+          "bytes": 326048
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter-eec66af7f233.ttf",
+          "sha256": "eec66af7f2337bd34fe6e801cf92ededcb57a20c0d7bc40a61d4eefcbe3dd40c",
+          "bytes": 327324
+        },
+        {
+          "path": "template-library/decision-tree/vendor/fonts/inter.css",
+          "sha256": "49e25a73ba83dc58df53dc0035ee9802628d2eba9dfbd91fb1cc4a264ff4199d",
+          "bytes": 1113
+        },
+        {
+          "path": "template-library/decision-tree/vendor/gsap-3.14.2/LICENSE.txt",
+          "sha256": "7a80b07c07db0ae2b7570bc0c8c32ccb0c99ae8b5c7fd3d8b6960b5fe1c81b3b",
+          "bytes": 5494
+        },
+        {
+          "path": "template-library/decision-tree/vendor/gsap-3.14.2/README.md",
+          "sha256": "36224e521bdd9b79dc74ef262effc1a636d960b9be918bc2412ed69f9eee27b0",
+          "bytes": 6199
+        },
+        {
+          "path": "template-library/decision-tree/vendor/gsap-3.14.2/dist/gsap.min.js",
+          "sha256": "c174bfce53a729418d57a8ad8625e7247c793a22fef8e2851e3cfa3de9cd8280",
+          "bytes": 72779
+        },
+        {
+          "path": "template-library/decision-tree/vendor/manifest.json",
+          "sha256": "cfe5ffe56812842702877139a2a0ad223ba862f9e2ccd6b5c37e0e097d783ee0",
+          "bytes": 3642
+        }
+      ]
+    },
+    {
+      "id": "motion-664184d9-593e-4984-b473-701248b69cfe",
+      "kind": "reference",
+      "title": "Bolt Skills｜团队能力展示",
+      "description": "把重复交代的要求变成可调用的技能；用一次配色变化证明技能真正作用于页面。",
+      "durationSeconds": 42.966667,
+      "width": 1280,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/7bb522dcf5f636429c0988573e15ebe8ff0c65b4d954e4b47abd9679913fc512",
+      "posterUrl": "https://r.open-design.ai/files/eda31e4605b582946e321d5324a108bc97c07ca60013baf0d85a80bfd5321e1e",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/template.json",
+          "sha256": "d24e8135a2ff43850bab64d4cd9b13b0c75f5fa6d0ac585274f21e93d43af2f9",
+          "bytes": 26789
+        },
+        {
+          "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/TEMPLATE.md",
+          "sha256": "60ff64ca120408ca7085cb28b3d09bc130793e751b5d7be3c13d5b18580eaffd",
+          "bytes": 1136
+        },
+        {
+          "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/motion.md",
+          "sha256": "7518b675f5b5e5d22d9f61fd385c16066b8103a4eff0818bd0bc7230b6b843be",
+          "bytes": 6851
+        },
+        {
+          "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/preview.html",
+          "sha256": "b612bc78de81c94e950d0e392bc9e3d9d1f9273cae335e455490b46b0fb6d5b4",
+          "bytes": 24475
+        },
+        {
+          "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/manifest.json",
+          "sha256": "69ecb13cd81669e47510cf17e4141beee96fd4213a16b5b34288c0fb79f40655",
+          "bytes": 7203
+        }
+      ]
+    },
+    {
+      "id": "motion-b31d078a-4e5e-461e-8b43-3101ee0a2f93",
+      "kind": "reference",
+      "title": "A New Era of No-Code",
+      "description": "以球体作为视觉向导，在分层网页、表单和流程空间中穿行。界面不只是截图，而是具有前后距离的可组合平面。",
+      "durationSeconds": 103.533333,
+      "width": 1280,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/91203186458d57604f8cdab7d3d1c89a94286a6e5e7c487833a6436b3044ded5",
+      "posterUrl": "https://r.open-design.ai/files/8204962a0db13d83cdb66f20df40b4ee61a8cdd283de7dec57b0f2abee574b88",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-b31d078a-4e5e-461e-8b43-3101ee0a2f93/template.json",
+          "sha256": "54f3e02b542d575b5a427bd65f513edd0f88b3e9e08cbeb0e67bae3ec78e1388",
+          "bytes": 28193
+        },
+        {
+          "path": "library/templates/catalog/motion-b31d078a-4e5e-461e-8b43-3101ee0a2f93/TEMPLATE.md",
+          "sha256": "2df2cab27d75a253465d7c6d4bebafdaf84369bc4895ce706ef061b5febd152e",
+          "bytes": 1146
+        },
+        {
+          "path": "library/templates/catalog/motion-b31d078a-4e5e-461e-8b43-3101ee0a2f93/source/motion.md",
+          "sha256": "2c0f92108a0196459337ad47289d98443bd9d1eb3804c072f795e2c99715988b",
+          "bytes": 6961
+        },
+        {
+          "path": "library/templates/catalog/motion-b31d078a-4e5e-461e-8b43-3101ee0a2f93/source/preview.html",
+          "sha256": "fe5138c4c40952ec2f874dd06b54c90eed31d83096539419f8de453afa284813",
+          "bytes": 22333
+        },
+        {
+          "path": "library/templates/catalog/motion-b31d078a-4e5e-461e-8b43-3101ee0a2f93/source/manifest.json",
+          "sha256": "cfc61b69e8d72e3c7b4f49d6002a6bc5b81ac731dbc35245f6a0985d10ee999e",
+          "bytes": 6950
+        }
+      ]
+    },
+    {
+      "id": "motion-1e48dea5-903d-48f6-b10e-99a70f1c183d",
+      "kind": "reference",
+      "title": "Magic Share",
+      "description": "同一份工作在桌面、平板与手机之间流动；把文档、图表和协作者保留在转场中，最后收成品牌纸飞机。",
+      "durationSeconds": 36.6,
+      "width": 1280,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/f7a1c405c195dc7ceb846fe2db2bed553798dc23f7b040ad6453d091e719f5fe",
+      "posterUrl": "https://r.open-design.ai/files/7ecdaebf747c90570f72fbc6e1cb275097b6c80bbbcac922979e4f2276c28120",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-1e48dea5-903d-48f6-b10e-99a70f1c183d/template.json",
+          "sha256": "096907bab99b41da9da61b59170630cc9d86b5e1aae89e8e27ea00b534f1cceb",
+          "bytes": 28664
+        },
+        {
+          "path": "library/templates/catalog/motion-1e48dea5-903d-48f6-b10e-99a70f1c183d/TEMPLATE.md",
+          "sha256": "ceceeb77ff8065609cfa859da3d8bfd8eac142772d367c24bcf467fffdfde63a",
+          "bytes": 1269
+        },
+        {
+          "path": "library/templates/catalog/motion-1e48dea5-903d-48f6-b10e-99a70f1c183d/source/motion.md",
+          "sha256": "278a2a7e108d082258f40f0096ef0b12b06992a35511ffc7affe69c31a96ae52",
+          "bytes": 7302
+        },
+        {
+          "path": "library/templates/catalog/motion-1e48dea5-903d-48f6-b10e-99a70f1c183d/source/preview.html",
+          "sha256": "765d69b8256317debdf2ed82c7be1508fde2c9cfb340d71c6d2e1d8ee61c90ae",
+          "bytes": 25082
+        },
+        {
+          "path": "library/templates/catalog/motion-1e48dea5-903d-48f6-b10e-99a70f1c183d/source/manifest.json",
+          "sha256": "71ce774c0467824aaaedf22f40e845a03d4e015a9176d577533c2dfe81f32134",
+          "bytes": 7345
+        }
+      ]
+    },
+    {
+      "id": "motion-f6f244d1-c549-4081-8a5d-f0e1e3660044",
+      "kind": "reference",
+      "title": "Glean Agents 发布",
+      "description": "从一个输入框展开到跨部门工作流。任务卡、人物和数据源通过连线建立关系，结果回到可读的界面。",
+      "durationSeconds": 61.0,
+      "width": 1280,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/82cada1c091bda4b6e5d82284dc956df7857acaabaff600ccad14854a4b53361",
+      "posterUrl": "https://r.open-design.ai/files/854aa66fd5000057c47ce3be26090044e3bca870c81cc3b0534a77424937a135",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/template.json",
+          "sha256": "6532fdd3e53ff1c0ae49de5ccb293f038a2292c634fb887fb84e1aa6550d4c77",
+          "bytes": 28309
+        },
+        {
+          "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/TEMPLATE.md",
+          "sha256": "55c5e03337f9c891a0f85a9613e56f97dd347ec06889597e24666ed7a6838618",
+          "bytes": 1182
+        },
+        {
+          "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/motion.md",
+          "sha256": "a3defc50c39e03f6cab3a6de5900a392da2236b6420636e43805654414dd51e8",
+          "bytes": 7246
+        },
+        {
+          "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/preview.html",
+          "sha256": "b47422c0ad433245c125d88dfa3005852fb0437722e4cbc5845c56162e3be913",
+          "bytes": 22736
+        },
+        {
+          "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/manifest.json",
+          "sha256": "4280dcc4615fb74be190aa6460acb3b6da4a3dc6f5ee9500caf9d713ca7c1820",
+          "bytes": 6949
+        }
+      ]
+    },
+    {
+      "id": "motion-d8eea6d9-b25b-4727-823d-d102070ea694",
+      "kind": "reference",
+      "title": "HyperOS 官网界面动效 1",
+      "description": "从材质特写进入手机界面，再把相同圆角和透明层扩展到图标、小组件与多设备。",
+      "durationSeconds": 47.2,
+      "width": 1546,
+      "height": 870,
+      "videoUrl": "https://r.open-design.ai/files/e33f62926a154934565bb2e94201b3bd067476b17275900bfd450e6cfa349484",
+      "posterUrl": "https://r.open-design.ai/files/8d38128f52ef71f468787e810cc6aca7981cc965c7389639787075dd3d91a824",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-d8eea6d9-b25b-4727-823d-d102070ea694/template.json",
+          "sha256": "8019339ca91c8e7d47550284928d8b4a0d9255c9c82715781462c08b77455225",
+          "bytes": 26270
+        },
+        {
+          "path": "library/templates/catalog/motion-d8eea6d9-b25b-4727-823d-d102070ea694/TEMPLATE.md",
+          "sha256": "61768f8d8977cb7949dd9940630d889bfe8fcc8f9191b7141bffa1ff409f79f7",
+          "bytes": 1240
+        },
+        {
+          "path": "library/templates/catalog/motion-d8eea6d9-b25b-4727-823d-d102070ea694/source/motion.md",
+          "sha256": "3e70e4ecb849075793a22736ce0db56a719e7a63b5a17b60ddaefa75fd6ff75c",
+          "bytes": 7985
+        },
+        {
+          "path": "library/templates/catalog/motion-d8eea6d9-b25b-4727-823d-d102070ea694/source/preview.html",
+          "sha256": "ef8da03c9084c77b82bf64da349ddb7cd8e2d4a6a441c878562712f8ee3cc0d9",
+          "bytes": 24153
+        },
+        {
+          "path": "library/templates/catalog/motion-d8eea6d9-b25b-4727-823d-d102070ea694/source/manifest.json",
+          "sha256": "b5b20c769c0b8d8b6da3cbfb270179dee878f2bc4519c21d94d9914ea6956725",
+          "bytes": 7196
+        }
+      ]
+    },
+    {
+      "id": "motion-5eb6929e-d9f3-4a49-a69e-0363e45884dc",
+      "kind": "reference",
+      "title": "Salsa｜音乐主题 Doodle",
+      "description": "用圆形唱片、喇叭口、花瓣把音乐演奏与舞步串联。",
+      "durationSeconds": 48.458333,
+      "width": 406,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/befcf97dbe47e47f5ad26d4c0f085526182f26ead85bb2eb88a2d205337d3b04",
+      "posterUrl": "https://r.open-design.ai/files/06a5c90348b264b8cb1aa3462da2f74e8cd53f755faa0be428eb9cfd16252b57",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-5eb6929e-d9f3-4a49-a69e-0363e45884dc/template.json",
+          "sha256": "a82b1c6f278c97a5578ded8a312a2d7bb4a3fc8f8d717a10ceb829109a30ed30",
+          "bytes": 22143
+        },
+        {
+          "path": "library/templates/catalog/motion-5eb6929e-d9f3-4a49-a69e-0363e45884dc/TEMPLATE.md",
+          "sha256": "b8559424e538fe8bc311c6c5b631d6b235e6f59b2f3c3b02c983d69b63164881",
+          "bytes": 1147
+        },
+        {
+          "path": "library/templates/catalog/motion-5eb6929e-d9f3-4a49-a69e-0363e45884dc/source/motion.md",
+          "sha256": "8768cd2f7deb3e84cbc71f907ad68b91793b93dfab20122f7f8680e43f774c26",
+          "bytes": 6703
+        },
+        {
+          "path": "library/templates/catalog/motion-5eb6929e-d9f3-4a49-a69e-0363e45884dc/source/preview.html",
+          "sha256": "2edd724701d793ad3a33cc6dcabb0a569e372af57d9a5a123e3f640deeede492",
+          "bytes": 21847
+        },
+        {
+          "path": "library/templates/catalog/motion-5eb6929e-d9f3-4a49-a69e-0363e45884dc/source/manifest.json",
+          "sha256": "fd2a4baf4e4040c70145dc94d83858b819e390165e7e439966ce5029b970b9b9",
+          "bytes": 6925
+        }
+      ]
+    },
+    {
+      "id": "motion-dac924da-010f-4445-baf3-a39cb033e48f",
+      "kind": "reference",
+      "title": "功能更新｜Voice mode",
+      "description": "同一中心圆从按钮扩张为影像窗口，再收回按钮；保持空间身份连续。",
+      "durationSeconds": 11.458333,
+      "width": 1280,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/9c917b1f71d6e3d95682b968d7254b4fe52e81dc6d9e89f5ff1c5d147ab0d27a",
+      "posterUrl": "https://r.open-design.ai/files/df553b34b4d715a159a64ca5332b38e46c0b7ccee5d1dd8867e6146bd70487c6",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f/template.json",
+          "sha256": "787bd8466ad6c81552545772b88be2a54e2b5f12b0961a2cc9d18fcf5e51dbcb",
+          "bytes": 23366
+        },
+        {
+          "path": "library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f/TEMPLATE.md",
+          "sha256": "4140db686e5b97e1fc30275f33ec66e3430fb625f830dafffae5e29cf54107c2",
+          "bytes": 1125
+        },
+        {
+          "path": "library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f/source/motion.md",
+          "sha256": "7e95e271aa9e2e4d2d5a8ee7384b5df3a8877f09f8ea68ca0063c3222d30e8d1",
+          "bytes": 5976
+        },
+        {
+          "path": "library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f/source/preview.html",
+          "sha256": "1db2661b900788477158a90efce27b1938a0fbf69363d58fe4d268292aaa93bd",
+          "bytes": 20138
+        },
+        {
+          "path": "library/templates/catalog/motion-dac924da-010f-4445-baf3-a39cb033e48f/source/manifest.json",
+          "sha256": "24bf5a4c15d008dd99e9d31ad52baa5398b346dbf9b177045bc50fe744c22282",
+          "bytes": 6923
+        }
+      ]
+    },
+    {
+      "id": "motion-0ad92fd0-b2fb-4885-957c-b71152df15fd",
+      "kind": "reference",
+      "title": "Dia 开放给 Arc 会员",
+      "description": "发光图形从底部升起并缩小，随后变为发送箭头；输入框沿水平方向展开，让品牌介绍自然进入操作。",
+      "durationSeconds": 24.016667,
+      "width": 1156,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/ee7a7dacc9ed4fdb4f14b4537a015b896a02d7d585cb2dc5a020c43654ee7218",
+      "posterUrl": "https://r.open-design.ai/files/cc56b969aef17d042e0ab427243aa496d843bd76b6f5e8082c0cf8f1f40fc7a8",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/template.json",
+          "sha256": "100adc32efd5ddac863f9ede135344221d09022d29deb6f2a4f9a0d56430f7b6",
+          "bytes": 26440
+        },
+        {
+          "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/TEMPLATE.md",
+          "sha256": "4ddedc22ca95460bd6bcb2218b7bb7982ffda227f21b18041915f73188ccbee3",
+          "bytes": 1146
+        },
+        {
+          "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/motion.md",
+          "sha256": "775dd03eab1b823b9a0523e50b7def7e1cd98ee5d620fa76b00c64982bc6936c",
+          "bytes": 6277
+        },
+        {
+          "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/preview.html",
+          "sha256": "d22b7089347c15d82c4f4eda724870d07a1a7c6c63566b974a4f753c8be6a2cb",
+          "bytes": 20676
+        },
+        {
+          "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/manifest.json",
+          "sha256": "378970a1353b369f23c878a91d7bec3f4ef43317686218411b42e0c53fc86f87",
+          "bytes": 7006
+        }
+      ]
+    },
+    {
+      "id": "motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b",
+      "kind": "reference",
+      "title": "免费语音输入",
+      "description": "标志键帽与文字键帽落下排成一行，再向两边散开，露出发光的黑色声波胶囊。胶囊成为后续演示的共同锚点。",
+      "durationSeconds": 21.0,
+      "width": 1280,
+      "height": 720,
+      "videoUrl": "https://r.open-design.ai/files/7afb51d9324bfb62b6a85517671ea314d481894b53ad1bf89b6dadce87c4877c",
+      "posterUrl": "https://r.open-design.ai/files/92bc0164642c1fce13a9b7ae5898f06687144a5b7b86acc12512b3ff797dcfa8",
+      "sourceFiles": [
+        {
+          "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/template.json",
+          "sha256": "fb983a5c91bc3550c8d8596700b5d6cdc499368cd067919008195ccc06580a21",
+          "bytes": 25032
+        },
+        {
+          "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/TEMPLATE.md",
+          "sha256": "2b2926c201818266ce5859c99ac7f99f2f62c43254332524ee61054cbfc2e0fd",
+          "bytes": 1141
+        },
+        {
+          "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/motion.md",
+          "sha256": "a46132698c68f8bee7360e00f2b31d9d194c47330e7579784150908f9b72231b",
+          "bytes": 5676
+        },
+        {
+          "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/preview.html",
+          "sha256": "fe4fa4fa1de1eba715ab024cef363c7f754946c9c0c78bf0248f92dc23ce0c24",
+          "bytes": 19541
+        },
+        {
+          "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/manifest.json",
+          "sha256": "08d9beca3f142e5e9535a7b74733849e98033fa736c6158ac92768282bfe7f33",
+          "bytes": 6916
+        }
+      ]
+    }
+  ]
+}

@@ -128,7 +128,7 @@ describe("studioSelect", () => {
     expect(failure).toMatchObject({
       kind: "invalid",
       reason: "the target changed while it was resolving",
-      hint: "Call studio_look again.",
+      hint: "Call openmotion_studio_look again.",
     });
     expect(buildSelection).toHaveBeenCalledTimes(2);
     expect(applySelection).not.toHaveBeenCalled();

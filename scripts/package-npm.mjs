@@ -6,13 +6,29 @@ import assert from 'node:assert/strict';
 import { PUPPETEER_REVISIONS } from 'puppeteer-core';
 import { releaseProfile } from '../shared/mcp-registry.ts';
 import { distributionFiles } from './distribution.ts';
+import { welcomeSharedAssets } from '../template-library.ts';
 import { packageTemplateConfig } from '../shared/template-config.ts';
+import { checkVisionLock } from './vision-runtime.mjs';
 import { checkReleaseVersion, releaseTemplateEnvironment } from './release-version.mjs';
+import { onboardingSourceFiles } from '../shared/onboarding-templates.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 // GitHub serves the full showcase. npm ships the application and its technical documentation.
 function isShowcaseAsset(file) {
-  return /^(?:examples|library)\//.test(file) || file.startsWith('docs/readme/');
+  if (onboardingSourceFiles.includes(file)) return false;
+  // The welcome film needs these exact maintained runtime assets and licenses.
+  if (welcomeSharedAssets.some(([source]) => source === file)) return false;
+  // Plugin and MCP branding reads these symbols from the installed application.
+  if (/^docs\/readme\/opendesign-symbol(?:-dark|-auto)?\.svg$/.test(file)) return false;
+  return file === 'scripts/install-library-skill.mjs' || /^(?:examples|library)\//.test(file) || file.startsWith('docs/readme/');
+}
+
+async function removeDependencySourceMaps(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) await removeDependencySourceMaps(file);
+    else if (entry.isFile() && entry.name.endsWith('.map')) await rm(file);
+  }
 }
 
 function rewriteGuideLinks(text, file, commit, localPaths = new Set()) {
@@ -21,7 +37,7 @@ function rewriteGuideLinks(text, file, commit, localPaths = new Set()) {
     if (/^(?:#|[a-z][a-z\d+.-]*:|\/\/)/i.test(target)) return target;
     const pathname = target.split(/[?#]/, 1)[0];
     if (localPaths.has(path.posix.join(directory, pathname).replace(/\/$/, ''))) return target;
-    const base = image ? 'https://raw.githubusercontent.com/nexu-io/html-anything/' : 'https://github.com/nexu-io/html-anything/blob/';
+    const base = image ? 'https://raw.githubusercontent.com/nexu-io/openmotion/' : 'https://github.com/nexu-io/openmotion/blob/';
     return new URL(target, base + commit + '/' + (directory === '.' ? '' : directory + '/')).href;
   };
   return text
@@ -43,6 +59,7 @@ export function checkReleaseLocks(pkg, lockfile, runtime) {
     }
   }
   for (const key of ['node', 'chromium', 'ffmpeg', 'hyperframes']) assert.match(runtime[key], /^\d+\.\d+\.\d+(?:\.\d+)?$/, 'Pin native runtime version: ' + key);
+  checkVisionLock(runtime);
   assert.equal(runtime.hyperframes, pkg.dependencies.hyperframes);
   assert.equal(runtime.chromium, PUPPETEER_REVISIONS['chrome-headless-shell'], 'Browser must match the locked Puppeteer release');
   assert(Object.keys(runtime.targets || {}).length, 'At least one native target is required');
@@ -55,15 +72,20 @@ export function checkReleaseLocks(pkg, lockfile, runtime) {
   }
 }
 
-export async function packageNpm(output = path.join(root, 'dist/npm-local'), version, templateEnvironment) {
+export async function packageNpm(output = path.join(root, 'dist/npm-local'), version, templateEnvironment, { bundleRuntime = false } = {}) {
   output = path.resolve(output);
   const explicitVersion = version !== undefined;
   if (explicitVersion) checkReleaseVersion(version);
-  const templateConfig = packageTemplateConfig(templateEnvironment ?? (explicitVersion ? releaseTemplateEnvironment(version) : 'prod'));
+  const templateConfig = packageTemplateConfig(templateEnvironment ?? (explicitVersion ? releaseTemplateEnvironment(version) : 'prod'), 'hosted');
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const lockfile = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   const runtime = JSON.parse(await readFile(path.join(root, 'scripts/runtime-lock.json'), 'utf8'));
   checkReleaseLocks(pkg, lockfile, runtime);
+  const { checkTemplateCardsBuild } = await import('./build-template-cards.mjs');
+  await checkTemplateCardsBuild();
+  const { loadTemplatePresentation } = await import('../shared/mcp-template-recommendations.ts');
+  // Also validate direct function/CLI callers that skipped the npm build wrapper.
+  loadTemplatePresentation();
   version ??= pkg.version + '-local.1';
   const { mcpRegistry } = await import('../mcp.ts');
   const registry = mcpRegistry();
@@ -74,7 +96,7 @@ export async function packageNpm(output = path.join(root, 'dist/npm-local'), ver
     const application = path.join(temporary, 'application'), installer = path.join(temporary, 'installer');
     await mkdir(application); await mkdir(path.join(installer, 'scripts'), { recursive: true });
     const commit = (await runFile('git', ['rev-parse', 'HEAD'], { cwd: root })).trim();
-    const files = (await distributionFiles(releaseProfile)).filter(file => !isShowcaseAsset(file));
+    const files = await distributionFiles(releaseProfile, file => !isShowcaseAsset(file) && (!bundleRuntime || !file.endsWith('.map')));
     const localPaths = new Set(files);
     for (const file of files) {
       let directory = path.posix.dirname(file);
@@ -94,8 +116,9 @@ export async function packageNpm(output = path.join(root, 'dist/npm-local'), ver
       }
     }
     await writeJSON(path.join(application, 'shared/template-config.json'), templateConfig);
+    await writeJSON(path.join(application, 'shared/build-info.json'), { commit });
     const skills = (await readdir(path.join(application, 'skills'))).sort();
-    for (const name of ['runtime-assets.mjs', 'npm-runtime.mjs', 'npm-hosts.mjs', 'npm-installer.mjs', 'check-installed-mcp.mjs']) await cp(path.join(root, 'scripts', name), path.join(installer, 'scripts', name));
+    for (const name of ['runtime-assets.mjs', 'npm-runtime.mjs', 'npm-hosts.mjs', 'npm-installer.mjs', 'check-installed-mcp.mjs', 'mcp-client.mjs', 'diagnostics.mjs', 'diagnostic-redaction.mjs', 'zip.mjs']) await cp(path.join(root, 'scripts', name), path.join(installer, 'scripts', name));
     await chmod(path.join(installer, 'scripts/npm-installer.mjs'), 0o755);
     const installerPkg = JSON.parse(await readFile(path.join(root, 'packages/npm/package.json'), 'utf8'));
     assert.equal(installerPkg.private, true, 'Keep the source package protected; publish only an explicitly versioned artifact');
@@ -109,16 +132,30 @@ export async function packageNpm(output = path.join(root, 'dist/npm-local'), ver
     pkg.version = version; lockfile.version = version; lockfile.packages[''].version = version;
     await writeJSON(path.join(application, 'package.json'), pkg);
     await writeJSON(path.join(application, 'package-lock.json'), lockfile);
+    let bundledDependencies;
+    if (bundleRuntime) {
+      assert(Object.values(runtime.targets).some(target => target.platform === process.platform && target.arch === process.arch),
+        'Build prebuilt npm dependencies on a supported target machine');
+      const npm = process.env.npm_execpath || path.join(path.dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
+      await runFile(process.execPath, [npm, 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: application });
+      await removeDependencySourceMaps(path.join(application, 'node_modules'));
+      bundledDependencies = { platform: process.platform, arch: process.arch,
+        lockSHA256: await sha256(path.join(application, 'package-lock.json')) };
+      await writeJSON(path.join(application, '.bundled-dependencies.json'), bundledDependencies);
+    }
     const plugin = JSON.parse(await readFile(path.join(application, '.codex-plugin/plugin.json'), 'utf8'));
     plugin.version = version;
     await writeJSON(path.join(application, '.codex-plugin/plugin.json'), plugin);
-    const archive = path.join(output, `openmotion-application-${pkg.version}${templateConfig.environment === 'dev' ? '-dev' : ''}.tar.gz`);
-    await runFile(process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32/tar.exe') : 'tar', ['-czf', archive, '-C', application, '.'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+    const archive = path.join(output, `openmotion-application-${pkg.version}${templateConfig.environment === 'dev' ? '-dev' : ''}.tar.${bundleRuntime ? 'xz' : 'gz'}`);
+    await runFile(process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32/tar.exe') : 'tar', [bundleRuntime ? '-cJf' : '-czf', archive, '-C', application, '.'], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
     const manifest = { schemaVersion: 1, version: pkg.version, format: 'npm', templateEnvironment: templateConfig.environment,
       commit, run: process.env.GITHUB_RUN_ID || null, attempt: process.env.GITHUB_RUN_ATTEMPT || '1',
       application: { url: './' + path.basename(archive), sha256: await sha256(archive) },
+      ...(bundledDependencies ? { bundledDependencies } : {}),
       locks: { npm: await sha256(path.join(application, 'package-lock.json')), native: await sha256(path.join(root, 'scripts/runtime-lock.json')) },
-      mcp: { profile: registry.profile, tools: registry.tools.map(tool => tool.name) }, skills, runtime };
+      mcp: { profile: registry.profile, tools: registry.tools.map(tool => tool.name),
+        optionalExtensions: registry.profile === 'phase1' ? [{ name: 'openmotion_show_template_recommendations',
+          capability: 'io.modelcontextprotocol/ui', mimeType: 'text/html;profile=mcp-app' }] : [] }, skills, runtime };
     // The embedded manifest omits the containing tgz's identity to avoid a self-hash cycle.
     await mkdir(path.join(installer, 'payload'));
     await cp(archive, path.join(installer, 'payload', path.basename(archive)));
@@ -135,6 +172,6 @@ export async function packageNpm(output = path.join(root, 'dist/npm-local'), ver
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2), flag = args.find(arg => arg.startsWith('--template-env='));
-  const positional = args.filter(arg => arg !== flag);
-  console.log(JSON.stringify(await packageNpm(positional[0], positional[1], flag?.split('=')[1]), null, 2));
+  const positional = args.filter(arg => arg !== flag && arg !== '--bundle-runtime');
+  console.log(JSON.stringify(await packageNpm(positional[0], positional[1], flag?.split('=')[1], { bundleRuntime: args.includes('--bundle-runtime') }), null, 2));
 }

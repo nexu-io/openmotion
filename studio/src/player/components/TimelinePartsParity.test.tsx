@@ -47,8 +47,14 @@ describe("Timeline provider boundary", () => {
         React.createElement(Timeline.Provider, null, React.createElement(TimelinePartsVariant)),
       );
     });
-    const normalizeMarkup = (markup: string) =>
-      markup.replaceAll(/timeline-lanes_[^"]+/g, "timeline-lanes");
+    const normalizeMarkup = (markup: string) => {
+      const tooltipIds = new Map<string, string>();
+      return markup.replaceAll(/timeline-lanes_[^"]+/g, "timeline-lanes")
+        .replaceAll(/base-ui-_r_[a-z0-9]+_/g, (id) => {
+          if (!tooltipIds.has(id)) tooltipIds.set(id, `tooltip-${tooltipIds.size}`);
+          return tooltipIds.get(id)!;
+        });
+    };
     expect(normalizeMarkup(partsHost.innerHTML)).toBe(normalizeMarkup(composedHost.innerHTML));
     act(() => {
       composedRoot.unmount();

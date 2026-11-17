@@ -126,6 +126,7 @@ export function useTimelineClipTimingEditing({
         const authoredStart = toAuthoredStart(element, updates.start);
         if (startChanged || trackChanged) {
           const liveAttrs: Array<[string, string]> = [];
+          if (element.implicitTextTiming) liveAttrs.push(["data-duration", formatTimelineAttributeNumber(element.duration)]);
           if (startChanged)
             liveAttrs.push(["data-start", formatTimelineAttributeNumber(authoredStart)]);
           if (trackChanged) {
@@ -187,7 +188,7 @@ export function useTimelineClipTimingEditing({
         return reorderDone
           .then(() => {
             // SDK setTiming writes start only; a lane change needs the fallback's track patch.
-            if (sdkSession && element.hfId && !element.link && !needsExtension && !trackChanged) {
+            if (sdkSession && element.hfId && !element.link && !element.implicitTextTiming && !needsExtension && !trackChanged) {
               return sdkTimingPersist(
                 element.hfId,
                 targetPath,

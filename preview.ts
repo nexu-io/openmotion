@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { WorkspaceStore } from './workspace.ts';
 import { ensureEditor, editorRequest, readEditor, sharedEditorEnabled } from './editor-runtime.ts';
 import { supportsPhase1Tool } from './shared/phase1-tools.ts';
-import { trackingReleaseEnabled } from './tracking/node.ts';
+import { withProcessLock } from './shared/process-lock.ts';
 
 const pluginRoot = fileURLToPath(new URL('./', import.meta.url));
 export const VERSION: string = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
@@ -99,27 +99,18 @@ export async function openPreview(store = new WorkspaceStore(), environment: Pre
     const file = path.join(store.directory, 'preview.json'), temporary = file + '.' + crypto.randomUUID() + '.tmp';
     try { await writeFile(temporary, JSON.stringify({ port: Number(new URL(editor.endpoint).port), pid: editor.pid, version: editor.version }), { mode: 0o600 }); await rename(temporary, file); }
     finally { await rm(temporary, { force: true }); }
-    return { ...opened, revision: (await store.get()).revision, reused: before?.instanceId === editor.instanceId,
+    return { ...opened, mcp: editor.mcp, previewUrl: new URL(editor.endpoint).origin,
+      studioUrl: opened.editorReady ? new URL(`/#project/${store.projectId}`, editor.endpoint).href : undefined,
+      revision: (await store.get()).revision, reused: before?.instanceId === editor.instanceId,
       previewTarget: 'host-built-in-browser', nextAction: 'Open the exact previewUrl in the host built-in browser when available; otherwise return the URL and mark visual/player checks as not_run. Do not start another editor or ask the user to run a terminal server.' };
   }
   await mkdir(store.directory, { recursive: true });
   const lockPath = path.join(store.directory, 'preview-start.lock');
-  const deadline = Date.now() + 360_000;
-  let lock;
-  while (!lock) {
-    try { lock = await open(lockPath, 'wx', 0o600); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      if (Date.now() > deadline) throw new Error('另一个 Motion 启动任务尚未结束，请稍后重试；不会重启其他进程。');
-      await environment.wait();
-    }
-  }
-  try {
+  return withProcessLock(lockPath, async () => {
     const firstPort = initialPort(), previous = await registeredPort(store);
     const candidates = [...new Set([...(previous ? [previous] : []), ...Array.from({ length: 10 }, (_, i) => firstPort + i)])];
     let available: number | null = null;
     const matches = (result: Probe) => result.kind === 'motion' && result.health.service === 'motion-preview' && result.health.protocol === 2 && result.health.ready
-      && trackingReleaseEnabled(result.health.version) === trackingReleaseEnabled(VERSION)
       && (options.mcpTool ? supportsPhase1Tool(result.health, options.mcpTool) : result.health.version === VERSION) && path.resolve(result.health.dataDirectory) === store.directory;
     async function ready(port: number, health: Health, reused: boolean, pid?: number) {
       if (options.editor && !health.studioUrl) {
@@ -131,8 +122,8 @@ export async function openPreview(store = new WorkspaceStore(), environment: Pre
       const file = path.join(store.directory, 'preview.json'); const temporary = file + '.' + crypto.randomUUID() + '.tmp';
       try { await writeFile(temporary, JSON.stringify({ port, pid, version: health.version }), { mode: 0o600 }); await rename(temporary, file); }
       finally { await rm(temporary, { force: true }); }
-      return { previewUrl: `http://localhost:${port}`, studioUrl: health.studioUrl, hyperframesCli: health.hyperframesCli, authoringGuide: health.authoringGuide, engine: 'hyperframes', ready: true, reused, ffmpeg: health.ffmpeg, revision: (await store.get()).revision,
-        dataDirectory: store.directory, editorReady: Boolean(health.studioUrl), browserOpened: false, previewTarget: 'host-built-in-browser',
+      return { previewUrl: `http://localhost:${port}`, studioUrl: health.studioUrl ? `http://localhost:${port}/#project/${store.projectId}` : undefined, hyperframesCli: health.hyperframesCli, authoringGuide: health.authoringGuide, engine: 'hyperframes', ready: true, reused, ffmpeg: health.ffmpeg, revision: (await store.get()).revision,
+        mcp: health.mcp, dataDirectory: store.directory, editorReady: Boolean(health.studioUrl), browserOpened: false, previewTarget: 'host-built-in-browser',
         nextAction: options.editor ? 'Use the host built-in browser to open previewUrl in this conversation. Do not ask the user to run a server or launch an external browser. If the host has no built-in browser, return the URL and state that the embedded preview is unavailable.' : 'Background service ready. Opening the editor is not required for template application or export.' };
     }
     // Public MCP negotiates its API; other callers retain exact-version reuse.
@@ -161,7 +152,7 @@ export async function openPreview(store = new WorkspaceStore(), environment: Pre
       child.stop();
       throw new Error(`${error instanceof Error ? error.message : '启动失败'}。请查看 ${log}。不会重启 Codex 或改用其他启动方式绕过权限限制。`);
     }
-  } finally { await lock.close(); await rm(lockPath, { force: true }); }
+  }, 360_000);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

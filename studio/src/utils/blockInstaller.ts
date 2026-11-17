@@ -12,6 +12,8 @@ import { saveProjectFilesWithHistory } from "./studioFileHistory";
 import { serializeStudioFileMutation } from "./studioFileMutationCoordinator";
 import { extendRootDurationInSource } from "./rootDuration";
 import { deriveTimelineStoreKeyForDomId } from "../player/lib/timelineElementHelpers";
+import { resolveDropTrack, topTrackZIndex } from "./timelineDropTrackInsert";
+import { usePlayerStore } from "../player";
 import { studioApiFetch } from "./studioApiFetch";
 
 function getMaxZIndexFromIframe(iframe: HTMLIFrameElement | null): number {
@@ -33,7 +35,7 @@ interface AddBlockOptions {
   projectId: string;
   blockName: string;
   activeCompPath: string | null;
-  placement?: { start: number; duration?: number; track?: number };
+  placement?: { start: number; duration?: number; track?: number; newTrack?: "top" };
   visualPosition?: { left: number; top: number };
   previewIframe?: HTMLIFrameElement | null;
   currentTime?: number;
@@ -177,7 +179,7 @@ function buildSubCompositionHtml({
 
 export async function addBlockToProject(
   opts: AddBlockOptions,
-): Promise<{ block: RegistryItem; compositionPath: string; hostKey: string } | null> {
+): Promise<{ block: RegistryItem; compositionPath: string; hostKey: string; element: TimelineElement } | null> {
   const {
     projectId,
     blockName,
@@ -205,19 +207,34 @@ export async function addBlockToProject(
     );
 
     const targetPath = activeCompPath || "index.html";
-    const relevantElements = timelineElements.filter(
-      (element) => (element.sourceFile || targetPath) === targetPath,
-    );
-    const { duration, isBlock, start, track } = resolveBlockPlacement({
+    const relevantElements = timelineElements
+      .filter(element => (element.sourceFile || targetPath) === targetPath)
+      .map(element => ({ ...element, sourceFile: targetPath }));
+    const { duration, isBlock, start, track: initialTrack } = resolveBlockPlacement({
       block,
       placement,
       timelineElements: relevantElements,
       currentTime: opts.currentTime ?? 0,
     });
+    let track = initialTrack;
+    let zIndex = getMaxZIndexFromIframe(opts.previewIframe ?? null) + 1;
     let hostId = "";
     const insertHost = (originalContent: string) => {
       const { width, height } = resolveTimelineAssetCompositionSize(originalContent);
       hostId = buildUniqueCompositionId(block.name, collectHtmlIds(originalContent));
+      if (placement?.newTrack === "top") {
+        const placed = usePlayerStore.getState().pendingAssetDrops.flatMap(drop =>
+          drop.element && (drop.element.sourceFile || targetPath) === targetPath ? [drop.element] : [],
+        );
+        zIndex = Math.max(zIndex, topTrackZIndex(originalContent, [...relevantElements, ...placed]));
+        const resolved = resolveDropTrack({
+          source: originalContent, elements: relevantElements, placed,
+          placement: { start, track, newTrack: "top" },
+          dropped: { id: hostId, tag: "div", start, duration },
+        });
+        originalContent = resolved.source;
+        track = resolved.track;
+      }
       const subComposition = buildSubCompositionHtml({
         id: hostId,
         compositionFile,
@@ -228,7 +245,7 @@ export async function addBlockToProject(
         height,
         left: visualPosition ? Math.round(visualPosition.left) : 0,
         top: visualPosition ? Math.round(visualPosition.top) : 0,
-        zIndex: getMaxZIndexFromIframe(opts.previewIframe ?? null) + 1,
+        zIndex,
       });
       return extendRootDurationInSource(
         insertTimelineAssetIntoSource(originalContent, subComposition),
@@ -247,10 +264,13 @@ export async function addBlockToProject(
     await refreshFileTree();
     reloadPreview();
 
+    const hostKey = deriveTimelineStoreKeyForDomId(hostId, targetPath);
     return {
       block,
       compositionPath: compositionFile,
-      hostKey: deriveTimelineStoreKeyForDomId(hostId, targetPath),
+      hostKey,
+      element: { id: hostKey, key: hostKey, domId: hostId, sourceFile: targetPath,
+        tag: "div", start, duration, track, authoredTrack: track, zIndex, compositionSrc: compositionFile },
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to add block";

@@ -7,6 +7,12 @@ import type { ServerResponse } from 'node:http';
 import type { Browser, BrowserContext, CDPSession, Page } from 'puppeteer-core';
 import { webAddress, type BrowserInput, type WebPageState } from './shared/browser.ts';
 
+/** Plugins resolve browser dependencies from their managed runtime, not the read-only checkout. */
+export async function browserAutomation(runtimeRoot: string) {
+  const require = createRequire(path.join(runtimeRoot, 'package.json'));
+  return (await import(pathToFileURL(require.resolve('puppeteer-core')).href)).default as typeof import('puppeteer-core').default;
+}
+
 export async function browserExecutable() {
   const candidates = [process.env.MOTION_BROWSER_PATH, process.env.HYPERFRAMES_BROWSER_PATH,
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
@@ -176,8 +182,7 @@ export class WorkspaceBrowser {
   constructor(runtimeRoot: string) { this.runtimeRoot = runtimeRoot; this.cleanup.unref(); }
   private launch() {
     return this.engine ??= (async () => {
-      const require = createRequire(path.join(this.runtimeRoot, 'package.json'));
-      const { default: puppeteer } = await import(pathToFileURL(require.resolve('puppeteer-core')).href);
+      const puppeteer = await browserAutomation(this.runtimeRoot);
       const browser = await puppeteer.launch({ executablePath: await browserExecutable(), headless: true, pipe: true, defaultViewport: { width: 1100, height: 700 } });
       browser.once('disconnected', () => {
         this.engine = undefined;

@@ -29,6 +29,8 @@ function handleUndoRedoKey(event: KeyboardEvent, onUndo: () => void, onRedo: () 
 
 export interface HotkeyCallbacks extends LinkShortcutCallbacks {
   handleTimelineElementsDelete: (elements: TimelineElement[]) => Promise<void>;
+  disableRazorTool?: boolean;
+  handleSplitAtPlayhead?: (splitTime: number) => Promise<void>;
   handleTimelineElementSplit: (element: TimelineElement, splitTime: number) => Promise<void>;
   handleDomEditElementDelete: (
     selection: DomEditSelection,
@@ -170,8 +172,22 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
     // Reserve bare `s` for Split even when the current selection cannot split,
     // so secondary listeners do not reinterpret the same key as Snap toggle.
     event.preventDefault();
-    if (cb.readOnlyPreview) return;
+    if (cb.readOnlyPreview || event.repeat) return;
     const { selectedElementId, elements, currentTime } = usePlayerStore.getState();
+    // Expanded children are absent from the flat store; explain without suggesting a hidden tool.
+    if (selectedElementId && selectedElementId.includes("#") && !elements.some((e) => (e.key ?? e.id) === selectedElementId)) {
+      cb.showToast(
+        cb.disableRazorTool
+          ? "Splitting clips inside a sub-composition is not supported in this editor."
+          : `Use the razor tool (${keyHint("razorTool", keys)}) to split clips inside a sub-composition`,
+        "info",
+      );
+      return;
+    }
+    if (cb.handleSplitAtPlayhead) {
+      void cb.handleSplitAtPlayhead(currentTime);
+      return;
+    }
     if (selectedElementId) {
       const el = elements.find((e) => (e.key ?? e.id) === selectedElementId);
       if (
@@ -181,16 +197,6 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
         currentTime < el.start + el.duration
       ) {
         void cb.handleTimelineElementSplit(el, currentTime);
-        return;
-      }
-      // Expanded sub-comp children carry a qualified `sourceFile#id` selection
-      // that isn't in the raw `elements` list, so the s-key can't resolve them.
-      // Nudge toward the razor tool instead of failing silently.
-      if (!el && selectedElementId.includes("#")) {
-        cb.showToast(
-          `Use the razor tool (${keyHint("razorTool", keys)}) to split clips inside a sub-composition`,
-          "info",
-        );
         return;
       }
     }
@@ -205,6 +211,7 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
   }
 
   if (matchesKey(event, "razorTool")) {
+    if (cb.disableRazorTool) return;
     event.preventDefault();
     const { activeTool, setActiveTool } = usePlayerStore.getState();
     setActiveTool(activeTool === "razor" ? "select" : "razor");

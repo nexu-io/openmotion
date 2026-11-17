@@ -91,7 +91,7 @@ export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTempl
     else void copy(template);
   }
   return <section className="motion-home-templates" aria-labelledby="home-template-title">
-    <div className="motion-section-heading"><h2 id="home-template-title">{t('Templates')}</h2><MotionIcon name="sparkles" size={20} /></div>
+    <div className="motion-section-heading"><h2 id="home-template-title">{t('Templates')}</h2><MotionIcon name="grid" size={20} /></div>
     <div className="motion-template-toolbar">
       <div className="motion-template-filters" role="group" aria-label={t('Template categories')}>
         {categories.map(([id, label]) => <button key={id} aria-pressed={category === id} onClick={() => filter(id)}>{id === 'builtin' && <MotionIcon name="scissors" size={14} />}{t(label)}</button>)}

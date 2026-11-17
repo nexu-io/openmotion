@@ -15,6 +15,7 @@ import { translate } from "../i18n/messages";
 afterEach(() => {
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   usePlayerStore.getState().reset();
 });
 
@@ -224,11 +225,14 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
       start: 1,
       track: 0,
     });
-    // The first moves past a [0,4); the second is too long for [7,8) and goes after b.
-    expect(landed).toEqual([
-      ["4", "0"],
-      ["10", "0"],
-    ]);
+    // Magnetic main-track import appends both files after the existing end.
+    expect(landed).toEqual([["10", "0"], ["13", "0"]]);
+  });
+
+  it("uses free row slots when main-track magnet is disabled", async () => {
+    usePlayerStore.setState({ rippleEditEnabled: false });
+    expect(await twoFileDrop([rowClip("a", 0, 4), rowClip("b", 8, 2)], { start: 1, track: 0 }))
+      .toEqual([["4", "0"], ["10", "0"]]);
   });
 
   it("puts a multi-file drop that opens a track back to back on that new track", async () => {
@@ -272,12 +276,21 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
   });
 
   it("keeps two audio files dropped on a visual row together, as a single one would go", async () => {
+    const createElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag, options) => {
+      const element = createElement(tag, options);
+      if (tag === "audio") {
+        Object.defineProperty(element, "duration", { value: 5 });
+        queueMicrotask(() => element.dispatchEvent(new Event("loadedmetadata")));
+      }
+      return element;
+    });
     const clips = [
       rowClip("title", 0, 10, { track: 1 }),
       rowClip("music", 2, 3, { tag: "audio", row: 1, track: 0 }),
     ];
     const landed = await twoFileDrop(clips, { start: 12, track: 0 }, [["a.mp3", "b.mp3"], "audio"]);
-    // Audio length probing times out in this harness, so each file gets the 5 s default.
+    // Each readable audio file reports a 5 s duration.
     expect(landed).toEqual([
       ["12", "0"],
       ["17", "0"],

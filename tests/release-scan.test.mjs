@@ -19,6 +19,49 @@ test('privacy rules reject internal URLs, employee paths and private files witho
   for (const name of ['../escape', '/absolute', 'C:/drive', 'safe/../../outside', 'bad\\file', 'bad\tname']) assert.throws(() => archivePaths(name));
 });
 
+test('only the approved public community invitation is permitted in product READMEs', async () => {
+  const text = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const invite = text.match(/href="([^"\n]+add_by_link[^"\n]+)"/)[1];
+  const internal = 'https://' + 'workspace.' + 'feishu.cn/wiki/private';
+  for (const kind of ['source', 'package']) {
+    for (const name of ['README.md', 'README.zh-CN.md', 'docs/README.zh-CN.md', 'docs/README.ja.md']) {
+      assert.deepEqual(privacyFindings(name, `<a href="${invite}">Community</a>`, kind), []);
+      for (const value of [invite + 'x', invite + '&extra=1', invite.replace('https:', 'http:'), invite + ' ' + internal]) {
+        assert(privacyFindings(name, value, kind).some(hit => hit.rule === 'internal-link'));
+      }
+    }
+    for (const name of ['notes.md', 'nested/README.md', 'docs/install.md', 'nested/package/README.md', 'package/nested/README.md', 'package/package/README.md']) {
+      assert(privacyFindings(name, invite, kind).some(hit => hit.rule === 'internal-link'));
+    }
+  }
+  // The npm installer archive keeps the same product READMEs under its single `package/` root.
+  for (const name of ['package/README.md', 'package/README.zh-CN.md', 'package/docs/README.zh-CN.md', 'package/docs/README.ja.md']) {
+    assert.deepEqual(privacyFindings(name, `<a href="${invite}">Community</a>`, 'package'), []);
+    for (const value of [invite + 'x', invite + '&extra=1', invite.replace('https:', 'http:'), invite + ' ' + internal]) {
+      assert(privacyFindings(name, value, 'package').some(hit => hit.rule === 'internal-link'));
+    }
+    assert(privacyFindings(name, invite, 'source').some(hit => hit.rule === 'internal-link'));
+  }
+});
+
+test('the shared Studio community link may carry the same approved invitation in source and its bundled asset', async () => {
+  const text = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  const invite = text.match(/href="([^"\n]+add_by_link[^"\n]+)"/)[1];
+  const internal = 'https://' + 'workspace.' + 'feishu.cn/wiki/private';
+  for (const kind of ['source', 'package']) {
+    const prefix = kind === 'package' ? 'package/' : '';
+    for (const name of ['studio/src/motion/CommunityLink.tsx', 'studio/build/editor-assets/index-9f1c2d3e.js']) {
+      assert.deepEqual(privacyFindings(prefix + name, `const communityUrl = '${invite}';`, kind), []);
+      for (const value of [invite + 'x', invite + '&extra=1', invite + ' ' + internal]) {
+        assert(privacyFindings(prefix + name, value, kind).some(hit => hit.rule === 'internal-link'));
+      }
+    }
+    for (const name of ['studio/src/motion/Other.tsx', 'studio/build/index.js', 'studio/build/editor-assets/index-9f1c2d3e.css', 'nested/studio/src/motion/CommunityLink.tsx', 'nested/package/studio/build/editor-assets/index-9f1c2d3e.js']) {
+      assert(privacyFindings(prefix + name, invite, kind).some(hit => hit.rule === 'internal-link'));
+    }
+  }
+});
+
 async function scanner(t, findings = []) {
   const work = await mkdtemp(path.join(os.tmpdir(), 'motion-scanner-test-')); t.after(() => rm(work, { recursive: true, force: true }));
   const binary = path.join(work, 'scanner');
@@ -34,6 +77,24 @@ test('tracked source is scanned without ignore-file bypasses; secret errors expo
   await assert.rejects(scanSource(source, binary), error => error.message.includes('fixture-secret') && !error.message.includes('never-print-this'));
   await symlink('source.txt', path.join(source, 'link')); await runFile('git', ['add', 'link'], { cwd: source });
   await assert.rejects(scanSource(source, binary), /Tracked links/);
+});
+
+test('catalog source is scanned alongside gallery and product source without skipping its privacy checks', async t => {
+  const { work, binary } = await scanner(t);
+  const source = path.join(work, 'source');
+  const catalog = path.join(source, 'library/templates/catalog/demo/guide.md');
+  await mkdir(path.dirname(catalog), { recursive: true });
+  await mkdir(path.join(source, 'docs/readme'), { recursive: true });
+  await writeFile(path.join(source, 'README.md'), 'Public product');
+  await writeFile(path.join(source, 'docs/readme/gallery.md'), 'Public gallery');
+  await writeFile(catalog, 'https://' + 'workspace.' + 'feishu.cn/wiki/private');
+  await runFile('git', ['init', '-q', source]);
+  await runFile('git', ['add', '.'], { cwd: source });
+  await assert.rejects(scanSource(source, binary), /catalog\/demo\/guide.md.*internal-link/);
+  await writeFile(catalog, 'Public catalog');
+  const report = await scanSource(source, binary);
+  assert.equal(report.status, 'passed');
+  assert.equal(report.files, 3);
 });
 
 test('the scanner opens the nested application, rejects hidden private content and rejects linked archive entries', async t => {

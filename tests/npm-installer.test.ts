@@ -33,10 +33,12 @@ function clearNativeEnvironment(t: any) {
 }
 async function setupFixture(t: any) {
   const directory = await fixture(t), application = path.join(directory, 'source'), home = path.join(directory, 'install'), skillsDirectory = path.join(directory, 'skills');
-  for (const name of ['scripts', 'shared', 'studio/build', 'skills/motion-production', 'docs']) await mkdir(path.join(application, name), { recursive: true });
+  for (const name of ['scripts', 'shared', 'studio/build', 'skills/openmotion-production', 'docs', 'mcp-ui/template-recommendations']) await mkdir(path.join(application, name), { recursive: true });
   for (const name of ['mcp.ts', 'scripts/npm-runtime.mjs', 'studio/build/index.html', 'README.md', 'AGENTS.md', 'CLAUDE.md']) await writeFile(path.join(application, name), 'fixture');
-  for (const file of ['docs/install.md', 'scripts/install-onboarding.mjs', 'scripts/runtime-assets.mjs']) await cp(new URL('../' + file, import.meta.url), path.join(application, file));
-  await writeFile(path.join(application, 'skills/motion-production/SKILL.md'), '---\nname: motion-production\ndescription: fixture\n---\nFixture');
+  for (const file of ['docs/install-onboarding.md', 'scripts/install-onboarding.mjs', 'scripts/codex-host-handoff.mjs', 'shared/onboarding-templates.ts', 'scripts/runtime-assets.mjs', 'scripts/open-template-library.ts', 'shared/workspace-url.ts', 'mcp-ui/template-recommendations/i18n.ts']) await cp(new URL('../' + file, import.meta.url), path.join(application, file));
+  await writeFile(path.join(application, 'workspace.ts'), 'export class WorkspaceStore { constructor(directory = process.env.MOTION_DATA_DIR) { this.directory = directory; } }');
+  await writeFile(path.join(application, 'preview.ts'), `export async function ensureService(store) { if (store.directory !== process.env.MOTION_DATA_DIR) throw new Error('Wrong workspace'); return { previewUrl: 'http://127.0.0.1:4173' }; }`);
+  await writeFile(path.join(application, 'skills/openmotion-production/SKILL.md'), '---\nname: openmotion-production\ndescription: fixture\n---\nFixture');
   await writeJSON(path.join(application, 'shared/template-config.json'), { environment: 'prod' });
   await cp(new URL('../shared/mcp-profiles.json', import.meta.url), path.join(application, 'shared/mcp-profiles.json'));
   await writeJSON(path.join(application, 'package.json'), { name: 'motion-fixture', version: '1.2.3', private: true });
@@ -50,19 +52,112 @@ async function setupFixture(t: any) {
   return { directory, application, home, skillsDirectory, manifest, codex, config };
 }
 
-test('successful setup hands the current Agent an invitation before any MCP use, without persisting an offer', async t => {
+test('successful setup hands the current Agent a project-free template library before any MCP use', async t => {
   const options = await setupFixture(t);
   const installed = await setup(options);
   assert.equal(installed.onboarding.hostSessionVerified, false);
-  assert.match(installed.onboarding.instructions, /OpenMotion 开源免费/);
+  assert.deepEqual(installed.onboarding.directAccess.toolsArgs, [path.join(installed.appRoot, 'scripts/npm-installer.mjs'), 'tools', '--home', installed.launcher.replace(/[/\\]run-mcp.mjs$/, ''), '--host', 'codex', '--codex', options.codex]);
+  const examples = [...installed.onboarding.instructions.matchAll(/```text\n([\s\S]*?)```/g)].map(([, text]) => text);
+  assert.equal(examples.length, 2);
+  const [cards, library] = examples;
+  for (const raw of examples) {
+    const example = raw.replaceAll('**', '');
+    assert(example.startsWith('🎉 OpenMotion 安装好啦，右侧就是模板库！\n\n'));
+    assert.doesNotMatch(example, /MCP|Skills?|prod|DEV|刷新|连接|新聊天|后台|开源免费/);
+    assert.match(example, /我是你的开源视频创作搭档/);
+    assert.doesNotMatch(example, /Motion.md|回复 1、2 或 3/);
+    assert.doesNotMatch(example, /打开并编辑|要用这个模板/);
+  }
+  assert.doesNotMatch(cards, /1\. \*\*产品宣传片|2\. \*\*动态图表|3\. \*\*决策树动画/);
+  assert.match(installed.onboarding.instructions, /onboarding: false/);
+  assert.match(installed.onboarding.instructions, /stream the separate welcomeMarkdown once as the final reply/);
+  assert.match(cards, /不想自己找？先看看我挑的这 3 个/);
+  assert.match(cards, /你可以点击上方卡片上的「复刻模板」，然后补充/);
+  assert.match(cards, /补充「我的要求」或添加附件，发送后就开始创作/);
+  assert.doesNotMatch(library, /卡片|3 个推荐|填入输入框|回复.*[123]/);
   assert(Array.isArray(installed.onboarding.catalog.templates));
+  assert.equal(installed.onboarding.preview.status, 'ready', installed.onboarding.preview.warning);
+  assert.equal(installed.onboarding.preview.projectCreated, false);
+  assert.equal(new URL(installed.onboarding.preview.previewUrl).searchParams.get('templates'), '1');
+  assert.equal(installed.onboarding.preview.previewHandoff.nextAction.kind, 'host');
   assert.equal('onboarding' in JSON.parse(await readFile(path.join(options.home, 'install.json'), 'utf8')), false);
 });
+
+test('legacy setup returns prepared onboarding to the installing Agent without sending another user message', async t => {
+  const options = await setupFixture(t);
+  await writeFile(path.join(options.application, 'scripts/inline-onboarding.mjs'), `import fs from 'node:fs/promises'; import path from 'node:path'; import {createHash} from 'node:crypto';
+export async function prepareInlineOnboarding({output}) { await fs.mkdir(path.dirname(output), {recursive:true}); await fs.writeFile(output, 'verified cards'); return {status:'prepared',path:output,sha256:createHash('sha256').update('verified cards').digest('hex')}; }`);
+  const manifest = JSON.parse(await readFile(options.manifest, 'utf8'));
+  manifest.application = await archive(options.directory, options.application, 'prepared-onboarding');
+  await writeJSON(options.manifest, manifest);
+  const queueLog = path.join(options.directory, 'queue.log');
+  const cli = await readFile(options.codex, 'utf8');
+  await writeFile(options.codex, cli + `\nif(args[0]==='queue') {fs.writeFileSync(${JSON.stringify(queueLog)},JSON.stringify(args));console.log('Queued message 11111111-1111-4111-8111-111111111111 for thread '+args[2]+'.');}\n`);
+  const installed = await setup(options);
+  assert.equal(installed.onboarding.onboardingStatus, 'awaiting_host_delivery');
+  assert.equal(installed.onboarding.callback, undefined);
+  assert.equal(installed.onboarding.inlinePresentation.status, 'prepared');
+  assert.equal(installed.onboarding.preview.status, 'ready');
+  assert.equal(installed.onboarding.preview.projectCreated, false);
+  assert.equal(installed.onboarding.onboardingComplete, false);
+  await assert.rejects(readFile(queueLog), { code: 'ENOENT' });
+  assert.equal(await readFile(installed.onboarding.inlinePresentation.path, 'utf8'), 'verified cards');
+  assert.equal(JSON.parse(await readFile(options.config, 'utf8')).unrelated.transport.command, 'keep-this');
+});
+
+for (const host of ['workbuddy', 'claude', 'codex', 'deepseek']) {
+  test(`${host} upgrades remove retired Skills while preserving projects and unrelated entries`, async t => {
+    const options = await setupFixture(t);
+    const configKey = host === 'claude' ? 'CLAUDE_CONFIG_DIR' : host === 'deepseek' ? 'DSH_HOME' : 'WORKBUDDY_CONFIG_DIR';
+    const before = process.env[configKey];
+    process.env[configKey] = path.join(options.directory, host);
+    t.after(() => { if (before === undefined) delete process.env[configKey]; else process.env[configKey] = before; });
+    const extra: any = {};
+    if (host === 'claude' || host === 'deepseek') {
+      const cli = path.join(options.directory, host + '-cli');
+      const action = host === 'claude'
+        ? `const f=path.join(process.env.CLAUDE_CONFIG_DIR,'.claude.json');fs.mkdirSync(path.dirname(f),{recursive:true});fs.writeFileSync(f,JSON.stringify({mcpServers:{openmotion:JSON.parse(a[5])}}));`
+        : `const p=path.join(process.env.DSH_HOME,'profiles/web');fs.mkdirSync(p,{recursive:true});fs.writeFileSync(path.join(p,'package.json'),JSON.stringify({dependencies:{'dsh-plugin-openmotion-local':'file:'+a[4]}}));`;
+      await writeFile(cli, `#!${process.execPath}\nimport fs from 'node:fs';import path from 'node:path';const a=process.argv.slice(2);${action}\n`, { mode: 0o755 });
+      extra[host === 'claude' ? 'claude' : 'dsh'] = cli;
+    }
+    const installed = await setup({ ...options, ...extra, host });
+    const flat = host === 'claude' || host === 'workbuddy';
+    const root = flat ? options.skillsDirectory : path.join(host === 'codex' ? path.join(options.skillsDirectory, 'openmotion') : installed.hostInstallation.bundleDirectory, 'skills');
+    const retired = ['motion-director', 'motion-production', 'motion-recreate', 'motion-template-to-video', 'motion-video-to-template', 'reference-video'];
+    for (const name of retired) {
+      const old = path.join(root, name); await mkdir(old);
+      if (flat) await cp(path.join(root, 'openmotion-production/openmotion-install.json'), path.join(old, 'openmotion-install.json'));
+      await writeFile(path.join(old, 'SKILL.md'), 'Retired workflow');
+    }
+    const foreign = path.join(options.skillsDirectory, 'user-owned');
+    await mkdir(foreign, { recursive: true }); await writeFile(path.join(foreign, 'SKILL.md'), 'User workflow');
+    if (flat) {
+      const other = path.join(root, 'brandkit'); await mkdir(other);
+      await writeJSON(path.join(other, 'openmotion-install.json'), { managedBy: '@openmotion/installer', installHome: options.home + '-other', host });
+      await writeFile(path.join(other, 'SKILL.md'), 'Another installation');
+    }
+    await mkdir(installed.dataDirectory, { recursive: true });
+    await writeFile(path.join(installed.dataDirectory, 'keep.txt'), 'Existing project data');
+    const upgraded = await setup({ ...options, ...extra, host });
+    assert.equal(upgraded.dataDirectory, installed.dataDirectory);
+    assert.equal(await readFile(path.join(installed.dataDirectory, 'keep.txt'), 'utf8'), 'Existing project data');
+    const upgradedRoot = host === 'deepseek' ? path.join(upgraded.hostInstallation.bundleDirectory, 'skills') : root;
+    for (const name of retired) await assert.rejects(readdir(path.join(upgradedRoot, name)), { code: 'ENOENT' });
+    await readFile(path.join(upgradedRoot, 'openmotion-production/SKILL.md'));
+    if (host === 'deepseek') {
+      assert.notEqual(upgradedRoot, root);
+      await readFile(path.join(root, retired[0], 'SKILL.md')); // The running host's old bundle is untouched.
+    }
+    assert.equal(await readFile(path.join(foreign, 'SKILL.md'), 'utf8'), 'User workflow');
+    if (flat) assert.equal(await readFile(path.join(root, 'brandkit/SKILL.md'), 'utf8'), 'Another installation');
+  });
+}
 
 test('bundled CLI installs without a sidecar manifest, isolates DEV defaults and rejects a mixed-environment home', async t => {
   const options = await setupFixture(t), bundle = path.join(options.directory, 'bundle');
   await mkdir(path.join(bundle, 'scripts'), { recursive: true }); await mkdir(path.join(bundle, 'payload'));
-  for (const file of ['npm-installer.mjs', 'npm-hosts.mjs', 'npm-runtime.mjs', 'runtime-assets.mjs', 'check-installed-mcp.mjs']) {
+  for (const file of ['npm-installer.mjs', 'npm-hosts.mjs', 'npm-runtime.mjs', 'runtime-assets.mjs', 'check-installed-mcp.mjs', 'mcp-client.mjs', 'diagnostics.mjs', 'diagnostic-redaction.mjs', 'zip.mjs']) {
     await cp(new URL('../scripts/' + file, import.meta.url), path.join(bundle, 'scripts', file));
   }
   await writeJSON(path.join(bundle, 'package.json'), { version: '1.2.3', type: 'module' });
@@ -91,6 +186,20 @@ test('bundled CLI installs without a sidecar manifest, isolates DEV defaults and
   }), /template environment does not match manifest/);
   await writeJSON(path.join(bundle, 'package.json'), { version: '9.9.9', type: 'module' });
   await assert.rejects(runFile(process.execPath, command, { env }), /match the npm package version/);
+});
+
+test('a library startup failure reports the limitation without undoing successful host registration', async t => {
+  const options = await setupFixture(t);
+  await writeFile(path.join(options.application, 'scripts/open-template-library.ts'), 'throw new Error("Preview unavailable");');
+  const manifest = JSON.parse(await readFile(options.manifest, 'utf8'));
+  manifest.application = await archive(options.directory, options.application, 'failed-preview');
+  await writeJSON(options.manifest, manifest);
+  const installed = await setup(options);
+  assert.equal(installed.onboarding.preview.status, 'unavailable');
+  assert.equal(installed.onboarding.preview.projectCreated, false);
+  assert.match(installed.onboarding.preview.warning, /Preview unavailable/);
+  assert.equal(JSON.parse(await readFile(path.join(options.home, 'install.json'), 'utf8')).appRoot, installed.appRoot);
+  assert.ok(JSON.parse(await readFile(options.config, 'utf8')).openmotion);
 });
 
 test('local assets require pinned checksums and preserve earlier cache after corruption', async t => {
@@ -248,7 +357,7 @@ for await(const line of createInterface({input:process.stdin})){
     assert.equal(result.hostSessionVerified, false, 'an independent process cannot confirm the active chat');
     assert.equal(result.dataDirectory, installed.dataDirectory);
     assert.deepEqual(result.tools, expected);
-    assert.match(result.nextAction, /motion_get_project/);
+    assert.match(result.nextAction, /openmotion_get_project/);
   }
   assert.deepEqual(await Promise.all(files.map(file => readFile(file, 'utf8'))), before);
   const configured = JSON.parse(await readFile(options.config, 'utf8'));
@@ -272,7 +381,7 @@ test('setup installs complete Skills and MCP without waiting for native download
   assert.equal(first.nativeDependencies, 'background-preparation; status and retry available in Studio');
   const scope = JSON.parse(await readFile(path.join(options.skillsDirectory, 'openmotion/scope.json'), 'utf8'));
   assert.equal(scope.runtimeRoot, first.appRoot);
-  assert.match(await readFile(path.join(options.skillsDirectory, 'openmotion/skills/motion-production/SKILL.md'), 'utf8'), /motion-production/);
+  assert.match(await readFile(path.join(options.skillsDirectory, 'openmotion/skills/openmotion-production/SKILL.md'), 'utf8'), /openmotion-production/);
   assert((await readdir(path.join(options.home, 'cache/native/fixture'))).includes('preparation.log'));
   await mkdir(first.dataDirectory, { recursive: true });
   await writeFile(path.join(first.dataDirectory, 'keep.txt'), 'user work');
@@ -337,7 +446,7 @@ test('WorkBuddy installs flat Skills and preserves other hosts and native MCP se
   const config = JSON.parse(await readFile(path.join(clientHome, 'mcp.json'), 'utf8'));
   assert.equal(config.settings.keep, true); assert.equal(config.mcpServers.unrelated.command, 'keep-me');
   assert.equal(config.mcpServers.openmotion.args[0], buddy.launcher);
-  const marker = JSON.parse(await readFile(path.join(options.skillsDirectory, 'motion-production/openmotion-install.json'), 'utf8'));
+  const marker = JSON.parse(await readFile(path.join(options.skillsDirectory, 'openmotion-production/openmotion-install.json'), 'utf8'));
   assert.equal(marker.host, 'workbuddy'); assert.equal(marker.runtimeRoot, buddy.appRoot);
   assert.equal((await setup({ ...options, host: 'workbuddy' })).appRoot, buddy.appRoot);
   assert.equal((await readdir(path.join(options.home, 'apps'))).length, 1);
@@ -372,16 +481,16 @@ test('Claude flat Skills keep external document links and refuse an unowned skil
   const claude = path.join(options.directory, 'claude-cli'), config = path.join(clientHome, '.claude.json');
   await writeJSON(config, { keep: true });
   await writeFile(claude, `#!${process.execPath}\nimport fs from 'node:fs';\nconst f=${JSON.stringify(config)},v=JSON.parse(fs.readFileSync(f,'utf8'));const a=process.argv.slice(2);v.mcpServers={...v.mcpServers,openmotion:JSON.parse(a[5])};fs.writeFileSync(f,JSON.stringify(v));\n`, { mode: 0o755 });
-  await mkdir(path.join(options.application, 'skills/motion-production/references'));
+  await mkdir(path.join(options.application, 'skills/openmotion-production/references'));
   await writeFile(path.join(options.application, 'docs/model-gateway.md'), 'Shared gateway');
-  await writeFile(path.join(options.application, 'skills/motion-production/references/production.md'), '[gateway](../../../docs/model-gateway.md)');
+  await writeFile(path.join(options.application, 'skills/openmotion-production/references/production.md'), '[gateway](../../../docs/model-gateway.md)');
   const manifest = JSON.parse(await readFile(options.manifest, 'utf8'));
   manifest.application = await archive(options.directory, options.application, 'with-links'); await writeJSON(options.manifest, manifest);
   const installed = await setup({ ...options, host: 'claude', claude });
   assert.equal(JSON.parse(await readFile(config, 'utf8')).keep, true);
-  assert.match(await readFile(path.join(options.skillsDirectory, 'motion-production/references/production.md'), 'utf8'), /\]\(<.*apps\/.*docs\/model-gateway\.md>\)/);
+  assert.match(await readFile(path.join(options.skillsDirectory, 'openmotion-production/references/production.md'), 'utf8'), /\]\(<.*apps\/.*docs\/model-gateway\.md>\)/);
   assert.equal((await setup({ ...options, host: 'claude', claude })).appRoot, installed.appRoot);
-  const other = path.join(options.directory, 'unowned-skills/motion-production'); await mkdir(other, { recursive: true }); await writeFile(path.join(other, 'SKILL.md'), 'keep');
+  const other = path.join(options.directory, 'unowned-skills/openmotion-production'); await mkdir(other, { recursive: true }); await writeFile(path.join(other, 'SKILL.md'), 'keep');
   await assert.rejects(setup({ ...options, host: 'claude', claude, skillsDirectory: path.dirname(other) }), /not owned/);
   assert.equal(await readFile(path.join(other, 'SKILL.md'), 'utf8'), 'keep');
   for (const invalid of [false, 0, '', { mcpServers: [] }]) {
@@ -402,7 +511,7 @@ test('Harness installs a bundle with its own direct Skill root and recognizes re
   const patch = JSON.parse(await readFile(path.join(bundle, 'cordis.patch.yml'), 'utf8'))[0].insert;
   assert.equal(patch[0].config.args[0], first.launcher);
   assert.deepEqual(patch[1].config.customSkillDirs, [path.join(bundle, 'skills')]);
-  await readFile(path.join(bundle, 'skills/motion-production/SKILL.md'));
+  await readFile(path.join(bundle, 'skills/openmotion-production/SKILL.md'));
   assert.equal((await setup({ ...options, host: 'deepseek', dsh })).appRoot, first.appRoot);
   await assert.rejects(setup({ ...options, host: 'deepseek', dsh, profile: '../bad' }), /simple/);
   await writeJSON(path.join(profile, 'package.json'), false);
@@ -417,8 +526,8 @@ test('a failed new host registration restores the shared install and earlier hos
   const codex = await setup(options), before = await readFile(path.join(options.home, 'install.json'), 'utf8');
   await assert.rejects(setup({ ...options, host: 'claude', claude: '/missing-claude' }));
   assert.equal(await readFile(path.join(options.home, 'install.json'), 'utf8'), before);
-  await readFile(path.join(options.skillsDirectory, 'openmotion/skills/motion-production/SKILL.md'));
-  await assert.rejects(readdir(path.join(options.skillsDirectory, 'motion-production')), { code: 'ENOENT' });
+  await readFile(path.join(options.skillsDirectory, 'openmotion/skills/openmotion-production/SKILL.md'));
+  await assert.rejects(readdir(path.join(options.skillsDirectory, 'openmotion-production')), { code: 'ENOENT' });
   assert.equal(JSON.parse(before).appRoot, codex.appRoot);
 });
 
@@ -446,13 +555,13 @@ test('flat Skill upgrades remove only this host installation\'s obsolete entries
   const first = await setup({ ...options, host: 'workbuddy' });
   for (const name of ['obsolete-entry', '.openmotion-backup', 'other-host']) {
     await mkdir(path.join(options.skillsDirectory, name));
-    const marker = JSON.parse(await readFile(path.join(options.skillsDirectory, 'motion-production/openmotion-install.json'), 'utf8'));
+    const marker = JSON.parse(await readFile(path.join(options.skillsDirectory, 'openmotion-production/openmotion-install.json'), 'utf8'));
     if (name === 'other-host') marker.host = 'claude';
     await writeJSON(path.join(options.skillsDirectory, name, 'openmotion-install.json'), marker);
   }
   await setup({ ...options, host: 'workbuddy' });
   await assert.rejects(readdir(path.join(options.skillsDirectory, 'obsolete-entry')), { code: 'ENOENT' });
-  for (const name of ['.openmotion-backup', 'other-host', 'motion-production']) await readdir(path.join(options.skillsDirectory, name));
+  for (const name of ['.openmotion-backup', 'other-host', 'openmotion-production']) await readdir(path.join(options.skillsDirectory, name));
   assert.equal(JSON.parse(await readFile(path.join(options.home, 'install.json'), 'utf8')).appRoot, first.appRoot);
 });
 
@@ -461,11 +570,183 @@ test('registration failure restores obsolete flat Skills, and malformed install 
   const previous = process.env.CLAUDE_CONFIG_DIR; process.env.CLAUDE_CONFIG_DIR = clientHome;
   t.after(() => { if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previous; });
   await setup(options);
-  const obsolete = path.join(options.skillsDirectory, 'obsolete-entry'); await mkdir(obsolete);
+  const obsolete = path.join(options.skillsDirectory, 'motion-production'); await mkdir(obsolete);
   await writeJSON(path.join(obsolete, 'openmotion-install.json'), { managedBy: '@openmotion/installer', installHome: await (await import('../scripts/runtime-assets.mjs')).canonical(options.home), host: 'claude' });
   await assert.rejects(setup({ ...options, host: 'claude', claude: '/missing-claude' }));
   await readFile(path.join(obsolete, 'openmotion-install.json'));
   const state = path.join(options.home, 'install.json'); await writeJSON(state, false);
   await assert.rejects(setup(options), /belongs to another/);
   assert.equal(JSON.parse(await readFile(state, 'utf8')), false);
+});
+
+
+test('installed CLI uses the selected host transport and keeps failed tool results nonzero', async t => {
+  const options = await setupFixture(t), installed = await setup(options);
+  const tools = (JSON.parse(await readFile(path.join(installed.appRoot, 'shared/mcp-profiles.json'), 'utf8'))).phase1.tools;
+  await writeFile(installed.launcher, `import { createInterface } from 'node:readline';
+    for await (const line of createInterface({ input: process.stdin })) {
+      const q=JSON.parse(line); if(q.id===undefined) continue;
+      const result=q.method==='initialize'?{serverInfo:{version:'1.2.3'}}:q.method==='tools/list'?{tools:${JSON.stringify(tools.map(name => ({name,inputSchema:{type:'object'}})))}}:q.params.name==='openmotion_get_project'?{structuredContent:{dataDirectory:${JSON.stringify(installed.dataDirectory)}}}:{isError:true,structuredContent:{error:{code:'VERSION_CONFLICT',applied:false}}};
+      console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result}));
+    }`);
+  const cli = fileURLToPath(new URL('../scripts/npm-installer.mjs', import.meta.url));
+  const flags = ['--home', options.home, '--host', 'codex', '--codex', options.codex];
+  const listed = JSON.parse(await runFile(process.execPath, [cli, 'tools', ...flags]));
+  assert.equal(listed.dataDirectory, installed.dataDirectory);
+  assert.equal(listed.tools.length, tools.length);
+  const argsFile=path.join(options.directory, 'arguments 中文.json'); await writeJSON(argsFile, {requestId:'stable-request'});
+  await assert.rejects(runFile(process.execPath, [cli, 'call', 'openmotion_edit_project', '--args-file', argsFile, ...flags]), /VERSION_CONFLICT/);
+  await writeFile(argsFile, '[]');
+  await assert.rejects(runFile(process.execPath, [cli, 'call', 'openmotion_edit_project', '--args-file', argsFile, ...flags]), /JSON object/);
+  const config=JSON.parse(await readFile(options.config,'utf8')); config.openmotion.enabled=false; await writeJSON(options.config,config);
+  await assert.rejects(runFile(process.execPath, [cli, 'tools', ...flags]), /disabled/);
+});
+
+test('failed Harness upgrade preserves the registered bundle and removes its unused replacement', async t => {
+  const options = await setupFixture(t), dshHome = path.join(options.directory, 'dsh');
+  const before = process.env.DSH_HOME; process.env.DSH_HOME = dshHome;
+  t.after(() => { if (before === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = before; });
+  const cli = path.join(options.directory, 'dsh-cli.mjs'), fail = path.join(options.directory, 'fail');
+  await writeFile(cli, `import fs from 'node:fs';import path from 'node:path';
+    if(fs.existsSync(${JSON.stringify(fail)})) {console.error('registration failed');process.exit(1);}
+    const p=path.join(process.env.DSH_HOME,'profiles/web');fs.mkdirSync(p,{recursive:true});
+    fs.writeFileSync(path.join(p,'package.json'),JSON.stringify({dependencies:{'dsh-plugin-openmotion-local':'file:'+process.argv.slice(2)[4]}}));`);
+  const installed = await setup({ ...options, host: 'deepseek', dsh: cli });
+  const original = await readFile(path.join(options.home, 'install.json'), 'utf8');
+  const bundles = await readdir(path.join(options.home, 'hosts'));
+  await writeFile(fail, 'fail');
+  await assert.rejects(setup({ ...options, host: 'deepseek', dsh: cli }), /registration failed/);
+  assert.equal(await readFile(path.join(options.home, 'install.json'), 'utf8'), original);
+  assert.deepEqual(await readdir(path.join(options.home, 'hosts')), bundles);
+  await readFile(path.join(installed.hostInstallation.bundleDirectory, 'skills/openmotion-production/SKILL.md'));
+});
+
+async function harnessRecoveryFixture(t: any) {
+  const options = await setupFixture(t), dshHome = path.join(options.directory, 'dsh');
+  const before = process.env.DSH_HOME; process.env.DSH_HOME = dshHome;
+  t.after(() => { if (before === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = before; });
+  const cli = path.join(options.directory, 'dsh-recovery.mjs'), fail = path.join(options.directory, 'failure-mode');
+  await writeFile(cli, `import fs from 'node:fs';import path from 'node:path';
+    const bundle=process.argv.slice(2)[4],dir=path.join(process.env.DSH_HOME,'profiles/web');
+    fs.mkdirSync(dir,{recursive:true});fs.writeFileSync(path.join(dir,'package.json'),JSON.stringify({dependencies:{'dsh-plugin-openmotion-local':'file:'+bundle}}));
+    const scope=JSON.parse(fs.readFileSync(path.join(bundle,'scope.json'),'utf8'));
+    const state=JSON.parse(fs.readFileSync(path.join(scope.installHome,'install.json'),'utf8'));
+    if(state.hosts.deepseek.bundleDirectory!==bundle)throw new Error('Launcher state is not ready');
+    const mode=fs.existsSync(${JSON.stringify(fail)})?fs.readFileSync(${JSON.stringify(fail)},'utf8'):'';
+    if(mode==='register'){console.error('partial registration');process.exit(1);}
+    if(mode==='onboarding'){const scope=JSON.parse(fs.readFileSync(path.join(bundle,'scope.json'),'utf8'));fs.writeFileSync(path.join(scope.runtimeRoot,'docs/install-onboarding.md'),'invalid contract');}`);
+  return { options: { ...options, host: 'deepseek', dsh: cli }, fail, config: path.join(dshHome, 'profiles/web/package.json') };
+}
+
+for (const mode of ['register', 'onboarding']) {
+  test(`Harness keeps the registered bundle after ${mode} failure and setup can retry`, async t => {
+    const { options, fail, config } = await harnessRecoveryFixture(t);
+    const first = await setup(options);
+    const guide = path.join(first.appRoot, 'docs/install-onboarding.md'), originalGuide = await readFile(guide);
+    await writeFile(fail, mode);
+    await assert.rejects(setup(options), mode === 'register' ? /partial registration/ : /onboarding contract/);
+    const state = JSON.parse(await readFile(path.join(options.home, 'install.json'), 'utf8'));
+    const dependency = JSON.parse(await readFile(config, 'utf8')).dependencies['dsh-plugin-openmotion-local'];
+    assert.equal(dependency, 'file:' + state.hosts.deepseek.bundleDirectory);
+    assert.notEqual(state.hosts.deepseek.bundleDirectory, first.hostInstallation.bundleDirectory);
+    await readFile(path.join(state.hosts.deepseek.bundleDirectory, 'scope.json'));
+    assert(state.hosts.deepseek.retainedBundles.includes(first.hostInstallation.bundleDirectory));
+    await rm(fail); await writeFile(guide, originalGuide);
+    const retried = await setup(options);
+    assert.equal(JSON.parse(await readFile(config, 'utf8')).dependencies['dsh-plugin-openmotion-local'], 'file:' + retried.hostInstallation.bundleDirectory);
+  });
+}
+
+test('Harness reconciles interrupted profile/state divergence and inventories bundles for offline cleanup', async t => {
+  const { options, config } = await harnessRecoveryFixture(t);
+  const first = await setup(options), stateFile = path.join(options.home, 'install.json');
+  const oldState = await readFile(stateFile);
+  const second = await setup(options);
+  const switched = JSON.parse(await readFile(config, 'utf8'));
+  await writeJSON(config, { dependencies: { 'dsh-plugin-openmotion-local': 'file:' + first.hostInstallation.bundleDirectory } });
+  const { hostPlan: inspectPlan } = await import('../scripts/npm-hosts.mjs');
+  const pending = await inspectPlan(options, second.launcher.replace(/[/\\]run-mcp.mjs$/, ''), second.launcher, JSON.parse(await readFile(stateFile, 'utf8')));
+  assert((await pending.readConnection())?.transport); // State committed before the profile changed.
+  await writeJSON(config, switched);
+  await writeFile(stateFile, oldState); // Also recover the reverse divergence from earlier rollback behavior.
+  const { hostPlan } = await import('../scripts/npm-hosts.mjs');
+  const plan = await hostPlan(options, first.launcher.replace(/[/\\]run-mcp.mjs$/, ''), first.launcher, JSON.parse(oldState.toString()));
+  assert((await plan.readConnection())?.transport);
+  const third = await setup(options);
+  assert(third.hostInstallation.retainedBundles.includes(first.hostInstallation.bundleDirectory));
+  assert(third.hostInstallation.retainedBundles.includes(second.hostInstallation.bundleDirectory));
+  const { cleanupHarnessBundles } = await import('../scripts/cleanup-harness-bundles.mjs');
+  const inspection = await cleanupHarnessBundles(options.home);
+  assert.equal(inspection.status, 'inspection'); assert.equal(inspection.candidates.length, 2);
+  await readFile(path.join(first.hostInstallation.bundleDirectory, 'scope.json'));
+  const cleaned = await cleanupHarnessBundles(options.home, true);
+  assert.equal(cleaned.status, 'cleaned'); assert.equal(cleaned.removed.length, 2);
+  await readFile(path.join(third.hostInstallation.bundleDirectory, 'scope.json'));
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).dependencies['dsh-plugin-openmotion-local'], 'file:' + third.hostInstallation.bundleDirectory);
+  assert.deepEqual(JSON.parse(await readFile(stateFile, 'utf8')).hosts.deepseek.retainedBundles, []);
+});
+
+test('a partially registered first Harness installation retains its launcher and can retry', async t => {
+  const { options, fail, config } = await harnessRecoveryFixture(t);
+  await writeFile(fail, 'register');
+  await assert.rejects(setup(options), /partial registration/);
+  const state = JSON.parse(await readFile(path.join(options.home, 'install.json'), 'utf8'));
+  assert.equal(JSON.parse(await readFile(config, 'utf8')).dependencies['dsh-plugin-openmotion-local'], 'file:' + state.hosts.deepseek.bundleDirectory);
+  await readFile(state.launcher);
+  await rm(fail);
+  const retried = await setup(options);
+  assert.equal(retried.dataDirectory, state.dataDirectory);
+});
+
+test('an Agent without an adapter gets the same application, launcher and Skills and registers MCP itself', { skip: process.platform === 'win32' }, async t => {
+  const options = await setupFixture(t);
+  const codexConfig = await readFile(options.config, 'utf8');
+  const installed: any = await setup({ ...options, host: 'opencode', codex: undefined });
+  assert.equal(installed.host, 'opencode');
+  assert.deepEqual(installed.hosts.opencode, { skillsDirectory: await canonical(options.skillsDirectory), layout: 'flat', registration: 'agent' });
+  assert.deepEqual(installed.agentRegistration.transport, { type: 'stdio', command: process.execPath, args: [installed.launcher] });
+  assert.equal(installed.agentRegistration.serverName, 'openmotion');
+  assert.equal(installed.agentRegistration.skillsDirectory, await canonical(options.skillsDirectory));
+  assert.match(installed.agentRegistration.instructions, /configuration was not changed/);
+  assert.match(installed.agentRegistration.instructions, /openmotion_get_project/);
+  assert.deepEqual(installed.onboarding.directAccess.toolsArgs.slice(-4), ['--home', installed.launcher.replace(/[/\\]run-mcp.mjs$/, ''), '--host', 'opencode']);
+  assert.equal(await readFile(options.config, 'utf8'), codexConfig, 'no other host configuration is touched');
+  const marker = JSON.parse(await readFile(path.join(options.skillsDirectory, 'openmotion-production/openmotion-install.json'), 'utf8'));
+  assert.equal(marker.host, 'agents'); assert.equal(marker.runtimeRoot, installed.appRoot);
+  // A second adapter-less Agent shares the same Skills root instead of being refused as a foreign owner.
+  const cursor: any = await setup({ ...options, host: 'cursor-agent', codex: undefined });
+  assert.equal(cursor.appRoot, installed.appRoot);
+  assert.deepEqual(Object.keys(cursor.hosts).sort(), ['cursor-agent', 'opencode']);
+  assert.equal((await readdir(path.join(options.home, 'apps'))).length, 1);
+  // Adapter hosts keep their own ownership and still refuse Skills managed for other Agents.
+  await assert.rejects(setup({ ...options, host: 'workbuddy' }), /not owned by this installation/);
+});
+
+test('invalid Agent names are rejected before any download or state change', async t => {
+  const options = await setupFixture(t);
+  for (const host of ['Open Code', '../opencode', 'OPENCODE', '-x', 'a'.repeat(33), 'constructor']) {
+    await assert.rejects(setup({ ...options, host }), /current Agent name/, host);
+  }
+  await assert.rejects(readdir(path.join(options.home, 'apps')), { code: 'ENOENT' });
+  await assert.rejects(readFile(path.join(options.home, 'install.json')), { code: 'ENOENT' });
+});
+
+test('adapter-less Agents can diagnose and call the installed MCP directly', { skip: process.platform === 'win32' }, async t => {
+  const options = await setupFixture(t), installed: any = await setup({ ...options, host: 'opencode', codex: undefined });
+  const tools = JSON.parse(await readFile(path.join(installed.appRoot, 'shared/mcp-profiles.json'), 'utf8')).phase1.tools;
+  await writeFile(installed.launcher, `import { createInterface } from 'node:readline';
+    for await (const line of createInterface({ input: process.stdin })) {
+      const q=JSON.parse(line); if(q.id===undefined) continue;
+      const result=q.method==='initialize'?{serverInfo:{version:'1.2.3'}}:q.method==='tools/list'?{tools:${JSON.stringify(tools.map((name: string) => ({ name, inputSchema: { type: 'object' } })))}}:{structuredContent:{dataDirectory:${JSON.stringify(installed.dataDirectory)}}};
+      console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result}));
+    }`);
+  const result = await diagnose({ home: options.home, host: 'opencode' });
+  assert.equal(result.status, 'passed', JSON.stringify(result));
+  assert.equal(result.dataDirectory, installed.dataDirectory);
+  const cli = fileURLToPath(new URL('../scripts/npm-installer.mjs', import.meta.url));
+  const listed = JSON.parse(await runFile(process.execPath, [cli, 'tools', '--home', options.home, '--host', 'opencode']));
+  assert.equal(listed.tools.length, tools.length);
+  assert.equal((await diagnose({ home: options.home, host: 'gemini' })).status, 'failed', 'an Agent that was never set up is not reported as installed');
+  await assert.rejects(runFile(process.execPath, [cli, 'tools', '--home', options.home, '--host', 'constructor']), /not registered/, 'an Object.prototype key is never an installed Agent');
+  assert.match((await diagnose({ home: options.home, host: 'constructor' })).message, /not registered/);
 });

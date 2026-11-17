@@ -28,7 +28,7 @@ async function resolvable(candidates: string[]): Promise<Set<string>> {
     loadStylesheet,
   });
   // Include host and component styles imported by the app or linked by its HTML shell.
-  const hostStyles = ["../motion/theme.css", "../motion/loading.css", "../components/ui/errorNotice.css", "../motion/workspace.css", "../motion/media-gateway.css", "../../../web/design-system/controls.css", "../../../web/design-system/material.css", "../../../web/connect.css", "../../../web/template-gallery.css"];
+  const hostStyles = ["../../../packages/design-system/studio/media-detail.css", "../motion/assets.css", "../motion/skills.css", "../../../packages/design-system/studio/discovery.css", "../../../packages/design-system/studio/template-cards.css", "../../../packages/design-system/studio/mcp.css", "../motion/McpConnectionPage.css", "../../../packages/design-system/studio/application.css", "../motion/application.css", "../motion/brand-kits.css", "../../../packages/design-system/studio.css", "../../../packages/design-system/studio/editor-workspace.css", "../../../packages/design-system/studio/adapter.css", "../motion/theme.css", "../../../packages/design-system/loading.css", "../../../packages/design-system/studio/feedback.css", "../../../packages/design-system/studio/control-states.css", "../motion/workspace.css", "../motion/media-gateway.css", "../components/nle/audioPreview.css", "../../../packages/design-system/controls.css", "../../../packages/design-system/material.css", "../../../web/connect.css", "../../../web/template-gallery.css"];
   const css = compiled.build(candidates) + hostStyles.map(file => readFileSync(path.join(STYLES_DIR, file), "utf8")).join("\n");
   const selectors = new Set<string>();
   for (const [, selector] of css.matchAll(CLASS_SELECTOR)) {
@@ -90,7 +90,7 @@ describe("token gate", () => {
 
   it("accepts variants, static utilities and Studio's own CSS classes", async () => {
     // `timeline-clip` is a plain rule in `components.css`, not a utility.
-    const source = `<div className="hover:bg-surface/50 text-center border-dashed timeline-clip motion-loading motion-error-notice-summary" />`;
+    const source = `<div className="hover:bg-surface/50 text-center border-dashed timeline-clip motion-loading motion-error-notice-summary motion-track-controls motion-placement-outline" />`;
 
     expect(await unresolved(new Map([["a.tsx", source]]))).toEqual([]);
   });

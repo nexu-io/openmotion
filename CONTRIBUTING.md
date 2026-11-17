@@ -17,7 +17,69 @@ Designers, creators, prompt authors and engineers are all welcome. The [OpenMoti
 
 Use the [entry checklist](library/ENTRY_TEMPLATE.md), link the new entry from its collection, and preserve sources and licenses. Label references, recipes and editable examples accurately. Adding a folder does not register it in Studio, the MCP workflow registry or the default five-Skill installation. Packaging uses an explicit file list.
 
+For published motion guidance source and locale metadata, use the [catalog contribution loop](https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog#change-a-template). Stage changes before running the storage-policy check. New media needs no CMS account; maintainers prepare final media on the original PR before Squash merge.
+
 ## PR workflow
+
+### Submit a video with your Agent
+
+Share your video, reference or editable project with your Agent and paste this brief:
+
+```text
+Create a reusable OpenMotion template from the video or project I provide.
+Read https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md and the linked
+template catalog contribution guide. Use the OpenMotion video-to-template workflow
+for a reference video; preserve editable source for an existing project.
+Include a preview, replaceable content, TEMPLATE.md, motion guidance, source
+attribution and asset licenses. Register catalog entries and locale metadata only
+as described in the catalog guide. Run the applicable template and storage checks.
+Prepare a focused pull request against nexu-io/openmotion with an English title
+and description, and show me the template and validation results for review.
+Do not merge or publish packages or CMS content.
+```
+
+Studio's **Submit video** link opens this guide. **Recreate and submit** copies a
+brief that also identifies the selected template; **Recreate template** copies only
+the recreation brief. Paste either into your Agent to continue. These controls do
+not upload media or create a pull request by themselves.
+
+### Submit a Brand Kit
+
+Studio's **Submit Brand Kit** link opens this contribution guide. Start with a
+public website or a local Brand Kit Motion Package. Include the original source,
+permission and license notes, reusable design tokens and brand assets, and a
+preview of the fixed showcase. Mark the package `brand-kit` and `style-only`:
+its colors, typography and visual rules can be reused, while the showcase's story
+and timing are not template guidance. See [Brand Kits](docs/brand-kits.md).
+
+Ask your Agent to prepare a focused pull request with the source references,
+package validation and preview evidence. Keep private context files and rules out
+of the contribution. The link does not upload a kit, submit a pull request or
+publish it to the official collection. Catalogue inclusion requires review and
+an explicit update to the maintained catalogue.
+
+### Submit a skill with your Agent
+
+Have a local folder with a `SKILL.md`, or a public repository with one? Share it with your Agent and paste this brief:
+
+```text
+Contribute the Agent skill I provide (a local SKILL.md folder or a public GitHub
+repository) to OpenMotion. Read https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md
+and library/ENTRY_TEMPLATE.md first. Confirm that I wrote the skill or that its
+license allows redistribution; record the author, original URL or version and the
+licenses of its code and media, and stop to ask me if any of this is unclear.
+Fork nexu-io/openmotion and branch from the latest main. Put the skill at
+library/skills/<name>/SKILL.md with name and description frontmatter, a clear
+trigger, steps and a real usage example; keep its references and scripts in the
+same folder and add a README.md from the entry checklist. Link the entry from the
+Skills row of library/README.md. Do not change skills/, Studio, the MCP registry or
+the distribution file list. Open a draft pull request against nexu-io/openmotion
+with an English title and description that state the source and license, then send
+me the link. Do not merge or publish anything.
+```
+
+Studio's **Submit a skill** button on the Skills page opens this section. It does not
+upload files or create a pull request by itself.
 
 Work from the repository root; read [AGENTS.md](AGENTS.md) and the [architecture](docs/product/architecture.md). Use the pinned CI Node version. Keep `package-lock.json` and `scripts/runtime-lock.json` in sync with any intentional dependency change.
 
@@ -32,3 +94,7 @@ Use the PR Actions summary to review new duplicate fragments and unused code or 
 Only deliberately public documentation belongs here. Do not commit credentials, internal links, private plans, workstation paths or user projects. Distribution uses the positive list in `scripts/distribution.ts`; newly shipped files require an explicit decision. Preserve all upstream attribution and license notices. Do not add telemetry or publish a package without a separate decision.
 
 Contributions are licensed under the repository's [Apache-2.0 license](LICENSE); vendored components retain their own terms. This migration branch is for review only and must not be merged or published automatically.
+
+## Repository media and size
+
+Keep embedded README previews directly readable. Large existing previews use public R2 URLs registered in `repository-media.json`; small artwork, template source and browser dependencies stay local. The ordinary Git checkout budget is 180 MiB. Full videos and optional template archives use Git LFS with downloads excluded by default. Follow [storage, scoped downloads and contribution checks](docs/repository-storage.md); run `npm run storage:check` after staging. For contributed media, use the documented **Prepare and merge PR** Action after final review; contributors do not need upload credentials.

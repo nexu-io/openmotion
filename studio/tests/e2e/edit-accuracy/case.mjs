@@ -388,9 +388,9 @@ const callTool = (page, name, args) =>
 // fallow-ignore-next-line complexity
 export async function seekBound(ctx) {
   for (const deadline = Date.now() + 30_000; Date.now() < deadline; await sleep(50)) {
-    const look = await callTool(ctx.page, "studio_look", {});
+    const look = await callTool(ctx.page, "openmotion_studio_look", {});
     if (!(look?.ok && look.duration > 0)) continue;
-    const seek = await callTool(ctx.page, "studio_seek", { time: ctx.playhead });
+    const seek = await callTool(ctx.page, "openmotion_studio_seek", { time: ctx.playhead });
     if (
       seek?.ok &&
       seek.duration > 0 &&
@@ -405,18 +405,18 @@ export async function seekBound(ctx) {
 /** Ready once Studio's own seek tool reports the composition and the playhead landed. */
 export async function openStudio(ctx) {
   ctx.handles = null;
-  await ctx.page.waitForFunction(() => window.__editBench?.has("studio_seek"), { timeout: 90_000 });
+  await ctx.page.waitForFunction(() => window.__editBench?.has("openmotion_studio_seek"), { timeout: 90_000 });
   if (!(await seekBound(ctx))) throw new Error("studio never reported a seekable composition");
   return settled(ctx);
 }
 
 export async function seekTo(ctx, time) {
   const seek = await ctx.page.evaluate(
-    (t) => window.__editBench.call("studio_seek", { time: t }),
+    (t) => window.__editBench.call("openmotion_studio_seek", { time: t }),
     time,
   );
   if (!seek?.ok || seek.playhead !== time)
-    throw new Error(`studio_seek ${time}: ${JSON.stringify(seek)}`);
+    throw new Error(`openmotion_studio_seek ${time}: ${JSON.stringify(seek)}`);
   return settled(ctx);
 }
 

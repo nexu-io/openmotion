@@ -1,19 +1,21 @@
 import test from 'node:test';
+import { legacyToolName } from '../shared/public-names.mjs';
 import assert from 'node:assert/strict';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { createTracker, deviceContext } from '../tracking/core.ts';
+import { createTracker, deviceContext, validProperties } from '../tracking/core.ts';
 import { createNodeTracking, createPosthogSender, loadIdentity } from '../tracking/node.ts';
-import { omEvents, studioEvents } from '../tracking/events.ts';
-import { validProperties } from '../tracking/core.ts';
+import { assetActions, assetToolAction, omEvents, studioEvents } from '../tracking/events.ts';
 import { closeTracking, createAppTracking, saveTrackingPreference, trackingError } from '../shared/tracking.ts';
 import { Phase1Service } from '../phase1.ts';
-import { renderNext } from '../server.ts';
+import { renderNext, technicalCheckResult, trackExportTerminal } from '../server.ts';
+import { TaskLedger } from '../tracking/task-ledger.ts';
 import { pluginRoot } from '../hyperframes.ts';
 import { fixture } from './fixtures.ts';
 import { phase1Tools } from '../shared/phase1-tools.ts';
 import { toolNames } from '../tracking/events.ts';
+import { identifyHost } from '../tracking/host.ts';
 import { transport } from './http.ts';
 import type { PendingEvent } from '../tracking/core.ts';
 
@@ -125,6 +127,25 @@ test('editor dimensions are closed buckets and a bounded template id, never raw 
   no('studio_load_result', { ...load, host_product: 'codex' });
 });
 
+test('asset call action is a closed optional dimension and never includes arbitrary input', () => {
+  assert.deepEqual([...assetActions], phase1Tools.find(tool => tool.name === 'openmotion_assets_use')!.inputSchema.properties.action.enum);
+  for (const name of ['openmotion_assets_use', 'openmotion_assets', 'motion_assets_use', 'motion_assets']) {
+    for (const action of assetActions) assert.equal(assetToolAction(name, { action, prompt: 'PRIVATE_PROMPT' }), action);
+    for (const input of [null, {}, { action: 'PRIVATE_ACTION' }, { action: 42 }, { action: ['read'] }]) assert.equal(assetToolAction(name, input), undefined);
+  }
+  assert.equal(assetToolAction('openmotion_media_use', { action: 'read' }), undefined);
+  for (const event of ['mcp_tool_started', 'mcp_tool_finished', 'webmcp_tool_started', 'webmcp_tool_finished']) {
+    const web = event.startsWith('webmcp');
+    const fields = { tool_name: web ? 'openmotion_assets_use' : 'motion_assets', call_id: crypto.randomUUID(),
+      ...(web ? { transport: 'webmcp' } : { accepted: true }),
+      ...(event.endsWith('finished') ? { outcome: 'success', duration_ms: 12 } : {}) };
+    assert(validProperties(omEvents, event, fields), 'Existing events without action remain valid');
+    for (const action of assetActions) assert(validProperties(omEvents, event, { ...fields, action }));
+    for (const action of ['PRIVATE_ACTION', 42, ['read']]) assert(!validProperties(omEvents, event, { ...fields, action }));
+    assert(!validProperties(omEvents, event, { ...fields, action: 'read', data: 'PRIVATE_BASE64' }));
+  }
+});
+
 test('bounded queue rejects private properties, preserves UUID/time on retries and serializes flushes', async () => {
   const batches: PendingEvent[][] = []; let attempts = 0;
   const tracker = core(async events => { batches.push(structuredClone([...events])); return ++attempts === 1 ? 'retry' : 'accepted'; }, 2);
@@ -179,7 +200,8 @@ test('PostHog adapter uses public ingest only, privacy fields and real receipt s
   assert.equal(await sender([event], new AbortController().signal), 'accepted');
   const data = seen[0].batch[0];
   assert.equal(data.uuid, event.event_id); assert.equal(data.timestamp, event.occurred_at);
-  assert.equal(data.properties.distinct_id, identity.installation_id); assert.equal(data.properties.device_id, identity.installation_id);
+  assert.equal(data.properties.distinct_id, identity.installation_id);
+  assert.equal(data.properties.device_id, 'unknown'); assert.equal(data.properties.device_id_source, 'unavailable');
   assert.equal(data.properties.utm_source, 'alice'); assert.equal(data.properties.event_schema_version, 1);
   assert.equal(data.properties.$ip, '0.0.0.0'); assert.equal(data.properties.$geoip_disable, true);
   assert.equal(data.properties.$process_person_profile, false);
@@ -196,20 +218,29 @@ test('PostHog adapter uses public ingest only, privacy fields and real receipt s
   assert.equal(Object.hasOwn(enriched[0].batch[0].properties, '$ip'), false);
 });
 
-test('test and local versions cannot report even when enabled or given a test-run override', async () => {
-  let sends = 0;
+test('all application versions report in development, test and production environments', async t => {
   const identity = { installation_id: crypto.randomUUID(), utm_source: null, created_at: new Date().toISOString() };
-  for (const appVersion of ['0.6.4-test.8', '0.6.4-test.42.2', '0.6.4-local.1', '0.6.4-beta.1', 'invalid']) {
-    const options = { registry: omEvents, identity, appVersion, entrypoint: 'mcp' as const, enabled: true,
-      env: 'test' as const, testRunId: crypto.randomUUID(), host: 'https://us.i.posthog.com', token: 'phc_test' };
-    const tracking = createNodeTracking(options);
-    tracking.setEnabled(true);
-    assert.equal(tracking.enabled(), false); assert.equal(tracking.ingest(packet()), 'disabled');
-    assert.equal(await tracking.flush(), 'disabled'); tracking.close();
-    const sender = createPosthogSender({ ...options, fetch: async () => { sends++; return Response.json({ status: 'Ok' }); } });
-    assert.equal(await sender([packet()], new AbortController().signal), 'drop');
+  for (const appVersion of ['0.6.4', '0.6.4-test.8', '0.6.4-test.42.2', '0.6.4-local.1', '0.6.4-beta.1']) {
+    for (const env of ['development', 'test', 'production'] as const) {
+      const bodies: any[] = [];
+      const options = { registry: omEvents, identity, appVersion, env, entrypoint: 'mcp' as const, enabled: true,
+        flushIntervalMs: 0, host: 'https://us.i.posthog.com', token: 'phc_test' };
+      t.mock.method(globalThis, 'fetch', async (_url: any, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body))); return Response.json({ status: 'Ok' });
+      });
+      const tracking = createNodeTracking(options);
+      try {
+        assert.equal(tracking.enabled(), true); assert.equal(tracking.ingest(packet()), 'queued');
+        assert.equal(await tracking.flush(), 'accepted');
+        assert.equal(await createPosthogSender(options)([packet()], new AbortController().signal), 'accepted');
+        assert.equal(bodies.length, 2);
+        for (const body of bodies) {
+          assert.equal(body.batch[0].properties.app_version, appVersion);
+          assert.equal(body.batch[0].properties.env, env);
+        }
+      } finally { tracking.close(); }
+    }
   }
-  assert.equal(sends, 0);
 });
 
 test('browser ingress rejects forged identity, worker events and oversized batches', () => fixture(async store => {
@@ -234,10 +265,11 @@ test('browser ingress rejects forged identity, worker events and oversized batch
 }, false));
 
 test('domain events follow real commits, skip replay and retain safe failure without source contents', () => fixture(async store => {
-  assert.deepEqual([...toolNames].sort(), phase1Tools.map(tool => tool.name).sort());
+  assert.deepEqual([...toolNames].sort(), [...new Set(phase1Tools.map(tool => legacyToolName(tool.name)))].sort());
   const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
   const service = new Phase1Service(store, pluginRoot, { tracking, origin: () => 'http://127.0.0.1:4173',
     nativeUrl: () => undefined, openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
+  await service.call('openmotion_open_preview', { target: 'templates' });
   const args = { requestId: crypto.randomUUID(), projectType: 'natural_language', title: 'PRIVATE_TITLE', requirements: 'PRIVATE_PROMPT' };
   const created = await service.call('motion_create_project', args);
   assert.equal((await service.call('motion_create_project', args)).replayed, true);
@@ -310,17 +342,97 @@ test('default configuration reports without opt-in; saved opt-out covers runtime
   }
 }, false));
 
+test('cancelled and unfinished exports are unreviewed technical checks, not errors', () => {
+  const base = { id: crypto.randomUUID(), revision: 'a'.repeat(64), createdAt: 0, expiresAt: 0 };
+  assert.equal(technicalCheckResult({ ...base, state: 'cancelled' }), 'unreviewed');
+  assert.equal(technicalCheckResult({ ...base, state: 'pending' }), 'unreviewed');
+  assert.equal(technicalCheckResult({ ...base, state: 'failed' }), 'unreviewed', 'a render failure without a report is not a technical-check error');
+  assert.equal(technicalCheckResult({ ...base, state: 'failed', verification: { status: 'failed' } }), 'fail');
+  assert.equal(technicalCheckResult({ ...base, state: 'completed' }), 'error', 'a completed job without a report is unexpected');
+  assert.equal(technicalCheckResult({ ...base, state: 'completed', verification: { status: 'passed' } }), 'pass');
+});
+
 test('worker reports a real terminal render failure once, separately from queue acceptance', () => fixture(async store => {
   const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
-  const current = await store.get(), job = await store.requestExport(current.revision);
+  const host = identifyHost({ name: 'dsh-mcp-client', version: '0.0.1' });
+  const current = await store.get(), job = await store.requestExport(current.revision, { trackingHost: host });
   assert.equal(job.state, 'pending'); assert.equal(tracking.pending(), 0);
   await writeFile(path.join(store.snapshotDirectory(job.id), 'index.html'), '<html><body>Invalid composition for a failure test</body></html>');
   await renderNext(store, pluginRoot, tracking);
   assert.equal((await store.job(job.id))!.state, 'failed');
   await renderNext(store, pluginRoot, tracking);
   await tracking.flush();
-  assert.equal(events.length, 1); assert.equal(events[0].event, 'export_result');
-  assert.equal(events[0].entrypoint, 'worker'); assert.equal(events[0].properties.job_state, 'failed');
+  const terminal = events.filter(event => event.event === 'export_result');
+  assert.equal(terminal.length, 1); assert.equal(terminal[0].entrypoint, 'worker'); assert.equal(terminal[0].properties.job_state, 'failed');
+  assert.deepEqual(terminal[0].host_context, host);
+  assert.equal(events.filter(event => event.event === 'task_terminal').length, 1);
+  const queue = events.filter(event => ['queue_snapshot', 'worker_heartbeat'].includes(event.event));
+  assert.deepEqual(queue.map(event => event.event), ['queue_snapshot', 'worker_heartbeat']);
+  assert.deepEqual(queue.map(event => event.entrypoint), ['worker', 'worker'], 'queue evidence is worker-attributed, not MCP-attributed');
+  assert.equal(queue[0].properties.queued_count, 1);
+  assert.equal(events.filter(event => event.event === 'check_completed').length, 0, 'legacy exports have no version-bound quality check');
   assert.equal((await store.get()).revision, current.revision);
-  assert.equal(events[0].properties.technical_check, 'unknown'); tracking.close();
+  assert.equal(terminal[0].properties.technical_check, 'unknown'); tracking.close();
 }));
+
+test('an interrupted export is closed by the worker tick with one unknown terminal outcome', () => fixture(async store => {
+  const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
+  const current = await store.get(), job = await store.requestExport(current.revision);
+  await store.saveJob({ ...(await store.job(job.id))!, expiresAt: Date.now() - 1 });
+  await renderNext(store, pluginRoot, tracking);
+  await renderNext(store, pluginRoot, tracking);
+  await tracking.flush();
+  const terminal = events.filter(event => event.event === 'task_terminal');
+  assert.equal(terminal.length, 1, 'a second tick does not claim the same outcome again');
+  assert.equal(terminal[0].entrypoint, 'worker');
+  assert.equal(terminal[0].properties.outcome, 'unknown');
+  assert.equal(terminal[0].properties.applied, 'unknown');
+  assert.ok(terminal[0].properties.terminal_at);
+  assert.equal((await store.job(job.id))!.state, 'failed');
+  assert.equal((await new TaskLedger(store.directory).snapshot())[job.id].outcome, 'unknown');
+  tracking.close();
+}));
+
+test('a claimed export past its deadline is closed once and not restated by its worker', () => fixture(async store => {
+  const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
+  const current = await store.get(), job = await store.requestExport(current.revision);
+  // This process owns the render, so nothing can abort it when its accepted deadline passes.
+  assert.equal((await store.claimExport())!.state, 'running');
+  await store.saveJob({ ...(await store.job(job.id))!, expiresAt: Date.now() - 1 });
+  await renderNext(store, pluginRoot, tracking);
+  const final = (await store.job(job.id))!;
+  assert.equal(final.state, 'failed');
+  assert.equal(final.observedOutcome, 'unknown');
+  const closed = (await new TaskLedger(store.directory).snapshot())[job.id];
+  assert.equal(closed.outcome, 'unknown');
+  await tracking.flush();
+  // The worker that held the job still reaches its own terminal path after that reconciliation.
+  await trackExportTerminal(store, final, tracking);
+  await tracking.flush();
+  const terminal = events.filter(event => event.event === 'task_terminal');
+  assert.equal(terminal.length, 1, 'only the reconciliation owner states the terminal outcome');
+  assert.equal(terminal[0].properties.outcome, 'unknown');
+  assert.equal((await new TaskLedger(store.directory).snapshot())[job.id].terminal_at, closed.terminal_at, 'the recorded terminal time does not move');
+  tracking.close();
+}));
+
+test('template library events: the search keyword is the only free text and stays bounded', () => {
+  const id = '4f6d1c2e-8a3b-4c5d-9e7f-0a1b2c3d4e5f';
+  const search = { search_id: id, query_length: 6, result_count: 1, outcome: 'success' };
+  const ok = (event: string, properties: Record<string, unknown>) => assert.equal(validProperties(studioEvents, event, properties), true, JSON.stringify(properties));
+  const no = (event: string, properties: Record<string, unknown>) => assert.equal(validProperties(studioEvents, event, properties), false, JSON.stringify(properties));
+  ok('template_search_result', { ...search, search_keyword: 'saas 发布会 launch', page_name: 'studio', area: 'template_discovery' });
+  for (const search_keyword of ['', ' padded ', 'x'.repeat(101), 'line\nbreak', 42]) no('template_search_result', { ...search, search_keyword });
+  no('template_search_result', { query_length: 6, result_count: 1, outcome: 'success' });
+  // No other template event accepts text: an option is a slug and a title is not a field at all.
+  no('ui_click', { page_name: 'studio', area: 'template_discovery', element: 'filter_option', filter_value: 'Two Words' });
+  no('ui_click', { page_name: 'studio', area: 'template_card', element: 'open_detail', title: 'Private title' });
+  no('ui_click', { page_name: 'studio', area: 'template_discovery', element: 'category_select', search_keyword: 'x' });
+  no('ui_click', { page_name: 'studio', area: 'template_card', element: 'open_detail', template_id: 'https://example.com/a' });
+  ok('ui_click', { page_name: 'studio', area: 'template_card', element: 'open_detail', template_id: 'motion-e6ac921a-f56f-4170-a2be-938cec5d028b', placement: 'related', position: 1 });
+  ok('surface_view', { page_name: 'studio', area: 'template_detail', element: 'detail', detail_view_id: id, detail_mode: 'modal', placement: 'random' });
+  ok('surface_view', { page_name: 'studio', area: 'template_card', element: 'card', template_id: 'hf-moment-M1147', placement: 'catalog', position: 12, sort: 'duration', applied_filter_count: 0 });
+  ok('template_filter_result', { action: 'sort_change', result_count: 0, outcome: 'success', sort: 'reverse' });
+  ok('resource_download_result', { resource_kind: 'motion_guide', download_attempt_id: id, delivery_status: 'fetch_failed', error_code: 'HTTP_404' });
+  no('resource_download_result', { resource_kind: 'motion_guide', download_attempt_id: id, delivery_status: 'saved_to_disk' });
+});

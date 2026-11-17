@@ -154,8 +154,8 @@ describe("seeking to the playhead after a reload", () => {
     const calls = [];
     let looks = 0;
     const studio = {
-      studio_look: () => ({ ok: true, duration: ++looks > 2 ? 4 : 0 }),
-      studio_seek: ({ time }) => ({ ok: true, playhead: time, duration: looks > 2 ? 4 : 0 }),
+      openmotion_studio_look: () => ({ ok: true, duration: ++looks > 2 ? 4 : 0 }),
+      openmotion_studio_seek: ({ time }) => ({ ok: true, playhead: time, duration: looks > 2 ? 4 : 0 }),
     };
     globalThis.window = {
       __editBench: { call: (name, args) => (calls.push(name), studio[name](args)) },
@@ -165,7 +165,7 @@ describe("seeking to the playhead after a reload", () => {
     const page = { evaluate: async (fn, ...args) => fn(...args), frames: () => [preview] };
     try {
       expect(await seekBound({ page, playhead: 2 })).toMatchObject({ playhead: 2, duration: 4 });
-      expect(calls).toEqual(["studio_look", "studio_look", "studio_look", "studio_seek"]);
+      expect(calls).toEqual(["openmotion_studio_look", "openmotion_studio_look", "openmotion_studio_look", "openmotion_studio_seek"]);
     } finally {
       delete globalThis.window;
     }

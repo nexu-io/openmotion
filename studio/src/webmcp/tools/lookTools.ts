@@ -1,5 +1,5 @@
 /**
- * `studio_look`: the one call that orients an agent.
+ * `openmotion_studio_look`: the one call that orients an agent.
  *
  * Deliberately fat. Every field here is one the agent would otherwise have to
  * spend a round trip discovering.

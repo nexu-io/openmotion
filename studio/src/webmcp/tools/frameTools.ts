@@ -1,5 +1,5 @@
 /**
- * `studio_frame`: the eyes.
+ * `openmotion_studio_frame`: the eyes.
  *
  * Without this the tool set is a remote control. With it an agent can author a
  * change, look at the instant it affects, judge it, and adjust. That loop is the

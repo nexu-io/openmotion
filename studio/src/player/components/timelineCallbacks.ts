@@ -18,7 +18,7 @@ export interface TimelinePropertyGroupKeyframeToggle {
 }
 
 /** Where an outside drop lands; `insertRow` opens a new track at that row boundary of `trackOrder`. */
-export type TimelineDropPlacement = { start: number; track: number } & (
+export type TimelineDropPlacement = { start: number; track: number; newTrack?: "top" } & (
   | { insertRow?: null; trackOrder?: undefined }
   | { insertRow: number; trackOrder: readonly number[] }
 );
@@ -30,7 +30,7 @@ export type TimelineDropPlacement = { start: number; track: number } & (
  */
 export interface TimelineDropCallbacks {
   onFileDrop?: (files: File[], placement?: TimelineDropPlacement) => Promise<void> | void;
-  onAssetDrop?: (assetPath: string, placement: TimelineDropPlacement) => Promise<void> | void;
+  onAssetDrop?: (assetPath: string, placement: TimelineDropPlacement, duration?: number) => Promise<void> | void;
   onBlockDrop?: (
     blockName: string,
     placement: { start: number; track: number },
@@ -129,6 +129,8 @@ export interface TimelineEditCallbacks {
   ) => Promise<TimelineEditOutcome | void>;
   onBlockedEditAttempt?: (element: TimelineElement, intent: BlockedTimelineEditIntent) => void;
   onLinkEdit?: (edit: TimelineLinkEdit) => Promise<void> | void;
+  /** Delete exactly this row, without following linked clips on other tracks. */
+  onDeleteTrack?: (track: number) => Promise<void> | void;
   onDeleteElementOnly?: (element: TimelineElement) => Promise<void> | void;
   onSplitElement?: (element: TimelineElement, splitTime: number) => Promise<void> | void;
   onRazorSplit?: (element: TimelineElement, splitTime: number) => Promise<void> | void;

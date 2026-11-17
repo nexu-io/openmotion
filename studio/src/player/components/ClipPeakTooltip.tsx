@@ -7,14 +7,17 @@ export const ClipPeakDescriptionContext = createContext<((detail: string | null)
 
 export function ClipPeakTooltip({
   children,
+  label,
 }: {
+  label?: string;
   children: ReactElement<{ title?: string; "aria-describedby"?: string }>;
 }) {
   const [detail, setDetail] = useState<string | null>(null);
+  const text = detail ?? label ?? children.props.title;
   return (
     <ClipPeakDescriptionContext.Provider value={setDetail}>
-      <Tooltip label={detail ?? ""} disabled={detail === null}>
-        {cloneElement(children, { title: detail === null ? children.props.title : undefined })}
+      <Tooltip label={text} wrap>
+        {cloneElement(children, { title: undefined })}
       </Tooltip>
     </ClipPeakDescriptionContext.Provider>
   );

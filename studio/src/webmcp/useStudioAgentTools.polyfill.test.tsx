@@ -1,30 +1,10 @@
 // @vitest-environment jsdom
-/**
- * Drives the write tools through the REAL `@mcp-b/global` package rather than
- * a fake `document.modelContext`.
- *
- * The package invokes a registered `execute` with the input alone, on both of
- * its paths: the in-page `BrowserMcpServer` wrapper that agents reach through
- * the registry and `executeTool`, and the descriptor it mirrors into a native
- * `document.modelContext` when the browser ships one. A Studio handler that
- * destructured `{ signal }` from the missing second argument threw before it
- * ran, so every write tool failed with "Cannot destructure property 'signal'
- * of 'undefined'" while the read tools kept working. This file proves the fix
- * against the code that ships in the polyfill chunk. The spec-shaped call and
- * the abort path live in `useStudioAgentTools.test.tsx`; the polyfill cannot
- * exercise them because it drops the caller's signal before the handler.
- *
- * A native-looking `modelContext` is installed BEFORE the import so the bridge
- * wraps it and mirrors every registration into it, which is how both paths get
- * covered from one setup. Its own file because the import is a one-shot side
- * effect that the sibling suite's fake would otherwise have to fight.
- */
+/** Exercise the shipped fallback registry and its native mirror with the reduced tool surface. */
 import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { mountReactHarness } from "../hooks/domSelectionTestHarness";
-import { mintElementHandle } from "./handles";
 import { useStudioAgentTools, type StudioAgentToolsDeps } from "./useStudioAgentTools";
-import { previewDoc, selectionFor, studioAgentToolsDeps } from "./webmcpTestUtils";
+import { studioAgentToolsDeps } from "./webmcpTestUtils";
 
 vi.mock("../telemetry/client", () => ({ trackEvent: vi.fn() }));
 
@@ -134,30 +114,13 @@ function mirroredTool(name: string): MirroredTool {
   return tool;
 }
 
-/** Mount Studio's tools against a preview whose `#agent` element can be edited. */
-async function mountEditableAgent() {
-  const doc = previewDoc('<h1 id="agent">Agent</h1>');
-  const agent = doc.getElementById("agent") as HTMLElement;
-  const handle = mintElementHandle({
-    projectId: "demo",
-    domId: "agent",
-    sourceFile: "index.html",
-    activeCompositionPath: "index.html",
-  });
-  if (!handle) throw new Error("expected agent handle");
-  const setText = vi.fn(
-    async () =>
-      ({
-        ok: true,
-        persistence: { sourceFile: "index.html", version: '"sha256:after"', changed: true },
-      }) as const,
-  );
+async function mountNavigationTools() {
+  let time = 0;
+  const requestSeek = vi.fn((next: number) => { time = next; });
   const deps: StudioAgentToolsDeps = studioAgentToolsDeps({
-    getPreviewDocument: () => doc,
-    buildSelection: async (element) => selectionFor(element),
-    setText,
+    requestSeek,
+    readPlayhead: () => ({ currentTime: time, duration: 10, isPlaying: false }),
   });
-
   function Probe() {
     useStudioAgentTools(deps);
     return null;
@@ -166,54 +129,31 @@ async function mountEditableAgent() {
     const root = mountReactHarness(<Probe />);
     cleanup = () => act(() => root.unmount());
   });
-  await waitForTools(12);
-  return { agent, handle, setText };
+  await waitForTools(5);
+  return { requestSeek };
 }
 
 describe("useStudioAgentTools through @mcp-b/global", () => {
-  it("saves through studio_set_text when the in-page server calls execute with the input alone", async () => {
-    const { agent, handle, setText } = await mountEditableAgent();
+  it("exposes only observation/navigation tools through both registries", async () => {
+    const { requestSeek } = await mountNavigationTools();
+    const names = ["openmotion_studio_look", "openmotion_studio_select", "openmotion_studio_seek", "openmotion_studio_frame", "openmotion_studio_inspect"].sort();
+    expect((await bridge().getTools()).map(tool => tool.name).sort()).toEqual(names);
+    expect(mirrored.map(tool => tool.name).sort()).toEqual(names);
 
-    // Registry entry, as `[...document.modelContext.tools.values()]` exposes it.
-    const viaEntry = await bridgeEntry("studio_set_text").execute(
-      { handle, text: "Through the registry" },
-      new AbortController().signal,
-    );
-    expect(viaEntry).toMatchObject({ ok: true, stage: "saved", changed: true });
-
-    // Chromium's `executeTool` extension, which the bridge also implements.
-    const descriptor = (await bridge().getTools()).find((tool) => tool.name === "studio_set_text");
-    if (!descriptor) throw new Error("expected studio_set_text in getTools()");
-    const viaExecuteTool = await bridge().executeTool(
-      descriptor,
-      JSON.stringify({ handle, text: "Through executeTool" }),
-      { signal: new AbortController().signal },
-    );
-    expect(JSON.parse(viaExecuteTool ?? "null")).toMatchObject({ ok: true, stage: "saved" });
-
-    expect(setText).toHaveBeenCalledTimes(2);
-    expect(setText).toHaveBeenCalledWith(
-      expect.objectContaining({ element: agent }),
-      "Through the registry",
-      "self",
-    );
+    const viaEntry = await bridgeEntry("openmotion_studio_seek").execute({ time: 0.9 });
+    expect(viaEntry).toMatchObject({ ok: true, playhead: 0.9 });
+    const descriptor = (await bridge().getTools()).find(tool => tool.name === "openmotion_studio_seek")!;
+    const viaExecuteTool = await bridge().executeTool(descriptor, JSON.stringify({ time: 1.2 }));
+    expect(JSON.parse(viaExecuteTool ?? "null")).toMatchObject({ ok: true, playhead: 1.2 });
+    expect(requestSeek).toHaveBeenCalledTimes(2);
   });
 
-  it("saves through the descriptor the bridge mirrors into a native modelContext", async () => {
-    const { agent, handle, setText } = await mountEditableAgent();
-
-    // The browser would call this with `(input, { signal })`; the mirror drops
-    // the options before Studio's handler sees them.
-    const result = await mirroredTool("studio_set_text").execute(
-      { handle, text: "Through the native mirror" },
-      { signal: new AbortController().signal },
+  it("seeks through the descriptor mirrored into a native modelContext", async () => {
+    const { requestSeek } = await mountNavigationTools();
+    const result = await mirroredTool("openmotion_studio_seek").execute(
+      { time: 0.9 }, { signal: new AbortController().signal },
     );
-
-    expect(result).toMatchObject({ ok: true, stage: "saved", changed: true });
-    expect(setText).toHaveBeenCalledWith(
-      expect.objectContaining({ element: agent }),
-      "Through the native mirror",
-      "self",
-    );
+    expect(result).toMatchObject({ ok: true, playhead: 0.9 });
+    expect(requestSeek).toHaveBeenCalledWith(0.9);
   });
 });

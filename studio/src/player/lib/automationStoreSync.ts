@@ -45,9 +45,9 @@ import { elementVolume, parseStoredVolume } from "./storedVolume";
  * reverted is only known by looking.
  */
 /**
- * What an element's seven synced fields SHOULD read, given the preview.
+ * What an element's synced control fields should read, given the preview.
  *
- * Its own five come off its node; the other two are its copy of what its group
+ * Its own fields come off its node; the group fields are its copy of what its group
  * carries. The timeline derives a group's lanes and chain from these mirrors,
  * never from the group element, and automating a group writes `data-automation`
  * on the group node through the ordinary element path, so both halves are re-read.
@@ -56,6 +56,7 @@ function syncedFields(doc: Document, element: TimelineElement, node: Element) {
   const group = element.audioGroup ? groupInfoFor(doc, element.audioGroup) : null;
   const fades = readElementFades(node);
   return {
+    timelineLocked: node.hasAttribute("data-timeline-locked") || undefined,
     automation: node.getAttribute(HF_AUDIO_AUTOMATION_ATTR) ?? undefined,
     fxChain: node.getAttribute(HF_AUDIO_FX_ATTR) ?? undefined,
     fadeIn: storedFade(fades.fadeIn),
@@ -97,6 +98,7 @@ const STORED_FIELD: Record<string, (value: string | null) => Partial<TimelineEle
   [HF_AUDIO_FADE_OUT_ATTR]: (value) => ({ fadeOut: storedFade(readFadeSeconds(value)) }),
   // A quick volume save writes no other field the store keeps: without this, a clip read its last load's volume.
   "data-volume": (value) => ({ volume: parseStoredVolume(value) }),
+  "data-timeline-locked": (value) => ({ timelineLocked: value !== null || undefined }),
   muted: (value) => ({ muted: value !== null || undefined }),
 };
 

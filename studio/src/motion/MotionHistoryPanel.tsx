@@ -1,3 +1,4 @@
+import { Tooltip } from "../components/ui/Tooltip";
 import { useI18n } from "../i18n/I18n";
 import { historyEntryLabel } from '../i18n/historyMessages';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -118,10 +119,10 @@ export function MotionHistoryPanel({ onRestored = reloadProject, compact = false
     {notice && <div className="motion-history-message" role="status">{t(notice)}</div>}
     <div className="motion-history-list" aria-label={t("History entries")}>
       {loading ? <p className="motion-history-empty">{t("Reading versions…")}</p> : !shown.length ? <p className="motion-history-empty">
-        {allowPinning && onlyPinned ? t("No pinned versions yet. Select an entry to pin it.") : t("No edits yet. Changes made in the canvas, code, or by an agent will appear here.")}
+        {allowPinning && onlyPinned ? t("No pinned versions yet. Select an entry to pin it.") : t("No edits yet")}
       </p> : shown.map(entry => <button type="button" key={entry.id} className="motion-history-entry"
         aria-pressed={selected?.id === entry.id} onClick={() => setSelectedId(entry.id)}>
-        <span className="motion-history-entry-heading"><strong title={entry.restoredTo ? t('Restored a previous version') : historyEntryLabel(entry.label, t)}>{entry.restoredTo ? t('Restored a previous version') : historyEntryLabel(entry.label, t)}</strong>
+        <span className="motion-history-entry-heading"><Tooltip label={entry.restoredTo ? t('Restored a previous version') : historyEntryLabel(entry.label, t)} wrap><strong>{entry.restoredTo ? t('Restored a previous version') : historyEntryLabel(entry.label, t)}</strong></Tooltip>
           {allowPinning && entry.pinned && <span className="motion-history-badge">{t("Pinned")}</span>}
           {entry.id === entries.at(-1)?.id && <span className="motion-history-badge motion-history-badge-latest">{t("Latest")}</span>}
         </span>
@@ -132,7 +133,7 @@ export function MotionHistoryPanel({ onRestored = reloadProject, compact = false
     </div>
     {selected && <div className="motion-history-detail">
       {!compact && <><div className="motion-history-detail-title">{t("Changes in this version")}</div>
-      <ul>{selected.files.map(file => <li key={file.path}><code title={file.path}>{file.path}</code>
+      <ul>{selected.files.map(file => <li key={file.path}><Tooltip label={file.path} wrap><code>{file.path}</code></Tooltip>
         <span>{file.before === null ? t('Created') : file.after === null ? t("Deleted") : t("Modified")}</span></li>)}</ul></>}
       <div className="motion-history-detail-actions">
         {allowPinning && <button type="button" className="motion-button" disabled={disabled} onClick={() => void pin(selected)}>{selected.pinned ? t("Unpin version") : t("Keep this version")}</button>}

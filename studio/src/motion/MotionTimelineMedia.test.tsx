@@ -10,6 +10,7 @@ import { applyPatchByTarget, type PatchOperation } from '../utils/sourcePatcher'
 import { I18nProvider } from '../i18n/I18n';
 import type { TimelineMediaTarget } from './MediaGatewayContext';
 import { selectedMedia } from './timelineMediaSelection';
+import { StudioHostContext } from './StudioHost';
 
 const hooks = vi.hoisted(() => ({ target: null as TimelineMediaTarget | null, build: vi.fn(), commit: vi.fn(), bind: vi.fn() }));
 vi.mock('./MediaGatewayContext', () => ({ useMediaGateway: () => ({ bindTimeline: hooks.bind }) }));
@@ -18,7 +19,7 @@ vi.mock('../contexts/DomEditContext', () => ({ useDomEditActionsContextOptional:
 let root: Root;
 afterEach(() => { act(() => root?.unmount()); document.body.innerHTML = ''; usePlayerStore.getState().reset(); vi.clearAllMocks(); });
 
-it('replaces only the captured image src through native editing and rejects stale source/composition targets', async () => {
+it.each([false, true])('replaces only the captured image src and rejects stale targets (MVP: %s)', async (mvpEditor) => {
   const element = { id: 'forest', key: 'scene:forest', tag: 'img', src: 'assets/original.png', sourceFile: 'scenes/intro.html', start: 2, duration: 6, track: 0 } as TimelineElement;
   usePlayerStore.setState({ elements: [element], selectedElementId: element.key });
   const captured = selectedMedia(element)!;
@@ -34,8 +35,9 @@ it('replaces only the captured image src through native editing and rejects stal
   });
   hooks.bind.mockImplementation(target => { hooks.target = target; });
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  const render = (compositionId: string) => <I18nProvider initialLocale="en"><MotionTimelineMedia projectId="p" compositionId={compositionId} disabled={false} /></I18nProvider>;
+  const render = (compositionId: string) => <I18nProvider initialLocale="en"><StudioHostContext.Provider value={{ mvpEditor }}><MotionTimelineMedia projectId="p" compositionId={compositionId} disabled={false} /></StudioHostContext.Provider></I18nProvider>;
   await act(async () => root.render(render('main')));
+  expect(host.querySelector('.motion-timeline-media-actions') === null).toBe(mvpEditor);
   const target = hooks.target!;
   await target.replace!('assets/generated/sunset.png', captured);
   expect(source).toBe(original.replace('../assets/original.png', '../assets/generated/sunset.png'));

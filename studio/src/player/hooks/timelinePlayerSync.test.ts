@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { timelineElementsChanged } from "./timelinePlayerSync";
 
 describe("timelineElementsChanged", () => {
+  it("refreshes track controls when a reload restores or removes a lock", () => {
+    const unlocked = { id: "clip", tag: "div", start: 0, duration: 3, track: 0 };
+    const locked = { ...unlocked, timelineLocked: true };
+    expect(timelineElementsChanged([locked], [unlocked])).toBe(true);
+    expect(timelineElementsChanged([unlocked], [locked])).toBe(true);
+    expect(timelineElementsChanged([locked], [{ ...locked }])).toBe(false);
+  });
   const clip = { id: "v", tag: "video", start: 0, duration: 4, track: 1 };
   it.each([
     ["muted", { muted: true }],

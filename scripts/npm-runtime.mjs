@@ -6,9 +6,20 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { executable, extractArchive, nativeComponents, obtainAsset, readJSON, relativePath, runFile, withCacheLock, writeJSON, processAlive } from './runtime-assets.mjs';
 
+export function defaultInstallationHome(environment = 'prod') {
+  const base = process.platform === 'win32' ? process.env.LOCALAPPDATA || os.homedir() : path.join(os.homedir(), '.local/share');
+  return path.join(base, environment === 'dev' ? 'openmotion-dev' : 'openmotion');
+}
+
+export const nativeCacheDirectory = home => path.join(home, 'cache/native');
+
 export async function nativeConfiguration(root) {
   const config = await readJSON(path.join(root, '.npm-install.json'));
   if (!config) return null;
+  return configuration(config);
+}
+
+function configuration(config) {
   assert.equal(config.schemaVersion, 1, 'Unsupported npm installation');
   const found = Object.entries(config.runtime.targets).find(([, value]) => value.platform === process.platform && value.arch === process.arch);
   assert(found, `No pinned native runtime for ${process.platform}-${process.arch}`);
@@ -30,11 +41,37 @@ export async function nativeConfiguration(root) {
 
 export async function configureNativeEnvironment(root) {
   const native = await nativeConfiguration(root);
-  if (!native) return null;
+  if (!native) {
+    // Best-effort: an unreadable or unpinned source lock must keep system-tool fallback instead of blocking startup.
+    await configureCachedSourceEnvironment(root).catch(error => console.error('Source native cache discovery was skipped: ' + error.message));
+    return null;
+  }
   process.env.HYPERFRAMES_FFMPEG_PATH ||= process.env.FFMPEG_PATH || native.paths.HYPERFRAMES_FFMPEG_PATH;
   process.env.HYPERFRAMES_FFPROBE_PATH ||= process.env.FFPROBE_PATH || native.paths.HYPERFRAMES_FFPROBE_PATH;
   process.env.HYPERFRAMES_BROWSER_PATH ||= process.env.MOTION_BROWSER_PATH || native.paths.HYPERFRAMES_BROWSER_PATH;
   return native;
+}
+
+async function configureCachedSourceEnvironment(root) {
+  const aliases = { HYPERFRAMES_FFMPEG_PATH: 'FFMPEG_PATH', HYPERFRAMES_FFPROBE_PATH: 'FFPROBE_PATH', HYPERFRAMES_BROWSER_PATH: 'MOTION_BROWSER_PATH' };
+  for (const [key, alias] of Object.entries(aliases)) {
+    if (!process.env[key] && process.env[alias]) process.env[key] = process.env[alias];
+  }
+  if (Object.keys(aliases).every(key => process.env[key])) return;
+  const runtime = await readJSON(path.join(root, 'scripts/runtime-lock.json'));
+  if (!runtime || !Object.values(runtime.targets).some(info => info.platform === process.platform && info.arch === process.arch)) return;
+  // Reuse completed, pinned assets only. Source checkouts do not own these installations.
+  for (const environment of ['prod', 'dev']) {
+    const home = defaultInstallationHome(environment);
+    for (const cacheDirectory of [nativeCacheDirectory(home), path.join(home, 'cache')]) {
+      const cached = configuration({ schemaVersion: 1, runtime, cacheDirectory });
+      for (const component of cached.components) {
+        const keys = componentKeys[component].filter(key => !process.env[key]);
+        if (!keys.length || !await ready(cached, component, false).catch(() => false)) continue;
+        for (const key of keys) process.env[key] = cached.paths[key];
+      }
+    }
+  }
 }
 
 const componentKeys = { browser: ['HYPERFRAMES_BROWSER_PATH'], media: ['HYPERFRAMES_FFMPEG_PATH', 'HYPERFRAMES_FFPROBE_PATH'], ffmpeg: ['HYPERFRAMES_FFMPEG_PATH'], ffprobe: ['HYPERFRAMES_FFPROBE_PATH'] };
@@ -42,13 +79,14 @@ const preparing = new Map();
 const launching = new Map();
 const location = (native, component) => path.join(native.cache, component + '-' + native.info[component].sha256);
 const overridden = (native, key) => process.env[key] && process.env[key] !== native.paths[key];
-async function ready(native, component) {
+async function ready(native, component, useOverrides = true) {
   const keys = componentKeys[component];
-  if (!keys.every(key => overridden(native, key)) && (await readJSON(path.join(location(native, component), 'ready.json')))?.sha256 !== native.info[component].sha256) return false;
+  const override = key => useOverrides && overridden(native, key);
+  if (!keys.every(override) && (await readJSON(path.join(location(native, component), 'ready.json')))?.sha256 !== native.info[component].sha256) return false;
   try {
     for (const key of keys) {
-      await executable(overridden(native, key) ? process.env[key] : native.paths[key]);
-      if (overridden(native, key)) await runFile(process.env[key], [key.includes('BROWSER') ? '--version' : '-version'], { timeout: 5000 });
+      await executable(override(key) ? process.env[key] : native.paths[key]);
+      if (override(key)) await runFile(process.env[key], [key.includes('BROWSER') ? '--version' : '-version'], { timeout: 5000 });
     }
     return true;
   } catch { return false; }
@@ -83,7 +121,7 @@ async function prepareComponent(native, component) {
     if (await ready(native, component)) return;
     let state = { pid: process.pid, stage: 'waiting' }, lastProgress = 0;
     const update = async change => {
-      if (change.stage === 'downloading' && state.stage === 'downloading' && change.receivedBytes !== undefined && state.receivedBytes !== undefined && Date.now() - lastProgress < 500) return;
+      if (change.stage === 'downloading' && state.stage === 'downloading' && change.receivedBytes !== undefined && state.receivedBytes > 0 && Date.now() - lastProgress < 500) return;
       lastProgress = Date.now(); state = { ...state, ...change, updatedAt: Date.now() };
       await writeJSON(destination + '.status.json', state);
     };
@@ -119,7 +157,7 @@ async function prepareComponent(native, component) {
       } finally { await rm(temporary, { recursive: true, force: true }); }
       await update({ stage: 'ready' });
     } catch (error) {
-      const errorCode = /SHA256/.test(error.message) ? 'integrity' : error.code === 'ENOSPC' ? 'disk_space' : ['EACCES', 'EPERM'].includes(error.code) ? 'permission' : /requires? (?:macOS|Windows)/i.test(error.message) ? 'platform' : state.stage === 'downloading' ? 'download' : 'checking';
+      const errorCode = /SHA256/.test(error.message) ? 'integrity' : error.code === 'ENOSPC' ? 'disk_space' : ['EACCES', 'EPERM'].includes(error.code) ? 'permission' : /requires? (?:macOS|Windows)/i.test(error.message) ? 'platform' : error.name === 'TimeoutError' ? 'timeout' : state.stage === 'downloading' ? 'download' : 'checking';
       await update({ stage: 'failed', errorCode, error: String(error.message).slice(0, 1000) });
       throw error;
     }

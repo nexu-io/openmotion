@@ -1,9 +1,9 @@
 import { useI18n } from "../i18n/I18n";
 import { importValidationMessage } from "../i18n/importMessages";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { EditingFile } from "../utils/studioHelpers";
 import { FONT_EXT, isMediaFile } from "../utils/mediaTypes";
-import { fontFamilyFromAssetPath, type ImportedFontAsset } from "../components/editor/fontAssets";
+import { type ImportedFontAsset, type FontImportInput } from "../components/editor/fontAssets";
 import { findTagByTarget, type PatchTarget } from "../utils/sourcePatcher";
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import { serializeStudioFileMutation } from "../utils/studioFileMutationCoordinator";
@@ -13,6 +13,7 @@ import { useProjectFileWriter } from "./useProjectFileWriter";
 import { studioApiFetch } from "../utils/studioApiFetch";
 import { importErrorCategory, reportAssetImport, reportEdit, setProjectInventory, type ImportEntryPoint, type ImportErrorCategory } from "../motion/editorTracking";
 import { encodeUrlPath } from "@hyperframes/parsers";
+import { prepareFontImport } from "../components/editor/fontImport";
 
 // ── Types ──
 
@@ -75,6 +76,8 @@ export function useFileManager({
     setProjectInventory(fileTreeLoaded ? { assets: assets.length, compositions: compositions.length } : null);
     return () => setProjectInventory(null);
   }, [fileTreeLoaded, assets.length, compositions.length]);
+
+  useEffect(() => { importedFontAssetsRef.current = []; }, [projectId]);
 
   const updateEditingFileContent = useCallback((path: string, content: string) => {
     if (editingPathRef.current === path) {
@@ -410,21 +413,29 @@ export function useFileManager({
   );
 
   const handleImportFonts = useCallback(
-    async (files: FileList | File[]): Promise<ImportedFontAsset[]> => {
+    async (files: FontImportInput): Promise<ImportedFontAsset[]> => {
       const pid = projectIdRef.current;
       if (!pid) return [];
-      const uploaded = await uploadProjectFiles(
-        Array.from(files).filter((file) => FONT_EXT.test(file.name)),
-        "assets/fonts",
-        "properties",
-      );
-      const imported = uploaded
-        .filter((asset) => FONT_EXT.test(asset))
-        .map((asset) => ({
-          family: fontFamilyFromAssetPath(asset),
-          path: asset,
-          url: `/api/projects/${encodeURIComponent(pid)}/preview/${encodeUrlPath(asset)}`,
+      let imported: ImportedFontAsset[];
+      if (typeof files === "string") {
+        const response = await studioApiFetch(`/api/projects/${encodeURIComponent(pid)}/fonts/import`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ family: files }),
+        });
+        if (!response.ok) throw new Error("Installed font import failed");
+        const font = await response.json();
+        imported = [{ ...font, url: `/api/projects/${encodeURIComponent(pid)}/preview/${encodeUrlPath(font.path)}` }];
+        await refreshFileTree();
+      } else {
+        const prepared: Awaited<ReturnType<typeof prepareFontImport>>[] = [];
+        for (const file of Array.from(files).filter((file) => FONT_EXT.test(file.name))) prepared.push(await prepareFontImport(file));
+        if (projectIdRef.current !== pid) throw new Error("Active project changed before font import");
+        const uploaded = await uploadProjectFiles(prepared.map(font => font.file), "assets/fonts", "properties");
+        if (uploaded.length !== prepared.length) throw new Error("Font import did not complete");
+        imported = uploaded.map((asset, index) => ({ ...prepared[index].metadata,
+          path: asset, url: `/api/projects/${encodeURIComponent(pid)}/preview/${encodeUrlPath(asset)}`,
         }));
+      }
+      if (projectIdRef.current !== pid) throw new Error("Active project changed before font import");
       importedFontAssetsRef.current = [
         ...imported,
         ...importedFontAssetsRef.current.filter(
@@ -434,7 +445,7 @@ export function useFileManager({
       ];
       return imported;
     },
-    [uploadProjectFiles],
+    [uploadProjectFiles, refreshFileTree],
   );
 
   // ── Return ──

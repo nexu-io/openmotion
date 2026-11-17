@@ -5,7 +5,7 @@ import type { ModelContext, ModelContextTool } from "./types";
 
 function tool(overrides: Partial<ModelContextTool> = {}): ModelContextTool {
   return {
-    name: "studio_look",
+    name: "openmotion_studio_look",
     description: "Read Studio's live state.",
     execute: async () => ({ ok: true }),
     ...overrides,
@@ -24,7 +24,7 @@ function domException(name: string, message = name): DOMException {
 
 describe("findToolDefinitionError", () => {
   it("accepts the names Studio actually uses", () => {
-    expect(findToolDefinitionError(tool({ name: "studio_look" }))).toBeNull();
+    expect(findToolDefinitionError(tool({ name: "openmotion_studio_look" }))).toBeNull();
     expect(findToolDefinitionError(tool({ name: "studio.look-2" }))).toBeNull();
   });
 
@@ -48,11 +48,11 @@ describe("registerStudioTools", () => {
 
     const report = await registerStudioTools(
       fakeModelContext(registerTool),
-      [tool({ name: "studio_look" }), tool({ name: "studio_frame" })],
+      [tool({ name: "openmotion_studio_look" }), tool({ name: "openmotion_studio_frame" })],
       controller.signal,
     );
 
-    expect(report.registered).toEqual(["studio_look", "studio_frame"]);
+    expect(report.registered).toEqual(["openmotion_studio_look", "openmotion_studio_frame"]);
     expect(report.failed).toEqual([]);
     expect(registerTool).toHaveBeenCalledTimes(2);
     expect(registerTool.mock.calls[0]?.[1]).toEqual({ signal: controller.signal });
@@ -69,11 +69,11 @@ describe("registerStudioTools", () => {
 
     const report = await registerStudioTools(
       fakeModelContext(registerTool),
-      [tool({ name: "studio_look" }), tool({ name: "studio_frame" })],
+      [tool({ name: "openmotion_studio_look" }), tool({ name: "openmotion_studio_frame" })],
       new AbortController().signal,
     );
 
-    expect(report.registered).toEqual(["studio_look"]);
+    expect(report.registered).toEqual(["openmotion_studio_look"]);
     expect(report.failed).toEqual([]);
   });
 
@@ -89,7 +89,7 @@ describe("registerStudioTools", () => {
     );
 
     expect(report.failed).toHaveLength(1);
-    expect(report.failed[0]?.tool).toBe("studio_look");
+    expect(report.failed[0]?.tool).toBe("openmotion_studio_look");
     expect(report.failed[0]?.name).toBe("SecurityError");
     // Substring, not equality: jsdom prefixes DOMException.message with the
     // name and real browsers do not.
@@ -105,12 +105,12 @@ describe("registerStudioTools", () => {
 
     const report = await registerStudioTools(
       fakeModelContext(registerTool),
-      [tool({ name: "studio_look" }), tool({ name: "studio_frame" })],
+      [tool({ name: "openmotion_studio_look" }), tool({ name: "openmotion_studio_frame" })],
       new AbortController().signal,
     );
 
-    expect(report.registered).toEqual(["studio_frame"]);
-    expect(report.failed.map((f) => f.tool)).toEqual(["studio_look"]);
+    expect(report.registered).toEqual(["openmotion_studio_frame"]);
+    expect(report.failed.map((f) => f.tool)).toEqual(["openmotion_studio_look"]);
   });
 
   it("catches a duplicate name before the browser does, so the report names it", async () => {
@@ -118,14 +118,14 @@ describe("registerStudioTools", () => {
 
     const report = await registerStudioTools(
       fakeModelContext(registerTool),
-      [tool({ name: "studio_look" }), tool({ name: "studio_look" })],
+      [tool({ name: "openmotion_studio_look" }), tool({ name: "openmotion_studio_look" })],
       new AbortController().signal,
     );
 
-    expect(report.registered).toEqual(["studio_look"]);
+    expect(report.registered).toEqual(["openmotion_studio_look"]);
     expect(report.failed).toEqual([
       {
-        tool: "studio_look",
+        tool: "openmotion_studio_look",
         name: "InvalidStateError",
         message: "duplicate tool name in this registration set",
       },

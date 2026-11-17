@@ -66,9 +66,11 @@ async function mountKeyframed(showKeyframes?: boolean, withLanes = true, mvpEdit
   const named = Array.from(host.querySelectorAll("[role=rowheader]")).some((h) =>
     h.textContent?.includes("Hero card"),
   );
+  const accessibleName = !!host.querySelector('.motion-track-controls [aria-label="Track 1"]');
+  const visibilityControl = !!host.querySelector('button[aria-label="Hide track 1"]');
   const lanes = host.textContent?.includes("Position") ?? false;
   act(() => root.unmount());
-  return { diamonds, named, lanes };
+  return { diamonds, named, lanes, accessibleName, visibilityControl };
 }
 
 describe("Timeline showKeyframes", () => {
@@ -117,11 +119,13 @@ describe("Timeline showKeyframes", () => {
   });
 });
 
-it("MVP hides keyframe lanes but keeps track names and the underlying animation data", async () => {
+it("MVP uses icon controls with accessible track identity and preserves animation data", async () => {
   const view = await mountKeyframed(undefined, true, true);
   expect(view.lanes).toBe(false);
   expect(view.diamonds).toBe(0);
-  expect(view.named).toBe(true);
+  expect(view.named).toBe(false);
+  expect(view.accessibleName).toBe(true);
+  expect(view.visibilityControl).toBe(true);
   expect(usePlayerStore.getState().gsapAnimations.get("card")).toHaveLength(1);
   expect(usePlayerStore.getState().keyframeCache.has("card")).toBe(true);
 });

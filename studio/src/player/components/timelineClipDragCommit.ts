@@ -23,6 +23,8 @@ import {
 } from "./timelineOptimisticRevision";
 import { runLaneZGesture } from "../../components/nle/zLaneGesture";
 import { refreshAfterDurableLaneMove } from "./timelineLaneMoveRefresh";
+import { planTimelineLanePersistence, withPersistedTimelineLanes } from "./timelineLanePersistence";
+import { isPendingTimelineRow } from "./timelinePendingRows";
 import { authoredTrackForLane } from "./timelineAuthoredTrack";
 import { resolveGroupMovers } from "./timelineMultiDragPreview";
 import { beginStudioPendingEdit } from "../../utils/studioPendingEdits";
@@ -71,7 +73,7 @@ export interface DragCommitDeps {
    * returns the clip's current z-index (from the live DOM inline style / computed;
    * "auto" ⇒ 0).
    */
-  readZIndex?: (element: TimelineElement) => number;
+  readZIndex?: (element: TimelineElement, asTarget?: boolean) => number;
   /**
    * Apply the computed z-index patches. Wiring (in the drag hook, which owns the
    * DOM/persist plumbing) forwards these to the SAME atomic style-patch persist
@@ -255,7 +257,7 @@ function resolveMultiSelection(
 }
 
 // A move writes the dragged clip's start (each moving clip's, in a group); a lane change also writes its lane and
-// re-lanes no other clip; only a new track renumbers the rows below it.
+// preserves other visible rows; shared authored spill rows become durable in the same transaction.
 // fallow-ignore-next-line complexity
 export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDeps): void {
   const hostAlias = resolveExpandedHostAlias(drag, deps);
@@ -271,22 +273,40 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
   // Deliberate VERTICAL gesture: the pointer aimed at a different lane, or at the
   // empty space outside the rows (insert). Anything else never touches z.
   const aimTrack = drag.desiredTrack ?? drag.previewTrack;
-  const isVertical = isInsert || aimTrack !== drag.element.track;
+  if (isPendingTimelineRow(aimTrack, elements)) return;
+  const isVertical = isInsert || laneChanged || aimTrack !== drag.element.track;
   const multi = resolveMultiSelection(drag, deps);
+  let renumbers: ReturnType<typeof planTimelineLanePersistence> = [];
+  if (!isInsert) {
+    try { renumbers = planTimelineLanePersistence(elements, drag.element); }
+    catch (error) { console.warn("[Timeline] Lane move refused", error); return; }
+  }
+  const persistedLanes = withPersistedTimelineLanes(elements, renumbers);
+  const preserveLanes = (edits: TimelineMoveEdit[]): TimelineMoveEdit[] => {
+    const byKey = new Map(edits.map(edit => [keyOf(edit.element), edit]));
+    for (const { element, track } of renumbers) {
+      const edit = byKey.get(keyOf(element));
+      if (edit) edit.persistTrack ??= track;
+      else byKey.set(keyOf(element), { element, updates: { start: element.start, track: element.track }, persistTrack: track });
+    }
+    return [...byKey.values()].map(edit => edit.persistTrack == null
+      ? { ...edit, persistTrack: edit.element.authoredTrack ?? edit.element.track }
+      : edit);
+  };
 
   // ── Pure time-move (dragged clip keeps its lane, no insert) ─────────────────
   if (!isInsert && !laneChanged) {
     const delta = drag.previewStart - drag.element.start;
     if (delta === 0) return;
-    if (multi) {
+    if (multi || renumbers.length) {
       const edits: TimelineMoveEdit[] = elements
-        .filter((e) => multi.keys.has(keyOf(e)))
+        .filter((e) => multi ? multi.keys.has(keyOf(e)) : keyOf(e) === dragKey)
         .map((e) => ({
           element: e,
-          updates: { start: multi.movedStart(e), track: e.track },
+          updates: { start: multi ? multi.movedStart(e) : drag.previewStart, track: e.track },
         }))
         .filter((e) => e.updates.start !== e.element.start);
-      void persistMoveEdits(edits, deps);
+      void persistMoveEdits(renumbers.length ? preserveLanes(edits) : edits, deps, undefined, renumbers.length ? "lane-reorder" : "timing");
       return;
     }
     const updates = { start: drag.previewStart, track: drag.element.track };
@@ -308,14 +328,12 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
     return;
   }
 
-  // ── Lane change: persist ONLY the dragged clip ──────────────────────────────
-  // CapCut invariant — one edit never re-lanes another clip. The dragged clip
-  // takes its new lane (previewTrack); the rest of any selection shifts in time
-  // only. Nothing else is written.
+  // Lane change keeps peers in their visible rows. Persist spill-row identities
+  // atomically so rediscovery cannot repack the edited clip into another row.
   const dragEdit: TimelineMoveEdit = {
     element: drag.element,
     updates: { start: drag.previewStart, track: drag.previewTrack },
-    persistTrack: authoredTrackForLane(drag.previewTrack, elements, drag.element),
+    persistTrack: authoredTrackForLane(drag.previewTrack, persistedLanes, drag.element),
   };
   const coalesceKey = isVertical ? `clip-lane-move:${laneChangeGestureSeq++}` : undefined;
 
@@ -339,14 +357,14 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
   });
   if (!isVertical || !deps.readZIndex || !deps.onStackingPatches) {
     void refreshAfterDurableLaneMove(
-      persistMoveEdits(edits, deps, coalesceKey, "lane-reorder"),
+      persistMoveEdits(preserveLanes(edits), deps, coalesceKey, "lane-reorder"),
       deps,
     );
     return;
   }
   void refreshAfterDurableLaneMove(
     runLaneZGesture({
-      commitLane: () => persistMoveEdits(edits, deps, coalesceKey, "lane-reorder"),
+      commitLane: () => persistMoveEdits(preserveLanes(edits), deps, coalesceKey, "lane-reorder"),
       commitZ: () =>
         syncStackingForEdit(
           candidate,
@@ -556,7 +574,7 @@ function syncStackingForEdit(
     start: el.start,
     duration: el.duration,
     track: el.track,
-    zIndex: readZIndex(el),
+    zIndex: readZIndex(el, keyOf(el) === dragKey),
     isAudio: classifyZone(el) === "audio",
     sourceFile: el.sourceFile,
     domIndex,

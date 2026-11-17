@@ -7,8 +7,38 @@ import { mountTimelineClipDragGestureLifecycle } from "./timelineClipDragGesture
 import type { DraggedClipState, ResizingClipState } from "./timelineClipDragTypes";
 
 afterEach(() => {
+  vi.useRealTimers();
   document.body.replaceChildren();
   usePlayerStore.getState().reset();
+});
+
+it("coalesces high-rate input and flushes the last sample exactly once on release", () => {
+  vi.useFakeTimers();
+  const gesture = mountGesture("drag");
+  for (let clientX = 10; clientX <= 250; clientX++) window.dispatchEvent(new MouseEvent("pointermove", { clientX, clientY: 10 }));
+  expect(gesture.updateDraggedClipPreview).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(16);
+  expect(gesture.updateDraggedClipPreview).toHaveBeenCalledTimes(1);
+  expect(gesture.updateDraggedClipPreview.mock.calls[0]).toEqual([expect.anything(), 250, 10]);
+  window.dispatchEvent(new MouseEvent("pointermove", { clientX: 275, clientY: 10 }));
+  release(275, 10);
+  expect(gesture.updateDraggedClipPreview).toHaveBeenCalledTimes(2);
+  expect(gesture.onMoveElement).toHaveBeenCalledTimes(1);
+  vi.advanceTimersByTime(100);
+  expect(gesture.updateDraggedClipPreview).toHaveBeenCalledTimes(2);
+  gesture.dispose();
+});
+
+it.each(["pointercancel", "keydown", "unmount"])("discards a queued pointer sample on %s", kind => {
+  vi.useFakeTimers();
+  const gesture = mountGesture("drag");
+  window.dispatchEvent(new MouseEvent("pointermove", { clientX: 80, clientY: 10 }));
+  if (kind === "unmount") gesture.dispose();
+  else window.dispatchEvent(kind === "keydown" ? new KeyboardEvent("keydown", { key: "Escape" }) : new MouseEvent("pointercancel"));
+  vi.advanceTimersByTime(100);
+  expect(gesture.updateDraggedClipPreview).not.toHaveBeenCalled();
+  expect(gesture.onMoveElement).not.toHaveBeenCalled();
+  gesture.dispose();
 });
 
 const element: TimelineElement = {
@@ -112,6 +142,7 @@ const release = (clientX: number, clientY: number) =>
 
 describe("timeline clip drag gesture lifecycle", () => {
   it("finishes a drag after virtualization unmounts its source row", () => {
+    vi.useFakeTimers();
     const g = mountGesture("drag");
     const sourceRow = document.createElement("div");
     sourceRow.dataset.timelineRow = "";
@@ -120,6 +151,7 @@ describe("timeline clip drag gesture lifecycle", () => {
     sourceRow.remove();
 
     window.dispatchEvent(new MouseEvent("pointermove", { clientX: 20, clientY: 10 }));
+    vi.advanceTimersByTime(16);
     expect(g.updateDraggedClipPreview).toHaveBeenCalledTimes(1);
     expect(g.draggedClipRef.current?.previewStart).toBe(3);
 

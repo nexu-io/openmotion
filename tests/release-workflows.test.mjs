@@ -12,28 +12,36 @@ import { consumerEnvironment } from '../.github/scripts/motion-registry-smoke.mj
 import { runFile } from '../scripts/runtime-assets.mjs';
 
 const config = { endpoint: 'https://example.r2.cloudflarestorage.com', bucket: 'example-releases', publicOrigin: 'https://download.example.invalid' };
-const valid = { GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/feature/motion',
-  GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@refs/heads/feature/motion`, MOTION_VERSION: '0.6.4-test.99', MOTION_RELEASE_ACTION: 'publish-test', MOTION_EXPECTED_SHA256: 'a'.repeat(64) };
+const valid = { GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
+  GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@refs/heads/main`, MOTION_VERSION: '0.6.4-test.99', MOTION_RELEASE_ACTION: 'publish-test', MOTION_EXPECTED_SHA256: 'a'.repeat(64) };
 const origin = { id: 123, run_attempt: 1, event: 'workflow_dispatch', head_branch: 'main', head_repository: { full_name: repository }, status: 'completed', conclusion: 'success', path: candidateWorkflow, head_sha: 'b'.repeat(40) };
 const artifact = { id: 456, name: 'motion-candidate-0.6.4-test.99', workflow_run: { id: 123 }, expired: false, size_in_bytes: 100, digest: 'sha256:' + 'a'.repeat(64) };
+test('renamed OpenMotion accepts manual releases from main and rejects retired identities', () => {
+  const entry = { ...valid, GITHUB_REPOSITORY: 'nexu-io/openmotion', GITHUB_REF: 'refs/heads/main',
+    GITHUB_WORKFLOW_REF: `nexu-io/openmotion/${publicationWorkflow}@refs/heads/main` };
+  assert.equal(releaseInputs(entry).action, 'publish-test');
+  assert.throws(() => releaseInputs({ ...entry, GITHUB_REPOSITORY: 'nexu-io/html-anything' }));
+  assert.throws(() => releaseInputs({ ...entry, GITHUB_REF: 'refs/heads/feature/motion' }));
+});
+
 test('manual entry and source selection reject untrusted callers, mutable refs and non-test versions', async () => {
   assert.equal(releaseInputs(valid).action, 'publish-test');
-  for (const [key, value] of Object.entries({ GITHUB_REPOSITORY: 'fork/repo', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main', GITHUB_WORKFLOW_REF: `${repository}/evil.yml@refs/heads/feature/motion`, MOTION_EXPECTED_SHA256: 'bad', MOTION_VERSION: '0.6.4', MOTION_RELEASE_ACTION: 'stable' })) assert.throws(() => releaseInputs({ ...valid, [key]: value }));
-  const recovery = { ...valid, GITHUB_WORKFLOW_REF: `${repository}/${recoveryWorkflow}@refs/heads/feature/motion` };
+  for (const [key, value] of Object.entries({ GITHUB_REPOSITORY: 'fork/repo', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/feature/motion', GITHUB_WORKFLOW_REF: `${repository}/evil.yml@refs/heads/main`, MOTION_EXPECTED_SHA256: 'bad', MOTION_VERSION: '0.6.4', MOTION_RELEASE_ACTION: 'stable' })) assert.throws(() => releaseInputs({ ...valid, [key]: value }));
+  const recovery = { ...valid, GITHUB_WORKFLOW_REF: `${repository}/${recoveryWorkflow}@refs/heads/main` };
   assert.throws(() => releaseInputs(recovery), /Recovery/);
   assert.equal(releaseInputs({ ...recovery, MOTION_RELEASE_ACTION: 'archive-only' }).action, 'archive-only');
   let called = false;
-  await validateSource('.', 'a'.repeat(40), '0.6.4-test.7', async (_, args) => { called = true; assert(args.includes('refs/remotes/origin/feature/motion')); }); assert(called);
+  await validateSource('.', 'a'.repeat(40), '0.6.4-test.7', async (_, args) => { called = true; assert(args.includes('refs/remotes/origin/main')); }); assert(called);
   for (const [sha, version] of [['main', '0.6.4-test.7'], ['a'.repeat(40), '0.6.4-test.0']]) await assert.rejects(validateSource('.', sha, version, async () => { throw Error('must not run'); }));
   await assert.rejects(validateSource('.', 'a'.repeat(40), '0.6.4-test.7', async () => { throw Error('not integrated'); }), /not integrated/);
-  const buildEnv = { ...valid, GITHUB_SHA: 'a'.repeat(40), GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/feature/motion` };
+  const buildEnv = { ...valid, GITHUB_SHA: 'a'.repeat(40), GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/main` };
   const resolved = await resolveCandidate('.', '', '0.6.4-test.7', buildEnv, async (_, args) => { assert.notEqual(args[0], 'rev-parse'); });
   assert.deepEqual(resolved, { commit: 'a'.repeat(40), version: '0.6.4-test.7' });
   await assert.rejects(resolveCandidate('.', 'main', '', buildEnv, async () => { throw Error('must not run'); }), /immutable/);
   for (const env of [{}, { GITHUB_RUN_NUMBER: '2', GITHUB_RUN_ATTEMPT: '0' }, { GITHUB_RUN_NUMBER: 'bad', GITHUB_RUN_ATTEMPT: '1' }]) {
     await assert.rejects(resolveCandidate('.', 'a'.repeat(40), '', { ...buildEnv, ...env }, async () => JSON.stringify({ version: '0.6.3' })), /Positive/);
   }
-  for (const patch of [{ GITHUB_REF: 'refs/heads/main' }, { GITHUB_REF: 'refs/heads/codex/unreviewed' }, { GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/main` }]) {
+  for (const patch of [{ GITHUB_REF: 'refs/heads/feature/motion' }, { GITHUB_REF: 'refs/heads/codex/unreviewed' }, { GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/feature/motion` }]) {
     await assert.rejects(resolveCandidate('.', '', '0.6.4-test.7', { ...buildEnv, ...patch }, async () => { throw Error('Must reject before git'); }));
   }
 });
@@ -47,9 +55,11 @@ test('candidate CLI numbers the frozen Motion source, not the legacy control che
   await git('add', 'package.json');
   await git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Motion source');
   const commit = (await git('rev-parse', 'HEAD')).trim();
-  await git('update-ref', 'refs/remotes/origin/feature/motion', commit);
+  await git('update-ref', 'refs/remotes/origin/main', commit);
   await writeFile(path.join(directory, 'package.json'), JSON.stringify({ version: '0.1.0' }));
   const output = path.join(directory, 'output'), script = fileURLToPath(new URL('../.github/scripts/motion-release.mjs', import.meta.url));
+  const mockRegistry = path.join(directory, 'registry.mjs');
+  await writeFile(mockRegistry, "globalThis.fetch = async url => { if (url !== 'https://registry.npmjs.org/@openmotion%2fapp') throw Error('Unexpected network access'); return Response.json({'dist-tags': {test: '0.6.4-test.6'}}); };\n");
   for (const [source, version, run, attempt, expected] of [
     ['', '', '2', '1', '0.6.4-test.7'],
     [commit, '', '2', '2', '0.6.4-test.7.2'],
@@ -57,8 +67,8 @@ test('candidate CLI numbers the frozen Motion source, not the legacy control che
     [commit, '0.6.5-test.1', '', '', '0.6.5-test.1'],
   ]) {
     await writeFile(output, '');
-    await runFile(process.execPath, [script, 'source', directory], { env: { ...process.env, GITHUB_OUTPUT: output,
-      ...valid, GITHUB_SHA: commit, GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/feature/motion`,
+    await runFile(process.execPath, ['--import', mockRegistry, script, 'source', directory], { env: { ...process.env, GITHUB_OUTPUT: output,
+      ...valid, GITHUB_SHA: commit, GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/main`,
       MOTION_SOURCE_SHA: source, MOTION_VERSION: version, GITHUB_RUN_ID: '42812345678', GITHUB_RUN_NUMBER: run, GITHUB_RUN_ATTEMPT: attempt } });
     assert.equal(await readFile(output, 'utf8'), `source_sha=${commit}\nversion=${expected}\n`);
     assert(compareReleaseVersions(expected, '0.6.4-test.6') > 0);
@@ -66,9 +76,32 @@ test('candidate CLI numbers the frozen Motion source, not the legacy control che
   assert.equal(JSON.parse(await readFile(path.join(directory, 'package.json'))).version, '0.1.0');
 });
 
+test('automatic candidates continue beyond published npm versions after a source version reset', async () => {
+  const env = { ...valid, GITHUB_SHA: 'a'.repeat(40), GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/main`,
+    GITHUB_RUN_NUMBER: '9', GITHUB_RUN_ATTEMPT: '1' };
+  const run = async (_, args) => args[0] === 'show' ? JSON.stringify({ version: '0.0.1' }) : '';
+  const resolve = (tags, patch = {}) => resolveCandidate('.', '', '', { ...env, ...patch }, run, async () => Response.json({ 'dist-tags': tags }));
+  assert.equal((await resolve({ latest: '0.6.7', test: '0.6.4-test.13' })).version, '0.6.8-test.14');
+  assert.equal((await resolve({ latest: '0.6.7', test: '0.6.8-test.99', candidate: '0.6.8-test.100' })).version, '0.6.9-test.14');
+  assert.equal((await resolve({ latest: '0.6.7' }, { GITHUB_RUN_ATTEMPT: '2' })).version, '0.6.8-test.14.2');
+  const ahead = { latest: '0.6.7', test: '0.6.8-test.20' };
+  const first = await resolve(ahead, { GITHUB_RUN_NUMBER: '15' });
+  const second = await resolve(ahead, { GITHUB_RUN_NUMBER: '16' });
+  assert.equal(first.version, '0.6.9-test.20'); assert.equal(second.version, '0.6.8-test.21');
+  assert.notEqual(first.version, second.version, 'Concurrent candidates must keep distinct versions');
+  for (const version of [first.version, second.version]) {
+    assert(compareReleaseVersions(version, ahead.test) > 0, `${version} must stay newer than the published test tag`);
+  }
+  await assert.rejects(resolveCandidate('.', '', '', env, run, async () => new Response('', { status: 503 })), /baseline/);
+  await assert.rejects(resolve({ latest: 'bad' }), /MAJOR/);
+  await assert.rejects(resolveCandidate('.', '', '', env, run, async () => Response.json({})), /Missing npm/);
+  const explicit = await resolveCandidate('.', '', '0.7.0-test.1', env, run, async () => { throw Error('Explicit versions need no registry lookup'); });
+  assert.equal(explicit.version, '0.7.0-test.1');
+});
+
 test('only a completed successful registered candidate build can supply a version', () => {
   validateRun(origin, artifact, '0.6.4-test.99');
-  validateRun({ ...origin, head_branch: 'feature/motion' }, artifact, '0.6.4-test.99');
+  validateRun({ ...origin, head_branch: 'feature/motion' }, artifact, '0.6.4-test.99'); // Historical producer runs survive the cutover.
   for (const patch of [{ event: 'pull_request' }, { head_branch: 'codex/unreviewed' }, { head_branch: 'legacy' }, { path: '.github/workflows/other.yml' }, { head_repository: { full_name: 'fork/repo' } }, { status: 'in_progress' }, { conclusion: 'failure' }]) assert.throws(() => validateRun({ ...origin, ...patch }, artifact, '0.6.4-test.99'));
   for (const patch of [{ expired: true }, { name: 'motion-candidate-0.6.4-test.100' }, { digest: null }, { workflow_run: { id: 999 } }]) assert.throws(() => validateRun(origin, { ...artifact, ...patch }, '0.6.4-test.99'));
 });
@@ -90,7 +123,7 @@ test('version lookup uses the exact artifact name and rejects missing, expired, 
 
 test('operator authorization records the actual manual caller without independent approval', async t => {
   const f = await candidateFixture(t);
-  const run = { ...origin, head_branch: 'feature/motion', id: 800, path: publicationWorkflow, actor: { login: 'operator' }, triggering_actor: { login: 'rerunner' } };
+  const run = { ...origin, head_branch: 'main', id: 800, path: publicationWorkflow, actor: { login: 'operator' }, triggering_actor: { login: 'rerunner' } };
   assert.equal(authorizationReceipt(f.candidate, run, 'publish-test').actor, 'rerunner');
   assert.throws(() => authorizationReceipt(f.candidate, { ...run, actor: {}, triggering_actor: {} }, 'publish-test'));
   const fetcher = async url => { assert(String(url).endsWith('/actions/runs/800')); return Response.json(run); };
@@ -98,7 +131,7 @@ test('operator authorization records the actual manual caller without independen
   const record = JSON.parse(await readFile(path.join(f.directory, 'authorization.json')));
   assert.equal(record.publicationRun, 800); assert.equal(record.tgzSHA256, f.candidate.tgzSHA256);
   assert.equal(record.actor, 'rerunner'); assert.equal(record.schemaVersion, 2); assert(!Object.hasOwn(record, 'acceptanceConfirmed'));
-  for (const patch of [{ id: 801 }, { event: 'push' }, { head_branch: 'main' }, { head_sha: 'f'.repeat(40) }, { path: candidateWorkflow }, { head_repository: { full_name: 'fork/repo' } }]) {
+  for (const patch of [{ id: 801 }, { event: 'push' }, { head_branch: 'feature/motion' }, { head_sha: 'f'.repeat(40) }, { path: candidateWorkflow }, { head_repository: { full_name: 'fork/repo' } }]) {
     await assert.rejects(recordAuthorization(f.directory, f.inputs, async () => Response.json({ ...run, ...patch }), f.env));
   }
 });
@@ -121,15 +154,27 @@ test('the sealed candidate detects tgz, guide, identity and provenance tampering
   await assert.rejects(verifyDownloaded(directory, candidate.tgzSHA256, '0.6.4-test.100'), /version/);
   assert(checklist.includes('NOT RUN'), 'Generated identity must not fabricate human acceptance');
   await assert.rejects(verifyDownloaded(directory, '0'.repeat(64)));
+  const notesFile = path.join(directory, 'release-notes.md'), notes = await readFile(notesFile);
+  assert.equal(candidate.schemaVersion, 3);
+  await writeFile(notesFile, 'changed notes');
+  await assert.rejects(verifyDownloaded(directory, candidate.tgzSHA256), /Candidate file changed/);
+  await writeFile(notesFile, notes);
   const file = path.join(directory, 'install.md'), original = await readFile(file);
   await writeFile(file, 'changed'); await assert.rejects(verifyDownloaded(directory, candidate.tgzSHA256), /Candidate file changed/);
   await writeFile(file, original); await writeFile(path.join(directory, 'provenance.json'), JSON.stringify({ head_sha: 'f'.repeat(40), runId: 123, attempt: 1 }));
   await assert.rejects(verifyDownloaded(directory, candidate.tgzSHA256));
 });
 
-for (const branch of ['main', 'feature/motion']) test(`artifact download binds ${branch} provenance and does not forward credentials to signed URLs`, async t => {
-  const f = await candidateFixture(t, branch), zip = path.join(f.work, 'candidate.zip');
+for (const [branch, receiptRepository] of [
+  ['main', repository], ['feature/motion', repository], ['feature/motion', 'nexu-io/html-anything'],
+]) test(`artifact download binds ${branch} / ${receiptRepository} provenance and does not forward credentials to signed URLs`, async t => {
+  const f = await candidateFixture(t), zip = path.join(f.work, 'candidate.zip');
+  // Simulate a frozen producer receipt; new candidate builds are main-only.
+  f.candidate.workflow.ref = `refs/heads/${branch}`;
+  await writeFile(path.join(f.directory, 'provenance.json'), JSON.stringify({ ...f.provenance, head_branch: branch }));
   const producer = { ...origin, head_branch: branch };
+  f.candidate.workflow.repository = receiptRepository;
+  await writeFile(path.join(f.directory, 'candidate.json'), JSON.stringify(f.candidate));
   await runFile('zip', ['-j', zip, ...['candidate.json', ...Object.keys(f.candidate.files)].map(name => path.join(f.directory, name))]);
   const bytes = await readFile(zip), digest = 'sha256:' + createHash('sha256').update(bytes).digest('hex');
   const fetcher = async (url, options) => {
@@ -151,13 +196,27 @@ for (const branch of ['main', 'feature/motion']) test(`artifact download binds $
     (url, options) => String(url).endsWith('/actions/runs/123') ? Response.json({ ...producer, head_branch: other }) : fetcher(url, options)));
 });
 
+test('repository rename accepts historical receipts but rejects old live callers and foreign receipts', async t => {
+  assert.equal(repository, 'nexu-io/openmotion');
+  const oldRepository = 'nexu-io/html-anything';
+  assert.throws(() => releaseInputs({ ...valid, GITHUB_REPOSITORY: oldRepository,
+    GITHUB_WORKFLOW_REF: `${oldRepository}/${publicationWorkflow}@refs/heads/feature/motion` }), /Wrong repository/);
+  assert.throws(() => validateRun({ ...origin, head_repository: { full_name: oldRepository } }, artifact, '0.6.4-test.99'));
+  const f = await candidateFixture(t);
+  f.candidate.workflow.repository = 'fork/repo';
+  await writeFile(path.join(f.directory, 'candidate.json'), JSON.stringify(f.candidate));
+  await assert.rejects(verifyDownloaded(f.directory, f.candidate.tgzSHA256), /Untrusted candidate repository/);
+});
+
 test('old main receipts remain readable but unregistered candidate branches cannot seal artifacts', async t => {
   const f = await candidateFixture(t);
   const { head_branch, ...legacy } = f.provenance;
   await writeFile(path.join(f.directory, 'provenance.json'), JSON.stringify(legacy));
   assert.equal((await verifyDownloaded(f.directory, f.candidate.tgzSHA256)).workflow.ref, 'refs/heads/main');
-  await assert.rejects(candidateFixture(t, 'codex/unreviewed'), /only from main or feature/);
+  await assert.rejects(candidateFixture(t, 'codex/unreviewed'), /only from main/);
+  await assert.rejects(candidateFixture(t, 'feature/motion'), /only from main/);
 });
+
 
 function registry(candidate, exists = true, tag = candidate.version, latest = '0.5.0') {
   return () => Response.json({ versions: exists ? { [candidate.version]: { dist: { integrity: candidate.integrity } } } : {}, 'dist-tags': { test: tag, latest } });
@@ -274,7 +333,7 @@ test('daily build and publication are separate manual entries without an indepen
   assert(build.includes('name: ' + candidateJobName) && build.includes('ref: ${{ steps.source.outputs.source_sha }}'));
   for (const entry of [build, workflow, recovery]) {
     assert(entry.includes('name: Require Motion integration branch'));
-    assert(entry.includes("Select feature/motion in Run workflow"));
+    assert(entry.includes("Select main in Run workflow"));
     const guard = entry.split('      - name: Require Motion integration branch\n')[1].split(/\n      - |\n  [a-z]/)[0];
     assert(guard.includes("exit 1"));
   }
@@ -305,15 +364,15 @@ test('daily build and publication are separate manual entries without an indepen
   assert(recovery.includes('uses: ./.github/workflows/motion-publish-test.yml') && !recovery.includes('source_sha:'));
 });
 
-test('each manual entry accepts only feature/motion before checkout or publication', async () => {
+test('each manual entry accepts only main before checkout or publication', async () => {
   for (const name of ['motion-candidate', 'motion-publish-test', 'motion-publication-recovery']) {
     const workflow = await readFile(new URL(`../.github/workflows/${name}.yml`, import.meta.url), 'utf8');
     const step = workflow.split('      - name: Require Motion integration branch\n')[1].split(/\n      - |\n  [a-z]/)[0];
     const script = step.split('        run: |\n')[1].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
     const run = ref => runFile('bash', ['-e', '-o', 'pipefail', '-c', script], { env: { ...process.env, GITHUB_REF: ref } });
-    await run('refs/heads/feature/motion');
-    for (const ref of ['refs/heads/main', 'refs/heads/legacy', 'refs/heads/codex/unreviewed', 'refs/tags/feature/motion']) {
-      await assert.rejects(run(ref), /Select feature\/motion/);
+    await run('refs/heads/main');
+    for (const ref of ['refs/heads/feature/motion', 'refs/heads/legacy', 'refs/heads/codex/unreviewed', 'refs/tags/main']) {
+      await assert.rejects(run(ref), /Select main/);
     }
   }
 });
@@ -339,7 +398,22 @@ sudo() {
     assert.match(workflow, /path: \$\{\{ runner.temp \}\}\/motion-rendering-apt/);
     const cacheStep = workflow.split('      - name: Restore rendering package downloads\n')[1].split('\n      - name: ')[0];
     const keyPrefix = 'rendering-apt-ubuntu24.04-${{ runner.arch }}-zip-unzip-ffmpeg-fonts-noto-core-';
-    assert(cacheStep.includes(`key: ${keyPrefix}\${{ github.run_id }}-\${{ github.run_attempt }}\n`), 'the save key must rotate so newer packages can be stored');
+    assert(cacheStep.includes(`key: ${keyPrefix}v2-\${{ steps.rendering-cache.outputs.version }}\n`), 'cache identity must track the runner image rather than each run');
+    assert(!cacheStep.includes('github.run_id') && !cacheStep.includes('github.run_attempt'));
+    const versionStep = workflow.split('      - name: Select rendering package cache version\n')[1].split('\n      - name: ')[0];
+    const versionScript = versionStep.split('        run: ')[1].trim();
+    const output = path.join(directory, 'cache-version');
+    const version = async (image, runId) => {
+      await writeFile(output, '');
+      await runFile('bash', ['-e', '-c', versionScript], {
+        env: { ...env, ImageVersion: image, GITHUB_RUN_ID: runId, GITHUB_OUTPUT: output },
+      });
+      return readFile(output, 'utf8');
+    };
+    assert.equal(await version('20261113.1', '100'), 'version=20261113.1\n');
+    assert.equal(await version('20261113.1', '101'), 'version=20261113.1\n');
+    assert.equal(await version('20261114.1', '102'), 'version=20261114.1\n');
+    assert.match(await version('', '103'), /^version=\d{4}-W\d{2}\n$/);
     assert(cacheStep.includes(`restore-keys: |\n            ${keyPrefix}`), 'the newest saved entry must be restored by key prefix');
     const script = step.split('        run: |\n')[1].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
     const run = (missing, failure) => runFile('bash', ['-e', '-o', 'pipefail', '-c', mock + '\n' + script], {
@@ -431,7 +505,7 @@ test('an unexpected npm latest change stops promotion and consumer processes can
 
 test('no-publication rehearsal carries one accepted candidate through npm and storage using simulated services only', async t => {
   const f = await candidateFixture(t), store = storage(f.candidate);
-  const run = { ...origin, head_branch: 'feature/motion', id: 800, path: publicationWorkflow, actor: { login: 'operator' } };
+  const run = { ...origin, head_branch: 'main', id: 800, path: publicationWorkflow, actor: { login: 'operator' } };
   const github = async url => { assert(String(url).endsWith('/actions/runs/800')); return Response.json(run); };
   await writeFile(path.join(f.directory, 'authorization.json'), '{}');
   let npmWrites = 0, tagWrites = 0, published = false, testTag = '0.6.4-test.1';
@@ -466,4 +540,15 @@ test('no-publication rehearsal carries one accepted candidate through npm and st
   const result = await waitForRegistry(f.candidate, state => state.tags.test === f.candidate.version, { fetcher, wait, attempts: 4 });
   assert.equal(result.tags.test, f.candidate.version); assert.equal(waits, 3);
   await assert.rejects(waitForRegistry(f.candidate, () => false, { fetcher, wait, attempts: 2 }), /timed out/);
+});
+
+test('manual npm release roots are enabled only for the official repository', async () => {
+  for (const [file, job] of [['motion-candidate.yml', 'candidate'], ['motion-publish-test.yml', 'verify'], ['motion-publication-recovery.yml', 'select-ref']]) {
+    const workflow = await readFile(new URL('../.github/workflows/' + file, import.meta.url), 'utf8');
+    const block = workflow.split('  ' + job + ':')[1]?.split(/\n  [a-z][a-z-]*:/)[0];
+    assert.match(block || '', /if: github.repository == 'nexu-io\/openmotion'/, file);
+    const triggers = workflow.split('\npermissions:')[0];
+    assert.match(triggers, /workflow_dispatch:/, file);
+    assert.doesNotMatch(triggers, /(?:^|\n)  (?:push|pull_request|schedule):/, file);
+  }
 });

@@ -28,6 +28,12 @@ export interface StudioEditInFlight {
 }
 
 const pendingEdits = new Map<Promise<unknown>, PendingEdit>();
+const savingListeners = new Set<() => void>();
+export function subscribeStudioEditSaving(listener: () => void): () => void {
+  savingListeners.add(listener);
+  return () => { savingListeners.delete(listener); };
+}
+function notifySaving() { for (const listener of savingListeners) listener(); }
 let historyClaims: () => number = () => 0;
 
 export function setStudioPendingEditClaimClock(read: (() => number) | null): void {
@@ -81,7 +87,8 @@ export function beginStudioShownRestore(): () => void {
   let end = () => {};
   const landed = new Promise<void>((resolve) => (end = resolve));
   shownRestores.add(landed);
-  void landed.then(() => shownRestores.delete(landed));
+  notifySaving();
+  void landed.then(() => { shownRestores.delete(landed); notifySaving(); });
   return end;
 }
 
@@ -119,9 +126,10 @@ export function trackStudioPendingEdit(
     showAgain: null,
     claimsAtBegin: historyClaims(),
   });
+  notifySaving();
   promise.then(
-    () => pendingEdits.delete(promise),
-    () => pendingEdits.delete(promise),
+    () => { pendingEdits.delete(promise); notifySaving(); },
+    () => { pendingEdits.delete(promise); notifySaving(); },
   );
   return promise;
 }
@@ -242,8 +250,9 @@ export function revertNewestStudioPendingEdit(): (() => void) | null {
 
 export async function flushStudioPendingEdits({
   onlyCurrent = false,
+  blur = true,
 } = {}): Promise<StudioPendingEditsDrainResult> {
-  const active = focusedField();
+  const active = blur ? focusedField() : null;
   if (active) {
     active.blur();
     // ponytail: keep blur commits, then cross one task so effects the blur runs can add their listener.

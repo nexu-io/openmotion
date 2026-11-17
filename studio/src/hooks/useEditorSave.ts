@@ -1,4 +1,5 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { addStudioPendingEditFlushListener } from "../utils/studioPendingEdits";
 import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
 import {
   StudioFileConflictError,
@@ -177,6 +178,11 @@ export function useEditorSave({
     saveRafRef.current = null;
     pendingCandidateRef.current = null;
   }, []);
+
+  useEffect(() => addStudioPendingEditFlushListener(() => {
+    if (!pendingCandidateRef.current && !inFlightRef.current) return;
+    return flushPendingSave().then(result => { if (result.status !== 'clean') throw result.error; });
+  }), [flushPendingSave]);
 
   return {
     saveRafRef,

@@ -1,0 +1,197 @@
+// @vitest-environment happy-dom
+import { act, useState } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { SkillsPage, skillSubmissionUrl } from './SkillsPage';
+import { motionSkills, skillPrompt } from './skillCatalog';
+import { readWorkspacePage, workspacePageHref } from './workspacePageRouting';
+import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
+
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ locale: 'en', t: (text: string, values?: { count: number }) => text.replace('{count}', String(values?.count)) }) }));
+// Keep integration discovery offline; the page uses its built-in guide fallback.
+vi.mock('./useWorkspace', () => ({ motionApi: vi.fn().mockRejectedValue(new Error('Offline test')) }));
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+let root: Root, container: HTMLDivElement;
+beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+
+function Host() {
+  const [skill, setSkill] = useState<string | null>(null);
+  return <SkillsPage skillId={skill} onSkillChange={setSkill} />;
+}
+const button = (label: string) => [...container.querySelectorAll('button')].find(node => node.textContent?.includes(label))!;
+
+it('lists every curated skill with its upstream repository', () => {
+  act(() => root.render(<Host />));
+  expect(container.querySelectorAll('.om-skill-gallery-card')).toHaveLength(motionSkills.length);
+  expect(motionSkills).toHaveLength(25);
+  expect(motionSkills[0].id).toBe('motionmaxxing');
+  for (const skill of motionSkills) if (skill.repository) expect(skill.repository).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/tree\/main\/[\w.-]+)?$/);
+  expect(motionSkills.every(skill => skill.repository)).toBe(true);
+  expect(new Set(motionSkills.map(skill => skill.id)).size).toBe(motionSkills.length);
+});
+
+it('filters by category and search', () => {
+  act(() => root.render(<Host />));
+  act(() => button('Explainers').click());
+  expect(container.querySelectorAll('.om-skill-gallery-card').length).toBe(motionSkills.filter(skill => skill.category === 'Explainers').length);
+  act(() => button('All').click());
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'particle'); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect([...container.querySelectorAll('.om-skill-gallery-card strong')].map(node => node.textContent)).toEqual(['Particle effects']);
+});
+
+it('fills the brief and copies an MCP instruction for the Agent', async () => {
+  const write = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: write } });
+  act(() => root.render(<Host />));
+  act(() => button('Staggered entrance').click());
+  act(() => button('9:16').click());
+  act(() => button('30s').click());
+  await act(async () => button('Copy for Agent').click());
+  const text = write.mock.calls[0][0] as string;
+  expect(text).toContain('https://github.com/juliangarnier/anime');
+  expect(text).toContain('Duration: 30s; aspect ratio: 9:16');
+  expect(text).toContain('openmotion_get_project');
+  expect(text).toContain('openmotion_create_project');
+  expect(text).toContain('openmotion_edit_project');
+  expect(text).not.toMatch(/openmotion_(create_session|write_files|create_artifact)/);
+});
+
+it('routes generated media through OpenMotion only for media skills', () => {
+  const library = skillPrompt(motionSkills.find(skill => skill.id === 'anime-js')!, { subject: '', duration: 15, aspect: '9:16', style: '' }, 'en', 'https://example.test/install.md');
+  expect(library).not.toContain('openmotion_media_use');
+  const photo = skillPrompt(motionSkills.find(skill => skill.id === 'higgsfield-product-photoshoot')!, { subject: '', duration: 10, aspect: '1:1', style: '' }, 'en', 'https://example.test/install.md');
+  expect(photo).toContain('openmotion_media_use');
+  expect(photo).toContain('https://github.com/higgsfield-ai/skills/tree/main/higgsfield-product-photoshoot');
+});
+
+it('starts a fresh brief when the selected skill changes from outside, such as history navigation', () => {
+  const render = (skillId: string) => act(() => root.render(<SkillsPage skillId={skillId} onSkillChange={() => {}} />));
+  render('anime-js');
+  act(() => button('30s').click());
+  expect(container.querySelector('.om-skill-prompt pre')!.textContent).toContain('Duration: 30s');
+  render('manim');
+  expect(container.querySelector('.om-skill-prompt pre')!.textContent).toContain('Duration: 10s');
+});
+
+it('localizes the instruction and keeps the user brief', () => {
+  const text = skillPrompt(motionSkills[0], { subject: '新品发布', duration: 10, aspect: '1:1', style: '' }, 'zh-CN', 'https://example.test/install.md');
+  expect(text).toContain('内容：新品发布');
+  expect(text).toContain('交付：');
+  expect(text.split('\n')[0]).toBe('使用说明：请使用 OpenMotion 插件。如未安装，请按 https://example.test/install.md 安装并接入后继续。');
+  expect(text).not.toContain('风格');
+});
+
+it('routes the skills page and selected skill through the query', () => {
+  const href = workspacePageHref('http://local/?page=assets', { skills: true, skill: 'manim' });
+  expect(href).toBe('/?page=skills&skill=manim');
+  expect(readWorkspacePage('?page=skills&skill=manim')).toMatchObject({ skills: true, skill: 'manim', assets: false, settings: null });
+  expect(readWorkspacePage(workspacePageHref('http://local' + href, { assets: true }).slice(1))).toMatchObject({ assets: true, skills: false, skill: null });
+  expect(isWorkspaceSettingsPage('?page=skills')).toBe(true);
+});
+
+it.each(['instruction', 'command'] as const)('selects the failed %s in its own surface and supports retry', async surface => {
+  const write = vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Clipboard unavailable'));
+  act(() => root.render(<Host />));
+  act(() => button('Staggered entrance').click());
+  const instruction = container.querySelector<HTMLPreElement>('.om-skill-prompt pre')!;
+  const originalInstruction = instruction.textContent;
+  if (surface === 'command') await act(async () => button('Connect Agent').click());
+  // The real popover renders in a portal outside the component container.
+  const command = document.querySelector<HTMLPreElement>('.om-skill-shortcut pre');
+  const target = surface === 'command' ? command! : instruction;
+  const expected = target.textContent;
+  const copyButton = surface === 'command'
+    ? [...document.querySelectorAll<HTMLButtonElement>('.om-skill-shortcut button')].find(node => node.textContent?.includes('Copy command'))!
+    : button('Copy for Agent');
+  expect(expected).toBeTruthy();
+  if (surface === 'command') expect(expected).not.toBe(originalInstruction);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await act(async () => copyButton.click());
+    expect(write).toHaveBeenLastCalledWith(expected);
+    expect(target.textContent).toBe(expected);
+    expect(target.dataset.manual).toBe('true');
+    expect(document.activeElement).toBe(target);
+    expect(window.getSelection()?.toString()).toBe(expected);
+    expect(instruction.textContent).toBe(originalInstruction);
+    if (surface === 'command') {
+      expect(instruction.dataset.manual).toBe('false');
+      expect(document.body.textContent).toContain('Copy failed. Select and copy the command below.');
+    }
+  }
+  write.mockResolvedValue(undefined);
+  await act(async () => copyButton.click());
+  expect(write).toHaveBeenLastCalledWith(expected);
+  expect(target.dataset.manual).toBe('false');
+});
+
+it('does not select a failed command after its popover has closed', async () => {
+  let rejectCopy!: (error: Error) => void;
+  vi.spyOn(navigator.clipboard, 'writeText').mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectCopy = reject; }));
+  act(() => root.render(<Host />));
+  act(() => button('Staggered entrance').click());
+  await act(async () => button('Connect Agent').click());
+  const copyButton = [...document.querySelectorAll<HTMLButtonElement>('.om-skill-shortcut button')].find(node => node.textContent?.includes('Copy command'))!;
+  await act(async () => copyButton.click());
+  await act(async () => button('Connect Agent').click());
+  const focus = document.activeElement;
+  const select = vi.spyOn(window.getSelection()!, 'selectAllChildren');
+  await act(async () => rejectCopy(new Error('Clipboard unavailable')));
+  expect(select).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(focus);
+  expect(container.querySelector('.om-skill-prompt pre')!.getAttribute('data-manual')).toBe('false');
+});
+
+it('localizes every Skills string and instruction in all supported languages', async () => {
+  const { default: skillsUi } = await import('../i18n/skills-ui.json');
+  const { default: prompts } = await import('./skill-prompts.json');
+  const { languages } = await import('../i18n/messages');
+  const placeholders = (text: string) => [...text.matchAll(/\{\w+\}/g)].map(match => match[0]).sort();
+  const sources = Object.keys(skillsUi['zh-CN']);
+  for (const { locale } of languages.filter(language => language.locale !== 'en')) {
+    const ui = (skillsUi as Record<string, Record<string, string>>)[locale];
+    const instructions = (prompts as Record<string, Record<string, string>>)[locale];
+    expect(Object.keys(ui).sort(), locale).toEqual([...sources].sort());
+    for (const source of sources) expect(placeholders(ui[source]), `${locale}: ${source}`).toEqual(placeholders(source));
+    for (const [key, english] of Object.entries(prompts.en)) expect(placeholders(instructions[key]), `${locale}: ${key}`).toEqual(placeholders(english));
+  }
+  expect(skillPrompt(motionSkills[0], { subject: 'x', duration: 10, aspect: '16:9', style: '' }, 'ja', 'https://example.test/install.md')).toContain('openmotion_create_project');
+});
+
+it('drops a stale failed-copy text once the brief changes', async () => {
+  vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(new Error('Clipboard unavailable'));
+  act(() => root.render(<Host />));
+  act(() => button('Staggered entrance').click());
+  await act(async () => button('Copy for Agent').click());
+  act(() => button('30s').click());
+  const instruction = container.querySelector<HTMLPreElement>('.om-skill-prompt pre')!;
+  expect(instruction.textContent).toContain('Duration: 30s');
+  expect(instruction.dataset.manual).toBe('false');
+});
+
+it('ignores a late copy failure after the brief has changed', async () => {
+  let rejectCopy!: (error: Error) => void;
+  vi.spyOn(navigator.clipboard, 'writeText').mockImplementation(() => new Promise<void>((_resolve, reject) => { rejectCopy = reject; }));
+  act(() => root.render(<Host />));
+  act(() => button('Staggered entrance').click());
+  await act(async () => { button('Copy for Agent').click(); });
+  act(() => button('30s').click());
+  await act(async () => rejectCopy(new Error('Clipboard unavailable')));
+  const instruction = container.querySelector<HTMLPreElement>('.om-skill-prompt pre')!;
+  expect(instruction.textContent).toContain('Duration: 30s');
+  expect(instruction.dataset.manual).toBe('false');
+});
+
+it('opens the contribution guide section for submitting a skill, like the template library', async () => {
+  act(() => root.render(<Host />));
+  const link = [...container.querySelectorAll<HTMLAnchorElement>('.om-skills-intro a')].find(node => node.textContent?.includes('Submit a skill'))!;
+  expect(link.href).toBe(skillSubmissionUrl);
+  expect(link.target).toBe('_blank');
+  const { default: guide } = await import('../../../CONTRIBUTING.md?raw');
+  const section = guide.slice(guide.indexOf('### Submit a skill with your Agent'));
+  expect(skillSubmissionUrl.endsWith('#submit-a-skill-with-your-agent')).toBe(true);
+  expect(section).toContain('library/skills/<name>/SKILL.md');
+  expect(section).toContain('nexu-io/openmotion');
+  expect(section).toContain('draft pull request');
+});

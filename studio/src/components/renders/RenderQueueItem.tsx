@@ -32,7 +32,7 @@ export const RenderQueueItem = memo(function RenderQueueItem({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   // Direct file URL — serves from disk, survives server restarts
-  const fileSrc = buildProjectApiPath(projectId, `/renders/file/${job.filename}`);
+  const fileSrc = buildProjectApiPath(projectId, `/renders/file/${encodeURIComponent(job.filename)}`);
 
   const handleOpen = useCallback(() => {
     window.open(fileSrc, "_blank");
@@ -43,11 +43,11 @@ export const RenderQueueItem = memo(function RenderQueueItem({
       e.stopPropagation();
       trackStudioClick("export_panel", "download_render", projectId, clickMethod(e));
       const a = document.createElement("a");
-      a.href = fileSrc;
-      a.download = job.filename;
+      a.href = fileSrc + "?download=1";
+      a.download = "";
       a.click();
     },
-    [fileSrc, job.filename, projectId],
+    [fileSrc, projectId],
   );
 
   const viewSrc = fileSrc;

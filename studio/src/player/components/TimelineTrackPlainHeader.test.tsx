@@ -123,13 +123,19 @@ describe("PlainTrackHeader", () => {
     view.unmount();
   });
 
-  it("truncates long names and keeps the full name in the tooltip", () => {
+  it("truncates long names and keeps the full name in the tooltip", async () => {
     const name = "A-very-long-unbroken-clip-name-for-the-timeline";
     const view = renderHeader({ trackLabel: name });
-    const label = view.host.querySelector("span[title]");
+    const label = view.host.querySelector<HTMLElement>("span.truncate");
     expect(label?.className).toContain("truncate");
     expect(label?.className).not.toContain("wrap-break-word");
-    expect(label?.getAttribute("title")).toBe(name);
+    expect(label?.hasAttribute("title")).toBe(false);
+    await act(async () => {
+      label?.parentElement?.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
+      label?.parentElement?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 250));
+    });
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(name);
     view.unmount();
   });
 });

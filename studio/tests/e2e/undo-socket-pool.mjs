@@ -65,6 +65,7 @@ try {
   const page = await browser.newPage();
   await page.setViewport({ width: 1600, height: 900 });
   await page.evaluateOnNewDocument(installWebMcpHost, "__undoPool");
+  await page.evaluateOnNewDocument(() => localStorage.setItem("motion.studio.locale", "en"));
   const call = (name, input) =>
     Promise.race([
       page.evaluate((n, i) => window.__undoPool.call(n, i), name, input),
@@ -117,12 +118,12 @@ try {
     ).length;
 
   await page.goto(STUDIO_URL, { waitUntil: "domcontentloaded" });
-  await page.waitForFunction(() => window.__undoPool?.has("studio_seek"), { timeout: 90_000 });
-  await until(async () => (await call("studio_seek", { time: 1 }).catch(() => null))?.ok, 30_000);
-  const look = await call("studio_look", { limit: 50 });
+  await page.waitForFunction(() => window.__undoPool?.has("openmotion_studio_seek"), { timeout: 90_000 });
+  await until(async () => (await call("openmotion_studio_seek", { time: 1 }).catch(() => null))?.ok, 30_000);
+  const look = await call("openmotion_studio_look", { limit: 50 });
   const target = (look.elements ?? []).find((element) => element.label === "Target");
   if (!target)
-    throw new Error(`studio_look found no #target: ${JSON.stringify(look).slice(0, 400)}`);
+    throw new Error(`openmotion_studio_look found no #target: ${JSON.stringify(look).slice(0, 400)}`);
   // Chrome cancels a paused video's request about 15 s after its last use, so on a slow runner the videos stopped
   // pinning between rounds. An unread fetch per video, sent with cookies as the videos are, never idles out.
   const findVideos = async () => {
@@ -160,10 +161,14 @@ try {
   for (let round = 0; round < ROUNDS; round++) {
     const before = readIndex();
     const shownBefore = await previewColor();
-    await call("studio_set_style", {
-      handle: target.handle,
-      styles: { backgroundColor: colors[round % colors.length] },
-    });
+    // Exercise the manual editor save path; WebMCP content-writing tools are not registered.
+    await call("openmotion_studio_select", { handle: target.handle });
+    await page.waitForSelector('[aria-label="Pick color color"]');
+    await page.click('[aria-label="Pick color color"]');
+    const hex = await page.waitForSelector('[role="dialog"][aria-label="Color color picker"] input');
+    await hex.click({ clickCount: 3 });
+    await page.keyboard.type(colors[round % colors.length]);
+    await page.click('[aria-label="Close color picker"]');
     if (!(await until(() => readIndex() !== before, 10_000)))
       throw new Error(`round ${round}: the edit never reached disk`);
     // Without pinned media the gate would pass on any build, so it refuses to measure.

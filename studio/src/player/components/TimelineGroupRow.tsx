@@ -1,3 +1,4 @@
+import { useMvpEditor } from "../../motion/StudioHost";
 import {
   HF_AUDIO_FX_ATTR,
   serializeAudioFxChain,
@@ -74,6 +75,8 @@ export function TimelineGroupRow({
   contentGutter,
   trackContentWidth,
 }: TimelineGroupRowProps) {
+  const mvp = useMvpEditor();
+  const labelColumnWidth = mvp ? contentOrigin : LABEL_COL_W;
   // From the group, NOT from `tracks`: a collapsed group emits no member rows
   // into the display list, and every one of these reads silently degraded to
   // empty in that (default) state — the lane count
@@ -149,7 +152,7 @@ export function TimelineGroupRow({
           after the header it starts at x = columnWidth, i.e. inside the lanes. */}
       <div
         className="sticky left-0 z-12 shrink-0"
-        style={{ width: contentOrigin >= LABEL_COL_W ? LABEL_COL_W : contentOrigin }}
+        style={{ width: contentOrigin >= labelColumnWidth ? labelColumnWidth : contentOrigin }}
       >
         <TimelineGroupHeader
           label={group.label}
@@ -173,7 +176,7 @@ export function TimelineGroupRow({
           // timeline (see Timeline.tsx) rather than by overhanging alone — an
           // overhanging header paints opaquely across the rest of its row and
           // stays pinned there through horizontal scroll.
-          columnWidth={contentOrigin >= LABEL_COL_W ? LABEL_COL_W : contentOrigin}
+          columnWidth={contentOrigin >= labelColumnWidth ? labelColumnWidth : contentOrigin}
           theme={theme}
           showAudioEffects={showAudioEffects}
         />
@@ -187,7 +190,7 @@ export function TimelineGroupRow({
             groupElement={groupElement}
             groupLabel={group.label}
             top={TRACK_H}
-            columnWidth={contentOrigin >= LABEL_COL_W ? LABEL_COL_W : contentOrigin}
+            columnWidth={contentOrigin >= labelColumnWidth ? labelColumnWidth : contentOrigin}
             gutterBackground={theme.gutterBackground}
             accentColor={GROUP_LANE_ACCENT}
             onReveal={showAudioEffects ? openGroupFxRack : undefined}

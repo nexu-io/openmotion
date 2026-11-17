@@ -63,6 +63,8 @@ const setStrip = (size: typeof EMPTY_STRIP) =>
   });
 
 import { AudioWaveform, drawWaveformCanvas } from "./AudioWaveform";
+import { I18nProvider } from "../../i18n/I18n";
+import type { ThumbnailRequest } from "../lib/thumbnailScheduler";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -71,6 +73,7 @@ const mounted: Array<ReturnType<typeof createRoot>> = [];
 afterEach(() => {
   act(() => mounted.splice(0).forEach((root) => root.unmount()));
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   leaseSpy.mockReset();
   leaseSpy.mockImplementation(() => ({ status: "loading" as const }));
@@ -123,6 +126,122 @@ function recordingCanvas() {
 }
 
 describe("AudioWaveform", () => {
+  it.each([
+    [404, true, "素材已失效"],
+    [410, true, "素材已失效"],
+    [404, false, "素材已失效"],
+    [410, false, "素材已失效"],
+    [500, true, "波形不可用"],
+    [503, false, "波形不可用"],
+  ])("distinguishes missing media from waveform failures (%s, peaks endpoint: %s)", async (status, waveform, message) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status }));
+    const host = document.createElement("div");
+    host.className = "timeline-clip";
+    document.body.append(host);
+    const root = createRoot(host);
+    mounted.push(root);
+    let sessionEpoch = 0;
+    const render = () => act(() => root.render(
+      <I18nProvider initialLocale="zh-CN">
+        <AudioWaveform
+          audioUrl="/media/voice.wav"
+          waveformUrl={waveform ? "/waveform/voice.wav" : undefined}
+          label=""
+          labelColor="#fff"
+          projectId="project-a"
+          sessionEpoch={++sessionEpoch}
+          priority="visible"
+        />
+      </I18nProvider>,
+    ));
+    render();
+    expect(host.querySelector('[role="img"]')).toBeNull();
+    const request = leaseSpy.mock.calls.at(-1)?.[0] as ThumbnailRequest;
+    const error = await request.load(new AbortController().signal).catch((error: Error) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(String(status));
+    leaseSpy.mockImplementation(() => ({ status: "error", error }) as never);
+    render();
+    const notice = host.querySelector('[role="img"]');
+    expect(notice?.textContent).toBe(message);
+    expect(notice?.getAttribute("aria-label")).toBe(message);
+    expect(notice?.querySelector(".truncate")).not.toBeNull();
+    expect(host.querySelector("canvas")).not.toBeNull();
+    expect(host.isConnected).toBe(true);
+    leaseSpy.mockImplementation(() => ({ status: "loading" as const }));
+    render();
+    expect(host.querySelector('[role="img"]')).toBeNull();
+  });
+
+  it.each([409, 500])("decodes the audio in the browser when the peaks endpoint fails (%s)", async (status) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) =>
+      String(input).includes("/waveform/")
+        ? new Response(null, { status })
+        : new Response(new ArrayBuffer(8), { status: 200 }));
+    const channel = new Float32Array(8000).map((_, index) => (index % 2 ? 0.5 : -1));
+    const close = vi.fn(async () => {});
+    vi.stubGlobal("AudioContext", class {
+      decodeAudioData = async () => ({ getChannelData: () => channel });
+      close = close;
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mounted.push(root);
+    act(() => root.render(
+      <I18nProvider initialLocale="zh-CN">
+        <AudioWaveform
+          audioUrl="/media/voice.wav"
+          waveformUrl="/waveform/voice.wav"
+          label=""
+          labelColor="#fff"
+          projectId="project-a"
+          sessionEpoch={1}
+          priority="visible"
+        />
+      </I18nProvider>,
+    ));
+    const request = leaseSpy.mock.calls.at(-1)?.[0] as ThumbnailRequest;
+    const result = await request.load(new AbortController().signal);
+    expect(result.value).toMatchObject({ kind: "waveform" });
+    expect((result.value as { peaks: number[] }).peaks).toHaveLength(4000);
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).toEqual(
+      expect.arrayContaining([expect.stringContaining("/waveform/voice.wav"), expect.stringContaining("/media/voice.wav")]),
+    );
+    expect(close).toHaveBeenCalled();
+  });
+
+  it.each([409, 500, undefined])("never downloads a video container when server peaks are unavailable (%s)", async (status) => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: status ?? 500 }));
+    const audioContext = vi.fn();
+    vi.stubGlobal("AudioContext", audioContext);
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    mounted.push(root);
+    act(() => root.render(
+      <I18nProvider initialLocale="zh-CN">
+        <AudioWaveform
+          audioUrl="/media/long-video.mp4"
+          sourceKind="video"
+          waveformUrl={status === undefined ? undefined : "/waveform/long-video.mp4"}
+          label=""
+          labelColor="#fff"
+          projectId="project-a"
+          sessionEpoch={1}
+          priority="visible"
+        />
+      </I18nProvider>,
+    ));
+    const request = leaseSpy.mock.calls.at(-1)?.[0] as ThumbnailRequest;
+    await expect(request.load(new AbortController().signal)).rejects.toThrow(
+      status === undefined ? "Video waveform requires server peaks" : `Waveform request failed (${status})`,
+    );
+    expect(fetchSpy).toHaveBeenCalledTimes(status === undefined ? 0 : 1);
+    expect(fetchSpy.mock.calls.map(([input]) => String(input))).not.toContain("/media/long-video.mp4");
+    expect(audioContext).not.toHaveBeenCalled();
+  });
+
   it("paints a baseline and peak bar for every mapped waveform bin", () => {
     const { canvas, fills } = recordingCanvas();
     drawWaveformCanvas(canvas, [0.25, 1], false, 0, 1);

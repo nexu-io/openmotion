@@ -18,14 +18,14 @@ import { getPersistedRenderSettings } from "./renders/renderSettings";
 
 interface StudioLeftPanelsProps {
   onSelectComposition: (comp: string) => void;
-  onAddBlock: (blockName: string) => void;
+  onAddBlock: (blockName: string) => unknown;
   onPreviewBlock?: (preview: BlockPreviewInfo | null) => void;
   onLint: () => void;
   linting: boolean;
   lintFindingCount?: number;
   lintHasError?: boolean;
   lintFindingsByFile?: Map<string, { count: number; messages: string[] }>;
-  onAddAssetToTimeline?: (path: string) => void;
+  onAddAssetToTimeline?: (path: string) => unknown;
   onAddCompositionToTimeline?: (path: string) => void;
 }
 
@@ -67,6 +67,7 @@ export const StudioLeftPanels = memo(function StudioLeftPanels({
     handleDuplicateFile,
     handleMoveFile,
     handleImportFiles,
+    refreshFileTree,
     handleContentChange,
   } = useFileManagerContext();
 
@@ -124,6 +125,7 @@ export const StudioLeftPanels = memo(function StudioLeftPanels({
             projectId={projectId}
             assets={assets}
             onImport={importAssets}
+            onLibraryImport={refreshFileTree}
             onDelete={handleDeleteFile}
             onRename={handleRenameFile}
             onAddAssetToTimeline={onAddAssetToTimeline}

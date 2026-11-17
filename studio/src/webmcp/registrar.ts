@@ -9,6 +9,7 @@
  */
 
 import type { ModelContext, ModelContextTool } from "./types";
+import { trackWebMcpRegistration, withWebMcpTracking } from "./tracking";
 
 export interface ToolRegistrationFailure {
   tool: string;
@@ -97,15 +98,19 @@ export async function registerStudioTools(
   const seen = new Set<string>();
 
   for (const tool of tools) {
+    const started = performance.now();
     // Registering a name twice REJECTS rather than replacing, so a duplicate
     // must never reach the browser.
     if (seen.has(tool.name)) {
       report.failed.push(invalidState(tool.name, "duplicate tool name in this registration set"));
+      trackWebMcpRegistration(tool.name, "failure", started);
       continue;
     }
     seen.add(tool.name);
 
-    const outcome = await registerOne(modelContext, tool, signal);
+    const outcome = await registerOne(modelContext, withWebMcpTracking(tool), signal);
+    trackWebMcpRegistration(tool.name,
+      outcome.status === "registered" ? "success" : outcome.status === "aborted" ? "cancelled" : "failure", started);
     if (outcome.status === "aborted") return report;
     if (outcome.status === "failed") report.failed.push(outcome.failure);
     else report.registered.push(tool.name);

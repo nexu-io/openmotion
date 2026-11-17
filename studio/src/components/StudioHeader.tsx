@@ -65,19 +65,19 @@ export const StudioHeader = memo(function StudioHeader({
 
   return (
     <HeaderFrame>
-    <div className={cn("flex items-center justify-between h-10 px-3 bg-surface shrink-0", !host?.mvpEditor && "border-b border-border-strong", host && "motion-studio-header", host?.mvpEditor && "motion-studio-header-centered")}>
-      {/* Left: logo + project name */}
-      <div className="flex items-center gap-3">
-        {host?.brand ?? <HyperframesLogo />}
+    <div className={cn("flex items-center justify-between h-10 px-3 bg-surface shrink-0", !host?.mvpEditor && "border-b border-border-strong", host && "motion-studio-header", host?.mvpEditor && "motion-studio-header-compact")}>
+      {/* Left: persistent save status in the product host. */}
+      <div className="motion-header-leading flex items-center gap-3">
+        {!host?.mvpEditor && (host?.brand ?? <HyperframesLogo />)}
         {host?.mvpEditor && host.headerActions}
         {!host?.mvpEditor && <><span className="text-text-5 select-none" aria-hidden="true">
           |
         </span>
         <span className="text-step-11 font-medium text-text-1">{host?.projectLabel ?? projectId}</span></>}
       </div>
-      {host?.mvpEditor && <div className="motion-header-project">{host.projectLabel ?? projectId}</div>}
+      {host?.mvpEditor && <div className="motion-header-project">{host.projectLabel}</div>}
       {/* Right: toolbar buttons */}
-      <div className="flex items-center gap-3">
+      <div className="motion-header-trailing flex items-center gap-3">
         {!host?.mvpEditor && host?.headerActions}
         {host?.historyActions}
         {host?.previewAction}
@@ -151,6 +151,9 @@ export const StudioHeader = memo(function StudioHeader({
         {host?.languageMenu}
         {host?.windowMenu ?? <Dock.WindowMenu />}
         {host?.desktopLink !== false && <OpenInDesktopButton />}
+        {!host?.mvpEditor && host?.communityAction}
+        <div className={host?.projectAction ? "motion-header-project-actions" : "contents"}>
+        {host?.projectAction}
         <Tooltip
           disabled={host?.mvpEditor}
           label={
@@ -165,6 +168,7 @@ export const StudioHeader = memo(function StudioHeader({
           <Button
             variant="primary"
             data-testid="header-export"
+            className={host?.mvpEditor ? "motion-header-export" : undefined}
             ref={exportTriggerRef}
             aria-haspopup={host?.mvpEditor ? "dialog" : undefined}
             disabled={!host?.mvpEditor && isRendering}
@@ -190,6 +194,7 @@ export const StudioHeader = memo(function StudioHeader({
             {isRendering ? t("Rendering…") : t("Export")}
           </Button>
         </Tooltip>
+        </div>
       </div>
     </div>
     {host?.mvpEditor && <ExportDialog open={exportOpen} onOpenChange={setExportOpen} triggerRef={exportTriggerRef} />}

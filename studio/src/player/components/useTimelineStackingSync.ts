@@ -1,3 +1,4 @@
+import { resolveCssStackingContextId } from "@hyperframes/core/runtime/stacking-context";
 import { useCallback, type RefObject } from "react";
 import type { TimelineElement } from "../store/playerStore";
 import { useDomEditActionsContextOptional } from "../../contexts/DomEditContext";
@@ -59,9 +60,17 @@ export function useTimelineStackingSync({
   // clip instead. NaN (rather than null) keeps the return assignable to the
   // `(el) => number` reader contract the drag hook / commit deps declare.
   const readClipZIndex = useCallback(
-    (el: TimelineElement): number => {
+    (el: TimelineElement, asTarget = false): number => {
       const node = resolveIframeElement(el);
-      return node ? readEffectiveZIndex(node) : Number.NaN;
+      if (!node) return Number.NaN;
+      // An unranked wrapper and its independent children share a paint scope.
+      // Assigning a neighbour rank to the wrapper would create a context that
+      // traps those children. A deliberate move of the wrapper itself remains
+      // a group move and can establish its own rank.
+      const child = node.querySelector("[data-start]");
+      if (!asTarget && child && resolveCssStackingContextId(child) === resolveCssStackingContextId(node))
+        return Number.NaN;
+      return readEffectiveZIndex(node);
     },
     [resolveIframeElement],
   );

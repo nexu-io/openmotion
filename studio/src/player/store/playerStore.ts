@@ -26,18 +26,16 @@ import { patchElements, queueElementPatch } from "./elementPatchQueue";
 export type { KeyframeCacheEntry } from "./keyframeSlice";
 export { liveTime } from "./liveTime";
 import { liveTime } from "./liveTime";
+import type { PendingAssetDrop } from "./pendingAssetDrops";
 export { createTimelineResetState };
-
 import type {
   TimelineElement,
   TimelineElementPatch,
   SubCompositionHostState,
 } from "./timelineElement";
-
 export type { TimelineElement, SubCompositionHostState };
 export type ZoomMode = "fit" | "manual";
 type TimelineTool = "select" | "razor";
-
 export interface SelectElementOptions {
   preserveSet?: boolean;
 }
@@ -77,6 +75,7 @@ interface PlayerState extends PlayerStoreSlices {
   /** True while a beat dot is being dragged — hides the playhead guideline. */
   beatDragging: boolean;
   elements: TimelineElement[];
+  pendingAssetDrops: PendingAssetDrop[];
   selectedElementId: string | null;
   playbackRate: number;
   audioMuted: boolean;
@@ -116,6 +115,8 @@ interface PlayerState extends PlayerStoreSlices {
   timelineSnapEnabled: boolean;
   setTimelineSnapEnabled: (enabled: boolean) => void;
   /** Keeps the main track gapless on delete; distinct from the magnet above. */
+  timelineLinkageEnabled: boolean;
+  setTimelineLinkageEnabled: (enabled: boolean) => void;
   rippleEditEnabled: boolean;
   setRippleEditEnabled: (enabled: boolean) => void;
   /** Transport + ruler readout: timecode ("time") or frame number ("frame"). */
@@ -274,6 +275,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   timelineProjectId: null,
   beatDragging: false,
   elements: [],
+  pendingAssetDrops: [],
   selectedElementId: null,
   playbackRate: readStudioUiPreferences().playbackRate ?? 1,
   audioMuted: readStudioUiPreferences().audioMuted ?? false,
@@ -440,12 +442,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setSelectedElementIds: (ids: Set<string>) => set({ selectedElementIds: new Set(ids) }),
   timelineSnapEnabled: readStudioUiPreferences().timelineSnapEnabled ?? true,
   setTimelineSnapEnabled: (enabled) => {
-    writeStudioUiPreferences({ timelineSnapEnabled: enabled });
+    writeStudioUiPreferences({ timelineSnapEnabled: enabled }, undefined, usePlayerStore.getState().timelineProjectId);
     set({ timelineSnapEnabled: enabled });
+  },
+  timelineLinkageEnabled: true,
+  setTimelineLinkageEnabled: (enabled) => {
+    writeStudioUiPreferences({ timelineLinkageEnabled: enabled }, undefined, usePlayerStore.getState().timelineProjectId);
+    set({ timelineLinkageEnabled: enabled });
   },
   rippleEditEnabled: readStudioUiPreferences().rippleEditEnabled ?? true, // default on
   setRippleEditEnabled: (enabled) => {
-    writeStudioUiPreferences({ rippleEditEnabled: enabled });
+    writeStudioUiPreferences({ rippleEditEnabled: enabled }, undefined, usePlayerStore.getState().timelineProjectId);
     set({ rippleEditEnabled: enabled });
   },
   timeDisplayMode: readStudioUiPreferences().timeDisplayMode ?? "time",
@@ -561,6 +568,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       if (state.timelineProjectId === projectId) return state;
       return {
         ...createTimelineResetState(),
+        timelineSnapEnabled: readStudioUiPreferences(undefined, projectId).timelineSnapEnabled ?? true,
+        rippleEditEnabled: readStudioUiPreferences(undefined, projectId).rippleEditEnabled ?? true,
+        timelineLinkageEnabled: readStudioUiPreferences(undefined, projectId).timelineLinkageEnabled ?? true,
         timelineSessionEpoch: state.timelineSessionEpoch + 1,
         timelineProjectId: projectId,
       };

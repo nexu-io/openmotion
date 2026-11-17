@@ -2,35 +2,65 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useI18n } from "../../i18n/I18n";
 import { RemixIcon } from "../../icons/RemixIcons";
-import { IconButton, Tooltip } from "../ui";
+import { Button, IconButton, Tooltip } from "../ui";
 import { VolumeControl } from "../../player/components/VolumeControl";
 import { SpeedMenu } from "../../player/components/SpeedMenu";
 import { formatTime } from "../../player/lib/time";
 import { usePlayerStore } from "../../player/store/playerStore";
+import { AudioPreviewWaveform } from "./AudioPreviewWaveform";
+import "./audioPreview.css";
 
 /** Independent media playback: never writes the composition's playhead or settings. */
-export function AssetPreviewDialog({ url, kind, name, onClose }: {
-  url: string; kind: "video" | "audio" | "image"; name: string; onClose: () => void;
+export function AssetPreviewDialog({ url, kind, name, onClose, onAdd }: {
+  url: string; kind: "video" | "audio" | "image"; name: string; onClose: () => void; onAdd?: () => unknown;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [addFailed, setAddFailed] = useState(false);
+  const busy = useRef(false);
+  const add = async () => {
+    if (!onAdd || busy.current) return;
+    busy.current = true;
+    setAdding(true);
+    setAddFailed(false);
+    try {
+      if (await onAdd() === false) throw new Error("Add failed");
+      onClose();
+    } catch {
+      setAddFailed(true);
+    } finally {
+      busy.current = false;
+      setAdding(false);
+    }
+  };
+  const audioMode = kind === "audio";
   return <Dialog.Root open={open} onOpenChange={setOpen} onOpenChangeComplete={next => { if (!next) onClose(); }}>
     <Dialog.Portal>
       <Dialog.Backdrop forceRender className="hf-overlay-backdrop fixed inset-0 z-140 bg-media-preview-scrim" />
       <Dialog.Popup aria-label={t("Preview: {name}", { name })} aria-describedby={undefined}
-        className="fixed top-1/2 left-1/2 z-150 flex h-[min(600px,85dvh)] w-[min(800px,90vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface text-text-1 shadow-menu outline-none"
+        data-preview-kind={kind}
+        className={`fixed top-1/2 left-1/2 z-150 flex ${audioMode ? "motion-asset-audio-preview h-[min(280px,85dvh)] w-[min(640px,90vw)]" : "h-[min(600px,85dvh)] w-[min(800px,90vw)]"} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-surface text-text-1 shadow-menu outline-none`}
         onKeyDown={event => event.stopPropagation()}>
-        <div className="flex shrink-0 items-center justify-between gap-3 px-3 py-2">
-          <Dialog.Title className="min-w-0 truncate text-step-14 font-semibold" title={name}>{name}</Dialog.Title>
-          <Dialog.Close render={<IconButton className="shrink-0" aria-label={t("Close preview")} icon={<RemixIcon name="close-line" size={16} />} />} />
+        <div className={`${audioMode ? "motion-audio-preview-header " : ""}flex shrink-0 items-center justify-between gap-3 px-3 py-2`}>
+          {audioMode && <span className="motion-audio-preview-icon" aria-hidden="true"><RemixIcon name="music-2-line" size={18} /></span>}
+          <Tooltip label={name} wrap><Dialog.Title className={`${audioMode ? "flex-1 " : ""}min-w-0 truncate text-step-14 font-semibold`}>{name}</Dialog.Title></Tooltip>
+          <div className="flex shrink-0 items-center gap-2">
+            {onAdd && <Button type="button" variant="primary" loading={adding} onClick={add}>
+              {t(adding ? "Adding…" : "Use")}
+            </Button>}
+            <Dialog.Close render={<IconButton className="shrink-0" aria-label={t("Close preview")} icon={<RemixIcon name="close-line" size={16} />} />} />
+          </div>
         </div>
-        <DialogMedia key={url} url={url} kind={kind} name={name} />
+        {addFailed && <p role="alert" className="shrink-0 px-3 pb-2 text-step-12 text-danger-ink">{t("Failed to add media")}</p>}
+        <DialogMedia key={`${kind}:${url}`} url={url} kind={kind} name={name} />
       </Dialog.Popup>
     </Dialog.Portal>
   </Dialog.Root>;
 }
 
 function DialogMedia({ url, kind, name }: { url: string; kind: "video" | "audio" | "image"; name: string }) {
+  const audioMode = kind === "audio";
   const { t } = useI18n();
   const media = useRef<HTMLMediaElement | null>(null);
   const [time, setTime] = useState(0);
@@ -61,26 +91,29 @@ function DialogMedia({ url, kind, name }: { url: string; kind: "video" | "audio"
     onError: () => setFailed(true),
   };
   return <>
-    <div className="mx-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-[var(--motion-inset)]">
+    <div className={`${audioMode ? "motion-audio-preview-surface " : ""}mx-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-[var(--motion-inset)]`}>
       {failed ? <p role="alert" className="text-step-12 text-text-2">{t("Preview failed to load")}</p>
         : kind === "image" ? <img src={url} alt={name} onError={() => setFailed(true)} className="h-full w-full object-contain" />
         : kind === "video" ? <video ref={node => { media.current = node; }} src={url} autoPlay playsInline muted={muted} loop={loop} disablePictureInPicture aria-label={name} className="h-full w-full object-contain" {...events} />
-        : <><RemixIcon name="music-2-line" size={48} /><audio ref={node => { media.current = node; }} src={url} autoPlay muted={muted} loop={loop} {...events} /></>}
+        : <audio ref={node => { media.current = node; }} src={url} autoPlay muted={muted} loop={loop} aria-label={name} {...events} />}
+      {!failed && audioMode && <AudioPreviewWaveform media={media} playing={playing} />}
     </div>
-    {kind !== "image" ? <div className="motion-player-controls motion-player-responsive shrink-0 px-3 pb-2">
+    {kind !== "image" ? <div className={`${audioMode ? "motion-audio-preview-controls " : ""}motion-player-controls motion-player-responsive shrink-0 px-3 pb-2`}>
       <input type="range" min={0} max={duration} step="any" value={Math.min(time, duration)} disabled={!duration || failed}
         aria-label={t("Seek preview")} data-studio-control="seek-preview" className="w-full"
         style={{ "--preview-progress": `${duration ? time / duration * 100 : 0}%` } as CSSProperties}
         onChange={event => { if (media.current) { media.current.currentTime = event.currentTarget.valueAsNumber; setTime(media.current.currentTime); } }} />
-      <div className="motion-player-control-row">
+      <div className={audioMode ? "motion-player-control-row motion-player-control-row-lg" : "motion-player-control-row"}>
         <span className="whitespace-nowrap font-mono text-[11px] tabular-nums text-text-2">{formatTime(time)} / {formatTime(duration)}</span>
         <Tooltip label={t(playing ? "Pause" : "Play")}><button type="button" aria-label={t(playing ? "Pause" : "Play")} onClick={toggle} disabled={failed}
-          className="flex h-7 w-8 items-center justify-center justify-self-center rounded-md hover:bg-hover disabled:opacity-30"><RemixIcon name={playing ? "pause-fill" : "play-fill"} size={20} /></button></Tooltip>
+          className={`${audioMode ? "motion-audio-preview-play " : ""}flex h-7 w-8 items-center justify-center justify-self-center rounded-md hover:bg-hover disabled:opacity-30`}><RemixIcon name={playing ? "pause-fill" : "play-fill"} size={20} /></button></Tooltip>
         <div className="motion-player-secondary flex min-w-0 items-center justify-self-end">
           <VolumeControl audioVolume={volume} audioMuted={muted} setAudioVolume={setVolume} setAudioMuted={setMuted} disabled={failed} />
-          <SpeedMenu playbackRate={rate} setPlaybackRate={setRate} disabled={failed} />
-          <Tooltip label={t(loop ? "Disable loop playback" : "Enable loop playback")}><button type="button" aria-label={t(loop ? "Disable loop playback" : "Enable loop playback")} aria-pressed={loop} onClick={() => setLoop(!loop)} disabled={failed}
-            className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover"><RemixIcon name="repeat-line" size={16} /></button></Tooltip>
+          <span className="flex items-center gap-[inherit]">
+            <SpeedMenu playbackRate={rate} setPlaybackRate={setRate} disabled={failed} />
+            <Tooltip label={t(loop ? "Disable loop playback" : "Enable loop playback")}><button type="button" aria-label={t(loop ? "Disable loop playback" : "Enable loop playback")} aria-pressed={loop} onClick={() => setLoop(!loop)} disabled={failed}
+              className="flex h-7 w-7 items-center justify-center rounded-md hover:bg-hover"><RemixIcon name="repeat-line" size={16} /></button></Tooltip>
+          </span>
         </div>
       </div>
     </div> : <div className="h-3 shrink-0" />}

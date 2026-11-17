@@ -5,10 +5,11 @@ import { transport } from './http.ts';
 import { handler } from '../server.ts';
 import { Readable, Writable } from 'node:stream';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { readdir } from 'node:fs/promises';
 
 test('wrapper serves the locally built Motion editor and hides local source/runtime files', () => fixture(async store => {
   const request = transport(store);
-  const html = await (await request('/')).text(); assert.match(html, /OpenDesign/);
+  const html = await (await request('/')).text(); assert.match(html, /data-motion-studio/);
   assert.doesNotMatch(html, /<iframe/);
   const script = html.match(/src="(\/editor-assets\/[^\"]+\.js)"/)![1];
   const module = await request(script); assert.equal(module.status, 200);
@@ -16,6 +17,10 @@ test('wrapper serves the locally built Motion editor and hides local source/runt
   for (const url of ['/workspace.ts', '/.motion-data/project/index.html', '/node_modules/hyperframes/package.json', '/web/render.ts', '/studio/src/main.tsx', '/web/app.ts']) assert.equal((await request(url)).status, 404);
   assert.equal((await request('/web/design-system/fonts.css')).status, 200);
   assert.equal((await request('/design-system')).status, 200);
+  const png = (await readdir(new URL('../studio/build/editor-assets/', import.meta.url))).find(file => file.endsWith('.png'))!;
+  assert(png, 'The bundle contains the Kimi brand fallback');
+  const image = await request('/editor-assets/' + png);
+  assert.equal(image.status, 200); assert.equal(image.headers.get('content-type'), 'image/png');
   assert.equal((await request('/api/studio')).status, 503);
 }));
 test('HTTP source writes use the same revision contract and reject stale saves', () => fixture(async store => {
@@ -27,6 +32,18 @@ test('HTTP source writes use the same revision contract and reject stale saves',
   assert.equal((await store.readFile('notes.md')).content, 'HTTP edit');
   const health = await (await request('/api/health')).json();
   assert.equal(health.protocol, 2); assert.equal(health.engine, 'hyperframes'); assert.equal(health.dataDirectory, store.directory); assert.equal(health.ready, false);
+}));
+test('settings and MCP bookmarks load independently of an unavailable native project', () => fixture(async store => {
+  let attempts = 0;
+  const request = transport(store, { ensureStudio: async () => { attempts++; throw new Error('Native project unavailable'); } });
+  for (const route of ['/?page=mcp&host=claude&project=project', '/?page=settings&section=appearance&session=project']) {
+    const response = await request(route);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /data-motion-studio/);
+  }
+  assert.equal(attempts, 0);
+  assert.equal((await request('/?project=project')).status, 400);
+  assert.equal(attempts, 1);
 }));
 test('wrapper rejects cross-origin mutations and DNS rebinding hosts', () => fixture(async store => {
   for (const headers of [ { host: 'localhost:4173', origin: 'https://remote.example' }, { host: 'evil.example', origin: 'http://evil.example' } ]) {

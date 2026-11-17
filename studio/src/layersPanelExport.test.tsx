@@ -95,6 +95,7 @@ it("lists, selects and reorders the host's preview layers through the host's ses
   await act(async () => rows[0]!.click());
   expect(session.applyDomSelection).toHaveBeenCalledWith(
     expect.objectContaining({ element: doc.getElementById("title") }),
+    { revealPanel: false },
   );
 
   await dragBackRowToFront();
@@ -144,10 +145,11 @@ it("puts a caret only on a group's row and starts each child's icon where its pa
     (l) => byLabel(l).querySelector("[data-layer-kind]")!.innerHTML,
   );
   expect(new Set(icons).size).toBe(4);
-  for (const row of rows.filter((r) => r.title)) {
-    expect(row.querySelector<HTMLElement>("[data-layer-kind]")!.title).toContain(row.title);
+  for (const row of rows) {
+    expect(row.hasAttribute("title")).toBe(false);
+    expect(row.querySelector<HTMLElement>("[data-layer-kind]")!.hasAttribute("title")).toBe(false);
   }
-  expect(byLabel("Title").firstElementChild?.hasAttribute("data-layer-kind")).toBe(true);
+  expect(byLabel("Title").querySelector('button[aria-label="Collapse children"]')).toBeNull();
   expect(byLabel("Intro").firstElementChild?.getAttribute("aria-label")).toBe("Collapse children");
   expect(
     ["Title", "Intro", "Logo", "Inner", "Mark"].map((l) => byLabel(l).style.paddingLeft),

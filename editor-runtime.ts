@@ -1,3 +1,5 @@
+import { publicToolName, legacyToolName } from './shared/public-names.mjs';
+import { createConnection } from 'node:net';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { fstatSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -8,7 +10,6 @@ import { WorkspaceStore, Conflict } from './workspace.ts';
 import { isMain } from './shared/entry.ts';
 import { templateConfig } from './shared/template-config.ts';
 import { phase1McpCapabilities, supportsPhase1Tool } from './shared/phase1-tools.ts';
-import { trackingReleaseEnabled } from './tracking/node.ts';
 
 export const sharedEditorEnabled = process.platform === 'darwin';
 const root = fileURLToPath(new URL('./', import.meta.url));
@@ -17,9 +18,25 @@ const runtimeFiles = ['package-lock.json', 'scripts/npm-runtime.mjs', 'scripts/r
   ...['shared', 'gateway'].flatMap(folder => readdirSync(path.join(root, folder)).filter(file => /\.(ts|mjs|pl|json)$/.test(file)).map(file => folder + '/' + file))].sort();
 export const editorBuild = createHash('sha256').update(runtimeFiles.map(file => file + '\n' + readFileSync(path.join(root, file))).join('\n')).update(JSON.stringify(templateConfig())).digest('hex');
 const service = 'opendesign-editor', protocol = 1;
-export type EditorRegistry = { service: string; protocol: number; version: string; build: string; instanceId: string; pid: number; dataDirectory: string; endpoint: string; token: string };
+export type EditorRegistry = { service: string; protocol: number; version: string; build: string; instanceId: string; pid: number; dataDirectory: string; endpoint: string; token: string; mcp?: { protocol: number; tools: string[] } };
 export type Selection = { projectId?: string | null; sessionId?: string };
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// WorkBuddy gives each broker session its own local IPC address.
+function brokerIdentity(address: string | undefined) {
+  return address ? createHash('sha256').update(address).digest('hex') : undefined;
+}
+function brokerReachable(address: string): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection({ path: address });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT' || error.code === 'ECONNREFUSED') resolve(false);
+      else reject(Object.assign(error, { terminal: true }));
+    });
+    socket.setTimeout(1000, () => socket.destroy(new Error('Broker connection timed out')));
+  });
+}
 
 export async function editorDirectory(directory: string) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -48,6 +65,9 @@ export async function editorRequest(registry: EditorRegistry, route: string, bod
 }
 export async function ensureEditor(directory: string, mcpTool?: string): Promise<EditorRegistry> {
   const { data, runtime } = await editorDirectory(directory);
+  const broker = process.env.CODEBUDDY_SANDBOX_BROKER_IPC_ADDRESS;
+  const brokerId = brokerIdentity(broker);
+  let retiring: string | undefined;
   let launcher: ReturnType<typeof spawn> | undefined;
   for (let attempt = 0; attempt < 600; attempt++) {
     const registry = await readEditor(data);
@@ -55,17 +75,24 @@ export async function ensureEditor(directory: string, mcpTool?: string): Promise
       try {
         const health = await editorRequest(registry, '/editor-api/health', undefined, 1200);
         if (health.service !== service || health.dataDirectory !== data || health.instanceId !== registry.instanceId) throw Object.assign(new Error('编辑器实例身份不匹配'), { terminal: true });
-        // Test clients must not execute through a stable authority that can report their actions.
-        const sameReleasePolicy = trackingReleaseEnabled(health.version) === trackingReleaseEnabled(version);
-        const compatible = sameReleasePolicy && (mcpTool ? supportsPhase1Tool(health, mcpTool) : health.version === version && health.build === editorBuild);
+        const compatible = mcpTool ? supportsPhase1Tool(health, mcpTool) : health.version === version && health.build === editorBuild;
         if (health.protocol !== protocol || !compatible) throw Object.assign(
-          new Error('Editor runtime incompatible. Reconnect the Motion MCP connection to the installed runtime and compare the expected and actual versions/builds. Stop an older editor only after confirming it is idle; do not bypass MCP or switch workspaces to continue.'),
+          new Error('Editor runtime incompatible. Reconnect the OpenMotion MCP connection to the installed runtime and compare the expected and actual versions/builds. Stop an older editor only after confirming it is idle; do not bypass MCP or switch workspaces to continue.'),
           { terminal: true, code: 'EDITOR_RUNTIME_INCOMPATIBLE', details: {
             dataDirectory: data, expected: { protocol, version, build: editorBuild },
             actual: { protocol: health.protocol, version: health.version, build: health.build },
           } },
         );
-        return { ...registry, version: health.version, build: health.build };
+        if (broker && health.brokerId && health.brokerId !== brokerId) {
+          if (retiring !== registry.instanceId) {
+            if (!await brokerReachable(broker)) throw Object.assign(new Error('Current WorkBuddy broker is unavailable'), { terminal: true });
+            await editorRequest(registry, '/editor-api/retire-broker', {});
+            retiring = registry.instanceId;
+          }
+          await pause(100);
+          continue;
+        }
+        return { ...registry, version: health.version, build: health.build, mcp: health.mcp };
       } catch (error) { if ((error as any).terminal || (error as any).status) throw error; }
     }
     if (!launcher || launcher.exitCode !== null || launcher.signalCode !== null) {
@@ -104,7 +131,9 @@ export async function serveEditor(directory: string) {
   if (held.dev !== lock.dev || held.ino !== lock.ino) throw new Error('请通过共享编辑器启动器运行后台');
   const store = new WorkspaceStore(data), token = randomBytes(32).toString('hex'), instanceId = randomUUID();
   // All production macOS writers enter this authority; stale private workspace locks died with the old owner.
-  await rm(path.join(data, 'workspace.lock'), { force: true });
+  const legacyLock = path.join(data, 'workspace.lock');
+  const legacy = await lstat(legacyLock).catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
+  if (legacy?.isFile() && legacy.size === 0) await rm(legacyLock);
   const previous = await store.job();
   if (previous && ['pending', 'running', 'cancelling'].includes(previous.state)) {
     previous.state = 'failed'; previous.error = 'Editor restarted; this export was interrupted and was not replayed';
@@ -113,9 +142,19 @@ export async function serveEditor(directory: string) {
   const { startServer } = await import('./server.ts');
   const { callTool, tools } = await import('./mcp-tools.ts');
   const { stopCommands } = await import('./hyperframes.ts');
-  const identity = () => ({ service, protocol, version, build: editorBuild, instanceId, pid: process.pid, dataDirectory: data, mcp: phase1McpCapabilities });
+  const broker = process.env.CODEBUDDY_SANDBOX_BROKER_IPC_ADDRESS;
+  const brokerId = brokerIdentity(broker);
+  const identity = () => ({ brokerId, service, protocol, version, build: editorBuild, instanceId, pid: process.pid, dataDirectory: data, mcp: phase1McpCapabilities });
   let active = 0, stopping = false, queue = Promise.resolve();
-  const running = await startServer(store, 0, { editor: false, editorToken: token, privateHandler: async (req, res) => {
+  const portFile = path.join(runtime, 'editor-port');
+  let preferredPort = 0;
+  try {
+    const saved = Number((await readFile(portFile, 'utf8')).trim());
+    if (Number.isInteger(saved) && saved >= 1024 && saved <= 65535) preferredPort = saved;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  const running = await startServer(store, preferredPort, { fallbackIfPortBusy: true, editor: false, editorToken: token, privateHandler: async (req, res) => {
     if (!req.url?.startsWith('/editor-api/')) return false;
     const json = (status: number, value: unknown) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)); };
     try {
@@ -123,7 +162,9 @@ export async function serveEditor(directory: string) {
       if (!['localhost', '127.0.0.1'].includes(host.hostname) || host.port !== String(running.server.address() && (running.server.address() as any).port) || req.headers.origin) { json(403, { error: '仅允许本机私有调用' }); return true; }
       if (req.headers.authorization !== `Bearer ${token}`) { json(401, { error: '需要编辑器凭据' }); return true; }
       if (req.method === 'GET' && req.url === '/editor-api/health') { json(200, identity()); return true; }
-      if (req.method === 'POST' && req.url === '/editor-api/shutdown') {
+      if (req.method === 'POST' && (req.url === '/editor-api/shutdown' || req.url === '/editor-api/retire-broker')) {
+        if (stopping) { json(200, { stopping: true }); return true; }
+        if (req.url === '/editor-api/retire-broker' && (!broker || await brokerReachable(broker))) { json(409, { error: 'Editor belongs to another active WorkBuddy session' }); return true; }
         const job = await store.job();
         const { gatewayFor } = await import('./gateway/service.ts');
         const busy = (await gatewayFor(store).listJobs()).some(item => ['queued', 'running'].includes(item.state));
@@ -145,7 +186,8 @@ export async function serveEditor(directory: string) {
       }
       active++;
       const work = queue.catch(() => {}).then(async () => {
-        const tool = tools.find(item => item.name === body.name);
+        body.name = legacyToolName(body.name);
+        const tool = tools.find(item => item.name === publicToolName(body.name));
         if (!tool || !body.arguments || typeof body.arguments !== 'object' || Array.isArray(body.arguments) || Object.keys(body.arguments).some(key => !Object.hasOwn(tool.inputSchema.properties, key))) throw new Error('工具或参数无效');
         if (body.arguments.projectId !== undefined && typeof body.arguments.projectId !== 'string') throw new Error('工程编号无效');
         if (body.selection !== undefined && (!body.selection || typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).some(key => !['projectId', 'sessionId'].includes(key)))) throw new Error('连接上下文无效');
@@ -173,7 +215,10 @@ export async function serveEditor(directory: string) {
     } catch (error) { json(error instanceof Conflict ? 409 : 400, { error: (error as Error).message, code: error instanceof Conflict ? 'REVISION_CONFLICT' : 'EDITOR_ERROR' }); }
     return true;
   } });
-  const endpoint = `http://127.0.0.1:${(running.server.address() as any).port}/`;
+  const port = (running.server.address() as { port: number }).port;
+  await writeFile(portFile + '.tmp', String(port), { mode: 0o600 });
+  await rename(portFile + '.tmp', portFile);
+  const endpoint = `http://127.0.0.1:${port}/`;
   const registry = { ...identity(), endpoint, token }, temporary = path.join(runtime, `runtime.${randomUUID()}.tmp`);
   await writeFile(temporary, JSON.stringify(registry), { mode: 0o600 }); await rename(temporary, path.join(runtime, 'runtime.json'));
   await appendFile(path.join(runtime, 'starts.jsonl'), JSON.stringify(identity()) + '\n', { mode: 0o600 });

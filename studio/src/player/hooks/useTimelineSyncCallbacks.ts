@@ -8,6 +8,7 @@
  *  - onIframeLoad             — orchestrates initializeAdapter with a message-based fallback
  */
 
+import { appendUntimedText } from "../lib/timelineUntimedText";
 import { useCallback, useRef } from "react";
 import { liveTime, usePlayerStore } from "../store/playerStore";
 import type { TimelineElement } from "../store/playerStore";
@@ -192,7 +193,8 @@ export function useTimelineSyncCallbacks({
         // cross-origin or __clipTree not available — maps stay empty
       }
 
-      const els = buildTimelineElementsFromClips(filtered, iframeDoc);
+      const els = appendUntimedText(iframeDoc, buildTimelineElementsFromClips(filtered, iframeDoc),
+        readTimelineDurationFromDocument(iframeDoc) || data.durationInFrames / acceptedRuntimeMessageFps(data));
       // Clamp non-finite or absurdly large durations — the runtime can emit
       // Infinity when it detects a loop-inflated GSAP timeline without an
       // explicit data-duration on the root composition. Floor the manifest total

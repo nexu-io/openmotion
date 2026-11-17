@@ -1,5 +1,8 @@
 /**
- * `studio_transform`: move, resize and rotate, as a drag would.
+ * `openmotion_studio_transform`: move, resize and rotate, as a drag would.
+ *
+ * Retained but not registered as page tools in this surface; see the retention
+ * note in `../useStudioAgentTools.ts`. The function stays callable and tested.
  *
  * This tool reads the element's box back after every write and reports what
  * ACTUALLY changed. That is not belt-and-braces, it is the only thing standing
@@ -80,7 +83,7 @@ export interface StudioTransformResult {
 }
 
 const NO_OP_HINT =
-  "Move and rotate are written as GSAP code; a composition with no GSAP timeline has nothing to write to. studio_inspect reports the element's animations.";
+  "Move and rotate are written as GSAP code; a composition with no GSAP timeline has nothing to write to. openmotion_studio_inspect reports the element's animations.";
 
 function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -339,7 +342,7 @@ function outcomeFailure(reason: string): ToolFailure {
 export const STUDIO_TRANSFORM_INPUT_SCHEMA = {
   type: "object",
   properties: {
-    handle: { type: "string", description: "A source-safe element handle from studio_look." },
+    handle: { type: "string", description: "A source-safe element handle from openmotion_studio_look." },
     x: { type: "number", description: "New x offset in pixels. Must be paired with y." },
     y: { type: "number", description: "New y offset in pixels. Must be paired with x." },
     width: { type: "number", minimum: 0, description: "New width. Must be paired with height." },
@@ -351,7 +354,7 @@ export const STUDIO_TRANSFORM_INPUT_SCHEMA = {
 } as const;
 
 export const STUDIO_TRANSFORM_DESCRIPTION = [
-  "Move, resize or rotate one element using its source-safe handle from studio_look.",
+  "Move, resize or rotate one element using its source-safe handle from openmotion_studio_look.",
   "Give x with y, and width with height.",
   "The result's `box` is READ BACK after the write, not echoed from your request, and",
   "`applied` lists what actually took effect. Check it.",

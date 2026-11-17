@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { TIMELINE_ASSET_MIME, TIMELINE_BLOCK_MIME } from "../../utils/timelineAssetDrop";
+import { parseTimelineAssetPayload, TIMELINE_ASSET_MIME, TIMELINE_BLOCK_MIME } from "../../utils/timelineAssetDrop";
 import {
   parseTimelineCompositionPayload,
   TIMELINE_COMPOSITION_MIME,
@@ -10,6 +10,7 @@ import {
   type TimelineRowGeometry,
 } from "./timelineLayout";
 import { resolveInsertRow } from "./timelineCollision";
+import { isPendingTimelineRow } from "./timelinePendingRows";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { collectTimelineSnapTargets, snapTimelineTime, TIMELINE_SNAP_PX } from "./timelineSnapping";
 import type { TimelineDropCallbacks, TimelineDropPlacement } from "./timelineCallbacks";
@@ -60,24 +61,28 @@ export function resolveDropInsertRow(
   contentY: number,
   rowHeights: readonly number[] | undefined,
   trackCount: number,
+  rowGeometry?: TimelineRowGeometry,
 ): number | null {
   if (trackCount === 0) return null;
-  const rowFloat = getTimelineRowFromY(contentY, rowHeights);
+  const rowFloat = rowGeometry?.getRowFromY(contentY) ?? getTimelineRowFromY(contentY, rowHeights);
   // Past the last lane the drop already appends a track (getDefaultDroppedTrack).
   if (rowFloat >= trackCount) return null;
   return resolveInsertRow(rowFloat, trackCount);
 }
+
+const dropSnapTargets = new WeakMap<readonly TimelineElement[], ReturnType<typeof collectTimelineSnapTargets>>();
 
 function alignDropStart(
   placement: TimelineDropPlacement,
   elements: readonly TimelineElement[],
   pixelsPerSecond: number,
 ): TimelineDropPlacement {
-  const laneHasClips =
-    placement.insertRow == null && elements.some((el) => el.track === placement.track);
-  if (!laneHasClips) return { ...placement, start: 0 };
   if (!usePlayerStore.getState().timelineSnapEnabled) return placement;
-  const targets = collectTimelineSnapTargets({ elements, playheadTime: null, beatTimes: [] });
+  let targets = dropSnapTargets.get(elements);
+  if (!targets) {
+    targets = collectTimelineSnapTargets({ elements, playheadTime: null, beatTimes: [] });
+    dropSnapTargets.set(elements, targets);
+  }
   const threshold = TIMELINE_SNAP_PX / Math.max(pixelsPerSecond, 1);
   return { ...placement, start: snapTimelineTime(placement.start, targets, threshold).time };
 }
@@ -93,7 +98,7 @@ function placeDrop(
   const placement = resolveTimelineAssetDrop(geometry, clientX, clientY);
   const contentY = clientY - geometry.rectTop + geometry.scrollTop;
   const insertRow = canInsertTrack
-    ? resolveDropInsertRow(contentY, geometry.rowHeights, geometry.trackOrder.length)
+    ? resolveDropInsertRow(contentY, geometry.rowHeights, geometry.trackOrder.length, geometry.rowGeometry)
     : null;
   const aimed =
     insertRow == null ? placement : { ...placement, insertRow, trackOrder: geometry.trackOrder };
@@ -137,8 +142,8 @@ function applyTypedJsonDrop(
 }
 
 /**
- * Dropping an asset/file/block/composition places it on the row at 0 on an empty lane, else at
- * the pointer snapped to a near clip edge; an asset moves to that row's nearest free time.
+ * Dropping an asset/file/block/composition places it at the pointer on every row,
+ * snapped to a near clip edge; an asset moves to that row's nearest free time.
  * Supersedes the prior playhead decision (#2291); see useAddAssetAtPlayhead.
  */
 export function useTimelineAssetDrop({
@@ -157,50 +162,22 @@ export function useTimelineAssetDrop({
 }: UseTimelineAssetDropOptions) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [dropPreview, setDropPreview] = useState<TimelineDropPlacement | null>(null);
-  const dragPointerRef = useRef<{ clientX: number; clientY: number; sessionEpoch: number } | null>(
+  const dragPointerRef = useRef<{ clientX: number; clientY: number; sessionEpoch: number; canInsertTrack: boolean } | null>(
     null,
   );
   const autoScrollRafRef = useRef(0);
+  const previewRafRef = useRef(0);
   const activeDropEpochRef = useRef<number | null>(null);
   const refusedDragRef = useRef(false);
+  const pendingRowRef = useRef(false);
 
   const stopAutoScroll = useCallback(() => {
     dragPointerRef.current = null;
     if (autoScrollRafRef.current) cancelAnimationFrame(autoScrollRafRef.current);
     autoScrollRafRef.current = 0;
+    if (previewRafRef.current) cancelAnimationFrame(previewRafRef.current);
+    previewRafRef.current = 0;
   }, []);
-
-  const stepAutoScroll = useCallback(
-    function stepAutoScroll() {
-      autoScrollRafRef.current = 0;
-      const pointer = dragPointerRef.current;
-      const scroll = scrollRef.current;
-      if (!pointer || pointer.sessionEpoch !== sessionEpoch || !scroll) return;
-      if (!applyTimelineAutoScrollStep(scroll, pointer.clientX, pointer.clientY)) return;
-      autoScrollRafRef.current = requestAnimationFrame(stepAutoScroll);
-    },
-    [scrollRef, sessionEpoch],
-  );
-
-  const syncAutoScroll = useCallback(
-    (clientX: number, clientY: number) => {
-      dragPointerRef.current = { clientX, clientY, sessionEpoch };
-      const scroll = scrollRef.current;
-      const action = resolveTimelineAutoScrollLoopAction(
-        scroll,
-        clientX,
-        clientY,
-        autoScrollRafRef.current !== 0,
-      );
-      if (action === "stop") {
-        cancelAnimationFrame(autoScrollRafRef.current);
-        autoScrollRafRef.current = 0;
-      } else if (action === "start") {
-        autoScrollRafRef.current = requestAnimationFrame(stepAutoScroll);
-      }
-    },
-    [scrollRef, sessionEpoch, stepAutoScroll],
-  );
 
   const resolveDropPlacement = useCallback(
     (clientX: number, clientY: number, canInsertTrack: boolean): TimelineDropPlacement => {
@@ -215,6 +192,7 @@ export function useTimelineAssetDrop({
           contentOrigin,
           pixelsPerSecond: ppsRef.current,
           rowHeights: rowGeometryRef.current.rowHeights,
+          rowGeometry: rowGeometryRef.current,
           trackOrder: trackOrderRef.current,
         },
         elementsRef.current,
@@ -224,6 +202,53 @@ export function useTimelineAssetDrop({
       );
     },
     [scrollRef, ppsRef, trackOrderRef, elementsRef, rowGeometryRef, contentOrigin],
+  );
+
+  const updatePreview = useCallback(() => {
+    const pointer = dragPointerRef.current;
+    if (!pointer || pointer.sessionEpoch !== sessionEpoch) return;
+    const next = resolveDropPlacement(pointer.clientX, pointer.clientY, pointer.canInsertTrack);
+    pendingRowRef.current = isPendingTimelineRow(next.track, elementsRef.current);
+    if (pendingRowRef.current) {
+      setDropPreview(null);
+      return;
+    }
+    setDropPreview(prev =>
+      prev?.start === next.start && prev.track === next.track && prev.insertRow === next.insertRow
+        ? prev : next,
+    );
+  }, [resolveDropPlacement, sessionEpoch, elementsRef]);
+
+  const stepAutoScroll = useCallback(
+    function stepAutoScroll() {
+      autoScrollRafRef.current = 0;
+      const pointer = dragPointerRef.current;
+      const scroll = scrollRef.current;
+      if (!pointer || pointer.sessionEpoch !== sessionEpoch || !scroll) return;
+      if (!applyTimelineAutoScrollStep(scroll, pointer.clientX, pointer.clientY)) return;
+      updatePreview();
+      autoScrollRafRef.current = requestAnimationFrame(stepAutoScroll);
+    },
+    [scrollRef, sessionEpoch, updatePreview],
+  );
+
+  const syncAutoScroll = useCallback(
+    (clientX: number, clientY: number) => {
+      const scroll = scrollRef.current;
+      const action = resolveTimelineAutoScrollLoopAction(
+        scroll,
+        clientX,
+        clientY,
+        autoScrollRafRef.current !== 0,
+      );
+      if (action === "stop") {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = 0;
+      } else if (action === "start") {
+        autoScrollRafRef.current = requestAnimationFrame(stepAutoScroll);
+      }
+    },
+    [scrollRef, stepAutoScroll],
   );
 
   const handleAssetDragOver = useCallback(
@@ -242,22 +267,30 @@ export function useTimelineAssetDrop({
       }
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
+      const first = activeDropEpochRef.current !== sessionEpoch;
       activeDropEpochRef.current = sessionEpoch;
-      setIsDragOver(true);
-      const next = resolveDropPlacement(e.clientX, e.clientY, canInsertTrackFor(types));
-      setDropPreview((prev) =>
-        prev?.start === next.start && prev.track === next.track && prev.insertRow === next.insertRow
-          ? prev
-          : next,
-      );
-      syncAutoScroll(e.clientX, e.clientY);
+      dragPointerRef.current = { clientX: e.clientX, clientY: e.clientY, sessionEpoch, canInsertTrack: canInsertTrackFor(types) };
+      if (first) {
+        setIsDragOver(true);
+        updatePreview();
+        syncAutoScroll(e.clientX, e.clientY);
+      } else if (!previewRafRef.current) {
+        previewRafRef.current = requestAnimationFrame(() => {
+          previewRafRef.current = 0;
+          updatePreview();
+          const pointer = dragPointerRef.current;
+          if (pointer) syncAutoScroll(pointer.clientX, pointer.clientY);
+        });
+      }
+      e.dataTransfer.dropEffect = pendingRowRef.current ? "none" : "copy";
     },
-    [readOnlyPress, resolveDropPlacement, sessionEpoch, syncAutoScroll],
+    [readOnlyPress, updatePreview, sessionEpoch, syncAutoScroll],
   );
 
   const clearDropPreview = useCallback(() => {
     activeDropEpochRef.current = null;
     refusedDragRef.current = false;
+    pendingRowRef.current = false;
     stopAutoScroll();
     setIsDragOver(false);
     setDropPreview(null);
@@ -280,6 +313,7 @@ export function useTimelineAssetDrop({
       if (!canCommit) return;
       const types = Array.from(e.dataTransfer.types);
       const placement = resolveDropPlacement(e.clientX, e.clientY, canInsertTrackFor(types));
+      if (isPendingTimelineRow(placement.track, elementsRef.current)) return;
 
       const compositionPayload = parseTimelineCompositionPayload(
         e.dataTransfer.getData(TIMELINE_COMPOSITION_MIME),
@@ -289,10 +323,17 @@ export function useTimelineAssetDrop({
         return;
       }
 
-      if (applyFileDrop(e.dataTransfer, onFileDrop, placement)) return;
-      if (applyTypedJsonDrop(e.dataTransfer, TIMELINE_ASSET_MIME, "path", onAssetDrop, placement)) {
+      // Dragging an asset thumbnail can also expose a browser-generated File.
+      // Reuse the explicit project asset instead of uploading that file again.
+      const asset = types.includes(TIMELINE_ASSET_MIME)
+        ? parseTimelineAssetPayload(e.dataTransfer.getData(TIMELINE_ASSET_MIME)) : null;
+      if (asset && onAssetDrop) {
+        invokeDropCallback(() => asset.duration == null
+          ? onAssetDrop(asset.path, placement)
+          : onAssetDrop(asset.path, placement, asset.duration));
         return;
       }
+      if (applyFileDrop(e.dataTransfer, onFileDrop, placement)) return;
       applyTypedJsonDrop(e.dataTransfer, TIMELINE_BLOCK_MIME, "name", onBlockDrop, placement);
     },
     [
@@ -302,6 +343,7 @@ export function useTimelineAssetDrop({
       onCompositionDrop,
       onFileDrop,
       resolveDropPlacement,
+      elementsRef,
       sessionEpoch,
     ],
   );

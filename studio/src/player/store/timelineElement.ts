@@ -41,6 +41,8 @@ export interface TimelineElement {
   parentCompositionId?: string | null;
   /** Composition ancestry from root to nearest parent, matching RuntimeTimelineClip. */
   compositionAncestors?: string[];
+  /** Untimed root text discovered as a full-composition clip; materialized on edit. */
+  implicitTextTiming?: boolean;
   domId?: string;
   /** Stable `data-hf-id` attribute value — used as primary patch target when present */
   hfId?: string;

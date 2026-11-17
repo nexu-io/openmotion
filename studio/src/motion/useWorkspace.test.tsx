@@ -3,6 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { useWorkspace } from './useWorkspace';
+import { I18nProvider, useI18n } from '../i18n/I18n';
+import { languages, translate } from '../i18n/messages';
 
 const first = '11111111-1111-1111-1111-111111111111';
 const second = '22222222-2222-2222-2222-222222222222';
@@ -23,11 +25,73 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetcher);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-async function mount(wait: () => Promise<void>, projectId?: string, sessionId?: string) {
-  function Harness() { workspace = useWorkspace(wait, projectId, sessionId); return null; }
+async function mount(wait: () => Promise<void>, projectId?: string, sessionId?: string, onNavigate?: (url: string, replace?: boolean) => void) {
+  function Harness() { workspace = useWorkspace(wait, projectId, sessionId, onNavigate); return null; }
   await act(async () => root.render(<Harness />));
 }
 const writes = () => fetcher.mock.calls.filter(call => call[1]?.method === 'POST');
+
+it('keeps drafts and mixed sessions in recent conversations but hides sessions with only trashed projects', async () => {
+  const live = { id: first, title: 'Live' }, removed = { id: second, title: 'Removed', trashedAt: 10 };
+  const other = { id: 'third', title: 'Also removed', trashedAt: 20 };
+  const artifact = ({ id: projectId, title }: typeof live) => ({ id: projectId, projectId, title, kind: 'motion-project' });
+  const sessions = [
+    { id: 'mixed', title: 'Mixed', mode: 'motion', artifacts: [artifact(removed), artifact(live)], activeArtifactId: second },
+    { id: 'hidden', title: 'Hidden', mode: 'motion', artifacts: [artifact(other)], activeArtifactId: other.id },
+    { id: 'draft', title: 'Draft', mode: 'motion', artifacts: [] },
+  ];
+  let projects = [live, removed, other];
+  fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects') ? { projects, sessions } : status));
+  await mount(async () => {}, first, 'mixed');
+  expect(workspace.sessions.map(session => session.id)).toEqual(['mixed', 'draft']);
+  expect(workspace.session?.artifacts.map(item => item.projectId)).toEqual([first]);
+  expect(workspace.session?.activeArtifactId).toBe(first);
+  projects = [live, removed, { id: other.id, title: other.title, trashedAt: undefined }];
+  await act(async () => workspace.retryConnection());
+  expect(workspace.sessions.map(session => session.id)).toEqual(['mixed', 'hidden', 'draft']);
+});
+
+it('preserves the saved catalog order when project metadata changes', async () => {
+  let projects = [
+    { id: second, title: 'Second', createdAt: 200, openedAt: 200 },
+    { id: first, title: 'First', createdAt: 200, openedAt: 100 },
+    { id: 'project', title: 'Legacy project', openedAt: 9999 },
+  ];
+  fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects') ? { projects } : status));
+  await mount(async () => {}, first);
+  expect(workspace.projects.map(project => project.id)).toEqual([second, first, 'project']);
+  projects = projects.map(project => ({ ...project, title: 'Renamed ' + project.title, openedAt: project.id === first ? 20000 : 1 }));
+  await act(async () => workspace.retryConnection());
+  expect(workspace.projects.map(project => project.id)).toEqual([second, first, 'project']);
+  projects.unshift({ id: 'new', title: 'Newest', createdAt: 300, openedAt: 0 });
+  await act(async () => workspace.retryConnection());
+  expect(workspace.projects.map(project => project.id)).toEqual(['new', second, first, 'project']);
+});
+
+it('switches the default project label in all interface languages without saving or translating custom names', async () => {
+  let locale: ReturnType<typeof useI18n>;
+  let custom = false;
+  fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects') ? {
+    activeId: 'project', projects: [
+      { id: 'project', title: 'OpenMotion 示例短片', titleKey: custom ? null : 'OpenMotion Sample Video' },
+      { id: second, title: 'OpenMotion 示例短片' },
+    ],
+  } : { ...status, projectId: 'project' }));
+  const wait = async () => {};
+  function Harness() { locale = useI18n(); workspace = useWorkspace(wait, 'project'); return null; }
+  await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><Harness /></I18nProvider>));
+  for (const { locale: language } of languages) {
+    act(() => locale.setLocale(language));
+    expect(workspace.projects[0].title).toBe(translate(language, 'OpenMotion Sample Video'));
+    if (language !== 'en') expect(workspace.projects[0].title).not.toBe('OpenMotion Sample Video');
+    expect(workspace.projects[1].title).toBe('OpenMotion 示例短片');
+  }
+  custom = true;
+  await act(async () => workspace.retryConnection());
+  act(() => locale.setLocale('en'));
+  expect(workspace.projects[0].title).toBe('OpenMotion 示例短片');
+  expect(fetcher.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+});
 
 it('reconnects with read requests only and clears a recovered polling failure', async () => {
   const original = fetcher.getMockImplementation()!;
@@ -147,4 +211,38 @@ it('activates the viewer when an external Agent produces an artifact for an open
   fetcher.mockImplementation(async (url: string, init?: RequestInit) => url.endsWith('/projects') ? new Response(JSON.stringify({ projects: [], sessions: [{ id: 'conversation', artifacts: [{ id: 'artifact', projectId: first }] }] })) : original(url, init));
   await mount(async () => {}, undefined, 'conversation');
   expect(replace).toHaveBeenCalledWith(`/?session=conversation&project=${first}&openArtifact=1#project/${first}`);
+});
+
+it('unlocks actions after an in-page switch and scopes subsequent polling to the next project', async () => {
+  const onNavigate = vi.fn();
+  await mount(async () => {}, first, first, onNavigate);
+  await act(() => workspace.open('projects', second));
+  expect(onNavigate).toHaveBeenCalledWith(`/?project=${second}#project/${second}`);
+  expect(navigate).not.toHaveBeenCalled();
+  expect(workspace.busy).toBe(false);
+  fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects') ? { projects: [] } : { ...status, projectId: second }));
+  await mount(async () => {}, second, second, onNavigate);
+  expect(workspace.status?.projectId).toBe(second);
+  expect(workspace.error).toBe('');
+});
+
+it.each([false, true])('guards browser history navigation before replacing the project (save failure=%s)', async failure => {
+  const originalUrl = `/?session=${first}&project=${first}#project/${first}`;
+  const targetUrl = `/?session=${second}&project=${second}#project/${second}`;
+  history.replaceState(null, '', originalUrl);
+  let finishSave!: () => void;
+  const pending = new Promise<void>(resolve => { finishSave = resolve; });
+  const onNavigate = vi.fn();
+  await mount(async () => { await pending; if (failure) throw new Error('Unsaved edit'); }, first, first, onNavigate);
+  await act(async () => {
+    history.replaceState(null, '', targetUrl);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  });
+  expect(onNavigate).not.toHaveBeenCalled();
+  await act(async () => finishSave());
+  if (failure) {
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(location.href).toBe(new URL(originalUrl, location.origin).href);
+    expect(workspace.navigationError?.message).toBe('Unsaved edit');
+  } else expect(onNavigate).toHaveBeenCalledWith(new URL(targetUrl, location.origin).href, true);
 });

@@ -390,3 +390,13 @@ describe("getTimelineScrubTime", () => {
     expect(at(origin + 250, Number.NaN)).toBe(0);
   });
 });
+
+
+describe("centered and scrolled external drop geometry", () => {
+  it("uses the rendered row inverse and subtracts the sidebar and control column once", () => {
+    const rowGeometry = createTimelineRowGeometry([0, 1], [48, 96], { top: 80, bottom: 80 });
+    const input = { rectLeft: 248, rectTop: 800, scrollLeft: 200, scrollTop: 40,
+      contentOrigin: 132, pixelsPerSecond: 40, trackOrder: [0, 1], rowGeometry };
+    expect(resolveTimelineAssetDrop(input, 540, 800 + rowGeometry.getRowTop(1) + 24 - 40)).toEqual({ start: 9, track: 1 });
+  });
+});

@@ -62,6 +62,14 @@ describe("VolumeControl", () => {
     expect(document.querySelector('input[aria-label="Preview volume"]')).not.toBeNull();
   });
 
+  it("keeps the accessible name without a native title over the hover popover", async () => {
+    const { host } = await renderVolumeControl();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Mute audio"]')!;
+
+    expect(trigger.hasAttribute("title")).toBe(false);
+    expect(host.querySelector('input[aria-label="Preview volume"]')).not.toBeNull();
+  });
+
   it("exposes the current preview volume as an accessible range", async () => {
     const { host } = await renderVolumeControl({ audioVolume: 0.42 });
     const slider = host.querySelector<HTMLInputElement>('input[aria-label="Preview volume"]');

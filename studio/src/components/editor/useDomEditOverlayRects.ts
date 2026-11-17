@@ -2,8 +2,7 @@
  * RAF-driven hook that tracks overlay, hover, and group rects from the iframe DOM.
  * Runs a requestAnimationFrame loop and writes React state only when rects change.
  */
-import { useRef, useState, type RefObject } from "react";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { hugRectForElement } from "./domEditOverlayCrop";
 import { type DomEditSelection, findElementForSelection } from "./domEditing";
 import {
@@ -74,6 +73,8 @@ export function useDomEditOverlayRects({
   const resolvedHoverElementRef = useRef<{ key: string; element: HTMLElement } | null>(null);
   const resolvedGroupElementRef = useRef<Map<string, HTMLElement>>(new Map());
   const childRectsRef = useRef<OverlayRect[]>([]);
+  const updateRectsRef = useRef<() => void>(() => undefined);
+  const committedTargetsRef = useRef<readonly unknown[]>([]);
 
   const setOverlayRect = (next: OverlayRect | null) => {
     if (rectsEqual(overlayRectRef.current, next)) return;
@@ -107,7 +108,7 @@ export function useDomEditOverlayRects({
     return next;
   };
 
-  useMountEffect(() => {
+  useLayoutEffect(() => {
     const clearAll = () => {
       setOverlayRect(null);
       setHoverRect(null);
@@ -261,7 +262,36 @@ export function useDomEditOverlayRects({
       setHoverRect(orientedGroupAwareOverlayRect(overlayEl, iframe, hoverEl, scale));
     };
 
+    updateRectsRef.current = update;
     return subscribeOverlayFrame(update);
+  }, [
+    iframeRef,
+    overlayRef,
+    selectionRef,
+    activeCompositionPathRef,
+    groupSelectionsRef,
+    hoverSelectionRef,
+    rafPausedRef,
+  ]);
+
+  // The parent commits selection refs during render. Measure their new targets
+  // before paint: waiting for the shared RAF can briefly draw the previous
+  // selection's box after its hover outline has already disappeared.
+  // Compare members, not the group array, so unrelated renders do no layout work.
+  useLayoutEffect(() => {
+    const targets = [
+      iframeRef.current,
+      overlayRef.current,
+      activeCompositionPathRef.current,
+      selectionRef.current,
+      hoverSelectionRef.current,
+      ...groupSelectionsRef.current,
+    ];
+    const previous = committedTargetsRef.current;
+    if (targets.length === previous.length && targets.every((target, i) => target === previous[i]))
+      return;
+    committedTargetsRef.current = targets;
+    updateRectsRef.current();
   });
 
   return {

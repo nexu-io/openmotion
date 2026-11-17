@@ -1,7 +1,9 @@
-export type Rule = 'uuid' | 'code' | 'slug' | 'boolean' | 'integer' | readonly string[];
+import { validHostContext } from './host.ts';
+import type { HostContext } from './host.ts';
+export type Rule = 'uuid' | 'code' | 'slug' | 'text' | 'timestamp' | 'boolean' | 'integer' | readonly string[] | { readonly min: number; readonly max: number };
 export type Registry = Record<string, { fields: Record<string, Rule>; required: readonly string[] }>;
 export type Fields = Record<string, string | number | boolean>;
-type RuleValue<R> = R extends readonly string[] ? R[number] : R extends 'boolean' ? boolean : R extends 'integer' ? number : string;
+type RuleValue<R> = R extends readonly string[] ? R[number] : R extends 'boolean' ? boolean : R extends 'integer' | { readonly min: number; readonly max: number } ? number : string;
 export type EventFields<S extends Registry[string]> =
   { [K in S['required'][number]]: K extends keyof S['fields'] ? RuleValue<S['fields'][K]> : never } &
   { [K in Exclude<keyof S['fields'], S['required'][number]>]?: RuleValue<S['fields'][K]> };
@@ -9,6 +11,7 @@ export type Entry = 'mcp' | 'studio' | 'webmcp' | 'installer' | 'worker';
 export type PendingEvent = {
   event: string; event_id: string; occurred_at: string; entrypoint: Entry;
   device_timezone: string | null; utc_offset_minutes: number; properties: Fields;
+  host_context?: HostContext;
 };
 export type Receipt = 'accepted' | 'retry' | 'drop';
 export const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -16,6 +19,18 @@ const code = /^[A-Za-z0-9_.-]{1,128}$/;
 // A catalogue resource id: letters, digits and single hyphens between them, at most 64 characters.
 // No dots, slashes, spaces or underscores, so a path, URL, file name or title cannot pass.
 export const slug = /^(?=.{1,64}$)[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
+// The only free-text rule: a settled search-box value, trimmed, 1–100 characters, no control characters.
+// Register it on a field only when the product decision to collect that text is explicit.
+export const text = (value: string) => value.length >= 1 && value.length <= 100 && value === value.trim() && !/[\u0000-\u001f\u007f]/.test(value);
+export function validField(rule: Rule, value: unknown): value is string | number | boolean {
+  if (Array.isArray(rule)) return typeof value === 'string' && rule.includes(value);
+  if (typeof rule === 'object' && 'min' in rule) return typeof value === 'number' && Number.isFinite(value) && value >= rule.min && value <= rule.max;
+  if (rule === 'boolean') return typeof value === 'boolean';
+  if (rule === 'integer') return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 86_400_000;
+  if (rule === 'text') return typeof value === 'string' && text(value);
+  if (rule === 'timestamp') return typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) && Number.isFinite(Date.parse(value));
+  return typeof value === 'string' && (rule === 'uuid' ? uuid : rule === 'slug' ? slug : code).test(value);
+}
 export function deviceContext() {
   return { device_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
     utc_offset_minutes: -new Date().getTimezoneOffset() };
@@ -26,17 +41,14 @@ export function validProperties(registry: Registry, event: string, raw: unknown)
   if (spec.required.some(key => !Object.hasOwn(values, key))) return false;
   return Object.entries(values).every(([key, value]) => {
     if (!Object.hasOwn(spec.fields, key)) return false;
-    const rule = spec.fields[key];
-    if (Array.isArray(rule)) return typeof value === 'string' && rule.includes(value);
-    if (rule === 'boolean') return typeof value === 'boolean';
-    if (rule === 'integer') return Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= 86_400_000;
-    return typeof value === 'string' && (rule === 'uuid' ? uuid : rule === 'slug' ? slug : code).test(value);
+    return validField(spec.fields[key], value);
   });
 }
 export function validPending(registry: Registry, value: unknown): value is PendingEvent {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const e = value as PendingEvent;
-  if (Object.keys(e).some(k => !['event','event_id','occurred_at','entrypoint','device_timezone','utc_offset_minutes','properties'].includes(k))) return false;
+  if (Object.keys(e).some(k => !['event','event_id','occurred_at','entrypoint','device_timezone','utc_offset_minutes','properties','host_context'].includes(k))) return false;
+  if (e.host_context !== undefined && !validHostContext(e.host_context)) return false;
   if (typeof e.occurred_at !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(e.occurred_at)) return false;
   const time = Date.parse(e.occurred_at), age = Date.now() - time;
   if (!uuid.test(e.event_id) || !Number.isFinite(time) || age < -300_000 || age > 86_400_000) return false;
@@ -80,10 +92,10 @@ export function createTracker<const R extends Registry>(options: {
     if (seen.size > 2048) seen.delete(seen.values().next().value!);
     schedule(); return 'queued';
   }
-  function track<E extends keyof R & string>(event: E, properties: EventFields<R[E]>, eventId: string = crypto.randomUUID(), entrypoint: Entry = options.entrypoint) {
+  function track<E extends keyof R & string>(event: E, properties: EventFields<R[E]>, eventId: string = crypto.randomUUID(), entrypoint: Entry = options.entrypoint, host?: HostContext) {
     if (!active()) return 'disabled';
     try { return ingest({ event, properties, event_id: eventId, occurred_at: new Date().toISOString(),
-      entrypoint, ...deviceContext() }); } catch { return 'invalid'; }
+      entrypoint, ...deviceContext(), ...(host ? { host_context: host } : {}) }); } catch { return 'invalid'; }
   }
   function setEnabled(next: boolean) {
     enabled = next;

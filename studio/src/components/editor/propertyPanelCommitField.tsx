@@ -1,3 +1,4 @@
+import { Tooltip } from "../ui/Tooltip";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useRef, useState } from "react";
@@ -186,7 +187,7 @@ export function CommitField({
   }, [disabled]);
 
   const input = (
-    <input
+    <Tooltip label={parseNumericToken(value) ? t("Scroll or use Arrow keys to adjust") : undefined} wrap><input
       ref={inputRef}
       type="text"
       value={draft}
@@ -217,11 +218,10 @@ export function CommitField({
         }
       }}
       onKeyDown={handleKeyDown}
-      title={parseNumericToken(value) ? t("Scroll or use Arrow keys to adjust") : undefined}
       className={`min-w-0 w-full bg-transparent text-[11px] font-medium text-neutral-100 outline-hidden disabled:cursor-not-allowed disabled:text-neutral-600 ${
         align === "right" ? "text-right" : "text-left"
       }`}
-    />
+    /></Tooltip>
   );
   if (!stepper) return input;
   return (

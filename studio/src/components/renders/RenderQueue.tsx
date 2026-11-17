@@ -2,8 +2,7 @@ import { ErrorNotice } from "../ui/ErrorNotice";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n, type Translate } from "../../i18n/I18n";
-import { memo, useState, useRef, useEffect, useLayoutEffect, useId } from "react";
-import { createPortal } from "react-dom";
+import { memo, useState, useRef, useEffect } from "react";
 import { CANVAS_DIMENSIONS } from "@hyperframes/parsers";
 import { RenderDurationNote } from "./RenderDurationNote";
 import { RenderQueueItem } from "./RenderQueueItem";
@@ -13,7 +12,7 @@ import { Button } from "../ui/Button";
 import { IconButton } from "../ui/IconButton";
 import { Select, type SelectOption } from "../ui/Select";
 import { Tooltip } from "../ui/Tooltip";
-import { resolveFloatingPanelPosition, type FloatingPosition } from "../editor/floatingPanel";
+import { Popover } from "../ui/Popover";
 import type { RenderJob, ResolutionPreset } from "./useRenderQueue";
 import {
   FORMAT_INFO,
@@ -153,95 +152,23 @@ function scaleOptionLabel(
   return base;
 }
 
-// Estimated, like COLOR_PICKER_SIZE in propertyPanelColor: only the flip
-// decision uses the height, and the clamp keeps the panel on screen either way.
-const FORMAT_PANEL_SIZE = { width: 264, height: 176 };
-
-// Rich format guidance in a keyboard-reachable disclosure: the trigger is a
-// real button (focusable, labelled), the panel is tied to it via
-// aria-describedby, and Escape dismisses (WCAG 1.4.13). Content is too rich
-// for the one-line ui/Tooltip primitive, so this stays a local popover.
-// It renders in a portal because the right panel is overflow-hidden: an
-// in-flow absolute panel gets clipped at the panel edge.
+/** Rich help keeps disclosure interactions while sharing the tooltip's appearance. */
 function FormatInfoTooltip() {
   const { t } = useI18n();
-  const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState<FloatingPosition | null>(null);
-  const triggerRef = useRef<HTMLDivElement>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const panelId = useId();
-
-  const show = () => {
-    clearTimeout(timeoutRef.current);
-    setOpen(true);
-  };
-  const hide = () => {
-    timeoutRef.current = setTimeout(() => setOpen(false), 120);
-  };
-
-  useEffect(() => () => clearTimeout(timeoutRef.current), []);
-
-  // Positioned once on open, so it does not follow panel scroll. The popover
-  // is hover-lived; add a scroll listener only if that ever shows up.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const el = triggerRef.current;
-    if (!el) return;
-    setPosition(
-      resolveFloatingPanelPosition(
-        el.getBoundingClientRect(),
-        { width: window.innerWidth, height: window.innerHeight },
-        FORMAT_PANEL_SIZE,
-        { offset: 6 },
-      ),
-    );
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open]);
-
-  return (
-    <div ref={triggerRef} className="relative" onPointerEnter={show} onPointerLeave={hide}>
-      <button
-        type="button"
-        aria-label={t("About video formats")}
-        aria-expanded={open}
-        aria-describedby={open ? panelId : undefined}
-        onFocus={show}
-        onBlur={hide}
-        onClick={() => setOpen((prev) => !prev)}
-        className="flex items-center justify-center p-0.5 -m-0.5 rounded-sm text-text-5 hover:text-text-3 transition-colors cursor-help outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent"
-      >
-        <RemixIcon name="question-line" size={14} />
-      </button>
-      {open &&
-        createPortal(
-          <div
-            id={panelId}
-            role="tooltip"
-            onPointerEnter={show}
-            onPointerLeave={hide}
-            className="fixed w-[264px] max-w-[calc(100vw-16px)] p-3 rounded-md bg-surface border border-border-input shadow-menu z-200 space-y-2 text-step-12 leading-relaxed"
-            style={{ left: position?.left ?? -9999, top: position?.top ?? -9999 }}
-          >
-            {(["mp4", "mov", "webm", "gif"] as const)
-              .map((f) => (
-                <p key={f} className="text-text-3">
-                  <span className="text-text-1 font-semibold">{f === "webm" ? "WebM" : f === "mov" ? "MOV · ProRes" : f.toUpperCase()}</span>
-                  {" · "}{t(FORMAT_INFO[f].desc)}
-                </p>
-              ))}
-          </div>,
-          document.body,
-        )}
-    </div>
-  );
+  const description = (["mp4", "mov", "webm", "gif"] as const).map(format => {
+    const name = format === "webm" ? "WebM" : format === "mov" ? "MOV · ProRes" : format.toUpperCase();
+    return `${name} · ${t(FORMAT_INFO[format].desc)}`;
+  }).join("\n\n");
+  return <Popover openOnHover modal={false} container={null} side="top" initialFocus={false}
+    aria-label={t("About video formats")}
+    className="studio-tooltip rounded-md px-3 py-2 shadow-menu max-w-[min(300px,calc(100vw-16px))] whitespace-normal break-words"
+    trigger={<button type="button" aria-label={t("About video formats")}
+      className="flex items-center justify-center p-0.5 -m-0.5 rounded-sm text-text-5 hover:text-text-3 transition-colors cursor-help outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent">
+      <RemixIcon name="question-line" size={14} />
+    </button>}>
+    <span className="block font-semibold">{t("About video formats")}</span>
+    <span className="mt-1 block whitespace-pre-line font-normal leading-normal">{description}</span>
+  </Popover>;
 }
 
 const FORMAT_OPTIONS: SelectOption[] = [
@@ -287,8 +214,8 @@ function FormatExportButton({
   const fps = resolveRenderFps(format, requestedFps);
   const [gpu, setGpu] = useState(persisted.gpu);
   const [gifLoop, setGifLoop] = useState("0");
-  const loopCount = Number(gifLoop);
-  const invalidGifLoop = isInvalidGifLoop(format, gifLoop);
+  const loopCount = mvp ? 0 : Number(gifLoop);
+  const invalidGifLoop = !mvp && isInvalidGifLoop(format, gifLoop);
 
   // Only a definite "not installed" blocks Export. A null status means the
   // probe gave no answer, and refusing to export on no answer would break
@@ -319,7 +246,7 @@ function FormatExportButton({
           <Select
             label={t("Format")}
             value={format}
-            options={mvp ? [...FORMAT_OPTIONS.map(option => option.value === "mov" ? { ...option, label: "MOV" } : option), { value: "webp", label: "WebP", disabled: true }] : FORMAT_OPTIONS}
+            options={mvp ? FORMAT_OPTIONS.map(option => option.value === "mov" ? { ...option, label: "MOV" } : option) : FORMAT_OPTIONS}
             disabled={isRendering}
             onCommit={(next) => {
               const v = resolveRenderFormat(next);
@@ -373,13 +300,13 @@ function FormatExportButton({
           </div>
         )}
       </div>
-      <GifLoopInput
+      {!mvp && <GifLoopInput
         format={format}
         value={gifLoop}
         disabled={isRendering}
         invalid={invalidGifLoop}
         onChange={setGifLoop}
-      />
+      />}
       {!mvp && (
         <GpuEncodingToggle
           format={format}

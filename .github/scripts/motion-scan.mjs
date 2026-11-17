@@ -66,7 +66,15 @@ export function privacyFindings(name, text, kind = 'source') {
     || /(?:^|\/)(?:\.npmrc|\.DS_Store|id_rsa|id_ed25519)$/.test(name)
     || /\.(?:log|pem|key|p12|pfx)$/.test(name)) add('private-file');
   if (/(?:^|\/)\.env(?:\.|$)/.test(name) && !(kind === 'source' && /(?:^|\/)\.env\.(?:example|development)$/.test(name))) add('environment-file');
-  if (/https?:\/\/[^\s"'<>)]*(?:powerformer\.(?:net|com)|feishu\.(?:cn|com)|larksuite\.com)/i.test(text)) add('internal-link');
+  // Only the owner-approved public Feishu invitation in the product READMEs, the shared community link and its
+  // bundled Studio asset is exempt. Pin the complete URL by digest so adjacent private URLs and changed invitations fail.
+  const publicCommunityFiles = ['README.md', 'README.zh-CN.md', 'docs/README.zh-CN.md', 'docs/README.ja.md', 'studio/src/motion/CommunityLink.tsx'];
+  // The npm installer archive keeps the same files under its single `package/` root.
+  const publicCommunityFile = kind === 'package' ? name.replace(/^package\//, '') : name;
+  const publicCommunity = publicCommunityFiles.includes(publicCommunityFile) || /^studio\/build\/editor-assets\/[^/]+\.js$/.test(publicCommunityFile);
+  const urls = text.match(/https?:\/\/[^\s"'<>)]*/gi) || [];
+  if (urls.some(url => /(?:powerformer\.(?:net|com)|feishu\.(?:cn|com)|larksuite\.com)/i.test(url)
+    && !(publicCommunity && createHash('sha256').update(url).digest('hex') === 'd3337d48607e553372bf4a64d1fb41299487d510b1cc95d565698ff4540003b3'))) add('internal-link');
   if (/\/(?:Users|home)\/[a-zA-Z0-9_.-]+\/|[a-z]:\\Users\\[^\\\s]+\\|\/var\/folders\//i.test(text)) add('personal-path');
   return findings;
 }
@@ -111,12 +119,14 @@ export async function scanSource(source, binary) {
   const names = (await runFile('git', ['ls-files', '-z'], { cwd: source })).split('\0').filter(Boolean);
   const work = await mkdtemp(path.join(os.tmpdir(), 'motion-source-scan-'));
   try {
-    // Scan the public gallery separately so neither batch exceeds the archive scan budget.
+    // Scan the gallery and source catalog separately within the unchanged per-batch budget.
     const batches = new Set();
     for (const name of names) {
       assert(!name.split('/').includes('..') && !path.isAbsolute(name), 'Unsafe tracked path');
       const file = path.join(source, name); assert((await lstat(file)).isFile(), 'Tracked links are forbidden');
-      const batch = name.startsWith('docs/readme/') ? 'gallery' : 'source';
+      let batch = 'source';
+      if (name.startsWith('docs/readme/')) batch = 'gallery';
+      if (name.startsWith('library/templates/catalog/')) batch = 'catalog';
       batches.add(batch);
       const destination = path.join(work, batch, name);
       await mkdir(path.dirname(destination), { recursive: true }); await cp(file, destination);

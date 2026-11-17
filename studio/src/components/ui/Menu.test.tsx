@@ -435,3 +435,25 @@ describe("open motion", () => {
     );
   });
 });
+
+
+it.each(["menu", "popover"])("keeps %s activation and dismissal intact with a tooltip", async (kind) => {
+  const action = vi.fn();
+  const button = <button data-testid="trigger">Options</button>;
+  render(kind === "menu"
+    ? <Menu tooltip="Model options" trigger={button}><MenuItem onClick={action}>Edit model</MenuItem></Menu>
+    : <Popover tooltip="Task history" trigger={button}><button onClick={action}>Resume task</button></Popover>);
+  act(() => trigger().focus());
+  await settle();
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe(kind === "menu" ? "Model options" : "Task history");
+  expect(trigger().hasAttribute("title")).toBe(false);
+  clickWithMouse(trigger());
+  await settle();
+  expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  const item = kind === "menu" ? document.querySelector('[role="menuitem"]')! : [...document.querySelectorAll('button')].find(button => button.textContent === "Resume task")!;
+  clickWithMouse(item);
+  await settle();
+  expect(action).toHaveBeenCalledTimes(1);
+  if (kind === "popover") { key("Escape"); await settle(); }
+  expect(trigger().getAttribute("aria-expanded")).toBe("false");
+});

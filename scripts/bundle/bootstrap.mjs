@@ -8,10 +8,11 @@ const metadata = JSON.parse(fs.readFileSync(path.join(root, 'release.json'), 'ut
 const windows = process.platform === 'win32';
 if (metadata.target !== (windows ? 'win-x64' : 'mac-arm64') || process.arch !== (windows ? 'x64' : 'arm64')) throw new Error('此测试包与当前系统/CPU 不匹配');
 if (windows && Number(os.release().split('.')[2]) < 22000) throw new Error('此测试包要求 Windows 11 或以上');
+const runtime = JSON.parse(fs.readFileSync(path.join(root, 'scripts/runtime-lock.json'), 'utf8')).targets[metadata.target];
 const media = path.join(root, 'runtime/media/bin'), node = path.join(root, windows ? 'runtime/node' : 'runtime/node/bin');
 const suffix = windows ? '.exe' : '';
 const values = {
-  HYPERFRAMES_BROWSER_PATH: path.join(root, 'runtime/browser', windows ? 'chrome-headless-shell-win64/chrome-headless-shell.exe' : 'chrome-headless-shell-mac-arm64/chrome-headless-shell'),
+  HYPERFRAMES_BROWSER_PATH: path.join(root, 'runtime/browser', runtime.browser.executable),
   HYPERFRAMES_FFMPEG_PATH: path.join(media, 'ffmpeg' + suffix),
   HYPERFRAMES_FFPROBE_PATH: path.join(media, 'ffprobe' + suffix),
 };

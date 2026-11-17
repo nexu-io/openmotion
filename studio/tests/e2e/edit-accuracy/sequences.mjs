@@ -268,10 +268,10 @@ async function driveStep(ctx, step, state) {
   }
   if (step.do === "seek") {
     const seek = await page.evaluate(
-      (time) => window.__editBench.call("studio_seek", { time }),
+      (time) => window.__editBench.call("openmotion_studio_seek", { time }),
       step.time,
     );
-    if (!seek?.ok) throw new Error(`studio_seek ${step.time} failed: ${JSON.stringify(seek)}`);
+    if (!seek?.ok) throw new Error(`openmotion_studio_seek ${step.time} failed: ${JSON.stringify(seek)}`);
     state.time = step.time;
     return { do: "seek", time: step.time };
   }

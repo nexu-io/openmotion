@@ -1,9 +1,10 @@
+import { compactMainTrack } from "../player/components/timelineMainMagnet";
 // fallow-ignore-file complexity
 import { useRef } from "react";
 import { useStableHandlers } from "./useStableHandlers";
 import { usePlayerStore, type TimelineElement } from "../player";
 import { useRazorSplit } from "./useRazorSplit";
-import { selectSplittableElements } from "../utils/timelineElementSplit";
+import { selectSplittableElements, selectPlayheadSplitElements } from "../utils/timelineElementSplit";
 import { useTimelineAssetDropOps } from "./useTimelineAssetDropOps";
 import { useSetAudioGroupAttribute } from "./timelineAudioGroupVolume";
 import { useSetElementAttribute } from "./timelineElementFxAttribute";
@@ -204,7 +205,7 @@ export function useTimelineEditing({
   });
 
   const handleBlockedTimelineEdit = useBlockedTimelineEditToast(showToast);
-  const { handleRazorSplit, handleRazorSplitAll, handleFreezeFrame } = useRazorSplit({
+  const { handleRazorSplit, handleRazorSplitAll, handleSplitAtPlayhead, handleFreezeFrame } = useRazorSplit({
     projectId,
     activeCompPath,
     showToast,
@@ -271,7 +272,13 @@ export function useTimelineEditing({
   );
   const editing = {
     handleTimelineElementMove: track(guard((element) => [element], handleTimelineElementMove)),
-    handleTimelineElementResize: track(guard((element) => [element], handleTimelineElementResize)),
+    handleTimelineElementResize: track(guard((element: TimelineElement) => [element], (element: TimelineElement, updates: Pick<TimelineElement, "start" | "duration" | "playbackStart">) => {
+      const state = usePlayerStore.getState();
+      const changes = compactMainTrack(timelineElements, [{ element, ...updates }], state.rippleEditEnabled, state.timelineLinkageEnabled);
+      if (changes.length > 1 || changes[0]?.start !== updates.start)
+        return groupEditing.handleTimelineGroupResize(changes);
+      return handleTimelineElementResize(element, updates);
+    })),
     handleToggleTrackHidden: track(
       guard(
         (trackIndex) => timelineElements.filter((el) => el.track === trackIndex),
@@ -293,10 +300,19 @@ export function useTimelineEditing({
     handleTimelineElementsDelete: track(
       guard(withLinkPartners, linkEditing.handleLinkedElementsDelete),
     ),
+    handleTimelineTrackDelete: track(
+      guard((trackNumber) => withLinkPartners(usePlayerStore.getState().elements.filter(el => el.track === trackNumber)), linkEditing.handleDeleteTrack),
+    ),
     handleTimelineElementDeleteOnly: track(
       guard((element) => [element], linkEditing.handleDeleteElementOnly),
     ),
     handleLinkEdit: track(guard(linkEditTargets, linkEditing.handleLinkEdit)),
+    handleSplitAtPlayhead: track(
+      guard(
+        (splitTime) => selectPlayheadSplitElements(usePlayerStore.getState(), splitTime),
+        handleSplitAtPlayhead,
+      ),
+    ),
     handleTimelineElementSplit: trackedRazorSplit,
     handleRazorSplit: trackedRazorSplit,
     handleFreezeFrame: track(guard((element) => [element], handleFreezeFrame)),

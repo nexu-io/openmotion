@@ -12,6 +12,7 @@ const RENDERED_FIELDS: readonly (keyof TimelineElement)[] = [
   "volume",
   "playbackRate",
   "hidden",
+  "timelineLocked",
   "audioGroup",
   "audioGroupVolume",
   "audioGroupHidden",

@@ -1,4 +1,4 @@
-/** Plain-field clip facts from the player store; feeds the Ask-agent prompt and `studio_look`. */
+/** Plain-field clip facts from the player store; feeds the Ask-agent prompt and `openmotion_studio_look`. */
 import type { TimelineElement } from "../store/playerStore";
 import { elementAutomationLanes } from "../components/automationLaneData";
 import { byStart, formatClipLine, type ClipFact } from "@hyperframes/core/clip-facts";

@@ -2,7 +2,8 @@
  * Block drop/add handlers for the Studio.
  * Extracted from App.tsx to keep file sizes under the 600-line limit.
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMvpEditor } from "../motion/StudioHost";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TimelineElement } from "../player";
 import { usePlayerStore } from "../player";
 import { addBlockToProject } from "../utils/blockInstaller";
@@ -10,6 +11,7 @@ import { selectAndRevealTimelineElement } from "../player/components/timelineDro
 import type { BlockParam } from "@hyperframes/core/registry";
 import type { RightPanelTab } from "../utils/studioHelpers";
 import type { MediaOverlayPlacement } from "../components/editor/propertyPanelTypes";
+import { beginPendingAssetDrop, finishPendingAssetDrop } from "../player/store/pendingAssetDrops";
 
 interface BlockCtxDeps {
   activeCompPath: string | null;
@@ -45,8 +47,8 @@ export interface UseBlockHandlersResult {
   setActiveBlockParams: React.Dispatch<
     React.SetStateAction<UseBlockHandlersResult["activeBlockParams"]>
   >;
-  handleAddBlock: (blockName: string) => void;
-  handleTimelineBlockDrop: (blockName: string, placement: { start: number; track: number }) => void;
+  handleAddBlock: (blockName: string) => Promise<boolean>;
+  handleTimelineBlockDrop: (blockName: string, placement: { start: number; track: number }) => Promise<void>;
   handleAddMediaOverlay: (blockName: string, placement: MediaOverlayPlacement) => Promise<void>;
   handlePreviewBlockDrop: (blockName: string, position: { left: number; top: number }) => void;
 }
@@ -58,6 +60,7 @@ export function useBlockHandlers({
   setRightCollapsed,
   setRightPanelTab,
 }: UseBlockHandlersParams): UseBlockHandlersResult {
+  const mvp = useMvpEditor();
   const [activeBlockParams, setActiveBlockParams] =
     useState<UseBlockHandlersResult["activeBlockParams"]>(null);
 
@@ -85,63 +88,79 @@ export function useBlockHandlers({
     ],
   );
 
-  // Block installs hit the server and end in a full preview reload; without a
-  // guard, repeat drops while one is in flight stack duplicate installs.
-  const installingBlockRef = useRef(false);
-  const { showToast, dismissToast } = blockCtxDeps;
+  // Serialize registry writes while keeping every accepted drop as its own operation.
+  const installQueueRef = useRef(Promise.resolve());
+  const scope = useMemo(() => ({}), [projectId, blockCtx.activeCompPath]);
+  const scopeRef = useRef<object | null>(scope);
+  scopeRef.current = scope;
+  useEffect(() => {
+    scopeRef.current = scope;
+    return () => { scopeRef.current = null; };
+  }, [scope]);
+  const { showToast } = blockCtxDeps;
   const runBlockInstall = useCallback(
-    async <T>(blockName: string, install: () => Promise<T>): Promise<T | null> => {
-      if (installingBlockRef.current) {
-        showToast("A block is already installing. One moment…", "info");
-        return null;
-      }
-      installingBlockRef.current = true;
-      const progress = showToast(`Adding ${blockName}…`, "info");
-      try {
-        return await install();
-      } finally {
-        installingBlockRef.current = false;
-        dismissToast(progress);
-      }
+    (blockName: string, install: () => ReturnType<typeof addBlockToProject>, placement: { start: number; track?: number; duration?: number; newTrack?: "top" } = {
+      start: usePlayerStore.getState().currentTime, track: 0,
+    }) => {
+      const pendingId = beginPendingAssetDrop(blockName, { ...placement, track: placement.track ?? 0 }, placement.duration);
+      const work = installQueueRef.current.then(async () => {
+        if (scopeRef.current !== scope) return null;
+        try {
+          const result = await install();
+          if (scopeRef.current !== scope) return null;
+          finishPendingAssetDrop(pendingId, result?.element);
+          return result;
+        } catch (error) {
+          if (scopeRef.current === scope) {
+            finishPendingAssetDrop(pendingId);
+            showToast(error instanceof Error ? error.message : "Failed to add block", "error");
+          }
+          return null;
+        }
+      });
+      installQueueRef.current = work.then(() => undefined, () => undefined);
+      return work;
     },
-    [showToast, dismissToast],
+    [showToast, scope],
   );
 
   const handleAddBlock = useCallback(
-    (blockName: string) => {
-      if (!projectId) return;
-      // fallow-ignore-next-line complexity
-      void (async () => {
-        const result = await runBlockInstall(blockName, () =>
-          addBlockToProject({
-            projectId,
-            blockName,
-            ...blockCtx,
-            previewIframe: previewIframeRef.current,
-            currentTime: usePlayerStore.getState().currentTime,
-          }),
-        );
-        if (result === null) return;
-        const params = result?.block.type === "hyperframes:block" ? result.block.params : undefined;
-        if (params?.length) {
-          setActiveBlockParams({
-            blockName: result!.block.name,
-            blockTitle: result!.block.title,
-            params,
-            compositionPath: result!.compositionPath,
-          });
-          setRightCollapsed(false);
-          setRightPanelTab("block-params");
-        }
-      })();
+    async (blockName: string) => {
+      if (!projectId) return false;
+      const currentTime = usePlayerStore.getState().currentTime;
+      const placement = { start: currentTime, track: 0, ...(mvp ? { newTrack: "top" as const } : {}) };
+      const result = await runBlockInstall(blockName, () =>
+        addBlockToProject({
+          projectId,
+          blockName,
+          ...blockCtx,
+          previewIframe: previewIframeRef.current,
+          currentTime,
+          ...(mvp ? { placement } : {}),
+        }), placement,
+      );
+      if (result === null) return false;
+      selectAndRevealTimelineElement(result.hostKey);
+      const params = result?.block.type === "hyperframes:block" ? result.block.params : undefined;
+      if (params?.length) {
+        setActiveBlockParams({
+          blockName: result!.block.name,
+          blockTitle: result!.block.title,
+          params,
+          compositionPath: result!.compositionPath,
+        });
+        setRightCollapsed(false);
+        setRightPanelTab("block-params");
+      }
+      return true;
     },
-    [projectId, blockCtx, previewIframeRef, runBlockInstall, setRightCollapsed, setRightPanelTab],
+    [projectId, blockCtx, previewIframeRef, runBlockInstall, setRightCollapsed, setRightPanelTab, mvp],
   );
 
   const handleTimelineBlockDrop = useCallback(
-    (blockName: string, placement: { start: number; track: number }) => {
+    async (blockName: string, placement: { start: number; track: number }) => {
       if (!projectId) return;
-      void runBlockInstall(blockName, () =>
+      const result = await runBlockInstall(blockName, () =>
         addBlockToProject({
           projectId,
           blockName,
@@ -149,10 +168,9 @@ export function useBlockHandlers({
           ...blockCtx,
           previewIframe: previewIframeRef.current,
           currentTime: usePlayerStore.getState().currentTime,
-        }),
-      ).then((result) => {
-        if (result) selectAndRevealTimelineElement(result.hostKey);
-      });
+        }), placement,
+      );
+      if (result) selectAndRevealTimelineElement(result.hostKey);
     },
     [projectId, blockCtx, previewIframeRef, runBlockInstall],
   );
@@ -170,7 +188,7 @@ export function useBlockHandlers({
           placement: timelinePlacement,
           previewIframe: previewIframeRef.current,
           currentTime: usePlayerStore.getState().currentTime,
-        }),
+        }), timelinePlacement,
       );
     },
     [projectId, blockCtx, previewIframeRef, runBlockInstall],
@@ -179,6 +197,7 @@ export function useBlockHandlers({
   const handlePreviewBlockDrop = useCallback(
     (blockName: string, position: { left: number; top: number }) => {
       if (!projectId) return;
+      const currentTime = usePlayerStore.getState().currentTime;
       void runBlockInstall(blockName, () =>
         addBlockToProject({
           projectId,
@@ -186,7 +205,7 @@ export function useBlockHandlers({
           visualPosition: position,
           ...blockCtx,
           previewIframe: previewIframeRef.current,
-          currentTime: usePlayerStore.getState().currentTime,
+          currentTime,
         }),
       ).then((result) => {
         if (result) selectAndRevealTimelineElement(result.hostKey);

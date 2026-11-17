@@ -1,4 +1,5 @@
 import type { TimelineElement } from "../store/playerStore";
+import { TIMELINE_TIME_EPSILON_S } from "./timelineTimeBounds";
 
 /**
  * Pure gap math for a single timeline display lane (CapCut/Premiere-style
@@ -13,7 +14,7 @@ import type { TimelineElement } from "../store/playerStore";
  * - Computed starts are rounded to millisecond precision, matching the drag
  *   commit's `round3`.
  */
-export const TRACK_GAP_EPSILON_S = 1e-3;
+export const TRACK_GAP_EPSILON_S = TIMELINE_TIME_EPSILON_S;
 
 const keyOf = (e: TimelineElement) => e.key ?? e.id;
 

@@ -75,7 +75,7 @@ interface TimelineClipDragGestureLifecycleInput {
     ((element: TimelineElement, intent: BlockedClipState["intent"]) => void) | undefined
   >;
   onLinkEditRef: RefObject<TimelineEditCallbacks["onLinkEdit"]>;
-  readZIndexRef: RefObject<((element: TimelineElement) => number) | undefined>;
+  readZIndexRef: RefObject<((element: TimelineElement, asTarget?: boolean) => number) | undefined>;
   onStackingPatchesRef: RefObject<
     ((patches: StackingPatch[]) => Promise<unknown> | void) | undefined
   >;
@@ -119,6 +119,13 @@ export function mountTimelineClipDragGestureLifecycle({
   onStackingPatchesRef,
   refreshAfterLaneMoveRef,
 }: TimelineClipDragGestureLifecycleInput): () => void {
+  let pointerFrame = 0;
+  let pendingPointer: PointerEvent | null = null;
+  const discardPointerFrame = () => {
+    if (pointerFrame) cancelAnimationFrame(pointerFrame);
+    pointerFrame = 0;
+    pendingPointer = null;
+  };
   const clearSuppressedClick = () => {
     requestAnimationFrame(() => {
       suppressClickRef.current = false;
@@ -167,6 +174,7 @@ export function mountTimelineClipDragGestureLifecycle({
     updateReact?: boolean;
     suppressClick?: boolean;
   } = {}): boolean => {
+    discardPointerFrame();
     const lifecycle = lifecycleRef.current;
     if (lifecycle.phase !== "active") return false;
     lifecycle.phase = "cancelled";
@@ -184,10 +192,12 @@ export function mountTimelineClipDragGestureLifecycle({
   const handleResizePointerMove = (event: PointerEvent, resize: ResizingClipState) => {
     const distance = Math.abs(event.clientX - resize.originClientX);
     if (!resize.started && distance < 2) return;
-    if (!resize.started) capturePointer(resize.pointerId);
-    setShowPopover(false);
-    setRangeSelectionRef.current?.(null);
-    applyResizePointerRef.current(resize, event.clientX);
+    if (!resize.started) {
+      capturePointer(resize.pointerId);
+      setShowPopover(false);
+      setRangeSelectionRef.current?.(null);
+    }
+    applyResizePointerRef.current({ ...resize, snapDisabled: event.metaKey || event.ctrlKey }, event.clientX);
     syncClipDragAutoScrollRef.current(event.clientX, event.clientY);
   };
 
@@ -215,14 +225,17 @@ export function mountTimelineClipDragGestureLifecycle({
       event.clientY - drag.originClientY,
     );
     if (!drag.started && distance < 4) return;
-    if (!drag.started) capturePointer(drag.pointerId);
-    setShowPopover(false);
-    setRangeSelectionRef.current?.(null);
-    publishDraggedClip(updateDraggedClipPreviewRef.current(drag, event.clientX, event.clientY));
+    if (!drag.started) {
+      capturePointer(drag.pointerId);
+      setShowPopover(false);
+      setRangeSelectionRef.current?.(null);
+    }
+    publishDraggedClip(updateDraggedClipPreviewRef.current({ ...drag, snapDisabled: event.metaKey || event.ctrlKey }, event.clientX, event.clientY));
     syncClipDragAutoScrollRef.current(event.clientX, event.clientY);
   };
 
-  const handleWindowPointerMove = (event: PointerEvent) => {
+  const processPointerMove = (event: PointerEvent) => {
+    if (lifecycleRef.current.sessionEpoch !== sessionEpochRef.current) { cancelGesture(); return; }
     const resize = resizingClipRef.current;
     if (resize) {
       if (!pointerMatchesGesture(event)) return;
@@ -235,6 +248,20 @@ export function mountTimelineClipDragGestureLifecycle({
     }
     const drag = draggedClipRef.current;
     if (drag && pointerMatchesGesture(event)) handleDragPointerMove(event, drag);
+  };
+  const flushPointerFrame = () => {
+    const event = pendingPointer;
+    discardPointerFrame();
+    if (event) processPointerMove(event);
+  };
+  const handleWindowPointerMove = (event: PointerEvent) => {
+    if (!pointerMatchesGesture(event)) return;
+    // Capture and threshold feedback are immediate. Once moving, publish only
+    // the newest sample per paint, rather than rebuilding the tree at input Hz.
+    const moving = draggedClipRef.current?.started || resizingClipRef.current?.started;
+    if (!moving) return processPointerMove(event);
+    pendingPointer = event;
+    if (!pointerFrame) pointerFrame = requestAnimationFrame(flushPointerFrame);
   };
 
   const unlinkAltEdited = (gesture: { element: TimelineElement; altKey?: boolean }) => {
@@ -337,6 +364,9 @@ export function mountTimelineClipDragGestureLifecycle({
       cancelGesture();
       return "ignored";
     }
+    // A fast release may precede the next paint. Commit the latest pointer,
+    // never the previous frame's landing, and never run a queued update later.
+    flushPointerFrame();
     lifecycle.phase = "committing";
     const claimed = lifecycle.kind
       ? {

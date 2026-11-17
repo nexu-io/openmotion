@@ -1,4 +1,6 @@
 import { memo, type RefObject } from "react";
+import { TimelineTimecode } from "./TimelineTimecode";
+import { useMvpEditor } from "../../motion/StudioHost";
 import { useSettledScrollLeft } from "./useSettledScrollLeft";
 import type { TimelineTheme } from "./timelineTheme";
 import { RULER_H, getTimelineBeatEntries } from "./timelineLayout";
@@ -62,13 +64,14 @@ const HeaderSlicedLabelMask = memo(function HeaderSlicedLabelMask({
   return (
     <div
       data-timeline-ruler-label-mask=""
+      data-timeline-ruler-time={major[index]}
       className="absolute pointer-events-none"
       style={{
         left: labelLeft,
         top: 4,
         height: 12,
         // Up to the next label, so only this label's text band is covered.
-        width: next === undefined ? 80 : (next - major[index]!) * pps - TICK_LABEL_INSET_PX,
+        width: next === undefined ? 80 : `calc(${(next - major[index]!) * pps}px * var(--timeline-ruler-scale, 1) - ${TICK_LABEL_INSET_PX}px)`,
         background,
       }}
     />
@@ -90,6 +93,8 @@ export const TimelineRuler = memo(function TimelineRuler({
   renderTimeRange,
   scrollRef,
 }: TimelineRulerProps) {
+  const mvp = useMvpEditor();
+  const rulerBackground = mvp ? "var(--timeline-ruler-bg)" : theme.shellBackground;
   const beatTimes = beatAnalysis?.beatTimes ?? [];
   const beatStrengths = beatAnalysis?.beatStrengths ?? [];
   const beatEntries = getTimelineBeatEntries(beatTimes, beatStrengths, renderTimeRange);
@@ -138,28 +143,28 @@ export const TimelineRuler = memo(function TimelineRuler({
           scrolling underneath don't bleed through; z-index sits above the track
           rows and drag overlays but below the playhead (z 100). */}
       <div
-        className="sticky top-0 flex"
+        className="sticky top-0 flex motion-timeline-ruler"
         style={{ height: RULER_H, width: contentOrigin + trackContentWidth, zIndex: 70 }}
       >
         <div
-          className="sticky left-0 z-12 shrink-0"
+          className="sticky left-0 z-12 shrink-0 motion-timeline-ruler-corner"
           style={{
             width: contentOrigin,
             // Ruler corner uses the panel surface — same as the ruler strip itself.
-            background: theme.shellBackground,
+            background: rulerBackground,
           }}
-        />
+        >{mvp && <TimelineTimecode />}</div>
         {/* Breathing pad before 00:00 is folded into contentOrigin (see
             Timeline.tsx: GUTTER + TRACKS_LEFT_PAD), so no separate pad div. */}
         <div
-          data-timeline-zoom-scale=""
+          data-timeline-ruler=""
           className="relative overflow-hidden"
           style={{
             height: RULER_H,
             width: trackContentWidth,
             // Ruler background = the panel surface token — no bottom border,
             // no tick lines (CapCut-style clean ruler, labels only).
-            background: theme.shellBackground,
+            background: rulerBackground,
           }}
         >
           {/* Each 1px tick line is shifted -0.5px so its CENTER sits exactly on
@@ -170,6 +175,7 @@ export const TimelineRuler = memo(function TimelineRuler({
             <div
               key={`m-${t}`}
               data-timeline-grid-cell="minor"
+              data-timeline-ruler-time={t}
               className="absolute bottom-0"
               style={{ left: t * pps - 0.5 }}
             >
@@ -181,10 +187,12 @@ export const TimelineRuler = memo(function TimelineRuler({
             <div
               key={`M-${t}`}
               data-timeline-grid-cell="major"
+              data-timeline-ruler-time={t}
               className="absolute top-0"
               style={{ left: t * pps - 0.5 }}
             >
               <span
+                data-timeline-ruler-label=""
                 className="absolute font-mono tabular-nums leading-none whitespace-nowrap"
                 style={{
                   color: theme.tickText,
@@ -203,7 +211,7 @@ export const TimelineRuler = memo(function TimelineRuler({
               scrollRef={scrollRef}
               major={major}
               pps={pps}
-              background={theme.shellBackground}
+              background={rulerBackground}
             />
           )}
         </div>

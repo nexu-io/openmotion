@@ -424,13 +424,15 @@ describe("TimelineLanes disclosure target", () => {
     ]);
     const view = renderLanes({ elements, selectedElementIds, keyframeCache });
     const clipA = view.host.querySelector<HTMLElement>('[data-el-id="clip-a"]');
+    const timeLayer = clipA?.closest("[data-timeline-time-layer]");
     const diamonds = () =>
-      view.host
-        .querySelector('[data-el-id="clip-a"] ~ div button[aria-label*="keyframe at"]')
+      timeLayer
+        ?.querySelector('button[aria-label*="keyframe at"]')
         ?.closest<HTMLElement>("div.pointer-events-none");
     expect(clipA).not.toBeNull();
-    expect(clipA?.parentElement).toBe(
-      view.host.querySelector('[data-el-id="clip-b"]')?.parentElement,
+    expect(timeLayer).not.toBeNull();
+    expect(timeLayer).toBe(
+      view.host.querySelector('[data-el-id="clip-b"]')?.closest("[data-timeline-time-layer]"),
     );
 
     expect(diamonds()).not.toBeNull();

@@ -1,20 +1,22 @@
+import { renderFilenameStem } from './shared/render-name.ts';
 import { request } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pluginRoot } from './hyperframes.ts';
+import { resolveDesignSystemFile } from './packages/design-system/index.js';
 
-const mime: Record<string, string> = { '.jpg': 'image/jpeg', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.txt': 'text/plain' };
+const mime: Record<string, string> = { '.mp4': 'video/mp4', '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.json': 'application/json', '.map': 'application/json', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.txt': 'text/plain', '.md': 'text/plain; charset=utf-8' };
 
 /** Only application bundle and design-system files are exposed, never Studio source or project files. */
 export async function serveEditorFile(url: URL, res: ServerResponse): Promise<boolean> {
   let relative: string;
+  const designFile = resolveDesignSystemFile(url.pathname);
   if (url.pathname === '/') relative = 'studio/build/index.html';
-  else if (url.pathname === '/design-system') relative = 'web/design-system/index.html';
-  else if (url.pathname === '/favicon.svg') relative = 'studio/public/favicon.svg';
+  else if (designFile) relative = 'packages/design-system/' + designFile;
+  else if (url.pathname === '/favicon.svg') relative = 'packages/design-system/brand/favicon.svg';
   else if (/^\/editor-assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname)) relative = 'studio/build' + url.pathname;
-  else if (/^\/web\/design-system\/(?:fonts\/)?[a-zA-Z0-9_.-]+$/.test(url.pathname)) relative = url.pathname.slice(1);
-  else if (/^\/web\/catalog\/(?:hyperframes|template-frames|provenance|covers)\.json$/.test(url.pathname) || /^\/web\/catalog\/(?:template-frames|covers)\/[a-f0-9]{24}\.jpg$/.test(url.pathname)) relative = url.pathname.slice(1);
+  else if (/^\/web\/catalog\/(?:hyperframes|template-frames|provenance|covers)\.json$/.test(url.pathname) || /^\/web\/catalog\/(?:template-frames|covers)\/[a-f0-9]{24}\.(?:jpg|webp)$/.test(url.pathname)) relative = url.pathname.slice(1);
   else return false;
   const type = mime[path.extname(relative)];
   if (!type) return false;
@@ -29,8 +31,16 @@ export async function serveEditorFile(url: URL, res: ServerResponse): Promise<bo
   return true;
 }
 
+/** Suggest a portable name without changing the immutable render's storage path. */
+export function renderDownloadDisposition(title: string | undefined, extension: string): string {
+  const stem = renderFilenameStem(title);
+  const encoded = encodeURIComponent(stem + extension).replace(/['()*]/g, char =>
+    '%' + char.charCodeAt(0).toString(16).toUpperCase());
+  return `attachment; filename="OpenMotion${extension}"; filename*=UTF-8''${encoded}`;
+}
+
 /** Preserve native HTTP semantics (SSE, byte ranges, multipart uploads and optimistic file writes). */
-export function proxyStudio(req: IncomingMessage, res: ServerResponse, url: URL, studioUrl: string): Promise<void> {
+export function proxyStudio(req: IncomingMessage, res: ServerResponse, url: URL, studioUrl: string, downloadDisposition?: string): Promise<void> {
   const target = new URL(studioUrl);
   target.pathname = url.pathname; target.search = url.search; target.hash = '';
   const headers = { ...req.headers, host: target.host };
@@ -41,6 +51,7 @@ export function proxyStudio(req: IncomingMessage, res: ServerResponse, url: URL,
     const upstream = request(target, { method: req.method, headers }, response => {
       const outgoing = { ...response.headers };
       delete outgoing.connection;
+      if (downloadDisposition && response.statusCode === 200) outgoing['content-disposition'] = downloadDisposition;
       res.writeHead(response.statusCode || 502, outgoing);
       response.on('error', () => { res.destroy(); resolve(); });
       response.pipe(res);

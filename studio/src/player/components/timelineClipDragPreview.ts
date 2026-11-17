@@ -12,11 +12,15 @@ import {
   getTimelineRowGeometry,
   type TimelineRowGeometry,
 } from "./timelineLayout";
-import { isMusicTrack, isAudioTimelineElement } from "../../utils/timelineInspector";
+import {
+  isMusicTrack,
+  isAudioTimelineElement,
+  isStillImageTimelineElement,
+} from "../../utils/timelineInspector";
 import {
   TIMELINE_SNAP_PX,
+  stickyTimelineTime,
   snapMoveToTargets,
-  snapTimelineTime,
   type TimelineSnapTarget,
   type TimelineSnapType,
 } from "./timelineSnapping";
@@ -29,6 +33,8 @@ import { groupMoveFloor, resolveGroupMovers } from "./timelineMultiDragPreview";
 import type { DraggedClipState, ResizingClipState } from "./timelineClipDragTypes";
 import { useLinkedClipPreferences } from "../../utils/linkedClipPreferences";
 import { heldAudioShiftRange, heldPartnerVideoBounds } from "./audioClipLink";
+import { mainVisualTrack } from "./timelineLinkage";
+import { isPendingTimelineRow } from "./timelinePendingRows";
 
 /** Snap-target builder closure supplied by the hook (closes over refs + store). */
 type BuildSnapTargets = (
@@ -57,6 +63,8 @@ export interface DragPreviewContext {
   audioTracks?: ReadonlySet<number>;
   /** Seconds between the ruler's lines; 0 or absent when snapping is off. */
   gridStep?: number;
+  /** Main-track magnet preference; omitted contexts use ordinary lane placement. */
+  rippleEditEnabled?: boolean;
 }
 
 export function createKeyboardClipDrag(
@@ -133,7 +141,9 @@ function dragRowAim(
   geometry: TimelineRowGeometry,
 ) {
   let y = clientY - (ctx.scroll?.getBoundingClientRect().top ?? 0) + (ctx.scroll?.scrollTop ?? 0);
-  if (drag.started && drag.insertRow !== null) {
+  // Pointer seams are line-only: crossing them never opens or captures a row.
+  // Keyboard pickup still reserves a lane, so retain its expanded geometry.
+  if (drag.pointerId === null && drag.started && drag.insertRow !== null) {
     const top = geometry.getRowTop(drag.insertRow);
     if (y >= top - INSERT_SEAM_PX && y <= top + TRACK_H + INSERT_SEAM_PX)
       return { rowFloat: drag.insertRow, insertRow: drag.insertRow };
@@ -153,6 +163,9 @@ function resolveDropPlacement(
   group: GroupDrag,
 ): { track: number; insertRow: number | null; start: number } {
   const { trackOrder, elements } = ctx;
+  if (isPendingTimelineRow(desiredTrack, elements)) {
+    return { track: drag.element.track, start: drag.element.start, insertRow: null };
+  }
   const dragKey = drag.element.key ?? drag.element.id;
   const audioTracks =
     ctx.audioTracks ?? new Set(elements.filter(isAudioTimelineElement).map((e) => e.track));
@@ -160,6 +173,7 @@ function resolveDropPlacement(
     order: trackOrder,
     audioTracks,
     elements: group.obstacles,
+    magneticMainTrack: ctx.rippleEditEnabled ? mainVisualTrack(elements) : null,
     desiredTrack,
     deliberateInsertRow: aim.insertRow,
     allowedInsertRows: ctx.allowedInsertRows,
@@ -170,6 +184,9 @@ function resolveDropPlacement(
     isAudio: isAudioTimelineElement(drag.element),
     minStart: group.floor,
     origin: { track: drag.element.track, start: drag.element.start },
+    previous: drag.started && drag.insertRow === null && ctx.pps > 0
+      ? { track: drag.previewTrack, start: drag.previewStart, switchMargin: TIMELINE_SNAP_PX / ctx.pps }
+      : undefined,
   });
 }
 
@@ -179,6 +196,23 @@ interface GroupDrag {
   /** Lowest start the grabbed clip may take (see groupMoveFloor). */
   floor: number;
   moving: ReadonlySet<string>;
+}
+
+const groupCache = new WeakMap<readonly TimelineElement[], WeakMap<ReadonlySet<string>, Map<TimelineElement, GroupDrag & { shift: ReturnType<typeof heldAudioShiftRange> }>>>();
+
+/** Selection and source snapshots are fixed for a gesture; only its landing changes. */
+function preparedGroup(drag: DraggedClipState, ctx: DragPreviewContext) {
+  let selections = groupCache.get(ctx.elements);
+  if (!selections) { selections = new WeakMap(); groupCache.set(ctx.elements, selections); }
+  let groups = selections.get(ctx.selectedKeys);
+  if (!groups) { groups = new Map(); selections.set(ctx.selectedKeys, groups); }
+  const cached = groups.get(drag.element);
+  if (cached) return cached;
+  const group = resolveGroupDrag(drag, ctx);
+  const movers = ctx.elements.filter(element => group.moving.has(element.key ?? element.id));
+  const prepared = { ...group, shift: heldAudioShiftRange(movers, ctx.elements, group.moving) };
+  groups.set(drag.element, prepared);
+  return prepared;
 }
 
 function resolveGroupDrag(drag: DraggedClipState, ctx: DragPreviewContext): GroupDrag {
@@ -199,7 +233,6 @@ function resolveGroupDrag(drag: DraggedClipState, ctx: DragPreviewContext): Grou
   };
 }
 
-const SHIFT_EPSILON_S = 1e-6;
 
 /** Recompute the dragged-clip preview (move + snap + group clamp + drop placement). */
 export function computeDragPreview(
@@ -237,7 +270,7 @@ export function computeDragPreview(
   );
   // The music track defines the beats, so it must not snap to them —
   // but it still snaps to the playhead and other clip edges.
-  const targets = buildSnapTargets(
+  const targets = drag.snapDisabled ? [] : buildSnapTargets(
     drag.element.key ?? drag.element.id,
     !isMusicTrack(drag.element),
   );
@@ -249,7 +282,8 @@ export function computeDragPreview(
     // Relaxed clamp: allow the snapped start past the content, up to the
     // rendered extent (see dragMaxStart) — the composition grows on commit.
     dragMaxStart + drag.element.duration,
-    ctx.gridStep,
+    drag.snapDisabled ? 0 : ctx.gridStep,
+    drag,
   );
   // A snap the saved clip would miss jumps on release, so the clip stays where the pointer put it.
   const target = snapTarget(snapped);
@@ -257,21 +291,12 @@ export function computeDragPreview(
     target !== null && !guideIfSaved(drag.element, { start: snapped.start }, target, pps);
   const snap = missed ? { start: nextMove.start, snapTime: null, snapType: null } : snapped;
   // A group moves rigidly: the grabbed clip stops where any mover would cross its host's start.
-  const group = resolveGroupDrag(drag, ctx);
-  const dragKey = drag.element.key ?? drag.element.id;
-  const passengers = ctx.elements.filter(
-    (el) => (el.key ?? el.id) !== dragKey && group.moving.has(el.key ?? el.id),
-  );
-  const movers = [drag.element, ...passengers];
-  const shift = heldAudioShiftRange(movers, ctx.elements, group.moving);
+  const group = preparedGroup(drag, ctx);
+  const shift = group.shift;
   const origin = drag.element.start;
   const floored = Math.max(snap.start, group.floor);
   const previewStart = origin + Math.max(shift.min, Math.min(floored - origin, shift.max));
   const placement = resolveDropPlacement(drag, aim, previewStart, nextMove.track, ctx, group);
-  const placedShift = placement.start - origin;
-  if (placedShift < shift.min - SHIFT_EPSILON_S || placedShift > shift.max + SHIFT_EPSILON_S) {
-    return { ...drag, started: true };
-  }
   const { track: previewTrack, insertRow } = placement;
   const guide = placement.start === snap.start ? snapTarget(snap) : null;
   return {
@@ -287,6 +312,7 @@ export function computeDragPreview(
     insertRow,
     snapTime: guide?.time ?? null,
     snapType: guide?.type ?? null,
+    snapEdge: guide ? snapped.snapEdge : undefined,
   };
 }
 
@@ -378,9 +404,11 @@ export function computeResizePreview(
       minStart,
       maxEnd,
       playbackStart:
-        resize.edge === "start" && canSeedPlaybackStart
-          ? (resize.element.playbackStart ?? 0)
-          : resize.element.playbackStart,
+        isStillImageTimelineElement(resize.element)
+          ? undefined
+          : resize.edge === "start" && canSeedPlaybackStart
+            ? (resize.element.playbackStart ?? 0)
+            : resize.element.playbackStart,
       playbackRate: resize.element.playbackRate,
     },
     resize.edge,
@@ -389,16 +417,16 @@ export function computeResizePreview(
 
   // Snap within the same limits resolveTimelineResize enforces. The music
   // track defines the beats, so it must not snap to them.
-  const trimTargets = buildSnapTargets(
+  const trimTargets = resize.snapDisabled ? [] : buildSnapTargets(
     resize.element.key ?? resize.element.id,
     !isMusicTrack(resize.element),
   );
-  const gridStep = ctx.gridStep ?? 0;
+  const gridStep = resize.snapDisabled ? 0 : ctx.gridStep ?? 0;
   let snap: TimelineSnapTarget | null = null;
-  const snapSecs = TIMELINE_SNAP_PX / Math.max(pps, 1);
+  const previous = resize.snapTime != null && resize.snapType ? { time: resize.snapTime, type: resize.snapType } : null;
   if (resize.edge === "end") {
     const edgeTime = nextResize.start + nextResize.duration;
-    const { time: snapped, target } = snapTimelineTime(edgeTime, trimTargets, snapSecs, gridStep);
+    const { time: snapped, target } = stickyTimelineTime(edgeTime, trimTargets, pps, gridStep, previous);
     // Stay within [start+minDuration, maxEnd] so the snap can't create a
     // degenerate clip or run past the source/composition limit.
     const snappedDuration = Math.round((snapped - nextResize.start) * 1000) / 1000;
@@ -413,12 +441,7 @@ export function computeResizePreview(
       if (snap) nextResize = onTarget;
     }
   } else {
-    const { time: snapped, target } = snapTimelineTime(
-      nextResize.start,
-      trimTargets,
-      snapSecs,
-      gridStep,
-    );
+    const { time: snapped, target } = stickyTimelineTime(nextResize.start, trimTargets, pps, gridStep, previous);
     const clip = { ...nextResize, playbackRate: resize.element.playbackRate };
     const delta = snapped - nextResize.start;
     const bounds = clipStartTrimDeltaBounds(clip, minStart, resolveTimelineMinDuration());

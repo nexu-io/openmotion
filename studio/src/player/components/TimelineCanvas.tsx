@@ -1,5 +1,6 @@
 import { useI18n } from "../../i18n/I18n";
-import { memo } from "react";
+import { memo, type CSSProperties } from "react";
+import { useMvpEditor } from "../../motion/StudioHost";
 import { TimelineRulerPart } from "./TimelineRulerPart";
 import { PlayheadIndicator } from "./PlayheadIndicator";
 import { TimelinePlayheadLayer } from "./TimelinePlayheadLayer";
@@ -8,11 +9,14 @@ import { getTimelinePlayheadTransform } from "./timelinePlayheadTransform";
 import { TimelineLanes } from "./TimelineLanes";
 import { TimelineGestureOverlay } from "./TimelineGestureOverlay";
 import { useTimelineContext } from "./TimelineProvider";
+import { TimelinePendingAssetDrops } from "./TimelinePendingAssetDrops";
+import { TimelineGestureFeedback } from "./TimelineGestureFeedback";
 
 // A dropped clip's length is unknown until it lands; the preview shows a default.
 const DROP_PREVIEW_SECONDS = 3;
 
 export const TimelineCanvas = memo(function TimelineCanvas() {
+  const mvp = useMvpEditor();
   const { t } = useI18n();
   const { state, actions } = useTimelineContext();
   const props = state.canvas;
@@ -46,9 +50,18 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
   return (
     <div
       className="relative"
-      style={{ height: props.totalH, width: props.contentOrigin + props.trackContentWidth }}
+      style={{ height: props.totalH, minHeight: "100%", width: props.contentOrigin + props.trackContentWidth, "--timeline-grid-step": `${props.majorTickInterval * props.pps}px` } as CSSProperties}
     >
+      {mvp && <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="sticky left-0 h-full motion-timeline-gutter-fill" style={{ width: props.contentOrigin }} />
+      </div>}
       <TimelineRulerPart />
+      <TimelinePendingAssetDrops
+        contentOrigin={props.contentOrigin}
+        pixelsPerSecond={props.pps}
+        trackOrder={displayTrackOrder}
+        rowTop={props.rowGeometry.getRowTop}
+      />
 
       {/* Breathing room between the sticky ruler and the first track lane — the
           top half of the CapCut-style padding (see TimelineRowGeometry.padding). */}
@@ -85,7 +98,7 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
           aria-hidden="true"
           data-testid="timeline-ghost-lane"
           data-active={ghostLaneActive || undefined}
-          className={`pointer-events-none absolute flex items-center justify-center rounded-lg border border-dashed text-[11px] transition-colors duration-150 ${
+          className={`motion-timeline-ghost-lane pointer-events-none absolute flex items-center justify-center rounded-lg border border-dashed text-[11px] transition-colors duration-150 ${
             ghostLaneActive
               ? "border-studio-accent/60 bg-studio-accent/6 text-accent-ink"
               : "border-neutral-700/50 text-neutral-500"
@@ -138,15 +151,12 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
       {draggedClip?.started && draggedClip.insertRow == null && draggedRowIndex >= 0 && (
         <div
           data-testid="timeline-drag-landing"
-          className="absolute pointer-events-none"
+          className="absolute pointer-events-none motion-placement-outline"
           style={{
             top: props.rowGeometry.getRowTop(draggedRowIndex) + CLIP_Y,
             left: props.contentOrigin + draggedClip.previewStart * props.pps,
             width: Math.max(draggedClip.element.duration * props.pps, 4),
             height: draggedClipHeight,
-            border: "1px solid color-mix(in srgb, var(--timeline-accent) 55%, transparent)",
-            background: "color-mix(in srgb, var(--timeline-accent) 12%, transparent)",
-            borderRadius: 4,
             zIndex: 30,
           }}
         />
@@ -174,7 +184,7 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
 
       {/* Insertion line — a new track will be inserted at this boundary on drop.
           Shown while the pointer is near a lane boundary (insert mode). */}
-      {insertLineRow != null && !draggedClip?.started && (
+      {insertLineRow != null && (
         <div
           data-testid="timeline-insert-line"
           className="absolute pointer-events-none"
@@ -226,6 +236,7 @@ export const TimelineCanvas = memo(function TimelineCanvas() {
         renderClipContent={actions.renderClipContent}
         renderClipOverlay={actions.renderClipOverlay}
       />
+      <TimelineGestureFeedback />
 
       {/* Marquee (rubber-band) multi-select rectangle — mirrors the canvas
           MarqueeOverlay look: semi-transparent accent fill + dashed border. */}

@@ -14,7 +14,7 @@ import {
   TRACK_GAP_EPSILON_S,
   type TrackGapShift,
 } from "./timelineGaps";
-import { isMainTrackElement } from "./timelineZones";
+import { mainVisualTrack } from "./timelineLinkage";
 
 /**
  * Commit layer for the track-gap context menu ("Close gap" / "Close all gaps").
@@ -126,9 +126,10 @@ export function resolveMainTrackDeleteRippleShifts(
   deletedElements: readonly TimelineElement[],
   rippleEnabled: boolean,
 ): TrackGapShift[] | null {
-  const deletedMainTrack = deletedElements.filter(isMainTrackElement);
+  const mainTrack = mainVisualTrack([...survivingElements, ...deletedElements]);
+  const deletedMainTrack = deletedElements.filter(el => el.track === mainTrack);
   if (!rippleEnabled || deletedMainTrack.length === 0) return null;
-  const survivors = survivingElements.filter(isMainTrackElement);
+  const survivors = survivingElements.filter(el => el.track === mainTrack);
   // Shift each survivor left by the duration of the deleted clips before it —
   // the removed span itself, not a gap re-resolved on the survivors, which
   // can't tell an untouched adjacent gap from the one just opened.

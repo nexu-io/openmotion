@@ -3,7 +3,7 @@ import { styleEditKind, withEditKind } from "../motion/editorTracking";
 import { useCallback, useRef } from "react";
 import { refreshTimelineRowText } from "./refreshTimelineRowText";
 import { normalizeDomEditStyleValue } from "../utils/studioHelpers";
-import { injectPreviewGoogleFont, injectPreviewImportedFont } from "../utils/studioFontHelpers";
+import { injectPreviewImportedFont } from "../utils/studioFontHelpers";
 import {
   buildDomEditRichTextPatchOperation,
   findElementForSelection,
@@ -410,7 +410,6 @@ export function useDomEditTextCommits({
       if (property === "font-family") {
         const doc = previewIframeRef.current?.contentDocument;
         if (doc) {
-          injectPreviewGoogleFont(doc, normalizedValue);
           if (importedFont) injectPreviewImportedFont(doc, importedFont);
         }
       }

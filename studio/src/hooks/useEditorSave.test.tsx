@@ -11,6 +11,7 @@ vi.mock("../utils/studioSaveDiagnostics", async (importOriginal) => ({
 
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import { useEditorSave, type EditorSaveHandle } from "./useEditorSave";
+import { flushStudioPendingEdits } from '../utils/studioPendingEdits';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -57,6 +58,18 @@ describe("useEditorSave pending work", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('includes the source buffer in the shared autosave drain without duplicate writes', async () => {
+    const write = vi.fn(async () => undefined);
+    const mounted = await mountEditorSave(write);
+    try {
+      act(() => mounted.handle.handleContentChange('latest source'));
+      await expect(flushStudioPendingEdits({ blur: false })).resolves.toEqual({ status: 'clean' });
+      expect(write).toHaveBeenCalledExactlyOnceWith('index.html', 'latest source', 'before');
+      await flushStudioPendingEdits({ blur: false });
+      expect(write).toHaveBeenCalledOnce();
+    } finally { await mounted.unmount(); }
   });
 
   it("exposes and flushes the latest rAF-buffered source candidate", async () => {

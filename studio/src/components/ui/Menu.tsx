@@ -8,6 +8,10 @@ import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useRef } from "react";
 import type { ComponentPropsWithoutRef, ElementType, ReactElement, ReactNode } from "react";
 import { cn } from "./cn";
+import { Tooltip } from "./Tooltip";
+import { floatingMotion, POPUP_LAYER, popupSurface } from "./floatingSurface";
+export { floatingMotion, POPUP_LAYER, popupSurface } from "./floatingSurface";
+import { Check, RemixIcon } from "../../icons/RemixIcons";
 
 /**
  * Base UI lets `className` be a function of the part's state. Studio's parts
@@ -38,27 +42,6 @@ export function useInlinePortal(container: PortalContainer) {
 /** Matches Tooltip's gap from its trigger, and its viewport margin. */
 const SIDE_OFFSET = 6;
 const VIEWPORT_MARGIN = 8;
-
-/**
- * Enter and exit shared by menus, popovers, dropdowns, and tooltips.
- * The open duration class differs; the shape does not.
- * `data-starting-style`/`data-ending-style` are Base UI's transition attributes.
- */
-export function floatingMotion(openDuration: "duration-open" | "duration-tooltip") {
-  return cn("hf-floating-motion outline-hidden", openDuration, openDuration === "duration-tooltip" && "hf-tooltip-motion");
-}
-
-/**
- * Chrome shared by every floating panel (`Popover` too); callers add their own shadow token.
- */
-export const popupSurface = cn(
-  "hf-od-floating-surface rounded-lg border border-border-input bg-surface",
-  floatingMotion("duration-open"),
-  "data-[preview-state=open]:opacity-100 data-[preview-state=open]:scale-100",
-);
-
-/** Every floating list, menu, popover and tooltip sits on this layer, above panel chrome and modals. */
-export const POPUP_LAYER = "z-200";
 
 const menuPopup = cn(popupSurface, "min-w-36 p-1 shadow-menu");
 
@@ -94,6 +77,8 @@ interface MenuProps
   extends PositionedProps, Omit<ComponentPropsWithoutRef<typeof BaseMenu.Root>, "children"> {
   /** A single element. It becomes the trigger; no wrapper is added around it. */
   trigger: ReactElement;
+  /** Standard hover/focus hint for the menu trigger. */
+  tooltip?: string;
   /** The items: `MenuItem`, `MenuRadioGroup`, `MenuSeparator`. */
   children: ReactNode;
 }
@@ -104,6 +89,7 @@ interface MenuProps
  */
 export function Menu({
   trigger,
+  tooltip,
   children,
   side = "bottom",
   align = "start",
@@ -117,7 +103,9 @@ export function Menu({
   const inline = useInlinePortal(container);
   return (
     <BaseMenu.Root {...root}>
-      <BaseMenu.Trigger render={trigger} />
+      {tooltip === undefined ? <BaseMenu.Trigger render={trigger} /> : (
+        <Tooltip label={tooltip} wrap><BaseMenu.Trigger render={trigger} /></Tooltip>
+      )}
       {inline.host}
       <BaseMenu.Portal {...inline.portal}>
         <BaseMenu.Positioner
@@ -137,6 +125,36 @@ export function Menu({
         </BaseMenu.Positioner>
       </BaseMenu.Portal>
     </BaseMenu.Root>
+  );
+}
+
+/** Nested choices share the parent menu's keyboard navigation and collision handling. */
+export function MenuSubmenu({
+  label,
+  detail,
+  children,
+  className,
+  container,
+  "aria-label": ariaLabel,
+}: Pick<PositionedProps, "className" | "container" | "aria-label"> & {
+  label: ReactNode;
+  detail?: string;
+  children: ReactNode;
+}) {
+  const inline = useInlinePortal(container);
+  return (
+    <BaseMenu.SubmenuRoot>
+      <BaseMenu.SubmenuTrigger className={itemBase} label={ariaLabel}>
+        <span className="truncate">{label}</span>
+        <span className="om-menu-detail">{detail}<RemixIcon name="arrow-right-s-line" size={14} /></span>
+      </BaseMenu.SubmenuTrigger>
+      {inline.host}
+      <BaseMenu.Portal {...inline.portal}>
+        <BaseMenu.Positioner side="right" align="start" sideOffset={SIDE_OFFSET} collisionPadding={VIEWPORT_MARGIN} className={POPUP_LAYER}>
+          <BaseMenu.Popup aria-label={ariaLabel} className={cn(menuPopup, className)}>{children}</BaseMenu.Popup>
+        </BaseMenu.Positioner>
+      </BaseMenu.Portal>
+    </BaseMenu.SubmenuRoot>
   );
 }
 
@@ -209,7 +227,7 @@ export function MenuItem({ shortcut, tone, className, children, ...props }: Menu
   );
 }
 
-/** Single-choice group; selection is `aria-checked` on each item, which the dot indicator draws from. */
+/** Single-choice group; selection is `aria-checked` on each item. */
 export function MenuRadioGroup(props: ComponentPropsWithoutRef<typeof BaseMenu.RadioGroup>) {
   return <BaseMenu.RadioGroup {...props} />;
 }
@@ -218,14 +236,14 @@ interface MenuRadioItemProps extends StyledProps<typeof BaseMenu.RadioItem> {
   "data-preview-state"?: "hover";
 }
 
-/** One choice in a `MenuRadioGroup`. The dot renders only while it is checked. */
+/** One choice in a `MenuRadioGroup`. The check renders only while it is checked. */
 export function MenuRadioItem({ className, children, ...props }: MenuRadioItemProps) {
   return (
     <BaseMenu.RadioItem className={cn(itemBase, className)} {...props}>
       <span className="truncate">{children}</span>
       {/* Fixed box so a checked and an unchecked row keep the same width. */}
       <span className="flex size-3 shrink-0 items-center justify-center">
-        <BaseMenu.RadioItemIndicator className="size-1.5 rounded-full bg-accent" />
+        <BaseMenu.RadioItemIndicator className="flex text-accent-ink"><Check size={12} /></BaseMenu.RadioItemIndicator>
       </span>
     </BaseMenu.RadioItem>
   );
@@ -241,7 +259,7 @@ export function MenuCheckboxItem({
     <BaseMenu.CheckboxItem className={cn(itemBase, className)} {...props}>
       <span className="truncate">{children}</span>
       <span className="flex size-3 shrink-0 items-center justify-center text-accent-ink">
-        <BaseMenu.CheckboxItemIndicator>✓</BaseMenu.CheckboxItemIndicator>
+        <BaseMenu.CheckboxItemIndicator className="flex"><Check size={12} /></BaseMenu.CheckboxItemIndicator>
       </span>
     </BaseMenu.CheckboxItem>
   );

@@ -2,6 +2,7 @@ import { type TimelineElement } from "../store/playerStore";
 import { resolveContextOrder, resolveStackingContextKey } from "../lib/layerOrdering";
 import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
 import { toStackingOrderItem, type TimelineStackingOrderItem } from "./timelineStacking";
+import { timelineSpansOverlap } from "./timelineTimeBounds";
 
 export type TimelineLayerId = string;
 
@@ -43,7 +44,7 @@ export function timelineElementsOverlap(
   a: Pick<TimelineElement, "start" | "duration">,
   b: Pick<TimelineElement, "start" | "duration">,
 ): boolean {
-  return a.start < b.start + b.duration && b.start < a.start + a.duration;
+  return timelineSpansOverlap(a.start, a.start + a.duration, b.start, b.start + b.duration);
 }
 
 function compareLayerItems(a: TimelineLayerOrderItem, b: TimelineLayerOrderItem): number {

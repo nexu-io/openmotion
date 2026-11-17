@@ -13,7 +13,10 @@ test('complete bundle starts on macOS 15 while retaining CPU, executable and Win
   const bootstrap = path.join(directory, 'bootstrap.mjs');
   await copyFile(new URL('../scripts/bundle/bootstrap.mjs', import.meta.url), bootstrap);
   await writeFile(path.join(directory, 'release.json'), JSON.stringify({ target: 'mac-arm64' }));
-  for (const file of ['runtime/media/bin/ffmpeg', 'runtime/media/bin/ffprobe', 'runtime/browser/chrome-headless-shell-mac-arm64/chrome-headless-shell']) {
+  await mkdir(path.join(directory, 'scripts'));
+  await copyFile(new URL('../scripts/runtime-lock.json', import.meta.url), path.join(directory, 'scripts/runtime-lock.json'));
+  const browser = path.join('runtime/browser', lock.targets['mac-arm64'].browser.executable);
+  for (const file of ['runtime/media/bin/ffmpeg', 'runtime/media/bin/ffprobe', browser]) {
     await mkdir(path.dirname(path.join(directory, file)), { recursive: true });
     await writeFile(path.join(directory, file), 'fixture', { mode: 0o755 });
   }
@@ -23,9 +26,12 @@ test('complete bundle starts on macOS 15 while retaining CPU, executable and Win
     Object.defineProperty(process, 'arch', { value: process.argv[3] });
     os.release = () => process.argv[4];
     await import(pathToFileURL(process.argv[1]).href);
-    console.log(process.env.HYPERFRAMES_FFMPEG_PATH);`;
+    console.log(process.env.HYPERFRAMES_FFMPEG_PATH);
+    console.log(process.env.HYPERFRAMES_BROWSER_PATH);`;
   const run = (platform: string, arch: string, kernel: string) => runFile(process.execPath, ['--input-type=module', '-e', script, bootstrap, platform, arch, kernel]);
-  assert((await run('darwin', 'arm64', '24.6.0')).includes(path.join(directory, 'runtime/media/bin/ffmpeg')));
+  const started = await run('darwin', 'arm64', '24.6.0');
+  assert(started.includes(path.join(directory, 'runtime/media/bin/ffmpeg')));
+  assert(started.includes(path.join(directory, browser)));
   await assert.rejects(run('darwin', 'x64', '24.6.0'), /CPU/);
   await rm(path.join(directory, 'runtime/media/bin/ffmpeg'));
   await assert.rejects(run('darwin', 'arm64', '24.6.0'), /ENOENT/);

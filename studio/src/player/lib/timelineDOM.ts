@@ -1,3 +1,4 @@
+import { isImplicitRootText } from "./timelineText";
 /**
  * Higher-level timeline DOM operations: element factories, DOM-to-element
  * parsing, timeline merging, and standalone composition helpers.
@@ -8,6 +9,7 @@
  * Pure functions (no React, no store reads) — testable in isolation.
  */
 
+import { appendUntimedText } from "./timelineUntimedText";
 import type { TimelineElement } from "../store/playerStore";
 import type { ClipManifestClip, IframeWindow, TimelineLike } from "./playbackTypes";
 import { withSelectorIndexPass } from "../../utils/sourceScopedSelectorIndex";
@@ -176,6 +178,11 @@ export function createTimelineElementFromManifestClip(params: {
     const automation = hostEl.getAttribute("data-automation");
     if (automation) entry.automation = automation;
     entry.zIndex = readTimelineElementZIndex(hostEl);
+    if (isImplicitRootText(hostEl)) {
+      entry.implicitTextTiming = true;
+      entry.track = -100000 + fallbackIndex;
+      entry.authoredTrack = 0;
+    }
   }
   if (clip.assetUrl) entry.src = clip.assetUrl;
   if (clip.kind === "composition" && clip.compositionId) {
@@ -236,7 +243,7 @@ export function parseTimelineFromDOM(
   rootDuration: number,
   timelines?: Readonly<Record<string, TimelineLike>>,
 ): TimelineElement[] {
-  return withSelectorIndexPass(doc, () => scanTimelineFromDOM(doc, rootDuration, timelines));
+  return withSelectorIndexPass(doc, () => appendUntimedText(doc, scanTimelineFromDOM(doc, rootDuration, timelines), rootDuration));
 }
 
 function scanTimelineFromDOM(
@@ -325,6 +332,12 @@ function scanTimelineFromDOM(
       stackingContextId: resolveCssStackingContextId(el),
       zIndex: readTimelineElementZIndex(el),
     };
+
+    if (isImplicitRootText(el)) {
+      entry.implicitTextTiming = true;
+      entry.track = -100000 + els.length;
+      entry.authoredTrack = 0;
+    }
 
     const mediaEl = resolveMediaElement(el);
     applyMediaMetadataFromElement(entry, el);

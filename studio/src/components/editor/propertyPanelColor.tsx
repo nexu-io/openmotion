@@ -1,3 +1,4 @@
+import { PropertyLabel } from "./PropertyLabel";
 import { useI18n } from "../../i18n/I18n";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -163,7 +164,7 @@ export function ColorField({
   flat?: boolean;
   mixed?: boolean;
   onPreview?: (nextValue: string) => void;
-  onCommit: (nextValue: string) => void;
+  onCommit: (nextValue: string) => void | Promise<unknown>;
 }) {
   const { t } = useI18n();
   const track = useTrackDesignInput();
@@ -215,7 +216,7 @@ export function ColorField({
   const persistColorValue = useCallback(
     (nextValue: string) => {
       if (nextValue !== value) track("color", label);
-      onCommit(nextValue);
+      return onCommit(nextValue);
     },
     [label, onCommit, track, value],
   );
@@ -234,7 +235,7 @@ export function ColorField({
     },
     onCommit: (nextValue) => {
       const resolved = resolveColorGestureValue(nextValue);
-      if (resolved) persistColorValue(resolved.value);
+      if (resolved) return persistColorValue(resolved.value);
     },
   });
 
@@ -334,13 +335,13 @@ export function ColorField({
           role="dialog"
           aria-label={t("{label} color picker", { label: label })}
           tabIndex={-1}
-          className="fixed z-9999 w-[292px] overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-950 shadow-2xl shadow-black/50 outline-hidden"
+          className="fixed z-9999 flex max-h-[calc(100dvh-24px)] w-[min(292px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-neutral-700 bg-neutral-950 shadow-2xl shadow-black/50 outline-hidden"
           style={{
             left: panelPosition?.left ?? -9999,
             top: panelPosition?.top ?? -9999,
           }}
         >
-          <div className="flex items-center justify-between border-b border-neutral-800 px-3 py-2">
+          <div className="flex shrink-0 items-center justify-between border-b border-neutral-800 px-3 py-2">
             <div className="min-w-0">
               <div className="truncate text-[11px] font-medium text-neutral-100">{label}</div>
               <div className="text-[9px] uppercase tracking-[0.16em] text-neutral-600">{t("Color")}</div>
@@ -357,7 +358,7 @@ export function ColorField({
               <X size={13} />
             </button>
           </div>
-          <div className="space-y-3 p-3">
+          <div className="min-h-0 space-y-3 overflow-y-auto overscroll-contain p-3">
             <div
               className="relative h-36 cursor-crosshair overflow-hidden rounded-xl border border-neutral-700 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
               style={{ backgroundColor: hueColor }}
@@ -470,7 +471,7 @@ export function ColorField({
   if (flat) {
     return (
       <div className="flex min-h-[30px] items-center justify-between gap-2">
-        <span className="text-[11px] text-panel-text-2">{label}</span>
+        <PropertyLabel label={label} className="text-panel-text-2" />
         <button
           type="button"
           data-flat-color-trigger="true"
@@ -478,7 +479,7 @@ export function ColorField({
           aria-label={t("Pick {value0} color", { value0: label.toLowerCase() })}
           ref={buttonRef}
           onClick={openPicker}
-          className="flex h-7 min-w-0 items-center rounded-md bg-panel-bg-soft px-1.5 text-[11px] text-panel-text-0 transition-colors hover:bg-panel-hover disabled:cursor-not-allowed"
+          className="flex h-7 min-w-0 shrink-0 items-center rounded-md bg-panel-bg-soft px-1.5 text-[11px] text-panel-text-0 transition-colors hover:bg-panel-hover disabled:cursor-not-allowed"
         >
           <span
             className="relative h-3.5 w-3.5 shrink-0 overflow-hidden rounded-[3px] border border-panel-hairline"

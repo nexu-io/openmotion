@@ -291,3 +291,44 @@ describe("pasteElementHtml", () => {
     expect(hfIdsIn(ensureHfIds(content))).toHaveLength(ids.length);
   });
 });
+
+
+it("reports the reminted pasted element identity without moving its authored position", () => {
+  const source = ensureHfIds('<div data-composition-id="main"><h1 id="title" style="left:10px">Title</h1></div>');
+  const html = new DOMParser().parseFromString(source, "text/html").querySelector("h1")!.outerHTML;
+  let inserted = "";
+  const content = pasteElementHtml(source, { html, originSelector: "#title" }, true, (id) => { inserted = id; });
+  const titles = new DOMParser().parseFromString(content, "text/html").querySelectorAll("h1");
+  expect(titles).toHaveLength(2);
+  expect(inserted).toBe(titles[1]!.getAttribute("data-hf-id"));
+  expect(inserted).not.toBe(titles[0]!.getAttribute("data-hf-id"));
+  expect(titles[1]!.style.left).toBe("10px");
+});
+
+describe("text paste into a different composition or an empty timeline", () => {
+  const destination = '<div data-composition-id="main" data-duration="10"><video id="background" data-start="0" data-duration="10" data-track-index="0"></video></div>';
+  const html = '<h1 id="imported" data-start="1" data-duration="3" data-track-index="12">Imported title</h1>';
+
+  it.each([false, true])("puts canvas text above the destination with a stale/empty live timeline (timed=%s)", (timed) => {
+    const content = pasteElementHtml(destination, { html: timed ? html : '<h1 id="imported">Imported title</h1>' }, false, undefined, 2, []);
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    expect(Number(doc.querySelector("#imported")!.getAttribute("data-track-index"))).toBeLessThan(0);
+    expect(doc.querySelector("#background")!.getAttribute("data-track-index")).toBe("0");
+  });
+
+  it("puts a timeline clip from another composition on the top text track", () => {
+    const { content } = pasteTimelineClips(destination, [{ html, start: 1, duration: 3, track: 12 }], 2, [], false);
+    const copy = new DOMParser().parseFromString(content, "text/html").querySelector("#imported")!;
+    expect(Number(copy.getAttribute("data-track-index"))).toBeLessThan(0);
+    expect(copy.getAttribute("data-start")).toBe("2");
+  });
+
+  it.each(["canvas", "timeline"])("creates the first text track in an empty composition via %s paste", (entry) => {
+    const content = entry === "canvas" ? pasteElementHtml(ROOT, { html }, false) :
+      pasteTimelineClips(ROOT, [{ html, start: 1, duration: 3, track: 12 }], 0, [], false).content;
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const copy = doc.querySelector("#imported")!;
+    expect(Number(copy.getAttribute("data-track-index"))).toBeLessThanOrEqual(0);
+    expect(copy.textContent).toBe("Imported title");
+  });
+});

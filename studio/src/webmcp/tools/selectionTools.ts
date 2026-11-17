@@ -1,10 +1,12 @@
 /**
- * `studio_select` and `studio_seek`: pointing the human and the agent at the
+ * `openmotion_studio_select` and `openmotion_studio_seek`: pointing the human and the agent at the
  * same thing.
  *
- * Selection is shared human-visible state. Element writes do not infer their
- * target from it: they resolve an explicit source-safe handle per call. Keeping
- * these contracts separate means a human click cannot redirect an agent write.
+ * Selection is shared human-visible state. It is optional context, never a
+ * write target: content changes go through `openmotion_get_project` and
+ * `openmotion_edit_project`, which address source files and take no element
+ * handle. Keeping these contracts separate means a human click cannot redirect
+ * an agent write.
  */
 
 import type { DomEditSelection } from "../../components/editor/domEditingTypes";
@@ -35,13 +37,13 @@ export async function studioSelect(
   handle: string,
 ): Promise<ToolResult<StudioSelectResult>> {
   if (typeof handle !== "string" || !handle.trim()) {
-    return toolFailure("invalid", "handle must be a non-empty string", "Call studio_look first.");
+    return toolFailure("invalid", "handle must be a non-empty string", "Call openmotion_studio_look first.");
   }
   if (!elementHandleMatchesProject(handle, deps.getProjectId())) {
     return toolFailure(
       "invalid",
       "the handle belongs to a different project",
-      "Call studio_look in the active project.",
+      "Call openmotion_studio_look in the active project.",
     );
   }
 
@@ -65,21 +67,21 @@ export async function studioSelect(
     return toolFailure(
       "invalid",
       `no element matches handle ${handle}`,
-      "The composition may have changed. Call studio_look for current handles.",
+      "The composition may have changed. Call openmotion_studio_look for current handles.",
     );
   }
   if (resolved.status === "unsupported") {
     return toolFailure(
       "blocked",
       `${handle} resolved to an element Studio cannot select`,
-      "Try a parent or child element from studio_look.",
+      "Try a parent or child element from openmotion_studio_look.",
     );
   }
   if (resolved.status === "changed") {
     return toolFailure(
       "invalid",
       "the target changed while it was resolving",
-      "Call studio_look again.",
+      "Call openmotion_studio_look again.",
     );
   }
 
@@ -122,7 +124,7 @@ export function studioSeek(deps: SelectionToolDeps, time: number): ToolResult<St
     return toolFailure(
       "blocked",
       `the playhead did not move; it is still at ${after.currentTime}`,
-      "The preview may not be ready. Check studio_look, then retry.",
+      "The preview may not be ready. Check openmotion_studio_look, then retry.",
     );
   }
 
@@ -137,7 +139,7 @@ export function studioSeek(deps: SelectionToolDeps, time: number): ToolResult<St
 export const STUDIO_SELECT_INPUT_SCHEMA = {
   type: "object",
   properties: {
-    handle: { type: "string", description: "An element handle from studio_look." },
+    handle: { type: "string", description: "An element handle from openmotion_studio_look." },
   },
   required: ["handle"],
   additionalProperties: false,
@@ -146,9 +148,12 @@ export const STUDIO_SELECT_INPUT_SCHEMA = {
 export const STUDIO_SELECT_DESCRIPTION = [
   "Select an element in HyperFrames Studio, exactly as clicking it would:",
   "the human sees the same selection box and inspector.",
-  "Call this before the first write to a target so the human sees the agent's intent.",
-  "Takes a handle from studio_look. Selection is visual context for the human;",
-  "element writes take their own explicit handle and do not require this tool first.",
+  "Takes a handle from openmotion_studio_look. Selection is optional visual context",
+  "for the human and for openmotion_studio_inspect, which reads the current selection",
+  "when no handle is given.",
+  "Content changes use openmotion_get_project and openmotion_edit_project instead:",
+  "they write source files with revision checks and take no element handle,",
+  "so selecting first is never required before an edit.",
   "Returns `ok: true` with the resulting selection, or `ok: false` with `kind`, `reason` and a `hint`.",
 ].join(" ");
 

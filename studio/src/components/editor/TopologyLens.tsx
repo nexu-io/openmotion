@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import { studioEditLifecycle } from "../../webmcp/writeCoordinator";
-import { HyperframesMark } from "../ui/HyperframesMark";
+import openDesignMark from "../../../../packages/design-system/brand/loading-mark.svg";
 import { measureTopologyLensGeometry, type TopologyLensGeometry } from "./topologyLensGeometry";
 import { reduceTopologyLens, type TopologyLensState } from "./topologyLensState";
 
@@ -82,7 +82,14 @@ function useTopologyLensState(): TopologyLensState {
   return state;
 }
 
-/** Studio-parent chrome driven by the same invocation and receipt as WebMCP. */
+/**
+ * Studio-parent chrome driven by the same invocation and receipt as WebMCP.
+ *
+ * The receipt comes from the retained write coordinator, whose tools are not
+ * registered as page tools in this surface, so the lens stays hidden until one
+ * is registered again. It is kept mounted and tested so that re-registration
+ * does not also have to restore the visual proof of an applied edit.
+ */
 export function TopologyLens({ iframeRef, activeCompositionPath }: TopologyLensProps) {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const state = useTopologyLensState();
@@ -158,10 +165,10 @@ export function TopologyLens({ iframeRef, activeCompositionPath }: TopologyLensP
               style={rectStyle(geometry.field.rect)}
             >
               {state.phase === "sealing" && (
-                <HyperframesMark
+                <span
+                  style={{ background: "currentColor", mask: `url(${openDesignMark}) center / contain no-repeat`, WebkitMask: `url(${openDesignMark}) center / contain no-repeat` }}
                   data-topology-seal={state.receiptStage}
-                  className="hf-topology-seal absolute right-2 top-2 h-7 w-11 overflow-visible"
-                  viewBox="0 18 100 64"
+                  className="hf-topology-seal absolute right-2 top-2 h-7 w-7"
                 />
               )}
             </div>

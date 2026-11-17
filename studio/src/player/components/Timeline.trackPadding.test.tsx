@@ -83,6 +83,7 @@ describe("Timeline trackPadding", () => {
       `${RULER_H + TRACK_H + CLIP_Y}px`,
     );
     drag("dragover", RULER_H / 2);
+    await act(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
     expect(top(host.querySelector('[data-testid="timeline-insert-line"]'))).toBe(
       `${RULER_H - 0.5}px`,
     );
@@ -99,12 +100,25 @@ describe("Timeline trackPadding", () => {
     const clip = host.querySelector('[data-clip][data-el-id="c0"]')!;
     pointer(clip, "pointerdown", RULER_H + TRACK_H / 2);
     pointer(window, "pointermove", ROW1_MID);
-    const ghost = host.querySelector<HTMLElement>('[data-testid="timeline-drag-landing"]');
+    await act(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+    // The occupied row opens an insertion preview, whose actor shares the host geometry.
+    const ghost = host.querySelector<HTMLElement>('[data-timeline-gesture-actor="c0"]');
     expect(top(ghost)).toBe(`${RULER_H + TRACK_H + CLIP_Y}px`);
+    const committedTops = [0, 1, 2].map((row) =>
+      top(host.querySelector(`[data-timeline-row="${row}"]`)),
+    );
+    pointer(window, "pointermove", RULER_H + TRACK_H);
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
+    expect(host.querySelector("[data-timeline-new-track-lane]")).toBeNull();
+    expect([0, 1, 2].map((row) => top(host.querySelector(`[data-timeline-row="${row}"]`))))
+      .toEqual(committedTops);
     pointer(window, "pointermove", RULER_H + 3 * TRACK_H + TRACK_H / 2);
+    await act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); });
     const lane = host.querySelector<HTMLElement>("[data-timeline-new-track-lane]");
     expect(top(lane)).toBe(`${RULER_H + 3 * TRACK_H}px`);
     expect(lane?.style.height).toBe(`${TRACK_H}px`);
+    expect([0, 1, 2].map((row) => top(host.querySelector(`[data-timeline-row="${row}"]`))))
+      .toEqual(committedTops);
     act(() => root.unmount());
   });
 });

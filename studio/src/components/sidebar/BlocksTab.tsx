@@ -1,3 +1,4 @@
+import { Button } from "../ui/Button";
 import { MediaDurationBadge } from "./MediaDurationBadge";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { RemixIcon } from "../../icons/RemixIcons";
@@ -31,7 +32,7 @@ export interface BlockPreviewInfo {
 }
 
 interface BlocksTabProps {
-  onAddBlock?: (blockName: string) => void | Promise<void>;
+  onAddBlock?: (blockName: string) => unknown;
   onPreviewBlock?: (preview: BlockPreviewInfo | null) => void;
 }
 
@@ -63,7 +64,7 @@ export const BlocksTab = memo(function BlocksTab({ onAddBlock, onPreviewBlock }:
   }
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div data-motion-catalog className="flex flex-col flex-1 min-h-0">
       {/* Search */}
       <div className="px-3 pt-2 pb-1 shrink-0">
         <SearchInput
@@ -93,7 +94,7 @@ export const BlocksTab = memo(function BlocksTab({ onAddBlock, onPreviewBlock }:
       </div>
 
       {/* Block grid */}
-      <div className="flex-1 overflow-y-auto min-h-0 px-2 pb-2 [scrollbar-gutter:stable]">
+      <div className="flex-1 overflow-y-auto min-h-0 px-2 pb-2 motion-sidebar-scroll">
         {category === "vfx" && (
           <div className="mb-2 px-2 py-1.5 rounded-md bg-purple-500/10 border border-purple-500/20 text-[9px] text-text-2 leading-relaxed">
             {t("VFX blocks use WebGL via HTML-in-Canvas. Enable")}{" "}
@@ -121,9 +122,9 @@ export const BlocksTab = memo(function BlocksTab({ onAddBlock, onPreviewBlock }:
                   onPreview={onPreviewBlock}
                   onShowPrompt={mvp ? undefined : setPromptModal}
                   onAdd={
-                    block.category === "vfx" ||
+                    onAddBlock && (mvp || block.category === "vfx" ||
                     block.category === "social" ||
-                    block.category === "scenes"
+                    block.category === "scenes")
                       ? () => onAddBlock?.(block.name)
                       : undefined
                   }
@@ -284,7 +285,7 @@ function BlockCard({
   tags?: string[];
   posterUrl?: string;
   videoUrl?: string;
-  onAdd?: () => void | Promise<void>;
+  onAdd?: () => unknown;
   onShowPrompt?: (info: { title: string; prompt: string }) => void;
   onPreview?: (preview: BlockPreviewInfo | null) => void;
 }) {
@@ -292,10 +293,11 @@ function BlockCard({
   const [hovered, setHovered] = useState(false);
   const mvp = useMvpEditor();
   const preview = () => {
-    if (mvp && (videoUrl || posterUrl)) useAssetPreviewStore.getState().setCatalogPreview({ videoUrl, posterUrl, title });
+    if (mvp && (videoUrl || posterUrl)) useAssetPreviewStore.getState().setCatalogPreview({ videoUrl, posterUrl, title, onAdd });
   };
   const [failedPoster, setFailedPoster] = useState<string>();
   const [failedVideo, setFailedVideo] = useState<string>();
+  const addBusy = useRef(false);
   const [addState, setAddState] = useState<"idle" | "adding" | "added" | "failed">("idle");
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const colors = getCategoryColors(category);
@@ -336,16 +338,19 @@ function BlockCard({
   const handleAdd = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
-      if (addState !== "idle" || !onAdd) return;
+      if (addBusy.current || addState === "added" || !onAdd) return;
+      addBusy.current = true;
       setAddState("adding");
       try {
         // Confirm only what actually happened — no optimistic "Added!".
-        await onAdd();
+        if (await onAdd() === false) throw new Error("Add failed");
         setAddState("added");
+        setTimeout(() => setAddState("idle"), 1500);
       } catch {
         setAddState("failed");
       }
-      setTimeout(() => setAddState("idle"), 1500);
+      addBusy.current = false;
+
     },
     [onAdd, addState],
   );
@@ -424,15 +429,13 @@ function BlockCard({
         ) : poster ? (
           <img src={poster} alt={title} loading="lazy" onError={() => setFailedPoster(poster)} className="w-full h-full object-cover" />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-panel-bg">
-            <span className="text-[10px] text-panel-text-3">
-              {t("Preview unavailable")}
-            </span>
+          <div className="motion-composition-placeholder absolute inset-0 flex items-center justify-center" data-testid="catalog-cover-placeholder" aria-hidden="true">
+            <span className="motion-composition-placeholder-mark" />
           </div>
         )}
 
         {/* Action overlay — also revealed when a button inside receives focus */}
-        {(onAdd || onShowPrompt) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60 opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity">
+        {!mvp && (onAdd || onShowPrompt) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60 opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity">
           {onAdd && (
             <Tooltip label={t("Add")} description={t("Add to composition at current time")}>
               <button
@@ -468,6 +471,12 @@ function BlockCard({
               <RemixIcon name="file-copy-line" size={14} />
               {t("Ask agent")}</button>
           </Tooltip>}
+        </div>}
+
+        {mvp && onAdd && <div className={`absolute bottom-1.5 right-1.5 transition-opacity group-hover/card:opacity-100 group-hover/card:pointer-events-auto group-focus-within/card:opacity-100 group-focus-within/card:pointer-events-auto [@media(hover:none)]:opacity-100 [@media(hover:none)]:pointer-events-auto ${addState === "idle" ? "opacity-0 pointer-events-none" : "opacity-100"}`}>
+          <Button type="button" size="sm" className="border-0 bg-surface shadow-none" onClick={handleAdd} loading={addState === "adding"} disabled={addState === "added"}>
+            {t(addState === "adding" ? "Adding…" : addState === "added" ? "Added!" : addState === "failed" ? "Failed" : "Use")}
+          </Button>
         </div>}
 
         {/* Badges */}

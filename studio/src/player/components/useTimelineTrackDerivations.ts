@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
 import { getTrackStyle, type TrackVisualStyle } from "./timelineIcons";
+import { timelinePendingRows } from "./timelinePendingRows";
 
 /** One resolved audio group, positioned in the row order. */
 export interface TimelineTrackGroupInfo {
@@ -211,9 +212,20 @@ export function useTimelineTrackDerivations(expandedElements: TimelineElement[])
   trackGroupOf: Map<number, TimelineTrackGroupInfo>;
 } {
   const collapsedGroupIds = usePlayerStore((s) => s.collapsedGroupIds);
+  const pendingDrops = usePlayerStore((s) => s.pendingAssetDrops);
   const { tracks, groups, trackGroupOf, trackOrder } = useMemo(
-    () => timelineDisplayTracks(expandedElements, collapsedGroupIds),
-    [expandedElements, collapsedGroupIds],
+    () => {
+      const layout = timelineDisplayTracks(expandedElements, collapsedGroupIds);
+      const { addedRows } = timelinePendingRows(expandedElements, pendingDrops);
+      if (!addedRows.size) return layout;
+      const tracks = [...layout.tracks];
+      for (const row of addedRows.keys()) {
+        const index = tracks.findIndex(([track]) => track > row);
+        tracks.splice(index < 0 ? tracks.length : index, 0, [row, []]);
+      }
+      return { ...layout, tracks, trackOrder: tracks.map(([row]) => row) };
+    },
+    [expandedElements, collapsedGroupIds, pendingDrops],
   );
 
   const trackStyles = useMemo(() => {

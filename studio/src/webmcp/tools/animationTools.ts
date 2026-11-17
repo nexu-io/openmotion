@@ -1,5 +1,9 @@
 /**
- * `studio_animate`: author motion.
+ * Studio animation tools: author motion.
+ *
+ * Retained but not registered as page tools in this surface; see the retention
+ * note in `../useStudioAgentTools.ts`. The four functions stay callable and
+ * tested.
  *
  * Add, update, and delete await the shared GSAP commit pipeline. Its promise is
  * the single settlement boundary for persistence and live-preview sync, so a
@@ -40,7 +44,7 @@ export interface AnimationToolDeps extends TargetedWriteDeps {
   deleteAnimation: (selection: DomEditSelection, animationId: string) => Promise<boolean>;
 }
 
-const INSPECT_HINT = "Call studio_inspect to see the result.";
+const INSPECT_HINT = "Call openmotion_studio_inspect to see the result.";
 
 async function animationBelongsToTarget(
   deps: AnimationToolDeps,
@@ -53,7 +57,7 @@ async function animationBelongsToTarget(
     : toolFailure(
         "invalid",
         `animation ${animationId} does not belong to the target handle`,
-        "Select the target, then call studio_inspect for its current animation ids.",
+        "Select the target, then call openmotion_studio_inspect for its current animation ids.",
       );
 }
 
@@ -95,7 +99,7 @@ export async function studioAddAnimation(
         return toolFailure(
           "failed",
           "the animation did not land",
-          "The target may be stale. Call studio_look and try again with its current handle.",
+          "The target may be stale. Call openmotion_studio_look and try again with its current handle.",
         );
       }
       return dispatched({ method, insertedAtSeconds: currentTime, dispatched: true }, false);
@@ -163,7 +167,7 @@ export async function studioUpdateAnimation(
         return toolFailure(
           "failed",
           `the update to ${animationId} did not land`,
-          "The animation id may be stale. studio_inspect lists the current ones.",
+          "The animation id may be stale. openmotion_studio_inspect lists the current ones.",
         );
       }
       return dispatched({ animationId, updated: updates }, false);
@@ -262,7 +266,7 @@ export async function studioDeleteAnimation(
         return toolFailure(
           "failed",
           `the delete of ${animationId} did not land`,
-          "The animation id may be stale. studio_inspect lists the current ones.",
+          "The animation id may be stale. openmotion_studio_inspect lists the current ones.",
         );
       }
       return dispatched({ animationId, dispatched: true }, false);
@@ -277,7 +281,7 @@ const KEYFRAME_DISPATCH_CAVEAT = `Reports what was dispatched, not what landed: 
 export const STUDIO_ADD_ANIMATION_INPUT_SCHEMA = {
   type: "object",
   properties: {
-    handle: { type: "string", description: "A source-safe element handle from studio_look." },
+    handle: { type: "string", description: "A source-safe element handle from openmotion_studio_look." },
     method: { type: "string", enum: METHODS, description: "The GSAP method to add." },
   },
   required: ["handle", "method"],
@@ -285,8 +289,8 @@ export const STUDIO_ADD_ANIMATION_INPUT_SCHEMA = {
 } as const;
 
 export const STUDIO_ADD_ANIMATION_DESCRIPTION = [
-  "Add a GSAP animation to one element using its source-safe handle from studio_look.",
-  "It is inserted AT THE PLAYHEAD, which this tool does not control: call studio_seek first",
+  "Add a GSAP animation to one element using its source-safe handle from openmotion_studio_look.",
+  "It is inserted AT THE PLAYHEAD, which this tool does not control: call openmotion_studio_seek first",
   "to choose when it starts. The result reports where the playhead actually was.",
   SETTLEMENT_NOTE,
   WRITE_RECEIPT_DESCRIPTION,
@@ -295,8 +299,8 @@ export const STUDIO_ADD_ANIMATION_DESCRIPTION = [
 export const STUDIO_UPDATE_ANIMATION_INPUT_SCHEMA = {
   type: "object",
   properties: {
-    handle: { type: "string", description: "A source-safe element handle from studio_look." },
-    animationId: { type: "string", description: "An animation id from studio_inspect." },
+    handle: { type: "string", description: "A source-safe element handle from openmotion_studio_look." },
+    animationId: { type: "string", description: "An animation id from openmotion_studio_inspect." },
     duration: { type: "number", minimum: 0, description: "Duration in seconds." },
     ease: { type: "string", description: "A GSAP ease, for example power2.out." },
     position: { type: "number", description: "Start position in seconds." },
@@ -308,15 +312,15 @@ export const STUDIO_UPDATE_ANIMATION_INPUT_SCHEMA = {
 export const STUDIO_UPDATE_ANIMATION_DESCRIPTION = [
   "Change an existing animation's duration, ease or position.",
   "It waits for persistence and live-preview synchronization before reporting success.",
-  "Get current ids from studio_inspect.",
+  "Get current ids from openmotion_studio_inspect.",
   WRITE_RECEIPT_DESCRIPTION,
 ].join(" ");
 
 export const STUDIO_ADD_KEYFRAME_INPUT_SCHEMA = {
   type: "object",
   properties: {
-    handle: { type: "string", description: "A source-safe element handle from studio_look." },
-    animationId: { type: "string", description: "An animation id from studio_inspect." },
+    handle: { type: "string", description: "A source-safe element handle from openmotion_studio_look." },
+    animationId: { type: "string", description: "An animation id from openmotion_studio_inspect." },
     percent: {
       type: "number",
       minimum: 0,
@@ -342,8 +346,8 @@ export const STUDIO_ADD_KEYFRAME_DESCRIPTION = [
 export const STUDIO_DELETE_ANIMATION_INPUT_SCHEMA = {
   type: "object",
   properties: {
-    handle: { type: "string", description: "A source-safe element handle from studio_look." },
-    animationId: { type: "string", description: "An animation id from studio_inspect." },
+    handle: { type: "string", description: "A source-safe element handle from openmotion_studio_look." },
+    animationId: { type: "string", description: "An animation id from openmotion_studio_inspect." },
   },
   required: ["handle", "animationId"],
   additionalProperties: false,

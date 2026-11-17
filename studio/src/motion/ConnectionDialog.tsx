@@ -4,17 +4,18 @@ import { useEffect, useRef } from 'react';
 import { mountConnection } from '../../../web/connect';
 import connectionPage from '../../../web/connect.html?raw';
 import { TemplateLibraryDialog } from './TemplateLibraryDialog';
+import { AgentConnectionDialog } from './AgentConnectionDialog';
 import { MotionIcon } from './icons';
 import { reportTemplateEvent } from './editorTracking';
-import '../../../web/design-system/controls.css';
 import '../../../web/connect.css';
 import '../../../web/template-gallery.css';
 
-type Props = { open: boolean; section?: 'setup' | 'templates'; busy: boolean; error: string; returnFocus?: HTMLElement | null; onClose: () => void; onOpen: (id: string) => void; projectId?: string };
+type Props = { open: boolean; section?: 'setup' | 'templates'; busy: boolean; openingDisabled?: boolean; error: string; returnFocus?: HTMLElement | null; onClose: () => void; onOpen: (id: string) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string };
 
 /** The original integration page lives inside one modal; Studio stays mounted beneath it. */
 export function ConnectionDialog(props: Props) {
   const mvp = useMvpEditor();
+  if (props.section === 'setup') return props.open ? <AgentConnectionDialog onClose={props.onClose} returnFocus={props.returnFocus} /> : null;
   return mvp || props.section === 'templates' ? <TemplateLibraryDialog {...props} /> : <LegacyConnectionDialog {...props} />;
 }
 
@@ -31,7 +32,7 @@ function LegacyConnectionDialog(props: Props) {
       t, locale,
       initialHost: new URLSearchParams(location.search).get('host'),
       close: () => { if (!callbacks.current.busy) callbacks.current.onClose(); },
-      useTemplate: id => { if (!callbacks.current.busy) callbacks.current.onOpen(id); },
+      useTemplate: id => { if (!callbacks.current.busy && !callbacks.current.openingDisabled) callbacks.current.onOpen(id); },
       onTemplateEvent: event => reportTemplateEvent(event, callbacks.current.projectId),
     });
     if (mvp) {

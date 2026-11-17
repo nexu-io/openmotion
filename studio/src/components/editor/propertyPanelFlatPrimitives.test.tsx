@@ -259,7 +259,7 @@ describe("FlatGroupHeader", () => {
       <FlatGroupHeader title="Text" isOpen onToggleOpen={onToggleOpen} />,
     );
     expect(host.textContent).toContain("Text");
-    const collapse = host.querySelector<HTMLButtonElement>('button[title="Collapse"]');
+    const collapse = host.querySelector<HTMLButtonElement>('button[aria-label="Collapse"]');
     act(() => collapse?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onToggleOpen).toHaveBeenCalledTimes(1);
     act(() => root.unmount());

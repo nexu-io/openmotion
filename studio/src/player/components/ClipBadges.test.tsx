@@ -53,13 +53,24 @@ function mountPreview(html: string): Document {
   return doc;
 }
 
+async function hoverFx() {
+  const box = document.querySelector("[data-badge='fx']")!.parentElement!;
+  await act(async () => {
+    box.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
+    box.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 250));
+  });
+  return document.querySelector('[role="tooltip"]')?.textContent;
+}
+
 describe("ClipBadges", () => {
-  it("shows a grey fx badge and no volume on an untouched clip", () => {
+  it("shows a grey fx badge and no volume on an untouched clip", async () => {
     render(talk);
     expect(labels()).toEqual(["fx:fx"]);
     const fx = document.querySelector("[data-badge='fx']");
     expect(fx?.getAttribute("data-fx-active")).toBe("false");
-    expect(fx?.getAttribute("title")).toBe("No effects");
+    expect(fx?.hasAttribute("title")).toBe(false);
+    expect(await hoverFx()).toBe("No effects");
   });
 
   it("falls back to the store's volume without a preview", () => {
@@ -75,7 +86,7 @@ describe("ClipBadges", () => {
     const fx = () => document.querySelector("[data-badge='fx']");
     expect(labels()).toEqual(["fx:fx"]);
     expect(fx()?.getAttribute("data-fx-active")).toBe("true");
-    expect(fx()?.getAttribute("title")).toBe("Crop");
+    expect(await hoverFx()).toBe("Crop");
     const node = doc.getElementById("talk");
     await act(async () => {
       node?.setAttribute("data-color-grading", '{"preset":"warm-daylight","intensity":1}');
@@ -83,7 +94,7 @@ describe("ClipBadges", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(labels()).toEqual(["volume:60%", "fx:fx"]);
-    expect(fx()?.getAttribute("title")).toBe("Look: Warm daylight · Crop");
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Look: Warm daylight · Crop");
   });
 
   it("opens the clip menu from the fx badge without reaching the clip", () => {

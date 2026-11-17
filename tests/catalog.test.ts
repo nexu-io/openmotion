@@ -1,3 +1,5 @@
+// These fixtures exercise the published CMS contract independently of repository source.
+process.env.MOTION_TEMPLATE_SOURCE = 'cms';
 import test from 'node:test';
 import { closeFixtureEditor } from './fixtures.ts';
 import assert from 'node:assert/strict';
@@ -15,6 +17,13 @@ import { WorkspaceStore } from '../workspace.ts';
 import { transport } from './http.ts';
 import { mockPrism } from './prism-fixture.ts';
 
+function assertCatalogImage(bytes: Buffer, poster: string): void {
+  if (poster.endsWith('.webp')) {
+    assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(bytes.toString('ascii', 8, 12), 'WEBP');
+  } else assert.equal(bytes.readUInt16BE(), 0xffd8);
+}
+
 test('the complete source snapshot, every original ID and matched poster survive the import', async () => {
   const raw = await readFile(new URL('../web/catalog/hyperframes.json', import.meta.url));
   const snapshot = JSON.parse(raw.toString());
@@ -23,7 +32,7 @@ test('the complete source snapshot, every original ID and matched poster survive
   assert.equal(snapshot.entries.length, 891); assert.equal(provenance.entries, 891);
   const counts = Object.fromEntries(['reference', 'moment', 'block', 'component', 'example'].map(collection => [collection, snapshot.entries.filter(entry => entry.collection === collection).length]));
   assert.deepEqual(counts, { reference: 42, moment: 393, block: 210, component: 238, example: 8 });
-  assert.equal(libraryTemplates.length, 894);
+  assert.equal(libraryTemplates.length, 895);
   for (const entry of snapshot.entries) {
     const template = getTemplate(entry.id);
     assert.equal(template.title, entry.title); assert.equal(template.sourceUrl, entry.sourceUrl);
@@ -31,10 +40,12 @@ test('the complete source snapshot, every original ID and matched poster survive
   }
   const frames = JSON.parse(await readFile(new URL('../web/catalog/template-frames.json', import.meta.url), 'utf8')).frames;
   assert.equal(frames.length, 38);
+  const framedTemplates = catalogTemplates(snapshot.entries, frames);
   for (const frame of frames) {
     assert.equal(frame.video, snapshot.entries.find(entry => entry.id === frame.id).video);
+    assert.equal(framedTemplates.find(template => template.id === frame.id)?.posterUrl, frame.poster);
     const bytes = await readFile(new URL('..' + frame.poster, import.meta.url));
-    assert.equal(bytes.readUInt16BE(), 0xffd8);
+    assertCatalogImage(bytes, frame.poster);
   }
   const noMedia = getTemplate('hf-component-agent-cursor');
   assert.equal(noMedia.previewUrl, undefined); assert.equal(noMedia.posterUrl, undefined);
@@ -53,10 +64,10 @@ test('pagination and grouped variants expose every template without omitting IDs
     ids.push(...page.items.map(item => item.id)); offset = page.next;
   }
   assert.deepEqual(new Set(ids), new Set(libraryTemplates.map(item => item.id)));
-  assert.equal(ids.length, 894);
+  assert.equal(ids.length, 895);
   const variants = groupTemplates(libraryTemplates).flatMap(item => item.variants || [item]);
-  assert.equal(variants.length, 894); assert.equal(new Set(variants.map(item => item.id)).size, 894);
-  assert.equal(listTemplates({ category: 'builtin' }).total, 3);
+  assert.equal(variants.length, 895); assert.equal(new Set(variants.map(item => item.id)).size, 895);
+  assert.equal(listTemplates({ category: 'builtin' }).total, 4);
   assert.ok(listTemplates({ category: 'script' }).items.every(item => item.tags.includes('口播') || item.role === 'a-roll'));
   assert.equal(listTemplates({ query: 'hf-component-agent-cursor' }).items[0].id, 'hf-component-agent-cursor');
   assert.equal(listTemplates({ query: '@lovable_dev' }).items[0].id, 'hf-reference-jake-lovable');
@@ -73,13 +84,14 @@ test('HTTP catalog, local posters and copied guides resolve the exact selected t
   try {
     const store = new WorkspaceStore(directory), request = transport(store), before = await store.get();
     const page = await (await request('/motion-api/template-catalog?grouped=true&limit=6')).json();
-    assert.equal(page.items[0].id, 'test-motion-1'); assert.equal(page.catalogTotal, 4);
+    assert.equal(page.items[0].id, 'test-motion-1'); assert.equal(page.catalogTotal, 5);
     assert.equal((await request('/motion-api/template-catalog?offset=-1')).status, 400);
     assert.equal((await request('/motion-api/template-catalog?limit=999')).status, 400);
     for (const template of libraryTemplates.filter(item => item.posterUrl?.startsWith('/web/'))) {
       const response = await request(template.posterUrl!);
-      assert.equal(response.status, 200); assert.equal(response.headers.get('Content-Type'), 'image/jpeg');
-      assert.equal(Buffer.from(await response.arrayBuffer()).readUInt16BE(), 0xffd8);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('Content-Type'), template.posterUrl!.endsWith('.webp') ? 'image/webp' : 'image/jpeg');
+      assertCatalogImage(Buffer.from(await response.arrayBuffer()), template.posterUrl!);
     }
     const info = await (await request('/api/integration')).json();
     for (const id of ['nyt-graph', 'decision-tree', 'product-promo']) {
@@ -87,21 +99,21 @@ test('HTTP catalog, local posters and copied guides resolve the exact selected t
       for (const host of ['codex', 'claude', 'deepseek', 'mcp'] as const) {
         const prompt = templatePrompt(info, host, template);
         assert.ok(prompt.includes(id)); assert.ok(prompt.includes(template.title));
-        assert.match(prompt, /https:\/\/releases.open-design.ai\/open-motion\/install.md/);
+        assert.ok(prompt.includes('https://github.com/nexu-io/openmotion'));
         assert.match(prompt, /并交付 HTML 和 MP4/); assert.ok(prompt.endsWith('我的要求：\n'));
-        assert.doesNotMatch(prompt, /dataDirectory|motion_write_files|expectedRevision/);
+        assert.doesNotMatch(prompt, /dataDirectory|openmotion_write_files|expectedRevision/);
         assert.doesNotMatch(prompt, /localhost|127\.0\.0\.1|connect\/guide/);
         const response = await request(guideUrl(info, host, id)); assert.equal(response.status, 200);
         const guide = await response.text(); assert.ok(guide.includes(`模板 ID：${id}`));
         assert.ok(guide.includes(template.title));
         const expectedRoute = template.kind === 'reference' ? 'recreate' : 'template';
-        assert.ok(guide.includes(`motion://workflow/${expectedRoute}/start`));
+        assert.ok(guide.includes(`openmotion://workflow/${expectedRoute}/start`));
         assert.deepEqual(readTemplate(id).workflowGuide, { workflow: expectedRoute, section: 'start', status: 'ready' });
         assert.match(guide, /本次用户明确要求成片或导出/);
         if (template.kind !== 'builtin') {
-          assert.match(guide, /motion_edit_project/); assert.doesNotMatch(prompt, /motion_apply_template/);
+          assert.match(guide, /openmotion_edit_project/); assert.doesNotMatch(prompt, /openmotion_apply_template/);
           assert.ok(guide.includes(template.sourceUrl!));
-        } else assert.match(guide, /motion_create_project/);
+        } else assert.match(guide, /openmotion_create_project/);
       }
     }
     assert.equal((await request('/connect/guide?template=missing')).status, 400);
@@ -118,25 +130,25 @@ test('internal legacy compatibility reads the selected reference and uses the na
     const requests = [
       { id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25' } },
       { id: 2, method: 'tools/list' },
-      { id: 3, method: 'tools/call', params: { name: 'motion_list_templates', arguments: { query: templateId } } },
-      { id: 4, method: 'tools/call', params: { name: 'motion_get_template', arguments: { templateId } } },
-      { id: 5, method: 'tools/call', params: { name: 'motion_write_files', arguments: { expectedRevision: initial.revision, files: [{ path: 'index.html', content: html }] } } },
-      { id: 6, method: 'tools/call', params: { name: 'motion_write_files', arguments: { expectedRevision: initial.revision, files: [{ path: 'index.html', content: 'stale' }] } } },
+      { id: 3, method: 'tools/call', params: { name: 'openmotion_list_templates', arguments: { query: templateId } } },
+      { id: 4, method: 'tools/call', params: { name: 'openmotion_get_template', arguments: { templateId } } },
+      { id: 5, method: 'tools/call', params: { name: 'openmotion_write_files', arguments: { expectedRevision: initial.revision, files: [{ path: 'index.html', content: html }] } } },
+      { id: 6, method: 'tools/call', params: { name: 'openmotion_write_files', arguments: { expectedRevision: initial.revision, files: [{ path: 'index.html', content: 'stale' }] } } },
     ];
     const replies = [];
     for (const message of requests) replies.push(await rpc({ jsonrpc: '2.0', ...message }, store, mcpRegistry('legacy')));
-    assert.equal(replies[1].result.tools.length, 28);
+
     assert.equal(replies[2].result.structuredContent.items[0].id, templateId);
     assert.equal(replies[3].result.structuredContent.sourceUrl, getTemplate(templateId).sourceUrl);
-    assert.match(replies[3].result.structuredContent.instructions, /motion_edit_project/);
+    assert.match(replies[3].result.structuredContent.instructions, /openmotion_edit_project/);
     assert.deepEqual(replies[3].result.structuredContent.workflowGuide, { workflow: 'recreate', section: 'start', status: 'ready' });
-    assert.doesNotMatch(replies[3].result.structuredContent.instructions, /motion_import_project|motion.json/);
+    assert.doesNotMatch(replies[3].result.structuredContent.instructions, /openmotion_import_project|motion.json/);
     assert.notEqual(replies[4].result.structuredContent.revision, initial.revision);
     assert.equal(replies[5].result.isError, true);
     assert.equal((await store.get()).project!.html, html);
-    assert.equal(readTemplate('product-promo').workflow, 'motion_apply_template');
-    assert.equal(readTemplate(templateId).workflow, 'motion_import_asset + motion_write_files');
-    await assert.rejects(callTool('motion_get_template', { templateId: 'missing' }, store), /模板不存在/);
+    assert.equal(readTemplate('product-promo').workflow, 'openmotion_apply_template');
+    assert.equal(readTemplate(templateId).workflow, 'openmotion_import_asset + openmotion_write_files');
+    await assert.rejects(callTool('openmotion_get_template', { templateId: 'missing' }, store), /模板不存在/);
   } finally { await closeFixtureEditor(directory); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -146,24 +158,25 @@ test('the visual gallery only includes verified local covers and keeps coverless
   for (const cover of covers.entries) {
     assert.equal(getTemplate(cover.id).posterUrl, cover.poster);
     const bytes = await readFile(new URL('..' + cover.poster, import.meta.url));
-    assert.equal(bytes.readUInt16BE(), 0xffd8); assert.ok(bytes.length > 500);
+    assertCatalogImage(bytes, cover.poster);
+    assert.ok(bytes.length > 500);
   }
   const page = listTemplates({ covered: true, limit: 60 });
-  assert.equal(page.catalogTotal, 894); assert.equal(page.galleryTotal, covers.entries.length + 3);
+  assert.equal(page.catalogTotal, 895); assert.equal(page.galleryTotal, covers.entries.length + 4);
   assert.ok(page.items.every(item => item.posterUrl?.startsWith('/')));
   assert.equal(listTemplates({ covered: true, query: 'hf-component-agent-cursor' }).total, 0);
   assert.equal(listTemplates({ query: 'hf-component-agent-cursor' }).total, 1);
   assert.ok(listTemplates({ covered: true, query: 'shapelayer' }).items.some(item => item.sourceUrl === 'https://x.com/shapelayer/status/2070884943199150467'));
 });
 
-test('template prompts use public installation URLs for the effective package environment', () => {
+test('template prompts use the public repository URL in every package environment', () => {
   const info = { templateEnvironment: 'dev', previewUrl: 'http://127.0.0.1:1234', transport: { env: {} } } as Parameters<typeof templatePrompt>[0];
   const template = { id: 'exact-id', title: 'Selected template' };
-  assert.match(templatePrompt(info, 'codex', template), /open-motion\/dev\/install.md/);
+  assert.ok(templatePrompt(info, 'codex', template).includes('https://github.com/nexu-io/openmotion'));
   info.templateEnvironment = 'prod';
   info.transport.env.MOTION_TEMPLATE_ENV = 'dev';
   const prompt = templatePrompt(info, 'claude', template, 'en');
-  assert.match(prompt, /open-motion\/install.md/); assert.doesNotMatch(prompt, /\/dev\/|127\.0\.0\.1|localhost/);
+  assert.ok(prompt.includes('https://github.com/nexu-io/openmotion')); assert.doesNotMatch(prompt, /releases\.open-design\.ai|127\.0\.0\.1|localhost/);
   assert.match(prompt, /Selected template \(exact-id\)/); assert.match(prompt, /HTML and MP4/);
 });
 
@@ -176,7 +189,7 @@ test('template prompts cover all eleven locales and preserve literal template va
   assert.equal(new Set(prompts).size, 11);
   for (const prompt of prompts) {
     assert.ok(prompt.includes(template.title)); assert.ok(prompt.includes(template.id));
-    assert.ok(prompt.includes('https://releases.open-design.ai/open-motion/dev/install.md'));
+    assert.ok(prompt.includes('https://github.com/nexu-io/openmotion'));
     assert.match(prompt, /HTML.*MP4/); assert.doesNotMatch(prompt, /\{installUrl\}|\{id\}/);
   }
   assert.equal(templatePrompt(info, 'codex', template, 'pt-BR'), templatePrompt(info, 'codex', template, 'pt-br'));

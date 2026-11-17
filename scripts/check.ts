@@ -6,7 +6,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import { releaseProfile } from '../shared/mcp-registry.ts';
 import { checkDesign } from './design-check.ts';
-import { getWorkflow, workflowRegistry, phase1WorkflowNames } from '../shared/workflow.ts';
+import { getWorkflow, markdownAnchors, workflowLinkAnchors, workflowRegistry, phase1WorkflowNames } from '../shared/workflow.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -28,7 +28,7 @@ export async function check() {
   const manifest = JSON.parse(await readFile(path.join(root, '.codex-plugin/plugin.json'), 'utf8'));
   const marketplace = JSON.parse(await readFile(path.join(root, 'marketplace.example.json'), 'utf8'));
   assert.equal(manifest.name, marketplace.plugins[0].name);
-  assert.equal(manifest.skills, './skills/');
+  assert.deepEqual(manifest.skills, ['./skills/', './.codex-plugin/onboarding/']);
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const lock = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   assert.equal(pkg.version, manifest.version);
@@ -37,9 +37,9 @@ export async function check() {
   assert.equal(lock.packages['node_modules/hyperframes'].version, pkg.dependencies.hyperframes);
   assert.equal(manifest.mcpServers, './.mcp.json');
   const mcp = JSON.parse(await readFile(path.join(root, '.mcp.json'), 'utf8'));
-  assert.equal(mcp.mcpServers.motion.type, 'stdio');
-  assert.deepEqual(mcp.mcpServers.motion.args, ['--experimental-strip-types', 'mcp.ts']);
-  assert.equal(mcp.mcpServers.motion.cwd, '.');
+  assert.equal(mcp.mcpServers.openmotion.type, 'stdio');
+  assert.deepEqual(mcp.mcpServers.openmotion.args, ['--experimental-strip-types', 'mcp.ts']);
+  assert.equal(mcp.mcpServers.openmotion.cwd, '.');
   assert.ok(!JSON.stringify(mcp).includes('${'), 'MCP launch paths cannot depend on placeholder expansion');
   assert.equal(marketplace.plugins[0].source.path, './');
   for (const folder of ['web', 'shared', 'scripts', 'tests', 'gateway', 'tracking']) {
@@ -47,7 +47,7 @@ export async function check() {
       if (file.endsWith('.ts')) stripTypeScriptTypes(await readFile(path.join(root, folder, file), 'utf8'), { mode: 'strip' });
     }
   }
-  for (const file of ['server.ts', 'browser.ts', 'workspace.ts', 'mcp.ts', 'mcp-tools.ts', 'editor-runtime.ts', 'phase1.ts', 'phase1-versions.ts', 'preview.ts', 'hyperframes.ts', 'template-library.ts', 'template-catalog.ts', 'prism-templates.ts', 'editor-server.ts']) stripTypeScriptTypes(await readFile(path.join(root, file), 'utf8'), { mode: 'strip' });
+  for (const file of ['server.ts', 'browser.ts', 'workspace.ts', 'mcp.ts', 'mcp-tools.ts', 'editor-runtime.ts', 'phase1.ts', 'phase1-versions.ts', 'project-archive.ts', 'project-management.ts', 'inline-video.ts', 'preview.ts', 'hyperframes.ts', 'template-library.ts', 'template-catalog.ts', 'prism-templates.ts', 'editor-server.ts']) stripTypeScriptTypes(await readFile(path.join(root, file), 'utf8'), { mode: 'strip' });
   for (const entry of await readdir(path.join(root, 'skills'), { withFileTypes: true })) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
     const document = await readFile(path.join(root, 'skills', entry.name, 'SKILL.md'), 'utf8');
@@ -71,6 +71,10 @@ export async function check() {
       for (const reference of document.references) {
         const linked = await getWorkflow(reference.section, reference.workflow);
         assert.equal(linked.documentId, reference.documentId, `Unreachable workflow link from ${document.documentId}`);
+      }
+      for (const link of workflowLinkAnchors(document.content, document.documentId)) {
+        const linked = link.documentId === document.documentId ? document : await getWorkflow(link.section, link.workflow);
+        assert.ok(markdownAnchors(linked.content).has(link.anchor), `Missing heading anchor in ${document.documentId}: ${link.href}`);
       }
     }
   }

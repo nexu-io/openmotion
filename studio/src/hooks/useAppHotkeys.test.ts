@@ -422,6 +422,28 @@ describe('dispatchPlainKey — "A" returns to select while the razor is armed', 
   });
 });
 
+describe('dispatchPlainKey — split at playhead', () => {
+  it.each([[false, false], [false, true], [true, false], [true, true]])('explains sub-composition splitting with razor disabled: %s, host split: %s', (disableRazorTool, hostSplit) => {
+    usePlayerStore.setState({
+      currentTime: 2,
+      elements: [bgmElement],
+      selectedElementId: 'sub-composition.html#clip',
+    });
+    const split = vi.fn(async () => {});
+    const cb = callbacks({ handleSplitAtPlayhead: hostSplit ? split : undefined, disableRazorTool });
+
+    dispatchPlainKey(press('s'), 's', cb);
+
+    expect(split).not.toHaveBeenCalled();
+    expect(cb.showToast).toHaveBeenCalledWith(
+      disableRazorTool
+        ? 'Splitting clips inside a sub-composition is not supported in this editor.'
+        : expect.stringContaining('Use the razor tool'),
+      'info',
+    );
+  });
+});
+
 describe("hotkeys with the preview read-only", () => {
   beforeEach(() => {
     usePlayerStore.setState({ elements: [bgmElement], selectedElementId: null });
@@ -610,6 +632,15 @@ describe("editor keys the host can remap", () => {
     dispatch("[");
     usePlayerStore.setState({ selectLeftward: original });
     expect(left).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not activate the hidden blade tool when the MVP disables it", () => {
+    const cb = callbacks({ disableRazorTool: true });
+    dispatchPlainKey(press("b"), "b", cb);
+    expect(tool()).toBe("select");
+    setStudioKeys({ razorTool: "y" });
+    dispatchPlainKey(press("y"), "y", cb);
+    expect(tool()).toBe("select");
   });
 
   it("a remapped key answers and the old one does not", () => {

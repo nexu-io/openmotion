@@ -1,5 +1,6 @@
 import { useCallback, type MutableRefObject } from "react";
 import { usePlayerStore } from "../player/store/playerStore";
+import { clearStudioSaveFailures } from "../utils/studioSaveState";
 import {
   deleteExternalConflictSnapshot,
   loadExternalConflictSnapshot,
@@ -69,7 +70,8 @@ export function useStudioExternalFileChanges({
   const discardPendingChanges = useCallback(() => {
     discardPendingSourceSave();
     resetDomEditSaveQueueBreaker();
-  }, [discardPendingSourceSave, resetDomEditSaveQueueBreaker]);
+    if (projectId) clearStudioSaveFailures(projectId);
+  }, [discardPendingSourceSave, resetDomEditSaveQueueBreaker, projectId]);
 
   return useExternalFileChangeCoordinator({
     projectId,

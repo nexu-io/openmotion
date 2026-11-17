@@ -2,6 +2,13 @@ import zhCN from './zh-CN.json';
 import mvpZhCN from './mvp-zh-CN.json';
 import mvpUi from './mvp-ui.json';
 import errorUi from './error-ui.json';
+import templateUi from './template-ui.json';
+import settingsUi from './settings-ui.json';
+import mcpUi from './mcp-ui.json';
+import assetsUi from './assets-ui.json';
+import brandKitUi from './brand-kit-ui.json';
+import skillsUi from './skills-ui.json';
+import projectUi from './project-ui.json';
 import ja from './ja.json';
 import ko from './ko.json';
 import de from './de.json';
@@ -31,9 +38,14 @@ export const isLocale = (value: unknown): value is Locale => languages.some(lang
 // Phase-one UI additions and terminology corrections are localized in every
 // supported language. Retained, unexposed advanced-editor strings still fall back.
 export const mvpMessages: Partial<Record<Locale, Record<string, Message>>> = { 'zh-CN': mvpZhCN, ...mvpUi };
-const effectiveDictionaries: Record<string, Record<string, Message>> = Object.fromEntries(Object.entries(dictionaries).map(([locale, messages]) =>
-  [locale, { ...messages, ...mvpMessages[locale as Locale], ...errorUi[locale as keyof typeof errorUi] }],
-));
+const uiMessages: Partial<Record<Locale, Record<string, Message>>>[] = [
+  mvpMessages, errorUi, templateUi, settingsUi, mcpUi, assetsUi, skillsUi, brandKitUi, projectUi,
+];
+const effectiveDictionaries: Record<string, Record<string, Message>> = Object.fromEntries(Object.entries(dictionaries).map(([locale, messages]) => {
+  const localized = { ...messages };
+  for (const extension of uiMessages) Object.assign(localized, extension[locale as Locale]);
+  return [locale, localized];
+}));
 const reverse = Object.fromEntries(Object.entries(effectiveDictionaries).map(([locale, messages]) => [locale,
   new Map(Object.entries(messages).flatMap(([source, value]) => (typeof value === 'string' ? [value] : Object.values(value)).map(text => [text, source]))),
 ]));
@@ -44,10 +56,11 @@ const singular: Record<string, string> = {
   ' and its {count} slides': ' and its {count} slide', '{count} lint findings': '{count} lint finding',
   '{description} ({count} effects)': '{description} ({count} effect)', '{count} files': '{count} file',
   '{count} tools': '{count} tool', '{count} elements selected': '{count} element selected',
+  '{count} active effects': '{count} active effect',
 };
 const pluralRules = Object.fromEntries(languages.map(({ locale }) => [locale, new Intl.PluralRules(locale)]));
 
-export const isKnownMessage = (message: string): boolean => Object.hasOwn(zhCN, message) || Object.hasOwn(mvpZhCN, message);
+export const isKnownMessage = (message: string): boolean => Object.hasOwn(effectiveDictionaries['zh-CN'], message);
 
 /** Accept legacy Chinese labels and already-localized built-in labels. */
 export function sourceMessage(message: string, locale: Locale = 'zh-CN'): string {

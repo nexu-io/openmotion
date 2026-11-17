@@ -18,6 +18,14 @@ export interface DockController {
   /** Hides or shows the panel's whole tab group without closing it. */
   setGroupVisible: (id: PanelId, visible: boolean) => void;
   setGroupCollapsed?: (id: PanelId, collapsed: boolean, animate?: boolean) => void;
+  canExpandSide?: (id: PanelId) => boolean;
+  setPanelVisible?: (id: PanelId, visible: boolean) => void;
+  setPreviewVisible?: (visible: boolean) => void;
+  resetSideWidths?: () => void;
+  applyWorkspacePreset?: (preset: "edit" | "preview") => void;
+  fitTimeline?: () => void;
+  setTimelineContentHeight?: (height: number) => void;
+  rememberWorkspace?: () => void;
   reset: () => void;
 }
 

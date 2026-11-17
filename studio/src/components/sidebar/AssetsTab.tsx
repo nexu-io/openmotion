@@ -1,3 +1,4 @@
+import { AssetImportMenu } from '../../motion/AssetLibraryImport';
 import { RemixIcon } from "../../icons/RemixIcons";
 import { clickOption, searchStarted, trackStudioClick } from "../../motion/editorTracking";
 import { useMvpEditor } from "../../motion/StudioHost";
@@ -6,7 +7,7 @@ import { useMediaGateway } from "../../motion/MediaGatewayContext";
 import { mediaPopoverAnchor } from "../../motion/mediaPopoverPosition";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 // fallow-ignore-file code-duplication
-import { memo, useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { memo, useState, useCallback, useRef, useMemo, useEffect, useId } from "react";
 import { SearchInput } from "../ui/SearchInput";
 import { FilterChip } from "../ui/FilterChip";
 import { MEDIA_EXT, FONT_EXT } from "../../utils/mediaTypes";
@@ -16,21 +17,23 @@ import {
   type MediaCategory,
   type CopyFeedback,
   getCategory,
-  basename,
+  filename,
   CATEGORY_LABELS,
   FILTER_ORDER,
 } from "./assetHelpers";
 import { AudioRow } from "./AudioRow";
 import { AssetCard, FontRow } from "./AssetCard";
 import { studioApiFetch } from "../../utils/studioApiFetch";
+import type { FileTreeRefreshOptions } from '../../hooks/useFileTree';
 
 interface AssetsTabProps {
   projectId: string;
   assets: string[];
   onImport?: (files: FileList, entryPoint?: "assets_button" | "assets_drop") => void | Promise<void>;
+  onLibraryImport?: (options: FileTreeRefreshOptions) => Promise<void>;
   onDelete?: (path: string) => void;
   onRename?: (oldPath: string, newPath: string) => void;
-  onAddAssetToTimeline?: (path: string) => void;
+  onAddAssetToTimeline?: (path: string) => unknown;
 }
 
 export type UsageFilter = "all" | "used" | "unused";
@@ -106,29 +109,6 @@ export function deriveUsedPaths(elements: Array<{ src?: string }>): Set<string> 
   return paths;
 }
 
-/** Import trigger. An import is an await, so the button owns the pending state
- *  instead of leaving the author clicking a control that looks idle. */
-function ImportButton({ importing, onClick }: { importing: boolean; onClick: () => void }) {
-  const { t } = useI18n();
-  return (
-    <button
-      onClick={onClick}
-      disabled={importing}
-      aria-busy={importing}
-      aria-label={t("Import media")}
-      title={t("Import media")}
-      className="flex shrink-0 items-center justify-center gap-1 rounded-md bg-panel-input px-2 py-[5px] text-[11px] font-medium text-panel-text-3 enabled:hover:text-panel-text-1 enabled:active:scale-[0.98] disabled:opacity-60 transition-colors"
-    >
-      {importing ? (
-        <RemixIcon name="loader-4-line" size={14} className="animate-spin" />
-      ) : (
-        <RemixIcon name="add-line" size={14} />
-      )}
-      {importing ? t("Importing…") : t("Import")}
-    </button>
-  );
-}
-
 /** Empty list body. A query that matched nothing says so and offers a way out;
  *  a genuinely empty project gets the drop hint. */
 function EmptyState({
@@ -168,6 +148,7 @@ export const AssetsTab = memo(function AssetsTab({
   projectId,
   assets,
   onImport,
+  onLibraryImport,
   onDelete,
   onRename,
   onAddAssetToTimeline,
@@ -176,6 +157,11 @@ export const AssetsTab = memo(function AssetsTab({
   const mediaGateway = useMediaGateway();
   const mvp = useMvpEditor();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const projectRef = useRef(projectId);
+  projectRef.current = projectId;
+  const [latestImport, setLatestImport] = useState<{ projectId: string; path: string }>();
+  const importedPath = latestImport?.projectId === projectId ? latestImport.path : undefined;
   const [dragOver, setDragOver] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<CopyFeedback>(null);
   const [importing, setImporting] = useState(false);
@@ -185,9 +171,25 @@ export const AssetsTab = memo(function AssetsTab({
     if (next !== activeFilter) trackStudioClick("assets", "asset_filter", projectId, undefined, clickOption(next));
     setActiveFilter(next);
   };
+  const groupId = useId();
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<MediaCategory>>(new Set());
+  useEffect(() => {
+    setCollapsedCategories((previous) => (previous.size ? new Set() : previous));
+  }, [projectId, searchQuery, activeFilter]);
   const [manifest, setManifest] = useState<
     Map<string, { description?: string; duration?: number; width?: number; height?: number }>
   >(new Map());
+
+  const handleLibraryImport = useCallback(async (owner: string, paths: string[]) => {
+    await onLibraryImport!({ projectId: owner, requiredPaths: paths });
+    if (projectRef.current !== owner) return;
+    setSearchQuery('');
+    setActiveFilter(getCategory(paths[0]) ?? 'all');
+    setLatestImport({ projectId: owner, path: paths[0] });
+  }, [onLibraryImport]);
+  useEffect(() => {
+    if (importedPath && listRef.current) listRef.current.scrollTop = 0;
+  }, [latestImport, importedPath]);
 
   const manifest404Ref = useRef<Set<string>>(new Set());
   const assetsKey = assets.join("|");
@@ -267,7 +269,7 @@ export const AssetsTab = memo(function AssetsTab({
     if (!searchQuery) return all;
     const q = searchQuery.toLowerCase();
     return all.filter((a) => {
-      if (basename(a).toLowerCase().includes(q)) return true;
+      if (filename(a).toLowerCase().includes(q)) return true;
       const rec = manifest.get(a);
       return rec?.description?.toLowerCase().includes(q);
     });
@@ -282,13 +284,15 @@ export const AssetsTab = memo(function AssetsTab({
     // Sort: used assets first within each category
     for (const cat of FILTER_ORDER) {
       groups[cat].sort((a, b) => {
+        if (a === importedPath) return -1;
+        if (b === importedPath) return 1;
         const aUsed = usedPaths.has(a) ? 0 : 1;
         const bUsed = usedPaths.has(b) ? 0 : 1;
         return aUsed - bUsed;
       });
     }
     return groups;
-  }, [mediaAssets, usedPaths]);
+  }, [mediaAssets, usedPaths, importedPath]);
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: mediaAssets.length };
     for (const cat of FILTER_ORDER) c[cat] = categorized[cat].length;
@@ -320,7 +324,7 @@ export const AssetsTab = memo(function AssetsTab({
             aria-label={t("Search assets")}
             className="min-w-0 flex-1"
           />
-          {onImport && <ImportButton importing={importing} onClick={() => fileInputRef.current?.click()} />}
+          {onImport && <AssetImportMenu projectId={projectId} importing={importing} onUpload={() => fileInputRef.current?.click()} onImported={onLibraryImport ? handleLibraryImport : undefined} />}
         </div>
         {!mvp && onImport && mediaGateway && <button className="motion-asset-generate" onClick={event => mediaGateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t("Generate media")}</button>}
         {onImport && (
@@ -344,6 +348,7 @@ export const AssetsTab = memo(function AssetsTab({
           <div className="flex gap-1.5 flex-wrap">
             <FilterChip
               onClick={() => chooseFilter("all")}
+              className="max-w-full [overflow-wrap:anywhere]"
               active={activeFilter === "all"}
             >
               {t("All")}{" "}{counts.all}
@@ -353,6 +358,7 @@ export const AssetsTab = memo(function AssetsTab({
                 <FilterChip
                   key={cat}
                   onClick={() => chooseFilter(activeFilter === cat ? "all" : cat)}
+                  className="max-w-full [overflow-wrap:anywhere]"
                   active={activeFilter === cat}
                 >
                   {t(CATEGORY_LABELS[cat])} {counts[cat]}
@@ -364,71 +370,90 @@ export const AssetsTab = memo(function AssetsTab({
       </div>
 
       <div
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-1 [scrollbar-gutter:stable]"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-1 motion-sidebar-scroll"
         role="region"
         aria-label={t("Project assets")}
         tabIndex={0}
         data-assets-list
+        ref={listRef}
       >
         {mediaAssets.length === 0 ? (
           <EmptyState searchQuery={searchQuery} onClearSearch={() => setSearchQuery("")} />
         ) : (
           visibleCategories.map((cat) => (
-            <div key={cat} className="mb-1">
-              {activeFilter === "all" && visibleCategories.length > 1 && (
-                <div className="flex items-center gap-2 px-2 py-1.5">
-                  <h3 className="text-[12px] font-semibold text-panel-text-1">
-                    {t(CATEGORY_LABELS[cat])}
-                  </h3>
-                  <span className="text-[11px] text-panel-text-5">{categorized[cat].length}</span>
-                </div>
+            <div key={cat} className="mb-1" data-assets-category={cat}>
+              {activeFilter === "all" && (
+                <h3>
+                  <button
+                    type="button"
+                    className="om-nav-item flex w-full items-center gap-2 px-2 py-1.5 text-left"
+                    aria-expanded={!collapsedCategories.has(cat)}
+                    aria-controls={`${groupId}-${cat}`}
+                    onClick={() => setCollapsedCategories((previous) => {
+                      const next = new Set(previous);
+                      if (next.has(cat)) next.delete(cat);
+                      else next.add(cat);
+                      return next;
+                    })}
+                  >
+                    <RemixIcon name={collapsedCategories.has(cat) ? "arrow-right-s-line" : "arrow-down-s-line"} size={14} />
+                    <span className="text-[12px] font-semibold text-panel-text-1">{t(CATEGORY_LABELS[cat])}</span>
+                    <span className="text-[11px] text-panel-text-5">{categorized[cat].length}</span>
+                  </button>
+                </h3>
               )}
-              {cat === "audio" &&
-                categorized[cat].map((a) => (
-                  <AudioRow
-                    key={a}
-                    projectId={projectId}
-                    asset={a}
-                    used={usedPaths.has(a)}
-                    meta={manifest.get(a)}
-                    onCopy={handleCopyPath}
-                    copyFeedback={copyFeedback}
-                    onDelete={onDelete}
-                    onRename={onRename}
-                    onAddAssetToTimeline={onAddAssetToTimeline}
-                  />
-                ))}
-              {(cat === "images" || cat === "video") && (
-                <div className="hf-media-card-grid pb-1">
-                  {categorized[cat].map((a) => (
-                    <AssetCard
-                      key={a}
-                      projectId={projectId}
-                      asset={a}
-                      used={usedPaths.has(a)}
-                      duration={manifest.get(a)?.duration}
-                      onCopy={handleCopyPath}
-                      copyFeedback={copyFeedback}
-                      onDelete={onDelete}
-                      onRename={onRename}
-                      onAddAssetToTimeline={onAddAssetToTimeline}
-                    />
-                  ))}
-                </div>
-              )}
-              {cat === "fonts" &&
-                categorized[cat].map((a) => (
-                  <FontRow
-                    key={a}
-                    asset={a}
-                    used={usedPaths.has(a)}
-                    onCopy={handleCopyPath}
-                    copyFeedback={copyFeedback}
-                    onDelete={onDelete}
-                    onRename={onRename}
-                    onAddAssetToTimeline={onAddAssetToTimeline}
-                  />
-                ))}
+              <div id={`${groupId}-${cat}`} hidden={collapsedCategories.has(cat)}>
+                {!collapsedCategories.has(cat) && (
+                  <>
+                    {cat === "audio" &&
+                      categorized[cat].map((a) => (
+                        <AudioRow
+                          key={a}
+                          projectId={projectId}
+                          asset={a}
+                          used={usedPaths.has(a)}
+                          meta={manifest.get(a)}
+                          onCopy={handleCopyPath}
+                          copyFeedback={copyFeedback}
+                          onDelete={onDelete}
+                          onRename={onRename}
+                          onAddAssetToTimeline={onAddAssetToTimeline}
+                        />
+                      ))}
+                    {(cat === "images" || cat === "video") && (
+                      <div className="hf-media-card-grid pb-1">
+                        {categorized[cat].map((a) => (
+                          <AssetCard
+                            key={a}
+                            projectId={projectId}
+                            asset={a}
+                            used={usedPaths.has(a)}
+                            duration={manifest.get(a)?.duration}
+                            onCopy={handleCopyPath}
+                            copyFeedback={copyFeedback}
+                            onDelete={onDelete}
+                            onRename={onRename}
+                            onAddAssetToTimeline={onAddAssetToTimeline}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    {cat === "fonts" &&
+                      categorized[cat].map((a) => (
+                        <FontRow
+                          key={a}
+                          asset={a}
+                          used={usedPaths.has(a)}
+                          onCopy={handleCopyPath}
+                          copyFeedback={copyFeedback}
+                          onDelete={onDelete}
+                          onRename={onRename}
+                          onAddAssetToTimeline={onAddAssetToTimeline}
+                        />
+                      ))}
+                  </>
+                )}
+              </div>
             </div>
           ))
         )}

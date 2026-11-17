@@ -3,6 +3,8 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TimelineElement } from "../player";
+import { usePlayerStore } from "../player";
+import { StudioHostContext } from "../motion/StudioHost";
 import { useRazorSplit } from "./useRazorSplit";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -99,6 +101,39 @@ describe("useRazorSplit mutation versions", () => {
 describe("useRazorSplit linked clips", () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it.each([false, true])("explains sub-composition splitting in MVP: %s", async (mvpEditor) => {
+    const showToast = vi.fn();
+    let split: ((splitTime: number) => Promise<void>) | undefined;
+    const root = createRoot(document.body.appendChild(document.createElement("div")));
+    function Harness() {
+      split = useRazorSplit({
+        projectId: "p1",
+        activeCompPath: "index.html",
+        showToast,
+        writeProjectFile: vi.fn(),
+        recordEdit: vi.fn(),
+        reloadPreview: vi.fn(),
+      }).handleSplitAtPlayhead;
+      return null;
+    }
+
+    usePlayerStore.setState({
+      elements: [{ id: "root", key: "root", tag: "div", start: 0, duration: 4, track: 0 }],
+      selectedElementId: "sub-composition.html#clip",
+    });
+    await act(async () => root.render(<StudioHostContext.Provider value={{ mvpEditor }}><Harness /></StudioHostContext.Provider>));
+    await act(async () => { await split?.(2); });
+
+    expect(showToast).toHaveBeenCalledWith(
+      mvpEditor
+        ? "Splitting clips inside a sub-composition is not supported in this editor."
+        : "Use the razor tool to split clips inside a sub-composition",
+      "info",
+    );
+    act(() => root.unmount());
+    usePlayerStore.setState({ elements: [], selectedElementId: null });
+  });
+
   it("splits every member of a linked pair in one cut", async () => {
     const { usePlayerStore } = await import("../player");
     const clip = (id: string, tag: string): TimelineElement => ({
@@ -116,6 +151,9 @@ describe("useRazorSplit linked clips", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/files/")) return jsonResponse({ content: "", version: '"v0"' });
+      if (!url.includes("/file-mutations/split-batch")) {
+        throw new Error(`Unexpected request: ${url}`);
+      }
       bodies.push(String(init?.body ?? ""));
       return jsonResponse({ error: "stop" }, 409);
     });
@@ -136,7 +174,9 @@ describe("useRazorSplit linked clips", () => {
     await act(async () => {
       await split?.(video, 2);
     });
-    const targets = JSON.parse(bodies[0] ?? "{}").files[0].targets.map(
+    const body = bodies.find(Boolean);
+    expect(body).toBeDefined();
+    const targets = JSON.parse(body!).files[0].targets.map(
       (cut: { originalId: string }) => cut.originalId,
     );
     expect(targets).toEqual(["talk", "talk-audio"]);
