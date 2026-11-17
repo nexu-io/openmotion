@@ -28,17 +28,18 @@ Edit files directly. After source changes, refresh the manifest, then stage and 
 npm run templates:manifest -- <template-id>
 git add library/templates/catalog
 npm run templates:check -- <full-base-commit-sha>
+npm run storage:check -- <full-base-commit-sha>
 node --test tests/template-library.test.ts
 ```
 
-The checker reads staged contents. The base SHA also enables checks of new Git history: deleting a mistakenly committed large file or video in a later commit does not remove it from history. New entries need a stable ID registered in `catalog.json`, all locale slots, required guide files and actual source/rights notes in `TEMPLATE.md`.
+The checkers read staged contents. The base SHA also enables checks of new Git history: deleting a mistakenly committed large file or video in a later commit does not remove it from history. `storage:check` reports the repository-wide ordinary Git total and warns when it exceeds the advisory target; that total does not block contributions. New entries need a stable ID registered in `catalog.json`, all locale slots, required guide files and actual source/rights notes in `TEMPLATE.md`.
 
 | Files | Storage and limit |
 | --- | --- |
 | Code, documentation and measurements | Ordinary Git, at most 1 MiB per file |
 | Small images/fonts | Ordinary Git under `source/assets/`, at most 100 KB (100,000 bytes) per asset |
 | Images/fonts over 100 KB | Git LFS under `source/assets/lfs/`; existing imported CMS links retain their recorded identities |
-| Complete catalog in ordinary Git | At most 128 MiB; about 58 MB after reference-image optimization |
+| Complete catalog in ordinary Git | Included in the repository-wide 128 MiB advisory target; larger totals warn without blocking contributions |
 | Video and audio | Git LFS under `source/assets/lfs/`; existing imported references retain CMS links |
 | LFS media budgets | At most 50 MiB per file and 150 MiB total local media per template |
 | Original ZIP downloads | Existing links only; archives are not contribution source |

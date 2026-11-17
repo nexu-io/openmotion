@@ -71,7 +71,6 @@ export function checkTemplateLibrary(cwd: string, base?: string, options: { fina
   );
   const files = new Map<string, IndexedFile>();
   const assetTotals = new Map<string, number>();
-  let total = 0;
   const attributeOutput = git(
     ['check-attr', '--cached', '-z', '--stdin', 'filter'],
     cwd,
@@ -85,7 +84,6 @@ export function checkTemplateLibrary(cwd: string, base?: string, options: { fina
   for (const file of staged) {
     const label = file.name.slice(scope.length);
     const size = sizes.get(file.oid)!;
-    total += size;
     if (!['100644', '100755'].includes(file.mode)) {
       errors.push(`${label}: symlinks and submodules are not allowed`);
       continue;
@@ -128,8 +126,6 @@ export function checkTemplateLibrary(cwd: string, base?: string, options: { fina
     else if ((!templateSource && !knownText) || (knownText && (!isUtf8(bytes) || bytes.includes(0))))
       errors.push(`${label}: unsupported source or disguised binary content`);
   }
-  if (total > 128 * 1024 * 1024)
-    errors.push('Catalog Git contents exceed 128 MiB; review the catalog budget before expanding');
   for (const [id, bytes] of assetTotals)
     if (bytes > maxTemplateAssetBytes) errors.push(`${id}: template assets exceed 150 MiB`);
   const parse = (name: string) => {

@@ -9,6 +9,7 @@ import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
 import { setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
 import { Popover } from '../components/ui/Popover';
+import * as tracking from './pageTracking';
 import './skills.css';
 
 /** The contribution guide section with the paste-ready Agent brief for a new library Skill. */
@@ -20,7 +21,7 @@ const displayNameOf = (t: (text: string) => string) => (skill: MotionSkill) => t
 const defaults: SkillParameters = { subject: '', duration: 10, aspect: '16:9', style: '' };
 
 /** Open-source motion techniques the user can hand to an Agent through OpenMotion MCP. */
-export function SkillsPage({ skillId, onSkillChange }: { skillId: string | null; onSkillChange: (id: string | null) => void }) {
+export function SkillsPage({ skillId, onSkillChange, hasProject = false }: { skillId: string | null; onSkillChange: (id: string | null) => void; hasProject?: boolean }) {
   const { t, locale } = useI18n(), toast = useToast(), displayName = displayNameOf(t);
   const [query, setQuery] = useState(''), [category, setCategory] = useState<SkillCategory | null>(null);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -44,27 +45,53 @@ export function SkillsPage({ skillId, onSkillChange }: { skillId: string | null;
     if (element?.isConnected) { element.focus(); window.getSelection()?.selectAllChildren(element); }
   }, [manualCopy, commandOpen]);
   const selected = motionSkills.find(skill => skill.id === skillId) ?? null;
-  const visible = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
-    return motionSkills.filter(skill => (!category || skill.category === category)
+  const matching = (group: SkillCategory | null, text: string) => {
+    const needle = text.trim().toLocaleLowerCase();
+    return motionSkills.filter(skill => (!group || skill.category === group)
       && (!needle || [skill.name, skill.title, displayName(skill), t(skill.useWhen), skill.tagline, t(skill.tagline), t(skill.output), skill.repository ?? 'OpenMotion'].some(value => value.toLocaleLowerCase().includes(needle))));
-  }, [query, category, t]);
+  };
+  const visible = useMemo(() => matching(category, query), [query, category, t]);
+  // One page view per visit; one detail view per opened Skill; one search result per settled query (500 ms after typing stops).
+  useEffect(() => { tracking.reportSkillsPageView(hasProject); }, []);
+  const detailView = useRef<string | undefined>(undefined), searchId = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    detailView.current = selected ? tracking.newTrackingId() : undefined;
+    if (selected && detailView.current) tracking.reportSkillDetailShown(selected, detailView.current);
+  }, [selected?.id]);
+  // Any change to the query, category or interface language (which changes what matches) ends the previous search; a card opened before the new one settles carries no search id.
+  const resultCount = visible.length;
+  useEffect(() => {
+    searchId.current = undefined;
+    if (!query.trim()) return;
+    const timer = setTimeout(() => { searchId.current = tracking.newTrackingId(); tracking.reportSkillSearch(searchId.current, query, resultCount, category); }, 500);
+    return () => clearTimeout(timer);
+  }, [query, category, locale]);
+  const pickCategory = (value: SkillCategory | null) => {
+    setCategory(value);
+    tracking.reportSkillCategory(value, matching(value, query).length);
+  };
   // The instruction follows the interface language, including the example brief and borrowed technique.
   const prompt = selected ? skillPrompt({ ...selected, output: t(selected.output), example: t(selected.example), technique: t(selected.technique) }, parameters, locale, installUrl) : '';
   const shortcut = selected ? skillShortcut({ ...selected, title: displayName(selected), example: t(selected.example) }, parameters, locale, installUrl) : '';
   const latest = useRef({ instruction: prompt, command: shortcut }); latest.current = { instruction: prompt, command: shortcut };
-  const open = (skill: MotionSkill) => onSkillChange(skill.id);
+  const open = (skill: MotionSkill, position: number) => { tracking.reportSkillCardOpened(skill, position, searchId.current); onSkillChange(skill.id); };
   // A failed copy keeps its exact text for manual copying only until the brief changes; then show the live text again.
   useEffect(() => { setManualCopy(null); }, [prompt, shortcut]);
   // The brief belongs to one skill; any route change (card, history, link) starts a fresh brief.
   useEffect(() => { setParameters(defaults); setManualCopy(null); setCommandOpen(false); }, [skillId]);
   async function copy(surface: 'instruction' | 'command' = 'instruction') {
     if (!selected) return;
-    const text = surface === 'command' ? shortcut : prompt;
-    try { await navigator.clipboard.writeText(text); setManualCopy(null); toast.showToast(t('Copied. Paste into your Agent.'), 'info'); }
+    const text = surface === 'command' ? shortcut : prompt, attempt = tracking.newTrackingId(), brief = parameters, view = detailView.current;
+    if (surface === 'command') tracking.reportSkillCommandCopyClicked(selected, view, attempt);
+    else tracking.reportSkillDetailClick(selected, 'copy_instruction', view, attempt);
+    try {
+      await navigator.clipboard.writeText(text); setManualCopy(null); toast.showToast(t('Copied. Paste into your Agent.'), 'info');
+      tracking.reportSkillCopyResult(selected, surface, 'clipboard_written', attempt, brief, view);
+    }
     catch {
       // A late failure for a brief that has since changed must not restore stale text.
       if (latest.current[surface] !== text) return;
+      tracking.reportSkillCopyResult(selected, surface, 'manual_fallback_shown', attempt, brief, view);
       setManualCopy({ text, surface }); toast.showToast(t(surface === 'command' ? 'Copy failed. Select and copy the command below.' : 'Copy failed. Select and copy the instruction below.'), 'error', 'feedback');
     }
   }
@@ -74,28 +101,28 @@ export function SkillsPage({ skillId, onSkillChange }: { skillId: string | null;
       <div className="om-gallery-sticky-header">
         <div className="om-gallery-toolbar om-skills-toolbar">
           <div className="om-gallery-categories" role="group" aria-label={t('Skill category')}>
-            <button aria-pressed={!category} onClick={() => setCategory(null)}>{t('All')}</button>
-            {skillCategories.map(value => <button key={value} aria-pressed={category === value} onClick={() => setCategory(value)}>{t(value)}</button>)}
+            <button aria-pressed={!category} onClick={() => pickCategory(null)}>{t('All')}</button>
+            {skillCategories.map(value => <button key={value} aria-pressed={category === value} onClick={() => pickCategory(value)}>{t(value)}</button>)}
           </div>
           <label className="om-field om-search-field"><MotionIcon name="search" size={18} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search skills...')} aria-label={t('Search skills')} /><kbd aria-hidden="true">⌘ K</kbd></label>
         </div>
       </div>
       <main className="om-gallery-results">
         <section className="om-gallery-intro om-skills-intro"><span className="om-gallery-eyebrow">{t('Pick a skill. Let your Agent make it.')}</span><h1>{t('Teach your Agent new moves.')}</h1><p>{t('Pick a skill, fill in the brief and copy the instruction. Your Agent builds an editable project in OpenMotion.')}</p>
-          <div className="om-gallery-intro-actions"><a className="om-gallery-submit" href={skillSubmissionUrl} target="_blank" rel="noopener noreferrer">{t('Submit a skill')}<MotionIcon name="arrow-up-right" size={15} /></a></div>
+          <div className="om-gallery-intro-actions"><a className="om-gallery-submit" href={skillSubmissionUrl} target="_blank" rel="noopener noreferrer" onClick={() => tracking.reportSkillSubmitClicked()}>{t('Submit a skill')}<MotionIcon name="arrow-up-right" size={15} /></a></div>
         </section>
         <div className="om-gallery-masonry om-skills-grid">
-          {visible.map(skill => <SkillCard key={skill.id} skill={skill} name={displayName(skill)} useWhen={t(skill.useWhen)} category={t(skill.category)} selected={skill.id === skillId} onSelect={() => open(skill)} />)}
+          {visible.map((skill, index) => <SkillCard key={skill.id} skill={skill} name={displayName(skill)} useWhen={t(skill.useWhen)} category={t(skill.category)} selected={skill.id === skillId} onSelect={() => open(skill, index + 1)} />)}
         </div>
-        {!visible.length && <div className="om-empty"><MotionIcon name="search" size={28} /><p>{t('No matching skills.')}</p><button className="om-button" onClick={() => { setQuery(''); setCategory(null); }}>{t('Clear filters')}</button></div>}
+        {!visible.length && <div className="om-empty"><MotionIcon name="search" size={28} /><p>{t('No matching skills.')}</p><button className="om-button" onClick={() => { setQuery(''); setCategory(null); tracking.reportSkillFiltersCleared(); }}>{t('Clear filters')}</button></div>}
       </main>
     </div>
     {selected && <aside className="om-skill-detail om-surface-divider" aria-label={displayName(selected)}>
-      <header className="om-skill-detail-header"><h2 className="om-subtitle">{displayName(selected)}</h2><button className="motion-icon-button" aria-label={t('Close skill')} onClick={() => onSkillChange(null)}><RemixIcon name="close-line" size={18} /></button></header>
+      <header className="om-skill-detail-header"><h2 className="om-subtitle">{displayName(selected)}</h2><button className="motion-icon-button" aria-label={t('Close skill')} onClick={() => { tracking.reportSkillDetailClick(selected, 'close_detail', detailView.current); onSkillChange(null); }}><RemixIcon name="close-line" size={18} /></button></header>
       <SkillMedia key={selected.id} skill={selected} large />
       <p className="om-skill-output"><span>{t('When to use')}</span>{t(selected.useWhen)}</p>
       <p className="om-skill-output"><span>{t('You get')}</span>{t(selected.output)}</p>
-      {selected.repository ? <a className="om-skill-source" href={selected.repository} target="_blank" rel="noopener noreferrer"><GitHubMark width={14} height={14} /><span>{selected.repository.replace('https://', '')}</span><span className="om-badge">{selected.license}</span><RemixIcon name="external-link-line" size={14} /></a>
+      {selected.repository ? <a className="om-skill-source" href={selected.repository} target="_blank" rel="noopener noreferrer" onClick={() => tracking.reportSkillDetailClick(selected, 'view_source', detailView.current)}><GitHubMark width={14} height={14} /><span>{selected.repository.replace('https://', '')}</span><span className="om-badge">{selected.license}</span><RemixIcon name="external-link-line" size={14} /></a>
         : <p className="om-skill-source"><RemixIcon name="flashlight-line" size={16} /><span>{t('OpenMotion skill')}</span></p>}
       {selected.cover?.source && <p className="om-skill-credit"><span>{t('Cover source')}</span>{/^https?:\/\//.test(selected.cover.source)
         ? <a href={selected.cover.source} target="_blank" rel="noopener noreferrer">{selected.cover.source.replace(/^https?:\/\//, '')}</a>
@@ -113,7 +140,7 @@ export function SkillsPage({ skillId, onSkillChange }: { skillId: string | null;
       <footer className="om-skill-footer">
         <div className="om-skill-actions">
           <button className="om-button" data-primary onClick={() => void copy()}><RemixIcon name="file-copy-line" size={16} />{t('Copy for Agent')}</button>
-          <Popover open={commandOpen} onOpenChange={open => { setCommandOpen(open); setManualCopy(null); }} side="top" align="end" aria-label={t('Use in another AI Agent')} className="om-skill-shortcut"
+          <Popover open={commandOpen} onOpenChange={open => { setCommandOpen(open); setManualCopy(null); if (open) tracking.reportSkillDetailClick(selected, 'open_command', detailView.current); }} side="top" align="end" aria-label={t('Use in another AI Agent')} className="om-skill-shortcut"
             trigger={<button className="om-button"><RemixIcon name="plug-line" size={16} />{t('Connect Agent')}</button>}>
             <strong>{t('Use in another AI Agent')}</strong>
             <p className="om-muted">{t('Copy this command into a chat with Codex, Claude or another AI Agent to run this skill.')}</p>

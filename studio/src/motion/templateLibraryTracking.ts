@@ -2,13 +2,11 @@
 // tracking sheet so one funnel reads the same on the website and in the editor.
 // The dialog calls these and owns no tracking code of its own; nothing here may throw into it.
 import { slug } from '../../../tracking/core.ts';
-import type { EventFields } from '../../../tracking/core.ts';
 import { studioEvents } from '../../../tracking/events.ts';
-import type { StudioEvent } from '../../../tracking/events.ts';
 import { isEditableTemplate, type GalleryTemplate } from '../../../shared/catalog';
-import { trackMotion } from './tracking';
+import { send, slugField, searchKeyword } from './reporting';
 
-type Fields<E extends StudioEvent> = EventFields<typeof studioEvents[E]>;
+import type { Fields } from './reporting';
 type Click = Fields<'ui_click'>;
 export type Placement = NonNullable<Click['placement']>;
 export type Sort = NonNullable<Click['sort']>;
@@ -21,15 +19,12 @@ export type ListContext = { searchId?: string; sort: Sort; filterCount: number }
 /** One opened detail: its id and how the user got there. */
 export type DetailView = { id: string; placement: Placement };
 
-const send = <E extends StudioEvent>(event: E, properties: Fields<E>) => {
-  try { void trackMotion(event, properties).catch(() => {}); } catch { /* reporting never interrupts browsing, copying or downloading */ }
-};
-export const newTrackingId = () => crypto.randomUUID();
+export { newTrackingId, searchKeyword } from './reporting';
 const SORTS: readonly string[] = studioEvents.ui_click.fields.sort;
 export const asSort = (value: string): Sort => SORTS.includes(value) ? value as Sort : 'recommended';
 const studio = { page_name: 'studio' } as const;
 /** A catalogue id is sent only when it is a bounded slug; anything else is left out, never rewritten. */
-const templateId = (template: Template) => slug.test(template.id) ? { template_id: template.id } : {};
+const templateId = (template: Template) => slugField('template_id', template.id);
 const list = (context: ListContext) => ({ sort: context.sort, applied_filter_count: context.filterCount, ...(context.searchId ? { search_id: context.searchId } : {}) });
 const detail = (view: DetailView | undefined) => view ? { detail_view_id: view.id, detail_mode: 'modal' as const } : {};
 const resource = (template: Template) => ({ resource_kind: isEditableTemplate(template) ? 'editable_project' as const : 'reference' as const });
@@ -40,8 +35,6 @@ export function optionId(value: string) {
   const id = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64).replace(/-$/, '');
   return slug.test(id) ? { filter_value: id } : {};
 }
-/** The settled search-box value as it is reported: trimmed, control characters removed, at most 100 characters. */
-export const searchKeyword = (query: string) => query.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 100).trim();
 
 export function reportLibraryShown() {
   send('surface_view', { ...studio, area: 'template_library', element: 'library' });

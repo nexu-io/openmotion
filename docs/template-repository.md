@@ -65,7 +65,7 @@ git lfs pull --include="library/templates/catalog/<id>/source/assets/lfs/**" --e
 
 ## Checks and budgets
 
-The final tree permits source text at most 1 MiB, ordinary images/fonts at most 100 KB, catalog Git content at most 128 MiB, media at most 50 MiB per file and 150 MiB total assets per template. Metadata, manifests, small assets, LFS pointers/attributes and remote identities must agree. Archives, generated output, symlinks, disguised binary source and unregistered files fail validation. A transferred asset must not also remain in Git.
+The final tree permits source text at most 1 MiB, ordinary images/fonts at most 100 KB, media at most 50 MiB per file and 150 MiB total assets per template. The repository-wide ordinary Git total has an advisory target of 128 MiB; exceeding it reports a warning without blocking the PR or media preparation. There is no separate catalog-wide total cap. Metadata, manifests, small assets, LFS pointers/attributes and remote identities must agree. Archives, generated output, symlinks, disguised binary source and unregistered files fail validation. A transferred asset must not also remain in Git.
 
 CI validates the final merge tree without media downloads or upload credentials, and requires Squash-only repository settings. Local checks with an explicit base SHA still provide a stricter intermediate-history audit. Technical checks do not replace rights review, actual media playback or visual acceptance. Configuring branch protection remains a separate repository decision.
 

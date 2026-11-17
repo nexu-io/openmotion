@@ -39,6 +39,15 @@ const placement = ['popular', 'catalog', 'related', 'random', 'navigation'] as c
 const templateDetail = { detail_view_id: 'uuid', detail_mode: ['modal'], resource_kind: ['reference', 'editable_project', 'motion_guide'],
   instruction_kind: ['template_use', 'reference_recreate', 'recreate_submit'] } as const;
 const templateList = { result_count: 'integer', search_id: 'uuid', sort: sortOrder, applied_filter_count: 'integer' } as const;
+// Application pages that report their own views and clicks. The template library keeps page_name=studio.
+const pages = ['home', 'studio', 'skills', 'brand_kit'] as const;
+// A Skill is identified by its catalogue id and group only; the brief text never leaves the browser.
+const skill = { skill_id: 'slug', skill_category: ['product_promos', 'explainers', 'brand_covers', 'motion_techniques'] } as const;
+const skillBrief = { duration_seconds: 'integer', aspect_ratio: ['16:9', '9:16', '1:1'], has_subject: 'boolean', has_style: 'boolean', media_required: 'boolean' } as const;
+// A Brand Kit is identified only by its official catalogue id; a user's own kit, website, name and context never become fields.
+const brand = { brand_source: ['official', 'mine'], catalog_id: 'slug' } as const;
+const brandCollection = ['official', 'mine'] as const;
+const brandState = ['queued', 'scanning', 'extracting', 'packaging', 'rendering', 'ready', 'failed', 'cancelled'] as const;
 /** Stage names and error kinds of the OpenDesign account connector's `jsonl-v1` sign-in progress lines. */
 export const accountStages = ['attempt_started', 'device_auth_create_result', 'activation_ready', 'browser_open_result', 'device_authorization_result', 'token_exchange_result', 'credential_persist_result'] as const;
 export const accountErrorKinds = ['network_error', 'browser_open_error', 'oauth_timeout', 'oauth_denied', 'invalid_state', 'credential_persist_error', 'internal_error', 'unknown'] as const;
@@ -92,16 +101,20 @@ export const omEvents = {
   worker_heartbeat: { producers: ['worker'], fields: { collector_id: 'uuid', instance_id: 'uuid', active: 'boolean', queue_count: 'integer' }, required: ['collector_id', 'instance_id', 'active', 'queue_count'] },
   incident_confirmed: { producers: ['mcp', 'worker'], fields: { incident_id: 'uuid', incident_type: ['false_success', 'duplicate_charge', 'content_loss', 'cross_project_write', 'wrong_version_delivery', 'other'], severity: ['sev1', 'sev2', 'sev3'], subject_id: 'code', evidence_ref: 'code' }, required: ['incident_id', 'incident_type', 'severity', 'subject_id'] },
   recovery_recorded: { producers: ['mcp', 'worker'], fields: { incident_id: 'uuid', test_case_id: 'code', fault_type: 'code', data_integrity: ['preserved', 'lost', 'unknown'], duplicate_charge_check: ['clear', 'found', 'unknown'], recovery_result: ['success', 'failure', 'unknown'] }, required: ['incident_id', 'test_case_id', 'fault_type', 'data_integrity', 'duplicate_charge_check', 'recovery_result'] },
-  page_view: { producers: ['studio'], fields: { page_name: ['home', 'studio'], view_id: 'uuid', embedded: 'boolean', has_project: 'boolean' }, required: ['page_name', 'view_id', 'embedded', 'has_project'] },
+  page_view: { producers: ['studio'], fields: { page_name: pages, view_id: 'uuid', embedded: 'boolean', has_project: 'boolean', brand_collection: brandCollection }, required: ['page_name', 'view_id', 'embedded', 'has_project'] },
   studio_load_result: { producers: ['studio'], fields: { load_id: 'uuid', outcome, duration_ms: 'integer', embedded: 'boolean', ...project, ...projectScale, ...template }, required: ['load_id', 'outcome', 'duration_ms', 'embedded'] },
-  ui_click: { producers: ['studio'], fields: { page_name: ['home', 'studio'],
+  ui_click: { producers: ['studio'], fields: { page_name: pages,
     area: ['workspace', 'templates', 'template_card', 'template_detail', 'template_instruction', 'template_discovery',
+      'skill_intro', 'skill_discovery', 'skill_card', 'skill_detail', 'skill_command',
+      'brand_collection', 'brand_library', 'brand_card', 'brand_detail',
       'header', 'project_drawer', 'left_panel', 'right_panel', 'clips', 'assets', 'catalog',
       'preview', 'properties', 'layers', 'timeline', 'export_panel', 'settings'],
     element: ['new_creation', 'recent_session', 'open_project', 'select_template', 'copy_template',
       'open_detail', 'start_use', 'expand_instruction', 'category_select', 'filter_open', 'filter_clear',
       'filter_option', 'sort_option', 'surprise_me', 'submit_video', 'detail_previous', 'detail_next',
       'download_guide', 'download_project', 'view_full_page', 'view_repository', 'view_source',
+      'submit_skill', 'copy_instruction', 'open_command', 'copy_command', 'close_detail',
+      'collection_tab', 'new_brand_kit', 'download_package',
       'export', 'template_library', 'open_project_drawer', 'new_project', 'switch_project', 'project_search', 'theme_toggle',
       'language_change', 'privacy_settings', 'usage_data_toggle',
       'tab_clips', 'tab_assets', 'tab_catalog', 'tab_properties', 'tab_layers', 'tab_export',
@@ -120,7 +133,8 @@ export const omEvents = {
     placement, position: 'integer', template_action: ['recreate', 'recreate_submit', 'open_edit'], target_agent: hosts,
     copy_attempt_id: 'uuid', download_attempt_id: 'uuid',
     filter_group: ['brand', 'uses', 'styles', 'industries', 'creationModels', 'colors', 'ratio', 'duration', 'editable'], filter_value: 'slug',
-    selected: 'boolean', expanded: 'boolean', previous_sort: sortOrder, changed: 'boolean', ...templateDetail, ...templateList },
+    selected: 'boolean', expanded: 'boolean', previous_sort: sortOrder, changed: 'boolean', ...templateDetail, ...templateList,
+    ...skill, ...brand, brand_collection: brandCollection },
     required: ['page_name', 'area', 'element'] },
   // Studio UI exports run in the editor's own render pipeline, not the worker that owns export_result.
   studio_export_request_result: { producers: ['studio'], fields: { export_id: 'uuid', outcome: ['accepted', 'rejected'], ...exportSettings,
@@ -148,8 +162,9 @@ export const omEvents = {
     required: ['outcome', 'entry_point', 'requested_count', 'added_count', 'failed_count'] },
   // A surface that became visible: the library, a template card, one template's detail, or the instruction to copy.
   // A card counts once it is at least half visible for a second, once per result set.
-  surface_view: { producers: ['studio'], fields: { page_name: ['home', 'studio'], area: ['template_library', 'template_card', 'template_detail', 'template_instruction'],
-    element: ['library', 'card', 'detail', 'instruction'], placement, position: 'integer', ...templateList, ...templateDetail, ...template },
+  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'skill_detail', 'brand_detail'],
+    element: ['library', 'card', 'detail', 'instruction'], placement, position: 'integer', ...templateList, ...templateDetail, ...template,
+    ...skill, ...brand, brand_state: brandState },
     required: ['page_name', 'area', 'element'] },
   // One per settled query, never per keystroke. `search_keyword` is the only free-text field in this registry.
   template_search_result: { producers: ['studio'], fields: { page_name: ['home', 'studio'], area: ['template_discovery'],
@@ -159,11 +174,29 @@ export const omEvents = {
     action: ['category_select', 'filter_apply', 'filter_clear', 'sort_change'], outcome: ['success', 'failure'], ...templateList },
     required: ['action', 'result_count', 'outcome'] },
   // `browser_save_requested` means the save was handed to the browser; nothing confirms the file reached disk.
-  resource_download_result: { producers: ['studio'], fields: { page_name: ['home', 'studio'], resource_kind: ['motion_guide'], download_attempt_id: 'uuid',
-    delivery_status: ['browser_save_requested', 'fetch_failed', 'unknown'], error_code: 'code', detail_view_id: 'uuid', detail_mode: ['modal'], ...template },
+  resource_download_result: { producers: ['studio'], fields: { page_name: pages, resource_kind: ['motion_guide', 'brand_kit_package'], download_attempt_id: 'uuid',
+    delivery_status: ['browser_save_requested', 'fetch_failed', 'unknown'], error_code: 'code', detail_view_id: 'uuid', detail_mode: ['modal'], ...template, ...brand },
     required: ['resource_kind', 'download_attempt_id', 'delivery_status'] },
   template_instruction_copy_result: { producers: ['studio'], fields: { host_product: hosts, copy_status: ['clipboard_written', 'manual_fallback_shown', 'failed'],
     page_name: ['home', 'studio'], copy_attempt_id: 'uuid', ...templateDetail, ...project, ...template }, required: ['host_product', 'copy_status'] },
+  // Skills page. One search result per settled query; the brief itself is reduced to its choices and two yes/no flags.
+  skill_search_result: { producers: ['studio'], fields: { page_name: ['skills'], area: ['skill_discovery'], search_id: 'uuid', search_keyword: 'text',
+    query_length: 'integer', result_count: 'integer', outcome: ['success'], skill_category: skill.skill_category },
+    required: ['search_id', 'query_length', 'result_count', 'outcome'] },
+  // `instruction` is the full Agent instruction; `command` is the short command in the Connect Agent popover.
+  skill_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['skills'], ...skill, ...skillBrief, copy_surface: ['instruction', 'command'],
+    copy_status: ['clipboard_written', 'manual_fallback_shown'], copy_attempt_id: 'uuid', detail_view_id: 'uuid' },
+    required: ['skill_id', 'copy_surface', 'copy_status', 'copy_attempt_id'] },
+  // Brand Kit page. `success` on create means the extraction was accepted and started, not that the kit is ready.
+  brand_kit_create_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], outcome: ['success', 'failure'], create_attempt_id: 'uuid' },
+    required: ['outcome', 'create_attempt_id'] },
+  brand_kit_import_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], catalog_id: 'slug', outcome: ['success', 'failure'], already_in_library: 'boolean',
+    position: 'integer' }, required: ['catalog_id', 'outcome', 'already_in_library'] },
+  brand_kit_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand, copy_status: ['clipboard_written', 'failed'],
+    copy_attempt_id: 'uuid', detail_view_id: 'uuid' }, required: ['brand_source', 'copy_status', 'copy_attempt_id'] },
+  brand_kit_action_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand,
+    action: ['edit', 'context', 'rescan', 'retry', 'cancel', 'delete'], outcome: ['success', 'failure'], detail_view_id: 'uuid' },
+    required: ['brand_source', 'action', 'outcome'] },
 } as const satisfies Registry & Record<string, { producers: readonly Entry[] }>;
 
 export type StudioEvent = { [E in keyof typeof omEvents]:

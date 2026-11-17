@@ -33,7 +33,8 @@ test('storage checks staged pointer identities and attributes independently of d
   f.write('docs/readme/demo.mp4', pointer()); f.stage();
   f.write('docs/readme/demo.mp4', Buffer.alloc(2 * 1024 * 1024));
   const result = checkRepositoryStorage(f.root, f.base);
-  assert.deepEqual(result.errors, []); assert.equal(result.lfsFiles, 1); assert.equal(result.lfsBytes, 2000000);
+  assert.deepEqual(result.errors, []); assert.deepEqual(result.warnings, []);
+  assert.equal(result.lfsFiles, 1); assert.equal(result.lfsBytes, 2000000);
   f.write('.gitattributes', ''); f.stage();
   assert.match(checkRepositoryStorage(f.root).errors.join('\n'), /exceeds 1 MiB/);
   f.write('docs/readme/demo.mp4', pointer()); f.stage();
@@ -62,7 +63,7 @@ test('bundle construction refuses a pointer instead of silently shipping it as a
   await requireDownloadedMedia(['demo.mp4'], f.root);
 });
 
-test('checkout budget counts every path even when Git deduplicates their blobs', t => {
+test('checkout size warns without blocking even when Git deduplicates their blobs', t => {
   const f = fixture(t);
   f.write('shared.bin', Buffer.alloc(1024 * 1024, 42)); f.stage();
   const oid = git(f.root, ['rev-parse', ':shared.bin']);
@@ -71,11 +72,19 @@ test('checkout budget counts every path even when Git deduplicates their blobs',
     git(f.root, ['update-index', '--add', '--cacheinfo', '100644', oid, `copy-${index}.bin`]);
   const result = checkRepositoryStorage(f.root);
   assert(result.gitBytes > 128 * 1024 * 1024);
-  assert.match(result.errors.join('\n'), /checkout exceeds 128 MiB/);
-  assert.match(checkRepositoryStorage(f.root, f.base, { finalTreeOnly: true }).errors.join('\n'), /checkout exceeds 128 MiB/, 'A smaller base cannot excuse crossing the budget');
+  assert.deepEqual(result.errors, []);
+  assert.match(result.warnings.join('\n'), /checkout exceeds 128 MiB/);
+  const againstBase = checkRepositoryStorage(f.root, f.base, { finalTreeOnly: true });
+  assert.deepEqual(againstBase.errors, []);
+  assert.deepEqual(againstBase.warnings, result.warnings);
+  const command = spawnSync(process.execPath, [new URL('../scripts/check-repository-storage.ts', import.meta.url).pathname, '--final-tree'], {
+    cwd: f.root, encoding: 'utf8', env: { ...process.env, BASE_SHA: f.base },
+  });
+  assert.equal(command.status, 0, command.stderr);
+  assert.deepEqual(JSON.parse(command.stdout).warnings, result.warnings);
 });
 
-test('an over-budget base permits unchanged or smaller final trees but rejects further growth', t => {
+test('checkout growth stays advisory while individual oversized files still fail', t => {
   const f = fixture(t);
   f.write('shared.bin', Buffer.alloc(1024 * 1024, 42)); f.stage();
   const oid = git(f.root, ['rev-parse', ':shared.bin']);
@@ -91,8 +100,10 @@ test('an over-budget base permits unchanged or smaller final trees but rejects f
   assert.deepEqual(reduced.errors, []);
   git(f.root, ['update-index', '--add', '--cacheinfo', '100644', oid, 'copy-0.bin']);
   f.write('new.txt', 'Extra bytes'); git(f.root, ['add', 'new.txt']);
-  assert.match(check().errors.join('\n'), /checkout exceeds 128 MiB/);
-  assert.match(checkRepositoryStorage(f.root).errors.join('\n'), /checkout exceeds 128 MiB/, 'No baseline retains the absolute budget');
+  assert.deepEqual(check().errors, []);
+  assert.match(check().warnings.join('\n'), /checkout exceeds 128 MiB/);
+  assert.deepEqual(checkRepositoryStorage(f.root).errors, []);
+  assert.match(checkRepositoryStorage(f.root).warnings.join('\n'), /checkout exceeds 128 MiB/);
   git(f.root, ['update-index', '--force-remove', '--', 'copy-0.bin']);
   f.write('large.bin', Buffer.alloc(1024 * 1024 + 1)); git(f.root, ['add', 'large.bin']);
   git(f.root, ['update-index', '--force-remove', '--', 'copy-1.bin']);

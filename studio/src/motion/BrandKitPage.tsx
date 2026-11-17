@@ -28,6 +28,7 @@ import {
   loadBrandKits,
   type BrandKit,
 } from "./brandKitClient";
+import * as tracking from "./pageTracking";
 import "./brand-kits.css";
 
 const sameKitList = (previous: BrandKit[] | undefined, next: BrandKit[]) => Boolean(previous && previous.length === next.length && previous.every((kit, index) => {
@@ -42,11 +43,13 @@ export function BrandKitPage({
   onSelect,
   onClose = () => onSelect(null),
   previewsEnabled = true,
+  hasProject = false,
 }: {
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onClose?: () => void;
   previewsEnabled?: boolean;
+  hasProject?: boolean;
 }) {
   const { t } = useI18n(),
     toast = useToast();
@@ -118,6 +121,13 @@ export function BrandKitPage({
     true,
   );
   const selected = kits?.find((kit) => kit.id === detailId);
+  // One page view per visit; one detail view per opened kit, reported once its record is loaded.
+  useEffect(() => { tracking.reportBrandKitPageView(collection, hasProject); }, []);
+  const detailView = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    detailView.current = selected ? tracking.newTrackingId() : undefined;
+    if (selected && detailView.current) tracking.reportBrandDetailShown(selected, detailView.current);
+  }, [selected?.id]);
   const back = useCallback(() => onSelect(collection === "official" ? null : "mine"), [onSelect, collection]);
   const notify = useCallback((message: string, failure = false) =>
     toast.showToast(t(message), failure ? "error" : "info", "feedback"), [t, toast.showToast]);
@@ -138,7 +148,9 @@ export function BrandKitPage({
       setBusy(false);
     }
   }, [busy, notify]);
-  const create = useCallback((url: string) => run(async () => {
+  const create = useCallback((url: string) => {
+    const attempt = tracking.newTrackingId();
+    const result = run(async () => {
       const pending = pendingExtraction.current?.url === url ? pendingExtraction.current : { url, requestId: crypto.randomUUID() };
       pendingExtraction.current = pending;
       const { kit } = await brandRequest<{ kit: BrandKit }>("", "POST", {
@@ -150,8 +162,15 @@ export function BrandKitPage({
       setDetailCollection("mine");
       onSelect(kit.id);
       notify("Brand extraction started");
-    }), [notify, onSelect, run]);
-  const importCatalog = useCallback((id: string, visible?: string[], trigger?: HTMLElement) => run(async () => {
+    });
+    // `run` resolves to undefined without starting when another operation is in progress; that is not an attempt.
+    if (!busy) void result.then(() => tracking.reportBrandKitCreateResult("success", attempt), () => tracking.reportBrandKitCreateResult("failure", attempt));
+    return result;
+  }, [busy, notify, onSelect, run]);
+  const importCatalog = useCallback((id: string, visible?: string[], trigger?: HTMLElement) => {
+    const position = visible ? visible.indexOf(id) + 1 || undefined : undefined;
+    let alreadyInLibrary = false;
+    const result = run(async () => {
     if (visible) {
       detailReturnFocus.current = trigger ?? document.activeElement as HTMLElement;
       setCatalogOrder(visible);
@@ -159,6 +178,7 @@ export function BrandKitPage({
     setDetailCollection("official");
     const existing = kits?.find(kit => kit.catalogId === id);
     if (existing) {
+      alreadyInLibrary = true;
       onSelect(existing.id);
       return;
     }
@@ -166,12 +186,18 @@ export function BrandKitPage({
     setKits(previous => [kit, ...(previous || []).filter(item => item.id !== kit.id)]);
     onSelect(kit.id);
     notify("Brand Kit added to your library");
-  }), [kits, notify, onSelect, run]);
+    });
+    if (!busy) void result.then(() => tracking.reportBrandKitImportResult(id, "success", alreadyInLibrary, position),
+      () => tracking.reportBrandKitImportResult(id, "failure", false, position));
+    return result;
+  }, [busy, kits, notify, onSelect, run]);
   const action = useCallback((
     operation: "cancel" | "retry" | "delete" | "edit" | "context" | "rescan",
     body?: unknown,
     expectedUpdatedAt?: string,
-  ) => run(async () => {
+  ) => {
+    const subject = selected, view = detailView.current;
+    const result = run(async () => {
       if (!selected) return;
       const response = await brandRequest<{ kit?: BrandKit }>(
         `/${selected.id}${operation === "rescan" ? "/retry" : ["cancel", "retry", "context"].includes(operation) ? "/" + operation : ""}`,
@@ -198,16 +224,25 @@ export function BrandKitPage({
         if (operation === "rescan") notify("Brand extraction started");
       }
       return response.kit;
-    }), [back, notify, run, selected]);
+    });
+    if (subject && !busy) void result.then(() => tracking.reportBrandActionResult(subject, operation, "success", view),
+      () => tracking.reportBrandActionResult(subject, operation, "failure", view));
+    return result;
+  }, [back, busy, notify, run, selected]);
   const copy = useCallback(() => {
     if (!selected) return;
+    const attempt = tracking.newTrackingId(), view = detailView.current;
+    tracking.reportBrandDetailClick(selected, "copy_instruction", view, { copy_attempt_id: attempt });
     void navigator.clipboard.writeText(brandKitInstruction(selected)).then(
-      () => notify("Style-only instruction copied"),
-      () => notify("Could not copy the instruction", true),
+      () => { notify("Style-only instruction copied"); tracking.reportBrandCopyResult(selected, "clipboard_written", attempt, view); },
+      () => { notify("Could not copy the instruction", true); tracking.reportBrandCopyResult(selected, "failed", attempt, view); },
     );
   }, [notify, selected]);
   const download = useCallback(() => {
     if (!selected) return;
+    if (busy) return;
+    const attempt = tracking.newTrackingId(), view = detailView.current;
+    tracking.reportBrandDetailClick(selected, "download_package", view, { download_attempt_id: attempt });
     void run(async () => {
       const response = await fetch(brandFile(selected, "package.zip"));
       if (!response.ok) throw new Error("Could not download the Brand Kit");
@@ -219,33 +254,42 @@ export function BrandKitPage({
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 30_000);
       notify("Package download started");
-    }).catch(() => {});
-  }, [notify, run, selected]);
+      tracking.reportBrandDownloadResult(selected, "browser_save_requested", attempt, view);
+    }).catch(() => { tracking.reportBrandDownloadResult(selected, "fetch_failed", attempt, view); });
+  }, [busy, notify, run, selected]);
   const switchCollection = useCallback((next: BrandCollection) => {
     if (next === collectionRoute) return;
+    tracking.reportBrandCollectionTab(next);
     setQuery("");
     onSelect(next === "official" ? null : "mine");
   }, [collectionRoute, onSelect]);
   const openKit = useCallback((id: string, trigger?: HTMLElement) => { detailReturnFocus.current = trigger ?? document.activeElement as HTMLElement; onSelect(id); }, [onSelect]);
-  const selectPrivateCard = useCallback((template: GalleryTemplate, trigger: HTMLButtonElement) => openKit(template.id, trigger), [openKit]);
+  const positionOf = useCallback((id: string) => filtered.findIndex(kit => kit.id === id) + 1 || undefined, [filtered]);
+  const openPrivateCard = useCallback((id: string, trigger?: HTMLElement) => {
+    const kit = kits?.find(record => record.id === id);
+    if (kit) tracking.reportBrandCardOpened(kit, positionOf(id));
+    openKit(id, trigger);
+  }, [kits, openKit, positionOf]);
+  const selectPrivateCard = useCallback((template: GalleryTemplate, trigger: HTMLButtonElement) => openPrivateCard(template.id, trigger), [openPrivateCard]);
   const setCardPriority = useCallback((id: string | null) => setPriority(id), []);
   const surprise = useCallback(() => {
     const ready = filtered.filter(kit => kit.state === "ready");
     const pool = ready.length > 1 ? ready.filter(kit => kit.id !== lastRandom.current) : ready;
     const kit = pool[Math.floor(Math.random() * pool.length)];
-    if (kit) { lastRandom.current = kit.id; openKit(kit.id); }
+    if (kit) { tracking.reportBrandSurprise("mine", ready.length); lastRandom.current = kit.id; openKit(kit.id); }
   }, [filtered, openKit]);
   const officialOrder = collection === "official" && catalogOrder.length > 0;
   const detailOrder = useMemo(() => officialOrder ? catalogOrder : filtered.map(kit => kit.id), [officialOrder, catalogOrder, filtered]);
   const detailPosition = selected ? detailOrder.indexOf(collection === "official" ? selected.catalogId || selected.id : selected.id) : -1;
   const navigate = useCallback((direction: number) => {
     if (busy || !detailOrder.length) return;
+    if (selected) tracking.reportBrandDetailClick(selected, direction < 0 ? "detail_previous" : "detail_next", detailView.current);
     const id = detailOrder[(Math.max(detailPosition, 0) + direction + detailOrder.length) % detailOrder.length];
     if (officialOrder) void importCatalog(id).catch(() => {});
     else onSelect(id);
-  }, [busy, officialOrder, detailOrder, detailPosition, importCatalog, onSelect]);
+  }, [busy, officialOrder, detailOrder, detailPosition, importCatalog, onSelect, selected]);
   const refreshStatus = useCallback(() => setRevision(value => value + 1), []);
-  const openCreate = useCallback(() => onSelect('new'), [onSelect]);
+  const openCreate = useCallback(() => { tracking.reportNewBrandKitClicked(collection); onSelect('new'); }, [collection, onSelect]);
   const listSuspended = Boolean(selected || (detailId && kits));
   return <Dialog.Root open onOpenChange={open => { if (!open) onClose(); }}>
     <Dialog.Portal>
@@ -274,7 +318,7 @@ export function BrandKitPage({
                 <div className="om-gallery-masonry" aria-busy={!kits && !error} aria-label={!kits && !error ? t('Loading Brand Kits') : undefined}>
                   <GalleryIntro eyebrow={t('My brand kits')} title={t('Bring your brand into motion.')} count={t('{count} brand kits', { count: filtered.length })} disabled={busy || !filtered.some(kit => kit.state === 'ready')} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={templateContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: openCreate }} />
                   {!kits && !error && Array.from({ length: 8 }, (_, key) => <div className="om-gallery-skeleton" key={key} aria-hidden="true"><Skeleton className="om-brand-loading" /></div>)}
-                  {filtered.map(kit => kit.state === 'ready' ? <TemplateGalleryCard key={kit.id + kit.updatedAt} template={cards.get(kit.id)!} resourceKind="brand-kit" coverUrl={`/motion-api/brand-kits/${kit.id}/cover?v=${brandCoverRevision}-${encodeURIComponent(kit.updatedAt)}`} active={priority === kit.id && playback.has(kit.id)} onPriority={setCardPriority} onSelect={selectPrivateCard} /> : <button key={kit.id} className="om-card om-brand-task-card om-gallery-card" data-interactive onClick={event => openKit(kit.id, event.currentTarget)}>{isBrandKitBusy(kit) ? <span className="motion-loading-mark" aria-hidden="true" /> : <RemixIcon name="error-warning-line" size={28} />}<strong className="om-subtitle">{kit.name}</strong><span className="om-muted">{t(brandStage[kit.state])}</span>{isBrandKitBusy(kit) && <ProgressBar value={kit.progress} label={t(brandStage[kit.state])} />}</button>)}
+                  {filtered.map(kit => kit.state === 'ready' ? <TemplateGalleryCard key={kit.id + kit.updatedAt} template={cards.get(kit.id)!} resourceKind="brand-kit" coverUrl={`/motion-api/brand-kits/${kit.id}/cover?v=${brandCoverRevision}-${encodeURIComponent(kit.updatedAt)}`} active={priority === kit.id && playback.has(kit.id)} onPriority={setCardPriority} onSelect={selectPrivateCard} /> : <button key={kit.id} className="om-card om-brand-task-card om-gallery-card" data-interactive onClick={event => openPrivateCard(kit.id, event.currentTarget)}>{isBrandKitBusy(kit) ? <span className="motion-loading-mark" aria-hidden="true" /> : <RemixIcon name="error-warning-line" size={28} />}<strong className="om-subtitle">{kit.name}</strong><span className="om-muted">{t(brandStage[kit.state])}</span>{isBrandKitBusy(kit) && <ProgressBar value={kit.progress} label={t(brandStage[kit.state])} />}</button>)}
                 </div>
                 {error && !kits && <div className="om-empty" role="alert"><h2 className="om-subtitle">{t('Could not load Brand Kits')}</h2><button className="om-button" onClick={() => setRevision(n => n + 1)}>{t('Retry')}</button></div>}
                 {kits && !filtered.length && <div className="om-empty">{query ? t('No matching brand kits') : <BrandKitCreate busy={busy} onCreate={create} />}</div>}

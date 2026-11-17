@@ -210,7 +210,7 @@ for (const oversized of [false, true]) test(`a real cleanup commit passes policy
   assert.equal(git(directory, ['show', original + ':library/templates/catalog/motion-demo/template.json']).includes('Demo'), true);
 });
 
-test('cleanup rejects remaining growth against the PR base before creating a cleanup commit', async t => {
+test('cleanup accepts a large final checkout with an advisory size warning', async t => {
   const directory = await isolated(t), f = fixture(16 * 1024);
   git(directory, ['-c', 'init.templateDir=', 'init', '-b', 'main']);
   git(directory, ['config', 'user.name', 'Contributor']); git(directory, ['config', 'user.email', 'contributor@example.invalid']);
@@ -230,12 +230,15 @@ test('cleanup rejects remaining growth against the PR base before creating a cle
   const original = git(directory, ['rev-parse', 'HEAD']);
   const plan = await prepareMediaCleanup({ ...f.inputs(), sourceSHA: original }, f.read);
   let created = false;
-  await assert.rejects(commitCleanup(plan, async (args, input) => {
+  const commit = await commitCleanup(plan, async (args, input) => {
     if (args.includes('commit-tree')) created = true;
     return git(directory, args, input);
-  }, directory, { login: 'Maintainer', id: 123 }, base), /checkout exceeds 128 MiB/);
-  assert.equal(created, false, 'Reject before any cleanup commit can be pushed or media uploaded');
-  assert.deepEqual(checkRepositoryStorage(directory, original, { finalTreeOnly: true }).errors, [], 'The raw-head ceiling would incorrectly accept this cleaned tree');
+  }, directory, { login: 'Maintainer', id: 123 }, base);
+  assert.equal(created, true);
+  assert.equal(git(directory, ['rev-parse', commit + '^']), original);
+  const storage = checkRepositoryStorage(directory, base, { finalTreeOnly: true });
+  assert.deepEqual(storage.errors, []);
+  assert.match(storage.warnings.join('\n'), /checkout exceeds 128 MiB/);
 });
 
 test('fork write access and workflow trust are checked before any media transfer', async t => {

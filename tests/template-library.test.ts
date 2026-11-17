@@ -86,6 +86,19 @@ test('staged small local images pass without LFS; product media is outside this 
   f.stage(); assert.deepEqual(checkTemplateLibrary(f.root), []);
   writeFileSync(path.join(f.directory, 'source/preview.html'), 'unstaged edit'); assert.deepEqual(checkTemplateLibrary(f.root), []);
 });
+test('catalog source growth is covered by the advisory repository total rather than a second hard cap', t => {
+  const f = fixture(t);
+  const bytes = Buffer.alloc(1024 * 1024, 120);
+  const sha256 = digest(bytes);
+  const oid = git(['hash-object', '-w', '--stdin'], f.root, bytes).toString().trim();
+  const names = Array.from({ length: 129 }, (_, index) => `source-${index}.js`);
+  f.sourceManifest.files.push(...names.map(name => ({ path: name, bytes: bytes.length, sha256 })));
+  f.json('source/manifest.json', f.sourceManifest);
+  f.stage();
+  for (const name of names)
+    git(['update-index', '--add', '--cacheinfo', '100644', oid, `${scope}${f.id}/source/${name}`], f.root);
+  assert.deepEqual(checkTemplateLibrary(f.root), []);
+});
 test('edited source must refresh its manifest before staging a valid contribution', async t => {
   const f = fixture(t); writeFileSync(path.join(f.directory, 'source/preview.html'), 'edited source'); f.stage();
   assert.match(checkTemplateLibrary(f.root).join('\n'), /Source manifest mismatch/);
