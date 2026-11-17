@@ -40,6 +40,7 @@ test('Motion editor events admit only closed categories, UUID projects and bound
     ['studio_load_result', { load_id: exportId, outcome: 'success', duration_ms: 10, embedded: false, project_scope: 'default' }],
     ['ui_click', { page_name: 'studio', area: 'header', element: 'export', interaction_method: 'pointer', project_scope: 'managed', project_id: projectId }],
     ['ui_click', { page_name: 'studio', area: 'project_drawer', element: 'language_change', option: 'pt-BR' }],
+    ['ui_click', { page_name: 'studio', area: 'settings', element: 'theme_toggle', option: 'dark', interaction_method: 'pointer' }],
     ['studio_export_request_result', { export_id: exportId, outcome: 'rejected', ...settings, error_code: 'FFMPEG_MISSING' }],
     ['studio_export_result', { export_id: exportId, job_state: 'failed', duration_ms: 1200, ...settings, error_code: 'RENDER_FAILED', project_id: projectId }],
     ['studio_notice_shown', { notice: 'ffmpeg_missing' }],

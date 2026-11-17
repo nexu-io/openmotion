@@ -18,7 +18,6 @@ import { ProjectAgentAction } from './ProjectAgentAction';
 import { WorkspaceSaveStatus } from './WorkspaceSaveStatus';
 import { trackMotion } from './tracking';
 import { installEditorTracking, openTemplateFields, projectFields, projectScaleFields, setProjectTemplate } from './editorTracking';
-import { usePlayerStore } from '../player/store/playerStore';
 import { OpenMotionAgentTools } from './OpenMotionAgentTools';
 
 installEditorTracking(trackMotion);
