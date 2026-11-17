@@ -21,7 +21,7 @@
 [data-motion-studio] .om-nav-item { display: flex; align-items: center; gap: var(--motion-space-8); min-height: var(--motion-space-32); padding: var(--motion-space-6) var(--motion-space-10); border: 0; border-radius: var(--motion-radius-md); background: transparent; color: var(--motion-text); text-align: left; font-size: var(--motion-text-md); cursor: pointer; transition: background-color var(--motion-duration-fast), color var(--motion-duration-fast); }
 [data-motion-studio] .om-nav-item[data-compact] { gap: var(--motion-space-4); padding-inline: var(--motion-space-6); }
 [data-motion-studio] .om-nav-item:hover { color: var(--motion-strong); background: var(--motion-nav-hover); }
-[data-motion-studio] .om-nav-item:is([aria-current="page"], [aria-pressed="true"], [role="tab"][aria-selected="true"]) { color: var(--motion-strong); background: var(--motion-hover); }
+[data-motion-studio] .om-nav-item:is([aria-current="page"], [aria-pressed="true"], [role="tab"][aria-selected="true"]) { color: var(--motion-strong); background: var(--motion-chrome-active); }
 [data-motion-studio] .om-nav-item[aria-current="page"] { font-weight: var(--motion-weight-medium); }
 [data-motion-studio] .om-nav-item:disabled { color: var(--motion-control-disabled); cursor: default; background: transparent; }
 /* Navigation rows with a separate trailing action share one continuous surface. */
@@ -41,9 +41,9 @@
 [data-motion-studio] .om-nav-row:has(.om-nav-row-link:focus-visible) { outline: 2px solid var(--motion-selected); outline-offset: 2px; }
 [data-motion-studio] .om-nav-row .om-nav-row-link:focus-visible { outline: none; box-shadow: none; }
 [data-motion-studio] .om-button { display: inline-flex; justify-content: center; align-items: center; gap: var(--motion-space-8); min-height: var(--motion-control); padding: var(--motion-space-4) var(--motion-space-10); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-md); color: var(--motion-text); background: var(--motion-bg); font-size: var(--motion-text-md); text-decoration: none; white-space: nowrap; cursor: pointer; }
-[data-motion-studio] .om-button:hover { background: var(--motion-hover); color: var(--motion-strong); }
+[data-motion-studio] .om-button:hover { background: var(--motion-nav-hover); color: var(--motion-strong); border-color: var(--motion-border-strong); }
 [data-motion-studio] .om-button[data-primary] { background: var(--motion-action); color: var(--motion-on-action); border-color: var(--motion-action); }
-[data-motion-studio] .om-button:disabled { color: var(--motion-control-disabled); background: var(--motion-panel); border-color: var(--motion-border); cursor: default; }
+[data-motion-studio] .om-button:is(:disabled, [aria-disabled="true"], [data-disabled]) { color: var(--motion-dim); background: var(--motion-border-subtle); border-color: var(--motion-border-subtle); cursor: not-allowed; }
 [data-motion-studio] .om-text-link[data-quiet] { background: transparent; text-decoration: none; }
 [data-motion-studio] .om-text-link[data-quiet]:hover:not(:disabled):not([aria-disabled="true"]) { background: transparent; text-decoration: underline; }
 [data-motion-studio] .om-card { border: 1px solid var(--motion-border-subtle); border-radius: var(--motion-radius-lg); background: var(--motion-bg); padding: var(--motion-space-16); }
@@ -73,11 +73,12 @@
 [data-motion-studio] .om-provider-avatar img[data-padded="true"] { width: 100%; height: 100%; }
 [data-motion-studio] .om-badge { display: inline-flex; gap: var(--motion-space-4); align-items: center; padding: var(--motion-space-2) var(--motion-space-8); color: var(--motion-muted); background: var(--motion-panel); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-full); font-size: var(--motion-text-xs); white-space: nowrap; }
 [data-motion-studio] .om-badge[data-active="true"] { color: var(--motion-accent); background: var(--motion-accent-soft); }
-[data-motion-studio] .om-switch { flex-shrink: 0; width: var(--motion-space-32); height: var(--motion-space-20); border: 0; border-radius: var(--motion-radius-full); background: var(--motion-border); padding: var(--motion-space-2); cursor: pointer; }
-[data-motion-studio] .om-switch::after { display: block; content: ''; width: var(--motion-space-16); height: var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-bg); transition: transform var(--motion-duration-fast); }
+[data-motion-studio] .om-switch { flex-shrink: 0; width: var(--motion-space-32); height: var(--motion-space-20); border: 0; border-radius: var(--motion-radius-full); background: var(--motion-border-strong); padding: var(--motion-space-2); cursor: pointer; }
+[data-motion-studio] .om-switch::after { display: block; content: ''; width: var(--motion-space-16); height: var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-text); transition: transform var(--motion-duration-fast); }
 [data-motion-studio] .om-switch[aria-checked="true"] { background: var(--motion-action); }
 [data-motion-studio] .om-switch[aria-checked="true"]::after { background: var(--motion-on-action); transform: translateX(var(--motion-space-12)); }
-[data-motion-studio] .om-switch:disabled { cursor: default; }
+[data-motion-studio] .om-switch:is(:disabled, [aria-disabled="true"], [data-disabled]) { background: var(--motion-border-strong); cursor: not-allowed; }
+[data-motion-studio] .om-switch:is(:disabled, [aria-disabled="true"], [data-disabled])::after { background: var(--motion-muted); }
 [data-motion-studio] .om-divider { height: 1px; border: 0; background: var(--motion-border); margin-block: var(--motion-space-16); }
 [data-motion-studio] .om-empty { display: grid; justify-items: center; gap: var(--motion-space-12); text-align: center; padding: var(--motion-space-40) var(--motion-space-24); color: var(--motion-muted); }
 [data-motion-studio] .om-dialog { background: var(--motion-bg); color: var(--motion-text); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-xl); box-shadow: var(--motion-shadow-lg); padding: var(--motion-space-24); }
@@ -123,7 +124,7 @@
 }
 
 [data-motion-studio] .om-status-dot { display: inline-block; width: var(--motion-space-6); height: var(--motion-space-6); border-radius: var(--motion-radius-full); background: var(--motion-status-on); flex-shrink: 0; }
-[data-motion-studio] .om-button[aria-pressed="true"] { background: var(--motion-hover); color: var(--motion-strong); border-color: var(--motion-border); }
+[data-motion-studio] .om-button[aria-pressed="true"]:not(:disabled, [aria-disabled="true"], [data-disabled]) { background: var(--motion-chrome-active); color: var(--motion-strong); border-color: var(--motion-border-strong); }
 [data-motion-studio] .om-menu-caption { padding: var(--motion-space-6) var(--motion-space-8); color: var(--motion-muted); font-size: var(--motion-text-xs); }
 [data-motion-studio] .om-code-field textarea { font-family: var(--motion-font-mono); resize: vertical; }
 [data-motion-studio] .om-badge:is(button) { cursor: pointer; }

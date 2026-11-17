@@ -9,7 +9,7 @@
 .motion-editor-placeholder-panels > div + div { border-left: 1px solid var(--motion-border); }
 
 :root[data-motion-ui][data-motion-studio] :is(button, [role="button"], [role="tab"], [role="combobox"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], .motion-community-link):not(:where(.connection-dialog *, .connect-preview-dialog *, .motion-library *, [data-motion-catalog] *, .timeline-clip, .timeline-clip *, .dv-tabs-container:not(:has(> .dv-tab ~ .dv-tab)) > .dv-tab:has([data-preview-heading]))) {
-  &:not(:disabled):not([aria-disabled="true"]):not([data-disabled]):not(.hf-od-primary, .motion-button-primary, .bg-danger, .om-nav-item, .om-button[data-primary], .om-text-link[data-quiet]):is(:hover, :focus-visible, [data-highlighted]) {
+  &:not(:disabled):not([aria-disabled="true"]):not([data-disabled]):not(.hf-od-primary, .motion-button-primary, .bg-danger, .om-nav-item, .om-button, .om-switch, .om-text-link[data-quiet]):is(:hover, :focus-visible, [data-highlighted]) {
     background-color: var(--motion-hover);
     color: var(--motion-strong);
   }
@@ -25,16 +25,15 @@
   }
 
   &:is(:disabled, [aria-disabled="true"], [data-disabled]) {
-    color: var(--motion-control-disabled);
-    background-color: transparent;
     opacity: 1;
     cursor: not-allowed;
     filter: none;
 
     & :is(span, svg) { color: inherit; opacity: 1; }
 
-    /* A disabled switch still needs a visible track around its thumb. */
-    &.om-switch { background-color: var(--motion-border); }
+    /* Filled controls retain the disabled surfaces from their shared recipes. */
+    &:not(.om-button) { color: var(--motion-control-disabled); }
+    &:not(.om-button, .om-switch) { background-color: transparent; }
   }
 
   &:is(.hf-od-primary, .motion-button-primary):is(:disabled, [aria-disabled="true"], [data-disabled]) {
