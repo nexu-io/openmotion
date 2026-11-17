@@ -166,3 +166,16 @@ it('clears validated field errors after a successful origin change while the dir
   expect(document.querySelector<HTMLInputElement>('[aria-label="Custom API key"]')!.value).toBe('');
   expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
 });
+
+it('shows the advisory OpenDesign Plus guidance on configured Free/Go accounts without blocking text models', async () => {
+  const goAccount = { ...account, configured: true, enabled: true, available: true, credentialSource: 'account',
+    reason: 'Signed in; multimodal generation requires OpenDesign Plus or above' };
+  const textModel = { id: 'account:language-one', provider: 'account', modelId: 'language-one', label: 'Language One', kind: 'text', enabled: true, source: 'live' };
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ providers: [goAccount], models: [textModel], defaults: {} })));
+  await mount('account');
+  expect(document.body.textContent).toContain('Signed in; multimodal generation requires OpenDesign Plus or above');
+  expect(document.body.textContent).toContain('Manage account');
+  expect(document.body.textContent).toContain('Language One');
+  const useDefault = document.querySelector<HTMLButtonElement>('[aria-label="Use Language One as default"]')!;
+  expect(useDefault.disabled).toBe(false);
+});
