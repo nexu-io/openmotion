@@ -58,6 +58,10 @@ export async function checkDesign() {
       const a = luminance(values[ink]), b = luminance(values[surface]);
       assert.ok((Math.max(a, b) + .05) / (Math.min(a, b) + .05) >= 4.5, `${theme}: ${ink} on ${surface} needs 4.5:1 contrast.`);
     }
+    for (const [mark, surface] of [['status-on', 'bg'], ['status-on', 'panel'], ['status-on', 'nav-hover'], ['status-on', 'hover']]) {
+      const a = luminance(values[mark]), b = luminance(values[surface]);
+      assert.ok((Math.max(a, b) + .05) / (Math.min(a, b) + .05) >= 3, `${theme}: ${mark} on ${surface} needs 3:1 non-text contrast.`);
+    }
   }
   for (const file of ['theme.js', 'catalog.js', 'catalog-view.js', 'token-model.js', 'generate.js']) execFileSync(process.execPath, ['--check', fileURLToPath(new URL('packages/design-system/' + file, root))]);
   console.log('Design token freshness, theme parity, UI color references, contrast and browser scripts passed.');
