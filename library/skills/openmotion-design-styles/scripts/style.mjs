@@ -4,7 +4,7 @@
 //   node style.mjs show <id>                 → the full card as JSON
 //   node style.mjs check <plan.json>         → validate a film plan (exit 1 on errors)
 //   node style.mjs fonts <plan.json> <dir>   → download subset fonts into <dir>/assets/fonts and write fonts.css
-import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, readdir, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,13 +79,16 @@ async function fonts(planPath, dir) {
     raw += source;
     html += source.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<[^>]+>/g, ' ');
   }
-  const scripted = [...raw.matchAll(/textContent:\s*'([^']*)'/g)].map(m => m[1]).join('');
+  // Every string literal inside <script> blocks (textContent = "...", { textContent: '...' }, labels in
+  // arrays): over-inclusive on purpose, since an extra glyph costs bytes and a missing one falls back.
+  const scripts = [...raw.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
+  const scripted = [...scripts.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`([^`$]*)`/g)].map(m => m[1] ?? m[2] ?? m[3] ?? '').join('');
   const text = [...new Set([...JSON.stringify(plan) + html + scripted + 'OpenMotion0123456789 .,:·→'])].join('');
   const specs = Object.values(style.type).map(spec => ({ family: family(spec), weight: weight(spec) }));
   const out = path.join(dir, 'assets/fonts');
   await mkdir(out, { recursive: true });
   const faces = [];
-  const seen = new Set();
+  const seen = new Set(), failed = [];
   for (const { family: name, weight: w } of specs) {
     for (const wt of [...new Set([400, w])]) {
       const key = `${name}:${wt}`;
@@ -93,15 +96,22 @@ async function fonts(planPath, dir) {
       seen.add(key);
       const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name)}:wght@${wt}&text=${encodeURIComponent(text)}`;
       const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/124 Safari/537.36' } });
-      if (!response.ok) { console.warn(`skip ${key}: Google Fonts returned ${response.status}`); continue; }
+      if (!response.ok) { failed.push(`${key}: Google Fonts returned ${response.status}`); continue; }
       const css = await response.text();
       const src = /url\((https:[^)]+)\)/.exec(css)?.[1];
-      if (!src) { console.warn(`skip ${key}: no font file in response`); continue; }
+      if (!src) { failed.push(`${key}: no font file in response`); continue; }
       const file = `${name.replace(/\s+/g, '-')}-${wt}.woff2`;
-      await writeFile(path.join(out, file), Buffer.from(await (await fetch(src)).arrayBuffer()));
+      const download = await fetch(src);
+      const bytes = download.ok ? Buffer.from(await download.arrayBuffer()) : null;
+      // Keep any existing file when the download fails or is not a WOFF2 ('wOF2' signature).
+      if (!bytes || bytes.subarray(0, 4).toString('latin1') !== 'wOF2') { failed.push(`${key}: font file download failed (${download.status})`); continue; }
+      const target = path.join(out, file), temporary = target + '.part';
+      await writeFile(temporary, bytes);
+      await rename(temporary, target);
       faces.push(`@font-face{font-family:'${name}';font-weight:${wt};font-display:block;src:url('assets/fonts/${file}') format('woff2')}`);
     }
   }
+  if (failed.length) fail(`fonts not updated; existing files kept:\n${failed.join('\n')}`);
   await writeFile(path.join(dir, 'fonts.css'), faces.join('\n') + '\n');
   console.log(`wrote ${faces.length} faces to ${path.join(dir, 'fonts.css')}`);
 }
