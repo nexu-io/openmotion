@@ -65,6 +65,8 @@ Open `index.html` with a host browser, wait for its supplied-font load status, t
 
 For managed projects, pass the returned `importItems` to `openmotion_import_assets` with the explicit projectId and a fresh requestId. Keep itemIds for retries. The Tool parses real font bytes, copies the optional license into the same version and returns actual metadata and project-relative `fontFaceCss`. Font-only imports do not require FFmpeg. This does not place text or edit a composition.
 
+Every family named in a composition's `font-family` needs an `@font-face` unless the font check resolves it automatically; otherwise preview and export stop with `font_family_without_font_face`. OS-bundled faces with no downloadable file, such as PingFang SC, Hiragino Sans GB or Microsoft YaHei in Brand Kit `tokens.css` stacks, are declared with `@font-face{font-family:'PingFang SC';src:local('PingFang SC')}`; a generator Skill that omits this is fixed in its script, not by hand-editing its output.
+
 Read the project's new revision/version, then save the needed @font-face and text styling through `openmotion_edit_project`. Returned CSS paths are relative to the project root; adjust relative URLs when authoring a stylesheet in a nested folder. Follow [Typography](typography.md) for real-copy, mixed-language and rendered-face checks.
 
 For independent portable projects, copy the selected prepared font and license through host file capabilities and use project-relative references. Full CJK resources preserve subsequent copy editing; these are not subsets restricted to the current sentence. Distributable packages retain the applicable license. Font import and technical readiness do not establish aesthetic acceptance.

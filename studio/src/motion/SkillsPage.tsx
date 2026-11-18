@@ -3,7 +3,7 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
-import { aspectRatios, durations, motionSkills, skillCategories, skillPrompt, skillShortcut, type MotionSkill, type SkillCategory, type SkillMotif, type SkillParameters } from './skillCatalog';
+import { motionSkills, skillAspects, skillDurations, skillFormat, skillCategories, skillPrompt, skillShortcut, type MotionSkill, type SkillCategory, type SkillMotif, type SkillParameters } from './skillCatalog';
 import { GitHubMark } from '../../../packages/design-system/react/GitHubMark';
 import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
@@ -81,7 +81,7 @@ export function SkillsPage({ skillId, onSkillChange, hasProject = false }: { ski
   useEffect(() => { setParameters(defaults); setManualCopy(null); setCommandOpen(false); }, [skillId]);
   async function copy(surface: 'instruction' | 'command' = 'instruction') {
     if (!selected) return;
-    const text = surface === 'command' ? shortcut : prompt, attempt = tracking.newTrackingId(), brief = parameters, view = detailView.current;
+    const text = surface === 'command' ? shortcut : prompt, attempt = tracking.newTrackingId(), brief = { ...parameters, ...skillFormat(selected, parameters) }, view = detailView.current;
     if (surface === 'command') tracking.reportSkillCommandCopyClicked(selected, view, attempt);
     else tracking.reportSkillDetailClick(selected, 'copy_instruction', view, attempt);
     try {
@@ -129,8 +129,8 @@ export function SkillsPage({ skillId, onSkillChange, hasProject = false }: { ski
         : selected.cover.source}</p>}
       <section className="om-skill-form" aria-label={t('Brief')}>
         <label><span>{t('What to make')}</span><span className="om-field"><textarea rows={2} maxLength={500} value={parameters.subject} placeholder={t(selected.example)} onChange={event => setParameters({ ...parameters, subject: event.target.value })} /></span></label>
-        <fieldset><legend>{t('Duration')}</legend><div className="om-skill-options">{durations.map(value => <button key={value} className="om-nav-item" aria-pressed={parameters.duration === value} onClick={() => setParameters({ ...parameters, duration: value })}>{t('{count}s', { count: value })}</button>)}</div></fieldset>
-        <fieldset><legend>{t('Aspect ratio')}</legend><div className="om-skill-options">{aspectRatios.map(value => <button key={value} className="om-nav-item" aria-pressed={parameters.aspect === value} onClick={() => setParameters({ ...parameters, aspect: value })}>{value}</button>)}</div></fieldset>
+        <fieldset><legend>{t('Duration')}</legend><div className="om-skill-options">{skillDurations(selected).map(value => <button key={value} className="om-nav-item" aria-pressed={skillFormat(selected, parameters).duration === value} onClick={() => setParameters({ ...parameters, duration: value })}>{t('{count}s', { count: value })}</button>)}</div></fieldset>
+        <fieldset><legend>{t('Aspect ratio')}</legend><div className="om-skill-options">{skillAspects(selected).map(value => <button key={value} className="om-nav-item" aria-pressed={skillFormat(selected, parameters).aspect === value} onClick={() => setParameters({ ...parameters, aspect: value })}>{value}</button>)}</div></fieldset>
         <label><span>{t('Style (optional)')}</span><span className="om-field"><input maxLength={200} value={parameters.style} placeholder={t('e.g. dark background, neon green accents')} onChange={event => setParameters({ ...parameters, style: event.target.value })} /></span></label>
       </section>
       <section className="om-skill-prompt" aria-label={t('Agent instruction')}>

@@ -95,6 +95,14 @@ it('keeps search, category and card reports on the same filtered list', () => {
   expectAdmitted();
 });
 
+it('reports the length and frame the copied instruction actually asks for', async () => {
+  act(() => root.render(<SkillsHost />));
+  act(() => button('Growth reverse-engineering').click());
+  await act(async () => button('Copy for Agent').click());
+  expect(of('skill_instruction_copy_result')[0].properties).toMatchObject({ skill_id: 'openmotion-growth-teardown', duration_seconds: 50, aspect_ratio: '16:9' });
+  expectAdmitted();
+});
+
 it('reports a failed Skill copy as a manual fallback, not a success', async () => {
   copy.mockRejectedValueOnce(new Error('denied'));
   act(() => root.render(<SkillsHost />));
