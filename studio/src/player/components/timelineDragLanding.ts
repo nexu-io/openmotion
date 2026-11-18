@@ -1,6 +1,7 @@
 import type { TimelineElement } from "../store/playerStore";
 import type { DragCommitDeps } from "./timelineClipDragCommit";
 import { classifyZone, normalizeToZones } from "./timelineZones";
+import { canMoveTimelineElement } from "./timelineAuthoredMoveTarget";
 import { sameSourceFile } from "./timelineAuthoredTrack";
 
 const keyOf = (e: TimelineElement) => e.key ?? e.id;
@@ -66,4 +67,16 @@ export function layoutAfterTrackInsert(
     }),
   );
   return { normalized, targetTrack, writable };
+}
+
+/** A source track change must be applied to the whole lane or refused. */
+export function findBlockedTrackInsert(
+  normalized: readonly TimelineElement[],
+  sources: ReadonlyMap<string, TimelineElement>,
+): TimelineElement | undefined {
+  for (const element of normalized) {
+    const source = sources.get(keyOf(element));
+    if (source && element.track !== (source.authoredTrack ?? source.track) && !canMoveTimelineElement(source))
+      return source;
+  }
 }

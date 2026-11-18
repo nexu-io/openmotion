@@ -40,6 +40,10 @@ The recreate route carries a shot/action-unit process with concrete worker brief
 
 Before material grouping, the recreation guidance distinguishes object motion, internal content changes and exposure. Timed comparisons cover the defining changes and stationary anchors, including the handoff from intact content into fragments during breakup or assembly. An optional host-Python registration helper measures planar camera observations with explicit coordinate and fit evidence. The visible-motion helper records source travel before authoring and compares local movement in the actual export. Material review includes the reassembled background and occlusion. The maker chooses the representation from observed behavior. Requested review checks its source controls in the actual output.
 
+## Primary installation Skill
+
+[openmotion](https://github.com/nexu-io/openmotion/blob/main/skills/openmotion/SKILL.md) is the standalone GitHub/Skills CLI entry for setup and first use. It reuses a connected workspace or follows the maintained source installation guide, then reads the matching specialist through installed files or MCP resources. It does not introduce a sixth creative workflow or require already-selected specialists to return through a router. The bootstrap Skill is discoverable in the source plugin and on GitHub; runtime distributions retain their existing specialist list. It is installed separately through the official Skills CLI rather than copied into npm-owned workflow directories.
+
 ## 职责与入口
 
 当前采用“通用工程入口＋可直达专业 Skill＋同源共享规范”。Agent 根据本轮目标、保持项与工程状态直接选择入口，专业任务无需先读 production。production 承接既定创作决定下的工程执行，为已有 production/start 调用保留简短导航。此选择融合了“核查仓库中的 Skill 结构”中已评审并本地实施的职责收窄，取代此前“泛化请求先经薄路由”的描述；不删除兼容资源，不复制共享规则。

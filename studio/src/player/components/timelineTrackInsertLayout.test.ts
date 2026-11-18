@@ -64,14 +64,14 @@ it.each([
       groupTracks: layout.groupTracks,
     };
     const ontoHeader = computeDragPreview(drag, 100, geometry.getRowTop(1) + 24, context);
-    expect(ontoHeader.insertRow).toBe(order.length === 6 ? 1 : null);
-    expect(ontoHeader.previewTrack).toBe(order.length === 6 ? 1 : 4);
+    expect(ontoHeader.insertRow).toBeNull();
+    expect(ontoHeader.previewTrack).toBe(4);
     if (order.length === 6) {
       expect(layout.allowedRows.has(2)).toBe(false);
       expect(layout.allowedRows.has(3)).toBe(false);
       const ontoMember = computeDragPreview(drag, 100, 130, context);
-      expect(ontoMember.insertRow).toBe(1);
-      expect(ontoMember.previewTrack).toBe(1);
+      expect(ontoMember.insertRow).toBeNull();
+      expect(ontoMember.previewTrack).toBe(4);
     }
     const preview = computeDragPreview(drag, 100, geometry.getRowTop(seam), context);
     expect(preview.insertRow).toBe(seam);

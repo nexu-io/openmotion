@@ -1,3 +1,4 @@
+import { isVoiceProvider } from './voice-library.ts';
 import type { Model } from './gateway.ts';
 
 export type GenerationOption = {
@@ -93,6 +94,7 @@ export function generationOptions(model: Model): GenerationOptions | undefined {
   if (cloudSpeech(model)) { const voices = checkedVoices(model); fields = [voices ? { key: 'voice', label: 'Speech voice', kind: 'choice', choices: voices, default: voices[0].value, allowCustom: true } : text('voice', 'Voice ID', true)]; }
   // The connector's `audio music --duration` takes whole seconds; music models publish no duration range.
   if (model.provider === 'account' && model.modality === 'audio' && model.mode === 'text-to-audio') fields = [number('duration', 'Duration (seconds)', undefined, 1)];
+  if (isVoiceProvider(model.provider)) fields = [text('voice', 'Voice ID', true), number('speed', 'Speech speed', 1, 0.5, 2, 0.1)];
   return fields ? { delivery: 'provider', fields } : undefined;
 }
 

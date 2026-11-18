@@ -1,3 +1,4 @@
+import type { VoiceReference } from '../../../shared/voice-library';
 import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
 import { useEffect, useRef, useState, type ComponentProps, type Dispatch, type SetStateAction } from 'react';
@@ -18,7 +19,7 @@ import { ModelAvatar } from './settingsPrimitives';
 import { GenerationParameters, emptyParameters, parameterInputImageRatio, requestParameters, type ParameterDraft } from './GenerationParameters';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { useWorkspaceChrome } from './WorkspaceFrame';
-export interface AssetDraft { modality: Modality; prompt: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
+export interface AssetDraft { voiceRef?: VoiceReference; voiceName?: string; modality: Modality; prompt: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
 export function AssetComposer({ active, draft, setDraft, agentReferences, setAgentReferences, jobs, mode, onMode, taskIds, history, selectingTask, onNew, onChatChanged, onChatStarted, onCancel, onView, onRetrySave, onResume, onReference, onCreated, onError, onClose }: {
   active: boolean; draft: AssetDraft; setDraft: Dispatch<SetStateAction<AssetDraft>>; jobs: GenerationJob[];
   agentReferences: AssetDraft['references']; setAgentReferences: (references: AssetDraft['references']) => void;
@@ -47,7 +48,7 @@ export function AssetComposer({ active, draft, setDraft, agentReferences, setAge
     void loadGateway().then(data => { if (current && sequence === gatewaySequence.current) setGateway(data); }).catch(() => { if (current && sequence === gatewaySequence.current) setFailed(true); });
     return () => { current = false; };
   }, [active, retry]);
-  const models = gateway?.models.filter(m => m.modality === draft.modality && gateway.status.providers.some(p => p.id === m.provider && p.available)) ?? [];
+  const models = gateway?.models.filter(m => m.modality === draft.modality && (!draft.voiceRef || m.provider === draft.model?.split(':')[0] && m.mode === 'text-to-speech') && gateway.status.providers.some(p => p.id === m.provider && p.available)) ?? [];
   const selected = draft.model ? models.find(m => m.id === draft.model) : models.find(m => m.id === gateway?.status.routes[draft.modality]) ?? models[0];
   const maximumReferences = selected ? modelReferenceLimit(selected) : 0;
   const unknownReferences = selected?.provider === 'opendesign' && selected.modality === 'image' && selected.supportsImageReference === undefined;
@@ -68,7 +69,7 @@ export function AssetComposer({ active, draft, setDraft, agentReferences, setAge
     if (!selected || !draft.prompt.trim() || busy) return; setBusy(true);
     try {
       const parsed = requestParameters(parameters, selected, draft.references.length > 0);
-      const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt: draft.prompt, model: selected.id, mode: selected.mode, parameters: parsed,
+      const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', voiceRef: draft.voiceRef, requestId: crypto.randomUUID(), modality: draft.modality, prompt: draft.prompt, model: selected.id, mode: selected.mode, parameters: parsed,
         ...(draft.target ? { assetId: draft.target.asset.id, parentVersionId: draft.target.versionId } : {}), references: draft.references.map(r => r.reference) });
       if (mounted.current) {
         setDraft(current => current === draft ? { ...current, model: selected.id, parameters: parsed } : current);
@@ -95,8 +96,9 @@ export function AssetComposer({ active, draft, setDraft, agentReferences, setAge
     <div className="om-asset-chat-panel" hidden={mode !== 'agent'}><AssetConversation conversationId={taskIds.agent} onChanged={onChatChanged} onStarted={onChatStarted} onSending={setAgentSending} active={active && mode === 'agent'} references={agentReferences.map(r => r.reference)} referenceControls={referenceControls(agentReferences, setAgentReferences)} jobs={jobs} onCancel={onCancel} onView={onView} onRetrySave={onRetrySave} onResume={onResume} onError={onError} /></div>{mode === 'direct' && <>
       {latest && <div className="om-asset-current-job"><AssetGenerationCard job={latest} onCancel={onCancel} onView={onView} onRetrySave={onRetrySave} onResume={onResume} /></div>}
       <div className="om-asset-direct">
+      {draft.voiceRef && <div className="om-card om-asset-edit-target"><span><RemixIcon name="voiceprint-line" size={16} />{draft.voiceName}</span><button className="om-nav-item" onClick={() => setDraft({ ...draft, voiceRef: undefined, voiceName: undefined })}>{t('Remove voice')}</button></div>}
       {draft.target && <div className="om-card om-asset-edit-target"><span><RemixIcon name="history-line" size={16} />{draft.target.asset.name} · V{draft.target.asset.versions.findIndex(v => v.id === draft.target!.versionId) + 1}</span><button className="om-nav-item" onClick={() => setDraft({ ...draft, target: undefined })}>{t('Create separately')}</button></div>}
-      <div className="om-creation-types" role="group" aria-label={t('Media type')}>{creationKinds.map(item => <button key={item.id} className="om-creation-type" data-tone={item.id} aria-pressed={draft.modality === item.id} disabled={Boolean(draft.target) && item.id !== draft.modality} onClick={() => setDraft({ ...draft, modality: item.id, model: undefined })}><span className="om-creation-icon" data-tone={item.id}><RemixIcon name={item.icon} size={20} /></span><span>{t(item.label)}</span>{draft.modality === item.id && <RemixIcon name="check-line" size={13} />}</button>)}</div>
+      <div className="om-creation-types" role="group" aria-label={t('Media type')}>{creationKinds.map(item => <button key={item.id} className="om-creation-type" data-tone={item.id} aria-pressed={draft.modality === item.id} disabled={Boolean(draft.voiceRef) && item.id !== 'audio' || Boolean(draft.target) && item.id !== draft.modality} onClick={() => { if (item.id !== draft.modality) setDraft({ ...draft, modality: item.id, model: undefined }); }}><span className="om-creation-icon" data-tone={item.id}><RemixIcon name={item.icon} size={20} /></span><span>{t(item.label)}</span>{draft.modality === item.id && <RemixIcon name="check-line" size={13} />}</button>)}</div>
       <div className="om-creation-model"><div className="om-creation-row"><span className="om-eyebrow">{t('Generation model')}</span><button className="om-nav-item" aria-label={t('Model providers')} onClick={openModelSettings}><RemixIcon name="settings-3-line" size={15} /></button></div>
         {failed ? <button className="om-button" onClick={() => setRetry(v => v + 1)}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : models.length ? <Select label={t('Generation model')} value={selected?.id ?? ''} onCommit={model => setDraft({ ...draft, model })} options={models.map(m => ({ value: m.id, label: m.label, description: `${m.provider} · ${m.mode}`, icon: <ModelAvatar name={m.label} modelId={m.modelId} provider={{ id: m.provider, custom: false }} /> }))} /> : <div className="om-creation-setup"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{t('Configure a provider or sign in to use media models.')}</p><button className="om-button" onClick={openModelSettings}>{t('Model providers')}</button></div>}
       </div>

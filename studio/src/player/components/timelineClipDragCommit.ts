@@ -5,7 +5,7 @@ import type { DraggedClipState } from "./useTimelineClipDrag";
 // value-import edge stays acyclic.
 import type { ZMirrorLaneMove } from "./timelineZMirror";
 import { classifyZone } from "./timelineZones";
-import { layoutAfterTrackInsert } from "./timelineDragLanding";
+import { findBlockedTrackInsert, layoutAfterTrackInsert } from "./timelineDragLanding";
 import type { TimelineTrackInsertLayout } from "./timelineTrackInsertLayout";
 import { computeStackingPatches, type StackingPatch } from "./timelineStackingSync";
 import {
@@ -29,6 +29,7 @@ import { authoredTrackForLane } from "./timelineAuthoredTrack";
 import { resolveGroupMovers } from "./timelineMultiDragPreview";
 import { beginStudioPendingEdit } from "../../utils/studioPendingEdits";
 import { batchElementUpdates } from "../store/batchElementUpdates";
+import { roundTo3 } from "../../utils/rounding";
 
 type StartTrack = TimelineAtomicMoveUpdates;
 export interface TimelineMoveEdit extends TimelineAtomicMoveEdit {
@@ -86,7 +87,6 @@ export interface DragCommitDeps {
 }
 
 const keyOf = (e: TimelineElement) => e.key ?? e.id;
-const round3 = (v: number) => Math.round(v * 1000) / 1000;
 // One deterministic coalesce key shared by both records in a lane-change gesture.
 let laneChangeGestureSeq = 0;
 
@@ -247,12 +247,16 @@ function resolveMultiSelection(
   movedStart: (e: TimelineElement) => number;
 } | null {
   const dragKey = keyOf(drag.element);
+  if (drag.insertion) {
+    const starts = drag.insertion;
+    return { keys: new Set(starts.keys()), movedStart: el => starts.get(keyOf(el)) ?? el.start };
+  }
   const movers = resolveGroupMovers(deps.elements, deps.selectedKeys, dragKey);
   if (!movers) return null;
   const keys = new Set(movers.map(keyOf));
   const delta = drag.previewStart - drag.element.start;
   const movedStart = (e: TimelineElement): number =>
-    keyOf(e) === dragKey ? drag.previewStart : Math.max(0, round3(e.start + delta));
+    keyOf(e) === dragKey ? drag.previewStart : Math.max(0, roundTo3(e.start + delta));
   return { keys, movedStart };
 }
 
@@ -268,6 +272,8 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
 
   const { elements, updateElement, onMoveElement } = deps;
   const dragKey = keyOf(drag.element);
+  if (drag.insertion && (!deps.onMoveElements ||
+    elements.filter(el => drag.insertion!.has(keyOf(el)) && canMoveElement(el)).length !== drag.insertion.size)) return;
   const isInsert = drag.insertRow != null;
   const laneChanged = drag.previewTrack !== drag.element.track;
   // Deliberate VERTICAL gesture: the pointer aimed at a different lane, or at the
@@ -294,19 +300,10 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
       : edit);
   };
 
-  if (!isInsert && !laneChanged && drag.mainTrackReorder) {
-    const edits = drag.mainTrackReorder.changes.map(({ element, start }) => ({
-      element, updates: { start, track: element.track },
-    }));
-    void persistMoveEdits(renumbers.length ? preserveLanes(edits) : edits, deps, undefined,
-      renumbers.length ? "lane-reorder" : "timing");
-    return;
-  }
-
   // ── Pure time-move (dragged clip keeps its lane, no insert) ─────────────────
   if (!isInsert && !laneChanged) {
     const delta = drag.previewStart - drag.element.start;
-    if (delta === 0) return;
+    if (delta === 0 && !drag.insertion) return;
     if (multi || renumbers.length) {
       const edits: TimelineMoveEdit[] = elements
         .filter((e) => multi ? multi.keys.has(keyOf(e)) : keyOf(e) === dragKey)
@@ -407,20 +404,10 @@ function buildTrackInsertEdits(
   if (!layout) return null;
   const { normalized, targetTrack, writable } = layout;
   const bySrc = new Map(elements.map((e) => [keyOf(e), e]));
-  // A partial zone renumber creates collisions; refuse a shifted locked row.
-  for (const norm of normalized) {
-    const src = bySrc.get(keyOf(norm));
-    if (
-      src &&
-      writable(src) &&
-      !canMoveElement(src) &&
-      norm.track !== (src.authoredTrack ?? src.track)
-    ) {
-      console.warn(
-        `[Timeline] Track insert refused: locked clip ${keyOf(src)} would need renumbering`,
-      );
-      return null;
-    }
+  const blocked = findBlockedTrackInsert(normalized, bySrc);
+  if (blocked) {
+    console.warn(`[Timeline] Track insert refused: locked clip ${keyOf(blocked)} would need renumbering`);
+    return null;
   }
   const candidate = elements.map((e) => {
     if (keyOf(e) === editKey) return { ...e, start: previewStart, track: targetTrack };

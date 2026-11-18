@@ -80,7 +80,7 @@ test('legacy files retain credentials, models and defaults across shared HTTP, M
     assert.equal(await gateway.connections.identity(custom), 'saved-revision');
     assert.deepEqual(await Promise.all(Object.keys(files).map(file => readFile(path.join(root, file), 'utf8'))), before, 'Reading old configuration must not rewrite it');
     assert.doesNotMatch(JSON.stringify(directory), /legacy-.*-key|environment-fal-key/);
-    const publicFields = new Set(['id', 'label', 'protocol', 'baseUrl', 'kinds', 'category', 'website', 'docs', 'setupRequired', 'baseUrlEditable', 'configured', 'enabled', 'available', 'custom', 'credentialSource', 'reason']);
+    const publicFields = new Set(['id', 'label', 'protocol', 'baseUrl', 'kinds', 'category', 'website', 'docs', 'group', 'region', 'setupRequired', 'baseUrlEditable', 'configured', 'enabled', 'available', 'custom', 'credentialSource', 'reason']);
     for (const provider of [...directory.providers, ...await gateway.connections.list()]) {
       assert.deepEqual(Object.keys(provider).filter(key => !publicFields.has(key)), [], `${provider.id} must contain only public connection fields`);
     }

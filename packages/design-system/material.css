@@ -41,3 +41,9 @@
     --motion-dialog-backdrop: none;
   }
 }
+/* Portable decorative loading geometry; the owning region announces progress. */
+[data-motion-ui] .ui-skeleton {
+  display: block;
+  border-radius: inherit;
+  background: var(--motion-skeleton-base);
+}

@@ -59,7 +59,7 @@ function mountDropEditor(elements: TimelineElement[] = [], uploadProjectFiles: (
 describe("timeline asset drop feedback", () => {
   it.each(["picture.png", "video.mp4", "sound.mp3"])("keeps identical feedback through saving for %s", async name => {
     vi.spyOn(studioHelpers, "resolveDroppedAssetHasAudio").mockResolvedValue(false);
-    const view = mountDropEditor([{ id: "existing", tag: name.endsWith("mp3") ? "audio" : "div", start: 0, duration: 30, track: 0 }]);
+    const view = mountDropEditor([{ id: "existing", domId: "existing", tag: name.endsWith("mp3") ? "audio" : "div", start: 0, duration: 30, track: 0 }]);
     let save!: () => void;
     view.write.mockImplementation(() => new Promise<void>(resolve => { save = resolve; }));
     let task!: Promise<void>;
@@ -74,7 +74,7 @@ describe("timeline asset drop feedback", () => {
     expect(view.placeholders()).toHaveLength(0);
   });
 
-  it("reserves the magnetic main-track end before delayed metadata, save and discovery", async () => {
+  it("keeps the requested time on the main track through delayed metadata, save and discovery", async () => {
     let metadata!: (duration: number) => void;
     vi.spyOn(studioHelpers, "resolveDroppedAssetDuration").mockImplementation(() => new Promise(resolve => { metadata = resolve; }));
     vi.spyOn(studioHelpers, "resolveDroppedAssetHasAudio").mockResolvedValue(false);
@@ -86,15 +86,16 @@ describe("timeline asset drop feedback", () => {
     const view = mountDropEditor(peers);
     let task!: Promise<void>;
     act(() => { task = view.drop("assets/brand.svg", { start: 9, track: 1 }); });
-    expect(usePlayerStore.getState().pendingAssetDrops[0].placement.start).toBe(7.8);
+    expect(usePlayerStore.getState().pendingAssetDrops[0].placement.start).toBe(9);
     const original = view.placeholders()[0];
+    expect(original.style.width).toBe("48px");
     const position = [original.style.left, original.style.top];
     expect(view.write).not.toHaveBeenCalled();
     await act(async () => { metadata(3); await task; });
     expect(view.placeholders()[0]).toBe(original);
     expect([original.style.left, original.style.top]).toEqual(position);
     const pending = usePlayerStore.getState().pendingAssetDrops[0].element!;
-    expect(pending).toMatchObject({ start: 7.8, track: 1, authoredTrack: 1 });
+    expect(pending).toMatchObject({ start: 9, track: 1, authoredTrack: 1 });
     act(() => usePlayerStore.setState({ elements: [...peers.map(e => ({ ...e, authoredTrack: e.track })), pending] }));
     expect(view.placeholders()).toHaveLength(0);
     expect(view.host.querySelectorAll('[role="row"]')).toHaveLength(2);
@@ -172,33 +173,33 @@ describe("timeline asset drop feedback", () => {
       if (tag === "audio") probes.push(element as HTMLAudioElement);
       return element;
     });
-    let first!: Promise<void>;
-    let second!: Promise<void>;
+    let drops!: Promise<void>[];
     act(() => {
-      first = view.drop("assets/music.mp3", { start: 0, track: 0 });
-      second = view.drop("assets/music.mp3", { start: 0, track: 0 });
+      drops = Array.from({ length: 3 }, () => view.drop("assets/music.mp3", { start: 0, track: 0 }));
     });
-    expect(view.placeholders()).toHaveLength(2);
-    expect(new Set(view.placeholders().map((node) => node.style.left)).size).toBe(2);
+    expect(view.placeholders()).toHaveLength(3);
+    expect(new Set(view.placeholders().map(node => node.style.left)).size).toBe(1);
     expect(view.placeholders().every((node) => node.getAttribute("aria-busy") === "true")).toBe(true);
     expect(probes).toHaveLength(1);
     expect(view.write).not.toHaveBeenCalled();
     Object.defineProperty(probes[0], "duration", { value: 6 });
     await act(async () => {
       probes[0].dispatchEvent(new Event("loadedmetadata"));
-      await Promise.all([first, second]);
+      await Promise.all(drops);
     });
-    expect(view.write).toHaveBeenCalledTimes(2);
-    expect(view.recordEdit).toHaveBeenCalledTimes(2);
-    expect(view.source().match(/<audio /g)).toHaveLength(2);
-    expect(view.placeholders()).toHaveLength(2);
+    expect(view.write).toHaveBeenCalledTimes(3);
+    expect(view.recordEdit).toHaveBeenCalledTimes(3);
+    const saved = new DOMParser().parseFromString(view.source(), "text/html");
+    const tracks = Array.from(saved.querySelectorAll("audio"), element => element.dataset.trackIndex).sort();
+    expect(tracks).toEqual(["0", "1", "2"]);
+    expect(view.placeholders()).toHaveLength(3);
     const inserted = usePlayerStore.getState().pendingAssetDrops.map((drop) => drop.element!);
-    expect(inserted.map((element) => element.start)).toEqual([0, 6]);
-    expect(new Set(inserted.map((element) => element.key)).size).toBe(2);
+    expect(inserted.map((element) => element.start)).toEqual([0, 0, 0]);
+    expect(new Set(inserted.map((element) => element.key)).size).toBe(3);
     act(() => usePlayerStore.getState().setElements(inserted.slice(0, 1)));
-    expect(view.placeholders()).toHaveLength(1);
+    expect(view.placeholders()).toHaveLength(2);
     act(() => usePlayerStore.setState({ timelineReady: false, elements: inserted }));
-    expect(view.placeholders()).toHaveLength(1);
+    expect(view.placeholders()).toHaveLength(2);
     act(() => usePlayerStore.getState().setTimelineReady(true));
     expect(view.placeholders()).toHaveLength(0);
     expect(usePlayerStore.getState().pendingAssetDrops).toEqual([]);

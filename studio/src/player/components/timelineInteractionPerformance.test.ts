@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TimelineElement } from "../store/playerStore";
 import { collectTimelineSnapTargets, snapTimelineTime } from "./timelineSnapping";
-import { resolveNearestFreeStart } from "./timelineCollision";
 import { collisionLane } from "./timelineCollisionIndex";
 
 const clips: TimelineElement[] = Array.from({ length: 20_000 }, (_, index) => ({
@@ -40,15 +39,12 @@ describe("large timeline interaction budgets", () => {
     process.stdout.write(JSON.stringify({ clips: clips.length, snapTargets: targets.length, queries: queries.length, linearMs, indexedMs, targetReads: reads }) + "\n");
   });
 
-  it("indexes each source snapshot once and searches only the requested collision lane", () => {
+  it("indexes each source snapshot once with a sorted list per collision lane", () => {
     const first = collisionLane(clips, 42);
     expect(first).toHaveLength(200);
     expect(collisionLane(clips, 42)).toBe(first);
     expect(first.every(clip => clip.track === 42)).toBe(true);
-    // Unrelated rows must not change a landing, including overlaps and an excluded mover.
-    for (const time of [0, 0.5, 2, 15.1, 60.9, 300, 598, 900]) {
-      expect(resolveNearestFreeStart(clips, 42, time, 1, "clip-42")).toBe(resolveNearestFreeStart(first, 42, time, 1, "clip-42"));
-    }
+    expect(first.map(clip => clip.start)).toEqual(Array.from({ length: 200 }, (_, index) => index * 3 + 0.042));
     const moved = clips.map(clip => clip.id === "clip-42" ? { ...clip, start: 900 } : clip);
     expect(collisionLane(moved, 42)).not.toBe(first);
     expect(collisionLane(moved, 42).at(-1)?.id).toBe("clip-42");

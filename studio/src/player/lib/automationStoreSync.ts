@@ -65,6 +65,9 @@ function syncedFields(doc: Document, element: TimelineElement, node: Element) {
     muted: node.hasAttribute("muted") || (resolveMediaElement(node)?.hasAttribute("muted") ?? false) || undefined,
     audioGroupAutomation: group?.automation,
     audioGroupFxChain: group?.fxChain,
+    audioGroupVolume: group?.volume,
+    audioGroupHidden: group?.hidden,
+    audioGroupLabel: group?.label,
   };
 }
 

@@ -237,3 +237,12 @@
 @media (max-height: 430px) {
   .om-settings-dialog.om-project-manager-dialog { max-height: calc(100dvh - var(--motion-space-24)); }
 }
+
+/* Opt-in host-owned navigation when an embedding host provides navigation. */
+.om-application[data-host-chrome="true"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+.om-application[data-host-chrome="true"] > :is(.om-app-header, .om-app-rail), .om-application[data-host-chrome="true"] > .motion-workspace > .om-project-navigation { display: none; }
+.om-application[data-host-chrome="true"] > .motion-workspace { grid-column: 1; grid-row: 1; margin: 0; }
+
+.om-provider-group { flex-shrink: 0; }
+.om-provider-group-title { padding: var(--motion-space-8); }
+.om-provider-group-items { display: flex; flex-direction: column; gap: var(--motion-space-4); padding-left: var(--motion-space-12); }

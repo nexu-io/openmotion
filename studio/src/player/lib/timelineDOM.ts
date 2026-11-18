@@ -277,7 +277,9 @@ function scanTimelineFromDOM(
         : masterStart.resolveStartForElement(el);
     if (Number.isFinite(rootDuration) && rootDuration > 0 && start >= rootDuration) return;
 
-    let dur = timing.duration ?? 0;
+    // Mounted scenes may have consumed data-duration. Use the same preserved
+    // authored window as playback, rather than extending them to the film end.
+    let dur = timing.duration ?? masterStart.resolveDurationForElement(el) ?? 0;
     if (dur <= 0) dur = Math.max(0, rootDuration - start);
     if (Number.isFinite(rootDuration) && rootDuration > 0) {
       dur = Math.min(dur, Math.max(0, rootDuration - start));

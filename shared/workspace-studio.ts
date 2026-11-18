@@ -14,6 +14,8 @@ import { isMain } from './entry.ts';
 import { withAvailableHistorySteps } from './studio-history-availability.ts';
 import { MAX_ASSET_BYTES } from './asset-limits.ts';
 import { repairCodeExtrudeMaterial } from './registry-material-compat.ts';
+import { WorkRounds } from '../inline-video.ts';
+import { createAppTracking, closeTracking } from './tracking.ts';
 import { StudioRenderAttempts, StudioRenderBusy } from './studio-render-attempts.ts';
 
 import { createFontCatalog, prepareFont, preparedFontResponse } from './studio-fonts.ts';
@@ -45,6 +47,8 @@ export async function startWorkspaceStudio(runtimeRoot: string, dataDirectory: s
   const { DEFAULT_HISTORY_ROOT } = await import(pathToFileURL(historyModule).href);
   const historyRoot = process.env.HYPERFRAMES_HISTORY_ROOT ?? DEFAULT_HISTORY_ROOT;
   const store = new WorkspaceStore(dataDirectory);
+  const tracking = await createAppTracking(dataDirectory, 'worker');
+  const workRounds = new WorkRounds(store, tracking);
   const hosts = new Map<string, Promise<any>>();
   let origin = '', closing = false;
   const hostFor = (id: string): Promise<any> => {
@@ -79,17 +83,19 @@ export async function startWorkspaceStudio(runtimeRoot: string, dataDirectory: s
           return result;
         };
         const nativeApp = host.app;
-        const attempts = new StudioRenderAttempts(scoped.projectDirectory);
+        const attempts = new StudioRenderAttempts(scoped.projectDirectory, async attempt => {
+          if (attempt.workId) await workRounds.exported(id, attempt.workId, 'studio');
+        });
         const shutdown = host.shutdown.bind(host);
-        host.shutdown = async () => { try { await shutdown(); } finally { attempts.close(); } };
-        const renderRequest = new AsyncLocalStorage<{ filename?: string; createdAt?: number; requestId?: string; busy?: boolean }>();
+        host.shutdown = async () => { try { await shutdown(); } finally { attempts.close(); await attempts.flushNotifications(); } };
+        const renderRequest = new AsyncLocalStorage<{ filename?: string; createdAt?: number; requestId?: string; workId?: string; busy?: boolean }>();
         const startRender = host.adapter.startRender.bind(host.adapter);
         host.adapter.startRender = (options: { outputPath: string; jobId: string }) => {
           const request = renderRequest.getStore();
           if (!request) return startRender(options);
           const title = scoped.projectCatalog().projects.find(project => project.id === id)?.title;
           try {
-            const { state, attempt } = attempts.start(options, title, startRender, request.requestId);
+            const { state, attempt } = attempts.start(options, title, startRender, request.requestId, request.workId);
             request.filename = attempt.filename;
             request.createdAt = attempt.createdAt;
             return state;
@@ -103,8 +109,12 @@ export async function startWorkspaceStudio(runtimeRoot: string, dataDirectory: s
             const busy = () => c.json({ code: 'EXPORT_BUSY', applied: false, error: 'An export is already in progress. Check the original task.' }, 409);
             if (attempts.hasActiveWorker()) return busy();
             const body = await c.req.raw.clone().json().catch(() => null);
-            const result: { filename?: string; createdAt?: number; requestId?: string; busy?: boolean } = {};
+            const result: { filename?: string; createdAt?: number; requestId?: string; workId?: string; busy?: boolean } = {};
             if (typeof body?.requestId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(body.requestId)) result.requestId = body.requestId;
+            // Bind to the authored work at request time. Completion retains this
+            // identity even when another work round starts while rendering.
+            if (body?.telemetryOptOut !== true && tracking.enabled())
+              result.workId = (await workRounds.latestGenerated(id).catch(() => undefined))?.id;
             return renderRequest.run(result, async () => {
               const response = await nativeApp.fetch(c.req.raw);
               // Native handlers may turn adapter errors into a 500 response.
@@ -266,6 +276,7 @@ export async function startWorkspaceStudio(runtimeRoot: string, dataDirectory: s
     server.closeAllConnections(); server.close();
     const contexts = await Promise.allSettled(hosts.values());
     await Promise.all(contexts.map(async context => { if (context.status === 'fulfilled') { context.value.watcher.close(); await context.value.shutdown(); } }));
+    await closeTracking(tracking);
   } };
 }
 

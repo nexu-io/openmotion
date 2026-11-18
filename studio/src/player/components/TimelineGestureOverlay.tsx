@@ -10,6 +10,7 @@ import type { DraggedClipState } from "./timelineClipDragTypes";
 import type { TrackVisualStyle } from "./timelineIcons";
 import { isTimelineClipActive } from "./useTimelineActiveClips";
 import type { TimelineProps } from "./TimelineTypes";
+import { getTimelineDragOverlayPosition } from "./timelineClipDragPreview";
 import { TimelineTimeLayer } from "./TimelineTimeLayer";
 
 interface TimelineGestureOverlayProps {
@@ -52,13 +53,12 @@ export const TimelineGestureOverlay = memo(function TimelineGestureOverlay({
     previewTrack: drag.previewTrack,
   });
   const insertRow = drag.insertRow;
-  // The actor and landing outline must show the same resolved destination. A
-  // pointer-following actor lies about the drop when collision avoidance, snapping
-  // or the audio/visual zone boundary changes that destination.
+  // Keep the actor under the pointer; the landing outline owns collision-resolved lane feedback.
   const landingRow = insertRow ?? rowGeometry.getRowIndex(drag.previewTrack);
+  const pointerPosition = drag.pointerId === null ? null : getTimelineDragOverlayPosition(drag, scrollRef.current);
   const position = landingRow < 0 ? null : {
-    left: contentOrigin + drag.previewStart * pixelsPerSecond,
-    top: rowGeometry.getRowTop(landingRow) + CLIP_Y,
+    left: pointerPosition?.left ?? contentOrigin + drag.previewStart * pixelsPerSecond,
+    top: pointerPosition?.top ?? rowGeometry.getRowTop(landingRow) + CLIP_Y,
   };
   const clipWidth = Math.max(element.duration * pixelsPerSecond, 4);
   return (

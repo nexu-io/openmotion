@@ -167,6 +167,42 @@ it('clears validated field errors after a successful origin change while the dir
   expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
 });
 
+it('groups MiniMax regions, switches independent key forms and keeps search inside the brand group', async () => {
+  const providers = [
+    { ...account, id: 'fishaudio', label: 'Fish Audio', protocol: 'media', kinds: ['audio'] },
+    ...[['minimax-speech-cn', 'China mainland', 'cn'], ['minimax-speech', 'International', 'io']].map(([id, region, suffix]) => ({
+      ...account, id, label: `MiniMax Speech · ${region}`, group: 'MiniMax Speech', region, protocol: 'media', kinds: ['audio'],
+      baseUrl: `https://api.minimax.${suffix}`, baseUrlEditable: false,
+    })),
+  ];
+  const writes: unknown[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'PUT') { writes.push([url, JSON.parse(String(init.body))]); return Response.json({}); }
+    return Response.json({ providers, models: [], defaults: {} });
+  }));
+  await mount();
+  const selectRegion = (region: string) => [...document.querySelectorAll<HTMLButtonElement>('.om-provider-item')].find(button => button.querySelector('.om-provider-item-name')?.firstChild?.textContent === region)!.click();
+  const group = document.querySelector('[aria-label="MiniMax Speech"]')!;
+  expect(group.querySelectorAll('.om-provider-item')).toHaveLength(2);
+  expect(group.textContent).not.toContain('Fish Audio');
+  await act(async () => selectRegion('China mainland'));
+  expect(document.querySelector('.om-provider-detail')?.textContent).toContain('https://api.minimax.cn');
+  await act(async () => type('MiniMax Speech · China mainland API key', 'synthetic-china-key'));
+  await act(async () => selectRegion('International'));
+  expect(document.querySelector<HTMLInputElement>('[aria-label="MiniMax Speech · International API key"]')?.value).toBe('');
+  expect(document.querySelector('.om-provider-detail')?.textContent).toContain('https://api.minimax.io');
+  await act(async () => type('MiniMax Speech · International API key', 'synthetic-global-key'));
+  await act(async () => document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(writes).toEqual([['/motion-api/settings/providers/minimax-speech', { apiKey: 'synthetic-global-key' }]]);
+  await act(async () => selectRegion('China mainland'));
+  await act(async () => type('MiniMax Speech · China mainland API key', 'synthetic-china-key'));
+  await act(async () => document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(writes[1]).toEqual(['/motion-api/settings/providers/minimax-speech-cn', { apiKey: 'synthetic-china-key' }]);
+  await act(async () => type('Search providers', 'International'));
+  expect(document.querySelector('[aria-label="MiniMax Speech"] .om-provider-item-name')?.textContent).toContain('International');
+  expect(document.querySelectorAll('.om-provider-item')).toHaveLength(1);
+});
+
 it('shows the advisory OpenDesign Plus guidance on configured Free/Go accounts without blocking text models', async () => {
   const goAccount = { ...account, configured: true, enabled: true, available: true, credentialSource: 'account',
     reason: 'Signed in; multimodal generation requires OpenDesign Plus or above' };

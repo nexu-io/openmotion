@@ -18,22 +18,20 @@ export function resolveMultiDragPreview(
   // clamped delta so the formation stays rigid. A locked selected clip stays put.
   if (!draggedClip?.started) return null;
   const draggedKey = getTimelineElementIdentity(draggedClip.element);
-  if (draggedClip.mainTrackReorder) {
-    const offsets = new Map(draggedClip.mainTrackReorder.changes.map(({ element, start }) =>
-      [getTimelineElementIdentity(element), start - element.start]));
-    return {
-      dragStarted: true, draggedKey, draggedOriginStart: draggedClip.element.start,
-      draggedPreviewStart: draggedClip.previewStart,
-      selectedKeys: new Set([draggedKey, ...offsets.keys()]), offsets,
-    };
-  }
+  const starts = draggedClip.insertion;
+  const offsets = starts && new Map(elements.flatMap(el => {
+    const key = getTimelineElementIdentity(el);
+    const start = starts.get(key);
+    return start === undefined ? [] : [[key, start - el.start] as const];
+  }));
   const movers = resolveGroupMovers(elements, selectedKeys, draggedKey);
   return {
     dragStarted: true,
     draggedKey,
     draggedOriginStart: draggedClip.element.start,
     draggedPreviewStart: draggedClip.previewStart,
-    selectedKeys: movers ? new Set(movers.map(getTimelineElementIdentity)) : selectedKeys,
+    selectedKeys: offsets ? new Set(offsets.keys()) : movers ? new Set(movers.map(getTimelineElementIdentity)) : selectedKeys,
+    offsets,
   };
 }
 

@@ -11,6 +11,7 @@ import type { GenerationJob } from '../../../shared/gateway';
 import type { AssetChatSummary } from './assetTasks';
 
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: { count: number }) => text.replace('{count}', String(values?.count)), formatDate: () => 'Nov 15' }) }));
+vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => ({ openModelSettings: vi.fn() }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn(), uploadLibraryAsset: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: vi.fn() }));
@@ -34,6 +35,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); jobs = []; chats = []; offline = false; delayedJobs = undefined; submitted = job();
   vi.mocked(assetRequest).mockImplementation(async args => {
+    if (args.action === 'voice') return { voices: [] };
     if (args.action === 'jobs') {
       if (delayedJobs) { const pending = delayedJobs; delayedJobs = undefined; return pending.promise; }
       if (offline) throw new Error('offline');

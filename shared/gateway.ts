@@ -1,3 +1,4 @@
+import type { VoiceReference } from './voice-library.ts';
 import type { LibraryGeneration } from './asset-library.ts';
 import type { GenerationOptions } from './generation-options.ts';
 /** Public contract shared by the model gateway, MCP and Studio. Never contains credentials. */
@@ -23,7 +24,7 @@ export type Agent = { id: string; label: string; installed: boolean; authenticat
   imageGeneration: boolean; available: boolean; reason: string };
 /** Advisory hints for signed-in accounts only; absent for signed-out or expired sessions. */
 export type AccountMediaEntitlement = { mediaEntitlement: 'included' | 'not-included' | 'unknown'; plan?: string; hasBalance?: boolean };
-export type ProviderState = { id: ProviderId; label: string; enabled: boolean; configured: boolean;
+export type ProviderState = { id: ProviderId; label: string; group?: string; region?: string; enabled: boolean; configured: boolean;
   available: boolean; credentialSource: 'stored' | 'environment' | 'local-agent' | 'account' | 'none';
   verification: 'unverified' | 'verified' | 'rejected'; reason: string; checkedAt?: number; baseUrl?: string } & Partial<AccountMediaEntitlement>;
 export type GatewayStatus = { providers: ProviderState[]; agents: Agent[];
@@ -31,6 +32,7 @@ export type GatewayStatus = { providers: ProviderState[]; agents: Agent[];
   capabilities: { modality: Modality; available: boolean; modelIds: string[]; selectedModelId?: string }[] };
 export type GenerateInput = { modality: Modality; prompt: string; model?: string;
   mode?: string;
+  voiceRef?: VoiceReference;
   projectId?: string; parameters?: Record<string, unknown>; idempotencyKey?: string;
   /** Workspace assets can be generated without creating or selecting a film project. */
   library?: LibraryGeneration;
@@ -42,6 +44,8 @@ export type GeneratedAsset = { path: string; mimeType: string; bytes: number; av
 export type GenerationJob = { id: string; projectId?: string; library?: LibraryGeneration & { assetId: string; createNew?: boolean }; libraryAssets?: { assetId: string; versionId: string }[]; state: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
   /** New generation results also belong to the local workspace library. */
   saveToLibrary?: boolean;
+  voiceRef?: VoiceReference;
+  voice?: { voiceId: string; revision: number; name: string; provider: string; externalId: string };
   /** Durable local outputs remain; retry_save never invokes a model. */
   savePending?: boolean;
   providerOrigin?: string;

@@ -21,6 +21,7 @@ import {
   getTimelineElementDisplayLabel,
   buildTimelineElementIdentity,
   readTimelineElementZIndex,
+  readDurationAttribute,
   previewElementFinder,
   type PreviewTarget,
 } from "./timelineElementHelpers";
@@ -365,7 +366,7 @@ function createReferenceEndResolver(
     });
     if (timing.end != null) return timing.end;
     const compositionId = referenced.getAttribute("data-composition-id");
-    const duration = compositionId ? timelineDuration(iframeWin, compositionId) : 0;
+    const duration = readDurationAttribute(referenced) || (compositionId ? timelineDuration(iframeWin, compositionId) : 0);
     return timing.start == null || duration <= 0 ? null : timing.start + duration;
   };
   return resolveEnd;
@@ -423,7 +424,7 @@ function buildMissingCompositionEntry(params: {
   });
   const window = clampCompositionWindow(
     masterTime.resolveStartForElement(element),
-    timing.duration ?? timelineDuration(iframeWin, compositionId),
+    timing.duration ?? (readDurationAttribute(element) || timelineDuration(iframeWin, compositionId)),
     rootDuration,
   );
   if (!window) return null;

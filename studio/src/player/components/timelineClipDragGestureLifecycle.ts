@@ -366,7 +366,10 @@ export function mountTimelineClipDragGestureLifecycle({
     }
     // A fast release may precede the next paint. Commit the latest pointer,
     // never the previous frame's landing, and never run a queued update later.
-    flushPointerFrame();
+    if (event) {
+      discardPointerFrame();
+      processPointerMove(event);
+    } else flushPointerFrame();
     lifecycle.phase = "committing";
     const claimed = lifecycle.kind
       ? {
@@ -432,6 +435,7 @@ export function mountTimelineClipDragGestureLifecycle({
 
   const handleLostPointerCapture = (event: PointerEvent) => {
     if (lifecycleRef.current.phase === "active" && pointerMatchesGesture(event)) {
+      if (event.buttons === 0) return handleWindowPointerUp(event);
       if (cancelGesture({ suppressClick: true })) clearSuppressedClick();
     }
   };

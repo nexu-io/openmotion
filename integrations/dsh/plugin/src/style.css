@@ -1,0 +1,593 @@
+.omd {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--motion-bg);
+  color: var(--motion-text);
+  font-family: var(--motion-font-sans);
+  min-width: 0;
+}
+.omd button {
+  cursor: pointer;
+  font-family: inherit;
+}
+.omd-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--motion-border-subtle);
+  gap: 16px;
+}
+.omd-breadcrumb,
+.omd-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.omd-breadcrumb strong {
+  color: var(--motion-strong);
+  font-size: var(--motion-text-heading);
+}
+.omd-breadcrumb > span,
+.omd-top-right {
+  font-size: var(--motion-text-sm);
+  color: var(--motion-dim);
+}
+.omd-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--motion-success);
+}
+.omd-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 32px;
+  border-bottom: 1px solid var(--motion-border-subtle);
+}
+.omd-nav-active {
+  background: var(--motion-hover) !important;
+  color: var(--motion-strong) !important;
+}
+.omd-external {
+  margin-left: auto;
+  font-size: var(--motion-text-sm);
+  color: var(--motion-muted);
+  text-decoration: none;
+}
+.omd-main {
+  flex: 1;
+  overflow: auto;
+  padding: 44px max(32px, calc((100% - 1120px) / 2)) 20px;
+}
+.omd-kicker {
+  font-size: var(--motion-text-xs);
+  font-weight: var(--motion-weight-semibold);
+  letter-spacing: 0.12em;
+  color: var(--motion-dim);
+  margin-bottom: 16px;
+}
+.omd-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  gap: 20px;
+}
+.omd-heading h1 {
+  font-size: var(--motion-text-display);
+  line-height: var(--motion-leading-tight);
+  letter-spacing: -0.035em;
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+  margin: 0 0 10px;
+}
+.omd-heading p,
+.omd-section-head p {
+  font-size: var(--motion-text-body);
+  color: var(--motion-muted);
+  margin: 0;
+}
+.omd-version {
+  font-size: var(--motion-text-xs);
+  font-family: var(--motion-font-mono);
+  color: var(--motion-dim);
+  white-space: nowrap;
+  padding-bottom: 4px;
+}
+.omd-compose {
+  border: 1px solid var(--motion-border);
+  border-radius: var(--motion-radius-xl);
+  background: var(--motion-panel);
+  padding: 18px;
+  box-shadow: var(--motion-shadow-sm);
+}
+.omd-compose:focus-within {
+  border-color: var(--motion-border-strong);
+}
+.omd-compose textarea {
+  font: inherit;
+  font-size: var(--motion-text-heading);
+  display: block;
+  width: 100%;
+  min-height: 62px;
+  resize: none;
+  border: 0;
+  background: transparent;
+  outline: none;
+  color: var(--motion-strong);
+}
+.omd-compose textarea::placeholder {
+  color: var(--motion-placeholder);
+}
+.omd-compose-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.omd-compose-bottom > span {
+  font-size: var(--motion-text-sm);
+  color: var(--motion-dim);
+}
+.omd-quick {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 12px 0 36px;
+}
+.omd-quick button {
+  font-weight: var(--motion-weight-regular);
+}
+.omd-quick span {
+  color: var(--motion-dim);
+}
+.omd-section {
+  margin-bottom: 32px;
+}
+.omd-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.omd-section-head h2 {
+  font-size: var(--motion-text-heading);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+  margin: 0;
+}
+.omd-section-head p {
+  font-size: var(--motion-text-sm);
+  margin-top: 6px;
+}
+.omd-project-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.omd-project {
+  border: 1px solid var(--motion-border);
+  padding: 0;
+  text-align: left;
+  overflow: hidden;
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-bg);
+}
+.omd-project:hover,
+.omd-new:hover {
+  border-color: var(--motion-border-strong);
+}
+.omd-project-art {
+  position: relative;
+  height: 152px;
+  padding: 22px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: var(--motion-brand-soft);
+  color: var(--motion-strong);
+}
+.omd-project-art > img {
+  margin-top: 4px;
+  width: 28px;
+  height: 28px;
+}
+.omd-project-art > span:not(.omd-project-play) {
+  font-size: var(--motion-text-display);
+  font-weight: var(--motion-weight-semibold);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+.omd-project-art em {
+  font-family: var(--motion-font-editorial);
+  font-weight: var(--motion-weight-regular);
+}
+.omd-project-play {
+  position: absolute;
+  bottom: 18px;
+  right: 18px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  background: var(--motion-raised);
+  border-radius: var(--motion-radius-full);
+}
+.omd-project-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  gap: 8px;
+}
+.omd-project-meta strong {
+  display: block;
+  font-size: var(--motion-text-md);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+}
+.omd-project-meta small {
+  display: block;
+  font-size: var(--motion-text-xs);
+  color: var(--motion-dim);
+  margin-top: 5px;
+}
+.omd-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px dashed var(--motion-border);
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-panel);
+  color: var(--motion-muted);
+  min-height: 218px;
+}
+.omd-new strong {
+  font-weight: var(--motion-weight-medium);
+  font-size: var(--motion-text-md);
+}
+.omd-new small {
+  font-size: var(--motion-text-xs);
+  color: var(--motion-dim);
+}
+.omd-template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px 18px;
+}
+.omd-template {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  min-width: 0;
+  color: inherit;
+}
+.omd-template-art {
+  position: relative;
+  aspect-ratio: 16/9;
+  overflow: hidden;
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-inset);
+}
+.omd-template-art > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform var(--motion-duration-normal) var(--motion-ease-out);
+}
+.omd-template:hover img {
+  transform: scale(1.03);
+}
+.omd-duration {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 6px;
+  background: var(--motion-panel);
+  color: var(--motion-text);
+  border-radius: var(--motion-radius-sm);
+  font-size: var(--motion-text-xs);
+}
+.omd-template-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--motion-strong);
+  opacity: 0;
+  transition: opacity var(--motion-duration-fast);
+}
+.omd-template:hover .omd-template-play {
+  opacity: 1;
+}
+.omd-template-meta {
+  padding-top: 10px;
+}
+.omd-template-meta strong {
+  display: block;
+  font-size: var(--motion-text-md);
+  font-weight: var(--motion-weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--motion-strong);
+}
+.omd-template-meta > span {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--motion-text-xs);
+  color: var(--motion-dim);
+}
+.omd-foot {
+  border-top: 1px solid var(--motion-border-subtle);
+  padding-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: var(--motion-text-xs);
+  color: var(--motion-dim);
+}
+.omd-embedded {
+  flex: 1;
+  min-height: 0;
+}
+.omd-embedded iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.omd-error {
+  padding: 12px;
+  color: var(--motion-danger);
+  font-size: var(--motion-text-sm);
+  margin-bottom: 12px;
+}
+.omd-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--motion-space-8);
+}
+.omd-placeholder-line {
+  width: 65%;
+  height: var(--motion-space-16);
+}
+.omd-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@media (max-width: 900px) {
+  .omd-version {
+    display: none;
+  }
+  .omd-main {
+    padding: 28px 24px;
+  }
+  .omd-template-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .omd-project-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .omd-top {
+    padding: 0 20px;
+  }
+  .omd-nav {
+    padding: 12px 20px;
+  }
+  .omd-top-right > .ui-badge {
+    display: none;
+  }
+}
+@media (max-width: 560px) {
+  .omd-heading h1 {
+    font-size: var(--motion-text-section);
+  }
+  .omd-top-right {
+    display: none;
+  }
+  .omd-external {
+    display: none;
+  }
+  .omd-compose-bottom > span {
+    display: none;
+  }
+  .omd-project-grid,
+  .omd-template-grid {
+    grid-template-columns: 1fr;
+  }
+  .omd-nav {
+    overflow: auto;
+  }
+  .omd-foot {
+    flex-direction: column;
+  }
+}
+
+/* Pinned DSH 0.2.2 layout adapter. Only a mounted OpenMotion tab opts in.
+   Data-slot selectors keep DSH's hashed CSS classes out of this integration. */
+[data-slot="root"] > div:has(.omd-studio-seat) {
+  grid-template-columns: 0 minmax(0, 1fr) 360px !important;
+}
+[data-slot="root"]
+  > div:has(.omd-studio-seat)
+  > div:has(> [data-slot="sidebar"]),
+[data-slot="root"] > div:has(.omd-studio-seat) > [data-side],
+[data-slot="root"] > div:has(.omd-studio-seat) > [data-shell-leading],
+[data-slot="root"] > div:has(.omd-studio-seat) > [data-sidebar-mask] {
+  display: none;
+}
+[data-slot="root"]
+  > div:has(.omd-studio-seat)
+  > div:has([data-slot="main.conversation"]) {
+  grid-area: 1 / 3;
+  border-left: 1px solid var(--dsw-alias-border-l3);
+}
+[data-slot="root"] > div:has(.omd-studio-seat) > [data-rightbar-col] {
+  grid-area: 1 / 2;
+}
+[data-slot="root"] > div:has(.omd-studio-seat) [data-sidebar-right-panel] {
+  position: relative !important;
+  inset: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+}
+/* The tab body carries the workspace controls; retain the strip if another tab
+   is opened, so files and other DSH tools remain reachable. */
+[data-slot="root"]
+  > div:has(.omd-studio-seat)
+  [data-dockkit-content]:has(.omd-studio-seat):not(
+    :has([data-dockkit-tab] ~ [data-dockkit-tab])
+  )
+  > div:has(> [data-dockkit-strip]) {
+  display: none;
+}
+[data-slot="root"] > div:has(.omd-studio-seat) [data-sidebar-right-mode],
+[data-slot="root"] > div:has(.omd-studio-seat) [data-sidebar-right-toggle],
+[data-slot="root"] > div:has(.omd-studio-seat) [data-dockkit-split-control] {
+  display: none;
+}
+[data-slot="root"] > div:has(.omd-studio-seat[data-focused="true"]) {
+  grid-template-columns: 0 minmax(0, 1fr) 0 !important;
+}
+[data-slot="root"]
+  > div:has(.omd-studio-seat[data-focused="true"])
+  > div:has([data-slot="main.conversation"]) {
+  visibility: hidden;
+}
+.omd-studio-seat {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--motion-bg);
+  color: var(--motion-text);
+  font-family: var(--motion-font-sans);
+}
+.omd-studio-seat > iframe {
+  display: block;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+}
+.omd-editor-bar {
+  height: 48px;
+  flex: 0 0 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--motion-border-subtle);
+}
+.omd-editor-location,
+.omd-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.omd-editor-location strong {
+  font-size: var(--motion-text-md);
+  font-weight: var(--motion-weight-semibold);
+}
+.omd-editor-divider {
+  height: 16px;
+  border-left: 1px solid var(--motion-border);
+  margin: 0 4px;
+}
+.omd-agent-heading {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  color: var(--motion-strong);
+  font-family: var(--motion-font-sans);
+}
+.omd-agent-heading strong {
+  font-size: var(--motion-text-md);
+  font-weight: var(--motion-weight-semibold);
+}
+.omd-agent-heading > span {
+  color: var(--motion-dim);
+  font-size: var(--motion-text-xs);
+}
+body:has(.omd-studio-seat) .omd-agent-heading {
+  display: flex;
+}
+.omd-agent-intro {
+  display: none;
+  font-family: var(--motion-font-sans);
+  padding: 24px 4px 16px;
+}
+body:has(.omd-studio-seat) [data-phase="hero"] .omd-agent-intro {
+  display: block;
+}
+.omd-agent-intro h2 {
+  font-size: var(--motion-text-heading);
+  font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-tight);
+  color: var(--motion-strong);
+  margin: 16px 0 8px;
+}
+.omd-agent-intro p {
+  font-size: var(--motion-text-md);
+  line-height: var(--motion-leading-body);
+  color: var(--motion-muted);
+  margin: 0 0 12px;
+}
+.omd-agent-intro small {
+  display: block;
+  font-size: var(--motion-text-xs);
+  line-height: var(--motion-leading-body);
+  color: var(--motion-dim);
+}
+body:has(.omd-studio-seat)
+  [data-phase="hero"]
+  div:has(> span > [data-slot="conversation.hero.brand.mark"]) {
+  display: none;
+}
+body:has(.omd-studio-seat) [data-composer-seat] {
+  padding-inline: 16px;
+}
+body:has(.omd-studio-seat) [contenteditable="true"] {
+  max-height: 180px;
+  overflow-y: auto;
+}
+body:has(.omd-studio-seat)
+  [data-slot="conversation.input.right"]:has(
+    button[title="Open current OpenMotion project"]
+  ) {
+  display: none !important;
+}
+@media (max-width: 660px) {
+  .omd-editor-bar {
+    padding-inline: 8px;
+  }
+  .omd-editor-location {
+    gap: 4px;
+  }
+}
+body:has(.omd-studio-seat) [data-slot="conversation.header"] > header {
+  min-height: 48px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3);
+}
+body:has(.omd-studio-seat) [data-phase="hero"] [data-conversation-scroll] {
+  justify-content: flex-start;
+  padding-top: 24px;
+}

@@ -8,7 +8,12 @@ import {
   applySoftReload,
   applySoftReloadFinalization,
   ensureMotionPathPluginLoaded,
+  timelineKeys,
 } from "./gsapSoftReload";
+
+it("scopes bracket and dot timeline registrations without treating method references as timelines", () => {
+  expect(timelineKeys('window.__timelines.main = tl; window.__timelines["scene"] = sub; window.__timelines.hasOwnProperty("scene");')).toEqual(["scene", "main"]);
+});
 
 const SCRIPT_TEXT = `
 window.__timelines = window.__timelines || {};

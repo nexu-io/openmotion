@@ -18,6 +18,7 @@ import {
   applyUndoRestoreToPreview,
   diffSoftReloadableRestore,
   showRestoreInPlace,
+  readUndoNestedFiles,
 } from "./gsapUndoRestore";
 import { recordLiveSet } from "./softReloadTargets";
 import { applyPatch } from "./sourcePatcher";
@@ -114,6 +115,104 @@ function buildLiveIframe(bodyHtml: string) {
 
 describe("applyUndoRestoreToPreview", () => {
   const ROOT = "index.html";
+
+  it.each([
+    ["move", 'data-start="3"', 'data-start="1"'],
+    ["track", 'data-track-index="4"', 'data-track-index="1"'],
+    ["volume", 'data-volume="0.4"', 'data-volume="0.8"'],
+    ["fade", 'data-fade-in="2"', 'data-fade-in="0.5"'],
+    ["lock", 'data-timeline-locked', ''],
+    ["effect", 'data-fx-chain=\'{"version":1,"nodes":[{"id":"gain"}]}\'', ''],
+    ["automation", 'data-automation=\'{"version":1,"lanes":[{"target":"volume"}]}\'', ''],
+  ])("restores %s through one path across multiple scripted files without nested reads or media reloads", (_label, before, after) => {
+    const script = '<script>window.__timelines.main=gsap.timeline({paused:true});</script>';
+    const root = (attrs: string) => wrap(`<div id="a" data-hf-id="a" ${attrs}></div>${script}`);
+    const nested = (attrs: string) => `<template><div data-composition-id="scene"><audio id="b" data-hf-id="b" src="track.mp3" ${attrs}></audio>${script}</div></template>`;
+    const { iframe, doc, contentWindow } = buildLiveIframe(`<div id="a" data-hf-id="a" ${before}></div><div data-composition-file="scene.html"><audio id="b" data-hf-id="b" src="/preview/track.mp3" ${before}></audio></div>${script}`);
+    const a = doc.getElementById("a")!, b = doc.getElementById("b")!;
+    Object.assign(a, { _gsap: {} });
+    const sourceWrites = vi.spyOn(b, "setAttribute");
+    const reload = vi.fn(), read = vi.fn();
+    const files = { [ROOT]: { previous: root(before), restored: root(after) }, "scene.html": { previous: nested(before), restored: nested(after) } };
+    expect(readUndoNestedFiles(iframe, ROOT, files, read)).toBeNull();
+    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, reload)).toBe("soft");
+    expect(reload).not.toHaveBeenCalled();
+    expect(read).not.toHaveBeenCalled();
+    expect(sourceWrites.mock.calls.some(([name]) => name === "src")).toBe(false);
+    expect(contentWindow.__player.seek).toHaveBeenCalled();
+    const expected = new DOMParser().parseFromString(root(after), "text/html").getElementById("a")!;
+    const attr = new DOMParser().parseFromString(root(before), "text/html").getElementById("a")!.getAttributeNames().find(name => !["id", "data-hf-id"].includes(name))!;
+    expect(a.getAttribute(attr)).toBe(expected.getAttribute(attr));
+    expect(b.getAttribute(attr)).toBe(expected.getAttribute(attr));
+  });
+
+  it("restores a scene's timing without reloading unrelated scenes that reuse identities", () => {
+    const source = (duration: number) => wrap(
+      `<div id="root" data-hf-id="root" data-composition-id="root">` +
+      `<div id="scene-a" data-hf-id="host-a" data-start="2" data-duration="${duration}" data-composition-src="a.html"></div>` +
+      `<div id="scene-b" data-hf-id="host-b" data-start="10" data-duration="5" data-composition-src="b.html"></div></div>`,
+    );
+    const { iframe, doc } = buildLiveIframe(
+      `<div id="root" data-hf-id="root" data-composition-id="root">` +
+      `<div id="scene-a" data-hf-id="host-a" data-start="2" data-hf-authored-duration="7" data-composition-file="a.html" data-hf-scene="scene-a" style="visibility: hidden !important">` +
+      `<div data-hf-inner-root><span data-hf-id="shared-title">A</span></div></div>` +
+      `<div id="scene-b" data-hf-id="host-b" data-start="10" data-hf-authored-duration="5" data-composition-file="b.html">` +
+      `<div data-hf-inner-root><span data-hf-id="shared-title">B</span></div></div></div>`,
+    );
+    const children = [...doc.querySelectorAll("[data-hf-inner-root]")];
+    const reload = vi.fn();
+    const files = { [ROOT]: { previous: source(7), restored: source(4) } };
+
+    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, reload)).toBe("soft");
+    expect(reload).not.toHaveBeenCalled();
+    const host = doc.getElementById("scene-a")!;
+    expect(host.getAttribute("data-duration")).toBe("4");
+    expect(host.getAttribute("data-hf-authored-duration")).toBe("4");
+    expect(host.getAttribute("data-composition-file")).toBe("a.html");
+    expect(host.hasAttribute("data-composition-src")).toBe(false);
+    expect(host.getAttribute("data-hf-scene")).toBe("scene-a");
+    expect((host as HTMLElement).style.getPropertyPriority("visibility")).toBe("important");
+    expect([...doc.querySelectorAll("[data-hf-inner-root]")]).toEqual(children);
+    expect([...doc.querySelectorAll("[data-hf-id=shared-title]")].map(e => e.textContent)).toEqual(["A", "B"]);
+
+    expect(applyUndoRestoreToPreview(iframe, ROOT, { [ROOT]: { previous: source(4), restored: source(7) } }, 3, reload)).toBe("soft");
+    expect(host.getAttribute("data-duration")).toBe("7");
+    expect(host.getAttribute("data-hf-authored-duration")).toBe("7");
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("still reloads when the changed identity itself is ambiguous", () => {
+    const { iframe } = buildLiveIframe('<div data-hf-id="target"></div><div data-hf-id="target"></div>');
+    const reload = vi.fn();
+    const files = { [ROOT]: { previous: wrap('<div data-hf-id="target" data-start="2"></div>'), restored: wrap('<div data-hf-id="target" data-start="1"></div>') } };
+    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, reload)).toBe("full");
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  it("restores authored scene styles while retaining the runtime's hidden state", () => {
+    const source = (style: string) => wrap(`<div id="scene" data-hf-id="host" data-composition-src="scene.html" style="${style}"></div>`);
+    const { iframe, doc } = buildLiveIframe('<div id="scene" data-hf-id="host" data-composition-file="scene.html" style="z-index: 3; opacity: 0.5; visibility: hidden !important; position: absolute"></div>');
+    const files = { [ROOT]: { previous: source("z-index: 3; opacity: 0.5"), restored: source("z-index: 1") } };
+    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, vi.fn())).toBe("soft");
+    const style = (doc.getElementById("scene") as HTMLElement).style;
+    expect(style.zIndex).toBe("1");
+    expect(style.opacity).toBe("");
+    expect(style.position).toBe("absolute");
+    expect(style.getPropertyPriority("visibility")).toBe("important");
+  });
+
+  it.each(["audio", "video", "img"])("restores %s timing without reassigning its unchanged media source", tag => {
+    const page = (duration: number) => wrap(`<${tag} id="media" data-hf-id="media" src="assets/media.mp4" data-start="0" data-duration="${duration}"></${tag}>`);
+    const { iframe, doc } = buildLiveIframe(`<${tag} id="media" data-hf-id="media" src="/api/projects/project/preview/assets/media.mp4" data-start="0" data-duration="4" data-hf-preview-lazy></${tag}>`);
+    const node = doc.getElementById("media")!;
+    const set = vi.spyOn(node, "setAttribute");
+    const files = { [ROOT]: { previous: page(4), restored: page(9) } };
+    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, vi.fn())).toBe("soft");
+    expect(node.getAttribute("data-duration")).toBe("9");
+    expect(node.getAttribute("src")).toBe("/api/projects/project/preview/assets/media.mp4");
+    expect(node.hasAttribute("data-hf-preview-lazy")).toBe(true);
+    expect(set.mock.calls.some(([name]) => name === "src")).toBe(false);
+  });
 
   it("takes GSAP's composed transform off the preview it is about to reload", () => {
     // Undoing "enable keyframes" removes the script: no in-place patch expresses that, so the
@@ -539,7 +638,7 @@ describe("applyUndoRestoreToPreview", () => {
     expect(reloadPreview).toHaveBeenCalledTimes(1);
   });
 
-  it("full-reloads a sub-composition restore whose file has a GSAP script", () => {
+  it("restores attributes inside an unchanged scripted sub-composition without reloading", () => {
     const { iframe, doc } = buildLiveIframe(host(`style="clip-path: inset(0px 40px 0px 0px);"`));
     const reloadPreview = vi.fn();
     const script = `<script>gsap.timeline().to("#target", { x: 10 });</script>`;
@@ -551,9 +650,9 @@ describe("applyUndoRestoreToPreview", () => {
         restored: scripted(""),
       },
     };
-    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, reloadPreview)).toBe("full");
-    expect(reloadPreview).toHaveBeenCalledTimes(1);
-    expect(doc.querySelector('[data-hf-id="hf-t"]')?.getAttribute("style")).toContain("clip-path");
+    expect(applyUndoRestoreToPreview(iframe, ROOT, files, 3, reloadPreview)).toBe("soft");
+    expect(reloadPreview).not.toHaveBeenCalled();
+    expect(doc.querySelector('[data-hf-id="hf-t"]')?.getAttribute("style")).toBeNull();
   });
 
   it("full-reloads when the restore touches a sub-comp, not the active comp", () => {

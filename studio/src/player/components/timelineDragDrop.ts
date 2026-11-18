@@ -12,7 +12,9 @@ import {
 import { resolveInsertRow } from "./timelineCollision";
 import { isPendingTimelineRow } from "./timelinePendingRows";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
-import { collectTimelineSnapTargets, snapTimelineTime, TIMELINE_SNAP_PX } from "./timelineSnapping";
+import { collectTimelineSnapTargets } from "./timelineSnapping";
+import { roundToCenti } from "../../utils/rounding";
+import { snapOpenReelMove } from "./timelineDragSnap";
 import type { TimelineDropCallbacks, TimelineDropPlacement } from "./timelineCallbacks";
 import {
   applyTimelineAutoScrollStep,
@@ -83,8 +85,7 @@ function alignDropStart(
     targets = collectTimelineSnapTargets({ elements, playheadTime: null, beatTimes: [] });
     dropSnapTargets.set(elements, targets);
   }
-  const threshold = TIMELINE_SNAP_PX / Math.max(pixelsPerSecond, 1);
-  return { ...placement, start: snapTimelineTime(placement.start, targets, threshold).time };
+  return { ...placement, start: roundToCenti(snapOpenReelMove(placement.start, 0, targets, pixelsPerSecond).start) };
 }
 
 function placeDrop(
@@ -143,7 +144,7 @@ function applyTypedJsonDrop(
 
 /**
  * Dropping an asset/file/block/composition places it at the pointer on every row,
- * snapped to a near clip edge; an asset moves to that row's nearest free time.
+ * snapped to a near clip edge. The media length becomes available after drop.
  * Supersedes the prior playhead decision (#2291); see useAddAssetAtPlayhead.
  */
 export function useTimelineAssetDrop({

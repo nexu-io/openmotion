@@ -59,6 +59,23 @@ boundary combinations. An automated pass does not replace native transport evide
 | 200 dragover events coalesce; release before RAF; edge autoscroll updates preview | `player/components/timelineDragDrop.test.tsx` | Automated; no measured FPS claim |
 | Virtualized rows/clips, zoom, reduced-motion loading | `player/components/Timeline.virtualization.test.tsx`, `useTimelineGeometry.test.tsx`; shared design checks | Desktop light/dark inspected; actual 800×900 viewport verified for drag, loading/error recovery and selected grips in both themes |
 
+## History response coverage
+
+History restoration uses the same confirmed file delta for all edit commands. The timeline reconciles source-backed structural changes before waiting for a replacement preview; old preview messages cannot repopulate restored-away clips. Soft restores also refresh audio groups, FX/automation controls and expanded descendants. Unchanged scripted sub-compositions do not require a reload for ordinary timing/control attributes. Multi-file history reads run concurrently.
+
+The 2026-11-18 local sample-project run measured Undo/Redo/Undo after a split at 48 / 34.4 / 36.6 ms to the correct timeline rows, and undoing a deletion at 36.2 ms. These operations still rebuild the preview asynchronously. A separate real-GSAP restore using dot-property timeline registration completed in place at 36.8 ms, restored its tween and preserved unrelated timeline objects. These are fixture-specific observations, not universal performance limits or native-keyframe-editor acceptance.
+
+| Restore class | Deterministic coverage | Local browser evidence |
+| --- | --- | --- |
+| Move, trim, track and batch changes | `gsapUndoRestore.test.ts`, `timelineRestoreSync.test.ts`, `timelineHistoryRestore.test.ts`, timeline editing/group suites | Native trim commands and clip resize; undo/redo preserve file bytes |
+| Volume, fades, mute/lock, FX and automation across files | Restore matrix and `automationStoreSync.test.ts` | Covered deterministically; no blanket native-UI performance claim |
+| Split/delete/add row restoration | `timelineHistoryRestore.test.ts`, preview-persistence history integration and Razor/delete suites | Native split, Undo/Redo, delete and Undo; timeline responds before preview replacement |
+| Keyframe/script changes | Script parsing, real-GSAP retiming and history restore suites | Direct restore through the actual preview GSAP runtime; dot registration and independent timelines checked |
+| Audio-group/expanded sub-composition state | `timelineRestoreSync.test.ts`, group volume and automation suites | Covered deterministically |
+| Concurrent work and delayed preview | Pending-history router tests; parallel file reads; project-switch/live-gesture tests | Old preview held while split/delete rows restore |
+
+Runtime-generated structure, changed nested scripts, missing source snapshots and ambiguous identities retain runtime rediscovery/reload fallback. New media still needs decoding, and preview fidelity is distinct from prompt timeline feedback. New operations should use the shared history/restore path and extend this matrix rather than adding a separate undo stack.
+
 ## Repeatable browser sequence
 
 1. Create a blank project. Upload image A through the native file chooser. Check

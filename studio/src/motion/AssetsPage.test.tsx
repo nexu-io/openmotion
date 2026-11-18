@@ -2,14 +2,16 @@
 import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { AssetDraft } from './AssetComposer';
 import { AssetsPage } from './AssetsPage';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
 import type { LibraryAsset } from '../../../shared/asset-library';
 
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15' }) }));
+vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => ({ openModelSettings: vi.fn() }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('./AssetComposer', () => ({ AssetComposer: ({ onReference }: { onReference: () => void }) => <><input aria-label="Creation draft" /><button onClick={onReference}>References</button></> }));
+vi.mock('./AssetComposer', () => ({ AssetComposer: ({ onReference, draft }: { onReference: () => void; draft: AssetDraft }) => <><input aria-label="Creation draft" data-draft={JSON.stringify(draft)} /><button onClick={onReference}>References</button></> }));
 vi.mock('./AssetTaskHistory', () => ({ AssetTaskMenu: () => null }));
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn(), uploadLibraryAsset: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: async () => ({ conversations: [] }) }));
@@ -31,6 +33,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); pendingWrite = undefined; pendingRead = undefined; pendingList = undefined;
   records = new Map(['A', 'B'].map(id => [id, fixture(id)]));
   vi.mocked(assetRequest).mockImplementation(async args => {
+    if (args.action === 'voice') return { voices: [] };
     if (args.action === 'jobs') return { jobs: [] };
     if (args.action === 'list') {
       if (pendingList) { const current = pendingList; pendingList = undefined; return current.promise; }
@@ -497,4 +500,29 @@ it('keeps Undo accessible inside the reference modal and refreshes both asset br
   expect(document.querySelector('[role=dialog] [aria-label="Picture A"]')).not.toBeNull();
   expect(container.querySelector('[aria-label="Picture A"]')).not.toBeNull();
   expect(container.querySelector('.om-assets-page')?.getAttribute('data-creating')).toBe('true');
+});
+
+it('places saved voices and file assets in one gallery without a separate voice shelf', async () => {
+  const original = vi.mocked(assetRequest).getMockImplementation()!;
+  vi.mocked(assetRequest).mockImplementation(async args => args.action === 'voice' ? { voices: [{ id: 'voice-a', name: 'Channel voice', provider: 'fishaudio', externalId: 'channel', kind: 'cloned', description: '', revision: 1, createdAt: 1, updatedAt: 1, access: 'unchecked', connection: 'required' }] } : original(args));
+  await render();
+  expect(container.querySelectorAll('.om-assets-main .om-asset-grid')).toHaveLength(1);
+  expect(container.querySelectorAll('.om-assets-main .om-asset-tile')).toHaveLength(3);
+  expect(container.querySelector('.om-assets-main .om-asset-results > p')?.textContent).toBe('3 assets');
+  expect(container.textContent).not.toContain('Your voice, in every video');
+  await click('Voices');
+  expect(container.querySelectorAll('.om-assets-main .om-asset-tile')).toHaveLength(1);
+  await click('Channel voice');
+  expect(container.querySelector('.om-asset-workspace-header strong')?.textContent).toBe('Channel voice');
+});
+
+it('editing generated speech creates a new audio version without treating the audio as an image reference', async () => {
+  const audio = fixture('A'); audio.modality = 'audio'; audio.name = 'Narration';
+  Object.assign(audio.versions[0], { filename: 'narration.mp3', mimeType: 'audio/mpeg', prompt: 'A script', model: 'minimax-speech-cn:speech-2.8-hd', result: { voice: { voiceId: 'saved-voice', revision: 2, name: 'Narrator' } } });
+  records.set('A', audio);
+  await render(); await click('Narration'); await click('Edit as new version');
+  const draft = JSON.parse(container.querySelector<HTMLInputElement>('[aria-label="Creation draft"]')!.dataset.draft!);
+  expect(draft.references).toEqual([]); expect(draft.target.versionId).toBe('A-v1');
+  expect(draft.voiceRef).toEqual({ voiceId: 'saved-voice', revision: 2 });
+  expect(draft.model).toBe('minimax-speech-cn:speech-2.8-hd');
 });

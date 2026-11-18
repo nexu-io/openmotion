@@ -1,7 +1,7 @@
 import { installationSummary } from '../scripts/install-onboarding.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -132,4 +132,17 @@ test('only a queued refresh requests one verification command in the summary', (
   assert.match(installationSummary(saved), /run recovery.command\/recovery.args once/);
   saved.hostHandoff.status = 'ready_for_presentation';
   assert.doesNotMatch(installationSummary(saved), /run recovery.command\/recovery.args once/);
+});
+
+test('installation recovery recognizes an aliased workspace directory', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'om-recovery-alias-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const physical = path.join(directory, 'physical'), alias = path.join(directory, 'alias');
+  await mkdir(physical); await symlink(physical, alias, 'junction');
+  const saved = { ...receipt(), dataDirectory: alias };
+  const host = connectedHost(await realpath(physical));
+  const result = await resumeInstallationOnboarding(saved, { appRoot, threadId, request: host.request });
+  assert.equal(result.hostSessionVerified, true);
+  assert.equal(result.onboardingComplete, false, 'A matching workspace does not prove visible onboarding');
+  assert.deepEqual(host.calls, ['thread/loaded/list', 'mcpServerStatus/list', 'mcpServer/tool/call']);
 });

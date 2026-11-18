@@ -55,9 +55,9 @@ export function useStudioExternalFileChanges({
   const { drainPendingDomEditSaves, resetDomEditSaveQueueBreaker } = previewPersistence;
   const bumpThumbnailRevisions = usePlayerStore((state) => state.bumpThumbnailRevisions);
   const onAcceptedPersistedFileChange = useCallback(
-    (_path: string, affectedCompositions: readonly string[] | null) => {
+    (path: string, affectedCompositions: readonly string[] | null) => {
       onOutsideChange?.();
-      bumpThumbnailRevisions(affectedCompositions);
+      bumpThumbnailRevisions(affectedCompositions, path);
     },
     [bumpThumbnailRevisions, onOutsideChange],
   );

@@ -25,6 +25,7 @@ import { serializeZLaneGesture } from "../components/nle/zLaneGesture";
 import { cutoverCommittedOrThrow, sdkTimingPersist } from "../utils/sdkCutover";
 import type { TimelineMoveUpdates, UseTimelineEditingOptions } from "./useTimelineEditingTypes";
 import { getStudioSaveErrorMessage } from "../utils/studioSaveDiagnostics";
+import { syncRestoredTimelineFromPreview } from "../player/lib/timelineRestoreSync";
 
 type UseTimelineClipTimingEditingOptions = Pick<
   UseTimelineEditingOptions,
@@ -212,6 +213,7 @@ export function useTimelineClipTimingEditing({
             }
             return moveFallback();
           })
+          .then(() => syncRestoredTimelineFromPreview(previewIframeRef.current?.contentDocument))
           .catch((error) => {
             // Failed persist: revert the optimistic duration readout + live root.
             rollbackDuration();
@@ -318,7 +320,7 @@ export function useTimelineClipTimingEditing({
               return finishResizeGsapSync(sdkTimingGsapSync(result));
             })
           : resizeFallback();
-      return persistDone.catch((error) => {
+      return persistDone.then(() => syncRestoredTimelineFromPreview(previewIframeRef.current?.contentDocument)).catch((error) => {
         // Failed persist: revert the optimistic duration readout + live root.
         rollbackDuration();
         showToast(getStudioSaveErrorMessage(error), "error");

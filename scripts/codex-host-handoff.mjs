@@ -3,6 +3,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sameWorkspaceDirectory } from './check-installed-mcp.mjs';
 import { selectOnboardingTemplateIds } from '../shared/onboarding-templates.ts';
 import { welcomeMarkdown } from '../mcp-ui/template-recommendations/i18n.ts';
 
@@ -125,7 +126,7 @@ export async function prepareCodexHostHandoff(options = {}) {
     const project = await request('mcpServer/tool/call', { threadId, server: 'openmotion', tool: 'openmotion_get_project', arguments: {} });
     if (project.isError) return required('HOST_WORKSPACE_READ_FAILED');
     const directory = project.structuredContent?.dataDirectory;
-    if (typeof directory !== 'string' || path.resolve(directory) !== path.resolve(options.dataDirectory)) return required('HOST_WORKSPACE_MISMATCH');
+    if (typeof directory !== 'string' || !sameWorkspaceDirectory(directory, options.dataDirectory)) return required('HOST_WORKSPACE_MISMATCH');
     return { ...base, status: 'ready_for_presentation', automaticActivation: 'verified', hostSessionVerified: true, threadId,
       nextAction: options.requirePresentation === false
         ? 'Current-chat activation is verified. Continue with the prepared HTML document and its publication instructions; no native card call or additional workspace read is needed.'

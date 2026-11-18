@@ -159,7 +159,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
     <StudioConnectionToast reconnecting={reconnecting} />
     {archives.manager}
     <Dialog.Root open={sidebarOpen && narrow && !settings && !pageOpen && !navigationCollapsed} onOpenChange={setSidebarOpen}>
-    <div ref={homeRef} className="om-application" data-embedded={presentation.embedded} data-navigation-collapsed={navigationCollapsed}>
+    <div ref={homeRef} className="om-application" data-embedded={presentation.embedded} data-host-chrome={window.parent !== window && new URLSearchParams(location.search).get('hostChrome') === '1'} data-navigation-collapsed={navigationCollapsed}>
       <ApplicationHeader settings={settings} />
       <ApplicationRail settings={settings} openSettings={openSettings} home={<WorkspaceHomeButton
         applicationRef={homeRef}

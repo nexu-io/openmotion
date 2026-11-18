@@ -23,7 +23,8 @@ test('handbook scenarios compose public tools and keep their copyable instructio
     assert.ok(scenario.title && scenario.description);
     for (const tool of scenario.tools) {
       assert.ok(names.has(tool), tool);
-      assert.ok((scenario.id === 'asset-naming' ? assetNamingInstruction : platformExportExample('en')).includes(tool), tool);
+      const instruction = scenario.id === 'platform-export' ? platformExportExample('en') : scenario.prompt;
+      assert.ok(instruction.includes(tool), tool);
     }
   }
 });

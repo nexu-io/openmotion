@@ -33,10 +33,11 @@ test('Studio event types reject Node-only events and invalid semantic fields', (
   { cwd: pluginRoot, stdio: 'pipe' });
 });
 
-test('Motion editor events admit only closed categories, UUID projects and bounded counts', () => {
+test('Motion editor events admit only closed categories, bounded project identities and bounded counts', () => {
   const projectId = crypto.randomUUID(), exportId = crypto.randomUUID();
   const settings = { origin: 'export_panel', format: 'mp4', quality: 'standard', resolution: '1080p', fps: '30' };
   const valid: Array<[string, Record<string, unknown>]> = [
+    ['studio_edit_result', { outcome: 'success', edit_kind: 'move', surface: 'canvas', project_id: 'project' }],
     ['studio_load_result', { load_id: exportId, outcome: 'success', duration_ms: 10, embedded: false, project_scope: 'default' }],
     ['ui_click', { page_name: 'studio', area: 'header', element: 'export', interaction_method: 'pointer', project_scope: 'managed', project_id: projectId }],
     ['ui_click', { page_name: 'studio', area: 'project_drawer', element: 'language_change', option: 'pt-BR' }],
@@ -57,8 +58,7 @@ test('Motion editor events admit only closed categories, UUID projects and bound
     assert.deepEqual((omEvents as Record<string, { producers: readonly string[] }>)[event].producers, ['studio'], event);
   }
   const invalid: Array<[string, Record<string, unknown>]> = [
-    // The built-in project id is the literal `project`: it is a scope, never a project_id.
-    ['studio_edit_result', { outcome: 'success', edit_kind: 'move', surface: 'canvas', project_id: 'project' }],
+    ['studio_edit_result', { outcome: 'success', edit_kind: 'move', surface: 'canvas', project_id: 'a-private-project-title' }],
     ['studio_edit_result', { outcome: 'success', edit_kind: 'move', surface: 'canvas', project_name: 'Launch film' }],
     ['studio_edit_result', { outcome: 'success', edit_kind: 'Edit layer style', surface: 'canvas' }],
     ['studio_edit_result', { outcome: 'success', edit_kind: 'move' }],

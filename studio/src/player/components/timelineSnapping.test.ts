@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   TIMELINE_SNAP_PX,
-  stickyTimelineTime,
   collectTimelineSnapTargets,
-  snapMoveToTargets,
   snapTimelineTime,
   resolveSnapGuide,
 } from "./timelineSnapping";
@@ -107,80 +105,6 @@ describe("snapTimelineTime", () => {
 
   it("lands on whole frames for a frame-spaced grid", () => {
     expect(snapTimelineTime(1.01, [], 0.08, 1 / 30).time).toBe(1);
-  });
-});
-
-describe("snapMoveToTargets", () => {
-  // pps=100 → threshold = TIMELINE_SNAP_PX/100 = 0.08s
-  const targets = [{ time: 5, type: "playhead" as const }];
-
-  it("snaps the start edge when it is the closer edge", () => {
-    const r = snapMoveToTargets(5.05, 2, targets, 100, 60);
-    expect(r).toEqual({ start: 5, snapTime: 5, snapType: "playhead", snapEdge: "start" });
-  });
-
-  it("snaps the end edge, shifting start so the end lands on the target", () => {
-    const r = snapMoveToTargets(3.03, 2, targets, 100, 60);
-    expect(r.start).toBeCloseTo(3, 5);
-    expect(r.snapTime).toBe(5);
-    expect(r.snapType).toBe("playhead");
-  });
-
-  it("drops the snap when clamping to timeline bounds pulls it off target", () => {
-    // duration 2, timeline 6 → maxStart 4; target at 5.05 wants start 5.05 → clamped to 4
-    const r = snapMoveToTargets(5.0, 2, [{ time: 5.05, type: "beat" }], 100, 6);
-    expect(r.snapTime).toBeNull();
-  });
-
-  it("threshold scales with pixels-per-second", () => {
-    // pps=10 → threshold 0.8s: 5.5 snaps; pps=1000 → threshold 0.008s: it does not
-    expect(snapMoveToTargets(5.5, 2, targets, 10, 60).snapTime).toBe(5);
-    expect(snapMoveToTargets(5.5, 2, targets, 1000, 60).snapTime).toBeNull();
-  });
-
-  it("snaps a clip edge to the ruler grid when no target is near", () => {
-    expect(snapMoveToTargets(1.02, 2, [], 100, 60, 0.25)).toEqual({
-      start: 1,
-      snapEdge: "start",
-      snapTime: 1,
-      snapType: "grid",
-    });
-  });
-
-  it("prefers the edge on a real target over the other edge nearer a ruler line", () => {
-    // start 2.99 is 1px from the 3s line; the end 4.94 is 6px from the playhead at 5
-    const r = snapMoveToTargets(2.99, 1.98, targets, 100, 60, 0.25);
-    expect(r).toEqual({ start: 3.02, snapTime: 5, snapType: "playhead", snapEdge: "end" });
-  });
-
-  it("releases a held target after a small deliberate move at every zoom", () => {
-    for (const pps of [20, 100, 800]) {
-      const target = { time: 5, type: "clip-edge" as const };
-      expect(stickyTimelineTime(5 + 4 / pps, [target], pps).target).toEqual(target);
-      expect(stickyTimelineTime(5 + 6 / pps, [target], pps, 0, target).target).toEqual(target);
-      expect(stickyTimelineTime(5 + 8 / pps, [target], pps, 0, target).target).toBeNull();
-    }
-  });
-
-  it("keeps the snap indicator for a frame-quantized duration (ms-rounding residue, no clamp)", () => {
-    // duration 10/3 ≈ 3.3333…; end-snap onto a clip-edge at 5 gives a candidate
-    // start of 5 - 10/3 = 1.6666…, whose ms-rounding residue (~3.3e-4) exceeds the
-    // old 1e-6 tolerance. With a huge timeline (no bounds clamp), the snap must
-    // survive — the clip snaps AND the indicator shows.
-    const duration = 10 / 3;
-    const edge = [{ time: 5, type: "clip-edge" as const }];
-    const r = snapMoveToTargets(5 - duration + 0.001, duration, edge, 100, 1000);
-    expect(r.snapTime).toBe(5);
-    expect(r.snapType).toBe("clip-edge");
-  });
-
-  it("still drops the snap when the bounds clamp genuinely moves a frame-quantized clip off target", () => {
-    // Same 10/3 duration, but the timeline is short enough that clamping to maxStart
-    // pulls the clip off the target — the indicator must still vanish (the residue
-    // widening must not mask a real clamp).
-    const duration = 10 / 3;
-    const r = snapMoveToTargets(5.0, duration, [{ time: 5.05, type: "beat" }], 100, 6);
-    expect(r.snapTime).toBeNull();
   });
 });
 

@@ -225,3 +225,22 @@ it('keeps unsupported account reference drafts blocked without promising first-f
   expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
   expect(generate).not.toHaveBeenCalled();
 });
+
+it('keeps the saved voice and provider pinned when reselecting audio, and submits that reference', async () => {
+  const speech: Model = { ...model, id: 'fishaudio:s2-pro', provider: 'fishaudio', modelId: 's2-pro', label: 'Fish Audio', modality: 'audio', mode: 'text-to-speech' };
+  loadGateway.mockResolvedValue({ models: [speech, { ...speech, id: 'minimax-speech:speech-2.8-hd', provider: 'minimax-speech' }], status: { providers: [{ id: 'fishaudio', available: true }, { id: 'minimax-speech', available: true }], routes: {} } });
+  generate.mockResolvedValue({ job: { id: 'speech-job' } });
+  const voiceRef = { voiceId: 'my-saved-voice', revision: 3 };
+  function Harness() {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'audio', model: speech.id, prompt: 'My narration', references: [], voiceRef, voiceName: 'Channel narrator' });
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} />;
+  }
+  await act(async () => root.render(<Harness />));
+  const audio = container.querySelector<HTMLButtonElement>('.om-creation-type[data-tone="audio"]')!;
+  await act(async () => audio.click());
+  expect(container.textContent).toContain('Channel narrator');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-type[data-tone="video"]')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: speech.id, modality: 'audio', mode: 'text-to-speech', voiceRef }));
+});

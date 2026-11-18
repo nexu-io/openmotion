@@ -103,7 +103,7 @@ Add captions accepts pasted lines with an explicit duration per cue at the playh
 
 Default caption previews reuse the Inter stylesheet and bounded font-file downloads across text edits. Authored text subsets and large custom/CJK font families retain their existing subset behavior; failed downloads are retried on a later preview rather than retained as successful cache entries. This removes repeated default-font downloads without changing authored timing or fonts.
 
-Timeline clip movement uses a 5-pixel snap acquisition radius and releases within 7 pixels; ruler subdivisions no longer capture drags/trims. Main-track magnet defaults off while saved user choices remain respected. Cmd/Ctrl temporarily bypasses edge snapping and magnetic collision placement. Ordinary overlaps retain pointer time and open/use a compatible layer instead of moving the clip back to a distant gap.
+Timeline clip moves use OpenReel's 40-pixel clip-edge snap radius. Music beats snap within 5 pixels. Trim edges acquire a snap at 5 pixels and release within 7 pixels. Cmd/Ctrl temporarily bypasses snapping. A pointer between two neighboring clip midpoints can insert a clip and shift the following clips as needed. Other drops on an occupied row preserve the requested time and use a free upper row in the same zone or open a row. Main-track magnet applies to delete and trim reflow and defaults off for new preferences.
 
 ## Export the edited timeline
 

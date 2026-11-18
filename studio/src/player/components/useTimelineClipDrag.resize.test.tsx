@@ -81,8 +81,10 @@ function renderResizeHarness(
 
   const root = mountReactHarness(<Harness sessionEpoch={epoch} />);
   const apply = setResizingClip!;
+  let lastPointerX = 0;
   const dispatchPointer = (type: string, clientX: number, pointerId = 0) => {
-    const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 0 });
+    lastPointerX = clientX;
+    const event = new MouseEvent(type, { bubbles: true, clientX, clientY: 0, buttons: type === "lostpointercapture" ? 1 : 0 });
     Object.defineProperty(event, "pointerId", { value: pointerId });
     window.dispatchEvent(event);
   };
@@ -158,7 +160,7 @@ function renderResizeHarness(
     },
     async dropPointer(pointerId = 0) {
       await act(async () => {
-        dispatchPointer("pointerup", 0, pointerId);
+        dispatchPointer("pointerup", lastPointerX, pointerId);
       });
     },
     async moveAndDropPointer(clientX: number, pointerId = 0) {

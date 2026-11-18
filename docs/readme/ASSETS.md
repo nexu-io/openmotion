@@ -22,7 +22,7 @@ The local agent gallery and setup buttons use client marks from the [source icon
 
 ## Skills page covers
 
-The Skills page bundles short screen recordings from `studio/src/motion/skill-covers/` (MP4 plus a JPEG poster each). The skill detail shows each cover's source next to the upstream repository. Other covers are hotlinked from the upstream pages named in `studio/src/motion/skillCatalog.ts`.
+The Skills page bundles its local covers from `studio/src/motion/skill-covers/`: short screen recordings (MP4 plus a JPEG poster each) and two unchanged upstream GIFs. The skill detail shows each cover's source next to the upstream repository. Other covers are hotlinked from the upstream pages named in `studio/src/motion/skillCatalog.ts`.
 
 | Cover | Source and license |
 | --- | --- |
@@ -30,6 +30,9 @@ The Skills page bundles short screen recordings from `studio/src/motion/skill-co
 | babylon-js | Rendered with [Babylon.js](https://github.com/BabylonJS/Babylon.js) (Apache-2.0). Model *AntiqueCamera* by UX3D, CC0, from [KhronosGroup/glTF-Sample-Assets](https://github.com/KhronosGroup/glTF-Sample-Assets). |
 | lume | Recording of the [LUME](https://lume.io/) demo (LUME, MIT). |
 | proton | Recording of the [Proton fireworks example](https://drawcall.github.io/Proton/examples/sparks/firework/fireworks.html) (Proton, MIT). |
+| motionmaxxing | The upstream [before/after comparison](https://github.com/Tejashmakwana/motionmaxxing/blob/main/docs/media/spotify-comparison.mp4) and its [poster](https://github.com/Tejashmakwana/motionmaxxing/blob/main/docs/media/spotify-poster.jpg) (motionmaxxing, Apache-2.0). Each 16:9 panel is scaled whole into its half of a 1280 × 720 frame for the before/after split; no content is cropped or repainted. |
+| anime-js | Unchanged upstream [usage example GIF](https://github.com/juliangarnier/anime/blob/master/assets/images/usage-example-result.gif) (Anime.js, MIT). |
+| lottie-web | Unchanged upstream [Example1 GIF](https://github.com/airbnb/lottie-web/blob/master/gifs/Example1.gif) (Lottie Web, MIT). |
 | gifenc, motion-canvas, ola, shifty, two-js, tween-js, konva, blender | OpenMotion samples made for this page with each library; no third-party footage. |
 
 ## Asset inventory

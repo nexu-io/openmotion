@@ -27,9 +27,10 @@ export type ImportEntryPoint = Fields<'studio_asset_import_result'>['entry_point
 export type ImportErrorCategory = NonNullable<Fields<'studio_asset_import_result'>['error_category']>;
 export type InteractionMethod = NonNullable<Click['interaction_method']>;
 
-/** Project names are never sent. Only a UUID id leaves the browser; other ids collapse to a scope. */
+/** Project names are never sent. UUIDs and the built-in project ID are sent; other ids collapse to a scope. */
 export function projectFields(projectId: string | null | undefined) {
   if (!projectId) return {};
+  if (projectId === 'project') return { project_scope: 'default', project_id: 'project' } as const;
   if (uuid.test(projectId)) return { project_scope: 'managed', project_id: projectId } as const;
   return { project_scope: projectId === 'project' ? 'default' : 'other' } as const;
 }
@@ -181,7 +182,7 @@ export function withEditKind<T>(label: string, kind: EditKind, task: () => Promi
   try { return task().finally(release); } catch (error) { release(); throw error; }
 }
 
-let lastEdit: { id: string | null; key?: string; at: number } | null = null;
+let lastEdit: { projectId: string | null; id: string | null; key?: string; at: number } | null = null;
 /**
  * One event per committed history entry. A coalescing edit (a held slider, repeated nudges) claims the
  * same entry many times; only its first claim is reported. `agent` marks a write an Agent tool dispatched.
@@ -189,10 +190,10 @@ let lastEdit: { id: string | null; key?: string; at: number } | null = null;
 export function reportManualEdit(input: { projectId: string | null; label: string; entryId: string | null; coalesceKey?: string; coalesceMs?: number; agent?: boolean }) {
   if (input.agent) return;
   const now = Date.now();
-  const sameEntry = lastEdit && (input.entryId
+  const sameEntry = lastEdit && lastEdit.projectId === input.projectId && (input.entryId
     ? lastEdit.id === input.entryId
     : lastEdit.id === null && input.coalesceKey !== undefined && lastEdit.key === input.coalesceKey && now - lastEdit.at <= Math.max(2000, input.coalesceMs ?? 0));
-  lastEdit = { id: input.entryId, key: input.coalesceKey, at: now };
+  lastEdit = { projectId: input.projectId, id: input.entryId, key: input.coalesceKey, at: now };
   if (sameEntry) return;
   const hinted = pendingKinds.find(pending => pending.label === input.label)?.kind;
   void trackMotion('studio_edit_result', { outcome: 'success', ...classifyEdit(input.label, now, hinted), ...projectFields(input.projectId) });

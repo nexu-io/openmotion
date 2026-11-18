@@ -1,0 +1,5 @@
+/* Voice forms use the same dialog and asset workspace as other library items. */
+.om-voice-form { display: grid; gap: var(--motion-space-16); margin-top: var(--motion-space-20); }
+.om-voice-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--motion-space-16); }
+.om-voice-fields label { display: grid; gap: var(--motion-space-8); min-width: 0; }
+@media (max-width: 600px) { .om-voice-fields { grid-template-columns: minmax(0, 1fr); } }

@@ -51,3 +51,27 @@ test('workflow sections are read-only and expose native production instructions'
   await assert.rejects(callTool('openmotion_get_workflow', { section: '../secrets' }, store), /Unknown workflow section/);
   assert.deepEqual(await store.get(), before);
 }));
+
+test('actual MCP stdio inspect returns regional provider metadata and keeps environment keys private', () => fixture(async store => {
+  const messages = [
+    { id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'regional-inspect-test', version: '1' } } },
+    { method: 'notifications/initialized' },
+    { id: 2, method: 'tools/call', params: { name: 'openmotion_media_use', arguments: { action: 'inspect' } } },
+  ];
+  const child = spawnSync(process.execPath, ['--experimental-strip-types', 'mcp.ts'], {
+    input: messages.map(message => JSON.stringify({ jsonrpc: '2.0', ...message })).join('\n') + '\n', encoding: 'utf8', timeout: 30_000,
+    env: { ...process.env, MOTION_DATA_DIR: store.directory, MINIMAX_SPEECH_CN_API_KEY: 'synthetic-stdio-cn-secret', MINIMAX_SPEECH_API_KEY: 'synthetic-stdio-global-secret' },
+  });
+  assert.equal(child.status, 0, child.stderr);
+  const reply = child.stdout.trim().split('\n').map(line => JSON.parse(line)).find(message => message.id === 2);
+  assert.equal(reply.result.isError, undefined, JSON.stringify(reply));
+  const inspected = reply.result.structuredContent;
+  for (const [id, region, baseUrl] of [['minimax-speech-cn', 'China mainland', 'https://api.minimax.cn'], ['minimax-speech', 'International', 'https://api.minimax.io']]) {
+    const provider = inspected.providers.find((p: any) => p.id === id);
+    assert.equal(provider.group, 'MiniMax Speech'); assert.equal(provider.region, region); assert.equal(provider.baseUrl, baseUrl);
+    assert.equal(provider.configured, true);
+  }
+  const fish = inspected.providers.find((p: any) => p.id === 'fishaudio');
+  assert.equal(fish.baseUrl, 'https://api.fish.audio'); assert.equal(fish.group, undefined);
+  assert.doesNotMatch(child.stdout, /synthetic-stdio-(cn|global)-secret/);
+}, false));

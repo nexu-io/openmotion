@@ -180,13 +180,8 @@ async function readAll(
   paths: readonly string[],
   readFile: (path: string) => Promise<string>,
 ): Promise<Record<string, string> | null> {
-  const contents: Record<string, string> = {};
-  for (const path of paths) {
-    const content = await readFile(path).catch(() => null);
-    if (content === null) return null;
-    contents[path] = content;
-  }
-  return contents;
+  const contents = await Promise.all(paths.map(async path => [path, await readFile(path).catch(() => null)] as const));
+  return contents.some(([, content]) => content === null) ? null : Object.fromEntries(contents) as Record<string, string>;
 }
 
 async function restoredFiles(

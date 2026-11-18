@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkTransport } from '../scripts/check-installed-mcp.mjs';
+import { installedTool } from '../scripts/mcp-client.mjs';
 import { VERSION } from '../preview.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -60,4 +61,28 @@ for await(const line of createInterface({input:process.stdin})){
 
 test('an unresponsive MCP probe times out without retrying or waiting indefinitely', { timeout: 20_000 }, () => {
   assert.throws(() => checkTransport({ transport: { type: 'stdio', command: process.execPath, args: ['-e', 'setInterval(()=>{},1000)'] } }, '1.2.3', { expectedTools: ['openmotion_get_project'] }), { code: 'MCP_PROBE_TIMEOUT' });
+});
+
+test('workspace verification accepts directory aliases and still rejects another workspace', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-mcp-alias-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const physical = path.join(directory, 'physical'), alias = path.join(directory, 'alias'), other = path.join(directory, 'other');
+  await mkdir(physical); await mkdir(other); await symlink(physical, alias, 'junction');
+  const actual = await realpath(physical);
+  const filename = path.join(directory, 'server.mjs');
+  await writeFile(filename, `import {createInterface} from 'node:readline';
+for await(const line of createInterface({input:process.stdin})){
+ const q=JSON.parse(line);if(q.id===undefined)continue;
+ const result=q.method==='initialize'?{serverInfo:{version:'1.2.3'}}:q.method==='tools/list'?{tools:[{name:'openmotion_get_project'}]}:{structuredContent:{dataDirectory:${JSON.stringify(actual)}}};
+ console.log(JSON.stringify({jsonrpc:'2.0',id:q.id,result}));
+}`);
+  const connection = { transport: { type: 'stdio', command: process.execPath, args: [filename] } };
+  const options = { expectedTools: ['openmotion_get_project'], dataDirectory: alias };
+  assert.equal(checkTransport(connection, '1.2.3', options).dataDirectory, alias);
+  assert.throws(() => checkTransport(connection, '1.2.3', { ...options, dataDirectory: other }), { code: 'MCP_WORKSPACE_MISMATCH' });
+  await mkdir(path.join(directory, 'shared'));
+  await writeFile(path.join(directory, 'shared/mcp-profiles.json'), JSON.stringify({ phase1: { tools: ['openmotion_get_project'] } }));
+  const state = { appRoot: directory, dataDirectory: alias, version: '1.2.3' };
+  assert.equal((await installedTool(state, connection, 'openmotion_get_project')).structuredContent.dataDirectory, actual);
+  await assert.rejects(installedTool({ ...state, dataDirectory: other }, connection, 'openmotion_get_project'), /data directory mismatch/);
 });

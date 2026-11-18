@@ -25,6 +25,13 @@ export function validateTransport(config) {
   return transport;
 }
 
+// macOS /tmp and user-selected directory symlinks can name the same workspace.
+export function sameWorkspaceDirectory(actual, expected) {
+  if (path.resolve(actual) === path.resolve(expected)) return true;
+  try { return fs.realpathSync(actual) === fs.realpathSync(expected); }
+  catch { return false; }
+}
+
 export function checkTransport(config, expectedVersion, { expectedTools, dataDirectory } = {}) {
   const transport = validateTransport(config);
   const messages = [
@@ -56,7 +63,7 @@ export function checkTransport(config, expectedVersion, { expectedTools, dataDir
     const read = responses.find(response => response.id === 3);
     if (!read?.result || read.error || read.result.isError) throw failure('MCP_READ_FAILED', 'openmotion_get_project failed: ' + redact(JSON.stringify(read?.error || read?.result?.structuredContent || read?.result?.content || 'No result returned'), environment));
     const directory = read?.result?.structuredContent?.dataDirectory;
-    if (typeof directory !== 'string' || path.resolve(directory) !== path.resolve(dataDirectory)) throw failure('MCP_WORKSPACE_MISMATCH', 'openmotion_get_project did not confirm the installation data directory. Do not switch workspaces or create a replacement project.');
+    if (typeof directory !== 'string' || !sameWorkspaceDirectory(directory, dataDirectory)) throw failure('MCP_WORKSPACE_MISMATCH', 'openmotion_get_project did not confirm the installation data directory. Do not switch workspaces or create a replacement project.');
   }
   return { version: expectedVersion, cwd: transport.cwd, tools: names, ...(dataDirectory ? { dataDirectory } : {}) };
 }

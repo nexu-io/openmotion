@@ -73,5 +73,10 @@ openmotion_stage plugin codex plugin add openmotion@openmotion-local
 codex plugin list --marketplace openmotion-local
 openmotion_stage mcp-preflight node "$openmotion_root/scripts/check-installed-mcp.mjs"
 
+# The primary Skill is a separate official Skills CLI installation. Failure must
+# not invalidate the runtime/plugin or prevent the maintained onboarding.
+openmotion_skill_ref="$(git -C "$openmotion_root" rev-parse HEAD 2>/dev/null || printf main)"
+openmotion_stage public-skill node --experimental-strip-types "$openmotion_root/scripts/install-public-skill.ts" codex "$openmotion_skill_ref" || true
+
 openmotion_stage onboarding node --experimental-strip-types "$openmotion_root/scripts/install-onboarding.mjs" "$openmotion_root" --summary
 printf '[OpenMotion] local-install-total: %s seconds (source download: %s seconds)\n' "$((SECONDS - openmotion_started))" "${OPENMOTION_SOURCE_DOWNLOAD_SECONDS:-not-measured}"

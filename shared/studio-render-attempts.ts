@@ -8,6 +8,7 @@ export type StudioRenderAttempt = {
   id: string;
   nativeJobId?: string;
   requestId?: string;
+  workId?: string;
   filename: string;
   createdAt: number;
   status: StudioRenderStatus;
@@ -49,8 +50,12 @@ export class StudioRenderAttempts {
   private readonly deleted = new Set<string>();
   private timer?: ReturnType<typeof setInterval>;
   private needsSave = false;
+  private readonly notifying = new Map<string, Promise<void>>();
+  private readonly notified = new Set<string>();
+  private readonly onComplete?: (attempt: StudioRenderAttempt) => Promise<void>;
 
-  constructor(projectDirectory: string) {
+  constructor(projectDirectory: string, onComplete?: (attempt: StudioRenderAttempt) => Promise<void>) {
+    this.onComplete = onComplete;
     this.directory = path.join(projectDirectory, 'renders');
     this.snapshot = path.join(this.directory, '.openmotion-render-attempts.json');
     this.checkDirectory();
@@ -91,7 +96,7 @@ export class StudioRenderAttempts {
     return [...this.live.values()].some(state => !terminal.has(state.status));
   }
 
-  start<T extends NativeState>(options: RenderOptions, title: string | undefined, startRender: (options: RenderOptions) => T, requestId?: string): { state: T; attempt: StudioRenderAttempt } {
+  start<T extends NativeState>(options: RenderOptions, title: string | undefined, startRender: (options: RenderOptions) => T, requestId?: string, workId?: string): { state: T; attempt: StudioRenderAttempt } {
     if (this.hasActiveWorker()) throw new StudioRenderBusy();
     if (!safeId(options.jobId) || this.saved.has(options.jobId) || this.deleted.has(options.jobId)) throw new Error('Render attempt identity already exists or is invalid');
     this.checkDirectory();
@@ -111,7 +116,7 @@ export class StudioRenderAttempts {
         .filter(key => options[key] !== undefined).map(key => [key, options[key]]));
       if (options.outputResolution !== undefined) settings.resolution = options.outputResolution;
       settings.gpu = options.useGpu === true;
-      const attempt: SavedAttempt = { id: options.jobId, nativeJobId: options.jobId, ...(requestId ? { requestId } : {}), filename, createdAt: Date.now(), status: 'rendering', progress: 0, settings };
+      const attempt: SavedAttempt = { id: options.jobId, nativeJobId: options.jobId, ...(requestId ? { requestId } : {}), ...(workId ? { workId } : {}), filename, createdAt: Date.now(), status: 'rendering', progress: 0, settings };
       this.saved.set(attempt.id, attempt);
       let started = false;
       try {
@@ -122,6 +127,7 @@ export class StudioRenderAttempts {
         this.live.set(attempt.id, state);
         this.refresh(attempt);
         this.persist();
+        this.notifyComplete(attempt);
         if (!this.timer) {
           this.timer = setInterval(() => {
             try { this.reconcile(); } catch { /* A later explicit read surfaces storage errors without changing the worker outcome. */ }
@@ -170,6 +176,19 @@ export class StudioRenderAttempts {
     if (terminal.has(state.status)) this.live.delete(attempt.id);
   }
 
+  private notifyComplete(attempt: SavedAttempt) {
+    if (!this.onComplete || !attempt.workId || attempt.status !== 'complete'
+        || this.notifying.has(attempt.id) || this.notified.has(attempt.id)) return;
+    const result = this.present(attempt);
+    if (!result.fileAvailable || !result.size) return;
+    const notification = Promise.resolve().then(() => this.onComplete!(result)).then(() => {
+      this.notified.add(attempt.id);
+    }).catch(() => {
+      // Reporting can retry from this durable render receipt without restarting rendering.
+    }).finally(() => { this.notifying.delete(attempt.id); });
+    this.notifying.set(attempt.id, notification);
+  }
+
   private reconcile() {
     this.checkDirectory();
     let changed = false;
@@ -179,6 +198,7 @@ export class StudioRenderAttempts {
       changed ||= previous !== JSON.stringify(attempt);
     }
     if (changed || this.needsSave) this.persist();
+    for (const attempt of this.saved.values()) this.notifyComplete(attempt);
     if (this.timer && ![...this.live.values()].some(state => !terminal.has(state.status))) {
       clearInterval(this.timer);
       this.timer = undefined;
@@ -278,6 +298,8 @@ export class StudioRenderAttempts {
     this.persist();
     return true;
   }
+
+  async flushNotifications() { await Promise.all(this.notifying.values()); }
 
   close() {
     if (this.timer) clearInterval(this.timer);

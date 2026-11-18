@@ -1,6 +1,7 @@
 import type { TimelineElement } from "../store/playerStore";
-import { collisionLane } from "./timelineCollisionIndex";
 import { timelineSpansOverlap } from "./timelineTimeBounds";
+import { resolveTimelinePlacement } from "./openreel/timelinePlacement";
+import { openReelPlacementInput } from "./openreel/placementInput";
 
 /** Audio member tracks mark the audio zone, including members hidden by a group header. */
 export function timelineAudioRow(
@@ -78,62 +79,6 @@ function outOfRangeZoneInsertRow(
   return desired < Math.min(...zoneTracks) ? zoneTop : zoneBottom;
 }
 
-const floorCenti = (v: number) => Math.floor(v * 100 + 1e-6) / 100;
-const ceilCenti = (v: number) => Math.ceil(v * 100 - 1e-6) / 100;
-
-/** Whether `candidate` is nearer `start` than `best`; a tie goes to the later time. */
-const isNearer = (candidate: number, best: number, start: number) => {
-  const gap = Math.abs(candidate - start) - Math.abs(best - start);
-  return gap < 0 || (gap === 0 && candidate > best);
-};
-
-/** The start nearest `start`, not below `minStart`, at which [start, start + duration) overlaps
- *  no clip on `track`. Ties go to the later time. The gap after the row's last clip always fits,
- *  so a row with no gap long enough puts the clip right after its last clip. `origin` is the
- *  clip's own start on this track: keeping it rewrites nothing, so it fits between any edges. */
-export function resolveNearestFreeStart(
-  elements: readonly TimelineElement[],
-  track: number,
-  start: number,
-  duration: number,
-  excludeKey: string | null,
-  minStart = 0,
-  origin: number | null = null,
-  previous?: { start: number; switchMargin: number },
-): number {
-  const busy = collisionLane(elements, track);
-  let best = Number.POSITIVE_INFINITY;
-  let gapStart = minStart;
-  for (let index = 0; index <= busy.length; index++) {
-    const el = busy[index];
-    if (el && (el.key ?? el.id) === excludeKey) continue;
-    const latest = el ? floorCenti(el.start - duration) : Number.POSITIVE_INFINITY;
-    if (latest >= gapStart) {
-      const candidate = Math.min(Math.max(start, gapStart), latest);
-      if (Math.abs(candidate - start) <= Math.abs(best - start)) best = candidate;
-    }
-    if (el) gapStart = Math.max(gapStart, ceilCenti(el.start + el.duration));
-  }
-  if (origin !== null && origin >= minStart && isNearer(origin, best, start) && clearAt(origin))
-    best = origin;
-  // A tiny pointer reversal around the midpoint between distant gaps must not
-  // throw the actor back across the occupied span. Free space still follows the
-  // pointer exactly; only competing collision landings retain their last side.
-  if (
-    previous && best !== start && previous.start >= minStart &&
-    Math.abs(previous.start - start) <= Math.abs(best - start) + previous.switchMargin &&
-    clearAt(previous.start)
-  ) return previous.start;
-  return best;
-
-  function clearAt(candidate: number): boolean {
-    // Float slack at both ends: 0.333 + 1.733 is 2.0660000000000003, a hair past a neighbour at 2.066.
-    const [from, to] = [candidate + 1e-6, candidate + duration - 1e-6];
-    return busy.every((el) =>
-      (el.key ?? el.id) === excludeKey || !timeRangesOverlap(from, to, el.start, el.start + el.duration));
-  }
-}
-
 function groupHeaderAim(
   input: Parameters<typeof resolveZoneDropPlacement>[0],
 ):
@@ -150,7 +95,7 @@ function groupHeaderAim(
   return { kind: "origin", ...input.origin };
 }
 
-// A deliberate seam opens a track. Only the magnetic main track resolves collisions in time.
+// OpenReel placement: keep pointer time and use a free upper lane on collision.
 export function resolveZoneDropPlacement(input: {
   order: number[];
   audioTracks: ReadonlySet<number>;
@@ -160,6 +105,7 @@ export function resolveZoneDropPlacement(input: {
   allowedInsertRows?: ReadonlySet<number>;
   groupTracks?: ReadonlyMap<number, readonly number[]>;
   start: number;
+  blockedTracks?: ReadonlySet<number>;
   duration: number;
   dragKey: string;
   isAudio: boolean;
@@ -167,10 +113,6 @@ export function resolveZoneDropPlacement(input: {
   minStart?: number;
   /** Where the dragged clip sits now. */
   origin?: { track: number; start: number };
-  /** Enabled main track, resolved from the full gesture source before filtering movers. */
-  magneticMainTrack?: number | null;
-  /** Gesture-local collision landing; ignored when changing rows or inserting. */
-  previous?: { track: number; start: number; switchMargin: number };
 }): { track: number; insertRow: number | null; start: number } {
   const { order, audioTracks, elements, desiredTrack, deliberateInsertRow } = input;
   const { start, duration, dragKey, isAudio, minStart } = input;
@@ -203,38 +145,26 @@ export function resolveZoneDropPlacement(input: {
       insertRow--;
     return { track: desired, insertRow, start };
   }
-  if (!isAudio && input.magneticMainTrack === desired) {
-    const origin = input.origin?.track === desired ? input.origin.start : null;
-    const freeStart = resolveNearestFreeStart(
-      elements,
-      desired,
-      start,
-      duration,
-      dragKey,
-      minStart,
-      origin,
-      input.previous?.track === desired ? input.previous : undefined,
-    );
-    return { track: desired, insertRow: null, start: freeStart };
-  }
   // Collision changes the lane, never the pointer's horizontal time. Search
   // upward inside the same kind zone, then open a lane above the aimed row.
   const safeStart = Math.max(minStart ?? 0, start);
   if (input.origin?.track === desired && Math.abs(safeStart - input.origin.start) < 0.005)
     return { track: desired, insertRow: null, start: input.origin.start };
-  if (isLaneFree(elements, desired, safeStart, safeStart + duration, dragKey))
-    return { track: desired, insertRow: null, start: safeStart };
-  const row = order.indexOf(desired);
-  for (let index = row - 1; index >= 0; index--) {
-    const track = order[index];
-    if (!zoneTracks.includes(track) || (input.origin?.track === track && track !== desired)) continue;
-    if (isLaneFree(elements, track, safeStart, safeStart + duration, dragKey))
-      return { track, insertRow: null, start: safeStart };
+  const placement = resolveTimelinePlacement(openReelPlacementInput(elements, zoneTracks, input.blockedTracks), {
+    targetTrackId: String(desired),
+    startTime: safeStart,
+    duration,
+    policy: "stack-above",
+    excludeItemIds: [dragKey],
+    newTrackId: "new-track",
+  });
+  if (placement.ok) {
+    if (!placement.createdTrack)
+      return { track: Number(placement.trackId), insertRow: null, start: placement.startTime };
+    const insertRow = order.indexOf(zoneTracks[placement.createdTrack.position]);
+    if (isInsertAllowedForZone(insertRow, audioRow, isAudio, input.allowedInsertRows))
+      return { track: desired, insertRow, start: placement.startTime };
   }
-  let insertRow = row;
-  while (insertRow > 0 && input.allowedInsertRows && !input.allowedInsertRows.has(insertRow)) insertRow--;
-  if (isInsertAllowedForZone(insertRow, audioRow, isAudio, input.allowedInsertRows))
-    return { track: desired, insertRow, start: safeStart };
   // A protected group boundary cannot be split. Keep the origin lane and time
   // rather than silently moving the clip to a different time.
   return { track: input.origin?.track ?? desired, insertRow: null, start: input.origin?.start ?? safeStart };

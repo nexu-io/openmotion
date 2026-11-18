@@ -1,5 +1,7 @@
 // fallow-ignore-file code-duplication
 // @vitest-environment happy-dom
+import { usePlayerStore } from "../player/store/playerStore";
+import { mediaThumbnailRevisionOf } from "../player/store/thumbnailSlice";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1025,10 +1027,15 @@ describe("external file change coordinator", () => {
     expect(onAcceptedPersistedFileChange).toHaveBeenCalledOnce();
   });
 
-  it("completes a reload after a burst of rapid external writes", async () => {
+  it("refreshes a replaced asset when its write coalesces with a composition edit", async () => {
     const drains: Array<(result: { status: "clean" }) => void> = [];
     const reloadPreview = vi.fn();
-    const onAcceptedPersistedFileChange = vi.fn();
+    const store = usePlayerStore.getState();
+    const revision = () => mediaThumbnailRevisionOf(usePlayerStore.getState().thumbnailRevisions, "assets/clip.mp4");
+    const before = revision();
+    const onAcceptedPersistedFileChange = vi.fn((path: string, compositions: readonly string[] | null) => {
+      store.bumpThumbnailRevisions(compositions, path);
+    });
     await mountCoordinator({
       drainPendingChanges: vi.fn(
         () => new Promise<{ status: "clean" }>((resolve) => drains.push(resolve)),
@@ -1041,22 +1048,24 @@ describe("external file change coordinator", () => {
     act(() => {
       handler?.({ path: "index.html", content: "write-1", version: "v1" });
       handler?.({ path: "index.html", content: "write-2", version: "v2" });
-      handler?.({ path: "index.html", content: "write-3", version: "v3" });
+      handler?.({ path: "assets/clip.mp4", content: "write-3", version: "v3" });
     });
 
-    // Only one drain runs — events 2 and 3 are stashed (last one wins)
+    // Only one drain runs — events 2 and 3 are stashed for a combined delivery
     expect(drains).toHaveLength(1);
 
     // Complete the first drain — triggers reload, then stashed event starts a second drain
     await act(async () => drains[0]?.({ status: "clean" }));
     expect(reloadPreview).toHaveBeenCalledOnce();
+    expect(revision()).toBe(before);
     await act(async () => {});
     expect(drains).toHaveLength(2);
 
     // Complete the second drain — processes the final write
     await act(async () => drains[1]?.({ status: "clean" }));
     expect(reloadPreview).toHaveBeenCalledTimes(2);
-    expect(onAcceptedPersistedFileChange).toHaveBeenCalledTimes(2);
+    expect(onAcceptedPersistedFileChange).toHaveBeenLastCalledWith(".", null);
+    expect(revision()).toBe(before + 1);
   });
 
   describe("SSE-shaped deliveries", () => {

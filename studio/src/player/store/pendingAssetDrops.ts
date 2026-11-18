@@ -3,13 +3,13 @@ import type { TimelineDropPlacement } from "../components/timelineCallbacks";
 import { usePlayerStore } from "./playerStore";
 import { generateId } from "../../utils/generateId";
 import { getTimelineAssetKind } from "../../utils/timelineAssetDrop";
-import { resolveNearestFreeStart } from "../components/timelineCollision";
 
 export interface PendingAssetDrop {
   id: string;
   assetPath: string;
   placement: TimelineDropPlacement;
   duration?: number;
+  waitingForPlacement?: boolean;
   element?: TimelineElement;
   failed?: "add" | "preview";
   rowOwnerId?: string;
@@ -19,24 +19,13 @@ export function beginPendingAssetDrop(
   assetPath: string,
   placement: TimelineDropPlacement,
   duration?: number,
+  waitingForPlacement = false,
 ): string {
   const id = generateId();
   duration ??= ["image", "text"].includes(getTimelineAssetKind(assetPath) ?? "") ? 3 : undefined;
-  usePlayerStore.setState((state) => {
-    const kind = getTimelineAssetKind(assetPath);
-    // Resolve known collisions before the first paint, in the displayed row.
-    const busy = state.pendingAssetDrops.filter((drop) =>
-      (!drop.failed || drop.element) && drop.placement.insertRow === placement.insertRow,
-    ).map((drop) => drop.element ?? {
-      id: drop.id, tag: getTimelineAssetKind(drop.assetPath) ?? "div",
-      ...drop.placement, duration: drop.duration ?? 5,
-    }).filter((element) => (element.tag === "audio") === (kind === "audio"));
-    const peers = kind ? state.elements.filter(element => (element.tag === "audio") === (kind === "audio")) : [];
-    const start = placement.newTrack || placement.insertRow != null ? placement.start : resolveNearestFreeStart([...peers, ...busy], placement.track, placement.start, duration ?? 5, null);
-    return { pendingAssetDrops: [...state.pendingAssetDrops, {
-      id, assetPath, placement: { ...placement, start }, duration,
-    }] };
-  });
+  usePlayerStore.setState((state) => ({
+    pendingAssetDrops: [...state.pendingAssetDrops, { id, assetPath, placement, duration, waitingForPlacement }],
+  }));
   return id;
 }
 

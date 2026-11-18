@@ -277,6 +277,15 @@
     "wavespeed.svg": {
       "source": "lobe",
       "path": "packages/static-svg/icons/wavespeed.svg"
+    },
+    "fishaudio.svg": {
+      "source": "official website",
+      "url": "https://fish.audio/",
+      "element": "header a[data-nav-logo=true] svg",
+      "retrievedAt": "2026-11-17",
+      "sha256": "9dd87c5a96c4fc863dde1a3a395171d9cdb0d41f3b1d444b24202b84af7168d1",
+      "changes": "Removed the layout class; original viewBox, geometry and colors retained.",
+      "rights": "Fish Audio brand mark; ownership remains with Fish Audio. No open-source license is claimed."
     }
   }
 }

@@ -10,6 +10,7 @@ import { parseArgs } from 'node:util';
 import { canonical, extractArchive, nativeComponents, obtainAsset, readJSON, relativePath, runFile, sha256, withLock, writeAtomic, writeJSON } from './runtime-assets.mjs';
 import { defaultInstallationHome as defaultHome, nativeCacheDirectory, ensureNativeRuntime, startNativePreparation } from './npm-runtime.mjs';
 import { hosts, hostPlan, skillTargets, obsoleteSkills, checkSkillOwner, copyHostSkills } from './npm-hosts.mjs';
+import { installPublicSkill } from './install-public-skill.ts';
 import { installedTool } from './mcp-client.mjs';
 import { checkTransport, redact } from './check-installed-mcp.mjs';
 import { exportDiagnostics, recordDiagnostic } from './diagnostics.mjs';
@@ -107,7 +108,7 @@ export async function setup(options) {
     assert(!plan.metadata.configFile || !['apps', 'cache', 'hosts'].some(name => contains(path.join(home, name), plan.metadata.configFile)), 'Keep host configuration outside managed application/cache/host directories');
     if (plan.layout !== 'deepseek') assert(!contains(dataDirectory, plan.skillsDirectory) && !contains(plan.skillsDirectory, dataDirectory)
       && !contains(plan.skillsDirectory, home) && !contains(home, plan.skillsDirectory), 'Keep user data, installed Skills and application/cache directories separate');
-    if (plan.layout === 'bundle') await checkSkillOwner(path.join(plan.skillsDirectory, 'openmotion'), home, plan.skillOwner || plan.host, plan.layout);
+    if (plan.layout === 'bundle') await checkSkillOwner(path.join(plan.skillsDirectory, 'openmotion-workflows'), home, plan.skillOwner || plan.host, plan.layout);
     const appRoot = path.join(home, 'apps', manifest.version + '-' + manifest.application.sha256.slice(0, 16));
     if (!await readJSON(path.join(appRoot, '.npm-install.json'))) {
       const archive = path.join(home, 'cache/downloads', manifest.application.sha256 + '.tar.gz');
@@ -173,7 +174,14 @@ export async function setup(options) {
         host: plan.host, onboardingOutput: options.onboardingOutput, codex: options.codex, expectedVersion: manifest.version });
       onboarding.directAccess = directAccess(home, plan.host, appRoot, options);
       if (plan.host === 'codex') onboarding = await persistInstallationOnboarding(onboarding, path.join(home, 'onboarding'));
-      return { ...state, host: plan.host, hostInstallation: plan.metadata, nativeDependencies: 'background-preparation; status and retry available in Studio',
+      let publicSkill = { status: 'skipped', reason: 'custom Skills directory' };
+      if (!options.skillsDirectory) {
+        publicSkill = await installPublicSkill({ host: plan.host, ref: manifest.commit }).catch(error => {
+          console.error('OpenMotion: public Skill installation failed; runtime remains installed. ' + error.message);
+          return { status: 'failed', reason: error.message };
+        });
+      }
+      return { ...state, publicSkill, host: plan.host, hostInstallation: plan.metadata, nativeDependencies: 'background-preparation; status and retry available in Studio',
         ...(plan.agentRegistration ? { agentRegistration: { ...plan.agentRegistration, instructions: agentRegistrationInstructions } } : {}), onboarding };
     } catch (error) {
       if (plan.host === 'deepseek') {

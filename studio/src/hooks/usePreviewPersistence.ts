@@ -27,7 +27,10 @@ import {
 import { settleNestedReads } from "../utils/gsapSoftReload";
 import { readProjectFileContent } from "../utils/studioFileHistory";
 import { usePlayerStore } from "../player";
-import { syncStoredAutomationFromPreview } from "../player/lib/automationStoreSync";
+import { syncRestoredTimelineFromPreview } from "../player/lib/timelineRestoreSync";
+import { syncHistoryTimelineFromFiles } from "../player/lib/timelineHistoryRestore";
+import { holdHistoryTimelineUntilPreviewReplaced } from "../player/timelineRestorePending";
+import { studioFileRevision } from "../utils/studioFileVersion";
 
 /** The restore payload the undo/redo preview-sync consumes (from the history store). */
 interface HistoryPreviewRestore {
@@ -210,18 +213,37 @@ export function usePreviewPersistence({
 
   const syncHistoryPreviewAfterApply = useCallback(
     async (restore: HistoryPreviewRestore) => {
-      // Prefer an in-place soft reload for a soft-reloadable restore (the change
-      // is confined to the active comp's element attributes / inline-style and/or
-      // its GSAP script) — a full iframe remount blanks the frame black and
-      // re-flashes the WebGL context. applyUndoRestoreToPreview syncs the reverted
-      // attributes onto the live DOM and re-runs the timeline at the SAME playhead,
-      // falling back to reloadPreview for anything structural (split/delete undo),
-      // multi-file, sub-comp, or a permanent soft-reload failure.
+      const iframe = previewIframeRef.current;
+      const doc = iframe?.contentDocument;
+      const activePath = activeCompPathRef.current;
       const projectId = usePlayerStore.getState().timelineProjectId;
+      const revision = studioFileRevision();
+      const isCurrent = () => previewIframeRef.current === iframe && iframe?.contentDocument === doc &&
+        activeCompPathRef.current === activePath && usePlayerStore.getState().timelineProjectId === projectId;
+      const deferUnderGesture = () => {
+        const held = heldPreviewDoc();
+        if (!held) return false;
+        const paths = restore.paths ?? Object.keys(restore.files ?? {});
+        afterStudioManualEditGestures(held, () => {
+          if (!isCurrent()) return;
+          if (studioFileRevision() === revision && syncHistoryTimelineFromFiles(activePath, restore.files))
+            holdHistoryTimelineUntilPreviewReplaced(iframe);
+          markScenesStale(iframe, paths);
+          reloadPreview();
+        });
+        return true;
+      };
+      if (deferUnderGesture()) return;
+      // A confirmed restore updates source-backed rows now. Structural previews
+      // may load independently; their old messages must not undo these rows.
+      const reloadRestoredPreview = () => {
+        if (syncHistoryTimelineFromFiles(activePath, restore.files)) holdHistoryTimelineUntilPreviewReplaced(iframe);
+        reloadPreview();
+      };
       const nestedFiles = await settleNestedReads(
         readUndoNestedFiles(
-          previewIframeRef.current,
-          activeCompPathRef.current,
+          iframe,
+          activePath,
           restore.files,
           (path) =>
             projectId
@@ -229,29 +251,18 @@ export function usePreviewPersistence({
               : Promise.reject(new Error("No project is open to read nested files from.")),
         ),
       );
-      const held = heldPreviewDoc();
-      if (held) {
-        const paths = restore.paths ?? Object.keys(restore.files ?? {});
-        afterStudioManualEditGestures(held, () => {
-          markScenesStale(previewIframeRef.current, paths);
-          reloadPreview();
-        });
-        return;
-      }
+      // A newer write owns the preview; discard the snapshot read before it.
+      if (!isCurrent() || studioFileRevision() !== revision || deferUnderGesture()) return;
       const strategy = applyUndoRestoreToPreview(
-        previewIframeRef.current,
-        activeCompPathRef.current,
+        iframe,
+        activePath,
         restore.files,
         usePlayerStore.getState().currentTime,
-        reloadPreview,
+        reloadRestoredPreview,
         nestedFiles,
       );
       if (strategy === "full") return;
-      // A soft restore patched the reverted attributes onto the live preview, but the
-      // player store keeps its own copy and that copy is what the automation lanes
-      // draw — so without this an undone envelope edit stayed invisible until a
-      // reload. The full path above waits for the reloaded preview to report instead.
-      syncStoredAutomationFromPreview(previewIframeRef.current?.contentDocument ?? null);
+      syncRestoredTimelineFromPreview(previewIframeRef.current?.contentDocument);
     },
     [previewIframeRef, activeCompPathRef, reloadPreview, heldPreviewDoc],
   );
@@ -266,10 +277,11 @@ export function usePreviewPersistence({
       const now = () => usePlayerStore.getState().currentTime;
       const putBack = showRestoreInPlace(iframe, activeCompPathRef.current, files, now());
       if (!putBack) return null;
+      syncRestoredTimelineFromPreview(iframe?.contentDocument);
       return () => {
-        if (!heldPreviewDoc() && putBack(now()))
-          syncStoredAutomationFromPreview(iframe?.contentDocument ?? null);
-        else void syncHistoryPreviewAfterApply({ paths: Object.keys(files) });
+        if (!heldPreviewDoc() && putBack(now())) {
+          syncRestoredTimelineFromPreview(iframe?.contentDocument);
+        } else void syncHistoryPreviewAfterApply({ paths: Object.keys(files) });
       };
     },
     [previewIframeRef, activeCompPathRef, syncHistoryPreviewAfterApply, heldPreviewDoc],

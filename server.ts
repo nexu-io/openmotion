@@ -45,7 +45,7 @@ import type { HostContext } from './tracking/host.ts';
 import { collectDiagnostics, diagnosticLimits, recordDiagnostic } from './scripts/diagnostics.mjs';
 import { isWorkspaceSettingsPage } from './shared/workspace-url.ts';
 import { TaskLedger } from './tracking/task-ledger.ts';
-import { workRoundMode } from './inline-video.ts';
+import { WorkRounds, workRoundMode } from './inline-video.ts';
 import { brandKitHttp } from './gateway/brand-http.ts';
 import { brandKitsFor } from './gateway/brand-kits.ts';
 
@@ -181,6 +181,8 @@ export async function renderNext(store: WorkspaceStore, runtimeRoot: string, tra
             : (final.verification as any)?.status === 'failed' ? 'failed' : 'unknown',
         }, undefined, 'worker', validHostContext(final.trackingHost) ? final.trackingHost : undefined);
         await trackExportTerminal(store, final, tracking);
+        if (final.state === 'completed' && final.projectId && final.workId)
+          await new WorkRounds(store, tracking).exported(final.projectId, final.workId, 'mcp').catch(() => {});
         const host = validHostContext(final.trackingHost) ? final.trackingHost : undefined;
         if (final.projectId && final.versionId) tracking.track('check_completed', { check_id: final.id, check_type: 'technical_export', project_id: final.projectId,
           version_id: final.versionId, subject_id: final.id, checklist_version: 'export-v1', checker_type: 'automated',
@@ -428,6 +430,9 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       const page = context.trackingHosts?.get(url.searchParams.get('context') ?? '');
       const host = page && Date.now() - page.createdAt <= 86_400_000 ? page.host : unknownHost;
       const statuses = data.events.map((event: object) => context.tracking!.ingest({ ...event, host_context: host }));
+      const workRounds = new WorkRounds(store.workspaceStore ?? store, context.tracking);
+      await Promise.allSettled(data.events.map((event: any, i: number) =>
+        ['queued', 'duplicate'].includes(statuses[i]) ? workRounds.studioEdited(event) : undefined));
       return json(res, statuses.includes('full') ? 429 : 200, { accepted: statuses.filter((status: string) => status === 'queued').length });
     }
     if (motionRequest && url.pathname === '/api/phase1/call' && req.method === 'POST') {
@@ -577,7 +582,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         const guide = await getWorkflow(registeredProvider(reference[1])?.reference ?? 'compatible', 'media');
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(guide.content);
       }
-      const provider = url.pathname.match(/^\/api\/models\/providers\/([a-z]+)$/);
+      const provider = url.pathname.match(/^\/api\/models\/providers\/([a-z0-9-]+)$/);
       if (provider && req.method === 'PUT') return json(res, 200, await gateway.configureProvider(provider[1], await input(req)));
       const route = url.pathname.match(/^\/api\/models\/routes\/([a-z]+)$/);
       if (route && req.method === 'PUT') return json(res, 200, await gateway.setRoute(route[1], (await input(req)).model));

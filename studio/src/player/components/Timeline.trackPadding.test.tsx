@@ -101,9 +101,9 @@ describe("Timeline trackPadding", () => {
     pointer(clip, "pointerdown", RULER_H + TRACK_H / 2);
     pointer(window, "pointermove", ROW1_MID);
     await act(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
-    // The occupied row opens an insertion preview, whose actor shares the host geometry.
+    // The actor follows the pointer offset while the landing outline chooses its lane.
     const ghost = host.querySelector<HTMLElement>('[data-timeline-gesture-actor="c0"]');
-    expect(top(ghost)).toBe(`${RULER_H + TRACK_H + CLIP_Y}px`);
+    expect(top(ghost)).toBe(`${TRACK_H}px`);
     const committedTops = [0, 1, 2].map((row) =>
       top(host.querySelector(`[data-timeline-row="${row}"]`)),
     );

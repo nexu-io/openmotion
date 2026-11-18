@@ -17,7 +17,7 @@ async function fixture(run: (context: { directory: string; destination: string; 
     const destination = path.join(directory, 'new user', 'open-motion');
     const log = path.join(directory, 'commands.log');
     await mkdir(bin);
-    for (const file of ['scripts/install-motion.command', 'scripts/source-build-state.mjs', 'scripts/inline-onboarding.mjs', 'scripts/source-marketplace.mjs', 'scripts/install-onboarding.mjs', 'scripts/codex-host-handoff.mjs', 'shared/onboarding-templates.ts', 'scripts/runtime-assets.mjs',
+    for (const file of ['scripts/install-motion.command', 'scripts/install-public-skill.ts', 'scripts/source-build-state.mjs', 'scripts/inline-onboarding.mjs', 'scripts/source-marketplace.mjs', 'scripts/install-onboarding.mjs', 'scripts/codex-host-handoff.mjs', 'scripts/check-installed-mcp.mjs', 'shared/onboarding-templates.ts', 'scripts/runtime-assets.mjs',
       'docs/install-onboarding.md', 'shared/template-config.json', 'marketplace.example.json', 'mcp-ui/template-recommendations/i18n.ts']) {
       await mkdir(path.dirname(path.join(source, file)), { recursive: true });
       await copyFile(path.join(root, file), path.join(source, file));
@@ -37,7 +37,7 @@ async function fixture(run: (context: { directory: string; destination: string; 
       await writeFile(path.join(bin, name), '#!/bin/bash\nset -eu\n' + command + '\n', { mode: 0o755 });
     }
     await run({ directory, destination, log, env: { ...process.env, PATH: bin + path.delimiter + process.env.PATH,
-      OPENMOTION_INSTALL_DIR: destination, OPENMOTION_REF: 'test-ref', MOTION_TEST_SOURCE: source,
+      OPENMOTION_SKIP_PUBLIC_SKILL: '1', OPENMOTION_INSTALL_DIR: destination, OPENMOTION_REF: 'test-ref', MOTION_TEST_SOURCE: source,
       // Exercise a known calling chat without inheriting a developer's real
       // session or relying on CI to provide one. The control socket is absent.
       CODEX_THREAD_ID: '11111111-1111-4111-8111-111111111111', CODEX_SESSION_ID: '',
@@ -70,7 +70,7 @@ test('remote entry point builds a fresh checkout before registering and checking
     assert.ok(result.stdout.length < 7000, 'terminal summary must not include the full success contract');
     const phases = (await readFile(path.join(destination, '.artifacts/install/timings.jsonl'), 'utf8'))
       .trim().split('\n').map(line => JSON.parse(line));
-    assert.deepEqual(phases.map(phase => phase.phase), ['source-download', 'source-preflight', 'dependencies', 'studio-build', 'marketplace', 'plugin', 'mcp-preflight', 'onboarding']);
+    assert.deepEqual(phases.map(phase => phase.phase), ['source-download', 'source-preflight', 'dependencies', 'studio-build', 'marketplace', 'plugin', 'mcp-preflight', 'public-skill', 'onboarding']);
     assert(phases.every(phase => Number.isInteger(phase.seconds) && phase.seconds >= 0));
     assert.ok(commands.indexOf('MCP check') < commands.indexOf('Template library prepared'));
   });
@@ -219,7 +219,6 @@ test('the onboarding entry runs through a symlinked checkout path', async () => 
   });
 });
 
-
 test('the source entry overrides broken global LFS filters without downloading optional media', async () => {
   await fixture(async ({ log, env }) => {
     const git = path.join(env.PATH!.split(path.delimiter)[0], 'git');
@@ -230,5 +229,19 @@ test('the source entry overrides broken global LFS filters without downloading o
     assert.equal(result.status, 0, result.stderr);
     assert.match(await readFile(log, 'utf8'), /filter\.lfs\.process= .*filter\.lfs\.required=false/);
     assert.match(result.stdout, /source-download.*seconds/);
+  });
+});
+
+test('an optional public Skill failure does not block the installed plugin or onboarding', async () => {
+  await fixture(async ({ env }) => {
+    await writeFile(path.join(env.MOTION_TEST_SOURCE!, 'scripts/install-public-skill.ts'), 'console.error("Public Skill fixture offline"); process.exitCode = 1;');
+    const result = spawnSync('bash', [path.join(root, 'install.sh')], { env: { ...env, OPENMOTION_SKIP_PUBLIC_SKILL: '' }, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /Public Skill fixture offline/);
+    const phases = (await readFile(path.join(env.OPENMOTION_INSTALL_DIR!, '.artifacts/install/timings.jsonl'), 'utf8'))
+      .trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(phases.find(phase => phase.phase === 'public-skill').exitCode, 1);
+    assert.equal(phases.at(-1).phase, 'onboarding');
+    assert.equal(phases.at(-1).exitCode, 0);
   });
 });

@@ -192,6 +192,7 @@ describe("buildMissingCompositionElements — nested master time", () => {
     `);
     const win = { __timelines: { s1: { duration: () => 6 } } } as unknown as IframeWindow;
     const { missing } = buildMissingCompositionElements(doc, win, [], 20);
+    expect(missing.find((e) => e.domId === "s1")?.duration).toBe(8);
     expect(missing.find((e) => e.domId === "s2")?.start).toBe(9);
   });
 });

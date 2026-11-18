@@ -6,6 +6,7 @@ export type ProviderCategory = 'account' | 'multimodal' | 'language' | 'media' |
 export type ProviderDefinition = {
   id: string; label: string; protocol: ProviderProtocol; baseUrl: string;
   kinds: ModelKind[]; category: ProviderCategory; website?: string; docs?: string;
+  group?: string; region?: string;
   setupRequired?: boolean;
   baseUrlEditable?: boolean;
 };
@@ -16,9 +17,9 @@ export type ProviderConnection = ProviderDefinition & {
 };
 /** Keep registry internals and saved revisions outside the public connection payload. */
 export function publicProviderConnection(provider: ProviderConnection): ProviderConnection {
-  const { id, label, protocol, baseUrl, kinds, category, website, docs, setupRequired, baseUrlEditable,
+  const { id, label, protocol, baseUrl, kinds, category, website, docs, group, region, setupRequired, baseUrlEditable,
     configured, enabled, available, custom, credentialSource, reason } = provider;
-  return { id, label, protocol, baseUrl, kinds, category, website, docs, setupRequired, baseUrlEditable,
+  return { id, label, protocol, baseUrl, kinds, category, website, docs, group, region, setupRequired, baseUrlEditable,
     configured, enabled, available, custom, credentialSource, reason };
 }
 export const modelCapabilities = ['reasoning', 'tools'] as const;

@@ -209,13 +209,15 @@ export function SkillMedia({ skill, playing = false, near = false, large = false
  * and it starts buffering as soon as the card nears the viewport. */
 function CoverMedia({ cover, play, near, large, onFail }: { cover: NonNullable<MotionSkill['cover']>; play: boolean; near: boolean; large: boolean; onFail: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
+  // A video the browser cannot load or decode falls back to its poster before the motif illustration.
+  const [videoFailed, setVideoFailed] = useState(false);
   useEffect(() => {
     const element = video.current;
     if (!element || !cover.video) return;
     if (play) void element.play().catch(() => {}); else element.pause();
   }, [play, cover.video]);
-  if (cover.video) return <video ref={video} src={cover.video} poster={cover.poster} muted playsInline loop
-    preload={large || near || play ? 'auto' : cover.poster ? 'none' : 'metadata'} aria-hidden="true" onError={onFail} />;
+  if (cover.video && !videoFailed) return <video ref={video} src={cover.video} poster={cover.poster} muted playsInline loop
+    preload={large || near || play ? 'auto' : cover.poster ? 'none' : 'metadata'} aria-hidden="true" onError={() => cover.poster ? setVideoFailed(true) : onFail()} />;
   const still = cover.poster ?? cover.gif;
   return <>{cover.gif && <img src={play ? cover.gif : still} alt="" loading="lazy" decoding="async" onError={onFail} />}
     {!cover.gif && cover.poster && <img src={cover.poster} alt="" loading="lazy" decoding="async" onError={onFail} />}</>;

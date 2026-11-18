@@ -195,7 +195,7 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
   const writtenClip = (written: string, tag: string) =>
     written.match(new RegExp(`<${tag} id="[^"]*"[^>]*>`))?.[0] ?? "";
 
-  it("lands an asset dropped on an occupied row at that row's nearest free time", async () => {
+  it("keeps an asset's time and opens an upper row over a collision", async () => {
     const subtitle = rowClip("subtitle", 0, 6);
     const writeProjectFile = vi.fn().mockResolvedValue(undefined);
     const getDrop = renderDropHook(rowSource([subtitle]), writeProjectFile, [subtitle]);
@@ -206,10 +206,10 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
 
     const [, written] = writeProjectFile.mock.calls[0] as [string, string];
     const clip = writtenClip(written, "video");
-    expect(clip).toContain('data-start="6"');
+    expect(clip).toContain('data-start="2"');
     expect(clip).toContain('data-track-index="0"');
     expect(written).toContain(
-      'id="subtitle" data-start="0" data-duration="6" data-track-index="0"',
+      'id="subtitle" data-start="0" data-duration="6" data-track-index="1"',
     );
   });
 
@@ -238,20 +238,10 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
     });
   }
 
-  it("keeps a multi-file drop's clips off each other and off the row's clips", async () => {
-    usePlayerStore.setState({ rippleEditEnabled: true });
-    const landed = await twoFileDrop([rowClip("a", 0, 4), rowClip("b", 8, 2)], {
-      start: 1,
-      track: 0,
-    });
-    // Magnetic main-track import appends both files after the existing end.
-    expect(landed).toEqual([["10", "0"], ["13", "0"]]);
-  });
-
-  it("uses free row slots when main-track magnet is disabled", async () => {
-    usePlayerStore.setState({ rippleEditEnabled: false });
+  it.each([true, false])("preserves file drop time on collision with main magnet %s", async magnet => {
+    usePlayerStore.setState({ rippleEditEnabled: magnet });
     expect(await twoFileDrop([rowClip("a", 0, 4), rowClip("b", 8, 2)], { start: 1, track: 0 }))
-      .toEqual([["4", "0"], ["10", "0"]]);
+      .toEqual([["1", "0"], ["4", "0"]]);
   });
 
   it("puts a multi-file drop that opens a track back to back on that new track", async () => {
@@ -268,16 +258,16 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
     ]);
   });
 
-  it("keeps a multi-file drop on the file track of the row it was dropped on", async () => {
+  it("uses the authored track of the free upper row for both files", async () => {
     const clips = [
-      rowClip("title", 0, 10, { track: 2 }),
+      rowClip("title", 10, 2, { track: 2 }),
       rowClip("mid", 0, 1, { row: 1, track: 3 }),
       rowClip("other", 0, 1, { row: 2, track: 5 }),
     ];
-    // Row 0 is file track 2; the second file must not read that 2 back as row 2 (track 5).
-    expect(await twoFileDrop(clips, { start: 3, track: 0 })).toEqual([
-      ["10", "2"],
-      ["13", "2"],
+    // Display row 1 resolves to row 0, whose authored track is 2.
+    expect(await twoFileDrop(clips, { start: 0, track: 1 })).toEqual([
+      ["0", "2"],
+      ["3", "2"],
     ]);
   });
 
@@ -291,7 +281,7 @@ describe("useTimelineAssetDropOps handleTimelineAssetDrop", () => {
     });
     const img = writtenClip(writeProjectFile.mock.calls[0][1] as string, "img");
     expect(img).toContain('data-track-index="0"');
-    expect(img).toContain('data-start="10"');
+    expect(img).toContain('data-start="2"');
   });
 
   it("keeps two audio files dropped on a visual row together, as a single one would go", async () => {

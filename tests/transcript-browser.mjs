@@ -405,10 +405,20 @@ try {
   await clipHandle.click();
   let box = await clipHandle.boundingBox(), initial = (await nativeText())[0];
   const pixelsPerSecond = box.width / initial.duration;
+  // Hold Control after pickup to test a free move independently of nearby snap targets.
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 12 }); await page.mouse.up();
+  await page.keyboard.down('Control');
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 12 });
+  await page.waitForFunction(x => {
+    const actor = document.querySelector('[data-timeline-gesture-actor]');
+    const landing = document.querySelector('[data-testid="timeline-drag-landing"]');
+    return actor && landing && Math.abs(actor.getBoundingClientRect().left - x) < 2 &&
+      Math.abs(landing.getBoundingClientRect().left - x) < 2;
+  }, {}, box.x + 40);
+  await page.mouse.up();
+  await page.keyboard.up('Control');
   const moved = (await waitNative(rows => rows[0]?.start > initial.start + 0.1))[0];
-  assert(Math.abs((moved.start - initial.start) * pixelsPerSecond - 40) < 8, 'Drag follows the pointer and persists without magnetic pullback');
+  assert(Math.abs((moved.start - initial.start) * pixelsPerSecond - 40) < 2, 'Free drag persists at the displayed landing');
   await page.waitForFunction((selector, start) => Math.abs(Number(document.querySelector(selector)?.dataset.clipStart) - start) < .02, {}, textClip, moved.start);
   await click(textClip, await page.$eval(textClip, n => n.getAttribute('aria-label'))); box = await (await page.$(textClip)).boundingBox();
   const trim = await page.$(`${textClip} [data-trim-edge="end"]`); const edge = await trim.boundingBox();

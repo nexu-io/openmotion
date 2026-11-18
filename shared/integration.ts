@@ -72,6 +72,7 @@ export function apiDiscoveryCommand(info: IntegrationInfo) {
 }
 
 export function guideUrl(info: Pick<IntegrationInfo, 'previewUrl'>, host: IntegrationHost, templateId?: string) { return `${info.previewUrl}/connect/guide?host=${host}${templateId ? '&template=' + encodeURIComponent(templateId) : ''}`; }
+export const setupSkillUrl = 'https://github.com/nexu-io/openmotion/blob/main/skills/openmotion/SKILL.md';
 export const setupReadmeUrl = 'https://github.com/nexu-io/openmotion#quick-start';
 export function setupGuideUrl(info: IntegrationInfo | null) {
   if (!info || info.templateSource === 'repository') return 'https://github.com/nexu-io/openmotion/blob/main/install.md';
@@ -85,6 +86,7 @@ export function setupPrompt(info: IntegrationInfo | null, host: IntegrationHost,
   if (locale === 'en') {
     if (host === 'chatgpt') return 'ChatGPT cloud requires a public HTTPS MCP service. This workspace uses local stdio. Choose Codex, Claude Code, or DeepSeek Harness to start creating.';
     return `Help me install and connect OpenMotion in ${hostNames[host]}.
+Read the primary OpenMotion Skill: ${setupSkillUrl}
 Read the GitHub README: ${setupReadmeUrl}
 Follow the installation guide: ${setupGuideUrl(info)}
 
@@ -95,7 +97,8 @@ Follow the installation guide: ${setupGuideUrl(info)}
   }
   if (host === 'chatgpt') return 'ChatGPT 云端需要公开 HTTPS MCP 服务。当前工作区使用本机 stdio，可先选择 Codex、Claude Code 或 DeepSeek Harness 开始创作。';
   return `帮我在 ${hostNames[host]} 中安装并接入 OpenMotion。
-先阅读 GitHub README：${setupReadmeUrl}
+先阅读 OpenMotion 主 Skill：${setupSkillUrl}
+再阅读 GitHub README：${setupReadmeUrl}
 再按安装指南操作：${setupGuideUrl(info)}
 
 1. 先检查是否已经安装和连接，优先复用现有工作区，保留工程、凭据及其他 MCP 配置。
@@ -170,7 +173,7 @@ Offline sharing uses openmotion_project_archive: list projects with openmotion_g
 For NEW generated media, use openmotion_media_use inspect/reference/models to discover configured capabilities, then openmotion_assets_use generate with the full model ID, status with the original jobId, get/read at a pinned assetId/versionId, and import_to_project only for selected film assets. No project is required for standalone generation. Use openmotion_assets only when tools/list lacks the preferred name; it has no read, so inspect adopted local media with available tools. Keep old media_use jobs on their original Tool/projectId/jobId and never import their project files twice. Image references pin exact image versions: image models with supportsImageReference edit with up to their maxInputImages (one for local Codex and OpenDesign account models), and video models that report maxInputImages take one image as the first frame; first-and-last-frame video is unavailable. Use resume with the original jobId and a stable requestId to check a failed/interrupted Cloud task with a known remoteId, without uploading inputs or submitting another paid generation. Cancelled jobs and confirmed remote failures cannot resume. Use retry_save only for retained local outputs (savePending); regeneration is a separate paid request requiring authorization. Studio offers Check original task on eligible failed jobs. Reference counts follow the selected model before any reference file is read; there is no fixed library count ceiling. Local Codex/account editing remains one image, video remains one first frame, and project referenceAsset remains image-only. Follow the shared generation boundary in production/materials. Keep credentials in Settings, obtain missing spend consent, explain unsupported capabilities and proposed alternatives, and do not silently downgrade. Regenerate only within the asset count and spend the user explicitly approved, including any retries they approved; otherwise ask before another paid request; unknown outcomes require original-job inspection, not a new paid submission.
 Local fonts use openmotion://fonts/index and per-family resources for selection and on-demand preparation; openmotion_import_assets imports the selected local files and optional licenses with actual metadata and relative CSS. Check required copy and mixed-script rendering before delivery. 素材通过 openmotion_import_assets 批量持久导入实际本机附件，检查逐项结果；再用 openmotion_edit_project 保存原生 HTML/CSS/JS 和可选需求，传 expectedRevision、expectedVersionId 及稳定 requestId。冲突时重新读，不盲目覆盖 GUI 修改。
 
-After each content edit or restore, follow previewHandoff and production/native#continuing-edits. Request the same project on the calling chat's right panel, preserving embed/query/hash and reusing the actual native Tab ID. Default foreground preserves the current chat: queue while inactive, resolve the latest version on return, and verify actual visibility and changed live content before action=record_display. Codex IAB visibility synchronization is scoped to the calling chat and does not navigate. queued is only an acknowledgment, not proof that the calling chat is inactive. Apply the same visibility checks to first delivery; hidden automation tabs, markDeliverable and completed MP4 export do not replace the editor handoff. Use visibility=queued only for confirmed inactive-chat deferral; otherwise report the display failure. Only this turn's explicit show-now request permits presentation=now and switching back; background skips presentation. Never guess a project from another chat or workspace.
+For video creation/content generation, begin an explicit work round before authoring. As soon as the requested video artifact is ready, call openmotion_open_preview action=complete_generation with projectId, workId, requestId, expectedRevision and expectedVersionId, including background work. This records the artifact independently from saving, previewing and exporting. After each content edit or restore, follow previewHandoff and production/native#continuing-edits. Request the same project on the calling chat's right panel, preserving embed/query/hash and reusing the actual native Tab ID. Default foreground preserves the current chat: queue while inactive, resolve the latest version on return, and verify actual visibility and changed live content before action=record_display. Codex IAB visibility synchronization is scoped to the calling chat and does not navigate. queued is only an acknowledgment, not proof that the calling chat is inactive. Apply the same visibility checks to first delivery; hidden automation tabs, markDeliverable and completed MP4 export do not replace the editor handoff. Use visibility=queued only for confirmed inactive-chat deferral; otherwise report the display failure. Only this turn's explicit show-now request permits presentation=now and switching back; background skips presentation. Never guess a project from another chat or workspace.
 
 ## 版本与导出
 

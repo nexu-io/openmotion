@@ -1,5 +1,5 @@
 import { CreationEmblem, creationKinds } from './AssetCreationVisuals';
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type ComponentProps } from 'react';
 import { assetMediaUrl, assetVersion, type AssetReference, type LibraryAsset, type AssetVersion } from '../../../shared/asset-library';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -45,6 +45,15 @@ function AssetTitle({ name }: { name: string }) {
   }, [name]);
   return <Tooltip label={name} disabled={!overflow} wrap withinDialog><strong ref={ref}>{name}</strong></Tooltip>;
 }
+export function AssetTile({ name, preview, caption, selected = false, onOpen, ...events }: {
+  name: string; preview: ReactNode; caption?: ReactNode; selected?: boolean; onOpen: () => void;
+} & Omit<ComponentProps<'button'>, 'name' | 'children' | 'onClick'>) {
+  return <div className="om-asset-tile om-card"><button type="button" className="om-nav-item om-asset-open" onClick={onOpen} aria-label={name} aria-current={selected ? 'true' : undefined} {...events}>
+    {preview}<span className="om-asset-tile-caption"><AssetTitle name={name} />{caption && <span className="om-muted">{caption}</span>}</span>
+  </button></div>;
+}
+export type AssetGalleryExtras = { items: ReactNode; count: number; feedback?: ReactNode };
+
 /** The gallery and detail filmstrip share one loaded collection and filter state. */
 export function useAssetBrowser({ kind, revision = 0, active = true }: { kind: AssetKind; revision?: number; active?: boolean }) {
   const [query, setQuery] = useState(''), [source, setSource] = useState('all'), [sort, setSort] = useState('newest');
@@ -75,7 +84,7 @@ export function AssetBrowser({ kind, revision, active, ...actions }: BrowserActi
   const browser = useAssetBrowser({ kind, revision, active });
   return <AssetBrowserContent browser={browser} {...actions} />;
 }
-export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false, selectedId, toolbar, hoverPreview = false }: BrowserActions & { browser: ReturnType<typeof useAssetBrowser>; toolbar?: ReactNode; hoverPreview?: boolean }) {
+export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false, selectedId, toolbar, hoverPreview = false, extras }: BrowserActions & { extras?: AssetGalleryExtras; browser: ReturnType<typeof useAssetBrowser>; toolbar?: ReactNode; hoverPreview?: boolean }) {
   const { t } = useI18n();
   const { kind, query, setQuery, source, setSource, sort, setSort, data, stale, loading, error, page, setPage, retry } = browser;
   const [previewId, setPreviewId] = useState<string>();
@@ -109,16 +118,17 @@ export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false
       <Select label={t('Sort')} value={sort} onCommit={setSort} options={[{ value: 'newest', label: t('Newest first') }, { value: 'oldest', label: t('Oldest first') }, { value: 'name', label: t('Name') }]} /></>}
       {(query || source !== 'all') && <button className="om-nav-item" onClick={() => { setQuery(''); setSource('all'); }}>{t('Clear filters')}</button>}
     </div>}
+    {extras?.feedback}
     <div className="om-asset-results" aria-busy={loading} inert={stale && !error}>
       {error ? <div className="om-empty"><RemixIcon name="error-warning-line" size={32} /><p>{t('Could not load assets')}</p><button className="om-button" onClick={retry}>{t('Retry')}</button></div>
         : !data ? <div className="om-asset-grid">{Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="om-asset-loading-card" />)}</div>
-        : !data?.assets.length && onCreate && !query && source === 'all' && kind !== 'trash' ? <div className="om-asset-welcome"><span className="om-creation-kicker">{t('YOUR NEXT CREATION STARTS HERE')}</span><h2 className="om-title">{t('One idea. Endless possibilities.')}</h2><p className="om-muted">{t('Upload your own media or create an image, video or audio asset.')}</p><div className="om-asset-starters">{creationKinds.filter(k => kind === 'all' || kind === k.id).map(item => <button className="om-creation-suggestion om-asset-starter" key={item.id} onClick={() => onCreate(item.id)}><CreationEmblem kind={item.id} /><strong>{t(item.title)}</strong><span className="om-muted">{t(item.hint)}</span><span className="om-asset-starter-action">{t(item.action)}<RemixIcon name="arrow-right-line" size={16} /></span></button>)}</div></div>
-        : !data?.assets.length ? <div className="om-empty om-asset-empty"><RemixIcon name={kind === 'trash' ? 'delete-bin-line' : 'image-line'} size={40} /><h2 className="om-subtitle">{t(query || source !== 'all' ? 'No matching assets' : kind === 'trash' ? 'Trash is empty' : 'Your next idea starts here')}</h2><p className="om-muted">{t(kind === 'trash' ? 'Assets moved to trash can be restored.' : 'Upload your own media or create an image, video or audio asset.')}</p></div>
-        : <><p className="om-muted">{t('{count} assets', { count: data.total })}</p><div className="om-asset-grid">{data.assets.map(asset => <div key={asset.id} className="om-asset-tile om-card"><button className="om-nav-item om-asset-open" onClick={() => onOpen(asset)} aria-label={asset.name} aria-current={selectedId === asset.id ? 'true' : undefined}
+        : !data?.assets.length && !extras?.count && onCreate && !query && source === 'all' && kind !== 'trash' ? <div className="om-asset-welcome"><span className="om-creation-kicker">{t('YOUR NEXT CREATION STARTS HERE')}</span><h2 className="om-title">{t('One idea. Endless possibilities.')}</h2><p className="om-muted">{t('Upload your own media or create an image, video or audio asset.')}</p><div className="om-asset-starters">{creationKinds.filter(k => kind === 'all' || kind === k.id).map(item => <button className="om-creation-suggestion om-asset-starter" key={item.id} onClick={() => onCreate(item.id)}><CreationEmblem kind={item.id} /><strong>{t(item.title)}</strong><span className="om-muted">{t(item.hint)}</span><span className="om-asset-starter-action">{t(item.action)}<RemixIcon name="arrow-right-line" size={16} /></span></button>)}</div></div>
+        : !data?.assets.length && !extras?.count ? <div className="om-empty om-asset-empty"><RemixIcon name={kind === 'trash' ? 'delete-bin-line' : 'image-line'} size={40} /><h2 className="om-subtitle">{t(query || source !== 'all' ? 'No matching assets' : kind === 'trash' ? 'Trash is empty' : 'Your next idea starts here')}</h2><p className="om-muted">{t(kind === 'trash' ? 'Assets moved to trash can be restored.' : 'Upload your own media or create an image, video or audio asset.')}</p></div>
+        : <><p className="om-muted">{t('{count} assets', { count: data.total + (extras?.count ?? 0) })}</p><div className="om-asset-grid">{extras?.items}{data.assets.map(asset => <AssetTile key={asset.id} name={asset.name} selected={selectedId === asset.id} onOpen={() => onOpen(asset)}
           onPointerEnter={event => { if (event.pointerType !== 'touch') preview(asset); }} onPointerLeave={() => setPreviewId(undefined)} onPointerCancel={() => setPreviewId(undefined)}
-          onFocus={event => { if (event.currentTarget.matches(':focus-visible')) preview(asset); }} onBlur={() => setPreviewId(undefined)}>
-          <AssetPreview asset={asset} previewing={canPreview && previewId === asset.id} /><span className="om-asset-tile-caption"><AssetTitle name={asset.name} />{!compact && <span className="om-muted">{t(assetVersion(asset)?.source === 'upload' ? 'Local upload' : 'AI generated')} · V{asset.versions.findIndex(v => v.id === asset.currentVersionId) + 1}</span>}</span>
-        </button></div>)}</div>{(page > 0 || data.nextOffset !== null) && <div className="om-asset-pagination"><button className="om-button" disabled={!page || loading} onClick={() => setPage(v => v - 1)}>{t('Previous')}</button><span className="om-muted">{page + 1}</span><button className="om-button" disabled={data.nextOffset === null || loading} onClick={() => setPage(v => v + 1)}>{t('Next')}</button></div>}</>}
+          onFocus={event => { if (event.currentTarget.matches(':focus-visible')) preview(asset); }} onBlur={() => setPreviewId(undefined)}
+          preview={<AssetPreview asset={asset} previewing={canPreview && previewId === asset.id} />}
+          caption={!compact && <>{t(assetVersion(asset)?.source === 'upload' ? 'Local upload' : 'AI generated')} · V{asset.versions.findIndex(v => v.id === asset.currentVersionId) + 1}</>} />)}</div>{(page > 0 || data.nextOffset !== null) && <div className="om-asset-pagination"><button className="om-button" disabled={!page || loading} onClick={() => setPage(v => v - 1)}>{t('Previous')}</button><span className="om-muted">{page + 1}</span><button className="om-button" disabled={data.nextOffset === null || loading} onClick={() => setPage(v => v + 1)}>{t('Next')}</button></div>}</>}
     </div>
   </section>;
 }

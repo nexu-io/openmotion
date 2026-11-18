@@ -339,6 +339,7 @@ const singleTimelineAssignment = /\bwindow\s*\.\s*__timelines\s*=\s*\{\s*([A-Za-
 export function timelineKeys(scriptText: string): string[] {
   const registrations = [
     ...scriptText.matchAll(/__timelines\s*\[\s*["'`]([^"'`]+)["'`]\s*\]/g),
+    ...scriptText.matchAll(/\b__timelines\s*\.\s*([A-Za-z_$][\w$]*)\s*=/g),
     ...scriptText.matchAll(singleTimelineAssignment),
   ];
   return [...new Set(registrations.map((match) => match[1]!).filter((key) => key !== "__proxied"))];

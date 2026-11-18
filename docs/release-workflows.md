@@ -1,8 +1,10 @@
 # Motion releases: build, test, publish
 
-> Repository installation defaults to the [source guide](../install.md). Published npm installation is an explicit alternative through the [application guide](install.md). Candidate builds, publication and snapshot recovery use the manual [release workflow](release-workflows.md); merging changes does not publish a package or update hosted guides.
+> Repository installation defaults to the [source guide](../install.md). Published npm installation is an explicit alternative through the [application guide](install.md). Candidate builds, publication and snapshot recovery use the manual [release workflow](release-workflows.md); merging changes does not publish an npm application package or update hosted application installation guides.
 
 Use two manual Actions entries: **Motion candidate build**, then **Motion npm publication**, in `nexu-io/openmotion` on `main`. The daily flow is **build → optional local testing → manual publish**. Neither entry runs on pushes, PR merges, tags or a schedule. Merging a workflow change does not publish a package or configure npm permissions. Daily development branches from the latest `origin/main` and PRs target `main`.
+
+The optional [DSH workspace plugin](../integrations/dsh/README.md#distribution-maintenance) has a separate tarball-download flow. Its path-scoped **DSH integration** workflow checks and packs on PRs, then publishes R2 downloads only from trusted `main`. It reuses the R2 settings below, exposes a fixed download manifest with immutable archive URLs, and does not publish npm or update application channels. It still needs a built source runtime. Application candidate and publication controls in this guide remain unchanged.
 
 | Operator step | Automated work |
 | --- | --- |

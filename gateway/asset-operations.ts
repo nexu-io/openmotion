@@ -1,3 +1,4 @@
+import { VoiceLibrary } from './voice-library.ts';
 import type { OmTracking } from '../shared/tracking.ts';
 import path from 'node:path';
 import type { WorkspaceStore } from '../workspace.ts';
@@ -9,6 +10,17 @@ import { readLibraryAsset } from './asset-read.ts';
 
 export async function assetOperation(store: WorkspaceStore, args: any, importProject?: (input: any, options?: { receiptName: string; reusePinnedContent: boolean }) => Promise<any>, tracking?: OmTracking) {
   const library = new AssetLibrary(store), gateway = gatewayFor(store, tracking);
+  if (args.action === 'voice') {
+    const voices = new VoiceLibrary(store), input = args.voice;
+    if (!input || typeof input !== 'object') throw new Error('Voice command required');
+    if (input.command === 'list') return { voices: await voices.list(input.trash === true) };
+    if (input.command === 'get') return { voice: await voices.get(input.voiceId) };
+    if (input.command === 'add') { const { command, ...fields } = input; return { voice: await voices.add(fields) }; }
+    if (input.command === 'update') return { voice: await voices.update(input.voiceId, input.revision, input.changes) };
+    if (input.command === 'check') return { voice: await voices.check(input.voiceId, input.revision) };
+    if (input.command === 'discover') return voices.discover(input.provider, input.page);
+    throw new Error('Unknown voice command');
+  }
   if (args.action === 'list') return library.list(args);
   if (args.action === 'read') return readLibraryAsset(library, args);
   if (args.action === 'get') {
@@ -24,7 +36,7 @@ export async function assetOperation(store: WorkspaceStore, args: any, importPro
     if (!args.requestId || !args.model) throw new Error('Choose a model and supply a stable requestId');
     await requireNativeRuntime(pluginRoot, 'media');
     const job = await gateway.submit({ modality: args.modality, prompt: args.prompt, model: args.model, mode: args.mode,
-      idempotencyKey: args.requestId, parameters: args.parameters,
+      idempotencyKey: args.requestId, parameters: args.parameters, voiceRef: args.voiceRef,
       library: { assetId: args.assetId, title: args.name, parentVersionId: args.parentVersionId, references: args.references, conversationId: args.conversationId } });
     return { job, next: { action: 'status', jobId: job.id } };
   }

@@ -35,8 +35,9 @@ export interface DraggedClipState {
   snapEdge?: "start" | "end";
   started: boolean;
   altKey?: boolean;
-  mainTrackReorder?: import("./timelineMainReorder").MainTrackReorder;
   snapDisabled?: boolean;
+  /** Starts previewed for a same-row insertion, keyed by clip identity. */
+  insertion?: ReadonlyMap<string, number>;
 }
 
 export interface ResizingClipState {
@@ -48,7 +49,7 @@ export interface ResizingClipState {
   /**
    * scrollLeft at gesture start. Edge auto-scroll moves the content under a
    * stationary pointer, so the trim math folds (current − origin) scrollLeft
-   * into the pointer x — mirroring resolveTimelineMove's scroll compensation.
+   * into the pointer x — mirroring the clip drag's scroll compensation.
    * Optional so pre-existing constructors/tests stay valid; when absent the
    * first preview update captures the current scrollLeft.
    */

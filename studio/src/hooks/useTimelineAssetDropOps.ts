@@ -1,5 +1,4 @@
 import { TimelineMediaActionError } from "../utils/timelineMediaActionError";
-import { mainVisualTrack } from "../player/components/timelineLinkage";
 // Asset-drop handlers for the timeline: drop an existing project asset at a
 // placement, or upload dragged-in OS files and place them sequentially.
 // Extracted verbatim from useTimelineEditing.ts to keep it under the studio
@@ -9,7 +8,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject, type RefObject }
 import { compositionInsertionFailureMessage } from "../i18n/editorErrors";
 import type { TimelineElement } from "../player";
 import type { TimelineDropPlacement } from "../player/components/timelineCallbacks";
-import { mainTrackAppendStart, resolveDropTrack, topTrackZIndex } from "../utils/timelineDropTrackInsert";
+import { mediaPlacementPeers, resolveMediaDropPlacement, resolveDropTrack, topTrackZIndex } from "../utils/timelineDropTrackInsert";
 import {
   buildTimelineAssetId,
   buildTimelineAssetInsertHtml,
@@ -149,16 +148,7 @@ export function useTimelineAssetDropOps({
         return undefined;
       }
 
-      const fileElements = elementsRef.current.filter(element =>
-        (element.sourceFile || activeCompPath || "index.html") === targetPath);
-      if (kind !== "audio" && placement.insertRow == null && !placement.newTrack &&
-          usePlayerStore.getState().rippleEditEnabled && placement.track === mainVisualTrack(fileElements)) {
-        const awaitingPreview = usePlayerStore.getState().pendingAssetDrops.flatMap(drop => drop.element ? [drop.element] : []);
-        placement = { ...placement, start: mainTrackAppendStart([...fileElements, ...gesture.placed, ...awaitingPreview], placement.track) };
-        if (existingPendingId) updatePendingAssetDrop(existingPendingId, { placement });
-      }
-
-      const pendingId = existingPendingId ?? beginPendingAssetDrop(assetPath, placement, durationOverride);
+      const pendingId = existingPendingId ?? beginPendingAssetDrop(assetPath, placement, durationOverride, true);
       const stillActive = () => isPendingAssetDropActive(pendingId);
       try {
         const normalizedStart = Number(formatTimelineAttributeNumber(placement.start));
@@ -167,7 +157,6 @@ export function useTimelineAssetDropOps({
             ? durationOverride
             : await resolveDroppedAssetDuration(pid, assetPath, kind);
         const normalizedDuration = Number(formatTimelineAttributeNumber(duration));
-        updatePendingAssetDrop(pendingId, { duration: normalizedDuration });
         // A video with an audio stream lands audible; the mixer only hears a
         // <video> marked data-has-audio, and a muted drop was losing the sound.
         const hasAudio = await resolveDroppedAssetHasAudio(pid, assetPath, kind);
@@ -180,6 +169,7 @@ export function useTimelineAssetDropOps({
         let newElementZIndex = 1;
         let track = 0;
         let start = normalizedStart;
+        let landing = placement;
         const insertAsset = (originalContent: string) => {
           if (!stillActive()) throw new Error("The timeline drop is no longer active.");
           const fileElements = elementsRef.current
@@ -190,28 +180,30 @@ export function useTimelineAssetDropOps({
           newId = buildTimelineAssetId(assetPath, ids);
           // Include drops saved while this preview was still reloading.
           const awaitingPreview = usePlayerStore.getState().pendingAssetDrops.flatMap((drop) =>
-            drop.element && ids.includes(drop.element.domId ?? "")
+            drop.element?.sourceFile === targetPath && ids.includes(drop.element.domId ?? "")
               ? [drop.element] : [],
           );
           if (placement.newTrack) newElementZIndex = topTrackZIndex(originalContent, [...fileElements, ...gesture.placed, ...awaitingPreview]);
+          const peers = gesture.onNewTrack ? [] : fileElements;
+          const placed = [...gesture.placed, ...awaitingPreview];
+          const dropped = { id: newId, tag, start: normalizedStart, duration: normalizedDuration };
+          const livePeers = gesture.onNewTrack || placement.insertRow != null || placement.newTrack
+            ? peers
+            : mediaPlacementPeers(originalContent, peers, placed);
+          landing = resolveMediaDropPlacement(gesture.onNewTrack ? placed : livePeers, placement, dropped);
           const resolved = resolveDropTrack({
-            magneticMainTrack: usePlayerStore.getState().rippleEditEnabled && placement.track === mainVisualTrack(fileElements),
             source: originalContent,
-            // Rows and insertRow count the rows the timeline shows; a track this drop opened has no others.
-            elements: gesture.onNewTrack ? [] : fileElements,
-            placed: [...gesture.placed, ...awaitingPreview],
-            placement,
-            dropped: {
-              id: newId,
-              tag,
-              start: normalizedStart,
-              duration: normalizedDuration,
-            },
+            elements: livePeers,
+            placed,
+            placement: landing,
+            dropped: { ...dropped, start: landing.start },
           });
           track = resolved.track;
           start = resolved.start;
           updatePendingAssetDrop(pendingId, {
-            placement: { ...placement, start },
+            placement: { ...landing, start },
+            duration: normalizedDuration,
+            waitingForPlacement: false,
           });
           return extendRootDurationInSource(
             insertTimelineAssetIntoSource(
@@ -246,7 +238,9 @@ export function useTimelineAssetDropOps({
         });
 
         const key = deriveTimelineStoreKeyForDomId(newId, targetPath);
-        const lane = placement.insertRow == null && !placement.newTrack ? placement.track : track;
+        const openedTrack = landing.insertRow != null || Boolean(landing.newTrack);
+        if (openedTrack) gesture.onNewTrack = true;
+        const lane = openedTrack ? track : landing.track;
         const element = {
           id: newId, key, domId: newId, sourceFile: targetPath,
           tag, start, duration: normalizedDuration, track: lane, authoredTrack: track, zIndex: newElementZIndex,
@@ -315,7 +309,7 @@ export function useTimelineAssetDropOps({
       let cursor = initialPlacement.start;
       const uploading = files.map(file => {
         const duration = ["image", "text"].includes(getTimelineAssetKind(file.name) ?? "") ? 3 : undefined;
-        const id = beginPendingAssetDrop(file.name, { ...initialPlacement, start: cursor }, duration);
+        const id = beginPendingAssetDrop(file.name, { ...initialPlacement, start: cursor }, duration, true);
         cursor += duration ?? 5;
         return { id, name: file.name };
       });
@@ -338,7 +332,7 @@ export function useTimelineAssetDropOps({
         const index = remaining.findIndex(file => file.name === path.split("/").pop());
         const pending = index < 0 ? undefined : remaining.splice(index, 1)[0];
         if (pending) { updatePendingAssetDrop(pending.id, { assetPath: path }); return pending.id; }
-        return beginPendingAssetDrop(path, initialPlacement);
+        return beginPendingAssetDrop(path, initialPlacement, undefined, true);
       });
       remaining.forEach(({ id }) => dismissPendingAssetDrop(id));
       pendingIds.forEach((id, index) => updatePendingAssetDrop(id, {
@@ -358,7 +352,6 @@ export function useTimelineAssetDropOps({
         );
         if (!clip) continue;
         gesture.placed.push(clip);
-        if (nextPlacement.insertRow != null || nextPlacement.newTrack) gesture.onNewTrack = true;
       }
       const last = gesture.placed.at(-1);
       if (last && scope === dropScopeRef.current) {

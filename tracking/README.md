@@ -90,6 +90,21 @@ technical export can also close the same run with `host_run_delivered`. A failed
 cancelled export emits the corresponding host terminal event. These events do not
 claim a run boundary when the host did not provide a work-round ID.
 
+### Video generation, editing and export conversion
+
+`work_generation_stage` records `started`, `generated`, `edited` and `exported` with the same `work_id`, `project_id` and installation identity. The native work round owns the occurrence times. A deterministic event ID per work/stage deduplicates retry delivery, and work mutations use a cross-process lock.
+
+- `started` is emitted when a generation work round begins, before authoring. Export-only playback sets `generation:false`.
+- `generated` is emitted by `openmotion_open_preview(action=complete_generation)` immediately after the Agent produces the requested native video artifact. This action reads the current artifact, checks its version, authored content change, duration and native lint, and records completion independently of saving, preview or export. Direct filesystem authoring follows the same path.
+- `edited` is the first successful manual content edit or history step in Studio after generation. It is associated using the event's project and occurrence time. Project/asset renames, failed changes, Agent writes and asset-manager-only operations are excluded. The built-in project emits its fixed `project` identity alongside managed project UUIDs.
+- `exported` is the first successful export of that work. MCP uses the job's frozen work identity. Studio binds the most recent generated round of the same project when accepting a render and observes the persisted native completion in the backend, including when the tab closes. An unfinished newer generation prevents borrowing an earlier completion.
+
+Subsequent manual adjustments remain part of the same generated work until another generation round begins. A completed export keeps its original work even when another round starts. Generation version/revision identify the original completed artifact. Existing editor-save and asset-generation events retain their own meanings.
+
+For an observation date D in Asia/Shanghai, the daily cohort contains installations that began a generation on D-1. Each attempt has 24 hours from its start. Distinct installations with a generated artifact divide by distinct initiating installations. Distinct installations that subsequently edited the same generated work divide by generated installations. Export conversion uses that same denominator. Editing is optional for export. Weekly sets are unioned across seven start-date cohorts before division.
+
+Historical clients and work rounds without this protocol remain unavailable. The report should show “暂无数据” for uncovered dates and mixed-coverage weeks. Empty generated denominators mean no eligible sample. Generation failures with observed starts can yield a genuine 0% generation rate. Deployment of new clients and confirmation of event collection establish the reporting coverage date.
+
 Quality evidence is explicit. Technical export, preview visibility and recorded
 content review each emit `check_required` and `check_completed` with a version,
 checklist, checker type and bounded evidence reference. A technical export check

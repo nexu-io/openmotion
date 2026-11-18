@@ -27,7 +27,9 @@ export function TimelinePendingAssetDrops({
     const start = drop.element?.start ?? placement.start;
     const name = drop.assetPath.split("/").pop() ?? drop.assetPath;
     const audio = getTimelineAssetKind(drop.assetPath) === "audio";
-    const width = Math.max(drop.failed ? 140 : 48, (drop.duration ?? 5) * pixelsPerSecond);
+    const width = drop.waitingForPlacement && !drop.failed
+      ? 48
+      : Math.max(drop.failed ? 140 : 48, (drop.duration ?? 5) * pixelsPerSecond);
     const compact = !drop.failed && width < 96;
     const message = t(drop.failed === "preview" ? "Preview failed to load" : drop.failed ? "Failed to add media" : "Adding…");
     return (

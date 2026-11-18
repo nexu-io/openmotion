@@ -164,16 +164,16 @@ export function useTimelineClipDrag({
   const dragAudioTracksRef = useRef<ReadonlySet<number> | null>(null);
 
   const buildSnapTargets = useCallback(
-    (excludeElementKey: string | null, includeBeats: boolean): TimelineSnapTarget[] => {
+    (excludeElementKey: string | null, includeBeats: boolean, includePlayhead = true): TimelineSnapTarget[] => {
       // Magnet off ⇒ no targets and no scan; do NOT cache so a mid-gesture toggle
       // back on starts scanning immediately (preserves the existing skip).
       if (!snapContextRef.current.enabled) return [];
-      const cacheKey = `${excludeElementKey ?? ""}|${includeBeats ? 1 : 0}`;
+      const cacheKey = `${excludeElementKey ?? ""}|${includeBeats ? 1 : 0}|${includePlayhead ? 1 : 0}`;
       const cached = snapTargetsCacheRef.current.get(cacheKey);
       if (cached) return cached;
       const targets = collectTimelineSnapTargets({
         elements: elementsRef.current,
-        playheadTime: usePlayerStore.getState().currentTime,
+        playheadTime: includePlayhead ? usePlayerStore.getState().currentTime : null,
         beatTimes: includeBeats ? snapContextRef.current.beatTimes : [],
         excludeElementKey,
         excludeElementKeys: gestureSelectedKeysRef.current,
@@ -315,6 +315,7 @@ export function useTimelineClipDrag({
         trackOrder: trackOrderRef.current,
         allowedInsertRows: trackInsertLayoutRef?.current?.allowedRows,
         groupTracks: trackInsertLayoutRef?.current?.groupTracks,
+        trackInsertLayout: trackInsertLayoutRef?.current,
         rowHeights: rowGeometryRef?.current.rowHeights,
         rowGeometry: rowGeometryRef?.current,
         elements: elementsRef.current,
@@ -322,9 +323,7 @@ export function useTimelineClipDrag({
         buildSnapTargets,
         audioTracks: dragAudioTracksRef.current,
         gridStep: snapGridStep(),
-        rippleEditEnabled: usePlayerStore.getState().rippleEditEnabled,
-        timelineLinkageEnabled: usePlayerStore.getState().timelineLinkageEnabled,
-        linkedSelectionEnabled: isLinkedSelectionOn(),
+        canInsertClips: Boolean(onMoveElementsRef.current),
       });
     },
     [

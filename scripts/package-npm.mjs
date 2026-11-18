@@ -1,5 +1,6 @@
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, chmod } from 'node:fs/promises';
 import path from 'node:path';
+import { stripTypeScriptTypes } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { nativeComponents, runFile, sha256, writeAtomic, writeJSON } from './runtime-assets.mjs';
 import assert from 'node:assert/strict';
@@ -119,6 +120,12 @@ export async function packageNpm(output = path.join(root, 'dist/npm-local'), ver
     await writeJSON(path.join(application, 'shared/build-info.json'), { commit });
     const skills = (await readdir(path.join(application, 'skills'))).sort();
     for (const name of ['runtime-assets.mjs', 'npm-runtime.mjs', 'npm-hosts.mjs', 'npm-installer.mjs', 'check-installed-mcp.mjs', 'mcp-client.mjs', 'diagnostics.mjs', 'diagnostic-redaction.mjs', 'zip.mjs']) await cp(path.join(root, 'scripts', name), path.join(installer, 'scripts', name));
+    // Node cannot strip TypeScript inside node_modules. Ship generated JavaScript
+    // for this outer npm entry; the application retains the TypeScript source.
+    await writeAtomic(path.join(installer, 'scripts/install-public-skill.mjs'),
+      stripTypeScriptTypes(await readFile(path.join(root, 'scripts/install-public-skill.ts'), 'utf8')));
+    const installerEntry = path.join(installer, 'scripts/npm-installer.mjs');
+    await writeAtomic(installerEntry, (await readFile(installerEntry, 'utf8')).replace("'./install-public-skill.ts'", "'./install-public-skill.mjs'"));
     await chmod(path.join(installer, 'scripts/npm-installer.mjs'), 0o755);
     const installerPkg = JSON.parse(await readFile(path.join(root, 'packages/npm/package.json'), 'utf8'));
     assert.equal(installerPkg.private, true, 'Keep the source package protected; publish only an explicitly versioned artifact');

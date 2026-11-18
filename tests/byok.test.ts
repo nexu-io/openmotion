@@ -32,7 +32,7 @@ test('public media tool reads guides, generates fal media once and binds job que
   await gateway.configureProvider('fal', { apiKey: 'test-fal-private' });
   assert.equal((await stat(path.join(gateway.root, 'secrets.json'))).mode & 0o777, 0o600);
   const inspect = await api.call('openmotion_media_use', { action: 'inspect' });
-  assert.deepEqual(inspect.providers.map((p: any) => [p.id, p.enabled]), [['atlascloud', false], ['fal', true], ['opendesign', false], ['wavespeed', false], ['account', false]]);
+  assert.deepEqual(inspect.providers.map((p: any) => [p.id, p.enabled]), [['atlascloud', false], ['fal', true], ['opendesign', false], ['fishaudio', false], ['minimax-speech-cn', false], ['minimax-speech', false], ['wavespeed', false], ['account', false]]);
   assert.doesNotMatch(JSON.stringify(inspect), /test-fal-private/);
   const reference = await api.call('openmotion_media_use', { action: 'reference', provider: 'fal' });
   assert.match(reference.content, /https:\/\/fal.ai\/docs\//);
@@ -271,6 +271,27 @@ test('WaveSpeed stops deleted tasks, rejects unsafe remote IDs and records auth 
   assert.equal((await gateway.status()).providers.find(p => p.id === 'wavespeed')!.verification, 'rejected');
   await gateway.close();
 }));
+
+test('public inspect describes regional connections and effective origins without leaking credentials', () => fixture(async store => {
+  const api = service(store), gateway = gatewayFor(store);
+  gateway.options.detect = async () => [];
+  try {
+    await gateway.configureProvider('minimax-speech-cn', { apiKey: 'synthetic-cn-inspect-secret' });
+    await gateway.configureProvider('minimax-speech', { apiKey: 'synthetic-global-inspect-secret', enabled: false });
+    await gateway.configureProvider('opendesign', { apiKey: 'synthetic-cloud-inspect-secret', baseUrl: 'https://cloud.example' });
+    const inspect = await api.call('openmotion_media_use', { action: 'inspect' });
+    const regional = inspect.providers.filter((p: any) => p.group === 'MiniMax Speech');
+    assert.deepEqual(regional.map((p: any) => ({ id: p.id, group: p.group, region: p.region, baseUrl: p.baseUrl, configured: p.configured, enabled: p.enabled })), [
+      { id: 'minimax-speech-cn', group: 'MiniMax Speech', region: 'China mainland', baseUrl: 'https://api.minimax.cn', configured: true, enabled: true },
+      { id: 'minimax-speech', group: 'MiniMax Speech', region: 'International', baseUrl: 'https://api.minimax.io', configured: true, enabled: false },
+    ]);
+    const fish = inspect.providers.find((p: any) => p.id === 'fishaudio');
+    assert.equal(fish.baseUrl, 'https://api.fish.audio'); assert.equal(fish.group, undefined); assert.equal(fish.region, undefined);
+    assert.equal(inspect.providers.find((p: any) => p.id === 'opendesign').baseUrl, 'https://cloud.example');
+    assert.doesNotMatch(JSON.stringify(inspect), /synthetic-.*-inspect-secret|keyEnvironment|keyHash/);
+    for (const p of regional) assert(inspect.references.some((ref: any) => ref.provider === p.id && ref.uri === 'openmotion://workflow/media/minimax'));
+  } finally { await gateway.close(); }
+}, false));
 
 test('public inspect requests billing refresh and exposes only sanitized account hints', t => fixture(async store => {
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];

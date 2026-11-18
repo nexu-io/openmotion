@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { validateTransport, redact } from './check-installed-mcp.mjs';
+import { validateTransport, redact, sameWorkspaceDirectory } from './check-installed-mcp.mjs';
 
 function protocolClient(transport, env, timeout) {
   const child = spawn(transport.command, transport.args, { cwd: transport.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
@@ -46,7 +46,7 @@ export async function installedTool(state, connection, name, args = {}, timeout 
     assert(Array.isArray(tools) && tools.length === expected.length && expected.every(name => tools.some(tool => tool.name === name)), 'Installed MCP tool contract mismatch');
     const read = await rpc('tools/call', { name: 'openmotion_get_project', arguments: {} });
     assert(!read.isError && typeof read.structuredContent?.dataDirectory === 'string'
-      && path.resolve(read.structuredContent.dataDirectory) === path.resolve(state.dataDirectory), 'Installed MCP data directory mismatch; no requested operation was applied');
+      && sameWorkspaceDirectory(read.structuredContent.dataDirectory, state.dataDirectory), 'Installed MCP data directory mismatch; no requested operation was applied');
     if (name === undefined) return { serverInfo: hello.serverInfo, dataDirectory: state.dataDirectory, tools: tools.filter(tool => allowed(tool.name)) };
     return name === 'openmotion_get_project' && Object.keys(args).length === 0 ? read : await rpc('tools/call', { name, arguments: args });
   } catch (error) {

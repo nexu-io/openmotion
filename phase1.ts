@@ -99,7 +99,7 @@ export class Phase1Service {
   readonly ledger: TaskLedger;
   constructor(store: WorkspaceStore, runtimeRoot: string, context: Phase1Context) { this.store = store; this.runtimeRoot = runtimeRoot; this.context = context; this.ledger = new TaskLedger(store.directory); }
   versions(projectId: string) { return new ProjectVersions(this.store.forProject(projectId), this.runtimeRoot, this.context.nativeUrl(projectId)); }
-  get workRounds() { return new WorkRounds(this.store); }
+  get workRounds() { return new WorkRounds(this.store, this.context.tracking); }
   async call(name: string, args: any, host?: HostContext, options?: { attributeEntry?: boolean }) {
     const requestedName = publicToolName(name);
     name = legacyToolName(name);
@@ -170,6 +170,20 @@ export class Phase1Service {
       if (previous.inputHash !== inputHash) throw new Error('REQUEST_ID_CONFLICT: 相同 requestId 不能使用不同输入');
       if (previous.state === 'completed') return { ...previous.result, ...(previous.result.job ? { job: await this.publicJob(previous.result.job.id) } : {}), replayed: true };
       if (previous.state === 'failed') throw new Error(previous.error);
+      if (name === 'motion_open_preview' && args.action === 'complete_generation') {
+        const work = await this.workRounds.get(args.projectId, args.workId);
+        if (work.generation?.completionRequestId === args.requestId) {
+          this.workRounds.emitGeneration(work);
+          const result = { projectId: args.projectId, generation: work.generation };
+          await atomicJson(file, { ...previous, state: 'completed', result }); return result;
+        }
+      }
+      if (name === 'motion_open_preview' && args.action === 'begin' && previous.workId) {
+        const project = await this.detail(args.projectId);
+        const inlineWork = await this.workRounds.create(project, args.mode, previous.workId, args.generation !== false);
+        const result = { projectId: project.projectId, sessionId: project.sessionId, authoringGuide: project.authoringGuide, inlineWork };
+        await atomicJson(file, { ...previous, state: 'completed', result }); return result;
+      }
       // A lost reply must not turn into a second write or render.
       if (args.projectId) {
         const index = await this.versions(args.projectId).index();
@@ -198,11 +212,12 @@ export class Phase1Service {
     if (name === 'motion_import_assets' && !args.items.every((item: any) => isFontFilePath(item.sourcePath))) await requireNativeRuntime(pluginRoot, 'media');
     if (name === 'motion_export_request' && args.action !== 'record_review') await requireNativeRuntime(pluginRoot, 'export');
     const record = { inputHash, name, state: 'pending', projectId: name === 'motion_create_project' ? crypto.randomUUID() : args.projectId,
-      sessionId: args.sessionId ?? crypto.randomUUID(), createdAt: Date.now() };
+      sessionId: args.sessionId ?? crypto.randomUUID(), createdAt: Date.now(),
+      ...(name === 'motion_open_preview' && args.action === 'begin' ? { workId: crypto.randomUUID() } : {}) };
     await atomicJson(file, record);
     let result, workAccepted = false;
     try {
-      if (args.workId) { await this.workRounds.writable(name, args); workAccepted = true; }
+      if (args.workId) { await this.workRounds.writable(name, args); workAccepted = args.action !== 'complete_generation'; }
       result = await task(record);
       if (args.workId) await this.workRounds.observed(name, args, result);
     }
@@ -211,6 +226,32 @@ export class Phase1Service {
       await atomicJson(file, { ...record, state: 'failed', error: errorText(error) }); throw error;
     }
     await atomicJson(file, { ...record, state: 'completed', result }); return result;
+  }
+  async completeGeneration(args: any) {
+    const detail = await this.detail(args.projectId);
+    if (detail.revision !== args.expectedRevision || detail.currentVersionId !== args.expectedVersionId)
+      throw new Error('VERSION_CONFLICT');
+    const work = await this.workRounds.get(args.projectId, args.workId);
+    if (!work.generation) throw new Error('WORK_GENERATION_UNTRACKED: begin a new generation work round');
+    if (work.generation.completedAt) {
+      this.workRounds.emitGeneration(work);
+      return work.generation;
+    }
+    const versions = await this.versions(args.projectId).index();
+    const initial = versions.versions.find(v => v.versionId === work.generation?.initialVersionId);
+    const current = versions.versions.find(v => v.versionId === detail.currentVersionId);
+    const content = /\.(html|css|js|mjs|json|svg|mp4|webm|wav|mp3|png|jpg|jpeg)$/i;
+    if (!initial || !current || !current.files.some(file => content.test(file.path) && ![metadataPath, assetIndexPath].includes(file.path)
+        && initial.files.find(old => old.path === file.path)?.hash !== file.hash))
+      throw new Error('GENERATION_CONTENT_UNCHANGED: complete the video artifact before reporting generation');
+    const scoped = this.store.forProject(args.projectId);
+    if ((await scoped.get()).revision !== detail.revision) throw new Error('VERSION_CONFLICT');
+    const info = await inspectProject(this.runtimeRoot, scoped.projectDirectory, 'info');
+    if (info.exitCode || !(info.result.duration > 0)) throw new Error('GENERATION_ARTIFACT_INVALID');
+    const checked = await inspectProject(this.runtimeRoot, scoped.projectDirectory, 'lint');
+    if (checked.exitCode) throw new Error('PROJECT_VALIDATION_FAILED: ' + JSON.stringify(checked.result));
+    if ((await scoped.get()).revision !== detail.revision) throw new Error('VERSION_CONFLICT');
+    return this.workRounds.generated(args.projectId, args.workId, current.versionId, current.versionNumber, detail.revision, args.requestId);
   }
   async publicJob(jobId: string) {
     const job = (await this.store.status(jobId)).exportJob;
@@ -456,15 +497,22 @@ export class Phase1Service {
       }
       if (args.action === 'begin') {
         if (!args.projectId || !args.mode) throw new Error('INVALID_ARGUMENT: begin requires projectId and mode');
-        return this.writeRequest(name, args, async () => {
+        return this.writeRequest(name, args, async record => {
           const project = await this.detail(args.projectId);
-          const inlineWork = await this.workRounds.create(project, args.mode);
+          const inlineWork = await this.workRounds.create(project, args.mode, record.workId, args.generation !== false);
           if (this.context.tracking) {
             this.context.tracking.track('host_run_started', { run_id: inlineWork.id, entry_type: 'mcp', task_type: args.mode });
             this.context.tracking.track('host_state_changed', { run_id: inlineWork.id, sequence: 1, state: 'active', phase: 'authoring' });
           }
           return { projectId: project.projectId, sessionId: project.sessionId, authoringGuide: project.authoringGuide, inlineWork };
         });
+      }
+      if (args.action === 'complete_generation') {
+        if (!args.projectId || !args.workId || !args.expectedRevision || !args.expectedVersionId)
+          throw new Error('INVALID_ARGUMENT: complete_generation requires projectId, workId and both version identities');
+        return this.writeRequest(name, args, async () => ({
+          projectId: args.projectId, generation: await this.completeGeneration(args),
+        }));
       }
       if (args.action === 'record_review') {
         if (!args.projectId) throw new Error('INVALID_ARGUMENT: projectId is required for review');

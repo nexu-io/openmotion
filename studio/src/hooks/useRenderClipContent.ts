@@ -24,7 +24,7 @@ import {
   resolveMediaPreviewUrl,
 } from "../player/components/thumbnailUtils";
 import { usePlayerStore } from "../player/store/playerStore";
-import { thumbnailRevisionOf } from "../player/store/thumbnailSlice";
+import { mediaThumbnailRevisionOf, thumbnailRevisionOf } from "../player/store/thumbnailSlice";
 import { effectiveThumbnailMode } from "../player/lib/thumbnailPolicy";
 import { useMvpEditor } from "../motion/StudioHost";
 
@@ -229,16 +229,19 @@ export function useRenderClipContent({
           pid,
           window.location.origin,
         );
-        const revision = thumbnailRevisionOf(thumbnailRevisions, "index.html");
         const previewPrefix = buildProjectApiPath(pid, "/preview/");
         if (
-          revision > 0 &&
-          (mediaSrc.startsWith(previewPrefix) ||
-            mediaSrc.startsWith(window.location.origin + previewPrefix))
+          mediaSrc.startsWith(previewPrefix) ||
+          mediaSrc.startsWith(window.location.origin + previewPrefix)
         ) {
           const mediaUrl = new URL(mediaSrc, window.location.origin);
-          mediaUrl.searchParams.set("revision", String(revision));
-          mediaSrc = mediaUrl.href;
+          // A visibility edit changes the composition, but the original media frames stay valid.
+          const assetPath = authoredSrcPath(mediaUrl.pathname.slice(previewPrefix.length));
+          const revision = mediaThumbnailRevisionOf(thumbnailRevisions, assetPath);
+          if (revision) {
+            mediaUrl.searchParams.set("revision", String(revision));
+            mediaSrc = mediaUrl.href;
+          }
         }
         // Still images can't be decoded by VideoThumbnail's <video> extractor
         // (the error event fires and the shimmer never resolves) — render the

@@ -1,7 +1,7 @@
 import type { TimelineElement } from "../player";
 import { layoutAfterTrackInsert } from "../player/components/timelineDragLanding";
 import { canMoveTimelineElement } from "../player/components/timelineAuthoredMoveTarget";
-import { resolveNearestFreeStart } from "../player/components/timelineCollision";
+import { resolveZoneDropPlacement } from "../player/components/timelineCollision";
 import { authoredTrackForLane } from "../player/components/timelineAuthoredTrack";
 import { isAudioTimelineElement } from "./timelineInspector";
 import type { TimelineDropPlacement } from "../player/components/timelineCallbacks";
@@ -9,6 +9,7 @@ import { applyPatchByTarget, readAttributeByTarget, readTagSnippetByTarget, read
 import { buildPatchTarget } from "../hooks/timelineEditingHelpers";
 import { formatTimelineAttributeNumber } from "../player/components/timelineEditing";
 import { planTimelineLanePersistence, withPersistedTimelineLanes } from "../player/components/timelineLanePersistence";
+import { normalizeToZones } from "../player/components/timelineZones";
 
 export interface DropTrackInsertPlan {
   /** Lane the dropped clip is written on. */
@@ -77,40 +78,60 @@ export function applyTrackRenumbers(source: string, plan: DropTrackInsertPlan): 
 
 type DroppedClip = Pick<TimelineElement, "id" | "tag" | "start" | "duration">;
 
-/** The file track a drop on display row `lane` is written to, and its nearest free start there.
- *  The timeline's own clips decide the track; `placed` clips only block, like same-kind clips there. */
-function resolveRowDrop(
+function readSavedTrack(source: string, element: TimelineElement): number | undefined {
+  const target = buildPatchTarget(element);
+  if (!target || !readTagSnippetByTarget(source, target)) return undefined;
+  const raw = readAttributeByTarget(source, target, "track-index");
+  const track = raw === undefined ? 0 : Number(raw);
+  if (!Number.isFinite(track)) throw new Error("Invalid authored track index");
+  return track;
+}
+
+/** A preceding drop can renumber lanes before the timeline discovers the saved clips. */
+export function mediaPlacementPeers(
+  source: string,
   elements: TimelineElement[],
-  placed: readonly TimelineElement[],
-  lane: number,
+  awaitingPreview: readonly TimelineElement[],
+): TimelineElement[] {
+  const peers = new Map(elements.map(element => [element.key ?? element.id, element]));
+  const unseen = awaitingPreview.filter(element => !peers.has(element.key ?? element.id));
+  if (unseen.length === 0) return elements;
+  for (const element of unseen) peers.set(element.key ?? element.id, element);
+  return normalizeToZones([...peers.values()].map(element => {
+    const track = readSavedTrack(source, element) ?? element.authoredTrack ?? element.track;
+    return { ...element, track, authoredTrack: track };
+  }));
+}
+
+/** Resolve a media drop in visible row order before translating it to authored tracks. */
+export function resolveMediaDropPlacement(
+  elements: TimelineElement[],
+  placement: TimelineDropPlacement,
   dropped: DroppedClip,
-): { track: number; start: number } {
-  const audio = isAudioTimelineElement(dropped);
-  const row = elements.filter((e) => e.track === lane);
-  const otherKindRow = row.length > 0 && !row.some((e) => isAudioTimelineElement(e) === audio);
-  const asClip = { ...dropped, key: dropped.id, track: lane, sourceFile: elements[0]?.sourceFile };
-  const track = otherKindRow ? lane : authoredTrackForLane(lane, elements, asClip);
-  const onTrack = [...elements, ...placed]
-    .filter((e) => isAudioTimelineElement(e) === audio && (e.authoredTrack ?? e.track) === track)
-    .map((e) => ({ ...e, track }));
-  return {
-    track,
-    start: resolveNearestFreeStart(onTrack, track, dropped.start, dropped.duration, null),
-  };
+): TimelineDropPlacement {
+  if (placement.insertRow != null || placement.newTrack) return placement;
+  const order = [...new Set(elements.map(el => el.track))].sort((a, b) => a - b);
+  if (order.length === 0) return placement;
+  const result = resolveZoneDropPlacement({
+    order,
+    audioTracks: new Set(elements.filter(isAudioTimelineElement).map(el => el.track)),
+    elements,
+    desiredTrack: placement.track,
+    deliberateInsertRow: null,
+    start: dropped.start,
+    duration: dropped.duration,
+    dragKey: dropped.id,
+    isAudio: isAudioTimelineElement(dropped),
+  });
+  return result.insertRow == null
+    ? { track: result.track, start: result.start }
+    : { track: result.track, start: result.start, insertRow: result.insertRow, trackOrder: order };
 }
 
-/** The shared magnetic import position, usable before media metadata resolves. */
-export function mainTrackAppendStart(elements: readonly TimelineElement[], track: number): number {
-  return elements.filter(element => !isAudioTimelineElement(element) && element.track === track)
-    .reduce((end, element) => Math.max(end, element.start + element.duration), 0);
-}
-
-/** Where a dropped clip is written: the aimed row's file track at its nearest free time, or a new track. */
+/** Translate a resolved landing to its authored track or write the requested new lane. */
 export function resolveDropTrack(input: {
   source: string;
   elements: TimelineElement[];
-  /** Main-track imports append head-to-tail when its magnet is on. */
-  magneticMainTrack?: boolean;
   /** Clips this drop gesture already wrote, which `elements` does not hold yet. */
   placed?: readonly TimelineElement[];
   placement: TimelineDropPlacement;
@@ -125,12 +146,8 @@ export function resolveDropTrack(input: {
     // already be saved while the iframe still shows the old row order.
     const peers = new Map<string, TimelineElement>();
     for (const element of [...elements, ...(input.placed ?? [])]) {
-      const target = buildPatchTarget(element);
-      const raw = target ? readAttributeByTarget(insertionSource, target, "track-index") : undefined;
-      if (!target || !readTagSnippetByTarget(insertionSource, target)) continue;
-      // Absent data-track-index is the authored default lane, not a missing node.
-      const track = raw === undefined ? 0 : Number(raw);
-      if (!Number.isFinite(track)) throw new Error("Invalid authored track index");
+      const track = readSavedTrack(insertionSource, element);
+      if (track === undefined) continue;
       peers.set(element.key ?? element.id, { ...element, track, authoredTrack: track });
     }
     const current = [...peers.values()];
@@ -144,18 +161,13 @@ export function resolveDropTrack(input: {
     return { source: applyTrackRenumbers(insertionSource, plan), track: plan.track, start: dropped.start };
   }
   if (placement.insertRow == null) {
-    if (input.magneticMainTrack && !isAudioTimelineElement(dropped)) {
-      const end = mainTrackAppendStart([...elements, ...(input.placed ?? [])], placement.track);
-      const peers = planTimelineLanePersistence(elements, { ...dropped, track: placement.track, sourceFile: elements[0]?.sourceFile });
-      const persisted = withPersistedTimelineLanes(elements, peers);
-      const track = authoredTrackForLane(placement.track, persisted, { ...dropped, track: placement.track });
-      return { source: applyTrackRenumbers(source, { track, renumbers: peers }), track, start: end };
-    }
     const target = { ...dropped, track: placement.track, sourceFile: elements[0]?.sourceFile };
     const renumbers = planTimelineLanePersistence(elements, target);
+    const persisted = withPersistedTimelineLanes(elements, renumbers);
     return {
       source: applyTrackRenumbers(source, { track: placement.track, renumbers }),
-      ...resolveRowDrop(withPersistedTimelineLanes(elements, renumbers), input.placed ?? [], placement.track, dropped),
+      track: authoredTrackForLane(placement.track, persisted, target),
+      start: dropped.start,
     };
   }
   const { insertRow, trackOrder } = placement;

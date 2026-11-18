@@ -17,6 +17,8 @@ import { STUDIO_EDIT_ATTRS } from "../components/editor/manualEditsSeekReapply";
 import { markScenesStale } from "../player/sceneSwap";
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from "../components/editor/manualEditsTypes";
 import { countStudioPreviewChange, studioGestureDraws } from "../components/editor/manualEditsDom";
+import { syncPreservedPreviewTiming } from "./previewAuthoredTiming";
+import { PREVIEW_ONLY_ATTRS, RUNTIME_STAMPED_ATTR } from "@hyperframes/core/studio-preview-mark";
 
 type PreviewWindow = Window & {
   __player?: { seek?: (t: number) => void };
@@ -47,11 +49,12 @@ function elementIdentityKey(el: Element): string | null {
 
 const IDENTITY_SELECTOR = "[id], [data-hf-id]";
 
-function identityElementMap(root: ParentNode): Map<string, Element> | null {
+function identityElementMap(root: ParentNode, needed?: ReadonlySet<string>): Map<string, Element> | null {
   const map = new Map<string, Element>();
   for (const el of root.querySelectorAll(IDENTITY_SELECTOR)) {
     const key = elementIdentityKey(el);
     if (!key) continue;
+    if (needed && !needed.has(key)) continue;
     // Ambiguous identity must full-reload; silently overwriting would restore
     // one element's attributes onto another element sharing the same key.
     if (map.has(key)) return null;
@@ -149,12 +152,45 @@ function diffRestoreDocs(prevDoc: Document, nextDoc: Document): string[] | null 
 function syncElementAttributes(target: Element, source: Element, base?: Element): void {
   const draws = base && studioGestureDraws(target);
   const merged = draws ? keepDrawn(target, source, base, draws) : source;
+  if (base && syncMountedCompositionAttributes(target, merged, base)) return;
+  // Preview URLs may be rebased or lazy-loaded. Reassigning even an unchanged
+  // media src starts a new load, so timing/style undo must leave those alone.
+  const preserve = (name: string) =>
+    (base && ["src", "srcset", "poster"].includes(name) && base.getAttribute(name) === merged.getAttribute(name)) ||
+    (PREVIEW_ONLY_ATTRS.some(attribute => attribute === name) && name !== RUNTIME_STAMPED_ATTR);
   for (const name of [...target.getAttributeNames()]) {
-    if (!merged.hasAttribute(name)) target.removeAttribute(name);
+    if (!merged.hasAttribute(name) && !preserve(name)) target.removeAttribute(name);
   }
   for (const name of merged.getAttributeNames()) {
-    target.setAttribute(name, merged.getAttribute(name) ?? "");
+    if (!preserve(name) && target.getAttribute(name) !== merged.getAttribute(name)) target.setAttribute(name, merged.getAttribute(name) ?? "");
   }
+}
+
+/** A mounted scene contains runtime-owned markup and visibility. Restore only
+ * the authored differences without turning it back into an unloaded reference. */
+function syncMountedCompositionAttributes(target: Element, source: Element, base: Element): boolean {
+  const file = target.getAttribute("data-composition-file");
+  if (!file || file !== source.getAttribute("data-composition-src")) return false;
+  for (const name of new Set([...base.getAttributeNames(), ...source.getAttributeNames()])) {
+    if (name === "data-composition-src" || source.getAttribute(name) === base.getAttribute(name)) continue;
+    if (name === "style") {
+      const live = (target as HTMLElement).style;
+      const before = (base as HTMLElement).style;
+      const after = (source as HTMLElement).style;
+      for (const property of new Set([...Array.from(before), ...Array.from(after)])) {
+        if (before.getPropertyValue(property) === after.getPropertyValue(property) && before.getPropertyPriority(property) === after.getPropertyPriority(property)) continue;
+        if (after.getPropertyValue(property)) live.setProperty(property, after.getPropertyValue(property), after.getPropertyPriority(property));
+        else live.removeProperty(property);
+      }
+      if (!source.hasAttribute("style") && live.length === 0) target.removeAttribute("style");
+      continue;
+    }
+    const value = source.getAttribute(name);
+    syncPreservedPreviewTiming(target, name, value);
+    if (value === null) target.removeAttribute(name);
+    else if (target.getAttribute(name) !== value) target.setAttribute(name, value);
+  }
+  return true;
 }
 
 /** `source`, plus what a gesture in progress draws on `live` (whatever its value) or changed since `base`. */
@@ -210,7 +246,7 @@ function hasAmbiguousGsapScriptChange(
 }
 
 type RestoreTarget = { live: Element; restored: Element; previous?: Element };
-type RestorePlan = { targets: RestoreTarget[]; scripted: boolean };
+type RestorePlan = { targets: RestoreTarget[]; scripted: boolean; scriptChanged: boolean };
 
 /** Whether either side has a GSAP script, or null when its scripts rule out an in-place restore. */
 function restoreScripted(prevDoc: Document, nextDoc: Document, isActive: boolean): boolean | null {
@@ -219,8 +255,14 @@ function restoreScripted(prevDoc: Document, nextDoc: Document, isActive: boolean
   );
   const scripted = before!.length > 0 || after!.length > 0;
   // Only the active document's GSAP script can be re-run in place.
-  if (scripted && !isActive) return null;
+  if (scripted && !isActive) return before!.join("\n") === after!.join("\n") ? false : null;
   return hasAmbiguousGsapScriptChange(before!, after!) ? null : scripted;
+}
+
+function requiresGsapReparse(targets: readonly RestoreTarget[]): boolean {
+  return targets.some(({ live, restored, previous }) =>
+    "_gsap" in live && restored.getAttribute("style") !== previous?.getAttribute("style"),
+  );
 }
 
 // The active document is the whole preview; a sub-composition lives in each host that inlines it.
@@ -235,7 +277,9 @@ function scopeTargets(
   restoredByKey: Map<string, Element>,
   previousByKey: Map<string, Element>,
 ): RestoreTarget[] | null {
-  const liveByKey = identityElementMap(scope);
+  // Inlined scenes may reuse local identities. Only ambiguity in an actual
+  // restore target requires a reload; unrelated scene contents stay mounted.
+  const liveByKey = identityElementMap(scope, new Set(keys));
   if (!liveByKey) return null;
   const targets: RestoreTarget[] = [];
   for (const key of keys) {
@@ -269,7 +313,11 @@ function fileTargets(
     scopeTargets(scope, keys, restoredByKey, previousByKey),
   );
   if (!found.length || found.includes(null)) return null;
-  return { targets: (found as RestoreTarget[][]).flat(), scripted };
+  const targets = (found as RestoreTarget[][]).flat();
+  // An unchanged nested script needs no execution for timing/audio/visibility.
+  // A changed GSAP-managed style still requires the file's scoped runtime.
+  if (!isActive && requiresGsapReparse(targets)) return null;
+  return { targets, scripted, scriptChanged: extractGsapScriptText(file.previous) !== extractGsapScriptText(file.restored) };
 }
 
 /** Every live element a restore changes with its restored markup, or null when it needs a reload. */
@@ -278,12 +326,13 @@ function planRestoreTargets(
   activeDocPath: string,
   files: RestoreFiles,
 ): RestorePlan | null {
-  const plan: RestorePlan = { targets: [], scripted: false };
+  const plan: RestorePlan = { targets: [], scripted: false, scriptChanged: false };
   for (const [path, file] of Object.entries(files)) {
     const found = fileTargets(doc, path, path === activeDocPath, file);
     if (!found) return null;
     plan.targets.push(...found.targets);
     plan.scripted ||= found.scripted;
+    plan.scriptChanged ||= found.scriptChanged;
   }
   return plan;
 }
@@ -314,7 +363,7 @@ export function showRestoreInPlace(
   const doc = iframe?.contentDocument;
   const win = iframe?.contentWindow as PreviewWindow | null;
   const plan = doc && win ? planRestoreTargets(doc, activeCompPath ?? "index.html", files) : null;
-  if (!iframe || !doc || !win || !plan || plan.scripted) return null;
+  if (!iframe || !doc || !win || !plan || plan.scriptChanged || (plan.scripted && requiresGsapReparse(plan.targets))) return null;
   countStudioPreviewChange(doc);
   const before = plan.targets.map(
     ({ live, restored }) => [live, live.cloneNode(false) as Element, restored] as const,
@@ -340,7 +389,10 @@ export function readUndoNestedFiles(
 ): Promise<Map<string, string>> | null {
   const active = files?.[activeCompPath ?? "index.html"];
   const script = active ? extractGsapScriptText(active.restored) : null;
-  return script ? readNestedFiles(iframe, script, readFile) : null;
+  const doc = iframe?.contentDocument;
+  const plan = doc && files ? planRestoreTargets(doc, activeCompPath ?? "index.html", files) : null;
+  if (!script || !plan || (!plan.scriptChanged && !requiresGsapReparse(plan.targets))) return null;
+  return readNestedFiles(iframe, script, path => Promise.resolve(files?.[path]?.restored ?? readFile(path)));
 }
 
 /** A preview about to reload still shows the timeline's last composed transform; take it back to the file. */
@@ -419,7 +471,7 @@ export function applyUndoRestoreToPreview(
   const active = files[activeDocPath];
   const restoredScript = active ? extractGsapScriptText(active.restored) : null;
   const previousScript = active ? extractGsapScriptText(active.previous) : null;
-  const reparse = plan.scripted && plan.targets.some(({ live }) => "_gsap" in live);
+  const reparse = plan.scripted && requiresGsapReparse(plan.targets);
   if (reparse && !restoredScript) {
     reloadPreview();
     return "full";

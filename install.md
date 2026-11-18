@@ -2,6 +2,24 @@
 
 For an Agent asked to install OpenMotion from this repository, use the source installation below. This is the default repository installation route. Only use npm installation when the user explicitly selects it; follow the [published application guide](docs/install.md) instead of mixing source and package setup. npm remains required to install this checkout's locked dependencies and build Studio.
 
+## Install through the main Skill
+
+```sh
+npx skills add nexu-io/openmotion --skill openmotion
+```
+
+Invoke **openmotion** in the current Agent to finish the runtime, Studio and MCP setup below. The standalone Skill reads production guidance through MCP resources after connection, so sibling Skills are not required. A Skills CLI copy alone is not a complete application installation.
+
+Default Codex source setup also installs this entry globally through the pinned official Skills CLI, selecting only Codex. An existing official installation is reused; use `npx skills update` when you want to update it. `OPENMOTION_SKIP_PUBLIC_SKILL=1` skips this optional step, and alternate host homes are left for explicit profile installation. The CLI's `DISABLE_TELEMETRY` and `DO_NOT_TRACK` opt-outs are preserved. Only genuine official CLI installs can contribute to skills.sh; listing updates and counts are controlled by that service. A failure of this optional step does not invalidate Studio/MCP installation or stop onboarding.
+
+## DSH: workspace plugin
+
+When the current host is DSH and the user wants the integrated OpenMotion workspace, follow [OpenMotion for DSH](integrations/dsh/README.md#download-and-install-the-plugin) before choosing the Codex or generic MCP route below. This installs the workspace UI and its MCP connection together. Do not also register a second `mcp-openmotion` adapter.
+
+The public download entry is [DSH plugin downloads](https://releases.open-design.ai/open-motion/integrations/dsh/main/latest.json). It identifies the verified tarball, SHA-256, source commit and supported DSH version. For a fresh installation, prepare a separate source checkout at that commit, run `npm ci` and `npm run build:studio`, download/verify the plugin, install it in the intended DSH profile, and enable it using the guide. Preserve existing installations, projects, model settings and unrelated profile entries; never reset an existing checkout to match the download. Existing source users can build the plugin from their own checkout instead. DSH starts OpenMotion itself; do not run the generic `npm start` step as well.
+
+The download becomes available after this integration reaches `main` and its first publishing run succeeds. Before then, use the guide's source build or the PR workflow artifact. Installation does not create a video or call paid models. Verify the workspace entry, expected project/template lists and MCP tool discovery, then report the actual result and Studio URL. The template-onboarding receipt/card instructions below apply to the source bootstrap, not this separate DSH plugin setup.
+
 ## Codex: automatic source installation
 
 Collect OS/CPU, Git, Node.js/npm and the current host once. Source validation uses Node.js 26.11.1. Codex must support `codex plugin add`. Preserve projects, credentials, unrelated plugins and MCP configuration. Configure only the current host.

@@ -6,7 +6,7 @@ import { AssetPreview } from './AssetBrowser';
 import { ResizablePane } from './ResizablePane';
 import { Tooltip } from '../components/ui/Tooltip';
 
-function AssetNameEditor({ name, saving, onRename }: { name: string; saving: boolean; onRename: (name: string) => Promise<boolean | void> }) {
+export function AssetNameEditor({ name, saving, onRename }: { name: string; saving: boolean; onRename: (name: string) => Promise<boolean | void> }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false), [draft, setDraft] = useState(name), [pending, setPending] = useState(false), [overflow, setOverflow] = useState(false);
   const input = useRef<HTMLInputElement>(null), trigger = useRef<HTMLButtonElement>(null), label = useRef<HTMLSpanElement>(null);

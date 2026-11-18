@@ -1,9 +1,7 @@
 import { formatTime } from "../lib/time";
 import { roundToCenti } from "../../utils/rounding";
 import type { StackingTimelineLayer, TimelineLayerId } from "./timelineTrackOrder";
-import { resolveTimelineLayerStackingMove } from "./timelineLayerDrag";
 import { shouldShowTimelineLayerGroupHeader } from "./TimelineLayerGroupHeader";
-import type { TimelineStackingElement, TimelineStackingReorderIntent } from "./timelineStacking";
 import type { TimelineEditCapabilities } from "./timelineEditCapabilities";
 
 export {
@@ -37,30 +35,8 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-const EDGE_TRACK_CREATE_THRESHOLD = 0.55;
 const AUTO_SCROLL_EDGE_ZONE = 40;
 const AUTO_SCROLL_MAX_SPEED = 12;
-
-export interface TimelineMoveInput {
-  start: number;
-  track: number;
-  duration: number;
-  originClientX: number;
-  /** Vertical position as a track-row index, not pixels: rows vary in height. */
-  originRow: number;
-  originScrollLeft?: number;
-  currentScrollLeft?: number;
-  pixelsPerSecond: number;
-  minStart?: number;
-  maxStart: number;
-  trackOrder: number[];
-  layerOrder?: TimelineLayerId[];
-  timelineLayers?: StackingTimelineLayer[];
-  /** When provided, vertical movement is resolved as a z-index stacking reorder
-   *  within `stackingElement`'s context instead of a raw track change. */
-  stackingElement?: TimelineStackingElement;
-  stackingElements?: TimelineStackingElement[];
-}
 
 export interface TimelineResizeInput {
   start: number;
@@ -104,85 +80,6 @@ export function resolveTimelineAutoScroll(
   return {
     x: getAxisDelta(horizontalStart, bounds.right, clientX),
     y: getAxisDelta(bounds.top, bounds.bottom, clientY),
-  };
-}
-
-export function resolveTimelineMove(
-  input: TimelineMoveInput,
-  clientX: number,
-  currentRow: number,
-): {
-  start: number;
-  track: number;
-  previewLayerId?: TimelineLayerId;
-  previewLayerIndex?: number;
-  stackingReorder?: TimelineStackingReorderIntent | null;
-} {
-  const scrollDeltaX = (input.currentScrollLeft ?? 0) - (input.originScrollLeft ?? 0);
-  const deltaTime =
-    (clientX - input.originClientX + scrollDeltaX) / Math.max(input.pixelsPerSecond, 1);
-  // Rows, so vertical scroll and per-row heights are the caller's problem: rows
-  // have varied in height since lanes expand, and a single trackHeight can't
-  // describe them.
-  const trackDeltaRaw = currentRow - input.originRow;
-  const deltaTrack = Math.round(trackDeltaRaw);
-  const nextStart = clamp(
-    roundToCentiseconds(input.start + deltaTime),
-    input.minStart ?? 0,
-    Math.max(0, input.maxStart),
-  );
-
-  // Stacking mode: the two axes never fight. Horizontal movement writes time
-  // (nextStart); vertical movement writes z-index. Lane/overlap resolution
-  // uses the clip's authored time span, NOT the dragged start, otherwise a
-  // diagonal drag that drifts the clip out of overlap silently flips the
-  // placement from "restack" to "join lane" and cancels the reorder.
-  if (input.stackingElement) {
-    const layerMove =
-      input.timelineLayers && input.layerOrder
-        ? resolveTimelineLayerStackingMove({
-            element: { ...input.stackingElement, duration: input.duration },
-            layers: input.timelineLayers,
-            layerOrder: input.layerOrder,
-            trackDeltaRaw,
-          })
-        : null;
-    return {
-      start: nextStart,
-      track: input.track,
-      previewLayerId: layerMove?.previewLayerId,
-      previewLayerIndex: layerMove?.previewLayerIndex,
-      stackingReorder: layerMove?.stackingReorder ?? null,
-    };
-  }
-
-  const currentTrackIndex = Math.max(0, input.trackOrder.indexOf(input.track));
-  const desiredTrackIndex = currentTrackIndex + deltaTrack;
-  const nextTrackIndex = clamp(desiredTrackIndex, 0, Math.max(0, input.trackOrder.length - 1));
-  const minTrack = Math.min(...input.trackOrder);
-  const maxTrack = Math.max(...input.trackOrder);
-  let nextTrack = input.trackOrder[nextTrackIndex] ?? input.track;
-
-  const startedOnFirstTrack = currentTrackIndex === 0;
-  const startedOnLastTrack = currentTrackIndex === input.trackOrder.length - 1;
-
-  if (
-    startedOnFirstTrack &&
-    desiredTrackIndex < 0 &&
-    currentTrackIndex + trackDeltaRaw <= -EDGE_TRACK_CREATE_THRESHOLD
-  ) {
-    nextTrack = minTrack - 1;
-  } else if (
-    startedOnLastTrack &&
-    desiredTrackIndex > input.trackOrder.length - 1 &&
-    currentTrackIndex + trackDeltaRaw >= input.trackOrder.length - 1 + EDGE_TRACK_CREATE_THRESHOLD
-  ) {
-    nextTrack = maxTrack + 1;
-  }
-
-  return {
-    start: nextStart,
-    track: nextTrack,
   };
 }
 

@@ -35,7 +35,6 @@ export interface MultiDragPreviewInput {
   draggedPreviewStart: number;
   /** The current multi-selection (store.selectedElementIds). */
   selectedKeys: ReadonlySet<string>;
-  /** Per-clip offsets for a magnetic reorder; ordinary selections stay rigid. */
   offsets?: ReadonlyMap<string, number>;
 }
 

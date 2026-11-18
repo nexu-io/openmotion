@@ -168,12 +168,17 @@ export async function hostPlan(options, home, launcher, previous, bundleId) {
 }
 
 export async function skillTargets(plan, appRoot) {
-  if (plan.layout === 'bundle') return [path.join(plan.skillsDirectory, 'openmotion')];
+  if (plan.layout === 'bundle') return [path.join(plan.skillsDirectory, 'openmotion-workflows')];
   if (plan.layout === 'deepseek') return [plan.metadata.bundleDirectory];
   return (await readdir(path.join(appRoot, 'skills'), { withFileTypes: true })).filter(entry => entry.isDirectory() && !entry.name.startsWith('.')).map(entry => path.join(plan.skillsDirectory, entry.name));
 }
 
 export async function obsoleteSkills(plan, home, targets) {
+  if (plan.layout === 'bundle') {
+    const legacy = path.join(plan.skillsDirectory, 'openmotion');
+    const scope = await readJSON(path.join(legacy, 'scope.json'));
+    return scope?.managedBy === owner && scope.installHome === home && (!scope.host || scope.host === plan.host) ? [legacy] : [];
+  }
   if (plan.layout !== 'flat') return [];
   const entries = await readdir(plan.skillsDirectory, { withFileTypes: true }).catch(error => { if (error.code !== 'ENOENT') throw error; return []; });
   const obsolete = [];

@@ -23,6 +23,7 @@ import {
   parsePreviewFacts,
 } from "../store/previewQualitySlice";
 import { parseTimelineFromDOM } from "../lib/timelineDOM";
+import { hasPendingHistoryTimeline } from "../timelineRestorePending";
 
 /** What `processTimelineMessage` accepts — the clip-manifest postMessage. */
 export interface ClipManifestMessage {
@@ -161,6 +162,7 @@ export function createPreviewMessageHandler(
     const iframe = deps.iframeRef.current;
     const data = acceptedPreviewMessage(e, iframe);
     if (!data) return;
+    if ((data.type === "state" || data.type === "timeline") && hasPendingHistoryTimeline(iframe)) return;
     if (data.type === "state")
       return handleStateMessage(deps, iframe, data.isPlaying === true, enriched);
     if (applyStoreReport(data)) return;

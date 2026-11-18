@@ -123,41 +123,55 @@ function horizontalDrag(
 }
 
 describe("computeDragPreview — plain horizontal drag never arms a phantom insert (BUG 1)", () => {
-  it("holds the inserted slot through small reversals over an occupied clip", () => {
+  it("preserves pointer time over an occupied main track without nearest-gap jumps", () => {
     const dragged = clip("ease", 0, 24, 4, 1);
-    const context = { ...ctx(undefined, [clip("left", 0, 0, 6, 1), clip("block", 0, 10, 10, 1), dragged]), trackOrder: [0], rippleEditEnabled: true };
+    const context = { ...ctx(undefined, [clip("left", 0, 0, 6, 1), clip("block", 0, 10, 10, 1), dragged]), trackOrder: [0] };
     const { drag, clientY } = horizontalDrag(dragged, 0.5, 0);
     let current = drag;
     const move = (time: number) => {
       current = computeDragPreview(current, drag.originClientX + (time - dragged.start) * PPS, clientY, context);
-      return current.previewStart;
+      return current;
     };
-    expect(move(12.9)).toBe(6);
-    for (const time of [13.01, 12.99, 13.02, 12.98]) expect(move(time)).toBe(6);
-    expect(move(13.3)).toBe(6);
-    for (const time of [14.99, 15.01, 14.98]) expect(move(time)).toBe(6);
-    expect(move(15.3)).toBe(20);
-    expect(move(22)).toBe(22); // Free space still follows the pointer without a dead zone.
+    for (const time of [12.9, 13.01, 12.99, 13.3, 12.98, 12.7]) {
+      expect(move(time)).toMatchObject({ previewStart: time, insertRow: 0 });
+    }
+    expect(move(15)).toMatchObject({ previewStart: 15, insertRow: 0 });
+    expect(move(22)).toMatchObject({ previewStart: 22, insertRow: null });
   });
 
-  it("keeps collision insertion when leaving a seam into an occupied ordinary lane", () => {
+  it("leaves an occupied lane at the requested time and reuses the free upper row", () => {
     const geometry = createTimelineRowGeometry([0, 1, 2], [104, 48, 48], { top: 0 });
     const context = { ...ctx(geometry.rowHeights), rowGeometry: geometry };
     const { drag, clientX } = horizontalDrag(moodboard, 0.5, 2);
+    // Grab toward the right side so the pointer lies beyond both clip midpoints.
+    drag.pointerOffsetX = 4 * PPS;
     const top = computeDragPreview(drag, clientX, 24, context);
     expect(top.insertRow).toBe(0);
     const between = computeDragPreview(drag, clientX, 128, context);
     expect(between.insertRow).toBe(1);
     const inside = computeDragPreview(between, clientX, 150, context);
-    // This aim is inside the occupied secondary row: collision still requires an upper lane.
-    expect(inside.insertRow).toBe(1);
+    expect(inside).toMatchObject({ insertRow: null, desiredTrack: 1, previewTrack: 0, previewStart: 21 });
     const below = computeDragPreview(inside, clientX, 202, context);
     // Pointer seams do not expand rows: y=202 aims at row 2, also occupied.
-    // Returning to the vacated origin would cancel the user's layer move.
+    // OpenReel searches every free upper lane, including the vacated origin.
     expect(below.desiredTrack).toBe(2);
-    expect(below.previewTrack).toBe(2);
-    expect(below.insertRow).toBe(2);
+    expect(below.previewTrack).toBe(0);
+    expect(below.insertRow).toBeNull();
     expect(below.previewStart).toBe(21);
+  });
+
+  it("previews the original position when a new row would renumber a locked clip", () => {
+    const dragged = clip("moving", 0, 12, 2, 1);
+    const locked = { ...clip("locked", 0, 5, 3, 1), timelineLocked: true };
+    const context = { ...ctx(undefined, [dragged, locked]), trackOrder: [0] };
+    const { drag, clientX, clientY } = horizontalDrag(dragged, 0.5, -6);
+    const preview = computeDragPreview(drag, clientX, clientY, context);
+    expect(preview).toMatchObject({ previewStart: 12, previewTrack: 0, insertRow: null });
+    const onMoveElements = vi.fn();
+    const updateElement = vi.fn();
+    commitDraggedClipMove(preview, { ...context, updateElement, onMoveElements });
+    expect(onMoveElements).not.toHaveBeenCalled();
+    expect(updateElement).not.toHaveBeenCalled();
   });
 
   it.each([false, true])("crosses a seam in small pointer steps without being captured by a new lane (upward=%s)", (upward) => {
@@ -174,6 +188,31 @@ describe("computeDragPreview — plain horizontal drag never arms a phantom inse
     expect(current.insertRow).toBeNull();
     expect(current.previewTrack).toBe(upward ? 0 : 1);
     expect(current.previewStart).toBe(7.87);
+  });
+
+  it.each([
+    { from: 0.8, to: 1.2, track: 0, target: 1 },
+    { from: 1.2, to: 0.8, track: 1, target: 0 },
+  ])("aims at the row under the pointer regardless of where the clip was grabbed", ({ from, to, track, target }) => {
+    const element = clip("moving", track, 7.87, 3.1, 2);
+    const { drag, clientX } = horizontalDrag(element, from, 0);
+    const context = ctx(undefined, [element]);
+    const preview = computeDragPreview(drag, clientX, yForRow(to), context);
+    expect(preview).toMatchObject({ desiredTrack: target, previewTrack: target, insertRow: null });
+    const onMoveElements = vi.fn();
+    commitDraggedClipMove(preview, { elements: [element], trackOrder: context.trackOrder, updateElement: vi.fn(), onMoveElements });
+    expect(onMoveElements.mock.calls[0]?.[0]).toEqual([
+      expect.objectContaining({ element, updates: { start: 7.87, track: target } }),
+    ]);
+  });
+
+  it("does not open a track when a horizontal drag starts on the clip's top edge", () => {
+    const grab = 3 / TRACK_H;
+    const { drag, clientX } = horizontalDrag(moodboard, grab, 2);
+    for (const drift of [0, -1]) {
+      const preview = computeDragPreview(drag, clientX, yForRow(grab) + drift, ctx());
+      expect(preview).toMatchObject({ previewStart: 21, previewTrack: 0, insertRow: null });
+    }
   });
 
   it("dragging v-moodboard +2s while grabbing its clip body keeps it a pure time move", () => {
@@ -390,7 +429,7 @@ describe("guideIfSaved — a guide only where the clip saves", () => {
       drag.originClientY,
       context,
     );
-    expect(next.previewStart).toBe(21);
+    expect(next.previewStart).toBeCloseTo(21.0033333333);
     expect(next.snapTime).toBeNull();
   });
 });
@@ -900,7 +939,7 @@ describe("an audio clip stays inside its partner video", () => {
     const { drag, clientX, clientY } = horizontalDrag(a, 1.5, 30);
     const next = computeDragPreview(drag, clientX, clientY, audioCtx([video(), a]));
     expect(next.previewStart).toBe(22);
-    expect(next.pointerClientX).toBe(drag.originClientX + 10 * PPS);
+    expect(next.pointerClientX).toBe(clientX);
   });
 
   it("a drag before the video's start stops at it, linked or same-source", () => {
@@ -982,38 +1021,40 @@ describe("trimPreviewTime", () => {
 });
 
 
-describe("magnet-aware collision preview and commit", () => {
+describe("collision preview and commit", () => {
+  it.each([10, 40, 100])("preserves target time at %s px/s", (pps) => {
+    const moving = clip("moving", 1, 5, 5, 1);
+    const elements = [clip("busy", 1, 0, 5, 1), moving, clip("upper", 0, 10, 20, 1)];
+    const { drag, clientY } = horizontalDrag(moving, 1.5, 0);
+    const context = { ...ctx(undefined, elements), trackOrder: [0, 1], pps };
+    const preview = computeDragPreview(drag, drag.originClientX - 2.5 * pps, clientY, context);
+    expect(preview).toMatchObject({ previewStart: 2.5, previewTrack: 0, insertRow: null });
+  });
+
   it.each([
-    { name: "modifier bypass on magnetic main track", bypass: true, magnet: true, track: 1, start: 12, aim: 6, landing: 6, insertRow: 1 },
-    { name: "secondary track", magnet: true, track: 0, start: 12, aim: 6, landing: 6, insertRow: 0 },
-    { name: "magnetic main track", magnet: true, track: 1, start: 5, aim: 2, landing: 0, insertRow: null },
-    { name: "nonmagnetic main track", magnet: false, track: 1, start: 12, aim: 6, landing: 6, insertRow: 1 },
-  ])("shares the resolved landing with commit on $name", ({ magnet, track, start, aim, landing, insertRow, bypass }) => {
+    { name: "secondary track", track: 0, start: 12, aim: 6 },
+    { name: "main track near the original start", track: 1, start: 5, aim: 4.9 },
+    { name: "main track", track: 1, start: 12, aim: 6 },
+  ])("shares the resolved landing with commit on $name", ({ track, start, aim }) => {
     const moving = clip("moving", track, start, 5, 1);
     const busy = clip("busy", track, start === 5 ? 0 : 5, 5, 1);
     const other = clip("other", track === 0 ? 1 : 0, 0, 20, 1);
     const elements = [busy, moving, other];
     const { drag, clientX, clientY } = horizontalDrag(moving, track + 0.5, aim - start);
-    const ghost = computeDragPreview({ ...drag, snapDisabled: bypass }, clientX, clientY, {
-      ...ctx(undefined, elements), trackOrder: [0, 1], rippleEditEnabled: magnet,
+    const ghost = computeDragPreview(drag, clientX, clientY, {
+      ...ctx(undefined, elements), trackOrder: [0, 1],
     });
-    expect(ghost).toMatchObject({ previewTrack: track, previewStart: landing, insertRow });
+    expect(ghost).toMatchObject({ previewTrack: track, previewStart: aim, insertRow: track });
     const onMoveElement = vi.fn();
     const onMoveElements = vi.fn();
     commitDraggedClipMove(ghost, {
       elements, trackOrder: [0, 1], updateElement: vi.fn(), onMoveElement, onMoveElements,
       selectedKeys: new Set(),
     });
-    const single = onMoveElement.mock.calls[0];
+    expect(onMoveElement).not.toHaveBeenCalled();
+    expect(onMoveElements).toHaveBeenCalledTimes(1);
     const batch = onMoveElements.mock.calls[0]?.[0] as TimelineMoveEdit[] | undefined;
-    const committed = single?.[1] ?? batch?.find(edit => edit.element.id === moving.id)?.updates;
-    if (insertRow === null) {
-      expect(onMoveElement).not.toHaveBeenCalled();
-      expect(onMoveElements).toHaveBeenCalledTimes(1);
-      expect(committed?.start).toBe(ghost.previewStart);
-      expect(batch?.find(edit => edit.element.id === busy.id)?.updates.start).toBe(5);
-    } else {
-      expect(committed?.start).toBe(ghost.previewStart);
-    }
+    expect(batch?.find(edit => edit.element.id === moving.id)?.updates.start).toBe(ghost.previewStart);
+    expect(batch?.find(edit => edit.element.id === busy.id)?.updates.start).toBe(busy.start);
   });
 });

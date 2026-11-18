@@ -76,6 +76,22 @@ async function studio({ withHistory = true, initialFiles = {} as Record<string, 
   return { dir, history, hook: () => hook, file, save, readFile, host };
 }
 
+it("reads a multi-file history step concurrently without waiting once per file", async () => {
+  const { dir, hook, save, readFile } = await studio({ initialFiles: { "other.html": "X" } });
+  save("B"); writeFileSync(join(dir, "other.html"), "Y");
+  await act(() => hook().recordEdit({ label: "Move linked clips", files: { "index.html": { before: "A", after: "B" }, "other.html": { before: "X", after: "Y" } } }));
+  const reads: string[] = [];
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const read = async (path: string) => { reads.push(path); await pending; return readFile(path); };
+  await act(async () => {
+    const result = hook().undo({ readFile: read });
+    try { await vi.waitFor(() => expect(new Set(reads)).toEqual(new Set(["index.html", "other.html"]))); }
+    finally { release(); }
+    expect((await result).ok).toBe(true);
+  });
+});
+
 it("disables a known conflicting undo before the user clicks it", async () => {
   const { history, hook, save, host } = await studio();
   save("B");

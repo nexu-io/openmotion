@@ -1,5 +1,14 @@
 # 公开变更记录
 
+## 2026-11-18: Add the primary OpenMotion Skill
+
+- Add the standalone `openmotion` Skill for installation and first use, followed by the existing specialist workflows through MCP resources. Preserve source-first setup, existing workspaces and the maintained onboarding.
+- Install the public entry through pinned official Skills CLI on supported default host profiles. Reuse existing official entries, preserve telemetry opt-outs and report optional failures independently of runtime installation.
+- Move Codex npm workflow bundles to `openmotion-workflows`, with transactional migration only for matching installer-owned legacy bundles. Generate the outer npm helper as JavaScript for execution inside `node_modules`.
+- Verify workspace identity through filesystem aliases during MCP diagnostics, installed CLI calls and same-chat onboarding recovery; a different workspace remains rejected.
+- Simplify user-facing commands to `npx skills add`, retaining the pinned CLI for automatic installation. Execute the public-entry helper through aliased checkout paths and defer installation over legacy Codex bundles with explicit migration guidance.
+- Keep the five creative routes, MCP operations and runtime specialist distribution unchanged. skills.sh listing/counts and target-host onboarding remain separate verification boundaries.
+
 ## 2026-11-18: Run OpenMotion locally in a container
 
 - Add [`deploy/`](../../deploy/README.md) with a Dockerfile, a Compose file and a guide. The image is built from the checkout and carries Node.js 26.11.1, Debian's Chromium and FFmpeg/ffprobe, and CJK fonts; projects and exports live in a named volume at `MOTION_DATA_DIR=/data`.
@@ -7,6 +16,13 @@
 - Agents connect with `docker exec -i openmotion node --experimental-strip-types mcp.ts`, which reuses the running service and data directory. Paths passed to MCP tools are container paths.
 - Known limits: the Studio's web browser tab cannot start Chromium with its sandbox in an unprivileged container; Linux has no pinned native runtime target, so the image does not use the versions in `scripts/runtime-lock.json`. The image is not published and is outside the npm and plugin distribution lists.
 - Validation on arm64 (Colima) and x86_64 (Debian 12 virtual machine): image build, Studio load without console or request errors, MCP tool listing and project read through `docker exec`, a 37.3 s 1920×1080 export of the sample project with automatic technical verification passed, 403 for a foreign Host and for a cross-origin write, and data retained across a restart (restart checked on arm64).
+## 2026-11-17: Optional DSH workspace plugin
+
+- Package a source-checkout integration as an installable `openmotion-dsh` tarball. Enabling it starts/reuses local OpenMotion and connects DSH's native MCP adapter to the same project data.
+- Add project/template browsing, embedded Brand Kits/Assets and a native Studio tab alongside Agent chat. Focus mode preserves the mounted editor; narrow windows switch between editor and conversation.
+- Keep DSH dependencies optional, model configuration in DSH, runtime state outside the checkout and standalone Studio navigation intact. No npm publication or release-workflow change.
+- New-project handoff remains manual; validation distinguishes plugin installation, browser layout and read-only model/tool calls from video creation/export acceptance. See `integrations/dsh/README.md` in the source checkout.
+
 ## 2026-11-17: Add 96 single-style library Skills and their Skills-page cards
 
 - Add 96 Library Skills, one written style recipe each: 10 talking-head overlays, 15 narrated explainers, 35 product promos, 12 product-ad and shopping styles, 10 brand and cover pieces, 2 motion effects and 12 editing methods. Each states its look, motion rules with timings, required inputs, what to avoid and review checks; skills that need generated stills or clips route discovery through `openmotion_media_use` and generation through `openmotion_assets_use` with consent.

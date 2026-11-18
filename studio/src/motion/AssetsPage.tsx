@@ -1,12 +1,13 @@
+import { VoiceLibrary } from './VoiceLibrary';
 import * as tracking from './pageTracking';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { assetVersion, type LibraryAsset } from '../../../shared/asset-library';
 import type { GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
-import { AssetBrowserContent, useAssetBrowser, AssetPicker, type AssetKind } from './AssetBrowser';
+import { AssetBrowserContent, useAssetBrowser, AssetPicker, type AssetGalleryExtras, type AssetKind } from './AssetBrowser';
 import { AssetGalleryToolbar } from './AssetGalleryToolbar';
 import { AssetTaskMenu } from './AssetTaskHistory';
 import { assetTasks, mergeAssetJobs, type AssetChatSummary, type AssetTask, type AssetTaskMode } from './assetTasks';
@@ -20,6 +21,7 @@ import { ResizablePane } from './ResizablePane';
 import './assets.css';
 export function AssetsPage({ active, hasProject = false }: { active: boolean; hasProject?: boolean }) {
   const { t } = useI18n(), toast = useToast();
+  const [voiceView, setVoiceView] = useState(false), [voiceAdding, setVoiceAdding] = useState(false);
   const [kind, setKind] = useState<AssetKind>('all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(false), [picking, setPicking] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]);
   const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: '', references: [] });
   const [mobileView, setMobileView] = useState<'library' | 'create'>('create');
@@ -180,7 +182,7 @@ export function AssetsPage({ active, hasProject = false }: { active: boolean; ha
   const edit = () => {
     if (!selected || !version) return;
     tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
-    startDraft({ modality: selected.modality, prompt: version.prompt ?? '', model: version.model, parameters: version.parameters, target: { asset: selected, versionId }, references: [{ reference: { assetId: selected.id, versionId }, name: selected.name }] });
+    startDraft({ modality: selected.modality, prompt: version.prompt ?? '', model: version.model, parameters: version.parameters, ...(version.result?.voice ? { voiceRef: { voiceId: (version.result.voice as any).voiceId, revision: (version.result.voice as any).revision }, voiceName: (version.result.voice as any).name } : {}), target: { asset: selected, versionId }, references: selected.modality === 'audio' ? [] : [{ reference: { assetId: selected.id, versionId }, name: selected.name }] });
   };
   const create = () => {
     const modality = kind === 'video' || kind === 'audio' ? kind : 'image';
@@ -204,7 +206,7 @@ export function AssetsPage({ active, hasProject = false }: { active: boolean; ha
           if (!assetVersion(asset, job.library.parentVersionId)) throw new Error(t('A referenced version is no longer available.'));
           target = { asset, versionId: job.library.parentVersionId };
         }
-        nextDraft = { modality: job.modality, prompt: job.prompt, model: job.model.id, parameters: job.parameters, references, target };
+        nextDraft = { voiceRef: job.voiceRef, voiceName: job.voice?.name, modality: job.modality, prompt: job.prompt, model: job.model.id, parameters: job.parameters, references, target };
       }
       if (request !== selectionRequest.current) return;
       setDraft(nextDraft); setMode(task.mode); if (task.mode === 'agent') setAgentReferences([]); setTaskIds(current => ({ ...current, [task.mode]: task.id }));
@@ -221,6 +223,14 @@ export function AssetsPage({ active, hasProject = false }: { active: boolean; ha
       knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskIds(current => ({ ...current, direct: job.id }));
       refresh(); toast.showToast(t('Generation started. Track it in Tasks.'), 'info');
     }} onError={onError} onClose={() => { selectionRequest.current++; setSelectingTask(false); setCreating(false); }} />;
+  const renderGallery = (voices?: AssetGalleryExtras & { content: ReactNode }) => (
+    <main ref={gallery} className="om-assets-main" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
+      <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}{voiceView ? <button className="om-button" data-primary onClick={() => setVoiceAdding(true)}><RemixIcon name="add-line" size={16} />{t('Add voice')}</button> : <><button className="om-button" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</button><button className="om-button" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</button></>}</div></header>
+
+      <AssetGalleryToolbar browser={browser} voices={voiceView} onVoices={() => { setKind('all'); setVoiceView(true); setVoiceAdding(false); closePreview(); tracking.reportAssetsClick('assets_library', 'kind_filter', { asset_kind: 'voice' }); }} onKindChange={next => { setVoiceView(false); setVoiceAdding(false); if (next !== kind) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next }); setKind(next); }} />
+      {voiceView ? voices?.content : <AssetBrowserContent extras={voices} browser={browser} hoverPreview={active} toolbar={<></>} onOpen={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }} onCreate={modality => { tracking.reportAssetsClick('assets_library', 'create_asset', { modality }); startDraft({ modality, prompt: '', references: [] }); }} />}
+    </main>
+  );
   return <div className="om-assets-page" data-creating={creating} data-previewing={Boolean(selected)} data-mobile-view={mobileView}>
     {selected ? <AssetDetailWorkspace asset={selected} versionId={versionId} active={active} uploading={uploading} saving={updatingAssets.has(selected.id)} editor={creating ? composer : undefined} taskControls={taskMenu}
       navigation={<AssetBrowserContent browser={browser} onOpen={open} compact selectedId={selected.id} />}
@@ -233,11 +243,8 @@ export function AssetsPage({ active, hasProject = false }: { active: boolean; ha
       <button className="om-nav-item" aria-pressed={mobileView === 'create'} onClick={() => setMobileView('create')}>{t('AI Create')}</button>
     </div></div>}
     <div className="om-assets-library">
-    <main ref={gallery} className="om-assets-main" onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
-      <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<button className="om-button" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</button><button className="om-button" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</button></div></header>
+    {voiceView || kind === 'all' || kind === 'trash' ? <VoiceLibrary active={active} revision={revision} trash={kind === 'trash'} query={browser.query} sort={browser.sort} adding={voiceAdding} onCloseAdd={() => setVoiceAdding(false)} renderGallery={voices => renderGallery(voiceView || browser.source === 'all' ? voices : undefined)} onUse={next => startDraft(next)} onError={onError} onNotice={message => toast.showToast(message, 'info')} /> : renderGallery()}
 
-      <AssetBrowserContent browser={browser} hoverPreview={active} toolbar={<AssetGalleryToolbar browser={browser} onKindChange={next => { if (next !== kind) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next }); setKind(next); }} />} onOpen={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }} onCreate={modality => { tracking.reportAssetsClick('assets_library', 'create_asset', { modality }); startDraft({ modality, prompt: '', references: [] }); }} />
-    </main>
     {creating && <ResizablePane className="om-creator-pane" storageKey="motion-assets-creator-width" initial={460} min={340} max={800} edge="left" label={t('Resize creator')}>{composer}</ResizablePane>}
     </div>
     </>}

@@ -79,7 +79,7 @@ export function readTimelineElementZIndex(el: Element): number {
   return 0;
 }
 
-function readDurationAttribute(el: Element | null | undefined): number {
+export function readDurationAttribute(el: Element | null | undefined): number {
   if (!el) return 0;
   const duration =
     Number.parseFloat(el.getAttribute("data-duration") ?? "") ||

@@ -1,9 +1,12 @@
 import path from 'node:path';
-import { lstat, readFile, mkdir, rename, rm } from 'node:fs/promises';
+import { lstat, readFile, readdir, mkdir, rename, rm } from 'node:fs/promises';
 import { atomicJson, jsonFile, fileHash } from './phase1-versions.ts';
 import { createHash } from 'node:crypto';
 import type { WorkspaceStore } from './workspace.ts';
 import { execute } from './hyperframes.ts';
+import { withProcessLock } from './shared/process-lock.ts';
+import { deviceContext } from './tracking/core.ts';
+import type { OmTracking } from './shared/tracking.ts';
 import { verificationBinaries } from './scripts/verify-export.ts';
 
 /**
@@ -85,6 +88,8 @@ function verified(value: unknown): { sha256: string } | null {
 export type WorkRound = {
   id: string; projectId: string; title: string; mode: 'create' | 'modify';
   createdAt: number; updatedAt: number; versionId: string; versionNumber: number; revision: string;
+  generation?: { initialVersionId: string; startedAt: number; telemetryEligible: boolean; completionRequestId?: string; completedAt?: number;
+    versionId?: string; revision?: string; editedAt?: number; exportedAt?: number; exportRoute?: 'mcp' | 'studio' };
   state: 'authoring' | 'saved' | 'failed'; error?: string; jobId?: string; previousJobId?: string;
 };
 
@@ -97,18 +102,100 @@ export async function workRoundMode(store: WorkspaceStore, projectId: string | u
 /** Work identity is separate from the native content version and export identity. */
 export class WorkRounds {
   readonly store: WorkspaceStore;
-  constructor(store: WorkspaceStore) { this.store = store; }
+  readonly tracking?: OmTracking;
+  constructor(store: WorkspaceStore, tracking?: OmTracking) { this.store = store; this.tracking = tracking; }
+  emitGeneration(work: WorkRound) {
+    const generation = work.generation;
+    if (!generation?.telemetryEligible || !this.tracking?.enabled()) return;
+    for (const [stage, stamp] of [['started', generation.startedAt], ['generated', generation.completedAt], ['edited', generation.editedAt], ['exported', generation.exportedAt]] as const) {
+      if (stamp === undefined) continue;
+      // A retry retains both the occurrence time and the receiver's deduplication key.
+      const hex = createHash('sha256').update(work.id + '/' + stage).digest('hex');
+      const eventId = [hex.slice(0, 8), hex.slice(8, 12), '4' + hex.slice(13, 16),
+        '8' + hex.slice(17, 20), hex.slice(20, 32)].join('-');
+      this.tracking.ingest({ event: 'work_generation_stage', event_id: eventId, occurred_at: new Date(stamp).toISOString(),
+        entrypoint: stage === 'exported' || stage === 'edited' ? 'worker' : 'mcp', ...deviceContext(),
+        properties: { work_id: work.id, project_id: work.projectId, stage, task_type: work.mode,
+          ...(stage !== 'started' ? { version_id: generation.versionId!, revision: generation.revision! } : {}),
+          ...(stage === 'exported' ? { export_route: generation.exportRoute! } : {}) } });
+    }
+  }
+  async generated(projectId: string, id: string, versionId: string, versionNumber: number, revision: string, requestId: string) {
+    return withProcessLock(this.file(id) + '.lock', async () => {
+      const work = await this.get(projectId, id);
+      if (!work.generation) throw new Error('WORK_GENERATION_UNTRACKED: begin a new work round');
+      if (!work.generation.completedAt) {
+        if (work.state === 'failed' || work.jobId) throw new Error('WORK_CLOSED');
+        Object.assign(work, { versionId, versionNumber, revision, state: 'saved' });
+        Object.assign(work.generation, { completedAt: Date.now(), versionId, revision, completionRequestId: requestId,
+          telemetryEligible: work.generation.telemetryEligible && this.tracking?.enabled() === true });
+        await atomicJson(this.file(id), work);
+      }
+      this.emitGeneration(work);
+      return work.generation;
+    });
+  }
+  async exported(projectId: string, id: string, route: 'mcp' | 'studio') {
+    return withProcessLock(this.file(id) + '.lock', async () => {
+      const work = await this.get(projectId, id);
+      if (!work.generation?.completedAt) return;
+      if (!work.generation.exportedAt) {
+        Object.assign(work.generation, { exportedAt: Date.now(), exportRoute: route,
+          telemetryEligible: work.generation.telemetryEligible && this.tracking?.enabled() === true });
+        await atomicJson(this.file(id), work);
+      }
+      this.emitGeneration(work);
+    });
+  }
+  async studioEdited(event: { event: string; occurred_at: string; properties: Record<string, unknown> }) {
+    const p = event.properties;
+    if (!['studio_edit_result', 'studio_history_step_result'].includes(event.event) || p.outcome !== 'success') return;
+    if (event.event === 'studio_edit_result' && ['project_rename', 'asset_rename', 'asset_delete'].includes(String(p.edit_kind))) return;
+    if (typeof p.project_id !== 'string') return;
+    const at = Date.parse(event.occurred_at);
+    const work = await this.latestGenerated(p.project_id, at);
+    if (!work) return;
+    return withProcessLock(this.file(work.id) + '.lock', async () => {
+      const current = await this.get(work.projectId, work.id);
+      if (!current.generation!.editedAt) {
+        current.generation!.editedAt = at;
+        current.generation!.telemetryEligible &&= this.tracking?.enabled() === true;
+        await atomicJson(this.file(work.id), current);
+      }
+      this.emitGeneration(current);
+    });
+  }
+  async latestGenerated(projectId: string, at = Date.now()) {
+    const files = await readdir(path.join(this.store.directory, 'phase1', 'work')).catch(e => { if (e.code === 'ENOENT') return []; throw e; });
+    const rounds: WorkRound[] = [];
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      const round = await jsonFile<WorkRound | null>(path.join(this.store.directory, 'phase1', 'work', file), null);
+      if (round?.projectId === projectId && round.generation && round.createdAt <= at) rounds.push(round);
+    }
+    rounds.sort((a,b) => b.createdAt - a.createdAt);
+    const latest = rounds[0];
+    return latest?.generation?.completedAt && latest.generation.completedAt <= at ? latest : undefined;
+  }
   file(id: string) {
     if (!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(id)) throw new Error('INVALID_WORK_ID');
     return path.join(this.store.directory, 'phase1', 'work', id + '.json');
   }
-  async create(project: any, mode: WorkRound['mode']) {
-    const round: WorkRound = { id: crypto.randomUUID(), projectId: project.projectId,
+  async create(project: any, mode: WorkRound['mode'], id = crypto.randomUUID(), generation = true) {
+    const existing = await jsonFile<WorkRound | null>(this.file(id), null);
+    if (existing) {
+      if (existing.projectId !== project.projectId || existing.mode !== mode) throw new Error('WORK_ID_CONFLICT');
+      this.emitGeneration(existing);
+      return this.read(project.projectId, id);
+    }
+    const round: WorkRound = { id, projectId: project.projectId,
       title: this.store.projectCatalog().projects.find(item => item.id === project.projectId)!.title,
       mode, createdAt: Date.now(), updatedAt: Date.now(), versionId: project.currentVersionId,
       versionNumber: project.currentVersionNumber, revision: project.revision, state: 'authoring',
       previousJobId: project.exports.find((job: any) => job.state === 'completed' && verified(job.verification))?.id };
+    if (generation) round.generation = { initialVersionId: project.currentVersionId, startedAt: round.createdAt, telemetryEligible: this.tracking?.enabled() === true };
     await atomicJson(this.file(round.id), round);
+    this.emitGeneration(round);
     return this.read(project.projectId, round.id);
   }
   async get(projectId: string, id: string) {
@@ -123,29 +210,33 @@ export class WorkRounds {
       throw new Error('WORK_VERSION_MISMATCH: 只可播放本轮实际保存的版本');
   }
   async observed(name: string, args: any, result: any) {
-    const work = await this.get(args.projectId, args.workId);
-    if (name === 'motion_edit_project') {
-      if (result.version.versionNumber < work.versionNumber) return;
-      if (work.jobId) {
-        if (work.versionId === result.version.versionId && work.revision === result.revision) return;
-        throw new Error('WORK_CLOSED: 已提交轮次不能重新绑定内容');
+    return withProcessLock(this.file(args.workId) + '.lock', async () => {
+      const work = await this.get(args.projectId, args.workId);
+      if (name === 'motion_edit_project') {
+        if (result.version.versionNumber < work.versionNumber) return;
+        if (work.jobId) {
+          if (work.versionId === result.version.versionId && work.revision === result.revision) return;
+          throw new Error('WORK_CLOSED: 已提交轮次不能重新绑定内容');
+        }
+        if (work.state !== 'failed') work.state = 'saved';
+        work.versionId = result.version.versionId;
+        work.versionNumber = result.version.versionNumber; work.revision = result.revision;
+      } else if (name === 'motion_export_request') {
+        if (result.job.versionId !== work.versionId || result.job.revision !== work.revision || work.jobId && work.jobId !== result.job.id)
+          throw new Error('WORK_VERSION_MISMATCH: 渲染记录不属于本轮固定版本');
+        if (work.jobId === result.job.id) return;
+        work.jobId = result.job.id;
       }
-      if (work.state !== 'failed') work.state = 'saved';
-      work.versionId = result.version.versionId;
-      work.versionNumber = result.version.versionNumber; work.revision = result.revision;
-    } else if (name === 'motion_export_request') {
-      if (result.job.versionId !== work.versionId || result.job.revision !== work.revision || work.jobId && work.jobId !== result.job.id)
-        throw new Error('WORK_VERSION_MISMATCH: 渲染记录不属于本轮固定版本');
-      if (work.jobId === result.job.id) return;
-      work.jobId = result.job.id;
-    }
-    work.updatedAt = Date.now(); await atomicJson(this.file(work.id), work);
+      work.updatedAt = Date.now(); await atomicJson(this.file(work.id), work);
+    });
   }
   async failed(projectId: string, id: string, error: string) {
-    const work = await this.get(projectId, id);
-    if (work.jobId) return; // A lost reply does not undo an actually queued render.
-    work.state = 'failed'; work.error = error; work.updatedAt = Date.now();
-    await atomicJson(this.file(id), work);
+    return withProcessLock(this.file(id) + '.lock', async () => {
+      const work = await this.get(projectId, id);
+      if (work.jobId) return; // A lost reply does not undo an actually queued render.
+      work.state = 'failed'; work.error = error; work.updatedAt = Date.now();
+      await atomicJson(this.file(id), work);
+    });
   }
   async read(projectId: string, id: string) {
     const work = await this.get(projectId, id);

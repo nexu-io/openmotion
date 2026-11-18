@@ -25,7 +25,7 @@ function press(panel: string) {
 
 it('sends a project UUID, and only a scope for the built-in project or any other id', () => {
   expect(projectFields(PROJECT)).toEqual({ project_scope: 'managed', project_id: PROJECT });
-  expect(projectFields('project')).toEqual({ project_scope: 'default' });
+  expect(projectFields('project')).toEqual({ project_scope: 'default', project_id: 'project' });
   expect(projectFields('Q4 launch film')).toEqual({ project_scope: 'other' });
   expect(projectFields(null)).toEqual({});
 });
@@ -229,7 +229,7 @@ it('reports template library use with ids only, and still reports when the id is
   reportTemplateEvent({ kind: 'category', category: 'a category added later' }, 'project');
   reportTemplateEvent({ kind: 'search' }, 'project');
   reportTemplateEvent({ kind: 'copy_result', templateId: 'hf-block-aurora', host: 'a host added later', status: 'failed' }, PROJECT);
-  const managed = { project_scope: 'managed', project_id: PROJECT }, local = { project_scope: 'default' };
+  const managed = { project_scope: 'managed', project_id: PROJECT }, local = { project_scope: 'default', project_id: 'project' };
   const click = { page_name: 'studio', area: 'templates' };
   expect(sent.mock.calls).toEqual([
     ['ui_click', { ...click, element: 'copy_template', template_id: 'hf-block-aurora', ...managed }],

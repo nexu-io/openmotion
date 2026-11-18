@@ -482,6 +482,27 @@ function expectRootDurationExtendedViaFallback(
 }
 
 describe("useTimelineEditing timeline z-index reorder", () => {
+  it.each([
+    { edge: "left", updates: { start: 4, duration: 6, playbackStart: 4 } },
+    { edge: "right", updates: { start: 0, duration: 4 } },
+  ])("shows a persisted $edge trim command without a drag's optimistic update or a runtime message", async ({ updates }) => {
+    const source = '<div data-composition-id="root" data-duration="10"><audio id="clip" data-hf-id="hf-clip" data-start="0" data-duration="10" data-track-index="0" src="track.mp3"></audio></div>';
+    const iframe = createPreviewIframe();
+    iframe.contentDocument!.body.innerHTML = source;
+    Object.assign(iframe.contentWindow!, { __hfForceTimelineRebind: vi.fn(), __player: { getTime: () => 0, seek: vi.fn() } });
+    const clip = { ...timelineElement({ id: "clip", tag: "audio", track: 0, zIndex: 0, start: 0, duration: 10 }), key: "index.html#clip" };
+    usePlayerStore.setState({ elements: [clip], duration: 10 });
+    stubProjectFetch(source);
+    const write = vi.fn(async () => {});
+    const hook = renderTimelineEditingHook({ timelineElements: [clip], iframe, onZIndexCommit: vi.fn(), projectId: "p1", writeProjectFile: write, recordEdit: vi.fn(async () => {}) });
+
+    await act(() => hook.resize(clip, updates));
+
+    expect(write).toHaveBeenCalled();
+    expect(usePlayerStore.getState().elements[0]).toMatchObject({ start: updates.start, duration: updates.duration });
+    hook.unmount();
+  });
+
   it("extends root duration through the fallback path when an SDK-backed move passes the end", async () => {
     const ctx = await setupRootDurationFallback();
 
