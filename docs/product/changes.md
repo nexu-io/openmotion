@@ -6,7 +6,7 @@
 - `scripts/style.mjs` lists and shows cards, checks a `plan.json` (known style, palette-only colours, headline length, a motion move per scene, OpenMotion end credit) and downloads glyph-subset fonts for the plan and composition text.
 - Films carry the OpenMotion wordmark in the opening and a "Made with OpenMotion" credit; the Skill ships an unchanged copy of the two design-system brand files.
 - Style topics were studied from guanmo-ai/design-style; the Skill's text is original and copies no prompts, code, images, music or films from it.
-- The Studio Skills page lists it with an OpenMotion sample cover. Library content only: not registered as an MCP resource. Sample runs: Swiss Style (English launch), Neo-Brutalism (product walkthrough) and Ink Wash (Chinese, Canvas).
+- The Studio Skills page lists it third, linked to the upstream repository, with a cover film of the 23 style cards built from the Skill's own data. Library content only: not registered as an MCP resource. Sample runs: Swiss Style (English launch), Neo-Brutalism (product walkthrough) and Ink Wash (Chinese, Canvas).
 
 ## 2026-11-18: Add the primary OpenMotion Skill
 

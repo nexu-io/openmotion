@@ -27,10 +27,11 @@ it('lists every curated skill with its upstream repository', () => {
   expect(motionSkills).toHaveLength(123);
   expect(motionSkills[0].id).toBe('motionmaxxing');
   expect(motionSkills[1].id).toBe('openmotion-growth-teardown');
+  expect(motionSkills[2].id).toBe('openmotion-design-styles');
   for (const skill of motionSkills) if (skill.repository) expect(skill.repository).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/tree\/main\/[\w.-]+)?$/);
   // Skills without an upstream repository are OpenMotion Library Skills (library/skills/<id>).
   for (const skill of motionSkills) if (!skill.repository) expect(skill.id).toMatch(/^openmotion-[a-z0-9-]+$/);
-  expect(motionSkills.filter(skill => !skill.repository)).toHaveLength(98);
+  expect(motionSkills.filter(skill => !skill.repository)).toHaveLength(97);
   // The upstream Skills keep their place right after the first two; presenter-style cards are spread out, never side by side.
   expect(motionSkills.slice(2, 26).every(skill => skill.repository)).toBe(true);
   expect(motionSkills.some((skill, i) => i > 0 && skill.category === 'Talking-head & editing' && motionSkills[i - 1].category === 'Talking-head & editing')).toBe(false);
@@ -51,17 +52,16 @@ it('presents the growth teardown as an OpenMotion skill', async () => {
   expect(text).toContain('growth-teardown Skill');
 });
 
-it('presents the design style library as an OpenMotion skill', async () => {
+it('presents the design style library with its upstream repository', async () => {
   const write = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: write } });
   act(() => root.render(<Host />));
-  expect(motionSkills.find(skill => skill.id === 'openmotion-design-styles')?.repository).toBeUndefined();
   act(() => button('Design style library').click());
-  expect(container.querySelector('.om-skill-source')!.textContent).toContain('OpenMotion skill');
+  expect(container.querySelector<HTMLAnchorElement>('a.om-skill-source')!.href).toBe('https://github.com/guanmo-ai/design-style');
   await act(async () => button('Copy for Agent').click());
   const text = write.mock.calls[0][0] as string;
-  expect(text).toContain('Make a video with the OpenMotion "Design Styles" skill.');
   expect(text).toContain('design-styles Skill');
+  expect(text).toContain('github.com/guanmo-ai/design-style');
 });
 
 it('filters by category and search', () => {
