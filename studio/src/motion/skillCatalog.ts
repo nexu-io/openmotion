@@ -574,5 +574,6 @@ export function skillPrompt(skill: MotionSkill, parameters: SkillParameters, loc
 export function skillShortcut(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string) {
   const say = promptText(locale), style = parameters.style.trim();
   return say('shortcut', { title: skill.title, duration: parameters.duration, aspect: parameters.aspect, subject: parameters.subject.trim() || skill.example,
-    style: style ? say('shortcutStyle', { style }) : '', repository: skill.repository ?? 'OpenMotion', installUrl });
+    style: style ? say('shortcutStyle', { style }) : '', repository: skill.repository ?? 'OpenMotion', installUrl })
+    + (isLibrarySkill(skill) ? say('shortcutLibrary', { id: skill.id }) : '') + (skill.generator ? say('shortcutGenerator') : '');
 }

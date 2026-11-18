@@ -22,7 +22,9 @@
     "generatorStep4": "4. Make the film with the skill's own generator exactly as its SKILL.md describes: run its scripts and keep the scenes, length and layout they produce; do not hand-write or rewrite the scenes. Save the generated project files with openmotion_edit_project, passing expectedRevision and expectedVersionId; on conflict, re-read instead of overwriting GUI edits. If the generator cannot make the chosen duration or aspect ratio, still make the film with it and tell me the length and frame it produced; never hand-author scenes to fit the request.",
     "step5": "5. When done, open it with openmotion_open_preview, give me the preview URL and keep the project editable in OpenMotion.",
     "shortcut": "Use the OpenMotion \"{title}\" skill to make a {duration}s {aspect} video: {subject}{style}. Technique reference: {repository}. If OpenMotion is not installed, install and connect it with {installUrl} first.",
-    "shortcutStyle": "; style: {style}"
+    "shortcutStyle": "; style: {style}",
+    "shortcutLibrary": " Read it with openmotion_get_template (templateId {id}) and follow its SKILL.md.",
+    "shortcutGenerator": " Make the film with its own generator; if the generator cannot make that length or frame, keep its film and tell me the length and frame it made."
   },
   "zh-CN": {
     "intro": "使用说明：请使用 OpenMotion 插件。如未安装，请按 {installUrl} 安装并接入后继续。",
@@ -47,7 +49,9 @@
     "generatorStep4": "4. 按 SKILL.md 用这个 Skill 自带的生成脚本出片：运行脚本，保留脚本生成的分镜、时长和版式，不手写、不改写场景；用 openmotion_edit_project 保存生成的项目文件，传 expectedRevision 和 expectedVersionId，冲突时重新读取，不覆盖界面里的修改。如果生成器做不出所选的时长或画幅，仍用它出片，并告诉我实际的时长和画幅；不要为了凑规格手写场景。",
     "step5": "5. 完成后用 openmotion_open_preview 打开预览，把预览地址给我，项目保留在 OpenMotion 里方便继续改。",
     "shortcut": "用 OpenMotion 的「{title}」Skill 做一支 {duration} 秒、{aspect} 的视频：{subject}{style}。做法参考 {repository}。如果还没安装 OpenMotion，请先按 {installUrl} 安装并接入。",
-    "shortcutStyle": "；风格：{style}"
+    "shortcutStyle": "；风格：{style}",
+    "shortcutLibrary": "用 openmotion_get_template（templateId 填 {id}）读取这个 Skill，按它的 SKILL.md 操作。",
+    "shortcutGenerator": "用它自带的生成脚本出片；脚本做不出这个时长或画幅时，保留脚本的成片，并告诉我实际的时长和画幅。"
   },
   "ja": {
     "intro": "使い方：OpenMotion プラグインを使ってください。インストールされていない場合は、{installUrl} に従ってインストールと接続を行ってから続けてください。",
@@ -72,7 +76,9 @@
     "generatorStep4": "4. SKILL.md の説明どおり、この Skill 付属の生成スクリプトで動画を作ってください。スクリプトを実行し、生成されたシーン・長さ・レイアウトをそのまま使い、シーンを手書きや書き換えしないでください。生成されたプロジェクトファイルを openmotion_edit_project で expectedRevision と expectedVersionId を渡して保存し、競合した場合は GUI での編集を上書きせずに読み直してください。選んだ長さやアスペクト比を生成スクリプトが作れない場合も、そのスクリプトで動画を作り、実際の長さと画幅を伝えてください。要件に合わせるためにシーンを手書きしないでください。",
     "step5": "5. 完了したら openmotion_open_preview で開き、プレビュー URL を伝え、OpenMotion でプロジェクトを編集可能なまま残してください。",
     "shortcut": "OpenMotion の「{title}」Skill で、{duration} 秒・{aspect} の動画を作ってください：{subject}{style}。手法の参考：{repository}。OpenMotion がインストールされていない場合は、先に {installUrl} でインストールと接続を行ってください。",
-    "shortcutStyle": "、スタイル：{style}"
+    "shortcutStyle": "、スタイル：{style}",
+    "shortcutLibrary": "openmotion_get_template（templateId は {id}）で読み込み、その SKILL.md に従ってください。",
+    "shortcutGenerator": "付属の生成スクリプトで動画を作り、その長さや画幅を作れない場合はスクリプトの成果物を残して、実際の長さと画幅を伝えてください。"
   },
   "ko": {
     "intro": "사용 안내: OpenMotion 플러그인을 사용하세요. 설치되어 있지 않다면 {installUrl}에 따라 설치하고 연결한 뒤 계속하세요.",
@@ -97,7 +103,9 @@
     "generatorStep4": "4. SKILL.md에 적힌 대로 이 Skill에 포함된 생성 스크립트로 영상을 만드세요. 스크립트를 실행하고 생성된 장면, 길이, 레이아웃을 그대로 유지하며 장면을 직접 작성하거나 고쳐 쓰지 마세요. 생성된 프로젝트 파일을 openmotion_edit_project로 expectedRevision과 expectedVersionId를 전달해 저장하고, 충돌하면 GUI 편집을 덮어쓰지 말고 다시 읽으세요. 선택한 길이나 화면비를 생성 스크립트가 만들 수 없으면 그래도 스크립트로 영상을 만들고 실제 길이와 화면비를 알려 주세요. 요구에 맞추려고 장면을 직접 작성하지 마세요.",
     "step5": "5. 완료되면 openmotion_open_preview로 열고, 미리보기 URL을 알려 주고, 프로젝트를 OpenMotion에서 계속 편집할 수 있게 두세요.",
     "shortcut": "OpenMotion의 “{title}” Skill로 {duration}초, {aspect} 영상을 만드세요: {subject}{style}. 기법 참고: {repository}. OpenMotion이 설치되어 있지 않다면 먼저 {installUrl}로 설치하고 연결하세요.",
-    "shortcutStyle": "; 스타일: {style}"
+    "shortcutStyle": "; 스타일: {style}",
+    "shortcutLibrary": " openmotion_get_template(templateId는 {id})로 읽고 SKILL.md를 따르세요.",
+    "shortcutGenerator": " 포함된 생성 스크립트로 영상을 만들고, 그 길이나 화면비를 만들 수 없으면 스크립트 결과물을 그대로 두고 실제 길이와 화면비를 알려 주세요."
   },
   "ru": {
     "intro": "Инструкция: используйте плагин OpenMotion. Если он не установлен, установите и подключите его по {installUrl}, затем продолжайте.",
@@ -122,7 +130,9 @@
     "generatorStep4": "4. Сделайте ролик собственным генератором скилла, точно как описано в SKILL.md: запустите его скрипты и сохраните созданные ими сцены, длительность и раскладку; не пишите и не переписывайте сцены вручную. Сохраните сгенерированные файлы проекта через openmotion_edit_project, передав expectedRevision и expectedVersionId; при конфликте перечитайте проект, не перезаписывая правки из интерфейса. Если генератор не умеет делать выбранную длительность или соотношение сторон, всё равно сделайте ролик им и сообщите, какие длительность и кадр получились; не пишите сцены вручную, чтобы подогнать под запрос.",
     "step5": "5. Когда закончите, откройте результат через openmotion_open_preview, дайте мне URL предпросмотра и оставьте проект доступным для редактирования в OpenMotion.",
     "shortcut": "С помощью Skill «{title}» в OpenMotion сделайте видео длительностью {duration} с в формате {aspect}: {subject}{style}. Источник приёма: {repository}. Если OpenMotion не установлен, сначала установите и подключите его по {installUrl}.",
-    "shortcutStyle": "; стиль: {style}"
+    "shortcutStyle": "; стиль: {style}",
+    "shortcutLibrary": " Прочитайте его через openmotion_get_template (templateId {id}) и следуйте его SKILL.md.",
+    "shortcutGenerator": " Сделайте ролик его генератором; если генератор не умеет такую длительность или кадр, оставьте его ролик и сообщите, какие длительность и кадр получились."
   },
   "de": {
     "intro": "Anleitung: Verwende das OpenMotion-Plugin. Falls es nicht installiert ist, installiere und verbinde es gemäß {installUrl} und fahre dann fort.",
@@ -147,7 +157,9 @@
     "generatorStep4": "4. Erstelle den Film mit dem eigenen Generator des Skills, genau wie in der SKILL.md beschrieben: Führe seine Skripte aus und übernimm die erzeugten Szenen, Länge und Layouts; schreibe die Szenen nicht von Hand und schreibe sie nicht um. Speichere die erzeugten Projektdateien mit openmotion_edit_project und übergib expectedRevision und expectedVersionId; lies bei Konflikten neu ein, statt Änderungen aus der Oberfläche zu überschreiben. Kann der Generator die gewählte Länge oder das Seitenverhältnis nicht erzeugen, erstelle den Film trotzdem damit und nenne mir Länge und Format des Ergebnisses; schreibe keine Szenen von Hand, um die Vorgabe zu erfüllen.",
     "step5": "5. Wenn du fertig bist, öffne es mit openmotion_open_preview, gib mir die Vorschau-URL und lass das Projekt in OpenMotion bearbeitbar.",
     "shortcut": "Verwende den OpenMotion-Skill „{title}“, um ein {duration}-Sekunden-Video im Format {aspect} zu erstellen: {subject}{style}. Technik-Referenz: {repository}. Falls OpenMotion nicht installiert ist, installiere und verbinde es zuerst mit {installUrl}.",
-    "shortcutStyle": "; Stil: {style}"
+    "shortcutStyle": "; Stil: {style}",
+    "shortcutLibrary": " Lies ihn mit openmotion_get_template (templateId {id}) und folge seiner SKILL.md.",
+    "shortcutGenerator": " Erstelle den Film mit seinem eigenen Generator; kann er diese Länge oder dieses Format nicht, behalte seinen Film und nenne mir Länge und Format."
   },
   "fr": {
     "intro": "Instructions : utilise le plugin OpenMotion. S’il n’est pas installé, suis {installUrl} pour l’installer et le connecter, puis continue.",
@@ -172,7 +184,9 @@
     "generatorStep4": "4. Réalisez le film avec le générateur fourni par le skill, exactement comme le décrit son SKILL.md : exécutez ses scripts et conservez les scènes, la durée et la mise en page qu'ils produisent ; n'écrivez ni ne réécrivez les scènes à la main. Enregistrez les fichiers du projet généré avec openmotion_edit_project en transmettant expectedRevision et expectedVersionId ; en cas de conflit, relisez au lieu d'écraser les modifications faites dans l'interface. Si le générateur ne sait pas produire la durée ou le format choisis, réalisez quand même le film avec lui et indiquez-moi la durée et le cadre obtenus ; n'écrivez pas de scènes à la main pour coller à la demande.",
     "step5": "5. Une fois terminé, ouvre-le avec openmotion_open_preview, donne-moi l’URL de l’aperçu et garde le projet modifiable dans OpenMotion.",
     "shortcut": "Utilise le Skill OpenMotion « {title} » pour créer une vidéo de {duration} s au format {aspect} : {subject}{style}. Technique de référence : {repository}. Si OpenMotion n’est pas installé, installe-le et connecte-le d’abord avec {installUrl}.",
-    "shortcutStyle": " ; style : {style}"
+    "shortcutStyle": " ; style : {style}",
+    "shortcutLibrary": " Lisez-le avec openmotion_get_template (templateId {id}) et suivez son SKILL.md.",
+    "shortcutGenerator": " Réalisez le film avec son générateur ; s'il ne sait pas produire cette durée ou ce cadre, gardez son film et indiquez-moi la durée et le cadre obtenus."
   },
   "es": {
     "intro": "Instrucciones: usa el plugin de OpenMotion. Si no está instalado, sigue {installUrl} para instalarlo y conectarlo, y luego continúa.",
@@ -197,7 +211,9 @@
     "generatorStep4": "4. Crea el vídeo con el generador propio del skill, tal como describe su SKILL.md: ejecuta sus scripts y conserva las escenas, la duración y el diseño que producen; no escribas ni reescribas las escenas a mano. Guarda los archivos del proyecto generado con openmotion_edit_project pasando expectedRevision y expectedVersionId; si hay conflicto, vuelve a leer en lugar de sobrescribir los cambios de la interfaz. Si el generador no puede hacer la duración o la relación de aspecto elegidas, crea igualmente el vídeo con él y dime la duración y el formato resultantes; no escribas escenas a mano para ajustarte a la petición.",
     "step5": "5. Al terminar, ábrelo con openmotion_open_preview, dame la URL de la vista previa y deja el proyecto editable en OpenMotion.",
     "shortcut": "Usa el Skill «{title}» de OpenMotion para crear un vídeo de {duration} s en formato {aspect}: {subject}{style}. Técnica de referencia: {repository}. Si OpenMotion no está instalado, instálalo y conéctalo primero con {installUrl}.",
-    "shortcutStyle": "; estilo: {style}"
+    "shortcutStyle": "; estilo: {style}",
+    "shortcutLibrary": " Léelo con openmotion_get_template (templateId {id}) y sigue su SKILL.md.",
+    "shortcutGenerator": " Crea el vídeo con su generador; si no puede hacer esa duración o formato, conserva su vídeo y dime la duración y el formato que hizo."
   },
   "pt-BR": {
     "intro": "Instruções: use o plugin do OpenMotion. Se ele não estiver instalado, siga {installUrl} para instalar e conectar, depois continue.",
@@ -222,7 +238,9 @@
     "generatorStep4": "4. Faça o vídeo com o gerador próprio do skill, exatamente como o SKILL.md descreve: execute os scripts e mantenha as cenas, a duração e o layout que eles produzem; não escreva nem reescreva as cenas à mão. Salve os arquivos do projeto gerado com openmotion_edit_project, passando expectedRevision e expectedVersionId; em caso de conflito, leia de novo em vez de sobrescrever as edições da interface. Se o gerador não conseguir a duração ou a proporção escolhidas, faça o vídeo com ele mesmo assim e me diga a duração e o formato resultantes; não escreva cenas à mão para se ajustar ao pedido.",
     "step5": "5. Ao terminar, abra com openmotion_open_preview, me passe o URL da prévia e mantenha o projeto editável no OpenMotion.",
     "shortcut": "Use a Skill “{title}” do OpenMotion para criar um vídeo de {duration} s em {aspect}: {subject}{style}. Referência da técnica: {repository}. Se o OpenMotion não estiver instalado, instale e conecte primeiro com {installUrl}.",
-    "shortcutStyle": "; estilo: {style}"
+    "shortcutStyle": "; estilo: {style}",
+    "shortcutLibrary": " Leia-o com openmotion_get_template (templateId {id}) e siga o SKILL.md dele.",
+    "shortcutGenerator": " Faça o vídeo com o gerador dele; se ele não conseguir essa duração ou formato, mantenha o vídeo dele e me diga a duração e o formato que fez."
   },
   "it": {
     "intro": "Istruzioni: usa il plugin OpenMotion. Se non è installato, segui {installUrl} per installarlo e collegarlo, poi continua.",
@@ -247,7 +265,9 @@
     "generatorStep4": "4. Realizza il video con il generatore incluso nello skill, esattamente come descrive il suo SKILL.md: esegui i suoi script e mantieni le scene, la durata e il layout che producono; non scrivere né riscrivere le scene a mano. Salva i file del progetto generato con openmotion_edit_project passando expectedRevision ed expectedVersionId; in caso di conflitto, rileggi invece di sovrascrivere le modifiche fatte nell'interfaccia. Se il generatore non può produrre la durata o il formato scelti, realizza comunque il video con esso e dimmi durata e formato ottenuti; non scrivere scene a mano per adattarti alla richiesta.",
     "step5": "5. Al termine, aprilo con openmotion_open_preview, dammi l’URL dell’anteprima e lascia il progetto modificabile in OpenMotion.",
     "shortcut": "Usa la Skill «{title}» di OpenMotion per creare un video di {duration} s in formato {aspect}: {subject}{style}. Riferimento per la tecnica: {repository}. Se OpenMotion non è installato, installalo e collegalo prima con {installUrl}.",
-    "shortcutStyle": "; stile: {style}"
+    "shortcutStyle": "; stile: {style}",
+    "shortcutLibrary": " Leggilo con openmotion_get_template (templateId {id}) e segui il suo SKILL.md.",
+    "shortcutGenerator": " Realizza il video con il suo generatore; se non può fare quella durata o quel formato, tieni il suo video e dimmi durata e formato ottenuti."
   },
   "tr": {
     "intro": "Talimatlar: OpenMotion eklentisini kullan. Yüklü değilse {installUrl} adresindeki adımlarla yükleyip bağla, sonra devam et.",
@@ -272,6 +292,8 @@
     "generatorStep4": "4. Videoyu skill'in kendi üreticisiyle, SKILL.md'de anlatıldığı gibi yap: betiklerini çalıştır ve ürettikleri sahneleri, süreyi ve düzeni koru; sahneleri elle yazma ya da yeniden yazma. Üretilen proje dosyalarını expectedRevision ve expectedVersionId vererek openmotion_edit_project ile kaydet; çakışma olursa arayüzdeki düzenlemelerin üzerine yazmak yerine yeniden oku. Üretici seçilen süreyi veya en-boy oranını yapamıyorsa videoyu yine onunla yap ve ortaya çıkan süreyi ve kadrajı bana söyle; isteğe uydurmak için sahneleri elle yazma.",
     "step5": "5. Bitince openmotion_open_preview ile aç, bana önizleme URL’sini ver ve projeyi OpenMotion’da düzenlenebilir bırak.",
     "shortcut": "OpenMotion’ın “{title}” Skill’i ile {duration} saniyelik, {aspect} oranında bir video yap: {subject}{style}. Teknik referansı: {repository}. OpenMotion yüklü değilse önce {installUrl} ile yükleyip bağla.",
-    "shortcutStyle": "; stil: {style}"
+    "shortcutStyle": "; stil: {style}",
+    "shortcutLibrary": " openmotion_get_template (templateId {id}) ile oku ve SKILL.md'sini izle.",
+    "shortcutGenerator": " Videoyu kendi üreticisiyle yap; o süreyi veya kadrajı yapamıyorsa üreticinin videosunu koru ve bana ortaya çıkan süreyi ve kadrajı söyle."
   }
 }

@@ -3,7 +3,7 @@ import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SkillsPage, skillSubmissionUrl } from './SkillsPage';
-import { motionSkills, skillPrompt } from './skillCatalog';
+import { motionSkills, skillPrompt, skillShortcut } from './skillCatalog';
 import { readWorkspacePage, workspacePageHref } from './workspacePageRouting';
 import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
 
@@ -119,6 +119,18 @@ it('reads library skills through MCP and runs a generator skill through its own 
   const borrowed = brief('anime-js');
   expect(borrowed).toContain('Author a native HTML/CSS/JS composition');
   expect(borrowed).not.toContain('openmotion_get_template');
+});
+
+it('routes the shortcut command through MCP for library skills and the generator for generator skills', () => {
+  const short = (id: string, locale: string) => skillShortcut(motionSkills.find(skill => skill.id === id)!, { subject: 'x', duration: 10, aspect: '9:16', style: '' }, locale, 'https://example.test/install.md');
+  for (const locale of ['en', 'zh-CN', 'ja', 'ko', 'ru', 'de', 'fr', 'es', 'pt-BR', 'it', 'tr']) {
+    expect(short('openmotion-growth-teardown', locale)).toContain('openmotion_get_template');
+    expect(short('openmotion-growth-teardown', locale)).toContain('openmotion-growth-teardown');
+    expect(short('openmotion-whiteboard-doodle', locale)).toContain('openmotion-whiteboard-doodle');
+    expect(short('anime-js', locale)).not.toContain('openmotion_get_template');
+  }
+  expect(short('openmotion-growth-teardown', 'en')).toContain('own generator');
+  expect(short('openmotion-whiteboard-doodle', 'en')).not.toContain('own generator');
 });
 
 it('starts a fresh brief when the selected skill changes from outside, such as history navigation', () => {
