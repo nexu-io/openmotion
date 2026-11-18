@@ -74,7 +74,7 @@ test('container connection instructions launch Docker on the host, preserving th
     const request = transport(store);
     const info = await (await request('/api/integration')).json();
     assert.equal(info.transport.command, 'docker');
-    assert.equal(info.transport.cwd, '.');
+    assert.equal(info.transport.cwd, undefined);
     assert.deepEqual(info.transport.env, {});
     assert.deepEqual(info.transport.args.slice(0, 3), ['exec', '-i', '--workdir']);
     assert.ok(info.transport.args.includes('MOTION_DATA_DIR=' + store.directory));

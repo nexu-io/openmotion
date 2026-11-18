@@ -6,6 +6,7 @@ import englishReadme from '../../../README.md?raw';
 import chineseReadme from '../../../README.zh-CN.md?raw';
 import { I18nProvider, type Locale } from '../i18n/I18n';
 import { McpConnectionPage } from './McpConnectionPage';
+import { containerIntegration, type IntegrationInfo } from '../../../shared/integration';
 
 vi.mock('./useWorkspace', () => ({ motionApi: async (path: string, options: RequestInit) => {
   const response = await fetch('/motion-api' + path, options);
@@ -26,6 +27,28 @@ async function mount(locale: Locale = 'en') {
   await act(async () => root!.render(<I18nProvider initialLocale={locale}><McpConnectionPage openLibrary={openLibrary} openProviders={openProviders} /></I18nProvider>));
   return { openLibrary, openProviders };
 }
+
+it('loads Docker discovery through the real hook and enables container setup, copying and downloads', async () => {
+  const docker = containerIntegration(info as IntegrationInfo, 'openmotion');
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('template-catalog') ? { items: [] } : docker)));
+  const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  await mount();
+  expect(document.querySelector('pre')?.textContent).toContain('deploy/README.md');
+  expect(document.querySelector('pre')?.textContent).toContain('welcome and video cards');
+  await act(async () => button('Copy connection instruction').click());
+  expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('existing OpenMotion Docker deployment'));
+  expect([...document.querySelectorAll('a')].find(link => link.textContent?.trim() === 'Connection guide')?.href).toContain('deploy/README.md');
+  for (const [client, host] of [['Codex', 'codex'], ['Claude Code', 'claude'], ['DeepSeek Harness', 'deepseek'], ['Other MCP clients', 'mcp']]) {
+    await act(async () => tab(client).click());
+    await act(async () => tab('Manual setup').click());
+    expect(document.body.textContent).not.toContain('Could not load settings');
+    expect(document.querySelector('pre')?.textContent).toContain('docker');
+    expect(button('Copy configuration').disabled).toBe(false);
+    await act(async () => button('Copy configuration').click());
+    expect(copy).toHaveBeenLastCalledWith(expect.stringContaining('docker'));
+    expect(document.querySelector('a[download]')?.getAttribute('href')).toBe('/connect/config?host=' + host);
+  }
+});
 
 it.each(['en', 'zh-CN'] as const)('explains bundled project-preview delivery independently of MCP activation in %s', async locale => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.includes('template-catalog') ? { items: [] } : info)));

@@ -1,6 +1,6 @@
 import { iconSprite } from "../packages/design-system/index.js";
 import { mountFeedbackLayer } from './feedback-layer';
-import { integrationHost, hostNames, hostDescriptions, setupPrompt, manualConnection, agentGuide, apiDiscoveryCommand } from '../shared/integration';
+import { integrationHost, isIntegrationInfo, hostNames, hostDescriptions, setupPrompt, manualConnection, agentGuide, apiDiscoveryCommand } from '../shared/integration';
 import type { IntegrationInfo } from '../shared/integration';
 import { mountTemplates } from './template-gallery';
 import type { TemplateGalleryEvent } from './template-gallery';
@@ -141,7 +141,7 @@ export function mountConnection(root: HTMLElement, options: { close: () => void;
       if (!response.ok) throw new Error("Workspace unavailable. Check that the OpenMotion service is running.");
       const value = await response.json() as IntegrationInfo;
       if (lifetime.signal.aborted) return;
-      if (!['OpenDesign', 'OpenMotion', 'OpenDesign Motion'].includes(value.name) || value.transport?.type !== 'stdio' || !value.transport.command || !Array.isArray(value.transport.args) || !value.transport.env?.MOTION_DATA_DIR || !Array.isArray(value.tools)) throw new Error("Invalid connection configuration. Update or restart the OpenMotion service.");
+      if (!isIntegrationInfo(value)) throw new Error("Invalid connection configuration. Update or restart the OpenMotion service.");
       info = value; language.text(element('service-status'), 'Workspace reachable · v{version}', { version: info.version });
       element('service-dot').dataset.ready = 'true'; element('workspace-url').textContent = info.previewUrl;
       element('workspace-directory').textContent = info.dataDirectory; element('connection-error').hidden = true;

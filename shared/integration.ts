@@ -23,7 +23,7 @@ export type IntegrationInfo = {
   templateSource?: 'repository' | 'hosted' | 'cms';
   templateEnvironment?: 'dev' | 'prod';
   name: string; version: string; previewUrl: string; dataDirectory: string;
-  transport: { type: 'stdio'; command: string; args: string[]; cwd: string; env: Record<string, string> };
+  transport: { type: 'stdio'; command: string; args: string[]; cwd?: string; env: Record<string, string> };
   tools: { name: string; description: string }[];
 };
 
@@ -34,9 +34,19 @@ export function containerIntegration(info: IntegrationInfo, containerName?: stri
   const { command, args, cwd, env } = info.transport;
   const containerEnvironment = Object.entries(env).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
   return { ...info, deployment: { type: 'docker', containerName }, transport: {
-    type: 'stdio', command: 'docker', cwd: '.', env: {},
-    args: ['exec', '-i', '--workdir', cwd, ...containerEnvironment, containerName, command, ...args],
+    type: 'stdio', command: 'docker', env: {},
+    args: ['exec', '-i', ...(cwd ? ['--workdir', cwd] : []), ...containerEnvironment, containerName, command, ...args],
   } };
+}
+
+/** Discovery is consumed by both the Studio handbook and the retained connection view. */
+export function isIntegrationInfo(value: IntegrationInfo): boolean {
+  const transport = value?.transport;
+  const docker = value?.deployment?.type === 'docker' && Boolean(value.deployment.containerName)
+    && transport?.command === 'docker' && Array.isArray(transport.args) && transport.args.includes(value.deployment.containerName);
+  return Boolean(['OpenMotion', 'OpenDesign', 'OpenDesign Motion'].includes(value?.name) && transport?.type === 'stdio'
+    && transport.command && Array.isArray(transport.args) && (transport.env?.MOTION_DATA_DIR || docker)
+    && Array.isArray(value.tools) && value.previewUrl && value.dataDirectory);
 }
 export function integrationHost(value: string | null): IntegrationHost {
   return integrationHosts.includes(value as IntegrationHost) ? value as IntegrationHost : 'codex';
@@ -50,8 +60,8 @@ export function deepseekConfig(info: IntegrationInfo) {
   const entry = [
     '- id: mcp-openmotion', "  name: '@deepseek-ai/dsh-mcp-client'", '  config:',
     '    serverName: openmotion', '    transport: stdio', `    command: ${JSON.stringify(command)}`,
-    `    args: ${JSON.stringify(args)}`, `    cwd: ${JSON.stringify(cwd)}`, '    env:',
-    ...Object.entries(env).map(([key, value]) => `      ${key}: ${JSON.stringify(value)}`),
+    `    args: ${JSON.stringify(args)}`, ...(cwd ? [`    cwd: ${JSON.stringify(cwd)}`] : []),
+    ...(Object.keys(env).length ? ['    env:', ...Object.entries(env).map(([key, value]) => `      ${key}: ${JSON.stringify(value)}`)] : []),
     '    failOnStartupError: true', '    toolCallTimeoutMs: 180000',
   ];
   return '- insert:\n' + entry.map(line => '    ' + line).join('\n') + '\n';
@@ -63,7 +73,7 @@ export function integrationConfig(info: IntegrationInfo, host: IntegrationHost) 
   const { command, args, cwd, env } = info.transport;
   if (host === 'codex') return {
     filename: 'openmotion-codex.toml', contentType: 'text/plain; charset=utf-8',
-    text: `[mcp_servers.openmotion]\ncommand = ${JSON.stringify(command)}\nargs = ${JSON.stringify(args)}\ncwd = ${JSON.stringify(cwd)}\n\n[mcp_servers.openmotion.env]\n${Object.entries(env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n`,
+    text: `[mcp_servers.openmotion]\ncommand = ${JSON.stringify(command)}\nargs = ${JSON.stringify(args)}\n${cwd ? `cwd = ${JSON.stringify(cwd)}\n` : ''}\n[mcp_servers.openmotion.env]\n${Object.entries(env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n')}\n`,
   };
   return { filename: 'openmotion.mcp.json', contentType: 'application/json; charset=utf-8',
     text: JSON.stringify({ mcpServers: { openmotion: { type: 'stdio', command, args, env } } }, null, 2) + '\n' };

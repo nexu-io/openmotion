@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { containerIntegration, integrationConfig, manualConnection, setupPrompt, setupGuideUrl, templatePrompt, type IntegrationInfo } from '../shared/integration.ts';
+import { containerIntegration, integrationConfig, isIntegrationInfo, manualConnection, setupPrompt, setupGuideUrl, templatePrompt, type IntegrationInfo } from '../shared/integration.ts';
+import { validateTransport } from '../scripts/check-installed-mcp.mjs';
 
 const info: IntegrationInfo = {
   name: 'OpenMotion', version: '1.0.0', templateSource: 'repository',
@@ -11,10 +12,17 @@ const info: IntegrationInfo = {
 test('container setup preserves its workspace without launching container-internal paths on the host', () => {
   assert.equal(containerIntegration(info), info);
   const docker = containerIntegration(info, 'openmotion');
+  assert.equal(isIntegrationInfo(info), true);
+  assert.equal(isIntegrationInfo(docker), true);
+  assert.equal(isIntegrationInfo({ ...docker, deployment: undefined }), false);
+  assert.equal(isIntegrationInfo({ ...docker, transport: { ...docker.transport, command: 'node' } }), false);
+  assert.doesNotThrow(() => validateTransport({ transport: docker.transport }));
+  assert.equal(docker.transport.cwd, undefined);
   assert.equal(setupGuideUrl(docker), 'https://github.com/nexu-io/openmotion/blob/main/deploy/README.md');
   for (const host of ['codex', 'claude', 'deepseek', 'mcp'] as const) {
     assert.match(manualConnection(docker, host), /docker/);
     assert.match(integrationConfig(docker, host).text, /docker/);
+    assert.doesNotMatch(integrationConfig(docker, host).text, /cwd =|cwd:|undefined/);
     for (const locale of ['en', 'zh-CN'] as const) {
       const prompt = setupPrompt(docker, host, locale);
       assert.match(prompt, /deploy\/README.md/);
