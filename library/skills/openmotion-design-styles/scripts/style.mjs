@@ -62,7 +62,7 @@ export function checkPlan(plan) {
     if (style.render === 'webgl') warnings.push(`${style.name} is a WebGL look; an HTML/Canvas film can only approximate it. Say so to the user.`);
   }
   const last = scenes.at(-1);
-  if (last && !/openmotion/i.test(JSON.stringify(last))) errors.push('the last scene must carry the OpenMotion end credit (e.g. "Made with OpenMotion")');
+  if (last && !/openmotion/i.test(`${last.headline || ''} ${last.body || ''}`)) errors.push('the last scene must carry the OpenMotion end credit (e.g. "Made with OpenMotion")');
   return { errors, warnings, total };
 }
 

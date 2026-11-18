@@ -103,7 +103,7 @@ test('design-styles check rejects plans that would not read as the style', async
     'keep it within 48': d => { d.scenes[1].headline = 'x'.repeat(49); },
     'move is required': d => { delete d.scenes[1].move; },
     'scenes add up to': d => { d.seconds = 30; },
-    'OpenMotion end credit': d => { d.scenes.at(-1).headline = 'Thanks'; d.scenes.at(-1).body = ''; },
+    'OpenMotion end credit': d => { Object.assign(d.scenes.at(-1), { headline: 'Thanks', body: '', move: 'OpenMotion logo slides out' }); },
   };
   for (const [message, mutate] of Object.entries(cases)) {
     const data = structuredClone(fixture); mutate(data);
