@@ -6,7 +6,6 @@ import { assetHttp } from './gateway/asset-http.ts';
 import { getWorkflow } from './shared/workflow.ts';
 import { isMain } from './shared/entry.ts';
 import { createServer } from 'node:http';
-import { isIP } from 'node:net';
 import { createReadStream } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -744,15 +743,17 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
   }
 }
 
-// The server listens on loopback unless MOTION_BIND_HOST names another address. A container sets
-// 0.0.0.0 so its port can be published; handler() still applies the Host and Origin checks.
+// The server listens on loopback unless MOTION_BIND_HOST selects a wildcard address. A container sets
+// 0.0.0.0 so its port can be published. Specific addresses are rejected: the readiness probe and the
+// URLs handed to Agents use 127.0.0.1, which only loopback and wildcard listeners answer.
+const bindHosts = ['127.0.0.1', '0.0.0.0', '::'];
 export function bindHost(environment: NodeJS.ProcessEnv = process.env) {
   const value = environment.MOTION_BIND_HOST?.trim();
   if (!value) {
     return '127.0.0.1';
   }
-  if (!isIP(value)) {
-    throw new Error('MOTION_BIND_HOST 必须是 IP 地址，例如 127.0.0.1 或 0.0.0.0');
+  if (!bindHosts.includes(value)) {
+    throw new Error('MOTION_BIND_HOST 只支持 127.0.0.1、0.0.0.0 或 ::');
   }
   return value;
 }

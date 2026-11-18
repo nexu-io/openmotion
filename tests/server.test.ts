@@ -54,11 +54,15 @@ test('wrapper rejects cross-origin mutations and DNS rebinding hosts', () => fix
   }
 }));
 
-test('the listening address stays on loopback unless MOTION_BIND_HOST names an IP address', async () => {
+test('the listening address is loopback or a wildcard, never a specific interface', async () => {
   const { bindHost } = await import('../server.ts');
   assert.equal(bindHost({}), '127.0.0.1');
   assert.equal(bindHost({ MOTION_BIND_HOST: '  ' }), '127.0.0.1');
+  assert.equal(bindHost({ MOTION_BIND_HOST: '127.0.0.1' }), '127.0.0.1');
   assert.equal(bindHost({ MOTION_BIND_HOST: '0.0.0.0' }), '0.0.0.0');
   assert.equal(bindHost({ MOTION_BIND_HOST: '::' }), '::');
-  assert.throws(() => bindHost({ MOTION_BIND_HOST: 'example.com' }), /MOTION_BIND_HOST/);
+  // The readiness probe and returned URLs use 127.0.0.1, so these would start a server nothing can reach.
+  for (const value of ['192.168.1.20', '::1', 'example.com']) {
+    assert.throws(() => bindHost({ MOTION_BIND_HOST: value }), /MOTION_BIND_HOST/);
+  }
 });

@@ -14,8 +14,8 @@ services:
       PORT: ${OPENMOTION_PORT:-4173}
       DO_NOT_TRACK: ${DO_NOT_TRACK:-}
     ports:
-      # Loopback only. The server accepts requests for localhost, 127.0.0.1 and
-      # [::1]; publishing on another interface does not make it reachable.
+      # Loopback only. This is what keeps other machines out: the Studio has no
+      # sign-in, so do not publish the port on another interface.
       - "127.0.0.1:${OPENMOTION_PORT:-4173}:${OPENMOTION_PORT:-4173}"
     volumes:
       - openmotion_data:/data

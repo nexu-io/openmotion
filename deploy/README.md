@@ -53,10 +53,19 @@ mounted path.
 ## How access is restricted
 
 The container sets `MOTION_BIND_HOST=0.0.0.0` so Docker can publish the port,
-and Compose publishes it on the host's `127.0.0.1` only. The server still
-accepts requests only when the `Host` header is `localhost`, `127.0.0.1` or
-`[::1]`, and accepts writes only from its own origin. Publishing the port on
-another interface does not make the Studio usable from other machines.
+and Compose publishes it on the host's `127.0.0.1` only. That loopback
+publication is what keeps other machines out. Keep it: do not change the
+`ports` entry to another interface or to `0.0.0.0`.
+
+The server also rejects requests whose `Host` header is not `localhost`,
+`127.0.0.1` or `[::1]`, and writes that do not come from its own origin. These
+checks protect a browser on this machine from other websites. They are not
+authentication: a client that is not a browser can send any `Host` and `Origin`,
+and the Studio has no sign-in.
+
+`MOTION_BIND_HOST` accepts `127.0.0.1` (default), `0.0.0.0` and `::`. A specific
+interface address is rejected, because the readiness probe and the URLs returned
+to Agents use `127.0.0.1`.
 
 ## Known limits
 
