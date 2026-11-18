@@ -132,16 +132,24 @@ it('contains unavailable setup and catalogue independently, retries and reserves
 });
 
 it('aborts pending setup and template reads when leaving the page', async () => {
-  const signals: AbortSignal[] = [];
-  vi.stubGlobal('fetch', vi.fn((_url: string, init: RequestInit) => { signals.push(init.signal!); return new Promise(() => {}); }));
+  const reads: { path: string; signal: AbortSignal | null | undefined }[] = [];
+  vi.stubGlobal('fetch', vi.fn((url: string, init: RequestInit) => {
+    const path = new URL(url, 'http://localhost').pathname;
+    // Tracking initialization can retry between tests; it is not owned by this page.
+    if (path === '/motion-api/tracking') return Promise.resolve(Response.json({ enabled: false }));
+    reads.push({ path, signal: init.signal });
+    return new Promise(() => {});
+  }));
   const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
-  await mount(); expect(signals).toHaveLength(2);
+  await mount();
+  expect(reads.map(read => read.path).sort()).toEqual(['/motion-api/integration', '/motion-api/template-catalog']);
+  for (const { path, signal } of reads) expect(signal?.aborted, path).toBe(false);
   expect(button('Copy connection instruction').disabled).toBe(false);
   await act(async () => button('Copy connection instruction').click());
   expect(copy).toHaveBeenCalledWith(expect.stringContaining('https://github.com/nexu-io/openmotion#quick-start'));
   expect(document.querySelector('a[download]')).toBeNull();
   act(() => root!.unmount()); root = undefined;
-  expect(signals.every(signal => signal.aborted)).toBe(true);
+  for (const { path, signal } of reads) expect(signal?.aborted, path).toBe(true);
 });
 
 class PreviewObserver {
