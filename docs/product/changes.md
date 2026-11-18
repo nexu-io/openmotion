@@ -1,5 +1,13 @@
 # 公开变更记录
 
+## 2026-11-18: Add the Design Styles library Skill
+
+- Add optional [`openmotion-design-styles`](../../library/skills/openmotion-design-styles/SKILL.md): 21 design-style cards and 2 layout cards (palette, open-licensed typefaces, five rules, signature motion, what to avoid, render tier) that an Agent applies to the user's content as a short HyperFrames film.
+- `scripts/style.mjs` lists and shows cards, checks a `plan.json` (known style, palette-only colours, headline length, a motion move per scene, OpenMotion end credit) and downloads glyph-subset fonts for the plan and composition text.
+- Films carry the OpenMotion wordmark in the opening and a "Made with OpenMotion" credit; the Skill ships an unchanged copy of the two design-system brand files.
+- Style topics were studied from guanmo-ai/design-style; the Skill's text is original and copies no prompts, code, images, music or films from it.
+- The Studio Skills page lists it with an OpenMotion sample cover. Library content only: not registered as an MCP resource. Sample runs: Swiss Style (English launch), Neo-Brutalism (product walkthrough) and Ink Wash (Chinese, Canvas).
+
 ## 2026-11-18: Add the primary OpenMotion Skill
 
 - Add the standalone `openmotion` Skill for installation and first use, followed by the existing specialist workflows through MCP resources. Preserve source-first setup, existing workspaces and the maintained onboarding.

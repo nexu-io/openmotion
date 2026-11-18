@@ -191,7 +191,13 @@
     "Growth reverse-engineering": "增长逆向拆解",
     "OpenMotion skill": "OpenMotion Skill",
     "Product ads": "消费品带货",
-    "Talking-head & editing": "口播与剪辑"
+    "Talking-head & editing": "口播与剪辑",
+    "Design style library": "设计风格库",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "想让视频有一种真正的设计风格（包豪斯、瑞士风格、新粗野主义、水墨等），而不是千篇一律的样子时",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "一支 10–20 秒的风格短片：把所选风格的色板、字体和规则用到你的内容上，每条规则都在画面上标出",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 种设计风格 + 2 种布局，每种都有视频能照着做的规则。",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "按 OpenMotion design-styles Skill 执行：选一张风格卡，写 plan.json（每幕写明动法和对应的风格规则），运行 style.mjs check，下载子集字体，再按这种风格自己的动法搭建各幕。只用风格卡色板和品牌色。",
+    "Make our launch video in Swiss style": "把我们的发布视频做成瑞士风格"
   },
   "ja": {
     "Skills": "Skills",
@@ -385,7 +391,13 @@
     "Growth reverse-engineering": "成長のリバースエンジニアリング",
     "OpenMotion skill": "OpenMotion の Skill",
     "Product ads": "商品広告",
-    "Talking-head & editing": "トーク・編集"
+    "Talking-head & editing": "トーク・編集",
+    "Design style library": "デザインスタイル集",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "動画をありきたりな見た目ではなく、バウハウス、スイス・スタイル、ネオブルータリズム、水墨画などの本物のデザインスタイルにしたいとき",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "選んだスタイルで作る 10〜20 秒の映像。そのスタイルの配色、書体、ルールをあなたの内容に適用し、各ルールを画面に表示",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 のデザインスタイルと 2 つのレイアウト。どれも動画がそのまま従えるルール付き。",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "OpenMotion design-styles Skill に従う：スタイルカードを選び、各シーンに動きとスタイルルールを書いた plan.json を作成し、style.mjs check を実行、サブセットフォントを取得してから、そのスタイル本来の動き方でシーンを組む。使う色はカードの配色とブランドカラーのみ。",
+    "Make our launch video in Swiss style": "ローンチ動画をスイス・スタイルで作って"
   },
   "ko": {
     "Skills": "Skills",
@@ -579,7 +591,13 @@
     "Growth reverse-engineering": "성장 역설계",
     "OpenMotion skill": "OpenMotion Skill",
     "Product ads": "상품 광고",
-    "Talking-head & editing": "토킹헤드·편집"
+    "Talking-head & editing": "토킹헤드·편집",
+    "Design style library": "디자인 스타일 라이브러리",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "영상에 흔한 느낌 대신 바우하우스, 스위스 스타일, 네오 브루탈리즘, 수묵화 같은 진짜 디자인 스타일을 입히고 싶을 때",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "선택한 스타일로 만든 10~20초 영상: 그 스타일의 팔레트, 서체, 규칙을 내용에 적용하고 규칙마다 화면에 표시",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21가지 디자인 스타일과 2가지 레이아웃, 모두 영상이 따를 수 있는 규칙 포함.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "OpenMotion design-styles Skill을 따른다: 스타일 카드를 고르고, 장면마다 모션과 스타일 규칙을 적은 plan.json을 작성해 style.mjs check를 실행하고, 서브셋 폰트를 받은 뒤 그 스타일 고유의 움직임으로 장면을 만든다. 카드 팔레트와 브랜드 색만 사용한다.",
+    "Make our launch video in Swiss style": "출시 영상을 스위스 스타일로 만들어 줘"
   },
   "ru": {
     "Skills": "Skills",
@@ -773,7 +791,13 @@
     "Growth reverse-engineering": "Обратный разбор роста",
     "OpenMotion skill": "Skill OpenMotion",
     "Product ads": "Реклама товаров",
-    "Talking-head & editing": "Ведущий и монтаж"
+    "Talking-head & editing": "Ведущий и монтаж",
+    "Design style library": "Библиотека дизайн-стилей",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Когда видео нужен настоящий дизайн-стиль — Баухаус, швейцарский стиль, необрутализм или тушь — а не безликий вид",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Ролик на 10–20 секунд в выбранном стиле: его палитра, шрифты и правила применены к вашему контенту, каждое правило подписано в кадре",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 дизайн-стиль и 2 макета — у каждого есть правила, которым может следовать видео.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "Следуйте Skill OpenMotion design-styles: выберите карточку стиля, напишите plan.json с движением и правилом стиля для каждой сцены, запустите style.mjs check, загрузите шрифты-подмножества и стройте сцены так, как движется сам стиль. Используйте только палитру карточки и цвета бренда.",
+    "Make our launch video in Swiss style": "Сделай наше видео о запуске в швейцарском стиле"
   },
   "de": {
     "Skills": "Skills",
@@ -967,7 +991,13 @@
     "Growth reverse-engineering": "Wachstum rückwärts analysiert",
     "OpenMotion skill": "OpenMotion-Skill",
     "Product ads": "Produktwerbung",
-    "Talking-head & editing": "Sprecher & Schnitt"
+    "Talking-head & editing": "Sprecher & Schnitt",
+    "Design style library": "Designstil-Bibliothek",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Wenn dein Video einen echten Designstil braucht, etwa Bauhaus, Swiss Style, Neo-Brutalismus oder Tuschmalerei, statt eines beliebigen Looks",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Ein 10–20 Sekunden langer Film im gewählten Stil: Palette, Schriften und Regeln auf deine Inhalte angewendet, jede Regel im Bild beschriftet",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 Designstile und 2 Layouts, jeweils mit Regeln, denen ein Video folgen kann.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "Folge dem OpenMotion-Skill design-styles: Stilkarte wählen, plan.json mit einer Bewegung und einer Stilregel pro Szene schreiben, style.mjs check ausführen, Schrift-Subsets laden und die Szenen aus der eigenen Bewegungsart des Stils bauen. Nur die Kartenpalette und Markenfarben verwenden.",
+    "Make our launch video in Swiss style": "Mach unser Launch-Video im Swiss Style"
   },
   "fr": {
     "Skills": "Skills",
@@ -1161,7 +1191,13 @@
     "Growth reverse-engineering": "Rétro-ingénierie de la croissance",
     "OpenMotion skill": "Skill OpenMotion",
     "Product ads": "Pubs produit",
-    "Talking-head & editing": "Face caméra et montage"
+    "Talking-head & editing": "Face caméra et montage",
+    "Design style library": "Bibliothèque de styles graphiques",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Quand votre vidéo a besoin d'un vrai style graphique, comme le Bauhaus, le style suisse, le néo-brutalisme ou le lavis d'encre, plutôt que d'un rendu générique",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Un film de 10 à 20 secondes dans le style choisi : sa palette, ses polices et ses règles appliquées à votre contenu, chaque règle indiquée à l’écran",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 styles graphiques et 2 mises en page, chacun avec des règles qu’une vidéo peut suivre.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "Suivez le Skill OpenMotion design-styles : choisissez une fiche de style, écrivez plan.json avec un mouvement et une règle de style par scène, lancez style.mjs check, récupérez les polices allégées, puis construisez les scènes selon la façon de bouger propre au style. N’utilisez que la palette de la fiche et les couleurs de la marque.",
+    "Make our launch video in Swiss style": "Fais notre vidéo de lancement en style suisse"
   },
   "es": {
     "Skills": "Skills",
@@ -1355,7 +1391,13 @@
     "Growth reverse-engineering": "Ingeniería inversa del crecimiento",
     "OpenMotion skill": "Skill de OpenMotion",
     "Product ads": "Anuncios de producto",
-    "Talking-head & editing": "Presentador y edición"
+    "Talking-head & editing": "Presentador y edición",
+    "Design style library": "Biblioteca de estilos de diseño",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Cuando tu vídeo necesita un estilo de diseño real, como Bauhaus, estilo suizo, neobrutalismo o tinta china, en lugar de un aspecto genérico",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Un vídeo de 10 a 20 segundos en el estilo elegido: su paleta, tipografías y reglas aplicadas a tu contenido, con cada regla rotulada en pantalla",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 estilos de diseño y 2 maquetaciones, cada uno con reglas que un vídeo puede seguir.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "Sigue el Skill design-styles de OpenMotion: elige una ficha de estilo, escribe plan.json con un movimiento y una regla de estilo por escena, ejecuta style.mjs check, descarga las fuentes reducidas y construye las escenas con la forma de moverse propia del estilo. Usa solo la paleta de la ficha y los colores de marca.",
+    "Make our launch video in Swiss style": "Haz nuestro vídeo de lanzamiento en estilo suizo"
   },
   "pt-BR": {
     "Skills": "Skills",
@@ -1549,7 +1591,13 @@
     "Growth reverse-engineering": "Engenharia reversa do crescimento",
     "OpenMotion skill": "Skill do OpenMotion",
     "Product ads": "Anúncios de produto",
-    "Talking-head & editing": "Apresentador e edição"
+    "Talking-head & editing": "Apresentador e edição",
+    "Design style library": "Biblioteca de estilos de design",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Quando seu vídeo precisa de um estilo de design de verdade, como Bauhaus, estilo suíço, neobrutalismo ou nanquim, em vez de um visual genérico",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Um vídeo de 10 a 20 segundos no estilo escolhido: paleta, fontes e regras aplicadas ao seu conteúdo, com cada regra indicada na tela",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 estilos de design e 2 layouts, cada um com regras que um vídeo pode seguir.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "Siga o Skill design-styles do OpenMotion: escolha um cartão de estilo, escreva o plan.json com um movimento e uma regra de estilo por cena, rode style.mjs check, baixe as fontes reduzidas e monte as cenas com o jeito de se mover próprio do estilo. Use apenas a paleta do cartão e as cores da marca.",
+    "Make our launch video in Swiss style": "Faça nosso vídeo de lançamento no estilo suíço"
   },
   "it": {
     "Skills": "Skill",
@@ -1743,7 +1791,13 @@
     "Growth reverse-engineering": "Reverse engineering della crescita",
     "OpenMotion skill": "Skill di OpenMotion",
     "Product ads": "Annunci prodotto",
-    "Talking-head & editing": "Presentatore e montaggio"
+    "Talking-head & editing": "Presentatore e montaggio",
+    "Design style library": "Libreria di stili grafici",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Quando il tuo video ha bisogno di un vero stile grafico, come Bauhaus, stile svizzero, neobrutalismo o pittura a inchiostro, invece di un aspetto generico",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Un video di 10–20 secondi nello stile scelto: palette, caratteri e regole applicati ai tuoi contenuti, con ogni regola indicata a schermo",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 stili grafici e 2 layout, ognuno con regole che un video può seguire.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "Segui lo Skill design-styles di OpenMotion: scegli una scheda di stile, scrivi plan.json con un movimento e una regola di stile per scena, esegui style.mjs check, scarica i font ridotti e costruisci le scene secondo il modo di muoversi proprio dello stile. Usa solo la palette della scheda e i colori del marchio.",
+    "Make our launch video in Swiss style": "Crea il nostro video di lancio in stile svizzero"
   },
   "tr": {
     "Skills": "Skill’ler",
@@ -1937,6 +1991,12 @@
     "Growth reverse-engineering": "Büyümede tersine mühendislik",
     "OpenMotion skill": "OpenMotion Skill’i",
     "Product ads": "Ürün reklamları",
-    "Talking-head & editing": "Kamera karşısı ve kurgu"
+    "Talking-head & editing": "Kamera karşısı ve kurgu",
+    "Design style library": "Tasarım stili kütüphanesi",
+    "When your video needs a real design style, such as Bauhaus, Swiss, Neo-Brutalism or ink wash, instead of a generic look": "Videonun sıradan bir görünüm yerine Bauhaus, İsviçre stili, Neo-Brütalizm veya mürekkep resmi gibi gerçek bir tasarım stiline ihtiyacı olduğunda",
+    "A 10–20 second film in the chosen style: its palette, typefaces and rules applied to your content, with each rule labelled on screen": "Seçilen stilde 10–20 saniyelik bir film: paleti, yazı tipleri ve kuralları içeriğine uygulanır, her kural ekranda etiketlenir",
+    "21 design styles and 2 layouts, each with rules a video can follow.": "21 tasarım stili ve 2 düzen; her birinin bir videonun izleyebileceği kuralları var.",
+    "Follow the OpenMotion design-styles Skill: pick a style card, write plan.json with a motion move and a style rule per scene, run style.mjs check, fetch subset fonts, then build the scenes from that style's own way of moving. Use only the card palette plus brand colours.": "OpenMotion design-styles Skill’ini izle: bir stil kartı seç, her sahne için bir hareket ve stil kuralı içeren plan.json yaz, style.mjs check çalıştır, alt küme yazı tiplerini indir ve sahneleri stilin kendi hareket biçimiyle kur. Yalnızca kart paletini ve marka renklerini kullan.",
+    "Make our launch video in Swiss style": "Lansman videomuzu İsviçre stilinde yap"
   }
 }
