@@ -3,7 +3,7 @@ import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SkillsPage, skillSubmissionUrl } from './SkillsPage';
-import { motionSkills, skillAspects, skillDurations, skillFormat, skillPrompt } from './skillCatalog';
+import { motionSkills, skillPrompt } from './skillCatalog';
 import { readWorkspacePage, workspacePageHref } from './workspacePageRouting';
 import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
 
@@ -106,30 +106,17 @@ it('points library skills at their SKILL.md and runs a generator skill through i
     const growth = brief('openmotion-growth-teardown', locale);
     expect(growth).toContain('library/skills/openmotion-growth-teardown/');
     expect(growth).toContain('install-library-skill.mjs openmotion-growth-teardown');
-    expect(growth).toMatch(/50/);
-    expect(growth).toContain('16:9');
-    expect(growth).not.toContain('1:1');
+    expect(growth).toContain('1:1');
     const recipe = brief('openmotion-whiteboard-doodle', locale);
     expect(recipe).toContain('library/skills/openmotion-whiteboard-doodle/');
     expect(recipe).toContain('HTML/CSS/JS');
   }
   expect(brief('openmotion-growth-teardown')).toContain("Make the film with the skill's own generator");
+  expect(brief('openmotion-growth-teardown')).toContain('cannot make the chosen duration or aspect ratio');
   expect(brief('openmotion-whiteboard-doodle')).not.toContain("own generator");
   const borrowed = brief('anime-js');
   expect(borrowed).toContain('Author a native HTML/CSS/JS composition');
   expect(borrowed).not.toContain('library/skills');
-});
-
-it('offers only the length and frame each skill supports', () => {
-  const shorts = motionSkills.find(skill => skill.id === 'openmotion-shortlist-shorts')!;
-  expect(skillFormat(shorts, { duration: 10, aspect: '16:9' })).toEqual({ duration: 30, aspect: '9:16' });
-  expect(skillFormat(shorts, { duration: 60, aspect: '9:16' })).toEqual({ duration: 60, aspect: '9:16' });
-  const free = motionSkills.find(skill => skill.id === 'anime-js')!;
-  expect(skillFormat(free, { duration: 15, aspect: '1:1' })).toEqual({ duration: 15, aspect: '1:1' });
-  for (const skill of motionSkills) {
-    expect(skillDurations(skill).length).toBeGreaterThan(0);
-    expect(skillAspects(skill).length).toBeGreaterThan(0);
-  }
 });
 
 it('starts a fresh brief when the selected skill changes from outside, such as history navigation', () => {
