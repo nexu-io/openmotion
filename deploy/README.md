@@ -27,6 +27,13 @@ mounted at `/data` (`MOTION_DATA_DIR`). `docker compose down` keeps the volume;
 The MCP server is a stdio process. Start it inside the running container so it
 shares the Studio's data directory and service:
 
+The Studio's **MCP · Connect Agent** page detects this Compose deployment.
+Its copied commands and downloaded configurations run `docker exec` from the
+host, preserving the container's workspace and runtime. Use those instructions
+for Codex, Claude Code, DeepSeek Harness or another stdio client; do not run
+container paths such as `/app/mcp.ts` directly on the host. The Agent setup
+instruction and Connection guide also retain this Docker installation.
+
 ```json
 {
   "mcpServers": {
@@ -41,6 +48,11 @@ shares the Studio's data directory and service:
 Paths passed to MCP tools are container paths. To import local media with
 `openmotion_import_assets`, mount the folder into the container and pass the
 mounted path.
+
+Compose sets `MOTION_CONTAINER_NAME=openmotion` to match `container_name`.
+If you rename the container, update both values so the generated host commands
+enter the right container. When running the image without Compose, set
+`MOTION_CONTAINER_NAME` to the actual container name to enable these commands.
 
 ## Settings
 

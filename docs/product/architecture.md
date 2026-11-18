@@ -2,7 +2,9 @@
 
 This document describes the standalone Motion runtime at the repository root. OpenDesign account access uses an installation-owned connector session; it does not share the main application's local credentials, sessions or deployment. See the [migration boundary](../repository-migration.md) and [account integration](../provider-settings.md#account-and-subscription).
 
-Updated: 2026-11-17. Capabilities described as current are implemented in this repository. The public scope covers local creation/editing, MCP and standalone installation/distribution, with configured providers and external account services supplying model access.
+Updated: 2026-11-18. Capabilities described as current are implemented in this repository. The public scope covers local creation/editing, MCP and standalone installation/distribution, with configured providers and external account services supplying model access.
+
+The optional source-built [Docker Compose deployment](../../deploy/README.md) runs Studio, MCP and rendering in one local container with a persistent workspace volume. Compose publishes only on host loopback; Host/Origin validation remains browser protection rather than authentication. The default listener stays loopback, with `MOTION_BIND_HOST` allowing wildcard binding for containers. Compose identifies the running container through `MOTION_CONTAINER_NAME`; the Studio MCP handbook and connection downloads then generate host-side `docker exec` commands with the same container paths, data directory and port, instead of suggesting a second host installation. Local media must be mounted before import. The embedded web-browser tab remains unavailable because its Chromium sandbox cannot start under this container configuration; video preview and export use the renderer's existing behavior. Linux Chromium/FFmpeg versions come from Debian rather than pinned native targets. No container image is published, and this deployment remains outside npm/plugin distribution.
 
 ## 产品定位与目标
 

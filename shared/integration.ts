@@ -19,12 +19,25 @@ export const hostDescriptions: Record<IntegrationHost, string> = {
   mcp: '连接你喜欢的 MCP 客户端，也可以从终端和脚本开始。',
 };
 export type IntegrationInfo = {
+  deployment?: { type: 'docker'; containerName: string };
   templateSource?: 'repository' | 'hosted' | 'cms';
   templateEnvironment?: 'dev' | 'prod';
   name: string; version: string; previewUrl: string; dataDirectory: string;
   transport: { type: 'stdio'; command: string; args: string[]; cwd: string; env: Record<string, string> };
   tools: { name: string; description: string }[];
 };
+
+/** Host clients must enter the same container instead of executing its paths locally. */
+export function containerIntegration(info: IntegrationInfo, containerName?: string): IntegrationInfo {
+  if (!containerName) return info;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(containerName)) throw new Error('Invalid MOTION_CONTAINER_NAME');
+  const { command, args, cwd, env } = info.transport;
+  const containerEnvironment = Object.entries(env).flatMap(([key, value]) => ['--env', `${key}=${value}`]);
+  return { ...info, deployment: { type: 'docker', containerName }, transport: {
+    type: 'stdio', command: 'docker', cwd: '.', env: {},
+    args: ['exec', '-i', '--workdir', cwd, ...containerEnvironment, containerName, command, ...args],
+  } };
+}
 export function integrationHost(value: string | null): IntegrationHost {
   return integrationHosts.includes(value as IntegrationHost) ? value as IntegrationHost : 'codex';
 }
@@ -75,6 +88,7 @@ export function guideUrl(info: Pick<IntegrationInfo, 'previewUrl'>, host: Integr
 export const setupSkillUrl = 'https://github.com/nexu-io/openmotion/blob/main/skills/openmotion/SKILL.md';
 export const setupReadmeUrl = 'https://github.com/nexu-io/openmotion#quick-start';
 export function setupGuideUrl(info: IntegrationInfo | null) {
+  if (info?.deployment?.type === 'docker') return 'https://github.com/nexu-io/openmotion/blob/main/deploy/README.md';
   if (!info || info.templateSource === 'repository') return 'https://github.com/nexu-io/openmotion/blob/main/install.md';
   const environment = info.templateEnvironment ?? info.transport.env.MOTION_TEMPLATE_ENV ?? 'prod';
   return `https://releases.open-design.ai/open-motion/${environment === 'dev' ? 'dev/' : ''}install.md`;
@@ -83,6 +97,18 @@ export function setupGuideUrl(info: IntegrationInfo | null) {
 // Bootstrap instructions must work before an installation or local server exists.
 // Exact local paths belong only to manual configuration and the running service's guide.
 export function setupPrompt(info: IntegrationInfo | null, host: IntegrationHost, locale: 'zh-CN' | 'en' = 'zh-CN') {
+  if (info?.deployment?.type === 'docker' && host !== 'chatgpt') {
+    if (locale === 'zh-CN') return `将 ${hostNames[host]} 接入当前已运行的 OpenMotion Docker 部署。
+按容器接入指南操作：${setupGuideUrl(info)}
+使用 ${info.previewUrl}/connect/config?host=${host} 的手动配置，通过 docker exec 进入现有容器。
+保留当前容器及工作区，不另装宿主运行时。工具返回的路径是容器内路径；导入宿主素材前先挂载素材目录。
+重新加载当前 Agent 的实际连接，发现 OpenMotion 工具并调用 openmotion_get_project 核对数据目录。仅写入配置不代表连接成功。等我给出创作要求后再创建或修改工程。`;
+    return `Connect ${hostNames[host]} to this existing OpenMotion Docker deployment.
+Follow the container connection guide: ${setupGuideUrl(info)}
+Use the manual configuration from ${info.previewUrl}/connect/config?host=${host}; it runs docker exec in the existing container.
+Preserve this container and its workspace; do not install a second host runtime. Paths returned by tools are container paths. Mount host media into the container before importing it.
+Reload the actual Agent connection, discover its OpenMotion tools and call openmotion_get_project to verify the data directory. Configuration alone does not prove connection. Wait for my creative brief before creating or changing a project.`;
+  }
   if (locale === 'en') {
     if (host === 'chatgpt') return 'ChatGPT cloud requires a public HTTPS MCP service. This workspace uses local stdio. Choose Codex, Claude Code, or DeepSeek Harness to start creating.';
     return `Help me install and connect OpenMotion in ${hostNames[host]}.
@@ -123,7 +149,7 @@ Hyperframes 原生动画与视频工作室。
 - 编辑器：${info.previewUrl}
 - 数据目录：${JSON.stringify(info.dataDirectory)}
 - 版本：${info.version}
-- MCP：本机 stdio，由客户端启动 Node.js 进程。编辑器 URL 不是 HTTP MCP 端点。
+- ${info.deployment?.type === 'docker' ? 'MCP: host stdio runs docker exec in the existing container. Workspace and media paths are container paths; mount host media before importing it. Do not install another host runtime.' : 'MCP：本机 stdio，由客户端启动 Node.js 进程。编辑器 URL 不是 HTTP MCP 端点。'}
 - 使用同一台电脑上的 Codex、Claude Code、DeepSeek Harness 或支持 stdio 的 MCP 客户端。
 
 ## 接入

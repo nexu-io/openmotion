@@ -12,6 +12,8 @@ services:
       # The same port is used inside and outside the container, so the URLs the
       # server and MCP return open unchanged in the host browser.
       PORT: ${OPENMOTION_PORT:-4173}
+      # Used by Studio's host-side MCP commands to enter this exact container.
+      MOTION_CONTAINER_NAME: openmotion
       DO_NOT_TRACK: ${DO_NOT_TRACK:-}
     ports:
       # Loopback only. This is what keeps other machines out: the Studio has no

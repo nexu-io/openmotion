@@ -23,7 +23,7 @@ import { proxyStudio, renderDownloadDisposition, serveEditorFile } from './edito
 import { publicTools as mcpTools } from './mcp.ts';
 import { startOwnedStudio } from './shared/owned-studio.mjs';
 import { sharedEditorEnabled, ensureEditor, editorRequest } from './editor-runtime.ts';
-import { agentGuide, integrationConfig, integrationHost, type IntegrationInfo } from './shared/integration.ts';
+import { agentGuide, containerIntegration, integrationConfig, integrationHost, type IntegrationInfo } from './shared/integration.ts';
 import { validateInstruction } from './shared/conversation.ts';
 import { creationMode, creationModes, artifactViewers, availableSession, type CreativeSession, type CreationMode } from './shared/session.ts';
 import { gatewayFor } from './gateway/service.ts';
@@ -476,14 +476,14 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     }
     if (req.method === 'GET' && ['/api/integration', '/connect/guide', '/connect/config'].includes(url.pathname)) {
       const address = new URL(editorUrl);
-      const info: IntegrationInfo = {
+      const info: IntegrationInfo = containerIntegration({
         templateSource: templateCatalogFor(store.directory).source,
         templateEnvironment: templateCatalogFor(store.directory).environment as 'dev' | 'prod',
         name: 'OpenMotion', version: VERSION, previewUrl: address.origin, dataDirectory: store.directory,
         transport: { type: 'stdio', command: process.execPath, args: ['--experimental-strip-types', path.join(pluginRoot, 'mcp.ts')], cwd: pluginRoot,
           env: { MOTION_DATA_DIR: store.directory, PORT: address.port || '80', MOTION_TEMPLATE_SOURCE: templateCatalogFor(store.directory).source, ...Object.fromEntries(['MOTION_TEMPLATE_ENV', 'MOTION_TEMPLATE_RESOURCE_ID', 'MOTION_TEMPLATE_LOCALE', 'MOTION_BROWSER_PATH', 'HYPERFRAMES_BROWSER_PATH', 'HYPERFRAMES_FFMPEG_PATH', 'HYPERFRAMES_FFPROBE_PATH', 'FFMPEG_PATH', 'FFPROBE_PATH'].filter(key => process.env[key]).map(key => [key, process.env[key]!])) } },
         tools: mcpTools.map(({ name, description }) => ({ name, description })),
-      };
+      }, process.env.MOTION_CONTAINER_NAME);
       if (url.pathname === '/api/integration') return json(res, 200, info);
       const selected = integrationHost(url.searchParams.get('host'));
       if (url.pathname === '/connect/guide') {
