@@ -277,6 +277,15 @@
     "wavespeed.svg": {
       "source": "lobe",
       "path": "packages/static-svg/icons/wavespeed.svg"
+    },
+    "aimlapi.svg": {
+      "source": "official website",
+      "url": "https://aimlapi.com/",
+      "element": "link[rel=icon][type=\"image/svg+xml\"]",
+      "retrievedAt": "2026-11-18",
+      "sha256": "4066c5ecd3025d9c7a9bfacf33853c1fadf645028d389ff7d1684d85c01abd4c",
+      "changes": "Kept the light-scheme fill as a path attribute and removed the color-scheme style; viewBox and geometry retained.",
+      "rights": "AI/ML API brand mark; ownership remains with AI/ML API. No open-source license is claimed."
     }
   }
 }

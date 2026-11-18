@@ -132,3 +132,19 @@ test('OpenDesign speech offers checked voices with a default, accepts other voic
   assert.equal(listed.defaults?.voice, undefined);
   await gateway.close();
 }));
+
+test('AI/ML API built-in models expose their checked schemas and reject values outside them', () => {
+  const byId = (id: string) => builtinModels.find(model => model.id === id)!;
+  const keys = (id: string) => generationOptions(byId(id))?.fields.map(field => field.key);
+  assert.deepEqual(keys('aimlapi:flux/schnell'), ['image_size', 'num_images', 'seed']);
+  assert.deepEqual(keys('aimlapi:bytedance/seedance-1-0-pro-fast'), ['resolution', 'duration', 'camerafixed', 'seed']);
+  assert.deepEqual(keys('aimlapi:stable-audio'), ['seconds_total', 'steps']);
+  assert.deepEqual(keys('aimlapi:openai/tts-1'), ['voice', 'speed']);
+  validateGenerationOptions(byId('aimlapi:bytedance/seedance-1-0-pro-fast'), { resolution: '480p', duration: 5 });
+  assert.throws(() => validateGenerationOptions(byId('aimlapi:bytedance/seedance-1-0-pro-fast'), { duration: 7 }), /duration/);
+  assert.throws(() => validateGenerationOptions(byId('aimlapi:flux/schnell'), { num_images: 5 }), /num_images/);
+  assert.throws(() => validateGenerationOptions(byId('aimlapi:stable-audio'), { seconds_total: 60 }), /seconds_total/);
+  assert.throws(() => validateGenerationOptions(byId('aimlapi:openai/tts-1'), { voice: 'robot' }), /voice/);
+  // A live catalogue model of the same provider gets no guessed schema.
+  assert.equal(generationOptions({ ...byId('aimlapi:flux/schnell'), id: 'aimlapi:vendor/other', modelId: 'vendor/other', source: 'live' }), undefined);
+});

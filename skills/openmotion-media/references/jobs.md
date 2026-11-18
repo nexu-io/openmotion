@@ -9,6 +9,7 @@ Call `action: "reference"` with the selected provider ID from `inspect`, or open
 - [fal.ai](providers/fal.md)
 - [Atlas Cloud](providers/atlascloud.md)
 - [WaveSpeedAI](providers/wavespeed.md)
+- [AI/ML API](providers/aimlapi.md)
 - [OpenDesign Cloud](providers/opendesign.md)
 - [OpenDesign account](providers/account.md)
 - [Registered compatible APIs](providers/compatible.md)

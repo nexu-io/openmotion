@@ -338,7 +338,7 @@ flowchart LR
   MCP -. Windows / Linux 原路径 .-> Workspace
   MCP -. Windows / Linux 原路径 .-> Gateway
   API --> Gateway
-  Gateway --> Providers[本地 Codex / Atlas Cloud / fal / OpenDesign Cloud / WaveSpeedAI]
+  Gateway --> Providers[本地 Codex / Atlas Cloud / fal / OpenDesign Cloud / WaveSpeedAI / AI/ML API]
   Providers --> Library[本机工作区资产库]
   Library --> Assets[原工程 assets/generated 独立副本]
   Assets --> Workspace
