@@ -482,11 +482,13 @@ test('provider setup handoff tracks MCP entries exclusively without counting Web
       body: JSON.stringify({ name: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_upgrade_go' } }),
     });
     assert.equal(webmcp.status, 200);
-    assert.equal(new URL((await webmcp.json()).previewUrl).searchParams.get('entry_from'), 'agent_media_upgrade_go');
+    assert.equal(new URL((await webmcp.json()).previewUrl).searchParams.has('entry_from'), false);
 
     await rpc({ jsonrpc: '2.0', id: 'init', method: 'initialize', params: { clientInfo: { name: 'codex-mcp-client', version: '1.2.3' } } }, store);
     await rpc({ jsonrpc: '2.0', id: 'p1', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'providers' } } }, store);
     await rpc({ jsonrpc: '2.0', id: 'p2', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_upgrade_free', presentation: 'now', embedded: false } } }, store);
+    const badProvider: any = await rpc({ jsonrpc: '2.0', id: 'p2b', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'providers', projectId: 'project', entry: 'agent_media_upgrade_free' } } }, store);
+    assert.equal(badProvider.result.isError, true);
     const badTemplate: any = await rpc({ jsonrpc: '2.0', id: 'p3', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'templates', entry: 'agent_media_signed_out' } } }, store);
     assert.equal(badTemplate.result.isError, true);
     const badProject: any = await rpc({ jsonrpc: '2.0', id: 'p4', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'project', action: 'begin', entry: 'agent_media_signed_out' } } }, store);

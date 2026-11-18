@@ -222,16 +222,19 @@ used. These tokens are metadata references, not authorization credentials.
 
 Provider-settings handoffs (`openmotion_open_preview` with `target=providers`)
 emit the MCP-only `provider_setup_opened` event on successful stdio MCP calls
-(so WebMCP/HTTP calls do not emit it), carrying a closed `entry_from` enum
-(`agent_providers` by default, or `agent_media_signed_out`, `agent_media_upgrade_free`,
-`agent_media_upgrade_go`, `agent_media_balance_low`, `agent_media_key_rejected`,
-`agent_media_handbook`) and append that validated `entry_from` parameter to the
-returned `previewUrl`. Studio Settings propagates only recognized `entry_from`
-values onto Settings `page_view` and Settings `ui_click` events (including
-`account` sign-in and manage-subscription clicks) while inside Settings, and clears
-`entry_from` when navigating out of Settings (including to `brand-kit`, `mcp`,
-`assets`, `skills`, or the editor). Unknown values are ignored on both sides and
-never carry prompts, account IDs or credentials.
+and append the validated `entry_from` parameter (`agent_providers` by default, or
+`agent_media_signed_out`, `agent_media_upgrade_free`, `agent_media_upgrade_go`,
+`agent_media_balance_low`, `agent_media_key_rejected`, `agent_media_handbook`) to
+the returned `previewUrl`. WebMCP/non-MCP HTTP calls neither emit
+`provider_setup_opened` nor attach `entry_from` to `previewUrl`, keeping funnel
+denominators and numerators aligned. Studio Settings propagates only recognized
+`entry_from` values onto Settings `page_view` and Settings `ui_click` events
+(including `account` sign-in and manage-subscription clicks) while inside
+Settings, and clears `entry_from` when navigating out of Settings (including to
+`brand-kit`, `mcp`, `assets`, `skills`, or the editor). Unknown `entry` values
+are rejected with `INVALID_ARGUMENT` on MCP calls, while Studio drops
+unrecognized URL `entry_from` values; neither side accepts prompts, account IDs
+or credentials.
 
 The research sources are the [supported MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
 [Codex's MCP client](https://github.com/openai/codex/blob/main/codex-rs/rmcp-client/src/utils.rs)

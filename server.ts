@@ -448,7 +448,9 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       const data = await input(req);
       try {
         const host = validHostContext(data.trackingHost) ? data.trackingHost : unknownHost;
-        let result = await context.phase1.call(data.name, data.arguments ?? {}, host);
+        let result = await context.phase1.call(data.name, data.arguments ?? {}, host, {
+          attributeEntry: Object.hasOwn(data, 'trackingHost'),
+        });
         if (host.host_agent !== 'unknown' && context.tracking?.enabled() && (result.previewUrl || result.previewHandoff)) {
           const hosts = context.trackingHosts ??= new Map();
           for (const [key, value] of hosts) if (Date.now() - value.createdAt > 86_400_000) hosts.delete(key);

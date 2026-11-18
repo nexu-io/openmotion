@@ -4,7 +4,7 @@ import { templateDiscoveryGuide } from './workflow-entry.js';
 import { projectArchiveTool } from './project-archive.ts';
 import { projectManagementTool } from './project-management.ts';
 import { assetLibraryTool, workspaceAssetUseTool } from './asset-tools.ts';
-import { providerSetupEntries } from '../tracking/events.ts';
+import { providerSetupEntries } from './workspace-url.ts';
 const providerEntry = { enum: [...providerSetupEntries], description: 'Optional entry reason when target=providers (for example agent_media_signed_out, agent_media_upgrade_free, agent_media_upgrade_go, agent_media_balance_low, agent_media_key_rejected, agent_media_handbook); defaults to agent_providers.' } as const;
 const id = { type: 'string', minLength: 1, maxLength: 100 };
 const projectId = { type: 'string', pattern: '^(project|[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12})$' };
