@@ -6,6 +6,7 @@ import { assetHttp } from './gateway/asset-http.ts';
 import { getWorkflow } from './shared/workflow.ts';
 import { isMain } from './shared/entry.ts';
 import { createServer } from 'node:http';
+import { isIP } from 'node:net';
 import { createReadStream } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -743,7 +744,22 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
   }
 }
 
+// The server listens on loopback unless MOTION_BIND_HOST names another address. A container sets
+// 0.0.0.0 so its port can be published; handler() still applies the Host and Origin checks.
+export function bindHost(environment: NodeJS.ProcessEnv = process.env) {
+  const value = environment.MOTION_BIND_HOST?.trim();
+  if (!value) {
+    return '127.0.0.1';
+  }
+  if (!isIP(value)) {
+    throw new Error('MOTION_BIND_HOST 必须是 IP 地址，例如 127.0.0.1 或 0.0.0.0');
+  }
+  return value;
+}
+
 export async function startServer(store = sharedStore, port = Number(process.env.PORT || 4173), options: { editor?: boolean; fallbackIfPortBusy?: boolean; editorToken?: string; privateHandler?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean> } = { editor: process.env.MOTION_HEADLESS !== '1' }) {
+  // Resolve the address before any child process starts, so an invalid value leaves no editor running.
+  const host = bindHost();
   await access(path.join(pluginRoot, 'studio/build/index.html')).catch(() => { throw new Error('编辑器尚未构建，请先运行 npm run build:studio。'); });
   const runtimeRoot = await ensureRuntime(store.directory, false);
   await configureNativeEnvironment(pluginRoot);
@@ -783,7 +799,7 @@ export async function startServer(store = sharedStore, port = Number(process.env
   try {
     const listen = (target: number) => new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(target, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+      server.listen(target, host, () => { server.off('error', reject); resolve(); });
     });
     try { await listen(port); }
     catch (error) {

@@ -53,3 +53,12 @@ test('wrapper rejects cross-origin mutations and DNS rebinding hosts', () => fix
     await handler(req as unknown as IncomingMessage, res as unknown as ServerResponse, store); assert.equal(status, 403);
   }
 }));
+
+test('the listening address stays on loopback unless MOTION_BIND_HOST names an IP address', async () => {
+  const { bindHost } = await import('../server.ts');
+  assert.equal(bindHost({}), '127.0.0.1');
+  assert.equal(bindHost({ MOTION_BIND_HOST: '  ' }), '127.0.0.1');
+  assert.equal(bindHost({ MOTION_BIND_HOST: '0.0.0.0' }), '0.0.0.0');
+  assert.equal(bindHost({ MOTION_BIND_HOST: '::' }), '::');
+  assert.throws(() => bindHost({ MOTION_BIND_HOST: 'example.com' }), /MOTION_BIND_HOST/);
+});
