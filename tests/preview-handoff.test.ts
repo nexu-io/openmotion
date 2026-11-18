@@ -66,6 +66,10 @@ test('provider setup opens without a project and preserves workspace state', asy
       await assert.rejects(service.call('openmotion_open_preview', { target: 'providers', ...args }), /INVALID_ARGUMENT/);
     }
     await assert.rejects(service.call('openmotion_open_preview', { target: 'templates', entry: 'agent_media_signed_out' }), /INVALID_ARGUMENT/);
+    const project = await service.call('openmotion_create_project', { requestId: crypto.randomUUID(), projectType: 'natural_language', title: 'Entry guard', requirements: 'Reject provider entry on project previews' });
+    await assert.rejects(service.call('openmotion_open_preview', { target: 'project', action: 'begin', projectId: project.projectId, requestId: crypto.randomUUID(), mode: 'create', entry: 'agent_media_upgrade_free' }), /INVALID_ARGUMENT/);
+    await assert.rejects(service.call('openmotion_open_preview', { action: 'begin', projectId: project.projectId, requestId: crypto.randomUUID(), mode: 'create', entry: 'agent_media_upgrade_free' }), /INVALID_ARGUMENT/);
+    assert.deepEqual(new Set(store.projectCatalog().projects.map(item => item.id)), new Set([...catalog.projects.map(item => item.id), project.projectId]));
   }, initialized);
 });
 

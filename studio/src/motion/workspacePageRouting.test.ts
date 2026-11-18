@@ -57,8 +57,16 @@ it('keeps entry_from while switching settings sections and clears it when leavin
   expect(account.searchParams.get('entry_from')).toBe('agent_media_upgrade_go');
   const subscription = new URL(workspacePageHref(account.href, { settings: 'subscription' }), source);
   expect(subscription.searchParams.get('entry_from')).toBe('agent_media_upgrade_go');
+  const brandKit = new URL(workspacePageHref(subscription.href, { settings: 'brand-kit' }), source);
+  expect(brandKit.searchParams.has('entry_from')).toBe(false);
+  expect(new URL(workspacePageHref(brandKit.href, { settings: 'account' }), source).searchParams.has('entry_from')).toBe(false);
+  const mcp = new URL(workspacePageHref(subscription.href, { settings: 'mcp' }), source);
+  expect(mcp.searchParams.has('entry_from')).toBe(false);
+  expect(new URL(workspacePageHref(mcp.href, { settings: 'account' }), source).searchParams.has('entry_from')).toBe(false);
   const assets = new URL(workspacePageHref(subscription.href, { assets: true }), source);
   expect(assets.searchParams.has('entry_from')).toBe(false);
+  const skills = new URL(workspacePageHref(subscription.href, { skills: true }), source);
+  expect(skills.searchParams.has('entry_from')).toBe(false);
   const closed = new URL(workspacePageHref(subscription.href, { settings: null }), source);
   expect(closed.searchParams.has('entry_from')).toBe(false);
 });

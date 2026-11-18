@@ -1,4 +1,8 @@
-import { providerSetupEntries, type ProviderSetupEntry } from '../tracking/events.ts';
+export const providerSetupEntries = [
+  'agent_providers', 'agent_media_signed_out', 'agent_media_upgrade_free', 'agent_media_upgrade_go',
+  'agent_media_balance_low', 'agent_media_key_rejected', 'agent_media_handbook',
+] as const;
+export type ProviderSetupEntry = typeof providerSetupEntries[number];
 
 export type WorkspacePresentation = { embedded: boolean; sidebar: boolean; conversation: boolean };
 /** Settings, MCP, Assets, Skills and Brand Kit can open even when the retained project cannot start. */

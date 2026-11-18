@@ -1,5 +1,7 @@
 import type { Entry, Registry } from './core.ts';
 import { studioUsageEvents } from './studio-events.ts';
+import { providerSetupEntries, type ProviderSetupEntry } from '../shared/workspace-url.ts';
+export { providerSetupEntries, type ProviderSetupEntry };
 
 export const toolNames = ['motion_assets', 'motion_media_use', 'motion_list_templates', 'motion_get_template', 'motion_create_project', 'motion_open_preview',
   'motion_import_assets', 'motion_get_project', 'motion_edit_project', 'motion_export_request', 'motion_list_versions',
@@ -52,11 +54,6 @@ const workspacePages = { asset_kind: assetKind, modality, task_mode: ['direct', 
 // MCP connection page: which Agent client tab is shown, how the user reached the page and how they set it up.
 const mcpClient = ['codex', 'claude', 'cursor', 'deepseek', 'desktop', 'chatgpt', 'mcp'] as const;
 const mcpEntry = ['app_rail', 'settings_general', 'settings_resources', 'home_composer', 'project_composer', 'project_agent', 'platform_export', 'asset_chat', 'direct_link'] as const;
-export const providerSetupEntries = [
-  'agent_providers', 'agent_media_signed_out', 'agent_media_upgrade_free', 'agent_media_upgrade_go',
-  'agent_media_balance_low', 'agent_media_key_rejected', 'agent_media_handbook',
-] as const;
-export type ProviderSetupEntry = typeof providerSetupEntries[number];
 const entryFrom = [...mcpEntry, ...providerSetupEntries] as const;
 const mcp = { mcp_client: mcpClient, setup_method: ['agent', 'manual'], capability_id: 'slug' } as const;
 // A Skill is identified by its catalogue id and group only; the brief text never leaves the browser.

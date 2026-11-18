@@ -15,6 +15,7 @@ import { phase1Tools, finalVideoTool, validateInput, phase1TransportTool } from 
 import { workflowResources, readWorkflowResource, workflowEntryGuide } from './shared/workflow.ts';
 import { ensureEditor, editorRequest, editorHeaders, sharedEditorEnabled } from './editor-runtime.ts';
 import { isMain } from './shared/entry.ts';
+import { resolveProviderSetupEntry } from './shared/workspace-url.ts';
 import type { Selection } from './editor-runtime.ts';
 import { createAppTracking, closeTracking, trackingError, type OmTracking } from './shared/tracking.ts';
 import { uuid } from './tracking/core.ts';
@@ -36,6 +37,7 @@ const connectionHosts = new WeakMap<object, HostContext>();
 const connectionContexts = new WeakMap<object, Map<string, string>>();
 
 function trackingFor(store: WorkspaceStore) {
+  if (store.tracking) return Promise.resolve(store.tracking);
   let tracking = trackingByStore.get(store);
   if (!tracking) {
     const created = createAppTracking(store.directory, 'mcp');
@@ -79,6 +81,13 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
   const response = await invokeRpc(message, store, registry, connection, host, trackingContext, clientState);
   const value = (response as any)?.result;
   const content = value?.structuredContent;
+  if (name === 'motion_open_preview' && value && !value.isError && message.params?.arguments?.target === 'providers') {
+    tracking.track('provider_setup_opened', {
+      entry_from: resolveProviderSetupEntry(message.params.arguments.entry),
+      presentation: message.params.arguments.presentation ?? 'foreground',
+      embedded: message.params.arguments.embedded !== false,
+    }, undefined, undefined, host);
+  }
   const outcome = value?.isError || content?.status === 'failed' ? 'failure' : content?.status === 'partial' ? 'partial' : value ? 'success' : 'unknown';
   tracking.track('mcp_tool_finished', { ...fields, outcome, duration_ms: Math.min(86_400_000, Math.round(performance.now() - started)),
     ...(value?.isError ? { error_code: trackingError(new Error(String(content?.error?.code ?? 'TOOL_FAILED'))) } : {}),
