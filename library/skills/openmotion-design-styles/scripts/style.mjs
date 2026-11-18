@@ -37,7 +37,7 @@ export function checkPlan(plan) {
   scenes.forEach((scene, index) => {
     const at = `scenes[${index}]`;
     if (!scene.id) errors.push(`${at}.id is required`);
-    if (!(scene.seconds >= 1 && scene.seconds <= 12)) errors.push(`${at}.seconds must be between 1 and 12`);
+    if (!(typeof scene.seconds === 'number' && Number.isFinite(scene.seconds) && scene.seconds >= 1 && scene.seconds <= 12)) errors.push(`${at}.seconds must be a number between 1 and 12`);
     else total += scene.seconds;
     if (!scene.headline) errors.push(`${at}.headline is required`);
     else if ([...scene.headline].length > LIMITS.headline) errors.push(`${at}.headline is ${[...scene.headline].length} characters; keep it within ${LIMITS.headline}`);
@@ -45,7 +45,8 @@ export function checkPlan(plan) {
     if (!scene.move) errors.push(`${at}.move is required: name the motion this scene uses (pick from the card's motion list or describe one in the same spirit)`);
     if (style && scene.rule !== undefined && !(Number.isInteger(scene.rule) && scene.rule >= 1 && scene.rule <= style.rules.length)) errors.push(`${at}.rule must be 1–${style.rules.length} (a rule number on the style card)`);
   });
-  if (plan.seconds !== undefined && Math.abs(plan.seconds - total) > 0.01) errors.push(`seconds is ${plan.seconds} but scenes add up to ${total}`);
+  if (plan.seconds !== undefined && (typeof plan.seconds !== 'number' || !Number.isFinite(plan.seconds))) errors.push('seconds must be a number');
+  else if (plan.seconds !== undefined && Math.abs(plan.seconds - total) > 0.01) errors.push(`seconds is ${plan.seconds} but scenes add up to ${total}`);
   if (total && (total < 6 || total > 60)) errors.push(`total length ${total}s is outside 6–60s`);
   if (style) {
     const allowed = new Set(style.palette.map(c => c.hex.toUpperCase()));
@@ -82,7 +83,7 @@ async function fonts(planPath, dir) {
   // Every string literal inside <script> blocks (textContent = "...", { textContent: '...' }, labels in
   // arrays): over-inclusive on purpose, since an extra glyph costs bytes and a missing one falls back.
   const scripts = [...raw.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(m => m[1]).join('\n');
-  const scripted = [...scripts.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`([^`$]*)`/g)].map(m => m[1] ?? m[2] ?? m[3] ?? '').join('');
+  const scripted = [...scripts.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)].map(m => m[1] ?? m[2] ?? (m[3] ?? '').replace(/\$\{[^}]*\}/g, ' ')).join('');
   const text = [...new Set([...JSON.stringify(plan) + html + scripted + 'OpenMotion0123456789 .,:·→'])].join('');
   const specs = Object.values(style.type).map(spec => ({ family: family(spec), weight: weight(spec) }));
   const out = path.join(dir, 'assets/fonts');
@@ -112,6 +113,22 @@ async function fonts(planPath, dir) {
     }
   }
   if (failed.length) fail(`fonts not updated; existing files kept:\n${failed.join('\n')}`);
+  // Record where each family came from and keep its licence text beside the files.
+  const records = [];
+  for (const name of [...new Set(specs.map(s => s.family))]) {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    let licence = null;
+    for (const [dir, file, id] of [['ofl', 'OFL.txt', 'SIL Open Font License 1.1'], ['apache', 'LICENSE.txt', 'Apache License 2.0'], ['ufl', 'UFL.txt', 'Ubuntu Font Licence 1.0']]) {
+      const response = await fetch(`https://raw.githubusercontent.com/google/fonts/main/${dir}/${slug}/${file}`).catch(() => null);
+      if (response?.ok) { licence = { id, text: await response.text(), url: `https://github.com/google/fonts/tree/main/${dir}/${slug}` }; break; }
+    }
+    if (!licence) { failed.push(`${name}: licence text not found in google/fonts`); continue; }
+    const target = `${name.replace(/\s+/g, '-')}-LICENSE.txt`;
+    await writeFile(path.join(out, target), licence.text);
+    records.push(`| ${name} | ${licence.id} | [Google Fonts](https://fonts.google.com/specimen/${encodeURIComponent(name).replace(/%20/g, '+')}) · [source](${licence.url}) | ${target} |`);
+  }
+  if (failed.length) fail(`licence records incomplete:\n${failed.join('\n')}`);
+  await writeFile(path.join(out, 'SOURCES.md'), `# Fonts\n\nGlyph subsets downloaded by the OpenMotion design-styles Skill. Keep this file and the licence texts with the project.\n\n| Family | Licence | Source | Licence text |\n| --- | --- | --- | --- |\n${records.join('\n')}\n`);
   await writeFile(path.join(dir, 'fonts.css'), faces.join('\n') + '\n');
   console.log(`wrote ${faces.length} faces to ${path.join(dir, 'fonts.css')}`);
 }

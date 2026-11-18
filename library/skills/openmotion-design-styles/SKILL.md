@@ -69,7 +69,8 @@ node scripts/style.mjs fonts plan.json <project-dir>
 ```
 
 Downloads only the glyphs the plan uses for each card typeface (Google Fonts, open licences) into
-`<project-dir>/assets/fonts/` and writes `<project-dir>/fonts.css` with `@font-face` rules. Paste those
+`<project-dir>/assets/fonts/`, keeps each family's licence text and a `SOURCES.md` record beside them, and writes
+`<project-dir>/fonts.css` with `@font-face` rules. Ship `SOURCES.md` and the licence texts with the project. Paste those
 rules into the `<style>` of the file that uses them (HyperFrames lint requires the `@font-face` in that
 file; a linked stylesheet fails `font_family_without_font_face`). Chinese text needs the card's `cjk` face, otherwise the render falls back to a default font.
 It also scans every `.html` file already in the project (and `textContent` strings set from script),

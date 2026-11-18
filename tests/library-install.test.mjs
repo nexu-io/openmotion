@@ -102,6 +102,7 @@ test('design-styles check rejects plans that would not read as the style', async
     'is not on the Swiss Style card': d => { d.colors.push('#00FF00'); },
     'keep it within 48': d => { d.scenes[1].headline = 'x'.repeat(49); },
     'move is required': d => { delete d.scenes[1].move; },
+    'seconds must be a number between 1 and 12': d => { d.scenes[0].seconds = '2'; },
     'scenes add up to': d => { d.seconds = 30; },
     'OpenMotion end credit': d => { Object.assign(d.scenes.at(-1), { headline: 'Thanks', body: '', move: 'OpenMotion logo slides out' }); },
   };
