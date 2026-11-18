@@ -1,3 +1,5 @@
+import { providerSetupEntries, type ProviderSetupEntry } from '../tracking/events.ts';
+
 export type WorkspacePresentation = { embedded: boolean; sidebar: boolean; conversation: boolean };
 /** Settings, MCP, Assets, Skills and Brand Kit can open even when the retained project cannot start. */
 export function isWorkspaceSettingsPage(search: string) {
@@ -29,12 +31,18 @@ export function templateLibraryPreview(origin: string, options: { embedded?: boo
 }
 
 /** Provider configuration is independent of project initialization and editing. */
-export function providerSettingsPreview(origin: string, options: { embedded?: boolean; presentation?: string } = {}) {
+export function providerSettingsPreview(origin: string, options: { embedded?: boolean; presentation?: string; entry?: string } = {}) {
   return workspacePagePreview(origin, 'providers', options);
 }
 
-function workspacePagePreview(origin: string, target: 'templates' | 'providers', options: { embedded?: boolean; presentation?: string }) {
-  const query = new URLSearchParams(target === 'providers' ? { page: 'settings', section: 'providers' } : { templates: '1' });
+export function resolveProviderSetupEntry(entry?: string): ProviderSetupEntry {
+  return (providerSetupEntries as readonly string[]).includes(entry ?? '') ? entry as ProviderSetupEntry : 'agent_providers';
+}
+
+function workspacePagePreview(origin: string, target: 'templates' | 'providers', options: { embedded?: boolean; presentation?: string; entry?: string }) {
+  const query = new URLSearchParams(target === 'providers'
+    ? { page: 'settings', section: 'providers', entry_from: resolveProviderSetupEntry(options.entry) }
+    : { templates: '1' });
   if (options.embedded !== false) query.set('embed', '1');
   const previewUrl = origin + '/?' + query;
   const presentation = options.presentation ?? 'foreground';

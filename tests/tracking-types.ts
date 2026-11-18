@@ -53,5 +53,8 @@ function studioContract() {
   void trackMotion('studio_export_result', { export_id: '', job_state: 'completed', duration_ms: 1, origin: 'header', format: 'mp4', quality: 'high', resolution: 'auto', fps: '30', video_duration_bucket: 42 });
   // @ts-expect-error Project size is a bucket; a raw count is not accepted.
   void trackMotion('studio_load_result', { load_id: '', outcome: 'success', duration_ms: 1, embedded: false, clip_count_bucket: 12 });
+  void trackMotion('ui_click', { page_name: 'settings', area: 'account', element: 'manage_subscription', entry_from: 'agent_media_upgrade_free' });
+  // @ts-expect-error Arbitrary entry strings are not admitted.
+  void trackMotion('ui_click', { page_name: 'settings', area: 'account', element: 'manage_subscription', entry_from: 'PRIVATE_ENTRY' });
 }
 void studioContract;

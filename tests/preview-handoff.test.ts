@@ -49,6 +49,7 @@ test('provider setup opens without a project and preserves workspace state', asy
       const url = new URL(opened.previewUrl);
       assert.equal(url.searchParams.get('page'), 'settings');
       assert.equal(url.searchParams.get('section'), 'providers');
+      assert.equal(url.searchParams.get('entry_from'), 'agent_providers');
       assert.equal(url.searchParams.has('project'), false);
       assert.equal(opened.target, 'providers');
       assert.equal(opened.projectCreated, false);
@@ -57,11 +58,14 @@ test('provider setup opens without a project and preserves workspace state', asy
       assert.match(opened.previewHandoff.instructions, /Model providers/);
       assert.match(opened.previewHandoff.instructions, /OpenDesign Plus or above/);
     }
+    const upgrade = await service.call('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_free' });
+    assert.equal(new URL(upgrade.previewUrl).searchParams.get('entry_from'), 'agent_media_upgrade_free');
     assert.deepEqual(await store.get(), before);
     assert.deepEqual(store.projectCatalog(), catalog);
-    for (const args of [{ projectId: 'project' }, { sessionId: 'session' }, { action: 'begin' }, { action: 'record_display' }]) {
+    for (const args of [{ projectId: 'project' }, { sessionId: 'session' }, { action: 'begin' }, { action: 'record_display' }, { entry: 'PRIVATE_ENTRY' }]) {
       await assert.rejects(service.call('openmotion_open_preview', { target: 'providers', ...args }), /INVALID_ARGUMENT/);
     }
+    await assert.rejects(service.call('openmotion_open_preview', { target: 'templates', entry: 'agent_media_signed_out' }), /INVALID_ARGUMENT/);
   }, initialized);
 });
 

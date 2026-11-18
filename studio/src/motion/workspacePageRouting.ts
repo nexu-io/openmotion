@@ -22,6 +22,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   if (patch.settings) { page.assets = false; page.skills = false; }
   if (patch.assets) { page.settings = null; page.skills = false; }
   if (patch.skills) { page.settings = null; page.assets = false; }
+  if (patch.settings === null || patch.assets || patch.skills) url.searchParams.delete('entry_from');
   if (page.skills) {
     url.searchParams.set('page', 'skills');
     if (page.skill) url.searchParams.set('skill', page.skill);
