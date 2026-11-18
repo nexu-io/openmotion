@@ -31,15 +31,15 @@ export async function candidateFixture(t, branch = 'main', options = {}) {
   await writeJSON(path.join(build, 'release-npm.json'), { ...manifest, installer: { url: './' + path.basename(tgz), sha256: await sha256(tgz) } });
   for (const name of ['source-scan.json', 'package-scan.json']) await writeJSON(path.join(build, name), { status: 'passed' });
   const env = { MOTION_RELEASE_CHANNEL: channel, MOTION_SOURCE_SHA: commit, MOTION_VERSION: version, GITHUB_SHA: 'b'.repeat(40),
-    GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/${branch}`, GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1' };
+    GITHUB_WORKFLOW_REF: `${repository}/${candidateWorkflow}@refs/heads/${branch}`, GITHUB_RUN_ID: String(options.runId || 123), GITHUB_RUN_ATTEMPT: '1' };
   await writeFile(path.join(build, 'release-notes.md'), `## Changes\n\nFrozen candidate changes\n\n${candidateNoteIdentity({ version, sourceCommit: commit, tgzSHA256: await sha256(tgz) })}\n`);
   const candidate = await sealCandidate(build, directory, root, env);
-  const provenance = { head_branch: branch, head_sha: env.GITHUB_SHA, runId: 123, attempt: 1 };
+  const provenance = { head_branch: branch, head_sha: env.GITHUB_SHA, runId: Number(env.GITHUB_RUN_ID), attempt: 1 };
   await writeJSON(path.join(directory, 'provenance.json'), provenance);
-  const inputs = { action: 'publish-' + channel, channel, version, expectedSHA256: candidate.tgzSHA256 };
+  const inputs = { action: 'publish-' + channel, channel, version, expectedSHA256: candidate.tgzSHA256, candidateRunId: env.GITHUB_RUN_ID };
   const publicationEnv = { GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
     GITHUB_RUN_ID: '800', GITHUB_SHA: env.GITHUB_SHA, GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@refs/heads/main`,
-    MOTION_VERSION: version, MOTION_RELEASE_CHANNEL: channel, MOTION_RELEASE_ACTION: inputs.action };
+    MOTION_VERSION: version, MOTION_RELEASE_CHANNEL: channel, MOTION_RELEASE_ACTION: inputs.action, MOTION_CANDIDATE_RUN_ID: env.GITHUB_RUN_ID };
   const authorization = authorizationReceipt(candidate, { id: 800, run_attempt: 1, actor: { login: 'operator' } }, inputs.action);
   await writeJSON(path.join(directory, 'authorization.json'), authorization);
   for (const platform of ['darwin-arm64', 'win32-x64']) await writeJSON(path.join(directory, `registry-${platform}.json`), {

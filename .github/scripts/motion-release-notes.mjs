@@ -116,7 +116,7 @@ export async function prepareCandidateNotes(directory, { env = process.env, fetc
 export async function publishReleaseNotes(directory, { env = process.env, fetcher = fetch } = {}) {
   const inputs = releaseInputs(env);
   assert.notEqual(inputs.action, 'archive-only', 'Snapshot recovery must not create GitHub releases');
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version);
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
   const attempt = JSON.parse(await readFile(path.join(directory, 'release-attempt.json'), 'utf8'));
   assert.equal(attempt.version, candidate.version); assert.equal(String(attempt.runId), env.GITHUB_RUN_ID);
   assert([`${inputs.channel}-entry-verified`, 'archived-superseded'].includes(attempt.stage), 'Publish npm and verify snapshots before release notes');

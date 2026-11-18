@@ -9,6 +9,10 @@ on:
         type: string
         required: true
         default: '0.6.4-test.7'
+      candidate_run_id:
+        description: 'Original published candidate build run ID; required when this version has multiple candidates'
+        type: string
+        required: false
   pull_request:
     branches: [main]
     paths:
@@ -25,6 +29,7 @@ permissions:
 env:
   # shortcut: PR regression pins test.7; refresh it before its candidate artifact expires.
   MOTION_VERSION: ${{ inputs.version || '0.6.4-test.7' }}
+  MOTION_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
 
 jobs:
   candidate:
@@ -51,7 +56,7 @@ jobs:
           node --input-type=module <<'JS'
           import { appendFile } from 'node:fs/promises';
           import { downloadCandidate, validateSource } from './.github/scripts/motion-release.mjs';
-          const c = await downloadCandidate(process.env.MOTION_VERSION, process.env.RUNNER_TEMP + '/candidate');
+          const c = await downloadCandidate(process.env.MOTION_VERSION, process.env.RUNNER_TEMP + '/candidate', undefined, fetch, process.env.MOTION_CANDIDATE_RUN_ID);
           await validateSource(process.cwd(), c.sourceCommit, c.version);
           await appendFile(process.env.GITHUB_OUTPUT, `tgz_sha256=${c.tgzSHA256}\n`);
           JS

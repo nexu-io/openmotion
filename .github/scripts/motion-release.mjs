@@ -39,6 +39,13 @@ function channelVersion(version, channel) {
   assert.equal(releaseChannel(version), channel, 'Version must match the selected release channel');
 }
 
+function parseCandidateRunId(value) {
+  if (value === undefined || value === '') return undefined;
+  assert(typeof value === 'string' && Number.isSafeInteger(Number(value)) && Number(value) > 0 && String(Number(value)) === value,
+    'Candidate build run ID must be a positive safe integer');
+  return value;
+}
+
 export function releaseInputs(env = process.env) {
   manualEntry(env, [publicationWorkflow, recoveryWorkflow]);
   assert(['publish-test', 'publish-stable', 'archive-only'].includes(env.MOTION_RELEASE_ACTION), 'Unknown release action');
@@ -48,7 +55,9 @@ export function releaseInputs(env = process.env) {
   const channel = env.MOTION_RELEASE_CHANNEL || 'test';
   channelVersion(env.MOTION_VERSION, channel);
   if (env.MOTION_RELEASE_ACTION !== 'archive-only') assert.equal(env.MOTION_RELEASE_ACTION, 'publish-' + channel);
-  return { action: env.MOTION_RELEASE_ACTION, channel, version: env.MOTION_VERSION, expectedSHA256: env.MOTION_EXPECTED_SHA256 };
+  const candidateRunId = parseCandidateRunId(env.MOTION_CANDIDATE_RUN_ID);
+  assert(env.MOTION_RELEASE_ACTION === 'archive-only' || candidateRunId, 'Enter the accepted candidate build run ID');
+  return { action: env.MOTION_RELEASE_ACTION, channel, version: env.MOTION_VERSION, expectedSHA256: env.MOTION_EXPECTED_SHA256, candidateRunId };
 }
 
 export async function resolveCandidate(control, requested, version, env = process.env, run = runFile, fetcher = fetch) {
@@ -169,7 +178,8 @@ export function authorizationReceipt(candidate, run, action, observedAt = new Da
 export async function recordAuthorization(directory, inputs, fetcher = fetch, env = process.env) {
   const authorized = releaseInputs(env);
   assert.equal(authorized.action, inputs.action); assert.equal(authorized.version, inputs.version);
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version);
+  assert.equal(authorized.candidateRunId, inputs.candidateRunId, 'Candidate selection differs from the manual entry');
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
   const run = await github(`/actions/runs/${env.GITHUB_RUN_ID}`, fetcher);
   assert.equal(String(run.id), env.GITHUB_RUN_ID); assert.equal(run.head_branch, 'main'); assert.equal(run.event, 'workflow_dispatch');
   assert.equal(run.head_repository?.full_name, repository); assert.equal(run.head_sha, env.GITHUB_SHA);
@@ -178,7 +188,7 @@ export async function recordAuthorization(directory, inputs, fetcher = fetch, en
 }
 
 async function verifyAuthorization(directory, inputs, env = process.env) {
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version), authorization = await json(path.join(directory, 'authorization.json'));
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId), authorization = await json(path.join(directory, 'authorization.json'));
   assert.equal(authorization.schemaVersion, 2);
   assert.equal(authorization.type, 'manual-workflow-dispatch');
   assert.equal(authorization.version, candidate.version); assert.equal(authorization.tgzSHA256, candidate.tgzSHA256);
@@ -223,26 +233,31 @@ export async function verifyCandidate(directory, expectedSHA256, run) {
   return candidate;
 }
 
-export async function verifyDownloaded(directory, expectedSHA256, version) {
+export async function verifyDownloaded(directory, expectedSHA256, version, candidateRunId) {
+  const selected = parseCandidateRunId(candidateRunId);
   const provenance = await json(path.join(directory, 'provenance.json'));
   const candidate = await verifyCandidate(directory, expectedSHA256, { head_branch: provenance.head_branch, head_sha: provenance.head_sha, id: provenance.runId, run_attempt: provenance.attempt });
   if (version) assert.equal(candidate.version, version, 'Candidate version differs from the accepted version');
+  if (selected) assert.equal(String(candidate.workflow.runId), selected, 'Candidate build differs from the accepted build run ID');
   return candidate;
 }
 
-export async function findCandidate(version, fetcher = fetch) {
+export async function findCandidate(version, fetcher = fetch, candidateRunId) {
   checkReleaseVersion(version);
+  const selected = parseCandidateRunId(candidateRunId);
   const name = `motion-candidate-${version}`;
-  const result = await github(`/actions/artifacts?name=${encodeURIComponent(name)}&per_page=100`, fetcher);
+  const route = selected ? `/actions/runs/${selected}/artifacts?per_page=100` : `/actions/artifacts?name=${encodeURIComponent(name)}&per_page=100`;
+  const result = await github(route, fetcher);
   assert(result.total_count <= 100, 'Too many matching artifacts; refusing an incomplete lookup');
   const matches = result.artifacts.filter(a => a.name === name && !a.expired);
-  assert.equal(matches.length, 1, `Expected one unexpired candidate for ${version}; found ${matches.length}. Copy the exact version from a successful Motion candidate build. Changing this publication field cannot rename a candidate; build and accept a new unique version if needed.`);
+  assert.equal(matches.length, 1, `Expected one unexpired candidate for ${version}${selected ? ' in build run ' + selected : ''}; found ${matches.length}. Select the accepted successful candidate build run ID. Changing this publication field cannot rename a candidate.`);
   assert(Number.isSafeInteger(matches[0].workflow_run?.id) && matches[0].workflow_run.id > 0);
+  if (selected) assert.equal(String(matches[0].workflow_run.id), selected, 'Artifact belongs to another candidate build');
   return matches[0];
 }
 
-export async function downloadCandidate(version, directory, expectedSHA256, fetcher = fetch) {
-  const artifact = await findCandidate(version, fetcher), run = await github(`/actions/runs/${artifact.workflow_run.id}`, fetcher);
+export async function downloadCandidate(version, directory, expectedSHA256, fetcher = fetch, candidateRunId) {
+  const artifact = await findCandidate(version, fetcher, candidateRunId), run = await github(`/actions/runs/${artifact.workflow_run.id}`, fetcher);
   validateRun(run, artifact, version);
   const redirect = await fetcher(`https://api.github.com/repos/${repository}/actions/artifacts/${artifact.id}/zip`, {
     redirect: 'manual', signal: AbortSignal.timeout(30_000), headers: { Authorization: `Bearer ${process.env.GH_TOKEN || process.env.GITHUB_TOKEN}` } });
@@ -280,7 +295,7 @@ export async function registryPackage(candidate, fetcher = fetch) {
 }
 
 export async function publishNpm(directory, inputs, { fetcher = fetch, run = runFile, env = process.env } = {}) {
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256);
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
   await verifyAuthorization(directory, inputs, env);
   channelVersion(candidate.version, inputs.channel || 'test');
   const before = await registryPackage(candidate, fetcher);
@@ -308,7 +323,7 @@ export async function waitForRegistry(candidate, ready, { fetcher = fetch, wait 
 }
 
 export async function promoteTest(directory, inputs, { fetcher = fetch, run = runFile, env = process.env, wait, attempts } = {}) {
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version);
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
   channelVersion(candidate.version, 'test');
   await verifyAuthorization(directory, inputs, env);
   const npm = await json(path.join(directory, 'npm-publication.json'));
@@ -346,7 +361,7 @@ export async function stableReports(directory, candidate) {
 }
 
 export async function promoteStable(directory, inputs, { fetcher = fetch, run = runFile, env = process.env, wait, attempts } = {}) {
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version);
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
   channelVersion(candidate.version, 'stable'); assert.equal(inputs.channel, 'stable');
   assert(['publish-stable', 'archive-only'].includes(inputs.action));
   await verifyAuthorization(directory, inputs, env);
@@ -372,7 +387,7 @@ export async function promoteStable(directory, inputs, { fetcher = fetch, run = 
 
 export async function archiveRelease(directory, inputs, config, { run = runFile, fetcher = fetch, env = process.env } = {}) {
   await writeJSON(path.join(directory, 'release-attempt.json'), { action: inputs.action, tgzSHA256: inputs.expectedSHA256, stage: 'verifying-release', runId: env.GITHUB_RUN_ID });
-  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256);
+  const candidate = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
   const authorization = await verifyAuthorization(directory, inputs, env);
   const stable = releaseChannel(candidate.version) === 'stable';
   channelVersion(candidate.version, inputs.channel || 'test');
@@ -446,13 +461,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   else {
     const inputs = releaseInputs();
     if (command === 'download') {
-      const candidate = await downloadCandidate(inputs.version, directory, inputs.expectedSHA256);
+      const candidate = await downloadCandidate(inputs.version, directory, inputs.expectedSHA256, fetch, inputs.candidateRunId);
       const { appendFile } = await import('node:fs/promises');
       await appendFile(process.env.GITHUB_OUTPUT, `tgz_sha256=${candidate.tgzSHA256}\n`);
     }
     else if (command === 'authorize') await recordAuthorization(directory, inputs);
     else if (command === 'rescan') {
-      const c = await verifyDownloaded(directory, inputs.expectedSHA256);
+      const c = await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
       await validateSource(extra, c.sourceCommit, c.version, runFile, inputs.channel);
       const work = await mkdtemp(path.join(os.tmpdir(), 'motion-source-verify-'));
       try {
@@ -460,7 +475,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         await writeJSON(path.join(directory, 'publication-source-scan.json'), await scanSource(work, final));
         await writeJSON(path.join(directory, 'publication-package-scan.json'), await scanPackage(path.join(directory, c.tgz), final));
       } finally { await runFile('git', ['worktree', 'remove', '--force', work], { cwd: extra }).catch(() => {}); }
-    } else if (command === 'verify') await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version);
+    } else if (command === 'verify') await verifyDownloaded(directory, inputs.expectedSHA256, inputs.version, inputs.candidateRunId);
     else if (command === 'npm') await publishNpm(directory, inputs);
     else if (command === 'promote-test') await promoteTest(directory, inputs);
     else if (command === 'promote-stable') await promoteStable(directory, inputs);

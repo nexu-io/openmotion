@@ -39,7 +39,7 @@ Use PASS / FAIL / NOT RUN and link retained evidence. CI success alone cannot fi
 - Approved exact version and TGZ SHA256:
 - Reviewer / date / explicit release authorization:
 - Internal retained record revision / filename (keep this private):
-- The release operator selects the matching test/stable channel and this exact version in Motion npm publication. No acceptance checkbox or independent approval environment is enabled; the operator remains responsible for completing required stable checks before dispatch. Record failures and unrun checks honestly.
+- The release operator selects the matching test/stable channel, exact version and accepted candidate build run ID (`candidateRun` above) in Motion npm publication. No acceptance checkbox or independent approval environment is enabled; the operator remains responsible for completing required stable checks before dispatch. Record failures and unrun checks honestly.
 
 ## Publication follow-up
 

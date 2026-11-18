@@ -13,7 +13,7 @@ import { runFile } from '../scripts/runtime-assets.mjs';
 
 const config = { endpoint: 'https://example.r2.cloudflarestorage.com', bucket: 'example-releases', publicOrigin: 'https://download.example.invalid' };
 const valid = { GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
-  GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@refs/heads/main`, MOTION_VERSION: '0.6.4-test.99', MOTION_RELEASE_ACTION: 'publish-test', MOTION_EXPECTED_SHA256: 'a'.repeat(64) };
+  GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@refs/heads/main`, MOTION_VERSION: '0.6.4-test.99', MOTION_RELEASE_ACTION: 'publish-test', MOTION_EXPECTED_SHA256: 'a'.repeat(64), MOTION_CANDIDATE_RUN_ID: '123' };
 const origin = { id: 123, run_attempt: 1, event: 'workflow_dispatch', head_branch: 'main', head_repository: { full_name: repository }, status: 'completed', conclusion: 'success', path: candidateWorkflow, head_sha: 'b'.repeat(40) };
 const artifact = { id: 456, name: 'motion-candidate-0.6.4-test.99', workflow_run: { id: 123 }, expired: false, size_in_bytes: 100, digest: 'sha256:' + 'a'.repeat(64) };
 test('renamed OpenMotion accepts manual releases from main and rejects retired identities', () => {
@@ -368,7 +368,10 @@ test('daily build and publication are separate manual entries without an indepen
   assert(!build.includes('concurrency:') && !build.includes('secrets.') && !build.includes('id-token:'));
   assert(header.includes('version:') && !header.includes('accepted:'));
   assert.match(header, /version:\n(?:[^\n]*\n)*?        required: true/);
-  for (const manualField of ['candidate_run_id:', 'source_sha:', 'tgz_sha256:', 'acceptance_sha256:', 'approved:', 'action:']) assert(!header.includes(manualField));
+  assert.match(header, /candidate_run_id:\n(?:[^\n]*\n)*?        required: true/);
+  assert(workflow.includes('MOTION_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}'));
+  assert(recovery.includes('candidate_run_id: ${{ inputs.candidate_run_id }}'));
+  for (const manualField of ['source_sha:', 'tgz_sha256:', 'acceptance_sha256:', 'approved:', 'action:']) assert(!header.includes(manualField));
   assert(!workflow.includes('  candidate:') && !workflow.includes('environment:'));
   assert(header.includes('group: motion-test-publication') && header.includes('cancel-in-progress: false'));
   assert(workflow.includes('motion-release.mjs authorize') && workflow.includes('authorization.json'));

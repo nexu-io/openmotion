@@ -10,7 +10,11 @@ on:
         options: [test, stable]
         default: test
       version:
-        description: 'Exact candidate version: test e.g. 0.6.4-test.7; stable e.g. 0.6.4'
+        description: 'Exact candidate version: test e.g. 0.1.0-test.1; stable e.g. 0.1.0'
+        type: string
+        required: true
+      candidate_run_id:
+        description: 'Accepted Motion candidate build run ID (the number in its Actions URL or Summary)'
         type: string
         required: true
   workflow_call:
@@ -21,6 +25,9 @@ on:
       version:
         type: string
         required: true
+      candidate_run_id:
+        type: string
+        default: ''
       archive_only:
         type: boolean
         required: true
@@ -36,6 +43,7 @@ concurrency:
 env:
   MOTION_RELEASE_CHANNEL: ${{ inputs.channel || 'test' }}
   MOTION_VERSION: ${{ inputs.version }}
+  MOTION_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
   MOTION_RELEASE_ACTION: ${{ inputs.archive_only && 'archive-only' || inputs.channel == 'stable' && 'publish-stable' || 'publish-test' }}
 
 jobs:

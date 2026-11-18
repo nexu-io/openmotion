@@ -68,7 +68,7 @@ async function discover(transport, env, version, tools, templateCheck) {
 }
 
 export async function registrySmoke(directory) {
-  const c = await verifyDownloaded(directory, process.env.MOTION_EXPECTED_SHA256, process.env.MOTION_VERSION);
+  const c = await verifyDownloaded(directory, process.env.MOTION_EXPECTED_SHA256, process.env.MOTION_VERSION, process.env.MOTION_CANDIDATE_RUN_ID);
   const platform = process.platform + '-' + process.arch;
   assert(['darwin-arm64', 'win32-x64'].includes(platform), 'Use a supported native runner');
   const file = path.join(directory, `registry-${platform}.json`);

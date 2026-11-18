@@ -26,4 +26,4 @@ jobs:
             node --check "$script"
           done
       - name: Rehearse release controls without publication credentials or external writes
-        run: node --test tests/release-workflows.test.mjs tests/release-scan.test.mjs tests/install-guide.test.ts tests/stable-release.test.mjs tests/release-notes.test.mjs tests/publish-template-catalog.test.mjs tests/template-registry-consumer.test.mjs
+        run: node --test tests/release-workflows.test.mjs tests/release-candidate-selection.test.mjs tests/release-scan.test.mjs tests/install-guide.test.ts tests/stable-release.test.mjs tests/release-notes.test.mjs tests/publish-template-catalog.test.mjs tests/template-registry-consumer.test.mjs
