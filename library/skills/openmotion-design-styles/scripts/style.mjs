@@ -86,9 +86,9 @@ async function fonts(planPath, dir) {
   const scripted = [...scripts.matchAll(/'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)].map(m => m[1] ?? m[2] ?? (m[3] ?? '').replace(/\$\{[^}]*\}/g, ' ')).join('');
   const text = [...new Set([...JSON.stringify(plan) + html + scripted + 'OpenMotion0123456789 .,:·→'])].join('');
   const specs = Object.values(style.type).map(spec => ({ family: family(spec), weight: weight(spec) }));
-  const out = path.join(dir, 'assets/fonts');
-  await mkdir(out, { recursive: true });
-  const faces = [];
+  // Download every font file and licence into memory first; the project is only touched once all of
+  // them succeed, so a failed lookup never leaves new fonts without their licences or fonts.css.
+  const faces = [], files = [], records = [];
   const seen = new Set(), failed = [];
   for (const { family: name, weight: w } of specs) {
     for (const wt of [...new Set([400, w])]) {
@@ -96,25 +96,21 @@ async function fonts(planPath, dir) {
       if (seen.has(key)) continue;
       seen.add(key);
       const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(name)}:wght@${wt}&text=${encodeURIComponent(text)}`;
-      const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/124 Safari/537.36' } });
-      if (!response.ok) { failed.push(`${key}: Google Fonts returned ${response.status}`); continue; }
+      const response = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 Chrome/124 Safari/537.36' } }).catch(() => null);
+      if (!response?.ok) { failed.push(`${key}: Google Fonts returned ${response?.status ?? 'no response'}`); continue; }
       const css = await response.text();
       const src = /url\((https:[^)]+)\)/.exec(css)?.[1];
       if (!src) { failed.push(`${key}: no font file in response`); continue; }
       const file = `${name.replace(/\s+/g, '-')}-${wt}.woff2`;
-      const download = await fetch(src);
-      const bytes = download.ok ? Buffer.from(await download.arrayBuffer()) : null;
-      // Keep any existing file when the download fails or is not a WOFF2 ('wOF2' signature).
-      if (!bytes || bytes.subarray(0, 4).toString('latin1') !== 'wOF2') { failed.push(`${key}: font file download failed (${download.status})`); continue; }
-      const target = path.join(out, file), temporary = target + '.part';
-      await writeFile(temporary, bytes);
-      await rename(temporary, target);
+      const download = await fetch(src).catch(() => null);
+      const bytes = download?.ok ? Buffer.from(await download.arrayBuffer()) : null;
+      // Only accept a real WOFF2 ('wOF2' signature).
+      if (!bytes || bytes.subarray(0, 4).toString('latin1') !== 'wOF2') { failed.push(`${key}: font file download failed (${download?.status ?? 'no response'})`); continue; }
+      files.push([file, bytes]);
       faces.push(`@font-face{font-family:'${name}';font-weight:${wt};font-display:block;src:url('assets/fonts/${file}') format('woff2')}`);
     }
   }
-  if (failed.length) fail(`fonts not updated; existing files kept:\n${failed.join('\n')}`);
   // Record where each family came from and keep its licence text beside the files.
-  const records = [];
   for (const name of [...new Set(specs.map(s => s.family))]) {
     const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '');
     let licence = null;
@@ -124,11 +120,18 @@ async function fonts(planPath, dir) {
     }
     if (!licence) { failed.push(`${name}: licence text not found in google/fonts`); continue; }
     const target = `${name.replace(/\s+/g, '-')}-LICENSE.txt`;
-    await writeFile(path.join(out, target), licence.text);
+    files.push([target, licence.text]);
     records.push(`| ${name} | ${licence.id} | [Google Fonts](https://fonts.google.com/specimen/${encodeURIComponent(name).replace(/%20/g, '+')}) · [source](${licence.url}) | ${target} |`);
   }
-  if (failed.length) fail(`licence records incomplete:\n${failed.join('\n')}`);
-  await writeFile(path.join(out, 'SOURCES.md'), `# Fonts\n\nGlyph subsets downloaded by the OpenMotion design-styles Skill. Keep this file and the licence texts with the project.\n\n| Family | Licence | Source | Licence text |\n| --- | --- | --- | --- |\n${records.join('\n')}\n`);
+  if (failed.length) fail(`fonts not updated; the project was left unchanged:\n${failed.join('\n')}`);
+  files.push(['SOURCES.md', `# Fonts\n\nGlyph subsets downloaded by the OpenMotion design-styles Skill. Keep this file and the licence texts with the project.\n\n| Family | Licence | Source | Licence text |\n| --- | --- | --- | --- |\n${records.join('\n')}\n`]);
+  const out = path.join(dir, 'assets/fonts');
+  await mkdir(out, { recursive: true });
+  for (const [file, data] of files) {
+    const target = path.join(out, file), temporary = target + '.part';
+    await writeFile(temporary, data);
+    await rename(temporary, target);
+  }
   await writeFile(path.join(dir, 'fonts.css'), faces.join('\n') + '\n');
   console.log(`wrote ${faces.length} faces to ${path.join(dir, 'fonts.css')}`);
 }

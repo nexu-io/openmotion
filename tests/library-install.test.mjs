@@ -115,6 +115,26 @@ test('design-styles check rejects plans that would not read as the style', async
   }
 });
 
+test('design-styles fonts leaves the project unchanged when a licence lookup fails', async t => {
+  const root = await isolated(t);
+  const script = path.resolve('library/skills/openmotion-design-styles/scripts/style.mjs');
+  const project = path.join(root, 'project');
+  await mkdir(project); await writeFile(path.join(project, 'fonts.css'), '/* existing */\n');
+  // Font endpoints succeed; every google/fonts licence lookup 404s.
+  const stub = path.join(root, 'stub-fetch.mjs');
+  await writeFile(stub, `globalThis.fetch = async url => {
+    const href = String(url);
+    if (href.startsWith('https://fonts.googleapis.com/')) return new Response("@font-face{src:url(https://fonts.gstatic.com/x.woff2)}");
+    if (href.startsWith('https://fonts.gstatic.com/')) return new Response(Buffer.from('wOF2stub'));
+    return new Response('missing', { status: 404 });
+  };\n`);
+  const run = spawnSync(process.execPath, ['--import', stub, script, 'fonts', 'tests/fixtures/design-styles.json', project], { encoding: 'utf8' });
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stderr, /licence text not found/);
+  assert.equal(await readFile(path.join(project, 'fonts.css'), 'utf8'), '/* existing */\n');
+  assert.deepEqual(await readdir(path.join(project, 'assets/fonts')).catch(() => []), []);
+});
+
 test('standalone cleanup preserves customized, extra-file and symlink legacy folders', async t => {
   const root = await isolated(t);
   for (const kind of ['customized', 'extra-file', 'symlink']) {
