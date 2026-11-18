@@ -22,6 +22,17 @@ function browserLocale(): Locale | undefined {
 
 export function readLocale(): Locale {
   try { const saved = localStorage.getItem(LOCALE_STORAGE_KEY); if (isLocale(saved)) return saved; } catch { /* Private browsing can deny storage. */ }
+  const browserLanguages = typeof navigator === 'undefined'
+    ? []
+    : [...(navigator.languages ?? []), navigator.language].filter(Boolean);
+  for (const browserLocale of browserLanguages) {
+    const normalized = browserLocale.toLowerCase();
+    const exact = languages.find(language => language.locale.toLowerCase() === normalized);
+    if (exact) return exact.locale;
+    const primary = normalized.split('-')[0];
+    const match = languages.find(language => language.locale.toLowerCase().split('-')[0] === primary);
+    if (match) return match.locale;
+  }
   return browserLocale() ?? 'zh-CN';
 }
 
