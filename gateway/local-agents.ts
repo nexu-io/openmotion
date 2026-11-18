@@ -1,7 +1,6 @@
 import path from 'node:path';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import os from 'node:os';
 import { localAgents, type AgentChoice, type AgentDirectory, type AgentLaunch, type AgentModel, type LocalAgent } from '../shared/local-agents.ts';
 import { resolveAgent } from './agents.ts';
 import {
@@ -43,30 +42,9 @@ const BIN_ALIASES: Record<string, string[]> = Object.fromEntries(
 );
 
 export async function resolveLocalAgent(bin: string): Promise<string | null> {
-  const names = BIN_ALIASES[bin] ?? [bin];
-  for (const name of names) {
+  for (const name of BIN_ALIASES[bin] ?? [bin]) {
     const found = await resolveAgent(name);
     if (found) return found;
-  }
-  const home = os.homedir();
-  const dirs = [
-    ...(process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)),
-    path.join(home, '.local/bin'),
-    path.join(home, '.bun/bin'),
-    path.join(home, '.cargo/bin'),
-    path.join(home, '.npm-global/bin'),
-    path.join(home, '.opencode/bin'),
-    path.join(home, '.cursor/bin'),
-    path.join(home, '.antigravity/bin'),
-    path.join(home, '.claude/local'),
-    path.join(home, '.kiro/bin'),
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    ...(process.platform === 'win32' && process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm')] : []),
-  ];
-  for (const dir of dirs) for (const name of names) for (const suffix of process.platform === 'win32' ? ['.exe', '.cmd'] : ['']) {
-    const file = path.join(dir, name + suffix);
-    try { await access(file, constants.X_OK); return file; } catch { /* next */ }
   }
   return null;
 }

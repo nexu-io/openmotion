@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { LocalAgentDirectory } from '../gateway/local-agents.ts';
@@ -17,6 +17,7 @@ import {
   validModelId,
   vibeConfigModels,
 } from '../gateway/agent-discovery.ts';
+import { generateCodexImage, resolveAgent } from '../gateway/agents.ts';
 import { terminalCommand } from '../gateway/agent-terminal.ts';
 import { localAgents } from '../shared/local-agents.ts';
 
@@ -332,4 +333,25 @@ test('LocalAgentDirectory routes Antigravity, Claude, Kiro, Gemini, Qwen, Vibe a
     if (prevQwen === undefined) delete process.env.QWEN_SETTINGS_FILE; else process.env.QWEN_SETTINGS_FILE = prevQwen;
     if (prevVibe === undefined) delete process.env.VIBE_HOME; else process.env.VIBE_HOME = prevVibe;
   }
+});
+
+test('Windows npm Agent shims are resolved and launched without a shell', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'motion-agent-win-'));
+  const entry = path.join(root, 'node_modules', 'codex', 'bin', 'codex.cjs');
+  await mkdir(path.dirname(entry), { recursive: true });
+  await writeFile(entry, "require('node:fs').writeFileSync('image.png', 'png')");
+  const shim = path.join(root, 'codex.cmd');
+  await writeFile(shim, '@ECHO off\r\n"%dp0%\\node_modules\\codex\\bin\\codex.cjs" %*\r\n');
+  await chmod(shim, 0o755);
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const previousPath = process.env.PATH;
+  t.after(async () => {
+    Object.defineProperty(process, 'platform', platform);
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    await rm(root, { recursive: true, force: true });
+  });
+  process.env.PATH = root;
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+  assert.equal(await resolveAgent('codex'), shim, 'npm only installs a .cmd shim on Windows');
+  assert.equal((await generateCodexImage('a red dot', root, new AbortController().signal)).toString(), 'png');
 });
