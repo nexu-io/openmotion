@@ -99,16 +99,18 @@ it('routes generated media through OpenMotion only for media skills', () => {
   expect(photo).toContain('https://github.com/higgsfield-ai/skills/tree/main/higgsfield-product-photoshoot');
 });
 
-it('points library skills at their SKILL.md and runs a generator skill through its own scripts', () => {
+it('reads library skills through MCP and runs a generator skill through its own scripts', () => {
   const brief = (id: string, locale = 'en', duration = 10, aspect: '16:9' | '9:16' | '1:1' = '1:1') =>
     skillPrompt(motionSkills.find(skill => skill.id === id)!, { subject: 'x', duration, aspect, style: '' }, locale, 'https://example.test/install.md');
   for (const locale of ['en', 'zh-CN', 'ja', 'ko', 'ru', 'de', 'fr', 'es', 'pt-BR', 'it', 'tr']) {
     const growth = brief('openmotion-growth-teardown', locale);
-    expect(growth).toContain('library/skills/openmotion-growth-teardown/');
-    expect(growth).toContain('install-library-skill.mjs openmotion-growth-teardown');
+    expect(growth).toContain('openmotion_get_template');
+    expect(growth).toContain('openmotion-growth-teardown');
+    expect(growth).not.toContain('install-library-skill');
     expect(growth).toContain('1:1');
     const recipe = brief('openmotion-whiteboard-doodle', locale);
-    expect(recipe).toContain('library/skills/openmotion-whiteboard-doodle/');
+    expect(recipe).toContain('openmotion_get_template');
+    expect(recipe).toContain('openmotion-whiteboard-doodle');
     expect(recipe).toContain('HTML/CSS/JS');
   }
   expect(brief('openmotion-growth-teardown')).toContain("Make the film with the skill's own generator");
@@ -116,7 +118,7 @@ it('points library skills at their SKILL.md and runs a generator skill through i
   expect(brief('openmotion-whiteboard-doodle')).not.toContain("own generator");
   const borrowed = brief('anime-js');
   expect(borrowed).toContain('Author a native HTML/CSS/JS composition');
-  expect(borrowed).not.toContain('library/skills');
+  expect(borrowed).not.toContain('openmotion_get_template');
 });
 
 it('starts a fresh brief when the selected skill changes from outside, such as history navigation', () => {
