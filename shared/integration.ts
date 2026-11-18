@@ -99,15 +99,21 @@ export function setupGuideUrl(info: IntegrationInfo | null) {
 export function setupPrompt(info: IntegrationInfo | null, host: IntegrationHost, locale: 'zh-CN' | 'en' = 'zh-CN') {
   if (info?.deployment?.type === 'docker' && host !== 'chatgpt') {
     if (locale === 'zh-CN') return `将 ${hostNames[host]} 接入当前已运行的 OpenMotion Docker 部署。
+先阅读并在宿主安装主 Skill：${setupSkillUrl}
+再阅读 GitHub README：${setupReadmeUrl}
 按容器接入指南操作：${setupGuideUrl(info)}
 使用 ${info.previewUrl}/connect/config?host=${host} 的手动配置，通过 docker exec 进入现有容器。
 保留当前容器及工作区，不另装宿主运行时。工具返回的路径是容器内路径；导入宿主素材前先挂载素材目录。
-重新加载当前 Agent 的实际连接，发现 OpenMotion 工具并调用 openmotion_get_project 核对数据目录。仅写入配置不代表连接成功。等我给出创作要求后再创建或修改工程。`;
+重新加载当前 Agent 的实际连接，发现 OpenMotion 工具并调用 openmotion_get_project 核对数据目录。仅写入配置不代表连接成功。
+${host === 'codex' ? '在本轮完成引导：先准备好欢迎语和视频卡片，再打开模板库并立即展示已就绪的内容，不把内部指令发成新的用户消息。' : '接入后打开模板库。'}等我给出创作要求后再创建或修改工程。`;
     return `Connect ${hostNames[host]} to this existing OpenMotion Docker deployment.
+Read and install the primary Skill in the host Agent: ${setupSkillUrl}
+Read the GitHub README: ${setupReadmeUrl}
 Follow the container connection guide: ${setupGuideUrl(info)}
 Use the manual configuration from ${info.previewUrl}/connect/config?host=${host}; it runs docker exec in the existing container.
 Preserve this container and its workspace; do not install a second host runtime. Paths returned by tools are container paths. Mount host media into the container before importing it.
-Reload the actual Agent connection, discover its OpenMotion tools and call openmotion_get_project to verify the data directory. Configuration alone does not prove connection. Wait for my creative brief before creating or changing a project.`;
+Reload the actual Agent connection, discover its OpenMotion tools and call openmotion_get_project to verify the data directory. Configuration alone does not prove connection.
+${host === 'codex' ? 'Complete onboarding in this same turn: prepare the welcome and video cards first, then open the template library and immediately present the ready content. Do not send internal instructions as another user message.' : 'Once connected, open the template library.'} Wait for my creative brief before creating or changing a project.`;
   }
   if (locale === 'en') {
     if (host === 'chatgpt') return 'ChatGPT cloud requires a public HTTPS MCP service. This workspace uses local stdio. Choose Codex, Claude Code, or DeepSeek Harness to start creating.';

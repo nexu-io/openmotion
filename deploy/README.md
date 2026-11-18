@@ -24,6 +24,17 @@ mounted at `/data` (`MOTION_DATA_DIR`). `docker compose down` keeps the volume;
 
 ## Connect an Agent
 
+Install the primary OpenMotion Skill in your host Agent using the standard
+[Quick Start](../README.md#quick-start) command:
+
+```sh
+npx skills add nexu-io/openmotion --skill openmotion
+```
+
+This installs Agent guidance. Reuse the running container for the application;
+do not install a second runtime on the host. Complete the Skill's onboarding in
+the current Agent after its actual MCP connection is verified.
+
 The MCP server is a stdio process. Start it inside the running container so it
 shares the Studio's data directory and service:
 

@@ -19,7 +19,16 @@ test('container setup preserves its workspace without launching container-intern
       const prompt = setupPrompt(docker, host, locale);
       assert.match(prompt, /deploy\/README.md/);
       assert.match(prompt, /connect\/config/);
+      assert.match(prompt, /skills\/openmotion\/SKILL.md/);
+      assert.match(prompt, /openmotion#quick-start/);
       assert.doesNotMatch(prompt, /blob\/main\/install.md/);
+    }
+    if (host === 'codex') {
+      assert.match(setupPrompt(docker, host, 'en'), /same turn.*welcome and video cards.*template library/);
+      assert.match(setupPrompt(docker, host, 'zh-CN'), /在本轮完成引导.*欢迎语和视频卡片.*模板库/);
+    } else {
+      assert.match(setupPrompt(docker, host, 'en'), /Once connected, open the template library/);
+      assert.match(setupPrompt(docker, host, 'zh-CN'), /接入后打开模板库/);
     }
   }
   assert.deepEqual(docker.transport.args, ['exec', '-i', '--workdir', '/private', '--env', 'MOTION_DATA_DIR=/private/project-data', 'openmotion', '/private/node', '/private/mcp.ts']);
