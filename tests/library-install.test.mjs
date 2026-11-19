@@ -152,6 +152,42 @@ test('growth-teardown --check rejects inputs the generator cannot render', async
   }
 });
 
+test('standalone openmotion-neon-script installs and checks its fixture', async t => {
+  const root = await isolated(t), destination = path.join(root, 'skills');
+  const result = await installLibrarySkill('openmotion-neon-script', destination);
+  assert.deepEqual(await readdir(destination), ['openmotion-neon-script']);
+  assert.deepEqual(result.removedLegacy, []);
+  const check = spawnSync(process.execPath, [path.join(destination, 'openmotion-neon-script/scripts/build.mjs'), '--check', 'tests/fixtures/neon-script.json'], { encoding: 'utf8' });
+  assert.equal(check.status, 0, check.stderr);
+});
+
+test('neon-script --check rejects inputs the generator cannot render', async t => {
+  const root = await isolated(t), fixture = JSON.parse(await readFile('tests/fixtures/neon-script.json', 'utf8'));
+  fixture.footage.src = path.resolve('docs/readme/media/aurora.mp4');
+  const build = path.resolve('library/skills/openmotion-neon-script/scripts/build.mjs');
+  const cases = {
+    'was not found': d => { d.footage.src = 'missing.mp4'; },
+    'cannot draw': d => { d.pieces[0].text = '霓虹'; },
+    'runs off the': d => { d.pieces[0].x = 0.05; },
+    'must finish 0.8 s before': d => { d.pieces[0].start = 7.5; },
+    'relative command': d => { d.pieces[2].path = 'm0 0l10 10'; },
+    'needs exactly one of text, shape or path': d => { d.pieces[1].text = 'x'; },
+    'duration must be 3-30': d => { d.duration = 60; },
+    'size must be a number': d => { d.pieces[1].size = 'oops'; },
+    'draw must be 0.3-10 seconds': d => { d.pieces[0].draw = 0.1; },
+    'needs footage.subject': d => { d.pieces[0].layer = 'behind'; },
+    'footage.subject "missing.webm" was not found': d => { d.footage.subject = 'missing.webm'; },
+  };
+  for (const [message, mutate] of Object.entries(cases)) {
+    const data = structuredClone(fixture); mutate(data);
+    const file = path.join(root, 'neon.json'); await writeFile(file, JSON.stringify(data));
+    const check = spawnSync(process.execPath, [build, '--check', file], { encoding: 'utf8' });
+    assert.equal(check.status, 1, `${message}: ${check.stdout}${check.stderr}`);
+    assert.match(check.stderr, new RegExp(message.replace(/[()]/g, '\\$&')));
+    assert.doesNotMatch(check.stderr, /TypeError/);
+  }
+});
+
 test('standalone openmotion-design-styles installs and its plan checker runs', async t => {
   const root = await isolated(t), destination = path.join(root, 'skills');
   await installLibrarySkill('openmotion-design-styles', destination);
@@ -238,7 +274,7 @@ test('installation preserves customized canonical content before attempting lega
   await assert.rejects(installLibrarySkill('../foreign', root), /Unknown Library Skill/);
 });
 
-for (const canonical of ['openmotion-ad-script', 'openmotion-adaptive-layout', 'openmotion-ai-assistant-tour', 'openmotion-archive-collage', 'openmotion-article-illustrations', 'openmotion-aurora-gradient', 'openmotion-before-after', 'openmotion-bilingual-captions', 'openmotion-bold-type-poster', 'openmotion-bubble-field', 'openmotion-caption-styling', 'openmotion-card-carousel', 'openmotion-cards-and-text', 'openmotion-chalk-blueprint', 'openmotion-cinematic-logo', 'openmotion-clay-explainer', 'openmotion-color-pop-poster', 'openmotion-content-cover', 'openmotion-coral-title-cards', 'openmotion-corner-frames', 'openmotion-dark-premium-poster', 'openmotion-design-styles', 'openmotion-doc-promo', 'openmotion-echo-stack-type', 'openmotion-edit-to-script', 'openmotion-editorial-explainer', 'openmotion-editorial-poster', 'openmotion-editorial-webinar', 'openmotion-electric-impact-type', 'openmotion-felt-stop-motion', 'openmotion-flat-beat', 'openmotion-flat-card-explainer', 'openmotion-flat-lay-product', 'openmotion-folder-pop', 'openmotion-footage-to-handpainted', 'openmotion-giant-flip-type', 'openmotion-glitch-logo-sting', 'openmotion-growth-teardown', 'openmotion-hand-drawn-explainer', 'openmotion-hidden-feature-demo', 'openmotion-highlighter-notes', 'openmotion-in-hand-product', 'openmotion-ink-ribbon', 'openmotion-isometric-card-flight', 'openmotion-juicy-splash-poster', 'openmotion-light-shadow-product', 'openmotion-liquid-blob', 'openmotion-liquid-glass-logo', 'openmotion-liquid-logo', 'openmotion-livestream-clips', 'openmotion-magnet-particles', 'openmotion-manifesto-pop', 'openmotion-monochrome-magazine', 'openmotion-motion-graphic-placement', 'openmotion-multi-clips-to-reels', 'openmotion-multicam-edit', 'openmotion-mystery-box-reveal', 'openmotion-neon-outline-type', 'openmotion-nova-intro', 'openmotion-one-bit-dither', 'openmotion-orange-unfiltered', 'openmotion-paper-collage-explainer', 'openmotion-paper-diorama', 'openmotion-paper-map-journey', 'openmotion-paper-stop-motion', 'openmotion-pastel-flat-2d', 'openmotion-pixel-art-explainer', 'openmotion-pop-style', 'openmotion-premium-halo', 'openmotion-push-in-type', 'openmotion-quantum-particles', 'openmotion-red-pen-archive', 'openmotion-relight-reveal', 'openmotion-retro-flat-scene', 'openmotion-retro-print-poster', 'openmotion-ring-mask-reveal', 'openmotion-runway-rebel', 'openmotion-sale-carousel', 'openmotion-sale-countdown', 'openmotion-sale-promo', 'openmotion-shortlist-shorts', 'openmotion-shot-breakdown', 'openmotion-shutter-bands', 'openmotion-smooth-wipes', 'openmotion-spec-sheet', 'openmotion-splash-float-product', 'openmotion-split-slot-type', 'openmotion-step-by-step-tutorial', 'openmotion-sticker-bounce', 'openmotion-sticker-peel', 'openmotion-storyboard-to-motion', 'openmotion-storybook-myth', 'openmotion-surreal-3d-poster', 'openmotion-talking-head-recreation', 'openmotion-time-freeze', 'openmotion-translucent-glass', 'openmotion-velocity-lines', 'openmotion-website-launch', 'openmotion-whiteboard-doodle', 'openmotion-whiteboard-marker', 'openmotion-wireframe-style']) {
+for (const canonical of ['openmotion-ad-script', 'openmotion-adaptive-layout', 'openmotion-ai-assistant-tour', 'openmotion-archive-collage', 'openmotion-article-illustrations', 'openmotion-aurora-gradient', 'openmotion-before-after', 'openmotion-bilingual-captions', 'openmotion-bold-type-poster', 'openmotion-bubble-field', 'openmotion-caption-styling', 'openmotion-card-carousel', 'openmotion-cards-and-text', 'openmotion-chalk-blueprint', 'openmotion-cinematic-logo', 'openmotion-clay-explainer', 'openmotion-color-pop-poster', 'openmotion-content-cover', 'openmotion-coral-title-cards', 'openmotion-corner-frames', 'openmotion-dark-premium-poster', 'openmotion-design-styles', 'openmotion-doc-promo', 'openmotion-echo-stack-type', 'openmotion-edit-to-script', 'openmotion-editorial-explainer', 'openmotion-editorial-poster', 'openmotion-editorial-webinar', 'openmotion-electric-impact-type', 'openmotion-felt-stop-motion', 'openmotion-flat-beat', 'openmotion-flat-card-explainer', 'openmotion-flat-lay-product', 'openmotion-folder-pop', 'openmotion-footage-to-handpainted', 'openmotion-giant-flip-type', 'openmotion-glitch-logo-sting', 'openmotion-growth-teardown', 'openmotion-hand-drawn-explainer', 'openmotion-hidden-feature-demo', 'openmotion-highlighter-notes', 'openmotion-in-hand-product', 'openmotion-ink-ribbon', 'openmotion-isometric-card-flight', 'openmotion-juicy-splash-poster', 'openmotion-light-shadow-product', 'openmotion-liquid-blob', 'openmotion-liquid-glass-logo', 'openmotion-liquid-logo', 'openmotion-livestream-clips', 'openmotion-magnet-particles', 'openmotion-manifesto-pop', 'openmotion-monochrome-magazine', 'openmotion-motion-graphic-placement', 'openmotion-multi-clips-to-reels', 'openmotion-multicam-edit', 'openmotion-mystery-box-reveal', 'openmotion-neon-outline-type', 'openmotion-neon-script', 'openmotion-nova-intro', 'openmotion-one-bit-dither', 'openmotion-orange-unfiltered', 'openmotion-paper-collage-explainer', 'openmotion-paper-diorama', 'openmotion-paper-map-journey', 'openmotion-paper-stop-motion', 'openmotion-pastel-flat-2d', 'openmotion-pixel-art-explainer', 'openmotion-pop-style', 'openmotion-premium-halo', 'openmotion-push-in-type', 'openmotion-quantum-particles', 'openmotion-red-pen-archive', 'openmotion-relight-reveal', 'openmotion-retro-flat-scene', 'openmotion-retro-print-poster', 'openmotion-ring-mask-reveal', 'openmotion-runway-rebel', 'openmotion-sale-carousel', 'openmotion-sale-countdown', 'openmotion-sale-promo', 'openmotion-shortlist-shorts', 'openmotion-shot-breakdown', 'openmotion-shutter-bands', 'openmotion-smooth-wipes', 'openmotion-spec-sheet', 'openmotion-splash-float-product', 'openmotion-split-slot-type', 'openmotion-step-by-step-tutorial', 'openmotion-sticker-bounce', 'openmotion-sticker-peel', 'openmotion-storyboard-to-motion', 'openmotion-storybook-myth', 'openmotion-surreal-3d-poster', 'openmotion-talking-head-recreation', 'openmotion-time-freeze', 'openmotion-translucent-glass', 'openmotion-velocity-lines', 'openmotion-website-launch', 'openmotion-whiteboard-doodle', 'openmotion-whiteboard-marker', 'openmotion-wireframe-style']) {
   test(`standalone ${canonical} installs without a retired entry`, async t => {
     const root = await isolated(t), destination = path.join(root, 'skills');
     const result = await installLibrarySkill(canonical, destination);

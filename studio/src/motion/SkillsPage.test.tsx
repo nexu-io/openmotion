@@ -25,15 +25,16 @@ const button = (label: string) => [...container.querySelectorAll('button')].find
 it('lists every curated skill with its upstream repository', () => {
   act(() => root.render(<Host />));
   expect(container.querySelectorAll('.om-skill-gallery-card')).toHaveLength(motionSkills.length);
-  expect(motionSkills).toHaveLength(130);
+  expect(motionSkills).toHaveLength(131);
   expect(motionSkills[0].id).toBe('motionmaxxing');
   expect(motionSkills[1].id).toBe('openmotion-growth-teardown');
   expect(motionSkills[2].id).toBe('openmotion-design-styles');
+  expect(motionSkills[34].id).toBe('openmotion-neon-script');
   expect(motionSkills.slice(3, 6).map(skill => skill.id)).toEqual(['openmotion-sale-promo', 'openmotion-sale-countdown', 'openmotion-sale-carousel']);
   for (const skill of motionSkills) if (skill.repository) expect(skill.repository).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/tree\/main\/[\w.-]+)?$/);
   // Skills without an upstream repository are OpenMotion Library Skills (library/skills/<id>).
   for (const skill of motionSkills) if (!skill.repository) expect(skill.id).toMatch(/^openmotion-[a-z0-9-]+$/);
-  expect(motionSkills.filter(skill => !skill.repository)).toHaveLength(97);
+  expect(motionSkills.filter(skill => !skill.repository)).toHaveLength(98);
   // The upstream Skills keep their place right after the first two; presenter-style cards are spread out, never side by side.
   expect(motionSkills.slice(2, 26).every(skill => skill.repository)).toBe(true);
   expect(motionSkills.some((skill, i) => i > 0 && skill.category === 'Talking-head & editing' && motionSkills[i - 1].category === 'Talking-head & editing')).toBe(false);

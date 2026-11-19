@@ -1,5 +1,13 @@
 # 公开变更记录
 
+## 2026-11-19: Add the Neon Script library Skill
+
+- Add optional [`openmotion-neon-script`](../../library/skills/openmotion-neon-script/SKILL.md): write thick neon glass tubes onto real footage stroke by stroke behind a bright pen tip, with electrode caps on open shapes, a whole-frame colour relight that also lights the subject, a switch-on stutter and a "Made with OpenMotion" sign-off. With a subject cut-out from `hyperframes remove-background`, pieces can sit behind the person.
+- `scripts/build.mjs` checks `neon.json` (footage and cut-out present, Latin text the bundled single-line script can draw, pieces inside the frame and finished before the end, layer and value ranges, readable path data) and generates an editable single-file HyperFrames project. Lettering uses EMS Allure single-line strokes under SIL OFL 1.1.
+- The Studio Skills page lists it with a sample cover rendered by the Skill. Library content only: not registered as an MCP resource.
+- Verified on three stock clips (a person in a dark room with a cut-out, a podcast studio, a rainy window), each built, checked and rendered through the Skill's own generator. Occlusion comes from the subject cut-out; scene depth is not estimated.
+
+
 ## 2026-11-18: Add the holiday-sale library Skills
 
 - Add optional [`openmotion-sale-promo`](../../library/skills/openmotion-sale-promo/SKILL.md): one offer → a 10 or 15 s promo (occasion, discount, regular price struck through before the sale price lands, code and real deadline, call to action) in 9:16, 4:5, 1:1 or 16:9.

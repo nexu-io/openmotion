@@ -1,0 +1,1 @@
+Generated copy of `packages/design-system/brand/openmotion-logo.svg` for standalone installs. In a checkout, `scripts/build.mjs` reads the design-system original first. Edit the original, then run `npm run design:tokens` to refresh this copy; `npm run check` fails when it drifts.

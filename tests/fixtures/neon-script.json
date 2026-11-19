@@ -1,0 +1,12 @@
+{
+  "aspect": "16:9",
+  "duration": 8,
+  "footage": { "src": "../../docs/readme/media/aurora.mp4", "start": 0 },
+  "darken": 0.4,
+  "relight": 1,
+  "pieces": [
+    { "text": "Live tonight", "x": 0.5, "y": 0.2, "size": 0.14, "color": "#ff3d8b", "start": 0.5, "draw": 2.6 },
+    { "shape": "underline", "x": 0.5, "y": 0.34, "size": 0.2, "color": "#ff3d8b", "start": 3.4, "draw": 0.6 },
+    { "path": "M0 0C40 -60 80 60 120 0L160 0", "x": 0.8, "y": 0.75, "size": 0.05, "color": "#2ee6ff", "start": 4.2 }
+  ]
+}

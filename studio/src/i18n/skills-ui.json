@@ -241,7 +241,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "按 OpenMotion sale-carousel Skill 执行：收集 3～7 个商品的真实照片、原价和各自一种折扣写法，写 carousel.json，运行 build.mjs --check 并向用户复述价格，再生成并渲染轮播。",
     "A gift guide under $100 with our five best deals": "做一条 100 美元以内的礼物清单，放我们最好的五个优惠",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10 秒预告：大号数字滚到真实剩余的天数或小时，再给出日期、优惠和行动按钮",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9～17 秒轮播：商品卡片排成一排滑动，每张轮流到中间，显示照片、划线原价、促销价和角标，最后整排商品与优惠码同框"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9～17 秒轮播：商品卡片排成一排滑动，每张轮流到中间，显示照片、划线原价、促销价和角标，最后整排商品与优惠码同框",
+    "Neon writing on footage": "实拍霓虹手写",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "想在自己拍的片段上，用发光霓虹写几个字、签名或简笔画时",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "你的片段上逐笔写出霓虹灯管，并照亮周围画面；交付可编辑工程和 MP4",
+    "Write in neon on real footage.": "在实拍画面上写霓虹。",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "按 OpenMotion neon-script Skill 做：为每段文字或图形在画面里找一块干净区域，写好 neon.json（文字、图形或描好的路径、颜色、开始时间），先运行 build.mjs --check，再生成成片。把画面压暗到灯管是最亮的东西，灯管不要压过人脸。",
+    "Write \"Live tonight\" in pink neon above my studio desk": "在我录音间的桌子上方，用粉色霓虹写「Live tonight」"
   },
   "ja": {
     "Skills": "Skills",
@@ -485,7 +491,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "OpenMotion の sale-carousel Skill に従う：実物写真、定価、割引の指定1つを持つ商品を3〜7点集めて carousel.json を書き、build.mjs --check を実行して価格を読み上げてから、リールを生成・レンダリングする。",
     "A gift guide under $100 with our five best deals": "100ドル以下のギフトガイド、ベスト5のお得商品で",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10秒の予告：フリップ式の数字が実際の残り日数・時間まで回り、日付、オファー、行動ボタンへ",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9〜17秒のリール：商品カードが横一列に流れ、1枚ずつ中央に来て写真・取り消し線の定価・セール価格・バッジを表示、最後に全商品とコード"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9〜17秒のリール：商品カードが横一列に流れ、1枚ずつ中央に来て写真・取り消し線の定価・セール価格・バッジを表示、最後に全商品とコード",
+    "Neon writing on footage": "実写にネオン手書き",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "自分の映像に、光るネオンで短い言葉やサイン、落書きを書きたいとき",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "映像の上にネオン管が一筆ずつ描かれ、周りを照らします。編集できるプロジェクトと MP4",
+    "Write in neon on real footage.": "実写映像にネオンで書く。",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "OpenMotion の neon-script Skill に従う：各要素を置く落ち着いた場所を映像から選び、文字・図形・トレースしたパス、色、開始時刻を neon.json に書き、build.mjs --check を実行してから生成する。ネオン管がいちばん明るくなるよう映像を暗く調整し、顔には重ねない。",
+    "Write \"Live tonight\" in pink neon above my studio desk": "スタジオの机の上にピンクのネオンで「Live tonight」と書いて"
   },
   "ko": {
     "Skills": "Skills",
@@ -729,7 +741,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "OpenMotion sale-carousel Skill을 따르세요: 실제 사진, 정가, 할인 방식 하나씩을 가진 상품 3~7개를 모아 carousel.json을 작성하고, build.mjs --check를 실행해 가격을 확인한 뒤 릴을 생성하고 렌더링합니다.",
     "A gift guide under $100 with our five best deals": "100달러 이하 선물 가이드, 베스트 딜 다섯 개로",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10초 티저: 플립 숫자가 실제 남은 일수나 시간까지 넘어가고, 날짜, 혜택, 행동 유도 버튼",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9~17초 릴: 상품 카드가 한 줄로 흐르며 차례로 가운데에 와서 사진, 취소선 정가, 할인가, 배지를 보여 주고 마지막에 전체 줄과 코드"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9~17초 릴: 상품 카드가 한 줄로 흐르며 차례로 가운데에 와서 사진, 취소선 정가, 할인가, 배지를 보여 주고 마지막에 전체 줄과 코드",
+    "Neon writing on footage": "실사 위 네온 손글씨",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "내 영상 위에 빛나는 네온으로 짧은 글귀, 서명, 낙서를 쓰고 싶을 때",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "영상 위에 네온관이 한 획씩 그려지며 주변을 비춥니다. 편집 가능한 프로젝트와 MP4",
+    "Write in neon on real footage.": "실사 영상 위에 네온으로 쓰기.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "OpenMotion neon-script Skill을 따르세요: 각 요소를 둘 차분한 영역을 영상에서 고르고, 글자·도형·따라 그린 경로, 색, 시작 시간을 neon.json에 적은 뒤 build.mjs --check를 실행하고 영상을 생성합니다. 네온관이 가장 밝게 보이도록 화면을 어둡게 보정하고, 얼굴은 가리지 마세요.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "스튜디오 책상 위에 분홍 네온으로 \"Live tonight\"을 써 줘"
   },
   "ru": {
     "Skills": "Skills",
@@ -973,7 +991,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Следуйте Skill OpenMotion sale-carousel: соберите от 3 до 7 товаров с реальными фото, обычными ценами и одним видом скидки для каждого, запишите carousel.json, запустите build.mjs --check и зачитайте цены, затем соберите и отрендерите ролик.",
     "A gift guide under $100 with our five best deals": "Подборка подарков до $100 с нашими пятью лучшими предложениями",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Тизер на 10 секунд: перекидные цифры доходят до реального числа оставшихся дней или часов, затем дата, предложение и призыв",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ролик на 9–17 секунд: ряд карточек товаров скользит, каждая по очереди выходит в центр с фото, зачёркнутой ценой, ценой со скидкой и значком, в конце весь ряд и код"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ролик на 9–17 секунд: ряд карточек товаров скользит, каждая по очереди выходит в центр с фото, зачёркнутой ценой, ценой со скидкой и значком, в конце весь ряд и код",
+    "Neon writing on footage": "Неоновая надпись на видео",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Когда нужно написать светящимся неоном пару слов, подпись или рисунок поверх своего видео",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Ваше видео, на котором неоновые трубки пишутся штрих за штрихом и подсвечивают сцену; редактируемый проект и MP4",
+    "Write in neon on real footage.": "Пишите неоном по реальному видео.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "Следуйте Skill OpenMotion neon-script: выберите спокойную область кадра для каждого элемента, запишите в neon.json слова, фигуры или обведённые контуры, цвета и время начала, запустите build.mjs --check, затем создайте ролик. Затемните кадр так, чтобы трубки были самым ярким, и не пересекайте лица.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Напиши розовым неоном «Live tonight» над столом в моей студии"
   },
   "de": {
     "Skills": "Skills",
@@ -1217,7 +1241,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Folge dem OpenMotion-Skill sale-carousel: Sammle 3 bis 7 Produkte mit echten Fotos, Normalpreisen und je einer Rabattangabe, schreibe carousel.json, führe build.mjs --check aus und lies die Preise vor, dann erzeuge und rendere das Reel.",
     "A gift guide under $100 with our five best deals": "Ein Geschenk-Guide unter 100 $ mit unseren fünf besten Deals",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Ein 10-Sekunden-Teaser: Fallblatt-Ziffern laufen bis zu den echten verbleibenden Tagen oder Stunden, dann Datum, Angebot und Call-to-Action",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ein 9–17-Sekunden-Reel: eine gleitende Reihe von Produktkarten, jede rückt mit Foto, durchgestrichenem Normalpreis, Sale-Preis und Badge in die Mitte, am Ende die ganze Reihe mit Code"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ein 9–17-Sekunden-Reel: eine gleitende Reihe von Produktkarten, jede rückt mit Foto, durchgestrichenem Normalpreis, Sale-Preis und Badge in die Mitte, am Ende die ganze Reihe mit Code",
+    "Neon writing on footage": "Neon-Schrift auf Filmmaterial",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Wenn ein paar Worte, eine Unterschrift oder eine Skizze in leuchtendem Neon über dein eigenes Video geschrieben werden sollen",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Dein Clip, auf dem Neonröhren Strich für Strich entstehen und die Szene ringsum beleuchten, als bearbeitbares Projekt und MP4",
+    "Write in neon on real footage.": "In Neon auf echtes Filmmaterial schreiben.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "Folge dem OpenMotion-Skill neon-script: Wähle für jedes Element eine ruhige Bildstelle, trage Wörter, Formen oder nachgezeichnete Pfade, Farben und Startzeiten in neon.json ein, führe build.mjs --check aus und erzeuge dann den Film. Dunkle das Bild so ab, dass die Röhren das Hellste sind, und lege nichts über Gesichter.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Schreib „Live tonight“ in pinkem Neon über meinen Studiotisch"
   },
   "fr": {
     "Skills": "Skills",
@@ -1461,7 +1491,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Suivez le Skill OpenMotion sale-carousel : réunissez 3 à 7 produits avec de vraies photos, leur prix normal et une forme de remise chacun, écrivez carousel.json, lancez build.mjs --check et relisez les prix, puis générez et rendez le reel.",
     "A gift guide under $100 with our five best deals": "Un guide cadeaux à moins de 100 $ avec nos cinq meilleures offres",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Un teaser de 10 secondes : des chiffres à volets défilent jusqu'au vrai nombre de jours ou d'heures restants, puis la date, l'offre et un appel à l'action",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 à 17 secondes : une rangée de cartes produits qui glisse, chacune passe au centre avec photo, prix barré, prix soldé et badge, puis toute la rangée avec le code"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 à 17 secondes : une rangée de cartes produits qui glisse, chacune passe au centre avec photo, prix barré, prix soldé et badge, puis toute la rangée avec le code",
+    "Neon writing on footage": "Écriture néon sur vidéo",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Quand vous voulez écrire quelques mots, une signature ou un dessin en néon lumineux sur votre propre vidéo",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Votre vidéo avec des tubes néon tracés trait par trait qui éclairent la scène autour, en projet modifiable et en MP4",
+    "Write in neon on real footage.": "Écrivez en néon sur de vraies images.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "Suivez le Skill OpenMotion neon-script : choisissez une zone calme de l’image pour chaque élément, écrivez dans neon.json les mots, formes ou tracés, couleurs et heures de début, lancez build.mjs --check, puis générez le film. Assombrissez l’image pour que les tubes soient le plus lumineux, et ne passez jamais sur un visage.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Écris « Live tonight » en néon rose au-dessus du bureau de mon studio"
   },
   "es": {
     "Skills": "Skills",
@@ -1705,7 +1741,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Sigue el Skill sale-carousel de OpenMotion: reúne de 3 a 7 productos con fotos reales, precio normal y una forma de descuento cada uno, escribe carousel.json, ejecuta build.mjs --check y repasa los precios, luego genera y renderiza el reel.",
     "A gift guide under $100 with our five best deals": "Una guía de regalos por menos de 100 $ con nuestras cinco mejores ofertas",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Un teaser de 10 segundos: dígitos de paleta bajan hasta los días u horas que realmente quedan, luego la fecha, la oferta y una llamada a la acción",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 a 17 segundos: una fila de tarjetas de producto que se desliza, cada una pasa al centro con foto, precio tachado, precio rebajado y distintivo, y al final toda la fila con el código"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 a 17 segundos: una fila de tarjetas de producto que se desliza, cada una pasa al centro con foto, precio tachado, precio rebajado y distintivo, y al final toda la fila con el código",
+    "Neon writing on footage": "Escritura de neón sobre vídeo",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Cuando quieres escribir unas palabras, una firma o un dibujo en neón brillante sobre tu propio vídeo",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Tu vídeo con tubos de neón trazados línea a línea que iluminan la escena alrededor, como proyecto editable y MP4",
+    "Write in neon on real footage.": "Escribe con neón sobre imágenes reales.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "Sigue el Skill neon-script de OpenMotion: elige una zona tranquila del plano para cada elemento, escribe en neon.json las palabras, formas o trazos, colores y tiempos de inicio, ejecuta build.mjs --check y luego genera el vídeo. Oscurece el plano para que los tubos sean lo más brillante y no pases nunca por encima de una cara.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Escribe «Live tonight» en neón rosa sobre la mesa de mi estudio"
   },
   "pt-BR": {
     "Skills": "Skills",
@@ -1949,7 +1991,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Siga o Skill sale-carousel do OpenMotion: reúna de 3 a 7 produtos com fotos reais, preço normal e uma forma de desconto cada, escreva carousel.json, rode build.mjs --check e confirme os preços, depois gere e renderize o reel.",
     "A gift guide under $100 with our five best deals": "Um guia de presentes abaixo de US$ 100 com nossas cinco melhores ofertas",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Um teaser de 10 segundos: dígitos de painel giram até os dias ou horas que realmente faltam, depois a data, a oferta e uma chamada para ação",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Um reel de 9 a 17 segundos: uma fileira de cards de produto deslizando, cada um vai ao centro com foto, preço riscado, preço promocional e selo, e no fim a fileira toda com o cupom"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Um reel de 9 a 17 segundos: uma fileira de cards de produto deslizando, cada um vai ao centro com foto, preço riscado, preço promocional e selo, e no fim a fileira toda com o cupom",
+    "Neon writing on footage": "Escrita neon em vídeo",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Quando você quer escrever algumas palavras, uma assinatura ou um desenho em neon brilhante sobre o seu próprio vídeo",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Seu vídeo com tubos de neon traçados risco a risco, iluminando a cena ao redor, como projeto editável e MP4",
+    "Write in neon on real footage.": "Escreva em neon sobre imagens reais.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "Siga o Skill neon-script do OpenMotion: escolha uma área calma do quadro para cada elemento, escreva em neon.json as palavras, formas ou traçados, cores e horários de início, rode build.mjs --check e depois gere o vídeo. Escureça a imagem para que os tubos sejam o mais brilhante e nunca passe sobre um rosto.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Escreva \"Live tonight\" em neon rosa acima da mesa do meu estúdio"
   },
   "it": {
     "Skills": "Skill",
@@ -2193,7 +2241,13 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Segui lo Skill OpenMotion sale-carousel: raccogli da 3 a 7 prodotti con foto reali, prezzo pieno e una forma di sconto ciascuno, scrivi carousel.json, esegui build.mjs --check e rileggi i prezzi, poi genera e renderizza il reel.",
     "A gift guide under $100 with our five best deals": "Una guida ai regali sotto i 100 $ con le nostre cinque offerte migliori",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Un teaser di 10 secondi: cifre a palette scorrono fino ai giorni o alle ore che mancano davvero, poi data, offerta e call to action",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel di 9–17 secondi: una fila di schede prodotto che scorre, ognuna passa al centro con foto, prezzo barrato, prezzo scontato e badge, poi tutta la fila con il codice"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel di 9–17 secondi: una fila di schede prodotto che scorre, ognuna passa al centro con foto, prezzo barrato, prezzo scontato e badge, poi tutta la fila con il codice",
+    "Neon writing on footage": "Scritta al neon sul video",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Quando vuoi scrivere poche parole, una firma o uno scarabocchio in neon luminoso sul tuo video",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Il tuo video con tubi al neon tracciati tratto dopo tratto che illuminano la scena intorno, come progetto modificabile e MP4",
+    "Write in neon on real footage.": "Scrivi al neon su riprese reali.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "Segui lo Skill OpenMotion neon-script: scegli per ogni elemento una zona tranquilla dell’inquadratura, scrivi in neon.json parole, forme o tracciati, colori e orari di inizio, esegui build.mjs --check e poi genera il video. Scurisci l’inquadratura finché i tubi sono la cosa più luminosa e non passare mai sopra un volto.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Scrivi \"Live tonight\" in neon rosa sopra la scrivania del mio studio"
   },
   "tr": {
     "Skills": "Skill’ler",
@@ -2437,6 +2491,12 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "OpenMotion sale-carousel Skill'ini izleyin: gerçek fotoğrafı, normal fiyatı ve birer indirim biçimi olan 3–7 ürün toplayın, carousel.json yazın, build.mjs --check çalıştırıp fiyatları teyit edin, ardından reel'i oluşturup render edin.",
     "A gift guide under $100 with our five best deals": "En iyi beş fırsatımızla 100 $ altı hediye rehberi",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10 saniyelik tanıtım: dönen rakamlar gerçek kalan gün ya da saate iner, ardından tarih, teklif ve harekete geçirici buton",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9–17 saniyelik reel: kayan bir ürün kartı sırası; her kart sırayla fotoğraf, üstü çizili fiyat, indirimli fiyat ve rozetle ortaya gelir, sonunda tüm sıra ve kod"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9–17 saniyelik reel: kayan bir ürün kartı sırası; her kart sırayla fotoğraf, üstü çizili fiyat, indirimli fiyat ve rozetle ortaya gelir, sonunda tüm sıra ve kod",
+    "Neon writing on footage": "Görüntü üzerine neon yazı",
+    "When you want a few words, a signature or a doodle written in glowing neon over your own clip": "Kendi videonun üzerine parlayan neonla birkaç kelime, imza ya da karalama yazmak istediğinde",
+    "Your clip with neon tubes written onto it stroke by stroke, lighting the scene around them, as an editable project and MP4": "Neon tüplerin çizgi çizgi yazıldığı ve çevresini aydınlattığı videon; düzenlenebilir proje ve MP4",
+    "Write in neon on real footage.": "Gerçek görüntü üzerine neonla yaz.",
+    "Follow the OpenMotion neon-script Skill: pick a calm area of the clip for each piece, write neon.json with the words, shapes or traced paths, colours and start times, run build.mjs --check, then generate the film. Grade the shot dark enough that the tubes are the brightest thing, and never cross a face.": "OpenMotion neon-script Skill’ini izle: her öğe için karede sakin bir alan seç, kelimeleri, şekilleri ya da çizilmiş yolları, renkleri ve başlangıç zamanlarını neon.json’a yaz, build.mjs --check çalıştır, sonra filmi üret. Tüpler en parlak şey olacak kadar görüntüyü karart ve asla bir yüzün üzerinden geçme.",
+    "Write \"Live tonight\" in pink neon above my studio desk": "Stüdyo masamın üstüne pembe neonla \"Live tonight\" yaz"
   }
 }

@@ -1,0 +1,3 @@
+interface:
+  display_name: "OpenMotion Neon Script"
+  short_description: "Write glowing neon words and doodles onto real footage, stroke by stroke, and relight the shot."

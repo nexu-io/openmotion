@@ -27,6 +27,8 @@ export async function designTokens(checkOnly = false) {
     // The growth-teardown Skill ships these marks for standalone installs.
     ['brand/openmotion-logo.svg', '../../library/skills/openmotion-growth-teardown/assets/brand/openmotion-logo.svg'],
     ['brand/loading-mark.svg', '../../library/skills/openmotion-growth-teardown/assets/brand/loading-mark.svg'],
+    // The neon-script Skill ships the wordmark for its sign-off.
+    ['brand/openmotion-logo.svg', '../../library/skills/openmotion-neon-script/assets/brand/openmotion-logo.svg'],
     // The design-styles Skill ships the same marks for its opening and end credit.
     ['brand/openmotion-logo.svg', '../../library/skills/openmotion-design-styles/assets/brand/openmotion-logo.svg'],
     ['brand/loading-mark.svg', '../../library/skills/openmotion-design-styles/assets/brand/loading-mark.svg'],
