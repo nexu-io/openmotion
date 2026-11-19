@@ -67,6 +67,11 @@ async function discover(transport, env, version, tools, templateCheck) {
   }
 }
 
+export function checkedTemplateRuntime(result, required) {
+  assert.equal(result?.status, required ? 'passed' : 'not-run-legacy-cms', 'Unexpected template-runtime consumer result');
+  return result;
+}
+
 export async function registrySmoke(directory) {
   const c = await verifyDownloaded(directory, process.env.MOTION_EXPECTED_SHA256, process.env.MOTION_VERSION);
   const platform = process.platform + '-' + process.arch;
@@ -117,7 +122,7 @@ export async function registrySmoke(directory) {
   await checkpoint(templateCheck ? 'template-runtime' : 'mcp-discovery');
   // Installed code and its browser dependencies execute only with consumer credentials.
   await runFile(process.execPath, [fileURLToPath(import.meta.url), 'consumer', consumerInput], { cwd: project, env, timeout: 10 * 60_000 });
-  const templateRuntime = JSON.parse(await readFile(consumerReport, 'utf8'));
+  const templateRuntime = checkedTemplateRuntime(JSON.parse(await readFile(consumerReport, 'utf8')), Boolean(templateCheck));
   const report = { status: 'passed', platform, version: c.version, sourceCommit: c.sourceCommit, tgzSHA256: c.tgzSHA256,
     node: process.version, codex: '0.166.0', templateEnvironment: templateConfig.environment, registryColdInstall: 'passed', repeatSetup: 'passed', unrelatedSettings: 'preserved',
     nativePreparation: 'passed', mcpTools: manifest.mcp.tools.length, skills: manifest.skills.length, resources: 'passed', templateRuntime,

@@ -49,7 +49,7 @@ DEV 的默认工作区另加 `-dev`，与线上后台进程、工程和缓存分
 
 ### 界面
 
-`GET /motion-api/template-catalog` accepts locale, query, category, offset, limit, grouped and covered parameters for Studio search/pagination. It and MCP share the selected repository, hosted CDN or CMS reader. Source checkouts and hosted installations serve registered guide and source files through `/api/template-source/<id>/<path>`; linked CMS media remains remote when it is retained as an existing asset identity. Only entries with actual project files can open directly as editable projects. Recreate prompts use the same localized creative brief for repository, hosted and CMS catalogs, with the public GitHub repository link and the selected template title and ID.
+`GET /motion-api/template-catalog` accepts locale, query, category, offset, limit, grouped and covered parameters for Studio search/pagination. It and MCP share the selected repository, hosted CDN or CMS reader. Source checkouts and hosted installations serve registered guide and source files through `/api/template-source/<id>/<path>`; linked CMS media remains remote when it is retained as an existing asset identity. Template details offer Recreate template to copy the selected brief for an Agent. Browsing and copying do not create projects. After the user sends the brief or explicitly requests creation, the Agent can copy entries with actual project files into independent editable projects; reference-only entries require reconstruction. Recreate prompts use the same localized creative brief for repository, hosted and CMS catalogs, with the public GitHub repository link and the selected template title and ID.
 
 ### Template languages and motion.md
 

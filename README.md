@@ -459,7 +459,7 @@ When choosing or replacing media, creation workflows share a [material sourcing 
 
 For agent-led installation, use the [installation instruction above](#quick-start). To run from source, follow the steps below.
 
-After a successful Agent-led installation, open the editor's template library in the current conversation, without creating a project. Browse and preview first; choose **Open and edit** to create an independent editable copy. Setup provides a direct library link even before the chat reloads MCP. See the [installation reply rules](docs/install-onboarding.md#installation-success-reply).
+After a successful Agent-led installation, open the editor's template library in the current conversation, without creating a project. Browse and preview first; choose **Recreate template** to copy the selected brief, then send it to your connected Agent or explicitly ask the Agent to create an independent editable copy. Browsing and copying do not create a project. Setup provides a direct library link even before the chat reloads MCP. See the [installation reply rules](docs/install-onboarding.md#installation-success-reply).
 
 During video creation and editing, the chat stays free of preview areas. OpenMotion presents the editable Studio when the final video is ready to preview, then shows [one final-video preview](docs/inline-video.md) after MP4 export and verification. Host-native playback takes priority; Codex embeds the video in the final reply. The optional MCP App player is used only when the host cannot preview the video, never alongside another preview of the same export. Native-host acceptance of an installed build remains separate.
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { runFile } from '../scripts/runtime-assets.mjs';
-import { consumerEnvironment } from '../.github/scripts/motion-registry-smoke.mjs';
+import { consumerEnvironment, checkedTemplateRuntime } from '../.github/scripts/motion-registry-smoke.mjs';
 
 const script = fileURLToPath(new URL('../.github/scripts/motion-registry-smoke.mjs', import.meta.url));
 
@@ -35,4 +35,14 @@ for await(const line of createInterface({input:process.stdin})){
   const result = JSON.parse(await readFile(path.join(output, 'result.json')));
   assert.equal(result.status, 'failed');
   assert.match(result.error, /Hosted service unavailable/);
+});
+
+test('registry acceptance rejects unsuccessful or missing nested template-runtime results', () => {
+  const passed = { status: 'passed', checks: ['copied brief', 'explicit creation'] };
+  assert.equal(checkedTemplateRuntime(passed, true), passed);
+  for (const status of ['failed', 'running', 'not-run-legacy-cms', undefined]) {
+    assert.throws(() => checkedTemplateRuntime({ status }, true), /Unexpected template-runtime consumer result/);
+  }
+  assert.throws(() => checkedTemplateRuntime(null, true), /Unexpected template-runtime consumer result/);
+  assert.equal(checkedTemplateRuntime({ status: 'not-run-legacy-cms' }, false).status, 'not-run-legacy-cms');
 });

@@ -3,6 +3,16 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
+async function projectIds(call) {
+  const ids = []; let cursor;
+  do {
+    const page = await call('openmotion_get_project', cursor ? { cursor } : {});
+    ids.push(...page.projects.map(project => project.id));
+    cursor = page.nextCursor;
+  } while (cursor);
+  return ids.sort();
+}
+
 /** Exercise installed public tools and the real Studio page without model calls. */
 export async function checkTemplateRuntime({ call, appRoot, browserPath, output, expectedSource = 'hosted' }) {
   await mkdir(output, { recursive: true });
@@ -23,12 +33,14 @@ export async function checkTemplateRuntime({ call, appRoot, browserPath, output,
     assert(detail.instructions?.length && detail.motionDocument?.content?.length);
     if (expectedSource === 'hosted') assert.equal(detail.localSource, undefined);
     check('public MCP lists the catalog and reads a non-builtin guide', { total: index.total, catalogVersion: index.catalogVersion, templateId: reference.templateId });
+    const initialProjects = await projectIds(call);
     const opened = await call('openmotion_open_preview', { target: 'templates' });
     const origin = new URL(opened.previewUrl).origin;
     assert.equal(opened.projectCreated, false);
     const require = createRequire(path.join(appRoot, 'package.json'));
     const puppeteer = require('puppeteer-core');
     browser = await puppeteer.launch({ executablePath: browserPath, headless: true, args: ['--no-first-run'] });
+    await browser.defaultBrowserContext().overridePermissions(origin, ['clipboard-read', 'clipboard-write', 'clipboard-sanitized-write']);
     page = await browser.newPage();
     page.on('pageerror', error => errors.push(error.message));
     page.on('console', message => { if (['error', 'warn'].includes(message.type())) browserEvents.push(message.text()); });
@@ -79,8 +91,22 @@ export async function checkTemplateRuntime({ call, appRoot, browserPath, output,
     const builtin = new URL(opened.previewUrl); builtin.searchParams.set('template', 'product-promo');
     await page.goto(builtin.href, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector(`${preview}[open] h2`, { visible: true });
-    const action = await page.waitForFunction(selector => [...document.querySelectorAll(selector + ' button')].find(node => node.textContent.trim() === 'Open and edit' && !node.disabled), {}, preview);
+    const action = await page.waitForFunction(selector => [...document.querySelectorAll(selector + ' button')].find(node => node.textContent.trim() === 'Recreate template' && !node.disabled), {}, preview);
+    const expectedBrief = await page.$eval(`${preview} [aria-label="Template instruction"] p`, node => node.textContent);
+    await page.evaluate(() => navigator.clipboard.writeText('runtime-check-pending'));
     await action.asElement().click();
+    await page.waitForFunction(async () => (await navigator.clipboard.readText()).includes('product-promo'));
+    const brief = await page.evaluate(() => navigator.clipboard.readText());
+    assert.equal(brief, expectedBrief, 'The copied brief must match the displayed instruction');
+    assert(brief.includes('product-promo'), 'Recreate template must copy the selected template brief');
+    assert.equal(new URL(page.url()).searchParams.has('project'), false, 'Copying must keep the project-free library URL');
+    assert.deepEqual(await projectIds(call), initialProjects, 'Browsing and copying must not create a project');
+    check('Recreate template copies the selected brief without creating a project');
+    const created = await call('openmotion_create_project', { requestId: 'installation-template-check', projectType: 'template',
+      templateId: 'product-promo', title: 'Installation template check', requirements: brief });
+    assert(created.projectId && created.projectId !== 'project' && !initialProjects.includes(created.projectId), 'Explicit Agent creation must produce an independent project');
+    const editor = await call('openmotion_open_preview', { projectId: created.projectId });
+    await page.goto(editor.previewUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => Number(document.querySelector('[data-timeline-element-count]')?.getAttribute('data-timeline-element-count')) > 0, { timeout: 90_000 });
     await page.waitForFunction(() => [...document.querySelectorAll('hyperframes-player')].some(player => player.ready && player.painted && player.iframeElement?.contentDocument?.querySelector('[data-composition-id]')), { timeout: 60_000 });
     await page.waitForFunction(() => {
@@ -92,12 +118,12 @@ export async function checkTemplateRuntime({ call, appRoot, browserPath, output,
     await page.waitForFunction(() => [...document.querySelectorAll('hyperframes-player')].some(player => player.currentTime >= 4 && player.iframeElement?.contentDocument?.body?.innerText.includes('Design without limits')), { timeout: 30_000 });
     await page.click('button[aria-label="Pause"]');
     const projectId = new URL(page.url()).searchParams.get('project');
-    assert(projectId && projectId !== 'project', 'Open and edit must create an independent project');
+    assert.equal(projectId, created.projectId, 'The editor must open the explicitly created project');
     const project = await call('openmotion_get_project', { projectId });
     assert.equal(project.projectId, projectId);
     await page.screenshot({ path: path.join(output, 'opened-editable-template.png') });
     const playbackSeconds = await page.$eval('hyperframes-player', player => player.currentTime);
-    check('Open and edit creates an independent project with real playback and a populated timeline', { projectId, playbackSeconds });
+    check('explicit Agent creation opens an independent project with real playback and a populated timeline', { projectId, playbackSeconds });
     assert.deepEqual(failedSources, []);
     assert.deepEqual(errors, []);
     result.status = 'passed';

@@ -10,10 +10,11 @@ const editor = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
 vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
 // Keep workspace routing, polling and the library real; replace only the native editor.
 vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: () => {
-  const { openLibrary } = useWorkspaceChrome();
+  const { openLibrary, workspace } = useWorkspaceChrome();
   useEffect(() => { editor.mounts++; return () => { editor.unmounts++; }; }, []);
   return <div data-testid="editor"><input aria-label="Editor draft" defaultValue="Unsaved edit" />
-    <button onClick={event => openLibrary(event.currentTarget)}>Open template library</button></div>;
+    <button onClick={event => openLibrary(event.currentTarget)}>Open template library</button>
+    <button onClick={() => void workspace.startSession(undefined, 'product-promo')}>Create template project</button></div>;
 } }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); history.replaceState(null, '', '/'); });
@@ -98,8 +99,8 @@ it.each(['failed', 'pending'] as const)('allows installation-library dismissal w
       }
       await act(async () => container.querySelector<HTMLButtonElement>('[data-template-id="product-promo"] button')!.click());
       const open = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Open and edit'))!;
-      expect(open.disabled).toBe(true);
-      await act(async () => { open.click(); container.querySelector<HTMLButtonElement>('button[aria-label="Close template preview"]')!.click(); });
+      expect(open).toBeUndefined();
+      await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Close template preview"]')!.click());
       await closeLibrary(container, method);
       expect(container.querySelector('dialog[aria-label="Template library"]')).toBeNull();
       expect(replace).not.toHaveBeenCalled();
@@ -111,15 +112,14 @@ it.each(['failed', 'pending'] as const)('allows installation-library dismissal w
 
 it('still blocks dismissal while project creation is in flight and allows it after failure', async () => {
   let finish!: (response: Response) => void;
-  workspace(false, { create: () => new Promise(resolve => { finish = resolve; }) });
+  workspace(true, { create: () => new Promise(resolve => { finish = resolve; }) });
   history.replaceState(null, '', '/?templates=1&embed=1');
   const replace = vi.spyOn(location, 'replace').mockImplementation(() => {});
   const container = document.createElement('div'); document.body.append(container);
   const root = createRoot(container);
   try {
     await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-template-id="product-promo"] button')!.click());
-    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Open and edit'))!.click());
+    await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Create template project')!.click());
     expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('Preparing editable project…');
     expect(container.querySelector('main')?.textContent).not.toContain('Preparing editable project…');
     expect(container.querySelector<HTMLButtonElement>('button[aria-label="Close template library"]')!.disabled).toBe(true);

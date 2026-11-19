@@ -12,10 +12,11 @@ vi.mock('./tracking', () => ({ trackMotion: vi.fn() }));
 const id = '11111111-1111-1111-1111-111111111111';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(() => vi.unstubAllGlobals());
-it.each([false, true])('prepares only existing projects while browsing, and creates only the selected template (existing=%s)', async existing => {
+it.each([false, true])('prepares only existing projects and copies template instructions without creating a project (existing=%s)', async existing => {
   history.replaceState(null, '', '/?templates=1&embed=1');
   vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} });
   const assign = vi.spyOn(location, 'assign').mockImplementation(() => {});
+  const clipboard = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
   const artifact = { id, kind: 'motion-project', projectId: id, title: 'Existing project' };
   const catalog = { activeId: existing ? id : 'project', projects: existing ? [{ id, title: 'Existing project' }] : [], sessions: existing ? [{ id, artifacts: [artifact] }] : [] };
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => Response.json(
@@ -39,15 +40,16 @@ it.each([false, true])('prepares only existing projects while browsing, and crea
     await act(async () => container.querySelector<HTMLButtonElement>('[data-template-id="product-promo"] button')!.click());
     expect(posts()).toHaveLength(0);
     const open = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Open and edit'))!;
-    await act(async () => open.click());
-    expect(posts().map(([url]) => url.split('?')[0])).toEqual(['/design-api/sessions', `/design-api/sessions/${id}/artifacts`]);
-    expect(JSON.parse(String(posts()[0][1]!.body)).templateId).toBe('product-promo');
+    expect(open).toBeUndefined();
+    const recreate = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Recreate template')!;
+    await act(async () => recreate.click());
+    expect(clipboard).toHaveBeenCalledWith(expect.stringContaining('Product Promo (product-promo)'));
+    expect(posts()).toHaveLength(0);
     expect(assign).not.toHaveBeenCalled();
-    expect(location.search).toContain(`project=${id}`);
-    expect(location.search).not.toContain('templates=1');
-    expect(container.querySelector('dialog[aria-label="Template library"]')).toBeNull();
+    expect(location.search).toContain('templates=1');
+    expect(container.querySelector('dialog[aria-label="Template preview"]')).not.toBeNull();
   } finally {
-    act(() => root.unmount()); container.remove(); assign.mockRestore(); history.replaceState(null, '', '/');
+    act(() => root.unmount()); container.remove(); assign.mockRestore(); clipboard.mockRestore(); history.replaceState(null, '', '/');
   }
 });
 it('resolves a bookmark without switching another page globally', async () => {

@@ -22,7 +22,6 @@
 .library .iconButton { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 var(--motion-control); width: var(--motion-control); height: var(--motion-control); padding: 0; border-radius: 50%; }
 .iconButton:hover:not(:disabled) { background: var(--color-template-hover); }
 .toolbar { composes: om-gallery-toolbar from global; }
-.categories { composes: om-gallery-categories from global; }
 .controls { composes: om-gallery-controls from global; }
 .library .dropdownButton { display: inline-flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 8px 12px; border: 1px solid var(--library-line); border-radius: 8px; background: var(--library-bg); font-size: 13px; white-space: nowrap; }
 .dropdownButton > svg { flex: none; }

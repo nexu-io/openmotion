@@ -182,7 +182,7 @@ it('tries the bundled brand logo after a published logo fails, then falls back t
   expect(label.querySelector('img')).toBeNull();
   expect(label.textContent).toBe('NNotion');
 });
-it('copies the shared brief, retains guides and gates editable-project opening', async () => {
+it('copies the shared brief and retains guides without directly opening editable projects', async () => {
   const onOpen = await mount('zh-CN');
   await act(async () => button('预览模板 First', host.querySelector('main')!).click());
   expect(host.querySelector('iframe[title=动效说明]')).toBeNull();
@@ -192,8 +192,8 @@ it('copies the shared brief, retains guides and gates editable-project opening',
   expect(host.querySelector('dialog[aria-label=复刻模板]')).toBeNull();
   expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('已复制，发给 Agent 即可。');
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith('使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。\n指定模板：First（one）\n创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。\n我的要求：\n');
-  await act(async () => button('打开并编辑').click());
-  expect(onOpen).toHaveBeenCalledWith('one');
+  expect(button('打开并编辑')).toBeUndefined();
+  expect(onOpen).not.toHaveBeenCalled();
   await act(async () => button('预览模板 Second', host.querySelector('main')!).click());
   expect(button('打开并编辑')).toBeUndefined();
 });
@@ -456,10 +456,10 @@ it('keeps discovery available while project status prevents editable opening', a
   const onOpen = vi.fn(), onClose = vi.fn();
   await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} openingDisabled error="" onClose={onClose} onOpen={onOpen} /></I18nProvider>));
   await act(async () => preview('First'));
-  expect(button('Open and edit').disabled).toBe(true);
+  expect(button('Open and edit')).toBeUndefined();
   expect(button('Recreate template').disabled).toBe(false);
   expect(document.querySelector('[data-feedback-layer]')?.textContent ?? '').not.toContain('Preparing editable project');
-  await act(async () => button('Open and edit').click());
+  await act(async () => button('Recreate template').click());
   expect(onOpen).not.toHaveBeenCalled();
   await act(async () => button('Close template preview').click());
   await act(async () => button('Close template library').click());
@@ -637,8 +637,7 @@ it('joins repeated recreate and submit attempts to their own copy results', asyn
   expect(intents.map(item => item.copy_attempt_id)).toEqual(results.map(item => item.copy_attempt_id));
   expect(new Set(results.map(item => item.copy_attempt_id)).size).toBe(2);
   expect(results.map(item => item.copy_status)).toEqual(['clipboard_written', 'manual_fallback_shown']);
-  await act(async () => button('Open and edit').click());
-  expect(events('ui_click', { template_action: 'open_edit' })[0]).not.toHaveProperty('copy_attempt_id');
+  expect(events('ui_click', { template_action: 'open_edit' })).toHaveLength(0);
 });
 
 it('observes a positive instruction threshold so zero-area edge contact can progress to visible text', async () => {

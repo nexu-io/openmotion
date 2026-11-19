@@ -168,7 +168,7 @@ rounded category shape and semantic selected state. Search, categories, dropdown
 and icon actions share the 32px control height, with 6px control corners, 16px
 icons and 8px gaps. The library owns responsive geometry: a 320px desktop search,
 a reserved GitHub badge width, equal industry/sort widths and a full-width search
-row on narrow screens. Long dropdown labels truncate without moving the chevron.
+row on narrow screens. Long dropdown labels truncate without moving the chevron. The template toolbar keeps its category strip and right-side controls on one line at every width. Categories use native horizontal scrolling for trackpads and touch, with fades only at clipped edges. Directional arrows appear on hover or keyboard focus and stop at the available bounds; reduced motion disables animated scrolling. Narrow layouts constrain the industry and sort labels while keeping every right-side control available.
 
 The shared `Skeleton` primitive uses `skeleton-base` and `skeleton-highlight` tokens in both themes, with reduced-motion support. Catalog placeholders reserve the final card geometry; lazy poster placeholders stay static to avoid animating offscreen cards. Detail preview buffering and retry states stay inside the media frame. Discovery filter menus are non-modal, keep checkbox selection open, and expose removable condition chips. Search uses a single outer focus treatment; detail action rows and guide summaries share inset padding and rounded hover surfaces. Recreate and submit uses the bundled Remix git-branch icon.
 
