@@ -161,7 +161,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.om-model-row').length === 3);
   assert.equal(await page.$eval('[aria-label="Studio fixture API key"]', node => node.value), '');
   assert(await page.$eval('.om-model-row', node => node.textContent.includes('Default')));
-  await settings('Account'); await clickText('.om-account-summary button', 'Sign in with OpenDesign');
+  await settings('Account'); await clickText('.om-plan-guide button', 'Sign in with OpenDesign');
   await page.waitForSelector('.om-account-code'); assert.equal(await page.$eval('.om-account-code', n => n.textContent), 'TEST-123');
   await shot('account-authorization-light');
   await writeFile(path.join(gateway.account.home, 'authorize'), 'yes');
@@ -198,7 +198,7 @@ try {
   await page.waitForSelector('.om-settings-dialog', { hidden: true });
   await settings('Account'); await shot('account-connected-dark');
   await clickText('.om-account-summary button', 'Sign out');
-  await page.waitForFunction(() => document.querySelector('.om-account-summary')?.textContent.includes('Sign in to OpenDesign'));
+  await page.waitForFunction(() => document.querySelector('.om-plan-guide h2')?.textContent === 'Sign in to start multimodal generation');
   assert.equal((await gateway.account.summary()).state, 'signed-out');
   await settings('About OpenMotion'); await shot('about-dark');
   await page.setViewport({ width: 390, height: 844 });
