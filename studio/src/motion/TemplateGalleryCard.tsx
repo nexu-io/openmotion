@@ -108,7 +108,7 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
         {resourceKind === 'brand-kit' && <span>{t('Brand Kit')}</span>}
         {resourceKind === 'template' && <span data-editable={isEditableTemplate(template) ? true : undefined}>{t(isEditableTemplate(template) ? 'Ready to edit' : 'Reference creation')}</span>}
         <span className="om-gallery-card-meta">
-          {resourceKind === 'template' && <span>{templateRatio(template)}</span>}
+          {resourceKind === 'template' && (template.width || template.ratio) && <span>{templateRatio(template)}</span>}
           {template.duration != null && <span>{t('{value}s', { value: Number(template.duration.toFixed(1)) })}</span>}
         </span>
       </span>
