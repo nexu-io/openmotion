@@ -31,7 +31,7 @@ export interface ModelHub {
 
 export const modelHubs: ModelHub[] = [{
   id: 'gemini-4', title: 'Gemini 4', modelName: 'Gemini 4 Argon', latestModel: 'Gemini 4 Neon', vendor: 'Google DeepMind', eyebrow: 'New model',
-  summary: 'Writes animation, 3D and data visuals directly in code.',
+  summary: 'Google’s newest frontier model writes whole animations in code. The hottest Gemini 4 videos on X are all here.',
   poster: geminiPoster, provider: 'gemini',
   modelPattern: /gemini-4/i, companionPattern: /google\/|nano-banana|veo|imagen/i,
   facts: [

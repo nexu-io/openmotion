@@ -566,15 +566,14 @@ it('rotates the visible Explore spotlight and plays visible Skill previews witho
     act(() => { vi.advanceTimersByTime(3500); });
     expect(hero.dataset.scene).toBe('hub-gemini-4');
     await act(async () => { vi.advanceTimersByTime(6000); });
-    expect(hero.dataset.scene).toBe('text-to-video');
-    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/^blob:/);
+    expect(hero.dataset.scene).toBe('text-to-image');
     act(() => { observed.get(hero)!(false); cards.forEach(card => observed.get(card)!(false)); });
     expect(hero.querySelector('video[src]')).toBeNull();
     for (const card of cards) expect(card.querySelector('video[src]')).toBeNull();
     act(() => { vi.advanceTimersByTime(6000); });
-    expect(hero.dataset.scene).toBe('text-to-video');
-    await act(async () => hero.querySelector<HTMLButtonElement>('.om-media-segments [aria-label="Featured · Product portrait"]')!.click());
     expect(hero.dataset.scene).toBe('text-to-image');
+    await act(async () => hero.querySelector<HTMLButtonElement>('.om-media-segments [aria-label="Featured · Motion Studio"]')!.click());
+    expect(hero.dataset.scene).toBe('motion');
   } finally { vi.useRealTimers(); }
 });
 

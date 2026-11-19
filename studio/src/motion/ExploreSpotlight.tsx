@@ -7,7 +7,10 @@ import { findModelHub } from './modelHubs';
 import { motionSkills } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
 
-export const featuredSceneIds: readonly StudioScene['id'][] = ['text-to-video', 'text-to-image'];
+/** Scenes the Explore feed leaves out because they are featured here; unchanged from main so the feed stays as it was. */
+export const featuredSceneIds: readonly StudioScene['id'][] = ['shot-image', 'text-to-video', 'text-to-image'];
+/** Scenes that currently have a spotlight slide. */
+const spotlightSceneIds: readonly StudioScene['id'][] = ['text-to-image'];
 const slideDuration = 6000;
 const motionCover = motionSkills.find(skill => skill.id === 'openmotion-bubble-field')?.cover;
 const motionPoster = motionCover?.poster ?? '';
@@ -28,8 +31,8 @@ const slides: FeaturedSlide[] = [{
   hint: 'Browse Black Friday video references and Skills for your sale.', poster: blackFridayPoster,
 }, {
   id: 'hub-' + geminiHub.id, title: geminiHub.latestModel, subtitle: geminiHub.eyebrow, icon: 'sparkling-line', poster: geminiHub.poster, hub: geminiHub.id,
-  hint: 'Google’s newest frontier model writes whole animations in code. The hottest Gemini 4 videos on X are all here.',
-}, ...featuredSceneIds.map(id => {
+  hint: geminiHub.summary,
+}, ...spotlightSceneIds.map(id => {
   const scene = studioScenes.find(entry => entry.id === id)!;
   const example = sceneExamples[id][0], target = sceneDestination(scene);
   return { ...example, id, icon: scene.icon, subtitle: target.studio.title, hint: scene.hint, scene: { target, prompt: example.prompt } };
