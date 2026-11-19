@@ -81,7 +81,7 @@ it('explains that account models still work when the plan and balance cannot be 
 });
 
 it('passes a fresh subscription entry on ordinary and middle clicks without account credentials', async () => {
-  const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'free', balance: '0.00' });
+  const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' });
   const link = page.querySelector<HTMLAnchorElement>('.om-settings-section a')!;
   link.addEventListener('click', event => event.preventDefault());
   link.addEventListener('auxclick', event => event.preventDefault());
@@ -127,17 +127,22 @@ it('replaces missing billing metrics with a dashboard link on 403 and restores t
 
 it('shows what signing in unlocks to signed-out people', async () => {
   const page = await open({ state: 'signed-out' }, 'zh-CN');
-  expect(page.querySelector('.om-account-summary h2')?.textContent).toBe('登录，解锁多模态生成');
+  expect(page.querySelector('.om-plan-guide h2')?.textContent).toBe('登录 OpenDesign，开始多模态生成');
+  expect(page.querySelector('.om-plan-guide .om-badge')?.textContent).toBe('Plus 及以上');
+  expect(page.querySelector('.om-plan-guide .om-button')?.textContent).toBe('使用 OpenDesign 登录');
   expect([...page.querySelectorAll('.om-account-capabilities li')].map(item => item.textContent)).toEqual(['图片', '视频', '配音', '音乐']);
-  expect(page.querySelector('.om-account-summary p')?.textContent).toBe('在 OpenMotion 里直接生成图片、视频、配音和音乐，不用自己配置 API 密钥，Plus、Pro、Max 套餐均包含。');
+  expect(page.querySelector('.om-plan-guide p')?.textContent).toBe('登录后升级到 Plus，即可在 OpenMotion 里直接生成图片、视频、配音和音乐，不用配置 API 密钥。');
   expect(page.querySelector('.om-account-upgrade')).toBeNull();
 });
 
 it('offers Free and Go accounts an upgrade with its own entry source, and nothing to paid plans', async () => {
   for (const plan of ['free', 'go']) {
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' });
-    const link = page.querySelector<HTMLAnchorElement>('.om-account-upgrade a')!;
-    expect(new URL(link.href).searchParams.get('od_entry_source')).toBe('openmotion_account_upgrade');
+    const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('.om-account-upgrade a');
+    expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
+    expect(new URL(upgrade.href).searchParams.get('od_entry_source')).toBe('openmotion_account_upgrade');
+    expect(new URL(manage.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+    expect(page.querySelector('.om-settings-section a')).toBeNull();
     expect(page.querySelector('.om-account-summary:not(.om-account-upgrade) h2')?.textContent).toBe('Connected to OpenDesign');
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' });
