@@ -1,3 +1,4 @@
+import { SearchField } from '../components/ui/SearchField';
 import { Menu, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
 import { IconButton } from '../components/ui/IconButton';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -29,7 +30,7 @@ export function AssetGalleryToolbar({ browser, onKindChange }: {
       </div>
     </div>
     <div className="om-asset-gallery-tools">
-      <label className="om-field om-asset-search"><RemixIcon name="search-line" size={16} /><input type="search" aria-label={t('Search library assets')} placeholder={t('Search library assets')} value={query} onChange={event => setQuery(event.target.value)} maxLength={200} /></label>
+      <SearchField className="om-asset-search" aria-label={t('Search library assets')} placeholder={t('Search library assets')} value={query} onChange={setQuery} />
       <Tooltip label={t('Trash')}><IconButton size="lg" variant={kind === 'trash' ? 'secondary' : 'ghost'} aria-label={t('Trash')} aria-pressed={kind === 'trash'} icon={<RemixIcon name="delete-bin-line" size={16} />} onClick={() => onKindChange('trash')} /></Tooltip>
     </div>
     {(query || source !== 'all') && <div className="om-asset-gallery-clear"><button className="om-nav-item" onClick={() => { setQuery(''); setSource('all'); }}>{t('Clear filters')}</button></div>}

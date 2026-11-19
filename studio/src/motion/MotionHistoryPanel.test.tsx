@@ -47,7 +47,8 @@ it('keeps the current version only after native saves and a checkpoint finish', 
   expect(calls.filter(call => call.body)).toEqual([
     { path: '/checkpoint', body: {} }, { path: '/pin', body: { entryId: 'second', pinned: true } },
   ]);
-  expect(container.textContent).toContain('已保留当前版本');
+  expect(shell.showToast).toHaveBeenCalledWith('已保留当前版本', 'info');
+  expect(container.textContent).not.toContain('已保留当前版本');
 });
 
 it('restores the selected version with the native API and reloads only after success', async () => {

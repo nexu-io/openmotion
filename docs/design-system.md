@@ -174,6 +174,10 @@ row on narrow screens. Long dropdown labels truncate without moving the chevron.
 The shared `Skeleton` primitive uses `skeleton-base` and `skeleton-highlight` tokens in both themes, with reduced-motion support. Catalog placeholders reserve the final card geometry; lazy poster placeholders stay static to avoid animating offscreen cards. Detail preview buffering and retry states stay inside the media frame. Discovery filter menus are non-modal, keep checkbox selection open, and expose removable condition chips. Search uses a single outer focus treatment; detail action rows and guide summaries share inset padding and rounded hover surfaces. Recreate and submit uses the bundled Remix git-branch icon.
 
 
+## Studio component library
+
+Start with the [Studio component library](ui-components.md) to preview controls and find their production implementations. The library uses these same design tokens, CSS and Studio controls.
+
 ## Interaction and feedback contract
 
 This contract applies to new and changed product UI, including the editor, template discovery and native dialogs. The repository-wide entry is [AGENTS.md](../AGENTS.md#ui-design-system-and-interaction-feedback).

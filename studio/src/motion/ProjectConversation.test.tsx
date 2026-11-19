@@ -40,6 +40,15 @@ it('keeps per-session drafts and messages isolated, with an session-scoped Agent
   type('Second draft'); await mount();
   expect(container.querySelector<HTMLTextAreaElement>('.motion-composer textarea')!.value).toBe('Unsent first draft');
 });
+it('shows copy success in the shared toast layer without moving the conversation', async () => {
+  vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined);
+  await mount();
+  const copy = container.querySelector<HTMLButtonElement>('.motion-conversation-message button')!;
+  await act(async () => copy.click());
+  expect(document.querySelector('.motion-feedback-layer')?.textContent).toContain('Copied for Agent');
+  expect(container.querySelector('.motion-conversation-scroll')?.textContent).not.toContain('Copied for Agent');
+});
+
 it('preserves failed requests and retries with the same message identity before clearing the draft', async () => {
   await mount(); type('Make it shorter');
   const success = fetcher.getMockImplementation()!;

@@ -59,7 +59,7 @@ export async function checkDesign() {
       ['text', 'shell'], ['text', 'workspace'], ['text', 'panel'], ['text', 'inset'],
       ['muted', 'panel'], ['muted', 'workspace'], ['dim', 'panel'], ['dim', 'bg'], ['dim', 'raised'],
       ['accent', 'accent-soft'], ['on-action', 'action'], ['on-action', 'action-hover'], ['text', 'accent-soft'],
-      ['danger', 'danger-soft'], ['warning', 'warning-soft'], ['strong', 'highlight'],
+      ['danger', 'danger-soft'], ['on-danger', 'danger'], ['warning', 'warning-soft'], ['strong', 'highlight'],
       ['creative-image', 'raised'], ['creative-video', 'raised'], ['creative-audio', 'raised'], ['creative-agent', 'raised'],
     ];
     if (theme === 'dark') textPairs.push(['accent', 'chrome-active'], ['video-ink', 'accent'], ['placeholder', 'panel']);

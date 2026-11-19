@@ -1,3 +1,4 @@
+import { SearchField } from '../components/ui/SearchField';
 import { CreationEmblem, creationKinds } from './AssetCreationVisuals';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { assetMediaUrl, assetVersion, type AssetReference, type LibraryAsset, type AssetVersion } from '../../../shared/asset-library';
@@ -104,7 +105,7 @@ export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false
   };
   return <section data-compact={compact} aria-label={t('Asset library')}>
     {toolbar ?? <div className="om-asset-filters om-control-row">
-      <label className="om-field om-asset-search"><RemixIcon name="search-line" size={16} /><input type="search" aria-label={t('Search assets')} placeholder={t('Search assets...')} value={query} onChange={e => setQuery(e.target.value)} maxLength={200} /></label>
+      <SearchField className="om-asset-search" aria-label={t('Search assets')} placeholder={t('Search assets...')} value={query} onChange={setQuery} />
       {!compact && <><Select label={t('Source')} value={source} onCommit={setSource} options={[{ value: 'all', label: t('All sources') }, { value: 'generated', label: t('AI generated') }, { value: 'upload', label: t('Local upload') }]} />
       <Select label={t('Sort')} value={sort} onCommit={setSort} options={[{ value: 'newest', label: t('Newest first') }, { value: 'oldest', label: t('Oldest first') }, { value: 'name', label: t('Name') }]} /></>}
       {(query || source !== 'all') && <button className="om-nav-item" onClick={() => { setQuery(''); setSource('all'); }}>{t('Clear filters')}</button>}

@@ -71,6 +71,8 @@ Keep technical identifiers needed for setup, supported agent/model names and exp
 
 ## UI design system and interaction feedback
 
+Start with the [Studio component library](docs/ui-components.md) when choosing a shared UI control. Keep its relevant example aligned when changing a shared control’s usage or behavior.
+
 Follow [the shared design system](docs/design-system.md#interaction-and-feedback-contract) for all new or changed product UI. Reuse its components and semantic tokens in both light and dark themes; do not introduce page-specific palettes or native-looking replacement controls.
 
 - Transient action feedback, including copy, download, save and failure notices, must use floating Toasts through the shared feedback layer. Never insert these messages below buttons or into normal document flow: showing or dismissing feedback must not move content or consume layout space.

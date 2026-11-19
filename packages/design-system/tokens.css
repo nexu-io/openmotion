@@ -140,6 +140,7 @@
   --motion-success: #007a3d;
   --motion-status-on: #008a45;
   --motion-danger: #c52b32;
+  --motion-on-danger: #fafafa;
   --motion-danger-soft: #fff1f1;
   --motion-warning: #925500;
   --motion-warning-soft: #fff4df;
@@ -220,6 +221,7 @@
   --motion-success: #69d99b;
   --motion-status-on: #3bbf7d;
   --motion-danger: #ff9898;
+  --motion-on-danger: #202020;
   --motion-danger-soft: #472929;
   --motion-warning: #ffc740;
   --motion-warning-soft: #403521;
@@ -301,6 +303,7 @@
     --motion-success: #69d99b;
     --motion-status-on: #3bbf7d;
     --motion-danger: #ff9898;
+    --motion-on-danger: #202020;
     --motion-danger-soft: #472929;
     --motion-warning: #ffc740;
     --motion-warning-soft: #403521;

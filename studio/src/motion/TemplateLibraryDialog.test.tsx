@@ -65,6 +65,17 @@ async function search(value: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+it('clears the template query and returns focus to its input', async () => {
+  await mount();
+  await search('Ada');
+  const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+  const clear = host.querySelector<HTMLButtonElement>('button[aria-label="Clear search"]')!;
+  await act(async () => clear.click());
+  expect(input.value).toBe('');
+  expect(document.activeElement).toBe(input);
+  expect(host.querySelector('button[aria-label="Clear search"]')).toBeNull();
+});
+
 const recovery = () => host.querySelector<HTMLElement>('section[aria-label="Find another starting point"]')!;
 async function fill(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
   await act(async () => {

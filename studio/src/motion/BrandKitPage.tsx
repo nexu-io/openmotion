@@ -1,3 +1,4 @@
+import { SearchField } from '../components/ui/SearchField';
 import { brandCard } from "./brandKitClient";
 import { Dialog } from "@base-ui/react/dialog";
 import { BrandLogo } from "../../../packages/design-system/react/BrandLogo";
@@ -17,7 +18,7 @@ import { brandCoverRevision } from "../../../shared/brand-catalog";
 import { BrandCatalogGallery } from "./BrandCatalogGallery";
 import { SettingsDialog } from "./settingsPrimitives";
 import { BrandKitDetail } from "./BrandKitDetail";
-import { GallerySearchField, GallerySortMenu } from "./GalleryFilters";
+import { GallerySortMenu } from "./GalleryFilters";
 import {
   brandFile,
   brandKitInstruction,
@@ -307,7 +308,7 @@ export function BrandKitPage({
               </nav>
               <div className="om-control-row om-gallery-header-actions">
                 <button type="button" className="om-button" data-primary onClick={openCreate}><RemixIcon name="add-line" size={16} />{t('New Brand Kit')}</button>
-                <GallerySearchField label={t('Search brand kits')} value={query} onChange={setQuery} />
+                <SearchField aria-label={t('Search brand kits')} placeholder={t('Search brand kits')} value={query} onChange={setQuery} />
                 <button type="button" className="om-gallery-round-button" aria-label={t('Close Brand Kit')} onClick={onClose}><RemixIcon name="close-line" size={20} /></button>
               </div>
             </div>

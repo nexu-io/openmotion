@@ -1,3 +1,4 @@
+import { SearchField } from '../components/ui/SearchField';
 import { TemplateCreators } from './TemplateCreators';
 import { templateCredit } from './templateCredits';
 import { GalleryIntro } from './GalleryIntro';
@@ -593,11 +594,13 @@ export function TemplateLibraryDialog(props: Props) {
         <div className="om-gallery-wordmark"><BrandLogo compact /><span className="om-gallery-page-label">{t(props.creators ? 'Creators' : 'Template library')}</span></div>
         {props.navigation && <fieldset className="contents" disabled={props.busy}>{props.navigation}</fieldset>}
         <div className="om-control-row om-gallery-header-actions">
-          <label className="om-field om-search-field"><MotionIcon name="search" size={16} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
+          <SearchField inputRef={search} value={query} onChange={setQuery}
             onFocus={() => { currentSearchContext.current.activity(); tracking.reportRecoveryAction('search_focus', listContext()); }}
             onCompositionStart={() => { composing.current = true; setSearchComposing(true); }}
             onCompositionEnd={() => { composing.current = false; setSearchComposing(false); setSettle(value => value + 1); }}
-            onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) confirmSearch(); }} placeholder={t(props.creators && !props.creator ? 'Search creators' : 'Search templates, creators, styles…')} aria-label={t(props.creators && !props.creator ? 'Search creators' : 'Search templates')} /><kbd>{searchShortcut}</kbd></label>
+            onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) confirmSearch(); }}
+            placeholder={t(props.creators && !props.creator ? 'Search creators' : 'Search templates, creators, styles…')}
+            aria-label={t(props.creators && !props.creator ? 'Search creators' : 'Search templates')} shortcut={searchShortcut} />
           <GitHubLink className="om-button" />
           <Tooltip label={t('Close template library')}><button ref={libraryClose} className="om-button om-icon-button" disabled={props.busy} onClick={props.onClose} aria-label={t('Close template library')}><MotionIcon name="close" size={16} /></button></Tooltip>
         </div>

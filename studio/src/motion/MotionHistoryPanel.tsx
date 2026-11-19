@@ -36,7 +36,6 @@ export function MotionHistoryPanel({ onRestored = reloadProject, compact = false
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
   const running = useRef(false);
   const activeRead = useRef<AbortController | null>(null);
   const mounted = useRef(false);
@@ -76,7 +75,7 @@ export function MotionHistoryPanel({ onRestored = reloadProject, compact = false
     running.current = true;
     historyOperation.setBusy(true);
     activeRead.current?.abort();
-    setBusy(true); setError(''); setNotice('');
+    setBusy(true); setError('');
     try { if (await operation() !== false && action) trackVersionHistoryResult(action, 'success', projectId); }
     catch (cause) { if (action) trackVersionHistoryResult(action, 'failure', projectId); if (mounted.current) showToast(cause instanceof Error ? cause.message : 'Version operation failed', 'error'); }
     finally { running.current = false; historyOperation.setBusy(false); if (mounted.current) setBusy(false); }
@@ -85,9 +84,13 @@ export function MotionHistoryPanel({ onRestored = reloadProject, compact = false
     await waitForPendingDomEditSaves();
     await historyRequest(projectId, '/checkpoint', {});
     const current = (await refresh()).at(-1);
-    if (!current) { setNotice('You can pin a version after your first saved edit.'); return false; }
+    if (!current) {
+      if (mounted.current) showToast(t('You can pin a version after your first saved edit.'), 'info');
+      return false;
+    }
     await historyRequest(projectId, '/pin', { entryId: current.id, pinned: true });
-    await refresh(); setSelectedId(current.id); setOnlyPinned(false); setNotice('Current version pinned');
+    await refresh(); setSelectedId(current.id); setOnlyPinned(false);
+    if (mounted.current) showToast(t('Current version pinned'), 'info');
   }, 'keep_current');
   const pin = (entry: HistoryListItem) => run(async () => {
     await historyRequest(projectId, '/pin', { entryId: entry.id, pinned: !entry.pinned });
@@ -118,7 +121,6 @@ export function MotionHistoryPanel({ onRestored = reloadProject, compact = false
       {error && <button type="button" className="motion-button motion-button-quiet" disabled={busy}
         onClick={() => void run(async () => { await refresh(); })}>{t("Try again")}</button>}
     </div>}
-    {notice && <div className="motion-history-message" role="status">{t(notice)}</div>}
     <div className="motion-history-list" aria-label={t("History entries")}>
       {loading ? <p className="motion-history-empty">{t("Reading versions…")}</p> : !shown.length ? <p className="motion-history-empty">
         {allowPinning && onlyPinned ? t("No pinned versions yet. Select an entry to pin it.") : t("No edits yet")}

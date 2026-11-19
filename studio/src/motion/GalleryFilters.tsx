@@ -1,4 +1,5 @@
-import { useRef, type ReactNode } from 'react';
+import { SearchField } from '../components/ui/SearchField';
+import type { ReactNode } from 'react';
 import { Popover } from '../components/ui/Popover';
 import { Tabs, TabsList, Tab, TabPanel } from '../components/ui/Tabs';
 import { Menu, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
@@ -11,16 +12,6 @@ export type GalleryFacet = { key: string; label: string; values: string[] };
 export const toggleGalleryFilter = (filters: GalleryFilters, key: string, value: string) => ({ ...filters, [key]: filters[key]?.includes(value) ? filters[key]!.filter(item => item !== value) : [...(filters[key] || []), value] });
 export const matchesGalleryFilters = (filters: GalleryFilters, values: (key: string) => string[]) => Object.entries(filters).every(([key, selected]) => !selected?.length || selected.some(value => values(key).includes(value)));
 export const matchesGallerySearch = (query: string, text: string) => query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean).every(term => text.toLocaleLowerCase().includes(term));
-
-export function GallerySearchField({ label, value, onChange, className = '' }: { label: string; value: string; onChange: (value: string) => void; className?: string }) {
-  const { t } = useI18n();
-  const input = useRef<HTMLInputElement>(null);
-  return <div className={`om-field om-search-field ${className}`}>
-    <MotionIcon name="search" size={16} />
-    <input ref={input} type="search" aria-label={label} placeholder={label} value={value} maxLength={200} onChange={event => onChange(event.target.value)} />
-    {value && <button type="button" className="om-nav-item om-search-clear" aria-label={t('Clear search')} title={t('Clear search')} onClick={() => { onChange(''); input.current?.focus(); }}><MotionIcon name="close" size={14} /></button>}
-  </div>;
-}
 
 /** Shared template/Brand Kit draft filters. Dismissal never applies unfinished choices. */
 export function GalleryFilterPopover({ groups, open, onOpenChange, draft, onChange, tab, onTabChange, query, onQueryChange, active, countLabel, onApply, onClear, hasDraft, extra, renderValue }: {
@@ -41,7 +32,7 @@ export function GalleryFilterPopover({ groups, open, onOpenChange, draft, onChan
       </TabsList>
       {groups.map(group => <TabPanel key={group.key} value={group.key} className="om-gallery-filter-panel">
         <div className="om-gallery-facet-header"><strong>{t(group.label)}</strong><button className="om-nav-item" disabled={!draft[group.key]?.length} onClick={() => onChange({ ...draft, [group.key]: [] })}>{t('Clear selection')}</button></div>
-        {group.values.length > 12 && <GallerySearchField label={t('Search options…')} value={query} onChange={onQueryChange} className="om-gallery-facet-search" />}
+        {group.values.length > 12 && <SearchField aria-label={t('Search options…')} placeholder={t('Search options…')} value={query} onChange={onQueryChange} className="om-gallery-facet-search" />}
         <div className="om-gallery-facet-grid">{group.values.filter(value => t(value).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map(value => {
           const checked = draft[group.key]?.includes(value) ?? false;
           return <button key={value} role="checkbox" aria-checked={checked} aria-label={t(value)} className="om-gallery-facet-choice" onClick={() => onChange(toggleGalleryFilter(draft, group.key, value))}><span className="om-gallery-facet-option">{renderValue?.(group.key, value)}<span>{t(value)}</span></span><span className="om-gallery-choice-check" aria-hidden="true">{checked && <MotionIcon name="check" size={12} />}</span></button>;

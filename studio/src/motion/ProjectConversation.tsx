@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { sessionInstruction } from '../../../shared/conversation';
 import type { SessionDetail, SessionArtifact } from '../../../shared/session';
 import type { GalleryTemplate } from '../../../shared/catalog';
+import { StudioToastViewport } from '../components/StudioToastViewport';
+import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
@@ -37,7 +39,7 @@ export function ProjectConversation({ sessionId, onOpenArtifact }: { sessionId: 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [attempt, retry] = useState(0);
-  const [feedback, setFeedback] = useState('');
+  const toast = useToast();
   const [manualCopy, setManualCopy] = useState('');
   const sending = useRef(false);
   const pending = useRef<{ id: string; content: string } | null>(null);
@@ -61,7 +63,7 @@ export function ProjectConversation({ sessionId, onOpenArtifact }: { sessionId: 
   async function save(event: FormEvent) {
     event.preventDefault();
     if (sending.current || switchingDisabled || !conversation || !draft.trim()) return;
-    sending.current = true; setBusy(true); setError(''); setFeedback('');
+    sending.current = true; setBusy(true); setError('');
     const content = draft.trim();
     if (pending.current?.content !== content) pending.current = { id: crypto.randomUUID(), content };
     try {
@@ -73,8 +75,8 @@ export function ProjectConversation({ sessionId, onOpenArtifact }: { sessionId: 
   async function copy(content: string) {
     const projectId = artifacts.find(item => item.projectId === workspace.status?.projectId)?.projectId ?? artifacts[0]?.projectId;
     const instruction = sessionInstruction(new URL(sessionHref(sessionId, projectId), location.origin).href, sessionId, content);
-    setManualCopy(''); setFeedback('');
-    try { await navigator.clipboard.writeText(instruction); setFeedback(t('Copied for Agent')); }
+    setManualCopy('');
+    try { await navigator.clipboard.writeText(instruction); toast.showToast(t('Copied for Agent'), 'info', 'feedback'); }
     catch { setManualCopy(instruction); }
   }
   return <>
@@ -87,9 +89,9 @@ export function ProjectConversation({ sessionId, onOpenArtifact }: { sessionId: 
       {conversation && !artifacts.length && <button className="motion-button" disabled={switchingDisabled} onClick={() => void workspace.createArtifact(sessionId)}><MotionIcon name="plus" />{t('Create artifact')}</button>}
       {!conversation && !error && <p className="motion-conversation-status" role="status">{t('Loading conversation…')}</p>}
       {error && <div className="motion-conversation-status" role="alert">{t(error)}{!conversation && <button className="motion-button" onClick={() => retry(value => value + 1)}>{t('Retry')}</button>}</div>}
-      {feedback && <p className="motion-conversation-status" role="status">{feedback}</p>}
       {manualCopy && <textarea className="motion-manual-copy" aria-label={t('Agent instruction')} readOnly value={manualCopy} onFocus={event => event.target.select()} />}
     </div>
+    <StudioToastViewport {...toast} />
     <form className="motion-composer motion-conversation-composer" onSubmit={event => void save(event)}>
       <textarea maxLength={8000} aria-label={t('Creative request')} placeholder={t('Describe a change…')} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={submitShortcut} disabled={busy} />
       <div className="motion-composer-tools"><ModePicker /><button type="button" className="motion-button motion-button-quiet" onClick={() => openConnections('project_composer')}><MotionIcon name="plug" />Agent</button><button className="motion-icon-button motion-composer-submit" aria-label={t('Save request')} title={t('Save request')} disabled={busy || switchingDisabled || !conversation || !draft.trim()}><MotionIcon name="arrow-up" /></button></div>

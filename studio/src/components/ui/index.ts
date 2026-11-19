@@ -31,3 +31,4 @@ export { Slider } from "./Slider";
 export type { SliderProps } from "./Slider";
 export { Toggle } from "./Toggle";
 export type { ToggleProps } from "./Toggle";
+export { SearchField } from "./SearchField";

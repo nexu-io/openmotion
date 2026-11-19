@@ -19,6 +19,10 @@ Use the [entry checklist](library/ENTRY_TEMPLATE.md), link the new entry from it
 
 For published motion guidance source and locale metadata, use the [catalog contribution loop](https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog#change-a-template). Stage changes before running the storage-policy check. New media needs no CMS account; maintainers prepare final media on the original PR before Squash merge.
 
+## Studio UI
+
+Use the [Studio component library](docs/ui-components.md) to preview controls, find production examples and check how to contribute changes.
+
 ## PR workflow
 
 ### Follow through on review
