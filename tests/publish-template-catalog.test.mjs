@@ -89,7 +89,7 @@ test('template publication rejects symlinks without restricting ordinary extensi
 
 test('release publication uses its source snapshot and never changes the moving main pointer', async t => {
   const root = await fixture(t), uploads = new Map();
-  const version = '0.7.0-test.1';
+  const version = '0.7.0';
   const pointerKey = 'open-motion/templates/releases/catalog.json';
   let active = 0, maximumActive = 0;
   const result = await publishTemplateCatalog(root, { mode: 'release', version, commit,
@@ -135,14 +135,14 @@ test('successive software releases update the same catalog URL while recovery an
     },
     fetcher: async url => new Response(objects.get(new URL(url).pathname.slice(1))),
   });
-  const first = await publish('0.7.0-test.1', commit);
+  const first = await publish('0.6.9', commit);
   const nextCommit = 'b'.repeat(40);
   const second = await publish('0.7.0', nextCommit);
   assert.equal(first.pointerUrl, 'https://releases.open-design.ai/' + pointerKey);
   assert.equal(second.pointerUrl, first.pointerUrl);
   assert.equal(JSON.parse(objects.get(pointerKey)).commit, nextCommit);
   const expected = objects.get(pointerKey);
-  for (const phase of ['version-verified', 'superseded']) {
+  for (const phase of ['verified', 'version-verified', 'superseded']) {
     const result = await publish('0.7.0-test.1', commit, phase);
     assert.equal(result.promoted, false);
     assert.equal(result.pointerKey, `open-motion/templates/snapshots/${commit}/catalog.json`);
@@ -152,6 +152,28 @@ test('successive software releases update the same catalog URL while recovery an
   assert(!writes.some(key => key === 'open-motion/templates/main/catalog.json' || /\/releases\/[^/]+\//.test(key)));
   assert.throws(() => releaseCatalogPromotion('0.7.0', { version: '0.7.1', phase: 'verified' }), /match/);
   assert.throws(() => releaseCatalogPromotion('0.7.0', { version: '0.7.0', phase: 'fixed-write-attempted' }), /completed/);
+});
+
+test('test snapshots cannot promote the stable pointer even when explicitly requested', async t => {
+  const root = await fixture(t), objects = new Map(), writes = [];
+  const candidate = { version: '0.7.0-test.1', sourceCommit: commit, tgzSHA256: 'b'.repeat(64) };
+  const storage = { endpoint: 'https://abc123.r2.cloudflarestorage.com', bucket: 'open-design-releases',
+    run: async (_, args) => {
+      if (args.includes('list-objects-v2')) return '{}';
+      const key = args[args.indexOf('--key') + 1];
+      writes.push(key);
+      objects.set(key, await readFile(args[args.indexOf('--body') + 1]));
+      return '{}';
+    },
+    fetcher: async url => new Response(objects.get(new URL(url).pathname.slice(1))),
+  };
+  const staged = await publishTemplateCatalog(root, { ...storage, mode: 'release', version: candidate.version, commit, promote: true });
+  assert.equal(staged.promoted, false);
+  const receipt = { ...staged, tgzSHA256: candidate.tgzSHA256 };
+  const finalized = await finalizeTemplateSnapshot(candidate, receipt, { ...storage, promote: true });
+  assert.equal(finalized.promoted, false);
+  assert(!writes.includes('open-motion/templates/releases/catalog.json'));
+  assert(!writes.includes('open-motion/templates/main/catalog.json'));
 });
 
 test('failed snapshot uploads leave the main pointer untouched and remove staging after uploads settle', async t => {

@@ -13,6 +13,7 @@ import { packagedSkills } from '../shared/workflow.ts';
 import { mcpRegistry } from '../mcp.ts';
 import { nativeReports } from '../.github/scripts/motion-release.mjs';
 import { onboardingSourceFiles, onboardingTemplateIds } from '../shared/onboarding-templates.ts';
+import { mainHostedCatalogUrl, releaseHostedCatalogUrl } from '../shared/hosted-template-catalog.ts';
 
 const json = async (file: string) => JSON.parse(await readFile(file, 'utf8'));
 async function verifyTrackingPolicy(application: string, mode: 'test' | 'stable' | 'local') {
@@ -194,6 +195,7 @@ test('test npm artifacts contain their application, locked manifest and no bundl
     await verifyHostedTemplates(application, release.commit);
     await verifyBundledTemplates(application);
     assert.equal((await json(path.join(application, 'shared/template-config.json'))).environment, 'dev');
+    assert.equal((await json(path.join(application, 'shared/template-config.json'))).catalogUrl, mainHostedCatalogUrl);
     assert.equal((await json(path.join(application, '.codex-plugin/plugin.json'))).version, version);
     assert.equal((await json(path.join(application, '.codex-plugin/plugin.json'))).description,
       (await json('.codex-plugin/plugin.json')).description);
@@ -304,6 +306,7 @@ test('DEV npm packages carry their catalog environment without changing the chec
     const application = path.join(directory, 'app');
     await extractArchive(built.application, application);
     assert.equal((await json(path.join(application, 'shared/template-config.json'))).environment, 'dev');
+    assert.equal((await json(path.join(application, 'shared/template-config.json'))).catalogUrl, mainHostedCatalogUrl);
     assert.equal(await readFile('shared/template-config.json', 'utf8'), before);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -324,6 +327,7 @@ test('stable artifacts stage publication instead of replacing latest and retain 
     }));
     assert.equal((await nativeReports(path.dirname(built.manifest), identity, 'registryColdInstall')).length, 2);
     const application = path.join(directory, 'app'); await extractArchive(built.application, application);
+    assert.equal((await json(path.join(application, 'shared/template-config.json'))).catalogUrl, releaseHostedCatalogUrl);
     const diagnosticFile = path.join(directory, 'stable-diagnostics.zip');
     await runFile(process.execPath, [path.join(application, 'scripts/diagnostics.mjs'), '--data-dir', path.join(directory, 'missing-data'), '--output', diagnosticFile]);
     assert.match(await runFile('unzip', ['-p', diagnosticFile, 'metadata.json']), /"version": "0\.6\.4"/);

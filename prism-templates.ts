@@ -50,20 +50,22 @@ export class TemplateCatalog {
   readonly url: string;
   readonly directory: string;
   readonly source: 'repository' | 'hosted' | 'cms';
+  readonly catalogUrl: string;
   readonly repositoryRoot: string;
   private readonly request: typeof fetch;
 
-  constructor(dataDirectory: string, options: { environment?: string; resourceId?: string; locale?: string; fetch?: typeof fetch; source?: 'repository' | 'hosted' | 'cms'; repositoryRoot?: string } = {}) {
+  constructor(dataDirectory: string, options: { environment?: string; resourceId?: string; locale?: string; catalogUrl?: string; fetch?: typeof fetch; source?: 'repository' | 'hosted' | 'cms'; repositoryRoot?: string } = {}) {
     const config = templateConfig();
     this.environment = options.environment ?? config.environment;
     if (!['dev', 'prod'].includes(this.environment)) throw new Error('MOTION_TEMPLATE_ENV must be dev or prod');
     this.resourceId = options.resourceId ?? config.resourceId;
     this.locale = options.locale ?? config.locale;
     this.source = options.source ?? config.source;
+    this.catalogUrl = options.catalogUrl ?? config.catalogUrl;
     this.repositoryRoot = options.repositoryRoot ?? repositoryCatalogRoot;
     const origin = this.environment === 'dev' ? 'https://r.powerformer.net' : 'https://r.open-design.ai';
     this.url = `${origin}/resources/${encodeURIComponent(this.resourceId)}/channels/default/main.json`;
-    this.directory = path.resolve(dataDirectory, 'template-cache', hash(this.source + ':' + this.url + this.locale).slice(0, 16));
+    this.directory = path.resolve(dataDirectory, 'template-cache', hash(this.source + ':' + this.url + ':' + this.catalogUrl + ':' + this.locale).slice(0, 16));
     this.request = options.fetch ?? fetch;
   }
 
@@ -97,7 +99,7 @@ export class TemplateCatalog {
           } catch {}
         }
         try {
-          const hosted = await loadHostedCatalog(this.request);
+          const hosted = await loadHostedCatalog(this.request, this.catalogUrl);
           const snapshot = { publication: hosted.publication as Publication, etag: null, hosted };
           await atomicWrite(path.join(this.directory, 'hosted-snapshot.json'), serializeHostedCatalog(hosted));
           this.snapshot = snapshot;
@@ -239,10 +241,10 @@ export class TemplateCatalog {
     const snapshot = await this.refresh();
     const skill = (await this.skills(snapshot)).find(item => item.id === id);
     if (skill) {
-      // Hosted/npm installs have no library files; publish them as hash-verified objects like template sources.
-      const objects = skill.localSource ? undefined : skill.objects?.map(file => ({ ...file, url: `${snapshot.hosted!.objectBaseUrl}/${file.sha256}` }));
+      // Repository installs can also have missing, transferred attachments.
+      const objects = skill.objects?.map(file => ({ ...file, url: file.url ?? `${snapshot.hosted!.objectBaseUrl}/${file.sha256}` }));
       return { ...skill, ...(objects ? { objects } : {}), motionDocument: { path: skill.localSource ? path.join(skill.localSource, 'SKILL.md') : 'SKILL.md', content: skill.instructions }, source: this.source,
-        workflowGuide: { workflow: 'skill', nextStep: objects ? skillUsage + ' Supporting files are not installed locally: download the ones SKILL.md references from objects[].url into your working directory at objects[].path, and check bytes and sha256 before running scripts or reading references.' : skillUsage } };
+        workflowGuide: { workflow: 'skill', nextStep: objects?.length ? skillUsage + ' Some supporting files are remote: download only the ones SKILL.md references from objects[].url at objects[].path, under localSource when present or your working directory otherwise. Check bytes and sha256 before running scripts or reading references.' : skillUsage } };
     }
     const template: EditableTemplate | undefined = this.templates(snapshot).find(item => item.id === id);
     if (!template) throw new Error('模板不存在，请重新获取模板目录');
@@ -347,7 +349,7 @@ export class TemplateCatalog {
   }
 
   private hostedCachePath(snapshot: Snapshot, templateId: string, name: string): string {
-    return path.join(this.directory, 'hosted-files', hash(`${snapshot.hosted!.commit}:${templateId}:${name}`));
+    return path.join(this.directory, 'hosted-files', hash(`${snapshot.hosted!.catalogUrl}:${snapshot.hosted!.commit}:${templateId}:${name}`));
   }
 
   private async hostedFile(snapshot: Snapshot, templateId: string, name: string, limit = 1024 * 1024, validate?: (bytes: Buffer) => void, download?: () => Promise<Buffer>): Promise<Buffer> {

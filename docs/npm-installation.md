@@ -81,7 +81,7 @@ These are documented commands, not proof of Windows acceptance. Use a directly e
 
 ## Test template data (DEV)
 
-New explicitly versioned test npm packages default to **DEV**; stable packages default to **prod**. Existing published versions retain their original environment (test.6 used prod). New NPM packages read the same hosted main template catalog in both environments. DEV/prod controls workspace defaults and explicit CMS routing. To test a DEV application, download an accepted candidate or build one locally:
+New explicitly versioned test npm packages default to **DEV**; stable packages default to **prod**. Existing published versions retain their original environment (test.6 used prod). DEV/test NPM packages read the hosted main template catalog; stable packages read the hosted release catalog. DEV/prod controls workspace defaults and explicit CMS routing. To test a DEV application, download an accepted candidate or build one locally:
 
 ```sh
 npm run package:npm -- dist/npm-dev 0.6.4-test.1 --template-env=dev

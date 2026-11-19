@@ -15,7 +15,7 @@ export type CleanupPlan = { schemaVersion: 1; sourceSHA: string; pullNumber: num
 const execute = promisify(execFile);
 const repository = 'nexu-io/openmotion';
 export type TreeFile = { path: string; mode: string; sha: string; size: number; type: string };
-type Inputs = { head: TreeFile[]; base: TreeFile[]; sourceSHA: string; pullNumber: number };
+type Inputs = { head: TreeFile[]; base: TreeFile[]; sourceSHA: string; pullNumber: number; forcePaths?: RegExp };
 type Transfer = (file: MediaLock, bytes: Buffer) => Promise<void>;
 const textFile = /\.(?:md|html?|css|json|[cm]?[jt]sx?|txt|ya?ml)$/i;
 const mediaFile = /\.(?:mp4|mov|webm|m4v|avi|mp3|wav|ogg|m4a|aac|flac|png|jpe?g|webp|avif|gif|woff2?|ttf|otf|motion)$/i;
@@ -51,7 +51,7 @@ export async function prepareMediaCleanup(inputs: Inputs, read: (file: TreeFile)
     }
     return originals.get(name)!;
   };
-  const candidates = inputs.head.filter(file => file.type === 'blob' && previous.get(file.path) !== file.sha && mediaFile.test(file.path) &&
+  const candidates = inputs.head.filter(file => file.type === 'blob' && (inputs.forcePaths?.test(file.path) || previous.get(file.path) !== file.sha) && mediaFile.test(file.path) &&
     /^(?:library|docs\/readme|examples)\//.test(file.path) && (videoOrAudio.test(file.path) || file.size > (catalogAsset.test(file.path) ? 100_000 : 1024 * 1024)));
   assert(candidates.length <= 100, 'Too many media files; split this PR');
   let total = 0;
@@ -114,6 +114,17 @@ export async function prepareMediaCleanup(inputs: Inputs, read: (file: TreeFile)
     for (const [filename, bytes] of edits) if (filename.startsWith(prefix) && bytes) entries.set(filename.slice(prefix.length), { path: filename.slice(prefix.length), bytes: bytes.length, sha256: mediaDigest(bytes) });
     sourceManifest.files = [...entries.values()].sort((a: any, b: any) => a.path.localeCompare(b.path));
     edits.set(name, jsonBytes(sourceManifest));
+    // Rewritten guides have new bytes; the public file inventory must match
+    // the refreshed manifest instead of retaining the original guide hash/URL.
+    const recordName = `library/templates/catalog/${id}/template.json`;
+    const record = JSON.parse(edits.get(recordName)!.toString());
+    record.entry.files = (record.entry.files ?? []).map((file: { path: string; bytes: number; sha256: string; url?: string }) => {
+      const current = entries.get(file.path) as { bytes: number; sha256: string } | undefined;
+      if (!current || (current.bytes === file.bytes && current.sha256 === file.sha256)) return file;
+      const { url: _url, ...metadata } = file;
+      return { ...metadata, bytes: current.bytes, sha256: current.sha256 };
+    });
+    edits.set(recordName, jsonBytes(record));
   }
   if (locks.some(lock => !catalogAsset.test(lock.path))) {
     manifest.files.sort((a, b) => a.path.localeCompare(b.path));
@@ -259,7 +270,7 @@ export async function commitCleanup(plan: CleanupPlan, git: GitRunner, directory
   const errors = [...checkTemplateLibrary(directory), ...storage.errors];
   assert.deepEqual(errors, [], 'Sanitized PR failed final-tree validation: ' + errors.join('\n'));
   const tree = await git(['write-tree']);
-  assert(/^[\w-]+$/.test(identity.login) && Number.isSafeInteger(identity.id) && identity.id > 0, 'Invalid maintainer identity');
+  assert(/^[\w-]+(?:\[bot\])?$/.test(identity.login) && Number.isSafeInteger(identity.id) && identity.id > 0, 'Invalid maintainer identity');
   return git(['-c', 'user.name=' + identity.login, '-c', `user.email=${identity.id}+${identity.login}@users.noreply.github.com`,
     'commit-tree', tree, '-p', plan.sourceSHA], 'chore: replace reviewed media with verified public links\n');
 }

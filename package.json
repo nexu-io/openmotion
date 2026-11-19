@@ -38,7 +38,7 @@
     "design:dev": "node packages/design-system/workbench/server.js",
     "design:test": "node --test packages/design-system/workbench/*.test.js",
     "build:inline": "node scripts/build-inline-ui.mjs",
-    "typecheck:backend": "tsc --noEmit --erasableSyntaxOnly --target es2024 --module nodenext --moduleResolution nodenext --allowImportingTsExtensions --skipLibCheck --esModuleInterop mcp.ts phase1.ts inline-video.ts shared/phase1-tools.ts server.ts editor-server.ts browser.ts",
+    "typecheck:backend": "tsc --noEmit --erasableSyntaxOnly --target es2024 --module nodenext --moduleResolution nodenext --allowImportingTsExtensions --skipLibCheck --esModuleInterop mcp.ts phase1.ts inline-video.ts shared/phase1-tools.ts server.ts editor-server.ts browser.ts scripts/publish-merged-media.ts",
     "typecheck:template-cards": "tsc -p mcp-ui/tsconfig.json",
     "build:template-cards": "npm run typecheck:template-cards && node --experimental-strip-types scripts/build-template-cards.mjs"
   },

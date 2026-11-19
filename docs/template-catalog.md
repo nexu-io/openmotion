@@ -2,7 +2,7 @@
 
 ## Repository source and hosted delivery
 
-The current production motion guidance templates now have reviewable source and localized metadata in [the repository catalog](https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog). Guides, examples and images at most 100 KB are directly available in Git; larger images load from existing CMS rendition links; reference videos and original ZIP downloads keep their CMS URLs. Open a template's source/preview.html without a build step (linked images require internet access). [Repository contribution and publication](template-repository.md) documents storage checks, remote asset identities and the CMS-compatible metadata export. Source checkouts now use this local catalog for Studio and MCP; instructions and paths are read from the loaded plugin, independently of the client working directory. NPM applications without the catalog read the latest published `main` catalog from OpenMotion's R2-backed CDN, while the website continues to read the CMS publication. Source imports and PR merges do not publish CMS content.
+The current production motion guidance templates now have reviewable source and localized metadata in [the repository catalog](https://github.com/nexu-io/openmotion/tree/main/library/templates/catalog). Guides, examples and images at most 100 KB are directly available in Git; larger images load from existing CMS rendition links; reference videos and original ZIP downloads keep their CMS URLs. Open a template's source/preview.html without a build step (linked images require internet access). [Repository contribution and publication](template-repository.md) documents storage checks, remote asset identities and the CMS-compatible metadata export. Source checkouts now use this local catalog for Studio and MCP; instructions and paths are read from the loaded plugin, independently of the client working directory. DEV/test NPM applications without the catalog read the latest published `main` catalog from OpenMotion's R2-backed CDN, while stable applications read the moving `releases` catalog, while the website continues to read the CMS publication. Source imports and PR merges do not publish CMS content.
 
 ## Repository, hosted and CMS sources
 
@@ -10,7 +10,7 @@ For application npm DEV builds, isolated installation and source MCP overrides, 
 
 CMS mode reads a Prism Resource's `main.json` (Resource `1500c9af-186b-457f-b74d-a58113f657d8`, default locale `zh-CN`). All three sources preserve the existing `content[locale].templates` structure: templateId, sortOrder, original display metadata, coverUrl, previewUrl and files (path/url/bytes/sha256).
 
-Studio and MCP share one TemplateCatalog reader: repository files in a source checkout, the latest hosted main source in an NPM distribution, or a published CMS resource when CMS mode is explicitly selected. All modes include four built-in editable examples, including the official first-run OpenMotion welcome. Historical reference snapshots remain internal compatibility data. Guidance-only entries remain distinct from executable projects.
+Studio and MCP share one TemplateCatalog reader: repository files in a source checkout, the latest hosted main source in DEV/test NPM distributions and the moving hosted release source in stable NPM distributions, or a published CMS resource when CMS mode is explicitly selected. All modes include four built-in editable examples, including the official first-run OpenMotion welcome. Historical reference snapshots remain internal compatibility data. Guidance-only entries remain distinct from executable projects.
 
 <a id="环境与构建"></a>
 
@@ -21,13 +21,13 @@ Studio and MCP share one TemplateCatalog reader: repository files in a source ch
 | `npm start`, `npm run dev`, `npm run mcp` in a checkout | Repository source under `library/templates/catalog/` by default |
 | `MOTION_TEMPLATE_SOURCE=cms MOTION_TEMPLATE_ENV=dev` | Explicit CMS DEV source |
 | `npm run package:phase1` | 线上：`r.open-design.ai` |
-| `npm run package:npm` | Latest published `main` catalog at `https://releases.open-design.ai/open-motion/templates/main/catalog.json` |
+| `npm run package:npm` | DEV/test: latest `main` catalog; stable: latest `releases` catalog |
 | `npm run package:phase1 -- --template-env=dev` | DEV，ZIP 文件名带 `-dev` |
 | `npm run package:npm -- dist/npm-dev --template-env=dev` | Unversioned local DEV artifact (private); explicit `X.Y.Z-test.N` npm builds default to DEV, stable builds to prod |
 | `npm run package:test -- build <target> <release-version> --template-env=dev` | DEV 完整运行包；省略环境参数则为线上 |
 | Actions → Run workflow → `template_environment` | Select `dev` (default) or `prod` for npm and backup ZIP builds |
 
-Packaging writes the environment and source to `shared/template-config.json`; Studio and MCP share it without requiring installation-time variables. NPM packages select `hosted` and follow the latest published main catalog independently of the application's version or DEV/prod setting. Template metadata and files belong to one immutable snapshot selected by that moving pointer. Source checkouts select `repository`; `MOTION_TEMPLATE_SOURCE=cms` explicitly selects CMS, where `MOTION_TEMPLATE_ENV` overrides the embedded environment. Local paths and Tool responses are documented in [the repository workflow](template-repository.md#run-from-a-local-clone).
+Packaging writes the environment and source to `shared/template-config.json`; Studio and MCP share it without requiring installation-time variables. NPM packages select `hosted`; DEV/test follows the latest published main catalog and stable follows the latest published release catalog, independently of the application version. Template metadata and files belong to one immutable snapshot selected by that moving pointer. Source checkouts select `repository`; `MOTION_TEMPLATE_SOURCE=cms` explicitly selects CMS, where `MOTION_TEMPLATE_ENV` overrides the embedded environment. Local paths and Tool responses are documented in [the repository workflow](template-repository.md#run-from-a-local-clone).
 
 DEV 的默认工作区另加 `-dev`，与线上后台进程、工程和缓存分开。显式 `MOTION_DATA_DIR` 仍优先；同一工作区切换配置后需退出旧后台。缓存再按来源和语言隔离。线上目录未发布时返回错误，不回退 DEV。
 

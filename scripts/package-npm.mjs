@@ -9,6 +9,7 @@ import { releaseProfile } from '../shared/mcp-registry.ts';
 import { distributionFiles } from './distribution.ts';
 import { welcomeSharedAssets } from '../template-library.ts';
 import { packageTemplateConfig } from '../shared/template-config.ts';
+import { mainHostedCatalogUrl, releaseHostedCatalogUrl } from '../shared/hosted-template-catalog.ts';
 import { checkVisionLock } from './vision-runtime.mjs';
 import { checkReleaseVersion, releaseTemplateEnvironment } from './release-version.mjs';
 import { onboardingSourceFiles } from '../shared/onboarding-templates.ts';
@@ -77,7 +78,11 @@ export async function packageNpm(output = path.join(root, 'dist/npm-local'), ver
   output = path.resolve(output);
   const explicitVersion = version !== undefined;
   if (explicitVersion) checkReleaseVersion(version);
-  const templateConfig = packageTemplateConfig(templateEnvironment ?? (explicitVersion ? releaseTemplateEnvironment(version) : 'prod'), 'hosted');
+  const resolvedTemplateEnvironment = templateEnvironment ?? (explicitVersion ? releaseTemplateEnvironment(version) : 'prod');
+  const templateConfig = { ...packageTemplateConfig(resolvedTemplateEnvironment, 'hosted'),
+    // Stable packages consume the moving release pointer; source/dev and test
+    // candidates stay on main so unpublished template changes remain testable.
+    catalogUrl: explicitVersion && resolvedTemplateEnvironment === 'prod' ? releaseHostedCatalogUrl : mainHostedCatalogUrl };
   const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   const lockfile = JSON.parse(await readFile(path.join(root, 'package-lock.json'), 'utf8'));
   const runtime = JSON.parse(await readFile(path.join(root, 'scripts/runtime-lock.json'), 'utf8'));

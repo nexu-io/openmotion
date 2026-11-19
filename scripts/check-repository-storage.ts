@@ -46,7 +46,7 @@ export function checkRepositoryStorage(cwd: string, base?: string, options: { fi
   for (const entry of entries) {
     const size = sizes.get(entry.oid)!;
     gitBytes += size;
-    if (size > maxGitFileBytes && changed.has(entry.name)) errors.push(`${entry.name}: staged ordinary Git file exceeds 1 MiB; use LFS or Prepare and merge PR`);
+    if (size > maxGitFileBytes && changed.has(entry.name)) errors.push(`${entry.name}: staged ordinary Git file exceeds 1 MiB; use LFS or merge, then let the post-merge media workflow transfer it`);
     const bytes = contents.get(entry.oid), pointer = bytes && lfsPointer(bytes);
     if (filters.get(entry.name) !== 'lfs' && !pointer && !bytes?.toString().startsWith('version https://git-lfs.github.com/spec/v1')) continue;
     if (!pointer || filters.get(entry.name) !== 'lfs' || !['100644', '100755'].includes(entry.mode)) {

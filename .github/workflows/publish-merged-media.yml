@@ -1,0 +1,55 @@
+name: Publish merged template media
+run-name: Merged media · PR #${{ github.event.pull_request.number }}
+
+# This workflow runs trusted code from the base repository only. It reads the
+# merged tree through the GitHub API and never checks out or executes PR code.
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-merged-media-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'nexu-io/openmotion' && github.event.pull_request.merged == true && github.event.pull_request.merge_commit_sha != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      source_sha: ${{ steps.cleanup.outputs.source_sha }}
+    steps:
+      - name: Checkout trusted control code only
+        uses: actions/checkout@v6.0.2
+        with:
+          # workflow_sha is the commit GitHub used to load this base-branch
+          # workflow; never execute files from the merged tree here.
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+      - name: Transfer merged media and commit the sanitized main tree
+        id: cleanup
+        env:
+          MERGED_PR: ${{ github.event.pull_request.number }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          MOTION_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL }}
+          MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
+        run: node scripts/publish-merged-media.ts "$MERGED_PR" "$MERGE_SHA" "$BASE_SHA"
+  catalog:
+    needs: publish
+    uses: ./.github/workflows/publish-template-catalog.yml
+    with:
+      source_sha: ${{ needs.publish.outputs.source_sha }}
+    secrets: inherit

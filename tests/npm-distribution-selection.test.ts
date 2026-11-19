@@ -37,7 +37,7 @@ test('packaged onboarding prepares and publishes real cards from the allowlist w
   const runtimeFiles = new Set(['package.json', 'template-library.ts', 'hyperframes.ts',
     'shared/export-spec.ts', 'shared/mcp-template-recommendations.ts', 'shared/onboarding-templates.ts', 'shared/tool-input-error.ts', ...onboardingSourceFiles,
     'scripts/inline-onboarding.mjs', 'scripts/runtime-assets.mjs', 'scripts/onboarding-catalog.ts',
-    'shared/template-config.ts', 'shared/template-config.json']);
+    'shared/template-config.ts', 'shared/template-config.json', 'shared/hosted-template-catalog.ts', 'shared/repository-media.ts']);
   for (const profile of ['phase1', 'legacy']) {
     const installedRoot = path.join(directory, profile);
     // Select only the renderer's runtime closure from the actual package allowlist.

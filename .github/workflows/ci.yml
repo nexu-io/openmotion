@@ -62,7 +62,7 @@ jobs:
           if [[ "$BASE_SHA" =~ ^0+$ ]]; then unset BASE_SHA; fi
           npm run templates:check -- --final-tree
           npm run storage:check -- --final-tree
-          node --test tests/repository-storage.test.ts tests/media-transfer.test.ts
+          node --test tests/repository-storage.test.ts tests/media-transfer.test.ts tests/publish-merged-media.test.ts
           node --test tests/template-library.test.ts tests/ci-scope.test.mjs
 
   maintainability:
@@ -318,7 +318,7 @@ jobs:
           node --test tests/brand-extraction.browser.test.ts tests/brand-showcase.browser.test.ts
       - name: Repository template runtime regression
         if: steps.scope.outputs.full == 'true'
-        run: node --test tests/repository-template-runtime.test.ts tests/hosted-template-catalog.test.ts tests/template-guide.test.ts tests/template-prompts.test.ts tests/integration-setup.test.ts
+        run: node --test tests/repository-template-runtime.test.ts tests/hosted-template-catalog.test.ts tests/library-skill-catalog.test.ts tests/template-guide.test.ts tests/template-prompts.test.ts tests/integration-setup.test.ts
       - name: Workspace, wrapper and session regression
         if: steps.scope.outputs.full == 'true'
         timeout-minutes: 10

@@ -69,6 +69,33 @@ test('cleanup accepts LFS as an input and records legacy paths for verified opti
   assert(Buffer.from(plan.changes.find(change => change.path === '.gitignore')!.content!, 'base64').toString().includes('/' + name));
 });
 
+test('rewriting catalog guides refreshes their published file identities and drops stale URLs', async () => {
+  const f = fixture();
+  const record = JSON.parse(f.contents.get(prefix + 'template.json')!.toString());
+  const manifest = JSON.parse(f.contents.get(prefix + 'source/manifest.json')!.toString());
+  record.entry.files = manifest.files.map((file: any) => ({ ...file, url: 'https://r.open-design.ai/files/' + file.sha256 }));
+  f.contents.set(prefix + 'template.json', Buffer.from(JSON.stringify(record)));
+  const plan = await prepareMediaCleanup(f.inputs(), f.read);
+  const updated = JSON.parse(Buffer.from(plan.changes.find(change => change.path === prefix + 'template.json')!.content!, 'base64').toString());
+  const updatedManifest = JSON.parse(Buffer.from(plan.changes.find(change => change.path === prefix + 'source/manifest.json')!.content!, 'base64').toString());
+  for (const file of updated.entry.files) {
+    const identity = updatedManifest.files.find((entry: any) => entry.path === file.path);
+    assert.equal(file.sha256, identity.sha256);
+    assert.equal(file.bytes, identity.bytes);
+    if (file.path === 'motion.md' || file.path === 'preview.html') assert.equal(file.url, undefined);
+  }
+});
+
+test('post-merge cleanup can backfill raw Skill media already present on main', async () => {
+  const f = fixture(), name = 'library/skills/demo/assets/example.mp4';
+  f.contents.set(name, f.bytes);
+  const plan = await prepareMediaCleanup({ ...f.inputs(), forcePaths: /^library\/skills\// }, f.read);
+  assert.equal(plan.media.filter(file => file.path === name).length, 1);
+  assert.equal(plan.changes.find(change => change.path === name)?.content, null);
+  const manifest = JSON.parse(Buffer.from(plan.changes.find(change => change.path === 'repository-media.json')!.content!, 'base64').toString());
+  assert.equal(manifest.files.find((file: any) => file.path === name).sha256, mediaDigest(f.bytes));
+});
+
 test('encoded filenames and a later revision of prepared media retain working references', async t => {
   const f = fixture(), name = prefix + 'source/assets/ref one.mp4';
   f.contents.set(name, f.bytes);
@@ -350,19 +377,18 @@ test('unresolved threads and renewed review wait; timeout leaves the PR open', a
   }), /Timed out/);
 });
 
-test('media preparation and merging are maintainer-dispatched and storage credentials never reach the merge job', async () => {
-  const workflow = await readFile(new URL('../.github/workflows/prepare-pr-media.yml', import.meta.url), 'utf8');
-  const triggers = workflow.split('\npermissions:')[0];
-  assert.match(triggers, /workflow_dispatch:/);
-  assert.doesNotMatch(triggers, /(?:^|\n)  (?:push|pull_request|pull_request_target|pull_request_review|merge_group):/);
-  const merge = workflow.split('\n  merge:\n')[1];
-  assert(merge.includes('needs: prepare') && merge.includes('needs.prepare.outputs.head_sha'));
-  assert(!merge.includes('CLOUDFLARE_R2') && !merge.includes('AWS_'));
-  assert(merge.includes("github.ref == 'refs/heads/main'"));
-  assert(workflow.includes('ref: ${{ github.sha }}'));
-  const result = spawnSync(process.execPath, ['scripts/merge-prepared-pr.ts', '42', sourceSHA], {
-    encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: 'pull_request' },
-  });
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /maintainer-started workflow/);
+test('media transfer no longer exposes the pre-merge workflow', async () => {
+  await assert.rejects(readFile(new URL('../.github/workflows/prepare-pr-media.yml', import.meta.url)), { code: 'ENOENT' });
+});
+
+test('merged media publication reads only trusted control code and writes cleanup to main', async () => {
+  const workflow = await readFile(new URL('../.github/workflows/publish-merged-media.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /pull_request_target:\n\s+types: \[closed\]/);
+  assert.match(workflow, /branches: \[main\]/);
+  assert.match(workflow, /contents: write/);
+  assert.match(workflow, /github\.event\.pull_request\.merged == true/);
+  assert.match(workflow, /scripts\/publish-merged-media\.ts/);
+  assert.match(workflow, /MOTION_R2_ENDPOINT/);
+  assert.match(workflow, /ref: \$\{\{ github\.workflow_sha \}\}/);
+  assert.doesNotMatch(workflow, /(^|\n)\s+pull_request:\n/);
 });

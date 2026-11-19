@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runFile } from '../../scripts/runtime-assets.mjs';
+import { validateMediaManifest } from '../../shared/repository-media.ts';
 
 export const publicOrigin = 'https://releases.open-design.ai';
 export const catalogRoot = 'open-motion/templates';
@@ -84,10 +85,20 @@ export async function buildTemplatePublication(root, commit, { origin = publicOr
     }
     const skills = await loadLibrarySkills(root, false);
     assertSkillIds(skills, sourceCatalog.templateIds);
+    let transferredMedia = new Map();
+    try {
+      const mediaManifest = validateMediaManifest(JSON.parse(await readFile(path.join(root, 'repository-media.json'), 'utf8')));
+      for (const file of mediaManifest.files ?? []) if (typeof file.path === 'string' && file.path.startsWith('library/skills/')) transferredMedia.set(file.path, file);
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
     // Skill supporting files share the content-addressed object store used by template sources.
     for (const skill of skills) {
       const files = await walk(path.join(root, 'library/skills', skill.id));
-      skill.objects = files.map(file => ({ path: file.relative, bytes: file.bytes, sha256: file.sha256 })).sort((a, b) => a.path.localeCompare(b.path));
+      const objects = files.map(file => ({ path: file.relative, bytes: file.bytes, sha256: file.sha256 }));
+      const prefix = `library/skills/${skill.id}/`;
+      for (const file of transferredMedia.values()) if (file.path.startsWith(prefix) && !files.some(value => value.relative === file.path.slice(prefix.length))) {
+        objects.push({ path: file.path.slice(prefix.length), bytes: file.bytes, sha256: file.sha256, url: file.url });
+      }
+      skill.objects = objects.sort((a, b) => a.path.localeCompare(b.path));
       for (const file of files) objectFiles.set(file.sha256, file.absolute);
     }
     for (const [sha256, body] of objectFiles) uploads.push({ key: `${catalogRoot}/objects/${sha256}`, body, contentType: contentType(body), cache: 'public, max-age=31536000, immutable', immutable: true, object: true });
@@ -146,9 +157,10 @@ async function uploadBatch(uploads, upload) {
 }
 
 export function releaseCatalogPromotion(version, publication) {
+  assert(versionPattern.test(version), 'Invalid release version');
   assert.equal(publication.version, version, 'Template publication must match the verified release');
   assert(['verified', 'version-verified', 'superseded'].includes(publication.phase), 'Require completed release archival');
-  return publication.phase === 'verified';
+  return publication.phase === 'verified' && !version.includes('-');
 }
 
 export async function publishTemplateCatalog(root, { mode = 'main', version, commit = process.env.GITHUB_SHA, endpoint, bucket, origin = publicOrigin, promote = true, run = runFile, fetcher = fetch } = {}) {
@@ -169,7 +181,7 @@ export async function publishTemplateCatalog(root, { mode = 'main', version, com
       await putObject(run, storage, upload, { immutable: true }); uploaded++;
     });
     const catalogBytes = jsonBytes(publication.catalog);
-    const updatePointer = mode === 'main' || promote;
+    const updatePointer = mode === 'main' || (promote && !version.includes('-'));
     const pointerKey = updatePointer ? `${catalogRoot}/${mode === 'main' ? 'main' : 'releases'}/catalog.json` : `${snapshotKey}/catalog.json`;
     if (updatePointer) {
       const pointerPath = path.join(publication.staging, mode + '-pointer.json');
@@ -197,7 +209,8 @@ export async function finalizeTemplateSnapshot(candidate, receipt, { endpoint, b
   assert(response.ok, `Prepared template catalog returned HTTP ${response.status}`);
   const bytes = Buffer.from(await response.arrayBuffer());
   assert.equal(digest(bytes), receipt.catalogSHA256, 'Prepared template catalog bytes differ');
-  if (!promote) return receipt;
+  assert(versionPattern.test(candidate.version), 'Invalid release version');
+  if (!promote || candidate.version.includes('-')) return receipt;
   const pointerKey = `${catalogRoot}/releases/catalog.json`;
   const directory = await mkdtemp(path.join(os.tmpdir(), 'openmotion-catalog-pointer-'));
   try {

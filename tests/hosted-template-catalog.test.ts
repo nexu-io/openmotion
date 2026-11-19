@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { hostedCatalogUrl } from '../shared/hosted-template-catalog.ts';
+import { hostedCatalogUrl, releaseHostedCatalogUrl } from '../shared/hosted-template-catalog.ts';
 import { TemplateCatalog } from '../prism-templates.ts';
 
 const commit = 'a'.repeat(40);
@@ -66,13 +66,35 @@ test('hosted catalog reads the moving main pointer and serves content-addressed 
   const afterFirstSourceRead = calls.length;
   assert.equal((await catalog.sourceFile(id, 'motion.md')).toString(), '# Hosted motion\n');
   assert.equal(calls.length, afterFirstSourceRead, 'verified hosted source files are reused from the cache');
-  const cachedMotion = createHash('sha256').update(`${commit}:${id}:source/motion.md`).digest('hex');
+  const cachedMotion = createHash('sha256').update(`${hostedCatalogUrl}:${commit}:${id}:source/motion.md`).digest('hex');
   await writeFile(path.join(catalog.directory, 'hosted-files', cachedMotion), 'corrupt cached source');
   assert.equal((await catalog.detail(id)).motionDocument.content, motion.toString());
   assert.equal(calls.at(-1), manifest.objectBaseUrl + '/' + motionSha, 'MCP detail replaces a corrupt cached source file');
   offline = true;
   const reopened = new TemplateCatalog(work, { source: 'hosted', locale: 'en', fetch: request });
   assert.equal((await reopened.sourceFile(id, 'motion.md')).toString(), '# Hosted motion\n');
+});
+
+test('release catalog uses its own moving pointer and cache namespace', async t => {
+  const work = await mkdtemp(path.join(tmpdir(), 'openmotion-hosted-release-'));
+  t.after(() => rm(work, { recursive: true, force: true }));
+  const calls: string[] = [];
+  const request = async (input: RequestInfo | URL) => {
+    const url = String(input); calls.push(url);
+    if (url === hostedCatalogUrl) return response(manifest);
+    if (url === releaseHostedCatalogUrl) return response({ ...manifest, publication: { ...manifest.publication, environment: 'prod', publicationId: 'hosted-release' } });
+    if (url.endsWith(`/${id}/template.json`)) return response(record);
+    if (url.endsWith(`/${id}/hosted-files.json`)) return response(hostedFiles);
+    if (url.endsWith('/' + motionSha)) return new Response(motion);
+    throw new Error('Unexpected request: ' + url);
+  };
+  const main = new TemplateCatalog(work, { source: 'hosted', locale: 'en', fetch: request });
+  const release = new TemplateCatalog(work, { source: 'hosted', locale: 'en', catalogUrl: releaseHostedCatalogUrl, fetch: request });
+  await main.page({ category: 'all' });
+  await release.page({ category: 'all' });
+  assert.notEqual(main.directory, release.directory);
+  assert(calls.includes(hostedCatalogUrl));
+  assert(calls.includes(releaseHostedCatalogUrl));
 });
 
 test('built-in template detail stays local when the hosted catalog is unreachable', async t => {

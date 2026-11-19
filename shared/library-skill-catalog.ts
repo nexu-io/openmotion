@@ -1,9 +1,10 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validateMediaManifest } from './repository-media.ts';
 
 export type LibrarySkill = { id: string; kind: 'skill'; title: string; description: string; tags: string[]; repository?: string; license?: string; instructions: string; files: string[]; objects?: SkillObject[]; localSource?: string };
-export type SkillObject = { path: string; bytes: number; sha256: string };
+export type SkillObject = { path: string; bytes: number; sha256: string; url?: string };
 const root = fileURLToPath(new URL('../', import.meta.url));
 export const skillUsage = 'Read openmotion_get_template(templateId) and follow SKILL.md. When a new project is needed, use openmotion_create_project with projectType=natural_language. Skills are instructions, not copyable projects.';
 
@@ -23,6 +24,11 @@ function frontmatter(content: string, key: string): string {
 }
 export async function loadLibrarySkills(appRoot = root, local = true): Promise<LibrarySkill[]> {
   const directory = path.join(appRoot, 'library/skills');
+  let transferred = new Map<string, { path: string; bytes: number; sha256: string; url: string }>();
+  try {
+    const manifest = validateMediaManifest(JSON.parse(await readFile(path.join(appRoot, 'repository-media.json'), 'utf8')));
+    for (const file of manifest.files ?? []) if (typeof file.path === 'string' && file.path.startsWith('library/skills/')) transferred.set(file.path, file);
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   let entries;
   try { entries = await readdir(directory, { withFileTypes: true }); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
   let cards = '';
@@ -43,11 +49,20 @@ export async function loadLibrarySkills(appRoot = root, local = true): Promise<L
       }
     };
     await walk('');
+    const prefix = 'library/skills/' + entry.name + '/';
+    const objects: SkillObject[] = [];
+    for (const file of transferred.values()) {
+      if (!file.path.startsWith(prefix)) continue;
+      const relative = file.path.slice(prefix.length);
+      if (files.includes(relative)) continue;
+      files.push(relative);
+      objects.push({ path: relative, bytes: file.bytes, sha256: file.sha256, url: file.url });
+    }
     const card = metadata.get(entry.name) ?? {};
     result.push({ id: entry.name, kind: 'skill', title: card.title || frontmatter(instructions, 'name') || entry.name,
       description: card.useWhen || frontmatter(instructions, 'description'), tags: card.category ? [card.category] : [],
       ...(card.repository ? { repository: card.repository } : {}), ...(card.license ? { license: card.license } : {}),
-      instructions, files: files.sort(), ...(local ? { localSource: base } : {}) });
+      instructions, files: files.sort(), ...(local ? { localSource: base, ...(objects.length ? { objects } : {}) } : {}) });
   }
   return result;
 }

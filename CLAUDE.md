@@ -19,7 +19,7 @@ For CI scope and local validation, follow [Local validation](AGENTS.md#local-val
 
 ## Repository template contributions
 
-For repository template edits, follow [Template production and reuse](AGENTS.md#template-production-and-reuse): commit source and refresh manifests/file identities; repository/hosted files need no old CMS URL or uploaded ZIP. Maintainers use **Prepare and merge PR** after review, and main synchronization publishes hosted source automatically. Website CMS publication requires a separate explicit request.
+For repository template edits, follow [Template production and reuse](AGENTS.md#template-production-and-reuse): commit source and refresh manifests/file identities; repository/hosted files need no old CMS URL or uploaded ZIP. Maintainers merge reviewed PRs normally; the trusted post-merge media workflow sanitizes `main`, and catalog synchronization publishes hosted source afterward. Website CMS publication requires a separate explicit request.
 
 ## Candidate and publication controls
 
