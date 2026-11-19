@@ -162,6 +162,13 @@ it('restores each specialty brief, model overview and nested creator preview fro
   expect(isWorkspaceSettingsPage(model.search)).toBe(true);
   expect(readWorkspacePage(model.search).modelOverview).toBe('custom:provider/model');
   expect(open(model.href, { explore: true }).href).toBe(origin);
+  // A model hub is a standalone page, so a session's first artifact must not pull the viewer away from it.
+  const hub = open(origin, { modelHub: 'gemini-4' });
+  expect(hub.search).toContain('page=model-hub');
+  expect(isWorkspaceSettingsPage(hub.search)).toBe(true);
+  expect(readWorkspacePage(hub.search).modelHub).toBe('gemini-4');
+  expect(isWorkspaceSettingsPage('?page=model-hub')).toBe(false);
+  expect(open(hub.href, { explore: true }).href).toBe(origin);
   const directory = open(origin, { templates: true, creators: true });
   const profile = open(directory.href, { creator: 'credit/Jane & Co' });
   const detail = open(profile.href, { template: 'work-1' });

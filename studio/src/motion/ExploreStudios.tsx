@@ -27,6 +27,7 @@ type ExploreProps = {
   onChooseStudio: (studio: CreativeStudio) => void;
   onNavigate: (target: StudioDestination, prompt?: string) => void;
   onModel: (id: string) => void;
+  onModelHub: (id: string) => void;
   onCreators: (trigger: HTMLElement) => void;
   onOpenBlackFriday: (trigger: HTMLButtonElement) => void;
   onBrandKit: () => void;
@@ -212,7 +213,7 @@ function ExploreCollection({ community, root, ...props }: ExploreProps & { commu
   return <>
     {!medium && <div className="om-explore-features" data-split={Boolean(featuredTemplate || initialTemplateError || (templates.loading && !templates.pages.length))}>
       {community ? <CommunitySpotlight community={community} skill={skills[0]} onChooseStudio={onChooseStudio} /> :
-        <ExploreSpotlight active={active} onOpenBlackFriday={props.onOpenBlackFriday} onNavigate={onNavigate} onOpenMotion={() => onChooseStudio(motionStudio)} />}
+        <ExploreSpotlight active={active} onOpenBlackFriday={props.onOpenBlackFriday} onNavigate={onNavigate} onOpenMotion={() => onChooseStudio(motionStudio)} onModelHub={props.onModelHub} />}
       {featuredTemplate && <TemplateSpotlight item={featuredTemplate} onTry={tryVideoPrompt} />}
       {initialTemplateError && <div className="om-featured-template om-discovery-empty"><span>{t('Templates could not be loaded.')}</span><button className="om-button" onClick={templates.retry}>{t('Retry')}</button></div>}
       {templates.loading && !templates.pages.length && <Skeleton className="om-featured-template-skeleton" />}

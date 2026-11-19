@@ -18,6 +18,7 @@ export function workspacePageName(query: URLSearchParams, hash: string) {
 export function isWorkspaceSettingsPage(search: string, hash = '') {
   const query = new URLSearchParams(search), page = workspacePageName(query, hash);
   if (page === 'model') return Boolean(query.get('model'));
+  if (page === 'model-hub') return Boolean(query.get('hub'));
   if (page === 'create') return Boolean(findLandingScene(query.get('scene')));
   return page === 'api' || page === 'settings' || page === 'mcp' || page === 'assets' || page === 'skills' || page === 'brand-kit' || page === 'explore' || page === 'motion' || Boolean(findMediaStudio(page) || findTechniqueStudio(page));
 }

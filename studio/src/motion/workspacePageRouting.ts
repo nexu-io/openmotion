@@ -8,7 +8,7 @@ import { sceneDestination, studioDestination, type StudioDestination } from './c
 export const settingsSections = ['account', 'subscription', 'providers', 'models', 'local', 'general', 'appearance', 'privacy', 'about', 'help', 'mcp', 'brand-kit'] as const;
 export type SettingsSection = typeof settingsSections[number];
 export type ExploreFilters = { community: ExploreCommunity['id'] | null; medium: StudioScene['modality'] | null };
-export type WorkspacePage = ExploreFilters & { motion: boolean; api: boolean; tool: string | null; specialty: TechniqueStudio | null; assetId: string | null; assetVersion: string | null; explore: boolean; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skill: string | null; templates: boolean; blackFriday: boolean; modelOverview: string | null; creators: boolean; creator: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
+export type WorkspacePage = ExploreFilters & { motion: boolean; api: boolean; tool: string | null; specialty: TechniqueStudio | null; assetId: string | null; assetVersion: string | null; explore: boolean; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skill: string | null; templates: boolean; blackFriday: boolean; modelOverview: string | null; modelHub: string | null; creators: boolean; creator: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
 
 export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
   const query = new URLSearchParams(search), page = workspacePageName(query, hash), section = query.get('section');
@@ -28,7 +28,7 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
   const blackFriday = templates && !creators && query.get('collection') === 'black-friday';
   const selectedSkill = blackFriday ? blackFridaySkillIds.find(id => id === skill) ?? null
     : page === 'skills' || collection?.techniques.some(id => id === skill) ? skill : null;
-  return { motion: page === 'motion', api: page === 'api', tool: page === 'api' ? query.get('tool') : null, modelOverview: page === 'model' ? model : null, creators, creator: creators ? query.get('creator')?.trim() || null : null, specialty, community, medium, assetId: page === 'assets' ? query.get('asset') || null : null,
+  return { motion: page === 'motion', api: page === 'api', tool: page === 'api' ? query.get('tool') : null, modelOverview: page === 'model' ? model : null, modelHub: page === 'model-hub' ? query.get('hub') || null : null, creators, creator: creators ? query.get('creator')?.trim() || null : null, specialty, community, medium, assetId: page === 'assets' ? query.get('asset') || null : null,
     assetVersion: page === 'assets' && query.get('asset') ? query.get('version') || null : null, explore: page === 'explore', studio, settings, brandKit: settings === 'brand-kit' ? query.get('kit') || null : null, assets: page === 'assets', skills: page === 'skills', skill: selectedSkill, templates, blackFriday,
     client: mcpClients.find(value => value.id === query.get('host'))?.id ?? 'codex',
     setup: query.get('setup') === 'manual' ? 'manual' : 'agent',
@@ -39,7 +39,7 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
 export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): string {
   const url = new URL(href), current = readWorkspacePage(url.search, url.hash), page = { ...current, ...patch };
   const currentSearchPage = url.searchParams.get('page');
-  for (const key of ['page', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'kit', 'community', 'medium', 'collection']) url.searchParams.delete(key);
+  for (const key of ['page', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'kit', 'community', 'medium', 'collection', 'hub']) url.searchParams.delete(key);
   if (current.api || page.api) url.searchParams.delete('tool');
   if (current.creators || page.creators) { url.searchParams.delete('view'); url.searchParams.delete('creator'); }
   if (current.assets || page.assets) { url.searchParams.delete('asset'); url.searchParams.delete('version'); }
@@ -48,12 +48,13 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     url.searchParams.delete('model');
   }
   // A primary destination replaces its peers. Overlay and detail patches retain their parent.
-  if (['explore', 'motion', 'api', 'studio', 'modelOverview', 'specialty', 'assets', 'skills', 'settings'].some(key => key in patch)) {
+  if (['explore', 'motion', 'api', 'studio', 'modelOverview', 'modelHub', 'specialty', 'assets', 'skills', 'settings'].some(key => key in patch)) {
     page.motion = Boolean(patch.motion);
     page.explore = Boolean(patch.explore);
     page.api = Boolean(patch.api);
     page.studio = patch.studio ?? null;
     page.modelOverview = patch.modelOverview ?? null;
+    page.modelHub = patch.modelHub ?? null;
     page.specialty = patch.specialty ?? null;
     page.assets = Boolean(patch.assets);
     page.skills = Boolean(patch.skills);
@@ -71,6 +72,9 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   } else if (page.modelOverview) {
     url.searchParams.set('page', 'model');
     url.searchParams.set('model', page.modelOverview);
+  } else if (page.modelHub) {
+    url.searchParams.set('page', 'model-hub');
+    url.searchParams.set('hub', page.modelHub);
   } else if (page.specialty) {
     url.searchParams.set('page', page.specialty.id);
     if (page.specialty.techniques.some(id => id === page.skill)) url.searchParams.set('skill', page.skill!);
@@ -102,7 +106,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   } else if (!page.templates && workspacePageName(url.searchParams, url.hash) === 'explore') {
     url.searchParams.set('page', 'editor');
   }
-  if (page.explore || page.motion || page.api || page.modelOverview || page.specialty || page.studio || page.skills) {
+  if (page.explore || page.motion || page.api || page.modelOverview || page.modelHub || page.specialty || page.studio || page.skills) {
     if (page.community) url.searchParams.set('community', page.community);
     if (page.medium) url.searchParams.set('medium', page.medium);
   }
