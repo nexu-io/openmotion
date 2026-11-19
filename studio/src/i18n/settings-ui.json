@@ -337,7 +337,15 @@
     "Send this instruction to your Agent. It will check installation, start OpenMotion if needed, and verify the connection.": "将指令发给你的 Agent，它会检查安装状态，按需启动 OpenMotion 并验证连接。",
     "Available": "可用",
     "Signed in; multimodal generation requires OpenDesign Plus or above": "已登录；多模态生成需要 OpenDesign Plus 或以上套餐",
-    "Signed in; model access and balance are checked when generating": "已登录；生成时将检查模型权限和余额"
+    "Signed in; model access and balance are checked when generating": "已登录；生成时将检查模型权限和余额",
+    "Sign in to unlock multimodal generation": "登录，解锁多模态生成",
+    "Upgrade to Plus to unlock multimodal generation": "升级到 Plus，解锁多模态生成",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Free 和 Go 套餐不含图片、视频、配音和音乐生成；Plus、Pro、Max 四项全含。",
+    "Voiceover": "配音",
+    "Music": "音乐",
+    "Limited-time offer": "限时优惠",
+    "Save on annual Plus, Pro and Max plans.": "Plus、Pro、Max 年付享优惠。",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "在 OpenMotion 里直接生成图片、视频、配音和音乐，不用自己配置 API 密钥，Plus、Pro、Max 套餐均包含。"
   },
   "ja": {
     "Local Agents": "ローカル Agent",
@@ -451,7 +459,15 @@
     "Auto save on": "自動保存オン",
     "Changes could not be saved. Resolve the error before continuing.": "変更を保存できませんでした。先にエラーを解決してください。",
     "Changes save automatically. Pending edits are checked every 15 seconds.": "変更は自動保存されます。15 秒ごとに未保存の編集を確認します。",
-    "Available": "利用可能"
+    "Available": "利用可能",
+    "Sign in to unlock multimodal generation": "サインインしてマルチモーダル生成を利用",
+    "Upgrade to Plus to unlock multimodal generation": "Plus にアップグレードしてマルチモーダル生成を利用",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Free と Go プランには画像・動画・ナレーション・音楽の生成は含まれません。Plus・Pro・Max ではすべて利用できます。",
+    "Voiceover": "ナレーション",
+    "Music": "音楽",
+    "Limited-time offer": "期間限定オファー",
+    "Save on annual Plus, Pro and Max plans.": "Plus・Pro・Max の年間プランがお得に。",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "OpenMotion で画像・動画・ナレーション・音楽を直接生成。API キーの設定は不要で、Plus・Pro・Max に含まれます。"
   },
   "ko": {
     "What's new": "새로운 소식",
@@ -460,7 +476,15 @@
     "Auto saved: {time}": "자동 저장: {time}",
     "Auto save on": "자동 저장 켜짐",
     "Changes could not be saved. Resolve the error before continuing.": "변경 사항을 저장하지 못했습니다. 먼저 오류를 해결하세요.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "변경 사항은 자동으로 저장됩니다. 15초마다 대기 중인 편집을 확인합니다."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "변경 사항은 자동으로 저장됩니다. 15초마다 대기 중인 편집을 확인합니다.",
+    "Sign in to unlock multimodal generation": "로그인하고 멀티모달 생성 사용하기",
+    "Upgrade to Plus to unlock multimodal generation": "Plus로 업그레이드하고 멀티모달 생성 사용하기",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Free 및 Go 플랜에는 이미지, 영상, 내레이션, 음악 생성이 포함되지 않습니다. Plus, Pro, Max에는 모두 포함됩니다.",
+    "Voiceover": "내레이션",
+    "Music": "음악",
+    "Limited-time offer": "기간 한정 혜택",
+    "Save on annual Plus, Pro and Max plans.": "Plus, Pro, Max 연간 플랜 할인.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "OpenMotion에서 이미지, 영상, 내레이션, 음악을 바로 생성하세요. API 키 설정이 필요 없으며 Plus, Pro, Max에 포함됩니다."
   },
   "de": {
     "What's new": "Neuigkeiten",
@@ -469,7 +493,15 @@
     "Auto saved: {time}": "Automatisch gespeichert: {time}",
     "Auto save on": "Automatisches Speichern aktiv",
     "Changes could not be saved. Resolve the error before continuing.": "Änderungen konnten nicht gespeichert werden. Beheben Sie zuerst den Fehler.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "Änderungen werden automatisch gespeichert. Ausstehende Änderungen werden alle 15 Sekunden geprüft."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "Änderungen werden automatisch gespeichert. Ausstehende Änderungen werden alle 15 Sekunden geprüft.",
+    "Sign in to unlock multimodal generation": "Anmelden und multimodale Generierung freischalten",
+    "Upgrade to Plus to unlock multimodal generation": "Auf Plus upgraden und multimodale Generierung freischalten",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Free- und Go-Pläne enthalten keine Bild-, Video-, Voiceover- oder Musikgenerierung. Plus, Pro und Max enthalten alle vier.",
+    "Voiceover": "Voiceover",
+    "Music": "Musik",
+    "Limited-time offer": "Zeitlich begrenztes Angebot",
+    "Save on annual Plus, Pro and Max plans.": "Spare bei Jahresplänen für Plus, Pro und Max.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Erstelle Bilder, Videos, Voiceovers und Musik direkt in OpenMotion, ohne API-Schlüssel. Enthalten in Plus, Pro und Max."
   },
   "fr": {
     "What's new": "Nouveautés",
@@ -478,7 +510,15 @@
     "Auto saved: {time}": "Enregistré automatiquement : {time}",
     "Auto save on": "Enregistrement automatique activé",
     "Changes could not be saved. Resolve the error before continuing.": "Les modifications n’ont pas pu être enregistrées. Résolvez d’abord l’erreur.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "Les modifications sont enregistrées automatiquement et vérifiées toutes les 15 secondes."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "Les modifications sont enregistrées automatiquement et vérifiées toutes les 15 secondes.",
+    "Sign in to unlock multimodal generation": "Connectez-vous pour débloquer la génération multimodale",
+    "Upgrade to Plus to unlock multimodal generation": "Passez à Plus pour débloquer la génération multimodale",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Les forfaits Free et Go n'incluent pas la génération d'images, de vidéos, de voix off ni de musique. Plus, Pro et Max incluent les quatre.",
+    "Voiceover": "Voix off",
+    "Music": "Musique",
+    "Limited-time offer": "Offre à durée limitée",
+    "Save on annual Plus, Pro and Max plans.": "Économisez sur les forfaits annuels Plus, Pro et Max.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Générez images, vidéos, voix off et musique directement dans OpenMotion, sans clé API à configurer. Inclus dans Plus, Pro et Max."
   },
   "ru": {
     "What's new": "Что нового",
@@ -487,7 +527,15 @@
     "Auto saved: {time}": "Автосохранение: {time}",
     "Auto save on": "Автосохранение включено",
     "Changes could not be saved. Resolve the error before continuing.": "Не удалось сохранить изменения. Сначала устраните ошибку.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "Изменения сохраняются автоматически. Проверка несохранённых изменений — каждые 15 секунд."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "Изменения сохраняются автоматически. Проверка несохранённых изменений — каждые 15 секунд.",
+    "Sign in to unlock multimodal generation": "Войдите, чтобы открыть мультимодальную генерацию",
+    "Upgrade to Plus to unlock multimodal generation": "Перейдите на Plus, чтобы открыть мультимодальную генерацию",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Тарифы Free и Go не включают генерацию изображений, видео, озвучки и музыки. Plus, Pro и Max включают всё это.",
+    "Voiceover": "Озвучка",
+    "Music": "Музыка",
+    "Limited-time offer": "Ограниченное предложение",
+    "Save on annual Plus, Pro and Max plans.": "Скидка на годовые тарифы Plus, Pro и Max.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Создавайте изображения, видео, озвучку и музыку прямо в OpenMotion без настройки API-ключей. Входит в Plus, Pro и Max."
   },
   "es": {
     "What's new": "Novedades",
@@ -496,7 +544,15 @@
     "Auto saved: {time}": "Guardado automático: {time}",
     "Auto save on": "Guardado automático activado",
     "Changes could not be saved. Resolve the error before continuing.": "No se pudieron guardar los cambios. Resuelve el error antes de continuar.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "Los cambios se guardan automáticamente. Se comprueban los cambios pendientes cada 15 segundos."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "Los cambios se guardan automáticamente. Se comprueban los cambios pendientes cada 15 segundos.",
+    "Sign in to unlock multimodal generation": "Inicia sesión para desbloquear la generación multimodal",
+    "Upgrade to Plus to unlock multimodal generation": "Mejora a Plus para desbloquear la generación multimodal",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Los planes Free y Go no incluyen generación de imágenes, vídeo, locuciones ni música. Plus, Pro y Max incluyen las cuatro.",
+    "Voiceover": "Locución",
+    "Music": "Música",
+    "Limited-time offer": "Oferta por tiempo limitado",
+    "Save on annual Plus, Pro and Max plans.": "Ahorra en los planes anuales Plus, Pro y Max.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Genera imágenes, vídeo, locuciones y música directamente en OpenMotion, sin configurar claves de API. Incluido en Plus, Pro y Max."
   },
   "pt-BR": {
     "What's new": "Novidades",
@@ -505,7 +561,15 @@
     "Auto saved: {time}": "Salvo automaticamente: {time}",
     "Auto save on": "Salvamento automático ativado",
     "Changes could not be saved. Resolve the error before continuing.": "Não foi possível salvar as alterações. Resolva o erro antes de continuar.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "As alterações são salvas automaticamente. Edições pendentes são verificadas a cada 15 segundos."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "As alterações são salvas automaticamente. Edições pendentes são verificadas a cada 15 segundos.",
+    "Sign in to unlock multimodal generation": "Entre para desbloquear a geração multimodal",
+    "Upgrade to Plus to unlock multimodal generation": "Faça upgrade para o Plus e desbloqueie a geração multimodal",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Os planos Free e Go não incluem geração de imagens, vídeos, narrações nem música. Plus, Pro e Max incluem os quatro.",
+    "Voiceover": "Narração",
+    "Music": "Música",
+    "Limited-time offer": "Oferta por tempo limitado",
+    "Save on annual Plus, Pro and Max plans.": "Economize nos planos anuais Plus, Pro e Max.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Gere imagens, vídeos, narrações e música direto no OpenMotion, sem configurar chaves de API. Incluído no Plus, Pro e Max."
   },
   "it": {
     "What's new": "Novità",
@@ -514,7 +578,15 @@
     "Auto saved: {time}": "Salvataggio automatico: {time}",
     "Auto save on": "Salvataggio automatico attivo",
     "Changes could not be saved. Resolve the error before continuing.": "Impossibile salvare le modifiche. Risolvi l’errore prima di continuare.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "Le modifiche vengono salvate automaticamente. Quelle in sospeso vengono controllate ogni 15 secondi."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "Le modifiche vengono salvate automaticamente. Quelle in sospeso vengono controllate ogni 15 secondi.",
+    "Sign in to unlock multimodal generation": "Accedi per sbloccare la generazione multimodale",
+    "Upgrade to Plus to unlock multimodal generation": "Passa a Plus per sbloccare la generazione multimodale",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "I piani Free e Go non includono la generazione di immagini, video, voci fuori campo o musica. Plus, Pro e Max includono tutte e quattro.",
+    "Voiceover": "Voce fuori campo",
+    "Music": "Musica",
+    "Limited-time offer": "Offerta a tempo limitato",
+    "Save on annual Plus, Pro and Max plans.": "Risparmia sui piani annuali Plus, Pro e Max.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Genera immagini, video, voci fuori campo e musica direttamente in OpenMotion, senza chiavi API da configurare. Incluso in Plus, Pro e Max."
   },
   "tr": {
     "What's new": "Yenilikler",
@@ -523,6 +595,14 @@
     "Auto saved: {time}": "Otomatik kaydedildi: {time}",
     "Auto save on": "Otomatik kayıt açık",
     "Changes could not be saved. Resolve the error before continuing.": "Değişiklikler kaydedilemedi. Devam etmeden önce hatayı giderin.",
-    "Changes save automatically. Pending edits are checked every 15 seconds.": "Değişiklikler otomatik kaydedilir. Bekleyen düzenlemeler her 15 saniyede kontrol edilir."
+    "Changes save automatically. Pending edits are checked every 15 seconds.": "Değişiklikler otomatik kaydedilir. Bekleyen düzenlemeler her 15 saniyede kontrol edilir.",
+    "Sign in to unlock multimodal generation": "Çok modlu üretimin kilidini açmak için giriş yap",
+    "Upgrade to Plus to unlock multimodal generation": "Çok modlu üretimin kilidini açmak için Plus'a yükselt",
+    "Free and Go plans don't include image, video, voiceover or music generation. Plus, Pro and Max include all four.": "Free ve Go planları görsel, video, seslendirme veya müzik üretimini içermez. Plus, Pro ve Max dördünü de içerir.",
+    "Voiceover": "Seslendirme",
+    "Music": "Müzik",
+    "Limited-time offer": "Sınırlı süreli teklif",
+    "Save on annual Plus, Pro and Max plans.": "Plus, Pro ve Max yıllık planlarında indirim.",
+    "Generate images, video, voiceovers and music right in OpenMotion, with no API keys to set up. Included with Plus, Pro and Max.": "Görsel, video, seslendirme ve müziği API anahtarı ayarlamadan doğrudan OpenMotion'da üret. Plus, Pro ve Max planlarına dahildir."
   }
 }

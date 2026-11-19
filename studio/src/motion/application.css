@@ -334,3 +334,10 @@
 .om-search-result-copy small { font-size: var(--motion-text-xs); }
 .om-search-results .om-badge { flex: none; }
 .om-search-shortcuts { display: flex; flex-wrap: wrap; gap: var(--motion-space-4); margin-block: var(--motion-space-8); }
+/* Sign-in and upgrade guides: what an account or Plus unlocks, with an optional campaign note. */
+.om-account-summary[data-guide] { border-color: var(--motion-accent); background: var(--motion-accent-soft); }
+.om-account-capabilities { display: flex; flex-wrap: wrap; gap: var(--motion-space-8); margin: 0; padding: 0; list-style: none; }
+.om-account-capabilities li { display: inline-flex; align-items: center; gap: var(--motion-space-6); padding: var(--motion-space-4) var(--motion-space-12); border: 1px solid var(--motion-border-subtle); border-radius: var(--motion-radius-full); font-size: var(--motion-text-sm); }
+.om-account-capabilities svg { color: var(--motion-accent); }
+.om-account-offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-6); margin: 0; font-size: var(--motion-text-sm); }
+.om-account-offer svg, .om-account-offer strong { color: var(--motion-accent); }
