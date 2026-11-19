@@ -40,6 +40,8 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const [busy, setBusy] = useState(false), [refreshing, setRefreshing] = useState(false), [lastState, setLastState] = useState<string>();
   const signedIn = state.account?.state === 'signed-in';
   // Every open carries a fresh entry: the pointer refreshes it before navigation, keyboard activation on click.
+  // AMR accepts only registered entry sources, so the upgrade link shares the subscription source; the
+  // OpenMotion click (view_plans or manage_subscription) tells the two buttons apart.
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl, open = (event: MouseEvent<HTMLAnchorElement>) => {
       if (event.detail === 0 && event.button === 0) event.currentTarget.href = subscriptionUrl(consoleUrl, source);
@@ -95,11 +97,11 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
         {account.error && <p className="om-muted" role="alert">{t(account.error)}</p>}</div>
         <div className="om-settings-actions">{signedIn ? <button className="om-button" onClick={() => void action('logout')} disabled={busy}>{t('Sign out')}</button> : pending ? <>{browserLink}<button className="om-button" disabled={busy || syncing} onClick={() => void action('cancel')}>{t('Cancel')}</button></> : expired ? <>{signIn}<button className="om-button" onClick={() => void action('logout')} disabled={busy}>{t('Sign out')}</button></> : <>{signIn}{failure === 'credentials_rejected' && <a className="om-button" href={`${GITHUB_REPOSITORY}/issues/new/choose`} target="_blank" rel="noreferrer">{t('Report an issue')}<RemixIcon name="external-link-line" size={15} /></a>}</>}</div>
       </section>}
-      {upgradeGuide && <section className="om-card om-plan-guide om-account-upgrade">
+      {upgradeGuide && <section className="om-card om-plan-guide" data-guide="upgrade">
         <div className="om-plan-guide-head"><h2 className="om-title om-plan-name">{plan === 'free' ? t('Free plan') : 'Go'}</h2><span className="om-badge">{t('Current plan')}</span></div>
         <p className="om-muted">{t('Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.')}</p>
         {capabilities}{offerNote}
-        <div className="om-settings-actions"><a className="om-button" data-primary {...subscriptionLink('openmotion_account_upgrade', 'view_plans')}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade to Plus')}<RemixIcon name="external-link-line" size={15} /></a><a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>{t('Manage subscription')}<RemixIcon name="external-link-line" size={15} /></a></div>
+        <div className="om-settings-actions"><a className="om-button" data-primary {...subscriptionLink('openmotion_manage_subscription', 'view_plans')}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade to Plus')}<RemixIcon name="external-link-line" size={15} /></a><a className="om-button" {...subscriptionLink('openmotion_manage_subscription', 'manage_subscription')}>{t('Manage subscription')}<RemixIcon name="external-link-line" size={15} /></a></div>
       </section>}
       <section className="om-settings-section"><div className="om-settings-row"><h2 className="om-subtitle">{t('Subscription & usage')}</h2>{signedIn && <Tooltip label={t('Refresh account')} wrap><button className="motion-icon-button" aria-label={t('Refresh account')} disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshBilling()}><RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={17} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} /></button></Tooltip>}</div>
         {!(signedIn && account.billingUnavailable) && <div className="om-account-metrics"><div className="om-card"><span className="om-muted">{t('Current plan')}</span><h3 className="om-title">{signedIn && account.plan ? account.plan === 'free' ? t('Free plan') : account.plan : '—'}</h3><p className="om-muted">{t(signedIn ? 'Managed by OpenDesign' : 'Sign in to view your plan')}</p></div><div className="om-card"><span className="om-muted">{t('Available balance')}</span><h3 className="om-title">{signedIn && account.balance != null ? `$${account.balance}` : '—'}</h3><p className="om-muted">{t(signedIn ? 'Account credits in USD' : 'Sign in to view usage')}</p></div></div>}

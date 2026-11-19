@@ -132,19 +132,20 @@ it('shows what signing in unlocks to signed-out people', async () => {
   expect(page.querySelector('.om-plan-guide .om-button')?.textContent).toBe('使用 OpenDesign 登录');
   expect([...page.querySelectorAll('.om-account-capabilities li')].map(item => item.textContent)).toEqual(['图片', '视频', '配音', '音乐']);
   expect(page.querySelector('.om-plan-guide p')?.textContent).toBe('登录后升级到 Plus，即可在 OpenMotion 里直接生成图片、视频、配音和音乐，不用配置 API 密钥。');
-  expect(page.querySelector('.om-account-upgrade')).toBeNull();
+  expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
 });
 
-it('offers Free and Go accounts an upgrade with its own entry source, and nothing to paid plans', async () => {
+it('offers Free and Go accounts an upgrade through the registered entry source, and nothing to paid plans', async () => {
   for (const plan of ['free', 'go']) {
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' });
-    const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('.om-account-upgrade a');
+    const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
     expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
-    expect(new URL(upgrade.href).searchParams.get('od_entry_source')).toBe('openmotion_account_upgrade');
+    expect(new URL(upgrade.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+    expect(upgrade.textContent).toContain('Upgrade to Plus');
     expect(new URL(manage.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
     expect(page.querySelector('.om-settings-section a')).toBeNull();
-    expect(page.querySelector('.om-account-summary:not(.om-account-upgrade) h2')?.textContent).toBe('Connected to OpenDesign');
+    expect(page.querySelector('.om-account-summary h2')?.textContent).toBe('Connected to OpenDesign');
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' });
-  expect(paid.querySelector('.om-account-upgrade')).toBeNull();
+  expect(paid.querySelector('[data-guide="upgrade"]')).toBeNull();
 });
