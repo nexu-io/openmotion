@@ -4,7 +4,7 @@ import { useI18n } from '../i18n/I18n';
 import { Skeleton } from '../components/ui/Skeleton';
 import { MotionIcon } from './icons';
 import { BrandArtworkImage } from './BrandArtworkImage';
-import { templateAspect } from './templateDiscovery';
+import { templateAspect, templateRatio } from './templateDiscovery';
 import figmaLogo from './template-brands/figma.png';
 import lovableLogo from './template-brands/lovable.svg';
 import linearLogo from './template-brands/linear.svg';
@@ -104,7 +104,14 @@ export const TemplateGalleryCard = memo(function TemplateGalleryCard({
       {template.previewUrl && <video ref={video} muted playsInline loop preload="none" aria-hidden="true" onPlaying={() => setPlaying(true)} onError={() => { setFailed(true); setPlaying(false); }} style={{ opacity: active && playing ? 1 : 0 }} />}
       {animatedPreview && active && animate && <iframe className="om-gallery-animation" src={animatedPreview} loading="lazy" sandbox="allow-scripts" title={template.title} tabIndex={-1} aria-hidden="true" />}
       <span className="om-gallery-card-shade" />
-      <span className="om-gallery-card-top">{resourceKind === 'brand-kit' && <span>{t('Brand Kit')}</span>}{resourceKind === 'template' && <span>{t(isEditableTemplate(template) ? 'Ready to edit' : template.styles?.[0] || 'Motion design')}</span>}{template.duration != null && <span>{t('{value}s', { value: Number(template.duration.toFixed(1)) })}</span>}</span>
+      <span className="om-gallery-card-top">
+        {resourceKind === 'brand-kit' && <span>{t('Brand Kit')}</span>}
+        {resourceKind === 'template' && <span data-editable={isEditableTemplate(template) ? true : undefined}>{t(isEditableTemplate(template) ? 'Ready to edit' : 'Reference creation')}</span>}
+        <span className="om-gallery-card-meta">
+          {resourceKind === 'template' && (template.width || template.ratio) && <span>{templateRatio(template)}</span>}
+          {template.duration != null && <span>{t('{value}s', { value: Number(template.duration.toFixed(1)) })}</span>}
+        </span>
+      </span>
       {!linkedSource && <span className="om-gallery-card-bottom">
         {showAvatar && <TemplateIdentity template={template} brand={Boolean(brandName)} />}
         <span className="om-gallery-card-caption" data-brand-credit={brandName ? true : undefined}><strong>{brandName || template.title}</strong><small>{brandName ? template.title : credit}</small></span>

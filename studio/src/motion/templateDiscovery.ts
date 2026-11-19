@@ -66,10 +66,13 @@ export function randomTemplate(items: GalleryTemplate[], previousId?: string, ra
   return candidates[Math.floor(random() * candidates.length)];
 }
 
+const namedRatios: [string, number][] = [['21:9', 21 / 9], ['16:9', 16 / 9], ['3:2', 3 / 2], ['4:3', 4 / 3], ['5:4', 5 / 4],
+  ['1:1', 1], ['4:5', 4 / 5], ['3:4', 3 / 4], ['2:3', 2 / 3], ['9:16', 9 / 16]];
+/** Readers choose frames in named ratios; raw pixel pairs such as 697:540 say nothing to them. */
 export function templateRatio(template: GalleryTemplate): string {
-  const [width, height] = template.width && template.height ? [template.width, template.height] : (template.ratio ?? '').split(/[:/]/).map(Number);
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) return template.ratio ?? '—';
-  const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
-  const divisor = gcd(width, height);
-  return `${width / divisor}:${height / divisor}`;
+  const declared = template.ratio?.trim().replace(/\s+/g, '').replace('/', ':');
+  // Only a real frame ratio is meaningful; some entries carry raw measured dimensions instead.
+  if (declared && /^\d+(\.\d+)?:\d+(\.\d+)?$/.test(declared) && declared.split(':').every(part => Number(part) <= 40)) return declared;
+  const aspect = templateAspect(template);
+  return namedRatios.find(([, value]) => Math.abs(value - aspect) / value <= 0.05)?.[0] ?? `${Number(aspect.toFixed(2))}:1`;
 }
