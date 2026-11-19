@@ -17,7 +17,6 @@ import { platformIcons } from '../../../packages/design-system/platform-icons.js
 /** Per-video motion.md written from each reference film, keyed by video id. */
 const motionDocuments: Record<string, string> = Object.fromEntries(Object.entries(import.meta.glob('./model-hubs/gemini-4/motion/*.md', { query: '?url', import: 'default', eager: true }) as Record<string, string>)
   .map(([path, url]) => [path.split('/').pop()!.replace(/\.md$/, ''), url]));
-export const hasMotionDocument = (id: string) => Boolean(motionDocuments[id]);
 
 /** The X mark tinted by the surrounding text color. */
 const xMark = <span className="om-hub-x-mark" aria-hidden="true" style={{ ['--mark' as string]: `url(${designSystemAsset(platformIcons.x)})` }} />;
@@ -28,7 +27,6 @@ const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/"/g, '&q
 /** The X media CDN rejects requests that carry another site's referrer, so previews play in a document that sends none. */
 /** Card previews stay transparent until frames arrive, so the card poster shows instead of a black flash. */
 const previewDocument = (video: HubVideo, src = video.video, controls = false) => `<meta name="referrer" content="no-referrer"><style>html,body{margin:0;height:100%;overflow:hidden;background:${controls ? 'black' : 'transparent'}}video{width:100%;height:100%;object-fit:${controls ? 'contain' : 'cover'};display:block}</style><video src="${escape(src)}"${controls ? ` poster="${escape(video.poster)}"` : ''} muted autoplay loop playsinline${controls ? ' controls' : ''}></video>`;
-const ratioLabel = (video: HubVideo) => { const [w, h] = video.ratio.split('/').map(Number); const r = w / h; return Math.abs(r - 16 / 9) < .05 ? '16:9' : Math.abs(r - 1) < .05 ? '1:1' : Math.abs(r - 9 / 16) < .05 ? '9:16' : `${w}×${h}`; };
 type Filter = 'all' | string;
 
 /** Same breakpoints as the template gallery's masonry columns. */
@@ -49,7 +47,7 @@ function rowMajorColumns(videos: HubVideo[], count: number) {
 }
 
 /** Community videos for a model hub. Each card plays its original post's media and links back to the author. */
-export function HubVideoWall({ videos, title, onRemix, query = '' }: { videos: HubVideo[]; title: string; onRemix: () => void; query?: string }) {
+export function HubVideoWall({ videos, title, query = '' }: { videos: HubVideo[]; title: string; query?: string }) {
   const { t, locale } = useI18n();
   const [filter, setFilter] = useState<Filter>('all');
   // Cards autoplay while on screen, like the template gallery; reduced motion keeps posters.
@@ -111,8 +109,6 @@ export function HubVideoWall({ videos, title, onRemix, query = '' }: { videos: H
         <button className="om-gallery-cover" style={{ aspectRatio: aspect(video) }}
           aria-label={t('Preview video {title}', { title: t(video.title) })} onClick={event => { returnFocus.current = event.currentTarget; setOpen(video.id); }}>
           <div className="om-gallery-poster" data-loaded="true"><img src={video.poster} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" /></div>
-          {!still && inView.has(video.id) && video.platform !== 'x' && <video className="om-gallery-animation" src={video.video} muted loop playsInline autoPlay aria-hidden="true" />}
-          {!still && inView.has(video.id) && video.platform === 'x' && <iframe className="om-gallery-animation" srcDoc={previewDocument(video)} sandbox="allow-scripts" allow="autoplay" tabIndex={-1} aria-hidden="true" title="" />}
           <span className="om-gallery-card-shade" />
           <span className="om-gallery-card-top"><span>{video.variant}</span>{video.code && <span>{t('Made in code')}</span>}<span>{t('{value}s', { value: video.duration })}</span></span>
           {video.platform === 'x' && <span className="om-hub-video-heat" aria-label={t('{count} views on X', { count: compact.format(video.views) })}>{xMark}<RemixIcon name="eye-line" size={12} />{compact.format(video.views)}</span>}
@@ -122,9 +118,12 @@ export function HubVideoWall({ videos, title, onRemix, query = '' }: { videos: H
             <span className="om-gallery-card-arrow"><RemixIcon name="arrow-right-up-line" size={18} /></span>
           </span>
         </button>
+        {/* Previews sit beside the button, never inside it; the button stays the single click target. */}
+        {!still && inView.has(video.id) && video.platform !== 'x' && <video className="om-gallery-animation" src={video.video} muted loop playsInline autoPlay aria-hidden="true" />}
+        {!still && inView.has(video.id) && video.platform === 'x' && <iframe className="om-gallery-animation" srcDoc={previewDocument(video)} sandbox="allow-scripts" allow="autoplay" tabIndex={-1} aria-hidden="true" title="" />}
       </div>
     </article>)}</div>)}</div>
-    {open && <HubVideoDetail videos={shown} id={open} onChange={setOpen} onClose={() => setOpen(null)} returnFocus={returnFocus} onRemix={() => { setOpen(null); onRemix(); }} title={title} />}
+    {open && <HubVideoDetail videos={shown} id={open} onChange={setOpen} onClose={() => setOpen(null)} returnFocus={returnFocus} title={title} />}
   </section>;
 }
 
@@ -145,7 +144,7 @@ My request:
 
 /** The template detail, field for field: same native dialog, module classes, copy and actions as TemplateLibraryDialog's review mode. */
 function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title }: {
-  videos: HubVideo[]; id: string; onChange: (id: string) => void; onClose: () => void; returnFocus: RefObject<HTMLElement | null>; onRemix: () => void; title: string;
+  videos: HubVideo[]; id: string; onChange: (id: string) => void; onClose: () => void; returnFocus: RefObject<HTMLElement | null>; title: string;
 }) {
   const { t, locale } = useI18n();
   const { toasts, showToast, dismissToast } = useToast();
@@ -188,7 +187,7 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title }: {
   }
   const copyColor = (color: string) => void navigator.clipboard.writeText(color).then(() => showToast(t('Copied {color}', { color }), 'info')).catch(() => showToast(t('Could not copy color. Try again.'), 'error'));
   return <div className={styles.library} style={{ display: 'contents' }}>
-    <dialog ref={dialog} className={`${styles.detail} ${styles.reviewDetail} om-hub-video-detail`} aria-label={t('Template preview')}
+    <dialog ref={dialog} className={`${styles.detail} ${styles.reviewDetail} om-hub-video-detail`} aria-label={t('Video preview')}
       onCancel={event => { if (event.target !== dialog.current) return; event.preventDefault(); onClose(); }}
       onKeyDown={event => {
         if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, video')) return;
@@ -224,7 +223,7 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title }: {
                 <div><strong>{video.author}</strong></div>
                 <Tooltip withinDialog wrap label={t('Source')}><a className={styles.sourceLink} href={video.post} target="_blank" rel="noreferrer" aria-label={t('Source')}><MotionIcon name="arrow-up-right" size={18} /></a></Tooltip>
               </div>
-              <section className={styles.reviewResources} aria-label={t('Template resources')}>
+              <section className={styles.reviewResources} aria-label={t('Video info')}>
                 <a className={`om-text-link ${styles.repositoryLink}`} data-quiet href={video.post} target="_blank" rel="noreferrer">{video.platform === 'x' ? <>{xMark}{t('View on X')}</> : <><MotionIcon name="arrow-up-right" size={16} />{t('View original')}</>}</a>
                 <div className={styles.reviewResourceActions}>{motionDocuments[video.id] && <Tooltip withinDialog wrap label="motion.md" description={t('Download the shot and motion notes.')}>
                   <button className={`om-text-link ${styles.repositoryLink}`} data-quiet disabled={downloading} onClick={() => void downloadMotion()}><MotionIcon name="download" size={17} />{t(downloading ? 'Downloading…' : 'Download motion.md')}</button>
@@ -273,7 +272,7 @@ function HubVideoDetail({ videos, id, onChange, onClose, returnFocus, title }: {
             </div>
           </div>
         </div>
-        {similar.length > 0 && <section className={`om-gallery-results ${styles.relatedShelf}`} aria-label={t('Similar templates')}>
+        {similar.length > 0 && <section className={`om-gallery-results ${styles.relatedShelf}`} aria-label={t('Similar videos')}>
           <header className={styles.relatedHeading}><h3>{t('Similar templates')}</h3><p>{t(video.category)}</p></header>
           <div className="om-gallery-masonry">{similar.map(item => <article key={item.id} className="om-gallery-card om-hub-video">
             <div className="om-gallery-card-media"><button className="om-gallery-cover" style={{ aspectRatio: aspect(item) }} aria-label={t('Preview video {title}', { title: t(item.title) })} onClick={() => onChange(item.id)}>

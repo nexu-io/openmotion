@@ -9,13 +9,13 @@ import { ModelAvatar } from './settingsPrimitives';
 import { useMediaCatalog } from './useMediaCatalog';
 import { useAccountSummary } from './AccountSettings';
 import { mediaLabels } from './creativeStudios';
-import { findModelHub, type ModelHubUse } from './modelHubs';
+import { findModelHub } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
 
 /** Aggregates one model family: what it is, what to make with it, and whether this installation can use it. */
 export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings }: {
   id: string; onExplore: () => void; onProvider: (provider: string) => void; onModel: (id: string) => void;
-  onUse: (target: ModelHubUse['target']) => void; onSettings: (section: 'account' | 'subscription') => void;
+  onUse: () => void; onSettings: (section: 'account' | 'subscription') => void;
 }) {
   const { t } = useI18n();
   const [query, setQuery] = useState('');
@@ -56,7 +56,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
         <div className="om-model-hub-actions">
           {signedIn
             ? <>
-              <button className="om-button" data-primary="media" onClick={() => onUse(hub.uses[0].target)}>{t('Open in {studio}', { studio: 'Motion Studio' })}<RemixIcon name="arrow-right-line" size={16} /></button>
+              <button className="om-button" data-primary="media" onClick={onUse}>{t('Open in {studio}', { studio: 'Motion Studio' })}<RemixIcon name="arrow-right-line" size={16} /></button>
               <button className="om-button om-model-hub-connected" onClick={() => onProvider('account')} title={t('Manage connection')}><RemixIcon name="checkbox-circle-fill" size={16} />{t('Connected to {provider}', { provider: 'OpenDesign' })}</button>
             </>
             : <>
@@ -69,7 +69,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
       </div>
     </header>
 
-    {hub.videos.length > 0 && <HubVideoWall videos={hub.videos} query={query} title={hub.title} onRemix={() => onUse({ kind: 'motion' })} />}
+    {hub.videos.length > 0 && <HubVideoWall videos={hub.videos} query={query} title={hub.title} />}
 
 
 
@@ -85,8 +85,9 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
             <p className="om-muted">{t('Two ways to use {model}:', { model: hub.modelName })}</p>
             <div className="om-model-hub-path" data-recommended="true">
               <span className="om-model-hub-path-label">{t('Recommended')}</span>
-              <strong><RemixIcon name="account-circle-line" size={16} />{t('Sign in and subscribe')}</strong>
-              <p>{t('Sign in to OpenDesign with a paid plan and use {model} right away. No API key needed.', { model: hub.modelName })}</p>
+              {/* Signed-in people are never asked to sign in again; they see what their plan needs instead. */}
+              <strong><RemixIcon name="account-circle-line" size={16} />{t(signedIn ? 'Use it with your OpenDesign plan' : 'Sign in and subscribe')}</strong>
+              <p>{t(signedIn ? '{model} appears here as soon as OpenDesign serves it on your plan. No API key needed.' : 'Sign in to OpenDesign with a paid plan and use {model} right away. No API key needed.', { model: hub.modelName })}</p>
               <button className="om-button" data-primary onClick={() => onSettings(signedIn ? 'subscription' : 'account')}>{t(signedIn ? 'View plans' : 'Sign in')}<RemixIcon name="arrow-right-line" size={16} /></button>
             </div>
             <div className="om-model-hub-path">

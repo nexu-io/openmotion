@@ -92,6 +92,7 @@ The application shell reads its destination from the URL query. The native edito
 | Motion Studio | `page=motion` opens editable templates and an action to resume the timeline |
 | Shorts, Marketing and Explainer Studios | `page=shorts`, `page=marketing` or `page=explainer`. Add a supported `scene` to open the generator. A registered `skill` restores its brief on return. |
 | Model overview | `page=model&model=<provider-qualified-id>` lists compatible scenes and links to its provider and generation setup. |
+| Model hub | `page=model-hub&hub=<hub-id>`, for example `hub=gemini-4`. Opens a model family's landing page from its Explore spotlight slide: community videos with their detail preview, plus sign-in and own-key paths. It is a standalone page, so a session's first artifact does not return the viewer to the editor. An unknown `hub` shows a page-unavailable notice. |
 | 3D Studio | `page=3d&skill=three-js` opens the technique brief. Add `scene=text-to-video` for a 3D-style clip. The Agent handoff builds the editable scene. |
 | Asset detail | `page=assets&asset=<assetId>&version=<versionId>` opens the selected local version |
 | Explore | The workspace root or `page=explore` opens featured scenes and template previews. Optional filters such as `community=3d-motion` or `medium=video` restore discovery context |

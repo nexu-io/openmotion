@@ -6,6 +6,7 @@ Explore, modality menus and Studio shortcuts use one [catalogue](../../shared/st
 | --- | --- | --- |
 | Workspace root or OpenMotion wordmark | Explore | Opens Discover. Direct project links resume the editor. |
 | Explore spotlight or primary navigation | Motion Studio | `?page=motion` opens the editable template collection. Choose Open editor to resume the current project on its timeline. |
+| Explore spotlight | Model hub, such as Gemini 4 Neon | `?page=model-hub&hub=gemini-4`. Browse community videos ranked by X views, filter by scene, open a video to copy its recreation instruction or download its `motion.md`, then sign in or connect your own API key. Back to Explore returns to the spotlight. |
 | Explore → Discover, below the community feed | Motion, Design, Cinema, Sound, Shorts, Marketing, Explainer and 3D collections | The button beside each heading opens its Studio. A media example opens its scene with an editable prompt. A technique opens its Skill brief. The media filter narrows the displayed examples. |
 | Explore | Motion design, Product films or Short-form video | `?page=explore&community=motion-design`, `product-films` or `short-form`. View a work, start a scene with its example, or open the corresponding Skill. |
 | Explore | Explainers or 3D motion | `?page=explore&community=explainers` or `3d-motion`. Choose a technique and edit its brief in its Studio. |
