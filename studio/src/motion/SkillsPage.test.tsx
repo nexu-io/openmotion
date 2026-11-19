@@ -24,7 +24,7 @@ const button = (label: string) => [...container.querySelectorAll('button')].find
 it('lists every curated skill with its upstream repository', () => {
   act(() => root.render(<Host />));
   expect(container.querySelectorAll('.om-skill-gallery-card')).toHaveLength(motionSkills.length);
-  expect(motionSkills).toHaveLength(127);
+  expect(motionSkills).toHaveLength(130);
   expect(motionSkills[0].id).toBe('motionmaxxing');
   expect(motionSkills[1].id).toBe('openmotion-growth-teardown');
   expect(motionSkills[2].id).toBe('openmotion-design-styles');
