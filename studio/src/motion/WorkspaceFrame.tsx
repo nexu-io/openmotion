@@ -62,7 +62,8 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const { settings, assets: assetsOpen, skills: skillsOpen, templates: libraryRequested } = page;
   const detailOnly = Boolean(page.template) && !libraryRequested;
   const connectionsOpen = libraryRequested || detailOnly;
-  const hostChrome = window.parent !== window && new URLSearchParams(location.search).get('hostChrome') === '1';
+  // Framed embedding means the host owns navigation, so the embedded page never repeats it.
+  const hostChrome = window.parent !== window && (new URLSearchParams(location.search).get('hostChrome') === '1' || workspacePresentation(location.search).embedded);
   const templatesPage = libraryRequested && !page.creators && !hostChrome;
   // Resource pages cover the editor without unmounting it.
   const pageOpen = templatesPage || page.motion || page.api || Boolean(page.modelOverview) || Boolean(page.modelHub) || Boolean(page.specialty) || page.explore || assetsOpen || skillsOpen || Boolean(page.studio);
