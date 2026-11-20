@@ -208,6 +208,32 @@ test('an entry reaches another creative entry only through its SKILL.md', async 
   assert.deepEqual(crossings, []);
 });
 
+test('non-media Skills reach openmotion-media only through its SKILL.md', async () => {
+  const crossings: string[] = [];
+  for (const { file, text } of await skillMarkdown()) {
+    const [owner] = file.split('/');
+    if (owner === 'openmotion-media') continue;
+    for (const [, target] of withoutCode(text).matchAll(/\]\(<?([^)\s>#]+)/g)) {
+      if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(target)) continue;
+      const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(file), target));
+      const [entry, ...rest] = resolved.split('/');
+      if (entry === 'openmotion-media' && rest.join('/') !== 'SKILL.md') crossings.push(`${file} -> ${resolved}`);
+    }
+  }
+  assert.deepEqual(crossings, []);
+});
+
+test('entry routing tables in openmotion and openmotion-production cover every creative entry consistently', async () => {
+  const bootstrap = await readFile(new URL('openmotion/SKILL.md', skillRoot), 'utf8');
+  const production = await getWorkflow('start', 'production');
+  for (const entry of creativeEntries) {
+    assert.ok(bootstrap.includes(entry), `openmotion/SKILL.md missing ${entry}`);
+    assert.ok(production.content.includes(`../${entry}/SKILL.md`), `openmotion-production/SKILL.md missing link to ${entry}`);
+  }
+  assert.ok(bootstrap.includes('openmotion-production'), 'openmotion/SKILL.md missing openmotion-production');
+  assert.ok(bootstrap.includes('openmotion-media'), 'openmotion/SKILL.md missing openmotion-media');
+});
+
 test('no long sentence is copied between Skill files', async () => {
   // Chinese characters are paired so a twelve-token window covers a clause in either language.
   const tokens = (text: string) => (withoutCode(text).replace(/\]\([^)]*\)/g, ']').match(/\p{Script=Han}+|[A-Za-z0-9_]+/gu) ?? [])
@@ -300,4 +326,42 @@ test('narration and editable captions strategy stays in sound.md and routes link
   const inspection = await getWorkflow('inspection', 'media');
   assert.match(planning.content, /opendesign[\s\S]*job\.result[\s\S]*account/);
   assert.match(inspection.content, /opendesign[\s\S]*job\.result[\s\S]*versionId[\s\S]*version\.result/);
+});
+
+test('OPEND-5424 generation timing, cross-shot consistency and mixed-media boundaries stay single-sourced in materials.md', async () => {
+  const materials = await getWorkflow('materials');
+  assert.match(materials.content, /### Generation timing ladder/);
+  assert.match(materials.content, /## Cross-shot consistency/);
+  assert.match(materials.content, /## Mixed-media recreation boundaries/);
+  assert.match(materials.content, /image-to-video \(I2V\)/);
+  assert.match(materials.content, /Lock one visual anchor first/);
+  assert.match(materials.content, /continuation cut/);
+  assert.match(materials.content, /angle\/scene change/);
+  assert.match(materials.content, /action-ready before I2V/);
+
+  for (const [workflow, section, anchors] of [
+    ['director', 'start', ['#generation-timing-ladder', '#cross-shot-consistency']],
+    ['recreate', 'start', ['#generation-timing-ladder', '#cross-shot-consistency', '#mixed-media-recreation-boundaries']],
+    ['template', 'start', ['#generation-timing-ladder', '#cross-shot-consistency']],
+    ['video-to-template', 'rebuild', ['#generation-timing-ladder', '#cross-shot-consistency', '#mixed-media-recreation-boundaries']],
+    ['media', 'planning', ['#generation-timing-ladder', '#cross-shot-consistency']],
+  ] as const) {
+    const doc = await getWorkflow(section, workflow);
+    for (const anchor of anchors) {
+      assert.ok(doc.content.includes(`materials.md${anchor}`), `${workflow}/${section} must link to materials.md${anchor}`);
+    }
+  }
+
+  const jobs = await getWorkflow('jobs', 'media');
+  assert.match(jobs.content, /dependent cross-shot chains/i);
+  assert.match(jobs.content, /unapproved extra paid image-edit jobs/i);
+  const inspection = await getWorkflow('inspection', 'media');
+  assert.match(inspection.content, /beginning pose/);
+  assert.match(inspection.content, /side-by-side against the anchor/);
+
+  const reference = await getWorkflow('reference');
+  assert.match(reference.content, /cut audit[\s\S]*measure cuts[\s\S]*three frames/);
+  const v2tVerify = await getWorkflow('verification', 'video-to-template');
+  assert.ok(v2tVerify.content.includes('reference-video.md#check-fidelity-and-edit-dependencies'));
+  assert.doesNotMatch(v2tVerify.content, /no fixed number of permitted rounds/);
 });

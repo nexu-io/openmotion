@@ -32,7 +32,7 @@ Hyperframes 指引只在 [原生引擎边界](native.md#engine-guidance-boundary
 
 | 本次范围 | 必需参考（可复用已读正文） |
 | --- | --- |
-| 需要选择、获取或替换素材，含原创、模板适配、复刻与局部修改 | [素材选择与来源优先级](materials.md)；沿用所选路线的能力和保持项；仅查看、预览或导出既有内容不触发 |
+| 需要选择、获取或替换素材，含原创、模板适配、复刻与局部修改 | [素材选择与来源优先级](materials.md)（含生成时机阶梯、跨镜头一致性与混合模态复刻边界）；沿用所选路线的能力和保持项；仅查看、预览或导出既有内容不触发 |
 | 依据 [生成边界](materials.md#generation-boundary) 确认需要生成素材 | 按需读取 [openmotion-media](../../openmotion-media/SKILL.md) |
 | Selecting/replacing fonts, changing text hierarchy, or diagnosing typography | [Typography](typography.md); preserve the selected route and established identity. Local edits cover affected text only; unchanged preview/export and audio-only work do not trigger selection. |
 | 原创新片／大幅重编 | 所选 director 入口负责自己的创作读集；实际受影响内容应用共享 [审片](review.md)。 |
