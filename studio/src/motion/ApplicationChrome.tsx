@@ -74,11 +74,32 @@ export function WorkspaceUtilityActions({ openSettings }: { openSettings: (secti
 
 export function ApplicationAccountMenu({ settings, openSettings }: { settings: SettingsSection | null; openSettings: (section: SettingsSection) => void }) {
   const { t, locale, setLocale } = useI18n();
-  const { account } = useAccountSummary();
-  const userName = account?.user?.name?.trim() || account?.user?.email?.trim() || t('Account');
-  const avatarInitial = avatarSegmenter.segment(userName)[Symbol.iterator]().next().value?.segment;
-  return <Menu tooltip={t('Account menu')} modal={false} side="bottom" align="end" aria-label={t('Account menu')} className="om-account-menu om-selection-panel om-menu-panel" trigger={<Button variant="plain" type="button" className="om-nav-item om-account-trigger" aria-current={settings === 'account' || settings === 'subscription' ? 'page' : undefined} aria-label={t('Account menu')}><span className="om-avatar" aria-hidden="true">{account?.state === 'signed-in' ? avatarInitial : <RemixIcon className="om-default-avatar-icon" name="user-3-line" size={14} />}</span></Button>}>
-      <MenuItem onClick={() => openSettings('account')}><span className="om-menu-label"><RemixIcon name="user-3-line" size={16} /><strong>{userName}</strong></span></MenuItem><MenuSeparator />
+  const { account, refresh } = useAccountSummary();
+  const signedIn = account?.state === 'signed-in';
+  const expired = account?.state === 'reauth-required';
+  const authorizing = account?.state === 'authorizing';
+  const signedOut = account?.state === 'signed-out' || account?.state === 'unavailable';
+  const accountState = signedIn ? 'signed-in' : expired ? 'reauth-required' : authorizing ? 'authorizing' : signedOut ? 'signed-out' : undefined;
+  const name = account?.user?.name?.trim();
+  const email = account?.user?.email?.trim();
+  const named = Boolean(name) && name!.toLowerCase() !== email?.toLowerCase();
+  const userName = (signedIn || expired) ? (named ? name! : email || t('Account')) : t('Account');
+  const avatarInitial = signedIn ? avatarSegmenter.segment(userName)[Symbol.iterator]().next().value?.segment : undefined;
+  const status = signedOut ? t('Not signed in') : expired ? t('Sign-in expired') : authorizing ? t('Signing in…') : signedIn ? (named && email ? email : t('Signed in')) : undefined;
+  const showSignIn = signedOut || expired;
+  const triggerTooltip = signedOut || expired || authorizing
+    ? `${t('Account')} · ${status}`
+    : signedIn && userName !== t('Account')
+      ? `${userName} · ${t('Account menu')}`
+      : t('Account menu');
+  return <>
+    {showSignIn && <Tooltip label={t(expired ? 'Sign in again' : 'Sign in with OpenDesign')}><Button variant="plain" type="button" className="om-button om-account-status-pill" onClick={() => openSettings('account')}><span className="om-account-status-dot" aria-hidden="true" />{status}</Button></Tooltip>}
+    <Menu tooltip={triggerTooltip} modal={false} side="bottom" align="end" aria-label={t('Account menu')} className="om-account-menu om-selection-panel om-menu-panel" onOpenChange={open => { if (open) void refresh?.(); }} trigger={<Button variant="plain" type="button" className="om-nav-item om-account-trigger" data-account-state={accountState} aria-current={settings === 'account' || settings === 'subscription' ? 'page' : undefined} aria-label={t('Account menu')}><span className="om-avatar" aria-hidden="true">{signedIn ? avatarInitial : <RemixIcon className="om-default-avatar-icon" name="user-3-line" size={14} />}</span>{showSignIn && <span className="om-account-trigger-dot" aria-hidden="true" />}</Button>}>
+      {showSignIn ? <div className="om-account-menu-banner" data-account-state={accountState}>
+        <div className="om-account-menu-banner-head"><span className="om-menu-label"><RemixIcon name="user-3-line" size={16} /><strong>{userName}</strong></span><span className="om-badge" data-status="warning"><span className="om-account-status-dot" aria-hidden="true" />{status}</span></div>
+        <p className="om-account-menu-hint">{t(expired ? 'Sign in again to keep using your account models, subscription and usage.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>
+        <MenuItem className="om-account-menu-cta" onClick={() => openSettings('account')}><span className="om-menu-label"><RemixIcon name="login-box-line" size={15} /><strong>{t(expired ? 'Sign in again' : 'Sign in with OpenDesign')}</strong></span></MenuItem>
+      </div> : <MenuItem onClick={() => openSettings('account')}><span className="om-menu-label"><RemixIcon name="user-3-line" size={16} /><span className="om-account-menu-copy"><span className="om-account-menu-head"><strong>{userName}</strong></span>{status && <span className="om-account-menu-status">{status}</span>}</span></span></MenuItem>}<MenuSeparator />
       <MenuItem onClick={() => openSettings('subscription')}><span className="om-menu-label"><RemixIcon name="bank-card-line" size={16} />{t('Subscription & usage')}</span></MenuItem>
       <MenuSeparator />
       <MenuItem shortcut="⌘ ," onClick={() => openSettings('general')}><span className="om-menu-label"><RemixIcon name="settings-3-line" size={16} />{t('Settings')}</span></MenuItem>
@@ -89,5 +110,6 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
       <MenuSeparator />
       {repositorySupportLinks.map(link => <MenuItem key={link.href} render={<a href={link.href} target="_blank" rel="noopener noreferrer" />}><span className="om-menu-label"><RemixIcon name={link.icon} size={16} />{t(link.label)}<RemixIcon className="om-menu-external" name="external-link-line" size={14} /></span></MenuItem>)}
       <MenuItem onClick={() => openSettings('help')}><span className="om-menu-label"><RemixIcon name="question-line" size={16} />{t('Help')}</span></MenuItem>
-    </Menu>;
+    </Menu>
+  </>;
 }

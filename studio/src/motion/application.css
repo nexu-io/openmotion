@@ -520,6 +520,8 @@
 @container (max-width: 560px) {
   .om-app-header-links { display: none; }
   .om-app-header-actions { gap: var(--motion-space-2); }
+  [data-motion-studio] .om-button.om-account-status-pill { display: none; }
+  [data-motion-studio] .om-account-trigger .om-account-trigger-dot { display: block; }
 }
 @media (max-width: 420px) {
   .om-app-header { gap: var(--motion-space-4); padding-inline: var(--motion-space-6); }

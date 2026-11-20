@@ -86,9 +86,11 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const capabilities = <ul className="om-account-capabilities" aria-label={t('Multimodal')}>{MULTIMODAL_CAPABILITIES.map(item => <li key={item.label}><RemixIcon name={item.icon} size={16} />{t(item.label)}</li>)}</ul>;
   const offerNote = offer && <p className="om-account-offer"><RemixIcon name="sparkling-fill" size={15} /><strong>{t(offer.title)}</strong><span>{t(offer.detail)}</span></p>;
   const name = account?.user?.name?.trim(), email = account?.user?.email, named = Boolean(name) && name!.toLowerCase() !== email?.toLowerCase();
+  const accountState = signedIn ? 'signed-in' : expired ? 'reauth-required' : pending ? 'authorizing' : 'signed-out';
+  const identityStatus = signedIn ? undefined : expired ? t('Sign-in expired') : pending ? t('Signing in…') : t('Not signed in');
   return <div className="om-settings-page">
     {state.error ? <SettingsError retry={() => void state.refresh(true)} /> : !account ? <SettingsLoading /> : <>
-      <div className="om-account-identity"><span className="om-avatar"><RemixIcon name="user-3-line" size={36} /></span><h1 className="om-title">{subscription ? t('Subscription & usage') : named ? name : email || t('Your OpenDesign account')}</h1><p className="om-muted">{(subscription || named) && email ? email : t('Your creative workspace, connected.')}</p></div>
+      <div className="om-account-identity" data-account-state={accountState}><span className="om-avatar"><RemixIcon name="user-3-line" size={36} /></span><h1 className="om-title">{subscription ? t('Subscription & usage') : named ? name : email || t('Your OpenDesign account')}</h1>{signedIn ? <p className="om-muted">{(subscription || named) && email ? email : t('Your creative workspace, connected.')}</p> : <>{(subscription || named) && email && <p className="om-muted">{email}</p>}{identityStatus && <span className="om-badge" data-status={pending ? undefined : 'warning'}>{!pending && <span className="om-account-status-dot" aria-hidden="true" />}{identityStatus}</span>}</>}</div>
       {signedOutGuide ? <section className="om-card om-plan-guide">
         <div className="om-plan-guide-head"><h2 className="om-title">{t('Sign in to start multimodal generation')}</h2><span className="om-badge" data-active="true">{t('Plus and above')}</span></div>
         <p className="om-muted">{t('Sign in, then upgrade to Plus to generate images, video, voiceovers and music right in OpenMotion. No API keys to set up.')}</p>

@@ -346,7 +346,10 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "升级到 Plus，即可生成图片、视频、配音和音乐；Pro、Max 同样包含。",
     "Upgrade to Plus": "升级到 Plus",
     "Annual offer": "年付优惠",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus、Pro、Max 按年付比按月付省 30%。"
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus、Pro、Max 按年付比按月付省 30%。",
+    "Not signed in": "未登录",
+    "Sign-in expired": "登录已失效",
+    "Signing in…": "正在登录…"
   },
   "ja": {
     "Local Agents": "ローカル Agent",
@@ -469,7 +472,14 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Plus にアップグレードすると画像・動画・ナレーション・音楽を生成できます。Pro と Max にも含まれます。",
     "Upgrade to Plus": "Plus にアップグレード",
     "Annual offer": "年払い特典",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus・Pro・Max は年払いで月払いより 30% お得です。"
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus・Pro・Max は年払いで月払いより 30% お得です。",
+    "Not signed in": "未ログイン",
+    "Sign-in expired": "ログインの有効期限切れ",
+    "Signing in…": "ログイン中…",
+    "Sign in with OpenDesign": "OpenDesign でサインイン",
+    "Sign in again": "もう一度サインイン",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "OpenDesign にサインインして、モデル・サブスクリプション・利用状況を同期します。",
+    "Sign in again to keep using your account models, subscription and usage.": "アカウントのモデル・サブスクリプション・利用状況を引き続き使うには、もう一度サインインしてください。"
   },
   "ko": {
     "What's new": "새로운 소식",
@@ -487,7 +497,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Plus로 업그레이드하면 이미지, 영상, 내레이션, 음악을 생성할 수 있습니다. Pro와 Max에도 포함됩니다.",
     "Upgrade to Plus": "Plus로 업그레이드",
     "Annual offer": "연간 결제 혜택",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro, Max는 연간 결제 시 월간 결제보다 30% 저렴합니다."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro, Max는 연간 결제 시 월간 결제보다 30% 저렴합니다.",
+    "Sign in": "로그인",
+    "Signed in": "로그인됨",
+    "Not signed in": "로그인되지 않음",
+    "Sign-in expired": "로그인 만료됨",
+    "Signing in…": "로그인 중…",
+    "Sign in with OpenDesign": "OpenDesign으로 로그인",
+    "Sign in again": "다시 로그인",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "OpenDesign에 로그인해 모델, 구독 및 사용량을 동기화하세요.",
+    "Sign in again to keep using your account models, subscription and usage.": "계정 모델, 구독 및 사용량을 계속 이용하려면 다시 로그인하세요."
   },
   "de": {
     "What's new": "Neuigkeiten",
@@ -505,7 +524,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Upgrade auf Plus, um Bilder, Videos, Voiceovers und Musik zu erstellen. Auch in Pro und Max enthalten.",
     "Upgrade to Plus": "Auf Plus upgraden",
     "Annual offer": "Jahresangebot",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro und Max kosten bei jährlicher Zahlung 30 % weniger."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro und Max kosten bei jährlicher Zahlung 30 % weniger.",
+    "Sign in": "Anmelden",
+    "Signed in": "Angemeldet",
+    "Not signed in": "Nicht angemeldet",
+    "Sign-in expired": "Anmeldung abgelaufen",
+    "Signing in…": "Anmeldung läuft…",
+    "Sign in with OpenDesign": "Mit OpenDesign anmelden",
+    "Sign in again": "Erneut anmelden",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Melde dich bei OpenDesign an, um Modelle, Abo und Nutzung zu synchronisieren.",
+    "Sign in again to keep using your account models, subscription and usage.": "Melde dich erneut an, um Kontomodelle, Abo und Nutzung weiterzuverwenden."
   },
   "fr": {
     "What's new": "Nouveautés",
@@ -523,7 +551,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Passez à Plus pour générer images, vidéos, voix off et musique. Pro et Max les incluent aussi.",
     "Upgrade to Plus": "Passer à Plus",
     "Annual offer": "Offre annuelle",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro et Max coûtent 30 % de moins en paiement annuel."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro et Max coûtent 30 % de moins en paiement annuel.",
+    "Sign in": "Se connecter",
+    "Signed in": "Connecté",
+    "Not signed in": "Non connecté",
+    "Sign-in expired": "Session expirée",
+    "Signing in…": "Connexion…",
+    "Sign in with OpenDesign": "Se connecter avec OpenDesign",
+    "Sign in again": "Se reconnecter",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Connectez-vous à OpenDesign pour synchroniser vos modèles, votre abonnement et votre utilisation.",
+    "Sign in again to keep using your account models, subscription and usage.": "Reconnectez-vous pour continuer à utiliser vos modèles, votre abonnement et votre utilisation."
   },
   "ru": {
     "What's new": "Что нового",
@@ -541,7 +578,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Перейдите на Plus, чтобы создавать изображения, видео, озвучку и музыку. Pro и Max тоже это включают.",
     "Upgrade to Plus": "Перейти на Plus",
     "Annual offer": "Годовая выгода",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro и Max на 30% дешевле при оплате за год."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro и Max на 30% дешевле при оплате за год.",
+    "Sign in": "Войти",
+    "Signed in": "Вход выполнен",
+    "Not signed in": "Не выполнен вход",
+    "Sign-in expired": "Сессия истекла",
+    "Signing in…": "Выполняется вход…",
+    "Sign in with OpenDesign": "Войти через OpenDesign",
+    "Sign in again": "Войти снова",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Войдите в OpenDesign, чтобы синхронизировать модели, подписку и лимиты.",
+    "Sign in again to keep using your account models, subscription and usage.": "Войдите снова, чтобы продолжить использовать модели аккаунта, подписку и лимиты."
   },
   "es": {
     "What's new": "Novedades",
@@ -559,7 +605,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Mejora a Plus para generar imágenes, vídeo, locuciones y música. Pro y Max también lo incluyen.",
     "Upgrade to Plus": "Mejorar a Plus",
     "Annual offer": "Oferta anual",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro y Max cuestan un 30 % menos con pago anual."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro y Max cuestan un 30 % menos con pago anual.",
+    "Sign in": "Iniciar sesión",
+    "Signed in": "Sesión iniciada",
+    "Not signed in": "Sin iniciar sesión",
+    "Sign-in expired": "Sesión caducada",
+    "Signing in…": "Iniciando sesión…",
+    "Sign in with OpenDesign": "Iniciar sesión con OpenDesign",
+    "Sign in again": "Iniciar sesión de nuevo",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Inicia sesión con OpenDesign para sincronizar tus modelos, suscripción y uso.",
+    "Sign in again to keep using your account models, subscription and usage.": "Vuelve a iniciar sesión para seguir usando tus modelos, suscripción y uso."
   },
   "pt-BR": {
     "What's new": "Novidades",
@@ -577,7 +632,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Faça upgrade para o Plus para gerar imagens, vídeos, narrações e música. Pro e Max também incluem.",
     "Upgrade to Plus": "Fazer upgrade para o Plus",
     "Annual offer": "Oferta anual",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro e Max custam 30% menos no pagamento anual."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro e Max custam 30% menos no pagamento anual.",
+    "Sign in": "Entrar",
+    "Signed in": "Conectado",
+    "Not signed in": "Não conectado",
+    "Sign-in expired": "Sessão expirada",
+    "Signing in…": "Entrando…",
+    "Sign in with OpenDesign": "Entrar com OpenDesign",
+    "Sign in again": "Entrar novamente",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Entre com o OpenDesign para sincronizar seus modelos, assinatura e uso.",
+    "Sign in again to keep using your account models, subscription and usage.": "Entre novamente para continuar usando os modelos da conta, assinatura e uso."
   },
   "it": {
     "What's new": "Novità",
@@ -595,7 +659,16 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Passa a Plus per generare immagini, video, voci fuori campo e musica. Anche Pro e Max li includono.",
     "Upgrade to Plus": "Passa a Plus",
     "Annual offer": "Offerta annuale",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro e Max costano il 30% in meno con il pagamento annuale."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro e Max costano il 30% in meno con il pagamento annuale.",
+    "Sign in": "Accedi",
+    "Signed in": "Connesso",
+    "Not signed in": "Non connesso",
+    "Sign-in expired": "Accesso scaduto",
+    "Signing in…": "Accesso in corso…",
+    "Sign in with OpenDesign": "Accedi con OpenDesign",
+    "Sign in again": "Accedi di nuovo",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Accedi con OpenDesign per sincronizzare modelli, abbonamento e utilizzo.",
+    "Sign in again to keep using your account models, subscription and usage.": "Accedi di nuovo per continuare a usare i modelli dell’account, l’abbonamento e l’utilizzo."
   },
   "tr": {
     "What's new": "Yenilikler",
@@ -613,6 +686,15 @@
     "Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.": "Plus'a yükselterek görsel, video, seslendirme ve müzik üret. Pro ve Max de bunları içerir.",
     "Upgrade to Plus": "Plus'a yükselt",
     "Annual offer": "Yıllık teklif",
-    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro ve Max yıllık ödemede %30 daha ucuz."
+    "Plus, Pro and Max cost 30% less when billed yearly.": "Plus, Pro ve Max yıllık ödemede %30 daha ucuz.",
+    "Sign in": "Giriş yap",
+    "Signed in": "Giriş yapıldı",
+    "Not signed in": "Giriş yapılmadı",
+    "Sign-in expired": "Oturum süresi doldu",
+    "Signing in…": "Giriş yapılıyor…",
+    "Sign in with OpenDesign": "OpenDesign ile giriş yap",
+    "Sign in again": "Tekrar giriş yap",
+    "Sign in with OpenDesign to sync your models, subscription and usage.": "Modellerini, aboneliğini ve kullanımını eşitlemek için OpenDesign ile giriş yap.",
+    "Sign in again to keep using your account models, subscription and usage.": "Hesap modellerini, aboneliğini ve kullanımını kullanmaya devam etmek için tekrar giriş yap."
   }
 }

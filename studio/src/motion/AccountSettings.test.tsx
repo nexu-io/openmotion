@@ -127,12 +127,27 @@ it('replaces missing billing metrics with a dashboard link on 403 and restores t
 
 it('shows what signing in unlocks to signed-out people', async () => {
   const page = await open({ state: 'signed-out' }, 'zh-CN');
+  expect(page.querySelector('.om-account-identity')?.getAttribute('data-account-state')).toBe('signed-out');
+  expect(page.querySelector('.om-account-identity .om-badge')?.textContent).toBe('未登录');
+  expect(page.querySelector('.om-account-identity .om-badge')?.getAttribute('data-status')).toBe('warning');
+  expect(page.querySelector('.om-account-identity p')).toBeNull();
   expect(page.querySelector('.om-plan-guide h2')?.textContent).toBe('登录 OpenDesign，开始多模态生成');
   expect(page.querySelector('.om-plan-guide .om-badge')?.textContent).toBe('Plus 及以上');
   expect(page.querySelector('.om-plan-guide .om-button')?.textContent).toBe('使用 OpenDesign 登录');
   expect([...page.querySelectorAll('.om-account-capabilities li')].map(item => item.textContent)).toEqual(['图片', '视频', '配音', '音乐']);
   expect(page.querySelector('.om-plan-guide p')?.textContent).toBe('登录后升级到 Plus，即可在 OpenMotion 里直接生成图片、视频、配音和音乐，不用配置 API 密钥。');
   expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
+});
+
+it('shows expired and authorizing status badges in the account identity header', async () => {
+  let page = await open({ state: 'reauth-required', user: { name: 'Ada', email: 'ada@example.test' } });
+  expect(page.querySelector('.om-account-identity h1')?.textContent).toBe('Ada');
+  expect(page.querySelector('.om-account-identity p')?.textContent).toBe('ada@example.test');
+  expect(page.querySelector('.om-account-identity .om-badge')?.textContent).toBe('Sign-in expired');
+  expect(page.querySelector('.om-account-identity .om-badge')?.getAttribute('data-status')).toBe('warning');
+  act(() => root!.unmount()); document.body.innerHTML = '';
+  page = await open({ state: 'authorizing' });
+  expect(page.querySelector('.om-account-identity .om-badge')?.textContent).toBe('Signing in…');
 });
 
 it('offers Free and Go accounts an upgrade through the registered entry source, and nothing to paid plans', async () => {
