@@ -212,8 +212,9 @@ export class OpenDesignAccount {
     this.stateWrites = this.stateWrites.catch(() => {}).then(async () => { if (generation === this.generation) await task(); });
     return this.stateWrites;
   }
+  private explicitBinary() { return this.options.binary || process.env.OPENMOTION_ACCOUNT_CLI; }
   private async resolveRuntime(install = false) {
-    if (this.options.binary || process.env.OPENMOTION_ACCOUNT_CLI) return this.options.binary || process.env.OPENMOTION_ACCOUNT_CLI!;
+    if (this.explicitBinary()) return this.explicitBinary()!;
     // A sign-in retry must rediscover a connector replaced since startup.
     if (!install && this.runtime) return this.runtime;
     // Source installations receive the locked connector with their dependencies; application artifacts omit it.
@@ -249,7 +250,8 @@ export class OpenDesignAccount {
       ...(this.connecting ? { authorizationUrl: this.authorizationUrl, userCode: this.userCode, ...(browser ? { browserOpened: browser === 'success' } : {}), ...(this.syncing ? { syncing: true } : {}) } : {}),
       ...(this.attempt ? { attempt: { ...this.attempt, stages: [...this.attempt.stages] } } : {}),
       error: this.error, errorCode: this.errorCode, consoleUrl,
-      ...(!this.connecting && this.errorCode === 'connector_unavailable' ? { connectorInstall: { command: manualInstallCommand(connectorRuntime(this.directory)) } } : {}) };
+      // An explicit connector path is used as is, so installing into the private directory would not help it.
+      ...(!this.connecting && this.errorCode === 'connector_unavailable' && !this.explicitBinary() ? { connectorInstall: { command: manualInstallCommand(connectorRuntime(this.directory)) } } : {}) };
   }
   private async billingSummary(profile: Profile) {
     // Other connector environments retain their own endpoint and credential handling.

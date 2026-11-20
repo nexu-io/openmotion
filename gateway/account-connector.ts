@@ -25,9 +25,10 @@ export class ConnectorUnavailable extends Error {
 /** The private installation, outside the application so it survives upgrades and needs nothing on PATH. */
 export const connectorRuntime = (dataDirectory: string) => path.join(dataDirectory, 'account', 'runtime');
 const installArgs = (root: string) => ['install', '--prefix', root, '--ignore-scripts', '--no-audit', '--no-fund', '--save-exact', `${connectorPackage}@${connectorVersion}`];
-/** What a person can run in a terminal when automatic installation keeps failing. */
-export function manualInstallCommand(root: string) {
-  return `npm install --prefix "${root}" --ignore-scripts ${connectorPackage}@${connectorVersion}`;
+/** What a person can run in a terminal when automatic installation keeps failing. POSIX shells expand `$` and backticks in double quotes. */
+export function manualInstallCommand(root: string, platform = process.platform) {
+  const quoted = platform === 'win32' ? `"${root}"` : `'${root.replaceAll("'", `'\\''`)}'`;
+  return `npm install --prefix ${quoted} --ignore-scripts ${connectorPackage}@${connectorVersion}`;
 }
 
 /**
@@ -64,13 +65,14 @@ export async function verifyConnector(from: string) {
 }
 
 /** Installs the locked connector into `root` with lifecycle scripts disabled; reuses an installation that already works. */
-export async function installConnector(root: string, options: { signal?: AbortSignal; findNpm?: () => Promise<string | undefined> } = {}) {
+export async function installConnector(root: string, options: { signal?: AbortSignal; timeoutMs?: number; findNpm?: () => Promise<string | undefined> } = {}) {
   const manifest = path.join(root, 'package.json');
   try { return await verifyConnector(manifest); } catch { /* Install below. */ }
   const npmCli = await (options.findNpm ?? findNpmCli)();
   if (!npmCli) throw new ConnectorUnavailable('npm_missing', 'npm was not found next to ' + process.execPath + ' or on PATH');
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  try { await execute(process.execPath, [npmCli, ...installArgs(root)], { timeout: 300_000, maxBuffer: 1024 * 1024, signal: options.signal, windowsHide: true }); }
-  catch (error) { throw new ConnectorUnavailable('install_failed', error); }
+  try {
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    await execute(process.execPath, [npmCli, ...installArgs(root)], { timeout: options.timeoutMs ?? 300_000, maxBuffer: 1024 * 1024, signal: options.signal, windowsHide: true });
+  } catch (error) { throw new ConnectorUnavailable('install_failed', error); }
   try { return await verifyConnector(manifest); } catch (error) { throw new ConnectorUnavailable('start_failed', error); }
 }

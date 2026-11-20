@@ -168,13 +168,14 @@ export async function setup(options) {
         ...(plan.host === 'codex' ? { skillsDirectory: targets[0] } : {}) };
       // The registered MCP launcher must be usable even if Harness starts it synchronously.
       await writeJSON(stateFile, state); wroteState = true;
+      // Before registration, so a host starting the service right away does not run a second npm into the same directory.
+      await prepareAccountConnector(appRoot, dataDirectory);
       await plan.register();
       if (plan.host === 'deepseek' && previous?.hosts?.deepseek?.bundleDirectory) {
         console.error('OpenMotion: previous Harness bundle retained at ' + previous.hosts.deepseek.bundleDirectory + '. Refresh host Tools/Skills; remove this old bundle only after the host has stopped.');
       }
       for (const item of directories) await rm(item.backup, { recursive: true, force: true }).catch(error => console.error('Old instruction backup retained: ' + error.message));
       await startNativePreparation(appRoot).catch(error => console.error('OpenMotion: background preparation could not start; retry in Studio or run prepare. ' + error.message));
-      await prepareAccountConnector(appRoot, dataDirectory);
       let onboarding = await prepareInstallationFlow({ appRoot, dataDirectory, templateEnvironment,
         host: plan.host, onboardingOutput: options.onboardingOutput, codex: options.codex, expectedVersion: manifest.version });
       onboarding.directAccess = directAccess(home, plan.host, appRoot, options);
@@ -221,7 +222,8 @@ async function prepareAccountConnector(appRoot, dataDirectory) {
   try {
     const connector = await import(pathToFileURL(path.join(appRoot, 'gateway/account-connector.ts')).href);
     console.error('OpenMotion: preparing the OpenDesign sign-in component.');
-    await connector.installConnector(connector.connectorRuntime(dataDirectory));
+    // Bounded so a slow registry cannot hold up setup; the service installs it at first sign-in instead.
+    await connector.installConnector(connector.connectorRuntime(dataDirectory), { timeoutMs: 60_000 });
   } catch (error) {
     console.error('OpenMotion: the OpenDesign sign-in component will be prepared at first sign-in. ' + (error.detail || error.message));
   }

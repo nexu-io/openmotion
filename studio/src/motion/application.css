@@ -135,8 +135,6 @@
 .om-account-metrics > .om-card { display: grid; gap: var(--motion-space-8); }
 .om-account-metrics p { margin-bottom: 0; }
 .om-account-code { display: block; margin-top: var(--motion-space-12); font-family: var(--motion-font-mono); font-size: var(--motion-text-heading); }
-.om-account-command { display: flex; align-items: center; gap: var(--motion-space-8); margin-top: var(--motion-space-12); padding: var(--motion-space-8) var(--motion-space-8) var(--motion-space-8) var(--motion-space-12); border: 1px solid var(--motion-border-subtle); border-radius: var(--motion-radius-sm); background: var(--motion-bg); }
-.om-account-command code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-family: var(--motion-font-mono); font-size: var(--motion-text-xs); user-select: all; }
 .om-preference-row { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-24); padding-block: var(--motion-space-20); }
 .om-preference-row + .om-preference-row { border-top: 1px solid var(--motion-border-subtle); }
 .om-preference-row:first-child { padding-top: 0; }

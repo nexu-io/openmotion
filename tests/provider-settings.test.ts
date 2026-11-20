@@ -12,7 +12,7 @@ import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
 import { AccountRequestError, OpenDesignAccount, systemBrowserCommand, type SignInRecord } from '../gateway/account.ts';
-import { ConnectorUnavailable, findNpmCli, installConnector, npmCliCandidates } from '../gateway/account-connector.ts';
+import { ConnectorUnavailable, findNpmCli, installConnector, manualInstallCommand, npmCliCandidates } from '../gateway/account-connector.ts';
 import { createTracker, validProperties } from '../tracking/core.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 import { omEvents } from '../tracking/events.ts';
@@ -383,6 +383,18 @@ test('the connector installer finds npm beside Homebrew and other Node layouts, 
   });
 });
 
+test('the manual connector command quotes the private directory for the shell, and its failure telemetry is valid', t => fixture(async store => {
+  assert.equal(manualInstallCommand("/Users/o'neil/$HOME/runtime", 'darwin'), `npm install --prefix '/Users/o'\\''neil/$HOME/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10`);
+  assert.equal(manualInstallCommand('C:\\Users\\me\\runtime', 'win32'), 'npm install --prefix "C:\\Users\\me\\runtime" --ignore-scripts @powerformer/vela-cli@0.1.10');
+  const records: SignInRecord[] = [];
+  const account = new OpenDesignAccount(store.directory, { binary: path.join(store.directory, 'missing-connector'), log: () => {}, track: record => records.push(record) });
+  t.after(() => account.close());
+  await account.login(); await until(async () => (await account.summary()).state !== 'authorizing');
+  assert.equal(records.length, 1); assert.equal(records[0].error_code, 'connector_unavailable'); assert.equal(records[0].connector_problem, 'start_failed');
+  assert(validProperties(omEvents, 'account_sign_in_result', records[0]), JSON.stringify(records[0]));
+  assert.doesNotMatch(JSON.stringify(records[0]), /missing-connector|ENOENT/);
+}));
+
 test('the connector installation reports why it failed and reuses a working installation', { skip: process.platform === 'win32' }, async t => {
   await fixture(async store => {
     // A stand-in npm: installs a connector whose binary prints the requested version, or fails like an unreachable registry.
@@ -407,6 +419,9 @@ writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __d
     const [offline, detail] = await problem('offline', 'offline'); assert.equal(offline, 'install_failed'); assert.match(detail, /ECONNREFUSED/);
     assert.equal((await problem('wrong', 'wrong'))[0], 'start_failed');
     const binary = await install('ok', 'ok'); assert.match(binary, /vela$/);
+    // A data directory that cannot be written is an installation failure, not a connector that fails to start.
+    await writeFile(path.join(store.directory, 'blocked'), '');
+    assert.equal((await installConnector(path.join(store.directory, 'blocked', 'runtime'), { findNpm: async () => npm }).catch((error: ConnectorUnavailable) => error.problem)), 'install_failed');
     // An existing working installation is reused without running npm again.
     assert.equal(await install('ok', 'offline'), binary);
     assert.equal(await readFile(path.join(store.directory, 'ok', 'npm-calls'), 'utf8'), 'x');
@@ -444,8 +459,8 @@ test('sign-in failures are classified by the stage reached and logged without ac
   const missing = await attempt('', { binary: path.join(store.directory, 'missing-connector'), authorize: false });
   assert.equal(missing.errorCode, 'connector_unavailable');
   assert.match(missing.error ?? '', /couldn't start on this device/);
-  // The fallback installs where the service looks, so it does not depend on the service's PATH.
-  assert.equal(missing.connectorInstall?.command, `npm install --prefix "${path.join(store.directory, 'account', 'runtime')}" --ignore-scripts @powerformer/vela-cli@0.1.10`);
+  // An explicit connector path is used as is, so the private-directory command would not help it.
+  assert.equal(missing.connectorInstall, undefined);
   const denied = await attempt('login-denied');
   assert.equal(denied.errorCode, 'authorization_expired'); assert.equal(denied.attempt?.stages.at(-1), 'device_authorization_result:failed:oauth_denied');
   assert.equal((await attempt('', { authorize: false, authorizationMs: 300 })).errorCode, 'authorization_expired');
