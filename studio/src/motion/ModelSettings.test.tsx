@@ -221,3 +221,16 @@ it('signs in in place from the OpenDesign provider guide without leaving the pag
   await act(async () => click('Cancel'));
   expect(posts).toEqual(['/motion-api/settings/account/login', '/motion-api/settings/account/cancel']);
 });
+
+it('signs in in place even before the account summary loads', async () => {
+  const openAccount = vi.fn(), posts: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') { posts.push(String(url)); return Response.json({ consoleUrl: 'https://console.example', state: 'authorizing' }); }
+    return /\/settings\/account(\?|$)/.test(String(url)) ? Response.json({ error: 'unavailable' }, { status: 503 }) : Response.json({ providers: [account], models: [], defaults: {} });
+  }));
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root!.render(<I18nProvider initialLocale="en"><ModelSettings openAccount={openAccount} providerId="account" /></I18nProvider>));
+  await act(async () => click('Sign in with OpenDesign'));
+  expect(posts).toEqual(['/motion-api/settings/account/login']);
+  expect(openAccount).not.toHaveBeenCalled();
+});

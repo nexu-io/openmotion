@@ -111,12 +111,14 @@ function useProviderValidation(label: string | undefined, baseUrl: string | unde
  * Other signed-in plans keep the account callout. Models below are unchanged.
  */
 function AccountProviderGuide({ provider, openAccount, showToast }: { provider: ProviderConnection; openAccount?: () => void; showToast: ReturnType<typeof useToast>['showToast'] }) {
+  // Until the summary loads (or if it fails), the callout below still signs in here rather than leaving the page.
   const { t } = useI18n(), { state: { account }, busy, action } = useAccountSignIn('provider_detail', showToast, provider);
   const plan = upgradePlan(account);
   if (account && ['signed-out', 'unavailable', 'authorizing', 'reauth-required'].includes(account.state)) return <AccountStatus account={account} busy={busy} action={action} />;
   if (plan && account) return <UpgradeGuide plan={plan} consoleUrl={account.consoleUrl} area="provider_detail" />;
   return <><div className="om-settings-tags">{provider.kinds.map(kind => <span className="om-badge" key={kind}>{t(kindLabels[kind])}</span>)}<span className="om-badge" data-active={provider.configured}>{t(provider.configured ? 'Configured' : 'Not configured')}</span></div>
-    <div className="om-card om-account-callout"><RemixIcon name="account-circle-line" size={28} /><div><h2 className="om-subtitle">{t(provider.configured ? 'Your OpenDesign models, in OpenMotion' : 'One account. Your models, together.')}</h2><p className="om-muted">{t(provider.configured ? 'Account models and your own providers can be selected side by side.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>{provider.configured && provider.reason && <p className="om-muted">{t(provider.reason)}</p>}{openAccount && <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>{t(provider.configured ? 'Manage account' : 'Sign in with OpenDesign')}</Button>}</div></div></>;
+    <div className="om-card om-account-callout"><RemixIcon name="account-circle-line" size={28} /><div><h2 className="om-subtitle">{t(provider.configured ? 'Your OpenDesign models, in OpenMotion' : 'One account. Your models, together.')}</h2><p className="om-muted">{t(provider.configured ? 'Account models and your own providers can be selected side by side.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>{provider.configured && provider.reason && <p className="om-muted">{t(provider.reason)}</p>}{provider.configured ? openAccount && <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>{t('Manage account')}</Button>
+      : <Button variant="ghost" className="om-button h-auto" data-primary disabled={busy} onClick={() => void action('login')}>{t('Sign in with OpenDesign')}</Button>}</div></div></>;
 }
 
 function ProviderDetail({ provider, data, openAccount, showToast, onRemoved }: { provider: ProviderConnection; data: ProviderDirectory; openAccount?: () => void; showToast: ReturnType<typeof useToast>['showToast']; onRemoved: () => void }) {
