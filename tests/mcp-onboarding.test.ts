@@ -66,6 +66,12 @@ test('reference-image and audio guidance is translated in every interface langua
   for (const locale of Object.values(translations) as Record<string, string>[]) {
     for (const [question, answer] of mcpFaq.slice(0, 2)) { assert.ok(locale[question]); assert.ok(locale[answer]); }
   }
+  const refAnswer = mcpFaq.find(([question]) => question === 'Can I generate from a reference image?')![1];
+  assert.match(refAnswer, /OpenDesign Cloud and account video models with first-frame support can animate one image/);
+  assert.match(refAnswer, /2 MiB/);
+  const mediaTool = phase1Tools.find(tool => tool.name === 'openmotion_media_use')!;
+  assert.match(mediaTool.description, /2 MiB for OpenDesign account\/Cloud.*20 MB/);
+  assert.match((mediaTool.inputSchema.properties as Record<string, { description: string }>).referenceAsset.description, /2 MiB for OpenDesign account\/Cloud.*20 MB/);
 });
 
 test('connection guidance exposes the maintained media workflow without asking for credentials', () => {
