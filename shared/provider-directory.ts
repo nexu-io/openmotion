@@ -33,6 +33,8 @@ export type DirectoryModel = ModelMetadata & {
   enabled: boolean; source: 'builtin' | 'live' | 'custom'; mode?: string;
   /** Accepts one input image to edit; set only from the provider's own capability data. */
   supportsImageReference?: boolean;
+  /** Most input images the provider accepts: edit references for images, a first frame for video. */
+  maxInputImages?: number;
   /** Provider-published native options (durations, resolutions, ratios, quality, sizes, profiles). */
   nativeOptions?: Record<string, unknown>;
 };

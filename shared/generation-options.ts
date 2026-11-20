@@ -111,40 +111,51 @@ export function resolveGenerationParameters(model: Model, parameters: Record<str
   }
   const isEdit = hasInputImage || (Array.isArray(resolved.images) && resolved.images.length > 0);
   const imageProfiles = publishedImageProfiles(model, isEdit);
-  if (imageProfiles && (resolved.aspect_ratio !== undefined || resolved.resolution !== undefined)) {
-    if (resolved.size !== undefined) throw new Error('Cannot combine size with aspect_ratio or resolution.');
-    if (resolved.output !== undefined) throw new Error('Cannot combine output with aspect_ratio or resolution.');
-    if (resolved.aspect_ratio !== undefined) {
-      const validRatio = typeof resolved.aspect_ratio === 'string' && imageProfiles.profiles.some(p => p.aspect_ratio === resolved.aspect_ratio);
-      if (!validRatio) {
-        if (parameters.aspect_ratio !== undefined) throw new Error(`Aspect ratio ${String(resolved.aspect_ratio)} is not available for this model.`);
-        delete resolved.aspect_ratio;
-      }
-    }
-    if (resolved.resolution !== undefined) {
-      const validRes = typeof resolved.resolution === 'string' && imageProfiles.profiles.some(p => p.resolution === resolved.resolution);
-      if (!validRes) {
-        if (parameters.resolution !== undefined) throw new Error(`Resolution ${String(resolved.resolution)} is not available for this model.`);
-        delete resolved.resolution;
-      }
-    }
-    const hasRatio = resolved.aspect_ratio !== undefined, hasResolution = resolved.resolution !== undefined;
-    if (hasRatio && hasResolution) {
-      if (!imageProfiles.profiles.some(p => p.aspect_ratio === resolved.aspect_ratio && p.resolution === resolved.resolution)) {
-        if (parameters.aspect_ratio !== undefined || parameters.resolution !== undefined) {
-          throw new Error(`Resolution ${String(resolved.resolution)} is not available for aspect ratio ${String(resolved.aspect_ratio)}.`);
+  if (isOpenDesignMedia(model) && model.modality === 'image') {
+    if (resolved.size !== undefined && resolved.output !== undefined) throw new Error('Cannot combine size with output.');
+    if (imageProfiles && (resolved.aspect_ratio !== undefined || resolved.resolution !== undefined)) {
+      if (resolved.size !== undefined) throw new Error('Cannot combine size with aspect_ratio or resolution.');
+      if (resolved.output !== undefined) throw new Error('Cannot combine output with aspect_ratio or resolution.');
+      if (resolved.aspect_ratio !== undefined) {
+        const validRatio = typeof resolved.aspect_ratio === 'string' && imageProfiles.profiles.some(p => p.aspect_ratio === resolved.aspect_ratio);
+        if (!validRatio) {
+          if (parameters.aspect_ratio !== undefined) throw new Error(`Aspect ratio ${String(resolved.aspect_ratio)} is not available for this model.`);
+          delete resolved.aspect_ratio;
         }
-        delete resolved.aspect_ratio;
-        delete resolved.resolution;
       }
-    } else if (hasRatio) {
-      const matching = imageProfiles.profiles.filter(p => p.aspect_ratio === resolved.aspect_ratio);
-      const preferred = matching.find(p => p.resolution === imageProfiles.default?.resolution) ?? matching[0];
-      if (preferred) resolved.resolution = preferred.resolution;
-    } else if (hasResolution) {
-      const matching = imageProfiles.profiles.filter(p => p.resolution === resolved.resolution);
-      const preferred = matching.find(p => p.aspect_ratio === imageProfiles.default?.aspect_ratio) ?? matching[0];
-      if (preferred) resolved.aspect_ratio = preferred.aspect_ratio;
+      if (resolved.resolution !== undefined) {
+        const validRes = typeof resolved.resolution === 'string' && imageProfiles.profiles.some(p => p.resolution === resolved.resolution);
+        if (!validRes) {
+          if (parameters.resolution !== undefined) throw new Error(`Resolution ${String(resolved.resolution)} is not available for this model.`);
+          delete resolved.resolution;
+        }
+      }
+      const hasRatio = resolved.aspect_ratio !== undefined, hasResolution = resolved.resolution !== undefined;
+      if (hasRatio && hasResolution) {
+        if (!imageProfiles.profiles.some(p => p.aspect_ratio === resolved.aspect_ratio && p.resolution === resolved.resolution)) {
+          if (parameters.aspect_ratio !== undefined || parameters.resolution !== undefined) {
+            throw new Error(`Resolution ${String(resolved.resolution)} is not available for aspect ratio ${String(resolved.aspect_ratio)}.`);
+          }
+          delete resolved.aspect_ratio;
+          delete resolved.resolution;
+        }
+      } else if (hasRatio) {
+        const matching = imageProfiles.profiles.filter(p => p.aspect_ratio === resolved.aspect_ratio);
+        const preferred = matching.find(p => p.resolution === imageProfiles.default?.resolution) ?? matching[0];
+        if (preferred) resolved.resolution = preferred.resolution;
+      } else if (hasResolution) {
+        const matching = imageProfiles.profiles.filter(p => p.resolution === resolved.resolution);
+        const preferred = matching.find(p => p.aspect_ratio === imageProfiles.default?.aspect_ratio) ?? matching[0];
+        if (preferred) resolved.aspect_ratio = preferred.aspect_ratio;
+      }
+    } else if (!imageProfiles && (resolved.aspect_ratio !== undefined || resolved.resolution !== undefined)) {
+      if (resolved.size !== undefined) throw new Error('Cannot combine size with aspect_ratio or resolution.');
+      if (resolved.output !== undefined) throw new Error('Cannot combine output with aspect_ratio or resolution.');
+      if (typeof resolved.aspect_ratio !== 'string' || !resolved.aspect_ratio.trim() || typeof resolved.resolution !== 'string' || !resolved.resolution.trim()) {
+        throw new Error(model.provider === 'account'
+          ? 'OpenDesign account image requests require both aspect_ratio and resolution together.'
+          : 'OpenDesign Cloud image requests require both aspect_ratio and resolution together, or an explicit output object.');
+      }
     }
   }
   return resolved;

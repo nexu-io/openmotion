@@ -1060,3 +1060,67 @@ test('cancelling a queued account image recovery removes partial files despite a
   assert.equal(JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')).length, 1);
   await assert.rejects(access(directory));
 }));
+
+test('AccountRequestError classifies local CLI flag errors as invalid requests rather than connection failures', () => {
+  const cases = [
+    'Error: if any flags in the group [aspect-ratio resolution] are set they must all be set; missing [aspect-ratio]\n',
+    'Error: if any flags in the group [size aspect-ratio] are set none of the others can be; [aspect-ratio size] were all set\n',
+    'Error: unknown flag: --bad-flag\n',
+    'Error: invalid argument "abc" for "--duration" flag: strconv.ParseInt: parsing "abc": invalid syntax\n',
+    'Error: required flag(s) "model" not set\n',
+  ];
+  for (const stderr of cases) {
+    const error = new AccountRequestError(stderr);
+    assert.equal(error.status, undefined, stderr);
+    assert.equal(error.code, undefined, stderr);
+    assert.equal(error.message, 'OpenDesign rejected this request for the selected model. Choose another model or change the options, then try again.', stderr);
+  }
+  const connection = new AccountRequestError('spawn failed');
+  assert.equal(connection.message, 'OpenDesign account request failed. Check your connection and sign in again if needed.');
+});
+
+test('account video first-frame uses --first-frame and OpenDesign providers reject reference images over 2 MiB before queueing', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory) });
+  t.after(() => gateway.close());
+  await signIn(account); await account.models(true);
+  await writeFile(path.join(account.home, 'fixture-video'), await mediaBytes('video'));
+  const api = new Phase1Service(store, pluginRoot, { origin: () => 'http://localhost:4173', nativeUrl: () => undefined,
+    openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
+  const models = (await gateway.listModels({ provider: 'account', modality: 'video' })).models;
+  assert.equal(models.find(m => m.modelId === 'fixture-i2v')?.maxInputImages, 1);
+  assert.equal(models.find(m => m.modelId === 'fixture-video')?.maxInputImages, undefined);
+
+  const source = path.join(store.directory, 'first-frame.png'); await writeFile(source, png);
+  const frame = await new AssetLibrary(store).importFile(source, { requestId: 'account-first-frame', name: 'First Frame' });
+  const reference = { assetId: frame.id, versionId: frame.currentVersionId };
+  const queued = await api.call('openmotion_assets_use', {
+    action: 'generate', requestId: 'account-video-i2v', model: 'account:fixture-i2v', modality: 'video', prompt: 'slow camera push', references: [reference],
+  });
+  const completed = await finish(store, queued.job.id);
+  assert.equal(completed.state, 'completed', completed.error);
+  const calls = JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][];
+  assert.deepEqual(calls.at(-1)?.slice(0, 2), ['video', 'gen']);
+  assert.match(calls.at(-1)![calls.at(-1)!.indexOf('--first-frame') + 1], /reference\.png$/);
+
+  // Oversized reference (> 2 MiB) is rejected before queueing for OpenDesign account and Cloud providers.
+  const { crc32 } = await import('node:zlib');
+  const textType = Buffer.from('tEXt'), textPayload = Buffer.alloc(2 * 1024 * 1024 + 16, 0x61);
+  const length = Buffer.alloc(4); length.writeUInt32BE(textPayload.length, 0);
+  const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(Buffer.concat([textType, textPayload])), 0);
+  const oversizedPng = Buffer.concat([png.subarray(0, png.length - 12), length, textType, textPayload, checksum, png.subarray(png.length - 12)]);
+  const oversizedPath = path.join(store.directory, 'oversized.png');
+  await writeFile(oversizedPath, oversizedPng);
+  const oversized = await new AssetLibrary(store).importFile(oversizedPath, { requestId: 'oversized-ref', name: 'Oversized' });
+  const oversizedRef = { assetId: oversized.id, versionId: oversized.currentVersionId };
+  await assert.rejects(
+    api.call('openmotion_assets_use', { action: 'generate', requestId: 'account-too-large', model: 'account:fixture-image', modality: 'image', prompt: 'edit', references: [oversizedRef] }),
+    /2 MiB OpenDesign upload limit/,
+  );
+  await assert.rejects(
+    api.call('openmotion_assets_use', { action: 'generate', requestId: 'account-i2v-too-large', model: 'account:fixture-i2v', modality: 'video', prompt: 'animate', references: [oversizedRef] }),
+    /2 MiB OpenDesign upload limit/,
+  );
+  assert.equal((JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][]).length, 1);
+}));

@@ -455,3 +455,43 @@ it('filters OpenDesign image quick controls to the edits profile envelope when a
   expect(editResOptions).toContain('2K');
   expect(editResOptions).not.toContain('1K');
 });
+
+it('clears draft parameters when switching models so stale parameters do not leak across models', async () => {
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const profiledBase: Model = {
+    id: 'account:nano-banana-2', provider: 'account', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live',
+    nativeOptions: { profiles: { generations: { profiles: [{ aspect_ratio: '16:9', resolution: '2K' }], default: { aspect_ratio: '16:9', resolution: '2K' } } } },
+  };
+  const sizedBase: Model = {
+    id: 'account:seedream-5.0-flash', provider: 'account', modelId: 'seedream-5.0-flash', label: 'Seedream 5.0 Flash', modality: 'image', mode: 'text-to-image', source: 'live',
+    nativeOptions: { sizes: { values: ['1K', '2K'], default: '2K' } },
+  };
+  const profiled: Model = { ...profiledBase, generationOptions: generationOptions(profiledBase) };
+  const sized: Model = { ...sizedBase, generationOptions: generationOptions(sizedBase) };
+  loadGateway.mockResolvedValue({ models: [profiled, sized], status: { providers: [{ id: 'account', label: 'OpenDesign', available: true }], routes: { image: profiled.id } } });
+  let latest!: AssetDraft;
+  function Harness() {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', model: profiled.id, prompt: 'A ceramic cup', parameters: { resolution: '2K' }, references: [] });
+    latest = draft;
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} />;
+  }
+  await act(async () => root.render(<Harness />));
+  await act(async () => container.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Generation model"]')!.click());
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(item => item.textContent?.includes('Seedream 5.0 Flash'))!.click());
+  expect(latest.model).toBe(sized.id);
+  expect(latest.parameters).toBeUndefined();
+  generate.mockResolvedValue({ job: { id: 'clean-job' } });
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: sized.id, parameters: {} }));
+});
+
+it('enables first-frame video submission for account video models that advertise maxInputImages', async () => {
+  const accountVideo = { ...cloudVideo('wan-2.7'), id: 'account:wan-2.7', provider: 'account', maxInputImages: 1 };
+  loadGateway.mockResolvedValue({ models: [accountVideo], status: { providers: [{ id: 'account', available: true }], routes: {} } });
+  generate.mockResolvedValue({ job: { id: 'account-i2v-job' } });
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', model: accountVideo.id, prompt: 'Walk forward', references: firstFrame }} />));
+  expect(container.textContent).toContain('Aspect ratio follows the first frame.');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: accountVideo.id, parameters: {}, references: firstFrame.map(item => item.reference) }));
+});

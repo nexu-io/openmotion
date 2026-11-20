@@ -41,18 +41,38 @@ test('first-frame ratio policy leaves other providers, models and image editing 
   }
 });
 
-test('account first-frame ratio rejection makes no connector call and does not enable account video references', () => fixture(async store => {
-  let calls = 0;
-  const account = new OpenDesignAccount(store.directory, { run: async () => { calls++; throw new Error('unexpected connector call'); } });
+test('account first-frame video rejects fixed ratios before running the connector, forwards --first-frame, and still rejects audio references', () => fixture(async store => {
+  const calls: string[][] = [];
+  const account = new OpenDesignAccount(store.directory, {
+    pollMs: 0,
+    run: async args => {
+      calls.push(args);
+      if (args[1] === 'gen') return JSON.stringify({ task_id: `task-${calls.length}` });
+      if (args[1] === 'get') {
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(args[args.indexOf('--output') + 1], Buffer.from('mp4'));
+        return JSON.stringify({ task_id: args[2], status: 'succeeded' });
+      }
+      throw new Error('unexpected connector call');
+    },
+  });
   account.identity = async () => 'fixture-session';
   account.summary = async () => ({ state: 'signed-in' } as AccountSummary);
-  const model: Model = { id: 'account:wan-2.7', provider: 'account', modelId: 'wan-2.7', label: 'Wan', modality: 'video', mode: 'text-to-video', source: 'live', defaults: { ratio: '16:9' } };
-  const job = { model, modality: 'video', providerOrigin: 'fixture-session', parameters: { ratio: '16:9' } } as GenerationJob;
+  const model: Model = { id: 'account:wan-2.7', provider: 'account', modelId: 'wan-2.7', label: 'Wan', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1, defaults: { ratio: '16:9' } };
+  const job = { model, modality: 'video', prompt: 'Walk forward', providerOrigin: 'fixture-session', parameters: { ratio: '16:9' } } as GenerationJob;
   try {
-    const run = (parameters: Record<string, unknown>) => account.generate({ ...job, parameters }, store.directory, new AbortController().signal, async () => {}, 'not-read.png');
+    const run = (parameters: Record<string, unknown>, target: GenerationJob = job) => account.generate({ ...target, parameters }, store.directory, new AbortController().signal, async () => {}, 'first-frame.png');
     await assert.rejects(run({ ratio: '16:9' }), /First-frame video/);
-    for (const parameters of [{}, { ratio: 'adaptive' }]) await assert.rejects(run(parameters), /Account reference images are supported for image editing only/);
-    assert.equal(calls, 0);
+    const audioModel: Model = { id: 'account:elevenlabs-v3', provider: 'account', modelId: 'elevenlabs-v3', label: 'Eleven', modality: 'audio', mode: 'text-to-speech', source: 'live' };
+    await assert.rejects(run({ voice: 'v1' }, { ...job, model: audioModel, modality: 'audio' }), /Account reference images are supported for image editing and video first frames only/);
+    assert.equal(calls.length, 0);
+    await run({});
+    await run({ ratio: 'adaptive' });
+    const submits = calls.filter(args => args[1] === 'gen');
+    assert.deepEqual(submits, [
+      ['video', 'gen', '--model', 'wan-2.7', '--prompt', 'Walk forward', '--first-frame', 'first-frame.png', '--no-wait', '--json'],
+      ['video', 'gen', '--model', 'wan-2.7', '--prompt', 'Walk forward', '--first-frame', 'first-frame.png', '--no-wait', '--json', '--ratio', 'adaptive'],
+    ]);
   } finally { account.close(); }
 }));
 
@@ -292,13 +312,15 @@ test('OpenDesign Cloud packs image aspect_ratio and resolution into output, pres
   assert.equal(bodies.length, 3);
 });
 
-test('account media model sync preserves capabilities in nativeOptions for generationOptions', () => fixture(async store => {
+test('account media model sync preserves capabilities in nativeOptions for generationOptions and exposes first-frame maxInputImages', () => fixture(async store => {
   const account = new OpenDesignAccount(store.directory, {
     run: async args => {
       if (args[0] === 'model') return JSON.stringify({ source: 'remote', data: [] });
       if (args[0] === 'media') return JSON.stringify({
         models: [
-          { model: 'wan-2.7', kind: 'video', capabilities: { ratios: { values: ['16:9', '9:16'], default: '16:9' }, durations: { values: [5, 10], default: 5 } } },
+          { model: 'wan-2.7', kind: 'video', capabilities: { max_input_images: 1, ratios: { values: ['16:9', '9:16'], default: '16:9' }, durations: { values: [5, 10], default: 5 } } },
+          { model: 'multi-video', kind: 'video', capabilities: { max_input_images: 2 } },
+          { model: 'text-only-video', kind: 'video', capabilities: {} },
         ],
       });
       return '{}';
@@ -308,8 +330,35 @@ test('account media model sync preserves capabilities in nativeOptions for gener
   (account as any).profile = async () => ({ runtimeKey: 'runtime-key' });
   try {
     await account.models(true);
-    const [video] = await account.mediaModels();
-    assert.equal(video.id, 'account:wan-2.7');
-    assert.deepEqual(generationOptions(video)!.fields.map(f => f.key), ['ratio', 'duration']);
+    const videos = await account.mediaModels();
+    const wan = videos.find(m => m.modelId === 'wan-2.7')!;
+    assert.equal(wan.id, 'account:wan-2.7');
+    assert.equal(wan.maxInputImages, 1);
+    assert.deepEqual(generationOptions(wan)!.fields.map(f => f.key), ['ratio', 'duration']);
+    assert.equal(videos.find(m => m.modelId === 'multi-video')?.maxInputImages, 1);
+    assert.equal(videos.find(m => m.modelId === 'text-only-video')?.maxInputImages, undefined);
+  } finally { account.close(); }
+}));
+
+test('OpenDesign account and Cloud image models without profiles reject incomplete pairs and conflicting size/output before submission', () => fixture(async store => {
+  let calls = 0;
+  const account = new OpenDesignAccount(store.directory, { run: async () => { calls++; throw new Error('unexpected connector call'); } });
+  account.identity = async () => 'fixture-session';
+  account.summary = async () => ({ state: 'signed-in' } as AccountSummary);
+  const seedream: Model = {
+    id: 'account:seedream-5.0-flash', provider: 'account', modelId: 'seedream-5.0-flash', label: 'Seedream 5.0 Flash', modality: 'image', mode: 'text-to-image', source: 'live',
+    nativeOptions: { sizes: { values: ['1K', '1.5K', '2K'], default: '2K' } },
+  };
+  const seedreamCloud: Model = { ...seedream, id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5' };
+  const job = { model: seedream, modality: 'image', prompt: 'Poster', providerOrigin: 'fixture-session', parameters: {} } as GenerationJob;
+  try {
+    assert.throws(() => resolveGenerationParameters(seedream, { resolution: '2K' }), /require both aspect_ratio and resolution together/);
+    assert.throws(() => resolveGenerationParameters(seedream, { aspect_ratio: '16:9' }), /require both aspect_ratio and resolution together/);
+    assert.throws(() => resolveGenerationParameters(seedream, { aspect_ratio: '16:9', resolution: '2K', size: '2K' }), /Cannot combine size with aspect_ratio or resolution/);
+    assert.throws(() => resolveGenerationParameters(seedreamCloud, { size: '2K', output: { aspect_ratio: '1:1', resolution: '2K' } }), /Cannot combine size with output/);
+    await assert.rejects(account.generate({ ...job, parameters: { resolution: '2K' } }, store.directory, new AbortController().signal, async () => {}), /require both aspect_ratio and resolution together/);
+    await assert.rejects(account.generate({ ...job, parameters: { aspect_ratio: '16:9' } }, store.directory, new AbortController().signal, async () => {}), /require both aspect_ratio and resolution together/);
+    await assert.rejects(account.generate({ ...job, parameters: { size: '2K', aspect_ratio: '1:1', resolution: '2K' } }, store.directory, new AbortController().signal, async () => {}), /Cannot combine size/);
+    assert.equal(calls, 0);
   } finally { account.close(); }
 }));

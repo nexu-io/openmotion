@@ -126,7 +126,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       {latest && <div className="om-asset-current-job"><AssetGenerationCard job={latest} onCancel={onCancel} onView={onView} onRetrySave={onRetrySave} onResume={onResume} /></div>}
       <div className="om-asset-direct">
       {draft.target && <div className="om-card om-asset-edit-target"><span><RemixIcon name="history-line" size={16} />{draft.target.asset.name} · V{draft.target.asset.versions.findIndex(v => v.id === draft.target!.versionId) + 1}</span><Button variant="plain" className="om-nav-item" onClick={() => setDraft({ ...draft, target: undefined })}>{t('Create separately')}</Button></div>}
-      {!scene && <div className="om-creation-types" role="group" aria-label={t('Media type')}>{creationKinds.map(item => <Button variant="plain" key={item.id} className="om-creation-type" data-tone={item.id} aria-pressed={draft.modality === item.id} disabled={Boolean(draft.target) && item.id !== draft.modality} onClick={() => setDraft({ ...draft, modality: item.id, model: undefined })}><span className="om-creation-icon" data-tone={item.id}><RemixIcon name={item.icon} size={20} /></span><span>{t(item.label)}</span>{draft.modality === item.id && <RemixIcon name="check-line" size={13} />}</Button>)}</div>}
+      {!scene && <div className="om-creation-types" role="group" aria-label={t('Media type')}>{creationKinds.map(item => <Button variant="plain" key={item.id} className="om-creation-type" data-tone={item.id} aria-pressed={draft.modality === item.id} disabled={Boolean(draft.target) && item.id !== draft.modality} onClick={() => setDraft({ ...draft, modality: item.id, model: undefined, parameters: undefined })}><span className="om-creation-icon" data-tone={item.id}><RemixIcon name={item.icon} size={20} /></span><span>{t(item.label)}</span>{draft.modality === item.id && <RemixIcon name="check-line" size={13} />}</Button>)}</div>}
       {scene && needsImage(scene) && <section className="om-scene-source">
         <h3 className="om-eyebrow">{t(scene.modality === 'video' ? 'First frame' : 'Reference asset')}</h3>
         {draft.references.length > 0 && <div className="om-scene-source-files">{draft.references.map(item => <Button variant="plain" key={item.reference.assetId + '/' + item.reference.versionId} className="om-nav-item" aria-label={t('Remove reference: {name}', { name: item.name })} onClick={() => setDraft({ ...draft, references: draft.references.filter(reference => reference !== item) })}>
@@ -141,7 +141,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
         {gateway && !failed && choices.length > 0 ? <GenerationModelPickers
           models={choices} providers={gateway.status.providers} showProvider={Boolean(studio)} modelHeading={modelHeading} preferred={preferred}
           defaultModel={gateway.status.routes[draft.modality]} disabled={busy}
-          onChoose={model => studio ? studio.chooseModel(model) : setDraft({ ...draft, model })} /> : <>
+          onChoose={model => {
+            setDraft(current => ({ ...current, model, parameters: undefined }));
+            studio?.chooseModel(model);
+          }} /> : <>
           {modelHeading}
           {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : <div className="om-creation-setup"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{t('Configure a provider or sign in to use media models.')}</p><Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Model providers')}</Button></div>}
         </>}

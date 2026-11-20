@@ -304,13 +304,16 @@ export class ModelGateway {
       try {
         const sources: { asset?: { assetId: string; versionId: string }; projectPath?: string }[] = input.referenceAsset ? [{ projectPath: input.referenceAsset }]
           : (input.library?.references ?? []).map(asset => ({ asset }));
+        const openDesignUpload = ['account', 'opendesign'].includes(model.provider);
+        const maxReferenceBytes = openDesignUpload ? 2 * 1024 * 1024 : 20 * 1024 * 1024;
         for (const [index, item] of sources.entries()) {
           const reference = item.asset ? await library.resolve(item.asset) : undefined;
           const source = reference?.filename ?? await this.store.safePath(item.projectPath!, this.store.projectDirectoryFor(projectId!));
           const info = await lstat(source);
-          if (!info.isFile() || info.isSymbolicLink() || info.size > 20 * 1024 * 1024) throw new Error('Reference image must be a local file under 20 MB');
+          if (!info.isFile() || info.isSymbolicLink()) throw new Error('Reference image must be a local file under 20 MB');
+          if (info.size > maxReferenceBytes) throw new Error(openDesignUpload ? 'The reference image is larger than the 2 MiB OpenDesign upload limit.' : 'Reference image must be a local file under 20 MB');
           const bytes = await readFile(source), media = mediaType(bytes, 'image');
-          if (bytes.length > 20 * 1024 * 1024) throw new Error('Reference image exceeds 20 MB');
+          if (bytes.length > maxReferenceBytes) throw new Error(openDesignUpload ? 'The reference image is larger than the 2 MiB OpenDesign upload limit.' : 'Reference image exceeds 20 MB');
           if (!['png', 'jpg', 'webp'].includes(media.extension)) throw new Error('Use a PNG, JPEG or WebP reference image');
           if (reference && hash(bytes) !== reference.version.sha256) throw new Error('Reference asset bytes have changed');
           const snapshot = { path: item.projectPath ?? `asset:${item.asset!.assetId}/${item.asset!.versionId}`, sha256: hash(bytes), mimeType: media.mimeType, bytes: bytes.length };

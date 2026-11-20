@@ -606,3 +606,33 @@ it('starts a focused image landing on its examples even when the user already ha
   expect(container.querySelector('.om-canvas-deck')).toBeNull();
   expect(container.querySelector('.om-assets-main')!.textContent).toContain(records.get('A')!.name);
 });
+
+it('hides Use as reference for video and audio assets, omits video from edit references, and limits direct reference picker to images', async () => {
+  const video = fixture('video');
+  video.name = 'Clip';
+  video.modality = 'video';
+  Object.assign(video.versions[0], { filename: 'clip.mp4', mimeType: 'video/mp4' });
+  const audio = fixture('audio');
+  audio.name = 'Voice';
+  audio.modality = 'audio';
+  Object.assign(audio.versions[0], { filename: 'voice.wav', mimeType: 'audio/wav' });
+  records.set(video.id, video);
+  records.set(audio.id, audio);
+
+  await render();
+  await click('Picture A');
+  expect([...container.querySelectorAll('button')].some(node => node.textContent?.includes('Use as reference'))).toBe(true);
+  await click('All assets');
+
+  await click('Clip');
+  expect([...container.querySelectorAll('button')].some(node => node.textContent?.includes('Use as reference'))).toBe(false);
+  await click('Edit as new version');
+  expect(container.querySelector('[aria-label="Creation draft"]')?.getAttribute('data-reference-count')).toBe('0');
+  await click('References');
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog).toBeTruthy();
+  expect(dialog.textContent).toContain('Picture A');
+  expect(dialog.textContent).not.toContain('Clip');
+  expect(dialog.textContent).not.toContain('Voice');
+  expect(dialog.querySelector('.om-asset-tabs')).toBeNull();
+});

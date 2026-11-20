@@ -102,7 +102,9 @@ export class AccountRequestError extends Error {
     const media = api ? undefined : [...stderr.matchAll(/\(([^,()]{0,64}), HTTP (\d{3})\)/g)].at(-1);
     const status = api ? Number(api[1]) : media ? Number(media[2]) : undefined;
     const code = api ? api[2] : media && /^[a-z0-9_]{1,64}$/.test(media[1]) ? media[1] : undefined;
-    super((code && requestMessages[code]) || (status === 401 ? requestMessages.unauthorized : status ? jobMessages.service : jobMessages.connection));
+    // Local CLI flag/argument rejections exit without an HTTP status; do not misreport them as connection or sign-in failures.
+    const cliInvalid = !status && !code && /(?:^|\n)Error: (?:if any flags in the group |unknown (?:shorthand )?flag:|invalid argument |required flag\(s\) |flag needs an argument:)/.test(stderr);
+    super((code && requestMessages[code]) || (cliInvalid ? requestMessages.invalid_request : status === 401 ? requestMessages.unauthorized : status ? jobMessages.service : jobMessages.connection));
     this.status = status; this.code = code;
   }
 }
@@ -504,9 +506,11 @@ export class OpenDesignAccount {
       // An image model publishes `edits` only when this account is entitled to edit input images.
       const capabilities = row.capabilities && typeof row.capabilities === 'object' && !Array.isArray(row.capabilities) ? row.capabilities as Record<string, unknown> : undefined;
       const editable = kind === 'image' && capabilities?.edits === true;
+      const maxInputs = capabilities && Number.isInteger(capabilities.max_input_images) && (capabilities.max_input_images as number) > 0 ? capabilities.max_input_images as number : undefined;
       models.push({
         id: 'account:' + row.model, provider: 'account', modelId: row.model, label: row.model, kind, enabled: row.enabled !== false, source: 'live', mode,
         ...(editable ? { supportsImageReference: true } : {}),
+        ...(kind === 'video' && maxInputs ? { maxInputImages: 1 } : {}),
         ...(capabilities ? { nativeOptions: capabilities } : {}),
       });
     }
@@ -519,19 +523,23 @@ export class OpenDesignAccount {
   }
   async identity() { return (await readSettings<{ id?: string }>(path.join(this.directory, 'account', 'session.json'), {})).id; }
   async mediaModels(): Promise<Model[]> {
-    return (await this.models()).filter(model => model.enabled && ['image', 'video', 'audio'].includes(model.kind)).map(model => ({ ...model, modality: model.kind as Model['modality'], mode: model.mode! }));
+    return (await this.models()).filter(model => model.enabled && ['image', 'video', 'audio'].includes(model.kind)).map(model => {
+      const maxInputs = model.kind === 'video' && model.maxInputImages === undefined && Number.isInteger(model.nativeOptions?.max_input_images) && (model.nativeOptions!.max_input_images as number) > 0 ? 1 : model.maxInputImages;
+      return { ...model, ...(maxInputs !== undefined ? { maxInputImages: maxInputs } : {}), modality: model.kind as Model['modality'], mode: model.mode! };
+    });
   }
-  /** `reference` is the job's snapshotted input image; it turns an image job into an edit of that image. */
+  /** `reference` is the job's snapshotted input image; it edits an image or sets a video's first frame. */
   async generate(job: GenerationJob, directory: string, signal: AbortSignal, progress: (phase: string, id?: string, download?: DownloadProgress) => Promise<void>, reference?: string) {
     const kind = job.modality, params = resolveGenerationParameters(job.model, job.parameters, !!reference);
     if (job.providerOrigin !== await this.identity() || (await this.summary()).state !== 'signed-in') throw new Error(jobMessages.accountChangedBeforeSubmit);
     const music = kind === 'audio' && job.model.mode === 'text-to-audio';
-    if (reference && kind !== 'image') throw new Error('Account reference images are supported for image editing only');
+    if (reference && kind !== 'image' && kind !== 'video') throw new Error('Account reference images are supported for image editing and video first frames only');
     const allowed = kind === 'image' ? ['aspect_ratio', 'resolution', 'quality', 'size'] : kind === 'video' ? ['ratio', 'resolution', 'duration', 'generate_audio'] : music ? ['duration'] : ['voice'];
     if (Object.keys(params).some(key => !allowed.includes(key))) throw new Error('Unsupported account model parameter');
     if (kind === 'audio' && !music && (typeof params.voice !== 'string' || !params.voice)) throw new Error('Choose a voice in parameters.voice');
-    const operation = kind === 'audio' ? music ? 'music' : 'speech' : reference ? 'edit' : 'gen';
-    const args = [kind, operation, '--model', job.model.modelId, '--prompt', job.prompt, ...(reference ? ['--image', reference] : []), '--no-wait', '--json'];
+    const operation = kind === 'audio' ? music ? 'music' : 'speech' : kind === 'image' && reference ? 'edit' : 'gen';
+    const referenceArgs = reference ? [kind === 'video' ? '--first-frame' : '--image', reference] : [];
+    const args = [kind, operation, '--model', job.model.modelId, '--prompt', job.prompt, ...referenceArgs, '--no-wait', '--json'];
     for (const [key, value] of Object.entries(params)) {
       if (key === 'generate_audio') { if (value === true) args.push('--generate-audio'); }
       else if (typeof value === 'string' || typeof value === 'number') args.push('--' + key.replaceAll('_', '-'), String(value));
