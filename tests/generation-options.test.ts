@@ -208,7 +208,50 @@ test('OpenDesign Cloud and account image models derive paired profiles, complete
   assert.deepEqual(sizedSchema.fields.map(f => [f.key, f.default]), [['size', '1024x1024'], ['quality', 'medium']]);
 });
 
-test('OpenDesign Cloud packs image aspect_ratio and resolution into output while preserving explicit output', async () => {
+test('OpenDesign image edit mode validates and filters against the distinct edits profile envelope', () => {
+  const model: Model = {
+    id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live',
+    supportsImageReference: true,
+    nativeOptions: {
+      profiles: {
+        generations: {
+          profiles: [
+            { aspect_ratio: '1:1', resolution: '1K' },
+            { aspect_ratio: '16:9', resolution: '2K' },
+          ],
+          default: { aspect_ratio: '1:1', resolution: '1K' },
+        },
+        edits: {
+          profiles: [{ aspect_ratio: '1:1', resolution: '2K' }],
+          default: { aspect_ratio: '1:1', resolution: '2K' },
+        },
+      },
+    },
+  };
+  assert.deepEqual(generationOptions(model, false)!.fields.map(f => [f.key, f.choices!.map(c => c.value)]), [
+    ['aspect_ratio', ['1:1', '16:9']],
+    ['resolution', ['1K', '2K']],
+  ]);
+  assert.deepEqual(generationOptions(model, true)!.fields.map(f => [f.key, f.choices!.map(c => c.value)]), [
+    ['aspect_ratio', ['1:1']],
+    ['resolution', ['2K']],
+  ]);
+  assert.deepEqual(compatibleImageResolutions(model, '16:9', false), ['2K']);
+  assert.deepEqual(compatibleImageResolutions(model, '16:9', true), []);
+  assert.deepEqual(compatibleImageResolutions(model, '1:1', true), ['2K']);
+  assert.deepEqual(resolveGenerationParameters(model, { aspect_ratio: '1:1' }, true), { aspect_ratio: '1:1', resolution: '2K' });
+  assert.throws(() => resolveGenerationParameters(model, { aspect_ratio: '16:9', resolution: '2K' }, true), /Aspect ratio 16:9 is not available/);
+  assert.throws(() => resolveGenerationParameters(model, { aspect_ratio: '16:9' }, true), /Aspect ratio 16:9 is not available/);
+  assert.throws(() => resolveGenerationParameters(model, { resolution: '1K' }, true), /Resolution 1K is not available/);
+  assert.throws(() => resolveGenerationParameters(model, { images: ['ma_1'], aspect_ratio: '16:9', resolution: '2K' }), /Aspect ratio 16:9 is not available/);
+  assert.throws(() => validateGenerationOptions(model, { aspect_ratio: '16:9', resolution: '2K' }, true), /Invalid Aspect ratio/);
+  assert.doesNotThrow(() => validateGenerationOptions(model, { aspect_ratio: '1:1', resolution: '2K' }, true));
+  // Saved generation-only defaults are dropped during edit mode when the caller did not specify them.
+  const withDefaults: Model = { ...model, defaults: { aspect_ratio: '16:9', resolution: '1K' } };
+  assert.deepEqual(resolveGenerationParameters(withDefaults, {}, true), {});
+});
+
+test('OpenDesign Cloud packs image aspect_ratio and resolution into output, preserves explicit output, and rejects lone fields without profiles', async () => {
   const bodies: Record<string, unknown>[] = [];
   const model: Model = {
     id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live',
@@ -221,8 +264,9 @@ test('OpenDesign Cloud packs image aspect_ratio and resolution into output while
       },
     },
   };
-  const run = async (parameters: Record<string, unknown>) => providerAdapters.opendesign.generate(
-    { id: 'job-1', model, modality: 'image', prompt: 'A poster', parameters } as GenerationJob,
+  const unprofiled: Model = { id: 'opendesign:custom-image', provider: 'opendesign', modelId: 'custom-image', label: 'Custom Image', modality: 'image', mode: 'text-to-image', source: 'live' };
+  const run = async (target: Model, parameters: Record<string, unknown>) => providerAdapters.opendesign.generate(
+    { id: 'job-1', model: target, modality: 'image', prompt: 'A poster', parameters } as GenerationJob,
     {
       key: 'fixture-only', baseUrl: 'https://cloud.example', signal: new AbortController().signal, progress: async () => {}, pollMs: 0,
       fetcher: async (url, init) => {
@@ -235,10 +279,17 @@ test('OpenDesign Cloud packs image aspect_ratio and resolution into output while
       },
     },
   );
-  await run({ aspect_ratio: '9:16', quality: 'high' });
-  await run({ output: { aspect_ratio: '1:1', resolution: '1K' } });
+  await run(model, { aspect_ratio: '9:16', quality: 'high' });
+  await run(model, { output: { aspect_ratio: '1:1', resolution: '1K' } });
+  await run(unprofiled, { aspect_ratio: '16:9', resolution: '2K' });
   assert.deepEqual(bodies[0], { model: 'nano-banana-2', prompt: 'A poster', quality: 'high', output: { aspect_ratio: '9:16', resolution: '2K' } });
   assert.deepEqual(bodies[1], { model: 'nano-banana-2', prompt: 'A poster', output: { aspect_ratio: '1:1', resolution: '1K' } });
+  assert.deepEqual(bodies[2], { model: 'custom-image', prompt: 'A poster', output: { aspect_ratio: '16:9', resolution: '2K' } });
+  await assert.rejects(run(unprofiled, { aspect_ratio: '16:9' }), /require both aspect_ratio and resolution together/);
+  await assert.rejects(run(unprofiled, { resolution: '2K' }), /require both aspect_ratio and resolution together/);
+  await assert.rejects(run(unprofiled, { aspect_ratio: '16:9', resolution: '2K', size: '1024x1024' }), /Cannot combine size/);
+  await assert.rejects(run(unprofiled, { aspect_ratio: '16:9', resolution: '2K', output: { aspect_ratio: '1:1', resolution: '1K' } }), /Cannot combine output/);
+  assert.equal(bodies.length, 3);
 });
 
 test('account media model sync preserves capabilities in nativeOptions for generationOptions', () => fixture(async store => {

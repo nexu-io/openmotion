@@ -61,15 +61,21 @@ export const opendesign: ProviderAdapter = {
       const parameters = resolveGenerationParameters(job.model, job.parameters, !!ctx.references?.length);
       const { voice, ...speechOptions } = parameters;
       if (speech && (typeof voice !== 'string' || !voice.trim())) throw new Error('Choose a provider voice ID in parameters.voice');
+      const wireParameters = (() => {
+        if (job.modality !== 'image') return parameters;
+        const hasRatio = parameters.aspect_ratio !== undefined, hasResolution = parameters.resolution !== undefined;
+        if (!hasRatio && !hasResolution) return parameters;
+        if (parameters.size !== undefined) throw new Error('Cannot combine size with aspect_ratio or resolution.');
+        if (parameters.output !== undefined) throw new Error('Cannot combine output with aspect_ratio or resolution.');
+        if (typeof parameters.aspect_ratio !== 'string' || !parameters.aspect_ratio.trim() || typeof parameters.resolution !== 'string' || !parameters.resolution.trim()) {
+          throw new Error('OpenDesign Cloud image requests require both aspect_ratio and resolution together, or an explicit output object.');
+        }
+        const { aspect_ratio, resolution, ...rest } = parameters;
+        return { ...rest, output: { aspect_ratio, resolution } };
+      })();
       const audioBody = speech ? { voice, parameters: { ...speechOptions, text: job.prompt } } : { parameters: { ...parameters, prompt: job.prompt } };
       const inputs = audio ? [] : await uploadInputs(fetcher, api, headers, job.id, ctx);
       const images = inputs.length ? { images: job.modality === 'video' ? [{ asset_id: inputs[0], role: 'first_frame' }] : inputs } : {};
-      const wireParameters = (() => {
-        if (job.modality !== 'image') return parameters;
-        const { aspect_ratio, resolution, ...rest } = parameters;
-        return typeof aspect_ratio === 'string' && typeof resolution === 'string' && parameters.output === undefined
-          ? { ...rest, output: { aspect_ratio, resolution } } : parameters;
-      })();
       const payload = audio ? { model: job.model.modelId, ...audioBody }
         : { ...wireParameters, model: job.model.modelId, prompt: job.prompt, ...images };
       const endpoint = audio ? speech ? '/audio/speech' : '/audio/music' : job.modality === 'image' ? inputs.length || Array.isArray(parameters.images) && parameters.images.length ? '/images/edits' : '/images/generations' : '/videos/tasks';

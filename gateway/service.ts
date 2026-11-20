@@ -282,7 +282,7 @@ export class ModelGateway {
       if (model.provider === 'opendesign' && (await this.cloudContext()).identity !== cloudIdentity) throw new Error('Cloud configuration changed; reload models before generating');
       const referenceCount = (input.library?.references?.length ?? 0) + (input.referenceAsset ? 1 : 0);
       const resolvedParameters = resolveGenerationParameters(model, params, referenceCount > 0);
-      validateGenerationOptions(model, resolvedParameters);
+      validateGenerationOptions(model, resolvedParameters, referenceCount > 0);
       // Video sends only a first frame; the project-direct referenceAsset route stays image-only as before.
       const referenceLimit = input.referenceAsset && input.modality !== 'image' ? 0 : modelReferenceLimit(model);
       if (referenceCount && model.provider === 'opendesign' && model.modality === 'image' && model.supportsImageReference === undefined) throw new Error('Image editing capability is unknown. Sync Cloud models before using references.');

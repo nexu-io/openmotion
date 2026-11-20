@@ -1,7 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { modelReferenceLimit, type Model } from '../../../shared/gateway';
-import { compatibleImageResolutions, resolveGenerationParameters, usesInputImageRatio, type GenerationOption } from '../../../shared/generation-options';
+import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, usesInputImageRatio, type GenerationOption } from '../../../shared/generation-options';
 import { Popover } from '../components/ui/Popover';
 import { Select } from '../components/ui/Select';
 import { Slider } from 'open-design-ui/slider';
@@ -41,12 +41,14 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
   let extra: Record<string, unknown> = {};
   try { extra = requestParameters({ ...draft, values: {} }); } catch { /* The raw editor remains editable; submission reports parse errors through Toast. */ }
   const inputImageRatio = parameterInputImageRatio(model, draft, hasInputImage);
-  const fields = (model.generationOptions?.fields ?? []).filter(field => !inputImageRatio || field.key !== 'ratio');
+  const activeOptions = (hasInputImage ? generationOptions(model, true) : undefined) ?? model.generationOptions;
+  const fields = (activeOptions?.fields ?? []).filter(field => !inputImageRatio || field.key !== 'ratio');
   const aspectField = fields.find(field => field.key === 'aspect_ratio');
   const activeAspectRatio = draft.values.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
   const allowedResolutions = compatibleImageResolutions(model, activeAspectRatio, hasInputImage);
   const effectiveDefault = (field: GenerationOption) => {
     if (field.key === 'resolution' && allowedResolutions) {
+      if (!allowedResolutions.length) return undefined;
       return typeof field.default === 'string' && allowedResolutions.includes(field.default) ? field.default : allowedResolutions[0];
     }
     return field.default;

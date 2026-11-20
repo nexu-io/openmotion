@@ -421,3 +421,37 @@ it('defaults Shorts Studio to 9:16 on OpenDesign video models publishing ratios 
   expect(options).toContain('2K');
   expect(options).not.toContain('1K');
 });
+
+it('filters OpenDesign image quick controls to the edits profile envelope when a reference image is attached', async () => {
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const editableBase: Model = {
+    id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live',
+    supportsImageReference: true,
+    nativeOptions: {
+      profiles: {
+        generations: {
+          profiles: [
+            { aspect_ratio: '1:1', resolution: '1K' },
+            { aspect_ratio: '16:9', resolution: '2K' },
+          ],
+          default: { aspect_ratio: '1:1', resolution: '1K' },
+        },
+        edits: {
+          profiles: [{ aspect_ratio: '1:1', resolution: '2K' }],
+          default: { aspect_ratio: '1:1', resolution: '2K' },
+        },
+      },
+    },
+  };
+  const editable: Model = { ...editableBase, generationOptions: generationOptions(editableBase) };
+  loadGateway.mockResolvedValue(cloudState([editable]));
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', model: editable.id, prompt: 'Edit poster', references: firstFrame }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+  const editRatios = [...document.querySelectorAll<HTMLButtonElement>('.om-generation-ratios button')].map(b => b.textContent);
+  expect(editRatios).toEqual(['1:1']);
+  const editResSelect = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Resolution"]')!;
+  await act(async () => editResSelect.click());
+  const editResOptions = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(el => el.textContent);
+  expect(editResOptions).toContain('2K');
+  expect(editResOptions).not.toContain('1K');
+});
