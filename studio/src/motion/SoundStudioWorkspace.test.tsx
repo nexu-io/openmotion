@@ -956,5 +956,6 @@ describe('SoundStudioWorkspace', () => {
     expect(translate('zh-CN', 'Voice changer')).toBe('变声');
     expect(translate('zh-CN', 'Dubbing')).toBe('翻译配音');
     expect(translate('zh-CN', 'Isolate & stems')).toBe('分离与降噪');
+    expect(translate('zh-CN', 'New')).toBe('新');
   });
 });
