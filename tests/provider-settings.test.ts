@@ -11,7 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
-import { AccountRequestError, OpenDesignAccount, type SignInRecord } from '../gateway/account.ts';
+import { AccountRequestError, OpenDesignAccount, systemBrowserCommand, type SignInRecord } from '../gateway/account.ts';
 import { createTracker, validProperties } from '../tracking/core.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 import { omEvents } from '../tracking/events.ts';
@@ -616,6 +616,59 @@ test('production billing uses the authenticated summary and preserves HTTP refus
   assert.deepEqual(denied.billingError, { status: 403, code: 'workspace_billing_scope_locked' });
   assert.equal(denied.balance, undefined);
 }));
+
+test('the subscription page opens in the system browser through a one-time account intent, falling back to the plain page', t => fixture(async store => {
+  const account = new OpenDesignAccount(store.directory);
+  await mkdir(account.home, { recursive: true });
+  await writeFile(path.join(store.directory, 'account/session.json'), JSON.stringify({ id: 'test-session' }));
+  const profile = { apiUrl: 'https://amr-api.open-design.ai', user: { id: 'test' }, controlKey: 'test-control', controlKeyId: 'test-id', runtimeKey: 'test-runtime' };
+  await writeFile(path.join(account.home, 'config.json'), JSON.stringify({ profiles: { prod: profile } }));
+  const targets: string[] = [];
+  let response: () => Response = () => Response.json({ intentId: 'intent_1-a', expiresAt: '2026-11-20T00:10:00.000Z' });
+  t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    assert.equal(url, 'https://amr-api.open-design.ai/api/v1/auth/intents');
+    assert.equal(init.method, 'POST'); assert.equal(init.redirect, 'error');
+    assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer test-control');
+    targets.push(JSON.parse(String(init.body)).target);
+    return response();
+  });
+  const opened: string[] = [];
+  const launch = async (url: string) => { opened.push(url); };
+  assert.deepEqual(await account.openSubscription(launch), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
+  assert.deepEqual(opened, ['https://open-design.ai/cloud/login?intentId=intent_1-a']);
+  const target = new URL(targets[0], 'https://open-design.ai'), params = target.searchParams;
+  assert.equal(target.pathname, '/dashboard');
+  assert.deepEqual([...params.keys()].sort(), ['billing', 'od_entry_at', 'od_entry_id', 'od_entry_source', 'od_origin']);
+  assert.equal(params.get('billing'), 'plan'); assert.equal(params.get('od_origin'), 'openmotion');
+  assert.equal(params.get('od_entry_source'), 'openmotion_manage_subscription');
+  assert.match(params.get('od_entry_id')!, /^[0-9a-f-]{36}$/); assert.equal(new Date(params.get('od_entry_at')!).toISOString(), params.get('od_entry_at'));
+  // Each open carries a fresh entry; a refused or malformed intent still opens the plain page.
+  for (const refusal of [() => Response.json({ error: 'unauthorized' }, { status: 401 }), () => Response.json({ intentId: '../evil' }), () => { throw new TypeError('offline'); }]) {
+    response = refusal;
+    const result = await account.openSubscription(launch);
+    assert.equal(new URL(result.url).origin + new URL(result.url).pathname, 'https://open-design.ai/cloud/dashboard');
+    assert.equal(new URL(result.url).searchParams.get('od_origin'), 'openmotion'); assert.equal(result.opened, true);
+  }
+  assert.equal(new Set(targets.map(value => new URL(value, 'https://x.test').searchParams.get('od_entry_id'))).size, targets.length);
+  // A launcher failure hands the link back to Studio.
+  response = () => Response.json({ intentId: 'intent-2' });
+  assert.deepEqual(await account.openSubscription(async () => { throw new Error('no browser'); }), { url: 'https://open-design.ai/cloud/login?intentId=intent-2', opened: false });
+  // Signed out (or another connector environment): no intent request, the plain page opens.
+  await writeFile(path.join(account.home, 'config.json'), JSON.stringify({ profiles: { prod: { ...profile, apiUrl: 'https://amr-api.example.test' } } }));
+  const calls = targets.length;
+  assert.match((await account.openSubscription(launch)).url, /^https:\/\/open-design\.ai\/cloud\/dashboard\?billing=plan&/);
+  await rm(path.join(store.directory, 'account/session.json'));
+  await writeFile(path.join(account.home, 'config.json'), JSON.stringify({ profiles: { prod: profile } }));
+  assert.match((await account.openSubscription(launch)).url, /^https:\/\/open-design\.ai\/cloud\/dashboard\?/);
+  assert.equal(targets.length, calls);
+}));
+
+test('the subscription launcher uses the system default browser on each platform', () => {
+  const url = 'https://open-design.ai/cloud/login?intentId=a&b=c';
+  assert.deepEqual(systemBrowserCommand(url, 'darwin'), { command: '/usr/bin/open', args: [url] });
+  assert.deepEqual(systemBrowserCommand(url, 'win32'), { command: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url] });
+  assert.deepEqual(systemBrowserCommand(url, 'linux'), { command: 'xdg-open', args: [url] });
+});
 
 test('billing reads an empty tier as Free, keeps the session on refusal and asks to sign in again on a rejected key', t => fixture(async store => {
   await chmod(binary, 0o755);

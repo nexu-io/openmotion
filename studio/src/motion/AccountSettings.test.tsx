@@ -80,45 +80,33 @@ it('explains that account models still work when the plan and balance cannot be 
   expect(page.textContent).toContain('暂时无法读取订阅和余额。账户模型不受影响，可以照常使用。');
 });
 
-it('passes a fresh subscription entry on ordinary and middle clicks without account credentials', async () => {
+it('asks the local service to open the subscription page in the system browser, and opens it itself only as a fallback', async () => {
   const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' });
-  const link = page.querySelector<HTMLAnchorElement>('.om-settings-section a')!;
-  link.addEventListener('click', event => event.preventDefault());
-  link.addEventListener('auxclick', event => event.preventDefault());
-  const ids = new Set<string>();
-  for (const [type, mouseButton] of [['click', 0], ['click', 0], ['auxclick', 1]] as const) {
-    const before = Date.now();
-    await act(async () => { link.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: mouseButton })); });
-    const prepared = link.href;
-    await act(async () => { link.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: mouseButton, detail: 1 })); });
-    expect(link.href).toBe(prepared);
-    const url = new URL(link.href), params = url.searchParams;
-    expect(url.origin + url.pathname).toBe('https://open-design.ai/cloud/dashboard');
-    expect([...params.keys()].sort()).toEqual(['billing', 'od_entry_at', 'od_entry_id', 'od_entry_source', 'od_origin']);
-    expect(params.get('billing')).toBe('plan');
-    expect(params.get('od_origin')).toBe('openmotion');
-    expect(params.get('od_entry_source')).toBe('openmotion_manage_subscription');
-    expect(params.get('od_entry_id')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    const at = params.get('od_entry_at')!;
-    expect(new Date(at).toISOString()).toBe(at);
-    expect(Date.parse(at)).toBeGreaterThanOrEqual(before);
-    expect(Date.parse(at)).toBeLessThanOrEqual(Date.now());
-    ids.add(params.get('od_entry_id')!);
-  }
-  expect(ids.size).toBe(3);
-  await act(async () => { link.click(); });
-  expect(ids.has(new URL(link.href).searchParams.get('od_entry_id')!)).toBe(false);
-  expect(link.target).toBe('_blank'); expect(link.rel).toBe('noreferrer');
+  const manage = page.querySelector<HTMLButtonElement>('.om-settings-section button.om-button')!;
+  expect(manage.textContent).toBe('Manage subscription');
+  expect(page.querySelector('.om-settings-section a')).toBeNull();
+  const popup = vi.spyOn(window, 'open').mockReturnValue(null);
+  const handoff = 'https://open-design.ai/cloud/login?intentId=intent-1';
+  hooks.request.mockImplementation(async (route: string) => route === 'settings/account/subscription' ? { url: handoff, opened: true } : hooks.account);
+  await act(async () => manage.click());
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', {});
+  expect(popup).not.toHaveBeenCalled();
+  const fallback = { opener: window as Window | null };
+  popup.mockReturnValue(fallback as unknown as Window);
+  hooks.request.mockImplementation(async (route: string) => route === 'settings/account/subscription' ? { url: handoff, opened: false } : hooks.account);
+  await act(async () => manage.click());
+  expect(popup).toHaveBeenCalledWith(handoff, '_blank'); expect(fallback.opener).toBeNull();
+  popup.mockReturnValue(null);
+  await act(async () => manage.click());
+  expect(document.body.textContent).toContain("Couldn't open your browser. Try again.");
+  popup.mockRestore();
 });
 
 it('replaces missing billing metrics with a dashboard link on 403 and restores them on retry', async () => {
   const page = await open({ state: 'signed-in', billingUnavailable: true, billingError: { status: 403 } }, 'zh-CN');
   expect(page.textContent).toContain('账单服务拒绝了本次查询');
   expect(page.querySelector('.om-account-metrics')).toBeNull();
-  const url = new URL(page.querySelector('a')!.href);
-  expect(url.origin + url.pathname).toBe('https://open-design.ai/cloud/dashboard');
-  expect(url.searchParams.get('billing')).toBe('plan');
-  expect(url.searchParams.get('od_origin')).toBe('openmotion');
+  expect([...page.querySelectorAll('.om-settings-section button.om-button')].some(item => item.textContent === '管理订阅')).toBe(true);
   hooks.account = { state: 'signed-in', plan: 'pro', balance: '0.00', consoleUrl: 'https://open-design.ai/cloud' };
   await act(async () => page.querySelector<HTMLButtonElement>('button[aria-busy]')!.click());
   expect(page.querySelector('.om-account-metrics')?.textContent).toContain('$0.00');
@@ -138,12 +126,11 @@ it('shows what signing in unlocks to signed-out people', async () => {
 it('offers Free and Go accounts an upgrade through the registered entry source, and nothing to paid plans', async () => {
   for (const plan of ['free', 'go']) {
     const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan, balance: '0.00' });
-    const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
+    const [upgrade, manage] = page.querySelectorAll<HTMLButtonElement>('[data-guide="upgrade"] button');
     expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
-    expect(new URL(upgrade.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
-    expect(upgrade.textContent).toContain('Upgrade to Plus');
-    expect(new URL(manage.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
-    expect(page.querySelector('.om-settings-section a')).toBeNull();
+    expect(upgrade.textContent).toContain('Upgrade to Plus'); expect(upgrade.hasAttribute('data-primary')).toBe(true);
+    expect(manage.textContent).toContain('Manage subscription');
+    expect(page.querySelector('.om-settings-section .om-button')).toBeNull();
     expect(page.querySelector('.om-account-summary h2')?.textContent).toBe('Connected to OpenDesign');
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' });
