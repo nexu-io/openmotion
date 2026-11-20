@@ -50,7 +50,7 @@ it('says it is connecting until the link exists, then syncing with nothing left 
 });
 
 it('explains a missing sign-in component, offers Retry and a copyable command that installs it where the service looks', async () => {
-  const command = "npm install --prefix '/Users/me/.local/share/openmotion/data/account/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10";
+  const command = "npm install --prefix '/opt/openmotion/data/account/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10";
   const writeText = vi.fn(async () => {}); Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   const page = await open({ state: 'signed-out', errorCode: 'connector_unavailable', connectorInstall: { command },
     error: "OpenMotion couldn't find npm to set up the OpenDesign sign-in component. Run this command in a terminal, then select Retry:" }, 'zh-CN');
