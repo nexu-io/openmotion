@@ -114,11 +114,12 @@ function AccountProviderGuide({ provider, openAccount, showToast }: { provider: 
   const { t } = useI18n(), { account, setAccount, refresh } = useAccountSummary(), [busy, setBusy] = useState(false);
   const plan = upgradePlan(account), signedIn = account?.state === 'signed-in', previous = useRef(account?.state);
   // Like the account page: plan details load only with a billing refresh, and a finished sign-in reloads the directory.
-  useEffect(() => { if (signedIn) void refresh(true); }, [signedIn, refresh]);
+  // Order matters: the event triggers a plain refresh, so the billing refresh below must be issued after it to win.
   useEffect(() => {
     if (previous.current === 'authorizing' && account?.state === 'signed-in') { notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); }
     previous.current = account?.state;
   }, [account?.state]);
+  useEffect(() => { if (signedIn) void refresh(true); }, [signedIn, refresh]);
   async function signIn() {
     tracking.reportSettingsClick('provider_detail', 'sign_in', { provider });
     setBusy(true);
