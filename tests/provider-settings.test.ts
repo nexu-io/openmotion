@@ -608,6 +608,9 @@ test('production billing uses the authenticated summary and preserves HTTP refus
   });
   const summary = await account.summary(true);
   assert.equal(summary.plan, 'pro'); assert.equal(summary.balance, '12.3456');
+  response = Response.json({ membershipTier: 'free', balanceUsd: '0.00', totalAvailableCreditsUsd: '5.50' });
+  const credited = await account.summary(true);
+  assert.equal(credited.plan, 'free'); assert.equal(credited.balance, '5.50');
   response = Response.json({ error: 'workspace_billing_scope_locked' }, { status: 403 });
   const denied = await account.summary(true);
   assert.deepEqual(denied.billingError, { status: 403, code: 'workspace_billing_scope_locked' });

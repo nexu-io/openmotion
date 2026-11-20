@@ -5,12 +5,15 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
 import type { Model } from '../../../shared/gateway';
-const { generate, loadGateway, gatewayRequest } = vi.hoisted(() => ({ generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn() }));
+const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
+  generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(),
+  chrome: { openModelSettings: vi.fn(), openProviderSettings: vi.fn(), openAccountSettings: vi.fn(), openSubscriptionSettings: vi.fn() },
+}));
 vi.mock('./assetClient', () => ({ assetRequest: generate }));
 vi.mock('./gatewayClient', () => ({ loadGateway, gatewayRequest }));
 vi.mock('./AssetConversation', () => ({ AssetConversation: () => null }));
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text }) }));
-vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => ({ openModelSettings: vi.fn() }) }));
+vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => chrome }));
 const model: Model = { id: 'codex:image', provider: 'codex', modelId: 'image', label: 'Codex Image', modality: 'image', source: 'builtin', mode: 'text-to-image' };
 let root: Root, container: HTMLDivElement;
 const created = vi.fn();
@@ -324,4 +327,97 @@ it('resumes an old account task while preserving a newer prompt draft', async ()
   expect(resume).toHaveBeenCalledExactlyOnceWith(job);
   expect(container.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(draft.prompt);
   expect(setDraft).not.toHaveBeenCalled(); expect(generate).not.toHaveBeenCalled();
+});
+
+it('shows a non-blocking subscription prompt for Free/Go OpenDesign accounts while keeping submit enabled', async () => {
+  const account: Model = { ...model, id: 'account:image', provider: 'account', modelId: 'image', label: 'Account Image' };
+  loadGateway.mockResolvedValue({
+    models: [account],
+    status: { providers: [{ id: 'account', label: 'OpenDesign', available: true, mediaEntitlement: 'not-included', plan: 'free', hasBalance: false }], routes: { image: account.id } },
+  });
+  await act(async () => root.render(<AssetComposer {...props} draft={{ ...props.draft, model: account.id, parameters: {} }} />));
+  expect(container.textContent).toContain('Signed in; multimodal generation requires OpenDesign Plus or above');
+  const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  expect(submit.disabled).toBe(false);
+  const manage = [...container.querySelectorAll('button')].find(node => node.textContent === 'Manage subscription')!;
+  await act(async () => manage.click());
+  expect(chrome.openSubscriptionSettings).toHaveBeenCalledTimes(1);
+});
+
+it('links directly to provider or account setup when a Studio selects an unconfigured provider', async () => {
+  const { studioDestination } = await import('./creativeStudios');
+  const falModel: Model = { ...model, id: 'fal:flux', provider: 'fal', modelId: 'flux', label: 'Flux' };
+  const accountModel: Model = { ...model, id: 'account:img', provider: 'account', modelId: 'img', label: 'Account Image' };
+  const catalog = {
+    models: [falModel, accountModel],
+    status: {
+      providers: [
+        { id: 'fal', label: 'fal.ai', available: false },
+        { id: 'account', label: 'OpenDesign', available: false },
+      ],
+      routes: {},
+    },
+  };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ ...props.draft, model: undefined }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: studioDestination(findMediaStudio('design')!, 'text-to-image', falModel.id),
+  }} />));
+  expect(container.textContent).toContain('{provider} needs setup before generating.');
+  const configure = [...container.querySelectorAll('button')].find(node => node.textContent === 'Configure {provider}')!;
+  await act(async () => configure.click());
+  expect(chrome.openProviderSettings).toHaveBeenCalledExactlyOnceWith('fal');
+
+  await act(async () => root.render(<AssetComposer {...props} draft={{ ...props.draft, model: undefined }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: studioDestination(findMediaStudio('design')!, 'text-to-image', accountModel.id),
+  }} />));
+  const signIn = [...container.querySelectorAll('button')].find(node => node.textContent === 'Sign in with OpenDesign')!;
+  await act(async () => signIn.click());
+  expect(chrome.openAccountSettings).toHaveBeenCalledTimes(1);
+});
+
+it('defaults Shorts Studio to 9:16 on OpenDesign video models publishing ratios and filters paired image resolutions', async () => {
+  const { studioDestination } = await import('./creativeStudios');
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const videoBase: Model = {
+    id: 'opendesign:wan-2.7', provider: 'opendesign', modelId: 'wan-2.7', label: 'Wan 2.7', modality: 'video', mode: 'text-to-video', source: 'live',
+    nativeOptions: { ratios: { values: ['16:9', '9:16'], default: '16:9' }, durations: { values: [5, 10], default: 5 } },
+  };
+  const video: Model = { ...videoBase, generationOptions: generationOptions(videoBase) };
+  loadGateway.mockResolvedValue(cloudState([video]));
+  const studio = {
+    catalog: { catalog: await loadGateway(), failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: studioDestination(findTechniqueStudio('shorts')!, 'text-to-video', video.id),
+  };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt: 'Vertical skyline', references: [] }} studio={studio} />));
+  generate.mockResolvedValue({ job: { id: 'shorts-job' } });
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: video.id, parameters: { ratio: '9:16' } }));
+
+  const imageBase: Model = {
+    id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2', label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live',
+    nativeOptions: {
+      profiles: {
+        generations: {
+          profiles: [
+            { aspect_ratio: '1:1', resolution: '1K' },
+            { aspect_ratio: '1:1', resolution: '2K' },
+            { aspect_ratio: '16:9', resolution: '2K' },
+          ],
+          default: { aspect_ratio: '1:1', resolution: '1K' },
+        },
+      },
+    },
+  };
+  const image: Model = { ...imageBase, generationOptions: generationOptions(imageBase) };
+  loadGateway.mockResolvedValue(cloudState([image]));
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', model: image.id, prompt: 'Poster', references: [] }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+  const ratio16x9 = [...document.querySelectorAll<HTMLButtonElement>('.om-generation-ratios button')].find(b => b.textContent === '16:9')!;
+  await act(async () => ratio16x9.click());
+  const resolutionSelect = document.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Resolution"]')!;
+  await act(async () => resolutionSelect.click());
+  const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map(el => el.textContent);
+  expect(options).toContain('2K');
+  expect(options).not.toContain('1K');
 });

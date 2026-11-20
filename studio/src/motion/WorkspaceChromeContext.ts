@@ -13,6 +13,9 @@ export type WorkspaceChrome = {
   /** Opens the MCP connection page; `entry` records which control opened it. */
   openConnections: (entry: McpEntry) => void;
   openModelSettings: () => void;
+  openProviderSettings?: (provider: string) => void;
+  openAccountSettings?: () => void;
+  openSubscriptionSettings?: () => void;
   openHome: () => void;
   openAssets: () => void;
   assetsOpen: boolean;

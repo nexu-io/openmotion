@@ -193,6 +193,9 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
     },
     openConnections: entry => { connectionEntry.current = entry; openSettings('mcp'); },
     openModelSettings: () => openSettings('providers'),
+    openProviderSettings: provider => navigatePage({ settings: 'providers', provider, assets: false, skills: false, templates: false }),
+    openAccountSettings: () => openSettings('account'),
+    openSubscriptionSettings: () => openSettings('subscription'),
     openHome, openAssets, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
     settingsOpen: Boolean(settings) || pageOpen };
   const openSkill = (skill: string) => {

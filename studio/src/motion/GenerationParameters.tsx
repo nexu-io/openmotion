@@ -1,7 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { modelReferenceLimit, type Model } from '../../../shared/gateway';
-import { resolveGenerationParameters, usesInputImageRatio, type GenerationOption } from '../../../shared/generation-options';
+import { compatibleImageResolutions, resolveGenerationParameters, usesInputImageRatio, type GenerationOption } from '../../../shared/generation-options';
 import { Popover } from '../components/ui/Popover';
 import { Select } from '../components/ui/Select';
 import { Slider } from 'open-design-ui/slider';
@@ -42,7 +42,22 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
   try { extra = requestParameters({ ...draft, values: {} }); } catch { /* The raw editor remains editable; submission reports parse errors through Toast. */ }
   const inputImageRatio = parameterInputImageRatio(model, draft, hasInputImage);
   const fields = (model.generationOptions?.fields ?? []).filter(field => !inputImageRatio || field.key !== 'ratio');
-  const value = (field: GenerationOption) => draft.values[field.key] ?? extra[field.key] ?? model.defaults?.[field.key] ?? field.default;
+  const aspectField = fields.find(field => field.key === 'aspect_ratio');
+  const activeAspectRatio = draft.values.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
+  const allowedResolutions = compatibleImageResolutions(model, activeAspectRatio, hasInputImage);
+  const effectiveDefault = (field: GenerationOption) => {
+    if (field.key === 'resolution' && allowedResolutions) {
+      return typeof field.default === 'string' && allowedResolutions.includes(field.default) ? field.default : allowedResolutions[0];
+    }
+    return field.default;
+  };
+  const value = (field: GenerationOption) => draft.values[field.key] ?? extra[field.key] ?? model.defaults?.[field.key] ?? effectiveDefault(field);
+  const choicesFor = (field: GenerationOption) => {
+    const choices = field.choices ?? [];
+    if (field.key !== 'resolution' || !allowedResolutions) return choices;
+    const current = value(field);
+    return choices.filter(c => allowedResolutions.includes(String(c.value)) || c.value === current);
+  };
   const label = (field: GenerationOption) => {
     const v = value(field), option = field.choices?.find(c => c.value === v);
     if (v === undefined) return t('Auto');
@@ -54,6 +69,10 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
     const values = { ...draft.values };
     if (value === undefined) delete values[field.key]; else values[field.key] = value;
     Object.assign(values, field.choices?.find(c => c.value === value)?.requires);
+    if (field.key === 'aspect_ratio') {
+      const nextAllowed = compatibleImageResolutions(model, value ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default, hasInputImage);
+      if (nextAllowed && typeof values.resolution === 'string' && !nextAllowed.includes(values.resolution)) delete values.resolution;
+    }
     onChange({ ...draft, values });
   };
   const summary = [...(inputImageRatio ? [t('Follows first frame')] : []), ...fields.filter(f => f.kind !== 'text' && f.key !== 'seed' && f.presentation !== 'count' && value(f) !== undefined).map(label)].slice(0, 3).join(' · ');
@@ -71,7 +90,10 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
         {field.kind === 'choice' && (field.presentation === 'ratio' ? <div className="om-generation-ratios" role="group" aria-label={t(field.label)}>{field.choices?.map(option => {
           const match = option.label.match(/(\d+):(\d+)/), ratio = match ? Number(match[1]) / Number(match[2]) : 1;
           return <Button variant="plain" key={String(option.value)} className="om-option-tile" disabled={constraints[field.key] !== undefined && constraints[field.key] !== option.value} aria-pressed={value(field) === option.value} onClick={() => set(field, option.value)}>{match ? <span className="om-ratio-outline" style={{ width: 22 * Math.min(ratio, 1), height: 22 / Math.max(ratio, 1) }} /> : <RemixIcon name="ruler-line" size={20} />}<span>{t(option.label)}</span></Button>;
-        })}</div> : <Select label={t(field.label)} value={value(field) === undefined ? '__auto' : String(value(field))} onCommit={v => set(field, v === '__auto' ? undefined : field.choices!.find(c => String(c.value) === v)!.value)} options={[{ value: '__auto', label: t('Model default') }, ...field.choices!.map(c => ({ value: String(c.value), label: t(c.label) }))]} />)}
+        })}</div> : (() => {
+          const fieldChoices = choicesFor(field);
+          return <Select label={t(field.label)} value={value(field) === undefined ? '__auto' : String(value(field))} onCommit={v => set(field, v === '__auto' ? undefined : fieldChoices.find(c => String(c.value) === v)!.value)} options={[{ value: '__auto', label: t('Model default') }, ...fieldChoices.map(c => ({ value: String(c.value), label: t(c.label) }))]} />;
+        })())}
         {field.kind === 'boolean' && <button className="om-switch" role="switch" aria-label={t(field.label)} aria-checked={Boolean(value(field))} onClick={() => set(field, !value(field))}><span /></button>}
         {field.kind === 'number' && <div className="om-generation-number"><label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} type="number" min={field.min} max={field.max} step={field.step} placeholder={t('Auto')} value={typeof value(field) === 'number' ? value(field) as number : ''} onChange={e => set(field, e.target.value === '' ? undefined : Number(e.target.value))} /></label>{field.min !== undefined && field.max !== undefined && <Slider label={t(field.label)} min={field.min} max={field.max} step={field.step} value={Number(value(field) ?? field.min)} onCommit={v => set(field, v)} />}</div>}
         {field.kind === 'text' && <label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} value={String(value(field) ?? '')} onChange={e => set(field, e.target.value || undefined)} /></label>}

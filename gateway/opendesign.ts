@@ -64,8 +64,14 @@ export const opendesign: ProviderAdapter = {
       const audioBody = speech ? { voice, parameters: { ...speechOptions, text: job.prompt } } : { parameters: { ...parameters, prompt: job.prompt } };
       const inputs = audio ? [] : await uploadInputs(fetcher, api, headers, job.id, ctx);
       const images = inputs.length ? { images: job.modality === 'video' ? [{ asset_id: inputs[0], role: 'first_frame' }] : inputs } : {};
+      const wireParameters = (() => {
+        if (job.modality !== 'image') return parameters;
+        const { aspect_ratio, resolution, ...rest } = parameters;
+        return typeof aspect_ratio === 'string' && typeof resolution === 'string' && parameters.output === undefined
+          ? { ...rest, output: { aspect_ratio, resolution } } : parameters;
+      })();
       const payload = audio ? { model: job.model.modelId, ...audioBody }
-        : { ...parameters, model: job.model.modelId, prompt: job.prompt, ...images };
+        : { ...wireParameters, model: job.model.modelId, prompt: job.prompt, ...images };
       const endpoint = audio ? speech ? '/audio/speech' : '/audio/music' : job.modality === 'image' ? inputs.length || Array.isArray(parameters.images) && parameters.images.length ? '/images/edits' : '/images/generations' : '/videos/tasks';
       const submitted = await apiJson(fetcher, api + endpoint, { method: 'POST', headers: { ...headers, 'Idempotency-Key': job.id }, body: JSON.stringify(payload), signal: ctx.signal });
       if (typeof submitted.task_id !== 'string' || !/^[a-zA-Z0-9_-]{1,180}$/.test(submitted.task_id)) throw new Error('OpenDesign Cloud did not return a task ID');

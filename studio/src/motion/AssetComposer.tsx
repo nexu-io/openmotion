@@ -33,7 +33,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   onCancel: (job: GenerationJob) => void; onView: (job: GenerationJob) => void; onRetrySave?: (job: GenerationJob) => Promise<void>; onReference: () => void; onUploadReference?: () => void;
   onCreated: (job: GenerationJob) => void; onResume?: (job: GenerationJob) => Promise<void>; onError: (message: string) => void; onClose: () => void;
 }) {
-  const { t } = useI18n(), { openModelSettings } = useWorkspaceChrome();
+  const { t } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const scene = studio?.destination.scene;
   const canvas = scene && sceneLayout(scene) === 'canvas';
   const modelId = studio ? studio.destination.model : draft.model;
@@ -52,6 +52,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const preferred = modelId ? compatible.find(model => model.id === modelId)
     : available.find(model => model.id === gateway?.status.routes[draft.modality]) ?? available[0] ?? (studio ? compatible[0] : undefined);
   const selected = available.find(model => model.id === preferred?.id);
+  const selectedProvider = selected ? gateway?.status.providers.find(provider => provider.id === selected.provider) : undefined;
+  const preferredProvider = preferred ? gateway?.status.providers.find(provider => provider.id === preferred.provider) : undefined;
+  const unconfiguredPreferred = Boolean(studio && gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
+  const accountNotIncluded = selected?.provider === 'account' && selectedProvider?.mediaEntitlement === 'not-included';
   const choices = studio ? compatible : available;
   const maximumReferences = selected ? modelReferenceLimit(selected) : 0;
   const unknownReferences = selected?.provider === 'opendesign' && selected.modality === 'image' && selected.supportsImageReference === undefined;
@@ -142,8 +146,22 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
           {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : <div className="om-creation-setup"><RemixIcon name="plug-line" size={20} /><p className="om-muted">{t('Configure a provider or sign in to use media models.')}</p><Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Model providers')}</Button></div>}
         </>}
       </div>
-      {studio && gateway && !available.length && compatible.length > 0 && <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Configure a provider or sign in to use media models.')}</Button>}
-      {gateway && modelId && !selected && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
+      {unconfiguredPreferred && <div className="om-creation-setup" role="status">
+        <RemixIcon name="plug-line" size={20} />
+        <p className="om-muted">{t('{provider} needs setup before generating.', { provider: preferredProvider!.label ?? preferredProvider!.id })}</p>
+        <Button variant="ghost" className="om-button h-auto" onClick={() => preferredProvider!.id === 'account' ? (openAccountSettings ?? openModelSettings)() : openProviderSettings ? openProviderSettings(preferredProvider!.id) : openModelSettings()}>
+          {preferredProvider!.id === 'account' ? t('Sign in with OpenDesign') : t('Configure {provider}', { provider: preferredProvider!.label ?? preferredProvider!.id })}
+        </Button>
+      </div>}
+      {studio && gateway && !available.length && compatible.length > 0 && !unconfiguredPreferred && <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Configure a provider or sign in to use media models.')}</Button>}
+      {accountNotIncluded && <div className="om-creation-setup" role="status">
+        <RemixIcon name="bank-card-line" size={20} />
+        <p className="om-muted">{t('Signed in; multimodal generation requires OpenDesign Plus or above')}</p>
+        <Button variant="ghost" className="om-button h-auto" onClick={() => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)()}>
+          {t('Manage subscription')}
+        </Button>
+      </div>}
+      {gateway && modelId && !selected && !unconfiguredPreferred && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
       {!scene && <div className="om-creation-scene"><span className="om-badge"><RemixIcon name={selected?.mode === 'text-to-speech' ? 'voiceprint-line' : kind.icon} size={14} />{t(selected?.mode === 'text-to-speech' ? 'Text to speech' : draft.modality === 'audio' ? 'Music & sound' : draft.modality === 'video' ? draft.references.length ? 'Image to video' : 'Text to video' : draft.references.length && selected?.supportsImageReference ? 'Image editing' : 'Text to image')}</span><span className="om-eyebrow">{t('Settings follow your model')}</span></div>}
       {!canvas && promptField}
       {!scene && !draft.prompt && selected?.mode !== 'text-to-speech' && <div className="om-creation-ideas" aria-label={t('Try an idea')}>{kind.ideas.map(idea => <Button variant="plain" key={idea} className="om-nav-item" onClick={() => setDraft({ ...draft, prompt: t(idea + ' prompt') })}><RemixIcon name="add-line" size={13} />{t(idea)}</Button>)}</div>}
