@@ -13,13 +13,14 @@ export type ProviderConnection = ProviderDefinition & {
   configured: boolean; enabled: boolean; available: boolean; custom: boolean;
   credentialSource: 'stored' | 'environment' | 'local-agent' | 'account' | 'none';
   reason: string;
+  verification?: 'unverified' | 'verified' | 'rejected';
 };
 /** Keep registry internals and saved revisions outside the public connection payload. */
 export function publicProviderConnection(provider: ProviderConnection): ProviderConnection {
   const { id, label, protocol, baseUrl, kinds, category, website, docs, setupRequired, baseUrlEditable,
-    configured, enabled, available, custom, credentialSource, reason } = provider;
+    configured, enabled, available, custom, credentialSource, reason, verification } = provider;
   return { id, label, protocol, baseUrl, kinds, category, website, docs, setupRequired, baseUrlEditable,
-    configured, enabled, available, custom, credentialSource, reason };
+    configured, enabled, available, custom, credentialSource, reason, ...(verification ? { verification } : {}) };
 }
 export const modelCapabilities = ['reasoning', 'tools'] as const;
 export const inputModalities = ['vision', 'audio', 'video'] as const;

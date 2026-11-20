@@ -31,10 +31,13 @@ export function providerListStatus(provider: { configured: boolean; enabled: boo
 export function ModelSettings({ onClose, openAccount, initialCategory = 'all', providerId, onProviderChange }: { onClose?: () => void; openAccount?: () => void; initialCategory?: string; providerId?: string | null; onProviderChange?: (id: string | null) => void }) {
   const { t } = useI18n(), directory = useProviderDirectory(), toast = useToast();
   const [localSelected, setSelected] = useState(initialCategory === 'local' ? 'codex' : 'account'), [query, setQuery] = useState(''), [category, setCategory] = useState(initialCategory);
-  const requestedProvider = providerId === undefined ? localSelected : providerId ?? 'account';
   const [status, setStatus] = useState('all'), [protocol, setProtocol] = useState('all');
   const [adding, setAdding] = useState(false), [localDetailOpen, setDetailOpen] = useState(false);
-  const detailOpen = providerId === undefined ? localDetailOpen : Boolean(providerId);
+  const [handoffProvider, setHandoffProvider] = useState<string>();
+  const handledHandoff = useRef(false);
+  const entry = tracking.settingsEntryFrom();
+  const requestedProvider = providerId ?? handoffProvider ?? (providerId === undefined ? localSelected : 'account');
+  const detailOpen = Boolean(providerId ?? handoffProvider) || (providerId === undefined && localDetailOpen);
   const data = directory.data;
   const visibleProviders = data?.providers.filter(provider => {
     const models = data.models.filter(model => model.provider === provider.id);
@@ -42,6 +45,16 @@ export function ModelSettings({ onClose, openAccount, initialCategory = 'all', p
     // New custom connections need to remain configurable before their first model sync.
     return !textOnly || provider.custom && !models.length;
   }) ?? [];
+  const rejectedProvider = visibleProviders.find(p => p.configured && p.verification === 'rejected')?.id;
+  useEffect(() => {
+    if (entry !== 'agent_media_key_rejected') {
+      handledHandoff.current = false;
+      setHandoffProvider(undefined);
+    } else if (providerId == null && rejectedProvider && !handledHandoff.current) {
+      handledHandoff.current = true;
+      setHandoffProvider(rejectedProvider);
+    }
+  }, [entry, providerId, rejectedProvider]);
   const selected = visibleProviders.some(provider => provider.id === requestedProvider) ? requestedProvider : 'account';
   const providers = visibleProviders.filter(provider => {
     const matches = category === 'all' || category === 'configured' && provider.configured || category === 'multimodal' && provider.kinds.length > 1
@@ -53,9 +66,13 @@ export function ModelSettings({ onClose, openAccount, initialCategory = 'all', p
   const select = (id: string) => {
     const item = visibleProviders.find(provider => provider.id === id);
     if (item) tracking.reportSettingsClick('provider_list', 'select_provider', { provider: item });
-    setSelected(id); setDetailOpen(true); onProviderChange?.(id);
+    handledHandoff.current = true;
+    setHandoffProvider(undefined); setSelected(id); setDetailOpen(true); onProviderChange?.(id);
   };
-  const closeDetail = () => { setDetailOpen(false); onProviderChange?.(null); };
+  const closeDetail = () => {
+    handledHandoff.current = true;
+    setHandoffProvider(undefined); setDetailOpen(false); onProviderChange?.(null);
+  };
   return <section className="om-provider-settings" data-detail={detailOpen} aria-label={t('Model providers')}>
     <aside className="om-provider-list">
       <div className="om-provider-search"><label className="om-field"><RemixIcon name="search-line" size={16} /><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search providers…')} aria-label={t('Search providers')} /></label>
@@ -112,10 +129,30 @@ function useProviderValidation(label: string | undefined, baseUrl: string | unde
  */
 function AccountProviderGuide({ provider, openAccount, showToast }: { provider: ProviderConnection; openAccount?: () => void; showToast: ReturnType<typeof useToast>['showToast'] }) {
   // Until the summary loads (or if it fails), the callout below still signs in here rather than leaving the page.
-  const { t } = useI18n(), { state: { account }, busy, action } = useAccountSignIn('provider_detail', showToast, provider);
+  const { t } = useI18n(), { state: { account }, busy, action, subscription, refreshBilling } = useAccountSignIn('provider_detail', showToast, provider);
+  const [refreshing, setRefreshing] = useState(false);
+  const entry = tracking.settingsEntryFrom();
   const plan = upgradePlan(account);
   if (account && ['signed-out', 'unavailable', 'authorizing', 'reauth-required'].includes(account.state)) return <AccountStatus account={account} busy={busy} action={action} showToast={showToast} />;
-  if (plan && account) return <UpgradeGuide plan={plan} area="provider_detail" showToast={showToast} />;
+  if (plan) return <UpgradeGuide plan={plan} subscription={subscription} />;
+  if (account?.state === 'signed-in' && (account.billingUnavailable || entry === 'agent_media_balance_low')) {
+    const billingUnavailable = Boolean(account.billingUnavailable);
+    const upgradeEntry = entry === 'agent_media_upgrade_free' || entry === 'agent_media_upgrade_go';
+    async function retryBilling() {
+      tracking.reportSettingsClick('provider_detail', 'refresh_billing');
+      setRefreshing(true);
+      try { await refreshBilling(); } finally { setRefreshing(false); }
+    }
+    return <section className="om-card om-card-stack">
+      <h2 className="om-subtitle">{t(billingUnavailable ? 'OpenDesign billing is unavailable' : 'OpenDesign balance is too low')}</h2>
+      <p className="om-muted">{t(billingUnavailable ? "Couldn't verify your OpenDesign plan and balance right now." : 'Your OpenDesign balance was too low for the media request. Check your credits in OpenDesign, then refresh here.')}</p>
+      {billingUnavailable && upgradeEntry && <p className="om-muted">{t('Multimodal generation requires OpenDesign Plus or above.')}</p>}
+      <div className="om-settings-actions">
+        {subscription.button('manage_subscription')}{subscription.link}
+        <Button variant="ghost" className="om-button h-auto" disabled={refreshing} aria-busy={refreshing} onClick={() => void retryBilling()}>{t('Refresh')}</Button>
+      </div>
+    </section>;
+  }
   return <><div className="om-settings-tags">{provider.kinds.map(kind => <span className="om-badge" key={kind}>{t(kindLabels[kind])}</span>)}<span className="om-badge" data-active={provider.configured}>{t(provider.configured ? 'Configured' : 'Not configured')}</span></div>
     <div className="om-card om-account-callout"><RemixIcon name="account-circle-line" size={28} /><div><h2 className="om-subtitle">{t(provider.configured ? 'Your OpenDesign models, in OpenMotion' : 'One account. Your models, together.')}</h2><p className="om-muted">{t(provider.configured ? 'Account models and your own providers can be selected side by side.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>{provider.configured && provider.reason && <p className="om-muted">{t(provider.reason)}</p>}{provider.configured ? openAccount && <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>{t('Manage account')}</Button>
       : <Button variant="ghost" className="om-button h-auto" data-primary disabled={busy} onClick={() => void action('login')}>{t('Sign in with OpenDesign')}</Button>}</div></div></>;
@@ -150,6 +187,7 @@ function ProviderDetail({ provider, data, openAccount, showToast, onRemoved }: {
       : <form noValidate ref={validation.formRef} className="om-provider-form" onSubmit={event => { event.preventDefault(); if (!validation.validate()) return; void change(async () => {
         await gatewayRequest(`settings/providers/${provider.id}`, 'PUT', { ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}), ...(!fixedOrigin ? { baseUrl: baseUrl.trim() } : {}), ...(provider.custom ? { label } : {}) }); validation.reset(); setApiKey(''); setVisible(false);
       }, 'Provider settings saved'); }}>
+        {provider.verification === 'rejected' && <p className="om-muted" role="alert">{t('Credentials or permissions rejected; update the key')}</p>}
         {provider.custom && <TextField label={t('Provider name')} value={label} onChange={setLabel} error={validation.errors.label} required />}
         <label className="om-label">{t('API key')}<span className="om-field"><input type={visible ? 'text' : 'password'} aria-label={`${provider.label} API key`} aria-invalid={Boolean(validation.errors.apiKey) || undefined} aria-describedby={validation.errors.apiKey ? keyErrorId : undefined} autoComplete="off" spellCheck={false} value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={t(provider.configured ? 'Key saved · enter to replace' : 'Paste your API key')} /><Tooltip label={t(visible ? 'Hide API key' : 'Show API key')} wrap><IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t(visible ? 'Hide API key' : 'Show API key')} onClick={() => setVisible(value => !value)} icon={<RemixIcon name={visible ? 'eye-off-line' : 'eye-line'} size={16} />} /></Tooltip></span><small id={keyErrorId} className="om-field-error" role={validation.errors.apiKey ? 'alert' : undefined}>{validation.errors.apiKey ? t(validation.errors.apiKey) : null}</small></label>
         <div className="om-settings-row"><span className="om-muted">{t(provider.credentialSource === 'environment' ? 'Using environment key' : 'Keys stay on this computer and are never returned by the API.')}</span>{provider.website && <a href={provider.website} target="_blank" rel="noreferrer" className="om-text-link">{t('Get API key')}<RemixIcon name="external-link-line" size={13} /></a>}</div>

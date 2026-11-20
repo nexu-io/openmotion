@@ -97,7 +97,7 @@ test('legacy files retain credentials, models and defaults across shared HTTP, M
     assert.equal(await gateway.connections.identity(custom), 'saved-revision');
     assert.deepEqual(await Promise.all(Object.keys(files).map(file => readFile(path.join(root, file), 'utf8'))), before, 'Reading old configuration must not rewrite it');
     assert.doesNotMatch(JSON.stringify(directory), /legacy-.*-key|environment-fal-key/);
-    const publicFields = new Set(['id', 'label', 'protocol', 'baseUrl', 'kinds', 'category', 'website', 'docs', 'setupRequired', 'baseUrlEditable', 'configured', 'enabled', 'available', 'custom', 'credentialSource', 'reason']);
+    const publicFields = new Set(['id', 'label', 'protocol', 'baseUrl', 'kinds', 'category', 'website', 'docs', 'setupRequired', 'baseUrlEditable', 'configured', 'enabled', 'available', 'custom', 'credentialSource', 'reason', 'verification']);
     for (const provider of [...directory.providers, ...await gateway.connections.list()]) {
       assert.deepEqual(Object.keys(provider).filter(key => !publicFields.has(key)), [], `${provider.id} must contain only public connection fields`);
     }
@@ -903,6 +903,51 @@ test('an in-flight billing refresh cannot report an old account after sign-out',
   assert.equal(summary.state, 'signed-out'); assert.equal(summary.plan, undefined); assert.equal(summary.balance, undefined);
 }));
 
+test('concurrent billing reads keep the latest plan and sync newly entitled account models', t => fixture(async store => {
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary }); t.after(() => gateway.close());
+  await signIn(account);
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-go');
+  assert.equal((await account.summary(true)).plan?.trim().toLowerCase(), 'go');
+  // Remember the last verified entitlement even when a temporary billing failure hides the plan.
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-403');
+  assert.equal((await account.summary(true)).plan, undefined);
+
+  const staleGo = Promise.withResolvers<string>(), stale401 = Promise.withResolvers<string>();
+  const staleCatalog = Promise.withResolvers<string>();
+  let billingReads = 0, catalogReads = 0;
+  account.options.run = async args => {
+    if (args[0] === 'billing') {
+      billingReads++;
+      if (billingReads === 1) return staleGo.promise;
+      if (billingReads === 2) return stale401.promise;
+      return JSON.stringify({ membershipTier: 'Plus', balanceUsd: '4.00' });
+    }
+    if (args[0] === 'model') return JSON.stringify({ source: 'remote', data: [{ id: 'language-one' }] });
+    assert.deepEqual(args, ['media', 'models', '--json']);
+    if (++catalogReads === 1) return staleCatalog.promise;
+    return JSON.stringify({ models: [{ model: 'new-plus-image', kind: 'image' }] });
+  };
+  const oldSync = account.models(true); await until(async () => catalogReads === 1);
+  const slow = account.summary(true); await until(async () => billingReads === 1);
+  const failed = account.summary(true); await until(async () => billingReads === 2);
+  const updated = await gateway.status(false, { refreshAccount: true });
+  staleGo.resolve(JSON.stringify({ membershipTier: 'Go', balanceUsd: '0.00' }));
+  stale401.reject(new AccountRequestError('API request failed with status 401'));
+  assert.equal(updated.providers.find(p => p.id === 'account')?.plan, 'plus');
+  assert.deepEqual(updated.capabilities.find(capability => capability.modality === 'image')?.modelIds, ['account:new-plus-image']);
+  for (const result of await Promise.all([slow, failed, account.summary(true)])) {
+    assert.equal(result.state, 'signed-in');
+    assert.equal(result.plan, 'Plus');
+    assert.equal(result.balance, '4.00');
+    assert.equal(result.billingUnavailable, false);
+  }
+  staleCatalog.resolve(JSON.stringify({ models: [] }));
+  await oldSync;
+  assert.equal(catalogReads, 2, 'a stable entitled plan does not keep refreshing the catalogue');
+  assert((await account.models()).some(model => model.id === 'account:new-plus-image'));
+}));
+
 test('model overrides survive catalogue sync and reach generation with per-request precedence', () => fixture(async store => {
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
   const fetcher: Fetcher = async (url, init) => {
@@ -933,12 +978,23 @@ test('media setup discovery rechecks saved and removed keys without executing a 
   gateway.options.fetcher = async () => { throw new Error('Setup must not call a paid model'); };
   const inspect = () => mediaUse(store, { action: 'inspect' });
   const before = await inspect();
-  assert.deepEqual(before.settingsHandoff, { tool: 'openmotion_open_preview', arguments: { target: 'providers' } });
+  assert.deepEqual(before.settingsHandoff, { tool: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_signed_out' } });
+  assert.match(before.settings, /Model providers > OpenDesign to sign in or upgrade to Plus/);
   assert.equal(before.providers.some(provider => provider.available), false);
   await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-onboarding-key' });
   const saved = await inspect();
   assert.equal(saved.providers.find(provider => provider.id === 'atlascloud')?.available, true);
   assert.doesNotMatch(JSON.stringify(saved), /synthetic-onboarding-key/);
+  assert.deepEqual(saved.settingsHandoff.arguments, { target: 'providers' });
+  assert((await mediaUse(store, { action: 'models' })).providers.includes('atlascloud'));
+  await gateway.connections.verifyKey('atlascloud', 'synthetic-onboarding-key', 'rejected');
+  const rejected = await inspect();
+  assert.deepEqual(rejected.settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_key_rejected' });
+  const connection = (await providerDirectory(gateway)).providers.find(provider => provider.id === 'atlascloud')!;
+  assert.equal(connection.verification, 'rejected'); assert.equal(connection.enabled, true); assert.equal(connection.available, false);
+  assert.doesNotMatch(JSON.stringify(connection), /synthetic-onboarding-key|keyHash/);
+  assert.deepEqual(await mediaUse(store, { action: 'models', provider: 'atlascloud', refresh: true }), { providers: [], catalogs: [], setupRequired: true });
+  assert(!(await mediaUse(store, { action: 'models' })).providers.includes('atlascloud'));
   await gateway.configureProvider('atlascloud', { apiKey: null });
   assert.equal((await inspect()).providers.find(provider => provider.id === 'atlascloud')?.available, false);
 }));
@@ -948,8 +1004,8 @@ test('media inspection refreshes advisory billing without disabling account mode
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
   const account = gateway.account = new OpenDesignAccount(store.directory, { binary });
   t.after(() => gateway.close());
-  const inspect = async () => (await mediaUse(store, { action: 'inspect' })).providers.find(p => p.id === 'account')!;
-  const signedOut = await inspect();
+  const inspect = () => mediaUse(store, { action: 'inspect' });
+  const signedOut = (await inspect()).providers.find(p => p.id === 'account')!;
   assert.equal(signedOut.available, false); assert.equal(Object.hasOwn(signedOut, 'mediaEntitlement'), false);
   assert.equal(signedOut.plan, undefined); assert.equal(signedOut.hasBalance, undefined);
   await signIn(account);
@@ -961,8 +1017,16 @@ test('media inspection refreshes advisory billing without disabling account mode
     ['billing-failure', 'unknown', undefined, undefined],
   ] as const) {
     await writeFile(path.join(account.home, 'fixture-mode'), mode);
-    const provider = await inspect();
+    const report = await inspect();
+    const provider = report.providers.find(p => p.id === 'account')!;
     assert.equal(provider.mediaEntitlement, entitlement, mode); assert.equal(provider.available, true, mode);
+    assert.deepEqual(report.settingsHandoff.arguments, plan === 'free' || plan === 'go'
+      ? { target: 'providers', entry: 'agent_media_upgrade_' + plan } : { target: 'providers' }, mode);
+    const { capabilities } = await gateway.status();
+    for (const capability of capabilities) {
+      assert.equal(capability.available, entitlement !== 'not-included', mode + '/' + capability.modality);
+      if (entitlement === 'not-included') assert.deepEqual(capability.modelIds, []);
+    }
     assert.equal(provider.plan, plan, mode); assert.equal(provider.hasBalance, hasBalance, mode);
     const directory = await providerDirectory(gateway);
     const official = directory.providers.find(p => p.id === 'account')!;
@@ -979,8 +1043,20 @@ test('media inspection refreshes advisory billing without disabling account mode
       await gateway.cancel(queued.id);
     }
   }
+  // An eligible alternative keeps the generic handoff and supplies its own capabilities.
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-go');
+  await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-onboarding-key' });
+  assert.deepEqual((await inspect()).settingsHandoff.arguments, { target: 'providers' });
+  const { capabilities } = await gateway.status();
+  assert(capabilities.some(capability => capability.available));
+  assert(capabilities.every(capability => capability.modelIds.every(id => id.startsWith('atlascloud:'))));
+  await gateway.connections.verifyKey('atlascloud', 'synthetic-onboarding-key', 'rejected');
+  assert.deepEqual((await inspect()).settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_upgrade_go' });
+  await gateway.configureProvider('atlascloud', { apiKey: null });
   await writeFile(path.join(account.home, 'fixture-mode'), 'billing-401');
-  const rejected = await inspect();
+  const expired = await inspect();
+  assert.deepEqual(expired.settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_signed_out' });
+  const rejected = expired.providers.find(p => p.id === 'account')!;
   assert.equal(rejected.available, false); assert.equal(Object.hasOwn(rejected, 'mediaEntitlement'), false);
   assert.equal((await account.summary()).state, 'reauth-required');
 }));

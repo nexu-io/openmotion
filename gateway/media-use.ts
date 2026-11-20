@@ -2,6 +2,7 @@ import { ToolInputError } from '../shared/tool-input-error.ts';
 import type { OmTracking } from '../shared/tracking.ts';
 import type { WorkspaceStore } from '../workspace.ts';
 import type { GenerateInput } from '../shared/gateway.ts';
+import type { ProviderSetupEntry } from '../shared/workspace-url.ts';
 import { isMediaProvider, registeredProvider } from '../shared/provider-registry.ts';
 import { gatewayFor } from './service.ts';
 import { getWorkflow } from '../shared/workflow.ts';
@@ -15,10 +16,19 @@ export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTr
   if (args.provider !== undefined && !supported(args.provider)) throw new ToolInputError('unsupported media provider', 'provider', 'invalid_enum');
   if (args.action === 'inspect') {
     const status = await gateway.status(false, { refreshAccount: true });
-    return { providers: status.providers.filter(p => supported(p.id) && (isMediaProvider(p.id) || p.configured || p.id === 'account')),
+    const providers = status.providers.filter(p => supported(p.id) && (isMediaProvider(p.id) || p.configured || p.id === 'account'));
+    const account = providers.find(p => p.id === 'account');
+    let entry: ProviderSetupEntry | undefined;
+    if (!providers.some(p => p.available && !(p.id === 'account' && p.mediaEntitlement === 'not-included'))) {
+      if (account?.mediaEntitlement === 'not-included' && account.plan === 'go') entry = 'agent_media_upgrade_go';
+      else if (account?.mediaEntitlement === 'not-included' && account.plan === 'free') entry = 'agent_media_upgrade_free';
+      else if (providers.some(p => p.id !== 'account' && p.configured && p.verification === 'rejected')) entry = 'agent_media_key_rejected';
+      else if (!account?.configured) entry = 'agent_media_signed_out';
+    }
+    return { providers,
       defaults: status.routes,
-      settings: 'Open Settings > Model providers, or Account for OpenDesign sign-in. Saving a key enables a provider; sync or add its models and select defaults by capability.',
-      settingsHandoff: { tool: 'openmotion_open_preview', arguments: { target: 'providers' } },
+      settings: 'Open Settings > Model providers > OpenDesign to sign in or upgrade to Plus in place. Save or replace API keys in Model providers.',
+      settingsHandoff: { tool: 'openmotion_open_preview', arguments: { target: 'providers', ...(entry ? { entry } : {}) } },
       references: status.providers.filter(p => supported(p.id)).map(p => ({ provider: p.id, uri: `openmotion://workflow/media/${referenceSection(p.id)}` })),
       credentials: 'Read by the local service; keys are never returned to the Agent.' };
   }
@@ -27,7 +37,7 @@ export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTr
     return getWorkflow(referenceSection(args.provider), 'media');
   }
   if (args.action === 'models') {
-    const providers = (await gateway.status()).providers.filter(p => supported(p.id) && (!args.provider || p.id === args.provider) && p.enabled);
+    const providers = (await gateway.status()).providers.filter(p => supported(p.id) && (!args.provider || p.id === args.provider) && p.available);
     const pages = await Promise.all(providers.map(provider => gateway.listModels({ provider: provider.id, modality: args.modality, refresh: args.refresh, query: args.query, offset: args.offset, limit: args.limit })));
     return { providers: providers.map(p => p.id), catalogs: pages, setupRequired: !providers.length };
   }

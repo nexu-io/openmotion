@@ -6,6 +6,7 @@ import type { AccountSummary } from '../../../shared/provider-directory';
 import { I18nProvider, type Locale } from '../i18n/I18n';
 import { AccountSettings } from './AccountSettings';
 import { GITHUB_REPOSITORY } from './githubRepository';
+import { notifyProvidersChanged } from './useProviderDirectory';
 
 const hooks = vi.hoisted(() => ({ account: undefined as unknown, request: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: hooks.request }));
@@ -87,6 +88,29 @@ it('shows the account email once, under the name only when the account has a dif
   expect(await identity({ email: 'ada@example.test' })).toEqual(['ada@example.test', 'Your creative workspace, connected.']);
   expect(await identity({ name: 'Ada@Example.test', email: 'ada@example.test' })).toEqual(['ada@example.test', 'Your creative workspace, connected.']);
   expect(await identity({ name: 'Ada', email: 'ada@example.test' })).toEqual(['Ada', 'ada@example.test']);
+});
+
+it('refreshes Go on checkout return and updates providers only after the plan changes', async () => {
+  const page = await open({ state: 'signed-in', plan: 'go', balance: '0.00' });
+  const original = hooks.account;
+  hooks.request.mockImplementation(async (route: string) => route === 'settings/account/subscription' ? { opened: true } : hooks.account);
+  hooks.request.mockClear();
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(hooks.request).not.toHaveBeenCalled();
+  await act(async () => button(page, 'Upgrade to Plus')!.click());
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', {});
+  hooks.account = { ...original as AccountSummary, plan: 'plus', balance: '4.00' };
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  const billingReads = () => hooks.request.mock.calls.filter(([route]) => route === 'settings/account?refresh=true').length;
+  expect(billingReads()).toBe(1);
+  expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
+  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('plus');
+  expect(notifyProvidersChanged).toHaveBeenCalledTimes(1);
+  await act(async () => window.dispatchEvent(new Event('focus')));
+  expect(billingReads()).toBe(1);
 });
 
 it('explains that account models still work when the plan and balance cannot be read', async () => {

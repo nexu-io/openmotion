@@ -50,16 +50,25 @@ test('provider setup opens without a project and preserves workspace state', asy
       assert.equal(url.searchParams.get('page'), 'settings');
       assert.equal(url.searchParams.get('section'), 'providers');
       assert.equal(url.searchParams.get('entry_from'), 'agent_providers');
+      assert.equal(url.searchParams.has('provider'), false);
       assert.equal(url.searchParams.has('project'), false);
       assert.equal(opened.target, 'providers');
       assert.equal(opened.projectCreated, false);
       assert.equal(opened.previewHandoff.openedByHost, false);
       assert.equal(opened.previewHandoff.hostActionRequired, presentation !== 'background');
       assert.match(opened.previewHandoff.instructions, /Model providers/);
+      assert.match(opened.previewHandoff.instructions, /Sign in with OpenDesign or Upgrade to Plus directly on the opened OpenDesign page/);
       assert.match(opened.previewHandoff.instructions, /OpenDesign Plus or above/);
+      assert.doesNotMatch(opened.previewHandoff.instructions, /Settings > Account|Subscription & usage/);
     }
-    const upgrade = await service.call('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_free' });
-    assert.equal(new URL(upgrade.previewUrl).searchParams.get('entry_from'), 'agent_media_upgrade_free');
+    for (const entry of ['agent_media_signed_out', 'agent_media_upgrade_free', 'agent_media_upgrade_go', 'agent_media_balance_low', 'agent_media_key_rejected', 'agent_media_handbook']) {
+      const handoff = await service.call('openmotion_open_preview', { target: 'providers', entry });
+      const url = new URL(handoff.previewUrl);
+      assert.equal(url.searchParams.get('entry_from'), entry);
+      assert.equal(url.searchParams.get('embed'), '1');
+      assert.equal(url.searchParams.get('provider'), entry === 'agent_media_key_rejected' || entry === 'agent_media_handbook' ? null : 'account');
+      assert.equal(handoff.previewHandoff.nextAction.previewUrl, handoff.previewUrl);
+    }
     assert.deepEqual(await store.get(), before);
     assert.deepEqual(store.projectCatalog(), catalog);
     for (const args of [{ projectId: 'project' }, { sessionId: 'session' }, { action: 'begin' }, { action: 'record_display' }, { entry: 'PRIVATE_ENTRY' }]) {

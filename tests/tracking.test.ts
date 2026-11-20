@@ -608,7 +608,9 @@ test('provider setup handoff tracks MCP entries exclusively without counting Web
       body: JSON.stringify({ name: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_upgrade_go' } }),
     });
     assert.equal(webmcp.status, 200);
-    assert.equal(new URL((await webmcp.json()).previewUrl).searchParams.has('entry_from'), false);
+    const webmcpUrl = new URL((await webmcp.json()).previewUrl);
+    assert.equal(webmcpUrl.searchParams.has('entry_from'), false);
+    assert.equal(webmcpUrl.searchParams.get('provider'), 'account');
 
     await rpc({ jsonrpc: '2.0', id: 'init', method: 'initialize', params: { clientInfo: { name: 'codex-mcp-client', version: '1.2.3' } } }, store);
     await rpc({ jsonrpc: '2.0', id: 'p1', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'providers' } } }, store);

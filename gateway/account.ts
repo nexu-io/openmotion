@@ -9,6 +9,7 @@ import type { GenerationJob, Model } from '../shared/gateway.ts';
 import { validField, type EventFields } from '../tracking/core.ts';
 import { accountErrorKinds, accountStages, type omEvents } from '../tracking/events.ts';
 import { readSettings, writeSettings } from './settings-storage.ts';
+import { planMediaEntitlement } from './account-media.ts';
 import { registeredProvider } from '../shared/provider-registry.ts';
 import { defaultVideoAudioEnabled, resolveGenerationParameters } from '../shared/generation-options.ts';
 import { apiJson, ProviderError, retryRead, type Fetcher } from './network.ts';
@@ -161,12 +162,16 @@ export class OpenDesignAccount {
   /** Why the connector could not be prepared, while `errorCode` is `connector_unavailable`. */
   private connectorProblem?: ConnectorProblem;
   private attempt?: AccountAttempt;
-  private billing?: { plan?: string; balance: string | null };
+  // Retain the last verified plan internally through transient billing failures to detect upgrades on recovery.
+  private billing?: { plan: string; balance: string | null };
+  private billingRequestId = 0;
+  private billingModelRefresh?: Promise<unknown>;
   private billingUnavailable = false;
   private billingError?: { status: number; code?: string };
   /** Control key the account service rejected; cleared by a successful read or a new sign-in. */
   private rejectedKeyId?: string;
   private cachedModels: DirectoryModel[] = [];
+  private modelRequestId = 0;
   /** In-flight `logout --retry-pending`. The connector rewrites the credentials file, so sign-in and sign-out wait for it. */
   private revoking?: Promise<void>;
   private revocationChecked = false;
@@ -257,12 +262,15 @@ export class OpenDesignAccount {
     // Undelivered revocations are retried once after startup and on every refresh.
     if (file.pendingRevocations?.length && (refresh || !this.revocationChecked)) this.retryRevocations();
     const signedIn = signedInProfile(profile) && Boolean(await this.identity());
-    if (refresh && signedIn && !this.connecting) await this.readBilling(generation, profile!);
+    if (refresh && signedIn && !this.connecting) {
+      await this.readBilling(generation, profile!);
+      await this.billingModelRefresh;
+    }
     if (generation !== this.generation) return this.summary();
     const rejected = signedIn && this.rejectedKeyId === profile!.controlKeyId;
     const browser = this.attempt?.stages.find(entry => entry.startsWith('browser_open_result:'))?.split(':')[1];
     return { state: this.connecting ? 'authorizing' : rejected ? 'reauth-required' : signedIn ? 'signed-in' : 'signed-out',
-      ...(signedIn ? { user: { name: profile?.user?.name, email: profile?.user?.email }, ...(rejected ? {} : this.billing), billingUnavailable: this.billingUnavailable, ...(this.billingError ? { billingError: { ...this.billingError } } : {}) } : {}),
+      ...(signedIn ? { user: { name: profile?.user?.name, email: profile?.user?.email }, ...(rejected || this.billingUnavailable ? {} : this.billing), billingUnavailable: this.billingUnavailable, ...(this.billingError ? { billingError: { ...this.billingError } } : {}) } : {}),
       ...(this.connecting ? { authorizationUrl: this.authorizationUrl, userCode: this.userCode, ...(browser ? { browserOpened: browser === 'success' } : {}), ...(this.syncing ? { syncing: true } : {}) } : {}),
       ...(this.attempt ? { attempt: { ...this.attempt, stages: [...this.attempt.stages] } } : {}),
       error: this.error, errorCode: this.errorCode, consoleUrl,
@@ -291,23 +299,33 @@ export class OpenDesignAccount {
     return data;
   }
   private async readBilling(generation: number, profile: Profile) {
+    if (generation !== this.generation) return;
+    const requestId = ++this.billingRequestId;
+    const isCurrent = () => generation === this.generation && requestId === this.billingRequestId;
     try {
       const data = await this.billingSummary(profile);
-      if (generation !== this.generation) return;
+      if (!isCurrent()) return;
       // The account service leaves the tier empty for accounts without a subscription.
       const tier = typeof data.membershipTier === 'string' ? data.membershipTier.trim() : '';
       const balance = typeof data.totalAvailableCreditsUsd === 'string' ? data.totalAvailableCreditsUsd
         : typeof data.balanceUsd === 'string' ? data.balanceUsd : null;
-      this.billing = { plan: tier || 'free', balance };
+      const plan = tier || 'free';
+      const upgraded = planMediaEntitlement(this.billing?.plan) === 'not-included' && planMediaEntitlement(plan) === 'included';
+      this.billing = { plan, balance };
       this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
+      if (upgraded) {
+        const sync = this.models(true).catch(() => {}).finally(() => {
+          if (this.billingModelRefresh === sync) this.billingModelRefresh = undefined;
+        });
+        this.billingModelRefresh = sync;
+      }
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (!isCurrent()) return;
       const { status, code } = error instanceof AccountRequestError ? error : {};
       // 401 means the control key itself is no longer accepted. Other 4xx responses come after authentication, so they
       // clear that judgement; timeouts, rate limits, 5xx and failures without a response leave it unchanged.
       if (status === 401) this.rejectedKeyId = profile.controlKeyId;
       else if (status && status < 500 && status !== 408 && status !== 429) this.rejectedKeyId = undefined;
-      this.billing = undefined;
       this.billingUnavailable = status !== 401;
       this.billingError = status ? { status, ...(code ? { code } : {}) } : undefined;
     }
@@ -317,7 +335,7 @@ export class OpenDesignAccount {
     if (this.signingOut) throw new Error('Wait for sign-out to finish before connecting an account');
     if (this.connecting || current.state === 'signed-in') return this.summary();
     this.connecting = true; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.cachedModels = [];
-    this.billing = undefined; this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
+    this.billing = undefined; this.billingModelRefresh = undefined; this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
     this.authorizationUrl = undefined; this.userCode = undefined; this.syncing = false;
     const generation = ++this.generation;
     this.attempt = { id: randomUUID(), stages: [], persisted: false };
@@ -481,7 +499,7 @@ export class OpenDesignAccount {
     this.signingOut = true;
     try {
       await this.cancel();
-      this.billing = undefined; this.cachedModels = []; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.attempt = undefined;
+      this.billing = undefined; this.billingModelRefresh = undefined; this.cachedModels = []; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.attempt = undefined;
       this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
       await this.commit(this.generation, async () => {
         await writeSettings(path.join(this.directory, 'account', 'session.json'), {});
@@ -501,11 +519,12 @@ export class OpenDesignAccount {
   }
   async models(refresh = false): Promise<DirectoryModel[]> {
     const generation = this.generation;
-    if (!(await this.profile())?.runtimeKey || !(await this.identity())) return [];
+    if (!(await this.profile())?.runtimeKey || !(await this.identity()) || generation !== this.generation) return [];
     if (!refresh) {
       const stored = this.cachedModels.length ? this.cachedModels : await readSettings<DirectoryModel[]>(path.join(this.directory, 'account', 'models.json'), []);
       return generation === this.generation ? withBuiltinAudio(stored) : [];
     }
+    const requestId = ++this.modelRequestId;
     const data = JSON.parse(await this.run(['model', 'list', '--all', '--format', 'json']));
     if (data.source !== 'remote' || !Array.isArray(data.data)) throw new Error('OpenDesign model catalogue is unavailable');
     const models: DirectoryModel[] = data.data.filter((row: any) => typeof row.id === 'string' && /^[\w./:-]{1,180}$/.test(row.id)).map((row: any) => ({
@@ -531,6 +550,8 @@ export class OpenDesignAccount {
     }
     if (generation !== this.generation) return [];
     await this.commit(generation, async () => {
+      // A sync started before the upgrade must not replace the newly entitled catalogue.
+      if (requestId !== this.modelRequestId) return;
       this.cachedModels = [...new Map(models.map(model => [model.id, model])).values()];
       await writeSettings(path.join(this.directory, 'account', 'models.json'), this.cachedModels);
     });

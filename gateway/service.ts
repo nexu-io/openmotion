@@ -184,7 +184,13 @@ export class ModelGateway {
     return this.status();
   }
   async status(refreshAgents = false, options: { refreshAccount?: boolean } = {}): Promise<GatewayStatus> {
-    const [config, agents, models] = await Promise.all([this.config(), this.agents(refreshAgents), this.models()]);
+    const accountSummary = this.account.summary(options.refreshAccount === true);
+    const [config, agents, models, account] = await Promise.all([
+      this.config(), this.agents(refreshAgents),
+      // A billing refresh can sync newly entitled models before we calculate media capabilities.
+      options.refreshAccount ? accountSummary.then(() => this.models()) : this.models(),
+      accountSummary,
+    ]);
     const providers: ProviderState[] = await Promise.all(providerIds.map(async id => {
       const saved = config.providers[id] ?? {};
       const enabled = saved.enabled !== false;
@@ -204,10 +210,11 @@ export class ModelGateway {
         reason: !active ? 'API key required' : !enabled ? 'Disabled' : definition.baseUrlEditable && !baseUrl ? `${definition.label} API origin required` : verification === 'rejected' ? 'Credentials or permissions rejected; update the key' : verification === 'verified' ? 'A generation request succeeded with this key' : 'Configured; availability and quota are checked when generating' };
     }));
     providers.push(...await this.connections.states());
-    const account = await this.account.summary(options.refreshAccount === true);
-    providers.push({ id: 'account', label: registeredProvider('account')!.label, enabled: account.state === 'signed-in', configured: account.state === 'signed-in', available: account.state === 'signed-in', credentialSource: 'account', verification: 'unverified', ...accountMediaState(account) });
+    const accountMedia = accountMediaState(account);
+    providers.push({ id: 'account', label: registeredProvider('account')!.label, enabled: account.state === 'signed-in', configured: account.state === 'signed-in', available: account.state === 'signed-in', credentialSource: 'account', verification: 'unverified', ...accountMedia });
+    const mediaProviders = new Set(providers.filter(p => p.available && !(p.id === 'account' && accountMedia.mediaEntitlement === 'not-included')).map(p => p.id));
     const capabilities = modalities.map(kind => {
-      const available = models.filter(model => model.modality === kind && providers.find(p => p.id === model.provider)?.available);
+      const available = models.filter(model => model.modality === kind && mediaProviders.has(model.provider));
       const selected = config.routes[kind] ? available.find(m => m.id === config.routes[kind]) : available.find(m => m.mode.startsWith('text-to-'));
       return { modality: kind, available: available.length > 0, modelIds: available.map(m => m.id), selectedModelId: selected?.id };
     });

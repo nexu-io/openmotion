@@ -57,9 +57,14 @@ export function resolveProviderSetupEntry(entry?: string): ProviderSetupEntry {
 }
 
 function workspacePagePreview(origin: string, target: 'templates' | 'providers', options: { embedded?: boolean; presentation?: string; entry?: string; attributeEntry?: boolean }) {
-  const query = new URLSearchParams(target === 'providers'
-    ? (options.attributeEntry === false ? { page: 'settings', section: 'providers' } : { page: 'settings', section: 'providers', entry_from: resolveProviderSetupEntry(options.entry) })
-    : { templates: '1' });
+  const query = new URLSearchParams(target === 'providers' ? { page: 'settings', section: 'providers' } : { templates: '1' });
+  if (target === 'providers') {
+    const entry = resolveProviderSetupEntry(options.entry);
+    if (entry === 'agent_media_signed_out' || entry === 'agent_media_upgrade_free' || entry === 'agent_media_upgrade_go' || entry === 'agent_media_balance_low') {
+      query.set('provider', 'account');
+    }
+    if (options.attributeEntry !== false) query.set('entry_from', entry);
+  }
   if (options.embedded !== false) query.set('embed', '1');
   const previewUrl = origin + '/?' + query;
   const presentation = options.presentation ?? 'foreground';
@@ -71,6 +76,6 @@ function workspacePagePreview(origin: string, target: 'templates' | 'providers',
       nextAction: background ? null : { kind: 'host', operation: 'present_preview', previewUrl, placement: 'right', reuseExistingTab: true,
         codex: { tool: 'open_in_codex', arguments: { placement: 'right', target: { type: 'browser', url: previewUrl } } } },
       instructions: target === 'providers'
-        ? 'Open previewUrl in the host built-in browser in the calling chat and follow the same focus policy. Verify that Model providers is visible before reporting it opened. If the host has no browser, provide the actual link and state the limitation. Guide the user to sign in with OpenDesign under Settings > Account (OpenDesign Plus or above provides image, video, speech and music generation; Free and Go do not include it; Subscription & usage > Manage subscription manages the plan), or to save an OpenDesign Cloud or other supported provider API key in Model providers here, then tell you once done. Keep credentials in settings. Re-inspect providers after confirmation and resume the original request. This page does not create or select a project and needs no project record_display receipt.'
+        ? 'Open previewUrl in the host built-in browser in the calling chat and follow the same focus policy. Verify that Model providers is visible before reporting it opened. If the host has no browser, provide the actual link and state the limitation. Guide the user to click Sign in with OpenDesign or Upgrade to Plus directly on the opened OpenDesign page in Model providers; select OpenDesign in the provider list first if needed. OpenDesign Plus or above includes image, video, speech and music generation; Free and Go do not. For API key setup, guide the user to save or replace their OpenDesign Cloud or other supported provider key here in Model providers. Ask them to tell you once done. Keep credentials in settings. Re-inspect providers after confirmation and resume the original request. This page does not create or select a project and needs no project record_display receipt.'
         : 'Open previewUrl in the host built-in browser in the calling chat. Reuse a matching native host tab in this chat after checking its identity and URL; preserve all URL parameters. Present it immediately when this chat is active. Queue without switching only when the host confirms this chat is inactive; a queued acknowledgment alone does not prove inactivity. Only presentation=now permits switching. Observe settled native panel visibility and template library content before reporting it opened. If presentation fails or the native tab is gone, retry presentation once, then report the display failure without repeatedly creating tabs. A prepared URL, hidden automation tab or queued acknowledgment is not visible delivery. On return from a deferred chat, recheck the live library. If the host has no browser, provide the actual link and state the limitation. Browsing and previewing templates must not create a project. Create only after the user selects Open and edit or explicitly asks the Agent to use an exact template. No project record_display receipt is needed for this page.' } };
 }
