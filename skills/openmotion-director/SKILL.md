@@ -1,6 +1,6 @@
 ---
 name: openmotion-director
-description: Plan and create original motion videos and motion graphics with OpenMotion. Use for “做一个 motion 视频”、动效视频、动画短片、先构思视频怎么呈现, including esports recaps, explainers, product demos and brand films. Also use for narrative, motion or sound redesign and creative review. Execute established edits/exports with openmotion-production, editable templates with openmotion-template-to-video, reference reconstruction with openmotion-recreate and reusable templates with openmotion-video-to-template. Repository development does not trigger video production.
+description: Plan and create original motion videos and motion graphics with OpenMotion, including esports recaps, explainers, product demos, and brand films, or first planning how a video should be presented. Also use for narrative, motion, or sound redesign and creative review. Execute established edits/exports with openmotion-production, editable templates with openmotion-template-to-video, reference reconstruction with openmotion-recreate, and reusable templates with openmotion-video-to-template. Repository development does not trigger video production.
 metadata:
   version: "1.5.5"
 ---
