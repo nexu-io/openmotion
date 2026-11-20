@@ -458,7 +458,7 @@ test('sign-in failures are classified by the stage reached and logged without ac
   assert.deepEqual(created.attempt?.stages, ['attempt_started:started', 'device_auth_create_result:failed:network_error']); assert.equal(created.attempt?.exitCode, 1);
   const missing = await attempt('', { binary: path.join(store.directory, 'missing-connector'), authorize: false });
   assert.equal(missing.errorCode, 'connector_unavailable');
-  assert.match(missing.error ?? '', /couldn't start on this device/);
+  assert.equal(missing.error, "The OpenDesign sign-in component set by OPENMOTION_ACCOUNT_CLI couldn't start. Check or clear that path, then select Retry.");
   // An explicit connector path is used as is, so the private-directory command would not help it.
   assert.equal(missing.connectorInstall, undefined);
   const denied = await attempt('login-denied');

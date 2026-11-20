@@ -55,8 +55,10 @@ const connectorMessages: Record<ConnectorProblem, string> = {
   install_failed: failureMessages.connector_unavailable,
   start_failed: "The OpenDesign sign-in component couldn't start on this device. Run this command in a terminal to reinstall it, then select Retry:",
 };
+// A connector named by OPENMOTION_ACCOUNT_CLI is used as is, so no install command is offered for it.
+const explicitConnectorMessage = "The OpenDesign sign-in component set by OPENMOTION_ACCOUNT_CLI couldn't start. Check or clear that path, then select Retry.";
 /** Sign-in failure messages Studio translates by exact text. */
-export const accountSignInMessages = [...new Set([...Object.values(failureMessages), ...Object.values(connectorMessages)])];
+export const accountSignInMessages = [...new Set([...Object.values(failureMessages), ...Object.values(connectorMessages), explicitConnectorMessage])];
 // Billing, media and sign-out use the control key; models use the runtime key. Accept only a complete pair.
 const hasCredentials = (profile?: Profile) => Boolean(profile?.controlKey && profile.controlKeyId && profile.runtimeKey && profile.user?.id);
 const signedInProfile = (profile?: Profile) => hasCredentials(profile) && !profile!.pendingLogin;
@@ -311,7 +313,8 @@ export class OpenDesignAccount {
       this.connecting = false; this.syncing = false; this.child = undefined; this.authorizationUrl = undefined; this.userCode = undefined;
       this.errorCode = error instanceof SignInFailure ? error.code : failureCode(this.attempt!, false);
       this.connectorProblem = error instanceof SignInFailure ? error.connector?.problem : undefined;
-      this.error = this.connectorProblem ? connectorMessages[this.connectorProblem] : failureMessages[this.errorCode];
+      // The message offers the manual command only when the summary shows one.
+      this.error = !this.connectorProblem ? failureMessages[this.errorCode] : this.explicitBinary() ? explicitConnectorMessage : connectorMessages[this.connectorProblem];
       this.finish(this.attempt!, 'failure', this.errorCode, undefined, error instanceof SignInFailure ? error.connector : undefined);
     });
     return this.summary();
