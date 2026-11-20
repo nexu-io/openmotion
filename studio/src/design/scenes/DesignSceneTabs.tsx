@@ -16,30 +16,33 @@ export function DesignSceneTabs({
   const { t } = useI18n();
 
   return (
-    <span className="om-design-scene-tabs">
-      <Button
-        type="button"
-        size="sm"
-        variant={activeTab === 'projects' ? 'secondary' : 'ghost'}
-        icon={<RemixIcon name="folder-open-line" size={14} />}
-        aria-current={activeTab === 'projects' ? 'page' : undefined}
-        onClick={() => onSelectDesignScene('projects')}
-      >
-        {t('Projects')}
-      </Button>
-      {designScenarios.map(scenario => (
+    <>
+      <span className="om-design-divider" aria-hidden="true" />
+      <span className="om-design-scene-tabs">
         <Button
-          key={scenario.id}
           type="button"
-          size="sm"
-          variant={activeTab === scenario.id ? 'secondary' : 'ghost'}
-          icon={<RemixIcon name={scenario.icon} size={14} />}
-          aria-current={activeTab === scenario.id ? 'page' : undefined}
-          onClick={() => onSelectDesignScene(scenario.id)}
+          variant="plain"
+          className="om-nav-item"
+          aria-current={activeTab === 'projects' ? 'page' : undefined}
+          onClick={() => onSelectDesignScene('projects')}
         >
-          {t(scenario.label)}
+          <RemixIcon name="folder-open-line" size={14} />
+          {t('Projects')}
         </Button>
-      ))}
-    </span>
+        {designScenarios.map(scenario => (
+          <Button
+            key={scenario.id}
+            type="button"
+            variant="plain"
+            className="om-nav-item"
+            aria-current={activeTab === scenario.id ? 'page' : undefined}
+            onClick={() => onSelectDesignScene(scenario.id)}
+          >
+            <RemixIcon name={scenario.icon} size={14} />
+            {t(scenario.label)}
+          </Button>
+        ))}
+      </span>
+    </>
   );
 }

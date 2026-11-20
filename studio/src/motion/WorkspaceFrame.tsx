@@ -8,9 +8,8 @@ import type { GalleryTemplate } from '../../../shared/catalog';
 import type { McpClient } from './mcpClients';
 import { CreativeNavigation } from './CreativeNavigation';
 import { ExploreStudios } from './ExploreStudios';
-import { creativeStudios, findMediaStudio, type CreativeStudio, type TechniqueStudio } from '../../../shared/studio-catalog';
+import { creativeStudios, type CreativeStudio, type TechniqueStudio } from '../../../shared/studio-catalog';
 import { DesignProjectEditor } from '../design/DesignProjectEditor';
-import { DesignScenePage } from '../design/scenes/DesignScenePage';
 import type { Modality } from '../../../shared/gateway';
 import { motionStudio, scenesForStudio, studioDestination, studioDraftKey, type StudioDestination } from './creativeStudios';
 import { ModelOverview } from './ModelOverview';
@@ -323,24 +322,14 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         onUse={() => chooseStudio(motionStudio)} /></div>}
       {page.modelOverview && !templatesPage && <div className="om-explore-host"><ModelOverview id={page.modelOverview} onExplore={returnToExplore}
         onProvider={provider => navigatePage({ settings: 'providers', provider: provider ?? null, templates: false })} onScene={openStudio} /></div>}
-      <div className="om-workspace-layer" hidden={templatesPage} inert={templatesPage}><CreativeWorkspace onOpenBrandKit={hostChrome ? () => openSettings('brand-kit') : undefined} onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false, ...lastExplore.current })} skill={page.skill} onCollection={specialty => navigatePage({ specialty, templates: false })} onExplore={returnToExplore} drafts={studioDrafts} active={!connectionsOpen} destination={page.studio} visit={studioVisit} hasProject={Boolean(projectId)} onNavigate={studio => navigatePage({ studio, templates: false })} /></div>
-      {page.designScene && !templatesPage && (
-        <div className="om-assets-host" style={{ padding: 0 }}>
-          {page.designProject
-            ? <DesignProjectEditor
-                projectId={page.designProject}
-                onBack={() => navigatePage({ designScene: page.designScene, designProject: null, templates: false })}
-                onOpenMcp={() => openPage('mcp')}
-              />
-            : <DesignScenePage
-                scene={page.designScene}
-                onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false })}
-                onSelectImageScene={sceneId => openStudio(studioDestination(findMediaStudio('design')!, sceneId))}
-                onChooseStudio={chooseStudio}
-                onOpenProject={id => navigatePage({ designScene: page.designScene ?? 'projects', designProject: id, templates: false })}
-                onExplore={returnToExplore}
-                onOpenMcp={() => openPage('mcp')}
-              />}
+      <div className="om-workspace-layer" hidden={templatesPage} inert={templatesPage}><CreativeWorkspace onOpenBrandKit={hostChrome ? () => openSettings('brand-kit') : undefined} designScene={page.designProject ? null : (page.designScene ?? null)} onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false, ...lastExplore.current })} onOpenDesignProject={id => navigatePage({ designScene: page.designScene ?? 'projects', designProject: id, templates: false })} onOpenMcp={() => openPage('mcp')} skill={page.skill} onCollection={specialty => navigatePage({ specialty, templates: false })} onExplore={returnToExplore} drafts={studioDrafts} active={!connectionsOpen} destination={page.studio} visit={studioVisit} hasProject={Boolean(projectId)} onNavigate={studio => navigatePage({ studio, templates: false })} /></div>
+      {page.designScene && page.designProject && !templatesPage && (
+        <div className="om-assets-host">
+          <DesignProjectEditor
+            projectId={page.designProject}
+            onBack={() => navigatePage({ designScene: page.designScene, designProject: null, templates: false })}
+            onOpenMcp={() => openPage('mcp')}
+          />
         </div>
       )}
       {(assetsVisited || assetsOpen) && <div className="om-assets-host" hidden={!assetsOpen || Boolean(settings) || templatesPage} inert={!assetsOpen || Boolean(settings) || templatesPage}><AssetsPage hasProject={Boolean(projectId)} active={assetsOpen && !settings && !templatesPage} routeId={page.assetId} routeVersion={page.assetVersion} onAssetRoute={selectAssetRoute} /></div>}

@@ -1207,3 +1207,47 @@ it('keeps only the Explore heading at the top, fills two complete rows across Sk
   expect(footer?.querySelector('h2')?.textContent).toBe('Open Design');
   expect(footer?.closest('.om-discovery-page')).toBeNull();
 });
+
+it('keeps the Design Studio header bar, divider and tab controls mounted without drift when switching between image and HTML scenes', async () => {
+  history.replaceState(null, '', firstUrl.replace('#', '&page=design&scene=image-edit#'));
+  await mount();
+
+  const bar = container.querySelector<HTMLElement>('.om-studio-bar');
+  expect(bar).not.toBeNull();
+  const back = bar!.querySelector<HTMLButtonElement>('.om-studio-back');
+  const icon = bar!.querySelector<HTMLElement>('.om-studio-heading-icon');
+  const divider = bar!.querySelector<HTMLElement>('.om-design-divider');
+  expect(back).not.toBeNull();
+  expect(icon).not.toBeNull();
+  expect(bar!.querySelector('.om-creation-icon')).toBeNull();
+  expect(divider).not.toBeNull();
+
+  const tabButtons = () => [...bar!.querySelectorAll<HTMLButtonElement>('nav.om-asset-tabs button')];
+  const tab = (label: string) => tabButtons().find(btn => btn.textContent?.trim() === label)!;
+  expect(tabButtons().length).toBeGreaterThanOrEqual(10);
+  expect(tabButtons().every(btn => btn.classList.contains('om-nav-item'))).toBe(true);
+  expect(bar!.querySelector('nav.om-asset-tabs [aria-current="page"]')?.textContent).toBe('Image editing');
+
+  await act(async () => tab('Projects').click());
+  expect(page().designScene).toBe('projects');
+  expect(container.querySelector('.om-studio-bar')).toBe(bar);
+  expect(container.querySelector('.om-studio-back')).toBe(back);
+  expect(container.querySelector('.om-studio-heading-icon')).toBe(icon);
+  expect(container.querySelector('.om-design-divider')).toBe(divider);
+  expect(bar!.querySelector('.om-creation-icon')).toBeNull();
+  expect(tabButtons().every(btn => btn.classList.contains('om-nav-item'))).toBe(true);
+  expect(bar!.querySelector('nav.om-asset-tabs [aria-current="page"]')?.textContent).toBe('Projects');
+
+  await act(async () => tab('Prototype').click());
+  expect(page().designScene).toBe('prototype');
+  expect(container.querySelector('.om-studio-bar')).toBe(bar);
+  expect(container.querySelector('.om-design-divider')).toBe(divider);
+  expect(bar!.querySelector('nav.om-asset-tabs [aria-current="page"]')?.textContent).toBe('Prototype');
+
+  await act(async () => tab('Image editing').click());
+  expect(page().studio).toMatchObject({ studio: { id: 'design' }, scene: { id: 'image-edit' } });
+  expect(page().designScene).toBeUndefined();
+  expect(container.querySelector('.om-studio-bar')).toBe(bar);
+  expect(container.querySelector('.om-design-divider')).toBe(divider);
+  expect(bar!.querySelector('nav.om-asset-tabs [aria-current="page"]')?.textContent).toBe('Image editing');
+});

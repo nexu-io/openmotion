@@ -6,44 +6,34 @@ import {
   designBriefPrompt, findDesignScenario,
   type DesignSkillSummary, type DesignTemplateSummary,
 } from '../../../../shared/design-project';
-import { findMediaStudio, type CreativeStudio } from '../../../../shared/studio-catalog';
 import { IconButton } from 'open-design-ui/icon-button';
 import { StudioToastViewport } from '../../components/StudioToastViewport';
 import { useToast } from '../../hooks/useToast';
 import { useI18n } from '../../i18n/I18n';
-import { scenesForStudio } from '../../motion/creativeStudios';
 import { useIntegrationInfo } from '../../motion/useIntegrationInfo';
 import { BrandKitPicker, type SelectedBrandKit } from '../BrandKitPicker';
 import { designClient } from '../designClient';
 import { DesignProjectList } from '../DesignProjectList';
 import { DesignTemplateDetailModal } from '../DesignTemplateDetailModal';
 import { ScaledPreviewThumb } from '../ScaledPreviewThumb';
-import { DesignSceneTabs, type DesignTabId } from './DesignSceneTabs';
+import type { DesignTabId } from './DesignSceneTabs';
 import '../design.css';
 
 export function DesignScenePage({
   scene,
   onSelectDesignScene,
-  onSelectImageScene,
-  onChooseStudio,
   onOpenProject,
-  onExplore,
   onOpenMcp,
 }: {
   scene: DesignTabId;
   onSelectDesignScene: (scene: DesignTabId) => void;
-  onSelectImageScene: (sceneId: 'text-to-image' | 'image-edit') => void;
-  onChooseStudio: (studio: CreativeStudio) => void;
   onOpenProject: (projectId: string) => void;
-  onExplore: () => void;
   onOpenMcp: () => void;
 }) {
   const { t, locale } = useI18n();
   const { info: integrationInfo } = useIntegrationInfo();
   const toast = useToast();
   const showToast = toast.showToast;
-  const designMediaStudio = findMediaStudio('design')!;
-  const imageScenes = scenesForStudio(designMediaStudio);
   const scenario = scene === 'projects' ? null : findDesignScenario(scene) ?? null;
 
   const [brief, setBrief] = useState('');
@@ -281,34 +271,7 @@ export function DesignScenePage({
   };
 
   return (
-    <div className="om-assets-host om-creative-workspace om-design-workspace-shell">
-      <header className="om-studio-bar">
-        <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="arrow-left-line" size={16} />} onClick={onExplore}>
-          {t('Explore')}
-        </Button>
-        <h1 className="om-subtitle">
-          <span className="om-creation-icon" data-tone="image"><RemixIcon name="palette-line" size={18} /></span>
-          {t('Design Studio')}
-        </h1>
-        <nav className="om-asset-tabs" aria-label={t('Scenes')}>
-          {imageScenes.map(item => (
-            <Button
-              key={item.id}
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => onSelectImageScene(item.id as 'text-to-image' | 'image-edit')}
-            >
-              {t(item.label)}
-            </Button>
-          ))}
-          <span className="om-design-divider" aria-hidden="true" />
-          <DesignSceneTabs
-            activeTab={scene}
-            onSelectDesignScene={onSelectDesignScene}
-          />
-        </nav>
-      </header>
+    <div className="om-design-workspace-shell">
 
       {scene === 'projects' || !scenario ? (
         <div className="om-design-scroll-body">

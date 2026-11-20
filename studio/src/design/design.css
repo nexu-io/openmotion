@@ -100,8 +100,8 @@
 
 .om-design-divider {
   width: 1px;
-  height: 18px;
-  background: var(--motion-border-subtle);
+  height: var(--motion-space-18);
+  background: var(--motion-border);
   margin: 0 var(--motion-space-4);
   flex-shrink: 0;
 }
@@ -897,8 +897,9 @@
 .om-design-scene-tabs {
   display: inline-flex;
   align-items: center;
-  gap: var(--motion-space-4);
-  flex-wrap: wrap;
+  gap: var(--motion-space-2);
+  flex-wrap: nowrap;
+  flex-shrink: 0;
 }
 
 .om-design-muted {
@@ -1193,60 +1194,14 @@
   padding: 0 var(--motion-space-14) var(--motion-space-8);
 }
 
-/* --- Uniform Studio Bar Tab Heights & Single-Row Responsive Scroll --- */
-.om-studio-bar {
-  min-height: 61px;
-  flex-wrap: nowrap;
-  gap: var(--motion-space-14);
-}
-
-.om-studio-bar > button,
-.om-studio-bar > h1 {
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.om-studio-bar .om-asset-tabs {
-  flex: 1;
-  min-width: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  gap: var(--motion-space-4);
-}
-
-.om-studio-bar .om-asset-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.om-design-scene-tabs {
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-}
-
-.om-studio-bar .om-asset-tabs button,
-.om-design-scene-tabs button {
-  height: 36px;
-  min-height: 36px;
-  padding: 0 var(--motion-space-12);
-  flex-shrink: 0;
-  white-space: nowrap;
-  border-color: transparent;
-  box-shadow: none;
-}
-
-.om-design-scene-tabs button[aria-current="page"] {
-  background: var(--motion-inset);
-  border-color: transparent;
-  color: var(--motion-text);
-  font-weight: var(--motion-weight-medium);
-}
-
 /* --- Bottom Floating Composer Layout (aligned with Image Studio & Manus) --- */
 .om-design-workspace-shell {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  width: 100%;
   height: 100%;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   position: relative;
