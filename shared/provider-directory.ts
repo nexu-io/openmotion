@@ -59,5 +59,7 @@ export type AccountSummary = {
   /** Service rejection behind `billingUnavailable`, when the connector reported one. */
   billingError?: { status: number; code?: string };
   error?: string; errorCode?: AccountErrorCode; attempt?: AccountAttempt;
+  /** After `connector_unavailable`: the terminal command that installs the sign-in component where this service looks for it. */
+  connectorInstall?: { command: string };
   consoleUrl: string;
 };

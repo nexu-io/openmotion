@@ -1,5 +1,4 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, readFile, rm } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -14,6 +13,7 @@ import { registeredProvider } from '../shared/provider-registry.ts';
 import { resolveGenerationParameters } from '../shared/generation-options.ts';
 import { apiJson, retryRead, type Fetcher } from './network.ts';
 import { resumableDownload, type DownloadProgress } from './resumable-download.ts';
+import { connectorRuntime, connectorVersion, ConnectorUnavailable, installConnector, manualInstallCommand, verifyConnector, type ConnectorProblem } from './account-connector.ts';
 
 const execute = promisify(execFile);
 /** The launcher for the system default browser, which is also where the connector opens sign-in. */
@@ -27,7 +27,6 @@ async function openSystemBrowser(url: string) {
   await execute(command, args, { timeout: 10_000, windowsHide: true });
 }
 const consoleUrl = registeredProvider('account')!.website!;
-const connectorVersion = '0.1.10';
 export type SignInRecord = EventFields<typeof omEvents['account_sign_in_result']>;
 type Profile = { apiUrl?: string; controlKey?: string; controlKeyId?: string; runtimeKey?: string; pendingLogin?: unknown; user?: { id?: string; name?: string; email?: string } };
 /** Connector-owned credentials file. `pendingRevocations` holds keys whose remote revocation has not been confirmed yet. */
@@ -45,11 +44,19 @@ type AccountOptions = {
 const stagePrefix = 'OPEN_DESIGN_AMR_AUTH_STAGE\t', completionPrefix = 'OPEN_DESIGN_AMR_AUTH_COMPLETION\t';
 const stageNames: readonly string[] = accountStages;
 const failureMessages: Record<AccountErrorCode, string> = {
-  connector_unavailable: 'OpenDesign sign-in requires the Vela connector. Run npm install -g @powerformer/vela-cli@0.1.10 in a terminal, then sign in again.',
+  connector_unavailable: "Couldn't download the OpenDesign sign-in component. Check your network or proxy, then select Retry. If it keeps failing, run this command in a terminal, then select Retry:",
   setup_failed: "Can't connect to OpenDesign right now. Check your network and try again.",
   authorization_expired: 'Browser authorization expired or was cancelled. Sign in again.',
   credentials_rejected: 'Account credentials could not be verified. Sign in again, and contact us if this keeps happening.',
 };
+// A connector that cannot be prepared explains why; each message ends with the manual installation command.
+const connectorMessages: Record<ConnectorProblem, string> = {
+  npm_missing: "OpenMotion couldn't find npm to set up the OpenDesign sign-in component. Run this command in a terminal, then select Retry:",
+  install_failed: failureMessages.connector_unavailable,
+  start_failed: "The OpenDesign sign-in component couldn't start on this device. Run this command in a terminal to reinstall it, then select Retry:",
+};
+/** Sign-in failure messages Studio translates by exact text. */
+export const accountSignInMessages = [...new Set([...Object.values(failureMessages), ...Object.values(connectorMessages)])];
 // Billing, media and sign-out use the control key; models use the runtime key. Accept only a complete pair.
 const hasCredentials = (profile?: Profile) => Boolean(profile?.controlKey && profile.controlKeyId && profile.runtimeKey && profile.user?.id);
 const signedInProfile = (profile?: Profile) => hasCredentials(profile) && !profile!.pendingLogin;
@@ -99,7 +106,10 @@ export class AccountRequestError extends Error {
 }
 class SignInFailure extends Error {
   readonly code: AccountErrorCode;
-  constructor(code: AccountErrorCode) { super(failureMessages[code]); this.code = code; }
+  readonly connector?: ConnectorUnavailable;
+  constructor(code: AccountErrorCode, connector?: ConnectorUnavailable) {
+    super(connector ? connectorMessages[connector.problem] : failureMessages[code]); this.code = code; this.connector = connector;
+  }
 }
 /**
  * Classifies an attempt by the furthest point it reached. Credentials that reached disk count as rejected; `authorize`
@@ -132,6 +142,8 @@ export class OpenDesignAccount {
   private userCode?: string;
   private error?: string;
   private errorCode?: AccountErrorCode;
+  /** Why the connector could not be prepared, while `errorCode` is `connector_unavailable`. */
+  private connectorProblem?: ConnectorProblem;
   private attempt?: AccountAttempt;
   private billing?: { plan?: string; balance: string | null };
   private billingUnavailable = false;
@@ -175,17 +187,18 @@ export class OpenDesignAccount {
     }).catch(() => { /* Still queued; retried on the next refresh. */ }).finally(() => { this.revoking = undefined; });
   }
   /** Support logs omit identities; only successful telemetry may carry the confirmed account ID. */
-  private finish(attempt: AccountAttempt, outcome: SignInRecord['outcome'], errorCode?: AccountErrorCode, amrUserId?: string) {
+  private finish(attempt: AccountAttempt, outcome: SignInRecord['outcome'], errorCode?: AccountErrorCode, amrUserId?: string, connector?: ConnectorUnavailable) {
     if (this.reported.has(attempt)) return;
     this.reported.add(attempt);
-    if (errorCode)(this.options.log ?? console.error)('OpenDesign sign-in failed ' + JSON.stringify({ errorCode, ...attempt }));
+    // The connector detail (npm output or start error) stays in the local log for support; telemetry gets only the problem.
+    if (errorCode)(this.options.log ?? console.error)('OpenDesign sign-in failed ' + JSON.stringify({ errorCode, ...attempt, ...(connector ? { connectorProblem: connector.problem, connectorDetail: connector.detail } : {}) }));
     if (!this.options.track || !this.clock) return;
     const { start, prepared, link, approved } = this.clock, since = (mark?: number) => mark === undefined ? undefined : Math.round(mark - start);
     const [lastStage, lastResult] = attempt.stages.at(-1)?.split(':') ?? [];
     // Whether the browser opened is its own field; the error kind belongs to the stage that stopped the attempt.
     const errorKind = attempt.stages.findLast(entry => entry.split(':')[1] === 'failed' && !entry.startsWith('browser_open_result'))?.split(':')[2];
     const browser = attempt.stages.find(entry => entry.startsWith('browser_open_result:'))?.split(':')[1];
-    const record = { attempt_id: attempt.id, outcome, error_code: errorCode, connector_version: connectorVersion, resumed: Boolean(attempt.resumed),
+    const record = { attempt_id: attempt.id, outcome, error_code: errorCode, connector_problem: connector?.problem, connector_version: connectorVersion, resumed: Boolean(attempt.resumed),
       source_product: 'openmotion', source_detail: 'openmotion_editor_login', entry_id: this.clock.entryId, entry_occurred_at: this.clock.occurredAt,
       ...(outcome === 'success' && validField('code', amrUserId) ? { amr_user_id: amrUserId } : {}),
       last_stage: lastStage, last_result: lastResult, browser_opened: browser === undefined ? undefined : browser === 'success', receipt: attempt.receipt,
@@ -203,22 +216,12 @@ export class OpenDesignAccount {
     if (this.options.binary || process.env.OPENMOTION_ACCOUNT_CLI) return this.options.binary || process.env.OPENMOTION_ACCOUNT_CLI!;
     // A sign-in retry must rediscover a connector replaced since startup.
     if (!install && this.runtime) return this.runtime;
-    const resolve = async (from: string) => {
-      const binary = createRequire(from)('@powerformer/vela-cli').resolveVelaCliBin({ strict: true }) as string;
-      const { stdout } = await execute(binary, ['--version'], { timeout: 5000 });
-      if (stdout.trim() !== connectorVersion) throw new Error('The installed account connector version is not supported');
-      return binary;
-    };
     // Source installations receive the locked connector with their dependencies; application artifacts omit it.
-    try { return this.runtime = await resolve(import.meta.url); } catch { /* Try an installed CLI. */ }
+    try { return this.runtime = await verifyConnector(import.meta.url); } catch { /* Try an installed CLI. */ }
     try { const { stdout } = await execute('vela', ['--version'], { timeout: 5000 }); if (stdout.trim() === connectorVersion) return this.runtime = 'vela'; } catch { /* Try the private managed installation. */ }
-    const runtimeRoot = path.join(this.directory, 'account', 'runtime');
-    try { return this.runtime = await resolve(path.join(runtimeRoot, 'package.json')); } catch { if (!install) throw new Error('Connect your OpenDesign account to prepare the account service.'); }
-    await mkdir(runtimeRoot, { recursive: true, mode: 0o700 });
-    // Fixed package/version only, installed outside the checkout; lifecycle scripts are disabled.
-    const npmCli = path.resolve(path.dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
-    await execute(process.execPath, [npmCli, 'install', '--prefix', runtimeRoot, '--ignore-scripts', '--no-audit', '--no-fund', '--save-exact', `@powerformer/vela-cli@${connectorVersion}`], { timeout: 300_000, maxBuffer: 1024 * 1024, signal: this.closing.signal });
-    return this.runtime = await resolve(path.join(runtimeRoot, 'package.json'));
+    const root = connectorRuntime(this.directory);
+    if (!install) return this.runtime = await verifyConnector(path.join(root, 'package.json')).catch(() => { throw new Error('Connect your OpenDesign account to prepare the account service.'); });
+    return this.runtime = await installConnector(root, { signal: this.closing.signal });
   }
   /** Locates or installs the connector. Background preparation and sign-in share one installation. */
   private prepare() {
@@ -245,7 +248,8 @@ export class OpenDesignAccount {
       ...(signedIn ? { user: { name: profile?.user?.name, email: profile?.user?.email }, ...(rejected ? {} : this.billing), billingUnavailable: this.billingUnavailable, ...(this.billingError ? { billingError: { ...this.billingError } } : {}) } : {}),
       ...(this.connecting ? { authorizationUrl: this.authorizationUrl, userCode: this.userCode, ...(browser ? { browserOpened: browser === 'success' } : {}), ...(this.syncing ? { syncing: true } : {}) } : {}),
       ...(this.attempt ? { attempt: { ...this.attempt, stages: [...this.attempt.stages] } } : {}),
-      error: this.error, errorCode: this.errorCode, consoleUrl };
+      error: this.error, errorCode: this.errorCode, consoleUrl,
+      ...(!this.connecting && this.errorCode === 'connector_unavailable' ? { connectorInstall: { command: manualInstallCommand(connectorRuntime(this.directory)) } } : {}) };
   }
   private async billingSummary(profile: Profile) {
     // Other connector environments retain their own endpoint and credential handling.
@@ -294,7 +298,7 @@ export class OpenDesignAccount {
     const current = await this.summary();
     if (this.signingOut) throw new Error('Wait for sign-out to finish before connecting an account');
     if (this.connecting || current.state === 'signed-in') return this.summary();
-    this.connecting = true; this.error = undefined; this.errorCode = undefined; this.cachedModels = [];
+    this.connecting = true; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.cachedModels = [];
     this.billing = undefined; this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
     this.authorizationUrl = undefined; this.userCode = undefined; this.syncing = false;
     const generation = ++this.generation;
@@ -304,8 +308,9 @@ export class OpenDesignAccount {
       if (this.generation !== generation) return;
       this.connecting = false; this.syncing = false; this.child = undefined; this.authorizationUrl = undefined; this.userCode = undefined;
       this.errorCode = error instanceof SignInFailure ? error.code : failureCode(this.attempt!, false);
-      this.error = failureMessages[this.errorCode];
-      this.finish(this.attempt!, 'failure', this.errorCode);
+      this.connectorProblem = error instanceof SignInFailure ? error.connector?.problem : undefined;
+      this.error = this.connectorProblem ? connectorMessages[this.connectorProblem] : failureMessages[this.errorCode];
+      this.finish(this.attempt!, 'failure', this.errorCode, undefined, error instanceof SignInFailure ? error.connector : undefined);
     });
     return this.summary();
   }
@@ -316,7 +321,9 @@ export class OpenDesignAccount {
       await writeSettings(path.join(this.directory, 'account', 'session.json'), {});
       await writeSettings(path.join(this.directory, 'account', 'models.json'), []);
     });
-    const binary = await this.prepare().catch(() => { throw new SignInFailure('connector_unavailable'); });
+    const binary = await this.prepare().catch(error => {
+      throw new SignInFailure('connector_unavailable', error instanceof ConnectorUnavailable ? error : new ConnectorUnavailable('start_failed', error));
+    });
     if (generation !== this.generation) return;
     this.clock!.prepared = performance.now();
     await this.revoking;
@@ -402,7 +409,7 @@ export class OpenDesignAccount {
       // The connector waits until the service's own authorization expiry (15 minutes) and exits; this is only a backstop.
       // A shorter limit here would cancel authorizations the user is still completing in the browser.
       const timer = setTimeout(() => { child.kill(); reject(new SignInFailure(attempt.persisted ? 'credentials_rejected' : 'authorization_expired')); }, this.options.authorizationMs ?? 16 * 60_000);
-      child.once('error', () => { clearTimeout(timer); reject(new SignInFailure(child.pid === undefined ? 'connector_unavailable' : failureCode(attempt, cancelled))); });
+      child.once('error', error => { clearTimeout(timer); reject(child.pid === undefined ? new SignInFailure('connector_unavailable', new ConnectorUnavailable('start_failed', error)) : new SignInFailure(failureCode(attempt, cancelled))); });
       child.once('close', code => { clearTimeout(timer); resolve(code); });
     });
     if (generation === this.generation) {
@@ -455,7 +462,7 @@ export class OpenDesignAccount {
     this.signingOut = true;
     try {
       await this.cancel();
-      this.billing = undefined; this.cachedModels = []; this.error = undefined; this.errorCode = undefined; this.attempt = undefined;
+      this.billing = undefined; this.cachedModels = []; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.attempt = undefined;
       this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
       await this.commit(this.generation, async () => {
         await writeSettings(path.join(this.directory, 'account', 'session.json'), {});

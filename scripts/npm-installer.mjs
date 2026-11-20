@@ -174,6 +174,7 @@ export async function setup(options) {
       }
       for (const item of directories) await rm(item.backup, { recursive: true, force: true }).catch(error => console.error('Old instruction backup retained: ' + error.message));
       await startNativePreparation(appRoot).catch(error => console.error('OpenMotion: background preparation could not start; retry in Studio or run prepare. ' + error.message));
+      await prepareAccountConnector(appRoot, dataDirectory);
       let onboarding = await prepareInstallationFlow({ appRoot, dataDirectory, templateEnvironment,
         host: plan.host, onboardingOutput: options.onboardingOutput, codex: options.codex, expectedVersion: manifest.version });
       onboarding.directAccess = directAccess(home, plan.host, appRoot, options);
@@ -210,6 +211,20 @@ export async function setup(options) {
     } finally { for (const item of directories) if (item.stage) await rm(item.stage, { recursive: true, force: true }); }
 
   });
+}
+
+/**
+ * Installs the OpenDesign sign-in connector while the terminal's npm and network settings are available. The service
+ * started later by a host may not find npm or reach the registry, so it only installs when this did not.
+ */
+async function prepareAccountConnector(appRoot, dataDirectory) {
+  try {
+    const connector = await import(pathToFileURL(path.join(appRoot, 'gateway/account-connector.ts')).href);
+    console.error('OpenMotion: preparing the OpenDesign sign-in component.');
+    await connector.installConnector(connector.connectorRuntime(dataDirectory));
+  } catch (error) {
+    console.error('OpenMotion: the OpenDesign sign-in component will be prepared at first sign-in. ' + (error.detail || error.message));
+  }
 }
 
 // Hosts without an adapter: the Agent applies its own documented MCP format, so the installer never guesses a config file.

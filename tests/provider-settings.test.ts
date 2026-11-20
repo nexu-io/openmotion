@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { mediaBytes } from './media-fixtures.ts';
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { execFile, spawn, type SpawnOptions } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -12,6 +12,7 @@ import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
 import { AccountRequestError, OpenDesignAccount, systemBrowserCommand, type SignInRecord } from '../gateway/account.ts';
+import { ConnectorUnavailable, findNpmCli, installConnector, npmCliCandidates } from '../gateway/account-connector.ts';
 import { createTracker, validProperties } from '../tracking/core.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 import { omEvents } from '../tracking/events.ts';
@@ -363,6 +364,55 @@ test('source installations use the connector locked with their dependencies inst
   });
 });
 
+test('the connector installer finds npm beside Homebrew and other Node layouts, then on PATH', { skip: process.platform === 'win32' }, async t => {
+  // A Homebrew Node reports its resolved Cellar binary; npm lives under libexec there, not under lib.
+  assert.deepEqual(npmCliCandidates('/opt/homebrew/Cellar/node/24.1.0/bin/node', 'darwin', {}), [
+    '/opt/homebrew/Cellar/node/24.1.0/lib/node_modules/npm/bin/npm-cli.js', '/opt/homebrew/Cellar/node/24.1.0/libexec/lib/node_modules/npm/bin/npm-cli.js']);
+  // npm's own entry is preferred when npm launched this process; another package manager's entry is ignored.
+  assert.equal(npmCliCandidates('/usr/local/bin/node', 'darwin', { npm_execpath: '/x/npm/bin/npm-cli.js' })[0], '/x/npm/bin/npm-cli.js');
+  assert.equal(npmCliCandidates('/usr/local/bin/node', 'darwin', { npm_execpath: '/x/pnpm/bin/pnpm.cjs' })[0], '/usr/local/lib/node_modules/npm/bin/npm-cli.js');
+  assert.deepEqual(npmCliCandidates('C:\\Program Files\\nodejs\\node.exe', 'win32', {}), ['C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js']);
+  await fixture(async store => {
+    const cellar = path.join(store.directory, 'Cellar/node/24.1.0'), cli = path.join(cellar, 'libexec/lib/node_modules/npm/bin/npm-cli.js');
+    await mkdir(path.dirname(cli), { recursive: true }); await writeFile(cli, '');
+    assert.equal(await findNpmCli(path.join(cellar, 'bin/node'), 'darwin', { PATH: '' }), cli);
+    // Without npm beside Node, the `npm` link on PATH is followed to its entry.
+    const bin = path.join(store.directory, 'path-bin'); await mkdir(bin); await symlink(cli, path.join(bin, 'npm'));
+    assert.equal(await findNpmCli(path.join(store.directory, 'standalone/bin/node'), 'darwin', { PATH: '/missing:' + bin }), await realpath(cli));
+    assert.equal(await findNpmCli(path.join(store.directory, 'standalone/bin/node'), 'darwin', { PATH: '/missing' }), undefined);
+  });
+});
+
+test('the connector installation reports why it failed and reuses a working installation', { skip: process.platform === 'win32' }, async t => {
+  await fixture(async store => {
+    // A stand-in npm: installs a connector whose binary prints the requested version, or fails like an unreachable registry.
+    const npm = path.join(store.directory, 'fake-npm.mjs');
+    await writeFile(npm, `import { mkdirSync, writeFileSync, chmodSync, appendFileSync } from 'node:fs'; import path from 'node:path';
+const prefix = process.argv[process.argv.indexOf('--prefix') + 1], mode = process.env.FAKE_NPM;
+appendFileSync(path.join(path.dirname(prefix), 'npm-calls'), 'x');
+if (mode === 'offline') { console.error('npm error code ECONNREFUSED'); process.exit(1); }
+const pkg = path.join(prefix, 'node_modules/@powerformer/vela-cli'); mkdirSync(pkg, { recursive: true });
+writeFileSync(path.join(prefix, 'package.json'), '{}');
+writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@powerformer/vela-cli', main: 'index.js' }));
+writeFileSync(path.join(pkg, 'vela'), '#!/bin/sh\\necho ' + (mode === 'wrong' ? '0.0.9' : '0.1.10') + '\\n'); chmodSync(path.join(pkg, 'vela'), 0o755);
+writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __dirname + "/vela";');`);
+    const install = async (name: string, mode: string, findNpm: () => Promise<string | undefined> = async () => npm) => {
+      process.env.FAKE_NPM = mode;
+      try { return await installConnector(path.join(store.directory, name, 'runtime'), { findNpm }); } finally { delete process.env.FAKE_NPM; }
+    };
+    const problem = (name: string, mode: string, findNpm?: () => Promise<string | undefined>) => install(name, mode, findNpm).then(() => assert.fail('installed'), (error: ConnectorUnavailable) => {
+      assert.ok(error instanceof ConnectorUnavailable); return [error.problem, error.detail];
+    });
+    assert.deepEqual(await problem('none', 'ok', async () => undefined), ['npm_missing', `npm was not found next to ${process.execPath} or on PATH`]);
+    const [offline, detail] = await problem('offline', 'offline'); assert.equal(offline, 'install_failed'); assert.match(detail, /ECONNREFUSED/);
+    assert.equal((await problem('wrong', 'wrong'))[0], 'start_failed');
+    const binary = await install('ok', 'ok'); assert.match(binary, /vela$/);
+    // An existing working installation is reused without running npm again.
+    assert.equal(await install('ok', 'offline'), binary);
+    assert.equal(await readFile(path.join(store.directory, 'ok', 'npm-calls'), 'utf8'), 'x');
+  });
+});
+
 test('cancelling account authorization cannot register a provider from a late completion', t => fixture(async store => {
   await chmod(binary, 0o755); const account = new OpenDesignAccount(store.directory, { binary }); t.after(() => account.close());
   await account.login(); await until(async () => Boolean((await account.summary()).authorizationUrl));
@@ -393,7 +443,9 @@ test('sign-in failures are classified by the stage reached and logged without ac
   assert.deepEqual(created.attempt?.stages, ['attempt_started:started', 'device_auth_create_result:failed:network_error']); assert.equal(created.attempt?.exitCode, 1);
   const missing = await attempt('', { binary: path.join(store.directory, 'missing-connector'), authorize: false });
   assert.equal(missing.errorCode, 'connector_unavailable');
-  assert.match(missing.error ?? '', /npm install -g @powerformer\/vela-cli@0\.1\.10/);
+  assert.match(missing.error ?? '', /couldn't start on this device/);
+  // The fallback installs where the service looks, so it does not depend on the service's PATH.
+  assert.equal(missing.connectorInstall?.command, `npm install --prefix "${path.join(store.directory, 'account', 'runtime')}" --ignore-scripts @powerformer/vela-cli@0.1.10`);
   const denied = await attempt('login-denied');
   assert.equal(denied.errorCode, 'authorization_expired'); assert.equal(denied.attempt?.stages.at(-1), 'device_authorization_result:failed:oauth_denied');
   assert.equal((await attempt('', { authorize: false, authorizationMs: 300 })).errorCode, 'authorization_expired');
@@ -412,6 +464,8 @@ test('sign-in failures are classified by the stage reached and logged without ac
   assert.equal(persisted.errorCode, 'setup_failed'); assert.equal(persisted.attempt?.stages.at(-1), 'credential_persist_result:failed:credential_persist_error');
   assert.equal(persisted.attempt?.persisted, false);
   assert.equal(logs.length, 9);
+  // The local log keeps why the connector was unavailable for support.
+  assert.match(logs.join('\n'), /"connectorProblem":"start_failed","connectorDetail":"spawn [^"]*missing-connector ENOENT"/);
   assert.doesNotMatch(logs.join('\n'), /synthetic-private|TEST-123|open-design\.ai|fixture@example|Fixture user|fixture-user-id|private upstream/);
 }));
 

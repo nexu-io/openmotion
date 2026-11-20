@@ -129,6 +129,9 @@ so account counts can deduplicate across installations and join AMR account fact
 Failures and cancellations omit that ID. The existing collection controls apply;
 `distinct_id` remains the installation ID, without identify/alias or person merging.
 Email, names, activation URLs, authorization codes and credentials are omitted.
+A `connector_unavailable` failure adds `connector_problem`: `npm_missing` (no npm
+was found to install the connector), `install_failed` (npm could not install it)
+or `start_failed` (the installed connector did not run). npm output stays local.
 These fields describe the local OM result; AMR handoff attribution is separate.
 
 The account and subscription settings' **Manage subscription** action, and the Free / Go
