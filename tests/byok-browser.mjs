@@ -209,7 +209,7 @@ try {
   await page.waitForSelector('[aria-label="Studio fixture API key"]', { visible: true });
   await noOverflow(); await shot('provider-detail-mobile-dark');
   await clickText('.om-provider-detail button', 'Remove saved key');
-  await page.waitForFunction(() => document.querySelector('.om-provider-detail .om-settings-tags')?.textContent.includes('Not configured'));
+  await page.waitForFunction(() => document.querySelector('.om-provider-detail .om-provider-status-badge')?.textContent.includes('Not configured'));
   await clickText('.om-provider-detail button', 'Delete provider');
   await noOverflow(); await shot('delete-provider-mobile-dark');
   await clickText('.om-settings-dialog button', 'Delete');

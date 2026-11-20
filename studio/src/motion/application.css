@@ -134,6 +134,7 @@
 .om-provider-item .om-avatar { width: 24px; height: 24px; font-size: var(--motion-text-xs); }
 .om-provider-item-name { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-motion-studio] .om-official-badge { flex-shrink: 0; padding: var(--motion-space-2) var(--motion-space-6); font-size: var(--motion-text-xs); color: var(--motion-strong); background: var(--motion-raised); border-color: var(--motion-border); }
+.om-provider-plan-badge, .om-provider-status-badge { flex-shrink: 0; }
 
 .om-add-provider { flex-shrink: 0; width: 100%; margin-top: var(--motion-space-8); }
 .om-provider-detail { flex: 1; min-width: 0; overflow: auto; }
