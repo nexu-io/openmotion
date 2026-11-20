@@ -201,16 +201,23 @@ for (const [summary, heading, action] of [
   expect(document.body.textContent).toContain('Language One');
 });
 
-it('signs in from the OpenDesign provider guide and opens the account page', async () => {
+it('signs in in place from the OpenDesign provider guide without leaving the page', async () => {
   const openAccount = vi.fn(), posts: string[] = [];
+  const signedOut = { consoleUrl: 'https://console.example', state: 'signed-out' };
+  let summary: object = signedOut;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    if (init?.method === 'POST') { posts.push(String(url)); return Response.json({ consoleUrl: 'https://console.example', state: 'authorizing' }); }
-    return /\/settings\/account(\?|$)/.test(String(url)) ? Response.json({ consoleUrl: 'https://console.example', state: 'signed-out' })
+    if (init?.method === 'POST') { posts.push(String(url)); summary = String(url).endsWith('/login') ? { consoleUrl: 'https://console.example', state: 'authorizing', authorizationUrl: 'https://console.example/activate', userCode: 'ABCD-1234' } : signedOut; return Response.json(summary); }
+    return /\/settings\/account(\?|$)/.test(String(url)) ? Response.json(summary)
       : Response.json({ providers: [account], models: [], defaults: {} });
   }));
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root!.render(<I18nProvider initialLocale="en"><ModelSettings openAccount={openAccount} providerId="account" /></I18nProvider>));
   await act(async () => click('Sign in with OpenDesign'));
   expect(posts).toEqual(['/motion-api/settings/account/login']);
-  expect(openAccount).toHaveBeenCalledTimes(1);
+  expect(openAccount).not.toHaveBeenCalled();
+  expect(document.querySelector('.om-provider-heading h1')?.textContent).toBe('OpenDesign');
+  expect(document.body.textContent).toContain('Complete sign-in in your browser');
+  expect(document.body.textContent).toContain('ABCD-1234');
+  await act(async () => click('Cancel'));
+  expect(posts).toEqual(['/motion-api/settings/account/login', '/motion-api/settings/account/cancel']);
 });

@@ -17,8 +17,7 @@ import { ProviderAvatar, ModelAvatar, SettingsDialog, SettingsError, SettingsLoa
 import { ModelEditor, kindLabels, capabilityLabels } from './ModelEditor';
 import { ModelCatalog } from './ModelCatalog';
 import { apiKeyError, apiUrlError, providerNameError } from './settingsValidation';
-import { SignInGuide, UpgradeGuide, upgradePlan, useAccountSummary } from './AccountSettings';
-import type { AccountSummary } from '../../../shared/provider-directory';
+import { AccountStatus, UpgradeGuide, upgradePlan, useAccountSignIn } from './AccountSettings';
 export { kindLabels } from './ModelEditor';
 const categories = [{ id: 'all', label: 'All providers' }, { id: 'configured', label: 'Configured' }, { id: 'multimodal', label: 'Multimodal' }, { id: 'language', label: 'Language' }, { id: 'media', label: 'Media' }, { id: 'local', label: 'Local' }, { id: 'custom', label: 'Custom' }];
 type Change = (action: () => Promise<unknown>, message: string) => Promise<boolean>;
@@ -107,30 +106,17 @@ function useProviderValidation(label: string | undefined, baseUrl: string | unde
 }
 
 /**
- * The OpenDesign provider shows the account page's guides: signed-out people learn what signing in unlocks,
- * Free and Go accounts what upgrading unlocks. Other states keep the account callout. Models below are unchanged.
+ * The OpenDesign provider shows the account page's guides and signs in in place: signed-out people see the
+ * multimodal sign-in guide, sign-in progress stays on this page, Free and Go accounts see the upgrade guide.
+ * Other signed-in plans keep the account callout. Models below are unchanged.
  */
 function AccountProviderGuide({ provider, openAccount, showToast }: { provider: ProviderConnection; openAccount?: () => void; showToast: ReturnType<typeof useToast>['showToast'] }) {
-  const { t } = useI18n(), { account, setAccount, refresh } = useAccountSummary(), [busy, setBusy] = useState(false);
-  const plan = upgradePlan(account), signedIn = account?.state === 'signed-in', previous = useRef(account?.state);
-  // Like the account page: plan details load only with a billing refresh, and a finished sign-in reloads the directory.
-  // Order matters: the event triggers a plain refresh, so the billing refresh below must be issued after it to win.
-  useEffect(() => {
-    if (previous.current === 'authorizing' && account?.state === 'signed-in') { notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); }
-    previous.current = account?.state;
-  }, [account?.state]);
-  useEffect(() => { if (signedIn) void refresh(true); }, [signedIn, refresh]);
-  async function signIn() {
-    tracking.reportSettingsClick('provider_detail', 'sign_in', { provider });
-    setBusy(true);
-    try { setAccount(await gatewayRequest<AccountSummary>('settings/account/login', 'POST', {})); notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); openAccount?.(); }
-    catch (error) { showToast(error instanceof Error ? error.message : t('Could not update account'), 'error'); }
-    finally { setBusy(false); }
-  }
-  if (account && (account.state === 'signed-out' || account.state === 'unavailable') && !account.errorCode) return <SignInGuide action={<Button variant="ghost" className="om-button h-auto" data-primary disabled={busy} onClick={() => void signIn()}><RemixIcon name="login-box-line" size={17} />{t('Sign in with OpenDesign')}</Button>} />;
+  const { t } = useI18n(), { state: { account }, busy, action } = useAccountSignIn('provider_detail', showToast, provider);
+  const plan = upgradePlan(account);
+  if (account && ['signed-out', 'unavailable', 'authorizing', 'reauth-required'].includes(account.state)) return <AccountStatus account={account} busy={busy} action={action} />;
   if (plan && account) return <UpgradeGuide plan={plan} consoleUrl={account.consoleUrl} area="provider_detail" />;
   return <><div className="om-settings-tags">{provider.kinds.map(kind => <span className="om-badge" key={kind}>{t(kindLabels[kind])}</span>)}<span className="om-badge" data-active={provider.configured}>{t(provider.configured ? 'Configured' : 'Not configured')}</span></div>
-    <div className="om-card om-account-callout"><RemixIcon name="account-circle-line" size={28} /><div><h2 className="om-subtitle">{t(provider.configured ? 'Your OpenDesign models, in OpenMotion' : 'One account. Your models, together.')}</h2><p className="om-muted">{t(provider.configured ? 'Account models and your own providers can be selected side by side.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>{provider.configured && provider.reason && <p className="om-muted">{t(provider.reason)}</p>}<Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>{t(provider.configured ? 'Manage account' : 'Sign in with OpenDesign')}</Button></div></div></>;
+    <div className="om-card om-account-callout"><RemixIcon name="account-circle-line" size={28} /><div><h2 className="om-subtitle">{t(provider.configured ? 'Your OpenDesign models, in OpenMotion' : 'One account. Your models, together.')}</h2><p className="om-muted">{t(provider.configured ? 'Account models and your own providers can be selected side by side.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>{provider.configured && provider.reason && <p className="om-muted">{t(provider.reason)}</p>}{openAccount && <Button variant="ghost" className="om-button h-auto" data-primary onClick={openAccount}>{t(provider.configured ? 'Manage account' : 'Sign in with OpenDesign')}</Button>}</div></div></>;
 }
 
 function ProviderDetail({ provider, data, openAccount, showToast, onRemoved }: { provider: ProviderConnection; data: ProviderDirectory; openAccount?: () => void; showToast: ReturnType<typeof useToast>['showToast']; onRemoved: () => void }) {

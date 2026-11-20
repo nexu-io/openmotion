@@ -86,49 +86,64 @@ export function useAccountSummary() {
   }, [account, refresh]);
   return { account, error, refresh, setAccount };
 }
-export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders: () => void }) {
-  const { t } = useI18n(), state = useAccountSummary(), toast = useToast();
-  const [busy, setBusy] = useState(false), [refreshing, setRefreshing] = useState(false), [lastState, setLastState] = useState<string>();
-  const signedIn = state.account?.state === 'signed-in';
+type AccountAction = 'login' | 'logout' | 'cancel';
+/**
+ * Sign-in state and actions shared by the account page and the OpenDesign provider, so either can sign in in place.
+ * A finished sign-in reloads the provider directory and announces itself; plan details load with a billing refresh.
+ */
+export function useAccountSignIn(area: GuideArea, showToast: ReturnType<typeof useToast>['showToast'], provider?: { id: string; custom?: boolean; protocol?: string }) {
+  const { t } = useI18n(), state = useAccountSummary(), [busy, setBusy] = useState(false), previous = useRef<string | undefined>(undefined);
+  const accountState = state.account?.state;
+  // Order matters: the event below triggers a plain refresh, so the billing refresh must be issued after it to win.
   useEffect(() => {
-    if (signedIn) void state.refresh(true);
-  }, [signedIn, state.refresh]);
-  useEffect(() => {
-    if (lastState === 'authorizing' && state.account?.state === 'signed-in') {
-      notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); toast.showToast(t('Signed in to OpenDesign'), 'info');
+    if (previous.current === 'authorizing' && accountState === 'signed-in') {
+      notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); showToast(t('Signed in to OpenDesign'), 'info');
     }
-    setLastState(state.account?.state);
-  }, [state.account?.state, lastState, t, toast.showToast]);
-  async function action(name: 'login' | 'logout' | 'cancel') {
-    tracking.reportSettingsClick('account', name === 'login' ? 'sign_in' : name === 'logout' ? 'sign_out' : 'cancel_sign_in');
+    previous.current = accountState;
+  }, [accountState, t, showToast]);
+  useEffect(() => { if (accountState === 'signed-in') void state.refresh(true); }, [accountState, state.refresh]);
+  async function action(name: AccountAction) {
+    tracking.reportSettingsClick(area, name === 'login' ? 'sign_in' : name === 'logout' ? 'sign_out' : 'cancel_sign_in', provider ? { provider } : {});
     setBusy(true);
     try { state.setAccount(await gatewayRequest<AccountSummary>('settings/account/' + name, 'POST', {})); notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); }
-    catch (error) { toast.showToast(error instanceof Error ? error.message : t('Could not update account'), 'error'); }
+    catch (error) { showToast(error instanceof Error ? error.message : t('Could not update account'), 'error'); }
     finally { setBusy(false); }
   }
+  return { state, busy, action };
+}
+
+/** Signed out: the multimodal sign-in guide. Otherwise the sign-in status card: browser authorization, expiry, failure, connected. */
+export function AccountStatus({ account, busy, action }: { account: AccountSummary; busy: boolean; action: (name: AccountAction) => void | Promise<void> }) {
+  const { t } = useI18n();
+  const signedIn = account.state === 'signed-in', pending = account.state === 'authorizing', expired = account.state === 'reauth-required';
+  const syncing = pending && account.syncing, failure = !pending && !signedIn ? account.errorCode : undefined;
+  const signIn = <Button variant="ghost" className="om-button h-auto" data-primary disabled={busy} onClick={() => void action('login')}><RemixIcon name={failure === 'setup_failed' ? 'refresh-line' : 'login-box-line'} size={17} />{t(failure === 'setup_failed' ? 'Retry' : expired || failure ? 'Sign in again' : 'Sign in with OpenDesign')}</Button>;
+  // The connector opens the activation page itself; the link is the fallback, and leads only when opening failed.
+  const browserLink = account.authorizationUrl && !syncing && <a className="om-button" data-primary={account.browserOpened === false || undefined} href={account.authorizationUrl} target="_blank" rel="noreferrer">{t(account.browserOpened === false ? 'Continue in browser' : "Didn't open? Click here")}<RemixIcon name="external-link-line" size={15} /></a>;
+  if (!signedIn && !pending && !expired && !failure) return <SignInGuide action={signIn} />;
+  return <section className="om-card om-account-summary"><div><h2 className="om-subtitle">{t(signedIn ? 'Connected to OpenDesign' : syncing ? 'Finishing sign-in' : pending ? 'Complete sign-in in your browser' : expired ? 'OpenDesign sign-in expired' : 'Sign in to OpenDesign')}</h2><p className="om-muted">{t(signedIn ? 'Account models and your own providers can be selected side by side.' : expired ? 'Sign in again to keep using your account models, subscription and usage.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>
+    {pending && <p className="om-muted" role="status">{t(syncing ? 'Authorized. Syncing your account…' : account.authorizationUrl ? 'Waiting for browser authorization…' : 'Connecting to OpenDesign. Please wait…')}{account.userCode && !syncing && <strong className="om-account-code">{account.userCode}</strong>}</p>}
+    {account.error && <p className="om-muted" role="alert">{t(account.error)}</p>}</div>
+    <div className="om-settings-actions">{signedIn ? <Button variant="ghost" className="om-button h-auto" onClick={() => void action('logout')} disabled={busy}>{t('Sign out')}</Button> : pending ? <>{browserLink}<Button variant="ghost" className="om-button h-auto" disabled={busy || syncing} onClick={() => void action('cancel')}>{t('Cancel')}</Button></> : expired ? <>{signIn}<Button variant="ghost" className="om-button h-auto" onClick={() => void action('logout')} disabled={busy}>{t('Sign out')}</Button></> : <>{signIn}{failure === 'credentials_rejected' && <a className="om-button" href={`${GITHUB_REPOSITORY}/issues/new/choose`} target="_blank" rel="noreferrer">{t('Report an issue')}<RemixIcon name="external-link-line" size={15} /></a>}</>}</div>
+  </section>;
+}
+
+export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders: () => void }) {
+  const { t } = useI18n(), toast = useToast(), { state, busy, action } = useAccountSignIn('account', toast.showToast);
+  const [refreshing, setRefreshing] = useState(false);
+  const signedIn = state.account?.state === 'signed-in';
   async function refreshBilling() {
     tracking.reportSettingsClick('account', 'refresh_billing');
     setRefreshing(true);
     try { await state.refresh(true); } finally { setRefreshing(false); }
   }
-  const account = state.account, pending = account?.state === 'authorizing', expired = account?.state === 'reauth-required';
-  const syncing = pending && account.syncing, failure = !pending && !signedIn ? account?.errorCode : undefined;
-  const signIn = <Button variant="ghost" className="om-button h-auto" data-primary disabled={busy} onClick={() => void action('login')}><RemixIcon name={failure === 'setup_failed' ? 'refresh-line' : 'login-box-line'} size={17} />{t(failure === 'setup_failed' ? 'Retry' : expired || failure ? 'Sign in again' : 'Sign in with OpenDesign')}</Button>;
-  // The connector opens the activation page itself; the link is the fallback, and leads only when opening failed.
-  const browserLink = account?.authorizationUrl && !syncing && <a className="om-button" data-primary={account.browserOpened === false || undefined} href={account.authorizationUrl} target="_blank" rel="noreferrer">{t(account.browserOpened === false ? 'Continue in browser' : "Didn't open? Click here")}<RemixIcon name="external-link-line" size={15} /></a>;
-  // The name leads when the account has one that differs from the email; the email is shown once either way.
-  // Signed-out people learn what signing in unlocks; Free and Go accounts learn what upgrading unlocks.
-  const signedOutGuide = !signedIn && !pending && !expired && !failure;
+  const account = state.account;
   const plan = upgradePlan(account), upgradeGuide = Boolean(plan);
   const name = account?.user?.name?.trim(), email = account?.user?.email, named = Boolean(name) && name!.toLowerCase() !== email?.toLowerCase();
   return <div className="om-settings-page">
     {state.error ? <SettingsError retry={() => void state.refresh(true)} /> : !account ? <SettingsLoading /> : <>
       <div className="om-account-identity"><span className="om-avatar"><RemixIcon name="user-3-line" size={36} /></span><h1 className="om-title">{subscription ? t('Subscription & usage') : named ? name : email || t('Your OpenDesign account')}</h1><p className="om-muted">{(subscription || named) && email ? email : t('Your creative workspace, connected.')}</p></div>
-      {signedOutGuide ? <SignInGuide action={signIn} /> : <section className="om-card om-account-summary"><div><h2 className="om-subtitle">{t(signedIn ? 'Connected to OpenDesign' : syncing ? 'Finishing sign-in' : pending ? 'Complete sign-in in your browser' : expired ? 'OpenDesign sign-in expired' : 'Sign in to OpenDesign')}</h2><p className="om-muted">{t(signedIn ? 'Account models and your own providers can be selected side by side.' : expired ? 'Sign in again to keep using your account models, subscription and usage.' : 'Sign in with OpenDesign to sync your models, subscription and usage.')}</p>
-        {pending && <p className="om-muted" role="status">{t(syncing ? 'Authorized. Syncing your account…' : account.authorizationUrl ? 'Waiting for browser authorization…' : 'Connecting to OpenDesign. Please wait…')}{account.userCode && !syncing && <strong className="om-account-code">{account.userCode}</strong>}</p>}
-        {account.error && <p className="om-muted" role="alert">{t(account.error)}</p>}</div>
-        <div className="om-settings-actions">{signedIn ? <Button variant="ghost" className="om-button h-auto" onClick={() => void action('logout')} disabled={busy}>{t('Sign out')}</Button> : pending ? <>{browserLink}<Button variant="ghost" className="om-button h-auto" disabled={busy || syncing} onClick={() => void action('cancel')}>{t('Cancel')}</Button></> : expired ? <>{signIn}<Button variant="ghost" className="om-button h-auto" onClick={() => void action('logout')} disabled={busy}>{t('Sign out')}</Button></> : <>{signIn}{failure === 'credentials_rejected' && <a className="om-button" href={`${GITHUB_REPOSITORY}/issues/new/choose`} target="_blank" rel="noreferrer">{t('Report an issue')}<RemixIcon name="external-link-line" size={15} /></a>}</>}</div>
-      </section>}
+      <AccountStatus account={account} busy={busy} action={action} />
       {plan && <UpgradeGuide plan={plan} consoleUrl={account.consoleUrl} />}
       <section className="om-settings-section"><div className="om-settings-row"><h2 className="om-subtitle">{t('Subscription & usage')}</h2>{signedIn && <Tooltip label={t('Refresh account')} wrap><IconButton variant="ghost" className="motion-icon-button" aria-label={t('Refresh account')} disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshBilling()} icon={<RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={17} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />} /></Tooltip>}</div>
         {!(signedIn && account.billingUnavailable) && <div className="om-account-metrics"><div className="om-card"><span className="om-muted">{t('Current plan')}</span><h3 className="om-title">{signedIn && account.plan ? account.plan === 'free' ? t('Free plan') : account.plan : '—'}</h3><p className="om-muted">{t(signedIn ? 'Managed by OpenDesign' : 'Sign in to view your plan')}</p></div><div className="om-card"><span className="om-muted">{t('Available balance')}</span><h3 className="om-title">{signedIn && account.balance != null ? `$${account.balance}` : '—'}</h3><p className="om-muted">{t(signedIn ? 'Account credits in USD' : 'Sign in to view usage')}</p></div></div>}
