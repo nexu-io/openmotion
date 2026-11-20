@@ -10,7 +10,7 @@ import { validField, type EventFields } from '../tracking/core.ts';
 import { accountErrorKinds, accountStages, type omEvents } from '../tracking/events.ts';
 import { readSettings, writeSettings } from './settings-storage.ts';
 import { registeredProvider } from '../shared/provider-registry.ts';
-import { resolveGenerationParameters } from '../shared/generation-options.ts';
+import { defaultVideoAudioEnabled, resolveGenerationParameters } from '../shared/generation-options.ts';
 import { apiJson, retryRead, type Fetcher } from './network.ts';
 import { resumableDownload, type DownloadProgress } from './resumable-download.ts';
 import { connectorRuntime, connectorVersion, ConnectorUnavailable, installConnector, manualInstallCommand, verifyConnector, type ConnectorProblem } from './account-connector.ts';
@@ -540,9 +540,15 @@ export class OpenDesignAccount {
     const operation = kind === 'audio' ? music ? 'music' : 'speech' : kind === 'image' && reference ? 'edit' : 'gen';
     const referenceArgs = reference ? [kind === 'video' ? '--first-frame' : '--image', reference] : [];
     const args = [kind, operation, '--model', job.model.modelId, '--prompt', job.prompt, ...referenceArgs, '--no-wait', '--json'];
+    const generateAudio = kind === 'video' && params.generate_audio === undefined && defaultVideoAudioEnabled(job.model) ? true : params.generate_audio;
     for (const [key, value] of Object.entries(params)) {
-      if (key === 'generate_audio') { if (value === true) args.push('--generate-audio'); }
-      else if (typeof value === 'string' || typeof value === 'number') args.push('--' + key.replaceAll('_', '-'), String(value));
+      if (key === 'generate_audio') continue;
+      if (typeof value === 'string' || typeof value === 'number') args.push('--' + key.replaceAll('_', '-'), String(value));
+      else throw new Error('Invalid account model parameter');
+    }
+    if (generateAudio !== undefined) {
+      if (generateAudio === true) args.push('--generate-audio');
+      else if (generateAudio === false) args.push('--generate-audio=false');
       else throw new Error('Invalid account model parameter');
     }
     // Recovery never submits again, even when the draft or reference file has changed.

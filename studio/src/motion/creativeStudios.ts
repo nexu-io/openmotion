@@ -4,7 +4,8 @@ import { creativeStudios, studioScenes, type CreativeStudio, type MediaStudio, t
 export { creativeStudios, studioScenes, type StudioScene };
 export const motionStudio = creativeStudios.find(studio => studio.surface === 'editor')!;
 type GeneratingStudio = MediaStudio | TechniqueStudio;
-export type StudioDestination = { studio: GeneratingStudio; scene: StudioScene; model: string | null; landing?: true };
+/** home: the Sound Studio home (banner and templates) rather than its generation page. */
+export type StudioDestination = { studio: GeneratingStudio; scene: StudioScene; model: string | null; landing?: true; home?: true };
 export const mediaLabels: Record<Modality, string> = { image: 'Image', video: 'Video', audio: 'Audio' };
 
 export const studioComingSoon = (studio: CreativeStudio | undefined) => Boolean(studio && 'navBadge' in studio && studio.navBadge === 'Coming soon');
@@ -21,6 +22,9 @@ export function studioDestination(studio: GeneratingStudio, sceneId?: string | n
   const scenes = scenesForStudio(studio);
   return { studio, scene: scenes.find(scene => scene.id === sceneId) ?? scenes[0], model };
 }
+
+/** Studios with a separate home page, opened from the studio entry rather than the media menu. */
+export const hasStudioHome = (studio: CreativeStudio) => studio.id === 'sound';
 
 export function studioIconTone(studio: CreativeStudio): Modality {
   return studio.surface === 'editor' ? studio.modalities[0] : studioDestination(studio).scene.modality;

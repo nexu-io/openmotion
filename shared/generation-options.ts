@@ -39,30 +39,38 @@ export function usesInputImageRatio(model: Model, hasInputImage: boolean, parame
   const images = { ...model.defaults, ...parameters }.images;
   const firstFrame = Array.isArray(images) && images.some(image => image && typeof image === 'object' && image.role === 'first_frame');
   return (hasInputImage || firstFrame) && model.modality === 'video' && ['opendesign', 'account'].includes(model.provider)
-    && ['wan-2.7', 'doubao-seedance-2-5-260628'].includes(model.modelId);
+    && ['wan-2.7', 'doubao-seedance-2-5-260628', 'doubao-seedance-2-5-flash-261115'].includes(model.modelId);
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const isOpenDesignMedia = (model: Model) => ['opendesign', 'account'].includes(model.provider);
 
-function publishedStrings(raw: unknown): { values: string[]; default?: string } | undefined {
+function publishedStrings(raw: unknown, fallbackFirst = false): { values: string[]; default?: string } | undefined {
   const envelope = isRecord(raw) ? raw : undefined;
   const rawValues = Array.isArray(raw) ? raw : Array.isArray(envelope?.values) ? envelope.values : undefined;
   if (!rawValues) return undefined;
-  const values = [...new Set(rawValues.filter((value): value is string => typeof value === 'string' && value.trim().length > 0))];
+  const values = [...new Set(rawValues.filter((value): value is string => typeof value === 'string').map(value => value.trim()).filter(Boolean))];
   if (!values.length) return undefined;
-  const fallback = typeof envelope?.default === 'string' && values.includes(envelope.default) ? envelope.default : undefined;
+  const rawDefault = typeof envelope?.default === 'string' ? envelope.default.trim() : undefined;
+  const fallback = rawDefault && values.includes(rawDefault)
+    ? rawDefault
+    : fallbackFirst && Array.isArray(raw) ? values[0] : undefined;
   return { values, ...(fallback !== undefined ? { default: fallback } : {}) };
 }
 
-function publishedDurations(raw: unknown): { values: number[]; default?: number } | undefined {
+function publishedDurations(raw: unknown): { values: number[]; default?: number; contiguous: boolean } | undefined {
   const envelope = isRecord(raw) ? raw : undefined;
   const rawValues = Array.isArray(raw) ? raw : Array.isArray(envelope?.values) ? envelope.values : undefined;
   if (!rawValues) return undefined;
-  const values = [...new Set(rawValues.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0))];
-  if (!values.length) return undefined;
-  const fallback = typeof envelope?.default === 'number' && values.includes(envelope.default) ? envelope.default : undefined;
-  return { values, ...(fallback !== undefined ? { default: fallback } : {}) };
+  const unique = [...new Set(rawValues.filter((value): value is number => typeof value === 'number' && Number.isInteger(value) && value > 0))];
+  if (!unique.length) return undefined;
+  // Extract default before sorting since AMR places the default duration first (e.g. [5, 4, 6, ...]).
+  const fallback = typeof envelope?.default === 'number' && unique.includes(envelope.default)
+    ? envelope.default
+    : Array.isArray(raw) ? unique[0] : undefined;
+  const values = unique.sort((a, b) => a - b);
+  const contiguous = values.length > 4 && values.every((v, i) => v === values[0] + i);
+  return { values, ...(fallback !== undefined ? { default: fallback } : {}), contiguous };
 }
 
 type PublishedImageProfile = { aspect_ratio: string; resolution: string };
@@ -161,6 +169,50 @@ export function resolveGenerationParameters(model: Model, parameters: Record<str
   return resolved;
 }
 
+function sortResolutions(values: string[]): string[] {
+  return values
+    .map((value, idx) => {
+      const match = /^(\d+)p$/i.exec(value);
+      return { value, idx, rank: match ? Number(match[1]) : Number.POSITIVE_INFINITY };
+    })
+    .sort((a, b) => a.rank - b.rank || a.idx - b.idx)
+    .map(item => item.value);
+}
+
+const seedance25Models = new Set(['doubao-seedance-2-5-260628', 'doubao-seedance-2-5-flash-261115']);
+const alwaysOnVideoAudioModels = new Set(['wan-2.7']);
+
+function parseAudioBoolean(value: string): boolean | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (['true', 'on', 'with_audio', 'yes', '1'].includes(normalized)) return true;
+  if (['false', 'off', 'without_audio', 'no', '0'].includes(normalized)) return false;
+  return undefined;
+}
+
+function publishedAudioToggle(model: Model): { default: boolean } | undefined {
+  const envelope = publishedStrings(model.nativeOptions?.audio, true);
+  if (envelope) {
+    const parsed = envelope.values.map(parseAudioBoolean).filter((v): v is boolean => v !== undefined);
+    if (new Set(parsed).size >= 2) {
+      const def = envelope.default ? parseAudioBoolean(envelope.default) : undefined;
+      return { default: def ?? true };
+    }
+  }
+  if (seedance25Models.has(model.modelId)) return { default: true };
+  return undefined;
+}
+
+/** Whether an OpenDesign Cloud/account video model permanently generates native audio with no toggle. */
+export function videoAudioAlwaysOn(model: Model): boolean {
+  return isOpenDesignMedia(model) && model.modality === 'video' && alwaysOnVideoAudioModels.has(model.modelId);
+}
+
+/** Whether an OpenDesign Cloud/account video model enables native audio when `generate_audio` is omitted. */
+export function defaultVideoAudioEnabled(model: Model): boolean {
+  return isOpenDesignMedia(model) && model.modality === 'video'
+    && (publishedAudioToggle(model)?.default === true || alwaysOnVideoAudioModels.has(model.modelId));
+}
+
 /** Exact endpoint profiles, checked 2026-11-15. Sources: docs/generation-options.md.
  * An unknown catalogue model deliberately gets no guessed schema. */
 export function generationOptions(model: Model, hasInputImage = false): GenerationOptions | undefined {
@@ -217,12 +269,20 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
   // Cloud and account video models publish allowed ratios, resolutions and integer durations via `capabilities`.
   if (isOpenDesignMedia(model) && model.modality === 'video') {
     const videoFields: GenerationOption[] = [];
-    const ratios = publishedStrings(model.nativeOptions?.ratios);
+    const ratios = publishedStrings(model.nativeOptions?.ratios, true);
     if (ratios) videoFields.push(choice('ratio', 'Aspect ratio', ratios.values, ratios.default, 'ratio'));
-    const resolutions = publishedStrings(model.nativeOptions?.resolutions);
-    if (resolutions) videoFields.push(choice('resolution', 'Resolution', resolutions.values, resolutions.default));
+    const resolutions = publishedStrings(model.nativeOptions?.resolutions, true);
+    if (resolutions) videoFields.push(choice('resolution', 'Resolution', sortResolutions(resolutions.values), resolutions.default));
     const durations = publishedDurations(model.nativeOptions?.durations);
-    if (durations) videoFields.push(choice('duration', 'Duration (seconds)', durations.values, durations.default));
+    if (durations) {
+      videoFields.push(
+        durations.contiguous
+          ? number('duration', 'Duration (seconds)', durations.default, durations.values[0], durations.values.at(-1)!, 1)
+          : choice('duration', 'Duration (seconds)', durations.values, durations.default),
+      );
+    }
+    const audio = publishedAudioToggle(model);
+    if (audio) videoFields.push(toggle('generate_audio', 'Generate audio', audio.default));
     if (videoFields.length) fields = videoFields;
   }
   // Speech models without checked voices keep a free voice ID: the API publishes no voice list.

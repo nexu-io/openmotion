@@ -1,16 +1,15 @@
 import { Button } from 'open-design-ui/button';
-import { useState, type ReactNode, type RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import type { TechniqueStudio } from '../../../shared/studio-catalog';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useI18n, type Locale } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useExploreTemplates } from './ExploreTemplates';
 import { TemplateGalleryCard } from './TemplateGalleryCard';
-import { trackMotion } from './tracking';
 import { useTemplatePlayback } from './useTemplatePlayback';
 import { useWorkspaceChrome } from './WorkspaceChromeContext';
 
-const collections = { motion: 'builtin', shorts: 'short-form', marketing: 'ads', explainer: 'all', '3d': 'all' } as const;
+const collections = { shorts: 'short-form', marketing: 'ads', explainer: 'all', '3d': 'all' } as const;
 
 // The catalogue searches the localized title, tags and description returned for this locale.
 const explainerTerms: Record<Locale, string> = {
@@ -25,11 +24,11 @@ const threeDimensionalTags: Record<Locale, string> = {
 };
 const shelfSize = 8;
 
-export function StudioTemplateShelf({ studio, root, active, navigation }: {
-  studio: 'motion' | TechniqueStudio['id']; root: RefObject<HTMLElement | null>; active: boolean; navigation?: ReactNode;
+export function StudioTemplateShelf({ studio, root, active }: {
+  studio: TechniqueStudio['id']; root: RefObject<HTMLElement | null>; active: boolean;
 }) {
   const { locale, t } = useI18n();
-  const { openLibrary, workspace, switchingDisabled } = useWorkspaceChrome();
+  const { openLibrary } = useWorkspaceChrome();
   const tag = studio === '3d' ? threeDimensionalTags[locale] : null;
   const query = tag ?? (studio === 'explainer' ? explainerTerms[locale] : '');
   // 3D loads every tag match at once (the catalogue's 60-item page) and reveals eight at a time.
@@ -42,33 +41,18 @@ export function StudioTemplateShelf({ studio, root, active, navigation }: {
   const loadMore = () => tag && matching.length > shown ? setShown(count => count + shelfSize) : templates.loadMore();
   const [priority, setPriority] = useState<string | null>(null);
   const playing = useTemplatePlayback(root, items.map(item => item.id).join('|'), active, true, priority, true);
-  const title = t(studio === 'motion' ? 'Motion templates' : 'Templates');
-  const Heading = studio === 'motion' ? 'h1' : 'h2';
+  const title = t('Templates');
   return <section className="om-studio-template-shelf" data-studio={studio} aria-label={title}>
-    <header><div className="om-studio-template-heading">{navigation}<Heading className="om-title">{title}</Heading></div>
+    <header><h2 className="om-title">{title}</h2>
       <Button variant="ghost" type="button" className="om-button h-auto" onClick={event => openLibrary(event.currentTarget)}>{t('Template library')}<RemixIcon name="arrow-right-line" size={16} /></Button>
     </header>
     <div className="om-studio-template-grid">
-      {studio === 'motion' && <article className="om-gallery-card" data-new-project="true">
-        <div className="om-gallery-card-media">
-          <Button variant="plain" type="button" className="om-studio-new-project-button" disabled={switchingDisabled}
-            aria-label={t('New project')}
-            onClick={event => {
-              void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
-              void workspace.create();
-            }}>
-            <span className="om-studio-new-project-icon" aria-hidden="true"><RemixIcon name="add-line" size={24} /></span>
-            <strong>{t('New project')}</strong>
-            <small>{t('Create blank project')}</small>
-          </Button>
-        </div>
-      </article>}
       {items.map(item => <TemplateGalleryCard key={item.id} template={item} active={playing.has(item.id)} onPriority={setPriority}
         onSelect={(template, trigger) => openLibrary(trigger, template)} />)}
     </div>
     {templates.loading && <div className="om-studio-template-grid" role="status" aria-label={t('Loading templates…')}>{[0, 1, 2, 3].map(n => <Skeleton key={n} />)}</div>}
     {templates.error ? <div className="om-discovery-empty"><span>{t('Templates could not be loaded.')}</span><Button variant="ghost" className="om-button h-auto" onClick={templates.retry}>{t('Retry')}</Button></div>
-      : !templates.loading && (hasMore ? studio !== 'motion' && <Button variant="plain" className="om-button om-shelf-more" onClick={loadMore}>{t('More templates')}<RemixIcon name="arrow-down-line" size={16} /></Button>
+      : !templates.loading && (hasMore ? <Button variant="plain" className="om-button om-shelf-more" onClick={loadMore}>{t('More templates')}<RemixIcon name="arrow-down-line" size={16} /></Button>
       : !items.length && <p className="om-muted">{t('No templates available. Open the library or try again later.')}</p>)}
   </section>;
 }

@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { parameterInputImageRatio, requestParameters } from './GenerationParameters';
+import { durationTicks, parameterInputImageRatio, requestParameters, shotParameters } from './GenerationParameters';
+import { generationOptions } from '../../../shared/generation-options';
 import type { Model } from '../../../shared/gateway';
 import { toastErrorMessage } from '../components/ui/toastErrorMessage';
 import { languages, translate } from '../i18n/messages';
@@ -58,4 +59,26 @@ it('resizes with keyboard, bounds the pane, remembers width and resets on double
     expect(localStorage.getItem('test-width')).toBe('460');
     localStorage.setItem('test-width', 'Infinity'); expect(readPaneWidth('test-width', 460, 340, 800)).toBe(460);
   } finally { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); }
+});
+
+it('builds clean duration ticks and applies shotPreferences to bounded number duration fields', () => {
+  expect(durationTicks(4, 30)).toEqual([4, 10, 15, 20, 30]);
+  expect(durationTicks(2, 15)).toEqual([2, 5, 10, 15]);
+  const base: Model = {
+    id: 'account:doubao-seedance-2-5-260628', provider: 'account', modelId: 'doubao-seedance-2-5-260628',
+    label: 'doubao-seedance-2-5-260628', modality: 'video', mode: 'text-to-video', source: 'live',
+    nativeOptions: {
+      durations: { values: [5, 4, ...Array.from({ length: 25 }, (_, i) => i + 6)], default: 5 },
+      ratios: { values: ['16:9', '9:16'], default: '16:9' },
+    },
+  };
+  const seedance: Model = { ...base, generationOptions: generationOptions(base) };
+  expect(shotParameters(seedance, { aspect: '9:16', duration: 15 })).toEqual({
+    values: { ratio: '9:16', duration: 15 },
+    advanced: '{}',
+  });
+  expect(shotParameters(seedance, { aspect: '9:16', duration: 99 })).toEqual({
+    values: { ratio: '9:16' },
+    advanced: '{}',
+  });
 });

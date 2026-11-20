@@ -84,8 +84,9 @@ test('Explore is home and project navigation stays in the workspace', { timeout:
       await page.setViewport({ width: 1440, height: 800 });
       await page.click('.om-app-header [aria-label="Motion Studio"]');
       await page.waitForSelector('main[aria-label="Motion templates"]', { visible: true });
-      const project = await page.waitForSelector('.om-project-navigation:not([inert]) button.motion-session', { visible: true });
-      await project!.click();
+      assert.equal(await page.$('.om-project-navigation'), null);
+      const openEditor = await page.waitForSelector('.om-studio-landing-hero button:not(:disabled)', { visible: true });
+      await openEditor!.click();
       await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });
       await page.waitForSelector('.om-project-navigation:not([inert])', { visible: true });
       const editorUrl = page.url();
@@ -381,6 +382,38 @@ test('Sound Studio previews and seeks the welcome track in both wide and compact
           const audio = document.querySelector<HTMLAudioElement>('.om-scene-audio audio');
           return audio && audio.paused && audio.currentTime > audio.duration * 0.4;
         });
+      }
+    } finally {
+      await browser.close();
+      await running.close();
+      await gateway.close();
+    }
+  });
+});
+
+test('Sound Studio home shows the banner and templates and plays a template without a creator', { timeout: 60_000 }, async () => {
+  await fixture(async store => {
+    const gateway = gatewayFor(store);
+    gateway.options.detect = async () => [];
+    const running = await startServer(store, 0, { editor: true });
+    const browser = await puppeteer.launch({ executablePath: await browserExecutable(), headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.evaluateOnNewDocument(() => localStorage.setItem('motion.studio.locale', 'en'));
+      const url = new URL((await running.info()).previewUrl);
+      url.searchParams.set('page', 'sound');
+      url.searchParams.set('home', '1');
+      for (const width of [1280, 390]) {
+        await page.setViewport({ width, height: 800 });
+        await page.goto(url.href, { waitUntil: 'domcontentloaded' });
+        await page.waitForSelector('.om-audio-landing .om-specialty-feature', { visible: true });
+        assert.equal(await page.$('.om-studio-bar, .om-canvas-dock, .om-creator-pane'), null);
+        assert.ok(await page.$$eval('.om-audio-card', cards => cards.length) >= 6);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        await page.click('.om-audio-landing .om-specialty-feature');
+        await page.waitForFunction(() => (document.querySelector<HTMLAudioElement>('.om-audio-landing audio')?.currentTime ?? 0) > 0);
+        await page.click('.om-audio-landing .om-specialty-feature');
+        await page.waitForFunction(() => document.querySelector<HTMLAudioElement>('.om-audio-landing audio')?.paused);
       }
     } finally {
       await browser.close();

@@ -636,3 +636,24 @@ it('hides Use as reference for video and audio assets, omits video from edit ref
   expect(dialog.textContent).not.toContain('Voice');
   expect(dialog.querySelector('.om-asset-tabs')).toBeNull();
 });
+
+it('hides Use as reference on video assets, edits video without self-reference, and keeps direct reference picker image-only', async () => {
+  const video = fixture('clip');
+  video.name = 'Sample clip';
+  video.modality = 'video';
+  Object.assign(video.versions[0], { filename: 'clip.mp4', mimeType: 'video/mp4', duration: 5 });
+  records.set(video.id, video);
+
+  await render();
+  await click('Sample clip');
+  expect(button('Use as reference')).toBeUndefined();
+  expect(button('Use as first frame')).toBeUndefined();
+
+  await click('Edit as new version');
+  expect(container.querySelector('[aria-label="Creation draft"]')?.getAttribute('data-reference-count')).toBe('0');
+
+  await click('References');
+  const dialog = document.querySelector('[role=dialog]')!;
+  expect(dialog).not.toBeNull();
+  expect([...dialog.querySelectorAll('button')].some(node => node.textContent === 'Videos' || node.textContent === 'Audio')).toBe(false);
+});

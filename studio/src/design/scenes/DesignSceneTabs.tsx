@@ -22,7 +22,8 @@ export function DesignSceneTabs({
       {showProjects && <Button
         type="button"
         size="sm"
-        variant={activeTab === 'projects' ? 'secondary' : 'ghost'}
+        variant="plain"
+        className="om-nav-item"
         icon={<RemixIcon name="folder-open-line" size={14} />}
         aria-current={activeTab === 'projects' ? 'page' : undefined}
         onClick={() => onSelectDesignScene('projects')}
@@ -34,7 +35,8 @@ export function DesignSceneTabs({
           key={scenario.id}
           type="button"
           size="sm"
-          variant={activeTab === scenario.id ? 'secondary' : 'ghost'}
+          variant="plain"
+          className="om-nav-item"
           icon={<RemixIcon name={scenario.icon} size={14} />}
           aria-current={activeTab === scenario.id ? 'page' : undefined}
           onClick={() => onSelectDesignScene(scenario.id)}

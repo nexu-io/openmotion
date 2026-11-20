@@ -7,7 +7,9 @@ import {
   type DesignTemplateSummary, type DesignViewportId,
 } from '../../../shared/design-project';
 import { IconButton } from 'open-design-ui/icon-button';
+import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
+import { MotionIcon } from '../motion/icons';
 import './design.css';
 
 /**
@@ -19,6 +21,7 @@ export function DesignTemplateDetailModal({
   templates,
   index,
   remixing,
+  studioActions = false,
   onNavigate,
   onClose,
   onRemix,
@@ -27,6 +30,7 @@ export function DesignTemplateDetailModal({
   templates: DesignTemplateSummary[];
   index: number;
   remixing?: boolean;
+  studioActions?: boolean;
   onNavigate: (nextIndex: number) => void;
   onClose: () => void;
   onRemix: (template: DesignTemplateSummary) => void;
@@ -61,7 +65,7 @@ export function DesignTemplateDetailModal({
     <Dialog.Root open onOpenChange={open => { if (!open) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Backdrop className="om-design-dialog-backdrop" />
-        <Dialog.Popup className="om-media-detail-surface om-media-detail-popup om-design-tpl-detail-popup" aria-label={template.title}>
+        <Dialog.Popup className="om-media-detail-surface om-media-detail-popup om-design-tpl-detail-popup" data-feedback-modal={studioActions || undefined} aria-label={template.title}>
           <div className="om-media-detail-grid">
             {/* Left interactive preview stage with Motion-aligned ambient frosted backdrop */}
             <div className="om-media-detail-stage om-design-tpl-stage">
@@ -161,15 +165,34 @@ export function DesignTemplateDetailModal({
                   </div>
                 )}
 
-                <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 12, borderTop: '1px solid var(--motion-border-subtle)' }}>
+                {!studioActions && <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 12, borderTop: '1px solid var(--motion-border-subtle)' }}>
                   <Button type="button" variant="primary" loading={remixing} icon={<RemixIcon name="arrow-right-up-line" size={15} />} onClick={() => onRemix(template)}>
                     {t('Remix into project')}
                   </Button>
                   <Button type="button" variant="secondary" icon={<RemixIcon name="plug-line" size={15} />} onClick={() => onUseWithAgent(template)}>
                     {t('Use with Agent')}
                   </Button>
-                </div>
+                </div>}
               </div>
+              {studioActions && <div className="om-media-detail-footer" role="group" aria-label={t('Template actions')}>
+                <div className="om-media-detail-action-row">
+                  <Button type="button" variant="ghost" className="om-button h-auto" data-primary onClick={() => onUseWithAgent(template)}>
+                    {t('Recreate this template')}<MotionIcon name="sparkles" size={16} />
+                  </Button>
+                  <Tooltip label={t('Remix into project')} wrap>
+                    <IconButton
+                      type="button"
+                      variant="plain"
+                      className="om-button om-media-detail-icon-action"
+                      aria-label={t('Remix into project')}
+                      disabled={remixing}
+                      aria-busy={remixing}
+                      icon={<RemixIcon name={remixing ? 'loader-4-line' : 'folder-add-line'} size={17} className={remixing ? 'om-busy-icon' : undefined} />}
+                      onClick={() => onRemix(template)}
+                    />
+                  </Tooltip>
+                </div>
+              </div>}
             </aside>
           </div>
         </Dialog.Popup>

@@ -776,19 +776,6 @@
   pointer-events: none;
 }
 
-.om-design-thumb-action {
-  position: absolute;
-  top: var(--motion-space-8);
-  right: var(--motion-space-8);
-  opacity: 0;
-  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
-}
-
-.om-design-card:hover .om-design-thumb-action,
-.om-design-card:focus-within .om-design-thumb-action {
-  opacity: 1;
-}
-
 .om-design-card-body {
   padding: var(--motion-space-14);
   display: flex;
@@ -1098,6 +1085,21 @@
   border: 0;
 }
 
+@media (min-width: 700px) {
+  .om-design-tpl-detail-popup[data-feedback-modal] .om-media-detail-info {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .om-design-tpl-detail-popup[data-feedback-modal] .om-media-detail-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
 .om-design-tpl-stage {
   display: flex;
   flex-direction: column;
@@ -1174,16 +1176,30 @@
 
 .om-design-mention-item {
   width: 100%;
-  justify-content: space-between !important;
+  height: auto;
+  min-height: var(--motion-control-sm);
+  padding-block: var(--motion-space-4);
   gap: var(--motion-space-10);
 }
 
 .om-design-mention-label {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.om-design-mention-item[data-kind="prompt"] .om-design-mention-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  text-align: left;
+}
+
+.om-design-mention-type {
+  flex: none;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
 }
 
 .om-design-attached-chips {
@@ -1233,13 +1249,6 @@
   white-space: nowrap;
   border-color: transparent;
   box-shadow: none;
-}
-
-.om-design-scene-tabs button[aria-current="page"] {
-  background: var(--motion-inset);
-  border-color: transparent;
-  color: var(--motion-text);
-  font-weight: var(--motion-weight-medium);
 }
 
 /* --- Bottom Floating Composer Layout (aligned with Image Studio & Manus) --- */
@@ -1299,32 +1308,35 @@
   cursor: pointer;
 }
 
-.om-design-card-hover-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity var(--motion-duration-control) var(--motion-ease-out);
-}
-
-.om-design-gallery-card:hover .om-design-card-hover-actions,
-.om-design-gallery-card:focus-within .om-design-card-hover-actions {
-  opacity: 1;
-}
-
 .om-design-gallery-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   padding: var(--motion-space-10) var(--motion-space-12);
-  gap: 4px;
+  gap: var(--motion-space-12);
 }
 
-/* Design Studio shares the discovery banner and template grid. */
-.om-design-studio-hero > img {
-  object-position: center;
-  mask-image: linear-gradient(90deg, transparent, currentColor 28%);
+.om-design-gallery-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--motion-space-4);
 }
 
-.om-design-studio-hero .om-discovery-hero-copy {
-  padding-block: var(--motion-space-24);
+.om-design-gallery-copy .om-design-card-desc {
+  display: block;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+@media (hover: hover) {
+  .om-design-gallery-action {
+    opacity: 0;
+  }
+
+  .om-design-gallery-card:is(:hover, :focus-within) .om-design-gallery-action {
+    opacity: 1;
+  }
 }
 
 .om-design-template-section {

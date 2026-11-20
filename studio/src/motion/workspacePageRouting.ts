@@ -5,7 +5,7 @@ import { isDesignScenario, type DesignScenarioId } from '../../../shared/design-
 import { workspacePageName } from '../../../shared/workspace-url';
 import { mcpClients, type McpClient } from './mcpClients';
 import { exploreCommunities, findLandingScene, findMediaStudio, findTechniqueStudio, type ExploreCommunity, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
-import { sceneDestination, studioDestination, type StudioDestination } from './creativeStudios';
+import { hasStudioHome, sceneDestination, studioDestination, type StudioDestination } from './creativeStudios';
 
 /** Application pages live in the query; the project hash belongs to the editor. */
 export const settingsSections = ['account', 'subscription', 'providers', 'models', 'local', 'general', 'appearance', 'privacy', 'about', 'help', 'mcp', 'brand-kit'] as const;
@@ -33,7 +33,8 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
   const collection = findTechniqueStudio(page);
   const studioKind = collection?.scenes.some(id => id === sceneId) ? collection : (isDesignHtmlScene ? undefined : findMediaStudio(page));
   const landing = page === 'create' && findLandingScene(sceneId);
-  const studio = landing ? sceneDestination(landing, null, model) : studioKind ? studioDestination(studioKind, sceneId, model) : null;
+  const home = Boolean(!landing && studioKind && hasStudioHome(studioKind) && query.get('home') === '1');
+  const studio = landing ? sceneDestination(landing, null, model) : studioKind ? { ...studioDestination(studioKind, sceneId, model), ...(home ? { home: true as const } : {}) } : null;
   const specialty = studio ? null : collection ?? null;
   const community = exploreCommunities.find(item => item.id === query.get('community'))?.id ?? null;
   const medium = (['image', 'video', 'audio'] as const).find(value => value === query.get('medium')) ?? null;
@@ -56,7 +57,7 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
 export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): string {
   const url = new URL(href), current = readWorkspacePage(url.search, url.hash), page = { ...current, ...patch };
   const currentSearchPage = url.searchParams.get('page');
-  for (const key of ['page', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject']) url.searchParams.delete(key);
+  for (const key of ['page', 'home', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject']) url.searchParams.delete(key);
   if (current.settings === 'mcp' || page.settings === 'mcp') url.searchParams.delete('example');
   if (currentSearchPage === 'api') url.searchParams.delete('tool');
   if (current.creators || page.creators) { url.searchParams.delete('view'); url.searchParams.delete('creator'); }
@@ -101,6 +102,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     if (page.specialty.techniques.some(id => id === page.skill)) url.searchParams.set('skill', page.skill!);
   } else if (page.studio) {
     url.searchParams.set('page', page.studio.landing ? 'create' : page.studio.studio.id);
+    if (page.studio.home) url.searchParams.set('home', '1');
     url.searchParams.set('scene', page.studio.scene.id);
     if (page.studio.studio.surface === 'techniques' && page.studio.studio.techniques.some(id => id === page.skill)) url.searchParams.set('skill', page.skill!);
     if (page.studio.model) url.searchParams.set('model', page.studio.model);

@@ -18,12 +18,10 @@ export function ScaledPreviewThumb({
   src,
   title,
   badge,
-  topRight,
 }: {
   src: string;
   title: string;
   badge?: string;
-  topRight?: React.ReactNode;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -92,7 +90,6 @@ export function ScaledPreviewThumb({
         />
       )}
       {badge && <span className="om-design-thumb-badge">{badge}</span>}
-      {topRight && <div className="om-design-thumb-action">{topRight}</div>}
     </div>
   );
 }

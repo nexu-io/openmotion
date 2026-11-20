@@ -20,8 +20,15 @@ import { designClient } from '../designClient';
 import { DesignProjectList } from '../DesignProjectList';
 import { DesignTemplateDetailModal } from '../DesignTemplateDetailModal';
 import { ScaledPreviewThumb } from '../ScaledPreviewThumb';
+import designMentionTitlesZh from '../design-mention-titles.zh-CN.json';
 import { DesignSceneTabs, type DesignTabId } from './DesignSceneTabs';
 import '../design.css';
+
+const mentionTitlesZh = {
+  templates: new Map(Object.entries(designMentionTitlesZh.templates)),
+  skills: new Map(Object.entries(designMentionTitlesZh.skills)),
+};
+const mentionKindLabels = { template: 'Template', skill: 'Skill', prompt: 'Prompt' } as const;
 
 export function DesignScenePage({
   scene,
@@ -76,8 +83,21 @@ export function DesignScenePage({
 
   // @ mention autocomplete state
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mentionMenuRef = useRef<HTMLDivElement>(null);
   const [mention, setMention] = useState<{ start: number; end: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const mentionActive = mention !== null;
+
+  useEffect(() => {
+    if (!mentionActive) return;
+    const dismissOutside = (event: PointerEvent) => {
+      const menu = mentionMenuRef.current;
+      if (menu && event.composedPath().includes(menu)) return;
+      setMention(null);
+    };
+    document.addEventListener('pointerdown', dismissOutside, true);
+    return () => document.removeEventListener('pointerdown', dismissOutside, true);
+  }, [mentionActive]);
 
   useEffect(() => {
     setPlaceholderIndex(0);
@@ -118,34 +138,39 @@ export function DesignScenePage({
   }, [skills, skillQuery, scenario?.id]);
 
   type MentionOption =
-    | { kind: 'template'; id: string; label: string; sub: string; item: DesignTemplateSummary }
-    | { kind: 'skill'; id: string; label: string; sub: string; item: DesignSkillSummary }
-    | { kind: 'prompt'; id: string; label: string; sub: string; text: string };
+    | { kind: 'template'; id: string; label: string; item: DesignTemplateSummary }
+    | { kind: 'skill'; id: string; label: string; item: DesignSkillSummary }
+    | { kind: 'prompt'; id: string; label: string; text: string };
 
   const mentionOptions = useMemo<MentionOption[]>(() => {
     if (!mention) return [];
     const q = mention.query.trim().toLowerCase();
+    const localizedTitles = locale === 'zh-CN' ? mentionTitlesZh : undefined;
+    const matches = (...terms: string[]) => !q || terms.some(term => term.toLowerCase().includes(q));
     const out: MentionOption[] = [];
     for (const tpl of templates) {
-      if (!q || tpl.title.toLowerCase().includes(q) || tpl.id.toLowerCase().includes(q) || tpl.category.toLowerCase().includes(q)) {
-        out.push({ kind: 'template', id: `tpl:${tpl.id}`, label: tpl.title, sub: `@template:${tpl.id}`, item: tpl });
+      const label = localizedTitles?.templates.get(tpl.id) ?? tpl.title;
+      if (matches(label, tpl.title, tpl.id, tpl.category)) {
+        out.push({ kind: 'template', id: `tpl:${tpl.id}`, label, item: tpl });
         if (out.length >= 6) break;
       }
     }
     let skillCount = 0;
     for (const sk of skills) {
-      if (!q || sk.title.toLowerCase().includes(q) || sk.id.toLowerCase().includes(q)) {
-        out.push({ kind: 'skill', id: `sk:${sk.id}`, label: sk.title, sub: `@skill:${sk.id}`, item: sk });
+      const label = localizedTitles?.skills.get(sk.id) ?? sk.title;
+      if (matches(label, sk.title, sk.id)) {
+        out.push({ kind: 'skill', id: `sk:${sk.id}`, label, item: sk });
         if (++skillCount >= 6) break;
       }
     }
     for (const [i, ex] of (scenario?.examples ?? []).entries()) {
-      if (!q || ex.toLowerCase().includes(q)) {
-        out.push({ kind: 'prompt', id: `pr:${i}`, label: ex, sub: t('Prompt'), text: ex });
+      const text = t(ex);
+      if (matches(text, ex)) {
+        out.push({ kind: 'prompt', id: `pr:${i}`, label: text, text });
       }
     }
     return out;
-  }, [mention, templates, skills, scenario?.examples, t]);
+  }, [mention, templates, skills, scenario?.examples, locale, t]);
 
   const syncMention = (value: string, cursor: number) => {
     const before = value.slice(0, cursor);
@@ -216,14 +241,14 @@ export function DesignScenePage({
     textareaRef.current?.focus();
   };
 
-  const copyInstruction = useCallback(async (text: string) => {
+  const copyInstruction = useCallback(async (text: string, fromDetail = false) => {
     try {
       await navigator.clipboard.writeText(text);
       setManualPrompt(null);
       showToast(t('Copied. Paste into your Agent.'), 'info', 'feedback');
     } catch {
       setManualPrompt(text);
-      showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback');
+      showToast(t(fromDetail ? 'Copy failed. Check clipboard permissions and try again.' : 'Could not copy. Select and copy the text manually.'), 'error', 'feedback');
     }
   }, [showToast, t]);
 
@@ -293,7 +318,7 @@ export function DesignScenePage({
       language: locale !== 'en' ? locale : null,
       integration: integrationInfo,
     });
-    void copyInstruction(prompt);
+    void copyInstruction(prompt, previewTemplate !== null);
   };
 
   return (
@@ -327,7 +352,7 @@ export function DesignScenePage({
       ) : (
         <main className="om-explore om-design-template-page" aria-labelledby="design-studio-title">
           <div className="om-discovery-page">
-            <header className="om-discovery-hero om-design-studio-hero">
+            <header className="om-discovery-hero om-studio-landing-hero">
               <img src={designArtwork} alt="" />
               <div className="om-discovery-hero-copy">
                 <h1 id="design-studio-title">{t('Design Studio')}</h1>
@@ -375,24 +400,18 @@ export function DesignScenePage({
                         src={tpl.previewUrl}
                         title={tpl.title}
                         badge={tpl.category !== tpl.scenario ? tpl.category : undefined}
-                        topRight={
-                          <div className="om-design-card-hover-actions">
-                            <Button type="button" size="sm" variant="primary" loading={remixingId === tpl.id} onClick={() => void handleRemixTemplate(tpl)}>
-                              {t('Remix')}
-                            </Button>
-                            <IconButton
-                              aria-label={t('Use with Agent')}
-                              icon={<RemixIcon name="plug-line" size={14} />}
-                              onClick={() => handleUseTemplateWithAgent(tpl)}
-                            />
-                          </div>
-                        }
                       />
                       <div className="om-design-card-body om-design-gallery-body">
-                        <Button type="button" variant="plain" className="om-design-card-open" onClick={event => openPreview(tpl, event.currentTarget)}>
-                          <strong className="om-design-card-title">{tpl.title}</strong>
+                        <div className="om-design-gallery-copy">
+                          <Button type="button" variant="plain" className="om-design-card-open" onClick={event => openPreview(tpl, event.currentTarget)}>
+                            <strong className="om-design-card-title">{tpl.title}</strong>
+                          </Button>
+                          <p className="om-design-card-desc">{tpl.description}</p>
+                        </div>
+                        <Button type="button" size="sm" variant="primary" className="om-design-gallery-action rounded-full" onClick={() => handleUseTemplateWithAgent(tpl)}>
+                          {t('Recreate this template')}
+                          <RemixIcon name="file-copy-line" size={14} />
                         </Button>
-                        <p className="om-design-card-desc">{tpl.description}</p>
                       </div>
                     </article>
                   ))}
@@ -426,7 +445,7 @@ export function DesignScenePage({
               <div className="om-design-bottom-dock-wrap">
                 <div className="om-design-composer om-design-bottom-composer" style={{ position: 'relative', overflow: 'visible' }}>
                   {mention && mentionOptions.length > 0 && (
-                    <div className="om-design-popover om-design-mention-menu om-design-mention-up" role="listbox" aria-label={t('Mention template or skill')}>
+                    <div ref={mentionMenuRef} className="om-design-popover om-design-mention-menu om-design-mention-up" role="listbox" aria-label={t('Mention template or skill')}>
                       {mentionOptions.map((opt, idx) => (
                         <Button
                           key={opt.id}
@@ -434,12 +453,13 @@ export function DesignScenePage({
                           size="sm"
                           variant={idx === mentionIndex ? 'secondary' : 'ghost'}
                           className="om-design-mention-item"
+                          data-kind={opt.kind}
                           icon={<RemixIcon name={opt.kind === 'template' ? 'layout-line' : opt.kind === 'skill' ? 'book-open-line' : 'sparkling-line'} size={14} />}
                           onMouseEnter={() => setMentionIndex(idx)}
                           onClick={() => applyMention(opt)}
                         >
                           <span className="om-design-mention-label">{opt.label}</span>
-                          <span className="om-design-muted" style={{ fontSize: 11 }}>{opt.sub}</span>
+                          <span className="om-design-mention-type">{t(mentionKindLabels[opt.kind])}</span>
                         </Button>
                       ))}
                     </div>
@@ -568,10 +588,11 @@ export function DesignScenePage({
           templates={templates}
           index={Math.max(0, templates.findIndex(tItem => tItem.id === previewTemplate.id))}
           remixing={remixingId === previewTemplate.id}
+          studioActions
           onNavigate={nextIdx => { const next = templates[nextIdx]; if (next) setPreviewTemplate(next); }}
           onClose={closePreview}
-          onRemix={tpl => { void handleRemixTemplate(tpl); setPreviewTemplate(null); }}
-          onUseWithAgent={tpl => { handleUseTemplateWithAgent(tpl); closePreview(); }}
+          onRemix={tpl => void handleRemixTemplate(tpl)}
+          onUseWithAgent={handleUseTemplateWithAgent}
         />
       )}
 

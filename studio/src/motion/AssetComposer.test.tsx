@@ -495,3 +495,122 @@ it('enables first-frame video submission for account video models that advertise
   await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
   expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ model: accountVideo.id, parameters: {}, references: firstFrame.map(item => item.reference) }));
 });
+
+it('renders quick parameter cards, slider duration ticks, resolution pills, and Seedance native audio toggle in Cinema Studio', async () => {
+  const { studioDestination } = await import('./creativeStudios');
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const makeVideo = (modelId: string, nativeOptions: Record<string, unknown>): Model => {
+    const base: Model = {
+      id: `account:${modelId}`, provider: 'account', modelId, label: modelId, modality: 'video', mode: 'text-to-video', source: 'live',
+      nativeOptions,
+    };
+    return { ...base, generationOptions: generationOptions(base) };
+  };
+  const seedance = makeVideo('doubao-seedance-2-5-260628', {
+    durations: { values: [5, 4, ...Array.from({ length: 25 }, (_, i) => i + 6)], default: 5 },
+    ratios: { values: ['16:9', '9:16', 'adaptive'], default: '16:9' },
+    resolutions: { values: ['720p', '480p', '1080p'], default: '720p' },
+  });
+  const wan = makeVideo('wan-2.7', {
+    durations: { values: [5, 2, 3, 4, ...Array.from({ length: 10 }, (_, i) => i + 6)], default: 5 },
+    ratios: { values: ['16:9', '9:16', 'adaptive'], default: '16:9' },
+    resolutions: { values: ['720p', '1080p'], default: '720p' },
+  });
+  const seedance20 = makeVideo('doubao-seedance-2-0-260128', {
+    durations: { values: [5, 10], default: 5 },
+    ratios: { values: ['16:9', '9:16'], default: '16:9' },
+    resolutions: { values: ['720p', '1080p'], default: '720p' },
+  });
+  const catalog = {
+    models: [seedance, wan, seedance20],
+    status: { providers: [{ id: 'account', label: 'OpenDesign', available: true }], routes: { video: seedance.id } },
+  };
+  loadGateway.mockResolvedValue(catalog);
+  const loaded = await loadGateway();
+  function Harness() {
+    const [id, chooseModel] = useState(seedance.id);
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'video', prompt: 'Drive on Los Santos Blvd', references: [] });
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{
+      catalog: { catalog: loaded, failed: false, retry: vi.fn() }, chooseModel, remember: vi.fn(),
+      destination: studioDestination(findMediaStudio('cinema')!, 'text-to-video', id),
+    }} />;
+  }
+  await act(async () => root.render(<Harness />));
+
+  const optionsOf = (label: string) => {
+    const trigger = document.querySelector<HTMLButtonElement>(`[role="combobox"][aria-label="${label}"]`)!;
+    const listboxId = trigger.getAttribute('aria-controls');
+    const scope = (listboxId && document.getElementById(listboxId)) || document;
+    return [...scope.querySelectorAll<HTMLElement>('[role="option"]')];
+  };
+
+  // Seedance 2.5 renders quick parameter cards including Duration, Resolution, Aspect ratio, and Generate audio (On by default),
+  // and keeps the summary row compact as "Advanced parameters" rather than repeating values.
+  const durationCard = () => container.querySelector<HTMLButtonElement>('.om-param-card[aria-label="Duration"]')!;
+  const resolutionCard = () => container.querySelector<HTMLButtonElement>('.om-param-card[aria-label="Resolution"]')!;
+  const audioCard = () => container.querySelector<HTMLButtonElement>('.om-param-audio[aria-label="Generate audio"]')!;
+  expect(durationCard().textContent).toContain('5s');
+  expect(resolutionCard().textContent).toContain('720p');
+  expect(audioCard().getAttribute('aria-checked')).toBe('true');
+  expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Advanced parameters');
+
+  // Clicking Duration card opens slider + tick buttons [4, 10, 15, 20, 30] instead of a 27-item dropdown.
+  await act(async () => durationCard().click());
+  expect(document.querySelector('[role="combobox"][aria-label="Duration (seconds)"]')).toBeNull();
+  const ticks = [...document.querySelectorAll<HTMLButtonElement>('.om-duration-tick')];
+  expect(ticks.map(node => node.textContent?.trim())).toEqual(['4', '10', '15', '20', '30']);
+  await act(async () => ticks.find(node => node.textContent?.trim() === '15')!.click());
+  expect(durationCard().textContent).toContain('15s');
+
+  // Toggle Generate audio off via quick card and verify submission carries duration: 15 and generate_audio: false.
+  await act(async () => audioCard().click());
+  expect(audioCard().getAttribute('aria-checked')).toBe('false');
+  generate.mockResolvedValue({ job: { id: 'seedance-15s' } });
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledWith(expect.objectContaining({
+    action: 'generate', model: seedance.id, parameters: { duration: 15, generate_audio: false },
+  }));
+
+  // Switch model to wan-2.7: audio renders as a static always-on card (no switch), resolution has [720p, 1080p], duration ticks update to [2, 5, 10, 15].
+  await act(async () => container.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Generation model"]')!.click());
+  await act(async () => optionsOf('Generation model').find(node => node.textContent?.includes('wan-2.7'))!.click());
+  expect(container.querySelector('.om-param-audio[role="switch"]')).toBeNull();
+  const staticAudio = container.querySelector('.om-param-card-static[aria-label="Generate audio"]')!;
+  expect(staticAudio.textContent).toContain('Generate audio');
+  expect(staticAudio.textContent).toContain('On');
+  await act(async () => durationCard().click());
+  expect([...document.querySelectorAll<HTMLButtonElement>('.om-duration-tick')].map(node => node.textContent?.trim())).toEqual(['2', '5', '10', '15']);
+  await act(async () => resolutionCard().click());
+  expect([...document.querySelectorAll<HTMLButtonElement>('.om-option-pill')].map(node => node.textContent?.trim())).toEqual(['720p', '1080p']);
+
+  // Switch model to doubao-seedance-2-0-260128: discrete durations [5, 10] render as compact pills, not a slider.
+  await act(async () => container.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Generation model"]')!.click());
+  await act(async () => optionsOf('Generation model').find(node => node.textContent?.includes('doubao-seedance-2-0-260128'))!.click());
+  await act(async () => durationCard().click());
+  expect(document.querySelector('.om-duration-track')).toBeNull();
+  expect([...document.querySelectorAll<HTMLButtonElement>('.om-option-pill')].map(node => node.textContent?.trim())).toEqual(['5s', '10s']);
+});
+
+it('hides reference controls when unsupported and clears image references when switching to audio', async () => {
+  const imageModel = model;
+  const audioModel: Model = { id: 'codex:audio', provider: 'codex', modelId: 'audio', label: 'Audio', modality: 'audio', source: 'builtin', mode: 'text-to-audio' };
+  loadGateway.mockResolvedValue({ models: [imageModel, audioModel], status: { providers: [{ id: 'codex', available: true }], routes: {} } });
+  let latest!: AssetDraft, update!: ComponentProps<typeof AssetComposer>['setDraft'];
+  function Harness() {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', model: imageModel.id, prompt: 'Keep going', references: [{ name: 'Still', reference: { assetId: 'a', versionId: 'v1' } }] });
+    latest = draft; update = setDraft;
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} />;
+  }
+  await act(async () => root.render(<Harness />));
+  // Reference control is visible while a reference is attached even if the image model does not support references.
+  expect(container.querySelector('.om-creation-reference')).not.toBeNull();
+  await act(async () => update(current => ({ ...current, references: [] })));
+  expect(container.querySelector('.om-creation-reference')).toBeNull();
+
+  // Re-attach an image reference and switch media type to audio: references are cleared.
+  await act(async () => update(current => ({ ...current, references: [{ name: 'Still', reference: { assetId: 'a', versionId: 'v1' } }] })));
+  await act(async () => container.querySelectorAll<HTMLButtonElement>('.om-creation-types button')[2].click());
+  expect(latest.modality).toBe('audio');
+  expect(latest.references).toEqual([]);
+  expect(container.querySelector('.om-creation-reference')).toBeNull();
+});

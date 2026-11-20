@@ -1,4 +1,6 @@
-import { aiTechnologyIndustry } from './templateDiscoveryTaxonomy';
+import { matchesTemplateCategory, type GalleryTemplate } from '../../../shared/catalog';
+import { facetValues } from './templateDiscovery';
+import { aiTechnologyIndustry, discoveryIndustries, discoveryPurposes, orderedPurposes } from './templateDiscoveryTaxonomy';
 
 export const formatCategories = { builtin: 'Editable templates', ads: 'Product promos', 'short-form': 'Short-form video' } as const;
 export function isFormatCategory(id: string | null | undefined): id is keyof typeof formatCategories {
@@ -23,4 +25,31 @@ export function collectionFacet(collection?: TemplateCollection | null): { key: 
 
 export function industryCollection(value: string): TemplateCollection {
   return value === aiTechnologyIndustry ? 'ai-technology' : `industry:${value}`;
+}
+
+export function templateCollectionFacets(catalog: GalleryTemplate[]) {
+  return {
+    purposes: orderedPurposes(catalog.flatMap(discoveryPurposes)),
+    industries: [...new Set(catalog.flatMap(discoveryIndustries))],
+  };
+}
+
+export function templatesInCollection(catalog: GalleryTemplate[], collection: TemplateCollection | null) {
+  if (isFormatCategory(collection)) return catalog.filter(item => matchesTemplateCategory(item, collection));
+  const facet = collectionFacet(collection);
+  if (!facet) return catalog;
+  const matches = catalog.filter(item => facetValues(item, facet.key).includes(facet.value));
+  if (facet.key !== 'industries') return matches;
+
+  // Surface a variety of brands first and retain the remaining works for full-catalog browsing.
+  const seenBrands = new Set<string>();
+  const firstWorks: GalleryTemplate[] = [];
+  const otherWorks: GalleryTemplate[] = [];
+  for (const item of matches) {
+    const brand = item.brand?.trim();
+    if (brand && seenBrands.has(brand)) otherWorks.push(item);
+    else firstWorks.push(item);
+    if (brand) seenBrands.add(brand);
+  }
+  return [...firstWorks, ...otherWorks];
 }

@@ -349,6 +349,8 @@ const promptText = (locale: string) => (key: PromptKey, values: Record<string, s
 
 export const defaultSkillParameters: SkillParameters = { subject: '', duration: 10, aspect: '16:9', style: '' };
 
+export const motionStudioCover = motionSkills.find(skill => skill.id === 'openmotion-bubble-field')?.cover;
+
 export function studioSkillDefaults(studioId?: string): SkillParameters {
   return studioId === 'shorts' ? { ...defaultSkillParameters, aspect: '9:16' } : defaultSkillParameters;
 }

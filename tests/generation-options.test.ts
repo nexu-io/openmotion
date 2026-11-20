@@ -70,8 +70,8 @@ test('account first-frame video rejects fixed ratios before running the connecto
     await run({ ratio: 'adaptive' });
     const submits = calls.filter(args => args[1] === 'gen');
     assert.deepEqual(submits, [
-      ['video', 'gen', '--model', 'wan-2.7', '--prompt', 'Walk forward', '--first-frame', 'first-frame.png', '--no-wait', '--json'],
-      ['video', 'gen', '--model', 'wan-2.7', '--prompt', 'Walk forward', '--first-frame', 'first-frame.png', '--no-wait', '--json', '--ratio', 'adaptive'],
+      ['video', 'gen', '--model', 'wan-2.7', '--prompt', 'Walk forward', '--first-frame', 'first-frame.png', '--no-wait', '--json', '--generate-audio'],
+      ['video', 'gen', '--model', 'wan-2.7', '--prompt', 'Walk forward', '--first-frame', 'first-frame.png', '--no-wait', '--json', '--ratio', 'adaptive', '--generate-audio'],
     ]);
   } finally { account.close(); }
 }));
@@ -153,6 +153,170 @@ test('OpenDesign speech offers checked voices with a default, accepts other voic
   await gateway.close();
 }));
 
+test('OpenDesign Cloud and account video models derive options from published capabilities and native audio policy', async () => {
+  // Unsorted AMR-style arrays where default `5` comes first.
+  const seedanceDurations = [5, 4, ...Array.from({ length: 25 }, (_, i) => i + 6)];
+  const wanDurations = [5, 2, 3, 4, ...Array.from({ length: 10 }, (_, i) => i + 6)];
+  for (const provider of ['opendesign', 'account']) {
+    const seedance: Model = {
+      id: `${provider}:doubao-seedance-2-5-260628`, provider, modelId: 'doubao-seedance-2-5-260628', label: 'doubao-seedance-2-5-260628',
+      modality: 'video', mode: 'text-to-video', source: 'live',
+      nativeOptions: {
+        durations: { values: seedanceDurations, default: 5 },
+        ratios: { values: ['16:9', '4:3', '1:1', '3:4', '9:16', '21:9', 'adaptive'], default: '16:9' },
+        resolutions: { values: ['720p', '480p', '1080p'], default: '720p' },
+      },
+    };
+    const seedanceFlash: Model = {
+      ...seedance, id: `${provider}:doubao-seedance-2-5-flash-261115`, modelId: 'doubao-seedance-2-5-flash-261115', label: 'doubao-seedance-2-5-flash-261115',
+    };
+    const wan: Model = {
+      id: `${provider}:wan-2.7`, provider, modelId: 'wan-2.7', label: 'wan-2.7',
+      modality: 'video', mode: 'text-to-video', source: 'live',
+      nativeOptions: {
+        durations: { values: wanDurations, default: 5 },
+        ratios: { values: ['16:9', '9:16', '1:1', '4:3', '3:4', 'adaptive'], default: '16:9' },
+        resolutions: { values: ['720p', '1080p'], default: '720p' },
+      },
+    };
+    const seedance20: Model = {
+      id: `${provider}:doubao-seedance-2-0-260128`, provider, modelId: 'doubao-seedance-2-0-260128', label: 'doubao-seedance-2-0-260128',
+      modality: 'video', mode: 'text-to-video', source: 'live',
+      nativeOptions: { durations: { values: [5, 10], default: 5 } },
+    };
+    const rawArraySeedance: Model = {
+      id: `${provider}:doubao-seedance-2-5-260628`, provider, modelId: 'doubao-seedance-2-5-260628', label: 'doubao-seedance-2-5-260628',
+      modality: 'video', mode: 'text-to-video', source: 'live',
+      nativeOptions: {
+        durations: seedanceDurations,
+        ratios: ['16:9', '9:16', 'adaptive'],
+        resolutions: ['720p', '480p', '1080p'],
+      },
+    };
+
+    const seedanceFields = generationOptions(seedance)!.fields;
+    assert.deepEqual(seedanceFields.map(f => f.key), ['ratio', 'resolution', 'duration', 'generate_audio']);
+    assert.equal(seedanceFields.find(f => f.key === 'ratio')!.presentation, 'ratio');
+    assert.deepEqual(seedanceFields.find(f => f.key === 'resolution')!.choices!.map(c => c.value), ['480p', '720p', '1080p']);
+    assert.equal(seedanceFields.find(f => f.key === 'resolution')!.default, '720p');
+    const seedanceDuration = seedanceFields.find(f => f.key === 'duration')!;
+    assert.deepEqual([seedanceDuration.kind, seedanceDuration.min, seedanceDuration.max, seedanceDuration.step, seedanceDuration.default], ['number', 4, 30, 1, 5]);
+    const seedanceAudio = seedanceFields.find(f => f.key === 'generate_audio')!;
+    assert.deepEqual([seedanceAudio.kind, seedanceAudio.default], ['boolean', true]);
+
+    const flashFields = generationOptions(seedanceFlash)!.fields;
+    assert.equal(flashFields.find(f => f.key === 'generate_audio')!.default, true);
+    assert.equal(usesInputImageRatio(seedanceFlash, true), true);
+
+    const wanFields = generationOptions(wan)!.fields;
+    assert.deepEqual(wanFields.map(f => f.key), ['ratio', 'resolution', 'duration']);
+    const wanDuration = wanFields.find(f => f.key === 'duration')!;
+    assert.deepEqual([wanDuration.kind, wanDuration.min, wanDuration.max, wanDuration.step, wanDuration.default], ['number', 2, 15, 1, 5]);
+    assert.equal(wanFields.some(f => f.key === 'generate_audio'), false);
+
+    const [seedance20Duration] = generationOptions(seedance20)!.fields;
+    assert.equal(seedance20Duration.kind, 'choice');
+    assert.deepEqual(seedance20Duration.choices!.map(c => c.value), [5, 10]);
+
+    const rawFields = generationOptions(rawArraySeedance)!.fields;
+    assert.equal(rawFields.find(f => f.key === 'ratio')!.default, '16:9');
+    assert.equal(rawFields.find(f => f.key === 'resolution')!.default, '720p');
+    assert.deepEqual(rawFields.find(f => f.key === 'resolution')!.choices!.map(c => c.value), ['480p', '720p', '1080p']);
+    assert.equal(rawFields.find(f => f.key === 'duration')!.default, 5);
+
+    validateGenerationOptions(seedance, { duration: 15, generate_audio: false });
+    validateGenerationOptions(seedance, { duration: 30, resolution: '1080p', ratio: '16:9' });
+    assert.throws(() => validateGenerationOptions(seedance, { duration: 31 }), /Invalid Duration/);
+    assert.throws(() => validateGenerationOptions(seedance, { duration: 15.5 }), /Invalid Duration/);
+    assert.throws(() => validateGenerationOptions(seedance, { duration: '15' }), /Invalid Duration/);
+    validateGenerationOptions(wan, { duration: 2 });
+    validateGenerationOptions(wan, { duration: 15 });
+    assert.throws(() => validateGenerationOptions(wan, { duration: 16 }), /Invalid Duration/);
+    assert.equal(generationOptions({ ...wan, nativeOptions: {} }), undefined);
+    assert.equal(generationOptions({ ...wan, nativeOptions: { durations: { values: [] } } }), undefined);
+  }
+});
+
+test('account catalogue preserves capabilities and forwards explicit duration and native audio policy', () => fixture(async store => {
+  const calls: string[][] = [];
+  const account = new OpenDesignAccount(store.directory, {
+    run: async args => {
+      calls.push(args);
+      if (args[0] === 'model') return JSON.stringify({ source: 'remote', data: [] });
+      if (args[0] === 'media') {
+        return JSON.stringify({
+          models: [
+            {
+              model: 'doubao-seedance-2-5-260628', kind: 'video',
+              capabilities: {
+                durations: { values: [5, 4, ...Array.from({ length: 25 }, (_, i) => i + 6)], default: 5 },
+                ratios: { values: ['16:9', '9:16', 'adaptive'], default: '16:9' },
+                resolutions: { values: ['720p', '480p', '1080p'], default: '720p' },
+              },
+            },
+            {
+              model: 'wan-2.7', kind: 'video',
+              capabilities: {
+                durations: { values: [5, 2, 3, 4, ...Array.from({ length: 10 }, (_, i) => i + 6)], default: 5 },
+                ratios: { values: ['16:9', '9:16', 'adaptive'], default: '16:9' },
+                resolutions: { values: ['720p', '1080p'], default: '720p' },
+              },
+            },
+          ],
+        });
+      }
+      if (args[0] === 'video' && args[1] === 'gen') return JSON.stringify({ task_id: `vt_${calls.length}` });
+      if (args[0] === 'video' && args[1] === 'get') {
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(args[args.indexOf('--output') + 1], Buffer.from('mp4'));
+        return JSON.stringify({ task_id: args[2], status: 'succeeded' });
+      }
+      throw new Error(`unexpected call: ${args.join(' ')}`);
+    },
+    pollMs: 0,
+  });
+  account.profile = async () => ({ runtimeKey: 'fixture-key' });
+  account.identity = async () => 'fixture-session';
+  account.summary = async () => ({ state: 'signed-in' } as AccountSummary);
+  try {
+    await account.models(true);
+    const media = await account.mediaModels();
+    const seedance = media.find(m => m.modelId === 'doubao-seedance-2-5-260628')!;
+    const wan = media.find(m => m.modelId === 'wan-2.7')!;
+    assert.equal(generationOptions(seedance)!.fields.find(f => f.key === 'duration')!.max, 30);
+    assert.equal(generationOptions(wan)!.fields.find(f => f.key === 'duration')!.min, 2);
+
+    // 1. Seedance 2.5 with omitted generate_audio defaults to `--generate-audio`.
+    await account.generate(
+      { id: 'job-15s-audio-default', model: seedance, modality: 'video', prompt: 'Drive along the boulevard', providerOrigin: 'fixture-session', parameters: { duration: 15 } } as GenerationJob,
+      store.directory, new AbortController().signal, async () => {},
+    );
+    const defaultAudioArgs = calls.filter(args => args[0] === 'video' && args[1] === 'gen').at(-1)!;
+    assert.equal(defaultAudioArgs[defaultAudioArgs.indexOf('--duration') + 1], '15');
+    assert.ok(defaultAudioArgs.includes('--generate-audio'));
+    assert.ok(!defaultAudioArgs.includes('--generate-audio=false'));
+
+    // 2. Seedance 2.5 with explicit generate_audio: false passes `--generate-audio=false`.
+    await account.generate(
+      { id: 'job-15s-audio-off', model: seedance, modality: 'video', prompt: 'Silent boulevard', providerOrigin: 'fixture-session', parameters: { duration: 15, generate_audio: false } } as GenerationJob,
+      store.directory, new AbortController().signal, async () => {},
+    );
+    const silentArgs = calls.filter(args => args[0] === 'video' && args[1] === 'gen').at(-1)!;
+    assert.equal(silentArgs[silentArgs.indexOf('--duration') + 1], '15');
+    assert.ok(silentArgs.includes('--generate-audio=false'));
+
+    // 3. wan-2.7 passes `--generate-audio` so @powerformer/vela-cli@0.1.10 does not default to generate_audio=false (rejected by AMR with HTTP 400).
+    await account.generate(
+      { id: 'job-wan-3s', model: wan, modality: 'video', prompt: 'Ocean cliff', providerOrigin: 'fixture-session', parameters: { duration: 3 } } as GenerationJob,
+      store.directory, new AbortController().signal, async () => {},
+    );
+    const wanArgs = calls.filter(args => args[0] === 'video' && args[1] === 'gen').at(-1)!;
+    assert.equal(wanArgs[wanArgs.indexOf('--duration') + 1], '3');
+    assert.ok(wanArgs.includes('--generate-audio'));
+    assert.ok(!wanArgs.includes('--generate-audio=false'));
+  } finally { account.close(); }
+}));
+
 test('OpenDesign Cloud and account video models derive ratio, resolution and integer duration from published capabilities', () => {
   for (const provider of ['opendesign', 'account'] as const) {
     const model: Model = {
@@ -173,14 +337,14 @@ test('OpenDesign Cloud and account video models derive ratio, resolution and int
     assert.throws(() => validateGenerationOptions(model, { duration: '5' }), /Invalid Duration/);
     assert.throws(() => validateGenerationOptions(model, { ratio: '21:9' }), /Invalid Aspect ratio/);
   }
-  // Plain array capabilities (without { values, default } envelope) are also supported.
+  // Plain array capabilities (without { values, default } envelope) are also supported; AMR video arrays place the default first.
   const arrayModel: Model = {
     id: 'opendesign:kling-v2', provider: 'opendesign', modelId: 'kling-v2', label: 'Kling', modality: 'video', mode: 'text-to-video', source: 'live',
     nativeOptions: { ratios: ['16:9', '9:16'], resolutions: ['720p', '1080p'], durations: [5, 10] },
   };
   const schema = generationOptions(arrayModel)!;
   assert.deepEqual(schema.fields.map(f => f.key), ['ratio', 'resolution', 'duration']);
-  assert.equal(schema.fields[0].default, undefined);
+  assert.deepEqual(schema.fields.map(f => f.default), ['16:9', '720p', 5]);
 });
 
 test('OpenDesign Cloud and account image models derive paired profiles, complete missing pair values, and fall back to sizes', () => {
@@ -226,6 +390,12 @@ test('OpenDesign Cloud and account image models derive paired profiles, complete
   };
   const sizedSchema = generationOptions(sized)!;
   assert.deepEqual(sizedSchema.fields.map(f => [f.key, f.default]), [['size', '1024x1024'], ['quality', 'medium']]);
+
+  const rawSized: Model = {
+    ...sized,
+    nativeOptions: { sizes: ['1024x1024', '1536x1024'], quality: ['medium', 'high'] },
+  };
+  assert.deepEqual(generationOptions(rawSized)!.fields.map(f => [f.key, f.default]), [['size', undefined], ['quality', undefined]]);
 });
 
 test('OpenDesign image edit mode validates and filters against the distinct edits profile envelope', () => {

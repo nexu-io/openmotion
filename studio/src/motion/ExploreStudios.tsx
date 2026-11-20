@@ -67,6 +67,8 @@ type ExploreProps = {
   initialTemplateCollection?: TemplateCollection | null;
   onSkill: (id: string) => void;
   onChooseStudio: (studio: CreativeStudio) => void;
+  onOpenMotionEditor: () => void;
+  motionEditorDisabled: boolean;
   onNavigate: (target: StudioDestination, prompt?: string) => void;
   onModel: (id: string) => void;
   onModelHub: (id: string) => void;
@@ -322,7 +324,8 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
   return <>
     {!medium && <div className="om-explore-features" data-split={Boolean(featuredTemplate || initialTemplateError || initialLoading)}>
       {community ? <CommunitySpotlight community={community} skill={skills[0]} onChooseStudio={onChooseStudio} /> :
-        <ExploreSpotlight active={active} onOpenBlackFriday={props.onOpenBlackFriday} onNavigate={onNavigate} onOpenMotion={() => onChooseStudio(motionStudio)} onModelHub={props.onModelHub} />}
+        <ExploreSpotlight active={active} onOpenBlackFriday={props.onOpenBlackFriday} onNavigate={onNavigate}
+          onOpenMotionEditor={props.onOpenMotionEditor} motionEditorDisabled={props.motionEditorDisabled} onModelHub={props.onModelHub} />}
       {featuredTemplate && <TemplateSpotlight item={featuredTemplate} onTry={tryVideoPrompt} />}
       {initialTemplateError && templateError}
       {initialLoading && <Skeleton className="om-featured-template-skeleton" />}
@@ -389,7 +392,7 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
                 brandCredit={shelf.collection === 'top-100-brands' || facet?.key === 'industries'}
                 onSelect={(template, trigger) => {
                   send('ui_click', { page_name: 'explore', area: 'explore_feed', element: 'open_template', ...slugField('template_id', template.id), ...(shelf.collection ? templateShelfTarget(shelf.collection) : {}) });
-                  openLibrary(trigger, template, shelf.collection ?? undefined);
+                  openLibrary(trigger, template);
                 }} />)}
           </div>}
       </ExploreShelf>

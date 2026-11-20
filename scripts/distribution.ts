@@ -780,8 +780,9 @@ export async function distributionFiles(profile: string, include: (file: string)
       if (entry.isSymbolicLink()) throw new Error('Distribution must not follow symlinks: ' + file);
       if (entry.isDirectory()) await walk(file, extensions);
       else if (entry.isFile() && !/\.(?:test|spec)\./.test(entry.name)) {
-        // Vite fingerprints the welcome soundtrack used by the Studio music example.
-        if (/^studio\/build\/editor-assets\/soundtrack-[\w-]+\.m4a$/.test(file)) files.push(file);
+        // Vite fingerprints the welcome soundtrack used by the Studio music example and the
+        // Sound Studio template previews (sceneShowcase.ts), which play offline on its home page.
+        if (/^studio\/build\/editor-assets\/(?:soundtrack|score|reveal-cues|flight-effects|sfx-(?:pad|chime|success|click|whoosh|impact|riser|typing))-[\w-]+\.m4a$/.test(file)) files.push(file);
         if (/^studio\/(?:build|public)\//.test(file) && /\.(?:gif|mp4|webm|mov|m4v|mp3|m4a|wav|ogg|flac|aac)$/i.test(file) && !files.includes(file)) {
           throw new Error(`Unregistered Studio media: ${file}. Host optional previews and load them on demand. Add required offline media to scripts/distribution.ts with its runtime purpose.`);
         }

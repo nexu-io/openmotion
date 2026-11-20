@@ -1,9 +1,8 @@
 import { Button } from 'open-design-ui/button';
 import { blackFridayTemplates } from '../../../shared/black-friday-collection';
 import { groupBrandSeries, rankDiscoverySeries } from './brandStoryData';
-import { collectionFacet, formatCategories, isFormatCategory, type TemplateCollection } from './templateCollections';
-import { facetValues } from './templateDiscovery';
-import { aiTechnologyIndustry, discoveryIndustries, discoveryPurposes, orderedPurposes, purposeOrder } from './templateDiscoveryTaxonomy';
+import { collectionFacet, formatCategories, isFormatCategory, templateCollectionFacets, templatesInCollection, type TemplateCollection } from './templateCollections';
+import { aiTechnologyIndustry, purposeOrder } from './templateDiscoveryTaxonomy';
 import { useCoveredTemplates } from './useCoveredTemplates';
 import { useEffect, useMemo, useState } from 'react';
 import type { GalleryTemplate, TemplatePage } from '../../../shared/catalog';
@@ -81,34 +80,20 @@ function exploreCategories(purposes: string[]): (readonly [ExploreTemplateFilter
   ];
 }
 
-function industryPreview(matches: GalleryTemplate[], limit: number) {
-  const brands = new Set<string>();
-  const firstWorks = matches.filter(item => {
-    const brand = item.brand?.trim();
-    if (!brand) return true;
-    if (brands.has(brand)) return false;
-    brands.add(brand);
-    return true;
-  });
-  return [...new Set([...firstWorks, ...matches])].slice(0, limit);
-}
-
 export function useExploreTemplateShelf(filter: ExploreTemplateFilter, locale: string, enabled: boolean, active: boolean, all: ReturnType<typeof useExploreTemplates>, limit: number) {
   const collection = filter === 'all' ? null : filter;
   const curated = useCoveredTemplates(locale, enabled && active);
   const filtered = useExploreTemplates(enabled && isFormatCategory(filter) ? filter : undefined, locale, '', limit);
   const page = filter === 'all' ? all : filtered;
-  const categories = useMemo(() => exploreCategories(curated.catalog ? orderedPurposes(curated.catalog.flatMap(discoveryPurposes)) : purposeOrder), [curated.catalog]);
-  const industries = useMemo(() => [...new Set(curated.catalog?.flatMap(discoveryIndustries))], [curated.catalog]);
+  const { categories, industries } = useMemo(() => {
+    const { purposes, industries } = curated.catalog ? templateCollectionFacets(curated.catalog) : { purposes: purposeOrder, industries: [] };
+    return { categories: exploreCategories(purposes), industries };
+  }, [curated.catalog]);
   const items = useMemo(() => {
     const catalog = curated.catalog ?? [];
     if (collection === 'top-100-brands') return rankDiscoverySeries(groupBrandSeries(catalog)).slice(0, limit).map(brand => brand.items[0]);
     if (collection === 'black-friday') return blackFridayTemplates(catalog, locale).flatMap(stage => stage.items).slice(0, limit);
-    const facet = collectionFacet(collection);
-    if (facet) {
-      const matches = catalog.filter(item => facetValues(item, facet.key).includes(facet.value));
-      return facet.key === 'industries' ? industryPreview(matches, limit) : matches.slice(0, limit);
-    }
+    if (collectionFacet(collection)) return templatesInCollection(catalog, collection).slice(0, limit);
     return page.pages[0]?.items.slice(0, limit) ?? [];
   }, [collection, curated.catalog, locale, limit, page.pages]);
   const shelf = { items, collection, categories, industries };
