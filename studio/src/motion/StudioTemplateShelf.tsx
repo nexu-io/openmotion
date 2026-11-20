@@ -17,14 +17,28 @@ const explainerTerms: Record<Locale, string> = {
   ru: 'объяс', es: 'explic', 'pt-BR': 'explic', it: 'spieg', tr: 'açıkla',
 };
 
+// The localized 3D motion tag. Matching the tag itself keeps out templates whose ids merely contain "3d".
+const threeDimensionalTags: Record<Locale, string> = {
+  en: '3D animation', 'zh-CN': '三维动效', ja: '3Dアニメーション', ko: '3D 애니메이션', de: '3D-Animation', fr: 'Animation 3D',
+  ru: '3D-анимация', es: 'Animación 3D', 'pt-BR': 'Animação 3D', it: 'Animazione 3D', tr: '3B animasyon',
+};
+const shelfSize = 8;
+
 export function StudioTemplateShelf({ studio, root, active, navigation }: {
   studio: 'motion' | TechniqueStudio['id']; root: RefObject<HTMLElement | null>; active: boolean; navigation?: ReactNode;
 }) {
   const { locale, t } = useI18n();
   const { openLibrary } = useWorkspaceChrome();
-  const query = studio === '3d' ? '3D' : studio === 'explainer' ? explainerTerms[locale] : '';
-  const templates = useExploreTemplates(collections[studio], locale, query);
-  const items = templates.pages.flatMap(page => page.items);
+  const tag = studio === '3d' ? threeDimensionalTags[locale] : null;
+  const query = tag ?? (studio === 'explainer' ? explainerTerms[locale] : '');
+  // 3D loads every tag match at once (the catalogue's 60-item page) and reveals eight at a time.
+  const templates = useExploreTemplates(collections[studio], locale, query, tag ? 60 : shelfSize);
+  const [shown, setShown] = useState(shelfSize);
+  const loaded = templates.pages.flatMap(page => page.items);
+  const matching = tag ? loaded.filter(item => item.tags.includes(tag)) : loaded;
+  const items = tag ? matching.slice(0, shown) : matching;
+  const hasMore = tag ? matching.length > shown || templates.hasMore : templates.hasMore;
+  const loadMore = () => tag && matching.length > shown ? setShown(count => count + shelfSize) : templates.loadMore();
   const [priority, setPriority] = useState<string | null>(null);
   const playing = useTemplatePlayback(root, items.map(item => item.id).join('|'), active, true, priority, true);
   const title = t(studio === 'motion' ? 'Motion templates' : 'Templates');
@@ -39,7 +53,7 @@ export function StudioTemplateShelf({ studio, root, active, navigation }: {
     </div>
     {templates.loading && <div className="om-studio-template-grid" role="status" aria-label={t('Loading templates…')}>{[0, 1, 2, 3].map(n => <Skeleton key={n} />)}</div>}
     {templates.error ? <div className="om-discovery-empty"><span>{t('Templates could not be loaded.')}</span><Button variant="ghost" className="om-button h-auto" onClick={templates.retry}>{t('Retry')}</Button></div>
-      : !templates.loading && (templates.hasMore ? studio !== 'motion' && <Button variant="plain" className="om-button om-shelf-more" onClick={templates.loadMore}>{t('More templates')}<RemixIcon name="arrow-down-line" size={16} /></Button>
+      : !templates.loading && (hasMore ? studio !== 'motion' && <Button variant="plain" className="om-button om-shelf-more" onClick={loadMore}>{t('More templates')}<RemixIcon name="arrow-down-line" size={16} /></Button>
       : !items.length && <p className="om-muted">{t('No templates available. Open the library or try again later.')}</p>)}
   </section>;
 }

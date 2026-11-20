@@ -974,12 +974,14 @@ it('keeps Agent Skills available while the 3D studio is pending and preserves th
   feed.scrollTop = 326;
   await act(async () => feed.querySelector<HTMLButtonElement>('.om-scene-tile')!.click());
   expect(page()).toMatchObject({ specialty: { id: '3d' }, skill: 'three-js', community: '3d-motion' });
-  expect(container.querySelector('.om-studio-coming-soon')?.textContent).toContain('Coming soon');
-  expect(container.querySelector('.om-specialty-intro')).toBeNull();
-  expect(container.querySelector('.om-studio-template-shelf')).toBeNull();
+  expect(container.querySelector('.om-studio-coming-soon')).toBeNull();
+  expect(container.querySelector('.om-specialty-intro .om-specialty-status')?.textContent).toBe('Coming soon');
+  expect(container.querySelector('.om-specialty-intro .om-specialty-actions')).toBeNull();
+  expect(container.querySelector('.om-studio-template-shelf')).not.toBeNull();
   expect([...container.querySelectorAll('.om-skills-grid [data-skill-id]')].map(node => node.getAttribute('data-skill-id'))).toEqual([
-    'three-js', 'babylon-js', 'lume', 'blender', 'openmotion-isometric-card-flight', 'openmotion-surreal-3d-poster',
+    'babylon-js', 'lume', 'blender', 'openmotion-isometric-card-flight', 'openmotion-surreal-3d-poster',
   ]);
+  expect(container.querySelector('.om-specialty-feature')?.textContent).toContain('3D');
   expect(button('Create a shot from this brief')).toBeUndefined();
   await clickWorkspaceBack();
   expect(page()).toMatchObject({ explore: true, community: '3d-motion', specialty: null, skill: null });
@@ -1096,6 +1098,31 @@ it.each(['text-to-video', 'image-to-video'])('shows Coming soon for a direct 3D 
   expect(container.querySelector('.om-studio-coming-soon button')).toBeNull();
   await clickWorkspaceBack();
   expect(page().explore).toBe(true);
+});
+
+it('shows only templates tagged as 3D animation on the 3D studio shelf, eight at a time', async () => {
+  const fallback = fetcher.getMockImplementation()!;
+  const requests: URLSearchParams[] = [];
+  const template = (id: string, tags: string[]) => ({ id, title: id, description: '', kind: 'prism', collection: 'reference', tags, poster: `/${id}.jpg` });
+  fetcher.mockImplementation(async (input: string, options?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (!url.pathname.endsWith('/template-catalog')) return fallback(input, options);
+    requests.push(url.searchParams);
+    return Response.json({ items: [
+      template('uuid-3d0a-interface', ['Interface animation']),
+      ...Array.from({ length: 10 }, (_, index) => template(`spatial-${index}`, ['Graphic animation', '3D animation'])),
+    ], next: null, catalogVersion: 'test' });
+  });
+  history.replaceState(null, '', '/?page=3d');
+  await mount();
+  const shelf = container.querySelector<HTMLElement>('.om-studio-template-shelf')!;
+  expect(requests.at(-1)?.get('query')).toBe('3D animation');
+  const ids = () => [...shelf.querySelectorAll('[data-template-id]')].map(node => node.getAttribute('data-template-id'));
+  expect(ids()).toHaveLength(8);
+  expect(ids()).not.toContain('uuid-3d0a-interface');
+  await act(async () => [...shelf.querySelectorAll('button')].find(node => node.textContent === 'More templates')!.click());
+  expect(ids()).toHaveLength(10);
+  expect([...shelf.querySelectorAll('button')].some(node => node.textContent === 'More templates')).toBe(false);
 });
 
 it.each(['three-js', 'babylon-js', 'lume', 'blender', 'openmotion-surreal-3d-poster', 'openmotion-isometric-card-flight'])('keeps %s usable through an Agent without offering 3D generation', async skill => {

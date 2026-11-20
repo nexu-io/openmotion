@@ -155,6 +155,7 @@ a.om-skill-source { color: var(--motion-strong); }
 @container (max-width: 600px) { .om-specialty-intro { margin-block-start: var(--motion-space-16); } }
 .om-specialty-intro > div { display: grid; grid-template-columns: minmax(0, 1fr); overflow-wrap: anywhere; justify-items: start; gap: var(--motion-space-16); padding: var(--motion-space-24); }
 .om-specialty-actions { display: flex; flex-wrap: wrap; gap: var(--motion-space-8); }
+.om-specialty-status { margin: 0; padding: var(--motion-space-6) var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-panel); color: var(--motion-muted); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-medium); }
 .om-specialty-intro h1 { display: flex; align-items: center; gap: var(--motion-space-8); font-size: var(--motion-text-display); }
 .om-specialty-feature { position: relative; align-self: stretch; min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .om-specialty-feature .om-button { position: absolute; inset-inline-start: var(--motion-space-12); bottom: var(--motion-space-12); max-width: calc(100% - var(--motion-space-24)); }

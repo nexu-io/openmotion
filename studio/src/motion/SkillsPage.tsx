@@ -1,5 +1,4 @@
 import { WorkspaceBack } from './WorkspaceBack';
-import { StudioComingSoon } from './StudioComingSoon';
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { CategoryStrip } from './CategoryStrip';
@@ -69,10 +68,10 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
   }, []);
   const instruction = useRef<HTMLPreElement>(null), command = useRef<HTMLPreElement>(null), search = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (detailOnly || comingSoon) return;
+    if (detailOnly) return;
     const focus = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); search.current?.focus(); } };
     window.addEventListener('keydown', focus); return () => window.removeEventListener('keydown', focus);
-  }, [detailOnly, comingSoon]);
+  }, [detailOnly]);
   // Select the failed text in its own visible surface so one ⌘C copies the requested content.
   useEffect(() => {
     if (!manualCopy || (manualCopy.surface === 'command' && !commandOpen)) return;
@@ -89,7 +88,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
       && (!needle || [skill.name, skill.title, displayName(skill), t(skill.useWhen), skill.tagline, t(skill.tagline), t(skill.output), skill.repository ?? 'OpenMotion'].some(value => value.toLocaleLowerCase().includes(needle))));
   };
   const visible = useMemo(() => matching(category, query), [query, category, t, catalog]);
-  const featured = studio && !comingSoon ? catalog[0] : undefined;
+  const featured = studio ? catalog[0] : undefined;
   const featureInHero = featured?.cover?.poster && !query.trim();
   const cards = featureInHero ? visible.filter(skill => skill.id !== featured.id) : visible;
   const recording = parameters.reference && parameters.reference.modality !== 'image';
@@ -168,9 +167,9 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     {!detailOnly && <div ref={main} className="om-skills-main">
       {studio && onExplore && <WorkspaceBack fallback={onExplore} />}
       <main className="om-gallery-results">
-        {studio && comingSoon ? <StudioComingSoon studio={studio} /> : studio ? <section className="om-specialty-intro">
+        {studio ? <section className="om-specialty-intro" data-coming-soon={comingSoon || undefined}>
           <div><h1 className="om-title"><span className="om-studio-heading-icon" data-tone={studioIconTone(studio)}><RemixIcon name={studio.icon} size={24} /></span>{t(studio.title)}</h1><p className="om-muted">{t(studio.briefHint)}</p>
-            {onCreate && <div className="om-specialty-actions">
+            {comingSoon ? <p className="om-specialty-status" lang="en">Coming soon</p> : onCreate && <div className="om-specialty-actions">
               <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => onCreate(studioDestination(studio))}><RemixIcon name="add-line" size={16} />{t(studio.createLabel)}</Button>
               {studio.id === 'marketing' && <Button variant="ghost" className="om-button h-auto" onClick={() => onCreate(studioDestination(studio, 'text-to-video'))}>{t('Create an ad clip')}</Button>}
             </div>}
@@ -187,7 +186,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
           </div>
           <p>{t('Pick a skill, fill in the brief and copy the instruction. Your Agent builds an editable project in OpenMotion.')}</p>
         </section>}
-        {!comingSoon && <div className="om-gallery-sticky-header">
+        <div className="om-gallery-sticky-header">
           <div className="om-gallery-toolbar om-skills-toolbar">
             {!studio && <CategoryStrip label="Skill category" selection={category} neutral>
               <Button variant="plain" aria-pressed={!category} onClick={() => pickCategory(null)}>{t('All')}</Button>
@@ -195,8 +194,8 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
             </CategoryStrip>}
             <label className="om-field om-search-field"><MotionIcon name="search" size={18} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search skills...')} aria-label={t('Search skills')} /><kbd aria-hidden="true">⌘ K</kbd></label>
           </div>
-        </div>}
-        {studio && !comingSoon && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}
+        </div>
+        {studio && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}
         {studio && <header className="om-studio-skills-heading"><h2 className="om-title om-studio-techniques-title">{t(studio.id === '3d' ? '3D Creative Skills' : 'Creative Skills')}</h2>{comingSoon && <p className="om-muted">{t('While the Studio is coming soon, choose a Skill below and copy its brief to your Agent to start creating.')}</p>}</header>}
         <div className="om-gallery-masonry om-skills-grid">
           {cards.map((skill, index) => <SkillCard key={skill.id} skill={skill} name={displayName(skill)} useWhen={t(skill.useWhen)} selected={skill.id === skillId} onSelect={() => open(skill, index + (featureInHero ? 2 : 1))} />)}
