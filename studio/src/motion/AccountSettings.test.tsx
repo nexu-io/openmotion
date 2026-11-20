@@ -49,6 +49,20 @@ it('says it is connecting until the link exists, then syncing with nothing left 
   expect(actions(page)).toEqual(['取消']); expect((button(page, '取消') as HTMLButtonElement).disabled).toBe(true);
 });
 
+it('explains a missing sign-in component, offers Retry and a copyable command that installs it where the service looks', async () => {
+  const command = 'npm install --prefix "/Users/me/.local/share/openmotion/data/account/runtime" --ignore-scripts @powerformer/vela-cli@0.1.10';
+  const writeText = vi.fn(async () => {}); Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  const page = await open({ state: 'signed-out', errorCode: 'connector_unavailable', connectorInstall: { command },
+    error: "OpenMotion couldn't find npm to set up the OpenDesign sign-in component. Run this command in a terminal, then select Retry:" }, 'zh-CN');
+  expect(page.querySelector('[role=alert]')?.textContent).toBe('OpenMotion 找不到 npm，无法安装 OpenDesign 登录组件。请在终端运行下面的命令，然后点「重试」：');
+  expect(page.querySelector('.om-account-command code')?.textContent).toBe(command);
+  expect(actions(page)).toEqual(['重试']);
+  await act(async () => (page.querySelector('.om-account-command button') as HTMLButtonElement).click());
+  expect(writeText).toHaveBeenCalledWith(command);
+  await act(async () => button(page, '重试')!.click());
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', {});
+});
+
 it('offers a retry after a connection failure, and sign-in again with a feedback link after rejected credentials', async () => {
   let page = await open({ state: 'signed-out', errorCode: 'setup_failed', error: "Can't connect to OpenDesign right now. Check your network and try again." });
   expect(actions(page)).toEqual(['Retry']); expect(page.querySelector('[role=alert]')?.textContent).toContain("Can't connect to OpenDesign");
