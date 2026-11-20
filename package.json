@@ -38,6 +38,7 @@
     "media:pull": "node --experimental-strip-types scripts/repository-media.ts",
     "components:dev": "vite --config packages/design-system/components/vite.config.ts --host 127.0.0.1",
     "components:build": "vite build --config packages/design-system/components/vite.config.ts",
+    "build:open-design-ui": "node scripts/build-open-design-ui.mjs",
     "design:dev": "node packages/design-system/workbench/server.js",
     "design:test": "node --test packages/design-system/workbench/*.test.js",
     "build:inline": "node scripts/build-inline-ui.mjs",

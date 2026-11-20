@@ -1,0 +1,6 @@
+@import "tailwindcss" source(none);
+@import "../tailwind.css";
+@import "../studio/adapter.css";
+
+@source "./button.tsx";
+@source "./slider.tsx";

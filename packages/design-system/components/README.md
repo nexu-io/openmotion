@@ -14,6 +14,8 @@ Open the local URL printed in the terminal. Find the control in the component in
 
 For a new component, add a registry entry and a preview, examples and API notes in [site/examples.tsx](site/examples.tsx). `npm run components:build` generates a static build in `packages/design-system/components/dist`.
 
+To build the installable package candidate, run `npm run build:open-design-ui`. It writes `open-design-ui@0.0.1` to `dist/open-design-ui` without publishing it. Run `npm pack --dry-run` or `npm stage publish --dry-run` from that directory before any separately authorized registry write.
+
 Component details use paths such as `/components/slider`. Vite handles direct links during development and preview. For static hosting, serve the build at the origin root and fall back to `index.html` for catalogue page routes.
 
 ## Use from an Agent
