@@ -12,6 +12,7 @@ Call `action: "reference"` with the selected provider ID from `inspect`, or open
 - [OpenDesign Cloud](providers/opendesign.md)
 - [OpenDesign account](providers/account.md)
 - [Registered compatible APIs](providers/compatible.md)
+- [Local Codex images](providers/codex.md)
 
 ## Generate library assets and track the original job
 

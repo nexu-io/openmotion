@@ -85,6 +85,7 @@ export const workflowRegistry = {
       opendesign: 'skills/openmotion-media/references/providers/opendesign.md',
       atlascloud: 'skills/openmotion-media/references/providers/atlascloud.md',
       wavespeed: 'skills/openmotion-media/references/providers/wavespeed.md',
+      codex: 'skills/openmotion-media/references/providers/codex.md',
     },
   },
 } as const;

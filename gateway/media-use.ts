@@ -9,7 +9,8 @@ import { getWorkflow } from '../shared/workflow.ts';
 export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTracking) {
   const gateway = gatewayFor(store, tracking);
   const connections = await gateway.connections.list();
-  const supported = (id: string) => isMediaProvider(id) || registeredProvider(id)?.integration === 'account' || connections.some(p => p.id === id && p.protocol === 'openai' && !p.setupRequired);
+  // Codex is a local image Agent: Settings offers it for images, so discovery accepts it; new images go through openmotion_assets_use.
+  const supported = (id: string) => isMediaProvider(id) || id === 'codex' || registeredProvider(id)?.integration === 'account' || connections.some(p => p.id === id && p.protocol === 'openai' && !p.setupRequired);
   const referenceSection = (id: string) => registeredProvider(id)?.reference ?? 'compatible';
   if (args.provider !== undefined && !supported(args.provider)) throw new ToolInputError('unsupported media provider', 'provider', 'invalid_enum');
   if (args.action === 'inspect') {
@@ -32,6 +33,7 @@ export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTr
   }
   if (!args.projectId || !store.projectCatalog().projects.some(p => p.id === args.projectId)) throw new Error('PROJECT_NOT_FOUND');
   if (args.action === 'generate') {
+    if (args.provider === 'codex') throw new ToolInputError('Generate Codex images with openmotion_assets_use (model codex:image-generation); project-direct generation does not accept Codex', 'provider', 'invalid_enum');
     const missing = ['provider', 'model', 'requestId', 'modality'].find(field => !args[field]);
     if (missing || typeof args.prompt !== 'string') {
       throw new ToolInputError('provider, model, projectId, requestId, modality and prompt are required', missing ?? 'prompt', 'missing');
