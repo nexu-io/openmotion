@@ -25,7 +25,7 @@ Use OpenMotion for an original video on the user's topic, including a request to
 - **声音创作**：画面锁定时仅重新设计声音叙事、节奏与声画锚点，保留画面，不重启整片原创。
 - **创作审片**：以实际视频评价表达、动作、节奏和声画关系，不自动改工程；编码、规格与导出任务核对使用 openmotion-production。
 
-沿用已确认的简报、素材、风格与授权。只追问影响真实性、交付或重大创作取舍的缺口；其余合理假设并简短说明。检查点默认是 Agent 自检，不自动变成用户审批。
+沿用已确认的简报、素材、风格与授权。只追问影响真实性、交付或重大创作取舍的缺口；其余合理假设并简短说明。新片或大幅重编按共享 [创意预览检查点](../openmotion-production/references/context.md#创意预览检查点) 执行，用户选择或确认后再记录 production_started。局部编辑沿用同一工作轮次，只有用户要求预览或改变叙事、风格、主要 Motion、节奏或声画结构时重新进入检查点。
 
 ## 接入与共享职责
 

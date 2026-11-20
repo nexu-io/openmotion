@@ -38,7 +38,9 @@ import { atomicJson, cloneFile, fileHash, jsonFile, ProjectVersions, recoverProj
 import type { ContentVersion } from './phase1-versions.ts';
 import { trackPhase1Result, trackingError, type OmTracking } from './shared/tracking.ts';
 import type { HostContext } from './tracking/host.ts';
-import { WorkRounds } from './inline-video.ts';
+import { WorkRounds, workRoundMode } from './inline-video.ts';
+import { creativeNextAction, requireProduction, type CheckpointInput } from './shared/creative-checkpoint.ts';
+import { TaskLedger } from './tracking/task-ledger.ts';
 import { uuid } from './tracking/core.ts';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -186,6 +188,15 @@ export class Phase1Service {
           await atomicJson(file, { ...previous, state: 'completed', result }); return result;
         }
       }
+      if (name === 'motion_open_preview' && args.action === 'record_checkpoint') {
+        const work = await this.workRounds.get(args.projectId, args.workId);
+        const checkpoint = work.creative?.records.find(record => record.requestId === args.requestId);
+        if (checkpoint) {
+          const result = { projectId: args.projectId, workId: args.workId, creative: work.creative, checkpoint,
+            nextAction: creativeNextAction(work.creative!) };
+          await atomicJson(file, { ...previous, state: 'completed', result }); return { ...result, replayed: true };
+        }
+      }
       if (name === 'motion_open_preview' && args.action === 'begin' && previous.workId) {
         const project = await this.detail(args.projectId);
         const inlineWork = await this.workRounds.create(project, args.mode, previous.workId, args.generation !== false);
@@ -225,7 +236,7 @@ export class Phase1Service {
     await atomicJson(file, record);
     let result, workAccepted = false;
     try {
-      if (args.workId) { await this.workRounds.writable(name, args); workAccepted = args.action !== 'complete_generation'; }
+      if (args.workId) { await this.workRounds.writable(name, args); workAccepted = name !== 'motion_open_preview' || !['complete_generation', 'record_checkpoint', 'record_display'].includes(args.action); }
       result = await task(record);
       if (args.workId) await this.workRounds.observed(name, args, result);
     }
@@ -243,6 +254,7 @@ export class Phase1Service {
     if (detail.revision !== args.expectedRevision || detail.currentVersionId !== args.expectedVersionId)
       throw new Error('VERSION_CONFLICT');
     const work = await this.workRounds.get(args.projectId, args.workId);
+    requireProduction(work.creative);
     if (!work.generation) throw new Error('WORK_GENERATION_UNTRACKED: begin a new generation work round');
     if (work.generation.completedAt) {
       this.workRounds.emitGeneration(work);
@@ -529,6 +541,19 @@ export class Phase1Service {
             this.context.tracking.track('host_state_changed', { run_id: inlineWork.id, sequence: 1, state: 'active', phase: 'authoring' });
           }
           return { projectId: project.projectId, sessionId: project.sessionId, authoringGuide: project.authoringGuide, inlineWork };
+        });
+      }
+      if (args.action === 'record_checkpoint') {
+        if (!args.projectId || !args.workId || !args.kind) throw new Error('INVALID_ARGUMENT: record_checkpoint requires projectId, workId and kind');
+        return this.writeRequest(name, args, async () => {
+          const { kind, previewType, motionRisk, candidates, directionId, previewVersion, decision, reason, scope, skipReason, note } = args;
+          const input: CheckpointInput = { kind, ...(previewType !== undefined ? { previewType } : {}), ...(motionRisk !== undefined ? { motionRisk } : {}),
+            ...(candidates !== undefined ? { candidates } : {}), ...(directionId !== undefined ? { directionId } : {}), ...(previewVersion !== undefined ? { previewVersion } : {}),
+            ...(decision !== undefined ? { decision } : {}), ...(reason !== undefined ? { reason } : {}), ...(scope !== undefined ? { scope } : {}),
+            ...(skipReason !== undefined ? { skipReason } : {}), ...(note !== undefined ? { note } : {}) };
+          const checkpoint = await this.workRounds.checkpoint(args.projectId, args.workId, input, args.requestId);
+          const creative = checkpoint.work.creative!;
+          return { projectId: args.projectId, workId: args.workId, creative, checkpoint: checkpoint.record, nextAction: creativeNextAction(creative) };
         });
       }
       if (args.action === 'complete_generation') {

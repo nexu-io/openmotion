@@ -25,6 +25,8 @@ File-only delivery of already accepted content follows [source pinning](native.m
 
 During generation and editing, do not create an inline progress or video component and do not open the right-hand editor for intermediate saves. Begin a business work round silently with `openmotion_open_preview({action:"begin",projectId,requestId,mode:"create"|"modify"})`; retain `inlineWork.id` as `workId` through saves and the final export. This call presents no UI.
 
+For a new film or major creative change, follow the shared creative checkpoint before full production. Record the selected storyboard, direction candidates or motion sample with `action:"record_checkpoint"`, wait for the user's explicit natural-language response after each preview, and record `production_started` only after a confirmation or valid skip. The same workId continues through authoring and export. Ordinary edits continue within the producing round; redesigns or explicit new preview requests reopen the checkpoint.
+
 Once the requested video artifact is complete, call `openmotion_open_preview({action:"complete_generation",projectId,workId,requestId,expectedRevision,expectedVersionId})` immediately, including background work. This independently validates the current native video artifact and records its first completion. It performs no save, preview opening or export. Use the current identities from `openmotion_get_project` after direct filesystem authoring. Intermediate source changes and metadata-only edits do not establish completion.
 
 Once the final authored video is ready, complete the [editable preview handoff](native.md#editable-preview-handoff) on the right.

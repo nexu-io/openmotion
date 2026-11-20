@@ -17,6 +17,8 @@ Changes to existing content use the [shared edit workflow](../openmotion-product
 
 When selecting, obtaining or replacing assets, read the [shared material policy](../openmotion-production/references/materials.md), preserving the template's agreed structure, motion and content constraints. A generated or replacement asset takes the planned asset's place; keep the accepted motion, holds and cuts and do not add movement or re-cut unless the user asks. An unchanged preview handoff does not trigger asset acquisition.
 
+For a requested creative checkpoint before adaptation, create one work round and follow the shared [创意预览检查点](../openmotion-production/references/context.md#创意预览检查点). Use a storyboard for a clear, low-risk adaptation, 2–3 direction candidates when the adaptation brief is unclear, and a playable motion sample when motion or audio-visual timing is the main risk. Wait after every preview for an explicit user decision, then continue the same work round through edits and export.
+
 ## Browse or recommend catalog templates
 
 For library discovery rather than creation, follow [browsing and recommendations](../openmotion-production/references/templates.md#browsing-and-recommendations). Open the library in this turn and complete its host handoff unless the user requested text-only/no opening. Give grounded candidates without creating a project, acquiring production assets or restarting creative intake. An already selected template plus an explicit creation request continues below directly.

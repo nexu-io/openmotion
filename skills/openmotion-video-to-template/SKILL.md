@@ -23,6 +23,8 @@ Preserve the reference's content, wording, brand, composition and motion as they
 
 Work independently on ordinary creative decisions. Where the reference is ambiguous, choose the most faithful reasonable option and record the choice and trade-off in `TEMPLATE.md`. If generation needs spend consent not covered by the task, follow the media Skill for the planned batch. If an input cannot be obtained or decoded, report the specific blocker.
 
+When the user requests a creative preview before the template is complete, use the shared [创意预览检查点](../openmotion-production/references/context.md#创意预览检查点) after creating one work round. Pause after each storyboard, direction candidate or motion sample for an explicit natural-language response, then continue that same round through template authoring and packaging.
+
 ## Choose an editable representation
 
 Apply the shared [editable representation](../openmotion-production/references/reference-video.md#choose-an-editable-representation) and [text and fonts](../openmotion-production/references/reference-video.md#text-and-fonts) rules. A template's content stays editable for later replacement: keep wording, brand, images and named objects easy to locate, declare common edits as root variables, and make distinctive lettering settable for new words. Record font substitutions and other approximations in `TEMPLATE.md`.

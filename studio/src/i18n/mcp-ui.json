@@ -90,6 +90,7 @@
     "Generate media with your configured models. Results save automatically to local Assets and keep their project files. Retry failed saving without generating again.": "用已配置的模型生成图片、视频、音乐和配音，结果自动保存到本机资产库，同时保留项目文件。保存失败时可重试保存，无需重新生成。",
     "Import local images, video, audio and font files. Keep selected fonts and their licenses with the editable project.": "把本地图片、视频、音频和字体导入工程；选用的字体及许可证随可编辑工程保留。",
     "Preview and refine your Agent’s work in Studio, or ask the Agent to keep editing the same project.": "在 Studio 预览和调整 Agent 的作品，也可以让 Agent 接着修改同一工程。",
+    "Preview and refine your Agent’s work in Studio, or ask the Agent to keep editing the same project and work round. Show the right evidence for the creative risk and wait for your response before production.": "在 Studio 预览和调整 Agent 的作品，也可以让 Agent 接着修改同一工程和工作轮次。根据创作风险展示合适的证据，等你回应后再进入制作。",
     "Browse saved versions and restore an earlier direction as a new version. Keep the history while you refine the result.": "查看保存的版本，把之前的创作方向恢复为新版本，在保留历史的基础上继续打磨。",
     "Export the chosen project version to MP4 and follow its progress. Keep both the finished video and the editable project.": "将选定版本导出为 MP4，跟踪进度；成片和可编辑工程都能保留。",
     "The workspace behind your Agent": "Agent 创作，工作区沉淀",

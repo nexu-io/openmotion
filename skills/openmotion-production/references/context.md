@@ -20,6 +20,14 @@ OpenMotion 工具缺失或调用失败时，一发现就告诉用户连接状态
 
 Hyperframes 指引只在 [原生引擎边界](native.md#engine-guidance-boundary) 内使用：它提供技术编写与渲染约束；创作选路、素材来源、供应商配置和交付由 OpenMotion 负责。
 
+## 创意预览检查点
+
+需要制作新片或进行大幅创作改动时，先用 `openmotion_open_preview(action=begin)` 建立一个工作轮次，并复用同一个 `workId` 直到导出。按“方向清晰度 × Motion 风险”选择一次预览：方向清晰且风险低时展示按影片顺序的 storyboard frames；方向不清晰时展示 2–3 个差异明确的 direction candidates；Motion 或声画时序是主要风险时展示 playable motion sample。方向不清晰且 Motion 风险高时，先记录并等待用户选择方向，再展示 motion sample 并再次等待。
+
+每次预览通过 `action=record_checkpoint` 写入 `kind=preview_shown`，然后暂停，等待用户用自然语言明确选择、确认或提出修改。候选仍存在时，模糊反馈不能视为选择。选择方向使用 `kind=decision, decision=selected`，确认 storyboard 或 motion sample 使用 `decision=confirmed`，修改使用 `revision_requested` 并写明 reason 和 scope；旧预览可以用 `decision=switched` 切回。只在用户确认后记录 `kind=production_started`，再进行正式制作和导出。
+
+所有预览版本、候选证据、决定和受影响修订保留在同一工作轮次。制作开始后普通局部编辑继续沿用该轮次；只有 redesign、用户再次要求预览，或叙事、风格、主要 Motion、节奏或声画结构改变时，才重新进入检查点。最低限度的付费媒体生成可以用于当前检查点预览，扩大生成范围或新增制作素材仍按媒体授权流程执行。该流程由对话驱动，不创建 Studio 方向卡片、确认按钮或独立预览管理页。
+
 ## 先补齐阅读缺口，再执行当前范围
 
 每轮先复用会话或已有 `STATE.md` 中的**已读文档**，再计算“本次必需 − 正文仍在上下文中的已读文档”。只读取差集。独立读取可以并行，但长文档应按外层工具的实际输出预算分批或分段，检查模型收到的结果是否截断，不能只看命令成功或完整 stdout。后续章节再次提到“读取”同一参考，表示应用其规范，不是重新加载全文。

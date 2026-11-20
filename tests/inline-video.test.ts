@@ -9,9 +9,9 @@ import { cancelExport } from '../server.ts';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 
-function api(store: any) { return new Phase1Service(store, pluginRoot, {
+function api(store: any, tracking?: any) { return new Phase1Service(store, pluginRoot, {
   origin: () => 'http://127.0.0.1:4173', nativeUrl: () => undefined,
-  openProject: async () => {}, mutation: async task => task(), cancel: (projectId, jobId) => cancelExport(store, projectId, jobId),
+  openProject: async () => {}, mutation: async task => task(), cancel: (projectId, jobId) => cancelExport(store, projectId, jobId), tracking,
 }); }
 test('a creation round is queryable and idempotent before a film exists', () => fixture(async store => {
   const service = api(store);
@@ -27,6 +27,20 @@ test('a creation round is queryable and idempotent before a film exists', () => 
   assert.equal(read.inlineWork.id, started.inlineWork.id);
   assert.equal(read.inlineWork.playable, false);
   await assert.rejects(service.call('openmotion_open_preview', { ...args, mode: 'modify' }), /REQUEST_ID_CONFLICT/);
+}, false));
+
+test('creative checkpoints persist on the work round and keep preview decisions explicit', () => fixture(async store => {
+  const events: any[] = [], tracking = { enabled: () => true, ingest: () => {}, track: (event: string, properties: any) => events.push({ event, properties }) };
+  const service = api(store, tracking);
+  const project = await service.call('openmotion_create_project', { requestId: 'create-checkpoint', projectType: 'natural_language', title: 'Checkpoint film', requirements: '产品片' });
+  const { inlineWork: work } = await service.call('openmotion_open_preview', { action: 'begin', projectId: project.projectId, requestId: 'begin-checkpoint', mode: 'create' });
+  const shown = await service.call('openmotion_open_preview', { action: 'record_checkpoint', projectId: project.projectId, workId: work.id, requestId: 'show-checkpoint', kind: 'preview_shown', previewType: 'creative_directions', motionRisk: 'low', candidates: [{ id: 'a', evidence: [{ path: 'a.png' }] }, { id: 'b', evidence: [{ path: 'b.png' }] }] });
+  assert.equal(shown.creative.status, 'waiting_user');
+  await assert.rejects(service.call('openmotion_export_request', { projectId: project.projectId, workId: work.id, requestId: 'blocked-export', versionId: project.version.versionId, expectedRevision: project.revision, audio: 'silent' }), /CREATIVE_CONFIRMATION_REQUIRED/);
+  const replay = await service.call('openmotion_open_preview', { action: 'record_checkpoint', projectId: project.projectId, workId: work.id, requestId: 'show-checkpoint', kind: 'preview_shown', previewType: 'creative_directions', motionRisk: 'low', candidates: [{ id: 'a', evidence: [{ path: 'a.png' }] }, { id: 'b', evidence: [{ path: 'b.png' }] }] });
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.checkpoint.sequence, shown.checkpoint.sequence);
+  assert.ok(events.some(item => item.event === 'preview_generated'));
 }, false));
 
 test('a lost save or render reply recovers the work binding after restart without replaying effects', () => fixture(async store => {

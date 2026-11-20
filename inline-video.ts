@@ -8,6 +8,7 @@ import { withProcessLock } from './shared/process-lock.ts';
 import { deviceContext } from './tracking/core.ts';
 import type { OmTracking } from './shared/tracking.ts';
 import { verificationBinaries } from './scripts/verify-export.ts';
+import { applyCheckpoint, creativeNextAction, requireProduction, type CheckpointInput, type CheckpointSignal, type CreativeCheckpoint } from './shared/creative-checkpoint.ts';
 
 /**
  * Codex's MCP stdio transport discards any message line above 16 MiB (rmcp max_line_length=16777216),
@@ -90,6 +91,7 @@ export type WorkRound = {
   createdAt: number; updatedAt: number; versionId: string; versionNumber: number; revision: string;
   generation?: { initialVersionId: string; startedAt: number; telemetryEligible: boolean; completionRequestId?: string; completedAt?: number;
     versionId?: string; revision?: string; editedAt?: number; exportedAt?: number; exportRoute?: 'mcp' | 'studio' };
+  creative?: CreativeCheckpoint;
   state: 'authoring' | 'saved' | 'failed'; error?: string; jobId?: string; previousJobId?: string;
 };
 
@@ -206,8 +208,32 @@ export class WorkRounds {
   async writable(name: string, args: any) {
     const work = await this.get(args.projectId, args.workId);
     if (work.jobId || work.state === 'failed') throw new Error('WORK_CLOSED: 请为新一轮制作建立新的视频框');
+    if (name === 'motion_export_request' && args.action !== 'record_review') requireProduction(work.creative);
     if (name === 'motion_export_request' && (args.action === 'record_review' || args.versionId !== work.versionId || args.expectedRevision !== work.revision))
       throw new Error('WORK_VERSION_MISMATCH: 只可播放本轮实际保存的版本');
+  }
+  async checkpoint(projectId: string, id: string, input: CheckpointInput, requestId: string) {
+    return withProcessLock(this.file(id) + '.lock', async () => {
+      const work = await this.get(projectId, id);
+      const existing = work.creative?.records.find(record => record.requestId === requestId);
+      if (existing) return { work, record: existing, signal: undefined, changed: false };
+      const applied = applyCheckpoint(work.creative, input, { versionId: work.versionId, revision: work.revision }, Date.now(), requestId);
+      work.creative = applied.creative;
+      work.updatedAt = Date.now();
+      await atomicJson(this.file(work.id), work);
+      if (applied.signal && this.tracking?.enabled()) this.trackCheckpoint(work, applied.signal);
+      return { work, ...applied };
+    });
+  }
+  private trackCheckpoint(work: WorkRound, signal: CheckpointSignal) {
+    if (!this.tracking) return;
+    const base = { work_id: work.id, project_id: work.projectId };
+    switch (signal.event) {
+      case 'preview_generated': return this.tracking.track(signal.event, { ...base, ...signal.properties });
+      case 'preview_selected_or_confirmed': return this.tracking.track(signal.event, { ...base, ...signal.properties });
+      case 'preview_revision_requested': return this.tracking.track(signal.event, { ...base, ...signal.properties });
+      case 'production_started': return this.tracking.track(signal.event, { ...base, ...signal.properties });
+    }
   }
   async observed(name: string, args: any, result: any) {
     return withProcessLock(this.file(args.workId) + '.lock', async () => {
