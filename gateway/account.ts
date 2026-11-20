@@ -389,7 +389,9 @@ export class OpenDesignAccount {
     // CLI stderr is private: it can include account details and request bodies.
     child.stderr?.on('data', () => {});
     attempt.exitCode = await new Promise<number | null>((resolve, reject) => {
-      const timer = setTimeout(() => { child.kill(); reject(new SignInFailure(attempt.persisted ? 'credentials_rejected' : 'authorization_expired')); }, this.options.authorizationMs ?? 10 * 60_000);
+      // The connector waits until the service's own authorization expiry (15 minutes) and exits; this is only a backstop.
+      // A shorter limit here would cancel authorizations the user is still completing in the browser.
+      const timer = setTimeout(() => { child.kill(); reject(new SignInFailure(attempt.persisted ? 'credentials_rejected' : 'authorization_expired')); }, this.options.authorizationMs ?? 16 * 60_000);
       child.once('error', () => { clearTimeout(timer); reject(new SignInFailure(child.pid === undefined ? 'connector_unavailable' : failureCode(attempt, cancelled))); });
       child.once('close', code => { clearTimeout(timer); resolve(code); });
     });
