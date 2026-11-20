@@ -78,7 +78,7 @@
 .om-settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-16); min-width: 0; }
 .om-settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--motion-space-8); }
 .om-settings-section { display: grid; gap: var(--motion-space-16); }
-.om-settings-section > a { justify-self: start; }
+.om-settings-section > .om-button { justify-self: start; }
 .om-settings-loading { padding: var(--motion-space-40); display: grid; align-content: start; gap: var(--motion-space-24); width: 100%; }
 .om-provider-settings { display: flex; width: 100%; height: 100%; min-height: 0; min-width: 0; }
 .om-provider-list { flex: 0 0 clamp(228px, 19vw, 268px); display: flex; flex-direction: column; gap: var(--motion-space-8); min-height: 0; min-width: 0; padding: var(--motion-space-12) var(--motion-space-8); border-right: 1px solid var(--motion-border-subtle); }

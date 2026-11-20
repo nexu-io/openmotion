@@ -96,7 +96,14 @@ it('asks the local service to open the subscription page in the system browser, 
   hooks.request.mockImplementation(async (route: string) => route === 'settings/account/subscription' ? { url: handoff, opened: false } : hooks.account);
   await act(async () => manage.click());
   expect(popup).toHaveBeenCalledWith(handoff, '_blank'); expect(fallback.opener).toBeNull();
+  expect(page.querySelector('.om-settings-section a')).toBeNull();
   popup.mockReturnValue(null);
+  await act(async () => manage.click());
+  const link = page.querySelector<HTMLAnchorElement>('.om-settings-section > a.om-button')!;
+  expect(link.textContent).toBe('Continue in browser'); expect(link.href).toBe(handoff); expect(link.target).toBe('_blank');
+  await act(async () => link.click());
+  expect(page.querySelector('.om-settings-section a')).toBeNull();
+  hooks.request.mockImplementation(async (route: string) => { if (route === 'settings/account/subscription') throw new Error('offline'); return hooks.account; });
   await act(async () => manage.click());
   expect(document.body.textContent).toContain("Couldn't open your browser. Try again.");
   popup.mockRestore();
