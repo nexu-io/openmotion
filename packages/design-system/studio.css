@@ -3,6 +3,7 @@
 @import "./fonts.css";
 @import "./controls.css";
 @import "./material.css";
+@import "./studio/control-recipes.css";
 @import "./studio/adapter.css";
 @import "./studio/control-states.css";
 @import "./studio/feedback.css";

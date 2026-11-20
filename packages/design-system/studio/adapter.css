@@ -27,15 +27,6 @@
   pointer-events: none;
 }
 
-/* OD control recipes, scoped to visual hooks; existing sizes and state handling stay native. */
-:root[data-motion-ui] .hf-od-primary {
-  --color-accent: var(--motion-action);
-  --color-accent-hover: var(--motion-action-hover);
-  --color-on-accent: var(--motion-on-action);
-}
-:root[data-motion-ui] .hf-od-field {
-  --color-accent: var(--motion-focus);
-}
 /* Pointer focus must not leave a second frame around boxed controls. */
 :root[data-motion-ui] :focus-visible { outline: 1px solid var(--motion-focus); outline-offset: 1px; }
 :root[data-motion-ui] [data-panel-search-input]:focus-visible { outline: none; }

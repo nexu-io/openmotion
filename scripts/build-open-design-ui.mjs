@@ -14,25 +14,35 @@ const output = path.join(root, 'dist/open-design-ui');
 const packageDist = path.join(output, 'dist');
 const packageVersion = '0.0.1';
 
-// shortcut: package the current Button and Slider exports, add entries when the registry grows.
-const entryPoints = {
-  button: path.join(source, 'button.tsx'),
-  slider: path.join(source, 'slider.tsx'),
-};
+const { name, items } = JSON.parse(await readFile(path.join(source, 'registry.json'), 'utf8'));
+assert.equal(name, 'open-design-ui');
+assert.ok(items.length, 'Register at least one component before building the package');
+const entryPoints = {};
+const exports = { './styles.css': './dist/styles.css' };
+for (const item of items) {
+  assert.match(item.name, /^[a-z][a-z0-9-]*$/);
+  assert.ok(!Object.hasOwn(entryPoints, item.name), `Duplicate component: ${item.name}`);
+  assert.equal(item.import, `${name}/${item.name}`);
+  const entry = path.resolve(root, item.source);
+  const relative = path.relative(source, entry).split(path.sep).join('/');
+  assert.ok(!path.isAbsolute(relative) && !relative.startsWith('../') && !relative.startsWith('site/') && /\.tsx?$/.test(relative),
+    `Component source must be inside the library: ${item.source}`);
+  entryPoints[item.name] = entry;
+  exports[`./${item.name}`] = {
+    types: `./dist/${relative.replace(/\.tsx?$/, '.d.ts')}`,
+    import: `./dist/${item.name}.js`,
+  };
+}
 
 const packageManifest = {
-  name: 'open-design-ui',
+  name,
   version: packageVersion,
   description: 'Shared React UI components from Open Design and OpenMotion.',
   type: 'module',
   license: 'Apache-2.0',
   files: ['dist', 'README.md', 'LICENSE'],
   sideEffects: ['./dist/styles.css'],
-  exports: {
-    './button': { types: './dist/button.d.ts', import: './dist/button.js' },
-    './slider': { types: './dist/slider.d.ts', import: './dist/slider.js' },
-    './styles.css': './dist/styles.css',
-  },
+  exports,
   peerDependencies: {
     '@base-ui/react': '^1.7.0',
     react: '^19.0.0',
@@ -76,7 +86,8 @@ export function Controls() {
 await rm(output, { recursive: true, force: true });
 await mkdir(packageDist, { recursive: true });
 
-await esbuild({
+const { metafile } = await esbuild({
+  absWorkingDir: root,
   entryPoints,
   bundle: true,
   format: 'esm',
@@ -84,7 +95,13 @@ await esbuild({
   platform: 'browser',
   outdir: packageDist,
   external: ['react', 'react-dom', '@base-ui/react/*', 'cn'],
+  metafile: true,
 });
+const bundledExports = new Map(Object.entries(metafile.outputs).map(([file, data]) => [path.resolve(root, file), data.exports]));
+for (const item of items) {
+  const entry = path.resolve(output, exports[`./${item.name}`].import);
+  assert.ok(bundledExports.get(entry)?.includes(item.export), `Missing ${item.export} export from ${item.import}`);
+}
 
 const tsc = path.join(root, 'node_modules/typescript/bin/tsc');
 const { stdout, stderr } = await promisify(execFile)(process.execPath, [
@@ -119,13 +136,12 @@ await viteBuild({
   },
 });
 
-await writeFile(path.join(output, 'package.json'), `${JSON.stringify(packageManifest, null, 2)}\n`);
+for (const entry of Object.values(exports)) {
+  for (const file of typeof entry === 'string' ? [entry] : Object.values(entry)) {
+    await readFile(path.resolve(output, file));
+  }
+}
 await writeFile(path.join(output, 'README.md'), readme);
 await copyFile(path.join(root, 'LICENSE'), path.join(output, 'LICENSE'));
-
-for (const file of ['button.js', 'button.d.ts', 'slider.js', 'slider.d.ts', 'styles.css']) {
-  const target = path.join(packageDist, file);
-  await readFile(target);
-}
-assert.equal(JSON.parse(await readFile(path.join(output, 'package.json'), 'utf8')).name, 'open-design-ui');
+await writeFile(path.join(output, 'package.json'), `${JSON.stringify(packageManifest, null, 2)}\n`);
 console.log(`Built ${packageManifest.name}@${packageVersion} at ${path.relative(root, output)}`);

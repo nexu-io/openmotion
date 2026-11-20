@@ -1,6 +1,6 @@
 @import "tailwindcss" source(none);
 @import "../tailwind.css";
-@import "../studio/adapter.css";
+@import "../studio/control-recipes.css";
 
-@source "./button.tsx";
-@source "./slider.tsx";
+@source "./**/*.{ts,tsx}";
+@source not "./site";

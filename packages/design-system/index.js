@@ -22,6 +22,7 @@ export const publicDesignFiles = Object.freeze([
   'tokens.json', 'tokens.css', 'ui.css', 'fonts.css', 'base.css', 'controls.css', 'material.css',
   'loading.css', 'studio.css', 'studio/adapter.css', 'studio/control-states.css', 'studio/feedback.css', 'studio/editor-workspace.css', 'studio/application.css', 'studio/primary-navigation.css', 'studio/mcp.css', 'studio/template-cards.css', 'studio/discovery.css', 'studio/media-detail.css', 'studio/audio-assets.css', 'studio/media-quick-actions.css',
   'studio/formFields.css', 'studio/menuPanels.css', 'studio/propertyPanelControls.css', 'studio/disclosure.css',
+  'studio/control-recipes.css',
   'index.html', 'theme.js', 'catalog.js', 'catalog-view.js', 'catalog.css', 'token-model.js', 'generate.js', 'icons.svg',
   'opendesign-dark.svg', 'opendesign-light.svg', 'brand/openmotion-logo.svg',
   'brand/loading-mark.svg', 'brand/loading-wordmark.svg', 'brand/favicon.svg', 'brand/favicon-32.png', 'brand/apple-touch-icon.png',
