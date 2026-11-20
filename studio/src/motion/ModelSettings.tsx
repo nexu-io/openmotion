@@ -111,8 +111,14 @@ function useProviderValidation(label: string | undefined, baseUrl: string | unde
  * Free and Go accounts what upgrading unlocks. Other states keep the account callout. Models below are unchanged.
  */
 function AccountProviderGuide({ provider, openAccount, showToast }: { provider: ProviderConnection; openAccount?: () => void; showToast: ReturnType<typeof useToast>['showToast'] }) {
-  const { t } = useI18n(), { account, setAccount } = useAccountSummary(), [busy, setBusy] = useState(false);
-  const plan = upgradePlan(account);
+  const { t } = useI18n(), { account, setAccount, refresh } = useAccountSummary(), [busy, setBusy] = useState(false);
+  const plan = upgradePlan(account), signedIn = account?.state === 'signed-in', previous = useRef(account?.state);
+  // Like the account page: plan details load only with a billing refresh, and a finished sign-in reloads the directory.
+  useEffect(() => { if (signedIn) void refresh(true); }, [signedIn, refresh]);
+  useEffect(() => {
+    if (previous.current === 'authorizing' && account?.state === 'signed-in') { notifyProvidersChanged(); window.dispatchEvent(new Event('motion:account-changed')); }
+    previous.current = account?.state;
+  }, [account?.state]);
   async function signIn() {
     tracking.reportSettingsClick('provider_detail', 'sign_in', { provider });
     setBusy(true);

@@ -188,7 +188,7 @@ for (const [summary, heading, action] of [
   [{ state: 'signed-in', plan: 'free' }, 'Free plan', 'Upgrade to Plus'],
 ] as const) it(`shows the account page ${heading} guide on the OpenDesign provider and keeps its models`, async () => {
   const textModel = { id: 'account:language-one', provider: 'account', modelId: 'language-one', label: 'Language One', kind: 'text', enabled: true, source: 'live' };
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/settings/account')
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => /\/settings\/account(\?|$)/.test(String(url))
     ? Response.json({ consoleUrl: 'https://console.example', ...summary })
     : Response.json({ providers: [{ ...account, configured: summary.state === 'signed-in' }], models: [textModel], defaults: {} })));
   await mount('account');
@@ -205,7 +205,7 @@ it('signs in from the OpenDesign provider guide and opens the account page', asy
   const openAccount = vi.fn(), posts: string[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     if (init?.method === 'POST') { posts.push(String(url)); return Response.json({ consoleUrl: 'https://console.example', state: 'authorizing' }); }
-    return String(url).endsWith('/settings/account') ? Response.json({ consoleUrl: 'https://console.example', state: 'signed-out' })
+    return /\/settings\/account(\?|$)/.test(String(url)) ? Response.json({ consoleUrl: 'https://console.example', state: 'signed-out' })
       : Response.json({ providers: [account], models: [], defaults: {} });
   }));
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
