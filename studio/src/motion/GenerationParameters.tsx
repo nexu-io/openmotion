@@ -25,10 +25,11 @@ export function durationTicks(min: number, max: number): number[] {
 }
 
 /** Map shot preferences to choices the current provider actually publishes. */
-export function shotParameters(model: Model, preferences?: { aspect: string; duration?: number }): ParameterDraft {
+export function shotParameters(model: Model, preferences?: { aspect: string; duration?: number }, hasInputImage = false): ParameterDraft {
   if (!preferences) return emptyParameters;
   const values: Record<string, unknown> = {};
-  for (const field of model.generationOptions?.fields ?? []) {
+  const fields = (hasInputImage ? generationOptions(model, true) : undefined)?.fields ?? model.generationOptions?.fields ?? [];
+  for (const field of fields) {
     const value = field.presentation === 'ratio' ? preferences.aspect : field.key === 'duration' ? preferences.duration : undefined;
     if (value === undefined) continue;
     if (field.kind === 'choice' && field.choices?.some(choice => choice.value === value && !choice.requires)) {
@@ -42,14 +43,36 @@ export function shotParameters(model: Model, preferences?: { aspect: string; dur
   }
   return { values, advanced: '{}' };
 }
+/** Drop stale quick-picker image choices (e.g. from text-to-image) that are invalid under the active operation. */
+function sanitizeImageQuickValues(model: Model, values: Record<string, unknown>, extra: Record<string, unknown>, hasInputImage: boolean): Record<string, unknown> {
+  if (model.modality !== 'image') return values;
+  const activeFields = (hasInputImage ? generationOptions(model, true) : undefined)?.fields ?? model.generationOptions?.fields;
+  if (!activeFields?.length) return values;
+  const next = { ...values };
+  const aspectField = activeFields.find(f => f.key === 'aspect_ratio' && f.kind === 'choice');
+  if (aspectField && Object.hasOwn(next, 'aspect_ratio') && !aspectField.choices?.some(c => c.value === next.aspect_ratio)) {
+    delete next.aspect_ratio;
+  }
+  const activeAspect = next.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
+  const allowedResolutions = compatibleImageResolutions(model, activeAspect, hasInputImage);
+  const resField = activeFields.find(f => f.key === 'resolution' && f.kind === 'choice');
+  if (Object.hasOwn(next, 'resolution')) {
+    const valid = allowedResolutions
+      ? typeof next.resolution === 'string' && allowedResolutions.includes(next.resolution)
+      : !resField || Boolean(resField.choices?.some(c => c.value === next.resolution));
+    if (!valid) delete next.resolution;
+  }
+  return next;
+}
 export function requestParameters(draft: ParameterDraft, model?: Model, hasInputImage = false): Record<string, unknown> {
   const extra = JSON.parse(draft.advanced);
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) throw new Error('Model parameters must be a JSON object');
   const values = { ...draft.values };
   // Retain the inactive text-to-video choice in the editor, but keep explicit JSON instructions for validation.
   if (model && parameterInputImageRatio(model, draft, hasInputImage)) delete values.ratio;
+  const cleanValues = model ? sanitizeImageQuickValues(model, values, extra, hasInputImage) : values;
   // Quick controls are explicit overrides; deleting a quick override restores advanced/default values.
-  const parameters = { ...extra, ...values };
+  const parameters = { ...extra, ...cleanValues };
   if (model) resolveGenerationParameters(model, parameters, hasInputImage);
   return parameters;
 }
@@ -163,8 +186,9 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
   const inputImageRatio = parameterInputImageRatio(model, draft, hasInputImage);
   const activeOptions = (hasInputImage ? generationOptions(model, true) : undefined) ?? model.generationOptions;
   const fields = (activeOptions?.fields ?? []).filter(field => !inputImageRatio || field.key !== 'ratio');
+  const effectiveValues = sanitizeImageQuickValues(model, draft.values, extra, hasInputImage);
   const aspectField = fields.find(field => field.key === 'aspect_ratio');
-  const activeAspectRatio = draft.values.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
+  const activeAspectRatio = effectiveValues.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
   const allowedResolutions = compatibleImageResolutions(model, activeAspectRatio, hasInputImage);
   const effectiveDefault = (field: GenerationOption) => {
     if (field.key === 'resolution' && allowedResolutions) {
@@ -173,7 +197,7 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
     }
     return field.default;
   };
-  const value = (field: GenerationOption) => draft.values[field.key] ?? extra[field.key] ?? model.defaults?.[field.key] ?? effectiveDefault(field);
+  const value = (field: GenerationOption) => effectiveValues[field.key] ?? extra[field.key] ?? model.defaults?.[field.key] ?? effectiveDefault(field);
   const choicesFor = (field: GenerationOption) => {
     const choices = field.choices ?? [];
     if (field.key !== 'resolution' || !allowedResolutions) return choices;
@@ -186,7 +210,9 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
     if (typeof v === 'object') return t('Custom');
     if (typeof v === 'boolean') return t(v ? 'On' : 'Off');
     if (field.key === 'duration' && typeof v === 'number' && v > 0) return `${v}s`;
-    return t(option?.label ?? String(v));
+    const raw = option?.label ?? String(v);
+    if (field.key === 'resolution' && /^\d+k$/i.test(raw)) return raw.toUpperCase();
+    return t(raw);
   };
   const set = (field: GenerationOption, value: unknown) => {
     const values = { ...draft.values };
@@ -202,15 +228,23 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
   const constraints = Object.assign({}, ...fields.map(f => f.choices?.find(c => c.value === value(f))?.requires)) as Record<string, string | number>;
   const count = fields.find(f => f.presentation === 'count');
   const isVideo = model.modality === 'video';
+  const isImage = model.modality === 'image';
   const durationField = isVideo ? fields.find(f => f.key === 'duration') : undefined;
   const resolutionField = isVideo ? fields.find(f => f.key === 'resolution') : undefined;
   const ratioField = isVideo ? fields.find(f => f.key === 'ratio') : undefined;
   const audioField = isVideo ? fields.find(f => f.key === 'generate_audio' && f.kind === 'boolean') : undefined;
   const alwaysOnAudio = isVideo && !audioField && videoAudioAlwaysOn(model);
-  const hasQuickCards = Boolean(durationField || resolutionField || ratioField || audioField || alwaysOnAudio);
-  const quickCardKeys = new Set(['duration', 'resolution', 'ratio', 'generate_audio']);
+  const imageRatioField = isImage ? fields.find(f => f.kind === 'choice' && (f.key === 'aspect_ratio' || f.key === 'image_size' || f.key === 'size')) : undefined;
+  const imageResolutionField = isImage ? fields.find(f => f.kind === 'choice' && f.key === 'resolution') : undefined;
+  const imageQualityField = isImage ? fields.find(f => f.kind === 'choice' && f.key === 'quality') : undefined;
+  const imageRatioChoices = imageRatioField ? choicesFor(imageRatioField) : [];
+  const imageResolutionChoices = imageResolutionField ? choicesFor(imageResolutionField) : [];
+  const staticImageRatio = Boolean(imageRatioField && imageRatioChoices.length <= 1 && (value(imageRatioField) === undefined || value(imageRatioField) === imageRatioChoices[0]?.value));
+  const staticImageResolution = Boolean(imageResolutionField && imageResolutionChoices.length <= 1 && (value(imageResolutionField) === undefined || value(imageResolutionField) === imageResolutionChoices[0]?.value));
+  const hasQuickCards = Boolean(durationField || resolutionField || ratioField || audioField || alwaysOnAudio || imageRatioField || imageResolutionField || imageQualityField);
+  const quickCardKeys = new Set(['duration', 'resolution', 'ratio', 'generate_audio', 'aspect_ratio', 'image_size', 'size', 'quality']);
   const remainingFields = fields.filter(f => !quickCardKeys.has(f.key));
-  const compactSummary = hasQuickCards && fields.length >= 2 && remainingFields.length === 0 && !inputImageRatio;
+  const compactSummary = isVideo && hasQuickCards && fields.length >= 2 && remainingFields.length === 0 && !inputImageRatio;
   const popoverFields = compactSummary ? [] : fields;
 
   const renderRatioTiles = (field: GenerationOption) => (
@@ -363,6 +397,103 @@ export function GenerationParameters({ model, draft, hasInputImage = false, onCh
             </span>
             <RemixIcon name="volume-up-line" size={15} />
           </div>
+        )}
+        {imageRatioField && (staticImageRatio ? (
+          <div className="om-param-card om-param-card-static" aria-label={t(imageRatioField.label)}>
+            <span className="om-param-card-copy">
+              <span className="om-param-card-label">{t(imageRatioField.label)}</span>
+              <span className="om-param-card-value">{label(imageRatioField)}</span>
+            </span>
+            <RemixIcon name="lock-line" size={15} />
+          </div>
+        ) : (
+          <Popover
+            side="right"
+            align="start"
+            aria-label={t(imageRatioField.label)}
+            className={imageRatioField.presentation === 'ratio' ? 'om-ratio-popover' : 'om-choice-popover'}
+            trigger={
+              <Button variant="plain" className="om-param-card" aria-label={t(imageRatioField.label)}>
+                <span className="om-param-card-copy">
+                  <span className="om-param-card-label">{t(imageRatioField.label)}</span>
+                  <span className="om-param-card-value">{label(imageRatioField)}</span>
+                </span>
+                <RemixIcon name="arrow-right-s-line" size={15} />
+              </Button>
+            }
+          >
+            <div className="om-creation-row">
+              <strong>{t(imageRatioField.label)}</strong>
+              {Object.hasOwn(effectiveValues, imageRatioField.key) && (
+                <Button variant="plain" className="om-nav-item" onClick={() => set(imageRatioField, undefined)}>
+                  {t('Reset')}
+                </Button>
+              )}
+            </div>
+            {imageRatioField.presentation === 'ratio' ? renderRatioTiles(imageRatioField) : renderChoicePills(imageRatioField)}
+          </Popover>
+        ))}
+        {imageResolutionField && (staticImageResolution ? (
+          <div className="om-param-card om-param-card-static" aria-label={t('Resolution')}>
+            <span className="om-param-card-copy">
+              <span className="om-param-card-label">{t('Resolution')}</span>
+              <span className="om-param-card-value">{label(imageResolutionField)}</span>
+            </span>
+            <RemixIcon name="lock-line" size={15} />
+          </div>
+        ) : (
+          <Popover
+            side="right"
+            align="start"
+            aria-label={t('Resolution')}
+            className="om-choice-popover"
+            trigger={
+              <Button variant="plain" className="om-param-card" aria-label={t('Resolution')}>
+                <span className="om-param-card-copy">
+                  <span className="om-param-card-label">{t('Resolution')}</span>
+                  <span className="om-param-card-value">{label(imageResolutionField)}</span>
+                </span>
+                <RemixIcon name="arrow-right-s-line" size={15} />
+              </Button>
+            }
+          >
+            <div className="om-creation-row">
+              <strong>{t('Resolution')}</strong>
+              {Object.hasOwn(effectiveValues, imageResolutionField.key) && (
+                <Button variant="plain" className="om-nav-item" onClick={() => set(imageResolutionField, undefined)}>
+                  {t('Reset')}
+                </Button>
+              )}
+            </div>
+            {renderChoicePills(imageResolutionField)}
+          </Popover>
+        ))}
+        {imageQualityField && (
+          <Popover
+            side="right"
+            align="start"
+            aria-label={t('Quality')}
+            className="om-choice-popover"
+            trigger={
+              <Button variant="plain" className="om-param-card" aria-label={t('Quality')}>
+                <span className="om-param-card-copy">
+                  <span className="om-param-card-label">{t('Quality')}</span>
+                  <span className="om-param-card-value">{label(imageQualityField)}</span>
+                </span>
+                <RemixIcon name="arrow-right-s-line" size={15} />
+              </Button>
+            }
+          >
+            <div className="om-creation-row">
+              <strong>{t('Quality')}</strong>
+              {Object.hasOwn(effectiveValues, imageQualityField.key) && (
+                <Button variant="plain" className="om-nav-item" onClick={() => set(imageQualityField, undefined)}>
+                  {t('Reset')}
+                </Button>
+              )}
+            </div>
+            {renderChoicePills(imageQualityField)}
+          </Popover>
         )}
       </div>
     )}
