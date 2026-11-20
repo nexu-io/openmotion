@@ -7,6 +7,7 @@ import { assetNamingInstruction } from '../shared/asset-names.ts';
 import { phase1Tools } from '../shared/phase1-tools.ts';
 import { agentGuide, type IntegrationInfo } from '../shared/integration.ts';
 import { imageFeaturePrompt } from '../shared/image-features.ts';
+import { videoFeatureParameters, videoFeaturePrompt } from '../shared/video-features.ts';
 
 test('MCP onboarding covers every public domain tool and scenarios only compose real tools', () => {
   const described = mcpCapabilities.flatMap(capability => [...capability.tools]);
@@ -189,6 +190,27 @@ test('image feature handbook scenarios cover background removal, relight and cha
     assert.match(scenario.prompt, /target=providers/);
     assert.match(scenario.prompt, /action=resume/);
     assert.match(scenario.prompt, /2 MiB/);
+    for (const locale of Object.values(translations) as Record<string, string>[]) {
+      assert.ok(locale[scenario.title]?.trim());
+      assert.ok(locale[scenario.description]?.trim());
+    }
+  }
+});
+
+test('video feature handbook scenarios cover camera control, multi-shot and native audio with limits and recovery', () => {
+  const translations = JSON.parse(readFileSync(new URL('../studio/src/i18n/mcp-ui.json', import.meta.url), 'utf8'));
+  const camera = mcpScenarios.find(item => item.id === 'video-camera-control')!;
+  const multiShot = mcpScenarios.find(item => item.id === 'video-multi-shot')!;
+  const nativeAudio = mcpScenarios.find(item => item.id === 'video-native-audio')!;
+  assert.ok(camera.prompt.includes(videoFeaturePrompt('camera-control', 'A vintage camera on dark stone with warm rim lighting.', { movement: 'orbit', pace: 'slow' })));
+  assert.ok(multiShot.prompt.includes(videoFeaturePrompt('multi-shot', 'An astronaut crossing a silver lunar ridge.', { shots: '3', style: 'narrative' })));
+  assert.ok(multiShot.prompt.includes(JSON.stringify(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628' }))));
+  assert.ok(nativeAudio.prompt.includes(videoFeaturePrompt('native-audio', 'Rain falling across a neon-lit alley at night.', { audioStyle: 'ambience' })));
+  assert.ok(nativeAudio.prompt.includes(JSON.stringify(videoFeatureParameters('native-audio', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628' }))));
+  for (const scenario of [camera, multiShot, nativeAudio]) {
+    assert.match(scenario.prompt, /target=providers/);
+    assert.match(scenario.prompt, /2 MiB/);
+    assert.match(scenario.prompt, /omit fixed ratio/i);
     for (const locale of Object.values(translations) as Record<string, string>[]) {
       assert.ok(locale[scenario.title]?.trim());
       assert.ok(locale[scenario.description]?.trim());

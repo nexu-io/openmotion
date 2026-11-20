@@ -787,6 +787,29 @@ it('seeds 10s duration and composes camera/multi-shot prompts on video feature s
   expect(request.prompt).toContain('An astronaut crossing a silver ridge');
 });
 
+it('hides the audio toggle on Native audio video, shows an always-on note, and submits generate_audio true', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const seedanceBase: Model = {
+    id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628',
+    label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1,
+    nativeOptions: { durations: [5, 4, 6, 10], resolutions: ['480p', '720p', '1080p'], ratios: ['16:9', '9:16', 'adaptive'], audio: { values: ['on', 'off'], default: 'on' } },
+  };
+  const seedance: Model = { ...seedanceBase, generationOptions: generationOptions(seedanceBase) };
+  const catalog = { models: [seedance], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt: 'Rain in a neon alley', references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'video-native-audio')!),
+  }} />));
+  expect(container.textContent).toContain('Synchronized native audio is always enabled for this scene.');
+  expect(container.querySelector('[role="switch"]')).toBeNull();
+  generate.mockResolvedValue({ job: { id: 'audio-video-job' } });
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  const request = generate.mock.calls[0][0];
+  expect(request.parameters).toMatchObject({ generate_audio: true });
+  expect(request.prompt).toContain('Audio direction:');
+});
+
 it('renders VideoMegaMenu with open video scenes, Coming soon items, and OpenDesign video models', async () => {
   const { VideoMegaMenu } = await import('./VideoMegaMenu');
   const navigate = vi.fn();

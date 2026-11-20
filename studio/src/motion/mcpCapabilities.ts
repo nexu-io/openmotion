@@ -6,6 +6,7 @@ import { defaultPlatformExportTarget, platformExportPrompt } from '../../../shar
 import { templateGuideContinuationInstruction } from '../../../shared/template-guide.ts';
 import { designBriefPrompt } from '../../../shared/design-project.ts';
 import { imageFeaturePrompt, imageFeatures } from '../../../shared/image-features.ts';
+import { videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features.ts';
 import type { IntegrationInfo } from '../../../shared/integration.ts';
 
 /** Maintained product descriptions; coverage is checked against the public MCP contract. */
@@ -131,6 +132,21 @@ export const mcpScenarios = [animeOpeningScenario, {
   description: 'Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).',
   tools: ['openmotion_media_use', 'openmotion_assets_use', 'openmotion_open_preview'],
   prompt: `Generate a new scene keeping my character consistent across 1 to ${imageFeatures.character.maxReferences} reference images (up to 2 MiB each). First call openmotion_media_use action=inspect for an available OpenDesign model (${imageFeatures.character.models.join(', ')}; drop seedream-5.5 when using 2 or more references). If no OpenDesign route is ready, call openmotion_open_preview with target=providers and wait for confirmation. Confirm the pinned asset versions via openmotion_assets_use, then submit once with openmotion_assets_use action=generate using prompt: "${imageFeaturePrompt('character', 'Show the character walking through a sunlit café.')}". Track the same jobId and recover interrupted downloads with openmotion_assets_use action=resume without generating again.`,
+}, {
+  id: 'video-camera-control', icon: 'camera-line', title: 'Direct camera movement in video',
+  description: 'Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.',
+  tools: ['openmotion_media_use', 'openmotion_assets_use', 'openmotion_open_preview'],
+  prompt: `Generate a video with directed camera motion. First call openmotion_media_use action=inspect to find an available OpenDesign video model (prefer ${videoFeatures['camera-control'].recommended} or wan-2.7 via Cloud API key or Plus+ account). If none is ready, call openmotion_open_preview with target=providers and wait for my confirmation. If I supply a first-frame image, confirm 1 pinned image version (up to 2 MiB) via openmotion_assets_use and omit fixed ratio (or use adaptive). Submit once with openmotion_assets_use action=generate using prompt: "${videoFeaturePrompt('camera-control', 'A vintage camera on dark stone with warm rim lighting.', { movement: 'orbit', pace: 'slow' })}". Track the same jobId; for an interrupted Cloud job resume polling the original task instead of generating again (account video recovery is unavailable).`,
+}, {
+  id: 'video-multi-shot', icon: 'clapperboard-line', title: 'Generate a multi-shot video',
+  description: 'Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.',
+  tools: ['openmotion_media_use', 'openmotion_assets_use', 'openmotion_open_preview'],
+  prompt: `Generate a multi-shot narrative video clip. First call openmotion_media_use action=inspect to find an available OpenDesign video model (prefer ${videoFeatures['multi-shot'].recommended} for 4–30s or wan-2.7 for 2–15s via Cloud API key or Plus+ account). If none is ready, call openmotion_open_preview with target=providers and wait for confirmation. If attaching an optional first frame, confirm 1 pinned image version (up to 2 MiB) via openmotion_assets_use and omit fixed ratio (or use adaptive). Submit once with openmotion_assets_use action=generate using parameters=${JSON.stringify(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: videoFeatures['multi-shot'].recommended }))} and prompt: "${videoFeaturePrompt('multi-shot', 'An astronaut crossing a silver lunar ridge.', { shots: '3', style: 'narrative' })}". Track the same jobId and resume Cloud polling rather than resubmitting if interrupted.`,
+}, {
+  id: 'video-native-audio', icon: 'volume-up-line', title: 'Generate video with native audio',
+  description: 'Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.',
+  tools: ['openmotion_media_use', 'openmotion_assets_use', 'openmotion_open_preview'],
+  prompt: `Generate a video with synchronized native audio. First call openmotion_media_use action=inspect for an available OpenDesign video model (${videoFeatures['native-audio'].recommended} with parameters=${JSON.stringify(videoFeatureParameters('native-audio', { provider: 'opendesign', modelId: videoFeatures['native-audio'].recommended }))}, or wan-2.7 which always includes audio without generate_audio). If none is ready, call openmotion_open_preview with target=providers and wait for confirmation. If attaching an optional first frame, confirm 1 pinned image version (up to 2 MiB) via openmotion_assets_use and omit fixed ratio. Submit once with openmotion_assets_use action=generate using prompt: "${videoFeaturePrompt('native-audio', 'Rain falling across a neon-lit alley at night.', { audioStyle: 'ambience' })}". Track the original jobId and do not regenerate on interruption; resume eligible Cloud jobs only.`,
 }] as const;
 
 export const platformExportExample = (locale: string, workspace?: Pick<IntegrationInfo, 'previewUrl' | 'dataDirectory'>) => platformExportPrompt({ target: defaultPlatformExportTarget(locale), goal: 'adapt', locale, workspace });

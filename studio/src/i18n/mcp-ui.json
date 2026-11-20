@@ -254,7 +254,13 @@
     "Relight an image": "图片重新打光",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "使用 OpenDesign 模型，在保持主体细节不变的前提下调整 1 张参考图的光源方向、色温与氛围。",
     "Keep a character consistent": "角色一致性生图",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "基于 1 至 5 张参考图在 OpenDesign 模型上保持角色一致并生成新场景（2–5 张参考图使用 GPT Image 2.6 或 Seedream 5.0 Flash；Seedream 5.5 仅支持 1 张）。"
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "基于 1 至 5 张参考图在 OpenDesign 模型上保持角色一致并生成新场景（2–5 张参考图使用 GPT Image 2.6 或 Seedream 5.0 Flash；Seedream 5.5 仅支持 1 张）。",
+    "Direct camera movement in video": "视频镜头运动控制",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "使用 OpenDesign 视频模型生成带结构化运镜与节奏的视频片段，支持可选固定首帧图。",
+    "Generate a multi-shot video": "多镜头叙事视频",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "使用 OpenDesign 视频模型生成连贯的多镜头叙事片段（默认 10 秒），支持可选固定首帧图。",
+    "Generate video with native audio": "原生有声视频生成",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "使用 OpenDesign 视频模型生成带同步环境音、人声或配乐的有声视频，并强制开启原生音频。"
   },
   "ja": {
     "How do I review a storyboard or creative direction?": "絵コンテやクリエイティブの方向性はどう確認しますか？",
@@ -299,7 +305,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "ko": {
     "How do I review a storyboard or creative direction?": "스토리보드나 제작 방향을 어떻게 검토하나요?",
@@ -344,7 +356,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "de": {
     "How do I review a storyboard or creative direction?": "Wie kann ich ein Storyboard oder einen Gestaltungsvorschlag prüfen?",
@@ -389,7 +407,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "fr": {
     "How do I review a storyboard or creative direction?": "Comment examiner un storyboard ou une piste créative ?",
@@ -434,7 +458,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "ru": {
     "How do I review a storyboard or creative direction?": "Как посмотреть раскадровку или варианты творческого направления?",
@@ -479,7 +509,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "es": {
     "How do I review a storyboard or creative direction?": "¿Cómo reviso un guion gráfico o una dirección creativa?",
@@ -524,7 +560,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "pt-BR": {
     "How do I review a storyboard or creative direction?": "Como reviso um storyboard ou uma direção criativa?",
@@ -569,7 +611,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "it": {
     "How do I review a storyboard or creative direction?": "Come posso rivedere uno storyboard o una proposta creativa?",
@@ -614,7 +662,13 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   },
   "tr": {
     "How do I review a storyboard or creative direction?": "Storyboard veya yaratıcı yönü nasıl incelerim?",
@@ -659,6 +713,12 @@
     "Relight an image": "Relight an image",
     "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.": "Change light direction, color temperature and mood on 1 reference image while preserving subject details using OpenDesign models.",
     "Keep a character consistent": "Keep a character consistent",
-    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1)."
+    "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).": "Place the same character into a new scene from 1 to 5 reference images on OpenDesign (use GPT Image 2.6 or Seedream 5.0 Flash for 2–5 references; Seedream 5.5 accepts 1).",
+    "Direct camera movement in video": "Direct camera movement in video",
+    "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.": "Generate a video clip with structured camera movement and pacing, plus an optional pinned first frame on OpenDesign video models.",
+    "Generate a multi-shot video": "Generate a multi-shot video",
+    "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.": "Direct a connected multi-shot narrative clip with 10s default duration and an optional pinned first frame on OpenDesign video models.",
+    "Generate video with native audio": "Generate video with native audio",
+    "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models.": "Generate a video clip with synchronized ambience, dialogue or cinematic score and native audio forced on for OpenDesign video models."
   }
 }
