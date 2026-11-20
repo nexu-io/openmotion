@@ -443,11 +443,12 @@ it('switches studios and restores a scene through history while retaining the ed
   await mount();
   const draft = container.querySelector<HTMLInputElement>('[aria-label="Editor draft"]')!;
   await click('Design Studio');
+  expect(page().studio?.scene.id).toBe('text-to-image');
+  const categories = [...container.querySelectorAll('.om-design-scene-tabs-track button')].map(node => node.textContent);
+  expect(categories).toEqual(['Text to image', 'Image editing', 'Prototype', 'Mobile App', 'Slide deck', 'Document', 'Website clone', 'Live artifact', 'WebGL']);
+  await click('Prototype');
   expect(page().designScene).toBe('prototype');
-  const designPage = container.querySelector('.om-design-template-page')!;
-  expect(designPage.querySelector('.om-design-studio-hero + section h2')?.textContent).toBe('Design templates');
-  const categories = [...designPage.querySelectorAll('nav button')].map(node => node.textContent);
-  expect(categories).toEqual(['Prototype', 'Mobile App', 'Slide deck', 'Document', 'Website clone', 'Live artifact', 'WebGL']);
+  expect(container.querySelector('.om-design-page-with-dock h2')?.textContent).toBe('Prototype templates');
   await click('Design prototype fixture');
   expect(document.querySelector('[role="dialog"][aria-label="Design prototype fixture"]')?.classList.contains('om-design-tpl-detail-popup')).toBe(true);
   await click('Close');
@@ -777,8 +778,14 @@ it.each([
     const editTab = [...header.querySelectorAll<HTMLButtonElement>('nav button')].find(tab => tab.textContent === 'Image editing')!;
     await act(async () => editTab.click());
     expect(page().studio?.scene.id).toBe('image-edit');
+    expect(container.querySelector('.om-studio-bar .om-back-to-explore')).toBeNull();
+    await traverse(-1);
+    expect(page().studio?.scene.id).toBe('text-to-image');
   }
-  await act(async () => { returnControl!.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+  await act(async () => {
+    container.querySelector<HTMLButtonElement>('.om-back-to-explore')!.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
   expect(location.href).toBe(origin);
   expect(carousel.getAttribute('data-scene')).toBe(slide);
   expect(feed.scrollTop).toBe(56);
@@ -1136,6 +1143,7 @@ it.each([
   await mount(); await click('Explore');
   await click(label);
   expect(page().studio).toMatchObject({ studio: { id: studio }, scene: { id: scene }, landing: true });
+  expect(new URLSearchParams(location.search).get('page')).toBe('create');
   expect(breadcrumb()).toBeNull();
   expect(container.querySelector('.om-studio-bar [aria-label="Back to Explore"]')).toBeNull();
   expect(document.querySelector('.om-creative-menu')).toBeNull();
@@ -1143,13 +1151,8 @@ it.each([
   expect(button(studioTitle).getAttribute('aria-current')).toBeNull();
   expect(button(label + ' · Scenes').getAttribute('aria-expanded')).toBe('false');
   await click(studioTitle);
-  if (studio === 'design') {
-    expect(page().designScene).toBeTruthy();
-    expect(page().studio).toBeNull();
-  } else {
-    expect(page().studio).toMatchObject({ studio: { id: studio }, scene: { id: scene } });
-    expect(page().studio?.landing).toBeUndefined();
-  }
+  expect(page().studio).toMatchObject({ studio: { id: studio }, scene: { id: scene } });
+  expect(page().studio?.landing).toBeUndefined();
   expect(button(studioTitle).getAttribute('aria-current')).toBe('page');
   expect(button(label).getAttribute('aria-current')).toBeNull();
   await traverse(-2);
@@ -1278,7 +1281,7 @@ it('opens image editing from its scene shortcut and returns to the same Explore 
   await click('Open in Design Studio');
   expect(new URLSearchParams(location.search).get('page')).toBe('design');
   expect(page().studio?.scene.id).toBe('image-edit');
-  const sceneTab = [...container.querySelectorAll<HTMLButtonElement>('.om-studio-bar .om-asset-tabs button')]
+  const sceneTab = [...container.querySelectorAll<HTMLButtonElement>('.om-studio-bar .om-design-scene-tabs-track button')]
     .find(node => node.textContent === 'Text to image')!;
   await act(async () => sceneTab.click());
   expect(page().studio?.scene.id).toBe('text-to-image');

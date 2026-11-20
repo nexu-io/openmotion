@@ -57,9 +57,8 @@ export function ExploreDesignSection({
       await navigator.clipboard.writeText(prompt);
       toast.showToast(t('Copied. Paste into your Agent.'), 'info', 'feedback');
     } catch {
-      onSelectDesignScene(tpl.scenario);
+      toast.showToast(t('Copy failed. Check clipboard permissions and try again.'), 'error', 'feedback');
     }
-    setPreviewIdx(null);
   };
 
   return (

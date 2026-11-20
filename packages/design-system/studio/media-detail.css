@@ -44,6 +44,11 @@
 .om-media-detail-source:hover { background: var(--color-template-hover); }
 .om-media-detail-actions { display: grid; gap: var(--motion-space-8); margin: 18px 0 var(--motion-space-12); }
 .om-media-detail-actions .om-button { width: 100%; min-height: var(--motion-space-40); }
+.om-media-detail-footer { flex: none; padding: var(--motion-space-12) var(--detail-gutter); border-top: 1px solid var(--motion-border-subtle); background: var(--color-template-surface); }
+.om-media-detail-action-row { display: flex; align-items: stretch; gap: var(--motion-space-8); }
+.om-media-detail-action-row > button:first-child { flex: 1; min-width: 0; white-space: normal; }
+.om-media-detail-footer .om-media-detail-action-row > button:first-child { min-height: var(--motion-space-40); }
+[data-motion-studio] .om-media-detail-action-row .om-media-detail-icon-action { flex: 0 0 var(--motion-space-40); padding: 0; border-color: transparent; background: var(--color-template-controls-bg); color: var(--color-template-muted); }
 .om-media-detail-prompt header { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-8); margin-bottom: var(--motion-space-12); }
 .om-media-detail-prompt h3 { font-size: var(--motion-text-body); font-weight: var(--motion-weight-semibold); margin: 0; }
 .om-media-detail-prompt-text { background: var(--color-template-prompt-bg); border-radius: var(--motion-radius-lg); padding: 14px; margin: 0; font-size: var(--motion-text-xs); line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }

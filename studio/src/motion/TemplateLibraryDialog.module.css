@@ -171,10 +171,8 @@
 .relatedPreviewStatus ~ .relatedPreviewCaption { display: none; }
 .resourceLinks { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--motion-space-8) var(--motion-space-16); }
 .library .repositoryLink { display: inline-flex; align-items: center; gap: var(--motion-space-6); min-height: var(--motion-control-sm); padding: 0; color: var(--library-muted); font-size: var(--motion-text-sm); white-space: nowrap; }
-.recreateActions { display: flex; align-items: stretch; gap: 8px; }
-.recreateActions > button:first-child { flex: 1; min-width: 0; white-space: normal; }
-.detail :is(.actions, .reviewFooter) .submitTemplate { flex: 0 0 var(--motion-space-40); padding: 0; border-color: transparent; background: var(--color-template-controls-bg); color: var(--library-muted); }
-.submitTemplate:hover:not(:disabled) { background: var(--color-template-controls-bg); color: var(--library-fg); }
+.recreateActions { composes: om-media-detail-action-row from global; }
+.submitTemplate { composes: om-media-detail-icon-action from global; }
 .manualCopy { width: 100%; padding: 12px; border: 1px solid var(--library-line); border-radius: 8px; resize: vertical; font-size: 12px !important; line-height: 1.6; background: var(--color-template-prompt-bg); }
 @media (max-width: 699px) { .chips { padding-inline: 16px; } .related > div { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .library *, .library *::before, .library *::after { transition: none !important; } }
@@ -210,7 +208,6 @@
 .handoffActions { display: grid; gap: var(--motion-space-8); margin-bottom: var(--motion-space-16); }
 .handoffActions > p { margin: 0; color: var(--motion-muted); font-size: var(--motion-text-sm); line-height: var(--motion-leading-body); }
 .handoffActions > button { width: 100%; }
-.handoffActions .recreateActions > button:first-child { min-height: var(--motion-space-40); }
 .handoffSteps { display: grid; gap: var(--motion-space-8); margin-block: var(--motion-space-12) 0; padding: var(--motion-space-12); border-radius: var(--motion-radius-md); background: var(--motion-panel); }
 .handoffSteps > strong { font-size: var(--motion-text-xs); font-weight: var(--motion-weight-medium); }
 .handoffSteps > p { font-size: var(--motion-text-xs); }
@@ -284,7 +281,7 @@
 .reviewGrid .detailInfo { display: flex; flex-direction: column; overflow: hidden; }
 .reviewGrid .detailNav { flex: none; position: relative; }
 .reviewGrid .detailBody { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.reviewFooter { flex: none; padding: var(--motion-space-12) var(--detail-gutter); border-top: 1px solid var(--motion-border-subtle); background: var(--color-template-surface); }
+.reviewFooter { composes: om-media-detail-footer from global; }
 .reviewFooter .handoffActions { margin-bottom: 0; }
 .reviewFooter .handoffRecovery { margin-block: var(--motion-space-8) 0; }
 .reviewResources { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--motion-space-8) var(--motion-space-16); margin-bottom: var(--motion-space-20); }

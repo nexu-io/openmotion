@@ -13,9 +13,11 @@ Design Studio lets you create, preview, annotate, version, import and export HTM
 | `web-clone` | `?page=design&scene=web-clone` | Functional HTML rebuild from reference | Responsive HTML |
 | `live-artifact` | `?page=design&scene=live-artifact` | `data.json`-backed HTML dashboard | Refreshable live preview |
 | `webgl` | `?page=design&scene=webgl` | WebGL2 interactive shader/3D page | Sandboxed preview |
-| `projects` | `?page=design&scene=projects` | All Design Studio projects + Trash | Grid with live thumbnails, import & export |
+| `projects` | `?page=design&scene=projects` | All Design Studio projects + Trash | In a design scene, choose **View all** under **Recent projects** to see the grid with live thumbnails, import and export. |
 
 Image scenes (`text-to-image`, `image-edit`) remain available directly alongside these tabs in Design Studio. Motion design and HyperFrames route to Motion Studio; Video and Audio route to Cinema Studio and Sound Studio.
+
+Use **Filters** next to project search to choose a category in the project manager or sidebar. The sidebar also offers ZIP import, project creation, and Trash. Hover or keyboard-focus a sidebar row to reveal its actions button. The button is always visible on touch screens. Project actions include rename, duplicate, export, open in a detected editor, and move to Trash. In Trash, the menu offers restore and permanent deletion.
 
 ## Storage layout
 

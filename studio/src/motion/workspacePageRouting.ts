@@ -12,7 +12,6 @@ export const settingsSections = ['account', 'subscription', 'providers', 'models
 export type SettingsSection = typeof settingsSections[number];
 export type ExploreFilters = { community: ExploreCommunity['id'] | null; medium: StudioScene['modality'] | null };
 export { findTemplateCollection, type TemplateCollection } from './templateCollections';
-export const defaultDesignScene = 'prototype';
 export type DesignSceneTarget = DesignScenarioId | 'projects';
 export type WorkspacePage = ExploreFilters & { motion: boolean; designScene?: DesignSceneTarget | null; designProject?: string | null; specialty: TechniqueStudio | null; assetId: string | null; assetVersion: string | null; explore: boolean; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skillCategory: SkillCategory | null; skill: string | null; templates: boolean; templateCollection: TemplateCollection | null; modelOverview: string | null; modelHub: string | null; creators: boolean; creator: string | null; mcpInSettings: boolean; mcpExample?: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
 
@@ -26,9 +25,8 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
     ? settingsSections.find(value => value === section) ?? 'general' : null;
   const sceneId = query.get('scene'), model = query.get('model') || null;
   const rawDesignProject = page === 'design' ? query.get('designProject') || null : null;
-  const isDesignHtmlScene = page === 'design' && (!sceneId || isDesignScenario(sceneId) || sceneId === 'projects' || Boolean(rawDesignProject));
-  const designScene: DesignSceneTarget | null = !isDesignHtmlScene ? null
-    : isDesignScenario(sceneId) ? sceneId : sceneId === 'projects' || rawDesignProject ? 'projects' : defaultDesignScene;
+  const isDesignHtmlScene = page === 'design' && (isDesignScenario(sceneId) || sceneId === 'projects' || Boolean(rawDesignProject));
+  const designScene: DesignSceneTarget | null = isDesignHtmlScene ? (isDesignScenario(sceneId) ? sceneId : 'projects') : null;
   const designProject = isDesignHtmlScene ? rawDesignProject : null;
   const collection = findTechniqueStudio(page);
   const studioKind = collection?.scenes.some(id => id === sceneId) ? collection : (isDesignHtmlScene ? undefined : findMediaStudio(page));

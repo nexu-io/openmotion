@@ -89,7 +89,7 @@ describe('Design Studio client, bridge and routing', () => {
     expect(img.studio?.scene.id).toBe('text-to-image');
     expect(img.designScene).toBeUndefined();
 
-    expect(readWorkspacePage('?page=design').designScene).toBe('prototype');
+    expect(readWorkspacePage('?page=design').studio?.scene.id).toBe('text-to-image');
     const proto = readWorkspacePage('?page=design&scene=prototype');
     expect(proto.designScene).toBe('prototype');
     expect(proto.studio).toBeNull();

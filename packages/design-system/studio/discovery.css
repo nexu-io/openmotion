@@ -67,6 +67,16 @@
 }
 .om-rail-arrow[data-edge="left"] { left: var(--motion-space-4); }
 .om-rail-arrow[data-edge="right"] { right: var(--motion-space-4); }
+.om-horizontal-rail[data-plain-arrows] {
+  --om-rail-fade-inset: calc(var(--om-rail-arrow-size, var(--motion-control)) + var(--motion-space-4));
+  --om-rail-fade-width: var(--motion-space-4);
+}
+[data-motion-studio] .om-horizontal-rail[data-plain-arrows] > .om-rail-arrow {
+  border: 0;
+  border-radius: var(--motion-radius-md);
+  background: transparent;
+  box-shadow: none;
+}
 .om-gallery-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-12); padding: 8px 32px 20px; }
 .om-gallery-categories { display: flex; align-items: center; gap: 7px; flex: 1 1 620px; min-width: 0; overflow: auto; scrollbar-width: none; }
 .om-gallery-categories::-webkit-scrollbar { display: none; }
@@ -76,9 +86,23 @@
 .om-category-strip-track > button { flex: none; white-space: nowrap; }
 
 /* Fade only the edges that still conceal scrollable choices. */
-.om-overflow-fade { --om-fade-start: 0px; --om-fade-end: 0px; mask-image: linear-gradient(to right, transparent, black var(--om-fade-start), black calc(100% - var(--om-fade-end)), transparent); }
-.om-overflow-fade[data-fade-start="true"] { --om-fade-start: var(--motion-space-24); }
-.om-overflow-fade[data-fade-end="true"] { --om-fade-end: var(--motion-space-24); }
+.om-overflow-fade {
+  --om-fade-start: 0px;
+  --om-fade-end: 0px;
+  mask-image: linear-gradient(to right,
+    transparent var(--om-fade-start),
+    black calc(var(--om-fade-start) + var(--om-fade-start-width, 0px)),
+    black calc(100% - var(--om-fade-end) - var(--om-fade-end-width, 0px)),
+    transparent calc(100% - var(--om-fade-end)));
+}
+.om-overflow-fade[data-fade-start="true"] {
+  --om-fade-start: var(--om-rail-fade-inset, 0px);
+  --om-fade-start-width: var(--om-rail-fade-width, var(--motion-space-24));
+}
+.om-overflow-fade[data-fade-end="true"] {
+  --om-fade-end: var(--om-rail-fade-inset, 0px);
+  --om-fade-end-width: var(--om-rail-fade-width, var(--motion-space-24));
+}
 /* Retained by the disclosure primitive until exit completes; no layout scaling. */
 .om-detail-reveal { opacity: 1; transform: translateX(0); }
 @media (prefers-reduced-motion: no-preference) {

@@ -3,6 +3,7 @@ import React, { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { I18nProvider, LOCALE_STORAGE_KEY, languages, readLocale, translate, useI18n } from './I18n';
+import { designScenarios, type DesignScenarioId } from '../../../shared/design-project';
 import { pageMetadata } from '../../../packages/design-system/metadata.js';
 import baseZhCN from './zh-CN.json';
 import mvpZhCN from './mvp-zh-CN.json';
@@ -11,6 +12,7 @@ import { FlatSelectRow } from '../components/editor/propertyPanelFlatSelectRow';
 import { Section } from '../components/editor/propertyPanelPrimitives';
 import { StudioToast } from '../components/StudioToast';
 import { LintModal } from '../components/LintModal';
+import { DesignScenePage } from '../design/scenes/DesignScenePage';
 import { systemMessage } from './systemMessages';
 import { HF_COLOR_GRADING_PRESETS, HF_COLOR_GRADING_PALETTES } from '@hyperframes/core/color-grading';
 import { FlatColorGradingAccessory } from '../components/editor/propertyPanelFlatColorGradingAccessory';
@@ -277,6 +279,101 @@ it('uses OpenMotion in copied project-check instructions', async () => {
   </I18nProvider>));
   await act(async () => { [...host.querySelectorAll('button')].find(button => button.textContent === 'Copy to Agent')!.click(); });
   expect(writeText).toHaveBeenCalledWith('Fix these OpenMotion project check issues for project "demo":\n\n[error] Missing composition');
+});
+
+it('starts each design scene with its localized template gallery and keeps examples in the brief', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ kits: [], entries: [], projects: [], items: [], skills: [] }));
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  const renderScene = (scene: DesignScenarioId, locale: 'zh-CN' | 'en') => act(async () => {
+    root.render(<I18nProvider key={locale} initialLocale={locale}>
+      <DesignScenePage scene={scene} onSelectDesignScene={vi.fn()} onSelectImageScene={vi.fn()}
+        onChooseStudio={vi.fn()} onOpenProject={vi.fn()} onExplore={vi.fn()} onOpenMcp={vi.fn()} />
+    </I18nProvider>);
+  });
+  const brief = () => host.querySelector<HTMLTextAreaElement>('.om-design-bottom-input')!;
+
+  for (const scenario of designScenarios) {
+    await renderScene(scenario.id, 'zh-CN');
+    const gallery = host.querySelector('.om-design-page-with-dock')!;
+    expect(gallery.querySelector('h2')?.textContent).toBe(`${translate('zh-CN', scenario.label)} 模板`);
+    expect(gallery.textContent).not.toContain(translate('zh-CN', scenario.hint));
+    for (const example of scenario.examples) {
+      const localized = translate('zh-CN', example);
+      expect(localized).toMatch(/\p{Script=Han}/u);
+      expect(gallery.textContent).not.toContain(localized);
+    }
+    expect(brief().placeholder).toContain(translate('zh-CN', scenario.examples[0]));
+  }
+
+  await renderScene('mobile-app', 'zh-CN');
+  const mobile = designScenarios.find(scenario => scenario.id === 'mobile-app')!;
+  const fitness = translate('zh-CN', mobile.examples[0]);
+  const copy = Array.from(host.querySelectorAll('button')).find(button => button.textContent === '复制给 Agent')!;
+  await act(async () => { copy.click(); });
+  expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining(fitness));
+
+  await renderScene('mobile-app', 'en');
+  expect(brief().placeholder).toContain(mobile.examples[0]);
+});
+
+it('localizes Design Studio mention names and types while preserving reference IDs', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({
+    kits: [], entries: [], projects: [],
+    items: [{
+      id: 'frontend-slides', title: 'Frontend Slides', category: 'presentation', scenario: 'deck',
+      description: '', tags: [], entry: 'index.html', previewUrl: 'about:blank',
+      examplePrompt: null, license: 'Apache-2.0', source: '',
+    }],
+    skills: [{ id: 'ad-creative', title: 'Ad Creative' }, { id: 'agent-browser', title: 'Agent Browser' }].map(skill => ({
+      ...skill, description: '', scenario: null, category: 'design', examplePrompt: null,
+    })),
+  }));
+  const renderScene = (locale: 'zh-CN' | 'en') => act(async () => {
+    root.render(<I18nProvider key={locale} initialLocale={locale}>
+      <DesignScenePage scene="deck" onSelectDesignScene={vi.fn()} onSelectImageScene={vi.fn()}
+        onChooseStudio={vi.fn()} onOpenProject={vi.fn()} onExplore={vi.fn()} onOpenMcp={vi.fn()} />
+    </I18nProvider>);
+  });
+  const brief = () => host.querySelector<HTMLTextAreaElement>('.om-design-bottom-input')!;
+  const mention = (value: string) => act(async () => {
+    const input = brief();
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value);
+    input.setSelectionRange(value.length, value.length);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const options = () => [...host.querySelectorAll<HTMLButtonElement>('.om-design-mention-item')];
+  const rows = () => options().map(option => [
+    option.querySelector('.om-design-mention-label')?.textContent,
+    option.querySelector('.om-design-mention-type')?.textContent,
+  ]);
+
+  await renderScene('zh-CN');
+  await mention('@');
+  expect(rows().slice(0, 3)).toEqual([
+    ['像顶级技术解释者一样写 AI 工作流 101', '模板'],
+    ['广告创意', 'Skill'],
+    ['Agent Browser', 'Skill'],
+  ]);
+  expect(rows().slice(3).map(([, kind]) => kind)).toEqual(['提示词', '提示词']);
+  expect(host.querySelector('.om-design-mention-menu')?.textContent).not.toMatch(/@(?:template|skill):/);
+
+  await mention('@工作流');
+  expect(rows()).toEqual([['像顶级技术解释者一样写 AI 工作流 101', '模板']]);
+  await act(async () => options()[0].click());
+  expect(brief().value).toBe('@template:frontend-slides ');
+
+  await mention('@广告');
+  expect(rows()).toEqual([['广告创意', 'Skill']]);
+  await act(async () => options()[0].click());
+  expect(brief().value).toBe('@skill:ad-creative ');
+
+  await renderScene('en');
+  await mention('@');
+  expect(rows().slice(0, 3)).toEqual([
+    ['Frontend Slides', 'Template'],
+    ['Ad Creative', 'Skill'],
+    ['Agent Browser', 'Skill'],
+  ]);
 });
 
 it('preserves custom console-error titles and original diagnostics in the shared lint dialog', () => {
