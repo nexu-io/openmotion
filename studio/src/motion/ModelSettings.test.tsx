@@ -18,6 +18,8 @@ async function mount(providerId?: string) {
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root!.render(<I18nProvider initialLocale="en"><ModelSettings openAccount={() => {}} providerId={providerId} /></I18nProvider>));
 }
+// The OpenDesign provider also reads the account summary for its guides; count only directory loads.
+const directoryCalls = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => String(url).endsWith('/settings/providers')).length;
 const account = { id: 'account', label: 'OpenDesign', protocol: 'account', category: 'account', kinds: ['text', 'image'], configured: false, enabled: false, available: false };
 it('hides text-only providers across search and direct links while preserving media and unclassified custom connections', async () => {
   const text = { ...account, id: 'text-only', label: 'Text only', protocol: 'openai', category: 'language', kinds: ['text'], configured: true, custom: false };
@@ -36,7 +38,7 @@ it('hides text-only providers across search and direct links while preserving me
   expect(document.body.textContent).toContain('No matching providers');
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Clear filters"]')!.click());
   expect(document.querySelectorAll('.om-provider-item')).toHaveLength(4);
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(directoryCalls(fetcher)).toBe(1);
 });
 for (const [id, label] of [['fal', 'fal.ai'], ['atlascloud', 'Atlas Cloud'], ['wavespeed', 'WaveSpeedAI']]) it(`saves and removes ${label} credentials without revealing the key or making a paid call`, async () => {
   let configured = false; const writes: unknown[] = [];
@@ -69,7 +71,7 @@ it('searches providers without mutating credentials and recovers from failed dir
   expect(document.body.textContent).toContain('No matching providers');
   await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Clear filters"]')!.click());
   expect(document.querySelectorAll('.om-provider-item')).toHaveLength(1);
-  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(directoryCalls(fetcher)).toBe(2);
 });
 
 it('marks only runnable providers with a dot and configured-but-switched-off providers as Disabled', async () => {
@@ -178,4 +180,37 @@ it('shows the advisory OpenDesign Plus guidance on configured Free/Go accounts w
   expect(document.body.textContent).toContain('Language One');
   const useDefault = document.querySelector<HTMLButtonElement>('[aria-label="Use Language One as default"]')!;
   expect(useDefault.disabled).toBe(false);
+});
+
+for (const [summary, heading, action] of [
+  [{ state: 'signed-out' }, 'Sign in to start multimodal generation', 'Sign in with OpenDesign'],
+  [{ state: 'signed-in', plan: 'go' }, 'Go', 'Upgrade to Plus'],
+  [{ state: 'signed-in', plan: 'free' }, 'Free plan', 'Upgrade to Plus'],
+] as const) it(`shows the account page ${heading} guide on the OpenDesign provider and keeps its models`, async () => {
+  const textModel = { id: 'account:language-one', provider: 'account', modelId: 'language-one', label: 'Language One', kind: 'text', enabled: true, source: 'live' };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/settings/account')
+    ? Response.json({ consoleUrl: 'https://console.example', ...summary })
+    : Response.json({ providers: [{ ...account, configured: summary.state === 'signed-in' }], models: [textModel], defaults: {} })));
+  await mount('account');
+  const guide = document.querySelector('.om-plan-guide')!;
+  expect(guide.querySelector('.om-plan-guide-head h2')?.textContent).toBe(heading);
+  expect(guide.textContent).toContain('Images'); expect(guide.textContent).toContain('Music'); expect(guide.textContent).toContain('Annual offer');
+  expect(guide.textContent).toContain(action);
+  expect(document.querySelector('.om-account-callout')).toBeNull();
+  expect(document.querySelector('.om-provider-detail-inner > .om-settings-tags')).toBeNull();
+  expect(document.body.textContent).toContain('Language One');
+});
+
+it('signs in from the OpenDesign provider guide and opens the account page', async () => {
+  const openAccount = vi.fn(), posts: string[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (init?.method === 'POST') { posts.push(String(url)); return Response.json({ consoleUrl: 'https://console.example', state: 'authorizing' }); }
+    return String(url).endsWith('/settings/account') ? Response.json({ consoleUrl: 'https://console.example', state: 'signed-out' })
+      : Response.json({ providers: [account], models: [], defaults: {} });
+  }));
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  await act(async () => root!.render(<I18nProvider initialLocale="en"><ModelSettings openAccount={openAccount} providerId="account" /></I18nProvider>));
+  await act(async () => click('Sign in with OpenDesign'));
+  expect(posts).toEqual(['/motion-api/settings/account/login']);
+  expect(openAccount).toHaveBeenCalledTimes(1);
 });
