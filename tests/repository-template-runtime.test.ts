@@ -127,6 +127,10 @@ test('HTTP gallery and guide routes use the same repository source; copied promp
   assert(shown.includes('"id":"' + template.id + '"'));
   assert(shown.includes('/guide-assets/viewer.js'));
   assert.deepEqual(authoredTemplateGuide(shown), authoredTemplateGuide(await readFile(template.localSource.previewPath, 'utf8')));
+  const guide = await request(`/api/template-source/${firstId}/viewer/guide.js`); assert.equal(guide.status, 200);
+  const guideSource = await guide.text();
+  assert(guideSource.includes("location.origin === 'null'"));
+  assert(!guideSource.includes("location.protocol==='file:'?'*':location.origin"));
   const css = await request(`/api/template-source/${firstId}/viewer/board.css`); assert.equal(css.status, 200); assert.match(css.headers.get('content-type')!, /text\/css/);
   assert.equal((await request(`/api/template-source/${firstId}/%2e%2e%2f%2e%2e%2fpackage.json`)).status, 404);
   assert.equal((await request(`/api/template-source/${firstId}/missing.md`)).status, 404);

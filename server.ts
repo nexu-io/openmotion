@@ -647,6 +647,9 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       try {
         const catalog = templateCatalogFor(store.directory);
         let bytes = await catalog.sourceFile(templateSource[1], name);
+        if (name === 'viewer/guide.js') {
+          bytes = Buffer.from(bytes.toString().replaceAll("location.protocol==='file:'?'*':location.origin", "(location.protocol==='file:' || location.origin === 'null') ? '*' : location.origin"));
+        }
         if (name === 'preview.html' && url.searchParams.get('raw') !== '1') {
           const template = await catalog.get(templateSource[1]);
           bytes = Buffer.from(upgradeTemplateGuidePage(bytes.toString(), { id: template.id, title: template.title, brand: template.brand,
