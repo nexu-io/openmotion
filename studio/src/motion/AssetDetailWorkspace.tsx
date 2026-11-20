@@ -7,6 +7,15 @@ import { AssetPreview } from './AssetBrowser';
 import { ResizablePane } from './ResizablePane';
 import { Tooltip } from '../components/ui/Tooltip';
 
+function formatAssetSize(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes, unit = 0;
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+  // Promote values that would round up to the next unit as well.
+  if (Number(size.toFixed(2)) >= 1024 && unit < units.length - 1) { size /= 1024; unit++; }
+  return `${Number(size.toFixed(2))} ${units[unit]}`;
+}
+
 function AssetNameEditor({ name, saving, onRename }: { name: string; saving: boolean; onRename: (name: string) => Promise<boolean | void> }) {
   const { t } = useI18n();
   const [editing, setEditing] = useState(false), [draft, setDraft] = useState(name), [pending, setPending] = useState(false), [overflow, setOverflow] = useState(false);
@@ -116,7 +125,7 @@ export function AssetDetailWorkspace({ asset, versionId, active, uploading, savi
       </ResizablePane>
       <main ref={viewer} className="om-asset-viewer">
         <div className="om-asset-viewer-stage">{active && <AssetPreview key={`${asset.id}/${version.id}`} asset={asset} version={version} controls autoPlay />}</div>
-        <footer className="om-asset-viewer-caption om-muted"><span>{version.width && version.height ? `${version.width} × ${version.height}` : version.mimeType}</span><span>{(version.bytes / 1024 / 1024).toFixed(2)} MB</span><span>V{number}{version.id === asset.currentVersionId ? ` · ${t('Current')}` : ''}</span></footer>
+        <footer className="om-asset-viewer-caption om-muted"><span>{version.width && version.height ? `${version.width} × ${version.height}` : version.mimeType}</span><span>{formatAssetSize(version.bytes)}</span><span>V{number}{version.id === asset.currentVersionId ? ` · ${t('Current')}` : ''}</span></footer>
       </main>
       <ResizablePane className="om-asset-inspector-pane" storageKey="motion-asset-inspector-width" initial={360} min={280} max={600} edge="left" label={t('Resize asset details')}>
         {editor ?? <aside className="om-asset-inspector" aria-label={t('Asset details')}>

@@ -91,7 +91,7 @@ describe("studio theme", () => {
     const playhead = declaredValue("--color-playhead");
 
     expect(accent).toBe("var(--motion-accent)");
-    expect(selection).toBe("var(--motion-accent)");
+    expect(selection).toBe("var(--motion-selected)");
     expect(playhead).toBe("var(--motion-strong)");
   });
 

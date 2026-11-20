@@ -20,7 +20,7 @@ export const mediaProviders = Object.keys(media) as MediaProviderId[];
 
 /** Public metadata only; adapters and login sessions remain service-owned. */
 export const providerRegistry: ProviderRegistration[] = [
-  { id: 'codex', label: 'Codex', integration: 'agent', protocol: 'agent', category: 'local', kinds: ['image'], baseUrl: '', baseUrlEditable: false },
+  { id: 'codex', label: 'Codex', integration: 'agent', protocol: 'agent', category: 'local', kinds: ['image'], baseUrl: '', baseUrlEditable: false, reference: 'codex' },
   ...mediaProviders.map((id): ProviderRegistration => ({ id, integration: 'media', protocol: 'media', category: 'multimodal', kinds: ['image', 'video', 'audio'],
     baseUrlEditable: false, ...media[id], reference: id, docs: `/motion-api/models/providers/${id}/reference` })),
   { id: 'account', label: 'OpenDesign', integration: 'account', protocol: 'account', category: 'account', kinds: ['text', 'image', 'video', 'audio'],

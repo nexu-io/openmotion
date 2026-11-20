@@ -9,6 +9,7 @@
 .om-explore-feed, .om-studio-collection { min-width: 0; }
 .om-discovery-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--motion-space-12); }
 .om-explore-title { font: var(--motion-weight-bold) var(--motion-text-display)/1.05 var(--motion-font-display); letter-spacing: -.045em; }
+.om-explore-nav { flex-wrap: wrap; margin-inline-start: auto; }
 .om-explore > .om-discovery-page { row-gap: var(--motion-space-24); }
 .om-explore-sections { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--motion-space-40); }
 .om-feed-template-placeholder { display: block; width: 100%; aspect-ratio: 16/9; }
@@ -187,6 +188,7 @@
 
 .om-studio-template-shelf { display: grid; gap: var(--motion-space-16); }
 .om-studio-template-shelf header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--motion-space-12); }
+.om-studio-template-heading { display: flex; align-items: center; gap: var(--motion-space-12); }
 .om-studio-template-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--motion-space-16); }
 .om-studio-template-grid:empty { display: none; }
 .om-studio-template-grid > span, .om-studio-template-grid .om-gallery-card-media { aspect-ratio: 16 / 10; }
@@ -195,7 +197,10 @@
 .om-shelf-more { justify-self: center; }
 .om-studio-techniques-title { margin-block: var(--motion-space-24) var(--motion-space-16); }
 @container (max-width: 900px) { .om-studio-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (max-width: 420px) { .om-studio-template-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Motion templates share the editor workspace, so keep cards compact beside navigation. */
+.om-studio-template-shelf[data-studio="motion"] .om-studio-template-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@container (max-width: 600px) { .om-studio-template-shelf[data-studio="motion"] .om-studio-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 420px) { .om-studio-template-grid, .om-studio-template-shelf[data-studio="motion"] .om-studio-template-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .om-explore-shelf { display: grid; gap: var(--motion-space-16); min-width: 0; }
 .om-explore-shelf > .om-discovery-heading { margin: 0; }

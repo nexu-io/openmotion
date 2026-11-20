@@ -10,8 +10,9 @@ export function accountMediaState(account: AccountSummary): Partial<AccountMedia
   // Missing, empty and malformed balances must not become zero through Number coercion.
   const balance = typeof account.balance === 'string' && account.balance.trim() !== '' ? Number(account.balance) : NaN;
   const hasBalance = plan !== undefined && Number.isFinite(balance) ? balance > 0 : undefined;
+  // Free and Go entitle text models only; credits never unlock media models on these plans.
   const mediaEntitlement = !signedIn ? undefined : plan && ['plus', 'pro', 'max'].includes(plan) ? 'included'
-    : plan && ['free', 'go'].includes(plan) && hasBalance === false ? 'not-included' : 'unknown';
+    : plan && ['free', 'go'].includes(plan) ? 'not-included' : 'unknown';
   const reason = !signedIn ? account.state === 'reauth-required'
     ? 'OpenDesign sign-in expired; sign in again to use your account models' : 'Sign in to use your account models'
     : mediaEntitlement === 'included' ? 'Included with your account'

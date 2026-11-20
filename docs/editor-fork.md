@@ -89,7 +89,7 @@ The application shell reads its destination from the URL query. The native edito
 | Destination | Query parameters |
 | --- | --- |
 | Current editor | Project/session URL, project hash or `page=editor` to resume the active project |
-| Motion Studio | `page=motion` opens editable templates and an action to resume the timeline |
+| Motion Studio | `page=motion` opens Motion templates alongside the workspace sidebar; select a project to open its timeline, or Template library to browse the global library |
 | Shorts, Marketing and Explainer Studios | `page=shorts`, `page=marketing` or `page=explainer`. Add a supported `scene` to open the generator. A registered `skill` restores its brief on return. |
 | Model overview | `page=model&model=<provider-qualified-id>` lists compatible scenes and links to its provider and generation setup. |
 | Model hub | `page=model-hub&hub=<hub-id>`, for example `hub=gemini-4`. Opens a model family's landing page from its Explore spotlight slide: community videos with their detail preview, plus sign-in and own-key paths. It is a standalone page, so a session's first artifact does not return the viewer to the editor. An unknown `hub` shows a page-unavailable notice. |

@@ -36,7 +36,7 @@ import { ErrorNotice } from '../components/ui/ErrorNotice';
 import { isConnectionFailure } from '../components/ui/errorNoticeMessage';
 import { preservePresentation, workspacePresentation } from '../../../shared/workspace-url';
 import { trackMotion } from './tracking';
-import { ApplicationHeader, ApplicationRail } from './ApplicationChrome';
+import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { SettingsCenter, type SettingsSection } from './SettingsCenter';
 import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
 import { McpConnectionPage } from './McpConnectionPage';
@@ -119,6 +119,15 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   // A later visit through history or a pasted link has no control behind it.
   useEffect(() => { if (settings !== 'mcp') connectionEntry.current = 'direct_link'; }, [settings]);
   const libraryTrigger = useRef<HTMLElement | null>(null);
+  const skillsTrigger = useRef<HTMLElement | null>(null);
+  const skillsReturnFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (skillsOpen) return;
+    const trigger = skillsReturnFocus.current;
+    skillsReturnFocus.current = null;
+    skillsTrigger.current = null;
+    if (page.explore && !page.templates) trigger?.focus({ preventScroll: true });
+  }, [skillsOpen, page.explore, page.templates]);
   const cardPreview = useRef<{ template: GalleryTemplate; locale: string } | null>(null);
   const closeStandalonePreview = () => {
     // A card pushes one preview entry. Copied links start a new history session at index zero.
@@ -136,13 +145,21 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const [projectQuery, setProjectQuery] = useState('');
   const editorRoute = !settings && !pageOpen;
   const editorActive = editorRoute && !connectionsOpen;
-  useEffect(() => setSidebarOpen(editorRoute && !narrow), [editorRoute, narrow]);
-  const navigationCollapsed = !editorActive;
+  const motionTemplatesOpen = page.motion && !templatesPage && !settings;
+  const workspaceRoute = editorRoute || motionTemplatesOpen;
+  const workspaceActive = workspaceRoute && !connectionsOpen;
+  useEffect(() => setSidebarOpen(workspaceRoute && !narrow), [workspaceRoute, narrow]);
+  const navigationCollapsed = !workspaceActive;
   const toggleSidebar = useCallback(() => setSidebarOpen(open => !open), []);
+  const openMotionTemplates = () => { navigatePage({ motion: true, templates: false }); if (narrow) setSidebarOpen(false); };
+  const openEditor = () => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); };
   const [assetsVisited, setAssetsVisited] = useState(assetsOpen);
   useEffect(() => { if (assetsOpen) setAssetsVisited(true); }, [assetsOpen]);
   const openAssets = useCallback(() => { navigatePage({ assets: true, assetId: null, assetVersion: null, templates: false }); }, [navigatePage]);
-  const openSkills = useCallback((skillCategory: SkillCategory | null = null) => { navigatePage({ skills: true, skill: null, skillCategory, templates: false }); }, [navigatePage]);
+  const openSkills = useCallback((skillCategory: SkillCategory | null = null, trigger?: HTMLElement) => {
+    skillsTrigger.current = trigger ?? null;
+    navigatePage({ skills: true, skill: null, skillCategory, templates: false });
+  }, [navigatePage]);
   const openSettings = useCallback((section: SettingsSection) => {
     navigatePage({ settings: section, assets: false, skills: false, templates: false });
   }, [navigatePage]);
@@ -168,10 +185,10 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === ',') { event.preventDefault(); openSettings('general'); }
-      if (editorActive && event.altKey && event.key.toLowerCase() === 'b') { event.preventDefault(); toggleSidebar(); }
+      if (workspaceActive && event.altKey && event.key.toLowerCase() === 'b') { event.preventDefault(); toggleSidebar(); }
     };
     window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
-  }, [editorActive, openSettings, toggleSidebar]);
+  }, [workspaceActive, openSettings, toggleSidebar]);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
   const switchingDisabled = libraryBusy || !workspace.status;
   const archives = useProjectArchives(workspace, beforeViewChange, switchingDisabled, () => { if (narrow) setSidebarOpen(false); });
@@ -198,6 +215,11 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
     openAccountSettings: () => openSettings('account'),
     openSubscriptionSettings: () => openSettings('subscription'),
     openHome, openAssets, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
+    projectNavigation: !hostChrome && workspaceActive ? <span className="motion-project-navigation-trigger" hidden={sidebarOpen && !narrow}>
+      <WorkspaceProjectsButton applicationRef={applicationRef} expanded={sidebarOpen} previewEnabled={!narrow && !sidebarOpen} onToggle={toggleSidebar}>
+        {close => <WorkspaceSidebar archives={archives} currentId={projectId} close={close} expand={() => { close(); toggleSidebar(); }} onNavigate={close} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} templatesOpen={motionTemplatesOpen} openTemplates={openMotionTemplates} openEditor={openEditor} />}
+      </WorkspaceProjectsButton>
+    </span> : null,
     settingsOpen: Boolean(settings) || pageOpen };
   const openSkill = (skill: string) => {
     const specialty = creativeStudios.find((entry): entry is TechniqueStudio => entry.surface === 'techniques' && entry.techniques.some(id => id === skill));
@@ -245,6 +267,10 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
       ? { community: page.community, medium: page.medium } : lastExplore.current;
     navigatePage({ explore: true, templates: false, ...filters });
   };
+  const closeSkills = () => {
+    skillsReturnFocus.current = skillsTrigger.current;
+    returnToExplore();
+  };
   const openPage = (target: 'explore' | 'mcp', client?: McpClient, example?: string) => {
     if (target === 'explore') { openHome(); return; }
     connectionEntry.current = 'app_header';
@@ -280,28 +306,21 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
     {archives.manager}
-    <Dialog.Root open={sidebarOpen && narrow && editorActive} onOpenChange={setSidebarOpen}>
+    <Dialog.Root open={sidebarOpen && narrow && workspaceActive} onOpenChange={setSidebarOpen}>
     <div ref={applicationRef} className="om-application" data-embedded={presentation.embedded} data-host-chrome={hostChrome} data-navigation-collapsed={navigationCollapsed}>
       <ApplicationHeader atExploreHome={page.explore && !page.community && !page.medium && !connectionsOpen}
         specialty={page.specialty} onChooseStudio={chooseStudio} openSettings={openSettings}
         openAsset={(assetId, assetVersion) => navigatePage({ assets: true, assetId, assetVersion, templates: false })}
         onCommunity={feed => navigatePage({ explore: true, community: feed.id, medium: null, templates: false })} onSkill={openSkill} currentPage={currentPage} trackingPage={navTrackingPage} onOpenPage={openPage} settings={visibleSettings} destination={templatesPage ? null : page.studio} motionActive={!templatesPage && (page.motion || editorActive)} designActive={!templatesPage && Boolean(page.designScene)} onNavigate={openStudio} />
-      {editorRoute && <ApplicationRail openSettings={openSettings} projects={<WorkspaceProjectsButton
-        applicationRef={applicationRef}
-        expanded={sidebarOpen && editorActive}
-        previewEnabled={!narrow && !sidebarOpen && editorActive}
-        onToggle={toggleSidebar}>
-        {close => <WorkspaceSidebar archives={archives} currentId={projectId} close={close} expand={() => { close(); toggleSidebar(); }} onNavigate={close} query={projectQuery} setQuery={setProjectQuery} />}
-      </WorkspaceProjectsButton>} />}
       <div className="motion-workspace">
       <Dialog.Portal>
         <Dialog.Backdrop className="hf-overlay-backdrop motion-sidebar-backdrop" />
         <Dialog.Popup id="om-project-navigation" className="motion-sidebar-drawer" aria-label={t('Project list')} onKeyDown={event => event.stopPropagation()}>
-          <WorkspaceSidebar archives={archives} currentId={projectId} close={() => setSidebarOpen(false)} query={projectQuery} setQuery={setProjectQuery} />
+          <WorkspaceSidebar archives={archives} currentId={projectId} close={() => setSidebarOpen(false)} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} templatesOpen={motionTemplatesOpen} openTemplates={openMotionTemplates} openEditor={openEditor} />
         </Dialog.Popup>
       </Dialog.Portal>
-      {!narrow && editorRoute && <div id="om-project-navigation" className="om-project-navigation om-collapsible" data-collapsed={!sidebarOpen || navigationCollapsed} aria-hidden={!sidebarOpen || navigationCollapsed} inert={!sidebarOpen || navigationCollapsed}>
-        <WorkspaceSidebar archives={archives} currentId={projectId} close={() => setSidebarOpen(false)} query={projectQuery} setQuery={setProjectQuery} />
+      {!narrow && workspaceRoute && <div id="om-project-navigation" className="om-project-navigation om-collapsible" data-collapsed={!sidebarOpen || navigationCollapsed} aria-hidden={!sidebarOpen || navigationCollapsed} inert={!sidebarOpen || navigationCollapsed}>
+        <WorkspaceSidebar archives={archives} currentId={projectId} close={() => setSidebarOpen(false)} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} templatesOpen={motionTemplatesOpen} openTemplates={openMotionTemplates} openEditor={openEditor} />
       </div>}
       <div className="motion-workspace-content" hidden={!editorRoute} inert={!editorRoute}>
         {visibleNotice && <ErrorNotice key={noticeKey} message={notice}
@@ -314,8 +333,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
           value.openLibrary(trigger, undefined, 'black-friday');
         }} onCreators={trigger => { libraryTrigger.current = trigger; navigatePage({ templates: true, creators: true, creator: null, template: null }); }} onBrandKit={() => openSettings('brand-kit')} onMcp={(client, example) => openPage('mcp', client, example)} onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false, ...lastExplore.current })} onOpenDesignProject={id => navigatePage({ designScene: 'projects', designProject: id, templates: false, ...lastExplore.current })} filters={lastExplore.current} onChooseStudio={chooseStudio} active={page.explore && !connectionsOpen} onNavigate={openStudio} onSkill={openSkill} />
       </div>}
-      {page.motion && !templatesPage && <div className="om-explore-host"><MotionStudioPage active={!connectionsOpen}
-        onExplore={returnToExplore} onOpenEditor={() => openStudio(null)} /></div>}
+      {motionTemplatesOpen && <div className="om-explore-host"><MotionStudioPage active={!connectionsOpen} /></div>}
       {page.modelHub && !templatesPage && <div className="om-explore-host"><ModelHub id={page.modelHub} hasProject={Boolean(projectId)} onExplore={returnToExplore} onModel={openModel} onSettings={openSettings}
         onProvider={provider => navigatePage({ settings: 'providers', provider, templates: false })}
         onUse={() => chooseStudio(motionStudio)} /></div>}
@@ -342,7 +360,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         </div>
       )}
       {(assetsVisited || assetsOpen) && <div className="om-assets-host" hidden={!assetsOpen || Boolean(settings) || templatesPage} inert={!assetsOpen || Boolean(settings) || templatesPage}><AssetsPage hasProject={Boolean(projectId)} active={assetsOpen && !settings && !templatesPage} routeId={page.assetId} routeVersion={page.assetVersion} onAssetRoute={selectAssetRoute} /></div>}
-      {(skillsOpen || page.specialty) && !settings && !templatesPage && <div className="om-skills-host"><SkillsPage previewsEnabled={!connectionsOpen} briefs={skillBriefs.current} onCreate={openStudio} key={page.specialty?.id ?? 'skills'} studio={page.specialty ?? undefined} onExplore={returnToExplore} skillId={page.skill} routeCategory={page.skills ? page.skillCategory : undefined} onCategoryChange={skillCategory => navigatePage({ skillCategory }, true)} onSkillChange={skill => navigatePage({ skill })} hasProject={Boolean(projectId)} /></div>}
+      {(skillsOpen || page.specialty) && !settings && !templatesPage && <div className="om-skills-host"><SkillsPage previewsEnabled={!connectionsOpen} briefs={skillBriefs.current} onCreate={openStudio} key={page.specialty?.id ?? 'skills'} studio={page.specialty ?? undefined} onExplore={returnToExplore} onClose={skillsOpen ? closeSkills : undefined} skillId={page.skill} routeCategory={page.skills ? page.skillCategory : undefined} onCategoryChange={skillCategory => navigatePage({ skillCategory }, true)} onSkillChange={skill => navigatePage({ skill })} hasProject={Boolean(projectId)} /></div>}
       {settings && !templatesPage && <SettingsSurfaceBoundary key={settings}>{settings === 'brand-kit'
         ? <BrandKitPage inWorkspace={!hostChrome} onClose={openHome} selectedId={page.brandKit} onSelect={brandKit => navigatePage({ brandKit })} previewsEnabled={!connectionsOpen} hasProject={Boolean(projectId)} /> : settings === 'mcp'
         ? <McpConnectionPage openProviders={value.openModelSettings} onBack={() => openPage('explore')} entry={connectionEntry.current} projectId={projectId ?? undefined} hasProject={Boolean(projectId)} previewsEnabled={!connectionsOpen} openLibrary={value.openLibrary} route={page} onRouteChange={navigatePage} />
@@ -357,8 +375,10 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   </WorkspaceChromeContext.Provider>;
 }
 
-function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery, onNavigate }: {
+function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery, onNavigate, openSettings, templatesOpen, openTemplates, openEditor }: {
   archives: ProjectArchiveActions; currentId?: string; close: () => void; expand?: () => void; query: string; setQuery: (query: string) => void; onNavigate?: () => void;
+  openSettings: (section: SettingsSection) => void;
+  templatesOpen: boolean; openTemplates: () => void; openEditor: () => void;
 }) {
   const { t } = useI18n();
   const { workspace, switchingDisabled } = useWorkspaceChrome();
@@ -373,13 +393,18 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
     </div>
     <div className="motion-session-heading">
       <span>{t('Projects')}</span>
-      <Tooltip label={t('New project')}>
-        <IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t('New project')} disabled={switchingDisabled} onClick={event => {
-          void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
-          void workspace.create();
-          onNavigate?.();
-        }} icon={<MotionIcon name="plus" size={16} />} />
-      </Tooltip>
+      <div className="motion-session-heading-actions">
+        <Tooltip label={t(archives.busy === 'import' ? 'Importing…' : 'Import projects')}>
+          <IconButton variant="ghost" type="button" className="motion-icon-button" disabled={archives.locked} onClick={archives.chooseImport} aria-label={t(archives.busy === 'import' ? 'Importing…' : 'Import projects')} icon={<RemixIcon name="upload-2-line" size={16} />} />
+        </Tooltip>
+        <Tooltip label={t('New project')}>
+          <IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t('New project')} disabled={switchingDisabled} onClick={event => {
+            void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'new_creation', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
+            void workspace.create();
+            onNavigate?.();
+          }} icon={<MotionIcon name="plus-thin" size={20} />} />
+        </Tooltip>
+      </div>
     </div>
     <label data-form-field="regular" className="motion-session-search"><MotionIcon name="search" /><FieldInput appearance="embedded" type="search" value={query} onChange={event => { if (searchStarted(query, event.target.value)) trackStudioClick('project_drawer', 'project_search', currentId); setQuery(event.target.value); }} placeholder={t('Search projects…')} aria-label={t('Search projects')} /></label>
     <nav className="motion-session-list" aria-label={t('Project list')} aria-busy={loadingProjects}>
@@ -387,11 +412,11 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
         <Skeleton style={{ width, height: 'var(--motion-space-16)' }} />
       </div>)}
       {workspace.status && !filtered.length && <p className="motion-session-empty">{t(query ? 'No matching projects' : 'Create a project with your Agent to start editing.')}</p>}
-      {filtered.map(project => <DisclosureRow key={project.id} className="om-project-sidebar-row" active={currentId === project.id}
+      {filtered.map(project => <DisclosureRow key={project.id} className="om-project-sidebar-row" active={!templatesOpen && currentId === project.id}
         action={<ProjectArchiveMenu projectId={project.id} title={project.title} archives={archives} />}>
-        <Tooltip label={project.title} wrap><Button variant="plain" aria-label={project.title} className="motion-session om-disclosure-row-label" aria-current={currentId === project.id ? 'page' : undefined}
+        <Tooltip label={project.title} wrap><Button variant="plain" aria-label={project.title} className="motion-session om-disclosure-row-label" aria-current={!templatesOpen && currentId === project.id ? 'page' : undefined}
         disabled={switchingDisabled} onClick={event => {
-          if (project.id === currentId) return;
+          if (project.id === currentId) { if (templatesOpen) { openEditor(); onNavigate?.(); } return; }
           void trackMotion('ui_click', { page_name: 'studio', area: 'workspace', element: 'open_project', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
           void workspace.open('projects', project.id);
           onNavigate?.();
@@ -401,8 +426,9 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
       </DisclosureRow>)}
     </nav>
     <div className="motion-sidebar-footer">
+      <Button variant="plain" type="button" className="om-nav-item" aria-current={templatesOpen ? 'page' : undefined} onClick={() => { openTemplates(); onNavigate?.(); }}><RemixIcon name="movie-line" size={18} />{t('Motion templates')}</Button>
       <Button variant="plain" className="om-nav-item" type="button" onClick={archives.showManager}><RemixIcon name="folder-open-line" size={18} />{t('All projects')}</Button>
-      <Button variant="plain" className="om-nav-item" type="button" disabled={archives.locked} onClick={archives.chooseImport}><RemixIcon name="upload-2-line" size={18} />{t(archives.busy === 'import' ? 'Importing…' : 'Import projects')}</Button>
+      <WorkspaceUtilityActions openSettings={section => { close(); openSettings(section); }} />
     </div>
   </aside>;
 }

@@ -690,11 +690,14 @@ export function TemplateLibraryDialog(props: Props) {
   const gallery = !detailOnly && <>
     {(!blackFriday || props.navigation) && <div className={styles.stickyHeader}>
       <header className={styles.header}>
-        {!blackFriday && <div className="om-gallery-wordmark">{!props.inWorkspace && <BrandLogo compact />}<span className="om-gallery-page-label">{t(props.creators ? 'Creators' : 'Template library')}</span></div>}
+        {!blackFriday && <div className="om-gallery-wordmark">
+          {!props.inWorkspace && <BrandLogo compact />}
+          <span className={`om-gallery-page-label${props.inWorkspace ? ' om-gallery-title' : ''}`}>{t(props.creators ? 'Creators' : 'Template library')}</span>
+        </div>}
         {props.navigation && <fieldset className="contents" disabled={props.busy}>{props.navigation}</fieldset>}
         {!blackFriday && <div className="om-control-row om-gallery-header-actions">
           {searchField}
-          <GitHubLink className="om-button" />
+          {props.creators && <GitHubLink className="om-button" />}
           <Tooltip label={t('Close template library')}><IconButton variant="ghost" ref={libraryClose} className="om-button om-icon-button" disabled={props.busy} onClick={props.onClose} aria-label={t('Close template library')} icon={<MotionIcon name="close" size={16} />} /></Tooltip>
         </div>}
       </header>

@@ -21,8 +21,7 @@
 .motion-sidebar-nav button:hover, .motion-session:hover { background: var(--motion-hover); color: var(--motion-strong); }
 .motion-sidebar [aria-current="page"] { background: var(--motion-accent-soft); color: var(--motion-accent); }
 .motion-sidebar button:disabled { cursor: default; opacity: .5; }
-.motion-session-heading { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; color: var(--motion-dim); font-size: var(--motion-text-xs); }
-.motion-session-heading .motion-icon-button { margin-right: -7px; }
+.motion-session-heading { display: flex; align-items: center; justify-content: space-between; padding-inline: var(--motion-space-4); color: var(--motion-dim); font-size: var(--motion-text-xs); }
 .motion-session-search, .motion-template-search { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--motion-border); border-radius: var(--motion-radius-step-7); color: var(--motion-dim); }
 .motion-session-search { margin: 12px 0 8px; }
 .motion-session-search input, .motion-template-search input { background: transparent; border: 0; color: var(--motion-text); width: 100%; min-width: 0; font-size: var(--motion-text-sm); outline-offset: 4px; }
@@ -33,7 +32,7 @@
 .motion-session strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--motion-text-sm); font-weight: var(--motion-weight-medium); }
 .motion-session small { display: block; margin-top: 5px; font-size: var(--motion-text-step-10); color: var(--motion-dim); }
 .motion-session-empty { font-size: var(--motion-text-sm); line-height: 1.8; color: var(--motion-dim); padding: 12px 8px; }
-.motion-sidebar-footer { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; padding: 14px 6px 0; }
+.motion-sidebar-footer { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .motion-sidebar-identity { display: flex; align-items: center; gap: 10px; width: 100%; }
 .motion-sidebar-identity > span { flex: 1; min-width: 0; }
 .motion-sidebar-settings { display: flex; align-items: center; gap: 8px; width: 100%; }
@@ -227,5 +226,5 @@
 }
 
 @media(max-width: 1100px) {
-  .motion-sidebar-brand { padding-inline: 0; }
+  .motion-sidebar-brand, .motion-session-heading { padding-inline: 0; }
 }

@@ -1,9 +1,7 @@
 /* Application geometry; all presentation primitives come from the design system. */
-.om-application { --om-project-navigation-width: 200px; display: grid; grid-template-columns: var(--motion-space-56) minmax(0, 1fr); grid-template-rows: 40px minmax(0, 1fr); height: 100%; width: 100%; min-height: 0; overflow: hidden; }
+.om-application { --om-project-navigation-width: 200px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 40px minmax(0, 1fr); height: 100%; width: 100%; min-height: 0; overflow: hidden; }
 .om-app-header { container-type: inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
-.om-application[data-navigation-collapsed="true"] { grid-template-columns: 0px minmax(0, 1fr); }
-.om-application > .motion-workspace { grid-column: 2; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4) 0; }
-.om-application[data-navigation-collapsed="true"] > .motion-workspace { margin-left: var(--motion-space-4); }
+.om-application > .motion-workspace { grid-column: 1; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4); }
 .om-app-brand { display: flex; align-items: center; gap: var(--motion-space-8); flex: 0 0 auto; }
 .om-app-brand .motion-brand-lockup { height: var(--motion-space-16); }
 @container (width > 700px) {
@@ -33,7 +31,11 @@
 .om-app-header-actions { display: flex; align-items: center; gap: var(--motion-space-8); flex-shrink: 0; margin-left: auto; }
 [data-motion-studio] .om-app-header-actions .om-header-icon { width: var(--motion-control-sm); padding-inline: 0; justify-content: center; }
 .om-app-header-links { display: flex; align-items: center; gap: var(--motion-space-8); }
-.om-app-rail { grid-column: 1; grid-row: 2; }
+.motion-sidebar-utilities { display: flex; align-items: center; justify-content: flex-start; gap: var(--motion-space-12); padding-top: var(--motion-space-12); }
+.motion-sidebar-footer > .om-nav-item { padding-inline: var(--motion-space-4); }
+.motion-session-heading-actions { display: flex; align-items: center; gap: var(--motion-space-4); }
+.motion-project-navigation-trigger { display: inline-flex; flex-shrink: 0; }
+.motion-project-navigation-trigger[hidden] { display: none; }
 .om-account-trigger .om-avatar { width: 28px; height: 28px; border-radius: var(--motion-radius-full); }
 .om-account-menu { width: 258px; max-width: calc(100vw - 24px); }
 .om-application .motion-workspace { min-width: 0; }
@@ -61,7 +63,6 @@
   padding-inline: 0;
 }
 .om-application .motion-session-dot { display: none; }
-.om-application .motion-sidebar-footer { border-top: 1px solid var(--motion-border-subtle); }
 .om-settings-center { --om-settings-nav-width: clamp(216px, 18vw, 248px); display: flex; flex: 1; min-width: 0; min-height: 0; }
 .om-settings-navigation-slot { flex: 0 0 var(--om-settings-nav-width); min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 .om-settings-navigation-clip { min-width: 0; min-height: 0; overflow: hidden; }
@@ -78,7 +79,7 @@
 .om-settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-16); min-width: 0; }
 .om-settings-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--motion-space-8); }
 .om-settings-section { display: grid; gap: var(--motion-space-16); }
-.om-settings-section > a { justify-self: start; }
+.om-settings-section > .om-button { justify-self: start; }
 .om-settings-loading { padding: var(--motion-space-40); display: grid; align-content: start; gap: var(--motion-space-24); width: 100%; }
 .om-provider-settings { display: flex; width: 100%; height: 100%; min-height: 0; min-width: 0; }
 .om-provider-list { flex: 0 0 clamp(228px, 19vw, 268px); display: flex; flex-direction: column; gap: var(--motion-space-8); min-height: 0; min-width: 0; padding: var(--motion-space-12) var(--motion-space-8); border-right: 1px solid var(--motion-border-subtle); }

@@ -131,12 +131,13 @@ Failures and cancellations omit that ID. The existing collection controls apply;
 Email, names, activation URLs, authorization codes and credentials are omitted.
 These fields describe the local OM result; AMR handoff attribution is separate.
 
-The account and subscription settings' **Manage subscription** link, and the Free / Go
-plan card's **Upgrade to Plus** link, carry `od_origin=openmotion`,
+The account and subscription settings' **Manage subscription** action, and the Free / Go
+plan card's **Upgrade to Plus** action, carry `od_origin=openmotion`,
 `od_entry_source=openmotion_manage_subscription`, and a fresh `od_entry_id` / UTC
-`od_entry_at` for each primary or middle click. The two links share that registered entry
+`od_entry_at` for each click. The local service builds that page address and opens it in the
+system browser through a one-time account intent (`/login?intentId=…`) when it can. The two actions share that registered entry
 source; their `ui_click` elements (`manage_subscription` and `view_plans`) tell them apart.
-A dedicated upgrade source needs AMR to register it first. The link
+A dedicated upgrade source needs AMR to register it first. The page address
 retains `billing=plan` and contains no account, installation or credential data.
 AMR must accept the OpenMotion origin and entry source in its attribution
 validation before these parameters can reach its subscription/payment events.

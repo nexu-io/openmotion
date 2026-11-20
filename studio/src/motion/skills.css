@@ -140,13 +140,12 @@ a.om-skill-source { color: var(--motion-strong); }
 .om-skill-card-demo .om-skill-split-caption[data-side="before"] { left: var(--motion-space-4); }
 .om-skill-card-demo .om-skill-split-caption[data-side="after"] { left: calc(50% + var(--motion-space-4)); }
 .om-gallery-intro.om-skills-intro { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--motion-space-16); min-height: 0; max-width: none; padding: var(--motion-space-24) 0 var(--motion-space-8); margin-bottom: 0; }
-.om-skills-heading-row { display: contents; }
+.om-skills-heading-actions { display: flex; align-items: flex-start; justify-content: flex-end; gap: var(--motion-space-8); align-self: start; margin-top: var(--motion-space-4); }
 .om-gallery-intro.om-skills-intro h1 { max-width: none; margin-block: var(--motion-space-8); }
-.om-skills-heading-row .om-gallery-submit { align-self: start; margin-top: var(--motion-space-4); }
 .om-gallery-intro.om-skills-intro p { grid-column: 1; max-width: none; margin-bottom: 0; }
 @container (max-width: 480px) {
   .om-gallery-intro.om-skills-intro { grid-template-columns: minmax(0, 1fr); }
-  .om-skills-heading-row .om-gallery-submit { grid-column: 1; grid-row: 3; justify-self: start; }
+  .om-skills-heading-actions { grid-row: 3; justify-content: space-between; }
 }
 
 /* Release the list width as the detail exits so both sides settle together. */

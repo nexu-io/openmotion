@@ -1,9 +1,9 @@
-import { PrimaryNavigationButton } from '../../../packages/design-system/react/PrimaryNavigationRail';
+import { IconButton } from 'open-design-ui/icon-button';
 import { Tooltip } from "../components/ui/Tooltip";
 import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Popover } from '@base-ui/react/popover';
 import { POPUP_LAYER, popupSurface } from '../components/ui/Menu';
-import { RemixIcon } from '../icons/RemixIcons';
+import { MotionIcon } from './icons';
 import { useI18n } from '../i18n/I18n';
 
 /** A transient project preview never changes the pinned navigation width. */
@@ -32,11 +32,10 @@ export function WorkspaceProjectsButton({ expanded, previewEnabled, onToggle, ch
     }
     setPreviewOpen(previewEnabled && next);
   }}>
-    <Tooltip label={previewEnabled ? undefined : t('Projects')} wrap side="right"><Popover.Trigger ref={trigger} openOnHover={previewEnabled} delay={180} closeDelay={160}
-      render={<PrimaryNavigationButton />} aria-label={t('Projects')} aria-pressed={expanded}
-      aria-expanded={expanded || open} {...(expanded ? { 'aria-controls': 'om-project-navigation' } : {})}
+    <Tooltip label={t(expanded ? 'Close project list' : 'Open project list')} wrap side="bottom"><Popover.Trigger ref={trigger} openOnHover={previewEnabled} delay={180} closeDelay={160}
+      render={<IconButton variant="ghost" className="motion-icon-button" aria-label={t(expanded ? 'Close project list' : 'Open project list')} icon={<MotionIcon name="sidebar" size={16} />} />}
+      aria-expanded={expanded || open} aria-controls="om-project-navigation"
       onClick={() => { setPreviewOpen(false); onToggle(); }}>
-      <RemixIcon name="folder-line" weight={expanded ? 'fill' : undefined} size={18} />
     </Popover.Trigger></Tooltip>
     <Popover.Portal container={applicationRef} style={{ display: 'contents' }}>
       <Popover.Positioner anchor={workspaceAnchor} positionMethod="fixed" side="left" align="start"

@@ -91,7 +91,7 @@ export function MotionApp() {
     sessionId={libraryOnly ? undefined : ready?.sessionId ?? sessionId ?? undefined} onNavigate={onNavigate}
     blocked={!ready && !error && !libraryOnly && !settingsPage} onLibraryClose={libraryOnly ? closeLibrary : undefined}>
     <div ref={surface} className="motion-project-surface">
-    {error ? <RecoveryScreen title={t('Could not open project')} message={error}><Button variant="ghost" className="om-button h-auto" data-primary onClick={() => retry(value => value + 1)}>{t('Retry')}</Button><a className="om-button" href="/?page=editor">{t('Open active project')}</a></RecoveryScreen>
+    {error ? <><div className="motion-home-navigation"><WorkspaceMenuButton /></div><RecoveryScreen title={t('Could not open project')} message={error}><Button variant="ghost" className="om-button h-auto" data-primary onClick={() => retry(value => value + 1)}>{t('Retry')}</Button><a className="om-button" href="/?page=editor">{t('Open active project')}</a></RecoveryScreen></>
       : ready ? ready.artifact ? <ArtifactViewer key={ready.artifact.projectId} artifact={ready.artifact} loadingLayout={loadingLayout} /> : <div className="motion-route-state"><WorkspaceMenuButton />{t('Create a project with your Agent to start editing.')}</div>
       : libraryOnly ? <TemplateLibraryLanding /> : <EditorLoading layout={loadingLayout} />}
     </div>

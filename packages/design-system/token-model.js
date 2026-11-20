@@ -27,7 +27,7 @@ export const labels = {
 };
 export const colorGroups = [
   { title: '中性色', note: '背景、边框与文字，共同构成界面的基本层次。', keys: ['bg', 'panel', 'raised', 'inset', 'hover', 'border', 'border-strong', 'strong', 'text', 'muted', 'dim', 'placeholder'] },
-  { title: '品牌与交互', note: '主要操作使用中性色；强调与选中状态使用 B5 品牌色阶。', keys: ['brand', 'accent', 'accent-hover', 'accent-soft', 'brand-soft', 'highlight', 'action', 'action-hover', 'on-action', 'selected'] },
+  { title: '品牌与交互', note: '导航与开关选中底色使用中性色；编辑选框与音频波形使用紫色，品牌强调保留 B5 色阶。', keys: ['brand', 'accent', 'accent-hover', 'accent-soft', 'brand-soft', 'highlight', 'action', 'action-hover', 'on-action', 'selected'] },
   { title: '功能色', note: '让成功、警告和错误拥有明确的语义。', keys: ['success', 'status-on', 'danger', 'danger-soft', 'warning', 'warning-soft'] },
 ];
 export const components = [

@@ -94,7 +94,7 @@ it('combines only observed causes and keeps unknown results out of the failure c
     .mockRejectedValueOnce(new AssetUploadError('unknown'));
   await uploadBatch(3);
   const text = document.querySelector('[role=alert]')?.textContent;
-  expect(text).toBe('Uploaded 0, not uploaded 2, awaiting confirmation 1. Known issues: unreadable files and unsupported formats. Re-export, convert or replace those files. Check the asset library before uploading unconfirmed files again.');
+  expect(text).toBe('Uploaded 0, not uploaded 2, awaiting confirmation 1. Known issues: unreadable files and unsupported formats. Re-export, convert or replace those files. Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF. Check the asset library before uploading unconfirmed files again.');
   expect(text).not.toContain('oversized');
   expect(vi.mocked(uploadLibraryAsset)).toHaveBeenCalledTimes(3);
 });
@@ -105,6 +105,19 @@ it('refreshes the library after an unconfirmed response without resubmitting or 
   expect(document.querySelector('[role=alert]')?.textContent).toBe('Uploaded 0, awaiting confirmation 1. Check the asset library before uploading unconfirmed files again.');
   expect(container.querySelector('[aria-label="Picture uncertain"]')).not.toBeNull();
   expect(vi.mocked(uploadLibraryAsset)).toHaveBeenCalledOnce();
+});
+
+it('shows supported image formats for a refused new version and preserves the original', async () => {
+  await render(); await click('Picture A');
+  vi.mocked(uploadLibraryAsset).mockRejectedValueOnce(new AssetUploadError('rejected', 'unsupported'));
+  const input = [...container.querySelectorAll<HTMLInputElement>('input[type=file][accept="image/*"]:not([multiple])')].at(-1)!;
+  // No filename or MIME hint: the selected image supplies the upload context.
+  Object.defineProperty(input, 'files', { configurable: true, value: [new File(['unsupported'], 'replacement')] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true }))); await flush();
+  expect(vi.mocked(uploadLibraryAsset)).toHaveBeenCalledWith(expect.any(File), { assetId: 'A', parentVersionId: 'A-v1' });
+  expect(document.querySelector('[role=alert]')?.textContent).toContain('Supported image formats: PNG, JPG/JPEG, WebP, GIF and AVIF.');
+  expect(records.get('A')!.versions).toHaveLength(1);
+  expect(previewName()).toBe('Picture A');
 });
 it('shows one short success summary and no notice for an empty selection', async () => {
   await render(); vi.mocked(uploadLibraryAsset).mockResolvedValue(fixture('uploaded'));

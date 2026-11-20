@@ -157,6 +157,10 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
         catch (error) {
           if (error instanceof AssetUploadError && error.outcome === 'rejected') {
             summary.failed++; if (error.reason) summary.reasons.add(error.reason);
+            if ((error.reason === 'unsupported' || error.reason === 'unreadable') && (
+              file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|avif|svg|heic|heif|tiff?|bmp|psd)$/i.test(file.name)
+              || (newVersion && selected?.modality === 'image') || studio?.destination.scene.modality === 'image'
+            )) summary.imageFormatHelp = true;
           } else summary.unknown++;
         }
       }

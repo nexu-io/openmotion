@@ -16,6 +16,16 @@ import { apiJson, retryRead, type Fetcher } from './network.ts';
 import { resumableDownload, type DownloadProgress } from './resumable-download.ts';
 
 const execute = promisify(execFile);
+/** The launcher for the system default browser, which is also where the connector opens sign-in. */
+export function systemBrowserCommand(url: string, platform: string) {
+  if (platform === 'darwin') return { command: '/usr/bin/open', args: [url] };
+  if (platform === 'win32') return { command: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url] };
+  return { command: 'xdg-open', args: [url] };
+}
+async function openSystemBrowser(url: string) {
+  const { command, args } = systemBrowserCommand(url, process.platform);
+  await execute(command, args, { timeout: 10_000, windowsHide: true });
+}
 const consoleUrl = registeredProvider('account')!.website!;
 const connectorVersion = '0.1.10';
 export type SignInRecord = EventFields<typeof omEvents['account_sign_in_result']>;
@@ -389,7 +399,9 @@ export class OpenDesignAccount {
     // CLI stderr is private: it can include account details and request bodies.
     child.stderr?.on('data', () => {});
     attempt.exitCode = await new Promise<number | null>((resolve, reject) => {
-      const timer = setTimeout(() => { child.kill(); reject(new SignInFailure(attempt.persisted ? 'credentials_rejected' : 'authorization_expired')); }, this.options.authorizationMs ?? 10 * 60_000);
+      // The connector waits until the service's own authorization expiry (15 minutes) and exits; this is only a backstop.
+      // A shorter limit here would cancel authorizations the user is still completing in the browser.
+      const timer = setTimeout(() => { child.kill(); reject(new SignInFailure(attempt.persisted ? 'credentials_rejected' : 'authorization_expired')); }, this.options.authorizationMs ?? 16 * 60_000);
       child.once('error', () => { clearTimeout(timer); reject(new SignInFailure(child.pid === undefined ? 'connector_unavailable' : failureCode(attempt, cancelled))); });
       child.once('close', code => { clearTimeout(timer); resolve(code); });
     });
@@ -398,6 +410,28 @@ export class OpenDesignAccount {
       this.child = undefined; this.authorizationUrl = undefined; this.userCode = undefined;
     }
     return { exitCode: attempt.exitCode, cancelled };
+  }
+  /**
+   * Opens the subscription page in the system browser, the one the connector used for sign-in, so its OpenDesign session
+   * carries over. A one-time account intent makes the page confirm it is the account signed in here before any purchase.
+   */
+  async openSubscription(launch: (url: string) => Promise<void> = openSystemBrowser) {
+    const target = '/dashboard?' + new URLSearchParams({ billing: 'plan', od_origin: 'openmotion', od_entry_source: 'openmotion_manage_subscription',
+      od_entry_id: randomUUID(), od_entry_at: new Date().toISOString() });
+    let url = consoleUrl + target;
+    const profile = await this.profile();
+    if (signedInProfile(profile) && profile!.apiUrl?.replace(/\/$/, '') === productionApi && await this.identity()) {
+      try {
+        const response = await (this.options.fetcher ?? fetch)(productionApi + '/api/v1/auth/intents', {
+          method: 'POST', headers: { Authorization: 'Bearer ' + profile!.controlKey, 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ target }), redirect: 'error', signal: AbortSignal.timeout(10_000),
+        });
+        const intentId = response.ok ? (await response.json().catch(() => null))?.intentId : undefined;
+        if (typeof intentId === 'string' && /^[\w-]{1,128}$/.test(intentId)) url = consoleUrl + '/login?' + new URLSearchParams({ intentId });
+      } catch { /* Without an intent the page still opens and asks the browser to sign in when needed. */ }
+    }
+    const opened = await launch(url).then(() => true, () => false);
+    return { url, opened };
   }
   async cancel() {
     const connecting = this.connecting, generation = ++this.generation;

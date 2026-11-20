@@ -33,3 +33,17 @@ it('does not accept filenames, arbitrary errors or diagnostic suffixes as author
     expect(toastErrorMessage(message)).not.toBe(message);
   }
 });
+
+it('keeps image format guidance through Toast sanitization and localization', () => {
+  const summary = { uploaded: 0, failed: 1, unknown: 1, reasons: new Set(['unsupported'] as const), imageFormatHelp: true };
+  const message = assetUploadMessage(summary);
+  expect(parseAssetUploadMessage(message)).toEqual(summary);
+  expect(toastErrorMessage(message)).toBe(message);
+  for (const { locale } of languages) {
+    const localized = systemMessage(message, (key, values) => translate(locale, key, values));
+    expect(localized).toContain('PNG');
+    expect(localized).toContain('AVIF');
+    if (locale !== 'en') expect(localized).not.toContain('Supported image formats:');
+  }
+  expect(systemMessage(message, (key, values) => translate('zh-CN', key, values))).toContain('支持的图片格式：PNG、JPG/JPEG、WebP、GIF、AVIF。');
+});

@@ -135,7 +135,7 @@ it.each(['deleted project', 'empty session'])('keeps the project drawer reachabl
   const root = createRoot(container);
   try {
     await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
-    const toggle = container.querySelector<HTMLButtonElement>(`.om-app-rail button[aria-label="${translate('zh-CN', 'Projects')}"]`);
+    const toggle = container.querySelector<HTMLButtonElement>('.motion-workspace-menu');
     expect(toggle).not.toBeNull();
     await act(async () => toggle!.click());
     expect(document.querySelector('.motion-session')?.textContent).toContain('Existing project');

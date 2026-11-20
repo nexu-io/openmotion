@@ -29,7 +29,7 @@ interface PlayheadIndicatorProps {
 }
 
 export function PlayheadIndicator({
-  color = "var(--timeline-accent)",
+  color = "var(--color-playhead)",
   headBackground = "var(--timeline-shell-bg)",
   scrubbing = false,
   stickyHead = true,

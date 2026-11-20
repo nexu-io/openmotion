@@ -144,7 +144,7 @@ it('omits the project return in both the template library and Black Friday detai
 it('keeps the search in the header and preserves filters when clearing the keyword', async () => {
   await mount();
   expect(host.querySelectorAll('input[type=search]')).toHaveLength(1);
-  expect(searchInput().closest('header')?.querySelector('a[href*="github.com"]')).not.toBeNull();
+  expect(searchInput().closest('header')?.querySelector('a[href*="github.com"]')).toBeNull();
   await act(async () => button('Brand & company films').click());
   await search('not-here');
   await confirmSearch();

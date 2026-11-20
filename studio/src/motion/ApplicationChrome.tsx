@@ -3,7 +3,6 @@ import { IconButton } from 'open-design-ui/icon-button';
 import type { ExploreCommunity } from '../../../shared/studio-catalog';
 import { BrandLogo } from '../../../packages/design-system/react/BrandLogo';
 import { brand } from '../../../packages/design-system/index.js';
-import { PrimaryNavigationButton, PrimaryNavigationRail } from '../../../packages/design-system/react/PrimaryNavigationRail';
 import { RemixIcon } from '../icons/RemixIcons';
 import { Menu, MenuItem, MenuSeparator, MenuSubmenu, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
 import { Tooltip } from '../components/ui/Tooltip';
@@ -14,7 +13,7 @@ import { CommunityLink } from './CommunityLink';
 import { GitHubLink } from './GitHubLink';
 import { repositorySupportLinks } from './githubRepository';
 import type { SettingsSection } from './SettingsCenter';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { CreativeNavigation, type CreativeNavigationProps } from './CreativeNavigation';
 import { WorkspaceResourceActions } from './WorkspaceResourceActions';
@@ -59,28 +58,18 @@ export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset,
     </div>
   </header>;
 }
-export function ApplicationRail({ openSettings, projects }: { openSettings: (section: SettingsSection) => void; projects: ReactNode }) {
+export function WorkspaceUtilityActions({ openSettings }: { openSettings: (section: SettingsSection) => void }) {
   const { t } = useI18n();
-  const { navigationCollapsed } = useWorkspaceChrome();
   const item = (label: string, icon: string, action: () => void) => (
-    <Tooltip label={t(label)} side="right">
-      <PrimaryNavigationButton aria-label={t(label)} onClick={action}>
-        <RemixIcon name={icon} size={18} />
-      </PrimaryNavigationButton>
+    <Tooltip label={t(label)} side="top">
+      <IconButton variant="ghost" className="motion-icon-button" aria-label={t(label)} onClick={action} icon={<RemixIcon name={icon} size={18} />} />
     </Tooltip>
   );
-  const footer = <>
-    {item('Help', 'question-line', () => openSettings('help'))}
+  return <nav className="motion-sidebar-utilities" aria-label={t('Application navigation')}>
     {item('Settings', 'settings-3-line', () => openSettings('general'))}
     {item('Model providers', 'brain-line', () => openSettings('providers'))}
-  </>;
-
-  return (
-    <PrimaryNavigationRail id="om-application-navigation" className="om-app-rail om-collapsible" data-collapsed={navigationCollapsed}
-      aria-label={t('Application navigation')} aria-hidden={navigationCollapsed} inert={navigationCollapsed} footer={footer}>
-      {projects}
-    </PrimaryNavigationRail>
-  );
+    {item('Help', 'question-line', () => openSettings('help'))}
+  </nav>;
 }
 
 export function ApplicationAccountMenu({ settings, openSettings }: { settings: SettingsSection | null; openSettings: (section: SettingsSection) => void }) {

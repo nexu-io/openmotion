@@ -28,6 +28,7 @@
 
 [data-motion-studio] .om-disclosure-row[data-active="true"] {
   background: light-dark(var(--motion-neutral-n3), var(--motion-neutral-n9));
+  color: var(--motion-strong);
 }
 
 :root[data-motion-ui][data-motion-studio] .om-disclosure-row .om-disclosure-row-label {

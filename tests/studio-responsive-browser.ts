@@ -26,7 +26,7 @@ async function checkCreator(page: Page, stacked: boolean) {
   assert.ok(stacked ? geometry.stacked : geometry.aligned, 'The model controls respond to the width of the creator pane');
 }
 
-test('Explore is home and only the editor shows the project navigation', { timeout: 60_000 }, async () => {
+test('Explore is home and project navigation stays in the workspace', { timeout: 60_000 }, async () => {
   await fixture(async store => {
     const running = await startServer(store, 0, { editor: true });
     const browser = await puppeteer.launch({ executablePath: await browserExecutable(), headless: true });
@@ -45,7 +45,7 @@ test('Explore is home and only the editor shows the project navigation', { timeo
         await page.setViewport({ width, height: 800 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
         await page.waitForFunction(theme => (document.documentElement.dataset.theme === 'paper') === (theme === 'light'), {}, theme);
-        assert.equal(await page.$('.om-app-rail, .om-project-navigation'), null);
+        assert.equal(await page.$('.om-project-navigation'), null);
         const trigger = await page.waitForSelector('.om-app-header-actions .om-account-trigger', { visible: true });
         const anchor = (await trigger!.boundingBox())!;
         assert.ok(anchor.x + anchor.width <= width && anchor.x > width - 80);
@@ -55,20 +55,45 @@ test('Explore is home and only the editor shows the project navigation', { timeo
         assert.ok(bounds.y >= anchor.y + anchor.height - 1 && bounds.x >= 0 && bounds.x + bounds.width <= width + 1);
         await page.keyboard.press('Escape');
         await page.waitForSelector('.om-account-menu', { hidden: true });
+        const galleryTitleStyles = [];
+        for (const [name, closeSelector, titleSelector] of [
+          ['Templates', '[data-workspace-gallery] button[aria-label="Close template library"]', '[data-workspace-gallery] .om-gallery-page-label'],
+          ['Skills', '.om-skills-heading-actions button[aria-label="Close"]', '.om-skills-intro h1'],
+        ]) {
+          const shortcut = await page.waitForSelector(`.om-explore-nav ::-p-text(${name})`, { visible: true });
+          const shortcutBounds = (await shortcut!.boundingBox())!;
+          assert.ok(shortcutBounds.x >= 0 && shortcutBounds.x + shortcutBounds.width <= width);
+          assert.equal(await shortcut!.evaluate(element => getComputedStyle(element).borderTopWidth), '0px');
+          await shortcut!.focus();
+          await page.keyboard.press('Enter');
+          const close = await page.waitForSelector(closeSelector, { visible: true });
+          if (name === 'Templates') assert.equal(await page.$('[data-workspace-gallery] .om-gallery-header-actions a[href*="github.com"]'), null);
+          galleryTitleStyles.push(await page.$eval(titleSelector, element => {
+            const { color, fontFamily, fontSize, fontWeight, letterSpacing, lineHeight } = getComputedStyle(element);
+            return { color, fontFamily, fontSize, fontWeight, letterSpacing, lineHeight };
+          }));
+          const closeBounds = (await close!.boundingBox())!;
+          assert.ok(closeBounds.x >= 0 && closeBounds.x + closeBounds.width <= width);
+          await close!.focus();
+          await page.keyboard.press('Enter');
+          await page.waitForSelector('.om-explore-nav', { visible: true });
+          assert.ok(await shortcut!.evaluate(element => element === document.activeElement));
+        }
+        assert.deepEqual(galleryTitleStyles[0], galleryTitleStyles[1]);
       }
       await page.setViewport({ width: 1440, height: 800 });
       await page.click('.om-app-header [aria-label="Motion Studio"]');
-      await page.waitForSelector('main[aria-label="Motion Studio"] .om-discovery-hero button[data-primary]', { visible: true });
-      assert.equal(await page.$('.om-app-rail'), null);
-      await page.click('main[aria-label="Motion Studio"] .om-discovery-hero button[data-primary]');
+      await page.waitForSelector('main[aria-label="Motion templates"]', { visible: true });
+      const project = await page.waitForSelector('.om-project-navigation:not([inert]) button.motion-session', { visible: true });
+      await project!.click();
       await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });
-      assert.ok(await page.waitForSelector('.om-app-rail:not([inert])', { visible: true }));
+      await page.waitForSelector('.om-project-navigation:not([inert])', { visible: true });
       const editorUrl = page.url();
       await page.click('.om-app-brand');
       await page.waitForSelector('.om-explore-host:not([hidden])');
-      assert.equal(await page.$('.om-app-rail'), null);
+      assert.equal(await page.$('.om-project-navigation'), null);
       await page.goBack();
-      await page.waitForSelector('.om-app-rail', { visible: true });
+      await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });
       assert.equal(new URL(page.url()).searchParams.get('project'), new URL(editorUrl).searchParams.get('project'));
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });

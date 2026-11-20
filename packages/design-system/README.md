@@ -60,6 +60,8 @@ Use relative source imports from the application; the package exports document i
 
 ## Change a visual decision
 
+Navigation and toggle selection use neutral surfaces and readable neutral ink in both themes. Editing selection outlines use the purple `selected` role. Timeline audio uses the independent `clip-audio` and `clip-audio-ink` purple roles; reserve gray waveforms for muted audio. Brand accents must not substitute for these interaction or media roles.
+
 1. Find the existing semantic role in `tokens.json` or the existing recipe in package CSS. Reuse it. Add a shared role here when necessary.
 2. Change the maintained source and run `npm run design:tokens`. Both browser and Studio styles are generated from it. The same command refreshes stable README logo, favicon and font-license mirrors.
 3. Keep feature CSS focused on layout and behavior. Reference package variables for appearance; do not copy tokens, hard-code a new interface palette or override shared roles at a feature root.

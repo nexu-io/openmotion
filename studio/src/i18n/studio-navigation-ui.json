@@ -2,6 +2,7 @@
   "zh-CN": {
     "Start with an editable motion template or open your timeline.": "从可编辑的动效模板开始，或打开时间线继续创作。",
     "Editable templates": "可编辑模板",
+    "Motion templates": "Motion 模板",
     "Open editor": "打开编辑器",
     "Open workspace": "打开工作区",
     "Creative Skills": "创作 Skills",
@@ -85,7 +86,7 @@
     "See how an idea becomes a visual story through data, paper animation or a narrated tutorial.": "看看如何用数据、剪纸动画或带旁白的教程把想法讲清楚。",
     "Adapt a credited template": "改编署名模板",
     "Design Studio": "设计工作室",
-    "Motion Studio": "动效工作室",
+    "Motion Studio": "Motion 工作室",
     "Cinema Studio": "影视工作室",
     "Sound Studio": "音频工作室",
     "Shorts Studio": "短视频工作室",
@@ -138,6 +139,7 @@
   "ja": {
     "Start with an editable motion template or open your timeline.": "編集可能なモーションテンプレートから始めるか、タイムラインを開きましょう。",
     "Editable templates": "編集可能なテンプレート",
+    "Motion templates": "Motion テンプレート",
     "Open editor": "エディターを開く",
     "Open workspace": "ワークスペースを開く",
     "Creative Skills": "制作 Skills",
@@ -274,6 +276,7 @@
   "ko": {
     "Start with an editable motion template or open your timeline.": "편집 가능한 모션 템플릿으로 시작하거나 타임라인을 여세요.",
     "Editable templates": "편집 가능한 템플릿",
+    "Motion templates": "Motion 템플릿",
     "Open editor": "편집기 열기",
     "Open workspace": "작업 공간 열기",
     "Creative Skills": "창작 Skills",
@@ -410,6 +413,7 @@
   "de": {
     "Start with an editable motion template or open your timeline.": "Starte mit einer editierbaren Motion-Vorlage oder öffne deine Zeitleiste.",
     "Editable templates": "Editierbare Vorlagen",
+    "Motion templates": "Motion-Vorlagen",
     "Open editor": "Editor öffnen",
     "Open workspace": "Arbeitsbereich öffnen",
     "Creative Skills": "Kreative Skills",
@@ -546,6 +550,7 @@
   "fr": {
     "Start with an editable motion template or open your timeline.": "Partez d’un modèle d’animation modifiable ou ouvrez votre timeline.",
     "Editable templates": "Modèles modifiables",
+    "Motion templates": "Modèles Motion",
     "Open editor": "Ouvrir l’éditeur",
     "Open workspace": "Ouvrir l’espace de travail",
     "Creative Skills": "Skills créatifs",
@@ -682,6 +687,7 @@
   "ru": {
     "Start with an editable motion template or open your timeline.": "Начните с редактируемого шаблона анимации или откройте монтажную шкалу.",
     "Editable templates": "Редактируемые шаблоны",
+    "Motion templates": "Шаблоны Motion",
     "Open editor": "Открыть редактор",
     "Open workspace": "Открыть рабочее пространство",
     "Creative Skills": "Творческие Skills",
@@ -818,6 +824,7 @@
   "es": {
     "Start with an editable motion template or open your timeline.": "Empieza con una plantilla de animación editable o abre tu línea de tiempo.",
     "Editable templates": "Plantillas editables",
+    "Motion templates": "Plantillas Motion",
     "Open editor": "Abrir editor",
     "Open workspace": "Abrir espacio de trabajo",
     "Creative Skills": "Skills creativos",
@@ -954,6 +961,7 @@
   "pt-BR": {
     "Start with an editable motion template or open your timeline.": "Comece com um modelo de animação editável ou abra sua linha do tempo.",
     "Editable templates": "Modelos editáveis",
+    "Motion templates": "Modelos Motion",
     "Open editor": "Abrir editor",
     "Open workspace": "Abrir espaço de trabalho",
     "Creative Skills": "Skills criativos",
@@ -1090,6 +1098,7 @@
   "it": {
     "Start with an editable motion template or open your timeline.": "Inizia da un modello di animazione modificabile o apri la timeline.",
     "Editable templates": "Modelli modificabili",
+    "Motion templates": "Modelli Motion",
     "Open editor": "Apri editor",
     "Open workspace": "Apri area di lavoro",
     "Creative Skills": "Skills creativi",
@@ -1226,6 +1235,7 @@
   "tr": {
     "Start with an editable motion template or open your timeline.": "Düzenlenebilir bir hareketli grafik şablonuyla başlayın veya zaman çizelgenizi açın.",
     "Editable templates": "Düzenlenebilir şablonlar",
+    "Motion templates": "Motion şablonları",
     "Open editor": "Düzenleyiciyi aç",
     "Open workspace": "Çalışma alanını aç",
     "Creative Skills": "Yaratıcı Skills",

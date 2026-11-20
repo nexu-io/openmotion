@@ -22,6 +22,7 @@ import { motionApi } from './useWorkspace';
 import { setupGuideUrl, type IntegrationInfo } from '../../../shared/integration';
 import { AssetPicker } from './AssetBrowser';
 import { Popover } from '../components/ui/Popover';
+import { Tooltip } from '../components/ui/Tooltip';
 import { Collapsible } from '@base-ui/react/collapsible';
 import * as tracking from './pageTracking';
 import { useSkillLayoutMotion } from './useSkillLayoutMotion';
@@ -44,7 +45,7 @@ function githubRepositoryOf(source?: string): string | null {
 }
 
 /** Open-source motion techniques the user can hand to an Agent through OpenMotion MCP. */
-export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryChange, studio, onExplore, onCreate, briefs, previewsEnabled = true, hasProject = false, detailOnly = false }: { routeCategory?: SkillCategory | null; onCategoryChange?: (value: SkillCategory | null) => void; detailOnly?: boolean; studio?: TechniqueStudio; previewsEnabled?: boolean; briefs?: Map<string, SkillParameters>; onCreate?: (destination: StudioDestination, draft?: AssetDraft) => void; onExplore?: () => void; skillId: string | null; onSkillChange: (id: string | null) => void; hasProject?: boolean }) {
+export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryChange, studio, onExplore, onClose, onCreate, briefs, previewsEnabled = true, hasProject = false, detailOnly = false }: { routeCategory?: SkillCategory | null; onCategoryChange?: (value: SkillCategory | null) => void; detailOnly?: boolean; studio?: TechniqueStudio; previewsEnabled?: boolean; briefs?: Map<string, SkillParameters>; onCreate?: (destination: StudioDestination, draft?: AssetDraft) => void; onExplore?: () => void; onClose?: () => void; skillId: string | null; onSkillChange: (id: string | null) => void; hasProject?: boolean }) {
   const { t, locale } = useI18n(), toast = useToast(), displayName = displayNameOf(t);
   const chrome = useOptionalWorkspaceChrome();
   const comingSoon = studioComingSoon(studio);
@@ -177,9 +178,12 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
             <img src={featured.cover.poster} alt="" /><span className="om-button om-media-caption">{t(featured.title)}<RemixIcon name="arrow-right-line" size={16} /></span>
           </Button>}
         </section> : <section className="om-gallery-intro om-skills-intro">
-          <div className="om-skills-heading-row">
-            <h1>{t('Teach your Agent new moves.')}</h1>
+          <h1>{t('Teach your Agent new moves.')}</h1>
+          <div className="om-skills-heading-actions">
             <SkillSubmissionLink />
+            {onClose && <Tooltip label={t('Close')}>
+              <IconButton type="button" variant="ghost" className="om-button om-icon-button" onClick={onClose} aria-label={t('Close')} icon={<MotionIcon name="close" size={16} />} />
+            </Tooltip>}
           </div>
           <p>{t('Pick a skill, fill in the brief and copy the instruction. Your Agent builds an editable project in OpenMotion.')}</p>
         </section>}

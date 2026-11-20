@@ -156,7 +156,8 @@
   --motion-shadow-md: 0 6px 24px rgb(28 27 26 / 7%), 0 2px 6px rgb(28 27 26 / 4%);
   --motion-shadow-lg: 0 24px 60px rgb(28 27 26 / 16%), 0 8px 16px rgb(28 27 26 / 7%);
   --motion-overlay: rgb(32 32 32 / 28%);
-  --motion-clip-audio: #e2f3e7;
+  --motion-clip-audio: #eee8f7;
+  --motion-clip-audio-ink: #66508a;
   --motion-on-clip: #353535;
   --motion-gold: #925500;
   --motion-shadow-xs: 0 1px 0 rgb(28 27 26 / 4%);
@@ -166,7 +167,7 @@
   --motion-overlay-ink: #f5f5f5;
   --motion-video-overlay: #101010bf;
   --motion-video-ink: #171717;
-  --motion-selected: #007106;
+  --motion-selected: #7652b5;
   --motion-glass: rgba(250, 250, 250, 0.66);
   --motion-scrim: rgba(255, 255, 255, 0.6);
   --motion-scrim-solid: #ffffff;
@@ -219,8 +220,8 @@
   --motion-border: #484b4d;
   --motion-border-strong: #737878;
   --motion-text: #e6e8e4;
-  --motion-asset-version-selected-bg: var(--motion-accent-soft);
-  --motion-asset-version-selected-border: var(--motion-accent);
+  --motion-asset-version-selected-bg: var(--motion-neutral-n10);
+  --motion-asset-version-selected-border: var(--motion-neutral-n8);
   --motion-asset-filmstrip-selected-border: var(--motion-neutral-n0);
   --motion-muted: #c0c4bd;
   --motion-dim: #a9afa7;
@@ -247,7 +248,8 @@
   --motion-shadow-md: 0 6px 24px rgb(0 0 0 / 40%), 0 2px 6px rgb(0 0 0 / 25%);
   --motion-shadow-lg: 0 24px 60px rgb(0 0 0 / 60%), 0 8px 16px rgb(0 0 0 / 30%);
   --motion-overlay: rgb(6 7 8 / 68%);
-  --motion-clip-audio: #215c3b;
+  --motion-clip-audio: #30283d;
+  --motion-clip-audio-ink: #bda5e3;
   --motion-on-clip: #fafafa;
   --motion-gold: #ffc740;
   --motion-shadow-xs: 0 1px 0 rgb(0 0 0 / 20%);
@@ -257,7 +259,7 @@
   --motion-overlay-ink: #f5f5f5;
   --motion-video-overlay: #101010bf;
   --motion-video-ink: #171717;
-  --motion-selected: #00ff08;
+  --motion-selected: #b79ae8;
   --motion-glass: rgba(39, 40, 42, 0.96);
   --motion-scrim: rgba(6, 7, 8, 0.72);
   --motion-scrim-solid: #0c0d0e;
@@ -282,7 +284,7 @@
   --motion-brand-surface: #ffffff;
   --motion-chrome-icon: #b7bcb5;
   --motion-chrome-hover: #2b2d2e;
-  --motion-chrome-active: #0d350e;
+  --motion-chrome-active: #353535;
   --motion-border-subtle: #343638;
   --motion-nav-hover: #2f3132;
   --motion-creative-image: #84edb2;
@@ -311,8 +313,8 @@
     --motion-border: #484b4d;
     --motion-border-strong: #737878;
     --motion-text: #e6e8e4;
-    --motion-asset-version-selected-bg: var(--motion-accent-soft);
-    --motion-asset-version-selected-border: var(--motion-accent);
+    --motion-asset-version-selected-bg: var(--motion-neutral-n10);
+    --motion-asset-version-selected-border: var(--motion-neutral-n8);
     --motion-asset-filmstrip-selected-border: var(--motion-neutral-n0);
     --motion-muted: #c0c4bd;
     --motion-dim: #a9afa7;
@@ -339,7 +341,8 @@
     --motion-shadow-md: 0 6px 24px rgb(0 0 0 / 40%), 0 2px 6px rgb(0 0 0 / 25%);
     --motion-shadow-lg: 0 24px 60px rgb(0 0 0 / 60%), 0 8px 16px rgb(0 0 0 / 30%);
     --motion-overlay: rgb(6 7 8 / 68%);
-    --motion-clip-audio: #215c3b;
+    --motion-clip-audio: #30283d;
+    --motion-clip-audio-ink: #bda5e3;
     --motion-on-clip: #fafafa;
     --motion-gold: #ffc740;
     --motion-shadow-xs: 0 1px 0 rgb(0 0 0 / 20%);
@@ -349,7 +352,7 @@
     --motion-overlay-ink: #f5f5f5;
     --motion-video-overlay: #101010bf;
     --motion-video-ink: #171717;
-    --motion-selected: #00ff08;
+    --motion-selected: #b79ae8;
     --motion-glass: rgba(39, 40, 42, 0.96);
     --motion-scrim: rgba(6, 7, 8, 0.72);
     --motion-scrim-solid: #0c0d0e;
@@ -374,7 +377,7 @@
     --motion-brand-surface: #ffffff;
     --motion-chrome-icon: #b7bcb5;
     --motion-chrome-hover: #2b2d2e;
-    --motion-chrome-active: #0d350e;
+    --motion-chrome-active: #353535;
     --motion-border-subtle: #343638;
     --motion-nav-hover: #2f3132;
     --motion-creative-image: #84edb2;

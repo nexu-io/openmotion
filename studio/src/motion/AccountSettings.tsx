@@ -2,7 +2,7 @@ import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { AccountSummary } from '../../../shared/provider-directory';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
@@ -14,24 +14,27 @@ import { notifyProvidersChanged } from './useProviderDirectory';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 
-function subscriptionUrl(consoleUrl: string, entrySource = 'openmotion_manage_subscription') {
-  const url = new URL(consoleUrl + '/dashboard');
-  url.search = new URLSearchParams({ billing: 'plan', od_origin: 'openmotion', od_entry_source: entrySource,
-    od_entry_id: crypto.randomUUID(), od_entry_at: new Date().toISOString() }).toString();
-  return url.href;
-}
-
 type GuideArea = 'account' | 'provider_detail';
-// Every open carries a fresh entry: the pointer refreshes it before navigation, keyboard activation on click.
-// AMR accepts only registered entry sources, so the upgrade link shares the subscription source; the
-// OpenMotion click (view_plans or manage_subscription) tells the two buttons apart.
-export function subscriptionLink(consoleUrl: string, source: string, element: 'manage_subscription' | 'view_plans', area: GuideArea = 'account') {
-  const open = (event: MouseEvent<HTMLAnchorElement>) => {
-    if (event.detail === 0 && event.button === 0) event.currentTarget.href = subscriptionUrl(consoleUrl, source);
+type ShowToast = ReturnType<typeof useToast>['showToast'];
+// The local service opens the subscription page in the system browser, where sign-in happened, with a fresh entry
+// and a one-time account intent. When no browser could be launched, Studio tries the returned link itself; the
+// request has used up the click by then, so a blocked popup leaves a link that opens it on the next click.
+export function useSubscriptionOpener(area: GuideArea, showToast: ShowToast) {
+  const { t } = useI18n(), [subscriptionUrl, setSubscriptionUrl] = useState<string>();
+  async function openSubscription(element: 'manage_subscription' | 'view_plans') {
     tracking.reportSettingsClick(area, element);
-  };
-  return { href: subscriptionUrl(consoleUrl, source), target: '_blank', rel: 'noreferrer', onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = subscriptionUrl(consoleUrl, source); },
-    onClick: open, onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => { if (event.button === 1) open(event); } };
+    setSubscriptionUrl(undefined);
+    try {
+      const { url, opened } = await gatewayRequest<{ url: string; opened: boolean }>('settings/account/subscription', 'POST', {});
+      if (opened) return;
+      const page = window.open(url, '_blank');
+      if (page) page.opener = null; else setSubscriptionUrl(url);
+    } catch { showToast(t("Couldn't open your browser. Try again."), 'error'); }
+  }
+  const button = (element: 'manage_subscription' | 'view_plans', primary = false) => <Button variant="ghost" className="om-button h-auto" data-primary={primary || undefined} onClick={() => void openSubscription(element)}>
+    {element === 'view_plans' && <RemixIcon name="sparkling-line" size={16} />}{t(element === 'view_plans' ? 'Upgrade to Plus' : 'Manage subscription')}<RemixIcon name="external-link-line" size={15} /></Button>;
+  const link = subscriptionUrl && <a className="om-button" data-primary href={subscriptionUrl} target="_blank" rel="noreferrer" onClick={() => setSubscriptionUrl(undefined)}>{t('Continue in browser')}<RemixIcon name="external-link-line" size={15} /></a>;
+  return { button, link };
 }
 
 /** Free and Go accounts are guided to Plus; other plans, unknown billing and signed-out accounts are not. */
@@ -60,13 +63,13 @@ export function SignInGuide({ action }: { action: ReactNode }) {
 }
 
 /** Free / Go guide shared by the account page and the OpenDesign provider: what upgrading to Plus unlocks. */
-export function UpgradeGuide({ plan, consoleUrl, area = 'account' }: { plan: 'free' | 'go'; consoleUrl: string; area?: GuideArea }) {
-  const { t } = useI18n();
+export function UpgradeGuide({ plan, area = 'account', showToast }: { plan: 'free' | 'go'; area?: GuideArea; showToast: ShowToast }) {
+  const { t } = useI18n(), subscription = useSubscriptionOpener(area, showToast);
   return <section className="om-card om-plan-guide" data-guide="upgrade">
     <div className="om-plan-guide-head"><h2 className="om-title om-plan-name">{plan === 'free' ? t('Free plan') : 'Go'}</h2><span className="om-badge">{t('Current plan')}</span></div>
     <p className="om-muted">{t('Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.')}</p>
     <GuideExtras />
-    <div className="om-settings-actions"><a className="om-button" data-primary {...subscriptionLink(consoleUrl, 'openmotion_manage_subscription', 'view_plans', area)}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade to Plus')}<RemixIcon name="external-link-line" size={15} /></a><a className="om-button" {...subscriptionLink(consoleUrl, 'openmotion_manage_subscription', 'manage_subscription', area)}>{t('Manage subscription')}<RemixIcon name="external-link-line" size={15} /></a></div>
+    <div className="om-settings-actions">{subscription.button('view_plans', true)}{subscription.button('manage_subscription')}{subscription.link}</div>
   </section>;
 }
 
@@ -91,7 +94,7 @@ type AccountAction = 'login' | 'logout' | 'cancel';
  * Sign-in state and actions shared by the account page and the OpenDesign provider, so either can sign in in place.
  * A finished sign-in reloads the provider directory and announces itself; plan details load with a billing refresh.
  */
-export function useAccountSignIn(area: GuideArea, showToast: ReturnType<typeof useToast>['showToast'], provider?: { id: string; custom?: boolean; protocol?: string }) {
+export function useAccountSignIn(area: GuideArea, showToast: ShowToast, provider?: { id: string; custom?: boolean; protocol?: string }) {
   const { t } = useI18n(), state = useAccountSummary(), [busy, setBusy] = useState(false), previous = useRef<string | undefined>(undefined);
   const accountState = state.account?.state;
   // Order matters: the event below triggers a plain refresh, so the billing refresh must be issued after it to win.
@@ -130,7 +133,7 @@ export function AccountStatus({ account, busy, action }: { account: AccountSumma
 
 export function AccountSettings({ subscription = false, openProviders }: { subscription?: boolean; openProviders: () => void }) {
   const { t } = useI18n(), toast = useToast(), { state, busy, action } = useAccountSignIn('account', toast.showToast);
-  const [refreshing, setRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false), subscriptionOpener = useSubscriptionOpener('account', toast.showToast);
   const signedIn = state.account?.state === 'signed-in';
   async function refreshBilling() {
     tracking.reportSettingsClick('account', 'refresh_billing');
@@ -144,11 +147,11 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     {state.error ? <SettingsError retry={() => void state.refresh(true)} /> : !account ? <SettingsLoading /> : <>
       <div className="om-account-identity"><span className="om-avatar"><RemixIcon name="user-3-line" size={36} /></span><h1 className="om-title">{subscription ? t('Subscription & usage') : named ? name : email || t('Your OpenDesign account')}</h1><p className="om-muted">{(subscription || named) && email ? email : t('Your creative workspace, connected.')}</p></div>
       <AccountStatus account={account} busy={busy} action={action} />
-      {plan && <UpgradeGuide plan={plan} consoleUrl={account.consoleUrl} />}
+      {plan && <UpgradeGuide plan={plan} showToast={toast.showToast} />}
       <section className="om-settings-section"><div className="om-settings-row"><h2 className="om-subtitle">{t('Subscription & usage')}</h2>{signedIn && <Tooltip label={t('Refresh account')} wrap><IconButton variant="ghost" className="motion-icon-button" aria-label={t('Refresh account')} disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshBilling()} icon={<RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={17} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />} /></Tooltip>}</div>
         {!(signedIn && account.billingUnavailable) && <div className="om-account-metrics"><div className="om-card"><span className="om-muted">{t('Current plan')}</span><h3 className="om-title">{signedIn && account.plan ? account.plan === 'free' ? t('Free plan') : account.plan : '—'}</h3><p className="om-muted">{t(signedIn ? 'Managed by OpenDesign' : 'Sign in to view your plan')}</p></div><div className="om-card"><span className="om-muted">{t('Available balance')}</span><h3 className="om-title">{signedIn && account.balance != null ? `$${account.balance}` : '—'}</h3><p className="om-muted">{t(signedIn ? 'Account credits in USD' : 'Sign in to view usage')}</p></div></div>}
         {signedIn && account.billingUnavailable && <div className="om-settings-row"><p className="om-muted">{t(account.billingError?.status === 403 ? "The billing service declined this request. Open Manage subscription to check your plan in OpenDesign." : "Couldn't load your plan and balance. Account models are unaffected and can be used as usual.")}</p><Button variant="ghost" className="om-button h-auto" disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshBilling()}><RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={15} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />{t('Refresh')}</Button></div>}
-        {signedIn && !upgradeGuide && <a className="om-button" {...subscriptionLink(account.consoleUrl, 'openmotion_manage_subscription', 'manage_subscription')}>{t('Manage subscription')}<RemixIcon name="external-link-line" size={15} /></a>}
+        {signedIn && !upgradeGuide && <>{subscriptionOpener.button('manage_subscription')}{subscriptionOpener.link}</>}
       </section>
       <section className="om-card om-settings-row"><div><h2 className="om-subtitle">{t('Your models, your choice')}</h2><p className="om-muted">{t('Use account models or connect your own API keys. Choose a default for each capability.')}</p></div><Button variant="ghost" className="om-button h-auto" onClick={openProviders}>{t('Model providers')}<RemixIcon name="arrow-right-line" size={15} /></Button></section>
     </>}

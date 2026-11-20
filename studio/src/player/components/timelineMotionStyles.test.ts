@@ -45,7 +45,7 @@ describe("timeline motion styles", () => {
     ["--timeline-border-strong", "color-mix(in oklab, var(--color-text-0) 20%, transparent)"],
     ["--timeline-group-member-tint", "color-mix(in oklab, var(--color-text-0) 3.5%, transparent)"],
     ["--timeline-overlay-text", "var(--color-text-2)"],
-    ["--timeline-playhead-glow", "color-mix(in oklab, var(--color-accent) 14%, transparent)"],
+    ["--timeline-playhead-glow", "color-mix(in oklab, var(--motion-selected) 14%, transparent)"],
   ])("keeps the migrated default for %s", (token, expected) => {
     expect(themeTokenValue(token)).toBe(expected);
   });
@@ -65,7 +65,7 @@ describe("timeline motion styles", () => {
     );
   });
 
-  it("layers the active mint bloom through opacity instead of a gradient background swap", () => {
+  it("layers the active clip bloom through opacity instead of a gradient background swap", () => {
     const baseTimelineClipRule = expectRule(studioCss, ".timeline-clip");
     const timelineClipLabelRule = expectRule(studioCss, ".timeline-clip__label");
     const timelineClipTimecodeRule = expectRule(studioCss, ".timeline-clip__timecode");
