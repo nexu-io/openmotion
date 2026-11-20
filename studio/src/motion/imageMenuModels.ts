@@ -2,6 +2,7 @@ import { generationOptions, compatibleImageResolutions } from '../../../shared/g
 import type { Model, ProviderState } from '../../../shared/gateway';
 import { providerRegistry, registeredProvider } from '../../../shared/provider-registry';
 import { openDesignImageReferenceCap, openDesignModelLabel, openDesignModels } from '../../../shared/opendesign-models';
+import { videoModelBadge } from '../../../shared/video-features';
 import { supportsScene, studioScenes } from './creativeStudios';
 
 export const imageScene = studioScenes.find(scene => scene.id === 'text-to-image')!;
@@ -38,6 +39,7 @@ export function imageModelLabel(model: Model) {
   return variant ? label + ' ' + variant.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ') : label;
 }
 export function imageModelBadge(model: Model) {
+  if (model.modality === 'video') return videoModelBadge(model);
   return ['New', 'New', 'Popular', 'Popular', 'Popular'][familyIndex(model)];
 }
 export function isOpenDesignProvider(providerId: string) {
@@ -91,9 +93,10 @@ export function withOpenDesignModels(models: Model[], providers: ProviderState[]
   const missing = (['opendesign', 'account'] as const).filter(provider => !providerReady(providers, provider)).flatMap(provider =>
     openDesignModels.filter(model => !known.has(provider + ':' + model.modelId)).map((model): Model => {
       const placeholder: Model = { id: provider + ':' + model.modelId, provider, modelId: model.modelId, label: model.label, modality: model.modality, mode: model.mode, source: 'builtin' };
-      // Image entries can edit, so reference-based features list them before setup too.
+      // Image entries can edit and OpenDesign video entries accept a first frame, so reference-based scenes list them before setup too.
       const cap = model.modality === 'image' ? openDesignImageReferenceCap(model.modelId) : undefined;
       if (cap) Object.assign(placeholder, { supportsImageReference: true, maxInputImages: cap });
+      else if (model.modality === 'video') Object.assign(placeholder, { maxInputImages: 1 });
       const options = generationOptions(placeholder);
       return options ? { ...placeholder, generationOptions: options } : placeholder;
     }));

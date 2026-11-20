@@ -761,3 +761,49 @@ it('keeps a character consistent across up to five references and drops Seedream
   expect(request.prompt).toMatch(/^Keep the character from the reference images consistent.*Walk through a night market\.$/);
   expect(request.references).toHaveLength(2);
 });
+
+it('seeds 10s duration and composes camera/multi-shot prompts on video feature scenes', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const seedanceBase: Model = {
+    id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628',
+    label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1,
+    nativeOptions: { durations: [5, 4, 6, 7, 8, 9, 10, 12, 15], resolutions: ['480p', '720p', '1080p'], ratios: ['16:9', '9:16', 'adaptive'], audio: { values: ['on', 'off'], default: 'on' } },
+  };
+  const seedance: Model = { ...seedanceBase, generationOptions: generationOptions(seedanceBase) };
+  const catalog = { models: [seedance], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt: 'An astronaut crossing a silver ridge', references: [], videoChoices: { shots: '3', style: 'narrative' } }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'video-multi-shot')!),
+  }} />));
+  expect([...container.querySelectorAll('.om-relight-field .om-eyebrow')].map(node => node.textContent)).toEqual(['Shot count', 'Shot progression']);
+  expect(container.querySelector('.om-scene-source')?.textContent).toContain('First frame');
+  generate.mockResolvedValue({ job: { id: 'video-job' } });
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  const request = generate.mock.calls[0][0];
+  expect(request.model).toBe(seedance.id);
+  expect(request.parameters).toMatchObject({ duration: 10 });
+  expect(request.prompt).toContain('3-shot narrative sequence');
+  expect(request.prompt).toContain('An astronaut crossing a silver ridge');
+});
+
+it('renders VideoMegaMenu with open video scenes, Coming soon items, and OpenDesign video models', async () => {
+  const { VideoMegaMenu } = await import('./VideoMegaMenu');
+  const navigate = vi.fn();
+  const seedance: Model = { id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1 };
+  const wan: Model = { id: 'opendesign:wan-2.7', provider: 'opendesign', modelId: 'wan-2.7', label: 'Wan 2.7', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1 };
+  await act(async () => root.render(<VideoMegaMenu
+    catalog={{ models: [seedance, wan], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } }}
+    destination={null}
+    onNavigate={navigate}
+  />));
+  const buttons = [...container.querySelectorAll('button')];
+  expect(buttons.some(button => button.textContent?.includes('Create video') && !button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Camera control') && !button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Start & end frames') && button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Seedance 2.5') && !button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Wan 2.7') && !button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Seedance 2.5 Flash') && button.disabled)).toBe(true);
+  await act(async () => buttons.find(button => button.textContent?.includes('Multi-shot narrative'))!.click());
+  expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ scene: expect.objectContaining({ id: 'video-multi-shot' }), model: null }));
+});

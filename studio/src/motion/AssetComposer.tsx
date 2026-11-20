@@ -21,14 +21,15 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { useMediaCatalog } from './useMediaCatalog';
 import type { StudioCreation } from './CreativeWorkspace';
 import { studioExamples } from './sceneShowcase';
-import { needsImage, sceneFeature } from './creativeStudios';
+import { needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
 import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
+import { videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
 import { Select } from '../components/ui/Select';
 import { creationModels } from './creationModels';
 import { providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
 
-export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; shotPreferences?: { aspect: string; duration?: number }; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
+export interface AssetDraft { modality: Modality; prompt: string; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
 export function AssetComposer({ active, studio, draft, setDraft, agentReferences, setAgentReferences, jobs, mode, onMode, taskIds, history, selectingTask, onNew, onChatChanged, onChatStarted, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onCreated, onError, onClose }: {
   active: boolean; studio?: StudioCreation; draft: AssetDraft; setDraft: Dispatch<SetStateAction<AssetDraft>>; jobs: GenerationJob[];
   agentReferences: AssetDraft['references']; setAgentReferences: (references: AssetDraft['references']) => void;
@@ -42,8 +43,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const scene = studio?.destination.scene;
   const feature = scene && sceneFeature(scene);
   const featureRule = feature ? imageFeatures[feature] : undefined;
-  // Image feature scenes (remove-background, relight, character) offer only OpenDesign models.
-  const featureMode = Boolean(feature);
+  const videoFeature = scene && sceneVideoFeature(scene);
+  const videoFeatureRule = videoFeature ? videoFeatures[videoFeature] : undefined;
+  // Image and video feature scenes offer only OpenDesign models.
+  const featureMode = Boolean(feature || videoFeature);
   const modelId = studio?.destination.model ?? draft.model;
   const promptId = useId();
   const libraryCatalog = useMediaCatalog(active && !studio);
@@ -75,11 +78,17 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const invalidReferences = draft.references.length > maximumReferences || Boolean(scene && needsImage(scene) && !draft.references.length);
   const shotPreferences = draft.shotPreferences ?? (studio?.destination.studio.id === 'shorts' ? { aspect: '9:16' } : undefined);
   const parameterModel = selected;
+  const parameterKey = parameterModel ? `${scene?.id ?? 'direct'}:${parameterModel.id}` : '';
   const restoredParameters = (model: NonNullable<typeof parameterModel>): ParameterDraft => {
-    if (draft.model !== model.id || !draft.parameters) return shotParameters(model, shotPreferences);
+    if (draft.model !== model.id || !draft.parameters) {
+      const base = shotParameters(model, shotPreferences);
+      if (!videoFeature) return base;
+      const seeded = videoFeatureParameters(videoFeature, model);
+      return Object.keys(seeded).length ? { ...base, values: { ...base.values, ...seeded } } : base;
+    }
     return { values: {}, advanced: JSON.stringify(draft.parameters, null, 2) };
   };
-  const parameters = parameterModel ? parameterDrafts[parameterModel.id] ?? restoredParameters(parameterModel) : emptyParameters;
+  const parameters = parameterModel ? parameterDrafts[parameterKey] ?? restoredParameters(parameterModel) : emptyParameters;
   const inputImageRatio = selected && parameterInputImageRatio(selected, parameters, draft.references.length > 0);
   const kind = creationKinds.find(k => k.id === draft.modality)!;
   const latest = jobs.find(job => job.id === taskIds.direct);
@@ -89,8 +98,11 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
     try {
       const parsed = requestParameters(parameters, selected, draft.references.length > 0);
-      const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight) : draft.prompt;
-      const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: { ...parsed, ...featureRule?.parameters },
+      const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
+        : videoFeature ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
+        : draft.prompt;
+      const forcedVideoParameters = videoFeature === 'native-audio' ? videoFeatureParameters(videoFeature, selected) : undefined;
+      const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: { ...parsed, ...featureRule?.parameters, ...forcedVideoParameters },
         ...(draft.target ? { assetId: draft.target.asset.id, parentVersionId: draft.target.versionId } : {}), references: draft.references.map(r => r.reference) });
       if (mounted.current) {
         setDraft(current => current === draft ? { ...current, model: selected.id, parameters: parsed } : current);
@@ -155,9 +167,9 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
   </>;
   const modelNotice = unknownReferences || cloudModelMissing ? <p className="om-muted" role="status">{unknownReferences && t('Image editing capability is unknown. Sync models to check reference support.')} <Button variant="ghost" className="om-button h-auto" disabled={syncing} onClick={() => void syncModels()}>{t(syncing ? 'Working…' : 'Sync models')}</Button></p> : selected && draft.references.length > 0 && <p className="om-muted">{t(maximumReferences ? draft.modality === 'video' ? 'This video model uses one image as its first frame.' : 'This model edits up to {count} image references.' : 'This model cannot use asset references. Choose an image model that supports editing, or remove the references.', { count: maximumReferences })}</p>;
-  const generationSettings = parameterModel && <GenerationParameters key={parameterModel.id} model={parameterModel} draft={parameters}
+  const generationSettings = parameterModel && <GenerationParameters key={parameterKey} model={parameterModel} draft={parameters}
     hasInputImage={draft.references.length > 0} hidden={Object.keys(featureRule?.parameters ?? {})} onChange={value => {
-      setParameterDrafts(current => ({ ...current, [parameterModel.id]: value }));
+      setParameterDrafts(current => ({ ...current, [parameterKey]: value }));
       try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0) }); }
       catch { /* Keep invalid JSON or conflicting parameters in the local editor until corrected. */ }
     }} />;
@@ -187,7 +199,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       <div className="om-asset-direct">
       {draft.target && <div className="om-card om-asset-edit-target"><span><RemixIcon name="history-line" size={16} />{draft.target.asset.name} · V{draft.target.asset.versions.findIndex(v => v.id === draft.target!.versionId) + 1}</span><Button variant="plain" className="om-nav-item" onClick={() => setDraft({ ...draft, target: undefined })}>{t('Create separately')}</Button></div>}
       {!scene && <div className="om-creation-types" role="group" aria-label={t('Media type')}>{creationKinds.map(item => <Button variant="plain" key={item.id} className="om-creation-type" data-tone={item.id} aria-pressed={draft.modality === item.id} disabled={Boolean(draft.target) && item.id !== draft.modality} onClick={() => setDraft({ ...draft, modality: item.id, model: undefined, parameters: undefined, ...(item.id === 'audio' ? { references: [] } : {}) })}><span className="om-creation-icon" data-tone={item.id}><RemixIcon name={item.icon} size={20} /></span><span>{t(item.label)}</span>{draft.modality === item.id && <RemixIcon name="check-line" size={13} />}</Button>)}</div>}
-      {scene && (needsImage(scene) || (scene.modality === 'image' && maximumReferences > 0)) && <section className="om-scene-source">
+      {scene && (needsImage(scene) || ((scene.modality === 'image' || Boolean(videoFeature)) && maximumReferences > 0)) && <section className="om-scene-source">
         <h3 className="om-eyebrow">{t(scene.modality === 'video' ? 'First frame' : needsImage(scene) ? 'Reference asset' : 'Reference image')}</h3>
         {draft.references.length > 0 && <div className="om-scene-source-files">{draft.references.map(item => <Button variant="plain" key={item.reference.assetId + '/' + item.reference.versionId} className="om-nav-item" aria-label={t('Remove reference: {name}', { name: item.name })} onClick={() => setDraft({ ...draft, references: draft.references.filter(reference => reference !== item) })}>
           <img src={assetMediaUrl(item.reference.assetId, item.reference.versionId)} alt="" /><span>{item.name}</span><RemixIcon name="close-line" size={16} /></Button>)}</div>}
@@ -203,6 +215,14 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
           <Select label={t(control.label)} value={draft.relight?.[control.key] ?? control.choices[0].value}
             options={control.choices.map(choice => ({ value: choice.value, label: t(choice.label) }))}
             onCommit={value => setDraft(current => ({ ...current, relight: { ...current.relight, [control.key]: value } }))} />
+        </div>)}
+      </section>}
+      {videoFeatureRule && <section className="om-relight-controls" aria-label={t(scene!.label)}>
+        {videoFeatureRule.controls.map(control => <div className="om-relight-field" key={control.key}>
+          <span className="om-eyebrow">{t(control.label)}</span>
+          <Select label={t(control.label)} value={draft.videoChoices?.[control.key] ?? control.choices[0].value}
+            options={control.choices.map(choice => ({ value: choice.value, label: t(choice.label) }))}
+            onCommit={value => setDraft(current => ({ ...current, videoChoices: { ...current.videoChoices, [control.key]: value } }))} />
         </div>)}
       </section>}
       <div className="om-creation-model">{modelPicker}</div>

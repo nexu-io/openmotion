@@ -1222,9 +1222,9 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(page().studio).toMatchObject({ studio: { id: 'design' }, scene: { id: 'text-to-image' }, landing: true, model: null });
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
   await click('Video · Scenes');
-  const videoMenu = document.querySelector('.om-creative-menu')!;
-  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Text to video', 'Image to video', 'Video first frame']);
-  const still = [...videoMenu.querySelectorAll<HTMLButtonElement>('.om-scene-tile')].find(node => node.querySelector('strong')?.textContent === 'Video first frame')!;
+  const videoMenu = document.querySelector('.om-creative-menu-video')!;
+  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Create video', 'Image to video', 'Camera control', 'Start & end frames']);
+  const still = [...videoMenu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Video first frame'))!;
   await act(async () => still.click());
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'shot-image' }, landing: true });
   // Character consistency and the live feature rows open their own landing pages without a pinned model.
@@ -1286,7 +1286,7 @@ it.each([
 });
 
 it.each([
-  ['Video', 'Text to video', 'text-to-video'],
+  ['Video', 'Create video', 'text-to-video'],
   ['Audio', 'Text to speech', 'speech'],
 ])('opens the %s dropdown scene without a breadcrumb', async (label, sceneLabel, scene) => {
   await mount(); await click('Explore');
@@ -1652,7 +1652,7 @@ it('shows the Explore shortcuts, fills two complete rows across Skills and techn
     expect(new Set(studioCards.map(card => card.dataset.playbackId)).size, studio).toBe(expectedCount);
   }
   expect(container.querySelectorAll('.om-studio-collection[data-studio="design"] .om-scene-tile')).toHaveLength(7);
-  expect(container.querySelectorAll('.om-studio-collection[data-studio="cinema"] .om-scene-tile')).toHaveLength(3);
+  expect(container.querySelectorAll('.om-studio-collection[data-studio="cinema"] .om-scene-tile')).toHaveLength(6);
   expect(container.querySelectorAll('.om-studio-collection[data-studio="sound"] .om-scene-tile')).toHaveLength(2);
   const footer = container.querySelector('main.om-explore > footer.om-capability-index');
   expect(footer).not.toBeNull();

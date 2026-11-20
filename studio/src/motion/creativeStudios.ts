@@ -1,5 +1,6 @@
 import { modelReferenceLimit, type Model, type Modality } from '../../../shared/gateway';
 import { imageFeatureModel, type ImageFeatureId } from '../../../shared/image-features';
+import type { VideoFeatureId } from '../../../shared/video-features';
 import { creativeStudios, studioScenes, type CreativeStudio, type MediaStudio, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
 
 export { creativeStudios, studioScenes, type StudioScene };
@@ -40,6 +41,7 @@ export function sceneDestination(scene: StudioScene, current?: StudioDestination
 
 export const needsImage = (scene: StudioScene) => 'requiresImage' in scene && scene.requiresImage;
 export const sceneFeature = (scene: StudioScene): ImageFeatureId | undefined => 'feature' in scene ? scene.feature : undefined;
+export const sceneVideoFeature = (scene: StudioScene): VideoFeatureId | undefined => 'videoFeature' in scene ? scene.videoFeature : undefined;
 
 export function supportsScene(model: Model, scene: StudioScene) {
   if (model.modality !== scene.modality) return false;

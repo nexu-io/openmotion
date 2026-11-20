@@ -340,7 +340,7 @@
 }
 [data-motion-studio] .om-creative-split:has(.om-nav-row-link:focus-visible) { outline-offset: -2px; }
 .om-creative-menu { width: max-content; max-width: calc(100vw - var(--motion-space-24)); max-height: min(var(--available-height), 78dvh); overflow-y: auto; overscroll-behavior: contain; }
-.om-creative-mega { width: min(740px, calc(100vw - var(--motion-space-24))); padding: var(--motion-space-16); border-radius: var(--motion-radius-xl); }
+.om-creative-mega { width: min(740px, calc(100vw - var(--motion-space-24))); padding: var(--motion-space-16); border-radius: var(--motion-radius-xl); background: var(--motion-panel); }
 .om-media-mega { display: grid; gap: var(--motion-space-16); min-width: 0; }
 .om-media-menu-grid { display: grid; grid-auto-flow: column; grid-auto-columns: min(160px, calc((100vw - 76px) / 3)); gap: var(--motion-space-12); }
 .om-media-menu-grid.om-media-mega-entries { grid-auto-flow: row; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-columns: auto; gap: var(--motion-space-12); }
@@ -358,6 +358,16 @@
 .om-character-portrait-main img { width: 100%; height: 100%; border-radius: var(--motion-radius-full); object-fit: cover; }
 .om-character-portrait-main i { position: absolute; bottom: -5px; width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--motion-radius-full); background: var(--motion-signature-band); color: var(--motion-on-signature-band); font-style: normal; font-size: var(--motion-text-xs); font-weight: var(--motion-weight-bold); line-height: 1; }
 .om-character-caption { font-size: var(--motion-text-step-10); color: var(--motion-overlay-ink); opacity: .72; }
+.om-media-mega-entries .om-scene-tile-disabled { opacity: .68; cursor: not-allowed; }
+.om-video-tile-art { position: relative; overflow: hidden; }
+.om-video-tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.om-video-demo-play { position: absolute; inset: auto var(--motion-space-8) var(--motion-space-8) auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: var(--motion-radius-full); background: var(--motion-video-overlay); color: var(--motion-overlay-ink); border: 1px solid var(--motion-border-subtle); }
+.om-video-demo-pill { position: absolute; left: var(--motion-space-8); bottom: var(--motion-space-8); display: inline-flex; align-items: center; gap: var(--motion-space-4); padding: var(--motion-space-2) var(--motion-space-6); border-radius: var(--motion-radius-full); background: var(--motion-video-overlay); color: var(--motion-overlay-ink); font-size: var(--motion-text-xs); font-weight: var(--motion-weight-semibold); }
+.om-video-keyframes-demo { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--motion-space-6); padding: var(--motion-space-8); background: radial-gradient(ellipse at 50% 0%, var(--motion-neutral-n10), var(--motion-on-brand) 68%, var(--motion-neutral-n11)); }
+.om-video-keyframes-demo .om-image-menu-badge { position: absolute; top: var(--motion-space-6); right: var(--motion-space-6); }
+.om-video-keyframes-pair { display: inline-flex; align-items: center; gap: var(--motion-space-4); color: var(--motion-overlay-ink); opacity: .82; }
+.om-video-keyframes-pair img { width: 42px; height: 42px; object-fit: cover; border-radius: var(--motion-radius-md); border: 1px solid var(--motion-border); }
+.om-video-keyframes-caption { font-size: var(--motion-text-step-10); color: var(--motion-overlay-ink); opacity: .72; }
 .om-media-mega-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--motion-space-20); padding-top: var(--motion-space-14); border-top: 1px solid var(--motion-border-subtle); }
 .om-media-mega-columns > section { display: grid; align-content: start; gap: var(--motion-space-4); min-width: 0; }
 .om-media-mega-columns h2 { margin: 0 0 var(--motion-space-4); padding: 0 var(--motion-space-8); color: var(--motion-dim); font-size: var(--motion-text-xs); font-weight: var(--motion-weight-medium); }

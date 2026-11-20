@@ -6,6 +6,13 @@ import { fixture } from './fixtures.ts';
 import { gatewayFor } from '../gateway/service.ts';
 import { providerAdapters } from '../gateway/providers.ts';
 import type { GenerationJob, Model } from '../shared/gateway.ts';
+import {
+  defaultVideoFeatureChoices,
+  videoFeatureParameters,
+  videoFeaturePrompt,
+  videoModelBadge,
+  videoModelLabel,
+} from '../shared/video-features.ts';
 import { OpenDesignAccount } from '../gateway/account.ts';
 import type { AccountSummary } from '../shared/provider-directory.ts';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -598,3 +605,42 @@ test('OpenDesign account and Cloud image models without profiles reject incomple
     assert.equal(calls, 0);
   } finally { account.close(); }
 }));
+
+test('videoModelLabel and videoModelBadge cover Seedance 2.5, Seedance 2.5 Flash, Wan 2.7 and BYOK passthrough', () => {
+  assert.equal(videoModelLabel({ modelId: 'doubao-seedance-2-5-260628', label: 'doubao-seedance-2-5-260628' }), 'Seedance 2.5');
+  assert.equal(videoModelLabel({ modelId: 'doubao-seedance-2-5-flash-261115', label: 'doubao-seedance-2-5-flash-261115' }), 'Seedance 2.5 Flash');
+  assert.equal(videoModelLabel({ modelId: 'wan-2.7', label: 'wan-2.7' }), 'Wan 2.7');
+  assert.equal(videoModelLabel({ modelId: 'fal-ai/wan/v2.2', label: 'Wan 2.2' }), 'Wan 2.2');
+  assert.equal(videoModelBadge({ modelId: 'doubao-seedance-2-5-flash-261115' }), 'New');
+  assert.equal(videoModelBadge({ modelId: 'doubao-seedance-2-5-260628' }), 'Popular');
+  assert.equal(videoModelBadge({ modelId: 'wan-2.7' }), 'Popular');
+});
+
+test('videoFeaturePrompt composes structured camera, multi-shot and native-audio directions', () => {
+  const cam = videoFeaturePrompt('camera-control', 'A ceramic cup steaming on oak', { movement: 'orbit', pace: 'slow' });
+  assert.match(cam, /360-degree camera orbit/);
+  assert.match(cam, /slow, deliberate cinematic pacing/);
+  assert.match(cam, /A ceramic cup steaming on oak$/);
+
+  const multi = videoFeaturePrompt('multi-shot', 'A surfer catching sunrise waves', { shots: '4', style: 'match' });
+  assert.match(multi, /4-shot storyboard sequence/);
+  assert.match(multi, /match cuts/);
+
+  const audio = videoFeaturePrompt('native-audio', 'Rain falling on a glass roof', defaultVideoFeatureChoices('native-audio'));
+  assert.match(audio, /synchronized natural environmental ambience/);
+  assert.equal(videoFeaturePrompt('camera-control', '   '), '');
+});
+
+test('videoFeatureParameters seeds 10s for multi-shot and enables generate_audio only on known OpenDesign models', () => {
+  assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628' }), { duration: 10 });
+  assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-flash-261115' }), { duration: 10 });
+  assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'wan-2.7' }), { duration: 10 });
+
+  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628' }), { generate_audio: true });
+  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'account', modelId: 'doubao-seedance-2-5-flash-261115' }), { generate_audio: true });
+  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'opendesign', modelId: 'wan-2.7' }), {});
+  // Unknown or BYOK models must never receive undeclared duration or generate_audio parameters.
+  assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'fal', modelId: 'fal-ai/wan/v2.2' }), {});
+  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'fal', modelId: 'fal-ai/wan/v2.2' }), {});
+  assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'unknown-future-model' }), {});
+});

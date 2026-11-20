@@ -13,6 +13,7 @@ import lunarStill from './scene-art/lunar-shot-still.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 import { imageScene, menuFamilies, withOpenDesignModels } from './imageMenuModels';
 import { ImageMegaMenu, ModelMenuColumn, type ImageParameterSeed } from './ImageMegaMenu';
+import { VideoMegaMenu } from './VideoMegaMenu';
 import { sceneExamples } from './sceneShowcase';
 import { destinationTarget, reportCreativeClick, type CreativePage, type CreativeTarget } from './exploreTracking';
 import { AudioNavMenu } from './AudioNavMenu';
@@ -208,8 +209,10 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
                   }} />
               : id === 'image'
                 ? <ImageMegaMenu catalog={catalog.catalog} destination={destination} onNavigate={selectScene} />
-                : <MediaChoices catalog={catalog.catalog} studio={studio} destination={destination} onNavigate={selectScene}
-                  onSelectModel={next => { track('select_model', { ...where, ...destinationTarget(next) }); choose(() => onNavigate(next)); }} />)}
+                : id === 'video'
+                  ? <VideoMegaMenu catalog={catalog.catalog} destination={destination} onNavigate={selectScene} />
+                  : <MediaChoices catalog={catalog.catalog} studio={studio} destination={destination} onNavigate={selectScene}
+                    onSelectModel={next => { track('select_model', { ...where, ...destinationTarget(next) }); choose(() => onNavigate(next)); }} />)}
           </Popover>
         </div>;
   }

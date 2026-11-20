@@ -10,6 +10,7 @@ export const openDesignModels: readonly { modelId: string; label: string; modali
   { modelId: 'seedream-5.5', label: 'Seedream 5.5', modality: 'image', mode: 'text-to-image' },
   { modelId: 'seedream-5.0-flash', label: 'Seedream 5.0 Flash', modality: 'image', mode: 'text-to-image' },
   { modelId: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video' },
+  { modelId: 'doubao-seedance-2-5-flash-261115', label: 'Seedance 2.5 Flash', modality: 'video', mode: 'text-to-video' },
   { modelId: 'wan-2.7', label: 'Wan 2.7', modality: 'video', mode: 'text-to-video' },
   { modelId: 'elevenlabs-v3', label: 'Eleven v3', modality: 'audio', mode: 'text-to-speech' },
   { modelId: 'byteplus-tts-2', label: 'BytePlus TTS 2.0', modality: 'audio', mode: 'text-to-speech' },
