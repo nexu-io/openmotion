@@ -840,8 +840,8 @@ test('media inspection refreshes advisory billing without disabling account mode
   for (const [mode, entitlement, plan, hasBalance] of [
     ['billing-free', 'not-included', 'free', false], ['billing-go', 'not-included', 'go', false],
     ['billing-plus', 'included', 'plus', undefined], ['', 'included', 'pro', undefined],
-    ['billing-topup', 'unknown', 'free', true], ['billing-malformed', 'unknown', 'free', undefined],
-    ['billing-missing', 'unknown', 'go', undefined], ['billing-403', 'unknown', undefined, undefined],
+    ['billing-topup', 'not-included', 'free', true], ['billing-malformed', 'not-included', 'free', undefined],
+    ['billing-missing', 'not-included', 'go', undefined], ['billing-403', 'unknown', undefined, undefined],
     ['billing-failure', 'unknown', undefined, undefined],
   ] as const) {
     await writeFile(path.join(account.home, 'fixture-mode'), mode);
