@@ -112,6 +112,53 @@ it('validates structured number parameters and supports boolean defaults on medi
   expect(close).toHaveBeenCalledOnce();
 });
 
+it('clears incompatible choice defaults when a required dependency changes', async () => {
+  const save = vi.fn(async () => true), close = vi.fn();
+  const atlasProvider = { id: 'atlascloud', label: 'Atlas Cloud', protocol: 'media', kinds: ['image', 'video', 'audio'] } as ProviderConnection;
+  const videoModel: DirectoryModel = {
+    id: 'atlascloud:bytedance/seedance-2.0/text-to-video',
+    provider: 'atlascloud',
+    modelId: 'bytedance/seedance-2.0/text-to-video',
+    label: 'Seedance 2.0',
+    kind: 'video',
+    mode: 'text-to-video',
+    enabled: true,
+    source: 'builtin',
+  };
+  await mount(<ModelEditor provider={atlasProvider} model={videoModel} save={save} onClose={close} />);
+  await pickSelect('Resolution', '4K');
+  await pickSelect('Aspect ratio', '1:1');
+  await submitModel();
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaults: { ratio: '1:1' } }));
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it('keeps decimal number drafts while typing fractional defaults', async () => {
+  const save = vi.fn(async () => true), close = vi.fn();
+  const falProvider = { id: 'fal', label: 'fal.ai', protocol: 'media', kinds: ['image', 'video', 'audio'] } as ProviderConnection;
+  const sfxModel: DirectoryModel = {
+    id: 'fal:fal-ai/elevenlabs/sound-effects/v2',
+    provider: 'fal',
+    modelId: 'fal-ai/elevenlabs/sound-effects/v2',
+    label: 'Sound Effects v2',
+    kind: 'audio',
+    mode: 'text-to-audio',
+    enabled: true,
+    source: 'builtin',
+  };
+  await mount(<ModelEditor provider={falProvider} model={sfxModel} save={save} onClose={close} />);
+  const durationInput = document.querySelector<HTMLInputElement>('[aria-label="Duration (seconds)"]')!;
+  await fill('Duration (seconds)', '1');
+  expect(durationInput.value).toBe('1');
+  await fill('Duration (seconds)', '1.');
+  expect(durationInput.value).toBe('1.');
+  await fill('Duration (seconds)', '1.5');
+  expect(durationInput.value).toBe('1.5');
+  await submitModel();
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ defaults: { duration_seconds: 1.5 } }));
+  expect(close).toHaveBeenCalledOnce();
+});
+
 it('switches modalities, searches models and retains group expansion for grouped catalogues', async () => {
   const models = [{ id: 'a', modelId: 'a', label: 'Reasoning model', kind: 'text', group: 'Research', enabled: true, source: 'live' }, { id: 'b', modelId: 'b', label: 'Image model', kind: 'image', group: 'Creative', enabled: true, source: 'custom' }, { id: 'c', modelId: 'c', label: 'Disabled model', kind: 'text', group: 'Research', enabled: false, source: 'live' }] as DirectoryModel[];
   await mount(<ModelCatalog models={models} render={model => <p key={model.id} data-model={model.id}>{model.label}</p>} />);

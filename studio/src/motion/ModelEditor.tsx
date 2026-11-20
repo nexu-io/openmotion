@@ -43,6 +43,7 @@ export function ModelEditor({ provider, model, onClose, save }: { provider: Prov
   const [kind, setKind] = useState<ModelKind>(model?.kind ?? (provider.protocol === 'media' ? 'image' : 'text'));
   const [defaults, setDefaults] = useState(JSON.stringify(model?.defaults ?? {}, null, 2));
   const [numberDrafts, setNumberDrafts] = useState<Record<string, string>>({});
+  const [textDrafts, setTextDrafts] = useState<Record<string, string>>({});
 
   const gatewayModel = useMemo(
     () => (model ? toGatewayModel({ ...model, kind }) : null),
@@ -138,15 +139,24 @@ export function ModelEditor({ provider, model, onClose, save }: { provider: Prov
           onCommit={nextValue => updateDefaultsObject(next => {
             if (nextValue === DEFAULT_SENTINEL) {
               delete next[option.key];
-              return;
+            } else {
+              const matched = choices.find(choice => String(choice.value) === nextValue);
+              next[option.key] = matched ? matched.value : nextValue;
+              if (matched?.requires) Object.assign(next, matched.requires);
             }
-            const matched = choices.find(choice => String(choice.value) === nextValue);
-            next[option.key] = matched ? matched.value : nextValue;
-            if (matched?.requires) Object.assign(next, matched.requires);
-            if (option.key === 'aspect_ratio' && gatewayModel) {
+            if (option.key === 'aspect_ratio' && gatewayModel && next[option.key] !== undefined) {
               const nextAllowed = compatibleImageResolutions(gatewayModel, next[option.key]);
               if (nextAllowed && typeof next.resolution === 'string' && !nextAllowed.includes(next.resolution)) {
                 delete next.resolution;
+              }
+            }
+            for (const other of structuredFields) {
+              if (other.key === option.key || other.kind !== 'choice') continue;
+              const currentValue = next[other.key];
+              if (currentValue === undefined) continue;
+              const required = other.choices?.find(choice => choice.value === currentValue)?.requires;
+              if (required && Object.entries(required).some(([reqKey, reqValue]) => next[reqKey] !== reqValue)) {
+                delete next[other.key];
               }
             }
           })}
@@ -198,11 +208,16 @@ export function ModelEditor({ provider, model, onClose, save }: { provider: Prov
               if (!raw.trim()) {
                 setNumberDrafts(current => { const next = { ...current }; delete next[option.key]; return next; });
                 updateDefaultsObject(next => { delete next[option.key]; });
-              } else if (!err) {
-                setNumberDrafts(current => { const next = { ...current }; delete next[option.key]; return next; });
-                updateDefaultsObject(next => { next[option.key] = Number(raw.trim()); });
               } else {
                 setNumberDrafts(current => ({ ...current, [option.key]: raw }));
+                if (!err) updateDefaultsObject(next => { next[option.key] = Number(raw.trim()); });
+              }
+            }}
+            onBlur={() => {
+              if (!(option.key in numberDrafts)) return;
+              const raw = numberDrafts[option.key];
+              if (!raw.trim() || !numberFieldError(option, raw)) {
+                setNumberDrafts(current => { const next = { ...current }; delete next[option.key]; return next; });
               }
             }}
           />
@@ -211,7 +226,9 @@ export function ModelEditor({ provider, model, onClose, save }: { provider: Prov
       </label>;
     }
 
-    const textValue = typeof savedValue === 'string' ? savedValue : '';
+    const textValue = option.key in textDrafts
+      ? textDrafts[option.key]
+      : typeof savedValue === 'string' ? savedValue : '';
     return <label className="om-label" key={option.key}>
       {t(option.label)}
       <span className="om-field">
@@ -222,10 +239,20 @@ export function ModelEditor({ provider, model, onClose, save }: { provider: Prov
           value={textValue}
           onChange={event => {
             const raw = event.target.value;
-            updateDefaultsObject(next => {
-              if (!raw.trim()) delete next[option.key];
-              else next[option.key] = raw;
-            });
+            if (raw === '') {
+              setTextDrafts(current => { const next = { ...current }; delete next[option.key]; return next; });
+              updateDefaultsObject(next => { delete next[option.key]; });
+            } else {
+              setTextDrafts(current => ({ ...current, [option.key]: raw }));
+              updateDefaultsObject(next => {
+                if (!raw.trim()) delete next[option.key];
+                else next[option.key] = raw;
+              });
+            }
+          }}
+          onBlur={() => {
+            if (!(option.key in textDrafts)) return;
+            setTextDrafts(current => { const next = { ...current }; delete next[option.key]; return next; });
           }}
         />
       </span>
@@ -279,6 +306,7 @@ export function ModelEditor({ provider, model, onClose, save }: { provider: Prov
     {advanced && <div className="om-card-stack">
       <label className="om-label">{t('Default request parameters (JSON)')}<span className="om-field om-code-field"><textarea ref={defaultsRef} aria-label={t('Default request parameters (JSON)')} aria-invalid={defaultsInvalid || undefined} aria-describedby={`${defaultsId}-help${defaultsInvalid ? ` ${defaultsId}-error` : ''}`} rows={5} spellCheck={false} value={defaults} onChange={event => {
         setNumberDrafts({});
+        setTextDrafts({});
         setDefaults(event.target.value);
       }} /></span><small id={`${defaultsId}-error`} className="om-field-error" role={defaultsInvalid ? 'alert' : undefined}>{defaultsInvalid ? t(parsedDefaults.error!, { field: parsedDefaults.field ?? '' }) : null}</small><small id={`${defaultsId}-help`} className="om-muted">{t('Use the provider’s parameter names. Per-request values override these defaults. Language model settings are saved for integrations; local Agents manage their own parameters.')}</small></label>
     </div>}
