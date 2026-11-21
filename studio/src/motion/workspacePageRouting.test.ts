@@ -274,6 +274,10 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
   });
   expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=manual').scenarioMode).toBe('manual');
   expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=unknown').scenarioMode).toBeNull();
+  // Studio mode (one brief in, the whole kit out) round-trips too.
+  const studioMode = new URL(workspacePageHref(origin, { scenario: 'black-friday', scenarioMode: 'studio' }), origin);
+  expect(studioMode.search).toBe('?page=scenario&scenario=black-friday&mode=studio&community=product-films');
+  expect(readWorkspacePage(studioMode.search).scenarioMode).toBe('studio');
   expect(readWorkspacePage('?page=explore&mode=agent').scenarioMode).toBeNull();
 
   // Switching scenarios clears mode unless explicitly set.

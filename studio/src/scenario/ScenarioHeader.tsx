@@ -347,6 +347,17 @@ export function ScenarioHeader({
       <div className="om-scenario-header-actions">
         <div className="om-scenario-mode-switch" role="group" aria-label={t('Workflow mode')}>
           <Button
+            variant={mode === 'studio' ? 'primary' : 'ghost'}
+            size="sm"
+            type="button"
+            icon={<RemixIcon name="sparkling-line" size={14} />}
+            aria-pressed={mode === 'studio'}
+            data-scenario-mode-tab="studio"
+            onClick={() => onModeChange('studio')}
+          >
+            {t('Studio')}
+          </Button>
+          <Button
             variant={mode === 'manual' ? 'primary' : 'ghost'}
             size="sm"
             type="button"
@@ -370,7 +381,7 @@ export function ScenarioHeader({
           </Button>
         </div>
 
-        {mode !== 'agent' && (
+        {mode === 'manual' && (
           <IconButton
             variant="secondary"
             size="sm"
@@ -384,7 +395,7 @@ export function ScenarioHeader({
           />
         )}
 
-        {mode !== 'agent' && onTogglePoolCollapsed && (
+        {mode === 'manual' && onTogglePoolCollapsed && (
           <Button
             variant={poolCollapsed ? 'secondary' : 'ghost'}
             size="sm"
@@ -411,7 +422,7 @@ export function ScenarioHeader({
           </Button>
         )}
 
-        {mode !== 'agent' && (
+        {mode === 'manual' && (
           <Button
             variant="secondary"
             size="sm"

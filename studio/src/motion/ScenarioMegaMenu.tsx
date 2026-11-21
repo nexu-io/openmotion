@@ -1,17 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Button } from 'open-design-ui/button';
-import {
-  cleanLegacyScenarioTitle,
-  findScenario,
-  scenarioCategories,
-  scenariosByCategory,
-  type ScenarioId,
-} from '../../../shared/scenarios';
+import { cleanLegacyScenarioTitle, findScenario, type ScenarioId } from '../../../shared/scenarios';
 import type { ScenarioRunSummary } from '../../../shared/scenario-runs';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { scenarioCover } from '../scenario/scenarioCovers';
 import { scenarioClient } from '../scenario/scenarioClient';
+import { scenarioStudio, studioDeliverables, studioScenes, studiosForScene, type StudioSceneId } from '../scenario/scenarioStudios';
 import { ExploreCoverImage } from './ExploreCoverImage';
 import './scenarioNavigation.css';
 
@@ -51,6 +46,7 @@ export function ScenarioMegaMenu({
   const [recentRuns, setRecentRuns] = useState<ScenarioRunSummary[]>([]);
   const [hiddenRecentCount, setHiddenRecentCount] = useState(0);
   const [hasMoreRecent, setHasMoreRecent] = useState(false);
+  const [scene, setScene] = useState<StudioSceneId>('all');
 
   useEffect(() => {
     let cancelled = false;
@@ -72,52 +68,54 @@ export function ScenarioMegaMenu({
     };
   }, []);
 
+  const studios = studiosForScene(scene);
+
   return (
-    <div className="om-scenario-mega">
-      <div className="om-scenario-mega-columns">
-        {scenarioCategories.map(category => {
-          const items = scenariosByCategory(category.id);
-          return (
-            <section
-              key={category.id}
-              className="om-scenario-mega-column"
-              aria-label={t(category.label)}
-              data-scenario-category={category.id}
-            >
-              <div className="om-scenario-mega-column-head" data-category={category.id}>
-                <RemixIcon name={category.icon} size={14} aria-hidden="true" />
-                <h2>{t(category.label)}</h2>
-              </div>
-              <div className="om-scenario-mega-list">
-                {items.map(scenario => (
-                  <Button
-                    key={scenario.id}
-                    variant="plain"
-                    className="om-scene-tile om-scenario-mega-tile"
-                    data-scenario-tile={scenario.id}
-                    aria-current={activeScenarioId === scenario.id ? 'page' : undefined}
-                    onClick={() => onSelect(scenario.id)}
-                  >
-                    <span className="om-scene-tile-art om-scenario-mega-thumb" aria-hidden="true">
-                      <ExploreCoverImage src={scenarioCover(scenario.id)} eager />
-                    </span>
-                    <span className="om-scenario-mega-copy">
-                      <span className="om-scenario-mega-title">
-                        <strong>{t(scenario.title)}</strong>
-                        {scenario.badge && (
-                          <span className="om-badge" data-nav-badge={scenario.badge} lang="en">
-                            {scenario.badge}
-                          </span>
-                        )}
-                      </span>
-                      <span className="om-scenario-mega-subtitle">{t(scenario.subtitle)}</span>
-                    </span>
-                  </Button>
-                ))}
-              </div>
-            </section>
-          );
-        })}
+    <div className="om-scenario-mega" data-studio-scene={scene}>
+      <div className="om-studio-mega-head">
+        <RemixIcon name="sparkling-fill" size={16} aria-hidden="true" />
+        <h2>{t('Studios')}</h2>
+        <span>{t('One brief in, a full kit out')}</span>
+      </div>
+      <div className="om-studio-mega-scenes" role="tablist" aria-label={t('Scenes')}>
+        {studioScenes.map(item => (
+          <Button
+            key={item.id}
+            variant="plain"
+            role="tab"
+            aria-selected={scene === item.id}
+            className="om-studio-mega-scene"
+            data-studio-scene-tab={item.id}
+            onClick={() => setScene(item.id)}
+          >
+            {t(item.label)}
+          </Button>
+        ))}
+      </div>
+      <div className="om-studio-mega-grid" role="tabpanel">
+        {studios.map(scenario => (
+          <Button
+            key={scenario.id}
+            variant="plain"
+            className="om-studio-mega-card"
+            data-scenario-tile={scenario.id}
+            aria-current={activeScenarioId === scenario.id ? 'page' : undefined}
+            onClick={() => onSelect(scenario.id)}
+          >
+            <span className="om-studio-mega-art" aria-hidden="true">
+              <ExploreCoverImage src={scenarioCover(scenario.id)} eager />
+              {scenario.badge && (
+                <span className="om-badge" data-nav-badge={scenario.badge} lang="en">
+                  {scenario.badge}
+                </span>
+              )}
+            </span>
+            <strong className="om-studio-mega-title">{t(scenarioStudio(scenario.id).title)}</strong>
+            <span className="om-studio-mega-kit">
+              {studioDeliverables(scenario).map(step => t(step.title)).join(' · ')}
+            </span>
+          </Button>
+        ))}
       </div>
       <div className="om-scenario-mega-footer">
         {recentRuns.length > 0 && (
@@ -132,7 +130,7 @@ export function ScenarioMegaMenu({
                     key={run.id}
                     variant="plain"
                     className="om-nav-item om-scenario-mega-run"
-                    title={def ? `${t(def.title)} · ${displayTitle}` : displayTitle}
+                    title={def ? `${t(scenarioStudio(def.id).title)} · ${displayTitle}` : displayTitle}
                     onClick={() => onSelect(run.scenarioId, run.id)}
                   >
                     <RemixIcon name={def?.icon ?? 'time-line'} size={13} aria-hidden="true" />

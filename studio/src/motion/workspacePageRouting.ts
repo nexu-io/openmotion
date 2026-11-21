@@ -24,7 +24,7 @@ export type ExploreFilters = { community: ExploreCommunity['id'] | null; medium:
 export { findTemplateCollection, type TemplateCollection } from './templateCollections';
 export const defaultDesignScene = 'prototype';
 export type DesignSceneTarget = DesignScenarioId | 'projects';
-export type ScenarioWorkspaceMode = 'manual' | 'agent';
+export type ScenarioWorkspaceMode = 'studio' | 'manual' | 'agent';
 export type WorkspacePage = ExploreFilters & { motion: boolean; cinemaLanding?: true; cinemaTemplate?: string | null; designScene?: DesignSceneTarget | null; designProject?: string | null; soundTab?: SoundTabId | null; specialty: TechniqueStudio | null; assetId: string | null; assetVersion: string | null; explore: boolean; scenarioHub: boolean; scenarioCategory: ScenarioCategory | null; scenario: ScenarioId | null; scenarioRun: string | null; scenarioStep: string | null; scenarioMode: ScenarioWorkspaceMode | null; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skillCategory: SkillCategory | null; skill: string | null; templates: boolean; templateCollection: TemplateCollection | null; modelOverview: string | null; modelHub: string | null; creators: boolean; creator: string | null; mcpInSettings: boolean; mcpExample?: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
 
 export function changesWorkspaceDestination(patch: Partial<WorkspacePage>): boolean {
@@ -51,7 +51,7 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
   const scenarioStep = matchedScenario ? findScenarioStep(matchedScenario, query.get('step'))?.id ?? null : null;
   const rawMode = matchedScenario ? query.get('mode') : null;
   const scenarioMode: ScenarioWorkspaceMode | null =
-    rawMode === 'agent' || rawMode === 'manual' ? rawMode : null;
+    rawMode === 'agent' || rawMode === 'manual' || rawMode === 'studio' ? rawMode : null;
   const cinemaLanding = page === 'cinema' && !sceneId && !model;
   const template = page === 'cinema' || page === 'create' ? findCinemaTemplate(query.get('cinemaTemplate')) : undefined;
   const cinemaTemplate = template && template.scene === sceneId ? template.id : undefined;
@@ -155,7 +155,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
       url.searchParams.set('scenario', matched.id);
       if (page.scenarioRun && scenarioRunUuidPattern.test(page.scenarioRun)) url.searchParams.set('run', page.scenarioRun);
       if (page.scenarioStep && findScenarioStep(matched, page.scenarioStep)) url.searchParams.set('step', page.scenarioStep);
-      if (page.scenarioMode === 'agent') url.searchParams.set('mode', 'agent');
+      if (page.scenarioMode === 'agent' || page.scenarioMode === 'studio') url.searchParams.set('mode', page.scenarioMode);
     } else {
       url.searchParams.set('page', 'scenarios');
     }

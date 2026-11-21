@@ -113,9 +113,9 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     ...(hasWorkflows ? [{
       id: 'workflows' as const,
       studio: null,
-      label: t('Workflows'),
+      label: t('Studios'),
       current: scenarioActive ? 'page' as const : undefined,
-      menuLabel: t('Workflows') + ' · ' + t('Topics, campaigns and roles'),
+      menuLabel: t('Studios') + ' · ' + t('One brief in, a full kit out'),
       onActivate: () => onOpenScenarioHub!(),
     }] : []),
     ...creativeStudios.filter((studio): studio is MediaStudio => studio.surface === 'media').map(studio => {

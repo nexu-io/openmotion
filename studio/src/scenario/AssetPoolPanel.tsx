@@ -33,6 +33,8 @@ export type PoolPickRequest = {
 
 export type PoolExportOptions = {
   poolItemIds?: string[];
+  /** Package only these steps (ignored when poolItemIds is set). */
+  stepIds?: string[];
   activeOnly?: boolean;
   includeStandaloneHtml?: boolean;
   includeMotionSource?: boolean;

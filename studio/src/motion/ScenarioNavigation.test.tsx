@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { scenarioCategories, scenarioDefinitions, type ScenarioId } from '../../../shared/scenarios';
+import { scenarioDefinitions, type ScenarioId } from '../../../shared/scenarios';
 import { I18nProvider } from '../i18n/I18n';
 import { CreativeNavigation, type CreativeNavigationProps } from './CreativeNavigation';
 import { selectMegaMenuRecentRuns } from './ScenarioMegaMenu';
@@ -87,7 +87,7 @@ async function renderNav(overrides: Partial<CreativeNavigationProps> = {}) {
   return props;
 }
 
-it('places Workflows with a New badge directly after Explore, opens a 3-column mega menu with all 5 scenarios and recent runs', async () => {
+it('places Studios with a New badge directly after Explore, opens scene tabs over all 5 workflow studios and recent runs', async () => {
   const props = await renderNav();
   const slots = [...container.querySelectorAll<HTMLElement>('.om-creative-strip > [data-nav-slot]')];
   const labels = slots.map(slot => {
@@ -95,15 +95,15 @@ it('places Workflows with a New badge directly after Explore, opens a 3-column m
     return btn?.getAttribute('aria-label') ?? btn?.textContent?.trim();
   });
   expect(labels[0]).toBe('Explore');
-  expect(labels[1]).toBe('Workflows');
+  expect(labels[1]).toBe('Studios');
   expect(labels[2]).toBe('Image');
 
-  const workflowsBtn = slots[1].querySelector<HTMLButtonElement>('button[aria-label="Workflows"]')!;
+  const workflowsBtn = slots[1].querySelector<HTMLButtonElement>('button[aria-label="Studios"]')!;
   expect(workflowsBtn.querySelector('[data-nav-badge="New"]')?.textContent).toBe('New');
   expect(workflowsBtn.getAttribute('aria-current')).toBeNull();
 
   // Open mega menu via trigger button.
-  const trigger = slots[1].querySelector<HTMLButtonElement>('button[aria-label="Workflows · Topics, campaigns and roles"]')!;
+  const trigger = slots[1].querySelector<HTMLButtonElement>('button[aria-label="Studios · One brief in, a full kit out"]')!;
   await act(async () => {
     trigger.click();
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -111,14 +111,20 @@ it('places Workflows with a New badge directly after Explore, opens a 3-column m
 
   const menu = document.querySelector<HTMLElement>('.om-creative-menu-workflows')!;
   expect(menu).not.toBeNull();
-  const columns = [...menu.querySelectorAll<HTMLElement>('.om-scenario-mega-column')];
-  expect(columns).toHaveLength(3);
-  expect(columns.map(col => col.dataset.scenarioCategory)).toEqual(scenarioCategories.map(c => c.id));
-  expect(columns.map(col => col.querySelector('h2')?.textContent)).toEqual(['Topics', 'Campaigns', 'Roles']);
+  const sceneTabs = [...menu.querySelectorAll<HTMLButtonElement>('[data-studio-scene-tab]')];
+  expect(sceneTabs.map(tab => tab.textContent)).toEqual(['All scenes', 'E-commerce', 'Marketing', 'Social', 'Film']);
+  expect(sceneTabs[0].getAttribute('aria-selected')).toBe('true');
 
   const tiles = [...menu.querySelectorAll<HTMLButtonElement>('[data-scenario-tile]')];
   expect(tiles).toHaveLength(scenarioDefinitions.length);
   expect(tiles.map(tile => tile.dataset.scenarioTile)).toEqual(scenarioDefinitions.map(s => s.id));
+  expect(tiles.find(tile => tile.dataset.scenarioTile === 'black-friday')?.textContent).toContain('Promo Kit Studio');
+
+  // The E-commerce scene keeps only the commerce studios.
+  await act(async () => sceneTabs[1].click());
+  expect([...menu.querySelectorAll<HTMLButtonElement>('[data-scenario-tile]')].map(tile => tile.dataset.scenarioTile))
+    .toEqual(['design-full-chain', 'black-friday']);
+  await act(async () => sceneTabs[0].click());
 
   // Lazy recent run appears in footer and opens with runId.
   const runBtn = menu.querySelector<HTMLButtonElement>('.om-scenario-mega-run')!;
@@ -141,20 +147,20 @@ it('places Workflows with a New badge directly after Explore, opens a 3-column m
   expect(props.onOpenScenarioHub).toHaveBeenCalledOnce();
 });
 
-it('sets aria-current="page" on Workflows for hub and active scenario routes, and highlights the active tile', async () => {
+it('sets aria-current="page" on Studios for hub and active scenario routes, and highlights the active tile', async () => {
   await renderNav({ currentPage: null, scenarioActive: 'hub' });
-  const workflowsBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Workflows"]')!;
+  const workflowsBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Studios"]')!;
   expect(workflowsBtn.getAttribute('aria-current')).toBe('page');
 
   await renderNav({ currentPage: null, scenarioActive: 'ai-influencer' as ScenarioId });
-  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Workflows"]')?.getAttribute('aria-current')).toBe('page');
-  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Workflows · Topics, campaigns and roles"]')!;
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Studios"]')?.getAttribute('aria-current')).toBe('page');
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-label="Studios · One brief in, a full kit out"]')!;
   await act(async () => trigger.click());
   expect(document.querySelector('[data-scenario-tile="ai-influencer"]')?.getAttribute('aria-current')).toBe('page');
   expect(document.querySelector('[data-scenario-tile="black-friday"]')?.getAttribute('aria-current')).toBeNull();
 });
 
-it('moves Workflows into the More Studio overflow panel on narrow widths and keeps hub navigation working', async () => {
+it('moves Studios into the More Studio overflow panel on narrow widths and keeps hub navigation working', async () => {
   const resizeCallbacks: ResizeObserverCallback[] = [];
   vi.stubGlobal(
     'ResizeObserver',
@@ -191,7 +197,7 @@ it('moves Workflows into the More Studio overflow panel on narrow widths and kee
   await act(async () => moreBtn.click());
   const overflowTools = document.querySelector<HTMLElement>('.om-nav-more-tools')!;
   expect(overflowTools).not.toBeNull();
-  const overflowWorkflows = overflowTools.querySelector<HTMLButtonElement>('button[aria-label="Workflows"]')!;
+  const overflowWorkflows = overflowTools.querySelector<HTMLButtonElement>('button[aria-label="Studios"]')!;
   expect(overflowWorkflows).not.toBeNull();
   await act(async () => overflowWorkflows.click());
   expect(props.onOpenScenarioHub).toHaveBeenCalledOnce();

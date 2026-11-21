@@ -349,3 +349,103 @@
   flex-direction: column;
   min-height: 0;
 }
+
+/* Studios popover: scene tabs over a grid of studio cards. */
+.om-studio-mega-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--motion-space-8);
+  padding: 0 var(--motion-space-6);
+  color: var(--motion-accent);
+}
+
+.om-studio-mega-head h2 {
+  margin: 0;
+  color: var(--motion-strong);
+  font-size: var(--motion-text-md);
+  font-weight: var(--motion-weight-semibold);
+}
+
+.om-studio-mega-head span {
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+}
+
+.om-studio-mega-scenes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--motion-space-4);
+}
+
+.om-studio-mega-scene {
+  padding: var(--motion-space-4) var(--motion-space-12);
+  border-radius: var(--motion-radius-pill);
+  color: var(--motion-muted);
+  font-size: var(--motion-text-sm);
+}
+
+.om-studio-mega-scene:hover {
+  color: var(--motion-strong);
+}
+
+.om-studio-mega-scene[aria-selected="true"] {
+  background: var(--motion-inset);
+  color: var(--motion-strong);
+  font-weight: var(--motion-weight-medium);
+}
+
+.om-studio-mega-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--motion-space-12);
+}
+
+.om-studio-mega-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--motion-space-4);
+  min-width: 0;
+  padding: var(--motion-space-6);
+  border-radius: var(--motion-radius-lg);
+  text-align: left;
+}
+
+.om-studio-mega-card:hover,
+.om-studio-mega-card[aria-current="page"] {
+  background: var(--motion-hover);
+}
+
+.om-studio-mega-art {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-inset);
+}
+
+.om-studio-mega-art .om-badge {
+  position: absolute;
+  top: var(--motion-space-6);
+  left: var(--motion-space-6);
+}
+
+.om-studio-mega-title {
+  color: var(--motion-strong);
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+}
+
+.om-studio-mega-kit {
+  overflow: hidden;
+  color: var(--motion-muted);
+  font-size: var(--motion-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .om-studio-mega-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

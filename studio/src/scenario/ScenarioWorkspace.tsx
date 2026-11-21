@@ -35,6 +35,7 @@ import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from '../motion/useIntegrationInfo';
+import { ScenarioStudioView } from './ScenarioStudioView';
 import { ScenarioAgentModeView } from './ScenarioAgentModeView';
 import { AssetPoolPanel, type PoolPickRequest } from './AssetPoolPanel';
 import { IterationHistory } from './IterationHistory';
@@ -557,12 +558,14 @@ export function ScenarioWorkspace({
       try {
         await navigator.clipboard.writeText(text);
         toast.showToast(successMessage, 'info', 'feedback');
+        return true;
       } catch {
         toast.showToast(
           t('Could not copy. Select and copy the text manually.'),
           'error',
           'feedback',
         );
+        return false;
       }
     },
     [t, toast],
@@ -591,7 +594,7 @@ export function ScenarioWorkspace({
         locale,
         integration,
       });
-      await copyToClipboard(prompt, t('Copied. Paste into your Agent.'));
+      return copyToClipboard(prompt, t('Copied. Paste into your Agent.'));
     },
     [copyToClipboard, ensureRun, integration, locale, run, scenario, t],
   );
@@ -604,6 +607,7 @@ export function ScenarioWorkspace({
   const handleExportBundle = useCallback(
     async (options?: {
       poolItemIds?: string[];
+      stepIds?: string[];
       activeOnly?: boolean;
       includeStandaloneHtml?: boolean;
       includeMotionSource?: boolean;
@@ -619,6 +623,7 @@ export function ScenarioWorkspace({
             includeStandaloneHtml: options?.includeStandaloneHtml ?? true,
             includeMotionSource: options?.includeMotionSource ?? false,
             ...(options?.poolItemIds?.length ? { poolItemIds: options.poolItemIds } : {}),
+            ...(!options?.poolItemIds?.length && options?.stepIds?.length ? { stepIds: options.stepIds } : {}),
           },
         );
         const downloadUrl = bundleDownloadUrl(res.bundle.bundleId);
@@ -1129,10 +1134,34 @@ export function ScenarioWorkspace({
       <div
         className="om-scenario-body"
         data-mode={activeMode}
-        data-pool-collapsed={activeMode === 'agent' ? 'true' : poolCollapsed ? 'true' : 'false'}
+        data-pool-collapsed={activeMode !== 'manual' ? 'true' : poolCollapsed ? 'true' : 'false'}
         data-resizing-pool={activeMode === 'manual' && (resizingPool || resizingWorkbench) ? 'true' : undefined}
       >
-        {activeMode === 'agent' ? (
+        {activeMode === 'studio' ? (
+          loading ? (
+            <div className="om-agent-mode-state">{loadingStateNode}</div>
+          ) : errorStateNode ? (
+            <div className="om-agent-mode-state">{errorStateNode}</div>
+          ) : (
+            <ScenarioStudioView
+              key={scenario.id}
+              scenario={scenario}
+              run={run}
+              api={stepApi}
+              toast={stepToast}
+              poolItems={poolItems}
+              onAddPoolItems={handleAddPoolItems}
+              onRemovePoolItem={handleRemovePoolItem}
+              onOpenDesignProject={onOpenDesignProject}
+              onOpenMotionProject={onOpenMotionProject}
+              onCopyAgentPrompt={handleCopyAgentPrompt}
+              onExportBundle={handleExportBundle}
+              exportingBundle={exportingBundle}
+              onSwitchToManual={() => handleModeChange('manual')}
+              onOpenMcp={onOpenMcp}
+            />
+          )
+        ) : activeMode === 'agent' ? (
           loading ? (
             <div className="om-agent-mode-state">{loadingStateNode}</div>
           ) : errorStateNode ? (

@@ -47,7 +47,7 @@ import { McpConnectionPage } from './McpConnectionPage';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
-import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type WorkspacePage } from './workspacePageRouting';
+import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type ScenarioWorkspaceMode, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
 import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { WorkspaceBreadcrumb } from './WorkspaceBreadcrumb';
@@ -346,8 +346,8 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const openScenarioHub = useCallback((fromPage = false) => {
     navigatePage({ scenarioHub: true, scenarioCategory: null, templates: false, ...lastExplore.current }, false, fromPage ? 'from-page' : undefined);
   }, [navigatePage]);
-  const openScenario = useCallback((scenario: ScenarioId, runId?: string, fromPage = false) => {
-    navigatePage({ scenario, scenarioRun: runId ?? null, scenarioStep: null, templates: false, ...lastExplore.current }, false, fromPage ? 'from-page' : undefined);
+  const openScenario = useCallback((scenario: ScenarioId, runId?: string, fromPage = false, scenarioMode: ScenarioWorkspaceMode | null = null) => {
+    navigatePage({ scenario, scenarioRun: runId ?? null, scenarioStep: null, scenarioMode, templates: false, ...lastExplore.current }, false, fromPage ? 'from-page' : undefined);
   }, [navigatePage]);
   const currentPage = templatesPage || page.explore || skillsOpen ? 'explore' : standaloneMcp ? 'mcp' : null;
   // Count arrivals to template and discovery pages. Media forms report their own scene views.
@@ -429,7 +429,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         onCommunity={feed => navigatePage({ explore: true, community: feed.id, medium: null, templates: false })} onSkill={openSkill} currentPage={currentPage} trackingPage={navTrackingPage} onOpenPage={openPage} settings={visibleSettings} destination={templatesPage ? null : page.studio} soundTab={templatesPage ? null : page.soundTab ?? null} motionActive={!templatesPage && (page.motion || editorActive)}
         designActive={!templatesPage && Boolean(page.designScene)} cinemaActive={!templatesPage && page.cinemaLanding}
         scenarioActive={!templatesPage && !settings ? (page.scenario ?? (page.scenarioHub ? 'hub' : null)) : null}
-        onOpenScenario={(id, runId) => openScenario(id, runId)}
+        onOpenScenario={(id, runId) => openScenario(id, runId, false, 'studio')}
         onOpenScenarioHub={() => openScenarioHub()}
         onNavigate={openStudio} onNavigateSound={openAudioNav} />
       <div className="motion-workspace">
@@ -455,7 +455,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         }} onCreators={trigger => { libraryTrigger.current = trigger; navigatePage({ templates: true, creators: true, creator: null, template: null }); }} onBrandKit={() => openSettings('brand-kit')} onMcp={(client, example) => openMcp(client, example, true)}
           onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false, ...lastExplore.current })}
           onOpenDesignProject={id => navigatePage({ designScene: 'projects', designProject: id, templates: false, ...lastExplore.current })}
-          onStartScenario={id => openScenario(id, undefined, true)}
+          onStartScenario={id => openScenario(id, undefined, true, 'studio')}
           onOpenScenarioHub={() => openScenarioHub(true)}
           filters={lastExplore.current} onChooseStudio={studio => chooseStudio(studio, undefined, true)} active={page.explore && !connectionsOpen} onNavigate={openStudioFromPage} onSkill={openSkill} />
       </div>}

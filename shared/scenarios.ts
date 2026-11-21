@@ -32,7 +32,7 @@ export type ScenarioBriefField = {
   options?: readonly { id: string; label: string }[];
 };
 
-export type ScenarioWorkspaceMode = 'manual' | 'agent';
+export type ScenarioWorkspaceMode = 'studio' | 'manual' | 'agent';
 
 export type ScenarioSkillRef = {
   id: string;
@@ -1249,7 +1249,9 @@ export function scenarioConcisePrompt(
     }
   }
 
-  const pipelineLines = scenario.steps.map((step, idx) => {
+  // Steps people left out of this run (status skipped) stay out of the Agent's pipeline.
+  const skippedSteps = scenario.steps.filter(step => run?.steps?.[step.id]?.status === 'skipped');
+  const pipelineLines = scenario.steps.filter(step => !skippedSteps.includes(step)).map((step, idx) => {
     const refs = (step.skills ?? [])
       .map(skill => (skill.source === 'library' ? `library:${skill.id}` : `resource:${skill.resourceUri ?? skill.id}`))
       .join(', ');
@@ -1276,6 +1278,7 @@ export function scenarioConcisePrompt(
     '[Task & Parameters]',
     `task: ${mainTask}`,
     paramParts.length ? `params: ${paramParts.join(' | ')}` : null,
+    skippedSteps.length ? `skip: ${skippedSteps.map(step => step.id).join(', ')} (not wanted this time; do not produce them)` : null,
     '',
     '[Skills Pipeline]',
     ...pipelineLines,
