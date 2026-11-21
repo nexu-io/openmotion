@@ -94,6 +94,11 @@
       "sha256": "41428c863af597ce057297036414d539b13b998682e93f86a0ecc10eeaa10c41"
     },
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/fonts/Inter-variable-latin.woff2",
       "bytes": 31388,
       "sha256": "a7578810fc5ca3ccdb1c56ce077b47f7db921c1860dfb054408d95eb5f9016f9"
@@ -102,11 +107,6 @@
       "path": "assets/fonts/OFL-inter.txt",
       "bytes": 4477,
       "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
-    },
-    {
-      "path": "assets/GSAP-LICENSE.txt",
-      "bytes": 4538,
-      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
     },
     {
       "path": "assets/gsap.min.js",
@@ -122,6 +122,11 @@
       "path": "assets/hyper-world.js",
       "bytes": 18609,
       "sha256": "726daba900c7c6e2d097e5dd0e815f81378e81ed3a1fd91b5dce81512dcb62b8"
+    },
+    {
+      "path": "assets/landing-cover.webp",
+      "bytes": 91738,
+      "sha256": "2c8b2b1fd8ed0e973701be386dd0df72d4ca41818b3b01ce9353c8f24d6fbc1e"
     },
     {
       "path": "assets/lfs/original-soundtrack.m4a",

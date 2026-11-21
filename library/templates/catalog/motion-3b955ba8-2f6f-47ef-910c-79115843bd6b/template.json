@@ -2,7 +2,7 @@
   "templateId": "motion-3b955ba8-2f6f-47ef-910c-79115843bd6b",
   "entry": {
     "templateId": "motion-3b955ba8-2f6f-47ef-910c-79115843bd6b",
-    "sortOrder": 7,
+    "sortOrder": 6,
     "original": {
       "templateName": "Orbit｜大会预告",
       "videoPreview": "https://r.open-design.ai/files/ef2408d56e114cdde9ccd81e7e3e6c021a22fbe7ccd2faa586c94d32558788cb",
@@ -362,5 +362,8 @@
       "bytes": 34800,
       "sha256": "df6f6d40b0fe218f5b756ea753d5c56f46aa02d8089f1c7cdb05a91038140861"
     }
-  ]
+  ],
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
+  }
 }

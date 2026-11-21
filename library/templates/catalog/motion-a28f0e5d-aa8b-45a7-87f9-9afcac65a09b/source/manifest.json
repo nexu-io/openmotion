@@ -87,6 +87,31 @@
   },
   "files": [
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
+      "path": "assets/Inter-variable-latin.woff2",
+      "bytes": 31388,
+      "sha256": "a7578810fc5ca3ccdb1c56ce077b47f7db921c1860dfb054408d95eb5f9016f9"
+    },
+    {
+      "path": "assets/OFL-caveat.txt",
+      "bytes": 4385,
+      "sha256": "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b"
+    },
+    {
+      "path": "assets/OFL-inter.txt",
+      "bytes": 4477,
+      "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
+    },
+    {
+      "path": "assets/OFL-noto-serif-display.txt",
+      "bytes": 4350,
+      "sha256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6"
+    },
+    {
       "path": "assets/app-chatgpt.png",
       "bytes": 6813,
       "sha256": "dde23cb45b93679d0019450729316ca6ef3644ea9d75bf4709a11d413a19e26f"
@@ -107,19 +132,14 @@
       "sha256": "ae2dd7e8a4c357a66fb0108026f6c2d89eaf031ef42c4366a7194ba9bbf8d8ef"
     },
     {
-      "path": "assets/GSAP-LICENSE.txt",
-      "bytes": 4538,
-      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
-    },
-    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
     },
     {
-      "path": "assets/Inter-variable-latin.woff2",
-      "bytes": 31388,
-      "sha256": "a7578810fc5ca3ccdb1c56ce077b47f7db921c1860dfb054408d95eb5f9016f9"
+      "path": "assets/landing-cover.webp",
+      "bytes": 76926,
+      "sha256": "e4a2b83c079c844c0d87c827734ff31ec1a3e19fad92f3d261000cd673c90e1f"
     },
     {
       "path": "assets/lfs/Caveat.ttf",
@@ -140,21 +160,6 @@
       "path": "assets/motion.js",
       "bytes": 11771,
       "sha256": "9f3c97c5a337c3381c4c78d0ee04699fb676ead21a38d016aa70df51d984e05a"
-    },
-    {
-      "path": "assets/OFL-caveat.txt",
-      "bytes": 4385,
-      "sha256": "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b"
-    },
-    {
-      "path": "assets/OFL-inter.txt",
-      "bytes": 4477,
-      "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
-    },
-    {
-      "path": "assets/OFL-noto-serif-display.txt",
-      "bytes": 4350,
-      "sha256": "5e0da210fb04058a8c0087985d2d456b931c2579811a49655721d3cf0c36b6d6"
     },
     {
       "path": "assets/reference-1.webp",

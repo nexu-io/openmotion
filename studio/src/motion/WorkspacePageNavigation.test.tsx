@@ -263,17 +263,22 @@ it.each(['motion', 'marketing'])('opens a card over %s while the full catalogue 
   history.replaceState(null, '', firstUrl.replace('#', `&page=${studio}#`));
   const fallback = fetcher.getMockImplementation()!;
   let catalogRequests = 0;
-  fetcher.mockImplementation((input: string, options?: RequestInit) => {
-    if (!input.includes('limit=60') || (studio === 'motion' && catalogRequests++ === 0)) return fallback(input, options);
+  fetcher.mockImplementation(async (input: string, options?: RequestInit) => {
+    if (!input.includes('limit=60') || (studio === 'motion' && catalogRequests++ === 0)) {
+      const response = await fallback(input, options);
+      if (!new URL(input, location.origin).pathname.endsWith('/template-catalog')) return response;
+      const data = await response.json();
+      return Response.json({ ...data, items: data.items.map((item: { id: string; title: string }) => ({ ...item, id: 'openmotion-welcome', title: 'OpenMotion Welcome' })) });
+    }
     return new Promise<Response>(() => {});
   });
   await mount();
   const shelf = container.querySelector(studio === 'motion' ? '.om-explore-shelf[aria-label="Motion templates"]' : '.om-studio-template-shelf')!;
-  const card = shelf.querySelector<HTMLButtonElement>('[data-template-id="product-promo"] button')!;
+  const card = shelf.querySelector<HTMLButtonElement>('[data-template-id="openmotion-welcome"] button')!;
   await act(async () => card.click());
   const detail = container.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!;
   expect(detail.open).toBe(true);
-  expect(detail.querySelector('h2')?.textContent).toBe('Product Promo');
+  expect(detail.querySelector('h2')?.textContent).toBe('OpenMotion Welcome');
   expect(container.querySelector('[data-motion-template-library]')).toBeNull();
   expect(shelf.isConnected).toBe(true);
   await act(async () => {
@@ -475,6 +480,13 @@ it('switches studios and restores a scene through history while retaining the ed
 });
 
 it('shows Motion templates without the projects sidebar and returns to the retained editor', async () => {
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation((input: string, options?: RequestInit) => {
+    if (!new URL(input, location.origin).pathname.endsWith('/template-catalog')) return fallback(input, options);
+    return Promise.resolve(Response.json({ items: ['product-promo', 'nyt-graph', 'decision-tree', 'openmotion-welcome'].map(id => ({
+      id, title: id, kind: 'builtin', tags: [],
+    })), next: null, catalogVersion: 'test' }));
+  });
   await mount();
   const draft = container.querySelector<HTMLInputElement>('[aria-label="Editor draft"]')!;
   draft.value = 'Keep this edit';
@@ -491,9 +503,10 @@ it('shows Motion templates without the projects sidebar and returns to the retai
   expect(page()).toMatchObject({ templates: true, templateCollection: null });
   await traverse(-1);
   expect(page()).toMatchObject({ motion: true, templates: false });
-  const template = container.querySelector<HTMLButtonElement>('[aria-label="Motion templates"] [data-template-id="product-promo"] button')!;
+  expect([...container.querySelectorAll('[aria-label="Motion templates"] [data-template-id]')].map(node => node.getAttribute('data-template-id'))).toEqual(['openmotion-welcome']);
+  const template = container.querySelector<HTMLButtonElement>('[aria-label="Motion templates"] [data-template-id="openmotion-welcome"] button')!;
   await act(async () => template.click());
-  expect(page()).toMatchObject({ motion: true, templates: false, template: 'product-promo' });
+  expect(page()).toMatchObject({ motion: true, templates: false, template: 'openmotion-welcome' });
   await traverse(-1);
   await click('Open Motion Editor');
   expect(container.querySelector<HTMLElement>('.motion-workspace-content')?.hidden).toBe(false);

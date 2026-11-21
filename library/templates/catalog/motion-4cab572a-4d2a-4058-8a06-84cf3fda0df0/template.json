@@ -2,7 +2,7 @@
   "templateId": "motion-4cab572a-4d2a-4058-8a06-84cf3fda0df0",
   "entry": {
     "templateId": "motion-4cab572a-4d2a-4058-8a06-84cf3fda0df0",
-    "sortOrder": 29,
+    "sortOrder": 28,
     "folderPath": "motion-template/P0-20261111/",
     "folderId": "6acca2cc-3a31-45f4-b931-6d6a59e36044",
     "indexUrl": null,
@@ -386,5 +386,8 @@
       "bytes": 39746,
       "sha256": "5db4dcb6e24d8033ae891d3dc851e396816828c52a8fed3bca8478b5d91c58f5"
     }
-  ]
+  ],
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
+  }
 }

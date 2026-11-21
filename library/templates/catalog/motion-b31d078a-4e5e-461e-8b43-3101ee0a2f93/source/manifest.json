@@ -92,6 +92,16 @@
       "sha256": "e43ecea3a3611dd9df1f859540b1d7121e66758dac9bc3698b751cf72111f0f6"
     },
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
+      "path": "assets/THREE-LICENSE.txt",
+      "bytes": 1081,
+      "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d"
+    },
+    {
       "path": "assets/fonts/Inter-400.woff2",
       "bytes": 23664,
       "sha256": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc"
@@ -107,14 +117,14 @@
       "sha256": "262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a"
     },
     {
-      "path": "assets/GSAP-LICENSE.txt",
-      "bytes": 4538,
-      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
-    },
-    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
+    },
+    {
+      "path": "assets/landing-cover.webp",
+      "bytes": 25216,
+      "sha256": "148512db1313c50ef0bcc377783f910d701af755afb1d2f79020d652f3ac3cbc"
     },
     {
       "path": "assets/lfs/original-soundtrack.m4a",
@@ -160,11 +170,6 @@
       "path": "assets/story-scenes.js",
       "bytes": 23444,
       "sha256": "a329573efcc424d5a2a2858a6313983a7ef3cd64f293be0dd301a8ccf969d26b"
-    },
-    {
-      "path": "assets/THREE-LICENSE.txt",
-      "bytes": 1081,
-      "sha256": "852e0e8699169bf9f6fdc6bda3e682d078dcbc738b5d33e74df594721bff271d"
     },
     {
       "path": "assets/three.min.js",

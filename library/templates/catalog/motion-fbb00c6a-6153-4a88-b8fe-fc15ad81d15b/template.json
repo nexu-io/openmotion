@@ -2,7 +2,7 @@
   "templateId": "motion-fbb00c6a-6153-4a88-b8fe-fc15ad81d15b",
   "entry": {
     "templateId": "motion-fbb00c6a-6153-4a88-b8fe-fc15ad81d15b",
-    "sortOrder": 32,
+    "sortOrder": 31,
     "original": {
       "templateName": "Comet｜一排星球",
       "videoPreview": "https://r.open-design.ai/files/b81592d5e94d6516bee0dfcc6f2c68657ed4c36e5031a8372c774aa2e193a13d",
@@ -334,5 +334,8 @@
     "url": "https://r.open-design.ai/files/31af532ac5988e6cfae863af2ae5e36992072d913e2ecea4ef93f876ac671042",
     "bytes": 478458,
     "sha256": "31af532ac5988e6cfae863af2ae5e36992072d913e2ecea4ef93f876ac671042"
+  },
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
   }
 }

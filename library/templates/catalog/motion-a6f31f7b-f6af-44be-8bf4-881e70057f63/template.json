@@ -2,7 +2,7 @@
   "templateId": "motion-a6f31f7b-f6af-44be-8bf4-881e70057f63",
   "entry": {
     "templateId": "motion-a6f31f7b-f6af-44be-8bf4-881e70057f63",
-    "sortOrder": 22,
+    "sortOrder": 19,
     "original": {
       "templateName": "Higgsfield API｜返现活动",
       "videoPreview": "https://r.open-design.ai/files/54d1c1f345cec22a6786e43e172e7d9bb67ef49f1887c76cbb1183146dc1529b",
@@ -346,5 +346,8 @@
     "url": "https://r.open-design.ai/files/592c040491f33a3fc2ea03c33a321542357ce74482a3bcdfd811f82af21ab9d1",
     "bytes": 318782,
     "sha256": "592c040491f33a3fc2ea03c33a321542357ce74482a3bcdfd811f82af21ab9d1"
+  },
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
   }
 }

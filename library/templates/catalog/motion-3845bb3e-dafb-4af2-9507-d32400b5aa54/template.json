@@ -358,5 +358,8 @@
       "bytes": 39736,
       "sha256": "ff1e5ba3b976fdc73838f4c8265786e0c942a7f98e83cfb8eeb8928251085db9"
     }
-  ]
+  ],
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
+  }
 }

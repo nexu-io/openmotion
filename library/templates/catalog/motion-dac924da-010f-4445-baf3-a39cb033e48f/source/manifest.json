@@ -92,14 +92,24 @@
       "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
     },
     {
+      "path": "assets/Inter-variable-latin.woff2",
+      "bytes": 31388,
+      "sha256": "a7578810fc5ca3ccdb1c56ce077b47f7db921c1860dfb054408d95eb5f9016f9"
+    },
+    {
+      "path": "assets/OFL-inter.txt",
+      "bytes": 4477,
+      "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
+    },
+    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
     },
     {
-      "path": "assets/Inter-variable-latin.woff2",
-      "bytes": 31388,
-      "sha256": "a7578810fc5ca3ccdb1c56ce077b47f7db921c1860dfb054408d95eb5f9016f9"
+      "path": "assets/landing-cover.webp",
+      "bytes": 22230,
+      "sha256": "d51446eefe7a5bf763156b9aa283e74ac680dcd5d6c16789fc7dbbc8e836a8c9"
     },
     {
       "path": "assets/lfs/original-audio.m4a",
@@ -110,11 +120,6 @@
       "path": "assets/motion.js",
       "bytes": 1013,
       "sha256": "f068224e6b3274ba05b23181a261ec678f13f4ad0bf1b97dc5dda5aab1e510d2"
-    },
-    {
-      "path": "assets/OFL-inter.txt",
-      "bytes": 4477,
-      "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
     },
     {
       "path": "assets/reference-1.webp",

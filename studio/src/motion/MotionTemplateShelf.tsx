@@ -16,6 +16,8 @@ import { trackMotion } from './tracking';
 import { useWorkspaceChrome } from './WorkspaceChromeContext';
 
 const batchSize = 16;
+// Keep legacy examples available to existing projects and Agent recommendations.
+const hiddenShelfTemplates = new Set(['product-promo', 'nyt-graph', 'decision-tree']);
 
 export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElement | null>; active: boolean }) {
   const { locale, t } = useI18n();
@@ -29,7 +31,8 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
   const categories: readonly (readonly [TemplateCollection | 'all', string])[] = catalog
     ? [['all', 'All'], ...purposes.map(purpose => [`purpose:${purpose}`, purpose] as const), ['builtin', 'Editable templates']]
     : [['all', 'All']];
-  const matches = useMemo(() => templatesInCollection(catalog ?? firstPage?.items ?? [], collection), [catalog, firstPage, collection]);
+  const matches = useMemo(() => templatesInCollection(catalog ?? firstPage?.items ?? [], collection)
+    .filter(item => !hiddenShelfTemplates.has(item.id)), [catalog, firstPage, collection]);
   const count = catalog ? matches.length : firstPage?.total;
   const visible = matches.slice(0, limit);
   const playing = useTemplatePlayback(root, visible.map(item => item.id).join('|'), active, true, priority, true);
@@ -83,7 +86,7 @@ export function MotionTemplateShelf({ root, active }: { root: RefObject<HTMLElem
     {visible.length < matches.length && <Button variant="plain" type="button" className="om-button om-shelf-more" onClick={() => {
       reportCreativeClick('creative_studio', 'studio_bar', 'load_more', { studio: 'motion' });
       setLimit(previous => previous + batchSize);
-    }}>{t('More templates')}<RemixIcon name="arrow-down-line" size={16} /></Button>}
+    }}>{t('More templates')}</Button>}
     {failed && <div className="om-discovery-empty" role="alert"><span>{t('Templates could not be loaded.')}</span>
       <Button variant="ghost" className="om-button h-auto" onClick={retry}>{t('Retry')}</Button></div>}
   </ExploreShelf>;

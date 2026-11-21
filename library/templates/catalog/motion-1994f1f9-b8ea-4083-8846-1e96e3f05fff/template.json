@@ -334,5 +334,8 @@
     "url": "https://r.open-design.ai/files/54f79a5740bc98d6be67a0cc80d62a660cae27768ceb0c5e0324faab2ba15501",
     "bytes": 196031,
     "sha256": "54f79a5740bc98d6be67a0cc80d62a660cae27768ceb0c5e0324faab2ba15501"
+  },
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
   }
 }

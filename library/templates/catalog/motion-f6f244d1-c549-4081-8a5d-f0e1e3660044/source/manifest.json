@@ -87,6 +87,11 @@
   },
   "files": [
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/fonts/Inter-400.woff2",
       "bytes": 23664,
       "sha256": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc"
@@ -107,14 +112,14 @@
       "sha256": "031bf147b6c278e54e082f7286bb2b28ea42451eded6059c75174f9d9fe77e25"
     },
     {
-      "path": "assets/GSAP-LICENSE.txt",
-      "bytes": 4538,
-      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
-    },
-    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
+    },
+    {
+      "path": "assets/landing-cover.webp",
+      "bytes": 39286,
+      "sha256": "312da16935e423d3a2c5d2d480dfe846fb0d40b456c7f100475e0be8a9277ad7"
     },
     {
       "path": "assets/lfs/original-soundtrack.m4a",

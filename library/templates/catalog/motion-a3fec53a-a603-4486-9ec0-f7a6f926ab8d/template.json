@@ -2,7 +2,7 @@
   "templateId": "motion-a3fec53a-a603-4486-9ec0-f7a6f926ab8d",
   "entry": {
     "templateId": "motion-a3fec53a-a603-4486-9ec0-f7a6f926ab8d",
-    "sortOrder": 34,
+    "sortOrder": 33,
     "original": {
       "templateName": "K3.1｜无文案预热",
       "videoPreview": "https://r.open-design.ai/files/916196c337a97d1be0f1db89cdc85835a526d9b6edf36e44c08f7c2a3afc2cbe",
@@ -356,5 +356,8 @@
       "bytes": 97714,
       "sha256": "50340fe7b7fb015fe2edb5e12f4e0f2bb21b8842b23d2b9f355e05946f6f2d67"
     }
-  ]
+  ],
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
+  }
 }

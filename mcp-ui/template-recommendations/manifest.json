@@ -369,8 +369,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/template.json",
-          "sha256": "e532968a2e9611d9db7da37025937ac036290ed31bf1daba6853fda6e630c08e",
-          "bytes": 31023
+          "sha256": "accc75eed9ac8153e71eb1b573fd99fcde72d9efe780a35299f0e2eb1307523a",
+          "bytes": 31088
         },
         {
           "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/TEMPLATE.md",
@@ -389,8 +389,8 @@
         },
         {
           "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/manifest.json",
-          "sha256": "7a29711688eb627f90d456a25c0eaadfdd1cc27cb2edb3f78f62608b7277e3d4",
-          "bytes": 9302
+          "sha256": "35532667627f0739e1969cb2c76b13e0f4a6892815d88b6a9851c9a58ad8ba9b",
+          "bytes": 9463
         }
       ]
     },
@@ -407,8 +407,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/template.json",
-          "sha256": "0bb738a7eafee621dcaab94237e8e0be496d20c9a7dd5bead24514effa9d4c48",
-          "bytes": 36377
+          "sha256": "5c9b5592a2aab288d69d1b27143c9a50955bb0c7c3a4a2ffbadbf4a06b5d7dab",
+          "bytes": 36442
         },
         {
           "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/TEMPLATE.md",
@@ -427,8 +427,8 @@
         },
         {
           "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/manifest.json",
-          "sha256": "b08435bb5ef95e71d29d0b91dc35da9b027ce01f358c120ac4f4f9691d613104",
-          "bytes": 11138
+          "sha256": "c6879612f07284fda210f0f734fd532bdc9fcdbeeb12c1b2758e9fb14654a77c",
+          "bytes": 11299
         }
       ]
     },
@@ -445,8 +445,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/template.json",
-          "sha256": "2699a535b6afa69118fd61fc0a2fb958855d07a1993f3ef9fbd9e0e89275b628",
-          "bytes": 30650
+          "sha256": "aedb1218891e32a8b361419d226ad5a678db22e2b5b981104c3f143e70e08c25",
+          "bytes": 30715
         },
         {
           "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/TEMPLATE.md",
@@ -465,8 +465,8 @@
         },
         {
           "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/manifest.json",
-          "sha256": "96c019c1f13e0a59c382e88ba327327c53546f12bca9c3cee33f55bc52ec6a5e",
-          "bytes": 9081
+          "sha256": "61722a125ae508fbbad8a95ea16eb3ab42ad2e760aaa79e6e4a1b4d78cbf8529",
+          "bytes": 9242
         }
       ]
     },
@@ -483,8 +483,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/template.json",
-          "sha256": "b75b16959ef86848875159822e39725f1378476faed1cad8108f1680bb96daa5",
-          "bytes": 30492
+          "sha256": "a220a63e9e5dffef33e4f6f5625f5fff34934e1741d84dcddfad288e7bf208f1",
+          "bytes": 30557
         },
         {
           "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/TEMPLATE.md",
@@ -503,8 +503,8 @@
         },
         {
           "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/manifest.json",
-          "sha256": "bf3079597a40c34cb6905957d8758d186ee5d95aebaa46b0b7cf3a1e6428b444",
-          "bytes": 9617
+          "sha256": "4bc182d9b189f62f30fd35d0c85e0cd79198cd3336e168451549735aeefd40c3",
+          "bytes": 9778
         }
       ]
     }

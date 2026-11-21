@@ -88,6 +88,11 @@
   },
   "files": [
     {
+      "path": "assets/landing-cover.webp",
+      "bytes": 16244,
+      "sha256": "01cbaa852da26aac4a76c732953abbd9aed7afd4f9525a21cee3a9fd71e4f203"
+    },
+    {
       "path": "assets/reference-1.webp",
       "bytes": 8022,
       "sha256": "3145e6ca0a629d61947fe1b0afba534f32080902cd4657774210229ad40bbbfb"

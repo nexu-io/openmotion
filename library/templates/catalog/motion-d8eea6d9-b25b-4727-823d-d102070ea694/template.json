@@ -2,7 +2,7 @@
   "templateId": "motion-d8eea6d9-b25b-4727-823d-d102070ea694",
   "entry": {
     "templateId": "motion-d8eea6d9-b25b-4727-823d-d102070ea694",
-    "sortOrder": 8,
+    "sortOrder": 7,
     "folderPath": "motion-template/P0-20261111/",
     "folderId": "6acca2cc-3a31-45f4-b931-6d6a59e36044",
     "indexUrl": "https://r.open-design.ai/files/719cc2f46fb0efd83ff3822b17ea31ebe82189945d7d5c5edbd77c79fb998aa0",
@@ -437,5 +437,8 @@
       "bytes": 37622,
       "sha256": "8ee1877088df70954dd6309989446b8a2112379134a8e8f5bccd6b836732026e"
     }
-  ]
+  ],
+  "localMedia": {
+    "poster": "assets/landing-cover.webp"
+  }
 }

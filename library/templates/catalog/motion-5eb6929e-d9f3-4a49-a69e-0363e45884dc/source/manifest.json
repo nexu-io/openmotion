@@ -88,6 +88,11 @@
   },
   "files": [
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/as-code.js",
       "bytes": 4028,
       "sha256": "61eba977ae650f8297c4192e9e233b2ae9b7e72d89ed2d4eab08d73ea1756ed4"
@@ -108,14 +113,14 @@
       "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
     },
     {
-      "path": "assets/GSAP-LICENSE.txt",
-      "bytes": 4538,
-      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
-    },
-    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
+    },
+    {
+      "path": "assets/landing-cover.webp",
+      "bytes": 26816,
+      "sha256": "38913d2783b6fc7ea545a623e157b021c9b5b226025bd370805f6f974e2b5dc5"
     },
     {
       "path": "assets/lfs/original-audio.m4a",
