@@ -17,10 +17,13 @@ export function MegaMenuColumn({ title, items, footer, visible = 5 }: { title: s
   const { t } = useI18n();
   const id = useId();
   const [expanded, setExpanded] = useState(false);
+  // Avoid hiding a lone orphan row behind a "More" toggle; only fold when 2+ items overflow.
+  const collapsible = items.length > visible + 1;
+  const shown = collapsible ? items.slice(0, visible) : items;
   return <section aria-label={title}>
     <h2>{title}</h2>
-    <div className="om-media-mega-items">{items.slice(0, visible)}</div>
-    {items.length > visible && <>
+    <div className="om-media-mega-items">{shown}</div>
+    {collapsible && <>
       <div id={id} className="om-media-mega-items" hidden={!expanded}>{expanded && items.slice(visible)}</div>
       <Button variant="plain" className="om-nav-item om-media-mega-more" aria-label={t('More {category}', { category: title })}
         aria-controls={id} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
@@ -55,7 +58,11 @@ const characterScene = findScene('character');
 const sceneCards = [imageScene, editImageScene] as const;
 const featureScenes = [findScene('remove-background'), findScene('relight')];
 const upcomingFeatures = [
-  ['Inpainting', 'edit-line'], ['4K Upscale', 'fullscreen-line'], ['Batch set', 'layout-grid-line'], ['Image layers', 'stack-line'],
+  ['4K Upscale', 'fullscreen-line'],
+  ['Inpainting', 'edit-line'],
+  ['Expand image', 'expand-horizontal-line'],
+  ['Batch set', 'layout-grid-line'],
+  ['Image layers', 'stack-line'],
 ] as const;
 
 function ImageMenuArt({ scene }: { scene: typeof sceneCards[number]['id'] }) {
@@ -112,7 +119,7 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
           <span className="om-image-menu-icon"><RemixIcon name={scene.icon} size={16} /></span><span className="om-media-mega-label">{t(scene.label)}</span>
         </Button>),
         ...upcomingFeatures.map(([title, icon]) => <Button key={title} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
-          <span className="om-image-menu-icon"><RemixIcon name={icon} size={16} /></span><span className="om-media-mega-label">{t(title)}</span><MenuBadge label="Coming soon" />
+          <span className="om-image-menu-icon"><RemixIcon name={icon} size={16} /></span><span className="om-media-mega-label">{t(title)}</span><MenuBadge label="Soon" />
         </Button>),
       ]} />
       <ModelMenuColumn families={rows} onOpen={model => onNavigate(sceneDestination(imageScene, destination, model.id))} />

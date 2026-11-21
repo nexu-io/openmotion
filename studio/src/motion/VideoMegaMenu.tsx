@@ -31,7 +31,6 @@ const topScenes = [
 ] as const;
 
 const upcomingVideoFeatures = [
-  ['Start & end frames', 'slideshow-line'],
   ['Multi-image reference', 'stack-line'],
   ['Reference video', 'film-line'],
   ['Edit video', 'edit-line'],
@@ -76,7 +75,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
   const modelItems = [
     ...families.map(family => {
       const pending = anyOpenDesignReady && !family.ready;
-      const badge = pending ? 'Coming soon' : imageModelBadge(family.representative);
+      const badge = pending ? 'Soon' : imageModelBadge(family.representative);
       return <Button key={family.key} variant="plain" className="om-nav-item om-media-mega-row"
         data-ready={family.ready || undefined} disabled={pending || undefined} aria-disabled={pending || undefined}
         onClick={() => onNavigate(sceneDestination(textVideoScene, destination, family.representative.id))}>
@@ -88,7 +87,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
     ...pendingOpenDesign.map(entry => <Button key={'pending:' + entry.modelId} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
       <ModelAvatar name={entry.label} modelId={entry.modelId} provider={{ id: 'opendesign', custom: false }} />
       <span className="om-media-mega-label">{entry.label}</span>
-      <MenuBadge label="Coming soon" />
+      <MenuBadge label="Soon" />
     </Button>),
   ];
 
@@ -102,7 +101,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
       </Button>)}
       <Button variant="plain" className="om-scene-tile om-scene-tile-disabled" disabled aria-disabled="true">
         <span className="om-scene-tile-art om-video-keyframes-demo">
-          <MenuBadge label="Coming soon" />
+          <MenuBadge label="Soon" />
           <span className="om-video-keyframes-pair" aria-hidden="true">
             <img src={speakerStudio} alt="" />
             <RemixIcon name="arrow-right-s-fill" size={14} />
@@ -128,12 +127,6 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
           <span className="om-image-menu-icon"><RemixIcon name="clapperboard-line" size={16} /></span>
           <span className="om-media-mega-label">{t(multiShotScene.label)}</span>
         </Button>,
-        <Button key="camera" variant="plain" className="om-nav-item om-media-mega-row"
-          aria-current={destination?.scene.id === cameraScene.id ? 'page' : undefined}
-          onClick={() => openFeature(cameraScene)}>
-          <span className="om-image-menu-icon"><RemixIcon name="camera-line" size={16} /></span>
-          <span className="om-media-mega-label">{t(cameraScene.label)}</span>
-        </Button>,
         <Button key="shot-image" variant="plain" className="om-nav-item om-media-mega-row"
           aria-current={destination?.scene.id === shotImageScene.id ? 'page' : undefined}
           onClick={() => openScene(shotImageScene)}>
@@ -143,7 +136,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
         ...upcomingVideoFeatures.map(([title, icon]) => <Button key={title} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
           <span className="om-image-menu-icon"><RemixIcon name={icon} size={16} /></span>
           <span className="om-media-mega-label">{t(title)}</span>
-          <MenuBadge label="Coming soon" />
+          <MenuBadge label="Soon" />
         </Button>),
       ]} />
 
