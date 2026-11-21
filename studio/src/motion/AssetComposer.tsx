@@ -103,12 +103,11 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
         : videoFeature ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
         : draft.prompt;
-      const forcedVideoParameters = videoFeature === 'native-audio' ? videoFeatureParameters(videoFeature, selected) : undefined;
-      const submittedParameters = { ...parsed, ...featureRule?.parameters, ...forcedVideoParameters };
+      const submittedParameters = { ...parsed, ...featureRule?.parameters };
       const result = await assetRequest<{ job: GenerationJob }>({ action: 'generate', requestId: crypto.randomUUID(), modality: draft.modality, prompt, model: selected.id, mode: selected.mode, parameters: submittedParameters,
         ...(draft.target ? { assetId: draft.target.asset.id, parentVersionId: draft.target.versionId } : {}), references: draft.references.map(r => r.reference) });
       if (mounted.current) {
-        setDraft(current => current === draft ? { ...current, model: selected.id, parameters: { ...parsed, ...forcedVideoParameters } } : current);
+        setDraft(current => current === draft ? { ...current, model: selected.id, parameters: parsed } : current);
         onCreated(result.job);
       }
       tracking.reportAssetGenerationSubmit(draft.modality, 'success', draft.references.length, Boolean(draft.target), studioContext);
@@ -171,7 +170,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   </>;
   const modelNotice = unknownReferences || cloudModelMissing ? <p className="om-muted" role="status">{unknownReferences && t('Image editing capability is unknown. Sync models to check reference support.')} <Button variant="ghost" className="om-button h-auto" disabled={syncing} onClick={() => void syncModels()}>{t(syncing ? 'Working…' : 'Sync models')}</Button></p> : selected && draft.references.length > 0 && <p className="om-muted">{t(maximumReferences ? draft.modality === 'video' ? 'This video model uses one image as its first frame.' : 'This model edits up to {count} image references.' : 'This model cannot use asset references. Choose an image model that supports editing, or remove the references.', { count: maximumReferences })}</p>;
   const generationSettings = parameterModel && <GenerationParameters key={parameterKey} model={parameterModel} draft={parameters}
-    hasInputImage={draft.references.length > 0} hidden={[...Object.keys(featureRule?.parameters ?? {}), ...(videoFeature === 'native-audio' ? ['generate_audio'] : [])]} onChange={value => {
+    hasInputImage={draft.references.length > 0} hidden={Object.keys(featureRule?.parameters ?? {})} onChange={value => {
       setParameterDrafts(current => ({ ...current, [parameterKey]: value }));
       try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0) }); }
       catch { /* Keep invalid JSON or conflicting parameters in the local editor until corrected. */ }
@@ -227,7 +226,6 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
             options={control.choices.map(choice => ({ value: choice.value, label: t(choice.label) }))}
             onCommit={value => setDraft(current => ({ ...current, videoChoices: { ...current.videoChoices, [control.key]: value } }))} />
         </div>)}
-        {videoFeature === 'native-audio' && <p className="om-muted">{t('Synchronized native audio is always enabled for this scene.')}</p>}
       </section>}
       <div className="om-creation-model">{modelPicker}</div>
       {setup}

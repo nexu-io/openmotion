@@ -544,7 +544,7 @@ it('hands the selected still version to the Cinema first-frame draft', async () 
   asset.versions.push({ ...asset.versions[0], id: 'A-v2' });
   asset.currentVersionId = 'A-v2';
   const useAsFirstFrame = vi.fn();
-  const studio = { destination: studioDestination(findMediaStudio('cinema')!, 'shot-image'),
+  const studio = { destination: studioDestination(findMediaStudio('design')!, 'text-to-image'),
     catalog: { catalog: undefined, failed: false, retry: vi.fn() }, remember: vi.fn(), chooseModel: vi.fn(), useAsFirstFrame };
   await act(async () => root.render(<AssetsPage active studio={studio} />));
   await flush();

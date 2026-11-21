@@ -68,12 +68,10 @@ export const sceneExamples: Record<StudioScene['id'], readonly [SceneExample, ..
   'remove-background': [{ title: 'A clean product cutout', prompt: 'Keep only the speaker.', poster: speakerStudio }],
   relight: [{ title: 'Late afternoon light', prompt: 'Let the light fall across the table and leave soft shadows behind the speaker.', poster: speakerRoom }],
   character: [{ title: 'The same astronaut, a new place', prompt: 'Show the same astronaut walking through a neon-lit city street at night.', poster: lunar, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' }],
-  'shot-image': [moon, cameraStudy, portrait],
   'text-to-video': [orange],
   'image-to-video': [{ title: 'A cinematic opening', prompt: 'Start on the supplied frame. Push in slowly as a band of sunlight moves across the product.', poster: product, clip: productClip }],
   'video-camera-control': [{ title: 'Orbital hero shot', prompt: 'Slow cinematic 360-degree camera orbit around a vintage camera on dark stone with dramatic rim lighting.', poster: camera }],
   'video-multi-shot': [{ title: 'Three-shot lunar story', prompt: 'Wide establishing shot of an astronaut on a silver lunar ridge, cutting to a medium tracking shot of boots in dust, ending on a close-up of Earth reflected in the visor.', poster: lunar, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' }],
-  'video-native-audio': [{ title: 'Rainy street ambience', prompt: 'Neon-lit Tokyo alley at night in steady rain, realistic raindrops hitting umbrellas, distant traffic hum and crisp footsteps on wet pavement.', poster: splash, clip: splashClip }],
   music: [
     { title: 'Ambient soundtrack', kind: 'Music', prompt: 'Compose a quiet instrumental with soft piano and airy synths for a sunrise scene.', poster: soundtrackCover, audio: welcomeMusic, waveform: welcomeWaveform, seconds: 37, model: 'ElevenLabs Music' },
     { title: 'Minimal product score', kind: 'Music', prompt: 'Compose a calm, minimal instrumental at about 60 BPM. Let single bell-like notes ring out and fade, with space between phrases for a product film.', poster: studiesCover, audio: studiesScore, waveform: studiesWaveform, seconds: 32, model: 'ElevenLabs Music' },

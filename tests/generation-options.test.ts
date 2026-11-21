@@ -616,7 +616,7 @@ test('videoModelLabel and videoModelBadge cover Seedance 2.5, Seedance 2.5 Flash
   assert.equal(videoModelBadge({ modelId: 'wan-2.7' }), 'Popular');
 });
 
-test('videoFeaturePrompt composes structured camera, multi-shot and native-audio directions', () => {
+test('videoFeaturePrompt composes structured camera and multi-shot directions', () => {
   const cam = videoFeaturePrompt('camera-control', 'A ceramic cup steaming on oak', { movement: 'orbit', pace: 'slow' });
   assert.match(cam, /360-degree camera orbit/);
   assert.match(cam, /slow, deliberate cinematic pacing/);
@@ -626,21 +626,16 @@ test('videoFeaturePrompt composes structured camera, multi-shot and native-audio
   assert.match(multi, /4-shot storyboard sequence/);
   assert.match(multi, /match cuts/);
 
-  const audio = videoFeaturePrompt('native-audio', 'Rain falling on a glass roof', defaultVideoFeatureChoices('native-audio'));
-  assert.match(audio, /synchronized natural environmental ambience/);
+  assert.deepEqual(defaultVideoFeatureChoices('camera-control'), { movement: 'push-in', pace: 'slow' });
   assert.equal(videoFeaturePrompt('camera-control', '   '), '');
 });
 
-test('videoFeatureParameters seeds 10s for multi-shot and enables generate_audio only on known OpenDesign models', () => {
+test('videoFeatureParameters seeds 10s for multi-shot only on known OpenDesign models', () => {
   assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628' }), { duration: 10 });
   assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-flash-261115' }), { duration: 10 });
   assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'wan-2.7' }), { duration: 10 });
 
-  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628' }), { generate_audio: true });
-  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'account', modelId: 'doubao-seedance-2-5-flash-261115' }), { generate_audio: true });
-  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'opendesign', modelId: 'wan-2.7' }), {});
-  // Unknown or BYOK models must never receive undeclared duration or generate_audio parameters.
+  // Unknown or BYOK models must never receive undeclared duration parameters.
   assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'fal', modelId: 'fal-ai/wan/v2.2' }), {});
-  assert.deepEqual(videoFeatureParameters('native-audio', { provider: 'fal', modelId: 'fal-ai/wan/v2.2' }), {});
   assert.deepEqual(videoFeatureParameters('multi-shot', { provider: 'opendesign', modelId: 'unknown-future-model' }), {});
 });

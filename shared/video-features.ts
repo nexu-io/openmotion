@@ -1,6 +1,6 @@
 import type { Model } from './gateway.ts';
 
-export type VideoFeatureId = 'camera-control' | 'multi-shot' | 'native-audio';
+export type VideoFeatureId = 'camera-control' | 'multi-shot';
 
 export type OpenDesignVideoEntry = {
   modelId: string;
@@ -9,7 +9,6 @@ export type OpenDesignVideoEntry = {
   tagline: string;
   durations: { min: number; max: number; default: number };
   resolutions: readonly string[];
-  audioMode: 'toggle' | 'always-on';
 };
 
 /**
@@ -24,7 +23,6 @@ export const openDesignVideoModels: readonly OpenDesignVideoEntry[] = [
     tagline: '4–30s cinematic video up to 1080p with native audio.',
     durations: { min: 4, max: 30, default: 5 },
     resolutions: ['480p', '720p', '1080p'],
-    audioMode: 'toggle',
   },
   {
     modelId: 'doubao-seedance-2-5-flash-261115',
@@ -33,7 +31,6 @@ export const openDesignVideoModels: readonly OpenDesignVideoEntry[] = [
     tagline: 'Fast 4–30s generation at 480p/720p with native audio.',
     durations: { min: 4, max: 30, default: 5 },
     resolutions: ['480p', '720p'],
-    audioMode: 'toggle',
   },
   {
     modelId: 'wan-2.7',
@@ -42,7 +39,6 @@ export const openDesignVideoModels: readonly OpenDesignVideoEntry[] = [
     tagline: '2–15s 720p/1080p video with built-in synchronized audio.',
     durations: { min: 2, max: 15, default: 5 },
     resolutions: ['720p', '1080p'],
-    audioMode: 'always-on',
   },
 ];
 
@@ -71,7 +67,6 @@ export type VideoFeatureSpec = {
   id: VideoFeatureId;
   recommended: string;
   defaultDuration?: number;
-  forceAudio?: boolean;
   controls: readonly VideoFeatureControl[];
 };
 
@@ -129,22 +124,6 @@ export const videoFeatures: Record<VideoFeatureId, VideoFeatureSpec> = {
       },
     ],
   },
-  'native-audio': {
-    id: 'native-audio',
-    recommended: 'doubao-seedance-2-5-260628',
-    forceAudio: true,
-    controls: [
-      {
-        key: 'audioStyle',
-        label: 'Sound direction',
-        choices: [
-          { value: 'ambience', label: 'Natural ambience', prompt: 'rich synchronized natural environmental ambience and realistic foley sound effects' },
-          { value: 'dialogue', label: 'Dialogue & voices', prompt: 'clear, natural synchronized spoken dialogue matching the character and scene acoustics' },
-          { value: 'cinematic', label: 'Cinematic score', prompt: 'immersive cinematic sound design, impactful foley, and subtle atmospheric score' },
-        ],
-      },
-    ],
-  },
 };
 
 export type VideoFeatureChoices = Record<string, string>;
@@ -164,10 +143,7 @@ export function videoFeaturePrompt(feature: VideoFeatureId, prompt: string, choi
   if (feature === 'camera-control') {
     return `Camera direction: ${parts.join(', ')}. Scene: ${userText}`;
   }
-  if (feature === 'multi-shot') {
-    return `Multi-shot direction: ${parts.join(', ')}. Story: ${userText}`;
-  }
-  return `Audio direction: ${parts.join(', ')}. Scene: ${userText}`;
+  return `Multi-shot direction: ${parts.join(', ')}. Story: ${userText}`;
 }
 
 export function videoFeatureParameters(feature: VideoFeatureId, model: Pick<Model, 'provider' | 'modelId'>): Record<string, unknown> {
@@ -178,9 +154,6 @@ export function videoFeatureParameters(feature: VideoFeatureId, model: Pick<Mode
   const params: Record<string, unknown> = {};
   if (spec.defaultDuration !== undefined && spec.defaultDuration >= meta.durations.min && spec.defaultDuration <= meta.durations.max) {
     params.duration = spec.defaultDuration;
-  }
-  if (spec.forceAudio && meta.audioMode === 'toggle') {
-    params.generate_audio = true;
   }
   return params;
 }

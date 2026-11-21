@@ -408,7 +408,7 @@ test('Explore fills every gallery row and plays the featured artwork in place', 
         const start = await page.$eval(artwork, camera => getComputedStyle(camera).transform);
         await page.waitForFunction((selector, start) => getComputedStyle(document.querySelector(selector)!).transform !== start, {}, artwork, start);
         const scene = await page.$eval('.om-feature-carousel', hero => hero.getAttribute('data-scene'));
-        if (scene !== 'shot-image' && scene !== 'black-friday' && scene !== 'hub-gemini-4') {
+        if (scene !== 'black-friday' && scene !== 'hub-gemini-4') {
           await page.waitForFunction(selector => (document.querySelector(selector)?.querySelector('video')?.currentTime ?? 0) > 0.1, {}, artwork);
         }
       }

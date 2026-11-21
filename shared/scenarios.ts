@@ -217,7 +217,7 @@ export const scenarioDefinitions = [
             role: 'Storyboard frames and visual references',
           },
         ],
-        scenes: ['text-to-image', 'shot-image'],
+        scenes: ['text-to-image'],
         promptTemplate: 'Storyboard frame for {concept}: {visualStyle}, {aspect} composition',
       },
       {
@@ -897,7 +897,7 @@ export const scenarioDefinitions = [
             role: 'Dynamic synced creator subtitles',
           },
         ],
-        scenes: ['image-to-video', 'video-native-audio'],
+        scenes: ['image-to-video', 'text-to-video'],
         promptTemplate: 'Talking-head creator clip of {personaName} explaining {topic}, natural gestures and framing',
         motion: {
           templateSource: 'motion',

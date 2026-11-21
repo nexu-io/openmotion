@@ -787,7 +787,7 @@ it('seeds 10s duration and composes camera/multi-shot prompts on video feature s
   expect(request.prompt).toContain('An astronaut crossing a silver ridge');
 });
 
-it('hides the audio toggle on Native audio video, shows an always-on note, and submits generate_audio true', async () => {
+it('exposes the native audio toggle on Text to video and preserves user control over generate_audio', async () => {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const { generationOptions } = await import('../../../shared/generation-options');
   const seedanceBase: Model = {
@@ -799,18 +799,18 @@ it('hides the audio toggle on Native audio video, shows an always-on note, and s
   const catalog = { models: [seedance], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } };
   await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt: 'Rain in a neon alley', references: [] }} studio={{
     catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: sceneDestination(studioScenes.find(item => item.id === 'video-native-audio')!),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'text-to-video')!),
   }} />));
-  expect(container.textContent).toContain('Synchronized native audio is always enabled for this scene.');
-  expect(container.querySelector('[role="switch"]')).toBeNull();
+  const audioSwitch = container.querySelector('[role="switch"]');
+  expect(audioSwitch).not.toBeNull();
+  expect(audioSwitch?.getAttribute('aria-checked')).toBe('true');
   generate.mockResolvedValue({ job: { id: 'audio-video-job' } });
   await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
   const request = generate.mock.calls[0][0];
-  expect(request.parameters).toMatchObject({ generate_audio: true });
-  expect(request.prompt).toContain('Audio direction:');
+  expect(request.prompt).toBe('Rain in a neon alley');
 });
 
-it('renders VideoMegaMenu with open video scenes, Coming soon items, and OpenDesign video models', async () => {
+it('renders VideoMegaMenu with open video scenes, Omni reference, Soon items, and OpenDesign video models', async () => {
   const { VideoMegaMenu } = await import('./VideoMegaMenu');
   const navigate = vi.fn();
   const seedance: Model = { id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1 };
@@ -824,6 +824,9 @@ it('renders VideoMegaMenu with open video scenes, Coming soon items, and OpenDes
   expect(buttons.some(button => button.textContent?.includes('Text to video') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Camera control') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Start & end frames') && button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Omni reference') && button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Native audio video'))).toBe(false);
+  expect(buttons.some(button => button.textContent?.includes('Video first frame'))).toBe(false);
   expect(buttons.some(button => button.textContent?.includes('Seedance 2.5') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Wan 2.7') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Seedance 2.5 Flash') && button.disabled)).toBe(true);

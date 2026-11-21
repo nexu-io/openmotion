@@ -462,29 +462,16 @@
   initial-value: 100%;
 }
 .om-edit-demo .om-media-demo-frame img { object-fit: cover; }
-.om-shot-demo {
-  --shot-window: .87;
-  --shot-anchor: 74% 16%;
-}
-.om-shot-composition, .om-shot-viewfinder {
-  position: absolute;
-  inset: 0;
-  transform-origin: var(--shot-anchor);
-}
-.om-shot-viewfinder {
-  opacity: 0;
-  box-shadow: 0 0 0 100cqw var(--motion-video-overlay);
-}
-.om-shot-viewfinder::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--motion-overlay-ink);
-  --corner: linear-gradient(currentColor, currentColor);
-  mask: var(--corner) top left, var(--corner) top right, var(--corner) bottom left, var(--corner) bottom right;
-  mask-size: 7cqw 7cqw;
-  mask-repeat: no-repeat;
-}
+.om-upscale-demo { position: relative; overflow: hidden; background: var(--motion-neutral-n11); }
+.om-upscale-demo .om-image-menu-badge { position: absolute; top: var(--motion-space-6); right: var(--motion-space-6); z-index: 2; }
+.om-upscale-split { position: relative; display: block; width: 100%; height: 100%; }
+.om-upscale-split img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+.om-upscale-low { filter: blur(2.5px) contrast(.9); transform: scale(1.04); clip-path: inset(0 50% 0 0); }
+.om-upscale-high { clip-path: inset(0 0 0 50%); }
+.om-upscale-divider { position: absolute; inset-block: 0; left: 50%; width: 1px; background: var(--motion-overlay-ink); opacity: .75; }
+.om-upscale-tag { position: absolute; bottom: var(--motion-space-6); padding: 1px var(--motion-space-6); border-radius: var(--motion-radius-full); background: var(--motion-video-overlay); color: var(--motion-overlay-ink); font-size: var(--motion-text-step-10); font-weight: var(--motion-weight-semibold); line-height: 1.3; }
+.om-upscale-tag[data-side="low"] { left: var(--motion-space-6); opacity: .75; }
+.om-upscale-tag[data-side="high"] { right: var(--motion-space-6); }
 @media (prefers-reduced-motion: no-preference) {
   .om-edit-demo .om-media-demo-frame { animation: om-edit-sweep 5.6s ease-in-out infinite; }
   .om-edit-demo-result { clip-path: inset(0 calc(100% - var(--om-edit-edge)) 0 0); }
@@ -498,24 +485,10 @@
     background: var(--motion-overlay-ink);
     box-shadow: 0 0 2px var(--motion-video-overlay);
   }
-  .om-scene-tile:is(:hover, :focus-visible) .om-shot-demo { --shot-timing: 4s ease-in-out infinite; }
-  .om-scene-tile:is(:hover, :focus-visible) .om-shot-composition { animation: om-shot-compose var(--shot-timing); }
-  .om-scene-tile:is(:hover, :focus-visible) .om-shot-viewfinder { animation: om-shot-frame var(--shot-timing); }
 }
 @keyframes om-edit-sweep {
   0%, 16%, 100% { --om-edit-edge: 0%; }
   47%, 69% { --om-edit-edge: 100%; }
-}
-/* Enlarge the chosen window around the same anchor so its edges fill the preview. */
-@keyframes om-shot-compose {
-  0%, 40%, 100% { transform: scale(1); }
-  59%, 88% { transform: scale(calc(1 / var(--shot-window))); }
-}
-@keyframes om-shot-frame {
-  0%, 100% { opacity: 0; transform: scale(.98); }
-  8% { opacity: 1; transform: scale(.98); }
-  33%, 48% { opacity: 1; transform: scale(var(--shot-window)); }
-  59%, 88% { opacity: 0; transform: scale(var(--shot-window)); }
 }
 .om-image-demo-input {
   position: absolute;

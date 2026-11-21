@@ -58,7 +58,6 @@ const characterScene = findScene('character');
 const sceneCards = [imageScene, editImageScene] as const;
 const featureScenes = [findScene('remove-background'), findScene('relight')];
 const upcomingFeatures = [
-  ['4K Upscale', 'fullscreen-line'],
   ['Inpainting', 'edit-line'],
   ['Expand image', 'expand-horizontal-line'],
   ['Batch set', 'layout-grid-line'],
@@ -111,6 +110,19 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
           <span className="om-character-caption" aria-hidden="true">{t('Your character')}</span>
         </span>
         <strong>{t(characterScene.label)}</strong>
+      </Button>
+      <Button variant="plain" className="om-scene-tile om-scene-tile-disabled" disabled aria-disabled="true">
+        <span className="om-scene-tile-art om-upscale-demo">
+          <MenuBadge label="Soon" />
+          <span className="om-upscale-split" aria-hidden="true">
+            <img className="om-upscale-low" src={lunarStill} alt="" />
+            <img className="om-upscale-high" src={lunarStill} alt="" />
+            <span className="om-upscale-divider" />
+            <span className="om-upscale-tag" data-side="low">HD</span>
+            <span className="om-upscale-tag" data-side="high">4K</span>
+          </span>
+        </span>
+        <strong>{t('4K Upscale')}</strong>
       </Button>
     </div>
     <div className="om-media-mega-columns">

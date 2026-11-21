@@ -32,9 +32,6 @@
 .om-feature-art { overflow: hidden; pointer-events: none; mask-image: linear-gradient(90deg, transparent, currentColor 28%); }
 .om-feature-camera, .om-feature-camera > :is(img, video) { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 /* Frame each shot around its subject. The mask, text and photo credit stay in screen space. */
-.om-feature-slide[data-scene="shot-image"] { --shot-start: translateX(4%) scale(1.58); --shot-end: scale(1); }
-.om-feature-slide[data-scene="shot-image"] .om-feature-camera { transform-origin: 57% 2%; }
-.om-feature-slide[data-scene="shot-image"] img { object-position: center top; }
 .om-feature-slide[data-scene="text-to-video"] { --shot-start: scale(1); --shot-end: translateX(-3%) scale(1.22); }
 .om-feature-slide[data-scene="text-to-video"] .om-feature-camera { transform-origin: 56% 42%; }
 .om-feature-slide[data-scene="text-to-image"] { --shot-start: translateX(2%) scale(1.3); --shot-end: scale(1); }
@@ -84,10 +81,8 @@
 .om-scene-tile { margin: 0; }
 .om-scene-tile { display: inline-grid; vertical-align: top; width: 100%; gap: var(--motion-space-5); text-align: start; min-width: 0; border: 0; padding: 0; border-radius: var(--motion-radius-md); color: var(--motion-strong); background: transparent; cursor: pointer; }
 .om-scene-tile-art { display: block; overflow: hidden; position: relative; border-radius: var(--motion-radius-lg); aspect-ratio: 16/10; background: var(--motion-inset); margin-bottom: var(--motion-space-6); }
-.om-scene-tile[data-scene="shot-image"] .om-scene-tile-art { aspect-ratio: 1.12; }
 .om-scene-tile-art .om-skill-cover { height: 100%; }
 .om-scene-tile-art img { width: 100%; height: 100%; object-fit: cover; }
-.om-scene-tile[data-scene="shot-image"] img { object-position: center 23%; }
 .om-scene-tile:hover strong, .om-featured-open:hover strong { text-decoration: underline; text-underline-offset: .15em; }
 .om-explore .om-scene-tile:hover strong { text-decoration: none; }
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
@@ -195,7 +190,6 @@
 }
 @container discovery (max-width: 470px) {
   .om-feed-group { --feed-columns: 1; }
-  .om-scene-tile[data-scene="shot-image"] .om-scene-tile-art { aspect-ratio: 16/10; }
   .om-feed-loading { grid-template-columns: 1fr; }
   .om-featured-caption strong { font-size: var(--motion-text-body); }
 }

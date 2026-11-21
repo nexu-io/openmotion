@@ -97,7 +97,7 @@ The application shell reads its destination from the URL query. The native edito
 | Asset detail | `page=assets&asset=<assetId>&version=<versionId>` opens the selected local version |
 | Explore | The workspace root or `page=explore` opens featured scenes and template previews. Optional filters such as `community=3d-motion` or `medium=video` restore discovery context |
 | Scene landing page | `page=create&scene=image-edit` opens the focused generator. The optional `model` identifies the provider and model. |
-| Creative studio | `page=design`, `page=cinema`, or `page=sound` with a `scene` and optional provider-qualified `model`. For example, `page=cinema&scene=shot-image` opens an image composer inside Cinema. |
+| Creative studio | `page=design`, `page=cinema`, or `page=sound` with a `scene` and optional provider-qualified `model`. For example, `page=cinema&scene=image-to-video` opens a first-frame video composer inside Cinema. |
 | Asset workspace | `page=assets` opens the shared asset library independently of the retained project |
 | MCP onboarding | `page=mcp&host=codex`; `setup=manual` opens manual configuration |
 | Settings | `page=settings&section=general` |

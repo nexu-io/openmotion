@@ -21,8 +21,6 @@ const textVideoScene = findScene('text-to-video');
 const imageVideoScene = findScene('image-to-video');
 const cameraScene = findScene('video-camera-control');
 const multiShotScene = findScene('video-multi-shot');
-const nativeAudioScene = findScene('video-native-audio');
-const shotImageScene = findScene('shot-image');
 
 const topScenes = [
   [textVideoScene, 'text'],
@@ -31,13 +29,12 @@ const topScenes = [
 ] as const;
 
 const upcomingVideoFeatures = [
-  ['Multi-image reference', 'stack-line'],
-  ['Reference video', 'film-line'],
+  ['Omni reference', 'stack-line'],
   ['Edit video', 'edit-line'],
   ['Extend video', 'time-line'],
+  ['4K video upscale', 'fullscreen-line'],
   ['Motion control', 'route-line'],
   ['Lipsync', 'voiceprint-line'],
-  ['4K video upscale', 'fullscreen-line'],
 ] as const;
 
 function VideoTileArt({ kind }: { kind: 'text' | 'first-frame' | 'camera' }) {
@@ -115,23 +112,11 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
 
     <div className="om-media-mega-columns">
       <MegaMenuColumn title={t('Features')} items={[
-        <Button key="native-audio" variant="plain" className="om-nav-item om-media-mega-row"
-          aria-current={destination?.scene.id === nativeAudioScene.id ? 'page' : undefined}
-          onClick={() => openFeature(nativeAudioScene)}>
-          <span className="om-image-menu-icon"><RemixIcon name="volume-up-line" size={16} /></span>
-          <span className="om-media-mega-label">{t(nativeAudioScene.label)}</span>
-        </Button>,
         <Button key="multi-shot" variant="plain" className="om-nav-item om-media-mega-row"
           aria-current={destination?.scene.id === multiShotScene.id ? 'page' : undefined}
           onClick={() => openFeature(multiShotScene)}>
           <span className="om-image-menu-icon"><RemixIcon name="clapperboard-line" size={16} /></span>
           <span className="om-media-mega-label">{t(multiShotScene.label)}</span>
-        </Button>,
-        <Button key="shot-image" variant="plain" className="om-nav-item om-media-mega-row"
-          aria-current={destination?.scene.id === shotImageScene.id ? 'page' : undefined}
-          onClick={() => openScene(shotImageScene)}>
-          <span className="om-image-menu-icon"><RemixIcon name="image-line" size={16} /></span>
-          <span className="om-media-mega-label">{t(shotImageScene.label)}</span>
         </Button>,
         ...upcomingVideoFeatures.map(([title, icon]) => <Button key={title} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
           <span className="om-image-menu-icon"><RemixIcon name={icon} size={16} /></span>

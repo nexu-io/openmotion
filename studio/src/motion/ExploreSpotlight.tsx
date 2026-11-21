@@ -16,7 +16,7 @@ import './scenarioNavigation.css';
 const track = (element: Parameters<typeof reportCreativeClick>[2], target: Parameters<typeof reportCreativeClick>[3]) => reportCreativeClick('explore', 'explore_spotlight', element, target);
 
 /** Scenes the Explore feed leaves out because they are featured here; unchanged from main so the feed stays as it was. */
-export const featuredSceneIds: readonly StudioScene['id'][] = ['shot-image', 'text-to-video', 'text-to-image'];
+export const featuredSceneIds: readonly StudioScene['id'][] = ['text-to-video', 'text-to-image'];
 /** Spotlight scenes open with their Studio's scene tabs. */
 const spotlightScenes = [mediaEditorDestination('text-to-image')];
 const slideDuration = 6000;

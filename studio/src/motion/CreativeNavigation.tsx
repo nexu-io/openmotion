@@ -9,7 +9,6 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { creativeStudios, studioIconTone, mediaLabels, modelDestination, sceneDestination, scenesForStudio, supportsScene, type StudioDestination } from './creativeStudios';
 import { mcpClients, supportsLocalConnection, type McpClient } from './mcpClients';
 import { useMediaCatalog } from './useMediaCatalog';
-import lunarStill from './scene-art/lunar-shot-still.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 import { imageScene, menuFamilies, withOpenDesignModels } from './imageMenuModels';
 import { ImageMegaMenu, ModelMenuColumn } from './ImageMegaMenu';
@@ -68,15 +67,6 @@ function MediaChoices({ studio, destination, onNavigate, onSelectModel, catalog 
               <span className="om-media-demo-frame">
                 <img src={speakerStudio} alt="" />
                 <img className="om-edit-demo-result" src={example.poster} alt="" />
-              </span>
-            </span>
-          ) : scene.id === 'shot-image' ? (
-            <span className="om-scene-tile-art om-media-demo om-shot-demo" aria-hidden="true">
-              <span className="om-media-demo-frame">
-                <span className="om-shot-composition">
-                  <img src={lunarStill} alt="" />
-                  <span className="om-shot-viewfinder" />
-                </span>
               </span>
             </span>
           ) : (

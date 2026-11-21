@@ -151,7 +151,7 @@ it('round-trips every registered studio scene and resolves models in the current
   }
   expect(registered).toEqual(new Set(studioScenes.map(scene => scene.id)));
   const model: Model = { id: 'image:still', provider: 'image', modelId: 'still', label: 'Still', modality: 'image', mode: 'text-to-image', source: 'custom' };
-  expect(modelDestination(model, readWorkspacePage('?page=cinema&scene=text-to-video').studio)).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'shot-image' } });
+  expect(modelDestination(model, readWorkspacePage('?page=cinema&scene=text-to-video').studio)).toMatchObject({ studio: { id: 'design' }, scene: { id: 'text-to-image' } });
   expect(modelDestination(model)).toMatchObject({ studio: { id: 'design' }, scene: { id: 'text-to-image' } });
 });
 
@@ -165,7 +165,7 @@ it('carries the originating community through a standalone studio, direct reload
 });
 
 it('opens a pinned asset without carrying its version or a studio scene into unrelated destinations', () => {
-  const source = 'http://localhost/?embed=1&page=cinema&scene=shot-image&model=registered#project/film';
+  const source = 'http://localhost/?embed=1&page=cinema&scene=image-to-video&model=registered#project/film';
   const next = new URL(workspacePageHref(source, { assets: true, assetId: 'my-asset', assetVersion: 'older-version' }), source);
   expect(readWorkspacePage(next.search)).toMatchObject({ assets: true, assetId: 'my-asset', assetVersion: 'older-version', studio: null });
   expect(next.searchParams.has('scene')).toBe(false);
@@ -188,7 +188,8 @@ it('opens every scene on its registered surface and round-trips the selected mod
   }
   expect(isWorkspaceSettingsPage('?page=create&scene=missing')).toBe(false);
   expect(readWorkspacePage('?page=create&scene=missing').studio).toBeNull();
-  expect(readWorkspacePage('?page=create&scene=shot-image').studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'shot-image' }, landing: true });
+  expect(readWorkspacePage('?page=create&scene=shot-image').studio).toMatchObject({ studio: { id: 'design' }, scene: { id: 'text-to-image' }, landing: true });
+  expect(readWorkspacePage('?page=create&scene=video-native-audio').studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'text-to-video' }, landing: true });
   expect(workspacePageHref('http://localhost/?page=create&scene=bad&model=bad', { assets: true })).toBe('/?page=assets');
 });
 
