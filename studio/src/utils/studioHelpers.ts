@@ -6,6 +6,9 @@ import type { TimelineAssetKind } from "./timelineAssetDrop";
 import { roundToCenti } from "./rounding";
 import { studioApiFetch } from "./studioApiFetch";
 import { encodeUrlPath } from "@hyperframes/parsers";
+import { getHistoryShortcutLabel } from "./historyShortcut";
+
+export { getHistoryShortcutLabel };
 
 export interface EditingFile {
   path: string;
@@ -122,13 +125,6 @@ export function getEventTargetElement(target: EventTarget | null): HTMLElement |
 
 export function shouldIgnoreHistoryShortcut(target: EventTarget | null): boolean {
   return isTypingTarget(target);
-}
-
-export function getHistoryShortcutLabel(action: "undo" | "redo"): string {
-  const isMac =
-    typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
-  const modifier = isMac ? "Cmd" : "Ctrl";
-  return action === "undo" ? `${modifier}+Z` : `${modifier}+Shift+Z`;
 }
 
 /** The Undo / Redo tooltip: the shortcut always, the last action's name when there is one. */

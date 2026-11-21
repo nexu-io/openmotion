@@ -1107,11 +1107,7 @@
   justify-content: flex-start;
   padding: var(--motion-space-16) var(--motion-space-24) var(--motion-space-24);
   gap: var(--motion-space-14);
-}
-
-.om-design-tpl-ambient {
-  border: 0;
-  transform: scale(1.16);
+  background: var(--motion-inset);
 }
 
 .om-design-tpl-stage-bar {

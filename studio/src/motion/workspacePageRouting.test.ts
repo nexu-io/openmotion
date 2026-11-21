@@ -221,6 +221,25 @@ it('restores each specialty brief, model overview and nested creator preview fro
   expect(open(profile.href, { templates: false }).href).toBe(origin);
 });
 
+it('routes Super Agent mode and selected conversation URLs cleanly without leaking chat IDs into Studio routes', () => {
+  const chatId = '11111111-1111-1111-1111-111111111111';
+  expect(isWorkspaceSettingsPage('?page=agent')).toBe(true);
+  expect(isWorkspaceSettingsPage(`?page=agent&chat=${chatId}`)).toBe(true);
+  expect(readWorkspacePage(`?page=agent&chat=${chatId}`)).toMatchObject({
+    superAgent: true,
+    superAgentChat: chatId,
+    explore: false,
+  });
+
+  const fromStudio = 'http://localhost/?page=design&scene=prototype';
+  const agentHref = workspacePageHref(fromStudio, { superAgent: true, superAgentChat: chatId, templates: false });
+  expect(agentHref).toBe(`/?page=agent&chat=${chatId}`);
+
+  const backToExplore = new URL(workspacePageHref(`http://localhost${agentHref}`, { explore: true }), 'http://localhost');
+  expect(backToExplore.searchParams.get('page')).toBe('explore');
+  expect(backToExplore.searchParams.has('chat')).toBe(false);
+});
+
 it('round-trips scenario hub, scenario workspace, run/step overlay patches and safe fallbacks', () => {
   const origin = 'http://localhost/?page=explore&community=product-films#project/film';
   const runId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';

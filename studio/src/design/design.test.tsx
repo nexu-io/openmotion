@@ -3,11 +3,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
+import { NearScreenIntersectionObserver } from '../hooks/intersectionObserverTestUtils';
 import { readWorkspacePage, workspacePageHref } from '../motion/workspacePageRouting';
 import { CodeViewer } from './CodeViewer';
 import { DesignApiError, designClient } from './designClient';
 import { DesignProjectEditor, buildPresenterPopupHtml, overlayLocalPoint } from './DesignProjectEditor';
 import { DesignProjectList } from './DesignProjectList';
+import { DesignTemplateDetailModal } from './DesignTemplateDetailModal';
+import { ScaledPreviewThumb } from './ScaledPreviewThumb';
 import { buildBridgeSrcDoc, looksLikeDeck, parseDeckSlides, parseSpeakerNotes } from './previewBridge';
 
 const projectId = '22222222-2222-4222-8222-222222222222';
@@ -474,5 +477,66 @@ describe('DesignProjectEditor', () => {
 
     expect(container.textContent).not.toContain('Loading file');
     expect(container.querySelector('.om-design-code-pre')).toBeTruthy();
+  });
+
+  it('unmounts ScaledPreviewThumb iframe when inactive and renders a single preview iframe in DesignTemplateDetailModal', async () => {
+    vi.stubGlobal('IntersectionObserver', NearScreenIntersectionObserver);
+    try {
+      await act(async () => {
+        root.render(
+          <I18nProvider>
+            <ScaledPreviewThumb
+              active
+              src="/motion-api/design/catalog/templates/sample/preview/index.html"
+              title="Sample"
+            />
+          </I18nProvider>,
+        );
+        await Promise.resolve();
+      });
+      expect(container.querySelector('iframe')?.getAttribute('src')).toContain('?thumb=1');
+
+      await act(async () => {
+        root.render(
+          <I18nProvider>
+            <ScaledPreviewThumb
+              active={false}
+              src="/motion-api/design/catalog/templates/sample/preview/index.html"
+              title="Sample"
+            />
+          </I18nProvider>,
+        );
+      });
+      expect(container.querySelector('iframe')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <DesignTemplateDetailModal
+            templates={[{
+              id: 'sample',
+              title: 'Sample Template',
+              description: 'Test',
+              scenario: 'prototype',
+              category: 'prototype',
+              entry: 'index.html',
+              tags: [],
+              previewUrl: '/motion-api/design/catalog/templates/sample/preview/index.html',
+              examplePrompt: '',
+            }]}
+            index={0}
+            onNavigate={() => {}}
+            onClose={() => {}}
+            onRemix={() => {}}
+            onUseWithAgent={() => {}}
+          />
+        </I18nProvider>,
+      );
+    });
+    expect(document.querySelectorAll('.om-design-tpl-detail-popup iframe').length).toBe(1);
+    expect(document.querySelector('.om-design-tpl-ambient')).toBeNull();
   });
 });

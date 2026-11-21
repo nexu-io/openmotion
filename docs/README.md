@@ -39,6 +39,7 @@
 - [model-gateway.md](model-gateway.md)
 - [Application settings and model connections](provider-settings.md)
 - [Local Agent installation, sign-in and model selection](local-agents.md)
+- [Agent Runtimes, Cloud Bridge & Self-Hosted Service Protocol (`openmotion-agent-v1`)](agent-runtime-architecture.md)
 - [openmotion-director.md](openmotion-director.md)
 - [motion-extension-scope.md](motion-extension-scope.md)
 - [npm application installation and diagnostics](npm-installation.md)

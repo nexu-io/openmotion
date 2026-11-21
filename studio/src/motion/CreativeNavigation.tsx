@@ -33,8 +33,8 @@ export type CreativeNavigationProps = {
   onOpenScenarioHub?: () => void;
   onNavigate: (destination: StudioDestination | null) => void;
   onNavigateSound?: (destination: StudioDestination, soundTab?: SoundTabId | null) => void;
-  currentPage: 'explore' | 'mcp' | null;
-  onOpenPage: (page: 'explore' | 'mcp', client?: McpClient) => void;
+  currentPage: 'explore' | 'mcp' | 'agent' | null;
+  onOpenPage: (page: 'explore' | 'mcp' | 'agent', client?: McpClient) => void;
   /** The page this navigation is shown on, so its clicks segment by where the user was. */
   trackingPage: CreativePage;
 };
@@ -141,7 +141,8 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
       menuLabel: 'Generate with Open Design MCP', onActivate: () => onOpenPage('mcp') },
   ];
   const splitStart = 1;
-  const studioStart = splitStart + menuDestinations.length;
+  const agentIndex = splitStart + menuDestinations.length;
+  const studioStart = agentIndex + 1;
   const count = studioStart + creativeStudios.length;
   const hasMore = visibleCount < count || Boolean(overflowActions);
 
@@ -240,7 +241,11 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
       aria-current={currentPage === 'explore' ? 'page' : undefined} onClick={() => { track('nav_explore', { navTarget: 'explore', inOverflow: inPanel }); choose(() => onOpenPage('explore')); }}>
       <RemixIcon name="global-line" size={17} /><span>{t('Explore')}</span>
     </Button>;
-    if (index < studioStart) return splitItem(index, inPanel);
+    if (index < agentIndex) return splitItem(index, inPanel);
+    if (index === agentIndex) return <Button variant="plain" className="om-nav-item om-super-agent-nav-link" aria-label={t('Super Agent')}
+      aria-current={currentPage === 'agent' ? 'page' : undefined} onClick={() => choose(() => onOpenPage('agent'))}>
+      <RemixIcon name="sparkling-fill" size={14} /><span>{t('Super Agent')}</span>
+    </Button>;
     const studio = creativeStudios[index - studioStart];
     const isCurrent = studio.surface === 'editor' ? motionActive
       : (studio.id === 'design' && Boolean(designActive)) || (studio.id === 'cinema' && Boolean(cinemaActive))

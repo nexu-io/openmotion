@@ -1,6 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { BrowserInput, WebPageState } from '../../../shared/browser';
+import { Skeleton } from '../components/ui/Skeleton';
 import { useI18n } from '../i18n/I18n';
 
 export type WebBrowserHandle = { command: (action: 'back' | 'forward' | 'reload' | 'stop' | 'navigate', url?: string) => Promise<void> };
@@ -13,9 +14,9 @@ export async function browserRequest(endpoint: string, data?: unknown, method = 
 }
 
 /** Only pixels and whitelisted input cross this boundary; web documents never run in the workspace DOM. */
-export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabId: string; url: string; onState: (state: WebPageState) => void }>(function WebBrowser({ sessionId, tabId, url, onState }, ref) {
+export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabId: string; url: string; endpoint?: string; onState: (state: WebPageState) => void }>(function WebBrowser({ sessionId, tabId, url, endpoint: customEndpoint, onState }, ref) {
   const { t } = useI18n();
-  const endpoint = browserEndpoint(sessionId, tabId);
+  const endpoint = customEndpoint ?? browserEndpoint(sessionId, tabId);
   const surface = useRef<HTMLDivElement>(null), keyboard = useRef<HTMLTextAreaElement>(null);
   const picture = useRef<HTMLImageElement>(null), ready = useRef(false), queue = useRef(Promise.resolve());
   const report = useRef(onState), initialUrl = useRef(url), composing = useRef(false), pointerTime = useRef(0);
@@ -34,11 +35,14 @@ export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabI
     let disposed = false, events: EventSource | undefined, timer: ReturnType<typeof setTimeout> | undefined;
     let observer: ResizeObserver | undefined;
     ready.current = false; setError(''); setHasFrame(false);
-    void (async () => {
-      await browserRequest(endpoint, { url: initialUrl.current });
-      if (disposed) return;
-      if (attempt > 0) await browserRequest(`${endpoint}/command`, { action: 'navigate', url: initialUrl.current });
-      ready.current = true;
+
+    const stopStream = () => {
+      events?.close();
+      events = undefined;
+    };
+
+    const startStream = () => {
+      if (disposed || events || (typeof document !== 'undefined' && document.hidden)) return;
       events = new EventSource(`${endpoint}/events`);
       events.addEventListener('state', event => {
         if (disposed) return;
@@ -51,6 +55,21 @@ export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabI
         setHasFrame(true);
       });
       events.onerror = () => { if (!disposed) setError(t('Browser connection interrupted. Retry to reconnect.')); };
+    };
+
+    const onVisibilityChange = () => {
+      if (disposed) return;
+      if (document.hidden) stopStream();
+      else if (ready.current) startStream();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    void (async () => {
+      await browserRequest(endpoint, { url: initialUrl.current });
+      if (disposed) return;
+      if (attempt > 0) await browserRequest(`${endpoint}/command`, { action: 'navigate', url: initialUrl.current });
+      ready.current = true;
+      startStream();
       const resize = () => {
         clearTimeout(timer); timer = setTimeout(() => {
           const bounds = surface.current?.getBoundingClientRect();
@@ -59,7 +78,15 @@ export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabI
       };
       observer = new ResizeObserver(resize); observer.observe(surface.current!); resize();
     })().catch(reason => { if (!disposed) setError(reason.message); });
-    return () => { disposed = true; ready.current = false; events?.close(); observer?.disconnect(); clearTimeout(timer); };
+    return () => {
+      disposed = true;
+      ready.current = false;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      stopStream();
+      observer?.disconnect();
+      clearTimeout(timer);
+      picture.current?.removeAttribute('src');
+    };
   }, [endpoint, attempt, t]);
   const point = (x: number, y: number) => {
     const bounds = picture.current!.getBoundingClientRect();
@@ -76,7 +103,7 @@ export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabI
     return () => node.removeEventListener('wheel', wheel);
   }, [endpoint]); // Input queue is scoped to this tab's mount.
   return <div className="motion-web-browser" ref={surface} aria-label={t('Web page')}>
-    <img ref={picture} className="motion-web-page" alt={t('Web page')} draggable={false} hidden={!hasFrame}
+    <img ref={picture} className="motion-web-page" data-loaded={hasFrame || undefined} alt={t('Web page')} draggable={false} hidden={!hasFrame}
       onContextMenu={event => event.preventDefault()}
       onPointerDown={event => { event.preventDefault(); keyboard.current?.focus({ preventScroll: true }); event.currentTarget.setPointerCapture(event.pointerId); input({ type: 'pointer', event: 'down', ...point(event.clientX, event.clientY), button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', clickCount: event.detail }); }}
       onPointerUp={event => input({ type: 'pointer', event: 'up', ...point(event.clientX, event.clientY), button: event.button === 2 ? 'right' : event.button === 1 ? 'middle' : 'left', clickCount: event.detail })}
@@ -90,7 +117,24 @@ export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabI
           event.preventDefault(); input({ type: 'key', key: event.key.toLowerCase() === 'a' ? 'a' : event.key, modifiers: (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0) });
         }
       }} />
-    {!hasFrame && !error && <div className="motion-browser-feedback" role="status">{t('Loading…')}</div>}
+    {!hasFrame && !error && (
+      <div className="om-sa-web-skeleton" role="status" aria-label={t('Loading…')}>
+        <div className="om-sa-web-skeleton-head">
+          <Skeleton style={{ width: 120, height: 18 }} />
+          <Skeleton style={{ width: '42%', height: 28, borderRadius: 999 }} />
+        </div>
+        <Skeleton style={{ width: '100%', height: 180, borderRadius: 12 }} />
+        <div className="om-sa-web-skeleton-grid">
+          <Skeleton style={{ width: '100%', height: 96, borderRadius: 10 }} />
+          <Skeleton style={{ width: '100%', height: 96, borderRadius: 10 }} />
+        </div>
+        <div className="om-sa-web-skeleton-lines">
+          <Skeleton style={{ width: '68%', height: 14 }} />
+          <Skeleton style={{ width: '88%', height: 14 }} />
+          <Skeleton style={{ width: '54%', height: 14 }} />
+        </div>
+      </div>
+    )}
     {error && <div className="motion-browser-feedback" role="alert"><span>{t(error)}</span><Button variant="plain" className="motion-button" onClick={() => setAttempt(value => value + 1)}>{t('Retry')}</Button></div>}
   </div>;
 });

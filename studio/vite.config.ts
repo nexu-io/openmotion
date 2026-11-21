@@ -30,5 +30,30 @@ export default defineConfig({
     { find: 'canvas', replacement: local('./src/shims/canvasBrowserStub.js') },
     { find: /^\/design-system\//, replacement: local('../packages/design-system/') },
   ] },
-  build: { outDir: 'build', assetsDir: 'editor-assets', emptyOutDir: true, sourcemap: true, chunkSizeWarningLimit: 4500 },
+  build: {
+    outDir: 'build',
+    assetsDir: 'editor-assets',
+    emptyOutDir: true,
+    sourcemap: true,
+    chunkSizeWarningLimit: 4500,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes('/node_modules/react/')
+            || id.includes('/node_modules/react-dom/')
+            || id.includes('/node_modules/scheduler/')
+          ) {
+            return 'vendor-react';
+          }
+          if (id.includes('/node_modules/@base-ui/')) {
+            return 'vendor-base-ui';
+          }
+          if (id.includes('/node_modules/lucide-react/')) {
+            return 'vendor-icons';
+          }
+        },
+      },
+    },
+  },
 });

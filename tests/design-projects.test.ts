@@ -258,3 +258,30 @@ test('raw HTML previews are served with CSP sandbox header while sub-resources r
     await cleanup();
   }
 });
+
+test('catalog template thumb preview injects WebGL disposal and setInterval throttling guards', async () => {
+  const { dir, cleanup } = await tempService();
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url || '/', 'http://127.0.0.1');
+    const handled = await designHttp(req, res, url, dir, 'http://127.0.0.1', async () => ({}));
+    if (!handled) { res.writeHead(404); res.end(); }
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', () => resolve()));
+  const { port } = server.address() as { port: number };
+  try {
+    const listRes = await fetch(`http://127.0.0.1:${port}/api/design/catalog/templates?limit=1`);
+    assert.equal(listRes.status, 200);
+    const { items } = await listRes.json() as { items: Array<{ id: string; entry: string }> };
+    assert(items.length > 0, 'Expected at least one built-in design template');
+    const tpl = items[0];
+    const thumbRes = await fetch(`http://127.0.0.1:${port}/api/design/catalog/templates/${encodeURIComponent(tpl.id)}/preview/${tpl.entry}?thumb=1`);
+    assert.equal(thumbRes.status, 200);
+    const html = await thumbRes.text();
+    assert(html.includes('om:thumb-dispose'), 'Expected om:thumb-dispose handler in thumb perf guard');
+    assert(html.includes('WEBGL_lose_context'), 'Expected WEBGL_lose_context cleanup in thumb perf guard');
+    assert(html.includes('window.setInterval='), 'Expected setInterval throttling wrapper in thumb perf guard');
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await cleanup();
+  }
+});

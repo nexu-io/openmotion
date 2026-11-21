@@ -5,6 +5,10 @@ import { transcriptsFor, closeTranscripts } from './gateway/transcription.ts';
 import { projectArchiveHttp } from './gateway/project-archive-http.ts';
 import { modelMetadata } from './gateway/model-metadata.ts';
 import { assetConversations } from './gateway/asset-chat.ts';
+import { agentRuntimesFor, isHostAllowed, resolvePublicOrigin } from './gateway/agent-runtimes.ts';
+import { renderBridgeInstallShellScript, renderStandaloneBridgeScript } from './gateway/agent-bridge-script.ts';
+import { superAgentConversations } from './gateway/super-agent.ts';
+import { collectWorkspaceResources } from './gateway/super-agent-resources.ts';
 import { assetHttp } from './gateway/asset-http.ts';
 import { getWorkflow } from './shared/workflow.ts';
 import { isMain } from './shared/entry.ts';
@@ -346,6 +350,23 @@ async function legacyCreation(store: WorkspaceStore, context: Service, origin: s
   return createArtifact(store, context, origin, session, data);
 }
 
+function ensurePhase1(store: WorkspaceStore, context: Service, origin: string) {
+  const authority = store.workspaceStore ?? store;
+  const runtimeRoot = context.runtimeRoot ?? pluginRoot;
+  return (context.phase1 ??= new Phase1Service(authority, runtimeRoot, {
+    origin: () => origin,
+    nativeUrl: () => context.studio?.alive() ? context.studio.url : undefined,
+    openProject: async projectId => { await openProject(authority, context, origin, (await authority.get()).revision, { projectId }, authority.projectId); },
+    mutation: async task => {
+      let release!: () => void;
+      context.phase1Mutation = new Promise<void>(resolve => { release = resolve; });
+      try { return await task(); } finally { release(); context.phase1Mutation = undefined; }
+    },
+    cancel: (projectId, jobId) => cancelExport(authority, projectId, jobId, context.tracking),
+    tracking: context.tracking,
+  }));
+}
+
 // These GET routes start server-side work (CLI refresh, catalogue refresh, export recovery,
 // captured brand covers), so they follow the same caller rule as the mutating verbs below.
 // /api/models forwards refresh=true into provider discovery, which reads stored keys and rewrites caches.
@@ -356,8 +377,15 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Cache-Control', 'no-store');
   try {
     const host = req.headers.host;
-    if (host && !['localhost', '127.0.0.1', '[::1]'].includes(new URL('http://' + host).hostname)) return json(res, 403, { error: '只允许本地访问' });
-    if (!['GET', 'HEAD'].includes(req.method || '') && (!req.headers.origin || new URL(req.headers.origin).host !== host)) return json(res, 403, { error: '仅允许当前预览页面发起修改' });
+    if (host && !isHostAllowed(host)) return json(res, 403, { error: '只允许本地访问' });
+    const rawPath = (req.url || '/').split('?', 1)[0];
+    const isBridgeDaemonRoute =
+      /^\/(?:motion|design)-api\/agent-runtimes\/bridge\/(?:register|heartbeat|stream|events|tool-call)$/.test(rawPath)
+      && typeof req.headers.authorization === 'string'
+      && /^Bearer\s+/i.test(req.headers.authorization);
+    if (!['GET', 'HEAD'].includes(req.method || '') && !isBridgeDaemonRoute && (!req.headers.origin || new URL(req.headers.origin).host !== host)) {
+      return json(res, 403, { error: '仅允许当前预览页面发起修改' });
+    }
     const projectHeader = req.headers['x-opendesign-project-id'];
     if (projectHeader !== undefined) {
       if (!context.editorToken || req.headers.authorization !== `Bearer ${context.editorToken}` || typeof projectHeader !== 'string') return json(res, 403, { error: '工程范围需要私有编辑器凭据' });
@@ -387,6 +415,168 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     const fetchSite = req.headers['sec-fetch-site'];
     if ((req.method === 'GET' || req.method === 'HEAD') && fetchSite !== undefined && fetchSite !== 'same-origin' && fetchSite !== 'none'
       && sideEffectingGet.some(pattern => pattern.test(url.pathname))) return json(res, 403, { error: '仅允许当前预览页面读取' });
+    const protoHeader = Array.isArray(req.headers['x-forwarded-proto']) ? req.headers['x-forwarded-proto'][0] : req.headers['x-forwarded-proto'];
+    const proto = protoHeader?.split(',')[0]?.trim().toLowerCase() === 'https' && (process.env.MOTION_PUBLIC_ORIGIN || process.env.MOTION_DEPLOYMENT_MODE) ? 'https' : 'http';
+    const editorUrl = `${proto}://${host || 'localhost'}/#project/${store.projectId}`;
+    const originUrl = new URL(editorUrl).origin;
+    const publicOrigin = resolvePublicOrigin(originUrl);
+    if (motionRequest && url.pathname.startsWith('/api/agent-runtimes')) {
+      const runtimeDir = (store.workspaceStore ?? store).directory;
+      const registry = agentRuntimesFor(runtimeDir);
+
+      if (url.pathname === '/api/agent-runtimes' && req.method === 'GET') {
+        return json(res, 200, await registry.directory(publicOrigin));
+      }
+      if (url.pathname === '/api/agent-runtimes/default' && req.method === 'PUT') {
+        const data = await input(req, 16 * 1024);
+        return json(res, 200, await registry.setDefaultRuntime(data.runtimeId ?? null));
+      }
+      if (url.pathname === '/api/agent-runtimes/bridge/script' && req.method === 'GET') {
+        const script = renderStandaloneBridgeScript({ defaultServerUrl: publicOrigin, version: VERSION });
+        res.writeHead(200, {
+          'Content-Type': 'text/javascript; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="openmotion-agent-bridge.mjs"',
+          'Content-Length': Buffer.byteLength(script),
+        });
+        res.end(script);
+        return;
+      }
+      if (url.pathname === '/api/agent-runtimes/bridge/install.sh' && req.method === 'GET') {
+        const rawToken = url.searchParams.get('token') ?? '';
+        try {
+          await registry.authenticateBridgeToken(rawToken, true);
+        } catch (error) {
+          return json(res, 401, { error: error instanceof Error ? error.message : 'Unauthorized bridge token' });
+        }
+        const shellScript = renderBridgeInstallShellScript({ serverUrl: publicOrigin, token: rawToken });
+        res.writeHead(200, {
+          'Content-Type': 'text/x-shellscript; charset=utf-8',
+          'Content-Length': Buffer.byteLength(shellScript),
+        });
+        res.end(shellScript);
+        return;
+      }
+      if (url.pathname === '/api/agent-runtimes/bridge/tokens' && req.method === 'POST') {
+        const data = req.headers['content-type']?.includes('application/json') ? await input(req, 16 * 1024) : {};
+        return json(res, 200, await registry.createBridgeToken(data.label, publicOrigin));
+      }
+      const revokeTokenMatch = url.pathname.match(/^\/api\/agent-runtimes\/bridge\/tokens\/([a-z0-9-]+)$/);
+      if (revokeTokenMatch && req.method === 'DELETE') {
+        return json(res, 200, await registry.revokeBridgeToken(revokeTokenMatch[1]));
+      }
+      if (['/api/agent-runtimes/bridge/register', '/api/agent-runtimes/bridge/heartbeat', '/api/agent-runtimes/bridge/stream', '/api/agent-runtimes/bridge/events', '/api/agent-runtimes/bridge/tool-call'].includes(url.pathname)) {
+        let token;
+        try {
+          token = await registry.authenticateBridgeToken(req.headers.authorization);
+        } catch (error) {
+          return json(res, 401, { error: error instanceof Error ? error.message : 'Unauthorized bridge token' });
+        }
+        if (url.pathname === '/api/agent-runtimes/bridge/register' && req.method === 'POST') {
+          return json(res, 200, await registry.registerBridge(token, await input(req, 512 * 1024)));
+        }
+        if (url.pathname === '/api/agent-runtimes/bridge/heartbeat' && req.method === 'POST') {
+          return json(res, 200, await registry.heartbeatBridge(token, await input(req, 512 * 1024)));
+        }
+        if (url.pathname === '/api/agent-runtimes/bridge/stream' && req.method === 'GET') {
+          const runtimeId = url.searchParams.get('runtimeId') || token.runtimeId || '';
+          await registry.attachBridgeStream(runtimeId, token, res);
+          return;
+        }
+        if (url.pathname === '/api/agent-runtimes/bridge/events' && req.method === 'POST') {
+          return json(res, 200, await registry.handleBridgeEvent(token, await input(req, 1024 * 1024)));
+        }
+        if (url.pathname === '/api/agent-runtimes/bridge/tool-call' && req.method === 'POST') {
+          return json(res, 200, await registry.handleBridgeToolCall(token, await input(req, 1024 * 1024)));
+        }
+      }
+      const bridgeInspectMatch = url.pathname.match(/^\/api\/agent-runtimes\/bridge\/([a-z0-9-]+)\/inspect\/([a-z0-9._-]+)$/);
+      if (bridgeInspectMatch && req.method === 'POST') {
+        return json(res, 200, await registry.inspectBridgeAgent(`bridge:${bridgeInspectMatch[1]}`, bridgeInspectMatch[2]));
+      }
+      if (url.pathname === '/api/agent-runtimes/services' && req.method === 'POST') {
+        return json(res, 200, await registry.createService(await input(req, 64 * 1024)));
+      }
+      if (url.pathname === '/api/agent-runtimes/services/test' && req.method === 'POST') {
+        return json(res, 200, await registry.testService(await input(req, 64 * 1024)));
+      }
+      const serviceMatch = url.pathname.match(/^\/api\/agent-runtimes\/services\/([a-z0-9-]+)(\/test)?$/);
+      if (serviceMatch) {
+        const serviceId = `service:${serviceMatch[1]}`;
+        if (serviceMatch[2] === '/test' && req.method === 'POST') {
+          return json(res, 200, await registry.testService(serviceId));
+        }
+        if (!serviceMatch[2] && req.method === 'PATCH') {
+          return json(res, 200, await registry.updateService(serviceId, await input(req, 64 * 1024)));
+        }
+        if (!serviceMatch[2] && req.method === 'DELETE') {
+          return json(res, 200, await registry.removeService(serviceId));
+        }
+      }
+      return json(res, 404, { error: 'Agent runtime endpoint not found' });
+    }
+    if (motionRequest && url.pathname.startsWith('/api/super-agent')) {
+      const superAgent = superAgentConversations(store);
+      if (url.pathname === '/api/super-agent/resources' && req.method === 'GET') {
+        return json(res, 200, await collectWorkspaceResources(store.workspaceStore ?? store, {
+          kind: url.searchParams.get('kind') ?? undefined,
+          query: url.searchParams.get('query') ?? undefined,
+          limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined,
+        }));
+      }
+      if (url.pathname === '/api/super-agent/chats') {
+        if (req.method === 'GET') return json(res, 200, { conversations: await superAgent.list() });
+        if (req.method === 'POST') {
+          const data = req.headers['content-type']?.includes('application/json') ? await input(req, 64 * 1024) : {};
+          return json(res, 200, { conversation: await superAgent.create(data) });
+        }
+      }
+      const saBrowser = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)\/browser\/([a-z0-9-]{1,80})(?:\/(events|command|resize|input))?$/);
+      if (saBrowser) {
+        const [, chatId, tabId, action] = saBrowser;
+        await superAgent.get(chatId);
+        if (!context.runtimeRoot) throw new Error('浏览器服务尚未就绪');
+        const browser = context.browser ??= new WorkspaceBrowser(context.runtimeRoot);
+        const browserSession = `sa-${chatId}`;
+        if (!action && req.method === 'POST') return json(res, 200, (await browser.open(browserSession, tabId, (await input(req)).url)).state);
+        if (!action && req.method === 'DELETE') { await browser.remove(browserSession, tabId); return json(res, 200, { closed: true }); }
+        const tab = await browser.get(browserSession, tabId);
+        if (action === 'events' && req.method === 'GET') { await tab.watch(res); return; }
+        if (req.method === 'POST') {
+          const data = await input(req);
+          if (action === 'command') await tab.command(data.action, data.url);
+          else if (action === 'resize') await tab.resize(data.width, data.height);
+          else if (action === 'input') await tab.input(data);
+          else throw new Error('未知浏览器操作');
+          return json(res, 200, tab.state);
+        }
+        return json(res, 405, { error: '浏览器操作不支持此请求方式' });
+      }
+      const saChat = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)(?:\/(events|turn|stop|approve))?$/);
+      if (saChat) {
+        const [, id, action] = saChat;
+        if (!action) {
+          if (req.method === 'GET') return json(res, 200, { conversation: await superAgent.get(id) });
+          if (req.method === 'PATCH') return json(res, 200, { conversation: await superAgent.update(id, await input(req, 64 * 1024)) });
+          if (req.method === 'DELETE') { await superAgent.remove(id); return json(res, 200, { deleted: true }); }
+        }
+        if (action === 'events' && req.method === 'GET') { await superAgent.subscribe(id, res); return; }
+        if (req.method === 'POST') {
+          const data = req.headers['content-type']?.includes('application/json') ? await input(req, 256 * 1024) : {};
+          if (action === 'turn') {
+            return json(res, 200, {
+              conversation: await superAgent.start(id, data, {
+                origin: originUrl,
+                phase1: () => ensurePhase1(store, context, originUrl),
+                runtimeRoot: context.runtimeRoot,
+              }),
+            });
+          }
+          if (action === 'stop') return json(res, 200, { conversation: await superAgent.stop(id) });
+          if (action === 'approve') return json(res, 200, { conversation: await superAgent.answer(id, data.approvalId, data.accepted) });
+        }
+      }
+      return json(res, 405, { error: 'Unsupported Super Agent request' });
+    }
     if (motionRequest && url.pathname.startsWith('/api/assets/conversations')) {
       const chats = assetConversations(store);
       if (url.pathname === '/api/assets/conversations') {
@@ -410,7 +600,6 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     if (motionRequest && url.pathname.startsWith('/api/scenarios/') && await scenarioHttp(req, res, url, store.workspaceStore ?? store)) return;
     if (motionRequest && url.pathname.startsWith('/api/assets/') && await assetHttp(req, res, url, store)) return;
     if (motionRequest && await brandKitHttp(req, res, url, store.directory, input)) return;
-    const editorUrl = `http://${host || 'localhost'}/#project/${store.projectId}`;
     if ((url.pathname === '/api/games' || url.pathname.startsWith('/api/games/')) && await gameHttp(req, res, url, (store.workspaceStore ?? store).directory, input, context.runtimeRoot)) return;
     if (motionRequest && url.pathname.startsWith('/api/design/') && await designHttp(req, res, url, (store.workspaceStore ?? store).directory, new URL(editorUrl).origin, input, ref => new AssetLibrary(store.workspaceStore ?? store).resolve(ref))) return;
     if (motionRequest && ['/api/diagnostics', '/api/diagnostics/events'].includes(url.pathname)) {
@@ -479,23 +668,11 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     }
     if (motionRequest && url.pathname === '/api/phase1/call' && req.method === 'POST') {
       if (!context.runtimeRoot) throw new Error('RUNTIME_NOT_READY');
-      const authority = store.workspaceStore ?? store;
-      context.phase1 ??= new Phase1Service(authority, context.runtimeRoot, {
-        origin: () => new URL(editorUrl).origin,
-        nativeUrl: () => context.studio?.alive() ? context.studio.url : undefined,
-        openProject: async projectId => { await openProject(authority, context, new URL(editorUrl).origin, (await authority.get()).revision, { projectId }, authority.projectId); },
-        mutation: async task => {
-          let release!: () => void;
-          context.phase1Mutation = new Promise<void>(resolve => { release = resolve; });
-          try { return await task(); } finally { release(); context.phase1Mutation = undefined; }
-        },
-        cancel: (projectId, jobId) => cancelExport(authority, projectId, jobId, context.tracking),
-        tracking: context.tracking,
-      });
+      const phase1 = ensurePhase1(store, context, new URL(editorUrl).origin);
       const data = await input(req);
       try {
         const host = validHostContext(data.trackingHost) ? data.trackingHost : unknownHost;
-        let result = await context.phase1.call(data.name, data.arguments ?? {}, host, {
+        let result = await phase1.call(data.name, data.arguments ?? {}, host, {
           attributeEntry: Object.hasOwn(data, 'trackingHost'),
         });
         if (host.host_agent !== 'unknown' && context.tracking?.enabled() && (result.previewUrl || result.previewHandoff)) {
@@ -802,7 +979,15 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     return json(res, 404, { error: 'Not found' });
   } catch (error) {
     if (res.headersSent) res.destroy();
-    else json(res, error instanceof Conflict || (error as any).code === 'NATIVE_RUNTIME_NOT_READY' ? 409 : 400, { error: error instanceof Error ? error.message : '操作失败', ...((error as any).code === 'NATIVE_RUNTIME_NOT_READY' ? { code: (error as any).code, applied: false, runtime: (error as any).details } : {}) });
+    else {
+      const message = error instanceof Error ? error.message : '操作失败';
+      const status = message === 'CONVERSATION_NOT_FOUND'
+        ? 404
+        : message === 'REQUEST_ID_CONFLICT' || error instanceof Conflict || (error as any).code === 'NATIVE_RUNTIME_NOT_READY'
+          ? 409
+          : 400;
+      json(res, status, { error: message, ...((error as any).code === 'NATIVE_RUNTIME_NOT_READY' ? { code: (error as any).code, applied: false, runtime: (error as any).details } : {}) });
+    }
   }
 }
 
@@ -883,9 +1068,9 @@ export async function startServer(store = sharedStore, port = Number(process.env
     void transcriptsFor(store).tick().catch(() => console.error('Transcription queue could not be processed'));
   };
   const timer = setInterval(tick, 500); tick();
-  return { server, get activeToolCalls() { return (context.phase1?.pending ?? 0) + assetConversations(store).pending; }, openProject: async (projectId: string) => openProject(store, context, origin, (await store.get()).revision, { projectId }, store.projectId), get studio() { return context.studio!; }, ensureStudio: context.ensureStudio,
+  return { server, get activeToolCalls() { return (context.phase1?.pending ?? 0) + assetConversations(store).pending + superAgentConversations(store).pending; }, openProject: async (projectId: string) => openProject(store, context, origin, (await store.get()).revision, { projectId }, store.projectId), get studio() { return context.studio!; }, ensureStudio: context.ensureStudio,
     info: async () => ({ previewUrl: origin, studioUrl: context.studio?.alive() ? `${origin}/#project/${store.projectId}` : undefined, engine: 'hyperframes', ready: true, editorReady: Boolean(context.studio?.alive()), ffmpeg, revision: (await store.get()).revision, dataDirectory: store.directory, browserOpened: false, nativeRuntime: await nativeRuntimeStatus(pluginRoot), authoringGuide: path.join(runtimeRoot, 'node_modules/hyperframes/dist/skills/hyperframes/SKILL.md'), hyperframesCli: cliPath(runtimeRoot) }),
-    close: async () => { clearInterval(timer); await closeTranscripts(store); await context.browser?.close(); await brandKitsFor(store.directory).close(); await gateway.close(); await assetConversations(store).close(); server.closeAllConnections(); server.close(); await context.studio?.close(); await closeTracking(context.tracking); } };
+    close: async () => { clearInterval(timer); await closeTranscripts(store); await context.browser?.close(); await brandKitsFor(store.directory).close(); await gateway.close(); await assetConversations(store).close(); await superAgentConversations(store).close(); await agentRuntimesFor(store.directory).close(); server.closeAllConnections(); server.close(); await context.studio?.close(); await closeTracking(context.tracking); } };
 }
 if (isMain(import.meta.url)) {
   try {

@@ -109,8 +109,14 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
   }, [navigate, projectId, sessionId, waitForSaves]);
   useEffect(() => {
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inFlight = false;
     async function poll() {
+      if (inFlight || controller.signal.aborted) return;
+      if (typeof document !== 'undefined' && document.hidden) return;
+      inFlight = true;
+      clearTimeout(timer);
+      timer = undefined;
       try {
         const [data, catalog] = await Promise.all([
           request<WorkspaceStatus>('/project/status', { signal: controller.signal }),
@@ -127,13 +133,33 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
         const session = savedSession && availableSession(savedSession, new Set(catalog.projects.filter(project => project.trashedAt).map(project => project.id)));
         const generated = session?.artifacts.find(item => item.id === session.activeArtifactId) ?? session?.artifacts.at(-1);
         if (generated && !acting.current && !isWorkspaceSettingsPage(location.search, location.hash)) { navigate(sessionHref(sessionId!, generated.projectId, true), true); return; }
-        setStatus(data); setConnectionError('');
+        setStatus(previous => (previous && JSON.stringify(previous) === JSON.stringify(data) ? previous : data));
+        setConnectionError(previous => (previous ? '' : previous));
       } catch (err) { if (!controller.signal.aborted) setConnectionError((err as Error).message); }
-      finally { if (!controller.signal.aborted) setCheckingConnection(false); }
-      if (!controller.signal.aborted) timer = setTimeout(poll, 1800);
+      finally {
+        inFlight = false;
+        if (!controller.signal.aborted) setCheckingConnection(false);
+      }
+      if (!controller.signal.aborted && (typeof document === 'undefined' || !document.hidden)) {
+        timer = setTimeout(poll, 1800);
+      }
     }
-    void poll();
-    return () => { controller.abort(); clearTimeout(timer); };
+    const onVisibilityChange = () => {
+      if (controller.signal.aborted) return;
+      if (document.hidden) {
+        clearTimeout(timer);
+        timer = undefined;
+      } else if (timer === undefined) {
+        void poll();
+      }
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibilityChange);
+    if (typeof document === 'undefined' || !document.hidden) void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [projectId, sessionId, updateCatalog, request, connectionCheck, navigate]);
 
   const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string }, sessionRoute = false, revealArtifact = true) => {
@@ -197,5 +223,8 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
   const rename = useCallback((id: string, title: string) => renameItem(id, title, 'projects'), [renameItem]);
   const renameSession = useCallback((id: string, title: string) => renameItem(id, title, 'sessions'), [renameItem]);
   const clearError = useCallback(() => { setError(''); }, []);
-  return { projects: displayedProjects.filter(project => !project.trashedAt), activeProjectId, trashedProjects: displayedProjects.filter(project => Boolean(project.trashedAt)), sessions: visibleSessions, session: visibleSessions.find(item => item.id === sessionId), status, busy, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
+  const activeProjects = useMemo(() => displayedProjects.filter(project => !project.trashedAt), [displayedProjects]);
+  const trashedProjects = useMemo(() => displayedProjects.filter(project => Boolean(project.trashedAt)), [displayedProjects]);
+  const currentSession = useMemo(() => visibleSessions.find(item => item.id === sessionId), [visibleSessions, sessionId]);
+  return { projects: activeProjects, activeProjectId, trashedProjects, sessions: visibleSessions, session: currentSession, status, busy, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
 }

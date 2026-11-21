@@ -186,8 +186,8 @@ function TemplateSpotlight({ item, onTry }: { item: GalleryTemplate; onTry: (pro
   </Button><TemplatePromptAction item={item} onTry={prompt => { track('explore_featured', 'try_prompt', { template: item.id }); onTry(prompt); }} /></article>;
 }
 
-function StudioCollection({ studio, medium, onChooseStudio, onSkill, onNavigate, onSelectDesignScene, onOpenDesignProject, ...playback }: FeedPlayback & {
-  studio: CreativeStudio; medium: ExploreFilters['medium'];
+function StudioCollection({ active, studio, medium, onChooseStudio, onSkill, onNavigate, onSelectDesignScene, onOpenDesignProject, ...playback }: FeedPlayback & {
+  active: boolean; studio: CreativeStudio; medium: ExploreFilters['medium'];
 } & Pick<ExploreProps, 'onChooseStudio' | 'onSkill' | 'onNavigate' | 'onSelectDesignScene' | 'onOpenDesignProject'>) {
   const { t } = useI18n();
   const community = exploreCommunities.find(item => item.studios[0] === studio.id);
@@ -238,7 +238,7 @@ function StudioCollection({ studio, medium, onChooseStudio, onSkill, onNavigate,
       <header className="om-discovery-heading"><div><h2>{t(studio.title)}</h2></div>
         <Button variant="ghost" className="om-button h-auto" onClick={() => { track('explore_collection', 'open_studio', { studio: studio.id, collection: studio.id }); onChooseStudio(studio); }}>{t(studio.title)}<RemixIcon name="arrow-right-line" size={16} /></Button>
       </header>
-      <ExploreDesignSection onSelectDesignScene={onSelectDesignScene} onOpenProject={onOpenDesignProject} />
+      <ExploreDesignSection active={active} onSelectDesignScene={onSelectDesignScene} onOpenProject={onOpenDesignProject} />
     </section>
   </>;
 }
@@ -440,7 +440,7 @@ function ExploreCollection({ community, root, firstPages, ...props }: ExplorePro
   for (let i = 0; i < Math.max(sceneCards.length, firstTemplates.length, skillCards.length); i++) {
     firstGroup.push(firstTemplates[i], sceneCards[i], skillCards[i]);
   }
-  const studioSection = (studio: CreativeStudio) => <StudioCollection key={studio.id} studio={studio} medium={medium}
+  const studioSection = (studio: CreativeStudio) => <StudioCollection key={studio.id} active={active} studio={studio} medium={medium}
     onSelectDesignScene={props.onSelectDesignScene} onOpenDesignProject={props.onOpenDesignProject}
     onNavigate={onNavigate} onChooseStudio={onChooseStudio} onSkill={onSkill} playing={playing} onPriority={setPriority} />;
   const initialLoading = templates.loading && !firstTemplatePage;

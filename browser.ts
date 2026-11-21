@@ -148,7 +148,7 @@ class WebTab {
       this.listeners.delete(response);
       this.lifecycle = this.lifecycle.then(async () => {
         if (this.listeners.size || this.disposed) return;
-        await this.cdp.send('Page.stopScreencast');
+        await this.cdp.send('Page.stopScreencast').catch(() => {});
         if (!this.listeners.size) await this.cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
       }).catch(() => {});
     });
@@ -156,8 +156,13 @@ class WebTab {
       if (!this.listeners.size || this.disposed) return;
       await this.cdp.send('Page.setWebLifecycleState', { state: 'active' });
       await this.page.bringToFront();
-      await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 80, maxWidth: 2560, maxHeight: 1800, everyNthFrame: 1 });
+      try {
+        await this.cdp.send('Page.startScreencast', { format: 'jpeg', quality: 80, maxWidth: 2560, maxHeight: 1800, everyNthFrame: 1 });
+      } catch (err) {
+        if (!/already active/i.test(String(err))) throw err;
+      }
       const first = await this.cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 80 });
+      if (this.state.error) { this.state.error = undefined; this.publish('state', this.state); }
       this.frame = first.data; this.publish('frame', { data: first.data });
     });
     try { await this.lifecycle; }

@@ -44,11 +44,17 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
   }, [trackingPage]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
+    const sync = () => {
+      if (document.hidden) return;
       if (!blackFridayActive()) { window.clearInterval(timer); onExpire?.(); return; }
       setTime(readCountdown());
-    }, 1000);
-    return () => window.clearInterval(timer);
+    };
+    const timer = window.setInterval(sync, 1000);
+    document.addEventListener('visibilitychange', sync);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', sync);
+    };
   }, [onExpire]);
 
   const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);

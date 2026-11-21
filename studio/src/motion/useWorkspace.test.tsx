@@ -268,3 +268,41 @@ it.each([false, true])('guards browser history navigation before replacing the p
     expect(workspace.navigationError?.message).toBe('Unsaved edit');
   } else expect(onNavigate).toHaveBeenCalledWith(new URL(targetUrl, location.origin).href, true);
 });
+
+it('preserves status and project references across unchanged polls and pauses polling while the tab is hidden', async () => {
+  vi.useFakeTimers();
+  let hidden = false;
+  vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  try {
+    await mount(async () => {}, first);
+    const initialStatus = workspace.status;
+    const initialProjects = workspace.projects;
+    const initialPollCount = fetcher.mock.calls.length;
+
+    // Next 1.8s poll with identical payload must preserve object identities so the root does not re-render consumers.
+    await act(async () => vi.advanceTimersByTimeAsync(1800));
+    expect(fetcher.mock.calls.length).toBeGreaterThan(initialPollCount);
+    expect(workspace.status).toBe(initialStatus);
+    expect(workspace.projects).toBe(initialProjects);
+
+    // Hide the document and advance past several poll intervals: zero requests should be fired while hidden.
+    hidden = true;
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(7200);
+    });
+    const hiddenCallCount = fetcher.mock.calls.length;
+    await act(async () => vi.advanceTimersByTimeAsync(3600));
+    expect(fetcher.mock.calls.length).toBe(hiddenCallCount);
+
+    // Restoring visibility resumes polling immediately.
+    hidden = false;
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+    expect(fetcher.mock.calls.length).toBeGreaterThan(hiddenCallCount);
+  } finally {
+    vi.useRealTimers();
+  }
+});

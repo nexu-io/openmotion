@@ -32,6 +32,14 @@ The dialog offers Open terminal, Copy command and Copy connection instruction. O
 
 Preferences are stored privately in `agents/preferences.json` under the installation data directory, outside the checkout and project exports. They contain only Agent/model IDs, reasoning selection and manual model IDs. They never contain copied Agent credentials. macOS/Linux terminal launch scripts are private and remove themselves when started. The application does not terminate the interactive Agent when the dialog closes.
 
+## Hybrid Runtimes, Cloud Bridge & Custom Agent Services
+
+For cloud or containerized web deployments, **Settings → Local Agents → Runtimes & Cloud Bridge** manages remote execution backends alongside direct local CLIs:
+- Generate an outbound **Local Bridge Script** (`openmotion-agent-bridge.mjs` backed by SHA-256 hashed Bearer tokens) so a workstation behind NAT or a local firewall can register its installed CLI Agents and execute tasks from the browser without opening inbound ports.
+- Register **Custom & Self-Hosted Agent Services** speaking the versioned [`openmotion-agent-v1`](agent-runtime-architecture.md#self-hosted-agent-service-protocol-openmotion-agent-v1) HTTP+SSE protocol.
+
+See [Agent Runtimes & Cloud Bridge Architecture](agent-runtime-architecture.md) for deployment modes, security boundaries, and the full HTTP+SSE service specification.
+
 ## Verification and sources
 
 Deterministic tests exercise discovery parsers, auth distinctions, default persistence, validation, terminal quoting, npm shim resolution, ACP negotiation and refusal of client operations. UI tests exercise the download/login/model/default/launch flow without starting real external sessions. Real provider calls, native Windows/Linux terminal acceptance and a complete external Agent editing session require separate verification.

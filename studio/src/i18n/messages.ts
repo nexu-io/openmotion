@@ -29,6 +29,7 @@ import soundStudioUi from './sound-studio-ui.json';
 import audioNavMenuUi from './audio-nav-menu-ui.json';
 import gameStudioUi from './game-studio-ui.json';
 import campaignUi from './campaign-ui.json';
+import superAgentUi from './super-agent-ui.json';
 import scenarioUi from './scenario-ui.json';
 import ja from './ja.json';
 import ko from './ko.json';
@@ -60,16 +61,48 @@ export const isLocale = (value: unknown): value is Locale => languages.some(lang
 // supported language. Retained, unexposed advanced-editor strings still fall back.
 export const mvpMessages: Partial<Record<Locale, Record<string, Message>>> = { 'zh-CN': mvpZhCN, ...mvpUi };
 const uiMessages: Partial<Record<Locale, Record<string, Message>>>[] = [
-  componentInspectorUi, studioNavigationUi, reviewUi, assetNameUi, mvpMessages, errorUi, templateUi, templateSearchUi, settingsUi, mcpUi, assetsUi, skillsUi, skillLibraryUi, brandKitUi, projectUi, transcriptUi, exportRecoveryUi, importRecoveryUi, platformExportUi, canvasUi, fullscreenUi, timelineHoverUi, modelHubUi, designUi, designEditorUi, soundStudioUi, audioNavMenuUi, gameStudioUi, campaignUi, scenarioUi,
+  componentInspectorUi, studioNavigationUi, reviewUi, assetNameUi, mvpMessages, errorUi, templateUi, templateSearchUi, settingsUi, mcpUi, assetsUi, skillsUi, skillLibraryUi, brandKitUi, projectUi, transcriptUi, exportRecoveryUi, importRecoveryUi, platformExportUi, canvasUi, fullscreenUi, timelineHoverUi, modelHubUi, designUi, designEditorUi, soundStudioUi, audioNavMenuUi, gameStudioUi, campaignUi, scenarioUi, superAgentUi,
 ];
-const effectiveDictionaries: Record<string, Record<string, Message>> = Object.fromEntries(Object.entries(dictionaries).map(([locale, messages]) => {
-  const localized = { ...messages };
-  for (const extension of uiMessages) Object.assign(localized, extension[locale as Locale]);
-  return [locale, localized];
-}));
-const reverse = Object.fromEntries(Object.entries(effectiveDictionaries).map(([locale, messages]) => [locale,
-  new Map(Object.entries(messages).flatMap(([source, value]) => (typeof value === 'string' ? [value] : Object.values(value)).map(text => [text, source]))),
-]));
+type LocalizedLocale = Exclude<Locale, 'en'>;
+const effectiveCache = new Map<LocalizedLocale, Record<string, Message>>();
+const reverseCache = new Map<LocalizedLocale, Map<string, string>>();
+const pluralRuleCache = new Map<Locale, Intl.PluralRules>();
+
+function getEffectiveDictionary(locale: LocalizedLocale): Record<string, Message> {
+  let cached = effectiveCache.get(locale);
+  if (cached) return cached;
+  const localized = { ...dictionaries[locale] };
+  for (const extension of uiMessages) Object.assign(localized, extension[locale]);
+  effectiveCache.set(locale, localized);
+  return localized;
+}
+
+function getReverseIndex(locale: LocalizedLocale): Map<string, string> {
+  let cached = reverseCache.get(locale);
+  if (cached) return cached;
+  const messages = getEffectiveDictionary(locale);
+  cached = new Map();
+  for (const [source, value] of Object.entries(messages)) {
+    if (typeof value === 'string') {
+      cached.set(value, source);
+    } else {
+      for (const text of Object.values(value)) {
+        if (text !== undefined) cached.set(text, source);
+      }
+    }
+  }
+  reverseCache.set(locale, cached);
+  return cached;
+}
+
+function getPluralRules(locale: Locale): Intl.PluralRules {
+  let cached = pluralRuleCache.get(locale);
+  if (cached) return cached;
+  cached = new Intl.PluralRules(locale);
+  pluralRuleCache.set(locale, cached);
+  return cached;
+}
+
 const singular: Record<string, string> = {
   '{count} renders': '{count} render', '{count} layers': '{count} layer',
   '{count} works': '{count} work',
@@ -80,14 +113,24 @@ const singular: Record<string, string> = {
   '{count} tools': '{count} tool', '{count} elements selected': '{count} element selected',
   '{count} active effects': '{count} active effect', '{count} tracks': '{count} track',
 };
-const pluralRules = Object.fromEntries(languages.map(({ locale }) => [locale, new Intl.PluralRules(locale)]));
 
-export const isKnownMessage = (message: string): boolean => Object.hasOwn(effectiveDictionaries['zh-CN'], message);
+export const isKnownMessage = (message: string): boolean => Object.hasOwn(getEffectiveDictionary('zh-CN'), message);
 
 /** Accept legacy Chinese labels and already-localized built-in labels. */
 export function sourceMessage(message: string, locale: Locale = 'zh-CN'): string {
   if (isKnownMessage(message)) return message;
-  return reverse[locale]?.get(message) ?? reverse['zh-CN'].get(message) ?? Object.values(reverse).map(index => index.get(message)).find(Boolean) ?? message;
+  if (locale !== 'en') {
+    const hit = getReverseIndex(locale).get(message);
+    if (hit !== undefined) return hit;
+  }
+  const zhHit = getReverseIndex('zh-CN').get(message);
+  if (zhHit !== undefined) return zhHit;
+  for (const entry of languages) {
+    if (entry.locale === 'en' || entry.locale === locale || entry.locale === 'zh-CN') continue;
+    const otherHit = getReverseIndex(entry.locale).get(message);
+    if (otherHit !== undefined) return otherHit;
+  }
+  return message;
 }
 
 export function translate(locale: Locale, message: string, values: MessageValues = {}): string {
@@ -95,8 +138,8 @@ export function translate(locale: Locale, message: string, values: MessageValues
   const warningPrefix = '模板更新失败，使用已缓存目录：';
   if (message.startsWith(warningPrefix)) return translate(locale, 'Template update failed; using cached catalogue: {message}', { message: message.slice(warningPrefix.length) });
   message = sourceMessage(message, locale);
-  const value = locale === 'en' ? undefined : effectiveDictionaries[locale][message];
-  const category = typeof values.count === 'number' ? pluralRules[locale].select(values.count) : 'other';
+  const value = locale === 'en' ? undefined : getEffectiveDictionary(locale)[message];
+  const category = typeof values.count === 'number' ? getPluralRules(locale).select(values.count) : 'other';
   let text = typeof value === 'string' ? value : value?.[category] ?? value?.other ?? message;
   if (locale === 'en' && category === 'one') text = singular[message] ?? text;
   return text.replace(/\{(\w+)\}/g, (match, key: string) => values[key] === undefined ? match : String(values[key]));

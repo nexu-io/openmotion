@@ -12,6 +12,7 @@ import { Select } from '../components/ui/Select';
 import { Tooltip } from '../components/ui/Tooltip';
 import { AssetAudioPreview } from './AssetAudioPreview';
 import { AssetHoverVideo } from './AssetHoverVideo';
+import { releaseMediaElement } from '../utils/releaseMediaElement';
 import { SettingsDialog } from './settingsPrimitives';
 import { assetRequest } from './assetClient';
 export const assetKinds = [{ id: 'all', label: 'All assets', icon: 'folder-open-line' }, { id: 'image', label: 'Images', icon: 'image-line' }, { id: 'video', label: 'Videos', icon: 'movie-line' }, { id: 'audio', label: 'Audio', icon: 'music-2-line' }] as const;
@@ -24,7 +25,7 @@ function AssetPreviewContent({ asset, version, controls, previewing, autoPlay }:
   const image = useRef<HTMLImageElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const src = assetMediaUrl(asset.id, version.id);
-  useEffect(() => { const element = video.current; return () => element?.pause(); }, [src, controls, failed]);
+  useEffect(() => { const element = video.current; return () => releaseMediaElement(element); }, [src, controls, failed]);
   useLayoutEffect(() => { if (image.current?.complete && image.current.naturalWidth > 0) setLoaded(true); }, [src]);
   // Transparent results sit on a checkerboard so their cut-out edges stay visible.
   const transparent = asset.modality === 'image' && version.parameters?.background === 'transparent';
