@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmod, copyFile, lstat, mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -64,7 +64,6 @@ const connectorMessages: Record<ConnectorProblem, string> = {
 const explicitConnectorMessage = "The OpenDesign sign-in component set by OPENMOTION_ACCOUNT_CLI couldn't start. Check or clear that path, then select Retry.";
 /** Sign-in failure messages Studio translates by exact text. */
 export const accountSignInMessages = [...new Set([...Object.values(failureMessages), ...Object.values(connectorMessages), explicitConnectorMessage])];
-const ignoreMissing = (error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; };
 // Billing, media and sign-out use the control key; models use the runtime key. Accept only a complete pair.
 const hasCredentials = (profile?: Profile) => Boolean(profile?.controlKey && profile.controlKeyId && profile.runtimeKey && profile.user?.id);
 const signedInProfile = (profile?: Profile) => hasCredentials(profile) && !profile!.pendingLogin;
@@ -216,17 +215,70 @@ export class OpenDesignAccount {
         // change is newer than whatever the shared directory decided; an older one was already superseded or signed out.
         const missing = () => undefined;
         const [session, shared, workspace] = await Promise.all([stat(path.join(this.root, 'session.json')).catch(missing),
-          stat(path.join(this.home, 'config.json')).catch(missing), stat(legacy)]);
+          stat(path.join(this.home, 'config.json')).catch(missing), stat(legacy).catch(missing)]);
+        if (!workspace) return;
         if (!shared && (!session || workspace.mtimeMs > session.mtimeMs) && hasCredentials(profile)) {
-          await mkdir(this.home, { recursive: true, mode: 0o700 });
-          // The session and catalogue go first, so a reader that finds the credentials also finds their session.
-          for (const name of ['session.json', 'models.json']) await copyFile(path.join(own, name), path.join(this.root, name)).catch(ignoreMissing);
-          await copyFile(legacy, path.join(this.home, 'config.json'));
-          await chmod(path.join(this.home, 'config.json'), 0o600);
+          await this.moveLegacyAccount(own, legacy);
         }
         for (const file of [legacy, path.join(own, 'session.json'), path.join(own, 'models.json')]) await rm(file, { force: true });
       });
     })().catch(error => { (this.options.log ?? console.error)('OpenDesign account could not be moved to the shared directory: ' + (error as Error).message); });
+  }
+  /**
+   * Copies a workspace's legacy account files into temporary paths under the shared directory before renaming them into
+   * place, rolling back any committed file on error so the workspace keeps its only copy and no shared marker is left.
+   */
+  private async moveLegacyAccount(own: string, legacy: string) {
+    await mkdir(this.home, { recursive: true, mode: 0o700 });
+    const suffix = '.' + randomUUID() + '.tmp';
+    const plan = [
+      { source: path.join(own, 'session.json'), target: path.join(this.root, 'session.json'), optional: true },
+      { source: path.join(own, 'models.json'), target: path.join(this.root, 'models.json'), optional: true },
+      { source: legacy, target: path.join(this.home, 'config.json'), optional: false },
+    ];
+    const staged: Array<{ temp: string; target: string; backup?: string }> = [];
+    const committed: Array<{ target: string; backup?: string }> = [];
+    try {
+      for (const entry of plan) {
+        const temp = entry.target + suffix;
+        try { await copyFile(entry.source, temp); }
+        catch (error) {
+          await rm(temp, { force: true }).catch(() => {});
+          if (entry.optional && (error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+          throw error;
+        }
+        staged.push({ temp, target: entry.target });
+        await chmod(temp, 0o600);
+      }
+      // The session and catalogue go first, so a reader that finds the credentials also finds their session.
+      for (const item of staged) {
+        const backup = item.target + '.bak' + suffix;
+        const backedUp = await rename(item.target, backup).then(() => true, (error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return false;
+          throw error;
+        });
+        if (backedUp) item.backup = backup;
+        try { await rename(item.temp, item.target); }
+        catch (error) {
+          if (backedUp) await rename(backup, item.target).catch(() => {});
+          throw error;
+        }
+        committed.push({ target: item.target, backup: item.backup });
+      }
+    } catch (error) {
+      for (const item of committed.reverse()) {
+        if (item.backup) await rename(item.backup, item.target).catch(() => {});
+        else await rm(item.target, { force: true }).catch(() => {});
+      }
+      for (const item of staged) {
+        await rm(item.temp, { force: true }).catch(() => {});
+        if (item.backup) await rm(item.backup, { force: true }).catch(() => {});
+      }
+      throw error;
+    }
+    for (const item of committed) {
+      if (item.backup) await rm(item.backup, { force: true }).catch(() => {});
+    }
   }
   private env() {
     // A different application's environment keys must not override this account session.

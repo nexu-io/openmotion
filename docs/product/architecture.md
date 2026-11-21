@@ -1,6 +1,6 @@
 # OpenMotion 产品架构
 
-This document describes the standalone Motion runtime at the repository root. OpenDesign account access uses an installation-owned connector session; it does not share the main application's local credentials, sessions or deployment. See the [migration boundary](../repository-migration.md) and [account integration](../provider-settings.md#account-and-subscription).
+This document describes the standalone Motion runtime at the repository root. OpenDesign account access uses an OpenMotion-managed per-user connector session; it does not share the main application's local credentials, sessions or deployment. See the [migration boundary](../repository-migration.md) and [account integration](../provider-settings.md#account-and-subscription).
 
 Updated: 2026-11-20. Capabilities described as current are implemented in this repository. The public scope covers local creation/editing, MCP and standalone installation/distribution, with configured providers and external account services supplying model access.
 

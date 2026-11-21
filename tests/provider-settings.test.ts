@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { mediaBytes } from './media-fixtures.ts';
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { execFile, spawn, type SpawnOptions } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -1251,10 +1251,11 @@ test('account video first-frame uses --first-frame and OpenDesign providers reje
 }));
 
 test('the account directory is per user, except for temporary workspaces and an explicit MOTION_ACCOUNT_DIR', () => {
-  assert.equal(sharedAccountDirectory('darwin', {}, '/Users/someone'), '/Users/someone/Library/Application Support/OpenDesign/account');
-  assert.equal(sharedAccountDirectory('win32', { LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local' }, 'C:\\Users\\someone'), 'C:\\Users\\someone\\AppData\\Local\\OpenDesign\\account');
-  assert.equal(sharedAccountDirectory('linux', {}, '/home/someone'), '/home/someone/.local/share/OpenDesign/account');
-  assert.equal(sharedAccountDirectory('linux', { XDG_DATA_HOME: '/data/someone' }, '/home/someone'), '/data/someone/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('darwin', {}, '/synthetic/account-holder'), '/synthetic/account-holder/Library/Application Support/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('win32', { LOCALAPPDATA: 'C:\\Profile\\AppData\\Local' }, 'C:\\Profile'), 'C:\\Profile\\AppData\\Local\\OpenDesign\\account');
+  assert.equal(sharedAccountDirectory('win32', {}, 'C:\\Profile'), 'C:\\Profile\\AppData\\Local\\OpenDesign\\account');
+  assert.equal(sharedAccountDirectory('linux', {}, '/synthetic/account-holder'), '/synthetic/account-holder/.local/share/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('linux', { XDG_DATA_HOME: '/data/xdg' }, '/synthetic/account-holder'), '/data/xdg/OpenDesign/account');
   const env = { ...process.env }; delete env.MOTION_ACCOUNT_DIR;
   // Workspaces selected by different installations, channels or MOTION_DATA_DIR values share one sign-in.
   const workspace = path.join(path.dirname(fileURLToPath(import.meta.url)), 'never-created-workspace');
@@ -1338,4 +1339,64 @@ test('a workspace whose account directory is the shared one under another spelli
   const linked = new OpenDesignAccount(workspace, { binary }); t.after(() => linked.close());
   assert.equal((await linked.summary()).state, 'signed-in');
   assert((await stat(path.join(workspace, 'account', 'credentials', 'config.json'))).isFile());
+}));
+
+test('a failed legacy migration keeps the workspace sign-in and leaves no shared marker behind', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const shared = path.join(store.directory, 'shared-account');
+  const createLegacy = async (name: string) => {
+    const directory = path.join(store.directory, name);
+    sharedAccount(t, path.join(directory, 'account'));
+    const account = new OpenDesignAccount(directory, { binary }); await signIn(account); const identity = await account.identity(); await account.close();
+    return { directory, identity };
+  };
+  const first = await createLegacy('failed-first');
+  // Replace models.json with a directory so copying fails after session.json has already been staged.
+  const firstModels = path.join(first.directory, 'account', 'models.json');
+  await rm(firstModels, { force: true });
+  await mkdir(firstModels);
+
+  sharedAccount(t, shared);
+  const logs: string[] = [];
+  const failed = new OpenDesignAccount(first.directory, { binary, log: line => logs.push(line) }); t.after(() => failed.close());
+  assert.equal((await failed.summary()).state, 'signed-out');
+  assert(logs.some(line => line.includes('could not be moved to the shared directory')));
+  // No shared marker or temporary file is left behind, and the workspace still owns its only sign-in.
+  await assert.rejects(stat(path.join(shared, 'session.json')), { code: 'ENOENT' });
+  await assert.rejects(stat(path.join(shared, 'models.json')), { code: 'ENOENT' });
+  await assert.rejects(stat(path.join(shared, 'credentials', 'config.json')), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(shared)).filter(name => name.endsWith('.tmp')), []);
+  assert.deepEqual((await readdir(path.join(shared, 'credentials'))).filter(name => name.endsWith('.tmp')), []);
+  assert((await stat(path.join(first.directory, 'account', 'credentials', 'config.json'))).isFile());
+  assert((await stat(path.join(first.directory, 'account', 'session.json'))).isFile());
+
+  // Once the transient copy failure is gone, the next start adopts the preserved workspace sign-in cleanly.
+  await rm(firstModels, { recursive: true, force: true });
+  const recovered = new OpenDesignAccount(first.directory, { binary }); t.after(() => recovered.close());
+  assert.equal((await recovered.summary()).state, 'signed-in');
+  assert.equal(await recovered.identity(), first.identity);
+  assert.equal((await stat(path.join(shared, 'credentials', 'config.json'))).mode & 0o777, 0o600);
+  await assert.rejects(stat(path.join(first.directory, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+
+  // A failed migration when the shared directory already has a sign-out marker preserves that marker and still recovers.
+  await recovered.logout();
+  const markerBefore = (await stat(path.join(shared, 'session.json'))).mtimeMs;
+  await delay(25);
+  const second = await createLegacy('failed-second');
+  const secondModels = path.join(second.directory, 'account', 'models.json');
+  await rm(secondModels, { force: true });
+  await mkdir(secondModels);
+
+  sharedAccount(t, shared);
+  const failedAgain = new OpenDesignAccount(second.directory, { binary, log: () => {} }); t.after(() => failedAgain.close());
+  assert.equal((await failedAgain.summary()).state, 'signed-out');
+  assert.equal((await stat(path.join(shared, 'session.json'))).mtimeMs, markerBefore);
+  await assert.rejects(stat(path.join(shared, 'credentials', 'config.json')), { code: 'ENOENT' });
+  assert((await stat(path.join(second.directory, 'account', 'credentials', 'config.json'))).isFile());
+
+  await rm(secondModels, { recursive: true, force: true });
+  const recoveredAgain = new OpenDesignAccount(second.directory, { binary }); t.after(() => recoveredAgain.close());
+  assert.equal((await recoveredAgain.summary()).state, 'signed-in');
+  assert.equal(await recoveredAgain.identity(), second.identity);
+  await assert.rejects(stat(path.join(second.directory, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
 }));
