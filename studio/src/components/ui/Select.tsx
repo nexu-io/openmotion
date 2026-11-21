@@ -36,6 +36,7 @@ export interface SelectProps {
   onTrack?: () => void;
   disabled?: boolean;
   className?: string;
+  popupClassName?: string;
   appearance?: "standard" | "boxed";
   "data-preview-state"?: PreviewState;
 }
@@ -48,6 +49,7 @@ export function Select({
   onTrack,
   disabled,
   className,
+  popupClassName,
   appearance = "standard",
   "data-preview-state": previewState,
 }: SelectProps) {
@@ -95,6 +97,7 @@ export function Select({
               appearance === "boxed" ? "om-select-popup motion-positioned-menu" :
                 "om-select-popup min-w-[var(--anchor-width)] rounded-md border border-border bg-surface py-1 shadow-menu",
               floatingMotion("duration-open"),
+              popupClassName,
             )}
           >
             <BaseSelect.List className="om-select-list" data-rich={rich || undefined}>

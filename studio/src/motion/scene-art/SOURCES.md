@@ -9,3 +9,5 @@ Explore uses two illustrations from *Pepper&Carrot* by David Revoy as art refere
 The Audio navigation menu's Voice changer preview uses two original studio portraits (`voice-source-avatar.webp` and `voice-target-avatar.webp`) generated specifically for OpenMotion.
 
 The AI Influencer cover (`ai-influencer-marketing.webp`) is an original creator-marketing studio photograph generated specifically for OpenMotion.
+
+The background-removal and relighting guides use the supplied comparison images `sofa-cutout.png` and `sofa-relight.webp`.

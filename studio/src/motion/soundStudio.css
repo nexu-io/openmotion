@@ -1,11 +1,6 @@
 /* Sound Studio workspace geometry and responsive layout. Appearance recipes live in packages/design-system. */
 
-/* 7-tab peer strip inside .om-studio-bar */
-.om-creative-workspace .om-studio-bar[data-sound-bar="true"] {
-  min-height: 52px;
-  padding: var(--motion-space-8) var(--motion-space-16);
-  gap: var(--motion-space-12);
-}
+/* Scrollable audio scene tabs. */
 .om-sound-studio-tabs {
   flex: 1;
   min-width: 0;

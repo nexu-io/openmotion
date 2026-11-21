@@ -400,6 +400,10 @@
 [data-motion-studio] .om-creation-setup { display: flex; align-items: center; flex-wrap: wrap; gap: var(--motion-space-10); padding: var(--motion-space-16); border: 1px dashed var(--motion-border); border-radius: var(--motion-radius-lg); }
 [data-motion-studio] .om-creation-setup > svg { color: var(--motion-creative-agent); }
 [data-motion-studio] .om-creation-setup > p { flex: 1; min-width: 120px; }
+[data-motion-studio] .om-provider-setup { background: var(--motion-panel); }
+[data-motion-studio] .om-provider-setup > svg { flex: none; color: var(--motion-provider-setup-icon); }
+[data-motion-studio] .om-provider-setup > p { min-width: 0; }
+[data-motion-studio] .om-provider-setup > .om-control-row { width: 100%; }
 @keyframes om-creation-orbit { from { transform: rotate(0) scaleY(.65); } to { transform: rotate(360deg) scaleY(.65); } }
 @keyframes om-creation-breathe { 50% { transform: translateY(-4px) rotate(4deg); } }
 @keyframes om-creation-wave { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
@@ -568,8 +572,8 @@
 [data-motion-studio] .om-segmented > button.om-nav-item:enabled:not([aria-pressed="true"]):hover { background: var(--motion-hover); color: var(--motion-strong); }
 [data-motion-studio] .om-segmented > button.om-nav-item[aria-pressed="true"] { background: var(--motion-bg); border-color: var(--motion-border-subtle); color: var(--motion-strong); }
 
-/* Acoustic workbench: peer 7-tab header, modular console, track stream, Coming Soon schematic and player dock. */
-:root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab {
+/* Image and audio workbench scene tabs. */
+:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab, .om-image-scene-tab) {
   border: 1px solid transparent;
   border-radius: var(--motion-radius-md);
   color: var(--motion-text);
@@ -577,13 +581,14 @@
   font-weight: var(--motion-weight-medium);
   transition: background-color var(--motion-duration-fast), border-color var(--motion-duration-fast), color var(--motion-duration-fast);
 }
-:root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab:hover { background: var(--motion-nav-hover); color: var(--motion-strong); }
-:root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="live"][aria-current="page"] {
+:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab, .om-image-scene-tab):hover { background: var(--motion-nav-hover); color: var(--motion-strong); }
+:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab[data-status="live"], .om-image-scene-tab)[aria-current="page"] {
   background: var(--motion-chrome-active);
   color: var(--motion-strong);
   font-weight: var(--motion-weight-semibold);
 }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="live"][aria-current="page"] .om-sound-tab-icon { color: var(--motion-creative-audio); }
+:root[data-motion-ui][data-motion-studio] .om-studio-bar .om-image-scene-tab[aria-current="page"] > svg { color: var(--motion-accent); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="soon"] { color: var(--motion-dim); font-weight: var(--motion-weight-regular); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="soon"]:hover { background: var(--motion-nav-hover); color: var(--motion-muted); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="soon"][aria-current="page"] {
@@ -761,6 +766,6 @@
 [data-motion-studio] .om-sound-dock-error { color: var(--motion-danger); font-size: var(--motion-text-sm); }
 [data-motion-studio] .om-sound-speed-option { font-family: var(--motion-font-mono); font-size: var(--motion-text-xs); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
-  [data-motion-studio] :is(.om-sound-tab, .om-sound-tag, .om-sound-voice-card, .om-sound-voice-preview, .om-sound-pill, .om-sound-track-row, .om-sound-starter-row, .om-sound-failed-row, .om-sound-row-play, .om-sound-dock-locate, .om-sound-drop-cue) { transition: none; }
+  [data-motion-studio] :is(.om-image-scene-tab, .om-sound-tab, .om-sound-tag, .om-sound-voice-card, .om-sound-voice-preview, .om-sound-pill, .om-sound-track-row, .om-sound-starter-row, .om-sound-failed-row, .om-sound-row-play, .om-sound-dock-locate, .om-sound-drop-cue) { transition: none; }
   [data-motion-studio] .om-sound-wave-generating svg rect { animation: none; }
 }

@@ -1415,6 +1415,12 @@ it('lists each primary destination once in order, with the Image mega menu and t
     const row = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-row')].find(node => node.textContent === label)!;
     await act(async () => row.click());
     expect(page().studio, label).toMatchObject({ scene: { id: scene }, landing: true, model: null });
+    const header = container.querySelector('.om-studio-bar')!;
+    expect(header.getAttribute('data-image-bar')).toBe('true');
+    expect(header.querySelector('h1.sr-only')?.textContent).toBe(label);
+    expect(header.querySelector('.om-studio-heading-icon')).toBeNull();
+    expect(header.querySelector('nav button[aria-current="page"]')?.textContent).toBe(label);
+    expect(header.querySelectorAll('.om-image-scene-tab > svg')).toHaveLength(5);
   }
 });
 

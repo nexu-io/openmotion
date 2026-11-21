@@ -621,6 +621,31 @@ it('starts a focused image landing on its examples even when the user already ha
   expect(container.querySelector('.om-assets-main')!.textContent).toContain(records.get('A')!.name);
 });
 
+it.each([
+  {
+    scene: 'remove-background', image: 'sofa-cutout.png', title: 'Remove the background in one click',
+    description: /Keep the sofa and coffee table/,
+  },
+  {
+    scene: 'relight', image: 'sofa-relight.webp', title: 'Relight',
+    description: /Adjust light direction, color temperature, and mood/,
+  },
+] as const)('shows only a comparison image and its caption in the $scene guide', async ({ scene, image, title, description }) => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const studio = { destination: mediaEditorDestination(scene),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() }, remember: vi.fn(), chooseModel: vi.fn() };
+  await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
+
+  const guide = container.querySelector('.om-scene-comparison')!;
+  expect(guide.querySelectorAll('img')).toHaveLength(1);
+  expect(guide.querySelector('img')?.getAttribute('src')).toContain(image);
+  expect(guide.querySelector('h2')?.textContent).toBe(title);
+  expect(guide.querySelector('p')?.textContent).toMatch(description);
+  expect(guide.querySelector('video, button, ol')).toBeNull();
+  await click('Generations');
+  expect(container.querySelector('.om-scene-comparison')).toBeNull();
+});
+
 it('hides Use as reference for video and audio assets, omits video from edit references, and limits direct reference picker to images', async () => {
   const video = fixture('video');
   video.name = 'Clip';

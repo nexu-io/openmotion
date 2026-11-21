@@ -4,8 +4,11 @@ import { Slider } from 'open-design-ui/slider';
 import { useId, useState } from 'react';
 import { modelReferenceLimit, type Model } from '../../../shared/gateway';
 import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, usesInputImageRatio, videoAudioAlwaysOn, type GenerationOption } from '../../../shared/generation-options';
+import { cn } from '../components/ui/cn';
+import { FieldTrigger } from '../components/ui/FormField';
 import { Popover } from '../components/ui/Popover';
 import { Select } from '../components/ui/Select';
+import { SelectArrow } from '../components/ui/SelectArrow';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 
@@ -157,8 +160,14 @@ function DurationControl({
 }
 
 /** `hidden` fields are set by the feature itself, so they are not offered as choices. */
-export function GenerationParameters({ model, draft, hasInputImage = false, hidden = [], onChange }: { model: Model; draft: ParameterDraft; hasInputImage?: boolean; hidden?: readonly string[]; onChange: (draft: ParameterDraft) => void }) {
+export function GenerationParameters({ model, draft, hasInputImage = false, hidden = [], appearance = 'standard', popupClassName, onChange }: {
+  model: Model; draft: ParameterDraft; hasInputImage?: boolean; hidden?: readonly string[];
+  appearance?: 'standard' | 'boxed'; popupClassName?: string; onChange: (draft: ParameterDraft) => void;
+}) {
   const { t } = useI18n();
+  const settingsLabelId = useId();
+  const settingsSummaryId = useId();
+  const boxed = appearance === 'boxed';
   let extra: Record<string, unknown> = {};
   try { extra = requestParameters({ ...draft, values: {} }); } catch { /* The raw editor remains editable; submission reports parse errors through Toast. */ }
   const inputImageRatio = parameterInputImageRatio(model, draft, hasInputImage);
@@ -258,13 +267,22 @@ export function GenerationParameters({ model, draft, hasInputImage = false, hidd
   };
   const fieldSelect = (field: GenerationOption) => {
     const choices = choicesFor(field);
-    return <Select label={t(field.label)} value={selectValue(field)} onCommit={next => set(field, choices.find(choice => String(choice.value) === next)?.value)}
+    return <Select label={t(field.label)} value={selectValue(field)} popupClassName={popupClassName} onCommit={next => set(field, choices.find(choice => String(choice.value) === next)?.value)}
       options={[{ value: '__auto', label: t('Model default') }, ...choices.map(choice => ({
         value: String(choice.value), label: t(field.key === 'resolution' && /^\d+k$/i.test(choice.label) ? choice.label.toUpperCase() : choice.label),
         disabled: constraints[field.key] !== undefined && constraints[field.key] !== choice.value,
       }))]} />;
   };
-  return <div className="om-generation-settings">
+  const settingsLabel = t('Generation settings');
+  const settingsSummary = compactSummary ? t('Advanced parameters') : summary || (boxed ? t('Model parameters') : settingsLabel);
+  const settingsTrigger = boxed ? <FieldTrigger className="om-picker-trigger om-generation-summary"
+    aria-labelledby={settingsLabelId} aria-describedby={settingsSummaryId}>
+    <RemixIcon name="equalizer-line" size={17} /><span id={settingsSummaryId}>{settingsSummary}</span><SelectArrow />
+  </FieldTrigger> : <Button variant="plain" className="om-nav-item om-generation-summary">
+    <RemixIcon name="equalizer-line" size={17} /><span>{settingsSummary}</span><RemixIcon name="arrow-down-s-line" size={15} />
+  </Button>;
+  return <div className={boxed ? 'om-label' : 'om-generation-settings'}>
+    {boxed && <span id={settingsLabelId} className="om-eyebrow">{settingsLabel}</span>}
     {hasQuickCards && (
       <div className="om-param-cards">
         {durationField && (
@@ -380,7 +398,7 @@ export function GenerationParameters({ model, draft, hasInputImage = false, hidd
       </div>
     )}
     <div className="om-generation-summary-row" data-compact={compactSummary || undefined}>
-      <Popover side="top" align="start" aria-label={t('Generation settings')} className="om-generation-popover" trigger={<Button variant="plain" className="om-nav-item om-generation-summary"><RemixIcon name="equalizer-line" size={17} /><span>{compactSummary ? t('Advanced parameters') : summary || t('Generation settings')}</span><RemixIcon name="arrow-down-s-line" size={15} /></Button>}>
+      <Popover side="top" align="start" aria-label={settingsLabel} className={cn('om-generation-popover', popupClassName)} trigger={settingsTrigger}>
         <div className="om-creation-row"><strong>{t('Generation settings')}</strong><Button variant="plain" className="om-nav-item" onClick={() => onChange(emptyParameters)}>{t('Reset')}</Button></div>
         <p className="om-eyebrow">{model.label}</p>
         {inputImageRatio && <p className="om-muted">{t('Aspect ratio follows the first frame.')}</p>}
