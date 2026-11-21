@@ -283,7 +283,7 @@ it('keeps the prompt and pinned reference while switching providers serving the 
   await act(async () => root.render(<Harness />));
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
   expect(option('Codex').disabled).toBe(true);
-  await act(async () => option('OpenDesign API Key').click());
+  await act(async () => option('OpenDesign Cloud').click());
   expect(container.querySelector('button[aria-label="Generation model"]')!.textContent).toContain('Seedream 5.5');
   const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
   expect(container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!.value).toBe(props.draft.prompt);
@@ -384,7 +384,7 @@ it('disables image generation and keeps setup actions in the provider picker', a
   }} />));
   expect(submit().disabled).toBe(true);
   expect(container.querySelector('.om-provider-setup [data-remix-icon="information-line"]')).not.toBeNull();
-  await openSetup('OpenDesign account');
+  await openSetup('OpenDesign');
   expect(chrome.openAccountSettings).toHaveBeenCalledTimes(1);
   expect(generate).not.toHaveBeenCalled();
 });
@@ -643,14 +643,17 @@ it('chooses a provider, then one of its fixed-list models, keeping unconfigured 
   const options = () => [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')];
   const names = () => options().map(option => option.querySelector('strong')?.textContent);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  expect(names()).toEqual(['OpenDesign API Key', 'OpenDesign account', 'Codex']);
-  expect(options()[0].disabled).toBe(true);
-  expect(options()[0].textContent).toContain('API key required');
+  expect(names()).toEqual(['OpenDesign', 'OpenDesign Cloud', 'Codex']);
+  expect(document.querySelector('.om-picker-popover .om-picker-footer')?.textContent).toContain('Manage providers & API keys');
+  expect(options()[0].disabled).toBe(false);
+  expect(options()[1].disabled).toBe(true);
+  expect(options()[1].textContent).toContain('API key required');
   await act(async () => document.querySelector<HTMLButtonElement>('.om-picker-setup')!.click());
   expect(chrome.openProviderSettings).toHaveBeenCalledExactlyOnceWith('opendesign');
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
   // Only the chosen provider's models from the fixed list; others such as Nano Banana and FLUX are not offered.
   expect(names()).toEqual(['GPT Image 2.6 Flare', 'Seedream 5.5']);
+  expect(document.querySelector('.om-picker-popover .om-picker-footer')).toBeNull();
   await act(async () => options()[0].click());
   expect(chooseModel).toHaveBeenCalledExactlyOnceWith(flare.id);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
@@ -674,13 +677,13 @@ it('offers only OpenDesign providers for feature entries and keeps the prompt wh
   // Ordinary non-feature Studio entries keep Codex Image alongside OpenDesign and persist choices via studio.chooseModel.
   await render('text-to-image', [flux, cloud, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  expect(names()).toEqual(['OpenDesign API Key', 'OpenDesign account', 'Codex']);
+  expect(names()).toEqual(['OpenDesign Cloud', 'OpenDesign', 'Codex']);
   await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')][2].click());
   expect(chooseModel).toHaveBeenCalledWith(codex.id);
   // Feature scenes restrict strictly to OpenDesign providers and preserve the prompt when OpenDesign needs setup.
   await render('relight', [flux, cloud, codex], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'codex', label: 'Codex', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  expect(names()).toEqual(['OpenDesign API Key', 'OpenDesign account']);
+  expect(names()).toEqual(['OpenDesign Cloud', 'OpenDesign']);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
   expect(names()).toEqual(['Seedream 5.5']);
   await render('relight', [flux], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: false }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
@@ -742,7 +745,7 @@ it('removes an image reference only when its remove button is activated', async 
 it('removes a background with GPT Image 2.6 on either OpenDesign route, an optional prompt and a fixed transparent background', async () => {
   await renderFeature('remove-background', { references: [reference('product')] });
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
-  expect(optionNames()).toEqual(['OpenDesign API Key', 'OpenDesign account']);
+  expect(optionNames()).toEqual(['OpenDesign Cloud', 'OpenDesign']);
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
   expect(optionNames()).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst']);
@@ -764,6 +767,57 @@ it('removes a background with GPT Image 2.6 on either OpenDesign route, an optio
   const request = generate.mock.calls[0][0];
   expect(request).toMatchObject({ model: 'opendesign:gpt-image-2.6-sunburst', parameters: { background: 'transparent' }, references: [{ assetId: 'product', versionId: 'v1' }] });
   expect(request.prompt).toMatch(/^Remove the entire background.*transparent background/);
+});
+
+it('seeds GPT Image 2.6 studio generation to medium quality by default and forwards quality=medium on submit', async () => {
+  const { findMediaStudio } = await import('../../../shared/studio-catalog');
+  const { studioDestination } = await import('./creativeStudios');
+  const { generationOptions } = await import('../../../shared/generation-options');
+  const base: Model = {
+    id: 'account:gpt-image-2.6-flare',
+    provider: 'account',
+    modelId: 'gpt-image-2.6-flare',
+    label: 'gpt-image-2.6-flare',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    supportsImageReference: true,
+    maxInputImages: 16,
+    nativeOptions: { quality: { values: ['high', 'low', 'medium'], default: 'low' } },
+  };
+  const flare: Model = { ...base, generationOptions: generationOptions(base) };
+  const catalog = { models: [flare], status: { routes: {}, providers: [{ id: 'account', label: 'OpenDesign', available: true }] } };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Amber glass bottle', references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: studioDestination(findMediaStudio('design')!, 'text-to-image', flare.id),
+  }} />));
+  expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality medium');
+  generate.mockResolvedValue({ job: { id: 'gpt-medium' } });
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    model: flare.id,
+    parameters: { quality: 'medium' },
+  }));
+
+  // Explicit Advanced JSON quality must override the Studio medium default, and Reset must return to medium.
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+  const advancedInput = document.querySelector<HTMLTextAreaElement>('.om-generation-popover textarea[aria-label="Model parameters"]')!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    setter.call(advancedInput, '{"quality":"high"}');
+    advancedInput.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality high');
+  generate.mockClear();
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    model: flare.id,
+    parameters: { quality: 'high' },
+  }));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+  const resetButton = [...document.querySelectorAll<HTMLButtonElement>('.om-generation-popover button')].find(btn => btn.textContent === 'Reset')!;
+  await act(async () => resetButton.click());
+  expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality medium');
 });
 
 it('relights one image with Seedream 5.5 by default and writes the chosen light into the prompt', async () => {

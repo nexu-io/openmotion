@@ -45,14 +45,14 @@ export function shotParameters(model: Model, preferences?: { aspect: string; dur
   }
   return { values, advanced: '{}' };
 }
-export function requestParameters(draft: ParameterDraft, model?: Model, hasInputImage = false): Record<string, unknown> {
+export function requestParameters(draft: ParameterDraft, model?: Model, hasInputImage = false, defaultValues?: Record<string, unknown>): Record<string, unknown> {
   const extra = JSON.parse(draft.advanced);
   if (!extra || typeof extra !== 'object' || Array.isArray(extra)) throw new Error('Model parameters must be a JSON object');
   const values = { ...draft.values };
   // Retain the inactive text-to-video choice in the editor, but keep explicit JSON instructions for validation.
   if (model && parameterInputImageRatio(model, draft, hasInputImage)) delete values.ratio;
-  // Quick controls are explicit overrides; deleting a quick override restores advanced/default values.
-  const parameters = { ...extra, ...values };
+  // Quick controls override advanced JSON, which in turn overrides Studio-level fallback defaults.
+  const parameters = { ...defaultValues, ...extra, ...values };
   if (model) resolveGenerationParameters(model, parameters, hasInputImage);
   return parameters;
 }
@@ -160,8 +160,8 @@ function DurationControl({
 }
 
 /** `hidden` fields are set by the feature itself, so they are not offered as choices. */
-export function GenerationParameters({ model, draft, hasInputImage = false, hidden = [], appearance = 'standard', popupClassName, onChange }: {
-  model: Model; draft: ParameterDraft; hasInputImage?: boolean; hidden?: readonly string[];
+export function GenerationParameters({ model, draft, defaultValues, hasInputImage = false, hidden = [], appearance = 'standard', popupClassName, onChange }: {
+  model: Model; draft: ParameterDraft; defaultValues?: Record<string, unknown>; hasInputImage?: boolean; hidden?: readonly string[];
   appearance?: 'standard' | 'boxed'; popupClassName?: string; onChange: (draft: ParameterDraft) => void;
 }) {
   const { t } = useI18n();
@@ -177,6 +177,7 @@ export function GenerationParameters({ model, draft, hasInputImage = false, hidd
   const activeAspectRatio = draft.values.aspect_ratio ?? extra.aspect_ratio ?? model.defaults?.aspect_ratio ?? aspectField?.default;
   const allowedResolutions = compatibleImageResolutions(model, activeAspectRatio, hasInputImage);
   const effectiveDefault = (field: GenerationOption) => {
+    if (defaultValues && defaultValues[field.key] !== undefined) return defaultValues[field.key];
     if (field.key === 'resolution' && allowedResolutions) {
       if (!allowedResolutions.length) return undefined;
       return typeof field.default === 'string' && allowedResolutions.includes(field.default) ? field.default : allowedResolutions[0];
@@ -274,8 +275,11 @@ export function GenerationParameters({ model, draft, hasInputImage = false, hidd
   };
   const fieldSelect = (field: GenerationOption) => {
     const choices = choicesFor(field);
-    return <Select label={t(field.label)} value={selectValue(field)} popupClassName={popupClassName} onCommit={next => set(field, choices.find(choice => String(choice.value) === next)?.value)}
-      options={[{ value: '__auto', label: t('Model default') }, ...choices.map(choice => ({
+    const current = selectValue(field);
+    const hasDefault = (model.defaults?.[field.key] ?? effectiveDefault(field)) !== undefined;
+    const autoOption = !hasDefault || current === '__auto' ? [{ value: '__auto', label: t('Model default') }] : [];
+    return <Select label={t(field.label)} value={current} popupClassName={popupClassName} onCommit={next => set(field, choices.find(choice => String(choice.value) === next)?.value)}
+      options={[...autoOption, ...choices.map(choice => ({
         value: String(choice.value), label: t(field.key === 'resolution' && /^\d+k$/i.test(choice.label) ? choice.label.toUpperCase() : choice.label),
         disabled: constraints[field.key] !== undefined && constraints[field.key] !== choice.value,
       }))]} />;

@@ -1,10 +1,10 @@
 import { Button } from 'open-design-ui/button';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { Skeleton } from '../components/ui/Skeleton';
 import { MediaPreviewPlayer } from '../components/nle/MediaPreviewPlayer';
-import { needsImage, type StudioDestination } from './creativeStudios';
+import { type StudioDestination } from './creativeStudios';
 import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase';
 import { skillPreviewSnapshot } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
@@ -66,10 +66,16 @@ function ExampleMedia({ example, enabled }: { example: SceneExample; enabled: bo
     pause(); document.addEventListener('visibilitychange', pause);
     return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', pause); };
   }, [enabled]);
-  return <div ref={stage} className="om-scene-example-media">
+  const mediaStyle = !example.audio && example.posterAspect
+    ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
+    : undefined;
+  return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
     {clip && !failed ? <video controls playsInline autoPlay={archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
     {enabled && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
-      disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>{t(requestedClip === example.clip ? 'Loading…' : 'Play')}</Button>}
+      disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
+      {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
+      {t(requestedClip === example.clip ? 'Loading…' : 'Play')}
+    </Button>}
     {example.audio && !failed && enabled && <div className="om-scene-audio">
       <div className="om-sound-sleeve" aria-hidden="true"><img src={example.poster} alt="" /></div>
       <div className="om-sound-track"><h3 className="om-subtitle">{t('OpenMotion welcome soundtrack')}</h3>
@@ -114,16 +120,18 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
     <Button variant="plain" className="om-canvas-pill om-canvas-idea-prompt" aria-label={designImage ? undefined : t('Use prompt')} title={t(idea.prompt)} onClick={() => onPrompt(t(idea.prompt))}>
       <RemixIcon name="add-line" size={15} />{t(designImage ? 'Use this example' : idea.title)}
     </Button>
-  </section> : <section className="om-scene-guide">
-    <div className="om-guide-heading">{idea.title !== scene.label && <span className="om-eyebrow">{t(scene.label)}</span>}<h2 className="om-title">{t(idea.title)}</h2></div>
-    <div className="om-scene-example om-card">
-      {scene.id === 'speech' ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{t(idea.prompt)}</p></blockquote> : <ExampleMedia key={idea.title} example={idea} enabled={active} />}
-      <div className="om-scene-example-copy">{scene.id === 'speech' ? <span className="om-muted">{t('Speech text')}</span> : <p>{t(idea.prompt)}</p>}<Button variant="ghost" className="om-button h-auto" onClick={() => onPrompt(t(idea.prompt))}><RemixIcon name="add-line" size={15} />{t('Use prompt')}</Button></div>
+  </section> : <section className="om-scene-guide om-scene-hero">
+    <div className="om-scene-hero-stage">
+      {scene.id === 'speech'
+        ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{t(idea.prompt)}</p></blockquote>
+        : <ExampleMedia key={idea.title} example={idea} enabled={active} />}
     </div>
-    <ol className="om-guide-steps">{[
-      [needsImage(scene) ? 'image-line' : scene.icon, needsImage(scene) ? 'Reference asset' : scene.id === 'speech' ? 'Speech text' : 'Your idea', scene.hint],
-      ['equalizer-line', 'Generation model', 'Settings follow your model'],
-      ['folder-open-line', 'Workspace assets', 'Saved automatically to your library'],
-    ].map(([icon, title, description]) => <li key={title}><RemixIcon name={icon} size={19} /><strong>{t(title)}</strong><p className="om-muted">{t(description)}</p></li>)}</ol>
+    <div className="om-guide-heading">
+      <h2 className="om-title">{t(idea.title)}</h2>
+      {scene.id !== 'speech' && <p className="om-muted">{t(idea.prompt)}</p>}
+    </div>
+    <Button variant="plain" className="om-canvas-pill om-canvas-idea-prompt" title={t(idea.prompt)} onClick={() => onPrompt(t(idea.prompt))}>
+      <RemixIcon name="add-line" size={15} />{t('Use this example')}
+    </Button>
   </section>;
 }

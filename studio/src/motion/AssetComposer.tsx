@@ -27,7 +27,7 @@ import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, 
 import { FieldTextarea } from '../components/ui/FormField';
 import { Select } from '../components/ui/Select';
 import { creationModels } from './creationModels';
-import { providerDisplayName } from './imageMenuModels';
+import { isOpenDesignProvider, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
 import { ProviderSetupNotice } from './ProviderSetupNotice';
 
@@ -87,6 +87,12 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const shotPreferences = draft.shotPreferences ?? (studio?.destination.studio.id === 'shorts' ? { aspect: '9:16' } : undefined);
   const parameterModel = selected;
   const parameterKey = parameterModel ? `${scene?.id ?? 'direct'}:${parameterModel.id}` : '';
+  const studioDefaultValues = (model?: typeof parameterModel): Record<string, unknown> | undefined => {
+    if (!model || model.defaults?.quality !== undefined || !isOpenDesignProvider(model.provider) || !/^gpt-image-2\.6-/.test(model.modelId)) return undefined;
+    const qualityField = model.generationOptions?.fields.find(field => field.key === 'quality');
+    return qualityField?.choices?.some(choice => choice.value === 'medium') ? { quality: 'medium' } : undefined;
+  };
+  const activeDefaultValues = studioDefaultValues(parameterModel);
   const restoredParameters = (model: NonNullable<typeof parameterModel>): ParameterDraft => {
     if (draft.model !== model.id || !draft.parameters) {
       const base = shotParameters(model, shotPreferences);
@@ -105,7 +111,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     if (!selected || !promptReady || busy || invalidReferences) return; setBusy(true);
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
     try {
-      const parsed = requestParameters(parameters, selected, draft.references.length > 0);
+      const parsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
       const prompt = feature ? imageFeaturePrompt(feature, draft.prompt, draft.relight)
         : videoFeature ? videoFeaturePrompt(videoFeature, draft.prompt, draft.videoChoices)
         : draft.prompt;
@@ -125,9 +131,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const referenceControls = (items: AssetDraft['references'], update: (references: AssetDraft['references']) => void, maximum = Infinity) => <div className="om-asset-references"><Button variant="plain" className="om-nav-item om-creation-reference" onClick={onReference} disabled={items.length >= maximum}><RemixIcon name="add-line" size={16} />{t('Reference asset')}</Button>{items.map(item => <Button variant="plain" key={`${item.reference.assetId}/${item.reference.versionId}`} className="om-badge om-nav-item" onClick={() => update(items.filter(r => r !== item))} aria-label={t('Remove reference: {name}', { name: item.name })}><RemixIcon name="image-line" size={14} /><span>{item.name}</span><RemixIcon name="close-line" size={14} /></Button>)}</div>;
   const references = referenceControls(draft.references, references => setDraft({ ...draft, references }), maximumReferences);
 
-  const modelHeading = <div className="om-creation-row"><span className="om-eyebrow">{t('Generation model')}</span>
-    <IconButton variant="plain" className="om-nav-item" aria-label={t('Model providers')} onClick={openModelSettings} icon={<RemixIcon name="settings-3-line" size={15} />} />
-  </div>;
+  const providerSettingsButton = <IconButton variant="plain" className="om-nav-item" aria-label={t('Model providers')} onClick={openModelSettings} icon={<RemixIcon name="settings-3-line" size={15} />} />;
+  const providerHeading = <div className="om-creation-row"><span className="om-eyebrow">{t('Provider')}</span>{providerSettingsButton}</div>;
+  const modelHeading = <div className="om-creation-row"><span className="om-eyebrow">{t('Generation model')}</span>{providerSettingsButton}</div>;
+  const studioModelHeading = <span className="om-eyebrow">{t('Generation model')}</span>;
   const speechPrompt = scene?.id === 'speech' || selected?.mode === 'text-to-speech';
   const promptInput: ComponentProps<'textarea'> = {
     id: promptId,
@@ -174,7 +181,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   };
   const modelPicker = gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
     ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={imageWorkspace ? 'boxed' : 'standard'}
-      modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} popupClassName={imagePopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
+      providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={imagePopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
     : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
     {modelHeading}
     {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : openDesignMissing ? openDesignSetup : manageProvidersNotice}
@@ -201,10 +208,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   </>;
   const modelNotice = unknownReferences || cloudModelMissing ? <p className="om-muted" role="status">{unknownReferences && t('Image editing capability is unknown. Sync models to check reference support.')} <Button variant="ghost" className="om-button h-auto" disabled={syncing} onClick={() => void syncModels()}>{t(syncing ? 'Working…' : 'Sync models')}</Button></p> : selected && draft.references.length > 0 && <p className="om-muted">{t(maximumReferences ? draft.modality === 'video' ? 'This video model uses one image as its first frame.' : 'This model edits up to {count} image references.' : 'This model cannot use asset references. Choose an image model that supports editing, or remove the references.', { count: maximumReferences })}</p>;
   const generationSettings = parameterModel && <GenerationParameters key={parameterKey} model={parameterModel} draft={parameters}
-    appearance={imageWorkspace ? 'boxed' : 'standard'} popupClassName={imagePopupClass}
+    defaultValues={activeDefaultValues} appearance={imageWorkspace ? 'boxed' : 'standard'} popupClassName={imagePopupClass}
     hasInputImage={draft.references.length > 0} hidden={Object.keys(featureRule?.parameters ?? {})} onChange={value => {
       setParameterDrafts(current => ({ ...current, [parameterKey]: value }));
-      try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0) }); }
+      try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0, activeDefaultValues) }); }
       catch { /* Keep invalid JSON or conflicting parameters in the local editor until corrected. */ }
     }} />;
   const generate = !imageWorkspace && setupProvider ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>
@@ -275,10 +282,9 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
             onCommit={value => setDraft(current => ({ ...current, videoChoices: { ...current.videoChoices, [control.key]: value } }))} />
         </div>)}
       </section>}
-      {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}</>}
       {!scene && <div className="om-creation-scene"><span className="om-badge"><RemixIcon name={selected?.mode === 'text-to-speech' ? 'voiceprint-line' : kind.icon} size={14} />{t(selected?.mode === 'text-to-speech' ? 'Text to speech' : draft.modality === 'audio' ? 'Music & sound' : draft.modality === 'video' ? draft.references.length ? 'Image to video' : 'Create video' : draft.references.length && selected?.supportsImageReference ? 'Edit image' : 'Create image')}</span><span className="om-eyebrow">{t('Settings follow your model')}</span></div>}
       {promptField}
-      {!imageWorkspace && modelNotice}
+      {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}{modelNotice}</>}
       {inputImageRatio && <p className="om-muted" role="status">{t('Aspect ratio follows the first frame.')} {t('Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.')}</p>}
 
       {!imageWorkspace && generationSettings}

@@ -121,6 +121,19 @@ it('prefixes non-numeric parameter summary choices with their field label while 
       <GenerationParameters model={gptImage} draft={emptyParameters} appearance="boxed" onChange={vi.fn()} />,
     ));
     expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality low');
+    expect(gptImage.generationOptions?.fields.find(f => f.key === 'quality')?.choices?.map(c => c.value)).toEqual(['low', 'medium', 'high']);
+
+    // Fields with a concrete default omit the dead "Model default" option; fields without a default keep it.
+    await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+    const optionsFor = async (fieldLabel: string) => {
+      const trigger = document.querySelector<HTMLButtonElement>(`.om-generation-popover [aria-label="${fieldLabel}"]`)!;
+      await act(async () => trigger.click());
+      const listbox = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+      return [...listbox.querySelectorAll('[role="option"]')].map(option => option.textContent);
+    };
+    expect(await optionsFor('Quality')).toEqual(['low', 'medium', 'high']);
+    expect(await optionsFor('Background')).toEqual(['Model default', 'Transparent']);
+    await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
 
     await act(async () => root.render(
       <GenerationParameters model={gptImage} draft={{ values: { quality: 'high', background: 'transparent' }, advanced: '{}' }} appearance="boxed" onChange={vi.fn()} />,

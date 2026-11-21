@@ -571,7 +571,7 @@ it('prepares a first-frame draft from a guide and an uploaded image without subm
   await click('Play');
   expect(fetchPreview).toHaveBeenCalledWith(skillPreviewSnapshot + 'light-shadow-product.mp4', expect.anything());
   expect(container.querySelector('.om-scene-example-media video')?.getAttribute('src')).toMatch(/^blob:/);
-  await click('Use prompt');
+  await click('Use this example');
   expect(remember.mock.lastCall?.[0].prompt).toMatch(/supplied frame/);
   const file = new File(['data'], 'still.png', { type: 'image/png' });
   const imported = fixture('new-still');

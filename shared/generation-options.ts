@@ -240,14 +240,24 @@ export function defaultVideoAudioEnabled(model: Model): boolean {
     && (publishedAudioToggle(model)?.default === true || alwaysOnVideoAudioModels.has(model.modelId));
 }
 
+const qualityChoiceOrder = ['low', 'medium', 'high'] as const;
+
 /** The fields each production OpenDesign image model honours, measured 2026-11-20 ("OpenDesign API image model
  * capabilities, tested"). GPT Image 2.6 ignores sizes and ratios; Seedream rejects any ratio but 1:1, so neither
  * shows one. `background` offers only "transparent", the value background removal sends. */
 function openDesignImageFields(model: Model): GenerationOption[] | undefined {
   if (/^gpt-image-2\.6-/.test(model.modelId)) {
     const published = publishedStrings(model.nativeOptions?.quality);
+    const values = [...(published?.values ?? qualityChoiceOrder)].sort((a, b) => {
+      const ia = qualityChoiceOrder.indexOf(a as (typeof qualityChoiceOrder)[number]);
+      const ib = qualityChoiceOrder.indexOf(b as (typeof qualityChoiceOrder)[number]);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return 0;
+    });
     return [
-      choice('quality', 'Quality', published?.values ?? ['low', 'medium', 'high'], published?.default ?? 'low'),
+      choice('quality', 'Quality', values, published?.default ?? 'low'),
       { ...choice('background', 'Background', []), choices: [{ value: 'transparent', label: 'Transparent' }] },
     ];
   }

@@ -49,7 +49,8 @@ export function providerDisplayName(providerId: string, providers: ProviderState
   return providers.find(provider => provider.id === providerId)?.label ?? registeredProvider(providerId)?.label ?? providerId;
 }
 
-/** OpenDesign Cloud (API key) first, then the OpenDesign account, then the settings order of built-in providers. */
+/** OpenDesign Cloud (API key) first, then the OpenDesign account, then the settings order of built-in providers.
+ * CreationModelPicker lifts a ready OpenDesign route ahead of an unready one while keeping OpenDesign first. */
 const openDesignOrder = ['opendesign', 'account'];
 export function providerRank(providerId: string) {
   const openDesign = openDesignOrder.indexOf(providerId);

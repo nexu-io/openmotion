@@ -10,7 +10,7 @@ import { SelectArrow } from '../components/ui/SelectArrow';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import { ModelAvatar, ProviderAvatar } from './settingsPrimitives';
-import { imageModelBadge, modelFamilyKey, modelFamilyLabel, providerDisplayName, providerRank, providerReady } from './imageMenuModels';
+import { imageModelBadge, isOpenDesignProvider, modelFamilyKey, modelFamilyLabel, providerDisplayName, providerRank, providerReady } from './imageMenuModels';
 
 /** Library creation outside a Studio: one model list across ready providers. */
 export function GenerationModelPickers({ models, preferred, modelHeading, disabled, onChoose }: {
@@ -42,14 +42,17 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
   const menuPanel = boxed ? <MenuPanel data-form-surface="subtle" /> : undefined;
   const [open, setOpen] = useState<'model' | 'provider' | null>(null);
   const [query, setQuery] = useState('');
-  const providerIds = useMemo(() => [...new Set(models.map(model => model.provider))].sort((a, b) => providerRank(a) - providerRank(b)), [models]);
+  const providerIds = useMemo(() => {
+    const tier = (id: string) => isOpenDesignProvider(id) ? (providerReady(providers, id) ? 0 : 1) : 2;
+    return [...new Set(models.map(model => model.provider))].sort((a, b) => (tier(a) - tier(b)) || (providerRank(a) - providerRank(b)));
+  }, [models, providers]);
   const currentProvider = selected?.provider ?? providerIds[0];
   const providerModels = models.filter(model => model.provider === currentProvider);
   const needle = query.trim().toLowerCase();
   const matches = (...texts: string[]) => !needle || texts.some(text => text.toLowerCase().includes(needle));
   const close = () => { setOpen(null); setQuery(''); };
   const openChange = (which: 'model' | 'provider') => (next: boolean) => { setOpen(next ? which : null); if (!next) setQuery(''); };
-  const providerName = (id: string) => id === 'opendesign' ? t('OpenDesign API Key') : id === 'account' ? t('OpenDesign account') : providerDisplayName(id, providers);
+  const providerName = (id: string) => providerDisplayName(id, providers);
   const search = (placeholder: string, label: string) => <label className="om-field om-picker-search">
     <RemixIcon name="search-line" size={14} />
     <SearchInput {...(boxed ? { appearance: 'embedded' as const } : {})} type="search" value={query}
@@ -127,7 +130,6 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
         </Button>;
       })}
     </div>
-    {footer}
   </Popover>;
 
   return <div className="om-generation-pickers" data-paired>
