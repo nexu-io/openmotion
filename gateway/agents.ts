@@ -4,19 +4,24 @@ import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Agent } from '../shared/gateway.ts';
+import { agentInvocation } from './agent-discovery.ts';
 
 export async function resolveAgent(bin: string): Promise<string | null> {
   const override = process.env[`${bin.toUpperCase()}_BIN`];
-  const dirs = [...(process.env.PATH || '').split(path.delimiter), path.join(os.homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin'];
-  const candidates = [override, ...dirs.filter(Boolean).map(dir => path.join(dir, bin + (process.platform === 'win32' ? '.exe' : '')))];
-  for (const candidate of candidates) {
+  const dirs = [...(process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)), path.join(os.homedir(), '.local/bin'), path.join(os.homedir(), '.bun/bin'), path.join(os.homedir(), '.cargo/bin'), path.join(os.homedir(), '.npm-global/bin'), '/opt/homebrew/bin', '/usr/local/bin', ...(process.platform === 'win32' && process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm')] : [])];
+  // npm installs on Windows only create a `.cmd` shim; probing `.exe` alone reports a working CLI as missing.
+  const suffixes = process.platform === 'win32' ? ['.exe', '.cmd'] : [''];
+  for (const candidate of [override, ...dirs.flatMap(dir => suffixes.map(suffix => path.join(dir, bin + suffix)))]) {
     if (!candidate || !path.isAbsolute(candidate)) continue;
     try { await access(candidate, constants.X_OK); return candidate; } catch { /* continue */ }
   }
   return null;
 }
 function probe(bin: string, args: string[]): Promise<{ ok: boolean; text: string }> {
-  return new Promise(resolve => execFile(bin, args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr })));
+  return agentInvocation(bin, args).then(
+    command => new Promise(resolve => execFile(command.bin, command.args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr }))),
+    () => ({ ok: false, text: '' }),
+  );
 }
 export async function detectAgents(): Promise<Agent[]> {
   return Promise.all([['codex', 'Codex'], ['claude', 'Claude Code'], ['gemini', 'Gemini CLI']].map(async ([id, label]) => {
@@ -48,9 +53,10 @@ export async function generateCodexImage(prompt: string, directory: string, sign
     } catch { /* Ignore non-JSON output and unrelated tool events. */ }
   };
   const args = ['exec', '--ephemeral', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-c', 'approval_policy="never"', '-C', directory, ...(referenceImage ? ['--image', referenceImage] : []), '-'];
+  const command = await agentInvocation(bin, args);
   let timedOut = false;
   const exitCode = await new Promise<number | null>((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(command.bin, command.args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       for (const part of chunk.split(/(?<=\n)/)) {

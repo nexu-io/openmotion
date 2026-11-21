@@ -1,7 +1,4 @@
 import path from 'node:path';
-import { access } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import os from 'node:os';
 import { localAgents, type AgentChoice, type AgentDirectory, type AgentLaunch, type LocalAgent } from '../shared/local-agents.ts';
 import { resolveAgent } from './agents.ts';
 import { discoverAcp, normalizeAgentModels, parseAgentAuth, parseAgentModels, probeAgent, qwenModels, validModelId, type Probe } from './agent-discovery.ts';
@@ -9,14 +6,9 @@ import { readSettings, writeSettings } from './settings-storage.ts';
 import { launchTerminal, terminalCommand } from './agent-terminal.ts';
 
 export async function resolveLocalAgent(bin: string): Promise<string | null> {
-  const found = await resolveAgent(bin); if (found) return found;
-  const names = bin === 'cursor-agent' ? ['cursor-agent', 'agent'] : [bin];
-  const dirs = [...(process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)), path.join(os.homedir(), '.local/bin'), path.join(os.homedir(), '.bun/bin'), path.join(os.homedir(), '.cargo/bin'), path.join(os.homedir(), '.npm-global/bin'), ...(process.platform === 'win32' && process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm')] : [])];
-  for (const dir of dirs) for (const name of names) for (const suffix of process.platform === 'win32' ? ['.exe', '.cmd'] : ['']) {
-    const file = path.join(dir, name + suffix);
-    try { await access(file, constants.X_OK); return file; } catch { /* next */ }
-  }
-  return null;
+  const found = await resolveAgent(bin);
+  if (found || bin !== 'cursor-agent') return found;
+  return resolveAgent('agent');
 }
 export class LocalAgentDirectory {
   readonly file: string;
