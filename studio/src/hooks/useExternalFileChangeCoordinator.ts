@@ -77,6 +77,8 @@ interface ExternalFileChangeCoordinatorOptions {
    * that can never resolve (`reason: "absent"`, proven stale-tree 2026-09-23).
    */
   refreshFileTree?: () => void | Promise<void>;
+  /** Refresh the server-backed history view when another actor changes history without a file event. */
+  onHistoryChanged?: () => void | Promise<void>;
 }
 
 export interface ExternalFileChangeCoordinatorHandle {
@@ -128,9 +130,11 @@ function decodeFileChange(delivery: unknown): unknown {
 export function sseFileChangeChannel(
   onDelivery: (delivery: unknown) => void,
   onReconnect: () => void,
+  onHistoryChanged: (delivery: unknown) => void = () => {},
 ): () => void {
   const eventSource = new EventSource(studioProjectUrl('/api/events'));
   eventSource.addEventListener("file-change", onDelivery);
+  eventSource.addEventListener("history-changed", onHistoryChanged);
   // Reopening the stream does not replay changes missed during a disconnect.
   let opened = false;
   eventSource.addEventListener("open", () => {
@@ -167,6 +171,7 @@ export function useExternalFileChangeCoordinator({
   resetSaveQueues,
   onAcceptedPersistedFileChange,
   refreshFileTree,
+  onHistoryChanged,
 }: ExternalFileChangeCoordinatorOptions): ExternalFileChangeCoordinatorHandle {
   const [blocked, setBlockedState] = useState<ExternalFileChangeBlockedState | null>(null);
   const generationRef = useRef(0);
@@ -475,9 +480,24 @@ export function useExternalFileChangeCoordinator({
 
   const processChangeRef = useRef(processChange);
   processChangeRef.current = processChange;
+  const processHistoryChange = useCallback(
+    (delivery?: unknown) => {
+      const payload = decodeFileChange(delivery);
+      if (!payload || !projectId) return;
+      const deliveredProjectId = readFileChangeField(payload, "projectId");
+      if (deliveredProjectId && deliveredProjectId !== projectId) return;
+      void Promise.resolve(onHistoryChanged?.()).catch((error) => {
+        console.warn("Studio could not refresh project history after an external change.", error);
+      });
+    },
+    [onHistoryChanged, projectId],
+  );
+  const processHistoryChangeRef = useRef(processHistoryChange);
+  processHistoryChangeRef.current = processHistoryChange;
   useEffect(() => {
     // One decoder for all three transports; the rungs only choose the channel.
     const handler = (delivery?: unknown) => processChangeRef.current(decodeFileChange(delivery));
+    const historyHandler = (delivery?: unknown) => processHistoryChangeRef.current(delivery);
     const adapter = testHotAdapter();
     if (adapter) {
       adapter.on("hf:file-change", handler);
@@ -485,11 +505,18 @@ export function useExternalFileChangeCoordinator({
     }
     if (import.meta.hot) {
       import.meta.hot.on("hf:file-change", handler);
-      return () => import.meta.hot?.off?.("hf:file-change", handler);
+      import.meta.hot.on("hf:history-changed", historyHandler);
+      return () => {
+        import.meta.hot?.off?.("hf:file-change", handler);
+        import.meta.hot?.off?.("hf:history-changed", historyHandler);
+      };
     }
-    const catchUp = () => processChangeRef.current({ path: "." });
-    return sseFileChangeChannel(handler, catchUp);
-  }, []);
+    const catchUp = () => {
+      processChangeRef.current({ path: "." });
+      processHistoryChangeRef.current({ projectId });
+    };
+    return sseFileChangeChannel(handler, catchUp, historyHandler);
+  }, [projectId]);
 
   const retry = useCallback(async () => {
     const current = blockedRef.current;

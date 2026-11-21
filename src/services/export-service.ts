@@ -143,6 +143,8 @@ function toExportJobRecord(row: typeof jobs.$inferSelect): ExportJobRecord {
     `export.${formatCandidate}`;
   const compositionPath =
     (typeof input.compositionPath === 'string' && input.compositionPath) || 'index.html';
+  const s3Key = typeof result.s3Key === 'string' ? result.s3Key : undefined;
+  const logS3Key = typeof result.logS3Key === 'string' ? result.logS3Key : undefined;
 
   return {
     id: row.id,
@@ -162,8 +164,8 @@ function toExportJobRecord(row: typeof jobs.$inferSelect): ExportJobRecord {
     ...(typeof result.bytes === 'number' ? { sizeBytes: result.bytes } : {}),
     ...(typeof result.sha256 === 'string' ? { sha256: result.sha256 } : {}),
     ...(typeof result.mimeType === 'string' ? { mimeType: result.mimeType } : {}),
-    ...(typeof result.s3Key === 'string' ? { s3Key: result.s3Key } : {}),
-    ...(typeof result.logS3Key === 'string' ? { logS3Key: result.logS3Key } : {}),
+    ...(s3Key !== undefined ? { s3Key } : {}),
+    ...(logS3Key !== undefined ? { logS3Key } : {}),
     ...(typeof result.durationMs === 'number' ? { durationMs: result.durationMs } : {}),
     ...(typeof result.audioLoweredDb === 'number' ? { audioLoweredDb: result.audioLoweredDb } : {}),
     ...(result.verification && typeof result.verification === 'object'

@@ -377,6 +377,7 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
     claimKey,
     undo,
     redo,
+    refresh,
     predict: (direction: "undo" | "redo") =>
       sameStep(blockedRef.current[direction], direction === "undo" ? view.back : view.forward)
         ? null : own.predict(direction),

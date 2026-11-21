@@ -38,6 +38,7 @@ interface UseStudioExternalFileChangesOptions {
   pendingTimelineEditPathRef: MutableRefObject<Set<string>>;
   reloadPreview: () => void;
   onOutsideChange?: () => void;
+  onHistoryChanged?: () => void | Promise<void>;
 }
 
 /** Connects the app's save queues, recovery storage, and reload surfaces to one owner. */
@@ -50,6 +51,7 @@ export function useStudioExternalFileChanges({
   pendingTimelineEditPathRef,
   reloadPreview,
   onOutsideChange,
+  onHistoryChanged,
 }: UseStudioExternalFileChangesOptions) {
   const { flushPendingSourceSave, discardPendingSourceSave } = fileManager;
   const { drainPendingDomEditSaves, resetDomEditSaveQueueBreaker } = previewPersistence;
@@ -93,5 +95,6 @@ export function useStudioExternalFileChanges({
     resetSaveQueues: resetDomEditSaveQueueBreaker,
     onAcceptedPersistedFileChange,
     refreshFileTree: fileManager.refreshFileTree,
+    onHistoryChanged,
   });
 }
