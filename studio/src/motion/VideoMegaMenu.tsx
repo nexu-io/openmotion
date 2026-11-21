@@ -31,10 +31,10 @@ const topScenes = [
 const upcomingVideoFeatures = [
   ['Omni reference', 'stack-line'],
   ['Edit video', 'edit-line'],
-  ['Extend video', 'time-line'],
-  ['4K video upscale', 'fullscreen-line'],
+  ['Extend', 'time-line'],
+  ['4K upscale', 'fullscreen-line'],
   ['Motion control', 'route-line'],
-  ['Lipsync', 'voiceprint-line'],
+  ['Lip sync', 'voiceprint-line'],
 ] as const;
 
 function VideoTileArt({ kind }: { kind: 'text' | 'first-frame' | 'camera' }) {
@@ -106,7 +106,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
           </span>
           <span className="om-video-keyframes-caption" aria-hidden="true">{t('A → B transition')}</span>
         </span>
-        <strong>{t('Start & end frames')}</strong>
+        <strong>{t('Keyframes')}</strong>
       </Button>
     </div>
 

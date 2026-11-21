@@ -821,16 +821,16 @@ it('renders VideoMegaMenu with open video scenes, Omni reference, Soon items, an
     onNavigate={navigate}
   />));
   const buttons = [...container.querySelectorAll('button')];
-  expect(buttons.some(button => button.textContent?.includes('Text to video') && !button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Create video') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Camera control') && !button.disabled)).toBe(true);
-  expect(buttons.some(button => button.textContent?.includes('Start & end frames') && button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Keyframes') && button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Omni reference') && button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Native audio video'))).toBe(false);
   expect(buttons.some(button => button.textContent?.includes('Video first frame'))).toBe(false);
   expect(buttons.some(button => button.textContent?.includes('Seedance 2.5') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Wan 2.7') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Seedance 2.5 Flash') && button.disabled)).toBe(true);
-  await act(async () => buttons.find(button => button.textContent?.includes('Multi-shot narrative'))!.click());
+  await act(async () => buttons.find(button => button.textContent?.includes('Multi-shot'))!.click());
   expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ scene: expect.objectContaining({ id: 'video-multi-shot' }), model: null }));
 });
 

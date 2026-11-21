@@ -647,9 +647,9 @@ it('opens a Video feature scene from Explore under Video without a legacy Cinema
   await click('Explore');
   expect(page().explore).toBe(true);
   await click('Video · Scenes');
-  await click('Multi-shot narrative');
+  await click('Multi-shot');
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot', modality: 'video' }, landing: true });
-  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Multi-shot narrative');
+  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Multi-shot');
   expect(button('Video').getAttribute('aria-current')).toBe('location');
   expect(button('Image').getAttribute('aria-current')).toBeNull();
   expect(button('Cinema Studio').getAttribute('aria-current')).toBeNull();
@@ -694,7 +694,7 @@ it('reports Explore once per arrival and its spotlight, index links and top navi
   await traverse(-1);
   await act(async () => inside('.om-capability-index', 'Cinema Studio').click());
   expect(clicks().at(-1)).toMatchObject({ page_name: 'explore', area: 'capability_index', element: 'open_studio', studio_id: 'cinema' });
-  await act(async () => inside('.om-cinema-home', 'Text to video').click());
+  await act(async () => inside('.om-cinema-home', 'Create video').click());
   expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'text-to-video' });
   const nav = container.querySelector('.om-creative-navigation')!;
   await act(async () => [...nav.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === 'Design Studio')!.click());
@@ -896,18 +896,18 @@ it.each([
   if (slide === 'text-to-image') {
     const header = container.querySelector('.om-studio-bar')!;
     expect(returnControl?.nextElementSibling).toBe(header.querySelector('h1'));
-    expect(header.querySelector('h1')?.textContent).toBe('Text to image');
-    expect([...header.querySelectorAll('nav button')].map(tab => tab.textContent)).toEqual(['Text to image', 'Image editing', 'Remove background', 'Relight', 'Character consistency']);
-    expect(header.querySelector('[aria-current="page"]')?.textContent).toBe('Text to image');
+    expect(header.querySelector('h1')?.textContent).toBe('Create image');
+    expect([...header.querySelectorAll('nav button')].map(tab => tab.textContent)).toEqual(['Create image', 'Edit image', 'Remove background', 'Relight', 'Character reference']);
+    expect(header.querySelector('[aria-current="page"]')?.textContent).toBe('Create image');
     expect(button('Image').getAttribute('aria-current')).toBe('location');
     expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
     expect(container.querySelector<HTMLInputElement>('[aria-label="Asset draft"]')?.value).toContain('Photograph an amber glass bottle');
-    const editTab = [...header.querySelectorAll<HTMLButtonElement>('nav button')].find(tab => tab.textContent === 'Image editing')!;
+    const editTab = [...header.querySelectorAll<HTMLButtonElement>('nav button')].find(tab => tab.textContent === 'Edit image')!;
     await act(async () => editTab.click());
     expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'image-edit' });
     expect(button('Image').getAttribute('aria-current')).toBe('location');
-    expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Image editing');
-    expect(container.querySelector('.om-studio-bar [aria-current="page"]')?.textContent).toBe('Image editing');
+    expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Edit image');
+    expect(container.querySelector('.om-studio-bar [aria-current="page"]')?.textContent).toBe('Edit image');
     await traverse(-1);
   }
   await act(async () => { returnControl!.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
@@ -1244,7 +1244,7 @@ it('browses Cinema templates and opens editable generation drafts without submit
   expect(container.querySelector('.om-cinema-home .om-discovery-page')?.firstElementChild?.className).toBe('om-discovery-hero');
   const grid = container.querySelector('.om-cinema-home .om-studio-template-grid')!;
   expect(grid.querySelectorAll('.om-design-gallery-card')).toHaveLength(5);
-  expect(grid.querySelector('[data-template-id="drink-splash-slow-motion"] .om-design-thumb-badge')?.textContent).toBe('Text to video');
+  expect(grid.querySelector('[data-template-id="drink-splash-slow-motion"] .om-design-thumb-badge')?.textContent).toBe('Create video');
   expect(grid.querySelector('[data-template-id="product-window-light-push-in"] .om-design-thumb-badge')?.textContent).toBe('Image to video');
   await click('Slow-motion drink splash');
   expect(page()).toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { landing: true, scene: { id: 'text-to-video' } } });
@@ -1361,7 +1361,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
   const entryCards = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-entries > button')];
-  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Text to image', 'Image editing', 'Character consistency', '4K Upscale']);
+  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', 'Character reference', '4K upscale']);
   expect(entryCards[2].disabled).toBe(false);
   expect(entryCards[2].textContent).not.toContain('Soon');
   expect(entryCards[3].disabled).toBe(true);
@@ -1374,12 +1374,12 @@ it('lists each primary destination once in order, with the Image mega menu and t
   }
   // Upcoming feature rows are visible with Soon (6 total features show directly without a 1-item More fold) and non-clickable.
   const imageFeatureLabels = [...menu.querySelectorAll('section[aria-label="Features"] .om-media-mega-label')].map(node => node.textContent);
-  expect(imageFeatureLabels).not.toContain('4K Upscale');
-  const inpainting = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Inpainting'))!;
+  expect(imageFeatureLabels).not.toContain('4K upscale');
+  const inpainting = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Inpaint'))!;
   expect(inpainting.disabled).toBe(true);
   expect(inpainting.textContent).toContain('Soon');
   expect(menu.textContent).toContain('Expand image');
-  expect(menu.textContent).toContain('Batch set');
+  expect(menu.textContent).toContain('Batch');
   expect(menu.textContent).toContain('Image layers');
   expect(menu.querySelector('button[aria-label="More Features"]')).toBeNull();
   // The Models column is the fixed OpenDesign API list, without setup tags.
@@ -1393,23 +1393,23 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
   await click('Video · Scenes');
   const videoMenu = document.querySelector('.om-creative-menu-video')!;
-  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Text to video', 'Image to video', 'Camera control', 'Start & end frames']);
+  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Create video', 'Image to video', 'Camera control', 'Keyframes']);
   // Top cards are never duplicated inside the Video Features list, and Omni reference merges image+video references.
   const videoFeatureLabels = [...videoMenu.querySelectorAll('section[aria-label="Features"] .om-media-mega-label')].map(node => node.textContent);
-  expect(videoFeatureLabels).toEqual(['Multi-shot narrative', 'Omni reference', 'Edit video', 'Extend video', '4K video upscale']);
+  expect(videoFeatureLabels).toEqual(['Multi-shot', 'Omni reference', 'Edit video', 'Extend', '4K upscale']);
   const moreVideoFeatures = videoMenu.querySelector<HTMLButtonElement>('button[aria-label="More Features"]')!;
   await act(async () => moreVideoFeatures.click());
   expect(videoMenu.textContent).toContain('Motion control');
-  expect(videoMenu.textContent).toContain('Lipsync');
-  const multiShot = [...videoMenu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Multi-shot narrative'))!;
+  expect(videoMenu.textContent).toContain('Lip sync');
+  const multiShot = [...videoMenu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Multi-shot'))!;
   await act(async () => multiShot.click());
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot' }, landing: true });
-  // Character consistency and the live feature rows open their own landing pages without a pinned model.
+  // Character reference and the live feature rows open their own landing pages without a pinned model.
   await click('Image · Scenes');
-  const character = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.querySelector('strong')?.textContent === 'Character consistency')!;
+  const character = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.querySelector('strong')?.textContent === 'Character reference')!;
   await act(async () => character.click());
   expect(page().studio).toMatchObject({ scene: { id: 'character' }, landing: true, model: null });
-  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Character consistency');
+  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Character reference');
   for (const [label, scene] of [['Remove background', 'remove-background'], ['Relight', 'relight']]) {
     await click('Image · Scenes');
     const row = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-row')].find(node => node.textContent === label)!;
@@ -1465,7 +1465,7 @@ it.each([
 });
 
 it.each([
-  ['Video', 'Text to video', 'text-to-video'],
+  ['Video', 'Create video', 'text-to-video'],
   ['Audio', 'Text to speech', 'speech'],
 ])('opens the %s dropdown scene without a breadcrumb', async (label, sceneLabel, scene) => {
   await mount(); await click('Explore');
@@ -1605,7 +1605,7 @@ it('rewrites a bookmarked Design Studio image link to the unified Image editor',
   expect(page().studio).toMatchObject({ landing: true, scene: { id: 'image-edit' }, model: 'p:m' });
   expect(button('Image').getAttribute('aria-current')).toBe('location');
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
-  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Image editing');
+  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Edit image');
   expect(container.querySelector('[data-design-scene-tabs], .om-design-scene-tabs')).toBeNull();
 });
 
@@ -1613,9 +1613,9 @@ it('retains the active model and scene on same-modality entry and switches modal
   history.replaceState(null, '', firstUrl.replace('#', '&page=create&scene=speech&model=voice%3Anarrator#'));
   await mount(); await click('Audio');
   expect(page().studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'speech' }, model: 'voice:narrator' });
-  await click('Cinema Studio'); await click('Text to video');
+  await click('Cinema Studio'); await click('Create video');
   expect(page().studio).toMatchObject({ landing: true, scene: { id: 'text-to-video' } });
-  await click('Video · Scenes'); await click('Multi-shot narrative');
+  await click('Video · Scenes'); await click('Multi-shot');
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot' } });
   await click('Video');
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot' }, model: null });
@@ -1626,10 +1626,10 @@ it('retains the active model and scene on same-modality entry and switches modal
 it('opens image editing from its scene shortcut and returns to the same Explore collection', async () => {
   await mount(); await click('Search workspace'); await click('Product films');
   await click('Image · Scenes');
-  const edit = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu button')].find(node => node.querySelector('strong')?.textContent === 'Image editing')!;
+  const edit = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu button')].find(node => node.querySelector('strong')?.textContent === 'Edit image')!;
   await act(async () => edit.click());
   expect(page()).toMatchObject({ community: 'product-films', studio: { landing: true, scene: { id: 'image-edit' } } });
-  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Image editing');
+  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Edit image');
   expect(breadcrumb()).toBeNull();
   expect(button('Back to Explore')).toBeUndefined();
   expect(container.querySelector('.om-studio-bar')?.textContent).not.toContain('Open in');
@@ -1803,7 +1803,7 @@ it('opens model cases with a compatible provider and the same prompt from both d
 });
 
 it.each([
-  ['image', 'gpt-image-2.6', 'image-to-image', 'Image editing'],
+  ['image', 'gpt-image-2.6', 'image-to-image', 'Edit image'],
   ['video', 'seedance-2.5', 'image-to-video', 'Image to video'],
 ])('offers the same reference-only %s scene in the model overview and its cases', async (modality, family, mode, label) => {
   const model = { id: 'cloud:' + family, provider: 'cloud', modelId: family, label: family, modality, mode, supportsImageReference: true, maxInputImages: 1, source: 'live' };
