@@ -234,6 +234,8 @@ export interface SyncCatalogOptions {
   templateIds?: readonly string[];
   concurrency?: number;
   fetchRemote?: boolean;
+  /** When true, fail the sync on transient remote network/HTTP errors instead of marking unavailable. */
+  strictRemote?: boolean;
   repoRoot?: string;
   runtimeRoot?: string;
   catalogRoot?: string;
@@ -465,6 +467,19 @@ interface RepoSourceManifest {
   files: Array<{ path: string; bytes: number; sha256: string }>;
 }
 
+export class CatalogRemoteIntegrityError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = 'CatalogRemoteIntegrityError';
+  }
+}
+
+function isMediaIntegrityError(error: unknown): boolean {
+  if (error instanceof CatalogRemoteIntegrityError) return true;
+  const msg = error instanceof Error ? error.message : String(error);
+  return /Media size mismatch|Media SHA-256 mismatch|exceeds its declared size|hash\/length mismatch/i.test(msg);
+}
+
 async function fetchVerifiedCatalogRemoteBytes(
   url: string,
   expectedBytes: number,
@@ -474,25 +489,47 @@ async function fetchVerifiedCatalogRemoteBytes(
 ): Promise<Buffer> {
   const parsed = new URL(url);
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
-    throw new Error(`Invalid remote catalog asset URL for ${filePath}`);
+    throw new CatalogRemoteIntegrityError(`Invalid remote catalog asset URL for ${filePath}`);
   }
   if (parsed.hostname === 'releases.open-design.ai') {
     const lock = { path: filePath, url, bytes: expectedBytes, sha256: expectedSha256 };
-    validateMediaLock(lock);
-    return downloadMedia(lock, fetchImpl);
+    try {
+      validateMediaLock(lock);
+    } catch (error) {
+      throw new CatalogRemoteIntegrityError(
+        `Invalid remote catalog media lock for ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+    try {
+      return await downloadMedia(lock, fetchImpl);
+    } catch (error) {
+      if (isMediaIntegrityError(error)) {
+        throw new CatalogRemoteIntegrityError(error instanceof Error ? error.message : String(error), { cause: error });
+      }
+      throw error;
+    }
   }
   if (parsed.hostname === 'r.open-design.ai' && parsed.pathname === `/files/${expectedSha256}`) {
     const response = await fetchImpl(parsed, {
       redirect: 'error',
       signal: AbortSignal.timeout(60_000),
     });
-    const bytes = await boundedMediaBody(response, Math.min(expectedBytes, maxLfsAssetBytes));
+    let bytes: Buffer;
+    try {
+      bytes = await boundedMediaBody(response, Math.min(expectedBytes, maxLfsAssetBytes));
+    } catch (error) {
+      if (isMediaIntegrityError(error)) {
+        throw new CatalogRemoteIntegrityError(error instanceof Error ? error.message : String(error), { cause: error });
+      }
+      throw error;
+    }
     if (bytes.byteLength !== expectedBytes || sha256Hex(bytes) !== expectedSha256) {
-      throw new Error(`Downloaded asset hash/length mismatch for ${filePath}`);
+      throw new CatalogRemoteIntegrityError(`Downloaded asset hash/length mismatch for ${filePath}`);
     }
     return bytes;
   }
-  throw new Error(`Unsupported remote catalog asset host for ${filePath}: ${parsed.hostname}`);
+  throw new CatalogRemoteIntegrityError(`Unsupported remote catalog asset host for ${filePath}: ${parsed.hostname}`);
 }
 
 export async function assembleRepositoryTemplate(
@@ -782,6 +819,7 @@ export async function syncCatalogCas(
 
   // Deduplicate blobs across all selected templates and upload missing ones with bounded concurrency.
   const uploadedShas = new Set<string>();
+  const hydratedMetadataBySha = new Map<string, BlobMetadata>();
   const inFlightUploads = new Map<string, Promise<void>>();
   let filesProcessed = 0;
   let blobsUploaded = 0;
@@ -789,14 +827,48 @@ export async function syncCatalogCas(
   let blobsDeduplicated = 0;
   let unavailableFiles = 0;
 
-  const ensureBlobInS3 = async (file: PreparedCatalogFile): Promise<void> => {
+  const isImageMissingDimensions = (file: PreparedCatalogFile): boolean => {
+    const baseMime = file.mimeType.split(';')[0]?.trim().toLowerCase() ?? '';
+    return baseMime.startsWith('image/') && (!file.metadata?.width || !file.metadata?.height);
+  };
+
+  const applyPersistedOrHydratedMetadata = async (
+    file: PreparedCatalogFile,
+    existingMetadataByKey: ReadonlyMap<string, BlobMetadata>,
+    key: string,
+  ): Promise<void> => {
+    if (file.bytes !== null) return;
+    const saved = existingMetadataByKey.get(`${file.path}\0${file.sha256}`) ?? hydratedMetadataBySha.get(file.sha256);
+    if (saved) {
+      file.metadata = file.metadata ? { ...file.metadata, ...saved } : { ...saved };
+    }
+    if (isImageMissingDimensions(file)) {
+      try {
+        const s3Bytes = await deps.storage.getObjectBuffer(key, maxTemplateAssetBytes);
+        const extracted = extractCatalogFileMetadata(file.path, s3Bytes, file.mimeType, file.metadataHints);
+        if (extracted) {
+          file.metadata = extracted;
+          hydratedMetadataBySha.set(file.sha256, extracted);
+        }
+      } catch {
+        // Keep best-effort metadata if reading dimensions back from S3 is unavailable.
+      }
+    }
+  };
+
+  const ensureBlobInS3 = async (
+    file: PreparedCatalogFile,
+    existingMetadataByKey: ReadonlyMap<string, BlobMetadata>,
+  ): Promise<void> => {
     const canFetchRemote = Boolean(options.fetchRemote && !file.isAvailable && file.bytes === null && file.remoteUrl);
     if ((!file.isAvailable || file.bytes === null) && !canFetchRemote) {
       unavailableFiles++;
       return;
     }
 
+    const key = catalogBlobKey(file.sha256);
     if (uploadedShas.has(file.sha256)) {
+      await applyPersistedOrHydratedMetadata(file, existingMetadataByKey, key);
       file.isAvailable = true;
       blobsDeduplicated++;
       return;
@@ -805,15 +877,20 @@ export async function syncCatalogCas(
     const existingFlight = inFlightUploads.get(file.sha256);
     if (existingFlight) {
       await existingFlight;
-      file.isAvailable = true;
-      blobsDeduplicated++;
+      if (uploadedShas.has(file.sha256)) {
+        await applyPersistedOrHydratedMetadata(file, existingMetadataByKey, key);
+        file.isAvailable = true;
+        blobsDeduplicated++;
+      } else {
+        unavailableFiles++;
+      }
       return;
     }
 
-    const key = catalogBlobKey(file.sha256);
     const task = (async () => {
       const existing = await deps.storage.headObject(key);
       if (existing && existing.contentLength === file.sizeBytes) {
+        await applyPersistedOrHydratedMetadata(file, existingMetadataByKey, key);
         blobsSkipped++;
         file.isAvailable = true;
         uploadedShas.add(file.sha256);
@@ -822,15 +899,31 @@ export async function syncCatalogCas(
 
       let bytes = file.bytes;
       if (bytes === null && canFetchRemote && file.remoteUrl) {
-        bytes = await fetchVerifiedCatalogRemoteBytes(
-          file.remoteUrl,
-          file.sizeBytes,
-          file.sha256,
-          file.path,
-          fetchImpl,
-        );
-        file.bytes = bytes;
-        file.metadata = extractCatalogFileMetadata(file.path, bytes, file.mimeType, file.metadataHints);
+        try {
+          bytes = await fetchVerifiedCatalogRemoteBytes(
+            file.remoteUrl,
+            file.sizeBytes,
+            file.sha256,
+            file.path,
+            fetchImpl,
+          );
+          file.bytes = bytes;
+          file.metadata = extractCatalogFileMetadata(file.path, bytes, file.mimeType, file.metadataHints);
+          if (file.metadata) {
+            hydratedMetadataBySha.set(file.sha256, file.metadata);
+          }
+        } catch (error) {
+          if (error instanceof CatalogRemoteIntegrityError || options.strictRemote) {
+            throw error;
+          }
+          logger?.warn('Catalog remote asset fetch unavailable; marking file unavailable', {
+            path: file.path,
+            sha256: file.sha256,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          unavailableFiles++;
+          return;
+        }
       }
 
       if (bytes === null) {
@@ -841,6 +934,9 @@ export async function syncCatalogCas(
       if (!dryRun) {
         await deps.storage.putObject(key, bytes, file.mimeType, bytes.byteLength);
         blobsUploaded++;
+      }
+      if (file.metadata) {
+        hydratedMetadataBySha.set(file.sha256, file.metadata);
       }
       file.isAvailable = true;
       uploadedShas.add(file.sha256);
@@ -856,7 +952,23 @@ export async function syncCatalogCas(
 
   for (const template of prepared) {
     filesProcessed += template.files.length;
-    await runWithConcurrency(template.files, concurrency, ensureBlobInS3);
+    const existingMetadataByKey = new Map<string, BlobMetadata>();
+    if (!dryRun && template.files.some((file) => file.bytes === null)) {
+      const existingRows = await deps.db
+        .select({
+          path: catalogTemplateFiles.path,
+          sha256: catalogTemplateFiles.sha256,
+          metadata: catalogTemplateFiles.metadata,
+        })
+        .from(catalogTemplateFiles)
+        .where(eq(catalogTemplateFiles.templateId, template.id));
+      for (const row of existingRows) {
+        if (row.metadata && typeof row.metadata === 'object') {
+          existingMetadataByKey.set(`${row.path}\0${row.sha256}`, row.metadata as BlobMetadata);
+        }
+      }
+    }
+    await runWithConcurrency(template.files, concurrency, (file) => ensureBlobInS3(file, existingMetadataByKey));
 
     if (!dryRun) {
       const now = new Date();
@@ -946,6 +1058,9 @@ export async function runSyncCatalogCli(
   const options = parseSyncCatalogArgs(argv);
   if (options.fetchRemote === undefined && envBoolean(env.CATALOG_SYNC_FETCH_REMOTE, false)) {
     options.fetchRemote = true;
+  }
+  if (options.strictRemote === undefined && envBoolean(env.CATALOG_SYNC_STRICT_REMOTE, false)) {
+    options.strictRemote = true;
   }
 
   const databaseUrl = env.DATABASE_URL?.trim();

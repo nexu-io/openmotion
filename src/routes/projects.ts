@@ -6,6 +6,7 @@ import type { AssetNamesService } from '../services/asset-names-service.ts';
 import type { CatalogPort } from '../services/catalog-service.ts';
 import type { ExportService } from '../services/export-service.ts';
 import type { ProjectArchiveService } from '../services/project-archive-service.ts';
+import { createOrCloneProject, formatProjectCreationHttpResponse } from '../services/project-creation.ts';
 import type { ProjectFilesService } from '../services/project-files-service.ts';
 import type { VersionHistoryService } from '../services/version-history-service.ts';
 import type { WorkRoundsService } from '../services/work-rounds-service.ts';
@@ -108,61 +109,24 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
       selectActive?: boolean;
     };
 
-    const templateId =
-      typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
-    if (templateId && deps.catalog) {
-      try {
-        const cloned = await deps.catalog.cloneTemplateToProject(auth, {
-          templateId,
-          title: body.title,
-          sessionId: body.sessionId,
-          requirements: body.requirements ?? body.prompt ?? body.instruction,
-          namingLanguage: body.namingLanguage,
-          requestId: body.requestId,
-          locale: body.locale,
-          activateWorkspace: body.selectActive !== false,
-        });
-        return c.json(
-          {
-            ...cloned,
-            project: cloned,
-            projectTitle: cloned.title,
-            replayed: false,
-            exportJob: null,
-          },
-          201,
-        );
-      } catch (error) {
-        if (
-          body.projectType === 'template' ||
-          !isCloudError(error) ||
-          error.code !== 'TEMPLATE_NOT_COPYABLE'
-        ) {
-          throw error;
-        }
-      }
-    }
-
-    const created = await deps.workspace.createProject(auth, {
-      title: body.title,
-      templateId,
-      projectType: body.projectType,
-      requirements: body.requirements,
-      namingLanguage: body.namingLanguage,
-      sessionId: body.sessionId,
-      requestId: body.requestId,
-      initialPrompt: body.prompt ?? body.instruction,
-      selectActive: body.selectActive,
-    });
-
-    return c.json(
+    const result = await createOrCloneProject(
+      { workspace: deps.workspace, catalog: deps.catalog },
+      auth,
       {
-        ...created,
-        projectTitle: created.title,
-        exportJob: null,
+        title: body.title,
+        templateId: body.templateId,
+        locale: body.locale,
+        projectType: body.projectType,
+        requirements: body.requirements,
+        namingLanguage: body.namingLanguage,
+        sessionId: body.sessionId,
+        requestId: body.requestId,
+        initialPrompt: body.prompt ?? body.instruction,
+        selectActive: body.selectActive,
       },
-      created.replayed ? 200 : 201,
     );
+    const formatted = formatProjectCreationHttpResponse(result);
+    return c.json(formatted.body, formatted.status);
   });
 
   // POST /motion-api/preview/open — Verify target project before mounting Studio ArtifactViewer.

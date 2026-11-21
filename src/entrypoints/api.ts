@@ -102,6 +102,7 @@ import { CatalogService } from '../services/catalog-service.ts';
 import { ExportService } from '../services/export-service.ts';
 import { createPlatformModelGateway, type PlatformModelGateway } from '../services/model-gateway.ts';
 import { ProjectArchiveService } from '../services/project-archive-service.ts';
+import { createOrCloneProject } from '../services/project-creation.ts';
 import {
   ProjectFilesService,
   type HotTextCachePort,
@@ -1093,77 +1094,48 @@ function createMcpDomainPorts(deps: {
           | 'reference_video';
         const requestId = String(args.requestId ?? '');
         const title = typeof args.title === 'string' ? args.title : undefined;
+        const templateId = typeof args.templateId === 'string' ? args.templateId : undefined;
         const requirements = typeof args.requirements === 'string' ? args.requirements : undefined;
         const namingLanguage = typeof args.namingLanguage === 'string' ? args.namingLanguage : undefined;
         const sessionId = typeof args.sessionId === 'string' && isUuid(args.sessionId) ? args.sessionId : undefined;
 
-        if (projectType === 'template') {
-          const templateId = typeof args.templateId === 'string' ? args.templateId : '';
-          if (!templateId) {
-            throw new CloudError('INVALID_ARGUMENT', 'templateId is required when projectType=template', {
-              status: 400,
-              applied: false,
-            });
-          }
-          const cloned = await deps.catalog.cloneTemplateToProject(auth, {
-            templateId,
+        const result = await createOrCloneProject(
+          { workspace: deps.workspace, catalog: deps.catalog },
+          auth,
+          {
             title,
-            sessionId,
+            templateId,
+            projectType,
             requirements,
             namingLanguage,
+            sessionId,
             requestId,
-          });
-          return {
-            projectId: cloned.projectId,
-            sessionId: cloned.sessionId,
-            title: cloned.title,
-            templateId: cloned.templateId,
-            revision: cloned.revision,
-            version: {
-              versionId: cloned.versionId,
-              versionNumber: cloned.versionNumber,
-            },
-            replayed: false,
-            ...buildProjectPreviewHandoff(deps.config.APP_PUBLIC_ORIGIN, {
-              id: cloned.projectId,
-              sessionId: cloned.sessionId,
-              revision: cloned.revision,
-              currentVersionId: cloned.versionId,
-            }),
-          };
-        }
-
-        const created = await deps.workspace.createProject(auth, {
-          title,
-          projectType,
-          requirements,
-          namingLanguage,
-          sessionId,
-          requestId,
-          sourceMeta:
-            args.referenceVideoId || args.referenceUrl
-              ? {
-                  ...(args.referenceVideoId ? { referenceVideoId: args.referenceVideoId } : {}),
-                  ...(args.referenceUrl ? { referenceUrl: args.referenceUrl } : {}),
-                }
-              : null,
-        });
+            sourceMeta:
+              args.referenceVideoId || args.referenceUrl
+                ? {
+                    ...(args.referenceVideoId ? { referenceVideoId: args.referenceVideoId } : {}),
+                    ...(args.referenceUrl ? { referenceUrl: args.referenceUrl } : {}),
+                  }
+                : null,
+          },
+        );
 
         return {
-          projectId: created.projectId,
-          sessionId: created.sessionId,
-          title: created.title,
-          revision: created.revision,
+          projectId: result.projectId,
+          sessionId: result.sessionId,
+          title: result.title,
+          ...(result.templateId ? { templateId: result.templateId } : {}),
+          revision: result.revision,
           version: {
-            versionId: created.versionId,
-            versionNumber: created.versionNumber,
+            versionId: result.versionId,
+            versionNumber: result.versionNumber,
           },
-          replayed: created.replayed,
+          replayed: result.replayed,
           ...buildProjectPreviewHandoff(deps.config.APP_PUBLIC_ORIGIN, {
-            id: created.projectId,
-            sessionId: created.sessionId,
-            revision: created.revision,
-            currentVersionId: created.versionId,
+            id: result.projectId,
+            sessionId: result.sessionId,
+            revision: result.revision,
+            currentVersionId: result.versionId,
           }),
         };
       },
