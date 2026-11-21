@@ -1758,7 +1758,7 @@
   "Template cache unavailable; downloading again": "Vorlagencache nicht verfügbar; erneuter Download",
   "Template update failed; using cached catalogue: {message}": "Vorlagenaktualisierung fehlgeschlagen; zwischengespeicherter Katalog wird verwendet: {message}",
   "Privacy settings": "Datenschutzeinstellungen",
-  "Help improve OpenMotion": "OpenMotion verbessern helfen",
+  "Help us improve": "Verbesserung unterstützen",
   "Collect redacted information needed to improve the product and deliver better service and generation quality.": "Erforderliche Informationen werden anonymisiert erfasst, um das Produkt zu optimieren sowie besseren Service und höhere Generierungsqualität zu bieten.",
   "Usage data collection is disabled in test builds.": "In Testversionen werden keine Nutzungsdaten erfasst.",
   "Disabled by your environment settings.": "Durch Ihre Umgebungseinstellungen deaktiviert.",

@@ -1722,7 +1722,7 @@
   "Template cache unavailable; downloading again": "テンプレートのキャッシュを利用できません。再ダウンロードします",
   "Template update failed; using cached catalogue: {message}": "テンプレートの更新に失敗しました。キャッシュ済みのカタログを使用します：{message}",
   "Privacy settings": "プライバシー設定",
-  "Help improve OpenMotion": "OpenMotion の改善に協力",
+  "Help us improve": "改善に協力",
   "Collect redacted information needed to improve the product and deliver better service and generation quality.": "製品の改善とより良いサービス・生成品質の提供に必要な情報を、機密情報を伏せた上で収集します。",
   "Usage data collection is disabled in test builds.": "テスト版では利用データの収集が無効になっています。",
   "Disabled by your environment settings.": "環境設定により無効になっています。",

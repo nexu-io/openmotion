@@ -1782,7 +1782,7 @@
   "Template cache unavailable; downloading again": "Кэш шаблонов недоступен; повторная загрузка",
   "Template update failed; using cached catalogue: {message}": "Не удалось обновить шаблоны; используется кэшированный каталог: {message}",
   "Privacy settings": "Настройки конфиденциальности",
-  "Help improve OpenMotion": "Помочь улучшить OpenMotion",
+  "Help us improve": "Помочь нам стать лучше",
   "Collect redacted information needed to improve the product and deliver better service and generation quality.": "Собирать обезличенную необходимую информацию для улучшения продукта, повышения качества сервиса и генерации.",
   "Usage data collection is disabled in test builds.": "В тестовых версиях сбор данных об использовании отключён.",
   "Disabled by your environment settings.": "Отключено настройками окружения.",

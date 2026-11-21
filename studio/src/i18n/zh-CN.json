@@ -1722,7 +1722,7 @@
   "Template cache unavailable; downloading again": "模板缓存不可用，重新下载",
   "Template update failed; using cached catalogue: {message}": "模板更新失败，使用已缓存目录：{message}",
   "Privacy settings": "隐私设置",
-  "Help improve OpenMotion": "帮助改进 OpenMotion",
+  "Help us improve": "帮助改进",
   "Collect redacted information needed to improve the product and deliver better service and generation quality.": "脱敏收集必要信息以持续优化产品，为您提供更好的服务与生成效果。",
   "Usage data collection is disabled in test builds.": "测试版本不采集使用数据。",
   "Disabled by your environment settings.": "已由环境设置关闭。",
