@@ -1,4 +1,4 @@
-import * as Sentry from '@sentry/react';
+import type * as SentryTypes from '@sentry/react';
 import type { ErrorInfo } from 'react';
 import {
   readBrowserObservabilityConfig,
@@ -15,27 +15,29 @@ import {
 } from './sanitize.ts';
 
 const MAX_ERROR_EVENTS_PER_SESSION = 50;
+const MAX_QUEUED_BOOT_OPERATIONS = 50;
 const DEFAULT_TRACE_PROPAGATION_TARGETS: ReadonlyArray<string | RegExp> = [
   /^\/(?:api|motion-api)\//,
 ];
 
 export interface SentryBrowserSdkLike {
-  init: typeof Sentry.init;
-  browserTracingIntegration: typeof Sentry.browserTracingIntegration;
-  captureException: typeof Sentry.captureException;
-  captureReactException: typeof Sentry.captureReactException;
-  reactErrorHandler: typeof Sentry.reactErrorHandler;
-  setUser: typeof Sentry.setUser;
-  setTag: typeof Sentry.setTag;
-  setContext: typeof Sentry.setContext;
-  addBreadcrumb: typeof Sentry.addBreadcrumb;
-  flush: typeof Sentry.flush;
-  metrics: typeof Sentry.metrics;
+  init: typeof SentryTypes.init;
+  browserTracingIntegration: typeof SentryTypes.browserTracingIntegration;
+  captureException: typeof SentryTypes.captureException;
+  captureReactException: typeof SentryTypes.captureReactException;
+  reactErrorHandler: typeof SentryTypes.reactErrorHandler;
+  setUser: typeof SentryTypes.setUser;
+  setTag: typeof SentryTypes.setTag;
+  setContext: typeof SentryTypes.setContext;
+  addBreadcrumb: typeof SentryTypes.addBreadcrumb;
+  flush: typeof SentryTypes.flush;
+  metrics: typeof SentryTypes.metrics;
 }
 
 export interface InitBrowserObservabilityOptions {
   readonly config?: BrowserObservabilityConfig | null;
   readonly sdk?: SentryBrowserSdkLike;
+  readonly loader?: () => Promise<SentryBrowserSdkLike>;
 }
 
 export interface ObservabilityContextPatch {
@@ -59,10 +61,33 @@ export interface PerformanceMetricOptions {
   readonly attributes?: Record<string, string | number | boolean>;
 }
 
+export interface ObservabilityBreadcrumbInput {
+  readonly category: string;
+  readonly message?: string;
+  readonly level?: 'info' | 'warning' | 'error';
+  readonly data?: Record<string, string | number | boolean>;
+}
+
+type QueuedOperation =
+  | { readonly kind: 'exception'; readonly error: unknown; readonly context: CaptureExceptionContext }
+  | {
+      readonly kind: 'react_boundary';
+      readonly error: Error;
+      readonly componentStack?: string;
+      readonly boundaryName: string;
+    }
+  | { readonly kind: 'metric'; readonly name: string; readonly value: number; readonly options: PerformanceMetricOptions }
+  | { readonly kind: 'breadcrumb'; readonly breadcrumb: ObservabilityBreadcrumbInput };
+
 let activeSdk: SentryBrowserSdkLike | null = null;
 let activeConfig: BrowserObservabilityConfig | null = null;
-let initialized = false;
+let enabled = false;
+let loadPromise: Promise<boolean> | null = null;
 let sentErrorEvents = 0;
+let pendingContext: ObservabilityContextPatch = {};
+let queuedOperations: QueuedOperation[] = [];
+let removeEarlyBootListeners: (() => void) | null = null;
+let bootEpoch = 0;
 
 function extractOrigin(url: string | undefined | null): string | null {
   if (!url) return null;
@@ -107,20 +132,105 @@ function isEmbeddedPresentation(): boolean {
   }
 }
 
-/**
- * Initializes Web Sentry from runtime-injected config (`window.__OPENMOTION_OBSERVABILITY__`)
- * or an explicitly supplied config object. Safe no-op when unconfigured or already initialized.
- */
-export function initBrowserObservability(
-  options: InitBrowserObservabilityOptions = {},
+function enqueueOperation(op: QueuedOperation): void {
+  if (queuedOperations.length >= MAX_QUEUED_BOOT_OPERATIONS) return;
+  queuedOperations.push(op);
+}
+
+function applyContextToSdk(sdk: SentryBrowserSdkLike, patch: ObservabilityContextPatch): void {
+  if ('userId' in patch) {
+    const id = patch.userId?.trim();
+    sdk.setUser(id ? { id } : null);
+  }
+  if ('workspaceId' in patch) {
+    sdk.setTag('workspace_id', patch.workspaceId?.trim() || undefined);
+  }
+  if ('workspaceRole' in patch) {
+    sdk.setTag('workspace_role', patch.workspaceRole?.trim() || undefined);
+  }
+  if ('projectId' in patch) {
+    sdk.setTag('project_id', patch.projectId?.trim() || undefined);
+  }
+  if ('authMode' in patch) {
+    sdk.setTag('auth_mode', patch.authMode?.trim() || undefined);
+  }
+  if ('page' in patch) {
+    sdk.setTag('studio_page', patch.page?.trim() || undefined);
+  }
+  if ('sessionId' in patch) {
+    sdk.setContext(
+      'studio_session',
+      patch.sessionId?.trim() ? { session_id: patch.sessionId.trim() } : null,
+    );
+  }
+}
+
+function replayQueuedOperations(sdk: SentryBrowserSdkLike): void {
+  const contextSnapshot = pendingContext;
+  pendingContext = {};
+  if (Object.keys(contextSnapshot).length > 0) {
+    applyContextToSdk(sdk, contextSnapshot);
+  }
+
+  const pending = queuedOperations;
+  queuedOperations = [];
+  for (const op of pending) {
+    try {
+      if (op.kind === 'breadcrumb') {
+        sdk.addBreadcrumb({
+          category: op.breadcrumb.category,
+          ...(op.breadcrumb.message ? { message: sanitizeText(op.breadcrumb.message) } : {}),
+          ...(op.breadcrumb.level ? { level: op.breadcrumb.level } : {}),
+          ...(op.breadcrumb.data ? { data: op.breadcrumb.data } : {}),
+        });
+      } else if (op.kind === 'metric') {
+        sdk.metrics.distribution(op.name, op.value, {
+          ...(op.options.unit ? { unit: op.options.unit } : {}),
+          ...(op.options.attributes ? { attributes: op.options.attributes } : {}),
+        });
+      } else if (op.kind === 'react_boundary') {
+        sdk.setTag('error_boundary', op.boundaryName);
+        sdk.captureReactException(op.error, {
+          componentStack: op.componentStack,
+        });
+      } else if (op.kind === 'exception') {
+        const tags: Record<string, string> = { ...(op.context.tags ?? {}) };
+        if (op.context.area) tags.area = op.context.area;
+        sdk.captureException(op.error, {
+          ...(Object.keys(tags).length > 0 ? { tags } : {}),
+          ...(op.context.extra ? { extra: op.context.extra } : {}),
+        });
+      }
+    } catch {
+      // Never allow buffered telemetry replay to throw.
+    }
+  }
+}
+
+function installEarlyBootListeners(): () => void {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+    return () => {};
+  }
+  const onError = (event: ErrorEvent) => {
+    const err = event.error instanceof Error ? event.error : new Error(event.message || 'Unhandled error');
+    enqueueOperation({ kind: 'exception', error: err, context: { area: 'early_boot_error' } });
+  };
+  const onRejection = (event: PromiseRejectionEvent) => {
+    const err = event.reason instanceof Error ? event.reason : new Error(String(event.reason));
+    enqueueOperation({ kind: 'exception', error: err, context: { area: 'early_boot_rejection' } });
+  };
+  window.addEventListener('error', onError);
+  window.addEventListener('unhandledrejection', onRejection);
+  return () => {
+    window.removeEventListener('error', onError);
+    window.removeEventListener('unhandledrejection', onRejection);
+  };
+}
+
+function initializeSdkInstance(
+  sdk: SentryBrowserSdkLike,
+  config: BrowserObservabilityConfig,
 ): boolean {
-  if (initialized) return true;
-
-  const config =
-    options.config !== undefined ? options.config : readBrowserObservabilityConfig();
-  if (!config) return false;
-
-  const sdk = options.sdk ?? Sentry;
   const sanitizeOptions = {
     previewOrigin: config.previewOrigin ?? null,
     dsnOrigin: extractOrigin(config.dsn),
@@ -188,27 +298,100 @@ export function initBrowserObservability(
     sdk.setTag('embedded', isEmbeddedPresentation() ? 'true' : 'false');
 
     activeSdk = sdk;
-    activeConfig = config;
-    initialized = true;
+    removeEarlyBootListeners?.();
+    removeEarlyBootListeners = null;
+    replayQueuedOperations(sdk);
     return true;
   } catch {
+    removeEarlyBootListeners?.();
+    removeEarlyBootListeners = null;
+    enabled = false;
+    activeConfig = null;
+    activeSdk = null;
+    pendingContext = {};
+    queuedOperations = [];
     return false;
   }
 }
 
+/**
+ * Initializes Web Sentry from runtime-injected config (`window.__OPENMOTION_OBSERVABILITY__`)
+ * or an explicitly supplied config object.
+ *
+ * When unconfigured (no DSN), returns `false` synchronously and never imports `@sentry/react`,
+ * guaranteeing zero bundle download and zero network overhead for local/self-hosted users.
+ * When configured, lazily code-splits and loads `@sentry/react` while buffering any early
+ * errors, context tags, or metrics until initialization finishes.
+ */
+export function initBrowserObservability(
+  options: InitBrowserObservabilityOptions = {},
+): boolean {
+  if (enabled) return true;
+
+  const config =
+    options.config !== undefined ? options.config : readBrowserObservabilityConfig();
+  if (!config) return false;
+
+  enabled = true;
+  activeConfig = config;
+  const currentEpoch = ++bootEpoch;
+
+  if (options.sdk) {
+    const ok = initializeSdkInstance(options.sdk, config);
+    loadPromise = Promise.resolve(ok);
+    return ok;
+  }
+
+  removeEarlyBootListeners = installEarlyBootListeners();
+  const loadSdk = options.loader ?? (() => import('@sentry/react'));
+  let sdkPromise: Promise<SentryBrowserSdkLike>;
+  try {
+    sdkPromise = Promise.resolve(loadSdk());
+  } catch (error) {
+    sdkPromise = Promise.reject(error);
+  }
+  loadPromise = sdkPromise
+    .then((sdk) => {
+      if (currentEpoch !== bootEpoch || !enabled) return false;
+      return initializeSdkInstance(sdk, config);
+    })
+    .catch(() => {
+      if (currentEpoch !== bootEpoch) return false;
+      removeEarlyBootListeners?.();
+      removeEarlyBootListeners = null;
+      enabled = false;
+      activeConfig = null;
+      activeSdk = null;
+      pendingContext = {};
+      queuedOperations = [];
+      return false;
+    });
+
+  return true;
+}
+
 export function isBrowserObservabilityEnabled(): boolean {
-  return initialized && activeSdk !== null;
+  return enabled;
 }
 
 export function getActiveBrowserObservabilityConfig(): BrowserObservabilityConfig | null {
   return activeConfig;
 }
 
+export async function waitForBrowserObservabilityReady(): Promise<boolean> {
+  if (!loadPromise) return activeSdk !== null;
+  return loadPromise;
+}
+
 export function captureBrowserException(
   error: unknown,
   context: CaptureExceptionContext = {},
 ): string | undefined {
-  if (!initialized || !activeSdk) return undefined;
+  if (!enabled) return undefined;
+  if (!activeSdk) {
+    enqueueOperation({ kind: 'exception', error, context });
+    return undefined;
+  }
   try {
     const tags: Record<string, string> = { ...(context.tags ?? {}) };
     if (context.area) tags.area = context.area;
@@ -226,7 +409,16 @@ export function captureReactBoundaryError(
   info: Pick<ErrorInfo, 'componentStack'>,
   boundaryName = 'StudioErrorBoundary',
 ): string | undefined {
-  if (!initialized || !activeSdk) return undefined;
+  if (!enabled) return undefined;
+  if (!activeSdk) {
+    enqueueOperation({
+      kind: 'react_boundary',
+      error,
+      componentStack: info.componentStack ?? undefined,
+      boundaryName,
+    });
+    return undefined;
+  }
   try {
     activeSdk.setTag('error_boundary', boundaryName);
     return activeSdk.captureReactException(error, {
@@ -246,10 +438,16 @@ export function createReactRootErrorHandlers(): {
   onUncaughtError?: (error: unknown, errorInfo: ErrorInfo) => void;
   onRecoverableError?: (error: unknown, errorInfo: ErrorInfo) => void;
 } {
-  if (!initialized || !activeSdk) return {};
+  if (!enabled) return {};
   return {
-    onUncaughtError: activeSdk.reactErrorHandler(),
-    onRecoverableError: activeSdk.reactErrorHandler(),
+    onUncaughtError(error: unknown, errorInfo: ErrorInfo) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      captureReactBoundaryError(normalized, errorInfo, 'ReactRootUncaught');
+    },
+    onRecoverableError(error: unknown, errorInfo: ErrorInfo) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      captureReactBoundaryError(normalized, errorInfo, 'ReactRootRecoverable');
+    },
   };
 }
 
@@ -257,33 +455,13 @@ export function createReactRootErrorHandlers(): {
  * Updates non-PII contextual tags (never email, display name, or tokens).
  */
 export function setObservabilityContext(patch: ObservabilityContextPatch): void {
-  if (!initialized || !activeSdk) return;
+  if (!enabled) return;
+  if (!activeSdk) {
+    pendingContext = { ...pendingContext, ...patch };
+    return;
+  }
   try {
-    if ('userId' in patch) {
-      const id = patch.userId?.trim();
-      activeSdk.setUser(id ? { id } : null);
-    }
-    if ('workspaceId' in patch) {
-      activeSdk.setTag('workspace_id', patch.workspaceId?.trim() || undefined);
-    }
-    if ('workspaceRole' in patch) {
-      activeSdk.setTag('workspace_role', patch.workspaceRole?.trim() || undefined);
-    }
-    if ('projectId' in patch) {
-      activeSdk.setTag('project_id', patch.projectId?.trim() || undefined);
-    }
-    if ('authMode' in patch) {
-      activeSdk.setTag('auth_mode', patch.authMode?.trim() || undefined);
-    }
-    if ('page' in patch) {
-      activeSdk.setTag('studio_page', patch.page?.trim() || undefined);
-    }
-    if ('sessionId' in patch) {
-      activeSdk.setContext(
-        'studio_session',
-        patch.sessionId?.trim() ? { session_id: patch.sessionId.trim() } : null,
-      );
-    }
+    applyContextToSdk(activeSdk, patch);
   } catch {
     // Observability context updates must never disrupt editor execution.
   }
@@ -294,7 +472,11 @@ export function recordPerformanceMetric(
   value: number,
   options: PerformanceMetricOptions = {},
 ): void {
-  if (!initialized || !activeSdk || !Number.isFinite(value) || value < 0) return;
+  if (!enabled || !Number.isFinite(value) || value < 0) return;
+  if (!activeSdk) {
+    enqueueOperation({ kind: 'metric', name, value, options });
+    return;
+  }
   try {
     activeSdk.metrics.distribution(name, value, {
       ...(options.unit ? { unit: options.unit } : {}),
@@ -305,13 +487,12 @@ export function recordPerformanceMetric(
   }
 }
 
-export function addObservabilityBreadcrumb(breadcrumb: {
-  readonly category: string;
-  readonly message?: string;
-  readonly level?: 'info' | 'warning' | 'error';
-  readonly data?: Record<string, string | number | boolean>;
-}): void {
-  if (!initialized || !activeSdk) return;
+export function addObservabilityBreadcrumb(breadcrumb: ObservabilityBreadcrumbInput): void {
+  if (!enabled) return;
+  if (!activeSdk) {
+    enqueueOperation({ kind: 'breadcrumb', breadcrumb });
+    return;
+  }
   try {
     activeSdk.addBreadcrumb({
       category: breadcrumb.category,
@@ -325,8 +506,17 @@ export function addObservabilityBreadcrumb(breadcrumb: {
 }
 
 export async function flushBrowserObservability(timeoutMs = 2000): Promise<boolean> {
-  if (!initialized || !activeSdk) return false;
+  if (!enabled) return false;
   try {
+    if (loadPromise && !activeSdk) {
+      await Promise.race([
+        loadPromise,
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, timeoutMs);
+        }),
+      ]);
+    }
+    if (!activeSdk) return false;
     return await activeSdk.flush(timeoutMs);
   } catch {
     return false;
@@ -334,8 +524,14 @@ export async function flushBrowserObservability(timeoutMs = 2000): Promise<boole
 }
 
 export function resetBrowserObservabilityForTests(): void {
+  bootEpoch += 1;
+  removeEarlyBootListeners?.();
+  removeEarlyBootListeners = null;
   activeSdk = null;
   activeConfig = null;
-  initialized = false;
+  enabled = false;
+  loadPromise = null;
   sentErrorEvents = 0;
+  pendingContext = {};
+  queuedOperations = [];
 }

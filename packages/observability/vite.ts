@@ -1,16 +1,9 @@
-import { sentryVitePlugin } from '@sentry/vite-plugin';
+import { createHash } from 'node:crypto';
 import type { PluginOption } from 'vite';
 
-export interface ResolvedSentryViteConfig {
-  readonly enabled: boolean;
-  readonly upload: boolean;
-  readonly deleteSourcemaps: boolean;
-  readonly org?: string;
-  readonly project?: string;
-  readonly authToken?: string;
-  readonly url?: string;
-  readonly releaseName?: string;
-  readonly ignoreErrors: boolean;
+export interface ResolvedObservabilityBuildConfig {
+  readonly sourcemap: boolean | 'hidden';
+  readonly injectDebugIds: boolean;
 }
 
 function trimEnv(value: string | undefined): string | undefined {
@@ -28,51 +21,37 @@ function parseBoolEnv(value: string | undefined): boolean | undefined {
 }
 
 /**
- * Resolves whether Vite should enable `@sentry/vite-plugin` for Debug ID injection
- * and/or SourceMap upload. Completely inactive unless explicitly configured.
+ * Derives a deterministic RFC 4122 UUID v4 Debug ID from bundle content so
+ * builds remain reproducible across `api` and `studio-sourcemaps` Docker targets.
  */
-export function resolveSentryViteConfig(
-  env: NodeJS.ProcessEnv = process.env,
-): ResolvedSentryViteConfig {
-  const org = trimEnv(env.SENTRY_ORG);
-  const project = trimEnv(env.SENTRY_PROJECT);
-  const authToken = trimEnv(env.SENTRY_AUTH_TOKEN);
-  const url = trimEnv(env.SENTRY_URL);
-  const releaseName = trimEnv(env.SENTRY_RELEASE);
-  const debugIdsOnly = parseBoolEnv(env.SENTRY_DEBUG_IDS) === true;
-
-  const upload = Boolean(org && project && authToken);
-  const enabled = upload || debugIdsOnly;
-  const explicitDelete = parseBoolEnv(env.SENTRY_SOURCEMAPS_DELETE);
-  // When uploading during build, remove `.map` files before they reach build output by default.
-  // When running Debug-ID-only mode (for external CI upload), keep hidden `.map` files unless opted in.
-  const deleteSourcemaps = explicitDelete ?? upload;
-  const ignoreErrors = parseBoolEnv(env.SENTRY_SOURCEMAPS_IGNORE_ERRORS) === true;
-
-  return {
-    enabled,
-    upload,
-    deleteSourcemaps,
-    ...(org ? { org } : {}),
-    ...(project ? { project } : {}),
-    ...(authToken ? { authToken } : {}),
-    ...(url ? { url } : {}),
-    ...(releaseName ? { releaseName } : {}),
-    ignoreErrors,
-  };
+export function deriveDeterministicDebugId(seed: string): string {
+  const bytes = createHash('sha256').update(seed).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 /**
- * Computes Vite `build.sourcemap` from `STUDIO_SOURCEMAP` and Sentry upload configuration.
- * - Forces `'hidden'` whenever Sentry sourcemap upload or Debug ID injection is enabled,
- *   so browsers never see `//# sourceMappingURL=` comments pointing at private maps.
- * - Preserves `STUDIO_SOURCEMAP=false` / `'hidden'` / default (`true`) when Sentry build plugin is off.
+ * Generates the standard Sentry/TC39 runtime Debug ID registration snippet.
+ * Appended at the end of a JS chunk so existing sourcemap line/column mappings remain unchanged.
+ */
+export function buildDebugIdFooter(debugId: string): string {
+  const snippet = `;(()=>{try{var e=typeof window!="undefined"?window:typeof global!="undefined"?global:typeof globalThis!="undefined"?globalThis:typeof self!="undefined"?self:{},n=(new e.Error).stack;n&&(e._sentryDebugIds=e._sentryDebugIds||{},e._sentryDebugIds[n]=${JSON.stringify(debugId)},e._sentryDebugIdIdentifier=${JSON.stringify(`sentry-dbid-${debugId}`)})}catch(e){}})();`;
+  return `\n${snippet}\n//# debugId=${debugId}\n`;
+}
+
+/**
+ * Computes Vite `build.sourcemap` from `STUDIO_SOURCEMAP` and `SENTRY_DEBUG_IDS`:
+ * - `SENTRY_DEBUG_IDS=true` forces `'hidden'` so Debug IDs and private `.map` files are always emitted.
+ * - `STUDIO_SOURCEMAP=hidden` emits hidden sourcemaps without `//# sourceMappingURL=`.
+ * - `STUDIO_SOURCEMAP=false|0` disables sourcemaps (default for non-Sentry container builds).
+ * - Unset / `true` preserves standard sourcemaps for local development.
  */
 export function resolveStudioSourcemapOption(
   env: NodeJS.ProcessEnv = process.env,
 ): boolean | 'hidden' {
-  const sentry = resolveSentryViteConfig(env);
-  if (sentry.enabled) {
+  if (parseBoolEnv(env.SENTRY_DEBUG_IDS) === true) {
     return 'hidden';
   }
 
@@ -83,39 +62,71 @@ export function resolveStudioSourcemapOption(
 }
 
 /**
- * Returns Vite plugins for Sentry Debug ID injection and optional SourceMap upload.
- * Always sets `telemetry: false` so Sentry's bundler plugin sends no build telemetry.
+ * Resolves sourcemap mode and whether to inject deterministic Debug IDs into emitted
+ * JS chunks and `.js.map` files. Enabled automatically whenever `STUDIO_SOURCEMAP=hidden`
+ * or `SENTRY_DEBUG_IDS=true` (unless explicitly disabled via `SENTRY_DEBUG_IDS=false`).
+ */
+export function resolveObservabilityBuildConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): ResolvedObservabilityBuildConfig {
+  const sourcemap = resolveStudioSourcemapOption(env);
+  const explicitDebugIds = parseBoolEnv(env.SENTRY_DEBUG_IDS);
+  const injectDebugIds = explicitDebugIds ?? sourcemap === 'hidden';
+  return {
+    sourcemap,
+    injectDebugIds,
+  };
+}
+
+/**
+ * Zero-dependency Vite plugin that embeds deterministic Debug IDs into hidden-sourcemap
+ * JS bundles and their matching `.js.map` files (TC39 ECMA-426 / Sentry format).
+ *
+ * Uploading `.js.map` files is intentionally handled externally in release CI/CD
+ * (for example via `sentry-cli sourcemaps upload`) so the open-source repository
+ * stays free of non-OSI CLI dependencies and build-time upload credentials.
  */
 export function createSentryVitePlugins(
   env: NodeJS.ProcessEnv = process.env,
 ): PluginOption[] {
-  const resolved = resolveSentryViteConfig(env);
-  if (!resolved.enabled) return [];
+  const resolved = resolveObservabilityBuildConfig(env);
+  if (!resolved.injectDebugIds) return [];
 
   return [
-    sentryVitePlugin({
-      org: resolved.org,
-      project: resolved.project,
-      authToken: resolved.authToken,
-      ...(resolved.url ? { url: resolved.url } : {}),
-      telemetry: false,
-      release: {
-        ...(resolved.releaseName ? { name: resolved.releaseName } : {}),
-        inject: false,
-        create: resolved.upload && Boolean(resolved.releaseName),
-      },
-      sourcemaps: {
-        upload: resolved.upload,
-        injectDebugIds: true,
-        delete: resolved.deleteSourcemaps,
-      },
-      ...(resolved.ignoreErrors
-        ? {
-            errorHandler(err) {
-              console.warn('[observability] Sentry sourcemap upload warning:', err.message);
-            },
+    {
+      name: 'openmotion-observability-debug-ids',
+      apply: 'build',
+      generateBundle(_options, bundle) {
+        for (const item of Object.values(bundle)) {
+          if (item.type !== 'chunk' || !item.fileName.endsWith('.js')) continue;
+          const mapAsset = bundle[`${item.fileName}.map`];
+          if (!mapAsset || mapAsset.type !== 'asset') continue;
+
+          const mapText =
+            typeof mapAsset.source === 'string'
+              ? mapAsset.source
+              : Buffer.from(mapAsset.source).toString('utf8');
+
+          let parsedMap: Record<string, unknown>;
+          try {
+            parsedMap = JSON.parse(mapText) as Record<string, unknown>;
+          } catch {
+            continue;
           }
-        : {}),
-    }),
+
+          const debugId =
+            typeof parsedMap.debugId === 'string' && parsedMap.debugId
+              ? parsedMap.debugId
+              : deriveDeterministicDebugId(`${item.fileName}\0${item.code}`);
+
+          parsedMap.debugId = debugId;
+          mapAsset.source = JSON.stringify(parsedMap);
+
+          if (!item.code.includes(`//# debugId=${debugId}`)) {
+            item.code += buildDebugIdFooter(debugId);
+          }
+        }
+      },
+    },
   ];
 }

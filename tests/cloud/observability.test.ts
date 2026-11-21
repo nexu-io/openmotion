@@ -21,7 +21,9 @@ import {
   shouldDropBrowserEvent,
 } from '../../packages/observability/sanitize.ts';
 import {
-  resolveSentryViteConfig,
+  createSentryVitePlugins,
+  deriveDeterministicDebugId,
+  resolveObservabilityBuildConfig,
   resolveStudioSourcemapOption,
 } from '../../packages/observability/vite.ts';
 import { createApiApp, serveStaticAsset, type ApiEventBusPort, type ApiQueuesPort } from '../../src/entrypoints/api.ts';
@@ -264,33 +266,57 @@ describe('@openmotion/observability sanitization & noise filtering', () => {
   });
 });
 
-describe('@openmotion/observability Vite sourcemap & plugin config', () => {
-  it('resolves sourcemap modes and enables hidden sourcemaps + deletion on Sentry upload', () => {
+describe('@openmotion/observability Vite sourcemap & zero-dependency Debug ID plugin', () => {
+  it('resolves sourcemap modes and injects deterministic Debug IDs without external CLI deps', () => {
     assert.equal(resolveStudioSourcemapOption({}), true);
+    assert.equal(resolveObservabilityBuildConfig({}).injectDebugIds, false);
+    assert.equal(createSentryVitePlugins({}).length, 0);
+
     assert.equal(resolveStudioSourcemapOption({ STUDIO_SOURCEMAP: 'false' }), false);
+    assert.equal(resolveObservabilityBuildConfig({ STUDIO_SOURCEMAP: 'false' }).injectDebugIds, false);
+
     assert.equal(resolveStudioSourcemapOption({ STUDIO_SOURCEMAP: 'hidden' }), 'hidden');
-    assert.equal(resolveSentryViteConfig({}).enabled, false);
+    assert.equal(resolveObservabilityBuildConfig({ STUDIO_SOURCEMAP: 'hidden' }).injectDebugIds, true);
 
-    const uploadEnv = {
-      STUDIO_SOURCEMAP: 'false',
-      SENTRY_ORG: 'acme',
-      SENTRY_PROJECT: 'openmotion-web',
-      SENTRY_AUTH_TOKEN: ['synthetic', 'upload', 'token'].join('-'),
-      SENTRY_RELEASE: 'openmotion@1.0.0',
+    assert.equal(resolveStudioSourcemapOption({ STUDIO_SOURCEMAP: 'false', SENTRY_DEBUG_IDS: 'true' }), 'hidden');
+    assert.equal(
+      resolveObservabilityBuildConfig({ STUDIO_SOURCEMAP: 'hidden', SENTRY_DEBUG_IDS: 'false' }).injectDebugIds,
+      false,
+    );
+
+    const id1 = deriveDeterministicDebugId('editor-assets/app.js\0console.log(1);');
+    const id2 = deriveDeterministicDebugId('editor-assets/app.js\0console.log(1);');
+    assert.equal(id1, id2);
+    assert.match(id1, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+
+    const plugins = createSentryVitePlugins({ STUDIO_SOURCEMAP: 'hidden' });
+    assert.equal(plugins.length, 1);
+    const plugin = plugins[0] as unknown as {
+      generateBundle: (options: unknown, bundle: Record<string, Record<string, unknown>>) => void;
     };
-    assert.equal(resolveStudioSourcemapOption(uploadEnv), 'hidden');
-    const resolvedUpload = resolveSentryViteConfig(uploadEnv);
-    assert.equal(resolvedUpload.enabled, true);
-    assert.equal(resolvedUpload.upload, true);
-    assert.equal(resolvedUpload.deleteSourcemaps, true);
-    assert.equal(resolvedUpload.releaseName, 'openmotion@1.0.0');
+    const bundle: Record<string, Record<string, unknown>> = {
+      'editor-assets/index-abc.js': {
+        type: 'chunk',
+        fileName: 'editor-assets/index-abc.js',
+        code: 'console.log("studio");',
+      },
+      'editor-assets/index-abc.js.map': {
+        type: 'asset',
+        fileName: 'editor-assets/index-abc.js.map',
+        source: JSON.stringify({ version: 3, sources: ['src/main.tsx'], mappings: '' }),
+      },
+    };
+    plugin.generateBundle({}, bundle);
 
-    const debugIdsEnv = { STUDIO_SOURCEMAP: 'false', SENTRY_DEBUG_IDS: 'true' };
-    assert.equal(resolveStudioSourcemapOption(debugIdsEnv), 'hidden');
-    const resolvedDebug = resolveSentryViteConfig(debugIdsEnv);
-    assert.equal(resolvedDebug.enabled, true);
-    assert.equal(resolvedDebug.upload, false);
-    assert.equal(resolvedDebug.deleteSourcemaps, false);
+    const updatedCode = String(bundle['editor-assets/index-abc.js'].code);
+    const updatedMap = JSON.parse(String(bundle['editor-assets/index-abc.js.map'].source)) as {
+      debugId?: string;
+    };
+    assert.ok(updatedMap.debugId);
+    assert.match(updatedMap.debugId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.ok(updatedCode.includes(`//# debugId=${updatedMap.debugId}`));
+    assert.ok(updatedCode.includes('_sentryDebugIds'));
+    assert.ok(!updatedCode.includes('sourceMappingURL='));
   });
 });
 

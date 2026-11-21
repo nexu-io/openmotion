@@ -107,20 +107,21 @@ All runtime variables are validated strictly by [`src/infra/config.ts`](../src/i
 | `SENTRY_TRACES_SAMPLE_RATE` | `0.1` | Browser performance tracing sample rate in `[0, 1]` (`0` disables performance traces while keeping error capture). |
 | `RENDER_SHM_SIZE` / `RENDER_MEM_LIMIT` | `512m` / `2g` | Chromium `/dev/shm` and container memory limit on `worker-render`. Raise to `1g`–`2g` / `4g` on `>= 8 GiB` hosts. |
 
-### Web Sentry SourceMaps (BuildKit Secret Upload)
+### Web Sentry SourceMaps & Observability Guide
 
-Production images never ship `.map` files (`deploy/Dockerfile` strips `studio/build/**/*.map` before copying into `prod-base`, and `api` returns `404` for `*.map` when `NODE_ENV=production`). To generate `hidden` sourcemaps with Sentry Debug IDs and upload them during container build without baking any credentials into image layers:
+Production images never ship `.map` files (`deploy/Dockerfile` strips `*.map` from `prod-base`, and `api` returns `404` for `*.map` when `NODE_ENV=production`). To build `api` with embedded deterministic Debug IDs, export matching hidden `.js.map` files from the shared BuildKit cache, and upload them externally via `sentry-cli`:
 
 ```bash
-docker buildx build \
-  -f deploy/Dockerfile \
-  --target api \
-  --build-arg SENTRY_ORG=your-org \
-  --build-arg SENTRY_PROJECT=openmotion-web \
-  --build-arg SENTRY_RELEASE="openmotion@0.0.1" \
-  --secret id=sentry_auth_token,env=SENTRY_AUTH_TOKEN \
-  .
+RELEASE="openmotion@$(git rev-parse --short HEAD)"
+
+docker buildx build -f deploy/Dockerfile --target api --build-arg STUDIO_SOURCEMAP=hidden -t "openmotion-api:${RELEASE}" .
+docker buildx build -f deploy/Dockerfile --target studio-sourcemaps --build-arg STUDIO_SOURCEMAP=hidden --output type=local,dest=./dist/studio-sourcemaps .
+
+sentry-cli sourcemaps upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" --release "$RELEASE" --url-prefix "~/editor-assets" ./dist/studio-sourcemaps
+rm -rf ./dist/studio-sourcemaps
 ```
+
+See the full configuration, privacy, metrics, and troubleshooting guide in [`docs/sentry-observability.md`](../docs/sentry-observability.md).
 
 ## Kubernetes + KEDA Deployment (`deploy/k8s/`)
 

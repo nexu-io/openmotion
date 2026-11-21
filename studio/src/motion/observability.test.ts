@@ -16,6 +16,7 @@ import {
   recordPerformanceMetric,
   resetBrowserObservabilityForTests,
   setObservabilityContext,
+  waitForBrowserObservabilityReady,
   type SentryBrowserSdkLike,
 } from '@openmotion/observability/browser';
 
@@ -63,11 +64,11 @@ describe('@openmotion/observability/browser', () => {
     delete (window as unknown as Record<string, unknown>)[RUNTIME_CONFIG_GLOBAL_KEY];
   });
 
-  it('stays completely disabled (no-op) when runtime config is absent', async () => {
-    const { sdk } = createFakeSdk();
-    expect(initBrowserObservability({ sdk })).toBe(false);
+  it('stays completely disabled (no-op) and never triggers lazy loader when runtime config is absent', async () => {
+    const loader = vi.fn(async () => createFakeSdk().sdk);
+    expect(initBrowserObservability({ loader })).toBe(false);
     expect(isBrowserObservabilityEnabled()).toBe(false);
-    expect(sdk.init).not.toHaveBeenCalled();
+    expect(loader).not.toHaveBeenCalled();
 
     expect(captureBrowserException(new Error('ignored'))).toBeUndefined();
     expect(captureReactBoundaryError(new Error('ignored'), { componentStack: '' })).toBeUndefined();
@@ -76,8 +77,72 @@ describe('@openmotion/observability/browser', () => {
     recordPerformanceMetric('openmotion.studio.load_ms', 120, { unit: 'millisecond' });
     addObservabilityBreadcrumb({ category: 'studio', message: 'opened' });
     expect(await flushBrowserObservability()).toBe(false);
-    expect(sdk.captureException).not.toHaveBeenCalled();
-    expect(sdk.metrics.distribution).not.toHaveBeenCalled();
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  it('lazily loads the Sentry SDK when configured and replays buffered early-boot calls', async () => {
+    const config: BrowserObservabilityConfig = {
+      dsn: TEST_DSN,
+      environment: 'production',
+      release: 'openmotion@1.0.0',
+      tracesSampleRate: 0.1,
+    };
+    (window as unknown as Record<string, unknown>)[RUNTIME_CONFIG_GLOBAL_KEY] = config;
+
+    const { sdk } = createFakeSdk();
+    let resolveLoader!: (value: SentryBrowserSdkLike) => void;
+    const loader = vi.fn(
+      () =>
+        new Promise<SentryBrowserSdkLike>((resolve) => {
+          resolveLoader = resolve;
+        }),
+    );
+
+    expect(initBrowserObservability({ loader })).toBe(true);
+    expect(isBrowserObservabilityEnabled()).toBe(true);
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(sdk.init).not.toHaveBeenCalled();
+
+    // Early calls before the async chunk arrives are buffered cleanly
+    setObservabilityContext({ userId: 'u-early', workspaceId: 'ws-early', projectId: 'p-early' });
+    addObservabilityBreadcrumb({ category: 'boot', message: 'starting' });
+    recordPerformanceMetric('openmotion.studio.load_ms', 88, { unit: 'millisecond' });
+    const rootHandlers = createReactRootErrorHandlers();
+    rootHandlers.onUncaughtError?.(new Error('early root boom'), { componentStack: '\n in Root' });
+
+    resolveLoader(sdk);
+    expect(await waitForBrowserObservabilityReady()).toBe(true);
+
+    expect(sdk.init).toHaveBeenCalledTimes(1);
+    expect(sdk.setUser).toHaveBeenCalledWith({ id: 'u-early' });
+    expect(sdk.setTag).toHaveBeenCalledWith('workspace_id', 'ws-early');
+    expect(sdk.setTag).toHaveBeenCalledWith('project_id', 'p-early');
+    expect(sdk.addBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({ category: 'boot', message: 'starting' }),
+    );
+    expect(sdk.metrics.distribution).toHaveBeenCalledWith('openmotion.studio.load_ms', 88, {
+      unit: 'millisecond',
+    });
+    expect(sdk.setTag).toHaveBeenCalledWith('error_boundary', 'ReactRootUncaught');
+    expect(sdk.captureReactException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'early root boom' }),
+      { componentStack: '\n in Root' },
+    );
+  });
+
+  it('fails closed cleanly if the lazy Sentry SDK chunk fails to load', async () => {
+    (window as unknown as Record<string, unknown>)[RUNTIME_CONFIG_GLOBAL_KEY] = {
+      dsn: TEST_DSN,
+      environment: 'production',
+      tracesSampleRate: 0.1,
+    };
+    const loader = vi.fn(async () => {
+      throw new Error('chunk fetch failed');
+    });
+
+    expect(initBrowserObservability({ loader })).toBe(true);
+    expect(await waitForBrowserObservabilityReady()).toBe(false);
+    expect(isBrowserObservabilityEnabled()).toBe(false);
   });
 
   it('initializes from window runtime config with privacy, tracing, sanitization, and session cap', async () => {

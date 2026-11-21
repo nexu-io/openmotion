@@ -14,21 +14,15 @@ RUN npm ci --no-audit --no-fund
 
 COPY . .
 ARG STUDIO_SOURCEMAP=false
-ARG SENTRY_ORG=
-ARG SENTRY_PROJECT=
-ARG SENTRY_RELEASE=
-ARG SENTRY_URL=
 ARG SENTRY_DEBUG_IDS=false
-RUN --mount=type=secret,id=sentry_auth_token,required=false \
-    SENTRY_AUTH_TOKEN="$(if [ -f /run/secrets/sentry_auth_token ]; then cat /run/secrets/sentry_auth_token; fi)" \
-    STUDIO_SOURCEMAP="${STUDIO_SOURCEMAP}" \
-    SENTRY_ORG="${SENTRY_ORG}" \
-    SENTRY_PROJECT="${SENTRY_PROJECT}" \
-    SENTRY_RELEASE="${SENTRY_RELEASE}" \
-    SENTRY_URL="${SENTRY_URL}" \
+RUN STUDIO_SOURCEMAP="${STUDIO_SOURCEMAP}" \
     SENTRY_DEBUG_IDS="${SENTRY_DEBUG_IDS}" \
     npm run build:studio \
-  && find studio/build -type f -name '*.map' -delete \
+  && rm -rf /app/studio-prod-build /app/studio-sourcemaps \
+  && cp -a /app/studio/build /app/studio-prod-build \
+  && find /app/studio-prod-build -type f -name '*.map' -delete \
+  && mkdir -p /app/studio-sourcemaps \
+  && find /app/studio/build/editor-assets -maxdepth 1 -type f \( -name '*.js' -o -name '*.js.map' \) -exec cp -p {} /app/studio-sourcemaps/ \; \
   && npm run build:tracking \
   && npm run build:observability
 
@@ -101,8 +95,8 @@ COPY mcp-ui/template-recommendations/project-previews/ ./mcp-ui/template-recomme
 COPY scripts/verify-export.ts scripts/init-s3.ts scripts/lint-project.mjs scripts/zip.mjs ./scripts/
 COPY hyperframes.ts server.ts template-library.ts LICENSE ./
 
-# Built frontend, MCP Apps card bundle, and compiled tracking/observability artifacts.
-COPY --from=deps-build /app/studio/build ./studio/build
+# Built frontend (strictly stripped of `.map` files), MCP Apps card bundle, and compiled tracking/observability artifacts.
+COPY --from=deps-build /app/studio-prod-build ./studio/build
 COPY --from=deps-build /app/web/inline-video.html ./web/inline-video.html
 COPY --from=deps-build /app/mcp-ui/template-recommendations/build ./mcp-ui/template-recommendations/build
 COPY --from=deps-build /app/tracking/dist ./tracking/dist
@@ -201,3 +195,11 @@ ENV NODE_ENV=production \
 USER node
 ENTRYPOINT ["tini", "--"]
 CMD ["node", "--experimental-strip-types", "scripts/sync-catalog-cas.ts"]
+
+# -----------------------------------------------------------------------------
+# Target 5: studio-sourcemaps — scratch export stage for CI Sentry uploads.
+# Build alongside `api` with `--build-arg STUDIO_SOURCEMAP=hidden` and export via
+# `--target studio-sourcemaps --output type=local,dest=./dist/studio-sourcemaps`.
+# -----------------------------------------------------------------------------
+FROM scratch AS studio-sourcemaps
+COPY --from=deps-build /app/studio-sourcemaps/ /
