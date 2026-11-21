@@ -50,7 +50,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      checks: read
+      actions: read
     outputs:
       registry_owner: ${{ steps.meta.outputs.registry_owner }}
       sha_tag: ${{ steps.meta.outputs.sha_tag }}
@@ -78,10 +78,57 @@ jobs:
               exit 1
             fi
 
-            passed_count="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?check_name=standalone&per_page=100" \
-              --jq '[.check_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
-            if [[ "${passed_count:-0}" -lt 1 ]]; then
-              echo "::error::Required CI check 'standalone' has not passed for ${GITHUB_SHA}. Wait for Motion standalone checks to succeed on main before promoting :latest."
+            # shellcheck disable=SC2016
+            ci_summary="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&branch=main&per_page=100" \
+              | jq -c --arg repo "$GITHUB_REPOSITORY" '
+                  [.[].workflow_runs[]
+                    | select(.head_branch == "main"
+                        and .head_repository.full_name == $repo
+                        and (.event == "push" or .event == "workflow_dispatch"))] as $runs
+                  | {
+                      total: ($runs | length),
+                      active: ([$runs[] | select(.status != "completed")] | length),
+                      latest: ($runs | sort_by([.updated_at, .id]) | last | if . == null then null else {id, status, conclusion, run_attempt} end)
+                    }
+                ')"
+
+            total_runs="$(printf '%s' "$ci_summary" | jq -r '.total')"
+            active_runs="$(printf '%s' "$ci_summary" | jq -r '.active')"
+            latest_run_id="$(printf '%s' "$ci_summary" | jq -r '.latest.id // empty')"
+            latest_status="$(printf '%s' "$ci_summary" | jq -r '.latest.status // "missing"')"
+            latest_conclusion="$(printf '%s' "$ci_summary" | jq -r '.latest.conclusion // "missing"')"
+            latest_attempt="$(printf '%s' "$ci_summary" | jq -r '.latest.run_attempt // 0')"
+
+            if [[ "${total_runs:-0}" -lt 1 || -z "$latest_run_id" ]]; then
+              echo "::error::No Motion standalone checks (ci.yml) run found on main for ${GITHUB_SHA}."
+              exit 1
+            fi
+            if [[ "${active_runs:-0}" -gt 0 ]]; then
+              echo "::error::Motion standalone checks (ci.yml) still has ${active_runs} active run(s) on main for ${GITHUB_SHA}; wait for CI to finish before promoting :latest."
+              exit 1
+            fi
+            if [[ "$latest_status" != "completed" || "$latest_conclusion" != "success" ]]; then
+              echo "::error::Latest Motion standalone checks (ci.yml) run ${latest_run_id} (attempt ${latest_attempt}) for ${GITHUB_SHA} ended with status=${latest_status}, conclusion=${latest_conclusion}; cannot promote :latest."
+              exit 1
+            fi
+
+            # shellcheck disable=SC2016
+            standalone_job="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_run_id}/jobs?filter=latest&per_page=100" \
+              | jq -c '
+                  [.[].jobs[] | select(.name == "standalone")] as $jobs
+                  | {
+                      count: ($jobs | length),
+                      status: ($jobs[0].status // "missing"),
+                      conclusion: ($jobs[0].conclusion // "missing")
+                    }
+                ')"
+
+            standalone_count="$(printf '%s' "$standalone_job" | jq -r '.count')"
+            standalone_status="$(printf '%s' "$standalone_job" | jq -r '.status')"
+            standalone_conclusion="$(printf '%s' "$standalone_job" | jq -r '.conclusion')"
+
+            if [[ "${standalone_count:-0}" -ne 1 || "$standalone_status" != "completed" || "$standalone_conclusion" != "success" ]]; then
+              echo "::error::Latest ci.yml run ${latest_run_id} for ${GITHUB_SHA} does not have a single completed successful standalone job (count=${standalone_count}, status=${standalone_status}, conclusion=${standalone_conclusion})."
               exit 1
             fi
 
