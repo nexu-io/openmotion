@@ -123,7 +123,12 @@
 [data-motion-studio] .om-studio-coming-soon-content { display: flex; flex-direction: column; align-items: center; gap: var(--motion-space-16); padding: var(--motion-space-48) var(--motion-space-24); }
 [data-motion-studio] .om-studio-coming-soon .om-studio-heading-icon { display: grid; place-items: center; padding: var(--motion-space-12); border-radius: var(--motion-radius-lg); background: var(--motion-panel); }
 [data-motion-studio] .om-studio-coming-soon :is(h1, p) { margin: 0; }
-[data-motion-studio] .om-studio-coming-soon-status { padding: var(--motion-space-6) var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-panel); color: var(--motion-muted); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-medium); }
+[data-motion-studio] .om-coming-soon-guide { display: flex; flex-direction: column; align-items: center; gap: var(--motion-space-16); }
+[data-motion-studio] :is(.om-coming-soon-copy, .om-studio-coming-soon-copy) { max-inline-size: 560px; color: var(--motion-muted); line-height: var(--motion-leading-prose); }
+[data-motion-studio] :is(.om-coming-soon-status, .om-studio-coming-soon-status) { padding: var(--motion-space-6) var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-panel); color: var(--motion-muted); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-medium); }
+[data-motion-studio] :is(.om-coming-soon-actions, .om-studio-coming-soon-actions) { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--motion-space-8); }
+[data-motion-studio] .om-coming-soon-guide-compact { display: contents; }
+[data-motion-studio] .om-coming-soon-guide-compact :is(.om-coming-soon-actions, .om-studio-coming-soon-actions) { justify-content: flex-start; }
 [data-motion-studio] .om-switch { flex-shrink: 0; width: var(--motion-space-32); height: var(--motion-space-20); border: 0; border-radius: var(--motion-radius-full); background: var(--motion-border); padding: var(--motion-space-2); cursor: pointer; }
 [data-motion-studio] .om-switch::after { display: block; content: ''; width: var(--motion-space-16); height: var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-bg); transition: transform var(--motion-duration-fast); }
 [data-motion-studio] .om-switch[aria-checked="true"] { background: var(--motion-action); }

@@ -1336,6 +1336,7 @@ it('keeps Agent Skills available while the 3D studio is pending and preserves th
   expect(page()).toMatchObject({ specialty: { id: '3d' }, skill: 'three-js', community: '3d-motion' });
   expect(container.querySelector('.om-studio-coming-soon')).toBeNull();
   expect(container.querySelector('.om-specialty-intro .om-specialty-status')?.textContent).toBe('Coming soon');
+  expect(container.querySelector<HTMLAnchorElement>('.om-specialty-intro .om-coming-soon-actions a')?.href).toBe('https://github.com/nexu-io/openmotion');
   expect(container.querySelector('.om-specialty-intro .om-specialty-actions')).toBeNull();
   expect(container.querySelector('.om-studio-template-shelf')).not.toBeNull();
   expect([...container.querySelectorAll('.om-skills-grid [data-skill-id]')].map(node => node.getAttribute('data-skill-id'))).toEqual([
@@ -1723,9 +1724,14 @@ it.each(['text-to-video', 'image-to-video'])('shows Coming soon for a direct 3D 
   history.replaceState(null, '', `/?page=3d&scene=${scene}`);
   await mount();
   expect(container.querySelector('.om-studio-coming-soon')?.textContent).toContain('Coming soon');
+  expect(container.querySelector('.om-studio-coming-soon-copy')?.textContent).toContain('does not support direct generation');
   expect(container.querySelector('.om-asset-tabs')).toBeNull();
   expect(container.querySelector('[aria-label="Asset draft"]')).toBeNull();
-  expect(container.querySelector('.om-studio-coming-soon button')).toBeNull();
+  expect(button('3D Creative Skills')).toBeDefined();
+  expect(container.querySelector<HTMLAnchorElement>('.om-studio-coming-soon a')?.href).toBe('https://github.com/nexu-io/openmotion');
+  await click('3D Creative Skills');
+  expect(page()).toMatchObject({ specialty: { id: '3d' }, skill: null });
+  expect(container.querySelector('.om-studio-coming-soon')).toBeNull();
   await clickWorkspaceBack();
   expect(page().explore).toBe(true);
 });

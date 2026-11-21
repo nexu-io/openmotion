@@ -39,14 +39,14 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
   onSelectDesignScene?: (scene: DesignTabId) => void;
   soundTab?: SoundTabId | null;
   onOpenStudio: (next: StudioDestination) => void; breadcrumb?: ReactNode; onBackToExplore?: () => void;
-  skill: string | null; onCollection: (studio: TechniqueStudio) => void; onExplore: () => void; drafts: RefObject<Map<string, AssetDraft>>; destination: StudioDestination | null; active: boolean; visit: number; onNavigate: (next: StudioDestination, nextSoundTab?: SoundTabId | null) => void; hasProject: boolean;
+  skill: string | null; onCollection: (studio: TechniqueStudio, replace?: boolean) => void; onExplore: () => void; drafts: RefObject<Map<string, AssetDraft>>; destination: StudioDestination | null; active: boolean; visit: number; onNavigate: (next: StudioDestination, nextSoundTab?: SoundTabId | null) => void; hasProject: boolean;
 }) {
   const { t, locale } = useI18n();
   const comingSoon = studioComingSoon(destination?.studio);
   const catalog = useMediaCatalog(active && Boolean(destination) && !comingSoon);
   if (!destination) return null;
   const { scene, studio } = destination;
-  if (comingSoon) return <div className="om-assets-host om-creative-workspace"><WorkspaceBack fallback={onExplore} /><StudioComingSoon studio={studio} /></div>;
+  if (comingSoon && studio.surface === 'techniques') return <div className="om-assets-host om-creative-workspace"><WorkspaceBack fallback={onExplore} /><StudioComingSoon studio={studio} onExploreSkills={() => onCollection(studio, true)} /></div>;
   const isSoundStudio = studio.id === 'sound';
   const activeSoundTab: SoundTabId | undefined = isSoundStudio
     ? (destination.landing ? (scene.id === 'speech' ? 'speech' : 'music') : (soundTab ?? (scene.id === 'speech' ? 'speech' : 'music')))

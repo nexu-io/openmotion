@@ -894,6 +894,7 @@ describe('SoundStudioWorkspace', () => {
       // 3-node visual pipeline rendered cleanly.
       expect(host.querySelectorAll('.om-sound-pipeline-node')).toHaveLength(3);
       expect(host.querySelector('.om-sound-soon-title')?.textContent).toBe(tab.label);
+      expect(host.querySelector<HTMLAnchorElement>('.om-sound-soon-footer .om-coming-soon-actions a')?.href).toBe('https://github.com/nexu-io/openmotion');
 
       // Clicking pivot CTA routes to nearest live tab.
       const pivotBtn = host.querySelector<HTMLButtonElement>('.om-sound-soon-footer button')!;

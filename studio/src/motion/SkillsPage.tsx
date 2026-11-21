@@ -15,6 +15,7 @@ import { mediaEditorDestination, studioIconTone, studioComingSoon, type StudioDe
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { StudioTemplateShelf } from './StudioTemplateShelf';
 import { SkillMedia } from './SkillMedia';
+import { ComingSoonGuide } from './ComingSoonGuide';
 import { GitHubMark } from '../../../packages/design-system/react/GitHubMark';
 import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
@@ -169,7 +170,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
       <main className="om-gallery-results">
         {studio ? <section className="om-specialty-intro" data-coming-soon={comingSoon || undefined}>
           <div><h1 className="om-title"><span className="om-studio-heading-icon" data-tone={studioIconTone(studio)}><RemixIcon name={studio.icon} size={24} /></span>{t(studio.title)}</h1><p className="om-muted">{t(studio.briefHint)}</p>
-            {comingSoon ? <p className="om-specialty-status" lang="en">Coming soon</p> : onCreate && <div className="om-specialty-actions">
+            {comingSoon ? <ComingSoonGuide compact /> : onCreate && <div className="om-specialty-actions">
               <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => onCreate(mediaEditorDestination(studio.scenes[0]))}><RemixIcon name="add-line" size={16} />{t(studio.createLabel)}</Button>
               {studio.id === 'marketing' && <Button variant="ghost" className="om-button h-auto" onClick={() => onCreate(mediaEditorDestination('text-to-video'))}>{t('Create an ad clip')}</Button>}
             </div>}

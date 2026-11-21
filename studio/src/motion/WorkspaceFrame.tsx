@@ -519,7 +519,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         onScene={(studio, prompt, soundTab) => soundTab
           ? navigatePage({ studio, soundTab, skill: null, settings: null, assets: false, skills: false, templates: false, ...lastExplore.current }, false, 'from-page')
           : openStudioFromPage(studio, prompt)} /></div>}
-      <div className="om-workspace-layer" hidden={templatesPage} inert={templatesPage}><CreativeWorkspace onOpenBrandKit={hostChrome ? () => openSettings('brand-kit') : undefined} soundTab={page.soundTab ?? null} skill={page.skill} onCollection={specialty => navigatePage({ specialty, templates: false })}
+      <div className="om-workspace-layer" hidden={templatesPage} inert={templatesPage}><CreativeWorkspace onOpenBrandKit={hostChrome ? () => openSettings('brand-kit') : undefined} soundTab={page.soundTab ?? null} skill={page.skill} onCollection={(specialty, replace) => navigatePage({ specialty, templates: false }, Boolean(replace))}
         onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false, ...lastExplore.current })}
         breadcrumb={source && page.studio && !showStudioBackToExplore && <WorkspaceBreadcrumb source={source} destination={t(page.studio.landing ? page.studio.scene.label : page.studio.studio.title)} />}
         onBackToExplore={showStudioBackToExplore || (hostChrome && !source) ? returnToExplore : undefined}

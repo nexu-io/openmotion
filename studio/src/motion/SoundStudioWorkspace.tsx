@@ -40,6 +40,7 @@ import {
   type SoundTabDefinition,
   type SoundTabId,
 } from './soundTabs';
+import { ComingSoonGuide } from './ComingSoonGuide';
 import { dayKey } from './generationLabels';
 import { GeneratingWaveform, InteractiveWaveform } from './SoundWaveforms';
 import { useAudioWaveforms } from './useAudioWaveforms';
@@ -374,8 +375,9 @@ function SoundSoonPreview({
           </div>
         )}
 
-        {pivot && (
-          <div className="om-sound-soon-footer">
+        <div className="om-sound-soon-footer">
+          <ComingSoonGuide compact showStatus={false} />
+          {pivot && (
             <Button
               type="button"
               variant="ghost"
@@ -385,8 +387,8 @@ function SoundSoonPreview({
               <span>{t('Open {tab}', { tab: t(pivot.label) })}</span>
               <RemixIcon name="arrow-right-line" size={14} />
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </div>
   );
