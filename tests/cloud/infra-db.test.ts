@@ -395,7 +395,18 @@ describe('Redis Key/Channel Builders & BullMQ Contracts', () => {
       blobScope: 'workspace',
       sha256: SHA_A,
     });
-    assert.equal(peaks.samples, 512);
+    assert.equal(peaks.samples, 2048);
+
+    const sprite = validateMediaIngestPayload('generate_video_sprite', {
+      workspaceId: WID_A,
+      blobScope: 'workspace',
+      sha256: SHA_A,
+      projectId: PID_A,
+      durationSec: 30,
+      width: 1920,
+      height: 1080,
+    });
+    assert.equal(sprite.sha256, SHA_A);
 
     const gen = validateMediaGeneratePayload('generate_media', {
       jobId: JID_A,

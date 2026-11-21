@@ -1794,6 +1794,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     db,
     storage,
     queues,
+    eventBus,
     presignPutTtlSec: config.S3_PRESIGN_PUT_TTL_SEC,
     presignGetTtlSec: config.S3_PRESIGN_GET_TTL_SEC,
   });
@@ -1808,6 +1809,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     store: createPgImportAssetsStore(db),
     storage,
     queues,
+    eventBus,
     config,
   });
   const mediaJobs = createCloudMediaJobsPort({ db, queues, eventBus, assets });

@@ -88,6 +88,50 @@ export function buildPreviewProxyJobId(workspaceId: string, sha256: string): str
   return `proxy__${workspaceId}__${sha256}`;
 }
 
+export function buildMediaProbeJobId(workspaceId: string, sha256: string): string {
+  return `probe__${workspaceId}__${sha256}`;
+}
+
+export function buildImageThumbnailJobId(workspaceId: string, sha256: string, spec: string): string {
+  return `imgthumb__${workspaceId}__${sha256}__${spec}`;
+}
+
+export function buildVideoSpriteJobId(workspaceId: string, sha256: string): string {
+  return `sprite__${workspaceId}__${sha256}`;
+}
+
+export function buildWaveformPeaksJobId(workspaceId: string, sha256: string): string {
+  return `waveform__${workspaceId}__${sha256}`;
+}
+
+const DERIVED_DEDUPE_JOB_PREFIXES = ['probe__', 'imgthumb__', 'sprite__', 'waveform__', 'proxy__'] as const;
+
+function isDerivedDedupeJobId(jobId: string | undefined): boolean {
+  return Boolean(jobId && DERIVED_DEDUPE_JOB_PREFIXES.some((prefix) => jobId.startsWith(prefix)));
+}
+
+function defaultMediaIngestPriority(name: MediaIngestJobName): number {
+  switch (name) {
+    case 'upload_commit':
+    case 'url_fetch':
+      return 1;
+    case 'media_probe':
+      return 2;
+    case 'image_thumbnail':
+      return 3;
+    case 'generate_video_sprite':
+    case 'extract_waveform_peaks':
+      return 4;
+    case 'freeze_frame':
+    case 'extract_asset_read':
+    case 'inline_video_preview':
+    case 'loudness_normalize':
+      return 5;
+    case 'generate_preview_proxy':
+      return 10;
+  }
+}
+
 export class QueueService {
   readonly mediaIngest: Queue;
   readonly mediaGenerate: Queue;
@@ -130,13 +174,45 @@ export class QueueService {
             validated.workspaceId,
             (validated as MediaIngestPayloadMap['generate_preview_proxy']).sha256,
           )
-        : 'jobId' in validated && typeof validated.jobId === 'string'
-          ? validated.jobId
-          : undefined;
+        : name === 'media_probe'
+          ? buildMediaProbeJobId(
+              validated.workspaceId,
+              (validated as MediaIngestPayloadMap['media_probe']).sha256,
+            )
+          : name === 'image_thumbnail'
+            ? buildImageThumbnailJobId(
+                validated.workspaceId,
+                (validated as MediaIngestPayloadMap['image_thumbnail']).sha256,
+                (validated as MediaIngestPayloadMap['image_thumbnail']).spec,
+              )
+            : name === 'generate_video_sprite'
+              ? buildVideoSpriteJobId(
+                  validated.workspaceId,
+                  (validated as MediaIngestPayloadMap['generate_video_sprite']).sha256,
+                )
+              : name === 'extract_waveform_peaks'
+                ? buildWaveformPeaksJobId(
+                    validated.workspaceId,
+                    (validated as MediaIngestPayloadMap['extract_waveform_peaks']).sha256,
+                  )
+                : 'jobId' in validated && typeof validated.jobId === 'string'
+                  ? validated.jobId
+                  : undefined;
     const jobId = options?.jobId ?? defaultJobId;
-    const defaultPriority = name === 'generate_preview_proxy' ? 10 : undefined;
+    // BullMQ silently ignores add() when a terminal job with the same custom jobId is still retained.
+    // Clear terminal derived jobs on explicit re-enqueue while keeping active/waiting jobs deduplicated.
+    if (jobId && isDerivedDedupeJobId(jobId)) {
+      const existing = await this.mediaIngest.getJob(jobId).catch(() => undefined);
+      if (existing) {
+        const state = await existing.getState().catch(() => null);
+        if (state === 'completed' || state === 'failed') {
+          await existing.remove().catch(() => {});
+        }
+      }
+    }
+    const defaultPriority = defaultMediaIngestPriority(name);
     return this.mediaIngest.add(name, validated, {
-      ...(defaultPriority !== undefined ? { priority: defaultPriority } : {}),
+      priority: defaultPriority,
       ...options,
       ...(jobId ? { jobId } : {}),
     });

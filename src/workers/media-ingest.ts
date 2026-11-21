@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
-import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdir, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,17 +15,23 @@ import {
   parseEbur128Summary,
 } from '@hyperframes/studio-server/loudness';
 import { and, eq, gt, sql } from 'drizzle-orm';
-import sharp from 'sharp';
+import sharp, { type OverlayOptions } from 'sharp';
 import { resolveBrandAddresses } from '../../gateway/brand-network.ts';
 import { execute, pluginRoot } from '../../hyperframes.ts';
 import { verificationBinaries } from '../../scripts/verify-export.ts';
 import { MAX_ASSET_BYTES } from '../../shared/asset-limits.ts';
 import type { AssetReadResult } from '../../shared/asset-library.ts';
-import { computeProjectRevision, isTextProjectPath, projectPath } from '../../shared/project-validation.ts';
+import { computeProjectRevision, isTextProjectPath, isUuid, projectPath } from '../../shared/project-validation.ts';
 import { CloudError, isCloudError } from '../contracts/errors.ts';
 import type { JobProgressEvent, ProjectEvent } from '../contracts/events.ts';
 import type { MediaIngestJobName, MediaIngestPayloadMap } from '../contracts/jobs.ts';
-import type { BlobMetadata, StoragePort } from '../contracts/storage.ts';
+import type {
+  BlobMetadata,
+  StoragePort,
+  VideoSpriteManifest,
+  VideoSpriteMetadata,
+  VideoSpriteSheetEntry,
+} from '../contracts/storage.ts';
 import {
   applyWorkspaceBlobRefDeltas,
   normalizeBlobRefDeltas,
@@ -52,7 +58,13 @@ import {
 } from '../db/schema/project-files.ts';
 import { projects } from '../db/schema/projects.ts';
 import type { Logger } from '../infra/logger.ts';
-import { buildPreviewProxyJobId, type QueueService } from '../infra/queues.ts';
+import {
+  buildImageThumbnailJobId,
+  buildPreviewProxyJobId,
+  buildVideoSpriteJobId,
+  buildWaveformPeaksJobId,
+  type QueueService,
+} from '../infra/queues.ts';
 import { jobChannel, projectChannel, type RedisEventBus } from '../infra/redis.ts';
 import {
   assertTenantScopedKey,
@@ -72,10 +84,314 @@ export const DEFAULT_FETCH_IDLE_TIMEOUT_MS = 60_000;
 export const DEFAULT_FETCH_TOTAL_TIMEOUT_MS = 300_000;
 export const PREVIEW_PROXY_IMAGE_MIN_BYTES = 100 * 1024;
 export const PREVIEW_PROXY_IMAGE_MAX_WIDTH = 1920;
+export const SPRITE_MAX_TILE_WIDTH = 160;
+export const SPRITE_MAX_TILE_HEIGHT = 90;
+export const SPRITE_COLUMNS = 10;
+export const SPRITE_ROWS = 6;
+export const SPRITE_FRAMES_PER_SHEET = SPRITE_COLUMNS * SPRITE_ROWS;
+export const SPRITE_MAX_FRAMES = 120;
 const BLOB_GC_RETRY_MAX = 5;
 const BLOB_GC_RETRY_DELAY_MS = 150;
 const ASSET_READ_MAX_PREVIEW_BYTES = 4 * 1024 * 1024;
 const ASSET_READ_MAX_TOTAL_BYTES = 8 * 1024 * 1024;
+
+function parsePositiveIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+export class AsyncSemaphore {
+  readonly limit: number;
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) {
+      await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+    this.active += 1;
+    try {
+      return await fn();
+    } finally {
+      this.active -= 1;
+      const next = this.queue.shift();
+      if (next) next();
+    }
+  }
+}
+
+const lightFfmpegSemaphore = new AsyncSemaphore(
+  parsePositiveIntEnv('MEDIA_LIGHT_FFMPEG_CONCURRENCY', 3, 1, 16),
+);
+const proxyFfmpegSemaphore = new AsyncSemaphore(
+  parsePositiveIntEnv('MEDIA_PROXY_CONCURRENCY', 2, 1, 8),
+);
+
+async function computeFileSha256(filePath: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) {
+    hash.update(chunk);
+  }
+  return hash.digest('hex');
+}
+
+export function computeSpriteTileDimensions(
+  width?: number,
+  height?: number,
+): { frameWidth: number; frameHeight: number } {
+  if (!width || !height || !Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return { frameWidth: SPRITE_MAX_TILE_WIDTH, frameHeight: SPRITE_MAX_TILE_HEIGHT };
+  }
+  const scale = Math.min(SPRITE_MAX_TILE_WIDTH / width, SPRITE_MAX_TILE_HEIGHT / height, 1);
+  const rawW = Math.max(16, Math.round((width * scale) / 2) * 2);
+  const rawH = Math.max(16, Math.round((height * scale) / 2) * 2);
+  return {
+    frameWidth: Math.min(SPRITE_MAX_TILE_WIDTH, rawW),
+    frameHeight: Math.min(SPRITE_MAX_TILE_HEIGHT, rawH),
+  };
+}
+
+export function computeSpriteSamplingPlan(durationSec: number): { targetFrames: number; intervalSec: number } {
+  const safeDuration = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : 1;
+  let targetFrames: number;
+  if (safeDuration <= 2) {
+    targetFrames = Math.max(1, Math.min(4, Math.ceil(safeDuration * 2)));
+  } else if (safeDuration <= 60) {
+    targetFrames = Math.max(2, Math.min(SPRITE_FRAMES_PER_SHEET, Math.ceil(safeDuration)));
+  } else {
+    targetFrames = Math.min(SPRITE_MAX_FRAMES, Math.max(SPRITE_FRAMES_PER_SHEET, Math.ceil(safeDuration / 2)));
+  }
+  const intervalSec = Math.max(0.25, safeDuration / targetFrames);
+  return { targetFrames, intervalSec };
+}
+
+async function publishMediaDerivedReady(
+  deps: Pick<MediaIngestDeps, 'db' | 'eventBus' | 'logger'>,
+  params: {
+    workspaceId: string;
+    sha256: string;
+    kind: 'thumbnail' | 'sprite' | 'waveform' | 'proxy' | 'metadata';
+    status: 'ready' | 'failed';
+    projectId?: string;
+  },
+): Promise<void> {
+  const byProject = new Map<string, string[]>();
+  if (params.projectId && isUuid(params.projectId)) {
+    byProject.set(params.projectId, []);
+  }
+
+  try {
+    const rows = await deps.db
+      .select({
+        projectId: projectFiles.projectId,
+        path: projectFiles.path,
+      })
+      .from(projectFiles)
+      .where(and(eq(projectFiles.workspaceId, params.workspaceId), eq(projectFiles.sha256, params.sha256)));
+
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (!row || typeof row.projectId !== 'string' || !isUuid(row.projectId)) continue;
+        const list = byProject.get(row.projectId) ?? [];
+        if (typeof row.path === 'string' && row.path.length > 0 && !list.includes(row.path)) {
+          list.push(row.path);
+        }
+        byProject.set(row.projectId, list);
+      }
+    }
+  } catch {
+    // Lightweight mock databases in unit tests may not model project_files lookups.
+  }
+
+  if (byProject.size === 0) return;
+
+  const ts = Date.now();
+  await Promise.allSettled(
+    [...byProject.entries()].map(([projectId, paths]) => {
+      const evt: ProjectEvent = {
+        type: 'media-derived-ready',
+        workspaceId: params.workspaceId,
+        projectId,
+        sha256: params.sha256,
+        kind: params.kind,
+        status: params.status,
+        ...(paths.length > 0 ? { paths } : {}),
+        ts,
+      };
+      return deps.eventBus.publish(projectChannel(params.workspaceId, projectId), evt);
+    }),
+  );
+}
+
+async function enqueueDerivedMediaJobs(
+  deps: Pick<MediaIngestDeps, 'queues' | 'logger'>,
+  params: {
+    workspaceId: string;
+    blobScope: 'workspace' | 'catalog';
+    sha256: string;
+    mimeType: string;
+    sizeBytes: number;
+    probed?: ProbedMediaInfo | null;
+    projectId?: string;
+    skipThumbnail?: boolean;
+  },
+): Promise<void> {
+  if (!deps.queues) return;
+  const queues = deps.queues;
+  const mime = params.mimeType.trim().toLowerCase().split(';')[0] ?? '';
+  const modality =
+    params.probed?.modality ??
+    (mime.startsWith('video/')
+      ? 'video'
+      : mime.startsWith('audio/')
+        ? 'audio'
+        : mime.startsWith('image/')
+          ? 'image'
+          : undefined);
+
+  const tasks: Array<{ name: MediaIngestJobName; run: () => Promise<unknown> }> = [];
+
+  if (modality === 'video') {
+    tasks.push({
+      name: 'generate_video_sprite',
+      run: () =>
+        queues.enqueueMediaIngest(
+          'generate_video_sprite',
+          {
+            workspaceId: params.workspaceId,
+            blobScope: params.blobScope,
+            sha256: params.sha256,
+            ...(params.projectId ? { projectId: params.projectId } : {}),
+            ...(params.probed?.durationSec !== undefined ? { durationSec: params.probed.durationSec } : {}),
+            ...(params.probed?.width !== undefined ? { width: params.probed.width } : {}),
+            ...(params.probed?.height !== undefined ? { height: params.probed.height } : {}),
+          },
+          { jobId: buildVideoSpriteJobId(params.workspaceId, params.sha256) },
+        ),
+    });
+
+    if (params.probed?.hasAudio !== false) {
+      tasks.push({
+        name: 'extract_waveform_peaks',
+        run: () =>
+          queues.enqueueMediaIngest(
+            'extract_waveform_peaks',
+            {
+              workspaceId: params.workspaceId,
+              blobScope: params.blobScope,
+              sha256: params.sha256,
+              ...(params.projectId ? { projectId: params.projectId } : {}),
+              samples: 2048,
+            },
+            { jobId: buildWaveformPeaksJobId(params.workspaceId, params.sha256) },
+          ),
+      });
+    }
+
+    if (!params.skipThumbnail) {
+      tasks.push({
+        name: 'image_thumbnail',
+        run: () =>
+          queues.enqueueMediaIngest(
+            'image_thumbnail',
+            {
+              workspaceId: params.workspaceId,
+              blobScope: params.blobScope,
+              sha256: params.sha256,
+              ...(params.projectId ? { projectId: params.projectId } : {}),
+              spec: 'w320',
+              width: 320,
+            },
+            { jobId: buildImageThumbnailJobId(params.workspaceId, params.sha256, 'w320') },
+          ),
+      });
+    }
+  } else if (modality === 'audio') {
+    tasks.push({
+      name: 'extract_waveform_peaks',
+      run: () =>
+        queues.enqueueMediaIngest(
+          'extract_waveform_peaks',
+          {
+            workspaceId: params.workspaceId,
+            blobScope: params.blobScope,
+            sha256: params.sha256,
+            ...(params.projectId ? { projectId: params.projectId } : {}),
+            samples: 2048,
+          },
+          { jobId: buildWaveformPeaksJobId(params.workspaceId, params.sha256) },
+        ),
+    });
+  } else if (modality === 'image' && mime !== 'image/svg+xml' && !params.skipThumbnail) {
+    tasks.push({
+      name: 'image_thumbnail',
+      run: () =>
+        queues.enqueueMediaIngest(
+          'image_thumbnail',
+          {
+            workspaceId: params.workspaceId,
+            blobScope: params.blobScope,
+            sha256: params.sha256,
+            ...(params.projectId ? { projectId: params.projectId } : {}),
+            spec: 'w320',
+            width: 320,
+          },
+          { jobId: buildImageThumbnailJobId(params.workspaceId, params.sha256, 'w320') },
+        ),
+    });
+  }
+
+  if (params.blobScope === 'workspace') {
+    const proxyTarget = classifyPreviewProxyTarget({
+      mimeType: params.mimeType,
+      sizeBytes: params.sizeBytes,
+      width: params.probed?.width,
+      height: params.probed?.height,
+    });
+    if (proxyTarget) {
+      tasks.push({
+        name: 'generate_preview_proxy',
+        run: () =>
+          queues.enqueueMediaIngest(
+            'generate_preview_proxy',
+            {
+              kind: 'generate_preview_proxy',
+              workspaceId: params.workspaceId,
+              sha256: params.sha256,
+              ...(params.projectId ? { projectId: params.projectId } : {}),
+              mimeType: params.mimeType,
+              sizeBytes: params.sizeBytes,
+              ...(params.probed?.width !== undefined ? { width: params.probed.width } : {}),
+              ...(params.probed?.height !== undefined ? { height: params.probed.height } : {}),
+            },
+            { jobId: buildPreviewProxyJobId(params.workspaceId, params.sha256) },
+          ),
+      });
+    }
+  }
+
+  if (tasks.length === 0) return;
+
+  const results = await Promise.allSettled(tasks.map((t) => t.run()));
+  results.forEach((res, idx) => {
+    if (res.status === 'rejected') {
+      deps.logger.warn('Best-effort derived media enqueue failed (ingest still committed)', {
+        workspaceId: params.workspaceId,
+        sha256: params.sha256,
+        jobName: tasks[idx]?.name,
+        mimeType: params.mimeType,
+        error: res.reason,
+      });
+    }
+  });
+}
 
 export type PreviewProxyTrackKind = 'video' | 'image' | 'audio';
 
@@ -157,6 +473,7 @@ export interface SafeFetchOptions {
   totalTimeoutMs?: number;
   allowDohFakeIpFallback?: boolean;
   signal?: AbortSignal;
+  onProgress?: (downloadedBytes: number, totalBytes?: number) => void;
   resolveDns?: (hostname: string, signal: AbortSignal) => Promise<Array<{ address: string; family: number }>>;
 }
 
@@ -396,17 +713,22 @@ export async function probeMediaFile(
 export async function normalizeSdrPngFileIfApplicable(
   filePath: string,
   mimeType: string,
+  knownSha256?: string,
 ): Promise<{ normalized: boolean; sizeBytes: number; sha256: string }> {
-  const bytes = await readFile(filePath);
-  if (mimeType === 'image/png') {
-    const stripped = stripSdrPngColourTags(bytes);
-    if (stripped) {
-      await writeFile(filePath, stripped);
-      const sha256 = createHash('sha256').update(stripped).digest('hex');
-      return { normalized: true, sizeBytes: stripped.byteLength, sha256 };
-    }
+  if (mimeType !== 'image/png') {
+    const fileInfo = await stat(filePath);
+    const sha256 = knownSha256 ?? (await computeFileSha256(filePath));
+    return { normalized: false, sizeBytes: fileInfo.size, sha256 };
   }
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
+
+  const bytes = await readFile(filePath);
+  const stripped = stripSdrPngColourTags(bytes);
+  if (stripped) {
+    await writeFile(filePath, stripped);
+    const sha256 = createHash('sha256').update(stripped).digest('hex');
+    return { normalized: true, sizeBytes: stripped.byteLength, sha256 };
+  }
+  const sha256 = knownSha256 ?? createHash('sha256').update(bytes).digest('hex');
   return { normalized: false, sizeBytes: bytes.byteLength, sha256 };
 }
 
@@ -584,6 +906,8 @@ export async function safePublicHttpsFetchToFile(
 
             const digest = createHash('sha256');
             let receivedBytes = 0;
+            let lastProgressTs = 0;
+            const knownTotal = Number.isFinite(declaredLen) && declaredLen > 0 ? declaredLen : undefined;
             const limiter = new Transform({
               transform(chunk: Buffer, _encoding, callback) {
                 receivedBytes += chunk.byteLength;
@@ -596,6 +920,13 @@ export async function safePublicHttpsFetchToFile(
                   return;
                 }
                 digest.update(chunk);
+                if (options.onProgress) {
+                  const nowTs = Date.now();
+                  if (nowTs - lastProgressTs >= 500) {
+                    lastProgressTs = nowTs;
+                    options.onProgress(receivedBytes, knownTotal);
+                  }
+                }
                 callback(null, chunk);
               },
             });
@@ -708,18 +1039,27 @@ export interface DetectedFontInfo {
  * so `project_asset` font uploads (+ companion license) bypass `ffprobe` cleanly.
  */
 export async function detectFontBinary(filePath: string, targetPath?: string): Promise<DetectedFontInfo | null> {
-  const bytes = await readFile(filePath);
-  if (bytes.byteLength < 12 || bytes.byteLength > MAX_ASSET_BYTES) return null;
+  const fh = await open(filePath, 'r');
+  let sizeBytes = 0;
+  const header = Buffer.alloc(16);
+  try {
+    const info = await fh.stat();
+    sizeBytes = info.size;
+    if (sizeBytes < 12 || sizeBytes > MAX_ASSET_BYTES) return null;
+    await fh.read(header, 0, 16, 0);
+  } finally {
+    await fh.close();
+  }
 
-  const sigAscii = bytes.subarray(0, 4).toString('ascii');
-  const sigHex = bytes.subarray(0, 4).toString('hex');
+  const sigAscii = header.subarray(0, 4).toString('ascii');
+  const sigHex = header.subarray(0, 4).toString('hex');
   const ext = targetPath ? path.posix.extname(targetPath).toLowerCase() : '';
 
-  if (sigAscii === 'wOF2') return { mimeType: 'font/woff2', extension: 'woff2', sizeBytes: bytes.byteLength };
-  if (sigAscii === 'wOFF') return { mimeType: 'font/woff', extension: 'woff', sizeBytes: bytes.byteLength };
-  if (sigAscii === 'OTTO') return { mimeType: 'font/otf', extension: 'otf', sizeBytes: bytes.byteLength };
+  if (sigAscii === 'wOF2') return { mimeType: 'font/woff2', extension: 'woff2', sizeBytes };
+  if (sigAscii === 'wOFF') return { mimeType: 'font/woff', extension: 'woff', sizeBytes };
+  if (sigAscii === 'OTTO') return { mimeType: 'font/otf', extension: 'otf', sizeBytes };
   if (sigHex === '00010000' || sigAscii === 'true' || sigAscii === 'ttcf') {
-    return { mimeType: 'font/ttf', extension: 'ttf', sizeBytes: bytes.byteLength };
+    return { mimeType: 'font/ttf', extension: 'ttf', sizeBytes };
   }
   // Reject files claiming a font extension whose magic bytes are not a valid font container.
   if (FONT_EXTENSIONS.has(ext)) {
@@ -747,6 +1087,9 @@ async function promoteFileToLibraryOrProject(
     uploadId?: string;
     licenseBuffer?: Buffer | null;
     licenseFilename?: string | null;
+    sourceSha256?: string;
+    sourceStagingKey?: string;
+    ingestSource?: 'mcp_upload' | 'mcp_url' | 'web_upload';
   },
 ): Promise<{
   assetId?: string;
@@ -796,13 +1139,12 @@ async function promoteFileToLibraryOrProject(
   let modality: AssetModality | 'font';
   let sha256: string;
   let sizeBytes: number;
-  let finalBytes: Buffer;
+  let fileWasModified = false;
   let blobMetadata: BlobMetadata | null = null;
 
   if (detectedFont) {
-    finalBytes = await readFile(params.filePath);
-    sha256 = createHash('sha256').update(finalBytes).digest('hex');
-    sizeBytes = finalBytes.byteLength;
+    sizeBytes = detectedFont.sizeBytes;
+    sha256 = params.sourceSha256 ?? (await computeFileSha256(params.filePath));
     mimeType = detectedFont.mimeType;
     modality = 'font';
     blobMetadata = { mimeType: detectedFont.mimeType };
@@ -816,11 +1158,11 @@ async function promoteFileToLibraryOrProject(
       );
     }
 
-    // Strip SDR PNG colour tags before finalizing CAS sha256 (#9 §6.5).
-    const normalized = await normalizeSdrPngFileIfApplicable(params.filePath, probed.mimeType);
-    finalBytes = await readFile(params.filePath);
+    // Strip SDR PNG colour tags before finalizing CAS sha256 (#9 §6.5); non-PNG skips full-file RAM read.
+    const normalized = await normalizeSdrPngFileIfApplicable(params.filePath, probed.mimeType, params.sourceSha256);
+    fileWasModified = normalized.normalized;
     sha256 = normalized.sha256;
-    sizeBytes = finalBytes.byteLength;
+    sizeBytes = normalized.sizeBytes;
     mimeType = probed.mimeType;
     modality = probed.modality;
     blobMetadata = toBlobMetadata(probed, normalized.normalized ? { sdrNormalized: true } : {});
@@ -843,12 +1185,31 @@ async function promoteFileToLibraryOrProject(
     if (thumbBuffer && thumbBuffer.byteLength > 0) {
       uploadedThumbKey = thumbnailKey(params.workspaceId, sha256, 'w320');
       await deps.storage.putObject(uploadedThumbKey, thumbBuffer, 'image/jpeg', thumbBuffer.byteLength);
+      if (blobMetadata) {
+        blobMetadata = { ...blobMetadata, thumbnailReady: true };
+      }
     }
   }
 
   // INVARIANT: Upload bytes to S3 CAS BEFORE opening PG transaction!
+  // Prefer zero-copy S3 server-side CopyObject from staging or streaming upload to avoid buffering large videos in RAM.
   const uploadCasBlobs = async () => {
-    await deps.storage.putBlobIfAbsent(blobKey, finalBytes, mimeType);
+    if (!fileWasModified && params.sourceStagingKey && deps.storage.copyObject) {
+      const existing = await deps.storage.headObject(blobKey);
+      if (!existing) {
+        await deps.storage.copyObject(params.sourceStagingKey, blobKey, mimeType);
+      }
+    } else if (deps.storage.putBlobIfAbsentStream) {
+      await deps.storage.putBlobIfAbsentStream(
+        blobKey,
+        () => createReadStream(params.filePath),
+        sizeBytes,
+        mimeType,
+      );
+    } else {
+      const bytes = await readFile(params.filePath);
+      await deps.storage.putBlobIfAbsent(blobKey, bytes, mimeType);
+    }
     if (licenseBlobKey && params.licenseBuffer) {
       await deps.storage.putBlobIfAbsent(licenseBlobKey, params.licenseBuffer, 'text/plain; charset=utf-8');
     }
@@ -1371,40 +1732,40 @@ async function promoteFileToLibraryOrProject(
       ts: Date.now(),
     };
     publications.push(deps.eventBus.publish(projectChannel(params.workspaceId, params.targetProjectId), projEvent));
+    const ingestDoneEvent: ProjectEvent = {
+      type: 'media-ingest-status',
+      workspaceId: params.workspaceId,
+      projectId: params.targetProjectId,
+      ...(params.uploadId ? { ticketId: params.uploadId } : {}),
+      jobId: params.jobId,
+      filename: params.name,
+      targetPath: committed.projectPath,
+      bytes: sizeBytes,
+      source: params.ingestSource ?? 'web_upload',
+      state: 'completed',
+      stage: 'completed',
+      progress: 100,
+      ts: Date.now(),
+    };
+    publications.push(
+      deps.eventBus.publish(projectChannel(params.workspaceId, params.targetProjectId), ingestDoneEvent),
+    );
   }
   await Promise.allSettled(publications);
 
-  // Best-effort non-blocking preview proxy enqueue for eligible media blobs.
-  // Never fail upload_commit / url_fetch if background proxy scheduling fails.
-  const proxyTarget = classifyPreviewProxyTarget({
-    mimeType,
-    sizeBytes,
-    width: probed?.width,
-    height: probed?.height,
-  });
-  if (proxyTarget && deps.queues) {
-    try {
-      await deps.queues.enqueueMediaIngest(
-        'generate_preview_proxy',
-        {
-          kind: 'generate_preview_proxy',
-          workspaceId: params.workspaceId,
-          sha256,
-          mimeType,
-          sizeBytes,
-          ...(probed?.width !== undefined ? { width: probed.width } : {}),
-          ...(probed?.height !== undefined ? { height: probed.height } : {}),
-        },
-        { jobId: buildPreviewProxyJobId(params.workspaceId, sha256) },
-      );
-    } catch (error) {
-      deps.logger.warn('Best-effort preview proxy enqueue failed (ingest still committed)', {
-        workspaceId: params.workspaceId,
-        sha256,
-        mimeType,
-        error,
-      });
-    }
+  // Best-effort non-blocking derived media scheduling (sprite / waveform / thumbnail / preview proxy).
+  // Never fail upload_commit / url_fetch if background scheduling fails.
+  if (probed && deps.queues) {
+    await enqueueDerivedMediaJobs(deps, {
+      workspaceId: params.workspaceId,
+      blobScope: 'workspace',
+      sha256,
+      mimeType,
+      sizeBytes,
+      probed,
+      projectId: params.targetProjectId,
+      skipThumbnail: Boolean(uploadedThumbKey),
+    });
   }
 
   return {
@@ -1494,6 +1855,32 @@ export async function handleUploadCommitJob(
       licenseBuffer = await deps.storage.getObjectBuffer(licenseKey, Number(ticket.licenseMaxBytes ?? 131_072));
     }
 
+    const ticketResultMeta = (ticket.resultPayload ?? {}) as Record<string, unknown>;
+    const ingestSource: 'mcp_upload' | 'web_upload' =
+      ticketResultMeta.source === 'mcp_upload' ? 'mcp_upload' : 'web_upload';
+    const effectiveProjectId = payload.targetProjectId ?? ticket.targetProjectId ?? undefined;
+    const effectiveTargetPath = payload.targetPath ?? ticket.targetPath ?? undefined;
+
+    if (effectiveProjectId) {
+      await deps.eventBus
+        .publish(projectChannel(payload.workspaceId, effectiveProjectId), {
+          type: 'media-ingest-status',
+          workspaceId: payload.workspaceId,
+          projectId: effectiveProjectId,
+          ticketId: ticket.id,
+          jobId: payload.jobId,
+          filename: payload.name || ticket.filename,
+          ...(effectiveTargetPath ? { targetPath: effectiveTargetPath } : {}),
+          bytes: streamed.bytes,
+          source: ingestSource,
+          state: 'processing',
+          stage: 'probing',
+          progress: 45,
+          ts: Date.now(),
+        } satisfies ProjectEvent)
+        .catch(() => {});
+    }
+
     const promoted = await promoteFileToLibraryOrProject(deps, {
       jobId: payload.jobId,
       workspaceId: payload.workspaceId,
@@ -1501,14 +1888,17 @@ export async function handleUploadCommitJob(
       name: payload.name,
       purpose: payload.purpose,
       targetAssetId: payload.targetAssetId ?? ticket.targetAssetId ?? undefined,
-      targetProjectId: payload.targetProjectId ?? ticket.targetProjectId ?? undefined,
-      targetPath: payload.targetPath ?? ticket.targetPath ?? undefined,
+      targetProjectId: effectiveProjectId,
+      targetPath: effectiveTargetPath,
       parentVersionId: payload.parentVersionId,
       requestId: payload.requestId ?? ticket.requestId ?? undefined,
       expectedModality: payload.expectedModality ?? ticket.expectedModality ?? undefined,
       uploadId: ticket.id,
       licenseBuffer,
       licenseFilename,
+      sourceSha256: streamed.sha256,
+      sourceStagingKey: stagingKey,
+      ingestSource,
     });
 
     // Clean up staging object(s) after durable PG + CAS commit.
@@ -1553,6 +1943,24 @@ export async function handleUploadCommitJob(
         errorMessage: message,
         ts: Date.now(),
       } satisfies JobProgressEvent),
+      ...(payload.targetProjectId
+        ? [
+            deps.eventBus.publish(projectChannel(payload.workspaceId, payload.targetProjectId), {
+              type: 'media-ingest-status',
+              workspaceId: payload.workspaceId,
+              projectId: payload.targetProjectId,
+              ticketId: payload.uploadId,
+              jobId: payload.jobId,
+              filename: payload.name,
+              ...(payload.targetPath ? { targetPath: payload.targetPath } : {}),
+              source: 'web_upload',
+              state: 'failed',
+              stage: 'failed',
+              error: message,
+              ts: Date.now(),
+            } satisfies ProjectEvent),
+          ]
+        : []),
     ]);
     throw error;
   } finally {
@@ -1596,6 +2004,29 @@ export async function handleUrlFetchJob(
       idleTimeoutMs: DEFAULT_FETCH_IDLE_TIMEOUT_MS,
       totalTimeoutMs: DEFAULT_FETCH_TOTAL_TIMEOUT_MS,
       allowDohFakeIpFallback: deps.allowDohFakeIpFallback ?? false,
+      onProgress: payload.targetProjectId
+        ? (downloadedBytes, totalBytes) => {
+            const pct = totalBytes
+              ? Math.max(10, Math.min(70, Math.round(10 + (downloadedBytes / totalBytes) * 60)))
+              : 30;
+            void deps.eventBus
+              .publish(projectChannel(payload.workspaceId, payload.targetProjectId!), {
+                type: 'media-ingest-status',
+                workspaceId: payload.workspaceId,
+                projectId: payload.targetProjectId!,
+                jobId: payload.jobId,
+                filename: payload.name,
+                ...(payload.targetPath ? { targetPath: payload.targetPath } : {}),
+                bytes: totalBytes ?? downloadedBytes,
+                source: 'mcp_url',
+                state: 'processing',
+                stage: 'downloading',
+                progress: pct,
+                ts: Date.now(),
+              } satisfies ProjectEvent)
+              .catch(() => {});
+          }
+        : undefined,
     });
 
     if (payload.expectedSha256 && fetched.sha256 !== payload.expectedSha256) {
@@ -1617,6 +2048,8 @@ export async function handleUrlFetchJob(
       parentVersionId: payload.parentVersionId,
       requestId: payload.requestId,
       expectedModality: payload.expectedModality,
+      sourceSha256: fetched.sha256,
+      ingestSource: 'mcp_url',
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'URL import failed';
@@ -1649,6 +2082,23 @@ export async function handleUrlFetchJob(
         errorMessage: message,
         ts: Date.now(),
       } satisfies JobProgressEvent),
+      ...(payload.targetProjectId
+        ? [
+            deps.eventBus.publish(projectChannel(payload.workspaceId, payload.targetProjectId), {
+              type: 'media-ingest-status',
+              workspaceId: payload.workspaceId,
+              projectId: payload.targetProjectId,
+              jobId: payload.jobId,
+              filename: payload.name,
+              ...(payload.targetPath ? { targetPath: payload.targetPath } : {}),
+              source: 'mcp_url',
+              state: 'failed',
+              stage: 'failed',
+              error: message,
+              ts: Date.now(),
+            } satisfies ProjectEvent),
+          ]
+        : []),
     ]);
     throw error;
   } finally {
@@ -1680,6 +2130,22 @@ export async function handleMediaProbeJob(
     if (payload.blobScope === 'workspace') {
       await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, metadata);
     }
+    await enqueueDerivedMediaJobs(deps, {
+      workspaceId: payload.workspaceId,
+      blobScope: payload.blobScope,
+      sha256: payload.sha256,
+      mimeType: probed.mimeType,
+      sizeBytes: probed.sizeBytes,
+      probed,
+      projectId: payload.projectId,
+    });
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'metadata',
+      status: 'ready',
+      projectId: payload.projectId,
+    });
     return metadata;
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -1717,7 +2183,386 @@ export async function handleImageThumbnailJob(
 
     const destKey = thumbnailKey(payload.workspaceId, payload.sha256, payload.spec);
     await deps.storage.putObject(destKey, buffer, 'image/jpeg', buffer.byteLength);
+    if (payload.blobScope === 'workspace' && payload.spec === 'w320') {
+      await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
+        thumbnailReady: true,
+      }).catch(() => {});
+    }
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'thumbnail',
+      status: 'ready',
+      projectId: payload.projectId,
+    });
     return { key: destKey, bytes: buffer.byteLength };
+  } finally {
+    await rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+export interface GenerateVideoSpriteResult {
+  status: 'ready' | 'skipped';
+  reason?: 'already_ready' | 'blob_deleting' | 'not_video';
+  sprite?: VideoSpriteMetadata;
+  manifest?: VideoSpriteManifest;
+}
+
+/**
+ * Offloaded Studio job: `generate_video_sprite` — extract multi-frame WebP sprite sheets
+ * (10×6 grid, max 160×90 aspect-preserving tiles, up to 120 frames / 2 sheets) using fast
+ * keyframe-only FFmpeg decoding with sparse-keyframe seek fallback.
+ */
+export async function handleGenerateVideoSpriteJob(
+  deps: MediaIngestDeps,
+  payload: MediaIngestPayloadMap['generate_video_sprite'],
+): Promise<GenerateVideoSpriteResult> {
+  const manifestKey = derivedAssetKey(payload.workspaceId, payload.sha256, 'sprite-manifest.json');
+
+  if (payload.blobScope === 'workspace') {
+    try {
+      const existingRows = await deps.db
+        .select({
+          metadata: workspaceBlobs.metadata,
+          gcState: workspaceBlobs.gcState,
+        })
+        .from(workspaceBlobs)
+        .where(and(eq(workspaceBlobs.workspaceId, payload.workspaceId), eq(workspaceBlobs.sha256, payload.sha256)))
+        .limit(1);
+
+      const existingRow = existingRows[0];
+      if (existingRow?.gcState === 'deleting') {
+        return { status: 'skipped', reason: 'blob_deleting' };
+      }
+      const existingSprite = (existingRow?.metadata as WorkspaceBlobMetadataPatch | null)?.sprite;
+      if (existingSprite?.status === 'ready' && existingSprite.manifestKey) {
+        const head = await deps.storage.headObject(existingSprite.manifestKey);
+        if (head) {
+          return { status: 'skipped', reason: 'already_ready', sprite: existingSprite };
+        }
+      }
+    } catch {
+      // Allow lightweight mock databases to proceed directly to generation.
+    }
+  } else {
+    const head = await deps.storage.headObject(manifestKey);
+    if (head) {
+      return { status: 'skipped', reason: 'already_ready' };
+    }
+  }
+
+  const workDir = path.join(
+    deps.tmpBaseDir ?? os.tmpdir(),
+    `om-sprite-${payload.sha256.slice(0, 12)}-${randomUUID()}`,
+  );
+  const runCmd = deps.runFfmpegCommand ?? defaultRunFfmpegCommand;
+  const probe = deps.probeMedia ?? ((file: string) => probeMediaFile(file, runCmd));
+
+  try {
+    await mkdir(workDir, { recursive: true, mode: 0o700 });
+    const framesDir = path.join(workDir, 'frames');
+    await mkdir(framesDir, { recursive: true, mode: 0o700 });
+
+    const sourceKey = resolveBlobS3Key(payload.workspaceId, payload.blobScope, payload.sha256);
+    const localFile = path.join(workDir, 'source.bin');
+    await streamS3ObjectToFile(deps.storage, sourceKey, localFile, MAX_ASSET_BYTES);
+
+    let durationSec = payload.durationSec;
+    let sourceWidth = payload.width;
+    let sourceHeight = payload.height;
+    let isVideo = true;
+
+    if (!durationSec || !sourceWidth || !sourceHeight) {
+      const probed = await probe(localFile);
+      if (probed.modality !== 'video') {
+        isVideo = false;
+      } else {
+        durationSec = durationSec ?? probed.durationSec;
+        sourceWidth = sourceWidth ?? probed.width;
+        sourceHeight = sourceHeight ?? probed.height;
+      }
+    }
+
+    if (!isVideo) {
+      return { status: 'skipped', reason: 'not_video' };
+    }
+
+    const safeDuration = Number.isFinite(durationSec) && (durationSec ?? 0) > 0 ? Number(durationSec) : 1;
+    const { frameWidth, frameHeight } = computeSpriteTileDimensions(sourceWidth, sourceHeight);
+    const { targetFrames, intervalSec } = computeSpriteSamplingPlan(safeDuration);
+
+    const listExtractedFrames = async (): Promise<string[]> => {
+      const entries = await readdir(framesDir);
+      return entries
+        .filter((f) => f.endsWith('.jpg') || f.endsWith('.png'))
+        .sort()
+        .map((f) => path.join(framesDir, f));
+    };
+
+    const clearFramesDir = async () => {
+      const entries = await readdir(framesDir).catch(() => []);
+      await Promise.all(entries.map((entry) => rm(path.join(framesDir, entry), { force: true }).catch(() => {})));
+    };
+
+    let frameFiles: string[] = [];
+
+    await lightFfmpegSemaphore.run(async () => {
+      const scaleFilter = `scale=${frameWidth}:${frameHeight}:force_original_aspect_ratio=decrease:flags=fast_bilinear`;
+      const framePattern = path.join(framesDir, 'f-%04d.jpg');
+
+      if (safeDuration <= 12) {
+        await runCmd(
+          'ffmpeg',
+          [
+            '-v',
+            'error',
+            '-nostdin',
+            '-i',
+            localFile,
+            '-map',
+            '0:V:0',
+            '-vf',
+            `fps=1/${intervalSec.toFixed(4)},${scaleFilter}`,
+            '-frames:v',
+            String(targetFrames),
+            '-q:v',
+            '4',
+            '-y',
+            framePattern,
+          ],
+          workDir,
+          60_000,
+        );
+        frameFiles = await listExtractedFrames();
+      } else {
+        // Fast path: decode keyframes only (~10-20x faster on long / high-bitrate MP4s).
+        await runCmd(
+          'ffmpeg',
+          [
+            '-v',
+            'error',
+            '-nostdin',
+            '-skip_frame',
+            'nokey',
+            '-i',
+            localFile,
+            '-map',
+            '0:V:0',
+            '-vf',
+            `fps=1/${intervalSec.toFixed(4)},${scaleFilter}`,
+            '-frames:v',
+            String(targetFrames),
+            '-q:v',
+            '4',
+            '-y',
+            framePattern,
+          ],
+          workDir,
+          90_000,
+        );
+        frameFiles = await listExtractedFrames();
+
+        // Fallback for sparse-keyframe videos (e.g., long GOP screen recordings): fast -ss input seeks.
+        const minAcceptable = Math.max(2, Math.floor(targetFrames * 0.4));
+        if (frameFiles.length < minAcceptable) {
+          await clearFramesDir();
+          const seekCount = Math.min(targetFrames, 40);
+          for (let i = 0; i < seekCount; i += 1) {
+            const t = seekCount <= 1 ? 0 : Math.min(safeDuration - 0.05, (i / seekCount) * safeDuration);
+            const outPath = path.join(framesDir, `f-${String(i + 1).padStart(4, '0')}.jpg`);
+            await runCmd(
+              'ffmpeg',
+              [
+                '-v',
+                'error',
+                '-nostdin',
+                '-ss',
+                Math.max(0, t).toFixed(3),
+                '-i',
+                localFile,
+                '-map',
+                '0:V:0',
+                '-vf',
+                scaleFilter,
+                '-frames:v',
+                '1',
+                '-q:v',
+                '4',
+                '-y',
+                outPath,
+              ],
+              workDir,
+              15_000,
+            ).catch(() => null);
+          }
+          frameFiles = await listExtractedFrames();
+        }
+      }
+
+      // Final 1-frame fallback if video is extremely short or has irregular timestamps.
+      if (frameFiles.length === 0) {
+        const outPath = path.join(framesDir, 'f-0001.jpg');
+        await runCmd(
+          'ffmpeg',
+          [
+            '-v',
+            'error',
+            '-nostdin',
+            '-i',
+            localFile,
+            '-map',
+            '0:V:0',
+            '-vf',
+            scaleFilter,
+            '-frames:v',
+            '1',
+            '-q:v',
+            '4',
+            '-y',
+            outPath,
+          ],
+          workDir,
+          30_000,
+        );
+        frameFiles = await listExtractedFrames();
+      }
+    });
+
+    if (frameFiles.length === 0) {
+      throw new CloudError('INVALID_ARGUMENT', 'Failed to extract any frames for video sprite sheet', { status: 400 });
+    }
+
+    const cappedFrames = frameFiles.slice(0, SPRITE_MAX_FRAMES);
+    const sheets: VideoSpriteSheetEntry[] = [];
+    const totalSheets = Math.ceil(cappedFrames.length / SPRITE_FRAMES_PER_SHEET);
+
+    for (let sheetIndex = 0; sheetIndex < totalSheets; sheetIndex += 1) {
+      const startFrame = sheetIndex * SPRITE_FRAMES_PER_SHEET;
+      const chunk = cappedFrames.slice(startFrame, startFrame + SPRITE_FRAMES_PER_SHEET);
+      const sheetColumns = Math.min(SPRITE_COLUMNS, chunk.length);
+      const sheetRows = Math.ceil(chunk.length / sheetColumns);
+      const sheetWidth = sheetColumns * frameWidth;
+      const sheetHeight = sheetRows * frameHeight;
+
+      const composites: OverlayOptions[] = [];
+      for (let i = 0; i < chunk.length; i += 1) {
+        const tileBuf = await sharp(chunk[i])
+          .resize(frameWidth, frameHeight, {
+            fit: 'contain',
+            background: { r: 16, g: 16, b: 18, alpha: 1 },
+          })
+          .toBuffer();
+        const col = i % sheetColumns;
+        const row = Math.floor(i / sheetColumns);
+        composites.push({
+          input: tileBuf,
+          left: col * frameWidth,
+          top: row * frameHeight,
+        });
+      }
+
+      const webpBuffer = await sharp({
+        create: {
+          width: sheetWidth,
+          height: sheetHeight,
+          channels: 3,
+          background: { r: 16, g: 16, b: 18 },
+        },
+      })
+        .composite(composites)
+        .webp({ quality: 72 })
+        .toBuffer();
+
+      const sheetS3Key = derivedAssetKey(payload.workspaceId, payload.sha256, `sprite-${sheetIndex}.webp`);
+      await deps.storage.putObject(sheetS3Key, webpBuffer, 'image/webp', webpBuffer.byteLength);
+
+      sheets.push({
+        index: sheetIndex,
+        s3Key: sheetS3Key,
+        startFrame,
+        frameCount: chunk.length,
+        columns: sheetColumns,
+        rows: sheetRows,
+        width: sheetWidth,
+        height: sheetHeight,
+      });
+    }
+
+    const actualIntervalSec = Math.round((safeDuration / cappedFrames.length) * 1000) / 1000;
+    const generatedAt = new Date().toISOString();
+    const manifest: VideoSpriteManifest = {
+      version: 1,
+      sha256: payload.sha256,
+      durationSec: safeDuration,
+      intervalSec: actualIntervalSec,
+      frameCount: cappedFrames.length,
+      frameWidth,
+      frameHeight,
+      columns: SPRITE_COLUMNS,
+      rows: SPRITE_ROWS,
+      sheets,
+    };
+
+    const manifestBuf = Buffer.from(JSON.stringify(manifest), 'utf8');
+    await deps.storage.putObject(manifestKey, manifestBuf, 'application/json', manifestBuf.byteLength);
+
+    const spriteMeta: VideoSpriteMetadata = {
+      status: 'ready',
+      manifestKey,
+      sheetCount: sheets.length,
+      frameCount: cappedFrames.length,
+      frameWidth,
+      frameHeight,
+      intervalSec: actualIntervalSec,
+      durationSec: safeDuration,
+      generatedAt,
+    };
+
+    if (payload.blobScope === 'workspace') {
+      await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
+        sprite: spriteMeta,
+      });
+    }
+
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'sprite',
+      status: 'ready',
+      projectId: payload.projectId,
+    });
+
+    return { status: 'ready', sprite: spriteMeta, manifest };
+  } catch (error) {
+    const failedSprite: VideoSpriteMetadata = {
+      status: 'failed',
+      manifestKey: '',
+      frameCount: 0,
+      frameWidth: 0,
+      frameHeight: 0,
+      durationSec: 0,
+      intervalSec: 0,
+      sheetCount: 0,
+      generatedAt: new Date().toISOString(),
+    };
+    if (payload.blobScope === 'workspace') {
+      await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
+        sprite: failedSprite,
+      }).catch(() => {});
+    }
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'sprite',
+      status: 'failed',
+      projectId: payload.projectId,
+    }).catch(() => {});
+    deps.logger.warn('Video sprite generation failed', {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      error,
+    });
+    throw error;
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -1741,11 +2586,48 @@ export async function handleExtractWaveformPeaksJob(
 
     const probed = await probe(localFile);
     const sampleRate = 8000;
-    const decode = await runCmd(
-      'ffmpeg',
-      ['-v', 'error', '-nostdin', '-i', localFile, '-vn', '-ac', '1', '-ar', String(sampleRate), '-f', 's16le', '-y', pcmFile],
-      workDir,
-      60_000,
+    const derivedKey = derivedAssetKey(payload.workspaceId, payload.sha256, 'waveform-peaks.json');
+
+    // Silent videos (no audio stream) persist an explicit empty waveform instead of failing FFmpeg.
+    if (probed.hasAudio === false) {
+      const durationSec = probed.durationSec ?? 0;
+      const silentJson = Buffer.from(
+        JSON.stringify({
+          peaks: [],
+          bins: [],
+          binSeconds: 0,
+          samples: 0,
+          sampleRate,
+          duration: durationSec,
+          hasAudio: false,
+        }),
+        'utf8',
+      );
+      await deps.storage.putObject(derivedKey, silentJson, 'application/json', silentJson.byteLength);
+      if (payload.blobScope === 'workspace') {
+        await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
+          waveformPeaksKey: derivedKey,
+          durationSec,
+          hasAudio: false,
+        });
+      }
+      await publishMediaDerivedReady(deps, {
+        workspaceId: payload.workspaceId,
+        sha256: payload.sha256,
+        kind: 'waveform',
+        status: 'ready',
+        projectId: payload.projectId,
+      });
+      return { key: derivedKey, samples: 0, peaks: [], durationSec };
+    }
+
+    const decode = await lightFfmpegSemaphore.run(() =>
+      runCmd(
+        'ffmpeg',
+        ['-v', 'error', '-nostdin', '-i', localFile, '-vn', '-ac', '1', '-ar', String(sampleRate), '-f', 's16le', '-y', pcmFile],
+        workDir,
+        60_000,
+      ),
     );
     if (decode.code !== 0) {
       throw new CloudError('INVALID_ARGUMENT', 'Failed to extract audio PCM for waveform peaks', { status: 400 });
@@ -1773,13 +2655,16 @@ export async function handleExtractWaveformPeaksJob(
     }
 
     const durationSec = probed.durationSec ?? (totalFrames > 0 ? totalFrames / sampleRate : 0);
-    const derivedKey = derivedAssetKey(payload.workspaceId, payload.sha256, 'waveform-peaks.json');
+    const binSeconds = durationSec > 0 && bucketCount > 0 ? Math.round((durationSec / bucketCount) * 1_000_000) / 1_000_000 : 0;
     const jsonBuf = Buffer.from(
       JSON.stringify({
         peaks,
+        bins: peaks,
+        binSeconds,
         samples: bucketCount,
         sampleRate,
         duration: durationSec,
+        hasAudio: true,
       }),
       'utf8',
     );
@@ -1791,6 +2676,14 @@ export async function handleExtractWaveformPeaksJob(
         durationSec,
       });
     }
+
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'waveform',
+      status: 'ready',
+      projectId: payload.projectId,
+    });
 
     return { key: derivedKey, samples: bucketCount, peaks, durationSec };
   } finally {
@@ -2307,46 +3200,50 @@ export async function handleGeneratePreviewProxyJob(
     const sourcePath = path.join(workDir, 'source.bin');
     await streamS3ObjectToFile(deps.storage, sourceKey, sourcePath, MAX_ASSET_BYTES);
 
-    let proxyBuffer: Buffer;
+    let proxySizeBytes = 0;
     let proxyWidth: number | undefined;
     let proxyHeight: number | undefined;
     let proxyCodec: string = target.codec;
 
     if (target.track === 'video') {
       const outPath = path.join(workDir, 'proxy.mp4');
-      const transcode = await runCmd(
-        'ffmpeg',
-        [
-          '-v',
-          'error',
-          '-nostdin',
-          '-i',
-          sourcePath,
-          '-vf',
-          "scale='min(1280,iw)':-2",
-          '-c:v',
-          'libx264',
-          '-preset',
-          'veryfast',
-          '-crf',
-          '24',
-          '-pix_fmt',
-          'yuv420p',
-          '-g',
-          '30',
-          '-keyint_min',
-          '30',
-          '-movflags',
-          '+faststart',
-          '-c:a',
-          'aac',
-          '-b:a',
-          '128k',
-          '-y',
-          outPath,
-        ],
-        workDir,
-        300_000,
+      const transcode = await proxyFfmpegSemaphore.run(() =>
+        runCmd(
+          'ffmpeg',
+          [
+            '-v',
+            'error',
+            '-nostdin',
+            '-i',
+            sourcePath,
+            '-vf',
+            "scale='min(1280,iw)':-2",
+            '-c:v',
+            'libx264',
+            '-preset',
+            'veryfast',
+            '-threads',
+            '2',
+            '-crf',
+            '24',
+            '-pix_fmt',
+            'yuv420p',
+            '-g',
+            '30',
+            '-keyint_min',
+            '30',
+            '-movflags',
+            '+faststart',
+            '-c:a',
+            'aac',
+            '-b:a',
+            '128k',
+            '-y',
+            outPath,
+          ],
+          workDir,
+          300_000,
+        ),
       );
       if (transcode.code !== 0) {
         throw new CloudError(
@@ -2356,12 +3253,13 @@ export async function handleGeneratePreviewProxyJob(
         );
       }
 
-      proxyBuffer = await readFile(outPath);
-      if (proxyBuffer.byteLength === 0) {
+      const outStat = await stat(outPath);
+      if (outStat.size === 0) {
         throw new CloudError('STORAGE_ERROR', 'Video preview proxy transcode produced empty output', {
           status: 500,
         });
       }
+      proxySizeBytes = outStat.size;
 
       const probedOut = await runCmd(
         'ffprobe',
@@ -2400,6 +3298,8 @@ export async function handleGeneratePreviewProxyJob(
         proxyWidth = Math.min(1280, payload.width);
         proxyHeight = Math.max(2, Math.round((payload.height * proxyWidth) / payload.width / 2) * 2);
       }
+
+      await deps.storage.putObject(destKey, createReadStream(outPath), target.mimeType, proxySizeBytes);
     } else if (target.track === 'image') {
       const rendered = await sharp(sourcePath)
         .rotate()
@@ -2416,32 +3316,35 @@ export async function handleGeneratePreviewProxyJob(
           status: 500,
         });
       }
-      proxyBuffer = rendered.data;
+      proxySizeBytes = rendered.data.byteLength;
       proxyWidth = rendered.info.width;
       proxyHeight = rendered.info.height;
       proxyCodec = 'webp';
+      await deps.storage.putObject(destKey, rendered.data, target.mimeType, proxySizeBytes);
     } else {
       const outPath = path.join(workDir, 'proxy.m4a');
-      const transcode = await runCmd(
-        'ffmpeg',
-        [
-          '-v',
-          'error',
-          '-nostdin',
-          '-i',
-          sourcePath,
-          '-vn',
-          '-c:a',
-          'aac',
-          '-b:a',
-          '128k',
-          '-movflags',
-          '+faststart',
-          '-y',
-          outPath,
-        ],
-        workDir,
-        120_000,
+      const transcode = await proxyFfmpegSemaphore.run(() =>
+        runCmd(
+          'ffmpeg',
+          [
+            '-v',
+            'error',
+            '-nostdin',
+            '-i',
+            sourcePath,
+            '-vn',
+            '-c:a',
+            'aac',
+            '-b:a',
+            '128k',
+            '-movflags',
+            '+faststart',
+            '-y',
+            outPath,
+          ],
+          workDir,
+          120_000,
+        ),
       );
       if (transcode.code !== 0) {
         throw new CloudError(
@@ -2450,22 +3353,22 @@ export async function handleGeneratePreviewProxyJob(
           { status: 500 },
         );
       }
-      proxyBuffer = await readFile(outPath);
-      if (proxyBuffer.byteLength === 0) {
+      const outStat = await stat(outPath);
+      if (outStat.size === 0) {
         throw new CloudError('STORAGE_ERROR', 'Audio preview proxy transcode produced empty output', {
           status: 500,
         });
       }
+      proxySizeBytes = outStat.size;
       proxyCodec = 'aac';
+      await deps.storage.putObject(destKey, createReadStream(outPath), target.mimeType, proxySizeBytes);
     }
-
-    await deps.storage.putObject(destKey, proxyBuffer, target.mimeType, proxyBuffer.byteLength);
 
     const previewProxy: PreviewProxyMetadata = {
       status: 'ready',
       s3Key: destKey,
       mimeType: target.mimeType,
-      sizeBytes: proxyBuffer.byteLength,
+      sizeBytes: proxySizeBytes,
       ...(proxyWidth !== undefined ? { width: proxyWidth } : {}),
       ...(proxyHeight !== undefined ? { height: proxyHeight } : {}),
       codec: proxyCodec,
@@ -2473,6 +3376,13 @@ export async function handleGeneratePreviewProxyJob(
     };
     await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
       previewProxy,
+    });
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'proxy',
+      status: 'ready',
+      projectId: payload.projectId,
     });
 
     return { status: 'ready', previewProxy };
@@ -2487,6 +3397,13 @@ export async function handleGeneratePreviewProxyJob(
     };
     await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
       previewProxy: failedProxy,
+    }).catch(() => {});
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'proxy',
+      status: 'failed',
+      projectId: payload.projectId,
     }).catch(() => {});
     deps.logger.warn('Preview proxy generation failed', {
       workspaceId: payload.workspaceId,
@@ -2514,6 +3431,8 @@ export async function processMediaIngestJob<K extends MediaIngestJobName>(
       return handleMediaProbeJob(deps, payload as MediaIngestPayloadMap['media_probe']);
     case 'image_thumbnail':
       return handleImageThumbnailJob(deps, payload as MediaIngestPayloadMap['image_thumbnail']);
+    case 'generate_video_sprite':
+      return handleGenerateVideoSpriteJob(deps, payload as MediaIngestPayloadMap['generate_video_sprite']);
     case 'extract_waveform_peaks':
       return handleExtractWaveformPeaksJob(deps, payload as MediaIngestPayloadMap['extract_waveform_peaks']);
     case 'loudness_normalize':

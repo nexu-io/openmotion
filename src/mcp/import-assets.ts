@@ -24,6 +24,7 @@ import {
 } from '../../shared/project-validation.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
+import type { ProjectEvent } from '../contracts/events.ts';
 import type { StoragePort } from '../contracts/storage.ts';
 import { applyWorkspaceBlobRefDeltas, type BlobRefDelta } from '../db/cas.ts';
 import type { Database } from '../db/client.ts';
@@ -44,6 +45,7 @@ import {
 import { projects } from '../db/schema/projects.ts';
 import type { AppConfig } from '../infra/config.ts';
 import type { QueueService } from '../infra/queues.ts';
+import { projectChannel, type RedisEventBus } from '../infra/redis.ts';
 import { uploadLicenseStagingKey, uploadStagingKey } from '../infra/storage.ts';
 
 // ---------------------------------------------------------------------------
@@ -420,6 +422,7 @@ export function createPgImportAssetsStore(db: Database): ImportAssetsStore {
             licenseMaxBytes: input.licenseMaxBytes,
             state: 'issued',
             requestId: input.requestId,
+            resultPayload: { source: 'mcp_upload' },
             expiresAt: input.expiresAt,
           }),
         )
@@ -729,6 +732,7 @@ export interface ImportAssetsServiceDeps {
   store: ImportAssetsStore;
   storage: StoragePort;
   queues: Pick<QueueService, 'enqueueMediaIngest'>;
+  eventBus?: Pick<RedisEventBus, 'publish'>;
   config: Pick<AppConfig, 'S3_PRESIGN_PUT_TTL_SEC' | 'ALLOW_DOH_FAKEIP_FALLBACK'>;
   urlValidation?: UrlValidationOptions;
 }
@@ -963,6 +967,26 @@ export class CloudImportAssetsService {
         expiresAt: expiresAt.toISOString(),
         ...(licenseUpload ? { licenseUpload } : {}),
       });
+
+      if (this.deps.eventBus) {
+        const ingestEvt: ProjectEvent = {
+          type: 'media-ingest-status',
+          workspaceId: auth.workspaceId,
+          projectId: input.projectId,
+          ticketId,
+          filename,
+          targetPath,
+          bytes: file.bytes,
+          source: 'mcp_upload',
+          state: 'waiting_upload',
+          stage: 'waiting_upload',
+          expiresAt: expiresAt.toISOString(),
+          ts: Date.now(),
+        };
+        await this.deps.eventBus
+          .publish(projectChannel(auth.workspaceId, input.projectId), ingestEvt)
+          .catch(() => {});
+      }
     }
 
     const result: PrepareUploadResult = {
@@ -1207,6 +1231,27 @@ export class CloudImportAssetsService {
           };
         }
 
+        if (this.deps.eventBus) {
+          const ingestEvt: ProjectEvent = {
+            type: 'media-ingest-status',
+            workspaceId: auth.workspaceId,
+            projectId,
+            ticketId: ticket.id,
+            jobId,
+            filename: displayName,
+            targetPath,
+            bytes: Number(ticket.maxBytes),
+            source: 'mcp_upload',
+            state: 'processing',
+            stage: 'probing',
+            progress: 15,
+            ts: Date.now(),
+          };
+          await this.deps.eventBus
+            .publish(projectChannel(auth.workspaceId, projectId), ingestEvt)
+            .catch(() => {});
+        }
+
         return {
           result: {
             itemId: item.itemId,
@@ -1276,6 +1321,25 @@ export class CloudImportAssetsService {
           };
         }
 
+        if (this.deps.eventBus) {
+          const ingestEvt: ProjectEvent = {
+            type: 'media-ingest-status',
+            workspaceId: auth.workspaceId,
+            projectId,
+            jobId,
+            filename: displayName,
+            targetPath,
+            source: 'mcp_url',
+            state: 'processing',
+            stage: 'downloading',
+            progress: 5,
+            ts: Date.now(),
+          };
+          await this.deps.eventBus
+            .publish(projectChannel(auth.workspaceId, projectId), ingestEvt)
+            .catch(() => {});
+        }
+
         return {
           result: {
             itemId: item.itemId,
@@ -1302,6 +1366,21 @@ export class CloudImportAssetsService {
           name: item.name,
           requestId,
         });
+        if (this.deps.eventBus) {
+          const fileEvt: ProjectEvent = {
+            type: 'file-change',
+            workspaceId: auth.workspaceId,
+            projectId,
+            revision: committed.projectRevision,
+            versionId: committed.projectVersionId,
+            paths: [committed.path],
+            affectsPreview: true,
+            ts: Date.now(),
+          };
+          await this.deps.eventBus
+            .publish(projectChannel(auth.workspaceId, projectId), fileEvt)
+            .catch(() => {});
+        }
         return {
           result: {
             itemId: item.itemId,

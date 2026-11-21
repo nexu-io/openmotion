@@ -44,7 +44,7 @@ import {
   type StudioQueuesPort,
   type VirtualFileRecord,
 } from '../../src/studio/index.ts';
-import { compThumbnailKey, exportKey, thumbnailKey } from '../../src/infra/storage.ts';
+import { compThumbnailKey, derivedAssetKey, exportKey, thumbnailKey } from '../../src/infra/storage.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
@@ -1640,5 +1640,174 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
         .get('location')
         ?.startsWith(`https://s3.local/workspaces/${env.auth.workspaceId}/blobs/${tamperedVideoSha}`),
     );
+  });
+
+  it('serves /sprite/* (202 pending -> 200 manifest), /sprite-sheet/:idx/* (HEAD 200 / GET 302), silent /peaks/*, and assetMetadata on GET /api/projects/:id', async () => {
+    const env = createStudioTestEnv();
+    const created = await env.workspace.createProject(env.auth, { title: 'Sprite & Metadata Test' });
+
+    const videoBytes = Buffer.alloc(1024, 0x33);
+    const silentBytes = Buffer.alloc(512, 0x44);
+    const failedBytes = Buffer.alloc(256, 0x55);
+
+    await env.files.commitChanges(env.auth, {
+      projectId: created.projectId,
+      ops: [
+        { op: 'upsert_binary', path: 'assets/hero.mp4', data: videoBytes, mimeType: 'video/mp4' },
+        { op: 'upsert_binary', path: 'assets/silent.mp4', data: silentBytes, mimeType: 'video/mp4' },
+        { op: 'upsert_binary', path: 'assets/broken.mp4', data: failedBytes, mimeType: 'video/mp4' },
+      ],
+      source: 'studio',
+      summary: 'Add test videos',
+    });
+
+    const videoSha = sha256Hex(videoBytes);
+    const silentSha = sha256Hex(silentBytes);
+    const failedSha = sha256Hex(failedBytes);
+
+    const blobs = env.pgClient.rows('workspace_blobs');
+    const heroBlob = blobs.find((b) => b.sha256 === videoSha)!;
+    heroBlob.metadata = {
+      modality: 'video',
+      durationSec: 18.5,
+      width: 1920,
+      height: 1080,
+      hasAudio: true,
+      hasVideo: true,
+      thumbnailReady: true,
+    };
+    const silentBlob = blobs.find((b) => b.sha256 === silentSha)!;
+    silentBlob.metadata = {
+      modality: 'video',
+      durationSec: 6.0,
+      width: 1280,
+      height: 720,
+      hasAudio: false,
+      hasVideo: true,
+    };
+    const failedBlob = blobs.find((b) => b.sha256 === failedSha)!;
+    failedBlob.metadata = {
+      modality: 'video',
+      sprite: {
+        status: 'failed',
+        manifestKey: '',
+        frameCount: 0,
+        frameWidth: 0,
+        frameHeight: 0,
+        durationSec: 0,
+        intervalSec: 0,
+        sheetCount: 0,
+        generatedAt: '2026-11-21T00:00:00.000Z',
+      },
+    };
+
+    // 1. Cold sprite request -> 202 pending + enqueues generate_video_sprite
+    env.enqueued.length = 0;
+    const pendingRes = await env.studioApp.request(`/api/projects/${created.projectId}/sprite/assets/hero.mp4`);
+    assert.equal(pendingRes.status, 202);
+    const pendingBody = (await pendingRes.json()) as { pending: boolean; sha256: string };
+    assert.equal(pendingBody.pending, true);
+    assert.equal(pendingBody.sha256, videoSha);
+    assert.ok(env.enqueued.some((j) => j.name === 'generate_video_sprite'));
+
+    // 2. Failed sprite -> 404 unavailable (allows immediate client fallback)
+    const failedRes = await env.studioApp.request(`/api/projects/${created.projectId}/sprite/assets/broken.mp4`);
+    assert.equal(failedRes.status, 404);
+
+    // 3. Cached sprite manifest + WebP sheet -> 200 manifest with rewritten sheet URL, HEAD 200 & GET 302 on sheet
+    const sheetKey = derivedAssetKey(env.auth.workspaceId, videoSha, 'sprite-0.webp');
+    const manifestKey = derivedAssetKey(env.auth.workspaceId, videoSha, 'sprite-manifest.json');
+    await env.storage.putObject(sheetKey, Buffer.from('RIFF....WEBP'), 'image/webp');
+    await env.storage.putObject(
+      manifestKey,
+      Buffer.from(
+        JSON.stringify({
+          version: 1,
+          sha256: videoSha,
+          durationSec: 18.5,
+          frameCount: 18,
+          frameWidth: 160,
+          frameHeight: 90,
+          intervalSec: 1.028,
+          columns: 10,
+          rows: 6,
+          sheets: [
+            {
+              index: 0,
+              s3Key: sheetKey,
+              startFrame: 0,
+              frameCount: 18,
+              columns: 10,
+              rows: 2,
+              width: 1600,
+              height: 180,
+            },
+          ],
+        }),
+      ),
+      'application/json',
+    );
+    (heroBlob.metadata as Record<string, unknown>).sprite = {
+      status: 'ready',
+      manifestKey,
+      frameCount: 18,
+      frameWidth: 160,
+      frameHeight: 90,
+      durationSec: 18.5,
+      intervalSec: 1.028,
+      sheetCount: 1,
+      generatedAt: '2026-11-21T00:00:00.000Z',
+    };
+
+    const hitRes = await env.studioApp.request(`/api/projects/${created.projectId}/sprite/assets/hero.mp4`);
+    assert.equal(hitRes.status, 200);
+    const hitBody = (await hitRes.json()) as {
+      pending: boolean;
+      frameCount: number;
+      sheets: Array<{ index: number; url: string }>;
+    };
+    assert.equal(hitBody.pending, false);
+    assert.equal(hitBody.frameCount, 18);
+    assert.equal(
+      hitBody.sheets[0].url,
+      `/api/projects/${created.projectId}/sprite-sheet/0/assets/hero.mp4`,
+    );
+
+    const headSheet = await env.studioApp.request(
+      `/api/projects/${created.projectId}/sprite-sheet/0/assets/hero.mp4`,
+      { method: 'HEAD' },
+    );
+    assert.equal(headSheet.status, 200);
+    assert.equal(headSheet.headers.get('content-type'), 'image/webp');
+
+    const getSheet = await env.studioApp.request(
+      `/api/projects/${created.projectId}/sprite-sheet/0/assets/hero.mp4`,
+    );
+    assert.equal(getSheet.status, 302);
+    assert.ok(getSheet.headers.get('location')?.startsWith(`https://s3.local/${sheetKey}`));
+
+    // 4. Silent video /peaks/* fast-path returns 200 empty peaks without queuing a job
+    env.enqueued.length = 0;
+    const silentPeaksRes = await env.studioApp.request(`/api/projects/${created.projectId}/peaks/assets/silent.mp4`);
+    assert.equal(silentPeaksRes.status, 200);
+    const silentPeaks = (await silentPeaksRes.json()) as { hasAudio: boolean; peaks: number[]; bins: number[] };
+    assert.equal(silentPeaks.hasAudio, false);
+    assert.deepEqual(silentPeaks.peaks, []);
+    assert.deepEqual(silentPeaks.bins, []);
+    assert.equal(env.enqueued.length, 0);
+
+    // 5. GET /api/projects/:id includes assetMetadata summary without extra queries
+    const projRes = await env.studioApp.request(`/api/projects/${created.projectId}`);
+    assert.equal(projRes.status, 200);
+    const projBody = (await projRes.json()) as {
+      assetMetadata?: Record<
+        string,
+        { duration?: number; width?: number; height?: number; hasAudio?: boolean; spriteStatus?: string; thumbnailReady?: boolean }
+      >;
+    };
+    assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.duration, 18.5);
+    assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.spriteStatus, 'ready');
+    assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.thumbnailReady, true);
+    assert.equal(projBody.assetMetadata?.['assets/silent.mp4']?.hasAudio, false);
   });
 });

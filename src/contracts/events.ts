@@ -29,6 +29,33 @@ export type ProjectEvent =
       progress: number;
       stage?: string;
       ts: number;
+    }
+  | {
+      type: 'media-derived-ready';
+      workspaceId: string;
+      projectId: string;
+      sha256: string;
+      kind: 'thumbnail' | 'sprite' | 'waveform' | 'proxy' | 'metadata';
+      status: 'ready' | 'failed';
+      path?: string;
+      ts: number;
+    }
+  | {
+      type: 'media-ingest-status';
+      workspaceId: string;
+      projectId: string;
+      ticketId?: string;
+      jobId?: string;
+      filename: string;
+      targetPath?: string;
+      bytes?: number;
+      source: 'mcp_upload' | 'mcp_url' | 'web_upload';
+      state: 'waiting_upload' | 'processing' | 'completed' | 'failed';
+      stage?: string;
+      progress?: number;
+      error?: string;
+      expiresAt?: string;
+      ts: number;
     };
 
 export interface JobProgressEvent {

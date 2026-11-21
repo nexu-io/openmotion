@@ -62,11 +62,49 @@ async function resolveCommittedAsset(
   const immediate = await extract(confirmed);
   if (immediate) return immediate;
 
-  // Poll idempotent confirm endpoint until worker-media commits or fails the staged upload.
+  // Subscribe to media-job SSE first when available, then poll idempotent confirm endpoint (up to 180s for large videos).
   if (confirmed.state === 'queued' || confirmed.state === 'processing' || confirmed.state === 'uploaded') {
-    const deadline = Date.now() + 30_000;
+    if (confirmed.jobId && typeof EventSource !== 'undefined') {
+      const sseResult = await new Promise<{ assetId?: string; failed?: string } | null>((resolve) => {
+        let settled = false;
+        const es = new EventSource(`/api/media-jobs/${encodeURIComponent(confirmed.jobId!)}/progress`);
+        const finish = (value: { assetId?: string; failed?: string } | null) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          es.close();
+          resolve(value);
+        };
+        const timer = setTimeout(() => finish(null), 180_000);
+        es.addEventListener('progress', (evt) => {
+          try {
+            const data = JSON.parse((evt as MessageEvent).data) as {
+              state?: string;
+              result?: { assetId?: string } | null;
+              error?: string | null;
+            };
+            if (data.state === 'completed') finish({ assetId: data.result?.assetId });
+            else if (data.state === 'failed' || data.state === 'cancelled') {
+              finish({ failed: data.error || 'Upload processing failed' });
+            }
+          } catch { /* ignore malformed event */ }
+        });
+        es.onerror = () => finish(null);
+      });
+      if (sseResult?.failed) {
+        throw uploadResponseError(400, { error: sseResult.failed, applied: false });
+      }
+      if (sseResult?.assetId) {
+        const asset = await extract({ result: { assetId: sseResult.assetId } });
+        if (asset) return asset;
+      }
+    }
+
+    const deadline = Date.now() + 180_000;
+    let delayMs = 400;
     while (Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 400));
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      delayMs = Math.min(2000, Math.round(delayMs * 1.3));
       const pollRes = await fetch(`/motion-api/assets/uploads/${encodeURIComponent(uploadId)}/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

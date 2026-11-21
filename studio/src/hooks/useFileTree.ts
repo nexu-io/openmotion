@@ -7,6 +7,41 @@ import { studioApiFetch } from "../utils/studioApiFetch";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { errorProps } from "../utils/rejectionTelemetry";
 import { encodeUrlPath } from "@hyperframes/parsers";
+import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import {
+  subscribeMediaDerived,
+  subscribeMediaIngestStatus,
+  type MediaIngestSource,
+  type MediaIngestStatusEvent,
+} from "../utils/mediaDerivedBus";
+
+export interface PendingExternalImport {
+  id: string;
+  ticketId?: string;
+  jobId?: string;
+  filename: string;
+  targetPath?: string;
+  bytes?: number;
+  source: MediaIngestSource;
+  state: "waiting_upload" | "processing" | "failed";
+  stage?: string;
+  progress?: number;
+  error?: string;
+  expiresAt?: string;
+  updatedAt: number;
+}
+
+export interface AssetMetadataSummary {
+  duration?: number;
+  width?: number;
+  height?: number;
+  hasAudio?: boolean;
+  hasVideo?: boolean;
+  proxyStatus?: "ready" | "failed";
+  spriteStatus?: "ready" | "failed";
+  waveformReady?: boolean;
+  thumbnailReady?: boolean;
+}
 
 interface UseFileTreeOptions {
   projectId: string | null;
@@ -25,14 +60,25 @@ interface FetchedFileTree {
   compositionPaths: string[];
   projectDir: string | null;
   assetNames?: Record<string, string>;
+  assetMetadata?: Record<string, AssetMetadataSummary>;
+  pendingImports?: PendingExternalImport[];
   fonts?: Array<Omit<ImportedFontAsset, "url">>;
 }
 
 // Stable references so a mismatched projectId doesn't create a new array every render
 // and defeat useMemo/useCallback deps downstream (e.g. the `assets` memo below).
 const EMPTY_FILE_LIST: string[] = [];
+const EMPTY_PENDING_IMPORTS: PendingExternalImport[] = [];
 
-type TreeListing = { assetNames?: Record<string, string>; dir?: string; files?: string[]; compositions?: string[]; fonts?: Array<Omit<ImportedFontAsset, "url">> };
+type TreeListing = {
+  assetNames?: Record<string, string>;
+  assetMetadata?: Record<string, AssetMetadataSummary>;
+  pendingImports?: PendingExternalImport[];
+  dir?: string;
+  files?: string[];
+  compositions?: string[];
+  fonts?: Array<Omit<ImportedFontAsset, "url">>;
+};
 
 async function readTreeListing(projectId: string, signal: AbortSignal): Promise<TreeListing> {
   const res = await studioApiFetch(buildProjectApiPath(projectId), { signal });
@@ -79,6 +125,9 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
       .then((data: TreeListing) => {
         if (cancelled || requestId < appliedRequestRef.current) return;
         appliedRequestRef.current = requestId;
+        if (typeof data.dir === "string" && data.dir.startsWith("/virtual/")) {
+          setCachedCloudDisklessMode(true);
+        }
         setFetched({
           projectId,
           loaded: true,
@@ -87,6 +136,8 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
           projectDir: typeof data.dir === "string" ? data.dir : null,
           fonts: data.fonts,
           assetNames: data.assetNames,
+          assetMetadata: data.assetMetadata,
+          pendingImports: Array.isArray(data.pendingImports) ? data.pendingImports : undefined,
         });
         // Snapshot how this project was made, while the listing is in hand and
         // the app is still alive. A crash later has no other way to learn it.
@@ -131,6 +182,9 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     if (options && projectIdRef.current !== pid) throw new Error('Active project changed during asset refresh');
     if (data.files && !controller.signal.aborted && projectIdRef.current === pid && requestId >= appliedRequestRef.current) {
       appliedRequestRef.current = requestId;
+      if (typeof data.dir === "string" && data.dir.startsWith("/virtual/")) {
+        setCachedCloudDisklessMode(true);
+      }
       setFetched((prev) =>
         prev?.projectId === pid
           ? {
@@ -143,11 +197,112 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
               compositionPaths: data.compositions ?? prev.compositionPaths,
               fonts: data.fonts ?? prev.fonts,
               assetNames: data.assetNames ?? prev.assetNames,
+              assetMetadata: data.assetMetadata ?? prev.assetMetadata,
+              pendingImports: Array.isArray(data.pendingImports)
+                ? data.pendingImports
+                : prev.pendingImports?.filter(
+                    (item) => !item.targetPath || !(data.files ?? prev.fileTree).includes(item.targetPath),
+                  ),
             }
           : prev,
       );
     }
   }, [projectIdRef]);
+
+  const dismissPendingImport = useCallback((id: string) => {
+    setFetched((prev) =>
+      prev?.pendingImports
+        ? { ...prev, pendingImports: prev.pendingImports.filter((item) => item.id !== id) }
+        : prev,
+    );
+  }, []);
+
+  // Track live external / MCP media-ingest-status SSE events (placeholder & stage progress).
+  useEffect(() => {
+    if (!projectId) return;
+    const applyIngestEvent = (event: MediaIngestStatusEvent) => {
+      if (event.projectId !== projectId) return;
+      const matchId = event.jobId ?? event.ticketId ?? event.targetPath ?? event.filename;
+      setFetched((prev) => {
+        if (!prev || prev.projectId !== projectId) return prev;
+        const list = prev.pendingImports ?? [];
+        const matches = (item: PendingExternalImport) =>
+          item.id === matchId ||
+          (Boolean(event.ticketId) && item.ticketId === event.ticketId) ||
+          (Boolean(event.jobId) && item.jobId === event.jobId) ||
+          (Boolean(event.targetPath) && item.targetPath === event.targetPath);
+
+        if (event.state === "completed") {
+          const next = list.filter((item) => !matches(item));
+          return next.length === list.length ? prev : { ...prev, pendingImports: next };
+        }
+
+        const updated: PendingExternalImport = {
+          id: matchId,
+          ...(event.ticketId ? { ticketId: event.ticketId } : {}),
+          ...(event.jobId ? { jobId: event.jobId } : {}),
+          filename: event.filename,
+          ...(event.targetPath ? { targetPath: event.targetPath } : {}),
+          ...(typeof event.bytes === "number" ? { bytes: event.bytes } : {}),
+          source: event.source,
+          state: event.state,
+          ...(event.stage ? { stage: event.stage } : {}),
+          ...(typeof event.progress === "number" ? { progress: event.progress } : {}),
+          ...(event.error ? { error: event.error } : {}),
+          ...(event.expiresAt ? { expiresAt: event.expiresAt } : {}),
+          updatedAt: event.ts ?? Date.now(),
+        };
+        const existingIdx = list.findIndex(matches);
+        const next =
+          existingIdx >= 0
+            ? list.map((item, idx) => (idx === existingIdx ? { ...item, ...updated } : item))
+            : [updated, ...list].slice(0, 30);
+        return { ...prev, pendingImports: next };
+      });
+    };
+    return subscribeMediaIngestStatus(applyIngestEvent);
+  }, [projectId]);
+
+  // Periodically prune expired waiting_upload tickets so abandoned MCP tickets don't linger.
+  useEffect(() => {
+    if (!current?.pendingImports?.length) return;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setFetched((prev) => {
+        if (!prev?.pendingImports?.length) return prev;
+        const filtered = prev.pendingImports.filter(
+          (item) =>
+            item.state !== "waiting_upload" ||
+            !item.expiresAt ||
+            Date.parse(item.expiresAt) > now,
+        );
+        return filtered.length === prev.pendingImports.length
+          ? prev
+          : { ...prev, pendingImports: filtered };
+      });
+    }, 15_000);
+    return () => window.clearInterval(timer);
+  }, [current?.pendingImports?.length]);
+
+  // Refresh cached assetMetadata cleanly when worker-media finishes metadata/thumbnail/sprite/proxy jobs.
+  useEffect(() => {
+    if (!projectId) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribeMediaDerived((event) => {
+      if (event.projectId !== projectId) return;
+      if (event.kind !== "metadata" && event.kind !== "thumbnail" && event.kind !== "sprite" && event.kind !== "proxy") {
+        return;
+      }
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void refreshFileTree();
+      }, 350);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [projectId, refreshFileTree]);
 
   const assets = useMemo(
     () =>
@@ -176,5 +331,8 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     assets,
     fontAssets,
     assetNames: current?.assetNames,
+    assetMetadata: current?.assetMetadata,
+    pendingImports: current?.pendingImports ?? EMPTY_PENDING_IMPORTS,
+    dismissPendingImport,
   };
 }

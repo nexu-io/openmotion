@@ -221,7 +221,16 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
         (payload) => {
           if (closed || stream.aborted) return;
           const evt = payload as { type?: string; path?: string; paths?: string[] };
-          const eventName = evt?.type === 'history-changed' ? 'history-changed' : 'file-change';
+          const eventName =
+            evt?.type === 'history-changed'
+              ? 'history-changed'
+              : evt?.type === 'media-derived-ready'
+                ? 'media-derived-ready'
+                : evt?.type === 'media-ingest-status'
+                  ? 'media-ingest-status'
+                  : evt?.type === 'render-updated'
+                    ? 'render-updated'
+                    : 'file-change';
           // Tabs opened before a rolling update may only understand the single-path wire format.
           const files = evt?.paths;
           const data = !evt?.path && files?.length && (evt.type === 'file-change' || evt.type === 'files-changed')

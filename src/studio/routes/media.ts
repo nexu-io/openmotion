@@ -4,8 +4,15 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { CloudError, featureDeferredP2 } from '../../contracts/errors.ts';
 import type { JobProgressEvent } from '../../contracts/events.ts';
+import type { VideoSpriteManifest } from '../../contracts/storage.ts';
 import { asInsert, asUpdate } from '../../db/helpers.ts';
 import { jobs } from '../../db/schema/jobs.ts';
+import {
+  buildImageThumbnailJobId,
+  buildMediaProbeJobId,
+  buildVideoSpriteJobId,
+  buildWaveformPeaksJobId,
+} from '../../infra/queues.ts';
 import { jobChannel } from '../../infra/redis.ts';
 import {
   assertTenantScopedKey,
@@ -95,12 +102,17 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
           ? workspaceBlobKey(auth.workspaceId, file.sha256)
           : `catalog/blobs/${file.sha256}`;
       void deps.queues
-        .enqueueMediaIngest('media_probe', {
-          workspaceId: auth.workspaceId,
-          blobScope: file.blobScope,
-          sha256: file.sha256,
-          s3Key,
-        })
+        .enqueueMediaIngest(
+          'media_probe',
+          {
+            workspaceId: auth.workspaceId,
+            blobScope: file.blobScope,
+            sha256: file.sha256,
+            s3Key,
+            projectId,
+          },
+          { jobId: buildMediaProbeJobId(auth.workspaceId, file.sha256) },
+        )
         .catch(() => {});
     }
 
@@ -126,7 +138,25 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
     const file = await deps.files.getFile(auth, projectId, safePath);
     if (!file) return c.json({ error: 'Media file not found', path: safePath }, 404);
 
-    const samples = parseIntRange(c.req.query('samples'), 16, 16384, 512);
+    if (file.metadata?.hasAudio === false) {
+      const durationSec = typeof file.metadata.durationSec === 'number' ? file.metadata.durationSec : 0;
+      c.header('Cache-Control', 'private, max-age=3600');
+      c.header('ETag', formatVersionFromSha256(file.sha256));
+      return c.json(
+        {
+          peaks: [],
+          bins: [],
+          binSeconds: 0,
+          samples: 0,
+          sampleRate: 8000,
+          duration: durationSec,
+          hasAudio: false,
+        },
+        200,
+      );
+    }
+
+    const samples = parseIntRange(c.req.query('samples'), 16, 16384, 2048);
     const derivedKey = assertTenantScopedKey(
       auth.workspaceId,
       file.metadata?.waveformPeaksKey || derivedAssetKey(auth.workspaceId, file.sha256, 'waveform-peaks.json'),
@@ -142,12 +172,17 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
 
     if (deps.queues) {
       void deps.queues
-        .enqueueMediaIngest('extract_waveform_peaks', {
-          workspaceId: auth.workspaceId,
-          blobScope: file.blobScope,
-          sha256: file.sha256,
-          samples,
-        })
+        .enqueueMediaIngest(
+          'extract_waveform_peaks',
+          {
+            workspaceId: auth.workspaceId,
+            blobScope: file.blobScope,
+            sha256: file.sha256,
+            projectId,
+            samples,
+          },
+          { jobId: buildWaveformPeaksJobId(auth.workspaceId, file.sha256) },
+        )
         .catch(() => {});
     }
 
@@ -156,6 +191,119 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
 
   app.get('/api/projects/:id/waveform/*', (c) => handleWaveformPeaks(c, '/waveform/'));
   app.get('/api/projects/:id/peaks/*', (c) => handleWaveformPeaks(c, '/peaks/'));
+
+  // GET /api/projects/:id/sprite/* — Serve cached multi-frame video sprite manifest JSON or enqueue generate_video_sprite.
+  app.get('/api/projects/:id/sprite/*', async (c) => {
+    const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
+    const projectId = c.req.param('id') ?? '';
+    const rawPath = extractWildcardPath(c.req.url, '/sprite/');
+    const safePath = normalizeSafeProjectPath(rawPath);
+    const file = await deps.files.getFile(auth, projectId, safePath);
+    if (!file) return c.json({ error: 'Media file not found', path: safePath }, 404);
+
+    if (file.metadata?.sprite?.status === 'failed') {
+      return c.json({ unavailable: true, path: safePath, sha256: file.sha256 }, 404);
+    }
+
+    const manifestKey = assertTenantScopedKey(
+      auth.workspaceId,
+      file.metadata?.sprite?.manifestKey || derivedAssetKey(auth.workspaceId, file.sha256, 'sprite-manifest.json'),
+    );
+    const cached = await deps.storage.headObject(manifestKey);
+    if (cached) {
+      const buf = await deps.storage.getObjectBuffer(manifestKey);
+      const manifest = JSON.parse(buf.toString('utf8')) as VideoSpriteManifest;
+      const encodedAssetPath = safePath
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+      const hydratedManifest = {
+        ...manifest,
+        pending: false,
+        path: safePath,
+        sha256: file.sha256,
+        sheets: (manifest.sheets ?? []).map((sheet) => ({
+          ...sheet,
+          url: `/api/projects/${encodeURIComponent(projectId)}/sprite-sheet/${sheet.index}/${encodedAssetPath}`,
+        })),
+      };
+      c.header('Cache-Control', 'private, max-age=3600');
+      c.header('ETag', formatVersionFromSha256(file.sha256));
+      return c.json(hydratedManifest, 200);
+    }
+
+    if (deps.queues) {
+      void deps.queues
+        .enqueueMediaIngest(
+          'generate_video_sprite',
+          {
+            workspaceId: auth.workspaceId,
+            blobScope: file.blobScope,
+            sha256: file.sha256,
+            projectId,
+            ...(typeof file.metadata?.durationSec === 'number' ? { durationSec: file.metadata.durationSec } : {}),
+            ...(typeof file.metadata?.width === 'number' ? { width: file.metadata.width } : {}),
+            ...(typeof file.metadata?.height === 'number' ? { height: file.metadata.height } : {}),
+          },
+          { jobId: buildVideoSpriteJobId(auth.workspaceId, file.sha256) },
+        )
+        .catch(() => {});
+    }
+
+    return c.json({ pending: true, path: safePath, sha256: file.sha256 }, 202);
+  });
+
+  // GET & HEAD /api/projects/:id/sprite-sheet/:sheetIndex/* — Serve WebP sprite sheet image via 302 presigned S3 URL.
+  app.get('/api/projects/:id/sprite-sheet/:sheetIndex/*', async (c) => {
+    const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
+    const projectId = c.req.param('id') ?? '';
+    const sheetIndexRaw = c.req.param('sheetIndex') ?? '';
+    if (!/^\d{1,2}$/.test(sheetIndexRaw)) {
+      return c.req.method === 'HEAD' ? c.body(null, 400) : c.json({ error: 'Invalid sprite sheet index' }, 400);
+    }
+    const sheetIndex = Number.parseInt(sheetIndexRaw, 10);
+    if (!Number.isInteger(sheetIndex) || sheetIndex < 0 || sheetIndex > 15) {
+      return c.req.method === 'HEAD' ? c.body(null, 400) : c.json({ error: 'Sprite sheet index out of range' }, 400);
+    }
+
+    const marker = `/sprite-sheet/${sheetIndexRaw}/`;
+    const rawPath = extractWildcardPath(c.req.url, marker);
+    const safePath = normalizeSafeProjectPath(rawPath);
+    const file = await deps.files.getFile(auth, projectId, safePath);
+    if (!file) {
+      return c.req.method === 'HEAD' ? c.body(null, 404) : c.json({ error: 'Media file not found', path: safePath }, 404);
+    }
+
+    const sheetKey = assertTenantScopedKey(
+      auth.workspaceId,
+      derivedAssetKey(auth.workspaceId, file.sha256, `sprite-${sheetIndex}.webp`),
+    );
+    const head = await deps.storage.headObject(sheetKey);
+    if (!head) {
+      return c.req.method === 'HEAD' ? c.body(null, 404) : c.json({ error: 'Sprite sheet not found', path: safePath }, 404);
+    }
+
+    if (c.req.method === 'HEAD') {
+      c.header('Content-Type', head.contentType ?? 'image/webp');
+      c.header('Content-Length', String(head.contentLength));
+      c.header('Accept-Ranges', 'bytes');
+      c.header('Cache-Control', PRESIGNED_REDIRECT_HEADERS['Cache-Control']);
+      c.header('Vary', PRESIGNED_REDIRECT_HEADERS.Vary);
+      return c.body(null, 200);
+    }
+
+    const url = await deps.storage.presignGet(sheetKey, {
+      expiresInSec: 300,
+      responseContentType: 'image/webp',
+    });
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: url,
+        ...PRESIGNED_REDIRECT_HEADERS,
+      },
+    });
+  });
 
   // GET & HEAD /api/projects/:id/image-thumbnail/* — Direct 200 on HEAD; 302 presigned GET on hit or enqueue media_ingest.
   app.get('/api/projects/:id/image-thumbnail/*', async (c) => {
@@ -205,13 +353,18 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
 
     if (deps.queues) {
       void deps.queues
-        .enqueueMediaIngest('image_thumbnail', {
-          workspaceId: auth.workspaceId,
-          blobScope: file.blobScope,
-          sha256: file.sha256,
-          spec,
-          width,
-        })
+        .enqueueMediaIngest(
+          'image_thumbnail',
+          {
+            workspaceId: auth.workspaceId,
+            blobScope: file.blobScope,
+            sha256: file.sha256,
+            projectId,
+            spec,
+            width,
+          },
+          { jobId: buildImageThumbnailJobId(auth.workspaceId, file.sha256, spec) },
+        )
         .catch(() => {});
     }
 

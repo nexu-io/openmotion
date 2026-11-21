@@ -11,6 +11,12 @@ import type { ExternalConflictSnapshot } from "../utils/externalConflictStorage"
 import { isSelfWriteEcho } from "./sdkSelfWriteRegistry";
 import { consumeStudioWriteToken } from "../utils/studioFileVersion";
 import { logReload } from "../utils/reloadDebug";
+import {
+  emitMediaDerived,
+  emitMediaIngestStatus,
+  isMediaDerivedReadyEvent,
+  isMediaIngestStatusEvent,
+} from "../utils/mediaDerivedBus";
 
 type ExternalChangeDrainResult =
   | { status: "clean" }
@@ -135,6 +141,21 @@ export function sseFileChangeChannel(
   const eventSource = new EventSource(studioProjectUrl('/api/events'));
   eventSource.addEventListener("file-change", onDelivery);
   eventSource.addEventListener("history-changed", onHistoryChanged);
+  // Derived media (sprite/waveform/thumbnail/proxy/metadata) notifications update
+  // timeline & sidebar caches without reloading the preview iframe.
+  eventSource.addEventListener("media-derived-ready", (event) => {
+    const decoded = decodeFileChange(event);
+    if (isMediaDerivedReadyEvent(decoded)) {
+      emitMediaDerived(decoded);
+    }
+  });
+  // External / MCP media ingest placeholder & stage updates (never reload preview iframe).
+  eventSource.addEventListener("media-ingest-status", (event) => {
+    const decoded = decodeFileChange(event);
+    if (isMediaIngestStatusEvent(decoded)) {
+      emitMediaIngestStatus(decoded);
+    }
+  });
   // Reopening the stream does not replay changes missed during a disconnect.
   let opened = false;
   eventSource.addEventListener("open", () => {

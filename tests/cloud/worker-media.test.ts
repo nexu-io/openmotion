@@ -37,7 +37,13 @@ import {
 } from '../../src/db/schema/project-files.ts';
 import { projects } from '../../src/db/schema/projects.ts';
 import { createLogger } from '../../src/infra/logger.ts';
-import { buildPreviewProxyJobId, validateMediaIngestPayload } from '../../src/infra/queues.ts';
+import {
+  buildImageThumbnailJobId,
+  buildPreviewProxyJobId,
+  buildVideoSpriteJobId,
+  buildWaveformPeaksJobId,
+  validateMediaIngestPayload,
+} from '../../src/infra/queues.ts';
 import { jobChannel, projectChannel } from '../../src/infra/redis.ts';
 import {
   blobDerivedPrefix,
@@ -64,10 +70,14 @@ import {
   type PlatformModelGateway,
 } from '../../src/workers/media-generate.ts';
 import {
+  AsyncSemaphore,
   classifyPreviewProxyTarget,
+  computeSpriteSamplingPlan,
+  computeSpriteTileDimensions,
   handleExtractWaveformPeaksJob,
   handleFreezeFrameJob,
   handleGeneratePreviewProxyJob,
+  handleGenerateVideoSpriteJob,
   handleImageThumbnailJob,
   handleLoudnessNormalizeJob,
   handleUploadCommitJob,
@@ -127,6 +137,7 @@ class InMemoryStorage implements StoragePort {
   readonly objects = new Map<string, { bytes: Buffer; contentType: string }>();
   readonly trace: string[] = [];
   failDeleteKey?: string;
+  copyObject?: (sourceKey: string, destinationKey: string, contentType?: string) => Promise<void>;
 
   async putObject(
     key: string,
@@ -2052,9 +2063,20 @@ describe('MCP CloudImportAssetsService -> worker-media end-to-end project_asset 
       assert.equal(blobRefCounts.get(urlCasSha), 2); // 1 live + 1 snapshot (v4)
       assert.equal(blobRefCounts.has(catalogBgSha), false, 'Catalog blobs must never enter workspace_blobs');
 
-      // Verify om:project:{wid}:{pid} events carry the real updated projects.revision (not raw file sha256).
-      const projEvents = published.filter((e) => e.channel === projectChannel(WID_A, PID_A));
+      // Verify om:project:{wid}:{pid} file-change events carry the real updated projects.revision (not raw file sha256),
+      // alongside independent media-ingest-status progress/completed events.
+      const projEvents = published.filter(
+        (e) =>
+          e.channel === projectChannel(WID_A, PID_A) &&
+          (e.payload as { type?: string }).type === 'file-change',
+      );
+      const ingestEvents = published.filter(
+        (e) =>
+          e.channel === projectChannel(WID_A, PID_A) &&
+          (e.payload as { type?: string }).type === 'media-ingest-status',
+      );
       assert.equal(projEvents.length, 3);
+      assert.ok(ingestEvents.filter((e) => (e.payload as { state?: string }).state === 'completed').length === 3);
       assert.equal((projEvents[0].payload as { revision: string }).revision, imgCommitted.projectRevision);
       assert.equal((projEvents[1].payload as { revision: string }).revision, fontCommitted.projectRevision);
       assert.equal((projEvents[2].payload as { revision: string }).revision, finalExpectedRevision);
@@ -2424,10 +2446,12 @@ describe('worker-media: Dual-Track Preview Proxy Generation (c1)', () => {
       );
 
       assert.equal(uploaded.sha256, videoSha);
-      assert.equal(enqueuedProxies.length, 1);
-      assert.equal(enqueuedProxies[0].name, 'generate_preview_proxy');
-      assert.equal(enqueuedProxies[0].jobId, buildPreviewProxyJobId(WID_A, videoSha));
-      assert.equal(enqueuedProxies[0].jobId?.includes(':'), false);
+      assert.equal(enqueuedProxies.length, 3);
+      const byName = new Map(enqueuedProxies.map((entry) => [entry.name, entry]));
+      assert.equal(byName.get('generate_video_sprite')?.jobId, buildVideoSpriteJobId(WID_A, videoSha));
+      assert.equal(byName.get('extract_waveform_peaks')?.jobId, buildWaveformPeaksJobId(WID_A, videoSha));
+      assert.equal(byName.get('generate_preview_proxy')?.jobId, buildPreviewProxyJobId(WID_A, videoSha));
+      assert.ok(enqueuedProxies.every((entry) => entry.jobId && !entry.jobId.includes(':')));
 
       // url_fetch with a failing queue MUST still succeed (best-effort non-blocking enqueue).
       const fetched = await handleUrlFetchJob(
@@ -2471,6 +2495,339 @@ describe('worker-media: Dual-Track Preview Proxy Generation (c1)', () => {
 
       assert.equal(fetched.sha256, videoSha);
       assert.equal(fetched.mimeType, 'audio/wav');
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('worker-media: Video Sprite Sheets, Silent Waveform, CopyObject Promotion & Concurrency Semaphore', () => {
+  it('computes aspect-preserving sprite tile sizes and bounded sampling plans', () => {
+    assert.deepEqual(computeSpriteTileDimensions(1920, 1080), { frameWidth: 160, frameHeight: 90 });
+    assert.deepEqual(computeSpriteTileDimensions(1080, 1920), { frameWidth: 50, frameHeight: 90 });
+    assert.deepEqual(computeSpriteTileDimensions(1080, 1080), { frameWidth: 90, frameHeight: 90 });
+
+    const shortPlan = computeSpriteSamplingPlan(1.5);
+    assert.equal(shortPlan.targetFrames, 3);
+    const mediumPlan = computeSpriteSamplingPlan(30);
+    assert.equal(mediumPlan.targetFrames, 30);
+    const longPlan = computeSpriteSamplingPlan(600);
+    assert.equal(longPlan.targetFrames, 120);
+    assert.equal(longPlan.intervalSec, 5);
+  });
+
+  it('generates real WebP sprite sheets + manifest, handles silent-video waveforms, publishes media-derived-ready, and cleans /tmp', async () => {
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-test-sprite-'));
+    const spriteTmpDir = path.join(tmpRoot, 'work');
+    await stat(tmpRoot);
+    const bins = verificationBinaries();
+    try {
+      const storage = new InMemoryStorage();
+      const published: Array<{ channel: string; payload: unknown }> = [];
+
+      // 1. Real 2.5s 16:9 H.264 + AAC video -> WebP sprite + waveform with bins & binSeconds
+      const videoPath = path.join(tmpRoot, 'clip.mp4');
+      await execFileAsync(bins.ffmpeg, [
+        '-v',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc=duration=2.5:size=320x180:rate=15',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=440:sample_rate=44100:duration=2.5',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'ultrafast',
+        '-pix_fmt',
+        'yuv420p',
+        '-c:a',
+        'aac',
+        '-shortest',
+        '-y',
+        videoPath,
+      ]);
+      const videoBytes = await readFile(videoPath);
+      const videoSha = createHash('sha256').update(videoBytes).digest('hex');
+      await storage.putObject(workspaceBlobKey(WID_A, videoSha), videoBytes, 'video/mp4');
+
+      const blobStore = new Map<string, { metadata: Record<string, unknown> | null; gcState: string }>();
+      blobStore.set(videoSha, { metadata: null, gcState: 'active' });
+
+      const makeSpriteDb = (sha: string) =>
+        createFakeDb({
+          selectQueue: [
+            [blobStore.get(sha) ?? { metadata: null, gcState: 'active' }],
+            [{ projectId: PID_A, path: 'assets/clip.mp4' }],
+          ],
+          onUpdate: (_table, values) => {
+            const v = values as { metadata?: Record<string, unknown> };
+            const cur = blobStore.get(sha);
+            if (cur && v.metadata) cur.metadata = { ...(cur.metadata ?? {}), ...v.metadata };
+            return [{ sha256: sha }];
+          },
+        });
+
+      const spriteRes = await handleGenerateVideoSpriteJob(
+        {
+          db: makeSpriteDb(videoSha),
+          storage,
+          eventBus: {
+            publish: async (channel, payload) => {
+              published.push({ channel, payload });
+              return 1;
+            },
+          },
+          logger: SILENT_LOGGER,
+          workerId: 'media-sprite-1',
+          tmpBaseDir: spriteTmpDir,
+        },
+        {
+          workspaceId: WID_A,
+          blobScope: 'workspace',
+          sha256: videoSha,
+          projectId: PID_A,
+        },
+      );
+
+      assert.equal(spriteRes.status, 'ready');
+      assert.ok(spriteRes.sprite && spriteRes.sprite.frameCount >= 2);
+      assert.equal(spriteRes.sprite.frameWidth, 160);
+      assert.equal(spriteRes.sprite.frameHeight, 90);
+      assert.equal(spriteRes.sprite.sheetCount, 1);
+
+      const sheetObj = storage.objects.get(derivedAssetKey(WID_A, videoSha, 'sprite-0.webp'));
+      assert.ok(sheetObj && sheetObj.contentType === 'image/webp');
+      const webpInfo = await sharp(sheetObj.bytes).metadata();
+      assert.equal(webpInfo.format, 'webp');
+      assert.ok((webpInfo.width ?? 0) >= 160);
+
+      const manifestObj = storage.objects.get(derivedAssetKey(WID_A, videoSha, 'sprite-manifest.json'));
+      assert.ok(manifestObj);
+      const manifest = JSON.parse(manifestObj.bytes.toString('utf8')) as {
+        version: number;
+        frameCount: number;
+        sheets: Array<{ index: number; s3Key: string }>;
+      };
+      assert.equal(manifest.version, 1);
+      assert.equal(manifest.sheets.length, 1);
+
+      const derivedEvt = published.find(
+        (p) => p.channel === projectChannel(WID_A, PID_A) && (p.payload as { type?: string }).type === 'media-derived-ready',
+      );
+      assert.ok(derivedEvt);
+      assert.equal((derivedEvt.payload as { kind?: string }).kind, 'sprite');
+      assert.equal((derivedEvt.payload as { status?: string }).status, 'ready');
+
+      // Second run with sprite.status='ready' + existing manifest in S3 is idempotent.
+      const idempotentRes = await handleGenerateVideoSpriteJob(
+        {
+          db: createFakeDb({
+            selectQueue: [[{ metadata: { sprite: spriteRes.sprite }, gcState: 'active' }]],
+          }),
+          storage,
+          eventBus: { publish: async () => 1 },
+          logger: SILENT_LOGGER,
+          workerId: 'media-sprite-1',
+          tmpBaseDir: spriteTmpDir,
+        },
+        {
+          workspaceId: WID_A,
+          blobScope: 'workspace',
+          sha256: videoSha,
+          projectId: PID_A,
+        },
+      );
+      assert.equal(idempotentRes.status, 'skipped');
+      assert.equal(idempotentRes.reason, 'already_ready');
+
+      // 2. Waveform on audio video emits BOTH peaks and bins + binSeconds + hasAudio: true
+      const wfRes = await handleExtractWaveformPeaksJob(
+        {
+          db: createFakeDb({ selectQueue: [[{ projectId: PID_A, path: 'assets/clip.mp4' }]] }),
+          storage,
+          eventBus: {
+            publish: async (channel, payload) => {
+              published.push({ channel, payload });
+              return 1;
+            },
+          },
+          logger: SILENT_LOGGER,
+          workerId: 'media-wf-1',
+          tmpBaseDir: spriteTmpDir,
+        },
+        {
+          workspaceId: WID_A,
+          blobScope: 'workspace',
+          sha256: videoSha,
+          projectId: PID_A,
+          samples: 64,
+        },
+      );
+      assert.equal(wfRes.peaks.length, 64);
+      const wfJson = JSON.parse(
+        (await storage.getObjectBuffer(derivedAssetKey(WID_A, videoSha, 'waveform-peaks.json'))).toString('utf8'),
+      ) as { peaks: number[]; bins: number[]; binSeconds: number; hasAudio: boolean };
+      assert.deepEqual(wfJson.bins, wfJson.peaks);
+      assert.ok(wfJson.binSeconds > 0);
+      assert.equal(wfJson.hasAudio, true);
+
+      // 3. Silent video (no audio track) succeeds with empty waveform instead of throwing FFmpeg 400
+      const silentPath = path.join(tmpRoot, 'silent.mp4');
+      await execFileAsync(bins.ffmpeg, [
+        '-v',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'color=c=blue:s=160x90:d=1.2',
+        '-c:v',
+        'libx264',
+        '-preset',
+        'ultrafast',
+        '-pix_fmt',
+        'yuv420p',
+        '-an',
+        '-y',
+        silentPath,
+      ]);
+      const silentBytes = await readFile(silentPath);
+      const silentSha = createHash('sha256').update(silentBytes).digest('hex');
+      await storage.putObject(workspaceBlobKey(WID_A, silentSha), silentBytes, 'video/mp4');
+
+      const silentWf = await handleExtractWaveformPeaksJob(
+        {
+          db: createFakeDb({ selectQueue: [[{ projectId: PID_A, path: 'assets/silent.mp4' }]] }),
+          storage,
+          eventBus: { publish: async () => 1 },
+          logger: SILENT_LOGGER,
+          workerId: 'media-wf-1',
+          tmpBaseDir: spriteTmpDir,
+        },
+        {
+          workspaceId: WID_A,
+          blobScope: 'workspace',
+          sha256: silentSha,
+          projectId: PID_A,
+          samples: 2048,
+        },
+      );
+      assert.deepEqual(silentWf.peaks, []);
+      assert.equal(silentWf.samples, 0);
+      const silentJson = JSON.parse(
+        (await storage.getObjectBuffer(derivedAssetKey(WID_A, silentSha, 'waveform-peaks.json'))).toString('utf8'),
+      ) as { hasAudio: boolean; bins: number[] };
+      assert.equal(silentJson.hasAudio, false);
+      assert.deepEqual(silentJson.bins, []);
+
+      // 4. AsyncSemaphore strictly caps peak in-flight concurrency
+      const sem = new AsyncSemaphore(2);
+      let active = 0;
+      let peak = 0;
+      await Promise.all(
+        Array.from({ length: 6 }, () =>
+          sem.run(async () => {
+            active += 1;
+            if (active > peak) peak = active;
+            await new Promise((r) => setTimeout(r, 10));
+            active -= 1;
+          }),
+        ),
+      );
+      assert.equal(peak, 2);
+
+      // Verify /tmp scratch dir cleaned up
+      const leftovers = await readdir(spriteTmpDir);
+      assert.deepEqual(leftovers, []);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('uses zero-RAM S3 copyObject on unmodified upload_commit instead of buffering file into putBlobIfAbsent', async () => {
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-test-copy-'));
+    try {
+      const storage = new InMemoryStorage();
+      const copiedCalls: Array<{ src: string; dst: string; contentType?: string }> = [];
+      storage.copyObject = async (src: string, dst: string, contentType?: string) => {
+        copiedCalls.push({ src, dst, contentType });
+        const item = storage.objects.get(src);
+        if (!item) throw new Error(`Missing source ${src}`);
+        storage.objects.set(dst, { bytes: Buffer.from(item.bytes), contentType: contentType ?? item.contentType });
+      };
+
+      const dummyVideo = Buffer.from('00000018667479706d703432000000006d70343269736f6d', 'hex');
+      const videoSha = createHash('sha256').update(dummyVideo).digest('hex');
+      const stagingKey = uploadStagingKey(WID_A, UID_A);
+      await storage.putObject(stagingKey, dummyVideo, 'video/mp4');
+      storage.trace.length = 0;
+
+      const ticketRow = {
+        id: UID_A,
+        workspaceId: WID_A,
+        userId: UID_A,
+        purpose: 'library_asset',
+        targetProjectId: null,
+        targetAssetId: null,
+        targetPath: null,
+        filename: 'big-clip.mp4',
+        expectedMimeType: 'video/mp4',
+        expectedModality: 'video',
+        expectedSha256: videoSha,
+        maxBytes: 1_000_000,
+        s3StagingKey: stagingKey,
+        licenseS3StagingKey: null,
+        licenseFilename: null,
+        licenseMaxBytes: null,
+        state: 'uploaded',
+        requestId: 'req-copy-zero-ram',
+        resultPayload: null,
+        error: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      };
+
+      await handleUploadCommitJob(
+        {
+          db: createFakeDb({ selectQueue: [[ticketRow]] }),
+          storage,
+          eventBus: { publish: async () => 1 },
+          logger: SILENT_LOGGER,
+          workerId: 'media-copy-1',
+          tmpBaseDir: tmpRoot,
+          probeMedia: async () => ({
+            modality: 'video',
+            mimeType: 'video/mp4',
+            extension: 'mp4',
+            sizeBytes: dummyVideo.byteLength,
+            width: 1920,
+            height: 1080,
+            durationSec: 12,
+          }),
+          generateThumbnailBuffer: async () => Buffer.from('jpg'),
+          applyBlobDeltas: async () => {},
+        },
+        {
+          jobId: JID_A,
+          workspaceId: WID_A,
+          uploadId: UID_A,
+          purpose: 'library_asset',
+          name: 'Big Clip',
+        },
+      );
+
+      assert.equal(copiedCalls.length, 1);
+      assert.equal(copiedCalls[0].src, stagingKey);
+      assert.equal(copiedCalls[0].dst, workspaceBlobKey(WID_A, videoSha));
+      assert.equal(
+        storage.trace.some((entry) => entry.startsWith('putBlobIfAbsent:')),
+        false,
+        'Unmodified video must promote via server-side copyObject instead of putBlobIfAbsent',
+      );
+      assert.ok(storage.objects.has(workspaceBlobKey(WID_A, videoSha)));
+      assert.equal(storage.objects.has(stagingKey), false);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

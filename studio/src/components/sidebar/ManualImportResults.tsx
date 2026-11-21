@@ -47,10 +47,35 @@ export function ManualImportResults({ batch, onReplace, onReload, onReveal, onRe
       <ul className="mt-2 space-y-2">
         {batch.items.map(item => <li key={item.id} className="min-w-0 border-t border-border pt-2">
           <div className="flex items-start gap-1.5">
-            <RemixIcon name={icons[item.status]} size={14} className="shrink-0 text-text-2" />
+            {item.previewUrl ? (
+              <img
+                src={item.previewUrl}
+                alt=""
+                draggable={false}
+                className="mt-0.5 h-6 w-9 shrink-0 rounded-xs object-cover bg-neutral-900"
+              />
+            ) : (
+              <RemixIcon name={icons[item.status]} size={14} className="shrink-0 text-text-2" />
+            )}
             <div className="min-w-0 flex-1">
               <p className="break-all font-medium">{item.name}</p>
-              <p className="text-text-2">{t(labels[item.status])}</p>
+              <p className="text-text-2">
+                {item.status === 'pending' && item.phase === 'uploading'
+                  ? `${t('Uploading')} ${typeof item.progress === 'number' ? `${item.progress}%` : ''}`.trim()
+                  : item.status === 'pending' && item.phase === 'processing'
+                    ? t('Processing...')
+                    : t(labels[item.status])}
+              </p>
+              {item.status === 'pending' && item.phase && (
+                <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-neutral-800">
+                  <div
+                    className="h-full bg-studio-accent transition-[width] duration-150"
+                    style={{
+                      width: `${item.phase === 'processing' ? 100 : Math.max(4, Math.min(100, item.progress ?? 4))}%`,
+                    }}
+                  />
+                </div>
+              )}
               {item.path && item.path !== item.name && <p className="break-all text-text-2">{item.path}</p>}
               {item.reason && <p className="text-text-2">{t(item.reason)}</p>}
               {item.status === 'failed' && <div className="mt-1 space-y-1">

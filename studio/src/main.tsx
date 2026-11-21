@@ -24,6 +24,9 @@ import "./motion/application.css";
 import { MotionStudioHost } from "./motion/MotionStudioHost";
 import { initializeDiagnostics, recordBrowserDiagnostic } from './motion/diagnostics';
 import { bindEmbeddedStudioTheme } from './utils/studioTheme';
+import { warmCloudDisklessMode } from './utils/cloudRuntime';
+
+warmCloudDisklessMode();
 
 initBrowserObservability();
 

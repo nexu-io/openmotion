@@ -1,4 +1,5 @@
 import { studioApiFetch } from "../../utils/studioApiFetch";
+import { waitForMediaDerived } from "../../utils/mediaDerivedBus";
 
 export class UnavailableAudioError extends Error {}
 
@@ -43,20 +44,55 @@ export async function loadWaveform(
 }
 
 async function fetchWaveformPeaks(url: string, signal: AbortSignal): Promise<number[]> {
-  const response = await studioApiFetch(url, { signal });
-  if (response.status === 404 || response.status === 410) throw new UnavailableAudioError(`Waveform request failed (${response.status})`);
-  if (!response.ok) throw new Error(`Waveform request failed (${response.status})`);
-  const data: unknown = await response.json();
-  if (
-    typeof data !== "object" ||
-    data === null ||
-    !("peaks" in data) ||
-    !Array.isArray(data.peaks) ||
-    !data.peaks.every((peak) => typeof peak === "number")
-  ) {
-    throw new Error("Invalid waveform response");
+  const maxPendingAttempts = 12;
+  let delayMs = 500;
+
+  for (let attempt = 0; attempt < maxPendingAttempts; attempt += 1) {
+    const response = await studioApiFetch(url, { signal });
+    if (response.status === 404 || response.status === 410) {
+      throw new UnavailableAudioError(`Waveform request failed (${response.status})`);
+    }
+    if (response.status === 202) {
+      const pendingBody = (await response.json().catch(() => null)) as { sha256?: string } | null;
+      const expectedSha = typeof pendingBody?.sha256 === "string" ? pendingBody.sha256 : undefined;
+      const sseEvent = await waitForMediaDerived(
+        (evt) => evt.kind === "waveform" && (!expectedSha || evt.sha256 === expectedSha),
+        delayMs,
+        signal,
+      );
+      if (sseEvent?.status === "failed") {
+        throw new Error("Waveform extraction failed");
+      }
+      delayMs = Math.min(4000, Math.round(delayMs * 1.7));
+      continue;
+    }
+    if (!response.ok) throw new Error(`Waveform request failed (${response.status})`);
+    const data: unknown = await response.json();
+    if (typeof data === "object" && data !== null && (data as { pending?: unknown }).pending === true) {
+      const expectedSha =
+        typeof (data as { sha256?: unknown }).sha256 === "string"
+          ? ((data as { sha256: string }).sha256)
+          : undefined;
+      await waitForMediaDerived(
+        (evt) => evt.kind === "waveform" && (!expectedSha || evt.sha256 === expectedSha),
+        delayMs,
+        signal,
+      );
+      delayMs = Math.min(4000, Math.round(delayMs * 1.7));
+      continue;
+    }
+    if (
+      typeof data !== "object" ||
+      data === null ||
+      !("peaks" in data) ||
+      !Array.isArray(data.peaks) ||
+      !data.peaks.every((peak) => typeof peak === "number")
+    ) {
+      throw new Error("Invalid waveform response");
+    }
+    return data.peaks;
   }
-  return data.peaks;
+  throw new Error("Waveform extraction timed out while pending");
 }
 
 async function decodeWaveformPeaks(url: string, signal: AbortSignal): Promise<number[]> {

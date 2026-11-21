@@ -1,24 +1,33 @@
 import type { Readable } from 'node:stream';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CopyObjectCommand,
   CreateBucketCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  ListPartsCommand,
   PutBucketCorsCommand,
+  PutBucketLifecycleConfigurationCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { CloudError } from '../contracts/errors.ts';
 import {
   S3_CANONICAL_CORS_SPEC,
   type HeadObjectResult,
+  type MultipartPartInfo,
   type ObjectStreamResult,
   type PresignGetOptions,
   type PresignPutOptions,
+  type PresignUploadPartOptions,
   type StoragePort,
 } from '../contracts/storage.ts';
 import { isSha256Hex, isUuid } from '../../shared/project-validation.ts';
@@ -269,6 +278,9 @@ function buildS3Client(options: StorageServiceOptions, endpoint?: string): S3Cli
     region: options.region,
     ...(endpoint ? { endpoint } : {}),
     forcePathStyle: options.forcePathStyle ?? true,
+    // Avoid injecting unsigned/empty CRC32 query params on presigned PUT & UploadPart URLs for S3-compatible gateways.
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
     ...(options.accessKeyId && options.secretAccessKey
       ? {
           credentials: {
@@ -330,6 +342,42 @@ export class StorageService implements StoragePort {
     }
     await this.putObject(key, body, contentType, body.byteLength);
     return { uploaded: true };
+  }
+
+  async putBlobIfAbsentStream(
+    key: string,
+    createStream: () => Readable,
+    sizeBytes: number,
+    contentType: string,
+  ): Promise<{ uploaded: boolean }> {
+    if (sizeBytes >= HEAD_SKIP_THRESHOLD_BYTES) {
+      const existing = await this.headObject(key);
+      if (existing && existing.contentLength === sizeBytes) {
+        return { uploaded: false };
+      }
+    }
+    await this.putObject(key, createStream(), contentType, sizeBytes);
+    return { uploaded: true };
+  }
+
+  async copyObject(sourceKey: string, destinationKey: string, contentType?: string): Promise<void> {
+    const encodedSource = `${encodeURIComponent(this.bucket)}/${sourceKey
+      .split('/')
+      .map((seg) => encodeURIComponent(seg))
+      .join('/')}`;
+    await this.internalClient.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: destinationKey,
+        CopySource: encodedSource,
+        ...(contentType
+          ? {
+              MetadataDirective: 'REPLACE',
+              ContentType: contentType,
+            }
+          : {}),
+      }),
+    );
   }
 
   async getObjectBuffer(key: string, maxBytes?: number): Promise<Buffer> {
@@ -497,9 +545,136 @@ export class StorageService implements StoragePort {
     });
   }
 
+  async createMultipartUpload(key: string, contentType: string): Promise<{ uploadId: string }> {
+    const res = await this.internalClient.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ContentType: contentType,
+      }),
+    );
+    if (!res.UploadId) {
+      throw new CloudError('STORAGE_ERROR', 'S3 CreateMultipartUpload did not return UploadId', {
+        status: 502,
+      });
+    }
+    return { uploadId: res.UploadId };
+  }
+
+  async presignUploadPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    options: PresignUploadPartOptions = {},
+  ): Promise<string> {
+    const command = new UploadPartCommand({
+      Bucket: this.bucket,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+      ...(options.contentLength !== undefined ? { ContentLength: options.contentLength } : {}),
+    });
+    return getSignedUrl(this.signerClient, command, {
+      expiresIn: options.expiresInSec ?? this.defaultPresignPutTtlSec,
+    });
+  }
+
+  async listMultipartParts(key: string, uploadId: string): Promise<MultipartPartInfo[]> {
+    const parts: MultipartPartInfo[] = [];
+    let partNumberMarker: string | undefined;
+    do {
+      const res = await this.internalClient.send(
+        new ListPartsCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+          ...(partNumberMarker ? { PartNumberMarker: partNumberMarker } : {}),
+        }),
+      );
+      for (const item of res.Parts ?? []) {
+        if (typeof item.PartNumber === 'number' && typeof item.ETag === 'string' && item.ETag.length > 0) {
+          parts.push({
+            partNumber: item.PartNumber,
+            etag: item.ETag,
+            ...(typeof item.Size === 'number' ? { size: item.Size } : {}),
+          });
+        }
+      }
+      partNumberMarker = res.IsTruncated ? res.NextPartNumberMarker : undefined;
+    } while (partNumberMarker);
+    parts.sort((a, b) => a.partNumber - b.partNumber);
+    return parts;
+  }
+
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: readonly { partNumber: number; etag: string }[],
+  ): Promise<void> {
+    const sorted = [...parts]
+      .sort((a, b) => a.partNumber - b.partNumber)
+      .map((p) => ({
+        PartNumber: p.partNumber,
+        ETag: p.etag,
+      }));
+    await this.internalClient.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: { Parts: sorted },
+      }),
+    );
+  }
+
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.internalClient.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+        }),
+      );
+    } catch (error) {
+      const err = error as { name?: string; Code?: string; $metadata?: { httpStatusCode?: number } };
+      if (
+        err?.name === 'NoSuchUpload' ||
+        err?.Code === 'NoSuchUpload' ||
+        err?.$metadata?.httpStatusCode === 404
+      ) {
+        return;
+      }
+      throw error;
+    }
+  }
+
   /**
-   * Ensure the configured S3 bucket exists and apply the canonical CORS rule required by
-   * browser direct uploads and cross-origin 302 presigned GET playback (mediabunny / thumbnails).
+   * Configure S3 bucket lifecycle to automatically abort orphaned incomplete multipart uploads
+   * so abandoned browser/MCP uploads cannot accumulate hidden storage billing.
+   */
+  async ensureBucketLifecycle(abortIncompleteMultipartDays = 1): Promise<void> {
+    const days = Math.max(1, Math.floor(abortIncompleteMultipartDays));
+    await this.internalClient.send(
+      new PutBucketLifecycleConfigurationCommand({
+        Bucket: this.bucket,
+        LifecycleConfiguration: {
+          Rules: [
+            {
+              ID: 'abort-incomplete-multipart-uploads',
+              Status: 'Enabled',
+              Filter: { Prefix: '' },
+              AbortIncompleteMultipartUpload: { DaysAfterInitiation: days },
+            },
+          ],
+        },
+      }),
+    );
+  }
+
+  /**
+   * Ensure the configured S3 bucket exists and apply the canonical CORS rule + multipart
+   * orphan lifecycle cleanup required by browser direct/multipart uploads and 302 presigned GET playback.
    */
   async ensureBucketAndCors(allowedOrigins?: readonly string[]): Promise<void> {
     try {
@@ -529,6 +704,9 @@ export class StorageService implements StoragePort {
         },
       }),
     );
+
+    // Best-effort lifecycle rule for incomplete multipart uploads (supported by AWS S3, RustFS, MinIO, R2, OSS).
+    await this.ensureBucketLifecycle(1).catch(() => {});
   }
 
   close(): void {

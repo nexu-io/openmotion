@@ -61,6 +61,9 @@ export function FileManagerProvider({
     assets,
     fontAssets,
     assetNames,
+    assetMetadata,
+    pendingImports,
+    dismissPendingImport,
   },
   children,
 }: {
@@ -111,6 +114,9 @@ export function FileManagerProvider({
       assets,
       fontAssets,
       assetNames,
+      assetMetadata,
+      pendingImports,
+      dismissPendingImport,
     }),
     [
       editingFile,
@@ -155,6 +161,9 @@ export function FileManagerProvider({
       assets,
       fontAssets,
       assetNames,
+      assetMetadata,
+      pendingImports,
+      dismissPendingImport,
     ],
   );
   return <FileManagerContext value={stable}>{children}</FileManagerContext>;

@@ -37,6 +37,7 @@ export function useRenderProgress(projectId: string | null, jobs: RenderJob[], u
           const status = readRenderStatus(data.status);
           updateJobs(previous => previous.map(old => old.id !== job.id ? old : {
             ...old,
+            filename: typeof data.filename === "string" && data.filename ? data.filename : old.filename,
             status: old.status === "cancelling" && status === "rendering" ? "cancelling" : status ?? old.status,
             progress: typeof data.progress === "number" ? data.progress : old.progress,
             stage: data.stage ?? data.message ?? old.stage,

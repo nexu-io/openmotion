@@ -17,6 +17,13 @@ import { encodeUrlPath } from "@hyperframes/parsers";
 import { beginStudioIo } from "../telemetry/ioRecovery";
 import { prepareFontImport } from "../components/editor/fontImport";
 import { manualImportResults, UNKNOWN_IMPORT_REASON, type ManualImportBatch, type ManualImportItem, type ManualImportAttempt, type UploadResponse } from './manualImportResults';
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import { captureLocalFilePreview, setLocalUploadPreview } from "../utils/localUploadPreviewStore";
+import {
+  buildProjectUploadTargetPath,
+  isCloudDirectUploadFile,
+  uploadCloudProjectFile,
+} from "./cloudProjectUpload";
 
 // ── Types ──
 
@@ -84,7 +91,14 @@ export function useFileManager({
     assets,
     fontAssets,
     assetNames,
+    assetMetadata,
+    pendingImports,
+    dismissPendingImport,
   } = useFileTree({ projectId, projectIdRef });
+  const fileTreeRef = useRef(fileTree);
+  fileTreeRef.current = fileTree;
+  const projectDirRef = useRef(projectDir);
+  projectDirRef.current = projectDir;
   // Counts Studio already holds, for bucketed project-scale fields. Unknown until the tree loads.
   useEffect(() => {
     setProjectInventory(fileTreeLoaded ? { assets: assets.length, compositions: compositions.length } : null);
@@ -268,31 +282,179 @@ export function useFileManager({
             return [];
           }
         }
-        const formData = new FormData();
-        for (const file of fileList) formData.append('file', file);
-        const qs = dir ? `?dir=${encodeURIComponent(dir)}` : '';
-        const res = await studioApiFetch(`/api/projects/${encodeURIComponent(pid)}/upload${qs}`, { method: 'POST', body: formData });
-        if (res.ok) {
-          const data: UploadResponse = await res.json();
-          const paths = Array.isArray(data.files) ? data.files : [];
-          const fileResults = manualImportResults(fileList, itemIds, data, t);
-          markResults(fileResults, paths);
-          update(batch => ({ ...batch, diagnostic: fileResults.some(item => item.status === 'unknown') ? 'The response could not be matched to every selected file.' : undefined }));
-          failureCategory = data.skipped?.length ? 'too_large'
-            : data.invalid?.length ? importErrorCategory(String(data.invalid[0].reason)) : failureCategory;
-          // Manual batches already show each result and its reason. Repeating
-          // legacy notices can imply that the entire batch failed.
-          if (!attempt) {
-            if (data.skipped?.length) showToast(`"${data.skipped.join(', ')}" exceeds the size limit. Compress or replace the file.`, 'error');
-            if (data.invalid?.length) {
-              const names = data.invalid.map(entry => entry.name).join(', ');
-              showToast(`Cannot add "${names}". Re-export or replace the file.`, 'error');
-            }
-            if (data.unchecked?.length) {
-              const names = data.unchecked.map(entry => entry.name).join(', ');
-              showToast(t('Added {name}, {message}', { name: names, message: importValidationMessage(data.unchecked[0].reason, t) }), 'info');
+        const isCloudMode =
+          getCachedCloudDisklessMode() || Boolean(projectDirRef.current?.startsWith('/virtual/'));
+
+        const directEntries: Array<{ file: File; id: string }> = [];
+        const legacyEntries: Array<{ file: File; id: string }> = [];
+        if (isCloudMode) {
+          for (let index = 0; index < fileList.length; index++) {
+            const file = fileList[index];
+            const id = itemIds[index];
+            if (isCloudDirectUploadFile(file)) {
+              directEntries.push({ file, id });
+            } else {
+              legacyEntries.push({ file, id });
             }
           }
+        } else {
+          for (let index = 0; index < fileList.length; index++) {
+            legacyEntries.push({ file: fileList[index], id: itemIds[index] });
+          }
+        }
+
+        const directPaths: string[] = [];
+        let legacyPaths: string[] = [];
+        let legacyHadHttpFailure = false;
+
+        if (directEntries.length > 0) {
+          const reservedPaths = new Set(fileTreeRef.current);
+          const directPlan = directEntries.map((entry) => {
+            const targetPath = buildProjectUploadTargetPath(entry.file.name, dir, reservedPaths);
+            reservedPaths.add(targetPath);
+            return { ...entry, targetPath };
+          });
+
+          // Kick off zero-network local File previews for instant sidebar/card feedback during upload.
+          const previewById = new Map<string, { url: string; isObjectUrl: boolean }>();
+          await Promise.all(
+            directPlan.map(async (entry) => {
+              const captured = await captureLocalFilePreview(entry.file).catch(() => null);
+              if (captured) {
+                previewById.set(entry.id, captured);
+                update(batch => ({
+                  ...batch,
+                  items: batch.items.map(item =>
+                    item.id === entry.id ? { ...item, previewUrl: captured.url } : item,
+                  ),
+                }));
+              }
+            }),
+          );
+
+          let cursor = 0;
+          const workerCount = Math.min(2, directPlan.length);
+          const runWorker = async () => {
+            for (;;) {
+              const idx = cursor;
+              cursor += 1;
+              if (idx >= directPlan.length) return;
+              const entry = directPlan[idx];
+              const preview = previewById.get(entry.id);
+
+              const outcome = await uploadCloudProjectFile({
+                projectId: pid,
+                file: entry.file,
+                targetPath: entry.targetPath,
+                onProgress: ({ phase, progress }) => {
+                  update(batch => ({
+                    ...batch,
+                    items: batch.items.map(item =>
+                      item.id === entry.id
+                        ? { ...item, phase, progress, ...(preview ? { previewUrl: preview.url } : {}) }
+                        : item,
+                    ),
+                  }));
+                },
+              });
+
+              if (outcome.status === 'imported' && outcome.path) {
+                if (preview) {
+                  setLocalUploadPreview(pid, outcome.path, preview.url, preview.isObjectUrl);
+                }
+                directPaths.push(outcome.path);
+                markResults(
+                  [
+                    {
+                      id: entry.id,
+                      name: entry.file.name,
+                      status: 'imported',
+                      path: outcome.path,
+                      ...(preview ? { previewUrl: preview.url } : {}),
+                    },
+                  ],
+                  [outcome.path],
+                );
+              } else if (outcome.status === 'failed') {
+                if (preview?.isObjectUrl) {
+                  try { URL.revokeObjectURL(preview.url); } catch { /* ignore */ }
+                }
+                if (outcome.category && !failureCategory) failureCategory = outcome.category;
+                const reason = outcome.reason ? t(outcome.reason) : t('The server rejected this upload before adding files. Choose the files again.');
+                if (outcome.diagnostic) {
+                  update(batch => ({ ...batch, diagnostic: outcome.diagnostic }));
+                }
+                markResults([{ id: entry.id, name: entry.file.name, status: 'failed', reason }]);
+                if (!attempt) showToast(reason, 'error');
+              } else {
+                if (preview?.isObjectUrl) {
+                  try { URL.revokeObjectURL(preview.url); } catch { /* ignore */ }
+                }
+                if (outcome.diagnostic) {
+                  update(batch => ({ ...batch, diagnostic: outcome.diagnostic }));
+                }
+                markResults([{ id: entry.id, name: entry.file.name, status: 'unknown', reason: t(UNKNOWN_IMPORT_REASON) }]);
+                if (!attempt) showToast(t(UNKNOWN_IMPORT_REASON), 'error');
+              }
+            }
+          };
+
+          await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+        }
+
+        if (legacyEntries.length > 0) {
+          const legacyFiles = legacyEntries.map((entry) => entry.file);
+          const legacyIds = legacyEntries.map((entry) => entry.id);
+          const formData = new FormData();
+          for (const file of legacyFiles) formData.append('file', file);
+          const qs = dir ? `?dir=${encodeURIComponent(dir)}` : '';
+          const res = await studioApiFetch(`/api/projects/${encodeURIComponent(pid)}/upload${qs}`, { method: 'POST', body: formData });
+          if (res.ok) {
+            const data: UploadResponse = await res.json();
+            legacyPaths = Array.isArray(data.files) ? data.files : [];
+            const fileResults = manualImportResults(legacyFiles, legacyIds, data, t);
+            markResults(fileResults, legacyPaths);
+            update(batch => ({ ...batch, diagnostic: fileResults.some(item => item.status === 'unknown') ? 'The response could not be matched to every selected file.' : batch.diagnostic }));
+            failureCategory = data.skipped?.length ? 'too_large'
+              : data.invalid?.length ? importErrorCategory(String(data.invalid[0].reason)) : failureCategory;
+            // Manual batches already show each result and its reason. Repeating
+            // legacy notices can imply that the entire batch failed.
+            if (!attempt) {
+              if (data.skipped?.length) showToast(`"${data.skipped.join(', ')}" exceeds the size limit. Compress or replace the file.`, 'error');
+              if (data.invalid?.length) {
+                const names = data.invalid.map(entry => entry.name).join(', ');
+                showToast(`Cannot add "${names}". Re-export or replace the file.`, 'error');
+              }
+              if (data.unchecked?.length) {
+                const names = data.unchecked.map(entry => entry.name).join(', ');
+                showToast(t('Added {name}, {message}', { name: names, message: importValidationMessage(data.unchecked[0].reason, t) }), 'info');
+              }
+            }
+          } else {
+            legacyHadHttpFailure = true;
+            const body = await res.clone().json().catch(() => null);
+            if (res.status === 409 && body?.code === 'NATIVE_RUNTIME_NOT_READY') {
+              if (projectIdRef.current === pid) setPendingImport({ projectId: pid, files: legacyFiles, dir, entryPoint, attempt: attempt ? { ...attempt, itemIds: legacyIds } : undefined });
+              failureCategory = 'runtime_not_ready';
+              markResults(legacyFiles.map((file, index) => ({ id: legacyIds[index], name: file.name, status: 'pending', reason: t('Media components are preparing. Selected files are kept for retry.') })));
+              showToast(t('Media components are preparing. Selected files are kept for retry.'), 'info');
+            } else {
+              update(batch => ({ ...batch, diagnostic: `HTTP ${res.status}${typeof body?.error === 'string' ? `: ${body.error}` : ''}` }));
+              const knownRejection = res.status === 413 || body?.applied === false;
+              if (knownRejection) failureCategory = res.status === 413 ? 'too_large' : 'other';
+              const reason = res.status === 413 ? t('Upload rejected: payload too large. Choose smaller files.') : knownRejection ? t('The server rejected this upload before adding files. Choose the files again.') : t(UNKNOWN_IMPORT_REASON);
+              markResults(legacyFiles.map((file, index) => ({ id: legacyIds[index], name: file.name, status: knownRejection ? 'failed' : 'unknown', reason })));
+              if (attempt) setPendingImport(previous => previous?.attempt?.batchId === attempt.batchId ? null : previous);
+              showToast(reason, 'error');
+            }
+          }
+        }
+
+        const paths = [...directPaths, ...legacyPaths];
+        const shouldRefreshListing =
+          directPaths.length > 0 || (legacyEntries.length > 0 && !legacyHadHttpFailure);
+
+        if (shouldRefreshListing) {
           setPendingImport(previous => previous?.projectId === pid && previous.dir === dir && previous.files.length === fileList.length && previous.files.every((file, index) => file === fileList[index]) ? null : previous);
           // Bind the strict refresh to the upload owner; failures do not undo a
           // confirmed import or turn the upload into a retryable failure.
@@ -309,21 +471,6 @@ export function useFileManager({
             if (projectIdRef.current === pid) showToast(t(paths.length ? 'Files were imported, but the asset list could not reload.' : 'The asset list could not reload. Check the connection and try again.'), 'error');
           }
           return paths;
-        }
-        const body = await res.clone().json().catch(() => null);
-        if (res.status === 409 && body?.code === 'NATIVE_RUNTIME_NOT_READY') {
-          if (projectIdRef.current === pid) setPendingImport({ projectId: pid, files: fileList, dir, entryPoint, attempt: attempt ? { ...attempt, itemIds } : undefined });
-          failureCategory = 'runtime_not_ready';
-          markResults(fileList.map((file, index) => ({ id: itemIds[index], name: file.name, status: 'pending', reason: t('Media components are preparing. Selected files are kept for retry.') })));
-          showToast(t('Media components are preparing. Selected files are kept for retry.'), 'info');
-        } else {
-          update(batch => ({ ...batch, diagnostic: `HTTP ${res.status}${typeof body?.error === 'string' ? `: ${body.error}` : ''}` }));
-          const knownRejection = res.status === 413 || body?.applied === false;
-          if (knownRejection) failureCategory = res.status === 413 ? 'too_large' : 'other';
-          const reason = res.status === 413 ? t('Upload rejected: payload too large. Choose smaller files.') : knownRejection ? t('The server rejected this upload before adding files. Choose the files again.') : t(UNKNOWN_IMPORT_REASON);
-          markResults(fileList.map((file, index) => ({ id: itemIds[index], name: file.name, status: knownRejection ? 'failed' : 'unknown', reason })));
-          if (attempt) setPendingImport(previous => previous?.attempt?.batchId === attempt.batchId ? null : previous);
-          showToast(reason, 'error');
         }
       } catch (error) {
         update(batch => ({ ...batch, diagnostic: error instanceof Error ? `${error.name}: ${error.message}` : 'Upload response unavailable' }));
@@ -648,5 +795,8 @@ export function useFileManager({
     assets,
     fontAssets,
     assetNames,
+    assetMetadata,
+    pendingImports,
+    dismissPendingImport,
   };
 }

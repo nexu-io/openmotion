@@ -2,6 +2,7 @@ import { Button } from 'open-design-ui/button';
 import { AssetImportMenu } from '../../motion/AssetLibraryImport';
 import { useFileManagerContextOptional } from '../../contexts/FileManagerContext';
 import { ManualImportResults } from './ManualImportResults';
+import { PendingExternalImports } from './PendingExternalImports';
 import { RemixIcon } from "../../icons/RemixIcons";
 import { clickOption, searchStarted, trackStudioClick } from "../../motion/editorTracking";
 import { useMvpEditor } from "../../motion/StudioHost";
@@ -329,6 +330,14 @@ export const AssetsTab = memo(function AssetsTab({
         data-assets-list
         ref={listRef}
       >
+        {fileManager && fileManager.pendingImports.length > 0 && (
+          <PendingExternalImports
+            items={fileManager.pendingImports.filter(
+              (item) => !(importBatch?.busy && item.source === "web_upload"),
+            )}
+            onDismiss={fileManager.dismissPendingImport}
+          />
+        )}
         {importBatch && fileManager && <ManualImportResults
           key={importBatch.id}
           batch={importBatch}
@@ -391,21 +400,24 @@ export const AssetsTab = memo(function AssetsTab({
                       ))}
                     {(cat === "images" || cat === "video") && (
                       <div className="hf-media-card-grid pb-1">
-                        {categorized[cat].map((a) => (
-                          <AssetCard
-                            key={a}
-                            projectId={projectId}
-                            asset={a}
-                            displayName={assetNames?.[a]}
-                            used={usedPaths.has(a)}
-                            duration={manifest.get(a)?.duration}
-                            onCopy={handleCopyPath}
-                            copyFeedback={copyFeedback}
-                            onDelete={onDelete}
-                            onRename={onRename}
-                            onAddAssetToTimeline={onAddAssetToTimeline}
-                          />
-                        ))}
+                        {categorized[cat].map((a) => {
+                          const serverMeta = fileManager?.assetMetadata?.[a];
+                          return (
+                            <AssetCard
+                              key={a}
+                              projectId={projectId}
+                              asset={a}
+                              displayName={assetNames?.[a]}
+                              used={usedPaths.has(a)}
+                              duration={manifest.get(a)?.duration ?? serverMeta?.duration}
+                              onCopy={handleCopyPath}
+                              copyFeedback={copyFeedback}
+                              onDelete={onDelete}
+                              onRename={onRename}
+                              onAddAssetToTimeline={onAddAssetToTimeline}
+                            />
+                          );
+                        })}
                       </div>
                     )}
                     {cat === "fonts" &&

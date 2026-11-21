@@ -99,6 +99,9 @@ export function createAssetRoutes(deps: AssetRoutesDeps): Hono {
       sizeBytes: Number(body.sizeBytes ?? body.bytes),
       expectedModality: body.expectedModality as AssetModality | undefined,
       expectedSha256: body.expectedSha256 as string | undefined,
+      allowInstantCommit: body.allowInstantCommit === true,
+      multipart: body.multipart === true,
+      partSize: body.partSize !== undefined ? Number(body.partSize) : undefined,
       targetProjectId: body.targetProjectId as string | undefined,
       targetAssetId: body.targetAssetId as string | undefined,
       targetPath: body.targetPath as string | undefined,
@@ -106,7 +109,50 @@ export function createAssetRoutes(deps: AssetRoutesDeps): Hono {
       licenseFilename: body.licenseFilename as string | undefined,
       licenseBytes: body.licenseBytes !== undefined ? Number(body.licenseBytes) : undefined,
     });
-    return c.json(ticket, 201);
+    return c.json(ticket, ticket.instantCommitted ? 200 : 201);
+  });
+
+  // POST /uploads/:uploadId/parts — list uploaded parts (resume) and mint presigned S3 UploadPart URLs
+  app.post('/uploads/:uploadId/parts', async (c) => {
+    const auth = resolveAuth(c, deps);
+    assertAuthorized(auth, 'assets:write', true);
+    const uploadId = requireParam(c, 'uploadId');
+    let body: Record<string, unknown> = {};
+    const contentLength = c.req.header('content-length');
+    if (contentLength !== '0' && c.req.header('content-type')?.includes('application/json')) {
+      body = await readJsonBody(c);
+    }
+    const partNumbers = Array.isArray(body.partNumbers)
+      ? body.partNumbers.map((n) => Number(n))
+      : undefined;
+    const result = await assetService.prepareMultipartParts(auth, uploadId, { partNumbers });
+    return c.json(result, 200);
+  });
+
+  // POST /uploads/:uploadId/complete-multipart — assemble uploaded S3 parts into staging object before /confirm
+  app.post('/uploads/:uploadId/complete-multipart', async (c) => {
+    const auth = resolveAuth(c, deps);
+    assertAuthorized(auth, 'assets:write', true);
+    const uploadId = requireParam(c, 'uploadId');
+    let body: Record<string, unknown> = {};
+    const contentLength = c.req.header('content-length');
+    if (contentLength !== '0' && c.req.header('content-type')?.includes('application/json')) {
+      body = await readJsonBody(c);
+    }
+    const parts = Array.isArray(body.parts)
+      ? (body.parts as Array<{ partNumber: number; etag: string }>)
+      : undefined;
+    const result = await assetService.completeMultipartTicket(auth, uploadId, { parts });
+    return c.json(result, 200);
+  });
+
+  // DELETE /uploads/:uploadId — abort an in-progress single/multipart upload ticket and clean up staging
+  app.delete('/uploads/:uploadId', async (c) => {
+    const auth = resolveAuth(c, deps);
+    assertAuthorized(auth, 'assets:write', true);
+    const uploadId = requireParam(c, 'uploadId');
+    const result = await assetService.abortUploadTicket(auth, uploadId);
+    return c.json(result, 200);
   });
 
   // POST /uploads/:uploadId/confirm (and /complete alias) — validate ownership and enqueue upload_commit

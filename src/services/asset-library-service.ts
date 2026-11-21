@@ -5,15 +5,18 @@ import { brandWebsite, publicBrandAddress } from '../../gateway/brand-network.ts
 import { MAX_ASSET_BYTES } from '../../shared/asset-limits.ts';
 import type { AssetListInput, AssetReference, AssetVersion, LibraryAsset } from '../../shared/asset-library.ts';
 import {
+  computeProjectRevision,
   isSha256Hex,
   isUuid,
   projectPath,
   validateStableRequestId,
+  type SourceFile,
 } from '../../shared/project-validation.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
-import type { BlobMetadata, StoragePort } from '../contracts/storage.ts';
-import { applyWorkspaceBlobRefDeltas } from '../db/cas.ts';
+import type { ProjectEvent } from '../contracts/events.ts';
+import type { BlobMetadata, MultipartPartInfo, StoragePort } from '../contracts/storage.ts';
+import { applyWorkspaceBlobRefDeltas, type BlobRefDelta } from '../db/cas.ts';
 import type { Database } from '../db/client.ts';
 import { asInsert, asUpdate } from '../db/helpers.ts';
 import {
@@ -26,8 +29,14 @@ import {
   type UploadTicketState,
 } from '../db/schema/blobs-assets.ts';
 import { idempotencyReceipts, jobs } from '../db/schema/jobs.ts';
+import {
+  projectFiles,
+  projectVersionFiles,
+  projectVersions,
+} from '../db/schema/project-files.ts';
 import { projects } from '../db/schema/projects.ts';
 import type { QueueService } from '../infra/queues.ts';
+import { projectChannel, type RedisEventBus } from '../infra/redis.ts';
 import {
   assertTenantScopedKey,
   thumbnailKey,
@@ -39,6 +48,10 @@ import {
 export const MAX_FONT_LICENSE_BYTES = 131_072; // 128 KiB per Spike 2 §3.2.5
 export const DEFAULT_UPLOAD_TICKET_TTL_SEC = 900;
 export const DEFAULT_PRESIGN_GET_TTL_SEC = 300;
+export const MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024; // 5 MiB S3 protocol minimum
+export const MULTIPART_DEFAULT_PART_BYTES = 8 * 1024 * 1024; // 8 MiB default chunk
+export const MULTIPART_MAX_PART_BYTES = 64 * 1024 * 1024;
+export const MULTIPART_MAX_PARTS_PER_SIGN_BATCH = 32;
 const ASSET_MODALITY_SET: ReadonlySet<string> = new Set(['image', 'video', 'audio']);
 const UPLOAD_PURPOSE_SET: ReadonlySet<string> = new Set(['library_asset', 'project_asset', 'project_archive']);
 
@@ -46,6 +59,7 @@ export interface AssetLibraryServiceDeps {
   readonly db: Database;
   readonly storage: StoragePort;
   readonly queues: Pick<QueueService, 'enqueueMediaIngest'>;
+  readonly eventBus?: Pick<RedisEventBus, 'publish'>;
   readonly presignPutTtlSec?: number;
   readonly presignGetTtlSec?: number;
 }
@@ -57,6 +71,9 @@ export interface CreateUploadTicketInput {
   sizeBytes: number;
   expectedModality?: AssetModality;
   expectedSha256?: string;
+  allowInstantCommit?: boolean;
+  multipart?: boolean;
+  partSize?: number;
   targetProjectId?: string;
   targetAssetId?: string;
   targetPath?: string;
@@ -75,6 +92,12 @@ export interface UploadTicketResponse {
   headers: Record<string, string>;
   expiresAt: string;
   maxBytes: number;
+  mode?: 'single' | 'multipart';
+  partSize?: number;
+  totalParts?: number;
+  instantCommitted?: boolean;
+  projectPath?: string;
+  sha256?: string;
   licenseUpload?: {
     s3StagingKey: string;
     filename: string;
@@ -83,6 +106,25 @@ export interface UploadTicketResponse {
     headers: Record<string, string>;
     maxBytes: number;
   };
+}
+
+export interface PrepareMultipartPartsResponse {
+  uploadId: string;
+  partSize: number;
+  totalParts: number;
+  expiresAt: string;
+  uploadedParts: MultipartPartInfo[];
+  urls: Array<{
+    partNumber: number;
+    uploadUrl: string;
+    sizeBytes: number;
+  }>;
+}
+
+export interface CompleteMultipartTicketResponse {
+  uploadId: string;
+  completed: boolean;
+  partsCount: number;
 }
 
 export interface ConfirmUploadTicketInput {
@@ -306,6 +348,7 @@ export class AssetLibraryService {
   private readonly db: Database;
   private readonly storage: StoragePort;
   private readonly queues: Pick<QueueService, 'enqueueMediaIngest'>;
+  private readonly eventBus?: Pick<RedisEventBus, 'publish'>;
   private readonly presignPutTtlSec: number;
   private readonly presignGetTtlSec: number;
 
@@ -313,6 +356,7 @@ export class AssetLibraryService {
     this.db = deps.db;
     this.storage = deps.storage;
     this.queues = deps.queues;
+    this.eventBus = deps.eventBus;
     this.presignPutTtlSec = deps.presignPutTtlSec ?? DEFAULT_UPLOAD_TICKET_TTL_SEC;
     this.presignGetTtlSec = deps.presignGetTtlSec ?? DEFAULT_PRESIGN_GET_TTL_SEC;
   }
@@ -416,6 +460,307 @@ export class AssetLibraryService {
     const licenseS3StagingKey = hasLicense ? uploadLicenseStagingKey(ctx.workspaceId, uploadId) : null;
     const expiresAt = new Date(Date.now() + this.presignPutTtlSec * 1000);
 
+    // Same-workspace CAS instant commit ("秒传"): strictly tenant-scoped inside `ctx.workspaceId`
+    // and verified against both PG `workspace_blobs(active)` and S3 `headObject` size match.
+    if (
+      input.allowInstantCommit === true &&
+      input.expectedSha256 &&
+      purpose === 'project_asset' &&
+      targetProjectId &&
+      validatedTargetPath &&
+      !hasLicense
+    ) {
+      const existingBlobs = await this.db
+        .select()
+        .from(workspaceBlobs)
+        .where(
+          and(
+            eq(workspaceBlobs.workspaceId, ctx.workspaceId),
+            eq(workspaceBlobs.sha256, input.expectedSha256),
+          ),
+        )
+        .limit(1);
+      const blob = existingBlobs[0];
+      if (blob && blob.gcState === 'active' && Number(blob.sizeBytes) === input.sizeBytes) {
+        const casKey = workspaceBlobKey(ctx.workspaceId, blob.sha256);
+        const head = await this.storage.headObject(casKey).catch(() => null);
+        if (head && head.contentLength === input.sizeBytes) {
+          const committed = await this.db.transaction(async (tx) => {
+            const lockedProject = await tx
+              .select()
+              .from(projects)
+              .where(and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.id, targetProjectId)))
+              .for('update')
+              .limit(1);
+            const project = lockedProject[0];
+            if (!project) {
+              throw new CloudError('PROJECT_NOT_FOUND', 'Target project was not found in this workspace', {
+                status: 404,
+              });
+            }
+            if (project.trashed) {
+              throw new CloudError('PROJECT_TRASHED', 'Restore the project before uploading assets', {
+                status: 400,
+              });
+            }
+
+            const existingFiles = await tx
+              .select()
+              .from(projectFiles)
+              .where(
+                and(
+                  eq(projectFiles.workspaceId, ctx.workspaceId),
+                  eq(projectFiles.projectId, targetProjectId),
+                ),
+              );
+            const replaced = existingFiles.find((f) => f.path === validatedTargetPath);
+            const resolvedMime = blob.mimeType || mimeType;
+
+            await tx
+              .insert(projectFiles)
+              .values(
+                asInsert(projectFiles, {
+                  workspaceId: ctx.workspaceId,
+                  projectId: targetProjectId,
+                  path: validatedTargetPath,
+                  blobScope: 'workspace',
+                  sha256: blob.sha256,
+                  sizeBytes: Number(blob.sizeBytes),
+                  mimeType: resolvedMime,
+                  isText: false,
+                }),
+              )
+              .onConflictDoUpdate({
+                target: [projectFiles.projectId, projectFiles.path],
+                set: asUpdate(projectFiles, {
+                  blobScope: 'workspace',
+                  sha256: blob.sha256,
+                  sizeBytes: Number(blob.sizeBytes),
+                  mimeType: resolvedMime,
+                  isText: false,
+                  updatedAt: sql`now()`,
+                }),
+              });
+
+            const nextFiles = [
+              ...existingFiles.filter((f) => f.path !== validatedTargetPath),
+              {
+                workspaceId: ctx.workspaceId,
+                projectId: targetProjectId,
+                path: validatedTargetPath,
+                blobScope: 'workspace' as const,
+                sha256: blob.sha256,
+                sizeBytes: Number(blob.sizeBytes),
+                mimeType: resolvedMime,
+                isText: false,
+              },
+            ];
+            const sourceFiles: SourceFile[] = nextFiles.map((f) => ({
+              path: f.path,
+              size: Number(f.sizeBytes),
+              hash: f.sha256,
+            }));
+            const nextRevision = computeProjectRevision(sourceFiles);
+            const nextVersionNumber = project.currentVersionNumber + 1;
+
+            const [newVersion] = await tx
+              .insert(projectVersions)
+              .values(
+                asInsert(projectVersions, {
+                  workspaceId: ctx.workspaceId,
+                  projectId: targetProjectId,
+                  versionNumber: nextVersionNumber,
+                  revision: nextRevision,
+                  source: 'studio',
+                  summary: `Instant import ${filename}`.slice(0, 256),
+                  requestId: input.requestId ? input.requestId.slice(0, 128) : null,
+                }),
+              )
+              .returning();
+
+            for (const file of nextFiles) {
+              await tx.insert(projectVersionFiles).values(
+                asInsert(projectVersionFiles, {
+                  versionId: newVersion.id,
+                  workspaceId: ctx.workspaceId,
+                  projectId: targetProjectId,
+                  path: file.path,
+                  blobScope: file.blobScope,
+                  sha256: file.sha256,
+                  sizeBytes: Number(file.sizeBytes),
+                  mimeType: file.mimeType,
+                }),
+              );
+            }
+
+            const deltas: BlobRefDelta[] = [
+              {
+                sha256: blob.sha256,
+                delta: 1,
+                sizeBytes: Number(blob.sizeBytes),
+                mimeType: resolvedMime,
+              },
+            ];
+            if (replaced && replaced.blobScope === 'workspace') {
+              deltas.push({ sha256: replaced.sha256, delta: -1 });
+            }
+            for (const file of nextFiles) {
+              if (file.blobScope === 'workspace') {
+                deltas.push({
+                  sha256: file.sha256,
+                  delta: 1,
+                  sizeBytes: Number(file.sizeBytes),
+                  mimeType: file.mimeType,
+                });
+              }
+            }
+            await applyWorkspaceBlobRefDeltas(tx, ctx.workspaceId, deltas);
+
+            await tx
+              .update(projects)
+              .set(
+                asUpdate(projects, {
+                  revision: nextRevision,
+                  currentVersionId: newVersion.id,
+                  currentVersionNumber: nextVersionNumber,
+                  updatedAt: sql`now()`,
+                }),
+              )
+              .where(and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.id, targetProjectId)));
+
+            const resultPayload = {
+              instantCommitted: true,
+              projectPath: validatedTargetPath,
+              sha256: blob.sha256,
+              projectRevision: nextRevision,
+              projectVersionId: newVersion.id,
+            };
+            await tx.insert(uploadTickets).values(
+              asInsert(uploadTickets, {
+                id: uploadId,
+                workspaceId: ctx.workspaceId,
+                userId: ctx.userId,
+                purpose,
+                targetProjectId,
+                targetAssetId,
+                targetPath: validatedTargetPath,
+                filename,
+                expectedMimeType: resolvedMime,
+                expectedModality: input.expectedModality ?? null,
+                expectedSha256: blob.sha256,
+                maxBytes: input.sizeBytes,
+                s3StagingKey,
+                state: 'committed',
+                requestId: input.requestId ?? null,
+                resultPayload,
+                expiresAt,
+              }),
+            );
+
+            return { nextRevision, versionId: newVersion.id };
+          });
+
+          if (this.eventBus) {
+            const evt: ProjectEvent = {
+              type: 'file-change',
+              workspaceId: ctx.workspaceId,
+              projectId: targetProjectId,
+              revision: committed.nextRevision,
+              versionId: committed.versionId,
+              paths: [validatedTargetPath],
+              affectsPreview: true,
+              ts: Date.now(),
+            };
+            await this.eventBus.publish(projectChannel(ctx.workspaceId, targetProjectId), evt).catch(() => {});
+          }
+
+          return {
+            ticketId: uploadId,
+            uploadId,
+            purpose,
+            s3StagingKey,
+            uploadUrl: '',
+            method: 'PUT',
+            headers: {},
+            expiresAt: expiresAt.toISOString(),
+            maxBytes: input.sizeBytes,
+            mode: 'single',
+            instantCommitted: true,
+            projectPath: validatedTargetPath,
+            sha256: blob.sha256,
+          };
+        }
+      }
+    }
+
+    // S3 Multipart upload mode for large files (resumable via ListParts + concurrent chunk upload).
+    const useMultipart =
+      input.multipart === true &&
+      !hasLicense &&
+      typeof this.storage.createMultipartUpload === 'function' &&
+      typeof this.storage.presignUploadPart === 'function' &&
+      typeof this.storage.completeMultipartUpload === 'function';
+
+    if (useMultipart) {
+      const requestedPartSize =
+        typeof input.partSize === 'number' && Number.isFinite(input.partSize)
+          ? Math.floor(input.partSize)
+          : MULTIPART_DEFAULT_PART_BYTES;
+      const partSize = Math.max(
+        MULTIPART_MIN_PART_BYTES,
+        Math.min(MULTIPART_MAX_PART_BYTES, requestedPartSize),
+      );
+      const totalParts = Math.max(1, Math.ceil(input.sizeBytes / partSize));
+      if (totalParts > 10_000) {
+        throw new CloudError('INVALID_ARGUMENT', 'Multipart upload exceeds S3 10,000-part limit', {
+          status: 400,
+        });
+      }
+      const mp = await this.storage.createMultipartUpload!(s3StagingKey, mimeType);
+      await this.db.insert(uploadTickets).values(
+        asInsert(uploadTickets, {
+          id: uploadId,
+          workspaceId: ctx.workspaceId,
+          userId: ctx.userId,
+          purpose,
+          targetProjectId,
+          targetAssetId,
+          targetPath: validatedTargetPath,
+          filename,
+          expectedMimeType: mimeType,
+          expectedModality: input.expectedModality ?? null,
+          expectedSha256: input.expectedSha256 ?? null,
+          maxBytes: input.sizeBytes,
+          s3StagingKey,
+          state: 'issued',
+          requestId: input.requestId ?? null,
+          resultPayload: {
+            mode: 'multipart',
+            s3UploadId: mp.uploadId,
+            partSize,
+            totalParts,
+          },
+          expiresAt,
+        }),
+      );
+      return {
+        ticketId: uploadId,
+        uploadId,
+        purpose,
+        s3StagingKey,
+        uploadUrl: '',
+        method: 'PUT',
+        headers: {
+          'Content-Type': mimeType,
+        },
+        expiresAt: expiresAt.toISOString(),
+        maxBytes: input.sizeBytes,
+        mode: 'multipart',
+        partSize,
+        totalParts,
+      };
+    }
+
     const [uploadUrl, licenseUploadUrl] = await Promise.all([
       this.storage.presignPut(s3StagingKey, {
         contentType: mimeType,
@@ -468,6 +813,7 @@ export class AssetLibraryService {
       },
       expiresAt: expiresAt.toISOString(),
       maxBytes: input.sizeBytes,
+      mode: 'single',
       ...(licenseS3StagingKey && licenseUploadUrl && licenseFilename && licenseMaxBytes !== null
         ? {
             licenseUpload: {
@@ -484,6 +830,282 @@ export class AssetLibraryService {
           }
         : {}),
     };
+  }
+
+  /**
+   * List already-uploaded parts (resumable upload state) and mint presigned S3 UploadPart URLs
+   * for the next batch of missing parts.
+   */
+  async prepareMultipartParts(
+    ctx: AuthContext,
+    uploadId: string,
+    input: { partNumbers?: readonly number[] } = {},
+  ): Promise<PrepareMultipartPartsResponse> {
+    requireUuid(uploadId, 'uploadId');
+    if (
+      typeof this.storage.presignUploadPart !== 'function' ||
+      typeof this.storage.listMultipartParts !== 'function'
+    ) {
+      throw new CloudError('FEATURE_DEFERRED_P2', 'Multipart uploads are not enabled on this storage backend', {
+        status: 501,
+        applied: false,
+      });
+    }
+
+    const rows = await this.db
+      .select()
+      .from(uploadTickets)
+      .where(and(eq(uploadTickets.id, uploadId), eq(uploadTickets.workspaceId, ctx.workspaceId)))
+      .limit(1);
+    const ticket = rows[0];
+    if (!ticket) {
+      throw new CloudError('NOT_FOUND', 'Upload ticket not found', { status: 404, applied: false });
+    }
+    if (
+      ticket.userId &&
+      ticket.userId !== ctx.userId &&
+      ctx.role !== 'owner' &&
+      ctx.role !== 'admin'
+    ) {
+      throw new CloudError('FORBIDDEN', 'Upload ticket belongs to another workspace member', {
+        status: 403,
+        applied: false,
+      });
+    }
+    if (ticket.state !== 'issued' || ticket.expiresAt.getTime() <= Date.now()) {
+      throw new CloudError('INVALID_ARGUMENT', 'Upload ticket is expired or no longer active', {
+        status: 410,
+        applied: false,
+      });
+    }
+
+    const mp = ticket.resultPayload as {
+      mode?: string;
+      s3UploadId?: string;
+      partSize?: number;
+      totalParts?: number;
+    } | null;
+    if (
+      !mp ||
+      mp.mode !== 'multipart' ||
+      typeof mp.s3UploadId !== 'string' ||
+      typeof mp.partSize !== 'number' ||
+      typeof mp.totalParts !== 'number'
+    ) {
+      throw new CloudError('INVALID_ARGUMENT', 'Upload ticket is not a multipart upload', {
+        status: 400,
+        applied: false,
+      });
+    }
+
+    assertTenantScopedKey(ctx.workspaceId, ticket.s3StagingKey);
+    const uploadedParts = await this.storage.listMultipartParts(ticket.s3StagingKey, mp.s3UploadId);
+    const uploadedSet = new Set(uploadedParts.map((p) => p.partNumber));
+
+    let requested: number[];
+    if (Array.isArray(input.partNumbers) && input.partNumbers.length > 0) {
+      requested = [...new Set(input.partNumbers)]
+        .filter((n) => Number.isSafeInteger(n) && n >= 1 && n <= mp.totalParts!)
+        .sort((a, b) => a - b)
+        .slice(0, MULTIPART_MAX_PARTS_PER_SIGN_BATCH);
+    } else {
+      requested = [];
+      for (let n = 1; n <= mp.totalParts && requested.length < MULTIPART_MAX_PARTS_PER_SIGN_BATCH; n += 1) {
+        if (!uploadedSet.has(n)) requested.push(n);
+      }
+    }
+
+    const totalBytes = Number(ticket.maxBytes);
+    const remainingTtl = Math.max(
+      60,
+      Math.min(this.presignPutTtlSec, Math.floor((ticket.expiresAt.getTime() - Date.now()) / 1000)),
+    );
+    const urls = await Promise.all(
+      requested.map(async (partNumber) => {
+        const start = (partNumber - 1) * mp.partSize!;
+        const sizeBytes = Math.min(mp.partSize!, Math.max(1, totalBytes - start));
+        const uploadUrl = await this.storage.presignUploadPart!(
+          ticket.s3StagingKey,
+          mp.s3UploadId!,
+          partNumber,
+          { contentLength: sizeBytes, expiresInSec: remainingTtl },
+        );
+        return { partNumber, uploadUrl, sizeBytes };
+      }),
+    );
+
+    return {
+      uploadId: ticket.id,
+      partSize: mp.partSize,
+      totalParts: mp.totalParts,
+      expiresAt: ticket.expiresAt.toISOString(),
+      uploadedParts,
+      urls,
+    };
+  }
+
+  /**
+   * Complete an S3 multipart upload into the ticket's staging key before calling `/confirm`.
+   */
+  async completeMultipartTicket(
+    ctx: AuthContext,
+    uploadId: string,
+    input: { parts?: ReadonlyArray<{ partNumber: number; etag: string }> } = {},
+  ): Promise<CompleteMultipartTicketResponse> {
+    requireUuid(uploadId, 'uploadId');
+    if (typeof this.storage.completeMultipartUpload !== 'function') {
+      throw new CloudError('FEATURE_DEFERRED_P2', 'Multipart uploads are not enabled on this storage backend', {
+        status: 501,
+        applied: false,
+      });
+    }
+
+    const rows = await this.db
+      .select()
+      .from(uploadTickets)
+      .where(and(eq(uploadTickets.id, uploadId), eq(uploadTickets.workspaceId, ctx.workspaceId)))
+      .limit(1);
+    const ticket = rows[0];
+    if (!ticket) {
+      throw new CloudError('NOT_FOUND', 'Upload ticket not found', { status: 404, applied: false });
+    }
+    if (
+      ticket.userId &&
+      ticket.userId !== ctx.userId &&
+      ctx.role !== 'owner' &&
+      ctx.role !== 'admin'
+    ) {
+      throw new CloudError('FORBIDDEN', 'Upload ticket belongs to another workspace member', {
+        status: 403,
+        applied: false,
+      });
+    }
+
+    const mp = ticket.resultPayload as {
+      mode?: string;
+      s3UploadId?: string;
+      partSize?: number;
+      totalParts?: number;
+      multipartCompleted?: boolean;
+    } | null;
+    if (mp?.multipartCompleted) {
+      return { uploadId: ticket.id, completed: true, partsCount: mp.totalParts ?? 0 };
+    }
+    if (ticket.state !== 'issued' || ticket.expiresAt.getTime() <= Date.now()) {
+      throw new CloudError('INVALID_ARGUMENT', 'Upload ticket is expired or no longer active', {
+        status: 410,
+        applied: false,
+      });
+    }
+    if (!mp || mp.mode !== 'multipart' || typeof mp.s3UploadId !== 'string' || typeof mp.totalParts !== 'number') {
+      throw new CloudError('INVALID_ARGUMENT', 'Upload ticket is not a multipart upload', {
+        status: 400,
+        applied: false,
+      });
+    }
+
+    assertTenantScopedKey(ctx.workspaceId, ticket.s3StagingKey);
+
+    let resolvedParts: Array<{ partNumber: number; etag: string }> = [];
+    if (Array.isArray(input.parts) && input.parts.length > 0) {
+      for (const item of input.parts) {
+        if (
+          !item ||
+          !Number.isSafeInteger(item.partNumber) ||
+          item.partNumber < 1 ||
+          item.partNumber > mp.totalParts ||
+          typeof item.etag !== 'string' ||
+          item.etag.trim().length === 0
+        ) {
+          throw new CloudError('INVALID_ARGUMENT', 'Invalid multipart part entry', { status: 400 });
+        }
+        resolvedParts.push({ partNumber: item.partNumber, etag: item.etag.trim() });
+      }
+    } else if (typeof this.storage.listMultipartParts === 'function') {
+      const listed = await this.storage.listMultipartParts(ticket.s3StagingKey, mp.s3UploadId);
+      resolvedParts = listed.map((p) => ({ partNumber: p.partNumber, etag: p.etag }));
+    }
+
+    const byNumber = new Map<number, string>();
+    for (const part of resolvedParts) {
+      byNumber.set(part.partNumber, part.etag);
+    }
+    if (byNumber.size !== mp.totalParts) {
+      throw new CloudError(
+        'INVALID_ARGUMENT',
+        `Incomplete multipart upload: received ${byNumber.size} of ${mp.totalParts} parts`,
+        { status: 400, applied: false },
+      );
+    }
+
+    const ordered = Array.from(byNumber.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([partNumber, etag]) => ({ partNumber, etag }));
+
+    await this.storage.completeMultipartUpload(ticket.s3StagingKey, mp.s3UploadId, ordered);
+
+    await this.db
+      .update(uploadTickets)
+      .set(
+        asUpdate(uploadTickets, {
+          resultPayload: {
+            ...mp,
+            multipartCompleted: true,
+          },
+          updatedAt: new Date(),
+        }),
+      )
+      .where(and(eq(uploadTickets.id, ticket.id), eq(uploadTickets.workspaceId, ctx.workspaceId)));
+
+    return {
+      uploadId: ticket.id,
+      completed: true,
+      partsCount: ordered.length,
+    };
+  }
+
+  /**
+   * Abort an active upload ticket (and clean up any incomplete S3 multipart upload / staging bytes).
+   */
+  async abortUploadTicket(ctx: AuthContext, uploadId: string): Promise<{ uploadId: string; aborted: boolean }> {
+    requireUuid(uploadId, 'uploadId');
+    const rows = await this.db
+      .select()
+      .from(uploadTickets)
+      .where(and(eq(uploadTickets.id, uploadId), eq(uploadTickets.workspaceId, ctx.workspaceId)))
+      .limit(1);
+    const ticket = rows[0];
+    if (!ticket) {
+      throw new CloudError('NOT_FOUND', 'Upload ticket not found', { status: 404, applied: false });
+    }
+    if (
+      ticket.userId &&
+      ticket.userId !== ctx.userId &&
+      ctx.role !== 'owner' &&
+      ctx.role !== 'admin'
+    ) {
+      throw new CloudError('FORBIDDEN', 'Upload ticket belongs to another workspace member', {
+        status: 403,
+        applied: false,
+      });
+    }
+    if (ticket.state === 'committed') {
+      return { uploadId: ticket.id, aborted: false };
+    }
+
+    assertTenantScopedKey(ctx.workspaceId, ticket.s3StagingKey);
+    const mp = ticket.resultPayload as { mode?: string; s3UploadId?: string } | null;
+    if (mp?.mode === 'multipart' && typeof mp.s3UploadId === 'string' && this.storage.abortMultipartUpload) {
+      await this.storage.abortMultipartUpload(ticket.s3StagingKey, mp.s3UploadId).catch(() => {});
+    }
+    await this.storage.deleteObject(ticket.s3StagingKey).catch(() => {});
+
+    await this.db
+      .update(uploadTickets)
+      .set(asUpdate(uploadTickets, { state: 'expired', updatedAt: new Date() }))
+      .where(and(eq(uploadTickets.id, ticket.id), eq(uploadTickets.workspaceId, ctx.workspaceId)));
+
+    return { uploadId: ticket.id, aborted: true };
   }
 
   /**

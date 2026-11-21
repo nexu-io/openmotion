@@ -391,19 +391,31 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
         resolveDone = resolve;
       });
 
+      const initialInput = (job.inputPayload ?? {}) as Record<string, unknown>;
       const unsubscribe = await deps.eventBus.subscribe(jobChannel(jobId), (payload) => {
         if (done || stream.aborted) return;
         const evt = payload as Partial<JobProgressEvent>;
         if (evt.workspaceId && evt.workspaceId !== auth.workspaceId) return;
+        const result = (evt.resultJson ?? {}) as Record<string, unknown>;
+        const filename = readResultFilename(result, initialInput, jobId);
+        const sizeBytes = readResultSizeBytes(result);
+        const durationMs =
+          typeof result.durationMs === 'number' && Number.isFinite(result.durationMs) && result.durationMs >= 0
+            ? result.durationMs
+            : undefined;
         const mapped = {
           id: jobId,
           jobId,
+          filename,
           status: evt.state ? mapJobStateToStudioStatus(evt.state) : 'rendering',
           state: evt.state ?? 'running',
           progress: typeof evt.progress === 'number' ? evt.progress : 0,
           stage: evt.stage,
           error: evt.errorMessage,
           fileAvailable: evt.state === 'completed',
+          ...(sizeBytes !== undefined ? { bytes: sizeBytes, sizeBytes } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
+          ...(typeof result.sha256 === 'string' ? { sha256: result.sha256 } : {}),
         };
         void stream.writeSSE({ event: 'progress', data: JSON.stringify(mapped) }).catch(() => {});
         if (evt.state && isTerminalState(evt.state)) {

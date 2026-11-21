@@ -1,20 +1,53 @@
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { studioApiFetch } from "../../utils/studioApiFetch";
 import { resolvePreviewRelative } from "../../utils/previewRelativePath";
+import { waitForMediaDerived } from "../../utils/mediaDerivedBus";
 import type { TimelineElement } from "../store/timelineElement";
 import { clipSourcePeak, isPeakMap, type ClipSourceWindow, type PeakMap } from "./clipPeakRuns";
 import { authoredSrcPath, encodePreviewPath, resolveMediaPreviewUrl } from "./thumbnailUtils";
 
 const peakMapRequests = new Map<string, Promise<PeakMap | null>>();
 
-/** One fetch per peak-map URL per session; a failed or malformed answer reads as null. */
+async function fetchPeakMapWithRetry(url: string): Promise<PeakMap | null> {
+  let delayMs = 500;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const res = await studioApiFetch(url);
+    if (res.status === 202) {
+      const pendingBody = (await res.json().catch(() => null)) as { sha256?: string } | null;
+      const expectedSha = typeof pendingBody?.sha256 === "string" ? pendingBody.sha256 : undefined;
+      const sseEvent = await waitForMediaDerived(
+        (evt) => evt.kind === "waveform" && (!expectedSha || evt.sha256 === expectedSha),
+        delayMs,
+      ).catch(() => null);
+      if (sseEvent?.status === "failed") return null;
+      delayMs = Math.min(4000, Math.round(delayMs * 1.6));
+      continue;
+    }
+    if (!res.ok) return null;
+    const body: unknown = await res.json().catch(() => null);
+    if (typeof body === "object" && body !== null && (body as { pending?: unknown }).pending === true) {
+      await waitForMediaDerived((evt) => evt.kind === "waveform", delayMs).catch(() => null);
+      delayMs = Math.min(4000, Math.round(delayMs * 1.6));
+      continue;
+    }
+    return isPeakMap(body) ? body : null;
+  }
+  return null;
+}
+
+/** One fetch per peak-map URL per session; transient `202 pending` retries instead of poisoning cache with null. */
 export function loadPeakMap(url: string): Promise<PeakMap | null> {
   const pending = peakMapRequests.get(url);
   if (pending) return pending;
-  const request = studioApiFetch(url)
-    .then((res) => (res.ok ? res.json() : null))
-    .then((body: unknown) => (isPeakMap(body) ? body : null))
-    .catch(() => null);
+  const request = fetchPeakMapWithRetry(url)
+    .catch(() => null)
+    .then((result) => {
+      // Never permanently cache null so a later retry after background extraction succeeds.
+      if (result === null && peakMapRequests.get(url) === request) {
+        peakMapRequests.delete(url);
+      }
+      return result;
+    });
   peakMapRequests.set(url, request);
   return request;
 }

@@ -72,6 +72,7 @@ export const mediaProbePayloadSchema = z.object({
   blobScope: blobScopeSchema,
   sha256: sha256Schema,
   s3Key: z.string().min(1).max(512),
+  projectId: uuidSchema.optional(),
 });
 
 export const imageThumbnailPayloadSchema = z.object({
@@ -82,13 +83,25 @@ export const imageThumbnailPayloadSchema = z.object({
   width: z.number().int().min(16).max(2048),
   height: z.number().int().min(16).max(2048).optional(),
   timestampSec: z.number().min(0).optional(),
+  projectId: uuidSchema.optional(),
 });
 
 export const extractWaveformPeaksPayloadSchema = z.object({
   workspaceId: uuidSchema,
   blobScope: blobScopeSchema,
   sha256: sha256Schema,
-  samples: z.number().int().min(16).max(16384).default(512),
+  samples: z.number().int().min(16).max(16384).default(2048),
+  projectId: uuidSchema.optional(),
+});
+
+export const generateVideoSpritePayloadSchema = z.object({
+  workspaceId: uuidSchema,
+  blobScope: blobScopeSchema,
+  sha256: sha256Schema,
+  projectId: uuidSchema.optional(),
+  durationSec: z.number().positive().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
 });
 
 export const loudnessNormalizePayloadSchema = z.object({
@@ -137,6 +150,7 @@ export const generatePreviewProxyPayloadSchema = z.object({
   sizeBytes: z.number().int().nonnegative(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
+  projectId: uuidSchema.optional(),
 });
 
 export const mediaIngestJobSchemas = {
@@ -145,6 +159,7 @@ export const mediaIngestJobSchemas = {
   media_probe: mediaProbePayloadSchema,
   image_thumbnail: imageThumbnailPayloadSchema,
   extract_waveform_peaks: extractWaveformPeaksPayloadSchema,
+  generate_video_sprite: generateVideoSpritePayloadSchema,
   loudness_normalize: loudnessNormalizePayloadSchema,
   freeze_frame: freezeFramePayloadSchema,
   extract_asset_read: extractAssetReadPayloadSchema,

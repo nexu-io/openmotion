@@ -8,6 +8,9 @@ export interface ManualImportItem {
   status: ManualImportStatus;
   path?: string;
   reason?: string;
+  phase?: 'uploading' | 'processing';
+  progress?: number;
+  previewUrl?: string;
 }
 export interface ManualImportBatch {
   id: string;

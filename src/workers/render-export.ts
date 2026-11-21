@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { access, mkdir, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { and, eq } from 'drizzle-orm';
 import sharp from 'sharp';
 import { extractStandaloneEntryFromIndex } from '@hyperframes/core/compiler';
@@ -44,6 +46,8 @@ import {
 } from './render-env.ts';
 
 const HYDRATION_CONCURRENCY = 8;
+const HYDRATION_LARGE_FILE_BYTES = 10 * 1024 * 1024;
+const HYDRATION_LARGE_FILE_CONCURRENCY = 2;
 const RENDER_TIMEOUT_MS = 25 * 60_000;
 const THUMBNAIL_TIMEOUT_MS = 90_000;
 const PROGRESS_PUBLISH_MIN_INTERVAL_MS = 500;
@@ -220,6 +224,20 @@ export async function hydrateSnapshotFilesToDir(params: {
   const resolvedRoot = path.resolve(params.projectDir);
   await mkdir(resolvedRoot, { recursive: true, mode: 0o700 });
 
+  let largeActive = 0;
+  const largeWaiters: Array<() => void> = [];
+  const acquireLargeSlot = async () => {
+    if (largeActive >= HYDRATION_LARGE_FILE_CONCURRENCY) {
+      await new Promise<void>((resolve) => largeWaiters.push(resolve));
+    }
+    largeActive += 1;
+  };
+  const releaseLargeSlot = () => {
+    largeActive = Math.max(0, largeActive - 1);
+    const next = largeWaiters.shift();
+    if (next) next();
+  };
+
   let cursor = 0;
   const workerCount = Math.min(HYDRATION_CONCURRENCY, Math.max(1, params.files.length));
 
@@ -244,18 +262,40 @@ export async function hydrateSnapshotFilesToDir(params: {
           ? catalogBlobKey(file.sha256)
           : workspaceBlobKey(params.workspaceId, file.sha256);
 
-      const bytes = await params.storage.getObjectBuffer(s3Key);
-      const actualSha = createHash('sha256').update(bytes).digest('hex');
-      if (actualSha !== file.sha256) {
-        throw new CloudError(
-          'STORAGE_ERROR',
-          `Hydrated CAS blob digest mismatch for ${safeRelPath}: expected ${file.sha256}, got ${actualSha}`,
-          { status: 500 },
-        );
-      }
-
       await mkdir(path.dirname(destPath), { recursive: true, mode: 0o700 });
-      await writeFile(destPath, bytes, { mode: 0o600 });
+
+      const isLarge = file.sizeBytes >= HYDRATION_LARGE_FILE_BYTES;
+      if (isLarge) {
+        await acquireLargeSlot();
+      }
+      try {
+        const { stream } = await params.storage.getObjectStream(s3Key);
+        const hash = createHash('sha256');
+        const hasher = new Transform({
+          transform(chunk: Buffer, _encoding, callback) {
+            const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            hash.update(buf);
+            callback(null, buf);
+          },
+        });
+        await pipeline(stream, hasher, createWriteStream(destPath, { mode: 0o600 }));
+        const actualSha = hash.digest('hex');
+        if (actualSha !== file.sha256) {
+          await rm(destPath, { force: true }).catch(() => {});
+          throw new CloudError(
+            'STORAGE_ERROR',
+            `Hydrated CAS blob digest mismatch for ${safeRelPath}: expected ${file.sha256}, got ${actualSha}`,
+            { status: 500 },
+          );
+        }
+      } catch (error) {
+        await rm(destPath, { force: true }).catch(() => {});
+        throw error;
+      } finally {
+        if (isLarge) {
+          releaseLargeSlot();
+        }
+      }
     }
   };
 

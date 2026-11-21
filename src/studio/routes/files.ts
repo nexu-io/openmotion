@@ -5,7 +5,15 @@ import { CloudError, isCloudError } from '../../contracts/errors.ts';
 import { AUDIO_EXT, IMAGE_EXT, VIDEO_EXT } from '../../../shared/asset-names.ts';
 import { MAX_ASSET_BYTES } from '../../../shared/asset-limits.ts';
 import { projectChannel } from '../../infra/redis.ts';
+import {
+  buildImageThumbnailJobId,
+  buildMediaProbeJobId,
+  buildPreviewProxyJobId,
+  buildVideoSpriteJobId,
+  buildWaveformPeaksJobId,
+} from '../../infra/queues.ts';
 import { workspaceBlobKey } from '../../infra/storage.ts';
+import { classifyPreviewProxyTarget } from '../../workers/media-ingest.ts';
 import {
   isBinaryBuffer,
   normalizeSafeProjectPath,
@@ -592,40 +600,94 @@ export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variab
         writeToken,
       });
 
-      // Enqueue background media-ingest metadata probing / waveform / thumbnail jobs for media uploads.
+      // Enqueue background media-ingest metadata probing / waveform / thumbnail / sprite / proxy jobs for media uploads.
       if (deps.queues) {
         for (const item of prepared) {
           if (item.isText) continue;
           const s3Key = workspaceBlobKey(auth.workspaceId, item.sha256);
-          if (VIDEO_EXT.test(item.path) || AUDIO_EXT.test(item.path) || IMAGE_EXT.test(item.path)) {
+          const isVideo = VIDEO_EXT.test(item.path);
+          const isAudio = AUDIO_EXT.test(item.path);
+          const isImage = IMAGE_EXT.test(item.path);
+          const isSvg = item.path.toLowerCase().endsWith('.svg');
+
+          if (isVideo || isAudio || isImage) {
             void deps.queues
-              .enqueueMediaIngest('media_probe', {
-                workspaceId: auth.workspaceId,
-                blobScope: 'workspace',
-                sha256: item.sha256,
-                s3Key,
-              })
+              .enqueueMediaIngest(
+                'media_probe',
+                {
+                  workspaceId: auth.workspaceId,
+                  blobScope: 'workspace',
+                  sha256: item.sha256,
+                  s3Key,
+                  projectId,
+                },
+                { jobId: buildMediaProbeJobId(auth.workspaceId, item.sha256) },
+              )
               .catch(() => {});
           }
-          if (AUDIO_EXT.test(item.path) || VIDEO_EXT.test(item.path)) {
+          if (isAudio || isVideo) {
             void deps.queues
-              .enqueueMediaIngest('extract_waveform_peaks', {
-                workspaceId: auth.workspaceId,
-                blobScope: 'workspace',
-                sha256: item.sha256,
-                samples: 512,
-              })
+              .enqueueMediaIngest(
+                'extract_waveform_peaks',
+                {
+                  workspaceId: auth.workspaceId,
+                  blobScope: 'workspace',
+                  sha256: item.sha256,
+                  projectId,
+                  samples: 2048,
+                },
+                { jobId: buildWaveformPeaksJobId(auth.workspaceId, item.sha256) },
+              )
               .catch(() => {});
           }
-          if (IMAGE_EXT.test(item.path) && !item.path.toLowerCase().endsWith('.svg')) {
+          if ((isImage && !isSvg) || isVideo) {
             void deps.queues
-              .enqueueMediaIngest('image_thumbnail', {
-                workspaceId: auth.workspaceId,
-                blobScope: 'workspace',
-                sha256: item.sha256,
-                spec: 'w320',
-                width: 320,
-              })
+              .enqueueMediaIngest(
+                'image_thumbnail',
+                {
+                  workspaceId: auth.workspaceId,
+                  blobScope: 'workspace',
+                  sha256: item.sha256,
+                  projectId,
+                  spec: 'w320',
+                  width: 320,
+                },
+                { jobId: buildImageThumbnailJobId(auth.workspaceId, item.sha256, 'w320') },
+              )
+              .catch(() => {});
+          }
+          if (isVideo) {
+            void deps.queues
+              .enqueueMediaIngest(
+                'generate_video_sprite',
+                {
+                  workspaceId: auth.workspaceId,
+                  blobScope: 'workspace',
+                  sha256: item.sha256,
+                  projectId,
+                },
+                { jobId: buildVideoSpriteJobId(auth.workspaceId, item.sha256) },
+              )
+              .catch(() => {});
+          }
+          const proxyTarget = classifyPreviewProxyTarget({
+            mimeType: item.mimeType,
+            sizeBytes: item.size,
+          });
+          if (proxyTarget) {
+            void deps.queues
+              .enqueueMediaIngest(
+                'generate_preview_proxy',
+                {
+                  kind: 'generate_preview_proxy',
+                  workspaceId: auth.workspaceId,
+                  sha256: item.sha256,
+                  projectId,
+                  mimeType: item.mimeType,
+                  sizeBytes: item.size,
+                },
+                { jobId: buildPreviewProxyJobId(auth.workspaceId, item.sha256) },
+              )
               .catch(() => {});
           }
         }

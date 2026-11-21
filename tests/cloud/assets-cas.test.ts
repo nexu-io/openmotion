@@ -18,7 +18,7 @@ import {
   projectVersions,
 } from '../../src/db/schema/project-files.ts';
 import { projects } from '../../src/db/schema/projects.ts';
-import { cancelChannel, jobChannel } from '../../src/infra/redis.ts';
+import { cancelChannel, jobChannel, projectChannel } from '../../src/infra/redis.ts';
 import {
   exportKey,
   thumbnailKey,
@@ -148,6 +148,47 @@ class MemoryStorage implements StoragePort {
       ? `&response-content-disposition=${encodeURIComponent(options.responseContentDisposition)}`
       : '';
     return `https://s3.example.test/openmotion/${encodeURI(key)}?X-Amz-Signature=get-mock${disp}`;
+  }
+
+  readonly multiparts = new Map<
+    string,
+    { key: string; contentType: string; parts: Map<number, { etag: string; size: number }> }
+  >();
+  readonly abortedMultiparts: string[] = [];
+
+  async createMultipartUpload(key: string, contentType: string): Promise<{ uploadId: string }> {
+    const uploadId = `mp-${this.multiparts.size + 1}`;
+    this.multiparts.set(uploadId, { key, contentType, parts: new Map() });
+    return { uploadId };
+  }
+
+  async presignUploadPart(key: string, uploadId: string, partNumber: number): Promise<string> {
+    return `https://s3.example.test/openmotion/${encodeURI(key)}?uploadId=${uploadId}&partNumber=${partNumber}`;
+  }
+
+  async listMultipartParts(_key: string, uploadId: string) {
+    const entry = this.multiparts.get(uploadId);
+    if (!entry) return [];
+    return Array.from(entry.parts.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([partNumber, info]) => ({ partNumber, etag: info.etag, size: info.size }));
+  }
+
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: readonly { partNumber: number; etag: string }[],
+  ): Promise<void> {
+    const entry = this.multiparts.get(uploadId);
+    if (!entry) throw new Error(`Unknown multipart uploadId: ${uploadId}`);
+    const payload = Buffer.from(`assembled:${parts.map((p) => `${p.partNumber}=${p.etag}`).join(',')}`);
+    this.objects.set(key, { bytes: payload, contentType: entry.contentType });
+    this.multiparts.delete(uploadId);
+  }
+
+  async abortMultipartUpload(_key: string, uploadId: string): Promise<void> {
+    this.abortedMultiparts.push(uploadId);
+    this.multiparts.delete(uploadId);
   }
 
   async ensureBucketAndCors(): Promise<void> {}
@@ -936,6 +977,150 @@ describe('Asset & Export Hono Routes: Direct HEAD Metadata, 302 Presigned GET, E
       code: 'EXPORT_NOT_FOUND',
       status: 404,
     });
+  });
+  it('supports same-workspace CAS instant commit, S3 multipart upload + resume + complete, and abort cleanup', async () => {
+    const storage = new MemoryStorage();
+    const eventBus = new MemoryEventBus();
+    const sizeBytes = 12 * 1024 * 1024;
+    const casKey = workspaceBlobKey(WID_A, SHA_A);
+    storage.objects.set(casKey, { bytes: Buffer.alloc(sizeBytes, 0x11), contentType: 'video/mp4' });
+
+    // 1. Same-workspace CAS instant commit ("秒传"): skips S3 presign PUT and publishes file-change SSE.
+    const { db: instantDb } = createScriptedDb({
+      selectQueue: [
+        [{ id: PID_A, trashed: false }], // project exists check
+        [{ workspaceId: WID_A, sha256: SHA_A, sizeBytes, mimeType: 'video/mp4', gcState: 'active' }], // workspaceBlobs lookup
+        [{ id: PID_A, workspaceId: WID_A, trashed: false, currentVersionNumber: 2, revision: REV_1 }], // locked project FOR UPDATE
+        [], // existing project_files
+      ],
+      insertImpl: (table) =>
+        table === projectVersions
+          ? [{ id: VID_A }]
+          : table === workspaceBlobs
+            ? [{ sha256: SHA_A }]
+            : [],
+    });
+    const instantSvc = new AssetLibraryService({
+      db: instantDb,
+      storage,
+      eventBus,
+      queues: { enqueueMediaIngest: async () => ({}) as never },
+    });
+    const instantTicket = await instantSvc.createUploadTicket(authFor(), {
+      purpose: 'project_asset',
+      targetProjectId: PID_A,
+      targetPath: 'assets/dup.mp4',
+      filename: 'dup.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes,
+      expectedSha256: SHA_A,
+      allowInstantCommit: true,
+    });
+    assert.equal(instantTicket.instantCommitted, true);
+    assert.equal(instantTicket.projectPath, 'assets/dup.mp4');
+    assert.equal(instantTicket.sha256, SHA_A);
+    assert.equal(storage.presignedPuts.length, 0);
+    assert.ok(
+      eventBus.published.some(
+        (e) =>
+          e.channel === projectChannel(WID_A, PID_A) &&
+          (e.payload as { type?: string }).type === 'file-change',
+      ),
+    );
+
+    // 2. S3 Multipart Upload + Resume (ListParts) + Complete + Abort lifecycle
+    const mpSize = 18 * 1024 * 1024; // 18 MiB -> 3 parts at 8 MiB
+    let savedTicketRow: Record<string, unknown> | null = null;
+    const { db: mpDb } = createScriptedDb({
+      selectQueue: [
+        [{ id: PID_A, trashed: false }], // createUploadTicket project check
+      ],
+      insertImpl: (table, values) => {
+        if (table === uploadTickets && values && typeof values === 'object') {
+          savedTicketRow = { ...(values as Record<string, unknown>), expiresAt: new Date(Date.now() + 600_000) };
+        }
+        return [];
+      },
+    });
+    const mpSvc = new AssetLibraryService({
+      db: mpDb,
+      storage,
+      eventBus,
+      queues: { enqueueMediaIngest: async () => ({}) as never },
+    });
+    const mpTicket = await mpSvc.createUploadTicket(authFor(), {
+      purpose: 'project_asset',
+      targetProjectId: PID_A,
+      targetPath: 'assets/big.mp4',
+      filename: 'big.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: mpSize,
+      multipart: true,
+    });
+    assert.equal(mpTicket.mode, 'multipart');
+    assert.equal(mpTicket.partSize, 8 * 1024 * 1024);
+    assert.equal(mpTicket.totalParts, 3);
+    assert.ok(savedTicketRow);
+
+    // Simulate part 1 already uploaded before disconnect -> prepareMultipartParts returns uploadedParts + only signs missing parts 2 & 3!
+    const s3UploadId = (savedTicketRow as { resultPayload: { s3UploadId: string } }).resultPayload.s3UploadId;
+    storage.multiparts.get(s3UploadId)!.parts.set(1, { etag: '"e1"', size: 8 * 1024 * 1024 });
+
+    const { db: resumeDb } = createScriptedDb({
+      selectQueue: [[savedTicketRow], [savedTicketRow]],
+    });
+    const resumeSvc = new AssetLibraryService({
+      db: resumeDb,
+      storage,
+      eventBus,
+      queues: { enqueueMediaIngest: async () => ({}) as never },
+    });
+    const partsRes = await resumeSvc.prepareMultipartParts(authFor(), mpTicket.uploadId);
+    assert.deepEqual(partsRes.uploadedParts, [{ partNumber: 1, etag: '"e1"', size: 8 * 1024 * 1024 }]);
+    assert.deepEqual(
+      partsRes.urls.map((u) => u.partNumber),
+      [2, 3],
+    );
+    assert.equal(partsRes.urls[1].sizeBytes, 2 * 1024 * 1024);
+
+    // Complete multipart upload with all 3 parts -> staging object exists in S3!
+    const completed = await resumeSvc.completeMultipartTicket(authFor(), mpTicket.uploadId, {
+      parts: [
+        { partNumber: 1, etag: '"e1"' },
+        { partNumber: 2, etag: '"e2"' },
+        { partNumber: 3, etag: '"e3"' },
+      ],
+    });
+    assert.equal(completed.completed, true);
+    assert.equal(completed.partsCount, 3);
+    assert.ok(storage.objects.has(mpTicket.s3StagingKey));
+
+    // Abort an active multipart upload cleans up S3 multipart state
+    const mp2 = await storage.createMultipartUpload(uploadStagingKey(WID_A, JID_A), 'video/mp4');
+    const { db: abortDb } = createScriptedDb({
+      selectQueue: [
+        [
+          {
+            id: JID_A,
+            workspaceId: WID_A,
+            userId: UID_A,
+            s3StagingKey: uploadStagingKey(WID_A, JID_A),
+            state: 'issued',
+            resultPayload: { mode: 'multipart', s3UploadId: mp2.uploadId, partSize: 8 * 1024 * 1024, totalParts: 2 },
+            expiresAt: new Date(Date.now() + 600_000),
+          },
+        ],
+      ],
+    });
+    const abortSvc = new AssetLibraryService({
+      db: abortDb,
+      storage,
+      eventBus,
+      queues: { enqueueMediaIngest: async () => ({}) as never },
+    });
+    const aborted = await abortSvc.abortUploadTicket(authFor(), JID_A);
+    assert.equal(aborted.aborted, true);
+    assert.ok(storage.abortedMultiparts.includes(mp2.uploadId));
   });
 });
 
