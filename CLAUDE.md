@@ -60,3 +60,7 @@ Follow [MCP onboarding and capability maintenance](AGENTS.md#mcp-onboarding-and-
 ## Core capabilities and shared APIs
 
 Follow [Core capabilities and shared APIs](AGENTS.md#core-capabilities-and-shared-apis). Every new or extended core capability must support external MCP calls. Product controls and in-app Agents may compose these capabilities according to developer and user needs, using the same API or MCP operations and shared domain implementation. Preserve the same data, job, version, validation and conflict semantics across entry points; keep public discovery, applicable UI consumers, documentation and adapter verification aligned.
+
+## Studio routing and shell boundaries
+
+Follow [Studio routing and shell boundaries](AGENTS.md#studio-routing-and-shell-boundaries) and [docs/routing.md](docs/routing.md). Register every Studio page lazily in `studio/src/router/lazyPages.ts` (`LAZY_PAGE_MODULE_PATHS`), keep `WorkspaceFrame.tsx` free of static page imports and parser barrels, avoid reserved backend/cloud prefixes (including `/mcp`), and verify `studio/src/shellBoundary.test.ts` on routing or shell edits.

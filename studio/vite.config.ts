@@ -9,6 +9,7 @@ import { resolveDesignSystemFile } from '../packages/design-system/index.js';
 const local = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 
 export default defineConfig({
+  base: '/',
   root: local('./'),
   plugins: [react(), tailwindcss(), {
     name: 'openmotion-design-system',

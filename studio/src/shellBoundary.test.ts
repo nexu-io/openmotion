@@ -5,6 +5,15 @@ import { describe, expect, it } from "vitest";
 import { escapeRegex } from "./utils/regex";
 import { getHistoryShortcutLabel } from "./utils/historyShortcuts";
 import { settingsSectionLabel } from "./motion/settingsMeta";
+import { LAZY_PAGE_MODULE_PATHS } from "./router/lazyPages";
+import { readWorkspacePage } from "./motion/workspacePageRouting";
+import {
+  isWorkspacePageOpen,
+  resolveActiveWorkspaceRoute,
+  resolveNavTrackingPage,
+  resolveRouteArrival,
+  workspaceRouteRegistry,
+} from "./router/routeRegistry";
 
 const studioSrcDir = import.meta.dirname;
 const resolveExts = ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx"];
@@ -77,26 +86,11 @@ function collectRuntimeSpecifiers(sourceText: string, fileName: string): string[
 
 function collectStaticImportGraph(entryFile: string): {
   files: Set<string>;
-  externalChains: Map<string, string[]>;
-  fileChains: Map<string, string[]>;
+  externals: Set<string>;
 } {
-  const visited = new Set<string>([entryFile]);
-  const parent = new Map<string, string | null>([[entryFile, null]]);
-  const externalChains = new Map<string, string[]>();
-  const fileChains = new Map<string, string[]>();
+  const files = new Set<string>([entryFile]);
+  const externals = new Set<string>();
   const queue = [entryFile];
-
-  const chainFor = (file: string, leaf?: string) => {
-    const chain: string[] = leaf ? [leaf] : [];
-    let current: string | null | undefined = file;
-    while (current) {
-      chain.unshift(path.relative(studioSrcDir, current));
-      current = parent.get(current);
-    }
-    return chain;
-  };
-
-  fileChains.set(entryFile, chainFor(entryFile));
 
   while (queue.length > 0) {
     const current = queue.shift()!;
@@ -104,25 +98,29 @@ function collectStaticImportGraph(entryFile: string): {
     for (const specifier of collectRuntimeSpecifiers(source, current)) {
       if (specifier.startsWith(".")) {
         const resolved = resolveRelativeModule(current, specifier);
-        if (resolved && !visited.has(resolved)) {
-          visited.add(resolved);
-          parent.set(resolved, current);
-          fileChains.set(resolved, chainFor(resolved));
+        if (resolved && !files.has(resolved)) {
+          files.add(resolved);
           queue.push(resolved);
         }
-      } else if (!externalChains.has(specifier)) {
-        externalChains.set(specifier, chainFor(current, specifier));
+      } else {
+        externals.add(specifier);
       }
     }
   }
 
-  return { files: visited, externalChains, fileChains };
+  return { files, externals };
 }
 
 describe("Studio entry shell dependency boundary", () => {
-  it("keeps @hyperframes/parsers barrel and heavy editor helpers out of main.tsx static graph", () => {
+  it("keeps @hyperframes/parsers barrel, heavy editor helpers, and lazy workspace pages out of main.tsx static graph", () => {
     const mainEntry = path.resolve(studioSrcDir, "main.tsx");
     const graph = collectStaticImportGraph(mainEntry);
+
+    // Positive traversal controls so a broken resolver cannot make negative assertions pass vacuously.
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/MotionApp.tsx"))).toBe(true);
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/WorkspaceFrame.tsx"))).toBe(true);
+    expect(graph.files.has(path.resolve(studioSrcDir, "router/RouteViewport.tsx"))).toBe(true);
+    expect(graph.externals.has("react")).toBe(true);
 
     const forbiddenExternals = [
       "@hyperframes/parsers",
@@ -134,21 +132,18 @@ describe("Studio entry shell dependency boundary", () => {
       "linkedom",
     ];
     for (const pkg of forbiddenExternals) {
-      expect(
-        graph.externalChains.get(pkg),
-        `main.tsx must not statically import ${pkg}`,
-      ).toBeUndefined();
+      expect(graph.externals.has(pkg), `main.tsx must not statically import ${pkg}`).toBe(false);
     }
 
     const forbiddenEditorModules = [
-      path.resolve(studioSrcDir, "utils/sourcePatcher.ts"),
-      path.resolve(studioSrcDir, "utils/studioHelpers.ts"),
+      "utils/sourcePatcher.ts",
+      "utils/studioHelpers.ts",
+      ...LAZY_PAGE_MODULE_PATHS,
     ];
-    for (const mod of forbiddenEditorModules) {
-      expect(
-        graph.fileChains.get(mod),
-        `main.tsx must not statically import ${path.relative(studioSrcDir, mod)}`,
-      ).toBeUndefined();
+    for (const rel of forbiddenEditorModules) {
+      const fullPath = path.resolve(studioSrcDir, rel);
+      expect(existsSync(fullPath), `guarded module must exist: ${rel}`).toBe(true);
+      expect(graph.files.has(fullPath), `main.tsx must not statically import ${rel}`).toBe(false);
     }
   });
 
@@ -156,7 +151,8 @@ describe("Studio entry shell dependency boundary", () => {
     const breadcrumb = path.resolve(studioSrcDir, "motion/WorkspaceBreadcrumb.tsx");
     const settingsCenter = path.resolve(studioSrcDir, "motion/SettingsCenter.tsx");
     const graph = collectStaticImportGraph(breadcrumb);
-    expect(graph.fileChains.get(settingsCenter)).toBeUndefined();
+    expect(graph.files.has(path.resolve(studioSrcDir, "motion/settingsMeta.ts"))).toBe(true);
+    expect(graph.files.has(settingsCenter)).toBe(false);
   });
 
   it("captures side-effect imports and resolves bundler .js -> .ts/.tsx specifiers", () => {
@@ -192,5 +188,37 @@ describe("Studio entry shell dependency boundary", () => {
     expect(getHistoryShortcutLabel("redo")).toMatch(/^(?:Cmd|Ctrl)\+Shift\+Z$/);
     expect(settingsSectionLabel("providers")).toBe("Model providers");
     expect(settingsSectionLabel("brand-kit")).toBe("Settings");
+  });
+});
+
+describe("workspace route registry", () => {
+  it("marks only editor, explore, and assets as keepAlive", () => {
+    const keepAliveIds = workspaceRouteRegistry.filter((r) => r.keepAlive).map((r) => r.id);
+    expect(keepAliveIds.sort()).toEqual(["assets", "editor", "explore"]);
+  });
+
+  it("resolves active routes, tracking pages, and arrival views consistently", () => {
+    const explore = readWorkspacePage("");
+    expect(resolveActiveWorkspaceRoute(explore, { templatesPage: false, standaloneMcp: false }).id).toBe("explore");
+    expect(resolveNavTrackingPage(explore, { templatesPage: false, standaloneMcp: false })).toBe("explore");
+    expect(resolveRouteArrival(explore, false)).toBe("explore");
+    expect(isWorkspacePageOpen(explore, false)).toBe(true);
+
+    const cinemaScene = readWorkspacePage("?page=cinema&scene=text-to-video");
+    expect(resolveActiveWorkspaceRoute(cinemaScene, { templatesPage: false, standaloneMcp: false }).id).toBe("studio");
+    expect(resolveNavTrackingPage(cinemaScene, { templatesPage: false, standaloneMcp: false })).toBe("creative_studio");
+    expect(resolveRouteArrival(cinemaScene, false)).toBeNull();
+
+    const cinemaLanding = readWorkspacePage("?page=cinema");
+    expect(resolveActiveWorkspaceRoute(cinemaLanding, { templatesPage: false, standaloneMcp: false }).id).toBe("cinema");
+    expect(resolveRouteArrival(cinemaLanding, false)).toBe("cinema");
+
+    const editor = readWorkspacePage("?project=project", "#project/project");
+    expect(resolveActiveWorkspaceRoute(editor, { templatesPage: false, standaloneMcp: false }).id).toBe("editor");
+    expect(isWorkspacePageOpen(editor, false)).toBe(false);
+
+    const mcp = readWorkspacePage("?page=mcp");
+    expect(resolveActiveWorkspaceRoute(mcp, { templatesPage: false, standaloneMcp: true }).id).toBe("mcp");
+    expect(resolveNavTrackingPage(mcp, { templatesPage: false, standaloneMcp: true })).toBe("mcp");
   });
 });

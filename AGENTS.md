@@ -115,6 +115,17 @@ Every new or extended core product capability must be callable by external Agent
 
 `AGENTS.md` owns this requirement; `CLAUDE.md` links here. Apply it when designing, implementing and reviewing product capabilities.
 
+## Studio routing and shell boundaries
+
+Follow [Studio routing and lazy-loading architecture](docs/routing.md) whenever adding, moving or modifying a Studio page or App Shell import.
+
+1. **Keep `WorkspaceFrame.tsx` a pure App Shell.** Register every workspace page and overlay lazily in `studio/src/router/lazyPages.ts` (using `lazyWithChunkReload` and listing its module path in `LAZY_PAGE_MODULE_PATHS`), declare route metadata in `studio/src/router/routeRegistry.ts`, and render it through `RouteViewport.tsx` or `OverlayLayer.tsx`. Never add static imports of feature pages back into `WorkspaceFrame.tsx` or `studio/src/main.tsx`.
+2. **Preserve shell dependency isolation.** Never pull `@hyperframes/parsers` (barrel entry), `studio/src/utils/sourcePatcher.ts`, `studio/src/utils/studioHelpers.ts` or lazy page modules into the static import graph of `studio/src/main.tsx`. Extract lightweight shared constants/helpers (such as `settingsMeta.ts`, `regex.ts`, `historyShortcuts.ts`) instead of importing page or editor modules from shell chrome.
+3. **Protect reserved backend and cloud prefixes.** Keep frontend routes away from `/api`, `/motion-api`, `/design-api`, `/mcp`, `/mcp-ui`, `/connect`, `/sessions`, `/editor-assets`, `/guide-assets`, `/design-system`, `/web`, `/.well-known` and `/__hyperframes_config`, and keep asset/API paths root-relative (`/`).
+4. **Verify boundary regressions.** Run `studio/src/shellBoundary.test.ts` and `npm run build:studio` when touching routes or shell imports; do not weaken boundary tests to silence a leak.
+
+`AGENTS.md` owns this requirement; `CLAUDE.md` links here. Apply it to all Studio routing and shell work.
+
 ## Product architecture review
 
 For every change, review the entire [product architecture](docs/product/architecture.md) and decide whether it still accurately describes the product. Consider positioning, core user flows, module responsibilities, dependencies, data and API boundaries, implemented capabilities, and current limitations together.

@@ -5,13 +5,14 @@ import { templateContributionUrl } from './templateContribution';
 import { act, useEffect } from 'react';
 import { gemini4Videos } from './gemini4Videos';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import type { StudioCreation } from './CreativeWorkspace';
 import { MotionApp } from './MotionApp';
 import { I18nProvider } from '../i18n/I18n';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { readWorkspacePage, settingsSections } from './workspacePageRouting';
 import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspaceHistory';
+import { preloadAllWorkspacePages } from '../router/lazyPages';
 
 const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
 vi.mock('./AssetsPage', () => ({ AssetsPage: ({ studio }: { studio?: StudioCreation }) => <input aria-label="Asset draft" defaultValue={studio?.initialDraft?.prompt ?? 'Asset prompt'} /> }));
@@ -29,6 +30,7 @@ vi.mock('./ArtifactViewer', () => ({ ArtifactViewer: ({ artifact }: { artifact: 
 } }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+beforeAll(() => preloadAllWorkspacePages());
 const first = '11111111-1111-1111-1111-111111111111', second = '22222222-2222-2222-2222-222222222222';
 const firstUrl = `/?session=${first}&project=${first}&embed=1#project/${first}?v=1&t=12&tab=design&rc=0`;
 const artifacts = [first, second].map(projectId => ({ id: projectId, projectId, kind: 'motion-project', title: projectId === first ? 'First project' : 'Second project' }));
