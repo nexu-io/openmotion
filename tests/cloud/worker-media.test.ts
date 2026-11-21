@@ -71,15 +71,19 @@ import {
 } from '../../src/workers/media-generate.ts';
 import {
   AsyncSemaphore,
+  buildVideoProxyFilterGraph,
   classifyPreviewProxyTarget,
   computeSpriteSamplingPlan,
   computeSpriteTileDimensions,
+  computeVideoProxyBitratePlan,
+  computeVideoProxyDimensions,
   handleExtractWaveformPeaksJob,
   handleFreezeFrameJob,
   handleGeneratePreviewProxyJob,
   handleGenerateVideoSpriteJob,
   handleImageThumbnailJob,
   handleLoudnessNormalizeJob,
+  handleMediaProbeJob,
   handleUploadCommitJob,
   handleUrlFetchJob,
   processMediaIngestJob,
@@ -2828,6 +2832,61 @@ describe('worker-media: Video Sprite Sheets, Silent Waveform, CopyObject Promoti
       );
       assert.ok(storage.objects.has(workspaceBlobKey(WID_A, videoSha)));
       assert.equal(storage.objects.has(stagingKey), false);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('bounds portrait/landscape proxy dimensions, caps low-bitrate proxy bloat, caps >30fps proxy framerate, and skips SVG media_probe gracefully', async () => {
+    assert.deepEqual(computeVideoProxyDimensions(1920, 1080), { width: 1280, height: 720 });
+    assert.deepEqual(computeVideoProxyDimensions(3840, 2160), { width: 1280, height: 720 });
+    assert.deepEqual(computeVideoProxyDimensions(1080, 1440), { width: 720, height: 960 });
+    assert.deepEqual(computeVideoProxyDimensions(1080, 1920), { width: 720, height: 1280 });
+    assert.deepEqual(computeVideoProxyDimensions(540, 960), { width: 540, height: 960 });
+
+    // Low-bitrate 6.24 MiB / 228.6s video (~223 kbps) stays bounded near 320k video + 64k audio.
+    const lowPlan = computeVideoProxyBitratePlan(6.24 * 1024 * 1024, 228.6);
+    assert.equal(lowPlan.maxrateKbps, 320);
+    assert.equal(lowPlan.bufsizeKbps, 640);
+    assert.equal(lowPlan.audioBitrateKbps, 64);
+
+    // High-bitrate 200 MiB / 20s 4K video caps at 1800k video + 96k audio.
+    const highPlan = computeVideoProxyBitratePlan(200 * 1024 * 1024, 20);
+    assert.equal(highPlan.maxrateKbps, 1800);
+    assert.equal(highPlan.bufsizeKbps, 3600);
+    assert.equal(highPlan.audioBitrateKbps, 96);
+
+    assert.equal(buildVideoProxyFilterGraph(30).includes(',fps=30'), false);
+    assert.equal(buildVideoProxyFilterGraph(60).endsWith(',fps=30'), true);
+
+    // SVG blob passed to handleMediaProbeJob returns non-throwing SVG metadata instead of throwing INVALID_ARGUMENT.
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-test-svg-probe-'));
+    try {
+      const storage = new InMemoryStorage();
+      const svgBytes = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16"/></svg>', 'utf8');
+      const svgSha = createHash('sha256').update(svgBytes).digest('hex');
+      const s3Key = workspaceBlobKey(WID_A, svgSha);
+      await storage.putObject(s3Key, svgBytes, 'image/svg+xml');
+      const meta = await handleMediaProbeJob(
+        {
+          db: {} as unknown as Database,
+          storage,
+          eventBus: { publish: async () => 1 },
+          logger: SILENT_LOGGER,
+          workerId: 'probe-svg-1',
+          tmpBaseDir: tmpRoot,
+        },
+        {
+          workspaceId: WID_A,
+          blobScope: 'workspace',
+          sha256: svgSha,
+          s3Key,
+          projectId: PID_A,
+        },
+      );
+      assert.equal(meta.mimeType, 'image/svg+xml');
+      assert.equal(meta.hasAudio, false);
+      assert.equal(meta.hasVideo, false);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

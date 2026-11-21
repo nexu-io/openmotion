@@ -31,6 +31,14 @@ import {
 import { PRESIGNED_REDIRECT_HEADERS, formatVersionFromSha256 } from '../etag.ts';
 import { loadProjectOrThrow, normalizeSafeProjectPath } from '../../services/project-files-service.ts';
 
+function isProbeableMediaAsset(mimeType: string | null | undefined, filePath: string): boolean {
+  const mime = (mimeType ?? '').trim().toLowerCase().split(';')[0] ?? '';
+  if (mime === 'image/svg+xml' || filePath.toLowerCase().endsWith('.svg')) {
+    return false;
+  }
+  return mime.startsWith('video/') || mime.startsWith('audio/') || mime.startsWith('image/');
+}
+
 function buildCompThumbCacheKey(
   revision: string,
   compositionPath: string,
@@ -93,6 +101,25 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
         codec: file.metadata.codec ?? null,
         hasAudio: file.metadata.hasAudio ?? null,
         hasVideo: file.metadata.hasVideo ?? null,
+      });
+    }
+
+    if (!isProbeableMediaAsset(file.mimeType, file.path)) {
+      return c.json({
+        path: file.path,
+        sha256: file.sha256,
+        mimeType: file.mimeType,
+        sizeBytes: file.sizeBytes,
+        pending: false,
+        metadata: null,
+        width: null,
+        height: null,
+        duration: null,
+        durationSec: null,
+        fps: null,
+        codec: null,
+        hasAudio: null,
+        hasVideo: null,
       });
     }
 

@@ -2106,6 +2106,17 @@ export async function handleUrlFetchJob(
   }
 }
 
+async function readFileHeadBytes(filePath: string, maxBytes: number): Promise<Buffer> {
+  const fh = await open(filePath, 'r');
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
+}
+
 function resolveBlobS3Key(workspaceId: string, blobScope: 'workspace' | 'catalog', sha256: string): string {
   return blobScope === 'catalog' ? catalogBlobKey(sha256) : workspaceBlobKey(workspaceId, sha256);
 }
@@ -2124,6 +2135,18 @@ export async function handleMediaProbeJob(
     await mkdir(workDir, { recursive: true, mode: 0o700 });
     const localFile = path.join(workDir, 'media.bin');
     await streamS3ObjectToFile(deps.storage, payload.s3Key, localFile, MAX_ASSET_BYTES);
+
+    // Gracefully skip vector SVG assets if an older client or stale queue item enqueued media_probe.
+    const headBytes = await readFileHeadBytes(localFile, 512);
+    const headText = headBytes.toString('utf8').trimStart();
+    if (/^(?:<\?xml[\s\S]{0,200})?<svg[\s>]/i.test(headText)) {
+      return {
+        modality: 'image',
+        mimeType: 'image/svg+xml',
+        hasAudio: false,
+        hasVideo: false,
+      };
+    }
 
     const probed = await probe(localFile);
     const metadata = toBlobMetadata(probed);
@@ -3150,6 +3173,78 @@ export async function handleInlineVideoPreviewJob(
   }
 }
 
+export const VIDEO_PROXY_MAX_LONG_EDGE = 1280;
+export const VIDEO_PROXY_MAX_SHORT_EDGE = 720;
+export const VIDEO_PROXY_MAX_BITRATE_KBPS = 1800;
+export const VIDEO_PROXY_MIN_BITRATE_KBPS = 320;
+
+/**
+ * Compute target video proxy dimensions bounded inside 1280×720 (landscape) or 720×1280 (portrait),
+ * never upscaling and always returning even dimensions required by yuv420p H.264.
+ */
+export function computeVideoProxyDimensions(
+  width: number,
+  height: number,
+): { width: number; height: number } {
+  const isLandscape = width >= height;
+  const maxW = isLandscape ? VIDEO_PROXY_MAX_LONG_EDGE : VIDEO_PROXY_MAX_SHORT_EDGE;
+  const maxH = isLandscape ? VIDEO_PROXY_MAX_SHORT_EDGE : VIDEO_PROXY_MAX_LONG_EDGE;
+  const scale = Math.min(maxW / width, maxH / height, 1);
+  const targetW = Math.max(2, Math.floor((width * scale) / 2) * 2);
+  const targetH = Math.max(2, Math.floor((height * scale) / 2) * 2);
+  return { width: targetW, height: targetH };
+}
+
+/**
+ * Compute an adaptive video maxrate/bufsize + audio bitrate for preview proxies so already-compressed
+ * low-bitrate videos never bloat 2x-5x above their original byte size while preserving 1s GOP seeking.
+ */
+export function computeVideoProxyBitratePlan(
+  sourceSizeBytes: number,
+  durationSec?: number,
+): { maxrateKbps: number; bufsizeKbps: number; audioBitrateKbps: number } {
+  if (
+    !Number.isFinite(sourceSizeBytes) ||
+    sourceSizeBytes <= 0 ||
+    typeof durationSec !== 'number' ||
+    !Number.isFinite(durationSec) ||
+    durationSec <= 0.5
+  ) {
+    return {
+      maxrateKbps: VIDEO_PROXY_MAX_BITRATE_KBPS,
+      bufsizeKbps: VIDEO_PROXY_MAX_BITRATE_KBPS * 2,
+      audioBitrateKbps: 96,
+    };
+  }
+  const sourceTotalKbps = (sourceSizeBytes * 8) / durationSec / 1000;
+  const estimatedSourceVideoKbps = Math.max(180, sourceTotalKbps - 64);
+  const maxrateKbps = Math.max(
+    VIDEO_PROXY_MIN_BITRATE_KBPS,
+    Math.min(VIDEO_PROXY_MAX_BITRATE_KBPS, Math.round(estimatedSourceVideoKbps * 1.15)),
+  );
+  const audioBitrateKbps = sourceTotalKbps < 350 ? 64 : 96;
+  return {
+    maxrateKbps,
+    bufsizeKbps: maxrateKbps * 2,
+    audioBitrateKbps,
+  };
+}
+
+/**
+ * Build FFmpeg `-vf` chain for symmetric 720p preview proxies (1280×720 landscape / 720×1280 portrait)
+ * with optional 30fps cap for high-frame-rate (e.g. 60fps 4K) inputs.
+ */
+export function buildVideoProxyFilterGraph(sourceFps?: number): string {
+  const scale =
+    `scale='if(gte(iw,ih),min(${VIDEO_PROXY_MAX_LONG_EDGE},iw),min(${VIDEO_PROXY_MAX_SHORT_EDGE},iw))':` +
+    `'if(gte(iw,ih),min(${VIDEO_PROXY_MAX_SHORT_EDGE},ih),min(${VIDEO_PROXY_MAX_LONG_EDGE},ih))':` +
+    `force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2`;
+  if (typeof sourceFps === 'number' && Number.isFinite(sourceFps) && sourceFps > 31) {
+    return `${scale},fps=30`;
+  }
+  return scale;
+}
+
 export interface GeneratePreviewProxyResult {
   status: 'ready' | 'skipped';
   reason?: 'ineligible' | 'already_ready' | 'blob_deleting';
@@ -3221,6 +3316,11 @@ export async function handleGeneratePreviewProxyJob(
 
     if (target.track === 'video') {
       const outPath = path.join(workDir, 'proxy.mp4');
+      const existingMeta = existingRow?.metadata as BlobMetadata | null | undefined;
+      const sourceStat = await stat(sourcePath).catch(() => null);
+      const effectiveSourceBytes = sourceStat?.size ?? payload.sizeBytes;
+      const bitratePlan = computeVideoProxyBitratePlan(effectiveSourceBytes, existingMeta?.durationSec);
+      const videoFilter = buildVideoProxyFilterGraph(existingMeta?.fps);
       const transcode = await proxyFfmpegSemaphore.run(() =>
         runCmd(
           'ffmpeg',
@@ -3231,7 +3331,7 @@ export async function handleGeneratePreviewProxyJob(
             '-i',
             sourcePath,
             '-vf',
-            "scale='min(1280,iw)':-2",
+            videoFilter,
             '-c:v',
             'libx264',
             '-preset',
@@ -3239,7 +3339,11 @@ export async function handleGeneratePreviewProxyJob(
             '-threads',
             '2',
             '-crf',
-            '24',
+            '26',
+            '-maxrate',
+            `${bitratePlan.maxrateKbps}k`,
+            '-bufsize',
+            `${bitratePlan.bufsizeKbps}k`,
             '-pix_fmt',
             'yuv420p',
             '-g',
@@ -3251,7 +3355,7 @@ export async function handleGeneratePreviewProxyJob(
             '-c:a',
             'aac',
             '-b:a',
-            '128k',
+            `${bitratePlan.audioBitrateKbps}k`,
             '-y',
             outPath,
           ],
@@ -3309,8 +3413,9 @@ export async function handleGeneratePreviewProxyJob(
         }
       }
       if (proxyWidth === undefined && payload.width !== undefined && payload.height !== undefined) {
-        proxyWidth = Math.min(1280, payload.width);
-        proxyHeight = Math.max(2, Math.round((payload.height * proxyWidth) / payload.width / 2) * 2);
+        const computed = computeVideoProxyDimensions(payload.width, payload.height);
+        proxyWidth = computed.width;
+        proxyHeight = computed.height;
       }
 
       await deps.storage.putObject(destKey, createReadStream(outPath), target.mimeType, proxySizeBytes);

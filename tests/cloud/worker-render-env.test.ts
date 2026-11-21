@@ -31,6 +31,7 @@ import {
   hydrateSnapshotFilesToDir,
   processExportRenderJob,
   processRenderThumbnailJob,
+  selectReferencedMediaCandidates,
   startRenderHealthHeartbeat,
 } from '../../src/workers/render-export.ts';
 
@@ -721,6 +722,69 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
       assert.ok(eventBus.healthPulses.length >= 1);
       assert.equal(eventBus.healthPulses.at(-1)?.workerId, 'render-hb-1');
       assert.equal(eventBus.healthPulses.at(-1)?.activeJobs, 1);
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  it('skips unreferenced large media blobs during referenced-only hydration while keeping referenced & encoded-path media and dynamic template fallbacks', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-render-ref-only-'));
+    try {
+      const storage = new MemoryStorage();
+      const requestedKeys: string[] = [];
+      const origStream = storage.getObjectStream.bind(storage);
+      storage.getObjectStream = async (key: string) => {
+        requestedKeys.push(key);
+        return origStream(key);
+      };
+
+      const html = Buffer.from(
+        '<!doctype html><html><body><video src="assets/used%20clip.mp4"></video><video src="成片_v1.mp4"></video></body></html>',
+        'utf8',
+      );
+      const usedClip = Buffer.alloc(400 * 1024, 0x11);
+      const usedCjk = Buffer.alloc(400 * 1024, 0x22);
+      const unusedHuge = Buffer.alloc(600 * 1024, 0x33);
+      const smallIcon = Buffer.alloc(1024, 0x44);
+
+      const sha = (buf: Buffer) => createHash('sha256').update(buf).digest('hex');
+      const files = [
+        { path: 'index.html', blobScope: 'workspace' as const, sha256: sha(html), sizeBytes: html.byteLength, mimeType: 'text/html' },
+        { path: 'assets/used clip.mp4', blobScope: 'workspace' as const, sha256: sha(usedClip), sizeBytes: usedClip.byteLength, mimeType: 'video/mp4' },
+        { path: '成片_v1.mp4', blobScope: 'workspace' as const, sha256: sha(usedCjk), sizeBytes: usedCjk.byteLength, mimeType: 'video/mp4' },
+        { path: 'assets/unused-library.mp4', blobScope: 'workspace' as const, sha256: sha(unusedHuge), sizeBytes: unusedHuge.byteLength, mimeType: 'video/mp4' },
+        { path: 'assets/small-icon.png', blobScope: 'workspace' as const, sha256: sha(smallIcon), sizeBytes: smallIcon.byteLength, mimeType: 'image/png' },
+      ];
+      await storage.putObject(workspaceBlobKey(WID_A, sha(html)), html, 'text/html');
+      await storage.putObject(workspaceBlobKey(WID_A, sha(usedClip)), usedClip, 'video/mp4');
+      await storage.putObject(workspaceBlobKey(WID_A, sha(usedCjk)), usedCjk, 'video/mp4');
+      await storage.putObject(workspaceBlobKey(WID_A, sha(unusedHuge)), unusedHuge, 'video/mp4');
+      await storage.putObject(workspaceBlobKey(WID_A, sha(smallIcon)), smallIcon, 'image/png');
+
+      const projectDir = path.join(tmpBase, 'project');
+      const result = await hydrateSnapshotFilesToDir({
+        storage,
+        workspaceId: WID_A,
+        projectDir,
+        compositionPath: 'index.html',
+        files,
+        onlyReferencedMedia: true,
+      });
+
+      assert.equal(result.fileCount, 4);
+      assert.equal(result.skippedUnreferencedCount, 1);
+      assert.equal(requestedKeys.includes(workspaceBlobKey(WID_A, sha(unusedHuge))), false);
+      await access(path.join(projectDir, 'assets/used clip.mp4'));
+      await access(path.join(projectDir, '成片_v1.mp4'));
+      await access(path.join(projectDir, 'assets/small-icon.png'));
+      await assert.rejects(() => access(path.join(projectDir, 'assets/unused-library.mp4')));
+
+      // Dynamic template literal `${idx}.mp4` conservatively hydrates all candidates.
+      const dynamicPicked = selectReferencedMediaCandidates(
+        [files[3]],
+        ['const url = `assets/clip-${idx}.mp4`;'],
+      );
+      assert.equal(dynamicPicked.length, 1);
     } finally {
       await rm(tmpBase, { recursive: true, force: true });
     }

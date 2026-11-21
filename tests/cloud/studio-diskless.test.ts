@@ -1918,5 +1918,30 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
       assetMetadata?: Record<string, { optimizationStatus?: 'optimizing' | 'ready' }>;
     };
     assert.equal(projReadyBody.assetMetadata?.['assets/hero.mp4']?.optimizationStatus, 'ready');
+
+    // 6. GET /api/projects/:id/media/metadata skips media_probe for vector SVG files
+    await env.files.commitChanges(env.auth, {
+      projectId: created.projectId,
+      ops: [
+        {
+          op: 'upsert_text',
+          path: 'assets/favicon.svg',
+          content: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"></svg>',
+          mimeType: 'image/svg+xml',
+        },
+      ],
+      source: 'studio',
+      summary: 'Add SVG favicon',
+    });
+    env.enqueued.length = 0;
+    const svgMetaRes = await env.studioApp.request(
+      `/api/projects/${created.projectId}/media/metadata?path=assets/favicon.svg`,
+    );
+    assert.equal(svgMetaRes.status, 200);
+    const svgMetaBody = (await svgMetaRes.json()) as { pending: boolean; metadata: unknown; mimeType: string };
+    assert.equal(svgMetaBody.pending, false);
+    assert.equal(svgMetaBody.metadata, null);
+    assert.equal(svgMetaBody.mimeType, 'image/svg+xml');
+    assert.equal(env.enqueued.length, 0);
   });
 });
