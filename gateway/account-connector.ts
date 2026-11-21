@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { access, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { withProcessLock } from '../shared/process-lock.ts';
+import { accountDirectory } from './account-directory.ts';
 
 const execute = promisify(execFile);
 /** The OpenDesign connector version this release speaks to. */
@@ -22,8 +24,8 @@ export class ConnectorUnavailable extends Error {
   }
 }
 
-/** The private installation, outside the application so it survives upgrades and needs nothing on PATH. */
-export const connectorRuntime = (dataDirectory: string) => path.join(dataDirectory, 'account', 'runtime');
+/** The private installation beside the account, outside the application so it survives upgrades and needs nothing on PATH. */
+export const connectorRuntime = (dataDirectory: string) => path.join(accountDirectory(dataDirectory), 'runtime');
 const installArgs = (root: string) => ['install', '--prefix', root, '--ignore-scripts', '--no-audit', '--no-fund', '--save-exact', `${connectorPackage}@${connectorVersion}`];
 /** What a person can run in a terminal when automatic installation keeps failing. POSIX shells expand `$` and backticks in double quotes. */
 export function manualInstallCommand(root: string, platform = process.platform) {
@@ -70,9 +72,14 @@ export async function installConnector(root: string, options: { signal?: AbortSi
   try { return await verifyConnector(manifest); } catch { /* Install below. */ }
   const npmCli = await (options.findNpm ?? findNpmCli)();
   if (!npmCli) throw new ConnectorUnavailable('npm_missing', 'npm was not found next to ' + process.execPath + ' or on PATH');
-  try {
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    await execute(process.execPath, [npmCli, ...installArgs(root)], { timeout: options.timeoutMs ?? 300_000, maxBuffer: 1024 * 1024, signal: options.signal, windowsHide: true });
-  } catch (error) { throw new ConnectorUnavailable('install_failed', error); }
-  try { return await verifyConnector(manifest); } catch (error) { throw new ConnectorUnavailable('start_failed', error); }
+  const timeout = options.timeoutMs ?? 300_000;
+  // Workspaces share one installation; a service that waited here finds the other one's copy and skips npm.
+  return withProcessLock(root + '.lock', async () => {
+    try { return await verifyConnector(manifest); } catch { /* Install below. */ }
+    try {
+      await mkdir(root, { recursive: true, mode: 0o700 });
+      await execute(process.execPath, [npmCli, ...installArgs(root)], { timeout, maxBuffer: 1024 * 1024, signal: options.signal, windowsHide: true });
+    } catch (error) { throw new ConnectorUnavailable('install_failed', error); }
+    try { return await verifyConnector(manifest); } catch (error) { throw new ConnectorUnavailable('start_failed', error); }
+  }, timeout + 30_000).catch(error => { throw error instanceof ConnectorUnavailable ? error : new ConnectorUnavailable('install_failed', error); });
 }

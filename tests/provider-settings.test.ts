@@ -5,6 +5,7 @@ import { access, chmod, mkdir, readFile, realpath, rm, stat, symlink, writeFile 
 import { execFile, spawn, type SpawnOptions } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -12,6 +13,7 @@ import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
 import { AccountRequestError, OpenDesignAccount, systemBrowserCommand, type SignInRecord } from '../gateway/account.ts';
+import { accountDirectory, sharedAccountDirectory } from '../gateway/account-directory.ts';
 import { ConnectorUnavailable, findNpmCli, installConnector, manualInstallCommand, npmCliCandidates } from '../gateway/account-connector.ts';
 import { createTracker, validProperties } from '../tracking/core.ts';
 import { createPosthogSender } from '../tracking/node.ts';
@@ -472,6 +474,10 @@ writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __d
     // An existing working installation is reused without running npm again.
     assert.equal(await install('ok', 'offline'), binary);
     assert.equal(await readFile(path.join(store.directory, 'ok', 'npm-calls'), 'utf8'), 'x');
+    // Services of different workspaces share the installation: when they start together, npm runs once.
+    const together = await Promise.all([install('shared', 'ok'), install('shared', 'ok')]);
+    assert.equal(together[0], together[1]);
+    assert.equal(await readFile(path.join(store.directory, 'shared', 'npm-calls'), 'utf8'), 'x');
   });
 });
 
@@ -1246,4 +1252,71 @@ test('account video first-frame uses --first-frame and OpenDesign providers reje
     /2 MiB OpenDesign upload limit/,
   );
   assert.equal((JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][]).length, 1);
+}));
+
+test('the account directory is per user, except for temporary workspaces and an explicit MOTION_ACCOUNT_DIR', () => {
+  assert.equal(sharedAccountDirectory('darwin', {}, '/Users/someone'), '/Users/someone/Library/Application Support/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('win32', { LOCALAPPDATA: 'C:\\Users\\someone\\AppData\\Local' }, 'C:\\Users\\someone'), 'C:\\Users\\someone\\AppData\\Local\\OpenDesign\\account');
+  assert.equal(sharedAccountDirectory('linux', {}, '/home/someone'), '/home/someone/.local/share/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('linux', { XDG_DATA_HOME: '/data/someone' }, '/home/someone'), '/data/someone/OpenDesign/account');
+  const env = { ...process.env }; delete env.MOTION_ACCOUNT_DIR;
+  // Workspaces selected by different installations, channels or MOTION_DATA_DIR values share one sign-in.
+  const workspace = path.join(path.dirname(fileURLToPath(import.meta.url)), 'never-created-workspace');
+  assert.equal(accountDirectory(workspace, env), sharedAccountDirectory(process.platform, env));
+  assert.equal(accountDirectory(path.join(workspace, '-dev'), env), sharedAccountDirectory(process.platform, env));
+  assert.equal(accountDirectory(path.join(tmpdir(), 'motion-scratch'), env), path.join(path.resolve(tmpdir()), 'motion-scratch', 'account'));
+  assert.equal(accountDirectory(workspace, { ...env, MOTION_ACCOUNT_DIR: '/srv/motion/account' }), path.resolve('/srv/motion/account'));
+});
+
+/** Points every workspace created in this test at one account directory, as the per-user default does outside tests. */
+function sharedAccount(t: { after: (fn: () => void) => void }, directory: string) {
+  const previous = process.env.MOTION_ACCOUNT_DIR;
+  process.env.MOTION_ACCOUNT_DIR = directory;
+  t.after(() => { if (previous === undefined) delete process.env.MOTION_ACCOUNT_DIR; else process.env.MOTION_ACCOUNT_DIR = previous; });
+}
+
+test('workspaces with different data directories share one sign-in, catalogue and sign-out', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  sharedAccount(t, path.join(store.directory, 'shared-account'));
+  const studio = new OpenDesignAccount(path.join(store.directory, 'studio-data'), { binary }); t.after(() => studio.close());
+  const agent = new OpenDesignAccount(path.join(store.directory, 'agent-data'), { binary }); t.after(() => agent.close());
+  assert.equal(studio.home, agent.home);
+  assert.equal((await agent.summary()).state, 'signed-out');
+  await signIn(studio);
+  // The Agent host's workspace was never signed in, yet it sees the account and its catalogue without another sign-in.
+  assert.equal((await agent.summary()).state, 'signed-in');
+  assert.equal(await agent.identity(), await studio.identity());
+  assert.deepEqual(await agent.models(), await studio.models());
+  await assert.rejects(stat(path.join(store.directory, 'agent-data', 'account')), { code: 'ENOENT' });
+  assert.equal((await agent.logout()).state, 'signed-out');
+  assert.equal((await studio.summary()).state, 'signed-out');
+  assert.deepEqual(await studio.models(), []);
+}));
+
+test('a workspace sign-in from before the shared directory moves there once and is not restored after sign-out', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const first = path.join(store.directory, 'first-data'), second = path.join(store.directory, 'second-data'), shared = path.join(store.directory, 'shared-account');
+  // Earlier releases kept the credentials, session and catalogue in each workspace.
+  const legacy = async (directory: string) => {
+    sharedAccount(t, path.join(directory, 'account'));
+    const account = new OpenDesignAccount(directory, { binary }); await signIn(account); const identity = await account.identity(); await account.close();
+    return identity;
+  };
+  const firstIdentity = await legacy(first);
+  await legacy(second);
+  sharedAccount(t, shared);
+  const moved = new OpenDesignAccount(first, { binary }); t.after(() => moved.close());
+  assert.equal((await moved.summary()).state, 'signed-in');
+  assert.equal(await moved.identity(), firstIdentity);
+  assert((await moved.models()).length > 0);
+  assert.equal((await stat(path.join(shared, 'credentials', 'config.json'))).mode & 0o777, 0o600);
+  for (const file of ['credentials/config.json', 'session.json', 'models.json']) await assert.rejects(stat(path.join(first, 'account', file)), { code: 'ENOENT' });
+  // A second workspace finds the shared account signed in: it keeps that account and drops its own copy.
+  const other = new OpenDesignAccount(second, { binary }); t.after(() => other.close());
+  assert.equal((await other.summary()).state, 'signed-in');
+  assert.equal(await other.identity(), firstIdentity);
+  await assert.rejects(stat(path.join(second, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+  await moved.logout();
+  const restarted = new OpenDesignAccount(second, { binary }); t.after(() => restarted.close());
+  assert.equal((await restarted.summary()).state, 'signed-out');
 }));

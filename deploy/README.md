@@ -19,7 +19,8 @@ docker compose up -d
 Open `http://127.0.0.1:4173`.
 
 Projects, exports and settings are stored in the `openmotion_data` volume,
-mounted at `/data` (`MOTION_DATA_DIR`). `docker compose down` keeps the volume;
+mounted at `/data` (`MOTION_DATA_DIR`); the OpenDesign account sign-in stays in the
+same volume under `/data/account` (`MOTION_ACCOUNT_DIR`). `docker compose down` keeps the volume;
 `docker compose down -v` deletes it together with every project in it.
 
 ## Connect an Agent
