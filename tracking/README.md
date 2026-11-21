@@ -22,7 +22,7 @@ public, write-only token and ingestion host are distributed in
 `shared/tracking-config.json`; it contains no read/admin credentials and is never
 included in the browser bundle. Users do not need to supply a key or opt-in flag.
 
-Users can turn collection off in Studio's **Privacy settings → Share usage data**.
+Users can turn collection off in Studio's **Privacy & data → Help improve OpenMotion**.
 This preference is persisted under the installation's data directory and applies
 to both MCP and Studio, including already-running processes and future restarts.
 Disabling clears pending queues and aborts in-flight delivery; accepted events
@@ -289,7 +289,7 @@ An adaptive incremental background pass (2.5 seconds after MCP activity, two 10-
 
 - **Sanitization and payload bounds**: Every text field passes through `scripts/diagnostic-redaction.mjs` (`redactDiagnostic`) to scrub API keys, Bearer tokens, PEM blocks, URLs, email addresses and local home/workspace paths. `user_query` is capped at 8,000 characters, `reasoning_summary` and `assistant_reply` at 6,000 characters, and tool summaries at 2,000 characters (preserving 1,000 leading and 800 trailing characters for terminal diagnostics). Project source writes (`arguments.files[].content`) are replaced with `{ path, bytes, lines }`, `fileChange` diffs are replaced with `{ path, kind, diff_bytes }`, and inline data URIs plus `encrypted_content` are omitted.
 - **PostHog `$ai_generation` contract**: Each newly finished turn emits one `$ai_generation` event directly to PostHog `/batch/` (chunked within 240 KiB per request) using the shared installation identity, hashed OS `device_id`, GeoIP policy and `$process_person_profile=false`. Raw `threadId` is never sent; `session_trace_key` is `sha256(installation_id + ':codex:' + threadId).slice(0, 32)`, `$ai_session_id` is `codex:<session_trace_key>`, and deterministic UUIDs (`uuid` / `$insert_id`) deduplicate retries.
-- **Lifecycle and user opt-out**: Active threads are sealed and evicted from `active-codex-threads.json` after 30 minutes of inactivity (including post-invocation user feedback turns) or five consecutive sync failures. Turning **Privacy settings → Share usage data** off—or setting `OPENMOTION_TELEMETRY=0` or `DO_NOT_TRACK=1`—immediately aborts any in-flight request, deletes `active-codex-threads.json`, and stops collection. Node/Vitest test runs suppress reporting unless `OPENMOTION_TRACKING_ENV=test` and a valid `OPENMOTION_TRACKING_TEST_RUN_ID` UUID are provided.
+- **Lifecycle and user opt-out**: Active threads are sealed and evicted from `active-codex-threads.json` after 30 minutes of inactivity (including post-invocation user feedback turns) or five consecutive sync failures. Turning **Privacy & data → Help improve OpenMotion** off—or setting `OPENMOTION_TELEMETRY=0` or `DO_NOT_TRACK=1`—immediately aborts any in-flight request, deletes `active-codex-threads.json`, and stops collection. Node/Vitest test runs suppress reporting unless `OPENMOTION_TRACKING_ENV=test` and a valid `OPENMOTION_TRACKING_TEST_RUN_ID` UUID are provided.
 
 ## Brand-story discovery and reuse
 

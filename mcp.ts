@@ -253,7 +253,7 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
 }
 if (isMain(import.meta.url)) {
   const store = new WorkspaceStore();
-  if ((await trackingFor(store)).enabled()) process.stderr.write('OpenMotion shares usage data, coarse region, and redacted traces from OpenMotion sessions. Disable in Studio Privacy settings or set OPENMOTION_TELEMETRY=0.\n');
+  if ((await trackingFor(store)).enabled()) process.stderr.write('OpenMotion collects redacted usage information to improve product and generation quality. Disable in Studio Privacy & data settings or set OPENMOTION_TELEMETRY=0.\n');
   void syncActiveCodexThreads(store.directory).catch(() => {});
   const connection = sharedEditorEnabled ? { selection: {} } : undefined;
   const clientState = createMcpClientState();
