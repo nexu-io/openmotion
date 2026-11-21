@@ -1,6 +1,7 @@
 const legacyAssetActions = ['list', 'get', 'import', 'update', 'generate', 'jobs', 'status', 'cancel', 'retry_save', 'resume', 'import_to_project'] as const;
 export const assetActions = [...legacyAssetActions, 'read', 'brand_kit', 'transcript'] as const;
 const actionSets = {
+  openmotion_game_trailer: ['start', 'status'],
   openmotion_assets_use: assetActions,
   openmotion_assets: legacyAssetActions,
   openmotion_media_use: ['inspect', 'reference', 'models', 'generate', 'status', 'cancel', 'retry_save', 'resume'],

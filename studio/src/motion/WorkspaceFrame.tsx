@@ -1,4 +1,3 @@
-import type { ImageParameterSeed } from './ImageMegaMenu';
 import { IconButton } from 'open-design-ui/icon-button';
 import { Button } from 'open-design-ui/button';
 import type { SkillCategory } from './skillCategories';
@@ -23,6 +22,7 @@ import { CinemaStudioPage } from './CinemaStudioPage';
 import { findCinemaTemplate } from './cinemaTemplates';
 import { MotionStudioPage } from './MotionStudioPage';
 import { SkillsPage } from './SkillsPage';
+import { GameStudio } from './game/GameStudio';
 import { reportBlackFridayEntry } from './templateLibraryTracking';
 import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
 import { useI18n } from '../i18n/I18n';
@@ -298,17 +298,13 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const selectAssetRoute = useCallback((assetId: string | null, assetVersion: string | null) => {
     if (readWorkspacePage(location.search, location.hash).assets) navigatePage({ assetId, assetVersion });
   }, [navigatePage]);
-  const openStudio = (studio: StudioDestination | null, seed?: string | AssetDraft | ImageParameterSeed, fromPage = false) => {
+  const openStudio = (studio: StudioDestination | null, seed?: string | AssetDraft, fromPage = false) => {
     // A brief started from a technique studio keeps its Skill so its draft stays separate from other studios' briefs.
     const skill = typeof seed === 'object' && (studio?.studio.surface === 'techniques' || (studio?.landing && page.specialty)) ? page.skill : null;
     if (studio && seed) {
-      const key = studioDraftKey(studio, skill);
-      const previous = studioDrafts.current.get(key);
-      studioDrafts.current.set(key, typeof seed === 'string'
+      studioDrafts.current.set(studioDraftKey(studio, skill), typeof seed === 'string'
         ? { modality: studio.scene.modality, prompt: seed, references: [] }
-        : 'modality' in seed ? seed
-        : { modality: studio.scene.modality, prompt: previous?.prompt ?? '', references: previous?.references ?? [],
-          model: studio.model ?? seed.model, parameters: seed.parameters });
+        : seed);
       setStudioVisit(number => number + 1);
     }
     navigatePage({ studio, skill, settings: null, assets: false, skills: false, templates: false, ...lastExplore.current },
@@ -487,7 +483,8 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         </div>
       )}
       {(assetsVisited || assetsOpen) && <div className="om-assets-host" hidden={!assetsOpen || Boolean(settings) || templatesPage} inert={!assetsOpen || Boolean(settings) || templatesPage}><AssetsPage hasProject={Boolean(projectId)} active={assetsOpen && !settings && !templatesPage} routeId={page.assetId} routeVersion={page.assetVersion} onAssetRoute={selectAssetRoute} /></div>}
-      {(skillsOpen || page.specialty) && !settings && !templatesPage && <div className="om-skills-host"><SkillsPage previewsEnabled={!connectionsOpen} briefs={skillBriefs.current} onCreate={openStudioFromPage} key={page.specialty?.id ?? 'skills'} studio={page.specialty ?? undefined} onExplore={returnToExplore} onClose={skillsOpen ? closeSkills : undefined} skillId={page.skill} routeCategory={page.skills ? page.skillCategory : undefined} onCategoryChange={skillCategory => navigatePage({ skillCategory }, true)} onSkillChange={skill => navigatePage({ skill })} hasProject={Boolean(projectId)} /></div>}
+      {page.specialty?.id === 'game' && !skillsOpen && !settings && !templatesPage && <div className="om-skills-host"><GameStudio onExplore={returnToExplore} onOpenMcp={() => openMcp(undefined, undefined, true)} /></div>}
+      {(skillsOpen || page.specialty) && !(page.specialty?.id === 'game' && !skillsOpen) && !settings && !templatesPage && <div className="om-skills-host"><SkillsPage previewsEnabled={!connectionsOpen} briefs={skillBriefs.current} onCreate={openStudioFromPage} key={page.specialty?.id ?? 'skills'} studio={page.specialty ?? undefined} onExplore={returnToExplore} onClose={skillsOpen ? closeSkills : undefined} skillId={page.skill} routeCategory={page.skills ? page.skillCategory : undefined} onCategoryChange={skillCategory => navigatePage({ skillCategory }, true)} onSkillChange={skill => navigatePage({ skill })} hasProject={Boolean(projectId)} /></div>}
       {standaloneMcp && !templatesPage && <SettingsSurfaceBoundary>{mcpPage}</SettingsSurfaceBoundary>}
       {visibleSettings === 'brand-kit'
         ? <SettingsSurfaceBoundary key="brand-kit"><BrandKitPage inWorkspace={!hostChrome} onClose={openHome} selectedId={page.brandKit} onSelect={brandKit => navigatePage({ brandKit })} previewsEnabled={!connectionsOpen} hasProject={Boolean(projectId)} /></SettingsSurfaceBoundary>

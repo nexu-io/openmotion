@@ -17,7 +17,8 @@ export default mergeConfig(studioConfig, defineConfig({
       }
 
       // Preserve the browser Host so Studio can check it against Origin on writes.
-      const backendProxy = { target: target.origin, changeOrigin: false };
+      // ws: game rooms use a WebSocket on /motion-api/games/:id/rooms/:room.
+      const backendProxy = { target: target.origin, changeOrigin: false, ws: true };
       return {
         server: {
           host: '127.0.0.1',

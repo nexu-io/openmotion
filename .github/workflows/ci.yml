@@ -350,6 +350,15 @@ jobs:
       - name: Built-in template playback and export regression
         if: steps.scope.outputs.full == 'true'
         run: node --experimental-strip-types --test tests/decision-tree.test.ts
+      - name: Game Studio service, rooms and tools regression
+        if: steps.scope.outputs.full == 'true'
+        timeout-minutes: 15
+        # Browser playtest and native trailer cases skip themselves when Chrome, loopback or native export are unavailable.
+        run: |
+          node --experimental-strip-types --test --test-concurrency=1 \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=./.github/scripts/game-test-failures.mjs --test-reporter-destination=stdout \
+            tests/game-projects.test.ts
 
   distribution:
     name: Distribution regression

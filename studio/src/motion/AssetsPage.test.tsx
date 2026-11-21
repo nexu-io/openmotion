@@ -7,6 +7,8 @@ import type { AssetDraft } from './AssetComposer';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
 import type { LibraryAsset } from '../../../shared/asset-library';
+import type { GameCard } from '../../../shared/game-contract';
+import { gameApi } from './game/gameCatalog';
 
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15' }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
@@ -16,6 +18,15 @@ vi.mock('./AssetComposer', () => ({ AssetComposer: ({ draft, onReference, onCrea
 vi.mock('./AssetTaskHistory', () => ({ AssetTaskMenu: () => null }));
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn(), uploadLibraryAsset: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: async () => ({ conversations: [] }) }));
+vi.mock('./game/gameCatalog', async importOriginal => {
+  const actual = await importOriginal<typeof import('./game/gameCatalog')>();
+  return { ...actual, gameApi: { ...actual.gameApi, catalog: vi.fn(async () => ({ games: [] })) } };
+});
+
+function game(id: string, changes: Partial<GameCard> = {}): GameCard {
+  return { id, title: `Game ${id}`, description: '', genre: 'shooter', style: null, setting: null, multiplayer: false, maxPlayers: 1, status: 'published', cover: null, playUrl: `/api/games/${id}/play/index.html`,
+    plays: 0, likes: 0, dislikes: 0, reaction: 0, favorite: false, source: 'mine', remixOf: null, controls: '', createdAt: '2026-11-20T00:00:00.000Z', updatedAt: '2026-11-20T00:00:00.000Z', ...changes };
+}
 
 function fixture(id: string): LibraryAsset {
   return { id, name: `Picture ${id}`, modality: 'image', createdAt: 1, updatedAt: 1, currentVersionId: `${id}-v1`, versions: [{ id: `${id}-v1`, createdAt: 1, source: 'upload', filename: `${id}.png`, mimeType: 'image/png', bytes: 1024, sha256: id, references: [] }] };
@@ -56,6 +67,7 @@ beforeEach(() => {
     }
     throw new Error(`Unexpected action ${args.action}`);
   });
+  vi.mocked(gameApi.catalog).mockResolvedValue({ games: [] });
   container = document.createElement('div'); document.body.append(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
@@ -811,4 +823,45 @@ it('renders justified equal-height Generations flows for both Image and Video wi
   expect(videoLightbox).not.toBeNull();
   expect(videoLightbox.querySelector('video.om-gen-lightbox-video')).not.toBeNull();
   expect(videoLightbox.textContent).toContain('Slow dolly across studio table');
+});
+
+it('shows games made in Game Studio above the library and in their own category', async () => {
+  vi.mocked(gameApi.catalog).mockResolvedValue({ games: [
+    game('draft', { status: 'draft', title: 'Pixel art style, Shooter, Cyberpunk setting', style: 'pixel', setting: 'cyberpunk' }),
+    game('bundled', { source: 'template', title: 'Bundled game' }),
+    game('done', { title: 'Station Defense', updatedAt: '2026-11-19T00:00:00.000Z' }),
+  ] });
+  window.history.replaceState(null, '', '/?page=assets');
+  // Four 200px columns fit; the row shows one line only.
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+  await render();
+  const section = container.querySelector('.om-asset-games')!;
+  expect(section.querySelector('h2')?.textContent).toBe('Games');
+  // Only the user's own games, newest first; a composed draft brief is shown as its chosen options.
+  expect([...section.querySelectorAll('.om-asset-tile strong')].map(node => node.textContent)).toEqual(['Cyberpunk · Pixel art · Shooter', 'Station Defense']);
+  expect([...section.querySelectorAll('.om-asset-game-status')].map(node => node.textContent)).toEqual(['Waiting for your Agent', 'Published']);
+  expect(container.textContent).toContain('Picture A');
+
+  await click('View all');
+  expect(container.querySelector('.om-asset-games')).toBeNull();
+  expect(button('Games').getAttribute('aria-current')).toBe('page');
+  expect(button('All').getAttribute('aria-current')).toBeNull();
+  expect(container.textContent).not.toContain('Picture A');
+  expect(container.querySelectorAll('.om-asset-tile')).toHaveLength(2);
+
+  await click('Open Station Defense in Game Studio');
+  expect(new URL(location.href).searchParams.get('page')).toBe('game');
+  expect(new URL(location.href).searchParams.get('game')).toBe('done');
+});
+
+it('hides the games row without games and offers Game Studio from the empty category', async () => {
+  window.history.replaceState(null, '', '/?page=assets');
+  await render();
+  expect(container.querySelector('.om-asset-games')).toBeNull();
+  await click('Games');
+  expect(container.textContent).toContain('No games yet');
+  await click('Go to Game Studio');
+  const url = new URL(location.href);
+  expect(url.searchParams.get('page')).toBe('game');
+  expect(url.searchParams.has('game')).toBe(false);
 });

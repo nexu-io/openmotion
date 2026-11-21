@@ -593,3 +593,13 @@
 .om-audio-card-prompt p span { display: block; color: var(--motion-text); font-weight: var(--motion-weight-medium); }
 
 .om-audio-card .om-gallery-card-top { opacity: 1; }
+
+/* Games made in Game Studio, merged into Assets (game/GameAssetsSection.tsx). Covers are 16:9 artwork. */
+.om-asset-games { display: grid; gap: var(--motion-space-12); margin-bottom: var(--motion-space-24); }
+.om-asset-games-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-12); }
+.om-asset-games-heading .om-nav-item { display: inline-flex; align-items: center; gap: var(--motion-space-4); }
+.om-asset-preview[data-kind="game"] { aspect-ratio: 16/9; }
+.om-asset-preview[data-kind="game"] > img { object-fit: cover; }
+.om-asset-game-status { position: absolute; top: var(--motion-space-8); inset-inline-start: var(--motion-space-8); display: inline-flex; align-items: center; gap: var(--motion-space-4); padding: var(--motion-space-2) var(--motion-space-8); border-radius: var(--motion-radius-full); background: var(--motion-overlay-ink); color: var(--motion-video-ink); font-size: var(--motion-text-xs); }
+.om-asset-game-status[data-tone="failed"] { background: var(--motion-danger-soft); color: var(--motion-danger); }
+.om-asset-empty > .om-button { display: inline-flex; align-items: center; gap: var(--motion-space-6); }

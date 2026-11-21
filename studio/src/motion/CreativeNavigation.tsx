@@ -12,7 +12,7 @@ import { useMediaCatalog } from './useMediaCatalog';
 import lunarStill from './scene-art/lunar-shot-still.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 import { imageScene, menuFamilies, withOpenDesignModels } from './imageMenuModels';
-import { ImageMegaMenu, ModelMenuColumn, type ImageParameterSeed } from './ImageMegaMenu';
+import { ImageMegaMenu, ModelMenuColumn } from './ImageMegaMenu';
 import { VideoMegaMenu } from './VideoMegaMenu';
 import { sceneExamples } from './sceneShowcase';
 import { destinationTarget, reportCreativeClick, type CreativePage, type CreativeTarget } from './exploreTracking';
@@ -27,7 +27,7 @@ export type CreativeNavigationProps = {
   motionActive: boolean;
   designActive?: boolean;
   cinemaActive?: boolean;
-  onNavigate: (destination: StudioDestination | null, seed?: ImageParameterSeed) => void;
+  onNavigate: (destination: StudioDestination | null) => void;
   onNavigateSound?: (destination: StudioDestination, soundTab?: SoundTabId | null) => void;
   currentPage: 'explore' | 'mcp' | null;
   onOpenPage: (page: 'explore' | 'mcp', client?: McpClient) => void;
@@ -182,9 +182,9 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     const { id, studio, label, current, menuLabel, onActivate } = menuDestinations[index - splitStart];
     const expanded = open === id && (index >= visibleCount) === inPanel;
     const where = { navTarget: id, inOverflow: inPanel };
-    const selectScene = (next: StudioDestination, seed?: ImageParameterSeed) => {
+    const selectScene = (next: StudioDestination) => {
       track('select_scene', { ...where, ...destinationTarget(next) });
-      choose(() => onNavigate(next, seed));
+      choose(() => onNavigate(next));
     };
     return <div className="om-nav-row om-creative-split" data-active={Boolean(current)}>
           <Popover container={popupHost} modal={false} openOnHover={!inPanel} open={expanded}

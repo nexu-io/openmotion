@@ -1,3 +1,4 @@
+import { gameHttp, attachGameRooms } from './game-projects.ts';
 import type { ExportFailure } from './tracking/tool-fields.ts';
 import { toolFailureFields } from './tracking/tool-fields.ts';
 import { transcriptsFor, closeTranscripts } from './gateway/transcription.ts';
@@ -407,6 +408,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     if (motionRequest && url.pathname.startsWith('/api/assets/') && await assetHttp(req, res, url, store)) return;
     if (motionRequest && await brandKitHttp(req, res, url, store.directory, input)) return;
     const editorUrl = `http://${host || 'localhost'}/#project/${store.projectId}`;
+    if ((url.pathname === '/api/games' || url.pathname.startsWith('/api/games/')) && await gameHttp(req, res, url, (store.workspaceStore ?? store).directory, input, context.runtimeRoot)) return;
     if (motionRequest && url.pathname.startsWith('/api/design/') && await designHttp(req, res, url, (store.workspaceStore ?? store).directory, new URL(editorUrl).origin, input)) return;
     if (motionRequest && ['/api/diagnostics', '/api/diagnostics/events'].includes(url.pathname)) {
       // Downloads are POST-only: cross-origin links must not trigger a collection.
@@ -855,6 +857,7 @@ export async function startServer(store = sharedStore, port = Number(process.env
   };
   if (options.editor !== false) await context.ensureStudio();
   const server = createServer((req, res) => { void (async () => { if (!options.privateHandler || !await options.privateHandler(req, res)) await handler(req, res, store, context); })().catch(error => { if (!res.headersSent) json(res, 500, { error: (error as Error).message }); else res.destroy(); }); });
+  attachGameRooms(server, (store.workspaceStore ?? store).directory);
   try {
     const listen = (target: number) => new Promise<void>((resolve, reject) => {
       server.once('error', reject);

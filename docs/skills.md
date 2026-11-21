@@ -220,3 +220,7 @@ The MCP `initialize` instructions and the `openmotion_list_skills` description c
 - **Installed Skills first**: Skills already installed in the host stay the first choice and need no listing.
 - **No side effects**: listing, recommending or reading a Skill does not authorize project creation, downloads or export.
 
+
+## Game Studio
+
+`openmotion-game` is a supporting route for playable web games, independent of the five video routes. Read `openmotion://workflow/game/start` or [the Skill](../skills/openmotion-game/SKILL.md). It interviews for missing multiplayer/publication decisions, proposes one style formula, writes local source through seven game MCP tools, validates and play-tests, then publishes to the local market when authorized. Optional generated art requires discovered model support and explicit spending approval. Rooms use server-authoritative deterministic logic; publication is local, with no hosted deployment.

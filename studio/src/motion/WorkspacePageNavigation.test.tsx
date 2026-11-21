@@ -963,7 +963,7 @@ it.each([
 it('shows every Studio in Explore and opens the selected example or technique', async () => {
   await mount(); await click('Explore');
   const collections = () => [...container.querySelectorAll<HTMLElement>('.om-studio-collection')].map(section => section.dataset.studio);
-  expect(collections()).toEqual(['image', 'design', 'motion', 'cinema', 'sound', 'shorts', 'marketing', 'explainer', '3d']);
+  expect(collections()).toEqual(['image', 'design', 'motion', 'cinema', 'sound', 'shorts', 'marketing', 'explainer', '3d', 'game']);
   const imageCollection = container.querySelector('.om-studio-collection[data-studio="image"]')!;
   expect(imageCollection.querySelector('h2')?.textContent).toBe('Image creation');
   expect(imageCollection.querySelector('[data-scene="image-edit"] .om-feed-card-label')).toBeNull();
@@ -1006,7 +1006,7 @@ it('shows every Studio in Explore and opens the selected example or technique', 
   await act(async () => [...designCollection.querySelectorAll<HTMLButtonElement>('header button')].find(node => node.textContent === 'Design Studio')!.click());
   expect(page()).toMatchObject({ designScene: 'prototype', studio: null });
   await traverse(-1);
-  expect(collections()).toHaveLength(9);
+  expect(collections()).toHaveLength(10);
   await click('Creators');
   expect(page()).toMatchObject({ explore: true, templates: true, creators: true });
 });
@@ -1018,7 +1018,7 @@ it('opens a saved media collection and returns to the full feed from the global 
   expect([...container.querySelectorAll<HTMLElement>('.om-studio-collection')].map(section => section.dataset.studio)).toEqual(['sound']);
   await click('Explore');
   expect(page()).toMatchObject({ explore: true, community: null, medium: null });
-  expect(container.querySelectorAll('.om-studio-collection')).toHaveLength(9);
+  expect(container.querySelectorAll('.om-studio-collection')).toHaveLength(10);
 });
 
 it('rotates the visible Explore spotlight and plays visible Skill previews without hovering', async () => {
@@ -1273,10 +1273,10 @@ it('lists each primary destination once in order, with the Image mega menu and t
   await mount();
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['Explore', 'Image', 'Video', 'Audio', 'MCP', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio']);
+  expect(destinations).toEqual(['Explore', 'Image', 'Video', 'Audio', 'MCP', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node =>
     [node.getAttribute('aria-label'), document.getElementById(node.getAttribute('aria-describedby')!)?.textContent]);
-  expect(badges).toEqual([['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot']]);
+  expect(badges).toEqual([['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
   await click('Image · Scenes');
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
@@ -1284,7 +1284,8 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Text to image', 'Image editing', 'Character consistency']);
   expect(entryCards[2].disabled).toBe(false);
   expect(entryCards[2].textContent).not.toContain('Coming soon');
-  // Background removal and relighting are live features; the rest stay Coming soon.
+  // Background removal and relighting are live features; 2K resolution stays a Create image option, not a standalone feature.
+  expect(menu.textContent).not.toContain('2K HD output');
   for (const label of ['Remove background', 'Relight']) {
     const row = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent === label)!;
     expect(row.disabled, label).toBe(false);
@@ -1293,10 +1294,11 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const inpainting = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Inpainting'))!;
   expect(inpainting.disabled).toBe(true);
   expect(inpainting.textContent).toContain('Coming soon');
+  expect(menu.textContent).toContain('4K Upscale');
   // Expanding More reveals additional upcoming features.
   const moreFeatures = menu.querySelector<HTMLButtonElement>('button[aria-label="More Features"]')!;
   await act(async () => moreFeatures.click());
-  expect(menu.textContent).toContain('4K Upscale');
+  expect(menu.textContent).toContain('Batch set');
   // The Models column is the fixed OpenDesign API list, without setup tags.
   const models = [...menu.querySelectorAll('section[aria-label="Models"] .om-media-mega-row .om-media-mega-label')].map(node => node.textContent);
   expect(models).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Seedream 5.0 Flash']);
@@ -1330,12 +1332,12 @@ it('localizes every top navigation Studio label in Chinese while keeping English
   await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['探索', '图片', '视频', '音频', 'MCP', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室']);
+  expect(destinations).toEqual(['探索', '图片', '视频', '音频', 'MCP', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node => {
     const badge = document.getElementById(node.getAttribute('aria-describedby')!);
     return [node.getAttribute('aria-label'), badge?.textContent, badge?.getAttribute('lang')];
   });
-  expect(badges).toEqual([['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en']]);
+  expect(badges).toEqual([['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
 });
 
 it.each([
