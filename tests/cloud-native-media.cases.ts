@@ -394,9 +394,9 @@ test('resume guards invalid jobs, changed origin, unavailable provider and delet
     await assert.rejects(gateway.resume(failed.id, 'resume')); assert.equal(posts, 1);
   }
   await writeFile(file, JSON.stringify(failed));
-  await gateway.configureProvider('opendesign', { baseUrl: 'https://other.example' });
+  await gateway.configureProvider('opendesign', { baseUrl: 'https://other.example', apiKey: 'fixture-other' });
   await assert.rejects(gateway.resume(failed.id, 'resume'), /origin changed/);
-  await gateway.configureProvider('opendesign', { baseUrl: 'https://cloud.example', enabled: false });
+  await gateway.configureProvider('opendesign', { baseUrl: 'https://cloud.example', apiKey: 'fixture', enabled: false });
   await assert.rejects(gateway.resume(failed.id, 'resume'), /no longer available/);
   await gateway.close();
 }));
@@ -624,7 +624,7 @@ test('Cloud catalogue failures retain only the current connection cache and neve
   gateway.options.fetcher = (async () => new Response(null, { status: 503 })) as Fetcher;
   const retained = await gateway.listModels({ provider: 'opendesign', modality: 'image', refresh: true });
   assert.equal(retained.models.length, 1); assert.match(retained.warnings.join(), /unavailable/);
-  await gateway.configureProvider('opendesign', { baseUrl: 'https://other.example' });
+  await gateway.configureProvider('opendesign', { baseUrl: 'https://other.example', apiKey: 'fixture-other' });
   const changed = await gateway.listModels({ provider: 'opendesign', modality: 'image' });
   assert.deepEqual(changed.models, []); assert.match(changed.warnings.join(), /unavailable/);
   await gateway.close();

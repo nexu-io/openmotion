@@ -149,7 +149,7 @@ function useProviderValidation(label: string | undefined, baseUrl: string | unde
   const [validated, setValidated] = useState(false), [focusRequest, setFocusRequest] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
   const errors = { label: label === undefined ? undefined : providerNameError(label), baseUrl: baseUrl === undefined ? undefined : apiUrlError(baseUrl, provider?.protocol === 'media'), apiKey: apiKeyError(apiKey) };
-  if (provider?.protocol !== 'media' && provider?.credentialSource === 'stored' && !apiKey.trim() && baseUrl !== undefined && !errors.baseUrl) {
+  if ((provider?.credentialSource === 'stored' || provider?.credentialSource === 'environment') && !apiKey.trim() && baseUrl !== undefined && !errors.baseUrl) {
     let storedOrigin: string | undefined;
     try { storedOrigin = new URL(provider.baseUrl).origin; } catch { /* An unset or malformed stored URL has no origin to compare. */ }
     if (storedOrigin && new URL(baseUrl).origin !== storedOrigin) {

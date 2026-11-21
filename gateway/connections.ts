@@ -117,10 +117,21 @@ export class ProviderConnections {
     if (baseUrl && !definition.baseUrlEditable) throw new Error('This provider uses its built-in API origin');
     await this.store.lock(async () => {
       const config = await this.gatewayConfig(), state = config.providers[id] ?? {};
+      const keys = await this.gatewayKeys();
+      const envKey = definition.keyEnvironment ? process.env[definition.keyEnvironment] : undefined;
+      const envOrigin = definition.originEnvironment ? process.env[definition.originEnvironment] : undefined;
+      const originalRaw = state.baseUrl || envOrigin || definition.baseUrl;
+      let originalUrl: string | undefined;
+      if (originalRaw) {
+        try { originalUrl = providerOrigin(originalRaw); } catch { /* ignore malformed env origin */ }
+      }
+      // Never send an old key to an edited origin. An explicit replacement is required.
+      const changingOrigin = Boolean(baseUrl && originalUrl && baseUrl !== originalUrl);
+      const keepsOldKey = input.apiKey === undefined ? Boolean(keys[id] || envKey) : input.apiKey === null && Boolean(envKey);
+      if (changingOrigin && keepsOldKey) throw new Error('Enter the API key again when changing the API origin');
       if (id === 'opendesign' && (input.apiKey !== undefined || baseUrl && baseUrl !== state.baseUrl)) state.catalogRevision = randomUUID();
       if (baseUrl) { state.baseUrl = baseUrl; delete state.verification; delete state.keyHash; delete state.checkedAt; }
       if (input.apiKey !== undefined) {
-        const keys = await this.gatewayKeys();
         if (input.apiKey === null) delete keys[id]; else keys[id] = String(input.apiKey).trim();
         await writeSettings(this.file('secrets.json'), keys);
         await chmod(path.dirname(this.file('secrets.json')), 0o700);

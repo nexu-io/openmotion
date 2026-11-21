@@ -128,7 +128,7 @@ test('Cloud discovery uses workspace credentials; origin changes stop queued cal
   // A live speech model without checked voices still requires one.
   await assert.rejects(gateway.submit({ projectId: store.projectId, model: 'opendesign:workspace-speech', modality: 'audio', prompt: 'hello' }), /Voice ID is required/);
   const first = await gateway.submit({ projectId: store.projectId, model: 'opendesign:workspace-image', modality: 'image', prompt: 'cup' });
-  await gateway.configureProvider('opendesign', { baseUrl: 'https://changed.example' });
+  await gateway.configureProvider('opendesign', { baseUrl: 'https://changed.example', apiKey: 'changed-cloud-key' });
   assert.match((await finish(store, first.id)).error!, /origin changed/); assert.equal(calls, 1);
   await assert.rejects(gateway.submit({ projectId: store.projectId, model: 'opendesign:byteplus-tts-2', modality: 'audio', prompt: 'hello', parameters: { voice: '' } }), /Invalid Speech voice/);
   assert.equal(calls, 1);

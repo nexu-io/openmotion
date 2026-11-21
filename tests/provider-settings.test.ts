@@ -1247,3 +1247,73 @@ test('account video first-frame uses --first-frame and OpenDesign providers reje
   );
   assert.equal((JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][]).length, 1);
 }));
+
+test('changing the OpenDesign Cloud API origin requires re-entering the API key', () => fixture(async store => {
+  const connections = new ProviderConnections(store);
+  const previousKey = process.env.OPENDESIGN_API_KEY;
+  const previousOrigin = process.env.OPENDESIGN_MEDIA_ORIGIN;
+  delete process.env.OPENDESIGN_API_KEY;
+  delete process.env.OPENDESIGN_MEDIA_ORIGIN;
+  try {
+    await connections.configure('opendesign', { baseUrl: 'https://legit.example', apiKey: 'synthetic-key-1' });
+    await assert.rejects(
+      connections.configure('opendesign', { baseUrl: 'https://other.example' }),
+      /Enter the API key again when changing the API origin/,
+    );
+    assert.equal(await connections.baseUrl('opendesign'), 'https://legit.example');
+    assert.equal(await connections.credential('opendesign'), 'synthetic-key-1');
+
+    // Keeping the same origin without re-entering the key remains allowed.
+    await connections.configure('opendesign', { baseUrl: 'https://legit.example/' });
+    assert.equal(await connections.baseUrl('opendesign'), 'https://legit.example');
+
+    // Replacing the API key explicitly allows changing the origin.
+    await connections.configure('opendesign', { baseUrl: 'https://other.example', apiKey: 'synthetic-key-2' });
+    assert.equal(await connections.baseUrl('opendesign'), 'https://other.example');
+    assert.equal(await connections.credential('opendesign'), 'synthetic-key-2');
+
+    // Clearing the stored key when no environment key is present allows changing the origin.
+    await connections.configure('opendesign', { baseUrl: 'https://cleared.example', apiKey: null });
+    assert.equal(await connections.baseUrl('opendesign'), 'https://cleared.example');
+    assert.equal(await connections.credential('opendesign'), '');
+
+    // Environment-provided credentials must also not be sent to an edited origin without an explicit replacement.
+    process.env.OPENDESIGN_API_KEY = 'synthetic-env-key';
+    await assert.rejects(
+      connections.configure('opendesign', { baseUrl: 'https://attacker.example' }),
+      /Enter the API key again when changing the API origin/,
+    );
+    await assert.rejects(
+      connections.configure('opendesign', { baseUrl: 'https://attacker.example', apiKey: null }),
+      /Enter the API key again when changing the API origin/,
+    );
+    assert.equal(await connections.baseUrl('opendesign'), 'https://cleared.example');
+
+    await connections.configure('opendesign', { baseUrl: 'https://replacement.example', apiKey: 'synthetic-key-3' });
+    assert.equal(await connections.baseUrl('opendesign'), 'https://replacement.example');
+    assert.equal(await connections.credential('opendesign'), 'synthetic-key-3');
+
+    // Fresh workspace with no saved state.baseUrl falls back to OPENDESIGN_MEDIA_ORIGIN.
+    await fixture(async freshStore => {
+      const freshConnections = new ProviderConnections(freshStore);
+      process.env.OPENDESIGN_API_KEY = 'synthetic-env-key';
+      process.env.OPENDESIGN_MEDIA_ORIGIN = 'https://env.example';
+      await assert.rejects(
+        freshConnections.configure('opendesign', { baseUrl: 'https://attacker.example' }),
+        /Enter the API key again when changing the API origin/,
+      );
+      await assert.rejects(
+        freshConnections.configure('opendesign', { baseUrl: 'https://attacker.example', apiKey: null }),
+        /Enter the API key again when changing the API origin/,
+      );
+      // Saving the same origin as OPENDESIGN_MEDIA_ORIGIN without re-entering the key remains allowed.
+      await freshConnections.configure('opendesign', { baseUrl: 'https://env.example/' });
+      assert.equal(await freshConnections.baseUrl('opendesign'), 'https://env.example');
+    });
+  } finally {
+    if (previousKey === undefined) delete process.env.OPENDESIGN_API_KEY;
+    else process.env.OPENDESIGN_API_KEY = previousKey;
+    if (previousOrigin === undefined) delete process.env.OPENDESIGN_MEDIA_ORIGIN;
+    else process.env.OPENDESIGN_MEDIA_ORIGIN = previousOrigin;
+  }
+}));

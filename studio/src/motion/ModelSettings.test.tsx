@@ -179,6 +179,22 @@ it('clears validated field errors after a successful origin change while the dir
   expect(document.querySelector<HTMLInputElement>('[aria-label="Custom API key"]')!.value).toBe('');
   expect(document.querySelectorAll('[aria-invalid="true"]')).toHaveLength(0);
 });
+it('requires re-entering the API key when changing the OpenDesign Cloud API origin', async () => {
+  const writes: unknown[] = [];
+  const opendesign = { ...account, id: 'opendesign', label: 'OpenDesign Cloud', protocol: 'media', category: 'multimodal', baseUrl: 'https://old.example.com', baseUrlEditable: true, configured: true, credentialSource: 'stored' };
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+    if (init?.method === 'PUT') { writes.push(JSON.parse(String(init.body))); return Response.json({}); }
+    return Response.json({ providers: [account, opendesign], models: [], defaults: {} });
+  }));
+  await mount('opendesign');
+  await act(async () => { type('API base URL', 'https://new.example.com'); });
+  await act(async () => document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(document.body.textContent).toContain('Enter the API key again when changing the API origin.');
+  expect(writes).toHaveLength(0);
+  await act(async () => { type('OpenDesign Cloud API key', 'synthetic-key'); });
+  await act(async () => document.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  expect(writes).toEqual([{ baseUrl: 'https://new.example.com', apiKey: 'synthetic-key' }]);
+});
 
 it('keeps the provider directory guidance and text models when the account summary request fails', async () => {
   const goAccount = { ...account, configured: true, enabled: true, available: true, credentialSource: 'account',
