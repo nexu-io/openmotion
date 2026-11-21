@@ -2417,8 +2417,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.use('/motion-api/models/*', authWithWelcome);
   app.use('/motion-api/account/*', authWithWelcome);
 
-  app.route('/', createProjectsRouter({ workspace, files, history, assetNames, workRounds, archives, exports: exportsService }));
-  app.route('/', createSessionsRouter({ workspace, exports: exportsService }));
+  app.route('/', createProjectsRouter({ workspace, files, history, assetNames, workRounds, archives, catalog, exports: exportsService }));
+  app.route('/', createSessionsRouter({ workspace, catalog, exports: exportsService }));
   app.route('/', createArchivesRouter({ archives }));
   app.route('/motion-api/assets', createAssetRoutes({ assetService: assets }));
   app.route('/motion-api', createExportRoutes({ exportService: exportsService }));

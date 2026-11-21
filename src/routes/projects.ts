@@ -3,6 +3,7 @@ import type { AuthContext, PatScope, WorkspaceRole } from '../contracts/auth.ts'
 import { CloudError, isCloudError } from '../contracts/errors.ts';
 import type { ProjectType } from '../db/schema/projects.ts';
 import type { AssetNamesService } from '../services/asset-names-service.ts';
+import type { CatalogPort } from '../services/catalog-service.ts';
 import type { ExportService } from '../services/export-service.ts';
 import type { ProjectArchiveService } from '../services/project-archive-service.ts';
 import type { ProjectFilesService } from '../services/project-files-service.ts';
@@ -29,6 +30,7 @@ export interface ProjectsRouterDeps {
   readonly assetNames: AssetNamesService;
   readonly workRounds: WorkRoundsService;
   readonly archives?: ProjectArchiveService;
+  readonly catalog?: Pick<CatalogPort, 'cloneTemplateToProject'>;
   readonly exports?: Pick<ExportService, 'listProjectExports'>;
   readonly resolveAuth?: (c: Context<{ Variables: ProductRouteVariables }>) => AuthContext | Promise<AuthContext>;
 }
@@ -95,6 +97,7 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
       templateId?: string;
+      locale?: string;
       projectType?: ProjectType;
       requirements?: string;
       namingLanguage?: string;
@@ -105,9 +108,44 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
       selectActive?: boolean;
     };
 
+    const templateId =
+      typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
+    if (templateId && deps.catalog) {
+      try {
+        const cloned = await deps.catalog.cloneTemplateToProject(auth, {
+          templateId,
+          title: body.title,
+          sessionId: body.sessionId,
+          requirements: body.requirements ?? body.prompt ?? body.instruction,
+          namingLanguage: body.namingLanguage,
+          requestId: body.requestId,
+          locale: body.locale,
+          activateWorkspace: body.selectActive !== false,
+        });
+        return c.json(
+          {
+            ...cloned,
+            project: cloned,
+            projectTitle: cloned.title,
+            replayed: false,
+            exportJob: null,
+          },
+          201,
+        );
+      } catch (error) {
+        if (
+          body.projectType === 'template' ||
+          !isCloudError(error) ||
+          error.code !== 'TEMPLATE_NOT_COPYABLE'
+        ) {
+          throw error;
+        }
+      }
+    }
+
     const created = await deps.workspace.createProject(auth, {
       title: body.title,
-      templateId: body.templateId,
+      templateId,
       projectType: body.projectType,
       requirements: body.requirements,
       namingLanguage: body.namingLanguage,

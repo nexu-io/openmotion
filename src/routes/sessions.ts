@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import type { AuthContext, PatScope, WorkspaceRole } from '../contracts/auth.ts';
 import { CloudError, isCloudError } from '../contracts/errors.ts';
+import type { CatalogPort } from '../services/catalog-service.ts';
 import type { ExportService } from '../services/export-service.ts';
 import type { WorkspaceService } from '../services/workspace-service.ts';
 import { assertAuthAccess } from '../studio/context.ts';
@@ -9,6 +10,7 @@ import type { ProductRouteVariables, WorkspaceExportJobSummary } from './project
 
 export interface SessionsRouterDeps {
   readonly workspace: WorkspaceService;
+  readonly catalog?: Pick<CatalogPort, 'getTemplate' | 'cloneTemplateToProject'>;
   readonly exports?: Pick<ExportService, 'listProjectExports'>;
   readonly resolveAuth?: (c: Context<{ Variables: ProductRouteVariables }>) => AuthContext | Promise<AuthContext>;
 }
@@ -85,14 +87,30 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       title?: string;
       mode?: string;
       templateId?: string;
+      locale?: string;
       prompt?: string;
       instruction?: string;
     };
+    const templateId =
+      typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
+    let resolvedTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : undefined;
+    if (!resolvedTitle && templateId && deps.catalog) {
+      try {
+        const template = await deps.catalog.getTemplate(templateId, { locale: body.locale });
+        if (template.title?.trim()) {
+          resolvedTitle = template.title.trim();
+        }
+      } catch (error) {
+        if (!isCloudError(error) || error.code !== 'NOT_FOUND') {
+          throw error;
+        }
+      }
+    }
     const created = await deps.workspace.createSession(auth, {
       id: body.id,
-      title: body.title,
+      title: resolvedTitle,
       mode: body.mode,
-      templateId: body.templateId,
+      templateId,
       prompt: body.prompt ?? body.instruction,
     });
     return c.json({ sessionId: created.id, session: created, ...created }, 201);
@@ -169,6 +187,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
       templateId?: string;
+      locale?: string;
       requirements?: string;
       namingLanguage?: string;
       requestId?: string;
@@ -176,10 +195,51 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       instruction?: string;
       selectActive?: boolean;
     };
+    const session = await deps.workspace.getSession(auth, sessionId);
+    const requestedTemplateId =
+      typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
+    const effectiveTemplateId =
+      requestedTemplateId ?? (session.artifacts.length === 0 && session.templateId ? session.templateId : undefined);
+    const explicitTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : undefined;
+    const sessionFallbackTitle =
+      session.artifacts.length === 0 && session.title && session.title !== 'New Session' ? session.title : undefined;
+    const title = explicitTitle ?? sessionFallbackTitle;
+
+    if (effectiveTemplateId && deps.catalog) {
+      try {
+        const cloned = await deps.catalog.cloneTemplateToProject(auth, {
+          templateId: effectiveTemplateId,
+          sessionId,
+          title,
+          requirements: body.requirements ?? body.prompt ?? body.instruction,
+          namingLanguage: body.namingLanguage,
+          requestId: body.requestId,
+          locale: body.locale,
+          activateWorkspace: body.selectActive !== false,
+        });
+        return c.json(
+          {
+            ...cloned,
+            project: cloned,
+            projectTitle: cloned.title,
+            replayed: false,
+            exportJob: null,
+          },
+          201,
+        );
+      } catch (error) {
+        // Reference-only templates (without an editable HTML project) fall back to a blank
+        // workspace project inside the session, matching the local artifact factory behavior.
+        if (!isCloudError(error) || error.code !== 'TEMPLATE_NOT_COPYABLE') {
+          throw error;
+        }
+      }
+    }
+
     const created = await deps.workspace.createProject(auth, {
       sessionId,
-      title: body.title,
-      templateId: body.templateId,
+      title,
+      templateId: effectiveTemplateId,
       requirements: body.requirements,
       namingLanguage: body.namingLanguage,
       requestId: body.requestId,

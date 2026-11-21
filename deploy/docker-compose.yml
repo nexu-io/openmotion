@@ -135,6 +135,7 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-openmotion}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-openmotion_local_dev}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      CATALOG_SYNC_FETCH_REMOTE: ${CATALOG_SYNC_FETCH_REMOTE:-true}
     read_only: true
     tmpfs:
       - /tmp:size=64m

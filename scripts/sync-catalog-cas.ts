@@ -209,6 +209,8 @@ export interface PreparedCatalogFile {
   isProjectFile: boolean;
   isAvailable: boolean;
   bytes: Buffer | null;
+  remoteUrl?: string;
+  metadataHints?: MediaMetadataHints;
 }
 
 export interface PreparedCatalogTemplate {
@@ -497,7 +499,7 @@ export async function assembleRepositoryTemplate(
   id: string,
   catalogRoot: string,
   repo: LoadedRepositoryCatalog,
-  options: { fetchRemote?: boolean; fetchImpl?: typeof fetch } = {},
+  options: { fetchRemote?: boolean; deferRemoteFetch?: boolean; fetchImpl?: typeof fetch } = {},
 ): Promise<PreparedCatalogTemplate> {
   const record = repo.records.get(id) as RepoTemplateRecord | undefined;
   if (!record) {
@@ -577,18 +579,16 @@ export async function assembleRepositoryTemplate(
     if (diskBytes !== null) {
       const pointer = lfsPointer(diskBytes);
       if (pointer) {
+        const remoteUrl = remoteAsset?.url ?? entryFile?.url;
         let fetchedBytes: Buffer | null = null;
-        if (options.fetchRemote) {
-          const remoteUrl = remoteAsset?.url ?? entryFile?.url;
-          if (remoteUrl) {
-            fetchedBytes = await fetchVerifiedCatalogRemoteBytes(
-              remoteUrl,
-              pointer.bytes,
-              pointer.sha256,
-              normalizedPath,
-              fetchImpl,
-            );
-          }
+        if (options.fetchRemote && !options.deferRemoteFetch && remoteUrl) {
+          fetchedBytes = await fetchVerifiedCatalogRemoteBytes(
+            remoteUrl,
+            pointer.bytes,
+            pointer.sha256,
+            normalizedPath,
+            fetchImpl,
+          );
         }
         files.push({
           path: normalizedPath,
@@ -599,6 +599,7 @@ export async function assembleRepositoryTemplate(
           isProjectFile,
           isAvailable: fetchedBytes !== null,
           bytes: fetchedBytes,
+          ...(fetchedBytes === null && remoteUrl ? { remoteUrl, metadataHints: hints } : {}),
         });
         continue;
       }
@@ -629,7 +630,7 @@ export async function assembleRepositoryTemplate(
     // File omitted from disk (e.g. transferred remoteAssets like preview.webm or large reference JPG).
     if (remoteAsset) {
       let fetchedBytes: Buffer | null = null;
-      if (options.fetchRemote) {
+      if (options.fetchRemote && !options.deferRemoteFetch) {
         fetchedBytes = await fetchVerifiedCatalogRemoteBytes(
           remoteAsset.url,
           remoteAsset.bytes,
@@ -647,6 +648,7 @@ export async function assembleRepositoryTemplate(
         isProjectFile,
         isAvailable: fetchedBytes !== null,
         bytes: fetchedBytes,
+        ...(fetchedBytes === null ? { remoteUrl: remoteAsset.url, metadataHints: hints } : {}),
       });
       continue;
     }
@@ -761,6 +763,7 @@ export async function syncCatalogCas(
   }
 
   // Phase 2: Repository catalog templates (`library/templates/catalog/`)
+  const fetchImpl = options.fetchImpl ?? fetch;
   if (includeRepo && prepared.length < maxTemplates) {
     const repo = await loadRepositoryCatalog(catalogRoot);
     const allRepoIds = [...repo.records.keys()];
@@ -769,7 +772,8 @@ export async function syncCatalogCas(
       if (filterIds && !filterIds.has(id)) continue;
       const item = await assembleRepositoryTemplate(id, catalogRoot, repo, {
         fetchRemote: options.fetchRemote,
-        fetchImpl: options.fetchImpl,
+        deferRemoteFetch: Boolean(options.fetchRemote),
+        fetchImpl,
       });
       prepared.push(item);
       repoCount++;
@@ -786,12 +790,14 @@ export async function syncCatalogCas(
   let unavailableFiles = 0;
 
   const ensureBlobInS3 = async (file: PreparedCatalogFile): Promise<void> => {
-    if (!file.isAvailable || file.bytes === null) {
+    const canFetchRemote = Boolean(options.fetchRemote && !file.isAvailable && file.bytes === null && file.remoteUrl);
+    if ((!file.isAvailable || file.bytes === null) && !canFetchRemote) {
       unavailableFiles++;
       return;
     }
 
     if (uploadedShas.has(file.sha256)) {
+      file.isAvailable = true;
       blobsDeduplicated++;
       return;
     }
@@ -799,20 +805,44 @@ export async function syncCatalogCas(
     const existingFlight = inFlightUploads.get(file.sha256);
     if (existingFlight) {
       await existingFlight;
+      file.isAvailable = true;
       blobsDeduplicated++;
       return;
     }
 
-    const bytes = file.bytes;
     const key = catalogBlobKey(file.sha256);
     const task = (async () => {
       const existing = await deps.storage.headObject(key);
-      if (existing && existing.contentLength === bytes.byteLength) {
+      if (existing && existing.contentLength === file.sizeBytes) {
         blobsSkipped++;
-      } else if (!dryRun) {
+        file.isAvailable = true;
+        uploadedShas.add(file.sha256);
+        return;
+      }
+
+      let bytes = file.bytes;
+      if (bytes === null && canFetchRemote && file.remoteUrl) {
+        bytes = await fetchVerifiedCatalogRemoteBytes(
+          file.remoteUrl,
+          file.sizeBytes,
+          file.sha256,
+          file.path,
+          fetchImpl,
+        );
+        file.bytes = bytes;
+        file.metadata = extractCatalogFileMetadata(file.path, bytes, file.mimeType, file.metadataHints);
+      }
+
+      if (bytes === null) {
+        unavailableFiles++;
+        return;
+      }
+
+      if (!dryRun) {
         await deps.storage.putObject(key, bytes, file.mimeType, bytes.byteLength);
         blobsUploaded++;
       }
+      file.isAvailable = true;
       uploadedShas.add(file.sha256);
     })();
 
@@ -914,6 +944,9 @@ export async function runSyncCatalogCli(
 ): Promise<SyncCatalogSummary> {
   const logger = createLogger({ bindings: { service: 'catalog-sync' } });
   const options = parseSyncCatalogArgs(argv);
+  if (options.fetchRemote === undefined && envBoolean(env.CATALOG_SYNC_FETCH_REMOTE, false)) {
+    options.fetchRemote = true;
+  }
 
   const databaseUrl = env.DATABASE_URL?.trim();
   if (!databaseUrl) {

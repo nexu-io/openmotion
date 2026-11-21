@@ -1632,6 +1632,109 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     assert.ok(tplOpenBody.sessionId);
     assert.equal(tplOpenBody.exportJob, null);
 
+    // 6b. Studio startSession + /sessions/:id/artifacts clones editable templates zero-copy
+    //     (both via inherited session.templateId and explicit body.templateId) and falls back
+    //     to a blank project for reference-only templates without index.html.
+    pgClient.seed('catalog_templates', {
+      id: 'studio-ref-only-tpl',
+      kind: 'prism',
+      catalog_version: 'v1',
+      sort_order: 2,
+      featured_order: null,
+      has_html_project: false,
+      metadata: { title: 'Reference Only Template', category: 'featured', durationSec: 5 },
+      instructions_md: null,
+      motion_md: null,
+      updated_at: new Date().toISOString(),
+    });
+
+    const tplSessionId = randomUUID();
+    const tplSessRes = await app.request('/motion-api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: tplSessionId, mode: 'motion', templateId: 'studio-smoke-tpl' }),
+    });
+    assert.equal(tplSessRes.status, 201);
+    const tplSessBody = (await tplSessRes.json()) as { sessionId: string; title: string };
+    assert.equal(tplSessBody.sessionId, tplSessionId);
+    assert.equal(tplSessBody.title, 'Smoke Template');
+
+    // First artifact without repeating templateId inherits session.templateId and clones zero-copy.
+    const inheritedArtifactRes = await app.request(`/motion-api/sessions/${tplSessionId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: createdProj.revision, expectedProjectId: createdProj.projectId }),
+    });
+    assert.equal(inheritedArtifactRes.status, 201);
+    const inheritedArtifact = (await inheritedArtifactRes.json()) as {
+      projectId: string;
+      projectTitle: string;
+      templateId: string;
+      fileCount: number;
+    };
+    assert.equal(inheritedArtifact.templateId, 'studio-smoke-tpl');
+    assert.equal(inheritedArtifact.projectTitle, 'Smoke Template');
+    assert.equal(inheritedArtifact.fileCount, 1);
+    const inheritedIndexRes = await app.request(`/api/projects/${inheritedArtifact.projectId}/files/index.html`);
+    assert.equal(inheritedIndexRes.status, 200);
+    assert.equal(
+      ((await inheritedIndexRes.json()) as { content: string }).content,
+      '<div data-composition-id="main">Template</div>',
+    );
+
+    // Subsequent artifact with explicit templateId (Studio createArtifact / templateHandoff flow).
+    const explicitArtifactRes = await app.request(`/motion-api/sessions/${tplSessionId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ templateId: 'studio-smoke-tpl', title: 'Custom Template Copy' }),
+    });
+    assert.equal(explicitArtifactRes.status, 201);
+    const explicitArtifact = (await explicitArtifactRes.json()) as {
+      projectId: string;
+      projectTitle: string;
+      templateId: string;
+    };
+    assert.equal(explicitArtifact.templateId, 'studio-smoke-tpl');
+    assert.equal(explicitArtifact.projectTitle, 'Custom Template Copy');
+    const explicitIndexRes = await app.request(`/api/projects/${explicitArtifact.projectId}/files/index.html`);
+    assert.equal(explicitIndexRes.status, 200);
+    assert.equal(
+      ((await explicitIndexRes.json()) as { content: string }).content,
+      '<div data-composition-id="main">Template</div>',
+    );
+
+    // Reference-only template falls back cleanly to a blank project inside the session.
+    const refArtifactRes = await app.request(`/motion-api/sessions/${tplSessionId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ templateId: 'studio-ref-only-tpl', title: 'Ref Recreation' }),
+    });
+    assert.equal(refArtifactRes.status, 201);
+    const refArtifact = (await refArtifactRes.json()) as { projectId: string; projectTitle: string };
+    assert.ok(refArtifact.projectId);
+    assert.equal(refArtifact.projectTitle, 'Ref Recreation');
+
+    // POST /motion-api/projects with editable templateId also clones zero-copy.
+    const projFromTplRes = await app.request('/motion-api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ templateId: 'studio-smoke-tpl', title: 'Direct Project Clone' }),
+    });
+    assert.equal(projFromTplRes.status, 201);
+    const projFromTpl = (await projFromTplRes.json()) as {
+      projectId: string;
+      projectTitle: string;
+      templateId: string;
+    };
+    assert.equal(projFromTpl.templateId, 'studio-smoke-tpl');
+    assert.equal(projFromTpl.projectTitle, 'Direct Project Clone');
+    const projFromTplIndex = await app.request(`/api/projects/${projFromTpl.projectId}/files/index.html`);
+    assert.equal(projFromTplIndex.status, 200);
+    assert.equal(
+      ((await projFromTplIndex.json()) as { content: string }).content,
+      '<div data-composition-id="main">Template</div>',
+    );
+
     // 7. POST /motion-api/phase1/call (openmotion_get_project currentVersionId, openmotion_assets_use, P2 501)
     const getProjCall = await app.request('/motion-api/phase1/call', {
       method: 'POST',

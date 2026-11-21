@@ -898,6 +898,54 @@ describe('Idempotent Catalog CAS Sync (syncCatalogCas)', () => {
     assert.equal(pg.tables.catalog_templates.length, 5);
     assert.equal(pg.tables.catalog_template_files.length, rowsBeforeRerun);
   });
+
+  it('hydrates missing LFS blobs when fetchRemote=true and skips remote downloads once present in S3', async () => {
+    const pg = new MockPgHarness();
+    const storage = new MockStorage();
+    const templateId = 'motion-1e48dea5-903d-48f6-b10e-99a70f1c183d';
+
+    // Run offline first to capture the exact LFS sha256/size from the catalog entry.
+    await syncCatalogCas({ db: pg.db, storage }, { templateIds: [templateId] });
+    const lfsRow = pg.tables.catalog_template_files.find(
+      (row) => row.template_id === templateId && row.path === 'assets/lfs/original-audio.m4a',
+    );
+    assert.ok(lfsRow);
+    assert.equal(lfsRow.is_available, false);
+
+    // Pre-populate the exact blob in S3 (simulating a previous sync or pre-seeded bucket)
+    // and verify fetchRemote=true marks it available with ZERO HTTP fetches.
+    const fakeBlob = Buffer.alloc(Number(lfsRow.size_bytes), 0x41);
+    await storage.putObject(catalogBlobKey(String(lfsRow.sha256)), fakeBlob, 'audio/mp4', fakeBlob.byteLength);
+
+    let fetchCalls = 0;
+    const countingFetch: typeof fetch = async (input) => {
+      fetchCalls++;
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      throw new Error(`Unexpected remote fetch for ${url}`);
+    };
+
+    // Only hydrate blobs whose sha256 is already in S3 for all non-project remoteAssets too,
+    // so we isolate testing the S3-hit skip on every missing file for this template.
+    for (const row of pg.tables.catalog_template_files) {
+      if (row.template_id === templateId && row.is_available === false) {
+        const buf = Buffer.alloc(Number(row.size_bytes), 0x42);
+        await storage.putObject(catalogBlobKey(String(row.sha256)), buf, String(row.mime_type), buf.byteLength);
+      }
+    }
+
+    const hydrated = await syncCatalogCas(
+      { db: pg.db, storage },
+      { templateIds: [templateId], fetchRemote: true, fetchImpl: countingFetch },
+    );
+    assert.equal(fetchCalls, 0, 'Must not re-download blobs already present in S3 CAS');
+    assert.equal(hydrated.unavailableFiles, 0);
+
+    const updatedLfsRow = pg.tables.catalog_template_files.find(
+      (row) => row.template_id === templateId && row.path === 'assets/lfs/original-audio.m4a',
+    );
+    assert.ok(updatedLfsRow);
+    assert.equal(updatedLfsRow.is_available, true);
+  });
 });
 
 // ---------------------------------------------------------------------------
