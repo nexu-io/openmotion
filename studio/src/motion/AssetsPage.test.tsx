@@ -627,7 +627,7 @@ it.each([
     description: /Keep the sofa and coffee table/,
   },
   {
-    scene: 'relight', image: 'sofa-relight.webp', title: 'Relight',
+    scene: 'relight', image: 'sofa-relight.webp', title: 'Relight with flexible lighting controls',
     description: /Adjust light direction, color temperature, and mood/,
   },
 ] as const)('shows only a comparison image and its caption in the $scene guide', async ({ scene, image, title, description }) => {

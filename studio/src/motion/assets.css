@@ -411,10 +411,8 @@
 }
 .om-scene-comparison-media[data-wide] > img {
   block-size: 110%;
-  translate: var(--om-relight-offset-x, 0px) var(--motion-space-12);
-}
-@container asset-gallery (min-width: 860px) {
-  .om-scene-comparison-media[data-wide] > img { --om-relight-offset-x: var(--motion-space-16); }
+  /* Center the visible artwork, accounting for its unequal transparent margins. */
+  translate: 1.7% var(--motion-space-12);
 }
 .om-scene-comparison > .om-guide-heading { gap: var(--motion-space-8); }
 .om-guide-heading { display: grid; gap: var(--motion-space-4); }

@@ -96,7 +96,7 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
   if (scene.id === 'relight') return (
     <SceneComparisonGuide src={sofaRelight} width={2310} height={1290} wide
       alt="An armchair shown under three lighting setups"
-      title="Relight"
+      title="Relight with flexible lighting controls"
       description="Adjust light direction, color temperature, and mood to make any photo look its best." />
   );
   const options = studioExamples(destination);
