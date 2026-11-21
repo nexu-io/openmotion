@@ -13,9 +13,6 @@ import pepper from './scene-art/pepper.webp';
 import speakerRoom from './scene-art/speaker-room.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 
-/** Preset for a feature entry: the OpenDesign model and parameters it starts with. */
-export type ImageParameterSeed = { model?: string; parameters: Record<string, unknown> };
-
 export function MegaMenuColumn({ title, items, footer, visible = 5 }: { title: string; items: ReactNode[]; footer?: ReactNode; visible?: number }) {
   const { t } = useI18n();
   const id = useId();
@@ -82,14 +79,14 @@ function ImageMenuArt({ scene }: { scene: typeof sceneCards[number][0]['id'] }) 
 export function ImageMegaMenu({ catalog, destination, onNavigate }: {
   catalog?: ReturnType<typeof useMediaCatalog>['catalog'];
   destination: StudioDestination | null;
-  onNavigate: (destination: StudioDestination, seed?: ImageParameterSeed) => void;
+  onNavigate: (destination: StudioDestination) => void;
 }) {
   const { t } = useI18n();
-  const { rows, hd } = imageMenuModels(catalog?.models ?? [], catalog?.status.providers ?? []);
+  const rows = imageMenuModels(catalog?.models ?? [], catalog?.status.providers ?? []);
   const pinned = catalog?.models.find(model => model.id === destination?.model);
   // Non-feature image scenes keep a compatible pinned model; feature scenes open without a pin so OpenDesign defaults apply.
-  const openScene = (scene: StudioScene, seed?: ImageParameterSeed) => onNavigate(sceneDestination(scene, destination, pinned && supportsScene(pinned, scene) ? pinned.id : null), seed);
-  const openFeature = (scene: StudioScene, seed?: ImageParameterSeed) => onNavigate(sceneDestination(scene, destination, null), seed);
+  const openScene = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, pinned && supportsScene(pinned, scene) ? pinned.id : null));
+  const openFeature = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, null));
 
   return <div className="om-media-mega">
     <div className="om-media-menu-grid om-media-mega-entries">
@@ -112,7 +109,6 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
     <div className="om-media-mega-columns">
       <MegaMenuColumn title={t('Features')} items={[
         <Button key="fusion" variant="plain" className="om-nav-item om-media-mega-row" onClick={() => openScene(editImageScene)}><span className="om-image-menu-icon"><RemixIcon name="image-line" size={16} /></span><span className="om-media-mega-label">{t('Multi-image fusion')}</span></Button>,
-        <Button key="2k" variant="plain" className="om-nav-item om-media-mega-row" onClick={() => openFeature(imageScene, hd ? { model: hd.model.id, parameters: hd.parameters } : undefined)}><span className="om-image-menu-icon"><RemixIcon name="sparkling-line" size={16} /></span><span className="om-media-mega-label">{t('2K HD output')}</span></Button>,
         ...featureScenes.map(scene => <Button key={scene.id} variant="plain" className="om-nav-item om-media-mega-row" aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openFeature(scene)}>
           <span className="om-image-menu-icon"><RemixIcon name={scene.icon} size={16} /></span><span className="om-media-mega-label">{t(scene.label)}</span>
         </Button>),

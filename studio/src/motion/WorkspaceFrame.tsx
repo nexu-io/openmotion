@@ -1,4 +1,3 @@
-import type { ImageParameterSeed } from './ImageMegaMenu';
 import { IconButton } from 'open-design-ui/icon-button';
 import { Button } from 'open-design-ui/button';
 import type { SkillCategory } from './skillCategories';
@@ -298,17 +297,13 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const selectAssetRoute = useCallback((assetId: string | null, assetVersion: string | null) => {
     if (readWorkspacePage(location.search, location.hash).assets) navigatePage({ assetId, assetVersion });
   }, [navigatePage]);
-  const openStudio = (studio: StudioDestination | null, seed?: string | AssetDraft | ImageParameterSeed, fromPage = false) => {
+  const openStudio = (studio: StudioDestination | null, seed?: string | AssetDraft, fromPage = false) => {
     // A brief started from a technique studio keeps its Skill so its draft stays separate from other studios' briefs.
     const skill = typeof seed === 'object' && (studio?.studio.surface === 'techniques' || (studio?.landing && page.specialty)) ? page.skill : null;
     if (studio && seed) {
-      const key = studioDraftKey(studio, skill);
-      const previous = studioDrafts.current.get(key);
-      studioDrafts.current.set(key, typeof seed === 'string'
+      studioDrafts.current.set(studioDraftKey(studio, skill), typeof seed === 'string'
         ? { modality: studio.scene.modality, prompt: seed, references: [] }
-        : 'modality' in seed ? seed
-        : { modality: studio.scene.modality, prompt: previous?.prompt ?? '', references: previous?.references ?? [],
-          model: studio.model ?? seed.model, parameters: seed.parameters });
+        : seed);
       setStudioVisit(number => number + 1);
     }
     navigatePage({ studio, skill, settings: null, assets: false, skills: false, templates: false, ...lastExplore.current },

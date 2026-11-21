@@ -1284,7 +1284,8 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', 'Character consistency']);
   expect(entryCards[2].disabled).toBe(false);
   expect(entryCards[2].textContent).not.toContain('Coming soon');
-  // Background removal and relighting are live features; the rest stay Coming soon.
+  // Background removal and relighting are live features; 2K resolution stays a Create image option, not a standalone feature.
+  expect(menu.textContent).not.toContain('2K HD output');
   for (const label of ['Remove background', 'Relight']) {
     const row = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent === label)!;
     expect(row.disabled, label).toBe(false);
@@ -1293,10 +1294,11 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const inpainting = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Inpainting'))!;
   expect(inpainting.disabled).toBe(true);
   expect(inpainting.textContent).toContain('Coming soon');
+  expect(menu.textContent).toContain('4K Upscale');
   // Expanding More reveals additional upcoming features.
   const moreFeatures = menu.querySelector<HTMLButtonElement>('button[aria-label="More Features"]')!;
   await act(async () => moreFeatures.click());
-  expect(menu.textContent).toContain('4K Upscale');
+  expect(menu.textContent).toContain('Batch set');
   // The Models column is the fixed OpenDesign API list, without setup tags.
   const models = [...menu.querySelectorAll('section[aria-label="Models"] .om-media-mega-row .om-media-mega-label')].map(node => node.textContent);
   expect(models).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Seedream 5.0 Flash']);
