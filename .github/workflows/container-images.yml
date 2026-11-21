@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       publish_latest:
-        description: "Also update the :latest tag (normally only set on main)"
+        description: "Also update the :latest tag (allowed only on main after CI 'standalone' passes)"
         type: boolean
         default: false
   push:
@@ -12,6 +12,7 @@ on:
       - main
       - feat/cloud-container-p1
     paths:
+      - .dockerignore
       - deploy/Dockerfile
       - package.json
       - package-lock.json
@@ -32,21 +33,93 @@ on:
       - hyperframes.ts
       - server.ts
       - template-library.ts
+      - LICENSE
       - .github/workflows/container-images.yml
 
-permissions:
-  contents: read
-  packages: write
+permissions: {}
 
 concurrency:
   group: container-images-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Validate publish policy and compute tags
+    if: github.repository == 'nexu-io/openmotion'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      registry_owner: ${{ steps.meta.outputs.registry_owner }}
+      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+      branch_tag: ${{ steps.meta.outputs.branch_tag }}
+      push_latest: ${{ steps.meta.outputs.push_latest }}
+    steps:
+      - name: Compute image tags and enforce :latest gate
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PUBLISH_LATEST: ${{ inputs.publish_latest }}
+        run: |
+          set -euo pipefail
+
+          registry_owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          sha_tag="sha-${GITHUB_SHA::12}"
+          sanitized_branch="$(printf '%s' "$GITHUB_REF_NAME" | sed -E 's/[^a-zA-Z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+          branch_tag="branch-${sanitized_branch}"
+          push_latest="false"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$INPUT_PUBLISH_LATEST" == "true" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Promoting :latest is only allowed from refs/heads/main (got ${GITHUB_REF})."
+              exit 1
+            fi
+
+            passed_count="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/check-runs?check_name=standalone&per_page=100" \
+              --jq '[.check_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
+            if [[ "${passed_count:-0}" -lt 1 ]]; then
+              echo "::error::Required CI check 'standalone' has not passed for ${GITHUB_SHA}. Wait for Motion standalone checks to succeed on main before promoting :latest."
+              exit 1
+            fi
+
+            push_latest="true"
+          fi
+
+          {
+            echo "registry_owner=${registry_owner}"
+            echo "sha_tag=${sha_tag}"
+            echo "branch_tag=${branch_tag}"
+            echo "push_latest=${push_latest}"
+          } >> "$GITHUB_OUTPUT"
+
   build-and-push:
-    name: Build and push 4 OpenMotion images (linux/amd64)
+    name: Build and push ${{ matrix.target }} (linux/amd64)
+    needs: prepare
+    if: github.repository == 'nexu-io/openmotion'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: api
+            image: openmotion-api
+            title: openmotion-api
+          - target: worker-media
+            image: openmotion-worker-media
+            title: openmotion-worker-media
+          - target: worker-render
+            image: openmotion-worker-render
+            title: openmotion-worker-render
+          - target: catalog-sync
+            image: openmotion-catalog-sync
+            title: openmotion-catalog-sync
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -64,123 +137,62 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Compute image tags
-        id: meta
+        id: tags
         shell: bash
         env:
-          INPUT_PUBLISH_LATEST: ${{ inputs.publish_latest }}
+          REGISTRY_OWNER: ${{ needs.prepare.outputs.registry_owner }}
+          IMAGE_NAME: ${{ matrix.image }}
+          SHA_TAG: ${{ needs.prepare.outputs.sha_tag }}
+          BRANCH_TAG: ${{ needs.prepare.outputs.branch_tag }}
+          PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
         run: |
           set -euo pipefail
-          sha_tag="sha-${GITHUB_SHA::12}"
-          sanitized_branch="$(printf '%s' "$GITHUB_REF_NAME" | sed -E 's/[^a-zA-Z0-9._-]+/-/g; s/^-+//; s/-+$//')"
-          branch_tag="branch-${sanitized_branch}"
-          push_latest="false"
-          if [[ "$GITHUB_REF" == "refs/heads/main" || "$INPUT_PUBLISH_LATEST" == "true" ]]; then
-            push_latest="true"
-          fi
+          image_ref="ghcr.io/${REGISTRY_OWNER}/${IMAGE_NAME}"
+          {
+            echo "image_ref=${image_ref}"
+            echo "tags<<EOF"
+            echo "${image_ref}:${SHA_TAG}"
+            echo "${image_ref}:${BRANCH_TAG}"
+            if [[ "$PUSH_LATEST" == "true" ]]; then
+              echo "${image_ref}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-          emit_tags() {
-            local key="$1"
-            local image="$2"
-            {
-              echo "${key}<<EOF"
-              echo "${image}:${sha_tag}"
-              echo "${image}:${branch_tag}"
-              if [[ "$push_latest" == "true" ]]; then
-                echo "${image}:latest"
-              fi
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-          }
-
-          echo "sha_tag=${sha_tag}" >> "$GITHUB_OUTPUT"
-          echo "branch_tag=${branch_tag}" >> "$GITHUB_OUTPUT"
-          echo "push_latest=${push_latest}" >> "$GITHUB_OUTPUT"
-          emit_tags "api_tags" "ghcr.io/nexu-io/openmotion-api"
-          emit_tags "worker_media_tags" "ghcr.io/nexu-io/openmotion-worker-media"
-          emit_tags "worker_render_tags" "ghcr.io/nexu-io/openmotion-worker-render"
-          emit_tags "catalog_sync_tags" "ghcr.io/nexu-io/openmotion-catalog-sync"
-
-      - name: Build and push api
-        id: build_api
+      - name: Build and push ${{ matrix.target }}
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deploy/Dockerfile
-          target: api
+          target: ${{ matrix.target }}
           platforms: linux/amd64
           push: true
-          cache-from: type=gha,scope=openmotion-containers
-          cache-to: type=gha,mode=max,scope=openmotion-containers
-          tags: ${{ steps.meta.outputs.api_tags }}
+          cache-from: type=gha,scope=openmotion-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=openmotion-${{ matrix.target }}
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
-            org.opencontainers.image.source=https://github.com/nexu-io/openmotion
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=openmotion-api
+            org.opencontainers.image.title=${{ matrix.title }}
 
-      - name: Build and push worker-media
-        id: build_worker_media
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/Dockerfile
-          target: worker-media
-          platforms: linux/amd64
-          push: true
-          cache-from: type=gha,scope=openmotion-containers
-          cache-to: type=gha,mode=max,scope=openmotion-containers
-          tags: ${{ steps.meta.outputs.worker_media_tags }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/nexu-io/openmotion
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=openmotion-worker-media
-
-      - name: Build and push worker-render
-        id: build_worker_render
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/Dockerfile
-          target: worker-render
-          platforms: linux/amd64
-          push: true
-          cache-from: type=gha,scope=openmotion-containers
-          cache-to: type=gha,mode=max,scope=openmotion-containers
-          tags: ${{ steps.meta.outputs.worker_render_tags }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/nexu-io/openmotion
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=openmotion-worker-render
-
-      - name: Build and push catalog-sync
-        id: build_catalog_sync
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/Dockerfile
-          target: catalog-sync
-          platforms: linux/amd64
-          push: true
-          cache-from: type=gha,scope=openmotion-containers
-          cache-to: type=gha,mode=max,scope=openmotion-containers
-          tags: ${{ steps.meta.outputs.catalog_sync_tags }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/nexu-io/openmotion
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.title=openmotion-catalog-sync
-
-      - name: Summarize published images
+      - name: Summarize published image
         shell: bash
+        env:
+          TARGET_NAME: ${{ matrix.target }}
+          IMAGE_REF: ${{ steps.tags.outputs.image_ref }}
+          SHA_TAG: ${{ needs.prepare.outputs.sha_tag }}
+          BRANCH_TAG: ${{ needs.prepare.outputs.branch_tag }}
+          PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
-            echo "## OpenMotion Container Images"
+            echo "## OpenMotion Container Image: \`${TARGET_NAME}\`"
             echo ""
-            echo "- Commit: \`${{ github.sha }}\`"
-            echo "- Tag: \`${{ steps.meta.outputs.sha_tag }}\` (branch: \`${{ steps.meta.outputs.branch_tag }}\`, latest: \`${{ steps.meta.outputs.push_latest }}\`)"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Tags: \`${SHA_TAG}\`, \`${BRANCH_TAG}\` (latest: \`${PUSH_LATEST}\`)"
             echo ""
             echo "| Component | Image Ref | Digest |"
             echo "| --- | --- | --- |"
-            echo "| \`api\` | \`ghcr.io/nexu-io/openmotion-api:${{ steps.meta.outputs.sha_tag }}\` | \`${{ steps.build_api.outputs.digest }}\` |"
-            echo "| \`worker-media\` | \`ghcr.io/nexu-io/openmotion-worker-media:${{ steps.meta.outputs.sha_tag }}\` | \`${{ steps.build_worker_media.outputs.digest }}\` |"
-            echo "| \`worker-render\` | \`ghcr.io/nexu-io/openmotion-worker-render:${{ steps.meta.outputs.sha_tag }}\` | \`${{ steps.build_worker_render.outputs.digest }}\` |"
-            echo "| \`catalog-sync\` | \`ghcr.io/nexu-io/openmotion-catalog-sync:${{ steps.meta.outputs.sha_tag }}\` | \`${{ steps.build_catalog_sync.outputs.digest }}\` |"
+            echo "| \`${TARGET_NAME}\` | \`${IMAGE_REF}:${SHA_TAG}\` | \`${DIGEST}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
