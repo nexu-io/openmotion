@@ -55,7 +55,7 @@ When a reading hold shifts later pictures, inspect existing audio timing too. Pr
 
 ### Keep the template's real composition intact
 
-Do not wipe, rewrite, summarize or repoint the template's primary composition into a text-card or slideshow deck; follow [in-place surgical editing](../openmotion-production/references/edit.md#大文件原地修改与保存前结构核对), [template adaptation and partial previews](references/adaptation.md) and, for non-Latin copy on a Latin template, [font preparation](../openmotion-production/references/fonts.md#use-the-normal-project-write-boundary).
+Do not wipe, rewrite, summarize or repoint the template's primary composition into a text-card or slideshow deck; follow [in-place surgical editing](../openmotion-production/references/edit.md#大文件原地修改与保存前结构核对), read [template adaptation and partial previews](references/adaptation.md) when the brief carries a dense outline or partial-duration preview, and for non-Latin copy on a Latin template follow [font preparation](../openmotion-production/references/fonts.md#use-the-normal-project-write-boundary).
 
 ## Open the editable result
 
