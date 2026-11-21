@@ -5,7 +5,7 @@ import { assetMediaUrl, assetVersion, type AssetReference, type LibraryAsset } f
 import type { GenerationJob, Model } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from '../components/ui/Menu';
+import { Menu, MenuItem, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Tooltip } from '../components/ui/Tooltip';
 import { VideoFrameThumbnail } from '../components/ui/VideoFrameThumbnail';
@@ -266,7 +266,7 @@ export function MediaGenerationHistory({
   onDownload?: () => void;
 }) {
   const { t, locale } = useI18n();
-  const { query, setQuery, source, setSource, sort, setSort, data, stale, loading, error, page, setPage, retry } = browser;
+  const { query, setQuery, sort, setSort, data, stale, loading, error, page, setPage, retry } = browser;
   const [density, setDensity] = useState<FeedDensity>('comfortable');
   const [searchOpen, setSearchOpen] = useState(false);
   const [previewId, setPreviewId] = useState<string>();
@@ -358,7 +358,7 @@ export function MediaGenerationHistory({
 
   const hasJobs = visibleJobs.length > 0;
   const hasItems = groups.some(group => group.items.length > 0);
-  const hasFilters = Boolean(query || source !== 'all');
+  const hasFilters = Boolean(query);
   const canHoverPreview = active && !loading;
   const renderedCount = groups.reduce((sum, g) => sum + g.items.length, 0);
   const isFew = renderedCount > 0 && renderedCount <= 2;
@@ -624,7 +624,7 @@ export function MediaGenerationHistory({
               </Button>
             )}
             {hasFilters && (
-              <Button variant="plain" className="om-nav-item" onClick={() => { setQuery(''); setSource('all'); setSearchOpen(false); }}>
+              <Button variant="plain" className="om-nav-item" onClick={() => { setQuery(''); setSearchOpen(false); }}>
                 {t('Clear filters')}
               </Button>
             )}
@@ -653,12 +653,11 @@ export function MediaGenerationHistory({
             <Menu
               modal={false}
               align="end"
-              aria-label={t('Sort & filter')}
+              aria-label={t('Sort')}
               trigger={
-                <Button variant="plain" className="om-nav-item om-gen-filter-trigger" aria-label={t('Sort & filter')}>
+                <Button variant="plain" className="om-nav-item om-gen-filter-trigger" aria-label={t('Sort')}>
                   <RemixIcon name="equalizer-line" size={14} />
                   <span>{t(sort === 'newest' ? 'Newest first' : sort === 'oldest' ? 'Oldest first' : 'Name')}</span>
-                  {source !== 'all' && <span className="om-status-dot" aria-hidden="true" />}
                   <RemixIcon name="arrow-down-s-line" size={14} />
                 </Button>
               }
@@ -667,12 +666,6 @@ export function MediaGenerationHistory({
                 <MenuRadioItem value="newest" closeOnClick>{t('Newest first')}</MenuRadioItem>
                 <MenuRadioItem value="oldest" closeOnClick>{t('Oldest first')}</MenuRadioItem>
                 <MenuRadioItem value="name" closeOnClick>{t('Name')}</MenuRadioItem>
-              </MenuRadioGroup>
-              <MenuSeparator />
-              <MenuRadioGroup value={source} onValueChange={value => setSource(String(value))}>
-                <MenuRadioItem value="all" closeOnClick>{t('All sources')}</MenuRadioItem>
-                <MenuRadioItem value="generated" closeOnClick>{t('AI generated')}</MenuRadioItem>
-                <MenuRadioItem value="upload" closeOnClick>{t('Local upload')}</MenuRadioItem>
               </MenuRadioGroup>
             </Menu>
 
@@ -721,7 +714,7 @@ export function MediaGenerationHistory({
             <h2 className="om-subtitle">{t(hasFilters ? 'No matching assets' : 'Your next idea starts here')}</h2>
             <p className="om-muted">{t('Upload your own media or create an image, video or audio asset.')}</p>
             {hasFilters && (
-              <Button variant="ghost" className="om-button h-auto" onClick={() => { setQuery(''); setSource('all'); }}>
+              <Button variant="ghost" className="om-button h-auto" onClick={() => { setQuery(''); }}>
                 {t('Clear filters')}
               </Button>
             )}

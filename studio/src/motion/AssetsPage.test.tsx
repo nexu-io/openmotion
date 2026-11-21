@@ -755,6 +755,8 @@ it('renders justified equal-height Generations flows for both Image and Video wi
   await act(async () => root.render(<AssetsPage active studio={imageStudio} />)); await flush();
   const generationsTab = container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1];
   expect(generationsTab.textContent).toBe('Generations');
+  // Generations belongs to generated outputs only — Upload stays in the top-right global Asset Library.
+  expect(button('Upload')).toBeUndefined();
   await act(async () => generationsTab.click()); await flush();
   const history = container.querySelector('.om-gen-history')!;
   expect(history.getAttribute('data-density')).toBe('comfortable');

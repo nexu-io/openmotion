@@ -49,8 +49,9 @@ function AssetTitle({ name }: { name: string }) {
   return <Tooltip label={name} disabled={!overflow} wrap withinDialog><strong ref={ref}>{name}</strong></Tooltip>;
 }
 /** The gallery and detail filmstrip share one loaded collection and filter state. */
-export function useAssetBrowser({ kind, revision = 0, active = true }: { kind: AssetKind; revision?: number; active?: boolean }) {
-  const [query, setQuery] = useState(''), [source, setSource] = useState('all'), [sort, setSort] = useState('newest');
+export function useAssetBrowser({ kind, revision = 0, active = true, lockedSource }: { kind: AssetKind; revision?: number; active?: boolean; lockedSource?: 'generated' | 'upload' }) {
+  const [query, setQuery] = useState(''), [sourceState, setSource] = useState('all'), [sort, setSort] = useState('newest');
+  const source = lockedSource ?? sourceState;
   const [result, setResult] = useState<{ key: string; assets: LibraryAsset[]; total: number; nextOffset: number | null }>();
   const [error, setError] = useState(false), [loading, setLoading] = useState(true), [retry, setRetry] = useState(0), [page, setPage] = useState(0);
   const signature = `${kind}|${query}|${source}|${sort}|${revision}`;
