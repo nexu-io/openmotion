@@ -3,7 +3,7 @@
 
 ## 结论与本次落地范围
 
-本地候选包版本取自 `.codex-plugin/plugin.json`，避免误复用缺少模板目录接口的旧服务和宿主缓存；尚未发布。源码和默认导出均使用 `phase1`，只公开以下 22 个注册名称（18 个视频/工作区名含一个资产兼容名，加 4 个 Design Studio HTML 设计工具）。发现、调用门禁、接入元数据和构建使用同一注册表；旧名不可绕过调用。原有领域服务、Studio、渲染器和内部兼容 handler 保留。适配不只是改名：补了项目身份、批量导入、请求去重、版本和保存保护、取消终态、自动导出校验。
+本地候选包版本取自 `.codex-plugin/plugin.json`，避免误复用缺少模板目录接口的旧服务和宿主缓存；尚未发布。源码和默认导出均使用 `phase1`，公开以下 26 个注册名称（4 个统一能力中心与资产元工具、18 个视频/工作区名含兼容媒体与资产名、加 4 个 Design Studio HTML 设计工具）。发现、调用门禁、接入元数据和构建使用同一注册表；旧名不可绕过调用。原有领域服务、Studio、渲染器和内部兼容 handler 保留。适配不只是改名：补了项目身份、批量导入、请求去重、版本和保存保护、取消终态、自动导出校验与统一原子能力来源追踪。
 
 Skill 是指导文档，与公开 Tool 数量分开。本次后续命名与分发对齐后，一期装入 openmotion-production、openmotion-director、openmotion-template-to-video、openmotion-recreate、openmotion-video-to-template 五个创作入口及其参考，以及按需支撑多模态素材生成的 openmotion-media。模板使用与视频转模板保留已有实际流程；openmotion-recreate 包含实际复刻流程，规则与测量脚本随 Skill 分发，不新增自动创作算法或 Tool。原九个工程 Tool 保留，本次新增目录获取和模板详情入口；详见 [Skill 路由与能力边界](skills.md)。
 
@@ -27,11 +27,15 @@ UI-capable connections list and read one immutable `ui://openmotion/template-rec
 
 Production reads a prebuilt browser bundle, three integrity-locked builtin MP4 previews and four metadata-locked catalog references. Native reference cards stream the complete original films from their existing content-addressed public CMS URLs and require network access. Reference results include `templateKind: reference` without `createArgs`; this presentation provenance does not determine editable-source availability. Cards use the same localized creation brief as the template library through `shared/template-prompts.ts`, preserving the selected title/ID without forcing a workflow. After the user submits the brief, retrieve the exact ID with `openmotion_get_template` and read `instructions` and `motionDocument`. When `hasHtmlProject` is true, use `openmotion-template-to-video` to reuse the editable source, preserving unchanged content when no customization was requested; use `openmotion-recreate` only for reference-only sources without an editable project. First-run preparation samples three distinct references from the curated pool in `shared/onboarding-templates.ts` and shares that ordered selection across presentation routes. Mounted cards never redraw on playback, return or host-context changes. It does not depend on the browser SDK package at runtime, render previews on installation, download template media or use online catalog credentials. Source packaging rejects missing or stale browser builds using the shipped build identity, and verifies the full media/source manifest and response budget before accepting an artifact. The 1.5 MiB final response budget is a build constraint, not a general host limit. Publication metadata records this optional extension separately from the seventeen domain capabilities. Native host discovery, visible presentation, actual playback and project creation require separate evidence.
 
-## Public MCP names (18, including one compatibility alias)
+## Public MCP names (26, including compatibility media/asset names and 4 Design Studio tools)
 
 
 | 公开 Tool | 复用来源 | 本次实现到的边界 |
 | --- | --- | --- |
+| openmotion_capability_discover | Unified Capability Center (`shared/capability-registry.ts` + `gateway/capability-center.ts`) | Shared GUI/MCP capability menu (`list`), dynamic control & reference schema (`describe`), provider entitlement/handoff (`providers`) and raw model discovery (`models`) |
+| openmotion_capability_run | Unified Capability Center, Model Gateway, Transcription & Script executors | Capability-first execution (`capabilityId`, with raw `model` fallback), hot-swappable model/service/script routing, idempotent `requestId`, and `capabilityId`/`capabilityOptions` provenance recorded on Workspace Assets |
+| openmotion_job_manage | Shared Model Gateway job queue | Unified `list/status/cancel/retry_save/resume` across Workspace Asset and project media jobs without regenerating paid requests |
+| openmotion_asset_manage | Workspace Asset Library & Brand Kits | Pure `list/get/read/import/update/import_to_project/brand_kit` decoupled from generation and job polling |
 | openmotion_manage_project | Shared project management and review services | Manage local projects and revision-guarded time/element review comments |
 | openmotion_project_archive | Shared project archive service | Export selected/all projects and import ZIP copies with bounded validation and request deduplication; see [Project archives](project-archives.md) |
 | openmotion_assets_use | Workspace assets, Brand Kits and Model Gateway | Style-only Brand Kit commands, list/get, bounded media read, upload, generate/jobs/status/cancel/retry_save, rename/trash/restore, immutable versions/references and explicit version import into projects; see [Assets](assets.md) |

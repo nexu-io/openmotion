@@ -1,8 +1,9 @@
 import { Button } from 'open-design-ui/button';
+import { defaultCapabilities, findCapability } from '../../../shared/capability-registry';
 import { openDesignVideoModels } from '../../../shared/video-features';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
+import { capabilityScene, sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { imageModelBadge, isOpenDesignProvider, menuFamilies, withOpenDesignModels } from './imageMenuModels';
 import { MegaMenuColumn } from './ImageMegaMenu';
 import { sceneExamples } from './sceneShowcase';
@@ -30,17 +31,6 @@ const topScenes = [
   [cameraScene, 'Camera control', 'camera'],
 ] as const;
 
-const upcomingVideoFeatures = [
-  ['Start & end frames', 'slideshow-line'],
-  ['Multi-image reference', 'stack-line'],
-  ['Reference video', 'film-line'],
-  ['Edit video', 'edit-line'],
-  ['Extend video', 'time-line'],
-  ['Motion control', 'route-line'],
-  ['Lipsync', 'voiceprint-line'],
-  ['4K video upscale', 'fullscreen-line'],
-] as const;
-
 function VideoTileArt({ kind }: { kind: 'text' | 'first-frame' | 'camera' }) {
   const example = kind === 'text' ? sceneExamples['text-to-video'][0]
     : kind === 'first-frame' ? sceneExamples['image-to-video'][0]
@@ -59,6 +49,16 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
   onNavigate: (destination: StudioDestination) => void;
 }) {
   const { t } = useI18n();
+  const runtimeCapabilities = catalog?.capabilities ?? defaultCapabilities;
+  const startEndCap = findCapability('start-end-frames', runtimeCapabilities);
+  const startEndLive = Boolean(startEndCap && startEndCap.status === 'live' && startEndCap.channels.gui);
+  const builtInVideoIds = new Set(['text-to-video', 'image-to-video', 'camera-control', 'multi-shot', 'native-audio', 'start-end-frames']);
+  const dynamicLiveVideoScenes = runtimeCapabilities
+    .filter(cap => cap.modality === 'video' && cap.status === 'live' && cap.channels.gui && !builtInVideoIds.has(cap.id))
+    .map(cap => capabilityScene(cap));
+  const upcomingVideoFeatures = runtimeCapabilities
+    .filter(cap => cap.modality === 'video' && cap.status === 'coming_soon' && cap.channels.gui && cap.id !== 'start-end-frames')
+    .map(cap => [cap.title, cap.icon] as const);
   const models = catalog?.models ?? [];
   const providers = catalog?.status.providers ?? [];
   const families = menuFamilies(
@@ -100,9 +100,12 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
         <VideoTileArt kind={art} />
         <strong>{t(title)}</strong>
       </Button>)}
-      <Button variant="plain" className="om-scene-tile om-scene-tile-disabled" disabled aria-disabled="true">
+      <Button variant="plain" className={`om-scene-tile${startEndLive ? '' : ' om-scene-tile-disabled'}`}
+        disabled={!startEndLive || undefined} aria-disabled={!startEndLive || undefined}
+        aria-current={startEndLive && destination?.scene.id === 'start-end-frames' ? 'page' : undefined}
+        onClick={startEndLive && startEndCap ? () => openFeature(capabilityScene(startEndCap)) : undefined}>
         <span className="om-scene-tile-art om-video-keyframes-demo">
-          <MenuBadge label="Coming soon" />
+          {!startEndLive && <MenuBadge label="Coming soon" />}
           <span className="om-video-keyframes-pair" aria-hidden="true">
             <img src={speakerStudio} alt="" />
             <RemixIcon name="arrow-right-s-fill" size={14} />
@@ -140,6 +143,12 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
           <span className="om-image-menu-icon"><RemixIcon name="image-line" size={16} /></span>
           <span className="om-media-mega-label">{t(shotImageScene.label)}</span>
         </Button>,
+        ...dynamicLiveVideoScenes.map(scene => <Button key={scene.id} variant="plain" className="om-nav-item om-media-mega-row"
+          aria-current={destination?.scene.id === scene.id ? 'page' : undefined}
+          onClick={() => openFeature(scene)}>
+          <span className="om-image-menu-icon"><RemixIcon name={scene.icon} size={16} /></span>
+          <span className="om-media-mega-label">{t(scene.label)}</span>
+        </Button>),
         ...upcomingVideoFeatures.map(([title, icon]) => <Button key={title} variant="plain" className="om-nav-item om-media-mega-row" disabled aria-disabled="true">
           <span className="om-image-menu-icon"><RemixIcon name={icon} size={16} /></span>
           <span className="om-media-mega-label">{t(title)}</span>

@@ -11,6 +11,7 @@ import { requireNativeRuntime } from './scripts/npm-runtime.mjs';
 import { recordDiagnostic } from './scripts/diagnostics.mjs';
 import { mediaUse } from './gateway/media-use.ts';
 import { assetOperation } from './gateway/asset-operations.ts';
+import { assetManage, capabilityDiscover, capabilityRun, jobManage } from './gateway/capability-center.ts';
 import { transcriptOperation } from './gateway/transcript-operations.ts';
 import { transcriptsFor } from './gateway/transcription.ts';
 import { compositionCanvasSource } from './shared/composition-canvas.ts';
@@ -423,6 +424,12 @@ export class Phase1Service {
         })));
       }
       return assetOperation(this.store, args, (input, options) => this.importAssets(input, options), this.context.tracking);
+    }
+    if (name === 'motion_capability_discover') return capabilityDiscover(this.store, args, this.context.tracking, 'mcp');
+    if (name === 'motion_capability_run') return capabilityRun(this.store, args, this.context.tracking, 'mcp');
+    if (name === 'motion_job_manage') return jobManage(this.store, args, this.context.tracking);
+    if (name === 'motion_asset_manage') {
+      return assetManage(this.store, args, (input, options) => this.importAssets(input, options), this.context.origin(), this.context.tracking);
     }
     if (name === 'motion_media_use') return mediaUse(this.store, args, this.context.tracking);
     if (name === 'motion_get_project' && !args.projectId) {

@@ -33,6 +33,7 @@ export type GatewayStatus = { providers: ProviderState[]; agents: Agent[];
 export type GenerateInput = { modality: Modality; prompt: string; model?: string;
   mode?: string;
   projectId?: string; parameters?: Record<string, unknown>; idempotencyKey?: string;
+  capabilityId?: string; capabilityOptions?: Record<string, unknown>;
   /** Workspace assets can be generated without creating or selecting a film project. */
   library?: LibraryGeneration;
   /** Project-relative input image. Supported only by explicitly capable adapters. */
@@ -48,6 +49,7 @@ export type GenerationJob = { id: string; projectId?: string; library?: LibraryG
   providerOrigin?: string;
   providerRevision?: string;
   modality: Modality; prompt: string; model: Model; parameters: Record<string, unknown>;
+  capabilityId?: string; capabilityOptions?: Record<string, unknown>;
   usage?: GenerateInput['usage']; idempotencyKey?: string; requestHash: string;
   reference?: { path: string; sha256: string; mimeType: string; bytes: number };
   /** Every snapshotted input image in submission order; `reference` remains the first one for older readers. */

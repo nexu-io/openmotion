@@ -25,7 +25,12 @@ export async function assetOperation(store: WorkspaceStore, args: any, importPro
     await requireNativeRuntime(pluginRoot, 'media');
     const job = await gateway.submit({ modality: args.modality, prompt: args.prompt, model: args.model, mode: args.mode,
       idempotencyKey: args.requestId, parameters: args.parameters,
-      library: { assetId: args.assetId, title: args.name, parentVersionId: args.parentVersionId, references: args.references, conversationId: args.conversationId } });
+      ...(args.capabilityId ? { capabilityId: args.capabilityId } : {}),
+      ...(args.capabilityOptions ? { capabilityOptions: args.capabilityOptions } : {}),
+      library: { assetId: args.assetId, title: args.name, parentVersionId: args.parentVersionId,
+        ...(args.capabilityId ? { capabilityId: args.capabilityId } : {}),
+        ...(args.capabilityOptions ? { capabilityOptions: args.capabilityOptions } : {}),
+        references: args.references, conversationId: args.conversationId } });
     return { job, next: { action: 'status', jobId: job.id } };
   }
   if (args.action === 'jobs') return { jobs: (await gateway.listJobs()).filter(job => (job.library || job.saveToLibrary) && (!args.conversationId || job.library?.conversationId === args.conversationId)).slice(0, 100) };

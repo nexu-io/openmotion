@@ -29,6 +29,7 @@ import {
 import {
   SOUND_TABS,
   classifyAudioTrackTab,
+  findResolvedSoundTab,
   findSoundTab,
   type SoundLiveTabId,
   type SoundTabDefinition,
@@ -479,6 +480,8 @@ export function SoundStudioWorkspace({
   mobileView,
   setMobileView,
   onUploadClick,
+  onPickReference,
+  onUploadReference,
   onDropFiles,
   onOpenAsset,
   onTrashAsset,
@@ -502,6 +505,8 @@ export function SoundStudioWorkspace({
   mobileView: 'library' | 'create';
   setMobileView: Dispatch<SetStateAction<'library' | 'create'>>;
   onUploadClick: () => void;
+  onPickReference?: () => void;
+  onUploadReference?: () => void;
   onDropFiles: (files: File[]) => void;
   onOpenAsset: (asset: LibraryAsset) => void;
   onTrashAsset: (assetId: string) => Promise<boolean>;
@@ -516,9 +521,11 @@ export function SoundStudioWorkspace({
 }) {
   const { t, formatDate } = useI18n();
   const activeTab: SoundTabId = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
-  const tabDef = findSoundTab(activeTab) ?? SOUND_TABS[0];
+  const tabDef = findResolvedSoundTab(activeTab, studio.catalog.catalog?.capabilities) ?? SOUND_TABS[0];
   const isSoonTab = tabDef.status === 'soon';
-  const liveTab: SoundLiveTabId = isSoonTab ? (tabDef.pivotTab ?? 'music') : (tabDef.id as SoundLiveTabId);
+  const liveTab: SoundLiveTabId = activeTab === 'music' || activeTab === 'sfx' || activeTab === 'speech'
+    ? activeTab
+    : (tabDef.pivotTab ?? 'speech');
 
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const stageRef = useRef<HTMLElement>(null);
@@ -1077,6 +1084,7 @@ export function SoundStudioWorkspace({
             <SoundComposer
               active={active}
               tabId={liveTab}
+              capabilityTabId={activeTab}
               studio={studio}
               draft={draft}
               setDraft={setDraft}
@@ -1084,6 +1092,8 @@ export function SoundStudioWorkspace({
               setParameterDrafts={setParameterDrafts}
               promptRef={promptRef}
               voicePreview={voicePreview}
+              onPickReference={onPickReference}
+              onUploadReference={onUploadReference}
               onCreated={handleCreated}
               onError={onError}
             />
@@ -1289,7 +1299,7 @@ export function SoundStudioWorkspace({
 
                 {showStarters && (
                   <section className="om-sound-section om-sound-starters" aria-label={t('Starters')}>
-                    {liveTab === 'music' && (
+                    {activeTab === 'music' && (
                       <div className="om-sound-track-list" role="list">
                         <div
                           role="listitem"
@@ -1369,7 +1379,7 @@ export function SoundStudioWorkspace({
                       </div>
                     )}
 
-                    {liveTab === 'sfx' && (
+                    {activeTab === 'sfx' && (
                       <div className="om-sound-track-list" role="list">
                         {SOUND_SFX_STARTERS.map(starter => (
                           <div key={starter.id} role="listitem" className="om-sound-starter-row">
@@ -1395,7 +1405,7 @@ export function SoundStudioWorkspace({
                       </div>
                     )}
 
-                    {liveTab === 'speech' && (
+                    {(activeTab === 'speech' || activeTab === 'voice-clone') && (
                       <div className="om-sound-track-list" role="list">
                         {SOUND_SPEECH_SCRIPTS.map(item => {
                           const localized = t(item.script);

@@ -62,7 +62,7 @@ const cameraStudy = { title: 'Vintage camera study', prompt: 'Frame a vintage ca
 const moon = { title: 'Lunar portrait', prompt: 'Frame a lone astronaut on a silver lunar plain. Use a low horizon, deep shadows and light reflected in the visor.', poster: lunar, posterPosition: 'center top', credit: 'NASA · AS11-40-5903' };
 const orange = { title: 'Slow motion detail', prompt: 'Film a slow-motion close-up of an orange soda bottle with citrus slices, mint and splashing water.', poster: splash, clip: splashClip };
 
-export const sceneExamples: Record<StudioScene['id'], readonly [SceneExample, ...SceneExample[]]> = {
+export const sceneExamples: Record<typeof import('../../../shared/studio-catalog').studioScenes[number]['id'], readonly [SceneExample, ...SceneExample[]]> = {
   'text-to-image': [portrait, moon, cameraStudy],
   'image-edit': [{ title: 'From studio to living room', prompt: 'Keep the speaker in place. Put it on a wooden side table in a sunlit living room.', poster: speakerRoom }],
   'remove-background': [{ title: 'A clean product cutout', prompt: 'Keep only the speaker.', poster: speakerStudio }],
@@ -100,7 +100,14 @@ export function studioExamples({ studio, scene }: StudioDestination): readonly S
       prompt: studio.id === 'shorts' ? 'Frame a podcast host vertically as she leans into the microphone to deliver her opening line.' : skill.example,
     }];
   }
-  return sceneExamples[scene.id];
+  const keyed = (sceneExamples as Record<string, readonly SceneExample[] | undefined>)[scene.id];
+  if (keyed && keyed.length > 0) return keyed;
+  return [{
+    title: scene.label,
+    prompt: scene.hint,
+    poster: scene.modality === 'video' ? orange.poster : speakerStudio,
+    ...(scene.modality === 'video' && orange.clip ? { clip: orange.clip } : {}),
+  }];
 }
 
 export function sceneLayout(scene: StudioScene) {

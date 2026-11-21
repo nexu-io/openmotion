@@ -1,3 +1,5 @@
+import { defaultCapabilities, findCapability, type CapabilityDefinition } from './capability-registry.ts';
+
 export const studioScenes = [
   { id: 'text-to-image', entry: 'landing', modality: 'image', label: 'Text to image', icon: 'image-line', hint: 'Describe a subject, a mood, a world.' },
   { id: 'image-edit', entry: 'landing', modality: 'image', requiresImage: true, label: 'Image editing', icon: 'edit-line', hint: 'Choose an image and describe your changes.' },
@@ -14,19 +16,59 @@ export const studioScenes = [
   { id: 'speech', entry: 'landing', modality: 'audio', modelMode: 'text-to-speech', label: 'Text to speech', icon: 'voiceprint-line', hint: 'Write the words you want spoken.' },
 ] as const;
 
-export type StudioScene = typeof studioScenes[number];
+export type DynamicCapabilityScene = {
+  id: string;
+  entry: 'landing';
+  modality: 'image' | 'video';
+  requiresImage?: true;
+  label: string;
+  icon: string;
+  hint: string;
+  capabilityId: string;
+};
+
+export type StudioScene = typeof studioScenes[number] | DynamicCapabilityScene;
+
+const legacySceneByCapability: Record<string, typeof studioScenes[number]['id']> = {
+  'camera-control': 'video-camera-control',
+  'multi-shot': 'video-multi-shot',
+  'native-audio': 'video-native-audio',
+};
+
+export function capabilityScene(capability: CapabilityDefinition): StudioScene {
+  const mappedId = legacySceneByCapability[capability.id] ?? capability.id;
+  const existing = studioScenes.find(scene => scene.id === mappedId);
+  if (existing) return existing;
+  return {
+    id: capability.id,
+    entry: 'landing',
+    modality: capability.modality === 'video' ? 'video' : 'image',
+    ...(capability.input.minReferences > 0 ? { requiresImage: true as const } : {}),
+    label: capability.title,
+    icon: capability.icon,
+    hint: capability.summary,
+    capabilityId: capability.id,
+  };
+}
 
 /** Only independently addressable scenes can mount the focused generator. */
-export function findLandingScene(id: string | null) {
-  return studioScenes.find(scene => scene.id === id && scene.entry === 'landing');
+export function findLandingScene(id: string | null, capabilities: readonly CapabilityDefinition[] = defaultCapabilities): StudioScene | undefined {
+  if (!id) return undefined;
+  const builtin = studioScenes.find(scene => scene.id === id && scene.entry === 'landing');
+  if (builtin) return builtin;
+  const cap = findCapability(id, capabilities);
+  if (cap && (cap.modality === 'image' || cap.modality === 'video')) return capabilityScene(cap);
+  return undefined;
 }
+
+type BuiltinStudioScene = typeof studioScenes[number];
 
 type StudioEntry = {
   id: string; title: string; icon: string; navBadge?: 'Top' | 'New' | 'Hot' | 'Coming soon';
 } & (
-  | { surface: 'media'; primaryModality: StudioScene['modality']; scenes: readonly [StudioScene['id'], ...StudioScene['id'][]] }
-  | { surface: 'editor'; modalities: readonly StudioScene['modality'][]; scenes: readonly [] }
-  | { surface: 'techniques'; modalities: readonly StudioScene['modality'][]; scenes: readonly [StudioScene['id'], ...StudioScene['id'][]]; createLabel: string; techniques: readonly [string, ...string[]]; briefHint: string }
+  | { surface: 'media'; primaryModality: BuiltinStudioScene['modality']; scenes: readonly [BuiltinStudioScene['id'], ...BuiltinStudioScene['id'][]] }
+  | { surface: 'editor'; modalities: readonly BuiltinStudioScene['modality'][]; scenes: readonly [] }
+  | { surface: 'techniques'; modalities: readonly BuiltinStudioScene['modality'][]; scenes: readonly [BuiltinStudioScene['id'], ...BuiltinStudioScene['id'][]]; createLabel: string; techniques: readonly [string, ...string[]]; briefHint: string }
 );
 
 // Media studios open their first listed scene. The editor surface retains the current project.
@@ -60,7 +102,7 @@ export function studiosForModality(modality: StudioScene['modality']) {
 }
 
 type Community = { id: string; label: string; description: string; studios: readonly CreativeStudio['id'][] } & (
-  { source: 'templates'; category: 'motion' | 'ads' | 'clone' | 'short-form'; scenes: readonly StudioScene['id'][]; skills: readonly string[] } | { source: 'techniques'; studio: TechniqueStudio['id'] }
+  { source: 'templates'; category: 'motion' | 'ads' | 'clone' | 'short-form'; scenes: readonly BuiltinStudioScene['id'][]; skills: readonly string[] } | { source: 'techniques'; studio: TechniqueStudio['id'] }
 );
 export const exploreCommunities = [
   { id: 'motion-design', label: 'Motion design', description: 'Explore editable motion, storyboards and cuts from the template library.', source: 'templates', category: 'motion', scenes: ['shot-image', 'image-to-video'], skills: ['openmotion-storyboard-to-motion', 'openmotion-liquid-glass-logo', 'openmotion-neon-outline-type', 'openmotion-edit-to-script', 'openmotion-shutter-bands', 'openmotion-ring-mask-reveal', 'openmotion-smooth-wipes', 'openmotion-bubble-field'], studios: ['motion', 'cinema', 'design'] },

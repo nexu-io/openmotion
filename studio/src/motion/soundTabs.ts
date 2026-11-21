@@ -1,3 +1,4 @@
+import { defaultCapabilities, findCapability, type CapabilityDefinition } from '../../../shared/capability-registry';
 import type { Model } from '../../../shared/gateway';
 
 export type SoundLiveTabId = 'music' | 'sfx' | 'speech';
@@ -113,8 +114,26 @@ export const SOUND_TAB_GROUPS: readonly { id: SoundTabGroupId; tabs: readonly So
   { id: 'post', tabs: SOUND_TABS.filter(tab => tab.group === 'post') },
 ];
 
+export function resolveSoundTabs(capabilities: readonly CapabilityDefinition[] = defaultCapabilities): readonly SoundTabDefinition[] {
+  return SOUND_TABS.flatMap(tab => {
+    if (tab.id === 'sfx') return [tab];
+    const cap = findCapability(tab.id, capabilities);
+    if (!cap) return [tab];
+    if (cap.status === 'hidden' || cap.status === 'deprecated' || !cap.channels.gui) return [];
+    const nextStatus: 'live' | 'soon' = cap.status === 'live' ? 'live' : 'soon';
+    return nextStatus === tab.status ? [tab] : [{ ...tab, status: nextStatus }];
+  });
+}
+
 export function findSoundTab(id: string | null | undefined): SoundTabDefinition | undefined {
   return id ? SOUND_TABS.find(tab => tab.id === id) : undefined;
+}
+
+export function findResolvedSoundTab(
+  id: string | null | undefined,
+  capabilities: readonly CapabilityDefinition[] = defaultCapabilities,
+): SoundTabDefinition | undefined {
+  return id ? resolveSoundTabs(capabilities).find(tab => tab.id === id) ?? findSoundTab(id) : undefined;
 }
 
 export function isExtendedSoundTab(id: string | null | undefined): id is Exclude<SoundTabId, 'music' | 'speech'> {

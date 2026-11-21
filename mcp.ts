@@ -196,7 +196,7 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
         if (finalVideo && (!value.inlineWork?.playable || value.inlineWork.state !== 'completed' || !normalized?._meta?.inlineVideo?.video))
           throw new Error('FINAL_VIDEO_NOT_READY: Display only after the MP4 export completes and passes verification');
         if (value.projectId && value.sessionId) selections.set(store, { projectId: value.projectId, sessionId: value.sessionId });
-        if (internalName === 'motion_assets' && args.action === 'read') return result(assetReadToolResult(value));
+        if ((internalName === 'motion_assets' || internalName === 'motion_asset_manage') && args.action === 'read') return result(assetReadToolResult(value));
         const { _inlineMedia: legacyMedia, ...visible } = value;
         if (finalVideo) {
           // Agent execution envelopes can truncate private data URLs. Keep presentation small;

@@ -1,6 +1,10 @@
 const legacyAssetActions = ['list', 'get', 'import', 'update', 'generate', 'jobs', 'status', 'cancel', 'retry_save', 'resume', 'import_to_project'] as const;
 export const assetActions = [...legacyAssetActions, 'read', 'brand_kit', 'transcript'] as const;
 const actionSets = {
+  openmotion_capability_discover: ['list', 'describe', 'quote', 'providers', 'models'],
+  openmotion_capability_run: ['run'],
+  openmotion_job_manage: ['list', 'status', 'cancel', 'retry_save', 'resume'],
+  openmotion_asset_manage: ['list', 'get', 'read', 'import', 'update', 'import_to_project', 'brand_kit'],
   openmotion_assets_use: assetActions,
   openmotion_assets: legacyAssetActions,
   openmotion_media_use: ['inspect', 'reference', 'models', 'generate', 'status', 'cancel', 'retry_save', 'resume'],
@@ -19,7 +23,14 @@ export const toolDimensions = { action: [...new Set(Object.values(actionSets).fl
 export function toolInputFields(tool: string, input: unknown) {
   const args = input && typeof input === 'object' && !Array.isArray(input) ? input as { action?: unknown; target?: unknown } : {};
   const actions: readonly typeof toolDimensions.action[number][] = Object.hasOwn(actionSets, tool) ? actionSets[tool as keyof typeof actionSets] : [];
-  const defaultAction = tool === 'openmotion_export_request' ? 'request' : tool === 'openmotion_open_preview' ? 'open' : undefined;
+  const defaultAction =
+    tool === 'openmotion_export_request'
+      ? 'request'
+      : tool === 'openmotion_open_preview'
+        ? 'open'
+        : tool === 'openmotion_capability_run'
+          ? 'run'
+          : undefined;
   const action = actions.find(value => value === (args.action === undefined ? defaultAction : args.action));
   const target = tool === 'openmotion_open_preview'
     ? targets.find(value => value === (args.target === undefined ? 'project' : args.target)) : undefined;
@@ -76,9 +87,11 @@ const invalidFields = [
   'outputPath', 'path', 'deletes', 'deletes[]', 'anchor.filePath', 'anchor.viewport', 'anchor.viewport.id',
   'anchor.viewport.width', 'anchor.viewport.height', 'anchor.slideIndex', 'anchor.element.elementId',
   'anchor.element.htmlHint', 'anchor.region', 'anchor.region.x', 'anchor.region.y', 'anchor.region.width',
-  'anchor.region.height',
+  'anchor.region.height', 'capabilityId', 'capabilityOptions', 'dryRun', 'includeComingSoon', 'options',
 ] as const;
 export const toolErrorCodes = [
+  'CAPABILITY_NOT_FOUND', 'CAPABILITY_COMING_SOON', 'CAPABILITY_DEPRECATED', 'CAPABILITY_CHANNEL_DISABLED',
+  'CAPABILITY_UNAVAILABLE', 'CAPABILITY_MODEL_INCOMPATIBLE',
   'COMMENT_TARGET_NOT_FOUND', 'COMMENT_NOT_FOUND', 'COMMENT_CONFLICT', 'COMMENT_LIMIT', 'NOT_FOUND', 'UNSUPPORTED',
   'INVALID_ARGUMENT', 'VERSION_CONFLICT', 'PROJECT_NOT_BOUND', 'PROJECT_NOT_FOUND', 'PROJECT_SESSION_MISMATCH',
   'REQUEST_ID_CONFLICT', 'REQUEST_STATE_UNKNOWN', 'MCP_TOOL_NOT_EXPOSED', 'EXPORT_BUSY', 'EXPORT_NOT_FOUND',

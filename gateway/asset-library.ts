@@ -40,7 +40,7 @@ export class AssetLibrary {
     const query = input.query?.trim().toLocaleLowerCase();
     const all = (await Promise.all(names.filter(name => name.endsWith('.json') && libraryId(name.slice(0, -5))).map(name => this.get(name.slice(0, -5)))))
       .filter(asset => Boolean(asset.trashedAt) === Boolean(input.trash) && (!input.modality || asset.modality === input.modality)
-        && (!input.source || assetVersion(asset)?.source === input.source) && (!query || `${asset.name} ${asset.versions.map(v => `${v.prompt ?? ''} ${v.model ?? ''}`).join(' ')}`.toLocaleLowerCase().includes(query)))
+        && (!input.source || assetVersion(asset)?.source === input.source) && (!query || `${asset.name} ${asset.versions.map(v => `${v.prompt ?? ''} ${v.model ?? ''} ${v.capabilityId ?? ''}`).join(' ')}`.toLocaleLowerCase().includes(query)))
       .sort((a, b) => input.sort === 'name' ? a.name.localeCompare(b.name) : input.sort === 'oldest' ? a.updatedAt - b.updatedAt : b.updatedAt - a.updatedAt);
     return { assets: all.slice(offset, offset + limit), total: all.length, nextOffset: offset + limit < all.length ? offset + limit : null };
   }
@@ -52,8 +52,10 @@ export class AssetLibrary {
     return { asset, version, filename };
   }
   async validateGeneration(input: LibraryGeneration) {
-    if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['assetId', 'title', 'parentVersionId', 'references', 'conversationId'].includes(key))) throw new Error('Invalid asset generation destination');
+    if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['assetId', 'title', 'parentVersionId', 'capabilityId', 'capabilityOptions', 'references', 'conversationId'].includes(key))) throw new Error('Invalid asset generation destination');
     if (input.title !== undefined) assetName(input.title);
+    if (input.capabilityId !== undefined && (typeof input.capabilityId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,80}$/.test(input.capabilityId))) throw new Error('Invalid capability identity');
+    if (input.capabilityOptions !== undefined && (!input.capabilityOptions || typeof input.capabilityOptions !== 'object' || Array.isArray(input.capabilityOptions))) throw new Error('Invalid capability options');
     if (input.conversationId !== undefined && !libraryId(input.conversationId)) throw new Error('Invalid asset conversation');
     if (input.parentVersionId && !input.assetId) throw new Error('Choose an asset before editing a version');
     if (input.assetId) {

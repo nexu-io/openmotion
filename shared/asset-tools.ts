@@ -16,6 +16,7 @@ export const assetLibraryTool = {
     trash: { type: 'boolean' }, sort: { enum: ['newest', 'oldest', 'name'] }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 },
     model: { type: 'string', minLength: 1, maxLength: 300 }, prompt: { type: 'string', minLength: 1, maxLength: 20000 },
     mode: { enum: ['text-to-image', 'text-to-video', 'text-to-audio', 'text-to-speech'] }, parameters: { type: 'object', additionalProperties: true },
+    capabilityId: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,80}$' }, capabilityOptions: { type: 'object', additionalProperties: true },
     references: { type: 'array', items: reference, description: 'Pinned image versions in prompt order. The selected model limits the count: image edits up to its maxInputImages; video models with maxInputImages take one first frame.' }, conversationId: id,
     changes: object({ name: { type: 'string', minLength: 1, maxLength: 200 }, trashed: { type: 'boolean' }, currentVersionId: id }),
   }, ['action']),

@@ -1,3 +1,4 @@
+import { findCapability } from '../../../shared/capability-registry';
 import { modelReferenceLimit, type Modality } from '../../../shared/gateway';
 import { imageFeatures } from '../../../shared/image-features';
 import { videoFeatures } from '../../../shared/video-features';
@@ -22,7 +23,11 @@ export function creationModels(gateway: Awaited<ReturnType<typeof loadGateway>> 
   const pinned = modelId ? compatible.find(model => model.id === modelId) : undefined;
   const feature = scene && sceneFeature(scene);
   const videoFeature = scene && sceneVideoFeature(scene);
-  const recommendedId = feature ? imageFeatures[feature].recommended : videoFeature ? videoFeatures[videoFeature].recommended : undefined;
+  const activeCap = scene ? findCapability(feature ?? videoFeature ?? scene.id, gateway?.capabilities) : undefined;
+  const capRecommended = activeCap && (activeCap.executor.kind === 'prompt-preset' || activeCap.executor.kind === 'dedicated-model')
+    ? activeCap.executor.recommendedModel
+    : undefined;
+  const recommendedId = capRecommended ?? (feature ? imageFeatures[feature].recommended : videoFeature ? videoFeatures[videoFeature].recommended : undefined);
   const recommended = (models: typeof listed) => recommendedId ? models.find(model => model.modelId === recommendedId) : undefined;
   const preferred = pinned ?? (modelId && !openDesignOnly ? undefined
     : available.find(model => model.modelId === templateModelId) ?? recommended(available)

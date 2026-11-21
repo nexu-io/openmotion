@@ -5,6 +5,7 @@ import { projectArchiveHttp } from './gateway/project-archive-http.ts';
 import { modelMetadata } from './gateway/model-metadata.ts';
 import { assetConversations } from './gateway/asset-chat.ts';
 import { assetHttp } from './gateway/asset-http.ts';
+import { capabilityDiscover, capabilityRun, loadCapabilityCatalog, syncCapabilityRemoteConfig } from './gateway/capability-center.ts';
 import { getWorkflow } from './shared/workflow.ts';
 import { isMain } from './shared/entry.ts';
 import { createServer } from 'node:http';
@@ -609,6 +610,43 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
       if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') return json(res, 200, await gateway.account.openSubscription());
       return json(res, 404, { error: 'Settings endpoint not found' });
+    }
+    if (motionRequest && url.pathname.startsWith('/api/capabilities')) {
+      if (url.pathname === '/api/capabilities' && req.method === 'GET') {
+        const action = url.searchParams.get('action') ?? undefined;
+        const capabilityId = url.searchParams.get('capabilityId') ?? undefined;
+        const modality = url.searchParams.get('modality') ?? undefined;
+        const includeComingSoon = url.searchParams.get('includeComingSoon') !== 'false';
+        const refresh = url.searchParams.get('refresh') === 'true';
+        if (action === 'catalog') {
+          if (refresh) await syncCapabilityRemoteConfig(store).catch(() => {});
+          return json(res, 200, { capabilities: await loadCapabilityCatalog(store) });
+        }
+        return json(
+          res,
+          200,
+          await capabilityDiscover(
+            store,
+            action === 'quote' && capabilityId
+              ? { action: 'quote', capabilityId, model: url.searchParams.get('model') ?? undefined }
+              : capabilityId
+                ? { action: 'describe', capabilityId, refresh }
+                : { action: 'list', modality, includeComingSoon, refresh },
+            context.tracking,
+            'gui',
+          ),
+        );
+      }
+      if (url.pathname === '/api/capabilities/sync' && req.method === 'POST') {
+        const synced = await syncCapabilityRemoteConfig(store);
+        return json(res, 200, { total: synced.length });
+      }
+      if (url.pathname === '/api/capabilities/run' && req.method === 'POST') {
+        const body = await input(req);
+        if (!body?.dryRun && !context.studio?.alive()) return json(res, 503, { error: 'Open the Studio before generating media' });
+        return json(res, body?.dryRun ? 200 : 202, await capabilityRun(store, { action: 'run', ...body }, context.tracking, 'gui'));
+      }
+      return json(res, 404, { error: 'Unknown capability center operation' });
     }
     if (motionRequest && (url.pathname.startsWith('/api/models') || url.pathname.startsWith('/api/generations'))) {
       const gateway = gatewayFor(store, context.tracking);

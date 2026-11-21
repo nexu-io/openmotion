@@ -81,7 +81,11 @@ test('connection guidance exposes the maintained media workflow without asking f
     transport: { type: 'stdio', command: 'node', args: ['/fixture/mcp.ts'], cwd: '/fixture', env: { MOTION_DATA_DIR: '/fixture/data' } } };
   const guide = agentGuide(info, 'codex');
   assert.ok(guide.includes(reviewCommentsPrompt({ dataDirectory: info.dataDirectory, previewUrl: info.previewUrl })));
-  for (const operation of ['openmotion_media_use', 'inspect', 'reference', 'models', 'schema', 'generate', 'status', 'cancel', 'requestId', 'jobId']) assert.ok(guide.includes(operation), operation);
+  for (const operation of ['openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage', 'openmotion_media_use', 'inspect', 'reference', 'models', 'schema', 'generate', 'status', 'cancel', 'requestId', 'jobId']) assert.ok(guide.includes(operation), operation);
+  const profiles = JSON.parse(readFileSync(new URL('../shared/mcp-profiles.json', import.meta.url), 'utf8'));
+  for (const metaTool of ['openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage']) {
+    assert.ok(profiles.phase1.instructions.includes(metaTool), `phase1.instructions: ${metaTool}`);
+  }
   assert.doesNotMatch(guide, /不公开生成/);
   assert.match(guide, /Keep credentials in Settings/);
   assert.match(guide, /openmotion_assets_use generate/);

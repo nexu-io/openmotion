@@ -1,4 +1,5 @@
 import type { Model } from './gateway.ts';
+import { buildCapabilityPrompt, findCapability } from './capability-registry.ts';
 
 export type VideoFeatureId = 'camera-control' | 'multi-shot' | 'native-audio';
 
@@ -75,76 +76,23 @@ export type VideoFeatureSpec = {
   controls: readonly VideoFeatureControl[];
 };
 
+function toVideoFeature(id: VideoFeatureId): VideoFeatureSpec {
+  const cap = findCapability(id)!;
+  const exec = cap.executor;
+  if (exec.kind !== 'prompt-preset') throw new Error(`Expected prompt-preset executor for ${id}`);
+  return {
+    id,
+    recommended: exec.recommendedModel,
+    ...(exec.defaultDuration !== undefined ? { defaultDuration: exec.defaultDuration } : {}),
+    ...(exec.forceAudio ? { forceAudio: true } : {}),
+    controls: (cap.input.controls ?? []) as readonly VideoFeatureControl[],
+  };
+}
+
 export const videoFeatures: Record<VideoFeatureId, VideoFeatureSpec> = {
-  'camera-control': {
-    id: 'camera-control',
-    recommended: 'doubao-seedance-2-5-260628',
-    controls: [
-      {
-        key: 'movement',
-        label: 'Camera movement',
-        choices: [
-          { value: 'push-in', label: 'Push in', prompt: 'slow steady dolly push-in toward the subject' },
-          { value: 'pull-out', label: 'Pull out', prompt: 'smooth pull-back reveal widening to show the full scene' },
-          { value: 'orbit', label: 'Orbit', prompt: 'continuous smooth 360-degree camera orbit around the subject' },
-          { value: 'pan', label: 'Pan', prompt: 'fluid horizontal camera pan across the scene' },
-          { value: 'crane-up', label: 'Crane up', prompt: 'sweeping crane shot rising upward' },
-          { value: 'drone', label: 'Aerial drone', prompt: 'cinematic aerial drone tracking shot' },
-          { value: 'static', label: 'Locked tripod', prompt: 'locked tripod static camera with all motion inside the frame' },
-        ],
-      },
-      {
-        key: 'pace',
-        label: 'Motion pace',
-        choices: [
-          { value: 'slow', label: 'Slow cinematic', prompt: 'slow, deliberate cinematic pacing' },
-          { value: 'smooth', label: 'Steady smooth', prompt: 'steady, balanced natural motion' },
-          { value: 'dynamic', label: 'Dynamic', prompt: 'energetic, dynamic camera momentum' },
-        ],
-      },
-    ],
-  },
-  'multi-shot': {
-    id: 'multi-shot',
-    recommended: 'doubao-seedance-2-5-260628',
-    defaultDuration: 10,
-    controls: [
-      {
-        key: 'shots',
-        label: 'Shot count',
-        choices: [
-          { value: '2', label: '2 shots', prompt: 'a cohesive 2-shot sequence' },
-          { value: '3', label: '3 shots', prompt: 'a cohesive 3-shot narrative sequence' },
-          { value: '4', label: '4 shots', prompt: 'a cohesive 4-shot storyboard sequence' },
-        ],
-      },
-      {
-        key: 'style',
-        label: 'Shot progression',
-        choices: [
-          { value: 'narrative', label: 'Wide → Medium → Close-up', prompt: 'progressing from an establishing wide shot to medium action and an intimate close-up' },
-          { value: 'cut', label: 'Clean editorial cuts', prompt: 'connected by crisp editorial cuts keeping subject, wardrobe, and lighting consistent across shots' },
-          { value: 'match', label: 'Match-cut flow', prompt: 'linked by seamless visual match cuts with unified color grading and atmosphere' },
-        ],
-      },
-    ],
-  },
-  'native-audio': {
-    id: 'native-audio',
-    recommended: 'doubao-seedance-2-5-260628',
-    forceAudio: true,
-    controls: [
-      {
-        key: 'audioStyle',
-        label: 'Sound direction',
-        choices: [
-          { value: 'ambience', label: 'Natural ambience', prompt: 'rich synchronized natural environmental ambience and realistic foley sound effects' },
-          { value: 'dialogue', label: 'Dialogue & voices', prompt: 'clear, natural synchronized spoken dialogue matching the character and scene acoustics' },
-          { value: 'cinematic', label: 'Cinematic score', prompt: 'immersive cinematic sound design, impactful foley, and subtle atmospheric score' },
-        ],
-      },
-    ],
-  },
+  'camera-control': toVideoFeature('camera-control'),
+  'multi-shot': toVideoFeature('multi-shot'),
+  'native-audio': toVideoFeature('native-audio'),
 };
 
 export type VideoFeatureChoices = Record<string, string>;
@@ -154,20 +102,7 @@ export function defaultVideoFeatureChoices(feature: VideoFeatureId): VideoFeatur
 }
 
 export function videoFeaturePrompt(feature: VideoFeatureId, prompt: string, choices: VideoFeatureChoices = {}): string {
-  const userText = prompt.trim();
-  if (!userText) return '';
-  const spec = videoFeatures[feature];
-  const parts = spec.controls.map(control => {
-    const selected = control.choices.find(choice => choice.value === choices[control.key]) ?? control.choices[0];
-    return selected.prompt;
-  });
-  if (feature === 'camera-control') {
-    return `Camera direction: ${parts.join(', ')}. Scene: ${userText}`;
-  }
-  if (feature === 'multi-shot') {
-    return `Multi-shot direction: ${parts.join(', ')}. Story: ${userText}`;
-  }
-  return `Audio direction: ${parts.join(', ')}. Scene: ${userText}`;
+  return buildCapabilityPrompt(feature, prompt, choices);
 }
 
 export function videoFeatureParameters(feature: VideoFeatureId, model: Pick<Model, 'provider' | 'modelId'>): Record<string, unknown> {

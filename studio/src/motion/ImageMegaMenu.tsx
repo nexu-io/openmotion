@@ -3,7 +3,8 @@ import { Button } from 'open-design-ui/button';
 import type { Model } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
+import { defaultCapabilities, findCapability } from '../../../shared/capability-registry';
+import { capabilityScene, sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { sceneExamples } from './sceneShowcase';
 import { editImageScene, imageMenuModels, imageModelBadge, imageScene, type ModelFamily } from './imageMenuModels';
 import { ModelAvatar } from './settingsPrimitives';
@@ -56,10 +57,6 @@ export function ModelMenuColumn({ families, onOpen }: { families: ModelFamily[];
 const findScene = (id: StudioScene['id']) => studioScenes.find(scene => scene.id === id)!;
 const characterScene = findScene('character');
 const sceneCards = [[imageScene, 'Create image'], [editImageScene, 'Edit image']] as const;
-const featureScenes = [findScene('remove-background'), findScene('relight')];
-const upcomingFeatures = [
-  ['Inpainting', 'edit-line'], ['4K Upscale', 'fullscreen-line'], ['Batch set', 'layout-grid-line'], ['Image layers', 'stack-line'],
-] as const;
 
 function ImageMenuArt({ scene }: { scene: typeof sceneCards[number][0]['id'] }) {
   const demo = scene === 'text-to-image' ? 'image' : 'edit';
@@ -85,6 +82,14 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
   onNavigate: (destination: StudioDestination, seed?: ImageParameterSeed) => void;
 }) {
   const { t } = useI18n();
+  const runtimeCapabilities = catalog?.capabilities ?? defaultCapabilities;
+  const topImageCapabilityIds = new Set(['text-to-image', 'image-edit', 'character', 'shot-image']);
+  const featureScenes = runtimeCapabilities
+    .filter(cap => cap.modality === 'image' && cap.status === 'live' && cap.channels.gui && !topImageCapabilityIds.has(cap.id))
+    .map(cap => capabilityScene(cap));
+  const upcomingFeatures = runtimeCapabilities
+    .filter(cap => cap.modality === 'image' && cap.status === 'coming_soon' && cap.channels.gui)
+    .map(cap => [cap.title, cap.icon] as const);
   const { rows, hd } = imageMenuModels(catalog?.models ?? [], catalog?.status.providers ?? []);
   const pinned = catalog?.models.find(model => model.id === destination?.model);
   // Non-feature image scenes keep a compatible pinned model; feature scenes open without a pin so OpenDesign defaults apply.

@@ -1,3 +1,4 @@
+import type { CapabilityDefinition } from '../../../shared/capability-registry';
 import type { GatewayStatus, Model, GenerationJob, GenerateInput } from '../../../shared/gateway';
 export type { GatewayStatus, Model, GenerationJob, GenerateInput, Modality, GeneratedAsset } from '../../../shared/gateway';
 
@@ -15,9 +16,15 @@ export async function loadModels(): Promise<Model[]> {
   } while (offset !== null && models.length < 5000);
   return models;
 }
-export async function loadGateway() {
-  const [status, models] = await Promise.all([gatewayRequest<GatewayStatus>('models/capabilities'), loadModels()]);
-  return { status, models };
+export async function loadGateway(): Promise<{ status: GatewayStatus; models: Model[]; capabilities?: CapabilityDefinition[] }> {
+  const [status, models, capabilities] = await Promise.all([
+    gatewayRequest<GatewayStatus>('models/capabilities'),
+    loadModels(),
+    gatewayRequest<{ capabilities: CapabilityDefinition[] }>('capabilities?action=catalog')
+      .then(res => (Array.isArray(res?.capabilities) ? res.capabilities : undefined))
+      .catch(() => undefined),
+  ]);
+  return { status, models, ...(capabilities ? { capabilities } : {}) };
 }
 /** Shared entry point for future property panels and other editor consumers. */
 export function generateAsset(input: GenerateInput) {

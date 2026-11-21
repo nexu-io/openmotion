@@ -6,6 +6,7 @@ import { templateDiscoveryGuide, skillDiscoveryGuide } from './workflow-entry.js
 import { projectArchiveTool } from './project-archive.ts';
 import { projectManagementTool } from './project-management.ts';
 import { assetLibraryTool, workspaceAssetUseTool } from './asset-tools.ts';
+import { capabilityMetaTools } from './capability-tools.ts';
 import { designTools } from './design-tools.ts';
 import { providerSetupEntries } from './workspace-url.ts';
 import { canvasPresets } from './composition-canvas.ts';
@@ -25,6 +26,7 @@ const display = object({ revision, versionId: id, previewUrl: { type: 'string', 
 const read = { readOnlyHint: true, openWorldHint: false };
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 export const phase1Tools = [
+  ...capabilityMetaTools,
   workspaceAssetUseTool,
   assetLibraryTool,
   projectArchiveTool,
@@ -74,8 +76,10 @@ export function phase1TransportTool(health: { mcp?: { protocol?: unknown; tools?
   const name = publicToolName(tool);
   if (typeof name !== 'string' || !phase1McpCapabilities.tools.includes(name)
     || health.mcp?.protocol !== phase1McpCapabilities.protocol || !Array.isArray(health.mcp.tools)) return;
-  // An older asset handler does not advertise the new read contract.
-  if (name === 'openmotion_assets_use') return health.mcp.tools.includes(name) ? name : undefined;
+  // Newer domain tools require explicit host/service advertisement rather than legacy aliases.
+  if (['openmotion_assets_use', 'openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage'].includes(name)) {
+    return health.mcp.tools.includes(name) ? name : undefined;
+  }
   return [name, legacyToolName(name)].find(candidate => (health.mcp!.tools as unknown[]).includes(candidate));
 }
 

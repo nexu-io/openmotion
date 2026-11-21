@@ -1,5 +1,6 @@
 import { Button } from 'open-design-ui/button';
 import type { CSSProperties } from 'react';
+import { defaultCapabilities, findCapability, type CapabilityDefinition } from '../../../shared/capability-registry';
 import type { Model } from '../../../shared/gateway';
 import { findMediaStudio } from '../../../shared/studio-catalog';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -28,12 +29,27 @@ export interface AudioNavFeatureCard {
   soon: boolean;
 }
 
-export const AUDIO_MENU_CARDS: readonly AudioNavFeatureCard[] = [
-  { id: 'music', label: 'Music', soon: false },
-  { id: 'speech', label: 'Text to speech', soon: false },
-  { id: 'voice-changer', label: 'Voice changer', soon: true },
-  { id: 'dubbing', label: 'Dubbing', soon: true },
+const audioMenuEntries: readonly [AudioNavFeatureCard['id'], string][] = [
+  ['music', 'Music'],
+  ['speech', 'Text to speech'],
+  ['voice-changer', 'Voice changer'],
+  ['dubbing', 'Dubbing'],
 ];
+
+function resolveAudioMenuCards(capabilities: readonly CapabilityDefinition[] = defaultCapabilities): readonly AudioNavFeatureCard[] {
+  return audioMenuEntries
+    .filter(([id]) => {
+      const cap = findCapability(id, capabilities);
+      return !cap || (cap.status !== 'hidden' && cap.status !== 'deprecated' && cap.channels.gui);
+    })
+    .map(([id, label]) => ({
+      id,
+      label,
+      soon: findCapability(id, capabilities)?.status === 'coming_soon',
+    }));
+}
+
+export const AUDIO_MENU_CARDS: readonly AudioNavFeatureCard[] = resolveAudioMenuCards();
 
 export interface AudioNavMenuProps {
   destination: StudioDestination | null;
@@ -298,7 +314,7 @@ export function AudioNavMenu({ destination, activeSoundTab, catalog, failed, onS
   return (
     <div className="om-audio-menu">
       <div className="om-audio-menu-cards">
-        {AUDIO_MENU_CARDS.map(card => {
+        {resolveAudioMenuCards(catalog?.capabilities).map(card => {
           const isActive = currentTab === card.id;
           return (
             <Button
