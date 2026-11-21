@@ -1,7 +1,6 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { chmod, copyFile, lstat, mkdir, readFile, rm } from 'node:fs/promises';
+import { chmod, copyFile, lstat, mkdir, readFile, rm, stat } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -18,7 +17,8 @@ import { cloudImageParameters, uploadInputs } from './opendesign.ts';
 import type { ProviderContext } from './providers.ts';
 import { resumableDownload, type DownloadProgress } from './resumable-download.ts';
 import { accountDirectory } from './account-directory.ts';
-import { connectorVersion, ConnectorUnavailable, installConnector, manualInstallCommand, verifyConnector, type ConnectorProblem } from './account-connector.ts';
+import { withProcessLock } from '../shared/process-lock.ts';
+import { connectorRuntime, connectorVersion, ConnectorUnavailable, installConnector, manualInstallCommand, verifyConnector, type ConnectorProblem } from './account-connector.ts';
 
 const execute = promisify(execFile);
 /** The launcher for the system default browser, which is also where the connector opens sign-in. */
@@ -65,7 +65,6 @@ const explicitConnectorMessage = "The OpenDesign sign-in component set by OPENMO
 /** Sign-in failure messages Studio translates by exact text. */
 export const accountSignInMessages = [...new Set([...Object.values(failureMessages), ...Object.values(connectorMessages), explicitConnectorMessage])];
 const ignoreMissing = (error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; };
-const ignoreExisting = (error: NodeJS.ErrnoException) => { if (error.code !== 'EEXIST') throw error; };
 // Billing, media and sign-out use the control key; models use the runtime key. Accept only a complete pair.
 const hasCredentials = (profile?: Profile) => Boolean(profile?.controlKey && profile.controlKeyId && profile.runtimeKey && profile.user?.id);
 const signedInProfile = (profile?: Profile) => hasCredentials(profile) && !profile!.pendingLogin;
@@ -200,24 +199,31 @@ export class OpenDesignAccount {
   }
   /**
    * Workspaces used to keep their own sign-in. Once per process, a workspace that still holds one hands it to the shared
-   * directory when nothing is signed in there, then drops its copy so a later sign-out cannot bring it back.
+   * directory if that directory has never held an account, and drops its copy either way, so neither a sign-out nor a
+   * second workspace's older sign-in can bring it back.
    */
   private adopt() {
     return this.adoption ??= (async () => {
-      const own = path.join(path.resolve(this.directory), 'account');
-      if (own === this.root) return;
-      const legacy = path.join(own, 'credentials', 'config.json');
+      const own = path.join(path.resolve(this.directory), 'account'), legacy = path.join(own, 'credentials', 'config.json');
       const profile = (await readSettings<CredentialsFile>(legacy, {}).catch(() => ({} as CredentialsFile))).profiles?.prod;
       if (!hasCredentials(profile) && !profile?.pendingLogin) return;
-      const shared = await readSettings<CredentialsFile | null>(path.join(this.home, 'config.json'), null);
-      if (shared === null && signedInProfile(profile)) {
-        await mkdir(this.home, { recursive: true, mode: 0o700 });
-        // The session and catalogue go first, so a reader that finds the credentials also finds their session.
-        for (const name of ['session.json', 'models.json']) await copyFile(path.join(own, name), path.join(this.root, name)).catch(ignoreMissing);
-        await copyFile(legacy, path.join(this.home, 'config.json'), constants.COPYFILE_EXCL).catch(ignoreExisting);
-        await chmod(path.join(this.home, 'config.json'), 0o600);
-      } else if (shared !== null && !signedInProfile(shared.profiles?.prod)) return; // Wait until pending revocations there finish.
-      for (const file of [legacy, path.join(own, 'session.json'), path.join(own, 'models.json')]) await rm(file, { force: true });
+      // The same directory spelled differently (case, links, short names) must not be taken for a legacy copy and removed.
+      const same = await Promise.all([stat(own, { bigint: true }), stat(this.root, { bigint: true })])
+        .then(([a, b]) => a.dev === b.dev && a.ino === b.ino, () => false);
+      if (same) return;
+      await withProcessLock(path.join(this.root, 'adopt.lock'), async () => {
+        // Every sign-in, cancel and sign-out writes the session file, so its absence means no account was ever kept here.
+        const unused = await readSettings<unknown>(path.join(this.root, 'session.json'), null) === null
+          && await readSettings<unknown>(path.join(this.home, 'config.json'), null) === null;
+        if (unused && hasCredentials(profile)) {
+          await mkdir(this.home, { recursive: true, mode: 0o700 });
+          // The session and catalogue go first, so a reader that finds the credentials also finds their session.
+          for (const name of ['session.json', 'models.json']) await copyFile(path.join(own, name), path.join(this.root, name)).catch(ignoreMissing);
+          await copyFile(legacy, path.join(this.home, 'config.json'));
+          await chmod(path.join(this.home, 'config.json'), 0o600);
+        }
+        for (const file of [legacy, path.join(own, 'session.json'), path.join(own, 'models.json')]) await rm(file, { force: true });
+      });
     })().catch(error => { (this.options.log ?? console.error)('OpenDesign account could not be moved to the shared directory: ' + (error as Error).message); });
   }
   private env() {
@@ -276,7 +282,7 @@ export class OpenDesignAccount {
     // Source installations receive the locked connector with their dependencies; application artifacts omit it.
     try { return this.runtime = await verifyConnector(import.meta.url); } catch { /* Try an installed CLI. */ }
     try { const { stdout } = await execute('vela', ['--version'], { timeout: 5000 }); if (stdout.trim() === connectorVersion) return this.runtime = 'vela'; } catch { /* Try the private managed installation. */ }
-    const root = path.join(this.root, 'runtime');
+    const root = connectorRuntime(this.directory);
     if (!install) return this.runtime = await verifyConnector(path.join(root, 'package.json')).catch(() => { throw new Error('Connect your OpenDesign account to prepare the account service.'); });
     return this.runtime = await installConnector(root, { signal: this.closing.signal });
   }
@@ -288,7 +294,8 @@ export class OpenDesignAccount {
   prefetch() { void this.prepare().catch(() => {}); }
   async run(args: string[], signal?: AbortSignal) {
     if (this.options.run) return this.options.run(args, signal);
-    try { const { stdout } = await execute(await this.resolveRuntime(), args, { env: this.env(), timeout: 120_000, signal, maxBuffer: 2 * 1024 * 1024 }); return stdout; }
+    // A workspace can be signed in through the shared account before its own connector is prepared.
+    try { const { stdout } = await execute(await this.resolveRuntime().catch(() => this.prepare()), args, { env: this.env(), timeout: 120_000, signal, maxBuffer: 2 * 1024 * 1024 }); return stdout; }
     catch (error) { throw new AccountRequestError(String((error as { stderr?: unknown }).stderr ?? '')); }
   }
   async summary(refresh = false): Promise<AccountSummary> {
@@ -310,7 +317,7 @@ export class OpenDesignAccount {
       ...(this.attempt ? { attempt: { ...this.attempt, stages: [...this.attempt.stages] } } : {}),
       error: this.error, errorCode: this.errorCode, consoleUrl,
       // An explicit connector path is used as is, so installing into the private directory would not help it.
-      ...(!this.connecting && this.errorCode === 'connector_unavailable' && !this.explicitBinary() ? { connectorInstall: { command: manualInstallCommand(path.join(this.root, 'runtime')) } } : {}) };
+      ...(!this.connecting && this.errorCode === 'connector_unavailable' && !this.explicitBinary() ? { connectorInstall: { command: manualInstallCommand(connectorRuntime(this.directory)) } } : {}) };
   }
   private async billingSummary(profile: Profile) {
     // Other connector environments retain their own endpoint and credential handling.
@@ -590,7 +597,8 @@ export class OpenDesignAccount {
     if (generation !== this.generation) return [];
     await this.commit(generation, async () => {
       // A sync started before the upgrade must not replace the newly entitled catalogue.
-      if (requestId !== this.modelRequestId) return;
+      // Nor may a catalogue read before another workspace signed in again replace the new account's.
+      if (requestId !== this.modelRequestId || await this.identity() !== identity) return;
       this.cachedModels = [...new Map(models.map(model => [model.id, model])).values()]; this.cachedIdentity = identity;
       await writeSettings(path.join(this.root, 'models.json'), this.cachedModels);
     });

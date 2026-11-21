@@ -14,7 +14,14 @@ export function sharedAccountDirectory(platform = process.platform, env = proces
   return join(base, 'OpenDesign', 'account');
 }
 
-const real = (directory: string) => { try { return realpathSync(directory); } catch { return path.resolve(directory); } };
+/** Resolves links and Windows short names through the nearest existing ancestor, since a workspace may not exist yet. */
+function real(directory: string): string {
+  const resolved = path.resolve(directory);
+  try { return realpathSync.native(resolved); } catch {
+    const parent = path.dirname(resolved);
+    return parent === resolved ? resolved : path.join(real(parent), path.basename(resolved));
+  }
+}
 const inside = (child: string, parent: string) => { const relative = path.relative(parent, child); return !relative.startsWith('..') && !path.isAbsolute(relative); };
 /** Temporary workspaces (tests, isolated previews) never pick up or change the person's sign-in. */
 function temporary(directory: string) {
@@ -22,7 +29,7 @@ function temporary(directory: string) {
   return [path.resolve(directory), real(directory)].some(candidate => roots.some(root => inside(candidate, root)));
 }
 
-/** Account credentials, session, model catalogue and connector for a workspace. `MOTION_ACCOUNT_DIR` selects another directory. */
+/** Account credentials, session and model catalogue for a workspace. `MOTION_ACCOUNT_DIR` selects another directory. */
 export function accountDirectory(dataDirectory: string, env = process.env) {
   if (env.MOTION_ACCOUNT_DIR) return path.resolve(env.MOTION_ACCOUNT_DIR);
   return temporary(dataDirectory) ? path.join(path.resolve(dataDirectory), 'account') : sharedAccountDirectory(process.platform, env);

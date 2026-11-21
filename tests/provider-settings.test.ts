@@ -474,10 +474,6 @@ writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __d
     // An existing working installation is reused without running npm again.
     assert.equal(await install('ok', 'offline'), binary);
     assert.equal(await readFile(path.join(store.directory, 'ok', 'npm-calls'), 'utf8'), 'x');
-    // Services of different workspaces share the installation: when they start together, npm runs once.
-    const together = await Promise.all([install('shared', 'ok'), install('shared', 'ok')]);
-    assert.equal(together[0], together[1]);
-    assert.equal(await readFile(path.join(store.directory, 'shared', 'npm-calls'), 'utf8'), 'x');
   });
 });
 
@@ -1302,8 +1298,9 @@ test('a workspace sign-in from before the shared directory moves there once and 
     const account = new OpenDesignAccount(directory, { binary }); await signIn(account); const identity = await account.identity(); await account.close();
     return identity;
   };
+  const third = path.join(store.directory, 'third-data');
   const firstIdentity = await legacy(first);
-  await legacy(second);
+  await legacy(second); await legacy(third);
   sharedAccount(t, shared);
   const moved = new OpenDesignAccount(first, { binary }); t.after(() => moved.close());
   assert.equal((await moved.summary()).state, 'signed-in');
@@ -1319,4 +1316,20 @@ test('a workspace sign-in from before the shared directory moves there once and 
   await moved.logout();
   const restarted = new OpenDesignAccount(second, { binary }); t.after(() => restarted.close());
   assert.equal((await restarted.summary()).state, 'signed-out');
+  // A workspace opened for the first time after the sign-out does not sign the computer in again with its old copy.
+  const late = new OpenDesignAccount(third, { binary }); t.after(() => late.close());
+  assert.equal((await late.summary()).state, 'signed-out');
+  await assert.rejects(stat(path.join(third, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+}));
+
+test('a workspace whose account directory is the shared one under another spelling keeps its sign-in', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const workspace = path.join(store.directory, 'data');
+  sharedAccount(t, path.join(workspace, 'account'));
+  const original = new OpenDesignAccount(workspace, { binary }); await signIn(original); await original.close();
+  await symlink(path.join(workspace, 'account'), path.join(store.directory, 'linked-account'));
+  sharedAccount(t, path.join(store.directory, 'linked-account'));
+  const linked = new OpenDesignAccount(workspace, { binary }); t.after(() => linked.close());
+  assert.equal((await linked.summary()).state, 'signed-in');
+  assert((await stat(path.join(workspace, 'account', 'credentials', 'config.json'))).isFile());
 }));
