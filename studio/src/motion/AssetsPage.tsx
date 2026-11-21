@@ -369,7 +369,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     setMobileView('create');
   };
   const blankCanvas = layout === 'canvas' && browser.data?.total === 0 && !placeholderJobs.length && !browser.query && (mediaGenerations || browser.source === 'all');
-  const canvasModels = studioForm && layout === 'canvas' ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, !studioForm.destination.model) : undefined;
+  const canvasModels = studioForm && layout === 'canvas' ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, false, draft.references.length, draft.preferredModel) : undefined;
   const studioEmpty = studio && (layout === 'canvas' ? <StudioIdeas destination={studio.destination} onPrompt={applyPrompt}
     modelName={canvasModels?.selected && imageModelLabel(canvasModels.selected)} /> : <p className="om-muted">{t('No assets yet')}</p>);
   const history = { tasks, selectedKey, loading: historyLoading, error: historyError, onRetry: () => { setHistoryLoading(true); setHistoryRetry(value => value + 1); }, onSelect: (task: AssetTask) => { tracking.reportAssetsClick('asset_tasks', 'select_task', { task_mode: task.mode }); void selectTask(task); } };

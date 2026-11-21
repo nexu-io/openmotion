@@ -833,3 +833,97 @@ it('renders VideoMegaMenu with open video scenes, Omni reference, Soon items, an
   await act(async () => buttons.find(button => button.textContent?.includes('Multi-shot narrative'))!.click());
   expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ scene: expect.objectContaining({ id: 'video-multi-shot' }), model: null }));
 });
+
+it('automatically includes newly published capable OpenDesign models in feature pickers without hardcoded allowlists', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const existing = featureModels();
+  const futureTransparent: Model = {
+    id: 'opendesign:future-studio-image-v3',
+    provider: 'opendesign',
+    modelId: 'future-studio-image-v3',
+    label: 'Future Studio Image v3',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    supportsImageReference: true,
+    maxInputImages: 8,
+    nativeOptions: { background: ['opaque', 'transparent'] },
+  };
+  const futureTextOnly: Model = {
+    id: 'opendesign:future-txt2img-only',
+    provider: 'opendesign',
+    modelId: 'future-txt2img-only',
+    label: 'Future Txt2Img Only',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    supportsImageReference: false,
+    maxInputImages: 0,
+  };
+  const catalog = {
+    models: [existing.sunburst, existing.seedream, futureTransparent, futureTextOnly],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: '', references: [reference('product')] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'remove-background')!),
+  }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
+  // Known flagship model stays ranked first; the newly published transparent-capable model joins automatically.
+  expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst', 'Future Studio Image v3']);
+});
+
+it('drops an unknown single-reference OpenDesign image model when two or more references are attached on Character consistency', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const existing = featureModels();
+  // Unknown OpenDesign model with supportsImageReference: true and no maxInputImages falls back to limit 1.
+  const unknownSingleRef: Model = {
+    id: 'opendesign:future-single-ref-image',
+    provider: 'opendesign',
+    modelId: 'future-single-ref-image',
+    label: 'Future Single Ref Image',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    supportsImageReference: true,
+  };
+  const catalog = {
+    models: [existing.sunburst, unknownSingleRef],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Walk through the park', references: [reference('one')] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'character')!),
+  }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
+  expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst', 'Future Single Ref Image']);
+
+  await act(async () => root.unmount()); root = createRoot(container);
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Walk through the park', references: [reference('one'), reference('two')] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'character')!),
+  }} />));
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
+  expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst']);
+});
+
+it('keeps BYOK text-to-video models eligible in Workflows selectScenarioModels on multi-shot steps', async () => {
+  const { selectScenarioModels } = await import('../scenario/steps/stepUtils');
+  const { studioScenes } = await import('./creativeStudios');
+  const falWan: Model = {
+    id: 'fal:fal-ai/wan/v2.2',
+    provider: 'fal',
+    modelId: 'fal-ai/wan/v2.2',
+    label: 'Wan 2.2',
+    modality: 'video',
+    mode: 'text-to-video',
+    source: 'builtin',
+  };
+  const multiShot = studioScenes.find(item => item.id === 'video-multi-shot')!;
+  const selected = selectScenarioModels(
+    { models: [falWan], status: { routes: {}, providers: [{ id: 'fal', label: 'fal.ai', available: true }] } } as never,
+    'video',
+    multiShot,
+  );
+  expect(selected.map(item => item.id)).toEqual([falWan.id]);
+});

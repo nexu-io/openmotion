@@ -21,7 +21,7 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { useMediaCatalog } from './useMediaCatalog';
 import type { StudioCreation } from './CreativeWorkspace';
 import { studioExamples } from './sceneShowcase';
-import { needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
+import { isFeatureScene, needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
 import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
 import { videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
 import { Select } from '../components/ui/Select';
@@ -45,8 +45,8 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const featureRule = feature ? imageFeatures[feature] : undefined;
   const videoFeature = scene && sceneVideoFeature(scene);
   const videoFeatureRule = videoFeature ? videoFeatures[videoFeature] : undefined;
-  // Image and video feature scenes offer only OpenDesign models.
-  const featureMode = Boolean(feature || videoFeature);
+  // Image and video feature scenes scope to OpenDesign routes; eligibility itself is capability-driven.
+  const featureMode = isFeatureScene(scene);
   const modelId = studio?.destination.model ?? draft.model;
   const promptId = useId();
   const libraryCatalog = useMediaCatalog(active && !studio);
