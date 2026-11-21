@@ -29,6 +29,9 @@ import { sceneLayout } from './sceneShowcase';
 import { StudioIdeas } from './StudioIdeas';
 import { AudioStudioLanding } from './AudioStudioLanding';
 import { SoundStudioWorkspace } from './SoundStudioWorkspace';
+import { resolveAudioModelLabel, resolveSavedVoiceName } from './soundPresets';
+import { classifyAudioTrackTab } from './soundTabs';
+import { formatDuration } from '../components/sidebar/assetHelpers';
 import { creationModels } from './creationModels';
 import { imageModelLabel } from './imageMenuModels';
 import { AssetGalleryToolbar } from './AssetGalleryToolbar';
@@ -369,7 +372,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     setMobileView('create');
   };
   const blankCanvas = layout === 'canvas' && browser.data?.total === 0 && !placeholderJobs.length && !browser.query && (mediaGenerations || browser.source === 'all');
-  const canvasModels = studioForm && layout === 'canvas' ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, !studioForm.destination.model) : undefined;
+  const canvasModels = studioForm && layout === 'canvas' ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, false, draft.references.length, draft.preferredModel) : undefined;
   const studioEmpty = studio && (layout === 'canvas' ? <StudioIdeas destination={studio.destination} onPrompt={applyPrompt}
     modelName={canvasModels?.selected && imageModelLabel(canvasModels.selected)} /> : <p className="om-muted">{t('No assets yet')}</p>);
   const history = { tasks, selectedKey, loading: historyLoading, error: historyError, onRetry: () => { setHistoryLoading(true); setHistoryRetry(value => value + 1); }, onSelect: (task: AssetTask) => { tracking.reportAssetsClick('asset_tasks', 'select_task', { task_mode: task.mode }); void selectTask(task); } };
@@ -394,10 +397,43 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     if (next !== kind || gamesView) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next });
     setGamesView(false); setKind(next);
   }} />;
+  const detailModels = studio?.catalog.catalog?.models;
+  const detailAudioKind = selected?.modality === 'audio' && version ? classifyAudioTrackTab(version.model, detailModels, version.source, version.audioKind) : undefined;
+  const detailModelLabel = selected?.modality === 'audio' && version ? resolveAudioModelLabel(version.model, detailModels) : undefined;
+  const detailVoiceName = detailAudioKind === 'speech' && version ? resolveSavedVoiceName(version.parameters?.voice, version.model, detailModels, true) : undefined;
+  const detailDurationLabel = version?.duration && version.duration > 0 ? formatDuration(version.duration) : undefined;
+  const editSoundAsset = () => {
+    if (!selected || !version || !studio) return;
+    tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
+    const classified = classifyAudioTrackTab(version.model, detailModels, version.source, version.audioKind);
+    const targetTab = classified === 'upload' ? (studio.soundTab === 'sfx' || studio.soundTab === 'speech' ? studio.soundTab : 'music') : classified;
+    const nextDraft: AssetDraft = {
+      modality: 'audio',
+      prompt: version.prompt ?? '',
+      model: version.model,
+      parameters: version.parameters,
+      references: [],
+    };
+    closePreview();
+    if (studio.selectSoundTab) {
+      studio.selectSoundTab(targetTab, nextDraft, version.model ?? null);
+    } else if (studio.reuseInScene) {
+      studio.reuseInScene(targetTab === 'speech' ? 'speech' : 'music', nextDraft, version.model ?? null);
+    } else {
+      setDraft(nextDraft);
+    }
+    setMobileView('create');
+    toast.showToast(t('Prompt and settings loaded'), 'info');
+  };
   return <div className="om-assets-page" data-scene-layout={layout} data-creating={creating} data-previewing={Boolean(selected)} data-mobile-view={mobileView}>
-    {selected ? <AssetDetailWorkspace asset={selected} versionId={versionId} active={active} uploading={uploading} saving={updatingAssets.has(selected.id)} editor={creating ? composer : undefined} taskControls={mediaGenerations ? undefined : taskMenu}
+    {selected ? <AssetDetailWorkspace asset={selected} versionId={versionId} active={active} uploading={uploading} saving={updatingAssets.has(selected.id)} editor={creating ? composer : undefined} taskControls={mediaGenerations || soundWorkbench ? undefined : taskMenu}
+      backLabel={soundWorkbench ? t('Audio') : undefined}
+      modelDisplayName={detailModelLabel}
+      voiceName={detailVoiceName}
+      durationLabel={detailDurationLabel}
+      editLabel={soundWorkbench ? t('Recreate') : undefined}
       navigation={<AssetBrowserContent browser={browser} onOpen={open} compact selectedId={selected.id} />}
-      onBack={() => { tracking.reportAssetsClick('asset_detail', 'close_detail', { modality: selected.modality }); closePreview(); }} onVersion={id => { if (id !== versionId) tracking.reportAssetsClick('asset_detail', 'switch_version', { modality: selected.modality }); setVersionId(id); onAssetRoute?.(selected.id, id); }} onUpdate={changes => update(selected.id, changes)} onEdit={edit}
+      onBack={() => { tracking.reportAssetsClick('asset_detail', 'close_detail', { modality: selected.modality }); closePreview(); }} onVersion={id => { if (id !== versionId) tracking.reportAssetsClick('asset_detail', 'switch_version', { modality: selected.modality }); setVersionId(id); onAssetRoute?.(selected.id, id); }} onUpdate={changes => update(selected.id, changes)} onEdit={soundWorkbench ? editSoundAsset : edit}
       onReference={selected.modality === 'image' ? () => { tracking.reportAssetsClick('asset_detail', 'use_as_reference', { modality: selected.modality }); startDraft({ modality: selected.modality, prompt: '', references: [{ reference: { assetId: selected.id, versionId }, name: selected.name }] }); } : undefined}
       onFirstFrame={studio?.useAsFirstFrame && selected.modality === 'image' && version ? () => studio.useAsFirstFrame?.({ reference: { assetId: selected.id, versionId: version.id }, name: selected.name }) : undefined}
       onOpenReference={reference => { void openReference(reference); }}

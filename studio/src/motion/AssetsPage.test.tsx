@@ -623,7 +623,7 @@ it('starts a focused image landing on its examples even when the user already ha
 
 it.each([
   {
-    scene: 'remove-background', image: 'sofa-cutout.png', title: 'Remove the background in one click',
+    scene: 'remove-background', image: 'sofa-cutout.webp', title: 'Remove the background in one click',
     description: /Keep the sofa and coffee table/,
   },
   {
@@ -889,4 +889,36 @@ it('hides the games row without games and offers Game Studio from the empty cate
   const url = new URL(location.href);
   expect(url.searchParams.get('page')).toBe('game');
   expect(url.searchParams.has('game')).toBe(false);
+});
+
+it('keeps the empty studio canvas model aligned with composer selection on Codex-only text-to-image and multi-ref drafts', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const { creationModels } = await import('./creationModels');
+  records.clear();
+  const codex = { id: 'codex:image-generation', provider: 'codex', modelId: 'image-generation', label: 'Codex Image', modality: 'image' as const, mode: 'text-to-image', source: 'builtin' as const, supportsImageReference: true, maxInputImages: 1 };
+  const textToImageStudio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: {
+      catalog: { models: [codex], status: { routes: {}, providers: [{ id: 'codex', label: 'Codex', available: true }] } },
+      failed: false, retry: vi.fn(),
+    },
+    remember: vi.fn(), chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={textToImageStudio} />)); await flush();
+  await act(async () => container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1].click());
+  expect(container.textContent).toContain('Codex Image');
+
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const seedream = { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 1 };
+  const multiRefResult = creationModels(
+    { models: [seedream, sunburst], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } } as never,
+    'image',
+    seedream.id,
+    studioScenes.find(scene => scene.id === 'character')!,
+    false,
+    2,
+  );
+  expect(multiRefResult.selected?.id).toBe(sunburst.id);
+  expect(multiRefResult.available.map(model => model.id)).toEqual([sunburst.id]);
+  expect(multiRefResult.compatible.some(model => model.modelId === 'seedream-5.5')).toBe(false);
 });

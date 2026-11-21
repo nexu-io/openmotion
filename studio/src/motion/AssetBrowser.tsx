@@ -2,6 +2,7 @@ import { Button } from 'open-design-ui/button';
 import { CreationEmblem, creationKinds } from './AssetCreationVisuals';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { assetMediaUrl, assetVersion, type AssetReference, type LibraryAsset, type AssetVersion } from '../../../shared/asset-library';
+import type { AudioKind } from '../../../shared/audio-kind';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -51,10 +52,12 @@ function AssetTitle({ name }: { name: string }) {
 /** The gallery and detail filmstrip share one loaded collection and filter state. */
 export function useAssetBrowser({ kind, revision = 0, active = true, lockedSource }: { kind: AssetKind; revision?: number; active?: boolean; lockedSource?: 'generated' | 'upload' }) {
   const [query, setQuery] = useState(''), [sourceState, setSource] = useState('all'), [sort, setSort] = useState('newest');
+  const [audioKind, setAudioKind] = useState<'all' | AudioKind>('all');
   const source = lockedSource ?? sourceState;
   const [result, setResult] = useState<{ key: string; assets: LibraryAsset[]; total: number; nextOffset: number | null }>();
   const [error, setError] = useState(false), [loading, setLoading] = useState(true), [retry, setRetry] = useState(0), [page, setPage] = useState(0);
-  const signature = `${kind}|${query}|${source}|${sort}|${revision}`;
+  const effectiveAudioKind = kind === 'audio' ? audioKind : 'all';
+  const signature = `${kind}|${effectiveAudioKind}|${query}|${source}|${sort}|${revision}`;
   const requestKey = `${signature}|${page}`;
   // Keep the last settled collection visible while a new filter or tab request
   // is in flight. Skeleton cards are reserved for the initial load, so tab
@@ -67,12 +70,22 @@ export function useAssetBrowser({ kind, revision = 0, active = true, lockedSourc
     if (!active) return;
     let cancelled = false; setLoading(true); setError(false);
     const timer = setTimeout(() => {
-      void assetRequest<{ assets: LibraryAsset[]; total: number; nextOffset: number | null }>({ action: 'list', ...(kind !== 'all' && kind !== 'trash' ? { modality: kind } : {}), trash: kind === 'trash', query, ...(source !== 'all' ? { source } : {}), sort, offset: page * 40, limit: 40 })
+      void assetRequest<{ assets: LibraryAsset[]; total: number; nextOffset: number | null }>({
+        action: 'list',
+        ...(kind !== 'all' && kind !== 'trash' ? { modality: kind } : {}),
+        ...(kind === 'audio' && effectiveAudioKind !== 'all' ? { audioKind: effectiveAudioKind } : {}),
+        trash: kind === 'trash',
+        query,
+        ...(source !== 'all' ? { source } : {}),
+        sort,
+        offset: page * 40,
+        limit: 40,
+      })
         .then(result => { if (!cancelled) setResult({ ...result, key: requestKey }); }).catch(() => { if (!cancelled) setError(true); }).finally(() => { if (!cancelled) setLoading(false); });
     }, query ? 180 : 0);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, kind, query, source, sort, page, revision, retry, requestKey]);
-  return { kind, query, setQuery, source, setSource, sort, setSort, data, stale, loading: loading || (stale && !error), error, page, setPage, retry: () => setRetry(v => v + 1) };
+  }, [active, kind, effectiveAudioKind, query, source, sort, page, revision, retry, requestKey]);
+  return { kind, audioKind: effectiveAudioKind, setAudioKind, query, setQuery, source, setSource, sort, setSort, data, stale, loading: loading || (stale && !error), error, page, setPage, retry: () => setRetry(v => v + 1) };
 }
 type BrowserActions = {
   onOpen: (asset: LibraryAsset) => void;

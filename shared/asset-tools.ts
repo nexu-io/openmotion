@@ -13,7 +13,7 @@ export const assetLibraryTool = {
     requestId: { type: 'string', pattern: '^[\\w-]{1,100}$' }, assetId: id, versionId: id, parentVersionId: id, jobId: id,
     projectId: { type: 'string', pattern: '^(project|[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12})$' },
     name: { type: 'string', minLength: 1, maxLength: 200, description: 'Readable display name: preserve meaningful user/source names; for generated, derived or unnamed media use content plus optional purpose, in the project namingLanguage. Supply with generate/import; import_to_project defaults to the saved library name and accepts a name only for explicit renames or missing-name repairs. Keep UUIDs in IDs and the full prompt in prompt.' }, sourcePath: { type: 'string', minLength: 1, maxLength: 4096 },
-    modality: { enum: ['image', 'video', 'audio'] }, source: { enum: ['upload', 'generated'] }, query: { type: 'string', maxLength: 200 },
+    modality: { enum: ['image', 'video', 'audio'] }, audioKind: { enum: ['music', 'sfx', 'speech', 'upload'] }, source: { enum: ['upload', 'generated'] }, query: { type: 'string', maxLength: 200 },
     trash: { type: 'boolean' }, sort: { enum: ['newest', 'oldest', 'name'] }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 },
     model: { type: 'string', minLength: 1, maxLength: 300 }, prompt: { type: 'string', minLength: 1, maxLength: 20000 },
     mode: { enum: ['text-to-image', 'text-to-video', 'text-to-audio', 'text-to-speech'] }, parameters: { type: 'object', additionalProperties: true },

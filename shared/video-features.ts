@@ -1,4 +1,8 @@
 import type { Model } from './gateway.ts';
+import { generationOptions, type GenerationOption } from './generation-options.ts';
+import { isOpenDesignProvider, modelCapabilities, type MediaCapabilities } from './model-capabilities.ts';
+
+export { isOpenDesignProvider };
 
 export type VideoFeatureId = 'camera-control' | 'multi-shot';
 
@@ -44,10 +48,6 @@ export const openDesignVideoModels: readonly OpenDesignVideoEntry[] = [
 
 const openDesignVideoById = new Map(openDesignVideoModels.map(entry => [entry.modelId, entry]));
 
-export function isOpenDesignProvider(providerId: string) {
-  return providerId === 'account' || providerId === 'opendesign';
-}
-
 export function videoModelLabel(model: Pick<Model, 'modelId' | 'label'>) {
   return openDesignVideoById.get(model.modelId)?.label ?? model.label;
 }
@@ -65,6 +65,7 @@ export type VideoFeatureControl = {
 
 export type VideoFeatureSpec = {
   id: VideoFeatureId;
+  requires: (capabilities: MediaCapabilities) => boolean;
   recommended: string;
   defaultDuration?: number;
   controls: readonly VideoFeatureControl[];
@@ -73,6 +74,7 @@ export type VideoFeatureSpec = {
 export const videoFeatures: Record<VideoFeatureId, VideoFeatureSpec> = {
   'camera-control': {
     id: 'camera-control',
+    requires: capabilities => capabilities.video.textToVideo,
     recommended: 'doubao-seedance-2-5-260628',
     controls: [
       {
@@ -101,6 +103,7 @@ export const videoFeatures: Record<VideoFeatureId, VideoFeatureSpec> = {
   },
   'multi-shot': {
     id: 'multi-shot',
+    requires: capabilities => capabilities.video.textToVideo,
     recommended: 'doubao-seedance-2-5-260628',
     defaultDuration: 10,
     controls: [
@@ -146,14 +149,42 @@ export function videoFeaturePrompt(feature: VideoFeatureId, prompt: string, choi
   return `Multi-shot direction: ${parts.join(', ')}. Story: ${userText}`;
 }
 
-export function videoFeatureParameters(feature: VideoFeatureId, model: Pick<Model, 'provider' | 'modelId'>): Record<string, unknown> {
+/** Pure capability check (provider-agnostic): whether a model can run this video feature. */
+export function videoFeatureCapable(feature: VideoFeatureId, model: Model): boolean {
+  return model.modality === 'video' && videoFeatures[feature].requires(modelCapabilities(model));
+}
+
+/** Studio feature eligibility: OpenDesign route plus the required model capabilities. */
+export function videoFeatureSupported(feature: VideoFeatureId, model: Model): boolean {
+  return isOpenDesignProvider(model.provider) && videoFeatureCapable(feature, model);
+}
+
+function durationFieldSupports(field: GenerationOption, target: number): boolean {
+  if (field.kind === 'number') {
+    return (field.min === undefined || target >= field.min) && (field.max === undefined || target <= field.max);
+  }
+  return Boolean(field.choices?.some(choice => Number(choice.value) === target));
+}
+
+export function videoFeatureParameters(
+  feature: VideoFeatureId,
+  model: Pick<Model, 'provider' | 'modelId'> & Partial<Model>,
+): Record<string, unknown> {
   if (!isOpenDesignProvider(model.provider)) return {};
-  const meta = openDesignVideoById.get(model.modelId);
-  if (!meta) return {};
   const spec = videoFeatures[feature];
+  const meta = openDesignVideoById.get(model.modelId);
+  const full = model.modality === 'video' ? (model as Model) : undefined;
+  const options = full ? (full.generationOptions ?? generationOptions(full)) : undefined;
   const params: Record<string, unknown> = {};
-  if (spec.defaultDuration !== undefined && spec.defaultDuration >= meta.durations.min && spec.defaultDuration <= meta.durations.max) {
-    params.duration = spec.defaultDuration;
+
+  if (spec.defaultDuration !== undefined) {
+    const durationField = options?.fields.find(item => item.key === 'duration');
+    if (durationField) {
+      // Honor the published duration schema strictly; never override it with static fallback bounds.
+      if (durationFieldSupports(durationField, spec.defaultDuration)) params.duration = spec.defaultDuration;
+    } else if (meta && spec.defaultDuration >= meta.durations.min && spec.defaultDuration <= meta.durations.max) {
+      params.duration = spec.defaultDuration;
+    }
   }
   return params;
 }

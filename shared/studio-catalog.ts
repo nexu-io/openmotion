@@ -1,13 +1,13 @@
 export const studioScenes = [
-  { id: 'text-to-image', entry: 'landing', modality: 'image', label: 'Text to image', icon: 'image-line', hint: 'Describe a subject, a mood, a world.' },
-  { id: 'image-edit', entry: 'landing', modality: 'image', requiresImage: true, label: 'Image editing', icon: 'edit-line', hint: 'Choose an image and describe your changes.' },
+  { id: 'text-to-image', entry: 'landing', modality: 'image', label: 'Create image', icon: 'image-line', hint: 'Describe a subject, a mood, a world.' },
+  { id: 'image-edit', entry: 'landing', modality: 'image', requiresImage: true, label: 'Edit image', icon: 'edit-line', hint: 'Choose an image and describe your changes.' },
   { id: 'remove-background', entry: 'landing', modality: 'image', requiresImage: true, feature: 'remove-background', label: 'Remove background', icon: 'scissors-cut-line', hint: 'Choose an image. The subject is kept on a transparent background.' },
   { id: 'relight', entry: 'landing', modality: 'image', requiresImage: true, feature: 'relight', label: 'Relight', icon: 'sun-line', hint: 'Choose an image, then set the light direction, color and mood.' },
-  { id: 'character', entry: 'landing', modality: 'image', requiresImage: true, feature: 'character', label: 'Character consistency', icon: 'user-3-line', hint: 'Add 1 to 5 images of your character, then describe the new scene.' },
-  { id: 'text-to-video', entry: 'landing', modality: 'video', label: 'Text to video', icon: 'film-line', hint: 'Describe the scene, movement and atmosphere.' },
+  { id: 'character', entry: 'landing', modality: 'image', requiresImage: true, feature: 'character', label: 'Character reference', icon: 'user-3-line', hint: 'Add 1 to 5 images of your character, then describe the new scene.' },
+  { id: 'text-to-video', entry: 'landing', modality: 'video', label: 'Create video', icon: 'film-line', hint: 'Describe the scene, movement and atmosphere.' },
   { id: 'image-to-video', entry: 'landing', modality: 'video', requiresImage: true, label: 'Image to video', icon: 'movie-line', hint: 'Choose a first frame and describe the motion.' },
   { id: 'video-camera-control', entry: 'landing', modality: 'video', videoFeature: 'camera-control', label: 'Camera control', icon: 'camera-line', hint: 'Choose a camera movement, add an optional first frame, and describe your scene.' },
-  { id: 'video-multi-shot', entry: 'landing', modality: 'video', videoFeature: 'multi-shot', label: 'Multi-shot narrative', icon: 'clapperboard-line', hint: 'Direct a connected multi-shot sequence in a single clip.' },
+  { id: 'video-multi-shot', entry: 'landing', modality: 'video', videoFeature: 'multi-shot', label: 'Multi-shot', icon: 'clapperboard-line', hint: 'Direct a connected multi-shot sequence in a single clip.' },
   { id: 'music', entry: 'landing', modality: 'audio', modelMode: 'text-to-audio', label: 'Music & sound', icon: 'music-2-line', hint: 'Describe the mood, instruments and tempo.' },
   { id: 'speech', entry: 'landing', modality: 'audio', modelMode: 'text-to-speech', label: 'Text to speech', icon: 'voiceprint-line', hint: 'Write the words you want spoken.' },
 ] as const;

@@ -21,7 +21,7 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { useMediaCatalog } from './useMediaCatalog';
 import type { StudioCreation } from './CreativeWorkspace';
 import { studioExamples } from './sceneShowcase';
-import { needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
+import { isFeatureScene, needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
 import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
 import { videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
 import { FieldTextarea } from '../components/ui/FormField';
@@ -50,8 +50,8 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const featureRule = feature ? imageFeatures[feature] : undefined;
   const videoFeature = scene && sceneVideoFeature(scene);
   const videoFeatureRule = videoFeature ? videoFeatures[videoFeature] : undefined;
-  // Image and video feature scenes offer only OpenDesign models.
-  const featureMode = Boolean(feature || videoFeature);
+  // Image and video feature scenes scope to OpenDesign routes; eligibility itself is capability-driven.
+  const featureMode = isFeatureScene(scene);
   const modelId = studio?.destination.model ?? draft.model;
   const promptId = useId();
   const libraryCatalog = useMediaCatalog(active && !studio);
@@ -280,7 +280,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
         </div>)}
       </section>}
       {!imageWorkspace && <><div className="om-creation-model">{modelPicker}</div>{setup}</>}
-      {!scene && <div className="om-creation-scene"><span className="om-badge"><RemixIcon name={selected?.mode === 'text-to-speech' ? 'voiceprint-line' : kind.icon} size={14} />{t(selected?.mode === 'text-to-speech' ? 'Text to speech' : draft.modality === 'audio' ? 'Music & sound' : draft.modality === 'video' ? draft.references.length ? 'Image to video' : 'Text to video' : draft.references.length && selected?.supportsImageReference ? 'Image editing' : 'Text to image')}</span><span className="om-eyebrow">{t('Settings follow your model')}</span></div>}
+      {!scene && <div className="om-creation-scene"><span className="om-badge"><RemixIcon name={selected?.mode === 'text-to-speech' ? 'voiceprint-line' : kind.icon} size={14} />{t(selected?.mode === 'text-to-speech' ? 'Text to speech' : draft.modality === 'audio' ? 'Music & sound' : draft.modality === 'video' ? draft.references.length ? 'Image to video' : 'Create video' : draft.references.length && selected?.supportsImageReference ? 'Edit image' : 'Create image')}</span><span className="om-eyebrow">{t('Settings follow your model')}</span></div>}
       {promptField}
       {!imageWorkspace && modelNotice}
       {inputImageRatio && <p className="om-muted" role="status">{t('Aspect ratio follows the first frame.')} {t('Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.')}</p>}

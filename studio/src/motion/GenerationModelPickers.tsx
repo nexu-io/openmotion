@@ -31,8 +31,8 @@ export function GenerationModelPickers({ models, preferred, modelHeading, disabl
  * Studio creation: choose the provider, then one of its models. Providers without credentials stay listed but
  * cannot be chosen; their models remain visible so the page can ask for setup.
  */
-export function CreationModelPicker({ models, providers, selected, modelHeading, disabled, onChoose, onManageProviders, onConfigureProvider, appearance = 'standard', popupClassName }: {
-  models: Model[]; providers: ProviderState[]; selected?: Model; modelHeading: ReactNode; disabled: boolean;
+export function CreationModelPicker({ models, providers, selected, providerHeading, modelHeading, disabled, onChoose, onManageProviders, onConfigureProvider, appearance = 'standard', popupClassName }: {
+  models: Model[]; providers: ProviderState[]; selected?: Model; providerHeading?: ReactNode; modelHeading: ReactNode; disabled: boolean;
   onChoose: (id: string) => void; onManageProviders?: () => void; onConfigureProvider?: (providerId: string) => void; appearance?: 'standard' | 'boxed'; popupClassName?: string;
 }) {
   const { t } = useI18n();
@@ -131,7 +131,7 @@ export function CreationModelPicker({ models, providers, selected, modelHeading,
   </Popover>;
 
   return <div className="om-generation-pickers" data-paired>
-    <div className="om-generation-picker"><span className="om-eyebrow">{t('Provider')}</span>{providerPicker}</div>
+    <div className="om-generation-picker">{providerHeading ?? <span className="om-eyebrow">{t('Provider')}</span>}{providerPicker}</div>
     <div className="om-generation-picker">{modelHeading}{modelPicker}</div>
   </div>;
 }

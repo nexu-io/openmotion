@@ -7,6 +7,7 @@ import { transport } from './http.ts';
 import { execute, pluginRoot } from '../hyperframes.ts';
 import { verificationBinaries } from '../scripts/verify-export.ts';
 import { AssetLibrary, assetHash } from '../gateway/asset-library.ts';
+import { audioAssetTitle, classifyAudioKind } from '../shared/audio-kind.ts';
 import { probeLibraryMedia } from '../gateway/asset-probe.ts';
 import { ModelGateway, gatewayFor } from '../gateway/service.ts';
 import { assetOperation } from '../gateway/asset-operations.ts';
@@ -273,4 +274,71 @@ test('legacy conversation receipts survive new turns and replay after references
     await assert.rejects(restarted.start(chat.id, { ...input, text: 'Changed legacy input' }), /REQUEST_ID_CONFLICT/);
     assert.equal(launches, 1);
   } finally { await chats.close(); }
+}, false));
+
+test('audio assets persist probed waveforms, filter by server-side audioKind, search voice names, and derive short titles', () => fixture(async store => {
+  const library = new AssetLibrary(store);
+  const wav = path.join(store.directory, 'voice-sample.wav');
+  assert.equal((await execute(verificationBinaries().ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.4', wav], store.directory)).code, 0);
+  const uploaded = await library.importFile(wav, { requestId: 'upload-audio-1', name: 'Uploaded cue' });
+  assert.ok(Array.isArray(uploaded.versions[0].waveform) && uploaded.versions[0].waveform!.length === 128);
+  assert.equal(uploaded.versions[0].audioKind, 'upload');
+
+  const speechPrepared = await library.prepare(wav);
+  const speech = await store.lock(() => library.addLocked(speechPrepared, {
+    name: audioAssetTitle('把需求详情页做成一个交付视图。负责人打开需求后，可以直接看出需求拆成了哪些工作、每项进展如何。'),
+    expectedModality: 'audio',
+    version: { source: 'generated', prompt: '把需求详情页做成一个交付视图。负责人打开需求后，可以直接看出需求拆成了哪些工作、每项进展如何。', model: 'opendesign:elevenlabs-v3', parameters: { voice: '21m00Tcm4TlvDq8ikWAM' }, references: [], requestId: 'gen-speech-1', requestHash: 'h1' },
+  }));
+  assert.equal(speech.name, '把需求详情页做成一个交付视图。');
+  assert.equal(speech.versions[0].audioKind, 'speech');
+
+  const sfxPrepared = await library.prepare(wav);
+  await store.lock(() => library.addLocked(sfxPrepared, {
+    name: 'Whoosh',
+    expectedModality: 'audio',
+    version: { source: 'generated', prompt: 'Cinema whoosh', model: 'fal:fal-ai/elevenlabs/sound-effects/v2', parameters: { duration_seconds: 2 }, references: [], requestId: 'gen-sfx-1', requestHash: 'h2' },
+  }));
+
+  // Persisted audioKind preserves catalogue mode/label classification even for opaque endpoint IDs.
+  const opaqueSpeechPrepared = await library.prepare(wav);
+  const opaqueSpeech = await store.lock(() => library.addLocked(opaqueSpeechPrepared, {
+    name: 'Opaque narrator',
+    expectedModality: 'audio',
+    version: {
+      source: 'generated',
+      prompt: 'Narrator intro',
+      model: 'opendesign:acme/narrator-v2',
+      audioKind: classifyAudioKind('opendesign:acme/narrator-v2', 'text-to-speech', 'generated', 'acme/narrator-v2 Acme Narrator'),
+      parameters: {},
+      references: [],
+      requestId: 'gen-opaque-speech',
+      requestHash: 'h3',
+    },
+  }));
+  assert.equal(opaqueSpeech.versions[0].audioKind, 'speech');
+
+  const opaqueSfxPrepared = await library.prepare(wav);
+  const opaqueSfx = await store.lock(() => library.addLocked(opaqueSfxPrepared, {
+    name: 'Opaque impact',
+    expectedModality: 'audio',
+    version: {
+      source: 'generated',
+      prompt: 'Impact boom',
+      model: 'opendesign:acme/impact-v1',
+      audioKind: classifyAudioKind('opendesign:acme/impact-v1', 'text-to-audio', 'generated', 'acme/impact-v1 Acme Sound Effects'),
+      parameters: {},
+      references: [],
+      requestId: 'gen-opaque-sfx',
+      requestHash: 'h4',
+    },
+  }));
+  assert.equal(opaqueSfx.versions[0].audioKind, 'sfx');
+
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'speech' })).total, 2);
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'sfx' })).total, 2);
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'upload' })).total, 1);
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'music' })).total, 0);
+  // Searching by friendly voice name finds assets storing the raw ElevenLabs voice ID.
+  assert.equal((await library.list({ modality: 'audio', query: 'Rachel' })).assets.map(a => a.id).includes(speech.id), true);
 }, false));

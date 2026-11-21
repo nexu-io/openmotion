@@ -10,4 +10,4 @@ The Audio navigation menu's Voice changer preview uses two original studio portr
 
 The AI Influencer cover (`ai-influencer-marketing.webp`) is an original creator-marketing studio photograph generated specifically for OpenMotion.
 
-The background-removal and relighting guides use the supplied comparison images `sofa-cutout.png` and `sofa-relight.webp`.
+The background-removal and relighting guides use two original comparison renders (`sofa-cutout.webp` and `sofa-relight.webp`) generated specifically for OpenMotion.

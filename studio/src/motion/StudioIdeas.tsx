@@ -8,7 +8,7 @@ import { needsImage, type StudioDestination } from './creativeStudios';
 import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase';
 import { skillPreviewSnapshot } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
-import sofaCutout from './scene-art/sofa-cutout.png';
+import sofaCutout from './scene-art/sofa-cutout.webp';
 import sofaRelight from './scene-art/sofa-relight.webp';
 
 function SceneComparisonGuide({ src, width, height, alt, title, description, wide }: {
@@ -94,7 +94,7 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
       description="For images with multiple subjects, describe what to keep, for example “Keep the sofa and coffee table.”" />
   );
   if (scene.id === 'relight') return (
-    <SceneComparisonGuide src={sofaRelight} width={2310} height={1290} wide
+    <SceneComparisonGuide src={sofaRelight} width={1280} height={715} wide
       alt="An armchair shown under three lighting setups"
       title="Relight with flexible lighting controls"
       description="Adjust light direction, color temperature, and mood to make any photo look its best." />
