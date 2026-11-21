@@ -469,7 +469,7 @@ test('production OpenDesign image models show only the fields they honour', () =
   assert.deepEqual(fields(image('opendesign', 'gpt-image-2.6-flare')), [['quality', ['low', 'medium', 'high'], 'low'], ['background', ['transparent'], undefined]]);
   assert.deepEqual(fields(image('account', 'gpt-image-2.6-sunburst', { quality: { values: ['low', 'high'], default: 'high' } })), [['quality', ['low', 'high'], 'high'], ['background', ['transparent'], undefined]]);
   assert.doesNotThrow(() => validateGenerationOptions(image('opendesign', 'seedream-5.0-flash'), { size: '1.5K' }));
-  assert.throws(() => validateGenerationOptions(image('opendesign', 'seedream-5.5'), { size: '1.5K' }), /Invalid Image size/);
+  assert.throws(() => validateGenerationOptions(image('opendesign', 'seedream-5.5'), { size: '1.5K' }), /Invalid Resolution/);
 });
 test('OpenDesign image edit mode validates and filters against the distinct edits profile envelope', () => {
   const model: Model = {

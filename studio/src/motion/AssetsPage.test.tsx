@@ -10,7 +10,9 @@ import type { LibraryAsset } from '../../../shared/asset-library';
 
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Record<string, string | number>) => text.replace(/\{(\w+)\}/g, (match, key) => String(values?.[key] ?? match)), formatDate: () => 'Nov 15' }) }));
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
-vi.mock('./AssetComposer', () => ({ AssetComposer: ({ draft, onReference }: { draft: AssetDraft; onReference: () => void }) => <><input aria-label="Creation draft" data-reference-count={draft.references.length} /><button onClick={onReference}>References</button></> }));
+let lastComposerOnCreated: ((job: import('../../../shared/gateway').GenerationJob) => void) | undefined;
+let lastShowCurrentJob: boolean | undefined;
+vi.mock('./AssetComposer', () => ({ AssetComposer: ({ draft, onReference, onCreated, showCurrentJob }: { draft: AssetDraft; onReference: () => void; onCreated: (job: import('../../../shared/gateway').GenerationJob) => void; showCurrentJob?: boolean }) => { lastComposerOnCreated = onCreated; lastShowCurrentJob = showCurrentJob; return <><input aria-label="Creation draft" data-reference-count={draft.references.length} /><button onClick={onReference}>References</button></>; } }));
 vi.mock('./AssetTaskHistory', () => ({ AssetTaskMenu: () => null }));
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn(), uploadLibraryAsset: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: async () => ({ conversations: [] }) }));
@@ -656,4 +658,155 @@ it('hides Use as reference on video assets, edits video without self-reference, 
   const dialog = document.querySelector('[role=dialog]')!;
   expect(dialog).not.toBeNull();
   expect([...dialog.querySelectorAll('button')].some(node => node.textContent === 'Videos' || node.textContent === 'Audio')).toBe(false);
+});
+
+it('switches to Asset library on generate and shows blurred placeholder tiles at the front of the grid without duplicating composer progress', async () => {
+  records.clear();
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
+  expect(container.querySelector('.om-canvas-deck')).not.toBeNull();
+  const makeJob = (id: string, prompt: string, createdAt: number, hasRef = false): import('../../../shared/gateway').GenerationJob => ({
+    id, requestId: `req-${id}`, modality: 'image', prompt, state: 'running',
+    model: { id: 'gpt-image-2', label: 'GPT Image 2', provider: 'opendesign' },
+    ...(hasRef ? { library: { references: [{ assetId: 'ref-1', versionId: 'ref-v1' }] } } : {}),
+    createdAt, updatedAt: createdAt,
+  });
+  await act(async () => {
+    lastComposerOnCreated?.(makeJob('job-1', 'Amber bottle in warm sunlight', 100));
+    lastComposerOnCreated?.(makeJob('job-2', 'Refined glass lighting pass', 200, true));
+  });
+  await flush();
+  // Auto-switched to Asset library tab with live running badge and suppressed duplicate left-pane card.
+  expect(container.querySelector('.om-canvas-deck')).toBeNull();
+  expect(lastShowCurrentJob).toBe(false);
+  const libraryTab = container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1];
+  expect(libraryTab.getAttribute('aria-pressed')).toBe('true');
+  expect(libraryTab.querySelector('.om-tab-count')?.textContent).toBe('2');
+  const tiles = [...container.querySelectorAll('.om-gen-flow .om-gen-card-pending')];
+  expect(tiles).toHaveLength(2);
+  // Newest active job appears first, with blurred reference backdrop when a reference exists.
+  expect(tiles[0].querySelector('img.om-placeholder-backdrop')).not.toBeNull();
+  expect(tiles[1].querySelector('.om-placeholder-aura')).not.toBeNull();
+});
+
+it('transitions completed placeholders in place without duplicating assets and lets users reuse or dismiss failed placeholders', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+  };
+  let polledJobs: import('../../../shared/gateway').GenerationJob[] = [];
+  const baseImpl = vi.mocked(assetRequest).getMockImplementation()!;
+  vi.mocked(assetRequest).mockImplementation(async args => {
+    if (args.action === 'jobs') return { jobs: structuredClone(polledJobs) };
+    return baseImpl(args);
+  });
+  await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
+  // Submitting a new version of existing asset A starts as running, then transitions to completed with A-v2.
+  const jobRunning: import('../../../shared/gateway').GenerationJob = {
+    id: 'job-v2', requestId: 'req-v2', modality: 'image', prompt: 'Upgrade asset A lighting', state: 'running',
+    model: { id: 'gpt-image-2', label: 'GPT Image 2', provider: 'opendesign' },
+    createdAt: 300, updatedAt: 300,
+  };
+  const jobFailed: import('../../../shared/gateway').GenerationJob = {
+    id: 'job-fail', requestId: 'req-fail', modality: 'image', prompt: 'Neon alley rain scene', state: 'failed',
+    error: 'Provider timeout',
+    model: { id: 'gpt-image-2', label: 'GPT Image 2', provider: 'opendesign' },
+    createdAt: 250, updatedAt: 250,
+  };
+  polledJobs = [jobRunning, jobFailed];
+  await act(async () => {
+    lastComposerOnCreated?.(jobRunning);
+    lastComposerOnCreated?.(jobFailed);
+  });
+  await flush();
+  expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(2);
+  // Once job-v2 finishes with version A-v2 and the library refreshes, it unblurs in place and deduplicates A from the rest of the stream.
+  records.get('A')!.versions.push({ ...records.get('A')!.versions[0], id: 'A-v2', parentVersionId: 'A-v1' });
+  records.get('A')!.currentVersionId = 'A-v2';
+  polledJobs = [{ ...jobRunning, state: 'completed', libraryAssets: [{ assetId: 'A', versionId: 'A-v2' }], updatedAt: 301 }, jobFailed];
+  await act(async () => { vi.advanceTimersByTime(2600); }); await flush();
+  await act(async () => { vi.advanceTimersByTime(10); }); await flush();
+  expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(1);
+  expect(container.querySelectorAll('[aria-label="Picture A"]')).toHaveLength(1);
+  // Reuse prompt refills the left composer draft; Dismiss removes the failed placeholder tile.
+  await act(async () => { button('Reuse prompt')!.click(); }); await flush();
+  expect(studio.remember.mock.lastCall?.[0].prompt).toBe('Neon alley rain scene');
+  await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!.click(); }); await flush();
+  expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(0);
+});
+
+it('renders justified equal-height Generations flows for both Image and Video with human model names and unclipped Cinema Lightbox', async () => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const imageStudio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={imageStudio} />)); await flush();
+  const generationsTab = container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1];
+  expect(generationsTab.textContent).toBe('Generations');
+  await act(async () => generationsTab.click()); await flush();
+  const history = container.querySelector('.om-gen-history')!;
+  expect(history.getAttribute('data-density')).toBe('comfortable');
+  await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Large preview"]')!.click(); });
+  expect(history.getAttribute('data-density')).toBe('large');
+  // Clicking an image card opens the zoomable lightbox right inside the Image tab.
+  await act(async () => { container.querySelector<HTMLButtonElement>('.om-gen-open')!.click(); });
+  const lightbox = container.querySelector('[role="dialog"].om-gen-lightbox')!;
+  expect(lightbox).not.toBeNull();
+  expect(lightbox.textContent).toContain('Zoom 100%');
+  await act(async () => { lightbox.querySelector<HTMLButtonElement>('[aria-label="Close"]')!.click(); });
+  expect(container.querySelector('.om-gen-lightbox')).toBeNull();
+
+  // Video tab renders justified equal-height cards with human model labels, ratio/duration/resolution tags, and Cinema Lightbox.
+  const clipA = fixture('vid-1');
+  clipA.name = 'Portrait dance';
+  clipA.modality = 'video';
+  Object.assign(clipA.versions[0], {
+    filename: 'shot1.mp4', mimeType: 'video/mp4', duration: 5.1, width: 720, height: 1280,
+    model: 'account:doubao-seedance-2-5-260628', prompt: 'Slow dolly across studio table',
+  });
+  const clipB = fixture('vid-2');
+  clipB.name = 'Closing shot';
+  clipB.modality = 'video';
+  Object.assign(clipB.versions[0], {
+    filename: 'shot2.mp4', mimeType: 'video/mp4', duration: 4, width: 1920, height: 1080,
+    model: 'opendesign:wan-2.7', prompt: 'Wide pull-back at dusk',
+  });
+  records.set(clipA.id, clipA);
+  records.set(clipB.id, clipB);
+  const videoStudio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-video')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage key="video" active studio={videoStudio} />)); await flush();
+  const videoTab = container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1];
+  expect(videoTab.textContent).toBe('Generations');
+  await act(async () => videoTab.click()); await flush();
+  const videoCards = [...container.querySelectorAll<HTMLElement>('.om-gen-flow .om-gen-card')];
+  expect(videoCards).toHaveLength(2);
+  expect(videoCards[0].style.getPropertyValue('--ar')).toBe(String(720 / 1280));
+  expect(videoCards[0].textContent).toContain('Seedance 2.5');
+  expect(videoCards[0].textContent).toContain('9:16');
+  expect(videoCards[0].textContent).toContain('5s');
+  expect(videoCards[0].textContent).toContain('720p');
+  expect(videoCards[0].textContent).not.toContain('account:doubao-seedance-2-5-260628');
+  // Clicking the vertical video opens the Cinema Lightbox with controls intact.
+  await act(async () => { videoCards[0].querySelector<HTMLButtonElement>('.om-gen-open')!.click(); });
+  const videoLightbox = container.querySelector('[role="dialog"].om-gen-lightbox')!;
+  expect(videoLightbox).not.toBeNull();
+  expect(videoLightbox.querySelector('video.om-gen-lightbox-video')).not.toBeNull();
+  expect(videoLightbox.textContent).toContain('Slow dolly across studio table');
 });

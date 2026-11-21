@@ -1,9 +1,9 @@
 import { Button } from 'open-design-ui/button';
 import * as tracking from './pageTracking';
 import { destinationTarget, reportCreativePageView } from './exploreTracking';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assetVersion, type LibraryAsset } from '../../../shared/asset-library';
-import type { GenerationJob } from '../../../shared/gateway';
+import { resumableJob, type GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useToast } from '../hooks/useToast';
@@ -14,6 +14,8 @@ import { AssetTaskMenu } from './AssetTaskHistory';
 import { assetTasks, mergeAssetJobs, type AssetChatSummary, type AssetTask, type AssetTaskMode } from './assetTasks';
 import { gatewayRequest } from './gatewayClient';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
+import { AssetGenerationPlaceholder } from './AssetGenerationPlaceholder';
+import { MediaGenerationHistory } from './MediaGenerationHistory';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
 import { assetUploadMessage, type AssetUploadSummary } from '../i18n/assetUploadMessages';
@@ -29,7 +31,7 @@ import { imageModelLabel } from './imageMenuModels';
 import './assets.css';
 export function AssetsPage({ active, hasProject = false, studio, routeId, routeVersion, onAssetRoute }: { routeId?: string | null; routeVersion?: string | null; onAssetRoute?: (id: string | null, version: string | null) => void; active: boolean; hasProject?: boolean; studio?: StudioCreation }) {
   const { t } = useI18n(), toast = useToast();
-  const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]);
+  const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
   const [draft, setDraft] = useState<AssetDraft>(() => studio?.initialDraft ?? { modality: studio?.destination.scene.modality ?? 'image', prompt: '', references: [] });
   const [draftKeyState, setDraftKeyState] = useState(studio?.draftKey);
   if (studio?.draftKey && studio.draftKey !== draftKeyState) {
@@ -282,18 +284,102 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     } catch (error) { if (request === selectionRequest.current) onError((error as Error).message); }
     finally { if (request === selectionRequest.current) setSelectingTask(false); }
   };
-  const blankCanvas = layout === 'canvas' && browser.data?.total === 0 && !browser.query && browser.source === 'all';
+  const studioModality = studio?.destination.scene.modality;
+  useEffect(() => {
+    const activeIds = jobs
+      .filter(job => (!studioModality || job.modality === studioModality) && (job.state === 'queued' || job.state === 'running'))
+      .map(job => job.id);
+    if (!activeIds.length) return;
+    setSessionJobIds(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of activeIds) if (!next.has(id)) { next.add(id); changed = true; }
+      return changed ? Array.from(next) : prev;
+    });
+  }, [jobs, studioModality]);
+  const savedVersions = useMemo(() => {
+    const keys = new Set<string>();
+    for (const asset of browser.data?.assets ?? []) {
+      for (const item of asset.versions) keys.add(`${asset.id}/${item.id}`);
+    }
+    return keys;
+  }, [browser.data?.assets]);
+  const placeholderJobs = useMemo(() => {
+    if (studioModality === 'audio' || (!studio && kind === 'trash')) return [];
+    const sessionSet = new Set(sessionJobIds);
+    const keepCompletedInPlace = Boolean(studio && (studioModality === 'image' || studioModality === 'video'));
+    return jobs.filter(job => {
+      if (dismissedJobIds.has(job.id)) return false;
+      if (studioModality ? job.modality !== studioModality : (kind !== 'all' && job.modality !== kind)) return false;
+      if (job.state === 'queued' || job.state === 'running') return true;
+      if (job.savePending || resumableJob(job)) return true;
+      if (job.state === 'completed') {
+        if (!sessionSet.has(job.id)) return false;
+        if (keepCompletedInPlace) return true;
+        const outputs = job.libraryAssets;
+        if (!outputs?.length) return true;
+        return !outputs.every(output => savedVersions.has(`${output.assetId}/${output.versionId}`));
+      }
+      return sessionSet.has(job.id);
+    }).sort((a, b) => {
+      const aWorking = a.state === 'queued' || a.state === 'running';
+      const bWorking = b.state === 'queued' || b.state === 'running';
+      if (aWorking !== bWorking) return aWorking ? -1 : 1;
+      return b.createdAt - a.createdAt;
+    });
+  }, [jobs, studioModality, studio, kind, sessionJobIds, dismissedJobIds, savedVersions]);
+  const activePlaceholderCount = useMemo(
+    () => placeholderJobs.filter(job => job.state === 'queued' || job.state === 'running').length,
+    [placeholderJobs],
+  );
+  const dismissJob = useCallback((jobId: string) => setDismissedJobIds(prev => new Set(prev).add(jobId)), []);
+  const hasVisiblePendingJob = useMemo(
+    () => placeholderJobs.some(job => job.state !== 'completed' || !(job.libraryAssets?.length && job.libraryAssets.every(output => savedVersions.has(`${output.assetId}/${output.versionId}`)))),
+    [placeholderJobs, savedVersions],
+  );
+  const showLibraryPlaceholders = hasVisiblePendingJob && (!studio || !guide);
+  const leadingPlaceholderTiles = showLibraryPlaceholders && browser.page === 0
+    ? placeholderJobs.map(job => (
+      <AssetGenerationPlaceholder
+        key={`job:${job.id}`}
+        job={job}
+        variant="tile"
+        active={active}
+        onCancel={cancelJob}
+        onView={viewJob}
+        onRetrySave={retrySave}
+        onResume={resumeJob}
+        onReusePrompt={applyPrompt}
+        onDismiss={dismissJob}
+      />
+    ))
+    : undefined;
+  const attachReference = (item: AssetDraft['references'][number]) => {
+    setDraft(current => current.references.some(existing => existing.reference.assetId === item.reference.assetId && existing.reference.versionId === item.reference.versionId)
+      ? current
+      : { ...current, references: [...current.references, item] });
+    setMobileView('create');
+  };
+  const blankCanvas = layout === 'canvas' && browser.data?.total === 0 && !placeholderJobs.length && !browser.query && browser.source === 'all';
   const canvasModels = studioForm && layout === 'canvas' ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, !studioForm.destination.model) : undefined;
   const studioEmpty = studio && (layout === 'canvas' ? <StudioIdeas destination={studio.destination} onPrompt={applyPrompt}
     modelName={canvasModels?.selected && imageModelLabel(canvasModels.selected)} /> : <p className="om-muted">{t('No assets yet')}</p>);
   const history = { tasks, selectedKey, loading: historyLoading, error: historyError, onRetry: () => { setHistoryLoading(true); setHistoryRetry(value => value + 1); }, onSelect: (task: AssetTask) => { tracking.reportAssetsClick('asset_tasks', 'select_task', { task_mode: task.mode }); void selectTask(task); } };
   const taskMenu = <AssetTaskMenu {...history} disabled={selectingTask} />;
-  const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} agentReferences={agentReferences} setAgentReferences={setAgentReferences} jobs={jobs} mode={mode} onMode={next => { if (next !== mode) tracking.reportAssetsClick('asset_create', 'mode_switch', { task_mode: next }); setMode(next); }} taskIds={taskIds} history={history} selectingTask={selectingTask}
+  const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} agentReferences={agentReferences} setAgentReferences={setAgentReferences} jobs={jobs} showCurrentJob={!showLibraryPlaceholders} mode={mode} onMode={next => { if (next !== mode) tracking.reportAssetsClick('asset_create', 'mode_switch', { task_mode: next }); setMode(next); }} taskIds={taskIds} history={history} selectingTask={selectingTask}
     onNew={() => startDraft(mode === 'agent' ? draft : { modality: draft.modality, prompt: '', references: [] }, mode)} onChatChanged={chatChanged}
     onChatStarted={id => setTaskIds(current => ({ ...current, agent: id }))}
     onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} onUploadReference={studioForm && !uploading ? () => referenceUpload.current?.click() : undefined} onReference={() => { tracking.reportAssetsClick('asset_create', 'add_reference', { task_mode: mode }); setPicking(true); }} onCreated={job => {
       knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskIds(current => ({ ...current, direct: job.id }));
-      refresh(); toast.showToast(t('Generation started. Track it in Tasks.'), 'info');
+      setSessionJobIds(prev => prev.includes(job.id) ? prev : [...prev, job.id]);
+      setDismissedJobIds(prev => { if (!prev.has(job.id)) return prev; const next = new Set(prev); next.delete(job.id); return next; });
+      if (studio) setStudioTab('library');
+      else if (kind === 'trash' || (kind !== 'all' && kind !== job.modality)) setKind(job.modality);
+      if (browser.source === 'upload') browser.setSource('all');
+      if (browser.query) browser.setQuery('');
+      if (browser.page > 0) browser.setPage(0);
+      if (gallery.current) gallery.current.scrollTo({ top: 0, behavior: 'smooth' });
+      refresh(); toast.showToast(t(studio ? 'Added to Generations' : 'Generation started. Track it in Tasks.'), 'info');
     }} onError={onError} onClose={() => { selectionRequest.current++; setSelectingTask(false); setCreating(false); }} />;
   const soundWorkbench = studio?.destination.scene.modality === 'audio' && !audioStudio;
   return <div className="om-assets-page" data-scene-layout={layout} data-creating={creating} data-previewing={Boolean(selected)} data-mobile-view={mobileView}>
@@ -340,10 +426,30 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       {audioStudio?.openCreate ? <AudioStudioLanding destination={audioStudio.destination} active={active} onPrompt={audioStudio.openCreate} onCreate={() => audioStudio.openCreate?.()} /> : <>
       {studio ? <header className="om-assets-heading">{hasGuide ? <div className="om-choice-tabs" role="group" aria-label={t('Guide & assets')}>
         <Button variant="plain" className="om-nav-item" aria-pressed={guide} onClick={() => setStudioTab('guide')}>{t('How it works')}</Button>
-        <Button variant="plain" className="om-nav-item" aria-pressed={!guide} onClick={() => setStudioTab('library')}>{t('Asset library')}</Button>
-      </div> : <h2 className="om-subtitle">{t('Images')}</h2>}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => upload.current?.click()}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button></header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
+        <Button variant="plain" className="om-nav-item" aria-pressed={!guide} onClick={() => setStudioTab('library')}>{t('Generations')}{activePlaceholderCount > 0 && <span className="om-badge om-tab-count" role="status">{activePlaceholderCount}</span>}</Button>
+      </div> : <h2 className="om-subtitle">{t('Generations')}</h2>}<div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => upload.current?.click()}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button></div></header> : <header className="om-assets-heading"><div><h1 className="om-title">{t(kind === 'trash' ? 'Trash' : 'Workspace assets')}</h1><p className="om-muted">{t('One library for every creation.')}</p></div><div className="om-asset-actions">{taskMenu}<Button variant="ghost" className="om-button h-auto" disabled={uploading} onClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}><RemixIcon name="upload-2-line" size={16} />{t(uploading ? 'Uploading…' : 'Upload')}</Button><Button variant="ghost" className="om-button h-auto" data-primary onClick={create}><RemixIcon name="add-line" size={16} />{t('AI Create')}</Button></div></header>}
 
-      {guide && studio ? <StudioIdeas destination={studio.destination} active={active} onPrompt={applyPrompt} /> : <AssetBrowserContent browser={browser} hoverPreview={active} emptyContent={studioEmpty} toolbar={studio ? (blankCanvas ? <></> : undefined) : <AssetGalleryToolbar browser={browser} onKindChange={next => { if (next !== kind) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next }); setKind(next); }} />} onOpen={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }} onCreate={studio ? undefined : modality => { tracking.reportAssetsClick('assets_library', 'create_asset', { modality }); startDraft({ modality, prompt: '', references: [] }); }} />}
+      {guide && studio ? <StudioIdeas destination={studio.destination} active={active} onPrompt={applyPrompt} /> : studio && (studio.destination.scene.modality === 'image' || studio.destination.scene.modality === 'video') ? (
+        <MediaGenerationHistory
+          modality={studio.destination.scene.modality}
+          browser={browser}
+          active={active}
+          models={studio.catalog.catalog?.models}
+          placeholderJobs={placeholderJobs}
+          emptyContent={studioEmpty}
+          blankCanvas={blankCanvas}
+          onOpenDetail={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }}
+          onReusePrompt={applyPrompt}
+          onUseReference={studio.destination.scene.modality === 'image' ? attachReference : undefined}
+          onUseFirstFrame={studio.useAsFirstFrame}
+          onCancelJob={cancelJob}
+          onViewJob={viewJob}
+          onRetrySave={retrySave}
+          onResumeJob={resumeJob}
+          onDismissJob={dismissJob}
+          onDownload={() => { tracking.reportAssetsClick('assets_library', 'download_asset', { modality: studio.destination.scene.modality }); toast.showToast(t('Download started'), 'info'); }}
+        />
+      ) : <AssetBrowserContent browser={browser} hoverPreview={active} leadingTiles={leadingPlaceholderTiles} emptyContent={studioEmpty} toolbar={studio ? (blankCanvas ? <></> : undefined) : <AssetGalleryToolbar browser={browser} onKindChange={next => { if (next !== kind) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next }); setKind(next); }} />} onOpen={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }} onCreate={studio ? undefined : modality => { tracking.reportAssetsClick('assets_library', 'create_asset', { modality }); startDraft({ modality, prompt: '', references: [] }); }} />}
       </>}
     </main>
     {creating && !studio && <ResizablePane className="om-creator-pane" storageKey="motion-assets-creator-width" initial={460} min={340} max={800} edge="left" label={t('Resize creator')}>{composer}</ResizablePane>}

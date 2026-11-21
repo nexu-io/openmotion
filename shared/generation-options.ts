@@ -228,8 +228,8 @@ function openDesignImageFields(model: Model): GenerationOption[] | undefined {
       { ...choice('background', 'Background', []), choices: [{ value: 'transparent', label: 'Transparent' }] },
     ];
   }
-  if (model.modelId === 'seedream-5.0-flash') return [choice('size', 'Image size', ['1K', '1.5K', '2K'], '1K')];
-  if (model.modelId === 'seedream-5.5') return [choice('size', 'Image size', ['1K', '2K'], '1K')];
+  if (model.modelId === 'seedream-5.0-flash') return [choice('size', 'Resolution', ['1K', '1.5K', '2K'], '1K')];
+  if (model.modelId === 'seedream-5.5') return [choice('size', 'Resolution', ['1K', '2K'], '1K')];
   return undefined;
 }
 
@@ -286,7 +286,10 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
       if (resolutions.length) imageFields.push(choice('resolution', 'Resolution', resolutions, profiles.default?.resolution));
     } else {
       const sizes = publishedStrings(model.nativeOptions?.sizes);
-      if (sizes) imageFields.push(choice('size', 'Image size', sizes.values, sizes.default));
+      if (sizes) {
+        const resolutionTiers = sizes.values.every(value => /^\d+(?:\.\d+)?K$/i.test(value));
+        imageFields.push(choice('size', resolutionTiers ? 'Resolution' : 'Image size', sizes.values, sizes.default));
+      }
     }
     const quality = publishedStrings(model.nativeOptions?.quality);
     if (quality) imageFields.push(choice('quality', 'Quality', quality.values, quality.default));

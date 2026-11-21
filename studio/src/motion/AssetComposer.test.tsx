@@ -821,7 +821,7 @@ it('renders VideoMegaMenu with open video scenes, Coming soon items, and OpenDes
     onNavigate={navigate}
   />));
   const buttons = [...container.querySelectorAll('button')];
-  expect(buttons.some(button => button.textContent?.includes('Create video') && !button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Text to video') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Camera control') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Start & end frames') && button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Seedance 2.5') && !button.disabled)).toBe(true);

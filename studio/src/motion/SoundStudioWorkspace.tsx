@@ -34,6 +34,7 @@ import {
   type SoundTabDefinition,
   type SoundTabId,
 } from './soundTabs';
+import { dayKey, modelDisplayLabel } from './generationLabels';
 import { buildVoicePreviewTrack, resolveVoicePreview, type VoicePreviewController } from './voicePreviews';
 import './soundStudio.css';
 
@@ -55,16 +56,8 @@ function formatBytes(bytes: number): string {
   return `${Number(size.toFixed(1))} ${units[unit]}`;
 }
 
-function dayKey(timestamp: number): string {
-  const date = new Date(timestamp);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-}
-
 function modelLabelForVersion(studio: StudioCreation, modelId?: string): string | undefined {
-  if (!modelId) return undefined;
-  const matched = studio.catalog.catalog?.models.find(m => m.id === modelId);
-  if (matched) return matched.label;
-  return modelId.includes(':') ? modelId.slice(modelId.indexOf(':') + 1) : modelId;
+  return modelDisplayLabel(studio.catalog.catalog?.models, modelId);
 }
 
 function buildAssetTrack(

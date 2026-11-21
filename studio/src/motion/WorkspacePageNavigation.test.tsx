@@ -1281,7 +1281,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
   const entryCards = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-entries > button')];
-  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', 'Character consistency']);
+  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Text to image', 'Image editing', 'Character consistency']);
   expect(entryCards[2].disabled).toBe(false);
   expect(entryCards[2].textContent).not.toContain('Coming soon');
   // Background removal and relighting are live features; the rest stay Coming soon.
@@ -1308,7 +1308,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
   await click('Video · Scenes');
   const videoMenu = document.querySelector('.om-creative-menu-video')!;
-  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Create video', 'Image to video', 'Camera control', 'Start & end frames']);
+  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Text to video', 'Image to video', 'Camera control', 'Start & end frames']);
   const still = [...videoMenu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Video first frame'))!;
   await act(async () => still.click());
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'shot-image' }, landing: true });
@@ -1373,7 +1373,7 @@ it.each([
 });
 
 it.each([
-  ['Video', 'Create video', 'text-to-video'],
+  ['Video', 'Text to video', 'text-to-video'],
   ['Audio', 'Text to speech', 'speech'],
 ])('opens the %s dropdown scene without a breadcrumb', async (label, sceneLabel, scene) => {
   await mount(); await click('Explore');
@@ -1532,7 +1532,7 @@ it('retains the active model and scene on same-modality entry and switches a Cin
 it('opens image editing from its scene shortcut and returns to the same Explore collection', async () => {
   await mount(); await click('Search workspace'); await click('Product films');
   await click('Image · Scenes');
-  const edit = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu button')].find(node => node.querySelector('strong')?.textContent === 'Edit image')!;
+  const edit = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu button')].find(node => node.querySelector('strong')?.textContent === 'Image editing')!;
   await act(async () => edit.click());
   expect(page()).toMatchObject({ community: 'product-films', studio: { landing: true, scene: { id: 'image-edit' } } });
   expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Image editing');

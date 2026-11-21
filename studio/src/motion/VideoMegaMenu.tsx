@@ -25,9 +25,9 @@ const nativeAudioScene = findScene('video-native-audio');
 const shotImageScene = findScene('shot-image');
 
 const topScenes = [
-  [textVideoScene, 'Create video', 'text'],
-  [imageVideoScene, 'Image to video', 'first-frame'],
-  [cameraScene, 'Camera control', 'camera'],
+  [textVideoScene, 'text'],
+  [imageVideoScene, 'first-frame'],
+  [cameraScene, 'camera'],
 ] as const;
 
 const upcomingVideoFeatures = [
@@ -94,11 +94,11 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
 
   return <div className="om-media-mega">
     <div className="om-media-menu-grid om-media-mega-entries">
-      {topScenes.map(([scene, title, art]) => <Button variant="plain" key={scene.id} className="om-scene-tile"
+      {topScenes.map(([scene, art]) => <Button variant="plain" key={scene.id} className="om-scene-tile"
         aria-current={destination?.scene.id === scene.id ? 'page' : undefined}
         onClick={() => scene.id === cameraScene.id ? openFeature(scene) : openScene(scene)}>
         <VideoTileArt kind={art} />
-        <strong>{t(title)}</strong>
+        <strong>{t(scene.label)}</strong>
       </Button>)}
       <Button variant="plain" className="om-scene-tile om-scene-tile-disabled" disabled aria-disabled="true">
         <span className="om-scene-tile-art om-video-keyframes-demo">
@@ -120,19 +120,19 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
           aria-current={destination?.scene.id === nativeAudioScene.id ? 'page' : undefined}
           onClick={() => openFeature(nativeAudioScene)}>
           <span className="om-image-menu-icon"><RemixIcon name="volume-up-line" size={16} /></span>
-          <span className="om-media-mega-label">{t('Native audio video')}</span>
+          <span className="om-media-mega-label">{t(nativeAudioScene.label)}</span>
         </Button>,
         <Button key="multi-shot" variant="plain" className="om-nav-item om-media-mega-row"
           aria-current={destination?.scene.id === multiShotScene.id ? 'page' : undefined}
           onClick={() => openFeature(multiShotScene)}>
           <span className="om-image-menu-icon"><RemixIcon name="clapperboard-line" size={16} /></span>
-          <span className="om-media-mega-label">{t('Multi-shot narrative')}</span>
+          <span className="om-media-mega-label">{t(multiShotScene.label)}</span>
         </Button>,
         <Button key="camera" variant="plain" className="om-nav-item om-media-mega-row"
           aria-current={destination?.scene.id === cameraScene.id ? 'page' : undefined}
           onClick={() => openFeature(cameraScene)}>
           <span className="om-image-menu-icon"><RemixIcon name="camera-line" size={16} /></span>
-          <span className="om-media-mega-label">{t('Camera control')}</span>
+          <span className="om-media-mega-label">{t(cameraScene.label)}</span>
         </Button>,
         <Button key="shot-image" variant="plain" className="om-nav-item om-media-mega-row"
           aria-current={destination?.scene.id === shotImageScene.id ? 'page' : undefined}

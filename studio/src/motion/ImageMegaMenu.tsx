@@ -55,13 +55,13 @@ export function ModelMenuColumn({ families, onOpen }: { families: ModelFamily[];
 
 const findScene = (id: StudioScene['id']) => studioScenes.find(scene => scene.id === id)!;
 const characterScene = findScene('character');
-const sceneCards = [[imageScene, 'Create image'], [editImageScene, 'Edit image']] as const;
+const sceneCards = [imageScene, editImageScene] as const;
 const featureScenes = [findScene('remove-background'), findScene('relight')];
 const upcomingFeatures = [
   ['Inpainting', 'edit-line'], ['4K Upscale', 'fullscreen-line'], ['Batch set', 'layout-grid-line'], ['Image layers', 'stack-line'],
 ] as const;
 
-function ImageMenuArt({ scene }: { scene: typeof sceneCards[number][0]['id'] }) {
+function ImageMenuArt({ scene }: { scene: typeof sceneCards[number]['id'] }) {
   const demo = scene === 'text-to-image' ? 'image' : 'edit';
   return <span className={`om-scene-tile-art om-media-demo om-${demo}-demo`} aria-hidden="true">
     <span className="om-media-demo-frame">
@@ -93,9 +93,9 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
 
   return <div className="om-media-mega">
     <div className="om-media-menu-grid om-media-mega-entries">
-      {sceneCards.map(([scene, title]) => <Button variant="plain" key={scene.id} className="om-scene-tile"
+      {sceneCards.map(scene => <Button variant="plain" key={scene.id} className="om-scene-tile"
         aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openScene(scene)}>
-        <ImageMenuArt scene={scene.id} /><strong>{t(title)}</strong>
+        <ImageMenuArt scene={scene.id} /><strong>{t(scene.label)}</strong>
       </Button>)}
       <Button variant="plain" className="om-scene-tile" aria-current={destination?.scene.id === characterScene.id ? 'page' : undefined} onClick={() => openFeature(characterScene)}>
         <span className="om-scene-tile-art om-character-demo">
@@ -106,12 +106,11 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
           </span>
           <span className="om-character-caption" aria-hidden="true">{t('Your character')}</span>
         </span>
-        <strong>{t('Character consistency')}</strong>
+        <strong>{t(characterScene.label)}</strong>
       </Button>
     </div>
     <div className="om-media-mega-columns">
       <MegaMenuColumn title={t('Features')} items={[
-        <Button key="fusion" variant="plain" className="om-nav-item om-media-mega-row" onClick={() => openScene(editImageScene)}><span className="om-image-menu-icon"><RemixIcon name="image-line" size={16} /></span><span className="om-media-mega-label">{t('Multi-image fusion')}</span></Button>,
         <Button key="2k" variant="plain" className="om-nav-item om-media-mega-row" onClick={() => openFeature(imageScene, hd ? { model: hd.model.id, parameters: hd.parameters } : undefined)}><span className="om-image-menu-icon"><RemixIcon name="sparkling-line" size={16} /></span><span className="om-media-mega-label">{t('2K HD output')}</span></Button>,
         ...featureScenes.map(scene => <Button key={scene.id} variant="plain" className="om-nav-item om-media-mega-row" aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openFeature(scene)}>
           <span className="om-image-menu-icon"><RemixIcon name={scene.icon} size={16} /></span><span className="om-media-mega-label">{t(scene.label)}</span>
