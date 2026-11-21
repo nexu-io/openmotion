@@ -116,11 +116,11 @@
 [data-motion-studio] .om-badge[data-nav-badge="Coming soon"] { color: var(--motion-muted); background: var(--motion-panel); }
 [data-motion-studio] [data-coming-soon] .om-studio-heading-icon { color: var(--motion-muted); }
 [data-motion-studio] .om-nav-more-studios .om-nav-item[aria-current="page"]:not(:hover) { color: var(--motion-strong); background: transparent; }
-[data-motion-studio] .om-studio-coming-soon { position: relative; isolation: isolate; overflow: hidden; clip-path: inset(0 round var(--motion-radius-lg)); margin-block: 0 var(--motion-space-24); border-radius: var(--motion-radius-lg); background: var(--motion-inset); text-align: center; }
-[data-motion-studio] .om-studio-coming-soon-art { border-radius: inherit; position: absolute; inset: 0; z-index: -2; width: 100%; height: 100%; object-fit: cover; object-position: center; }
-/* Requested frosted artwork treatment; application menus and controls stay opaque. */
-[data-motion-studio] .om-studio-coming-soon::before { border-radius: inherit; content: ''; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--motion-panel) 55%, transparent); backdrop-filter: blur(calc(var(--motion-space-6) / 2)) saturate(.7); -webkit-backdrop-filter: blur(calc(var(--motion-space-6) / 2)) saturate(.7); }
-[data-motion-studio] .om-studio-coming-soon-content { display: flex; flex-direction: column; align-items: center; gap: var(--motion-space-16); padding: var(--motion-space-48) var(--motion-space-24); }
+[data-motion-studio] .om-studio-coming-soon { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 360px; overflow: hidden; clip-path: inset(0 round var(--motion-radius-lg)); margin-block: 0 var(--motion-space-24); border-radius: var(--motion-radius-lg); background: var(--motion-inset); text-align: start; }
+[data-motion-studio] .om-studio-coming-soon:not(:has(.om-studio-coming-soon-art)) { display: block; }
+[data-motion-studio] .om-studio-coming-soon-art { grid-column: 2; grid-row: 1; width: 100%; height: 100%; min-height: 360px; object-fit: cover; object-position: center; }
+[data-motion-studio] .om-studio-coming-soon-content { display: flex; grid-column: 1; grid-row: 1; flex-direction: column; align-items: flex-start; justify-content: center; gap: var(--motion-space-16); padding: var(--motion-space-48) var(--motion-space-40); background: var(--motion-inset); }
+[data-motion-studio] .om-studio-coming-soon-content .om-coming-soon-guide { align-items: flex-start; width: 100%; }
 [data-motion-studio] .om-studio-coming-soon .om-studio-heading-icon { display: grid; place-items: center; padding: var(--motion-space-12); border-radius: var(--motion-radius-lg); background: var(--motion-panel); }
 [data-motion-studio] .om-studio-coming-soon :is(h1, p) { margin: 0; }
 [data-motion-studio] .om-coming-soon-guide { display: flex; flex-direction: column; align-items: center; gap: var(--motion-space-16); }
@@ -129,6 +129,11 @@
 [data-motion-studio] :is(.om-coming-soon-actions, .om-studio-coming-soon-actions) { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--motion-space-8); }
 [data-motion-studio] .om-coming-soon-guide-compact { display: contents; }
 [data-motion-studio] .om-coming-soon-guide-compact :is(.om-coming-soon-actions, .om-studio-coming-soon-actions) { justify-content: flex-start; }
+@media (max-width: 700px) {
+  [data-motion-studio] .om-studio-coming-soon { grid-template-columns: minmax(0, 1fr); }
+  [data-motion-studio] .om-studio-coming-soon-art { grid-column: 1; grid-row: 1; min-height: 220px; max-height: 300px; }
+  [data-motion-studio] .om-studio-coming-soon-content { grid-column: 1; grid-row: 2; padding: var(--motion-space-32) var(--motion-space-24); }
+}
 [data-motion-studio] .om-switch { flex-shrink: 0; width: var(--motion-space-32); height: var(--motion-space-20); border: 0; border-radius: var(--motion-radius-full); background: var(--motion-border); padding: var(--motion-space-2); cursor: pointer; }
 [data-motion-studio] .om-switch::after { display: block; content: ''; width: var(--motion-space-16); height: var(--motion-space-16); border-radius: var(--motion-radius-full); background: var(--motion-bg); transition: transform var(--motion-duration-fast); }
 [data-motion-studio] .om-switch[aria-checked="true"] { background: var(--motion-action); }
