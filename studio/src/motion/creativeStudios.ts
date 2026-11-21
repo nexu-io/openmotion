@@ -1,7 +1,7 @@
 import { modelReferenceLimit, type Model, type Modality } from '../../../shared/gateway';
 import { imageFeatureModel, type ImageFeatureId } from '../../../shared/image-features';
 import type { VideoFeatureId } from '../../../shared/video-features';
-import { creativeStudios, studioScenes, type CreativeStudio, type MediaStudio, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
+import { creativeStudios, findMediaStudio, studioScenes, type CreativeStudio, type MediaStudio, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
 
 export { creativeStudios, studioScenes, type StudioScene };
 export const motionStudio = creativeStudios.find(studio => studio.surface === 'editor')!;
@@ -12,9 +12,14 @@ export const mediaLabels: Record<Modality, string> = { image: 'Image', video: 'V
 
 export const studioComingSoon = (studio: CreativeStudio | undefined) => Boolean(studio && 'navBadge' in studio && studio.navBadge === 'Coming soon');
 
-export function studioDraftKey({ studio, scene }: StudioDestination, skill?: string | null) {
-  return [studio.id, scene.id, ...(studio.surface === 'techniques' && skill ? [skill] : [])].join('/');
+/** A Skill brief keeps its own draft, including in the unified editor, so briefs from different studios never share a scene draft. */
+export function studioDraftKey({ studio, scene, landing }: StudioDestination, skill?: string | null) {
+  return [studio.id, scene.id, ...((studio.surface === 'techniques' || landing) && skill ? [skill] : [])].join('/');
 }
+
+/** Skills whose briefs can start a shot in the unified editor. */
+export const isStudioTechnique = (skill: string | null | undefined) =>
+  Boolean(skill && creativeStudios.some(studio => studio.surface === 'techniques' && studio.techniques.some(id => id === skill)));
 
 export function scenesForStudio(studio: GeneratingStudio) {
   return studio.scenes.map(id => studioScenes.find(scene => scene.id === id)!);
@@ -37,6 +42,14 @@ export function sceneDestination(scene: StudioScene, current?: StudioDestination
   const studio = current?.studio.surface === 'media' && includes(current.studio) ? current.studio
     : creativeStudios.find((item): item is MediaStudio => item.surface === 'media' && includes(item))!;
   return scene.entry === 'landing' ? { studio, scene, model, landing: true } : { studio, scene, model };
+}
+
+/** The unified top-tab editor for a scene: Image and Video open the create page, Audio opens the Audio tab. */
+export function mediaEditorDestination(sceneOrId: StudioScene | StudioScene['id'], model: string | null = null): StudioDestination {
+  const scene = typeof sceneOrId === 'string' ? studioScenes.find(item => item.id === sceneOrId)! : sceneOrId;
+  return scene.modality === 'audio'
+    ? { ...studioDestination(findMediaStudio('sound')!, scene.id, model), mediaTab: true as const }
+    : sceneDestination(scene, null, model);
 }
 
 export const needsImage = (scene: StudioScene) => 'requiresImage' in scene && scene.requiresImage;

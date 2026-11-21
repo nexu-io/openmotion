@@ -1,8 +1,8 @@
 import type { Model } from '../../../shared/gateway';
 import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
-import { creativeStudios, studioScenes, sceneDestination, modelDestination } from './creativeStudios';
+import { creativeStudios, studioScenes, sceneDestination, modelDestination, mediaEditorDestination } from './creativeStudios';
 import { expect, it } from 'vitest';
-import { readWorkspacePage, settingsSections, workspacePageHref } from './workspacePageRouting';
+import { isLegacyWorkspaceHref, readWorkspacePage, settingsSections, workspacePageHref } from './workspacePageRouting';
 
 it.each(settingsSections)('round-trips the %s destination without changing editor or host context', settings => {
   const source = 'http://localhost/?session=project&project=project&embed=1&tracking_context=11111111-1111-1111-1111-111111111111#project/project?v=1&t=12&tab=design&rc=0';
@@ -218,4 +218,54 @@ it('restores each specialty brief, model overview and nested creator preview fro
   expect(readWorkspacePage(detail.search)).toMatchObject({ explore: true, creators: true, creator: 'credit/Jane & Co', template: 'work-1' });
   expect(open(detail.href, { template: null }).href).toBe(profile.href);
   expect(open(profile.href, { templates: false }).href).toBe(origin);
+});
+
+it.each([
+  ['text-to-image', '/?page=create&scene=text-to-image'],
+  ['image-edit', '/?page=create&scene=image-edit'],
+  ['text-to-video', '/?page=create&scene=text-to-video'],
+  ['image-to-video', '/?page=create&scene=image-to-video'],
+  ['music', '/?page=audio&scene=music'],
+  ['speech', '/?page=audio&scene=speech'],
+] as const)('routes the %s media editor destination to the unified top-tab editor', (scene, href) => {
+  const destination = mediaEditorDestination(scene);
+  expect(workspacePageHref('http://localhost/?page=explore', { studio: destination })).toBe(href);
+  expect(readWorkspacePage(href.slice(1)).studio).toMatchObject({ scene: { id: scene } });
+  expect(mediaEditorDestination(studioScenes.find(item => item.id === scene)!, 'p:m')).toMatchObject({ scene: { id: scene }, model: 'p:m' });
+});
+
+it('keeps a Cinema template on the unified video editor and on legacy Cinema links', () => {
+  const create = workspacePageHref('http://localhost/?page=cinema', { studio: mediaEditorDestination('text-to-video'), cinemaTemplate: 'drink-splash-slow-motion' });
+  expect(create).toBe('/?page=create&scene=text-to-video&cinemaTemplate=drink-splash-slow-motion');
+  expect(readWorkspacePage(create.slice(1))).toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { landing: true, scene: { id: 'text-to-video' } } });
+  expect(readWorkspacePage('?page=cinema&scene=text-to-video&cinemaTemplate=drink-splash-slow-motion'))
+    .toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { studio: { id: 'cinema' }, scene: { id: 'text-to-video' } } });
+  expect(readWorkspacePage('?page=create&scene=image-to-video&cinemaTemplate=drink-splash-slow-motion').cinemaTemplate).toBeUndefined();
+  expect(workspacePageHref('http://localhost/', { studio: mediaEditorDestination('image-to-video'), cinemaTemplate: 'drink-splash-slow-motion' })).toBe('/?page=create&scene=image-to-video');
+});
+
+it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'character'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
+  const page = readWorkspacePage(`?page=design&scene=${scene}&model=p%3Am`);
+  expect(page).toMatchObject({ studio: { landing: true, scene: { id: scene }, model: 'p:m' } });
+  expect(page.designScene).toBeUndefined();
+  expect(isLegacyWorkspaceHref(`?page=design&scene=${scene}`, page)).toBe(true);
+  expect(workspacePageHref(`http://localhost/?page=design&scene=${scene}&model=p%3Am`, { studio: page.studio })).toBe(`/?page=create&scene=${scene}&model=p%3Am`);
+});
+
+it.each(['prototype', 'deck', 'document', 'web-clone', 'projects'])('keeps the Design Studio %s page for HTML design work', scene => {
+  const page = readWorkspacePage(`?page=design&scene=${scene}`);
+  expect(page).toMatchObject({ designScene: scene, studio: null });
+  expect(isLegacyWorkspaceHref(`?page=design&scene=${scene}`, page)).toBe(false);
+});
+
+it('restores a Skill brief in the unified editor and ignores unknown Skills there', () => {
+  const href = workspacePageHref('http://localhost/?page=marketing&skill=openmotion-ad-script', { studio: mediaEditorDestination('text-to-video') });
+  expect(href).toBe('/?page=create&scene=text-to-video&skill=openmotion-ad-script');
+  expect(readWorkspacePage(href.slice(1))).toMatchObject({ skill: 'openmotion-ad-script', studio: { landing: true } });
+  expect(readWorkspacePage('?page=create&scene=text-to-video&skill=unknown').skill).toBeNull();
+});
+
+it('still parses bookmarked legacy Studio scene links', () => {
+  expect(readWorkspacePage('?page=cinema&scene=text-to-video').studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'text-to-video' } });
+  expect(readWorkspacePage('?page=sound&scene=music').studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'music' } });
 });

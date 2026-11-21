@@ -102,7 +102,7 @@
 .om-creation-chat-input > textarea { min-height: 56px; max-height: 140px; }
 .om-creation-ideas { display: flex; flex-wrap: wrap; gap: var(--motion-space-8); margin-top: calc(var(--motion-space-8) * -1); }
 .om-creation-options > label { margin-top: var(--motion-space-12); }
-.om-creation-submit { flex: none; display: grid; gap: var(--motion-space-8); padding-bottom: var(--motion-space-4); }
+.om-creation-submit { flex: none; display: grid; gap: var(--motion-space-8); padding-top: var(--motion-space-12); padding-bottom: var(--motion-space-4); border-top: 1px solid var(--motion-border-subtle); }
 .om-asset-references .om-badge { max-width: 100%; }
 .om-asset-references .om-badge > span { overflow: hidden; text-overflow: ellipsis; }
 .om-creation-agent-intro { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--motion-space-12); flex: 1; text-align: center; padding-block: var(--motion-space-12); }

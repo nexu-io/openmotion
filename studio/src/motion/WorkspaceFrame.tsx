@@ -8,11 +8,11 @@ import { useProjectArchives, ProjectArchiveMenu, type ProjectArchiveActions } fr
 import type { GalleryTemplate } from '../../../shared/catalog';
 import type { McpClient } from './mcpClients';
 import { ExploreStudios } from './ExploreStudios';
-import { creativeStudios, findMediaStudio, type CreativeStudio, type TechniqueStudio } from '../../../shared/studio-catalog';
+import { creativeStudios, type CreativeStudio, type TechniqueStudio } from '../../../shared/studio-catalog';
 import { DesignProjectEditor } from '../design/DesignProjectEditor';
 import { DesignScenePage } from '../design/scenes/DesignScenePage';
 import type { Modality } from '../../../shared/gateway';
-import { hasStudioHome, motionStudio, scenesForStudio, studioDestination, studioDraftKey, type StudioDestination } from './creativeStudios';
+import { hasStudioHome, mediaEditorDestination, motionStudio, scenesForStudio, studioDestination, studioDraftKey, type StudioDestination } from './creativeStudios';
 import { ModelOverview } from './ModelOverview';
 import { ModelHub } from './ModelHub';
 import { CreativeWorkspace } from './CreativeWorkspace';
@@ -47,7 +47,7 @@ import { McpConnectionPage } from './McpConnectionPage';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
-import { changesWorkspaceDestination, defaultDesignScene, readWorkspacePage, workspacePageHref, type WorkspacePage } from './workspacePageRouting';
+import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
 import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { WorkspaceBreadcrumb } from './WorkspaceBreadcrumb';
@@ -74,7 +74,6 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const fromExplore = sourcePage?.explore && !sourcePage.templates && !sourcePage.template;
   const { settings, assets: assetsOpen, skills: skillsOpen, templates: libraryRequested } = page;
   const standaloneMcp = settings === 'mcp' && !page.mcpInSettings;
-  const cinema = findMediaStudio('cinema')!;
   const selectedCinemaTemplate = findCinemaTemplate(page.cinemaTemplate);
   const detailOnly = Boolean(page.template) && !libraryRequested;
   const connectionsOpen = libraryRequested || detailOnly;
@@ -107,6 +106,9 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
       if (!onNavigate) window.removeEventListener('popstate', sync);
     };
   }, [onNavigate]);
+  useEffect(() => {
+    if (isLegacyWorkspaceHref(location.search, page)) writeWorkspaceHistory(workspacePageHref(location.href, { studio: page.studio }), true);
+  }, [page]);
   const navigatePage = useCallback((patch: Partial<WorkspacePage>, replace = false, mode?: 'from-page' | 'keep') => {
     const current = new URL(location.href);
     const target = new URL(workspacePageHref(current.href, patch), current);
@@ -297,7 +299,8 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
     if (readWorkspacePage(location.search, location.hash).assets) navigatePage({ assetId, assetVersion });
   }, [navigatePage]);
   const openStudio = (studio: StudioDestination | null, seed?: string | AssetDraft | ImageParameterSeed, fromPage = false) => {
-    const skill = studio?.studio.surface === 'techniques' && typeof seed === 'object' ? page.skill : null;
+    // A brief started from a technique studio keeps its Skill so its draft stays separate from other studios' briefs.
+    const skill = typeof seed === 'object' && (studio?.studio.surface === 'techniques' || (studio?.landing && page.specialty)) ? page.skill : null;
     if (studio && seed) {
       const key = studioDraftKey(studio, skill);
       const previous = studioDrafts.current.get(key);
@@ -441,9 +444,9 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
           filters={lastExplore.current} onChooseStudio={studio => chooseStudio(studio, undefined, true)} active={page.explore && !connectionsOpen} onNavigate={openStudioFromPage} onSkill={openSkill} />
       </div>}
       {page.cinemaLanding && !templatesPage && !settings && <div className="om-explore-host">
-        <CinemaStudioPage onStart={() => openStudio(studioDestination(cinema, 'text-to-video'))} onTemplate={(template, position) => {
+        <CinemaStudioPage onStart={() => openStudio(mediaEditorDestination('text-to-video'), undefined, true)} onTemplate={(template, position) => {
           reportCreativeClick('creative_studio', 'studio_bar', 'try_prompt', { studio: 'cinema', scene: template.scene, template: template.id, position });
-          navigatePage({ studio: studioDestination(cinema, template.scene), cinemaTemplate: template.id, templates: false, ...lastExplore.current });
+          navigatePage({ studio: mediaEditorDestination(template.scene), cinemaTemplate: template.id, templates: false, ...lastExplore.current }, false, 'from-page');
         }} />
       </div>}
       {motionTemplatesOpen && <div className="om-explore-host"><MotionStudioPage active={!connectionsOpen}
@@ -453,7 +456,10 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         onProvider={provider => navigatePage({ settings: 'providers', provider, templates: false })}
         onUse={() => chooseStudio(motionStudio)} /></div>}
       {page.modelOverview && !templatesPage && <div className="om-explore-host"><ModelOverview id={page.modelOverview} source={source} onExplore={hostChrome ? returnToExplore : undefined}
-        onProvider={provider => navigatePage({ settings: 'providers', provider: provider ?? null, templates: false })} onScene={openStudioFromPage} /></div>}
+        onProvider={provider => navigatePage({ settings: 'providers', provider: provider ?? null, templates: false })}
+        onScene={(studio, prompt, soundTab) => soundTab
+          ? navigatePage({ studio, soundTab, skill: null, settings: null, assets: false, skills: false, templates: false, ...lastExplore.current }, false, 'from-page')
+          : openStudioFromPage(studio, prompt)} /></div>}
       <div className="om-workspace-layer" hidden={templatesPage} inert={templatesPage}><CreativeWorkspace onOpenBrandKit={hostChrome ? () => openSettings('brand-kit') : undefined} soundTab={page.soundTab ?? null} skill={page.skill} onCollection={specialty => navigatePage({ specialty, templates: false })}
         onSelectDesignScene={designScene => navigatePage({ designScene, designProject: null, templates: false, ...lastExplore.current })}
         breadcrumb={source && page.studio && !showStudioBackToExplore && <WorkspaceBreadcrumb source={source} destination={t(page.studio.landing ? page.studio.scene.label : page.studio.studio.title)} />}
@@ -461,7 +467,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         onExplore={returnToExplore} drafts={studioDrafts} active={!connectionsOpen} destination={page.studio} visit={studioVisit} hasProject={Boolean(projectId)} cinemaTemplate={selectedCinemaTemplate}
         onOpenStudio={studio => navigatePage({ studio, templates: false }, false, 'from-page')}
         onNavigate={(studio, soundTab) => navigatePage({ studio, soundTab: soundTab ?? null, templates: false,
-          cinemaTemplate: studio.studio.id === 'cinema' && studio.scene.id === page.studio?.scene.id ? page.cinemaTemplate : null,
+          cinemaTemplate: studio.scene.modality === 'video' && studio.scene.id === page.studio?.scene.id ? page.cinemaTemplate : null,
         }, false, 'keep')} /></div>
       {page.designScene && !templatesPage && (
         <div className="om-assets-host" style={{ padding: 0 }}>

@@ -3,8 +3,7 @@ import { ExploreCoverImage } from './ExploreCoverImage';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
-import { findMediaStudio } from '../../../shared/studio-catalog';
-import { motionStudio, studioDestination, type StudioDestination, type StudioScene } from './creativeStudios';
+import { mediaEditorDestination, motionStudio, type StudioDestination, type StudioScene } from './creativeStudios';
 import { sceneExamples } from './sceneShowcase';
 import { findModelHub } from './modelHubs';
 import { motionSkills, motionStudioCover } from './skillCatalog';
@@ -16,7 +15,7 @@ const track = (element: Parameters<typeof reportCreativeClick>[2], target: Param
 /** Scenes the Explore feed leaves out because they are featured here; unchanged from main so the feed stays as it was. */
 export const featuredSceneIds: readonly StudioScene['id'][] = ['shot-image', 'text-to-video', 'text-to-image'];
 /** Spotlight scenes open with their Studio's scene tabs. */
-const spotlightScenes = [studioDestination(findMediaStudio('design')!, 'text-to-image')];
+const spotlightScenes = [mediaEditorDestination('text-to-image')];
 const slideDuration = 6000;
 const blackFridayPoster = motionSkills.find(skill => skill.id === 'openmotion-sale-carousel')?.cover?.poster ?? '';
 interface FeaturedSlide {

@@ -6,8 +6,13 @@ import { workspacePageName } from '../../../shared/workspace-url';
 import { mcpClients, type McpClient } from './mcpClients';
 import { exploreCommunities, findLandingScene, findMediaStudio, findTechniqueStudio, type ExploreCommunity, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
 import { findCinemaTemplate } from './cinemaTemplates';
-import { hasStudioHome, sceneDestination, studioDestination, type StudioDestination } from './creativeStudios';
+import { hasStudioHome, isStudioTechnique, sceneDestination, studioDestination, type StudioDestination } from './creativeStudios';
 import { findSoundTab, isExtendedSoundTab, type SoundTabId } from './soundTabs';
+
+/** Query pages that are parsed for compatibility and rewritten to their current address. */
+export function isLegacyWorkspaceHref(search: string, page: WorkspacePage) {
+  return new URLSearchParams(search).get('page') === 'design' && Boolean(page.studio?.landing);
+}
 
 /** Application pages live in the query; the project hash belongs to the editor. */
 export const settingsSections = ['account', 'subscription', 'providers', 'models', 'local', 'general', 'appearance', 'privacy', 'about', 'help', 'mcp', 'brand-kit'] as const;
@@ -33,14 +38,18 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
     : isDesignScenario(sceneId) ? sceneId : sceneId === 'projects' || rawDesignProject ? 'projects' : defaultDesignScene;
   const designProject = isDesignHtmlScene ? rawDesignProject : null;
   const cinemaLanding = page === 'cinema' && !sceneId && !model;
-  const template = page === 'cinema' ? findCinemaTemplate(query.get('cinemaTemplate')) : undefined;
+  const template = page === 'cinema' || page === 'create' ? findCinemaTemplate(query.get('cinemaTemplate')) : undefined;
   const cinemaTemplate = template && template.scene === sceneId ? template.id : undefined;
   const isAudioTab = page === 'audio';
   const extendedSoundTab = (page === 'sound' || isAudioTab) && isExtendedSoundTab(sceneId) ? findSoundTab(sceneId) : undefined;
   const collection = findTechniqueStudio(page);
   const studioKind = collection?.scenes.some(id => id === sceneId) ? collection
     : isDesignHtmlScene || cinemaLanding ? undefined : findMediaStudio(isAudioTab ? 'sound' : page);
-  const landing = page === 'create' && findLandingScene(sceneId);
+  // Bookmarked Design Studio image links open the unified Image editor; HTML design scenarios keep their own page.
+  const legacyDesignImage = page === 'design' && !isDesignHtmlScene
+    ? findMediaStudio('design')!.scenes.map(id => findLandingScene(id)!).find(scene => scene.id === sceneId) ?? findLandingScene('text-to-image')
+    : undefined;
+  const landing = page === 'create' ? findLandingScene(sceneId) : legacyDesignImage;
   const home = Boolean(!landing && !isAudioTab && studioKind && hasStudioHome(studioKind) && query.get('home') === '1');
   const studio = landing ? sceneDestination(landing, null, model)
     : studioKind ? { ...studioDestination(studioKind, extendedSoundTab?.backingScene ?? sceneId, model), ...(home ? { home: true as const } : {}), ...(isAudioTab ? { mediaTab: true as const } : {}) } : null;
@@ -52,7 +61,7 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
   const creators = templates && query.get('view') === 'creators';
   const templateCollection = templates && !creators ? findTemplateCollection(query.get('collection')) : null;
   const selectedSkill = templateCollection === 'black-friday' ? blackFridaySkillIds.find(id => id === skill) ?? null
-    : page === 'skills' || collection?.techniques.some(id => id === skill) ? skill : null;
+    : page === 'skills' || collection?.techniques.some(id => id === skill) || (landing && isStudioTechnique(skill)) ? skill : null;
   return { motion: page === 'motion', ...(cinemaLanding && { cinemaLanding: true }), ...(cinemaTemplate && { cinemaTemplate }),
     ...(designScene ? { designScene } : {}), ...(designProject ? { designProject } : {}), ...(extendedSoundTab ? { soundTab: extendedSoundTab.id } : {}),
     modelOverview: page === 'model' ? model : null, modelHub: page === 'model-hub' ? query.get('hub') || null : null, creators, creator: creators ? query.get('creator')?.trim() || null : null, specialty, community, medium, assetId: page === 'assets' ? query.get('asset') || null : null,
@@ -122,9 +131,9 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     url.searchParams.set('page', page.studio.landing ? 'create' : page.studio.mediaTab ? page.studio.scene.modality : page.studio.studio.id);
     if (page.studio.home) url.searchParams.set('home', '1');
     url.searchParams.set('scene', page.studio.studio.id === 'sound' && !page.studio.landing && !page.studio.home && page.soundTab ? page.soundTab : page.studio.scene.id);
-    if (page.studio.studio.surface === 'techniques' && page.studio.studio.techniques.some(id => id === page.skill)) url.searchParams.set('skill', page.skill!);
+    if (page.studio.studio.surface === 'techniques' ? page.studio.studio.techniques.some(id => id === page.skill) : page.studio.landing && isStudioTechnique(page.skill)) url.searchParams.set('skill', page.skill!);
     if (page.studio.model) url.searchParams.set('model', page.studio.model);
-    if (page.cinemaTemplate && page.studio.studio.id === 'cinema') url.searchParams.set('cinemaTemplate', page.cinemaTemplate);
+    if (findCinemaTemplate(page.cinemaTemplate)?.scene === page.studio.scene.id && (page.studio.landing || page.studio.studio.id === 'cinema')) url.searchParams.set('cinemaTemplate', page.cinemaTemplate!);
   } else if (page.skills) {
     url.searchParams.set('page', 'skills');
     if (page.skillCategory) url.searchParams.set('skillCategory', page.skillCategory);

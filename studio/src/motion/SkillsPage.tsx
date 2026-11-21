@@ -11,7 +11,7 @@ import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { studioSkillDefaults, localizedSkillPrompt, skillShotPrompt, aspectRatios, durations, motionSkills, skillCategories, skillShortcut, type MotionSkill, type SkillCategory, type SkillParameters } from './skillCatalog';
 import type { AssetDraft } from './AssetComposer';
-import { studioIconTone, studioDestination, studioComingSoon, type StudioDestination } from './creativeStudios';
+import { mediaEditorDestination, studioIconTone, studioComingSoon, type StudioDestination } from './creativeStudios';
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 import { StudioTemplateShelf } from './StudioTemplateShelf';
 import { SkillMedia } from './SkillMedia';
@@ -97,7 +97,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     if (!studio || comingSoon || !selected || !onCreate) return;
     const reference = parameters.reference;
     if (reference && reference.modality !== 'image') return;
-    const destination = studioDestination(studio, reference ? 'image-to-video' : 'text-to-video');
+    const destination = mediaEditorDestination(reference ? 'image-to-video' : 'text-to-video');
     onCreate(destination, { modality: 'video', prompt: skillShotPrompt(selected, parameters, t), shotPreferences: { aspect: parameters.aspect, duration: parameters.duration },
       references: reference ? [{ reference: { assetId: reference.assetId, versionId: reference.versionId }, name: reference.label }] : [] });
   };
@@ -170,8 +170,8 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
         {studio ? <section className="om-specialty-intro" data-coming-soon={comingSoon || undefined}>
           <div><h1 className="om-title"><span className="om-studio-heading-icon" data-tone={studioIconTone(studio)}><RemixIcon name={studio.icon} size={24} /></span>{t(studio.title)}</h1><p className="om-muted">{t(studio.briefHint)}</p>
             {comingSoon ? <p className="om-specialty-status" lang="en">Coming soon</p> : onCreate && <div className="om-specialty-actions">
-              <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => onCreate(studioDestination(studio))}><RemixIcon name="add-line" size={16} />{t(studio.createLabel)}</Button>
-              {studio.id === 'marketing' && <Button variant="ghost" className="om-button h-auto" onClick={() => onCreate(studioDestination(studio, 'text-to-video'))}>{t('Create an ad clip')}</Button>}
+              <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => onCreate(mediaEditorDestination(studio.scenes[0]))}><RemixIcon name="add-line" size={16} />{t(studio.createLabel)}</Button>
+              {studio.id === 'marketing' && <Button variant="ghost" className="om-button h-auto" onClick={() => onCreate(mediaEditorDestination('text-to-video'))}>{t('Create an ad clip')}</Button>}
             </div>}
           </div>{featured?.cover?.poster && <Button variant="plain" className="om-specialty-feature" onClick={() => open(featured, 1)}>
             <img src={featured.cover.poster} alt="" /><span className="om-button om-media-caption">{t(featured.title)}<RemixIcon name="arrow-right-line" size={16} /></span>

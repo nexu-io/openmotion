@@ -13,7 +13,7 @@ import type { CinemaTemplate } from './cinemaTemplates';
 import type { AssetDraft } from './AssetComposer';
 import { useMediaCatalog } from './useMediaCatalog';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
-import { mediaLabels, scenesForStudio, studioIconTone, studioDestination, studioDraftKey, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
+import { mediaEditorDestination, mediaLabels, sceneFeature, scenesForStudio, studioIconTone, studioDestination, studioDraftKey, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { DesignSceneTabs, type DesignTabId } from '../design/scenes/DesignSceneTabs';
 import { SoundSceneTabs } from './SoundSceneTabs';
 import { findSoundTab, isSfxModel, type SoundTabId } from './soundTabs';
@@ -60,15 +60,15 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     references: [],
   });
   const firstFrameScene = studio.scenes.find(id => id === 'image-to-video');
-  const useAsFirstFrame = scene.modality === 'image' && firstFrameScene ? (reference: AssetDraft['references'][number]) => {
-    const next = studioDestination(studio, firstFrameScene);
+  const useAsFirstFrame = scene.modality === 'image' ? (reference: AssetDraft['references'][number]) => {
+    const next = destination.landing || !firstFrameScene ? mediaEditorDestination('image-to-video') : studioDestination(studio, firstFrameScene);
     const key = studioDraftKey(next, skill);
     const previous = drafts.current.get(key);
     drafts.current.set(key, { ...previous, modality: 'video', prompt: previous?.prompt ?? '', references: [reference] });
     onOpenStudio(next);
   } : undefined;
   const reuseInScene = (sceneId: StudioScene['id'], nextDraft: AssetDraft, model: string | null = null) => {
-    const next = studioDestination(studio, sceneId, model);
+    const next = destination.landing || destination.mediaTab ? mediaEditorDestination(sceneId, model) : studioDestination(studio, sceneId, model);
     drafts.current.set(studioDraftKey(next, skill), nextDraft);
     onNavigate(next);
   };
@@ -104,16 +104,21 @@ export function CreativeWorkspace({ destination, soundTab, skill, visit, onNavig
     {destination.home ? (onBackToExplore ? <BackToExploreButton onClick={onBackToExplore} /> : !breadcrumb && <WorkspaceBack fallback={onExplore} />) : <>
     <header className="om-studio-bar" data-sound-bar={showSoundBar || undefined}>
       {!showSoundBar && (onBackToExplore ? <BackToExploreButton onClick={onBackToExplore} />
-        : !breadcrumb && studio.id === 'cinema' ? <WorkspaceBack inline fallback={onExplore} />
+        : !breadcrumb && !destination.landing && studio.id === 'cinema' ? <WorkspaceBack inline fallback={onExplore} />
         : !breadcrumb && studio.surface === 'techniques' && <WorkspaceBack inline onBack={() => reportCreativeClick('creative_studio', 'studio_bar', 'open_skills', destinationTarget(destination))} fallback={() => onCollection(studio)} />)}
       {showSoundBar ? (
         <h1 className="sr-only">{destination.mediaTab ? t(mediaLabels[scene.modality]) : t(studio.title)}</h1>
       ) : (
         <h1 className="om-subtitle"><span className="om-studio-heading-icon" data-tone={destination.landing ? scene.modality : studioIconTone(studio)}><RemixIcon name={destination.landing ? scene.icon : studio.icon} size={18} /></span>{destination.landing ? t(scene.label) : destination.mediaTab ? t(mediaLabels[scene.modality]) : t(studio.title)}</h1>
       )}
-      {destination.landing ? studio.id !== 'design' && <Button variant="plain" className="om-button" onClick={() => { reportCreativeClick('creative_studio', 'studio_bar', 'open_in_studio', destinationTarget(destination)); onOpenStudio(studioDestination(studio, scene.id, destination.model)); }}>
-        {t('Open in {studio}', { studio: t(studio.title) })}<RemixIcon name="arrow-right-line" size={15} />
-      </Button> : isSoundStudio && activeSoundTab && selectSoundTab ? (
+      {destination.landing ? <nav className="om-asset-tabs" aria-label={t('Scenes')}>{scenesForStudio(studio).map(item => <Button variant="plain" className="om-nav-item" key={item.id}
+        aria-current={item.id === scene.id ? 'page' : undefined} onClick={() => {
+        if (item.id === scene.id) return;
+        // Feature scenes open without a pin so their defaults apply, as in the Image menu.
+        const next = mediaEditorDestination(item, !sceneFeature(item) && pinned && supportsScene(pinned, item) ? pinned.id : null);
+        reportCreativeClick('creative_studio', 'studio_bar', 'scene_tab', destinationTarget(next));
+        onNavigate(next);
+      }}>{t(item.label)}</Button>)}</nav> : isSoundStudio && activeSoundTab && selectSoundTab ? (
         <nav className="om-asset-tabs om-sound-studio-tabs" aria-label={t('Scenes')}>
           <SoundSceneTabs activeTab={activeSoundTab} onSelectTab={tabId => selectSoundTab(tabId)} />
         </nav>

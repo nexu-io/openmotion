@@ -7,9 +7,9 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 
 export const creationKinds = [
-  { id: 'image', label: 'Image', icon: 'image-line', title: 'Give your imagination a frame.', hint: 'Describe a subject, a mood, a world.', action: 'Generate image', ideas: ['Cinematic landscape', 'Product portrait'] },
-  { id: 'video', label: 'Video', icon: 'film-line', title: 'Set your story in motion.', hint: 'Describe the scene, movement and atmosphere.', action: 'Generate video', ideas: ['A cinematic opening', 'Slow motion detail'] },
-  { id: 'audio', label: 'Audio', icon: 'voiceprint-line', title: 'Find the sound of your idea.', hint: 'Create a voice, a soundtrack, an atmosphere.', action: 'Generate audio', ideas: ['Ambient soundtrack', 'Warm narration'] },
+  { id: 'image', label: 'Image', icon: 'image-line', title: 'Give your imagination a frame.', hint: 'Describe a subject, a mood, a world.', action: 'Generate image' },
+  { id: 'video', label: 'Video', icon: 'film-line', title: 'Set your story in motion.', hint: 'Describe the scene, movement and atmosphere.', action: 'Generate video' },
+  { id: 'audio', label: 'Audio', icon: 'voiceprint-line', title: 'Find the sound of your idea.', hint: 'Create a voice, a soundtrack, an atmosphere.', action: 'Generate audio' },
 ] as const;
 export function CreationEmblem({ kind = 'agent', working = false }: { kind?: Modality | 'agent'; working?: boolean }) {
   return <div className="om-creation-emblem" data-tone={kind} data-working={working} aria-hidden="true"><div className="om-creation-orbit" /><div className="om-creation-orbit" /><span className="om-creation-emblem-core"><RemixIcon name={working ? 'sparkling-fill' : kind === 'agent' ? 'sparkling-line' : creationKinds.find(item => item.id === kind)!.icon} size={28} /></span><span className="om-creation-satellite"><RemixIcon name="sparkling-fill" size={12} /></span></div>;
