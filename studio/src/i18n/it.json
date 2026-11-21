@@ -1759,7 +1759,7 @@
   "Template update failed; using cached catalogue: {message}": "Aggiornamento dei modelli non riuscito; utilizzo del catalogo in cache: {message}",
   "Privacy settings": "Impostazioni privacy",
   "Share usage data": "Condividi dati di utilizzo",
-  "Send feature usage, error categories and approximate region to improve OpenMotion. Prompts and project contents are excluded.": "Invia l’utilizzo delle funzioni, le categorie di errore e la regione approssimativa per migliorare OpenMotion. I prompt e i contenuti dei progetti sono esclusi.",
+  "Send feature usage, error categories, approximate region, and redacted prompts, reasoning summaries, and tool execution traces from sessions that invoke OpenMotion to improve generation quality. Project source files, media assets, and unrelated chats are never uploaded.": "Invia l’utilizzo delle funzioni, le categorie di errore, la regione approssimativa e i prompt oscurati, i riepiloghi del ragionamento e le tracce di esecuzione degli strumenti dalle sessioni che invocano OpenMotion per migliorare la qualità di generazione. I file sorgente del progetto, i file multimediali e le chat non correlate non vengono mai caricati.",
   "This setting applies to MCP and Studio on this installation and is kept after restart.": "Questa impostazione si applica a MCP e Studio di questa installazione e viene mantenuta dopo il riavvio.",
   "Usage data collection is disabled in test builds.": "La raccolta dei dati di utilizzo è disattivata nelle versioni di prova.",
   "Disabled by your environment settings.": "Disattivato dalle impostazioni dell’ambiente.",

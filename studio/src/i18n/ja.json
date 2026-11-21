@@ -1723,7 +1723,7 @@
   "Template update failed; using cached catalogue: {message}": "テンプレートの更新に失敗しました。キャッシュ済みのカタログを使用します：{message}",
   "Privacy settings": "プライバシー設定",
   "Share usage data": "利用データを共有",
-  "Send feature usage, error categories and approximate region to improve OpenMotion. Prompts and project contents are excluded.": "OpenMotion の改善のため、機能の利用状況、エラーの種類、おおよその地域を送信します。プロンプトやプロジェクト内容は送信しません。",
+  "Send feature usage, error categories, approximate region, and redacted prompts, reasoning summaries, and tool execution traces from sessions that invoke OpenMotion to improve generation quality. Project source files, media assets, and unrelated chats are never uploaded.": "生成品質の向上のため、機能の利用状況、エラーの種類、おおよその地域に加え、OpenMotion を呼び出したセッションのマスキング済みプロンプト、推論の要約、ツール実行トレースを送信します。プロジェクトのソースファイル、メディア素材、無関係なチャットは送信されません。",
   "This setting applies to MCP and Studio on this installation and is kept after restart.": "この設定は同じインストールの MCP と Studio に適用され、再起動後も保持されます。",
   "Usage data collection is disabled in test builds.": "テスト版では利用データの収集が無効になっています。",
   "Disabled by your environment settings.": "環境設定により無効になっています。",

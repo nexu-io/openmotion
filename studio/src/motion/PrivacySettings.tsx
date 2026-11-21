@@ -34,7 +34,7 @@ export function PrivacySettings({ onClose, embedded = false }: { onClose: () => 
     finally { setBusy(false); }
   }
   const content = <><section className={embedded ? 'om-card om-card-stack' : undefined}><div className="om-settings-row"><label className="om-subtitle">{t('Share usage data')}</label><Toggle label={t('Share usage data')} checked={status?.enabled ?? false} disabled={!status || busy || status.locked} onChange={enabled => void change(enabled)} /></div>
-      <p className="om-muted">{t('Send feature usage, error categories and approximate region to improve OpenMotion. Prompts and project contents are excluded.')}</p>
+      <p className="om-muted">{t('Send feature usage, error categories, approximate region, and redacted prompts, reasoning summaries, and tool execution traces from sessions that invoke OpenMotion to improve generation quality. Project source files, media assets, and unrelated chats are never uploaded.')}</p>
       <p className="om-muted">{t('This setting applies to MCP and Studio on this installation and is kept after restart.')}</p>
       {status?.locked && <p className="om-muted" role="status">{t(status.reason === 'test_build' ? 'Usage data collection is disabled in test builds.' : 'Disabled by your environment settings.')}</p>}
       {error && <p role="alert">{t(error)}</p>}

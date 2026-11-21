@@ -24,6 +24,8 @@ it('shows the enabled default and persists a user opt-out while stopping browser
     return Response.json({ enabled, preference: enabled, locked: false });
   }));
   const toggle = await open(); expect((toggle.getAttribute('aria-checked') === 'true')).toBe(true); expect(toggle.disabled).toBe(false);
+  expect(document.body.textContent).toContain('redacted prompts, reasoning summaries, and tool execution traces from sessions that invoke OpenMotion');
+  expect(document.body.textContent).toContain('Project source files, media assets, and unrelated chats are never uploaded.');
   await act(async () => toggle.click());
   expect((toggle.getAttribute('aria-checked') === 'true')).toBe(false);
   expect(requests[1].method).toBe('PUT'); expect(JSON.parse(String(requests[1].body))).toEqual({ enabled: false });

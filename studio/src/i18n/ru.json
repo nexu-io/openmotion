@@ -1783,7 +1783,7 @@
   "Template update failed; using cached catalogue: {message}": "Не удалось обновить шаблоны; используется кэшированный каталог: {message}",
   "Privacy settings": "Настройки конфиденциальности",
   "Share usage data": "Делиться данными об использовании",
-  "Send feature usage, error categories and approximate region to improve OpenMotion. Prompts and project contents are excluded.": "Отправлять данные об использовании функций, категориях ошибок и примерном регионе для улучшения OpenMotion. Запросы и содержимое проектов не отправляются.",
+  "Send feature usage, error categories, approximate region, and redacted prompts, reasoning summaries, and tool execution traces from sessions that invoke OpenMotion to improve generation quality. Project source files, media assets, and unrelated chats are never uploaded.": "Отправлять данные об использовании функций, категориях ошибок, примерном регионе, а также обезличенные промпты, сводки рассуждений и трассировки вызовов инструментов из сессий, вызывающих OpenMotion, для улучшения качества генерации. Исходные файлы проектов, медиафайлы и посторонние чаты никогда не загружаются.",
   "This setting applies to MCP and Studio on this installation and is kept after restart.": "Настройка действует для MCP и Studio этой установки и сохраняется после перезапуска.",
   "Usage data collection is disabled in test builds.": "В тестовых версиях сбор данных об использовании отключён.",
   "Disabled by your environment settings.": "Отключено настройками окружения.",

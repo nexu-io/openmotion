@@ -27,6 +27,12 @@ export async function saveTrackingPreference(directory: string, enabled: boolean
   try {
     await writeFile(temporary, JSON.stringify({ enabled }), { mode: 0o600, flag: 'wx' });
     await rename(temporary, path.join(folder, 'preferences.json'));
+    if (!enabled) {
+      await import('./codex-session-tracking.ts').then(
+        mod => mod.discardActiveCodexThreads(directory),
+        () => rm(path.join(folder, 'active-codex-threads.json'), { force: true }),
+      );
+    }
   } finally { await rm(temporary, { force: true }); }
 }
 
