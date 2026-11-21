@@ -19,10 +19,12 @@ export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTr
     const providers = status.providers.filter(p => supported(p.id) && (isMediaProvider(p.id) || p.configured || p.id === 'account'));
     const account = providers.find(p => p.id === 'account');
     let entry: ProviderSetupEntry | undefined;
-    if (!providers.some(p => p.available && !(p.id === 'account' && p.mediaEntitlement === 'not-included'))) {
+    // Codex is an image-only local Agent (and project-direct generation rejects it), so an available Codex session
+    // must not suppress OpenDesign sign-in or Free/Go upgrade handoff entries for full multimodal generation.
+    if (!providers.some(p => p.available && p.id !== 'codex' && !(p.id === 'account' && p.mediaEntitlement === 'not-included'))) {
       if (account?.mediaEntitlement === 'not-included' && account.plan === 'go') entry = 'agent_media_upgrade_go';
       else if (account?.mediaEntitlement === 'not-included' && account.plan === 'free') entry = 'agent_media_upgrade_free';
-      else if (providers.some(p => p.id !== 'account' && p.configured && p.verification === 'rejected')) entry = 'agent_media_key_rejected';
+      else if (providers.some(p => p.id !== 'account' && p.id !== 'codex' && p.configured && p.verification === 'rejected')) entry = 'agent_media_key_rejected';
       else if (!account?.configured) entry = 'agent_media_signed_out';
     }
     return { providers,

@@ -1061,6 +1061,44 @@ test('media inspection refreshes advisory billing without disabling account mode
   assert.equal((await account.summary()).state, 'reauth-required');
 }));
 
+test('media inspection preserves OpenDesign sign-in and Free/Go upgrade entries when local Codex is available', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store);
+  gateway.options.detect = async () => [{
+    id: 'codex', label: 'Codex', installed: true, authenticated: true, available: true, reason: 'Signed in locally',
+  }];
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary });
+  t.after(() => gateway.close());
+  const inspect = () => mediaUse(store, { action: 'inspect' });
+
+  const signedOut = await inspect();
+  assert.equal(signedOut.providers.find(p => p.id === 'codex')?.available, true);
+  assert.deepEqual(signedOut.settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_signed_out' });
+
+  await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-rejected-key' });
+  await gateway.connections.verifyKey('atlascloud', 'synthetic-rejected-key', 'rejected');
+  assert.deepEqual((await inspect()).settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_key_rejected' });
+  await gateway.configureProvider('atlascloud', { apiKey: null });
+
+  await signIn(account);
+  for (const [mode, expected] of [
+    ['billing-free', { target: 'providers', entry: 'agent_media_upgrade_free' }],
+    ['billing-go', { target: 'providers', entry: 'agent_media_upgrade_go' }],
+    ['billing-plus', { target: 'providers' }],
+    ['billing-401', { target: 'providers', entry: 'agent_media_signed_out' }],
+  ] as const) {
+    await writeFile(path.join(account.home, 'fixture-mode'), mode);
+    const report = await inspect();
+    assert.equal(report.providers.find(p => p.id === 'codex')?.available, true, mode);
+    assert.deepEqual(report.settingsHandoff.arguments, expected, mode);
+  }
+
+  // A real BYOK media provider still clears the setup entry even when the account is on Go.
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-go');
+  await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-onboarding-key' });
+  assert.deepEqual((await inspect()).settingsHandoff.arguments, { target: 'providers' });
+}));
+
 
 test('provider directory keeps a signed-in account usable before billing is fetched', t => fixture(async store => {
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
