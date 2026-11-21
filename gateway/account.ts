@@ -199,8 +199,8 @@ export class OpenDesignAccount {
   }
   /**
    * Workspaces used to keep their own sign-in. Once per process, a workspace that still holds one hands it to the shared
-   * directory if that directory has never held an account, and drops its copy either way, so neither a sign-out nor a
-   * second workspace's older sign-in can bring it back.
+   * directory when nothing is signed in there and it is newer than the shared directory's last sign-in or sign-out, and
+   * drops its copy either way, so neither a sign-out nor an older sign-in of another workspace can bring it back.
    */
   private adopt() {
     return this.adoption ??= (async () => {
@@ -212,10 +212,12 @@ export class OpenDesignAccount {
         .then(([a, b]) => a.dev === b.dev && a.ino === b.ino, () => false);
       if (same) return;
       await withProcessLock(path.join(this.root, 'adopt.lock'), async () => {
-        // Every sign-in, cancel and sign-out writes the session file, so its absence means no account was ever kept here.
-        const unused = await readSettings<unknown>(path.join(this.root, 'session.json'), null) === null
-          && await readSettings<unknown>(path.join(this.home, 'config.json'), null) === null;
-        if (unused && hasCredentials(profile)) {
+        // Every sign-in, cancel and sign-out writes the shared session file. A workspace sign-in made after that last
+        // change is newer than whatever the shared directory decided; an older one was already superseded or signed out.
+        const missing = () => undefined;
+        const [session, shared, workspace] = await Promise.all([stat(path.join(this.root, 'session.json')).catch(missing),
+          stat(path.join(this.home, 'config.json')).catch(missing), stat(legacy)]);
+        if (!shared && (!session || workspace.mtimeMs > session.mtimeMs) && hasCredentials(profile)) {
           await mkdir(this.home, { recursive: true, mode: 0o700 });
           // The session and catalogue go first, so a reader that finds the credentials also finds their session.
           for (const name of ['session.json', 'models.json']) await copyFile(path.join(own, name), path.join(this.root, name)).catch(ignoreMissing);

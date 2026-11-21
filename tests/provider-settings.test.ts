@@ -1320,6 +1320,12 @@ test('a workspace sign-in from before the shared directory moves there once and 
   const late = new OpenDesignAccount(third, { binary }); t.after(() => late.close());
   assert.equal((await late.summary()).state, 'signed-out');
   await assert.rejects(stat(path.join(third, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+  // A workspace that signed in after that sign-out (with an earlier release) still brings its sign-in along.
+  const fourth = path.join(store.directory, 'fourth-data');
+  const fourthIdentity = await legacy(fourth); sharedAccount(t, shared);
+  const newer = new OpenDesignAccount(fourth, { binary }); t.after(() => newer.close());
+  assert.equal((await newer.summary()).state, 'signed-in');
+  assert.equal(await newer.identity(), fourthIdentity);
 }));
 
 test('a workspace whose account directory is the shared one under another spelling keeps its sign-in', t => fixture(async store => {
