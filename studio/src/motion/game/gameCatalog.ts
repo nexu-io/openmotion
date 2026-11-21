@@ -23,13 +23,13 @@ export function composeBrief({ prompt, genre, style, setting, multiplayer }: Gam
 
 // Bundled templates keep Explore usable while the local service is starting or older than this Studio.
 const bundledMeta = import.meta.glob('../../../../templates/games/*/game.json', { eager: true, import: 'default' }) as Record<string, Omit<GameCard, 'playUrl' | 'cover' | 'reaction' | 'favorite' | 'source' | 'remixOf'> & { cover: string }>;
-const bundledCovers = import.meta.glob('../../../../templates/games/*/cover.{png,webp}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 const bundledPages = import.meta.glob('../../../../templates/games/*/index.html', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
 const folder = (path: string) => path.split('/').slice(-2, -1)[0];
 
+// Covers stay in the template folder and are served by the local service, so they are not bundled twice.
 export const bundledGames: GameCard[] = Object.entries(bundledMeta).map(([path, meta]): GameCard => {
   const id = folder(path);
-  return { ...meta, id, cover: bundledCovers[path.replace('game.json', meta.cover || 'cover.png')] ?? null, playUrl: `bundled:${id}`, reaction: 0, favorite: false, source: 'template', remixOf: null };
+  return { ...meta, id, cover: meta.cover || null, playUrl: `bundled:${id}`, reaction: 0, favorite: false, source: 'template', remixOf: null };
 }).sort((a, b) => b.plays - a.plays);
 
 // Original browser games shared publicly by their creators. They open on the creator's page and are not
