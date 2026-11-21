@@ -1759,7 +1759,7 @@
   "Template update failed; using cached catalogue: {message}": "Falha ao atualizar os modelos; usando o catálogo em cache: {message}",
   "Privacy settings": "Configurações de privacidade",
   "Help us improve": "Ajude-nos a melhorar",
-  "Collect redacted information needed to improve the product and deliver better service and generation quality.": "Coletar de forma anonimizada as informações necessárias para otimizar o produto e oferecer um serviço e qualidade de geração melhores.",
+  "Collect redacted information needed to improve the product and deliver better service and generation quality.": "Coletar as informações necessárias com valores sensíveis ocultos para otimizar o produto e oferecer um serviço e qualidade de geração melhores.",
   "Usage data collection is disabled in test builds.": "A coleta de dados de uso está desativada nas versões de teste.",
   "Disabled by your environment settings.": "Desativado pelas configurações do ambiente.",
   "Could not load privacy settings.": "Não foi possível carregar as configurações de privacidade.",

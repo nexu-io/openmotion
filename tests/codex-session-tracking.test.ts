@@ -8,6 +8,7 @@ import test from 'node:test';
 import { rpc, releaseRegistry } from '../mcp.ts';
 import {
   extractCodexThreadMeta,
+  isCompletedExportToolResult,
   recordCodexThreadActivity,
   syncActiveCodexThreads,
 } from '../shared/codex-session-tracking.ts';
@@ -218,7 +219,7 @@ test('captures only OpenMotion-activated Codex threads, backfills pre-call turns
     activeThreadId, 'turn_om_2', 'item_u2', 12, baseMs + 4000, 'userMessage', baseMs + 4000, baseMs + 4000,
     JSON.stringify({ type: 'userMessage', content: [{ type: 'text', text: '可以，直接用 openmotion 创建并写入首页动画' }] }),
   );
-  const longOutput = `HEAD_MARKER_SKILL_LOADED\n# openmotion-director\n${'x'.repeat(2600)}\nTAIL_MARKER_STACK_LINE_42`;
+  const longOutput = `HEAD_MARKER_SKILL_LOADED\n# openmotion-director\nSECRET_SHELL_STDOUT_NEVER_UPLOAD\n${'x'.repeat(2600)}\nTAIL_MARKER_STACK_LINE_42`;
   historyDb.prepare('INSERT INTO thread_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
     activeThreadId, 'turn_om_2', 'call_skill_1', 13, baseMs + 4200, 'commandExecution', baseMs + 4200, baseMs + 4350,
     JSON.stringify({
@@ -340,6 +341,8 @@ test('captures only OpenMotion-activated Codex threads, backfills pre-call turns
   assert.equal(serializedFirst.includes(unrelatedThreadId), false);
   assert.equal(serializedFirst.includes('Refactor auth middleware'), false);
   assert.equal(serializedFirst.includes('SECRET_AUTHORED_HTML_BODY_NEVER_UPLOAD'), false);
+  assert.equal(serializedFirst.includes('SECRET_SHELL_STDOUT_NEVER_UPLOAD'), false);
+  assert.equal(serializedFirst.includes('HEAD_MARKER_SKILL_LOADED'), false);
   assert.equal(serializedFirst.includes('SECRET_DIFF_LINE_NEVER_UPLOAD'), false);
   assert.equal(serializedFirst.includes('ENC_TOP_SECRET_CIPHERTEXT_DO_NOT_UPLOAD'), false);
   assert.equal(serializedFirst.includes('AAAA_DO_NOT_UPLOAD'), false);
@@ -369,8 +372,8 @@ test('captures only OpenMotion-activated Codex threads, backfills pre-call turns
   const toolCalls1 = ev1!.properties.$ai_output_choices[0].tool_calls as Array<Record<string, any>>;
   assert.equal(toolCalls1.length, 3);
   assert.equal(toolCalls1[0]!.type, 'skill_read');
-  assert.match(toolCalls1[0]!.output, /HEAD_MARKER_SKILL_LOADED/);
-  assert.match(toolCalls1[0]!.output, /TAIL_MARKER_STACK_LINE_42/);
+  assert.equal(toolCalls1[0]!.output, undefined);
+  assert.equal(toolCalls1[0]!.output_bytes, Buffer.byteLength(longOutput));
   const mcpArgsSummary = JSON.parse(toolCalls1[1]!.function.arguments);
   assert.equal(mcpArgsSummary.files, undefined);
   assert.deepEqual(mcpArgsSummary.files_meta, [{
@@ -387,14 +390,26 @@ test('captures only OpenMotion-activated Codex threads, backfills pre-call turns
   assert.equal(idleResync.syncedTurns, 0);
   assert.equal(capturedBodies.length, 1);
 
-  // 4. Complete Turn 3 (post-OpenMotion user complaint with zero MCP calls) and verify incremental capture + retry idempotency.
+  // 4. Complete Turn 3 (post-OpenMotion turn with openmotion_show_video) and verify incremental capture + export flag + retry idempotency.
   historyDb.prepare('INSERT INTO thread_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-    activeThreadId, 'turn_om_3', 'item_a3', 28, baseMs + 16_000, 'agentMessage', baseMs + 16_000, baseMs + 16_500,
+    activeThreadId, 'turn_om_3', 'call_show_vid', 28, baseMs + 15_500, 'mcpToolCall', baseMs + 15_500, baseMs + 15_800,
+    JSON.stringify({
+      type: 'mcpToolCall',
+      server: 'openmotion',
+      tool: 'openmotion_show_video',
+      status: 'completed',
+      durationMs: 300,
+      arguments: { projectId, workId: crypto.randomUUID() },
+      result: { structuredContent: { projectId } },
+    }),
+  );
+  historyDb.prepare('INSERT INTO thread_items VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    activeThreadId, 'turn_om_3', 'item_a3', 29, baseMs + 16_000, 'agentMessage', baseMs + 16_000, baseMs + 16_500,
     JSON.stringify({ type: 'agentMessage', text: '明白，标题图层行高重叠了，我先停手不发起导出。' }),
   );
   historyDb.prepare(
     'UPDATE thread_turns SET status = ?, completed_at = ?, duration_ms = ?, rollout_end_ordinal = ? WHERE thread_id = ? AND turn_id = ?',
-  ).run('completed', baseSec + 17, 1500, 29, activeThreadId, 'turn_om_3');
+  ).run('completed', baseSec + 17, 1500, 30, activeThreadId, 'turn_om_3');
   stateDb.prepare('UPDATE threads SET updated_at_ms = ? WHERE id = ?').run(baseMs + 16_500, activeThreadId);
 
   // Simulate transient 503 first so we verify cursor retention and deterministic UUID on retry.
@@ -427,6 +442,14 @@ test('captures only OpenMotion-activated Codex threads, backfills pre-call turns
   assert.equal(ev2.properties.$ai_input[0].content, '预览里标题字全叠在一起了，而且节奏太慢，算了不导出了');
   assert.deepEqual(ev2.properties.project_ids, [projectId]);
   assert.deepEqual(ev2.properties.skills_activated, ['openmotion-director']);
+  assert.equal(ev2.properties.has_completed_export, true);
+
+  assert.equal(isCompletedExportToolResult('openmotion_show_video', {}, {}, false), true);
+  assert.equal(isCompletedExportToolResult('motion_show_video', {}, {}, false), true);
+  assert.equal(isCompletedExportToolResult('openmotion_show_video', {}, {}, true), false);
+  assert.equal(isCompletedExportToolResult('openmotion_get_project', { exportJobId: crypto.randomUUID() }, { exportJob: { state: 'completed' } }, false), true);
+  assert.equal(isCompletedExportToolResult('openmotion_get_project', {}, { exportJob: { state: 'completed' } }, false), false);
+  assert.equal(isCompletedExportToolResult('openmotion_export_request', {}, { job: { state: 'completed' } }, false), true);
 
   // 5. After 30 minutes of inactivity, the thread is sealed and evicted from active-codex-threads.json.
   const sealedSync = await syncActiveCodexThreads(dataDir, { fetch: mockFetch, now: baseMs + 35 * 60_000 });

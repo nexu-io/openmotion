@@ -5,7 +5,7 @@ import { readFileSync, watch } from 'node:fs';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { createTracker, uuid } from '../tracking/core.ts';
 import type { Entry } from '../tracking/core.ts';
-import { createNodeTracking, loadIdentity } from '../tracking/node.ts';
+import { createNodeTracking, loadIdentity, parsePosthogEndpoint, type PosthogEndpoint } from '../tracking/node.ts';
 import { loadDeviceIdentity } from '../tracking/device.ts';
 import { omEvents } from '../tracking/events.ts';
 import { VERSION } from '../preview.ts';
@@ -36,28 +36,45 @@ export async function saveTrackingPreference(directory: string, enabled: boolean
   } finally { await rm(temporary, { force: true }); }
 }
 
+export function resolvePosthogConfig(envVars: NodeJS.ProcessEnv = process.env): PosthogEndpoint | null {
+  try {
+    const testing = Boolean(envVars.NODE_TEST_CONTEXT) || envVars.NODE_ENV === 'test';
+    const env = envVars.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production');
+    const custom = envVars.OPENMOTION_POSTHOG_HOST !== undefined || envVars.OPENMOTION_POSTHOG_KEY !== undefined;
+    // Public write-only configuration only; malformed/missing configuration disables telemetry, not the application.
+    const config = custom
+      ? { host: envVars.OPENMOTION_POSTHOG_HOST, token: envVars.OPENMOTION_POSTHOG_KEY, geoip: envVars.OPENMOTION_GEOIP === '1' }
+      : JSON.parse(readFileSync(new URL('./tracking-config.json', import.meta.url), 'utf8')) as { host?: string; token?: string; geoip?: boolean };
+    if (!config.host || !config.token) return null;
+    return parsePosthogEndpoint({
+      host: config.host,
+      token: config.token,
+      env,
+      testRunId: envVars.OPENMOTION_TRACKING_TEST_RUN_ID,
+      geoip: config.geoip,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function createAppTracking(directory: string, entrypoint: Entry): Promise<OmTracking> {
   const disabled = () => createTracker({ registry: omEvents, entrypoint, enabled: false, isEnabled: () => false, send: async () => 'drop' });
   if (trackingLocked()) return disabled();
   try {
     const testing = Boolean(process.env.NODE_TEST_CONTEXT) || process.env.NODE_ENV === 'test';
     if (testing && !process.env.OPENMOTION_TRACKING_TEST_RUN_ID) return disabled();
-    const env = process.env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production');
-    if (!['development', 'test', 'production'].includes(env)) return disabled();
-    const custom = process.env.OPENMOTION_POSTHOG_HOST !== undefined || process.env.OPENMOTION_POSTHOG_KEY !== undefined;
-    // Public write-only configuration only; malformed/missing configuration disables telemetry, not the application.
-    const config = custom ? { host: process.env.OPENMOTION_POSTHOG_HOST, token: process.env.OPENMOTION_POSTHOG_KEY,
-      geoip: process.env.OPENMOTION_GEOIP === '1' } : JSON.parse(readFileSync(new URL('./tracking-config.json', import.meta.url), 'utf8'));
-    if (!config.host || !config.token) return disabled();
+    const endpoint = resolvePosthogConfig(process.env);
+    if (!endpoint) return disabled();
     const tracking = createNodeTracking({ registry: omEvents, entrypoint, enabled: true,
       identity: await loadIdentity(path.join(directory, 'tracking')), appVersion: VERSION,
       source: () => {
         try { return JSON.parse(readFileSync(path.join(directory, 'tracking/identity.json'), 'utf8')).utm_source; }
         catch { return null; }
       }, device: loadDeviceIdentity,
-      host: config.host, token: config.token, geoip: config.geoip,
+      host: endpoint.url.href, token: endpoint.token, geoip: endpoint.geoip,
       isEnabled: () => !trackingLocked() && trackingPreference(directory),
-      env: env as 'development' | 'test' | 'production', testRunId: process.env.OPENMOTION_TRACKING_TEST_RUN_ID });
+      env: endpoint.env, testRunId: endpoint.testRunId });
     const changes = watch(path.join(directory, 'tracking'), { persistent: false }, () => { tracking.enabled(); });
     changes.on('error', () => tracking.setEnabled(false));
     const close = tracking.close;

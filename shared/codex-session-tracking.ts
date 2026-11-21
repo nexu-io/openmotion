@@ -9,9 +9,16 @@ import { redactDiagnostic } from '../scripts/diagnostic-redaction.mjs';
 import { deviceContext, uuid } from '../tracking/core.ts';
 import { loadDeviceIdentity, unknownDevice } from '../tracking/device.ts';
 import type { HostContext } from '../tracking/host.ts';
-import { loadIdentity, type Identity } from '../tracking/node.ts';
+import {
+  loadIdentity,
+  posthogCommonProperties,
+  postPosthogBatch,
+  type Identity,
+  type PosthogEndpoint,
+} from '../tracking/node.ts';
 import { withProcessLock } from './process-lock.ts';
-import { trackingLocked, trackingPreference } from './tracking.ts';
+import { legacyToolName } from './public-names.mjs';
+import { resolvePosthogConfig, trackingLocked, trackingPreference } from './tracking.ts';
 
 type CodexThreadMeta = {
   threadId: string;
@@ -49,6 +56,7 @@ type SanitizedToolCall = {
   project_id?: string;
   operation_id?: string;
   job_id?: string;
+  output_bytes?: number;
   input_summary?: string;
   output_summary?: string;
 };
@@ -237,8 +245,9 @@ export function extractCodexThreadMeta(params: unknown, host?: HostContext): Cod
   };
 }
 
-export function isCompletedExportToolResult(internalToolName: string, args: unknown, structuredContent: unknown, isError?: boolean): boolean {
+export function isCompletedExportToolResult(toolName: string, args: unknown, structuredContent: unknown, isError?: boolean): boolean {
   if (isError) return false;
+  const internalToolName = legacyToolName(toolName);
   const content = structuredContent && typeof structuredContent === 'object' ? structuredContent as Record<string, unknown> : undefined;
   const input = args && typeof args === 'object' ? args as Record<string, unknown> : undefined;
   if (internalToolName === 'motion_show_video') return true;
@@ -249,6 +258,15 @@ export function isCompletedExportToolResult(internalToolName: string, args: unkn
       ? content.verification as Record<string, unknown>
       : undefined;
     return job?.state === 'completed' || verification?.status === 'passed' || content?.status === 'passed';
+  }
+  if (internalToolName === 'motion_get_project' && typeof input?.exportJobId === 'string' && input.exportJobId.length > 0) {
+    const exportJob = content?.exportJob && typeof content.exportJob === 'object'
+      ? content.exportJob as Record<string, unknown>
+      : undefined;
+    const verification = exportJob?.verification && typeof exportJob.verification === 'object'
+      ? exportJob.verification as Record<string, unknown>
+      : undefined;
+    return exportJob?.state === 'completed' || verification?.status === 'passed';
   }
   return false;
 }
@@ -670,6 +688,7 @@ function readCodexThreadSnapshot(
           const jobCandidate = argsObj.jobId ?? rawJob ?? structured?.jobId;
           const jobId = typeof jobCandidate === 'string' && uuid.test(jobCandidate) ? jobCandidate : undefined;
 
+          const callFailed = Boolean(parsed.error || resultObj?.isError || parsed.status === 'failed' || structured?.status === 'failed');
           if (isOm) {
             for (const skill of extractSkillsFromText(JSON.stringify(argsObj))) {
               if (!turnSkills.includes(skill) && turnSkills.length < 20) turnSkills.push(skill);
@@ -678,15 +697,12 @@ function readCodexThreadSnapshot(
               const slug = argsObj.workflow.startsWith('openmotion') ? argsObj.workflow : `openmotion-${argsObj.workflow}`;
               if (SKILL_SLUG_PATTERN.test(slug) && !turnSkills.includes(slug) && turnSkills.length < 20) turnSkills.push(slug);
             }
-            if ((/^(?:open)?motion_verify_export$/.test(tool) && structured?.status === 'passed')
-              || (/^(?:open)?motion_export_status$/.test(tool) && (structured?.job as Record<string, unknown> | undefined)?.state === 'completed')
-              || (/^(?:open)?motion_export_request$/.test(tool) && ((structured?.job as Record<string, unknown> | undefined)?.state === 'completed' || (structured?.verification as Record<string, unknown> | undefined)?.status === 'passed'))
-              || (/^(?:open)?motion_show_final_video$/.test(tool) && parsed.status === 'completed' && !parsed.error && !resultObj?.isError)) {
+            if (parsed.status === 'completed' && isCompletedExportToolResult(tool, argsObj, structured, callFailed)) {
               hasCompletedExport = true;
             }
           }
 
-          const callStatus: SanitizedToolCall['status'] = parsed.error || resultObj?.isError || parsed.status === 'failed' || structured?.status === 'failed'
+          const callStatus: SanitizedToolCall['status'] = callFailed
             ? 'failure'
             : structured?.status === 'partial'
               ? 'partial'
@@ -734,6 +750,7 @@ function readCodexThreadSnapshot(
           const durationMs = typeof parsed.durationMs === 'number' && Number.isFinite(parsed.durationMs) && parsed.durationMs >= 0
             ? Math.round(parsed.durationMs)
             : itemStarted > 0 && itemCompleted >= itemStarted ? itemCompleted - itemStarted : undefined;
+          const outputBytes = output ? Buffer.byteLength(output) : 0;
           toolCalls.push({
             seq: toolCalls.length,
             call_id: itemId,
@@ -744,8 +761,8 @@ function readCodexThreadSnapshot(
             ...(durationMs !== undefined ? { duration_ms: durationMs } : {}),
             status: callStatus,
             ...(exitCode !== undefined && exitCode !== 0 ? { error_code: `EXIT_${exitCode}` } : {}),
+            ...(outputBytes > 0 ? { output_bytes: outputBytes } : {}),
             input_summary: sanitizeMiddle(command, env, redactPaths, 2000),
-            ...(output ? { output_summary: sanitizeMiddle(output, env, redactPaths, 2000) } : {}),
           });
           continue;
         }
@@ -860,43 +877,10 @@ function readCodexThreadSnapshot(
   }
 }
 
-type PosthogEndpointConfig = {
-  url: URL;
-  token: string;
-  geoip: boolean;
-  env: 'development' | 'test' | 'production';
-  testRunId?: string;
-};
-
-function resolvePosthogEndpoint(env: NodeJS.ProcessEnv = process.env): PosthogEndpointConfig | null {
-  try {
-    const testing = Boolean(env.NODE_TEST_CONTEXT) || env.NODE_ENV === 'test';
-    const targetEnv = env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production');
-    if (targetEnv !== 'development' && targetEnv !== 'test' && targetEnv !== 'production') return null;
-    const testRunId = env.OPENMOTION_TRACKING_TEST_RUN_ID;
-    if (testRunId && (!uuid.test(testRunId) || targetEnv !== 'test')) return null;
-
-    const custom = env.OPENMOTION_POSTHOG_HOST !== undefined || env.OPENMOTION_POSTHOG_KEY !== undefined;
-    const config = custom
-      ? { host: env.OPENMOTION_POSTHOG_HOST, token: env.OPENMOTION_POSTHOG_KEY, geoip: env.OPENMOTION_GEOIP === '1' }
-      : JSON.parse(readFileSync(new URL('./tracking-config.json', import.meta.url), 'utf8')) as { host?: string; token?: string; geoip?: boolean };
-    if (!config.host || !config.token) return null;
-
-    const url = new URL(config.host);
-    if (url.username || url.password || url.search || url.hash || url.pathname !== '/') return null;
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname))) return null;
-    if (!/^phc_[A-Za-z0-9_]+$/.test(config.token)) return null;
-
-    return { url, token: config.token, geoip: Boolean(config.geoip), env: targetEnv, ...(testRunId ? { testRunId } : {}) };
-  } catch {
-    return null;
-  }
-}
-
 function buildAiGenerationEvent(params: {
   identity: Identity;
   device: Awaited<ReturnType<typeof loadDeviceIdentity>>;
-  endpoint: PosthogEndpointConfig;
+  endpoint: PosthogEndpoint;
   source: string | null;
   snapshot: CodexThreadSnapshot;
   turn: SanitizedCodexTurn;
@@ -944,6 +928,7 @@ function buildAiGenerationEvent(params: {
         ...(call.duration_ms !== undefined ? { duration_ms: call.duration_ms } : {}),
         ...(call.error_code ? { error_code: call.error_code } : {}),
         ...(call.project_id ? { project_id: call.project_id } : {}),
+        ...(call.output_bytes !== undefined ? { output_bytes: call.output_bytes } : {}),
         ...(call.output_summary ? { output: call.output_summary } : {}),
       })),
     } : {}),
@@ -985,53 +970,34 @@ function buildAiGenerationEvent(params: {
       has_completed_export: hasCompletedExport,
       context_compacted_count: turn.context_compacted_count,
 
-      event_schema_version: 1,
-      schema_version: 1,
-      product: 'openmotion',
-      host_agent: 'codex',
-      host_agent_source: 'mcp_client_info',
-      mcp_client_name: 'codex-mcp-client',
-      ...(version ? { mcp_client_version: version } : {}),
-      app_version: VERSION,
-      env: endpoint.env,
-      channel: 'standalone',
-      ...(endpoint.testRunId ? { test_run_id: endpoint.testRunId } : {}),
-      event_id: eventId,
-      $insert_id: eventId,
-      occurred_at: turn.ended_at,
-      installation_id: identity.installation_id,
-      ...device,
-      distinct_id: identity.installation_id,
-      utm_source: source,
-      od_utm_source: source,
-      entrypoint: 'worker',
-      runtime: 'node',
-      capture_source: 'explicit',
-      client_type: 'local',
-      platform: os.platform(),
-      arch: os.arch(),
-      $os: os.type(),
-      $os_version: os.release(),
-      locale: Intl.DateTimeFormat().resolvedOptions().locale,
-      device_timezone: tz.device_timezone,
-      utc_offset_minutes: tz.utc_offset_minutes,
-      ...(endpoint.geoip
-        ? { location_source: 'geoip', $geoip_disable: false }
-        : { location_source: 'unknown', $geoip_disable: true, $ip: '0.0.0.0' }),
-      $process_person_profile: false,
+      ...posthogCommonProperties({
+        endpoint,
+        identity,
+        device,
+        appVersion: VERSION,
+        source,
+        eventId,
+        occurredAt: turn.ended_at,
+        entrypoint: 'worker',
+        hostContext: {
+          host_agent: 'codex',
+          host_agent_source: 'mcp_client_info',
+          mcp_client_name: 'codex-mcp-client',
+          ...(version ? { mcp_client_version: version } : {}),
+        },
+        deviceTimezone: tz.device_timezone,
+        utcOffsetMinutes: tz.utc_offset_minutes,
+      }),
     },
   };
 }
 
 async function postBatchChunk(
   directory: string,
-  endpoint: PosthogEndpointConfig,
+  endpoint: PosthogEndpoint,
   batch: unknown[],
-  options: { fetch?: typeof fetch; timeoutMs?: number },
+  options: { fetch?: typeof fetch; timeoutMs?: number; allowInTest?: boolean; env?: NodeJS.ProcessEnv },
 ): Promise<'accepted' | 'retry' | 'drop'> {
-  const body = JSON.stringify({ api_key: endpoint.token, batch });
-  if (Buffer.byteLength(body) > MAX_BATCH_BYTES) return 'drop';
-
   const controller = new AbortController();
   let set = inflightAborts.get(directory);
   if (!set) {
@@ -1041,21 +1007,15 @@ async function postBatchChunk(
   set.add(controller);
 
   try {
-    const response = await (options.fetch ?? fetch)(new URL('/batch/', endpoint.url), {
-      method: 'POST',
-      redirect: 'error',
-      headers: { 'content-type': 'application/json' },
-      body,
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(options.timeoutMs ?? 2500)]),
+    return await postPosthogBatch({
+      endpoint,
+      batch,
+      signal: controller.signal,
+      maxBytes: MAX_BATCH_BYTES,
+      timeoutMs: options.timeoutMs ?? 2500,
+      fetch: options.fetch,
+      isEnabled: () => isCodexTrackingAllowed(directory, options.allowInTest, options.env),
     });
-    if (!response.ok) return response.status === 429 || response.status >= 500 ? 'retry' : 'drop';
-    const receipt = await response.json() as { status?: number | string; quota_limited?: unknown };
-    const limited = receipt.quota_limited;
-    const quotaLimited = Array.isArray(limited) ? limited.length > 0
-      : limited && typeof limited === 'object' ? Object.keys(limited).length > 0 : Boolean(limited);
-    return (receipt.status === 1 || receipt.status === 'Ok') && !quotaLimited ? 'accepted' : 'retry';
-  } catch {
-    return controller.signal.aborted ? 'drop' : 'retry';
   } finally {
     set.delete(controller);
     if (!set.size) inflightAborts.delete(directory);
@@ -1064,7 +1024,7 @@ async function postBatchChunk(
 
 async function deliverEventsInChunks(
   directory: string,
-  endpoint: PosthogEndpointConfig,
+  endpoint: PosthogEndpoint,
   items: Array<{ ordinal: number; payload: ReturnType<typeof buildAiGenerationEvent> }>,
   options: { fetch?: typeof fetch; timeoutMs?: number; allowInTest?: boolean; env?: NodeJS.ProcessEnv },
 ): Promise<{ lastAcceptedOrdinal: number | null; status: 'accepted' | 'retry' | 'aborted' }> {
@@ -1135,7 +1095,7 @@ export async function syncActiveCodexThreads(
     }
     if (!existsSync(activeThreadsPath(directory))) return { syncedTurns: 0, activeThreads: 0 };
 
-    const endpoint = resolvePosthogEndpoint(env);
+    const endpoint = resolvePosthogConfig(env);
     if (!endpoint) return { syncedTurns: 0, activeThreads: 0 };
 
     const snapshotMap = await withProcessLock(activeThreadsLockPath(directory), () => readActiveThreadsUnlocked(directory), 5000).catch(() => ({}));
