@@ -147,7 +147,7 @@ describe('P1 Infra Config Validation & Safety Latch', () => {
         AUTH_MODE: 'oidc',
         OIDC_ISSUER: 'https://id.open-design.ai',
         OIDC_CLIENT_ID: 'openmotion-cloud',
-        SESSION_SECRET: '0123456789abcdef0123456789abcdef',
+        SESSION_SECRET: '0'.repeat(32),
       }),
     );
     assert.equal(validOidc.AUTH_MODE, 'oidc');
