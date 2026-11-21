@@ -235,7 +235,7 @@ function makeMcpConfig(overrides: Record<string, string | undefined> = {}): AppC
     AUTH_MODE: 'oidc',
     OIDC_ISSUER: 'https://idp.example.test',
     OIDC_CLIENT_ID: 'openmotion-cloud',
-    SESSION_SECRET: '0123456789abcdef0123456789abcdef',
+    SESSION_SECRET: '0'.repeat(32),
     MODEL_GATEWAY_MODE: 'mock',
     MCP_MAX_BODY_BYTES: '10485760',
     DATABASE_URL: 'postgres://postgres:postgres@127.0.0.1:5432/openmotion',

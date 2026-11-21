@@ -40,7 +40,7 @@ function makeConfig(overrides: Record<string, string | undefined> = {}): AppConf
     OIDC_ISSUER: 'https://idp.example.test',
     OIDC_CLIENT_ID: 'openmotion-cloud-client',
     OIDC_CLIENT_SECRET: 'ephemeral-test-client-secret',
-    SESSION_SECRET: '0123456789abcdef0123456789abcdef',
+    SESSION_SECRET: '0'.repeat(32),
     MODEL_GATEWAY_MODE: 'mock',
     DATABASE_URL: 'postgres://postgres:postgres@127.0.0.1:5432/openmotion',
     REDIS_URL: 'redis://127.0.0.1:6379',
