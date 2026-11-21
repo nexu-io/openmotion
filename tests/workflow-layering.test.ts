@@ -365,3 +365,22 @@ test('OPEND-5424 generation timing, cross-shot consistency and mixed-media bound
   assert.ok(v2tVerify.content.includes('reference-video.md#check-fidelity-and-edit-dependencies'));
   assert.doesNotMatch(v2tVerify.content, /no fixed number of permitted rounds/);
 });
+
+test('template adaptation preserves primary compositions and video-to-template forbids minified single-line blobs', async () => {
+  const templateStart = await getWorkflow('start', 'template');
+  assert.match(templateStart.content, /data-composition-src/);
+  assert.match(templateStart.content, /exact substring replacement/);
+  assert.match(templateStart.content, /shorten only the root `index\.html` durations/);
+  assert.match(templateStart.content, /native scene boundary nearest the requested length/);
+  assert.match(templateStart.content, /data-hf-id[\s\S]*90%[\s\S]*70%/);
+  assert.match(templateStart.content, /ask the user before switching to a multi-chapter explainer or slideshow layout/);
+  assert.ok(templateStart.content.includes('fonts.md#use-the-normal-project-write-boundary'));
+  assert.ok(templateStart.references.some(reference => reference.workflow === 'production' && reference.section === 'fonts'));
+
+  const v2tStart = await getWorkflow('start', 'video-to-template');
+  assert.match(v2tStart.content, /multi-line indentation and per-scene comments/);
+  assert.match(v2tStart.content, /Do not minify whole compositions, stylesheets or DOM trees onto multi-kilobyte single lines/);
+
+  const v2tVerify = await getWorkflow('verification', 'video-to-template');
+  assert.match(v2tVerify.content, /minified multi-kilobyte single-line blobs/);
+});
