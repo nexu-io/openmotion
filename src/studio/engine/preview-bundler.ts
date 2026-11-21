@@ -113,6 +113,56 @@ function isRelativeUrl(url: string): boolean {
   return Boolean(trimmed) && !isNonRelativeUrl(trimmed) && !trimmed.startsWith('/');
 }
 
+function isProjectLocalMediaUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (isRelativeUrl(trimmed)) return true;
+  // Same-origin app paths (e.g. /api/projects/:id/preview/..., /motion-api/..., /assets/...),
+  // excluding protocol-relative external URLs (`//cdn.example.com/...`).
+  return trimmed.startsWith('/') && !trimmed.startsWith('//');
+}
+
+function shouldInjectPreviewMediaCrossOrigin(el: Element): boolean {
+  if (Array.from(el.attributes).some((attr) => attr.name.toLowerCase() === 'crossorigin')) {
+    return false;
+  }
+  const urls: string[] = [];
+  const directSrc = el.getAttribute('src')?.trim();
+  if (directSrc) urls.push(directSrc);
+  for (const source of Array.from(el.querySelectorAll('source[src]'))) {
+    const src = source.getAttribute('src')?.trim();
+    if (src) urls.push(src);
+  }
+  return urls.length > 0 && urls.every((url) => isProjectLocalMediaUrl(url));
+}
+
+/**
+ * Cloud preview serves project binary assets via same-origin `/api/projects/:id/preview/*`
+ * URLs that `302` redirect to cross-origin presigned S3/R2 URLs (with canonical S3 CORS).
+ * Without `crossorigin="anonymous"`, Chromium loads redirected media in no-CORS mode, so
+ * Web Audio `createMediaElementSource()` permanently outputs silence even though
+ * `el.currentSrc` looks same-origin pre-redirect.
+ */
+function ensurePreviewMediaCrossOrigin(root: ParentNode): boolean {
+  let changed = false;
+  for (const el of Array.from(root.querySelectorAll('audio, video'))) {
+    if (shouldInjectPreviewMediaCrossOrigin(el)) {
+      el.setAttribute('crossorigin', 'anonymous');
+      changed = true;
+    }
+  }
+  for (const tpl of Array.from(root.querySelectorAll('template'))) {
+    const raw = tpl.innerHTML;
+    if (!/<(?:audio|video)\b/i.test(raw)) continue;
+    const tplDoc = parseHTMLContent(`<!DOCTYPE html><html><head></head><body>${raw}</body></html>`);
+    if (ensurePreviewMediaCrossOrigin(tplDoc.body)) {
+      tpl.innerHTML = tplDoc.body.innerHTML;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function cssAttributeSelector(attr: string, value: string): string {
   const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/</g, '\\3c ');
   return `[${attr}="${escaped}"]`;
@@ -730,8 +780,9 @@ export async function bundlePreviewInMemory(
     el.textContent = deduped[index] ?? '';
   });
 
-  // Assign deterministic media render IDs
+  // Assign deterministic media render IDs and opt project-local media into CORS for S3 302 redirects
   assignMediaRenderIds(document);
+  ensurePreviewMediaCrossOrigin(document);
 
   let html = document.toString();
   html = withPreviewBase(html, baseHref);
@@ -812,6 +863,7 @@ export async function buildSubCompositionHtmlInMemory(
   rewrittenContent = stripEmbeddedRuntimeScripts(rewrittenContent);
   const scriptsDoc = parseHTMLContent(`<!DOCTYPE html><html><head></head><body>${rewrittenContent}</body></html>`);
   deferScriptsUntilFonts(scriptsDoc);
+  ensurePreviewMediaCrossOrigin(scriptsDoc.body);
   const rootComp = scriptsDoc.body.querySelector('[data-composition-id]');
   if (rootComp && !rootComp.getAttribute('data-composition-file')) {
     rootComp.setAttribute('data-composition-file', compPath);
@@ -856,7 +908,7 @@ export function previewEtag(
   const captureSalt = options.capture ? ':capture' : '';
   if (options.compPath) {
     const pathHash = createHash('sha1').update(options.compPath).digest('hex');
-    return `"comp:v2:${pathHash}:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
+    return `"comp:v3:${pathHash}:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
   }
-  return `"preview:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
+  return `"preview:v2:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
 }

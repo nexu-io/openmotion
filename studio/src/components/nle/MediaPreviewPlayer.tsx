@@ -8,6 +8,7 @@ import { SpeedMenu } from "../../player/components/SpeedMenu";
 import { formatTime } from "../../player/lib/time";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { AudioPreviewWaveform } from "./AudioPreviewWaveform";
+import { mediaCrossOriginForUrl } from "./mediaCrossOrigin";
 import "./audioPreview.css";
 
 export function MediaPreviewPlayer({ url, kind, name, autoPlay = true, waveform, onError }: {
@@ -15,6 +16,7 @@ export function MediaPreviewPlayer({ url, kind, name, autoPlay = true, waveform,
   waveform?: readonly number[]; onError?: () => void;
 }) {
   const audioMode = kind === "audio";
+  const mediaCrossOrigin = mediaCrossOriginForUrl(url);
   const { t } = useI18n();
   const media = useRef<HTMLMediaElement | null>(null);
   const [time, setTime] = useState(0);
@@ -56,8 +58,8 @@ export function MediaPreviewPlayer({ url, kind, name, autoPlay = true, waveform,
     <div className={`${audioMode ? "motion-audio-preview-surface " : ""}mx-3 flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-[var(--motion-inset)]`}>
       {failed ? <p role="alert" className="text-step-12 text-text-2">{t("Preview failed to load")}</p>
         : kind === "image" ? <img src={url} alt={name} onError={() => setFailed(true)} className="h-full w-full object-contain" />
-        : kind === "video" ? <video ref={node => { media.current = node; }} src={url} autoPlay={autoPlay} playsInline muted={muted} loop={loop} disablePictureInPicture aria-label={name} className="h-full w-full object-contain" {...events} />
-        : <audio preload="metadata" ref={node => { media.current = node; }} src={url} autoPlay={autoPlay} muted={muted} loop={loop} aria-label={name} {...events} />}
+        : kind === "video" ? <video ref={node => { media.current = node; }} crossOrigin={mediaCrossOrigin} src={url} autoPlay={autoPlay} playsInline muted={muted} loop={loop} disablePictureInPicture aria-label={name} className="h-full w-full object-contain" {...events} />
+        : <audio preload="metadata" ref={node => { media.current = node; }} crossOrigin={mediaCrossOrigin} src={url} autoPlay={autoPlay} muted={muted} loop={loop} aria-label={name} {...events} />}
       {!failed && audioMode && (waveform ? <div className="motion-waveform-seek">
         <svg viewBox={`0 0 ${waveform.length * 5} 100`} preserveAspectRatio="none" aria-hidden="true">
           {waveform.map((height, index) => <rect key={index} x={index * 5} y={(100 - height) / 2} width={3} height={height} rx={1.5}

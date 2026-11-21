@@ -44,6 +44,7 @@ it.each(["mp3", "wav", "m4a", "aac", "ogg", "flac"])("uses a compact live visual
   expect(dialog.querySelectorAll("svg[role=img] rect")).toHaveLength(81);
   expect(dialog.querySelector(".motion-player-control-row")!.className).toContain("motion-player-control-row-lg");
   const audio = dialog.querySelector("audio")!;
+  expect(audio.getAttribute("crossorigin")).toBe("anonymous");
   Object.defineProperty(audio, "duration", { value: 10 });
   act(() => audio.dispatchEvent(new Event("loadedmetadata")));
   act(() => { audio.currentTime = 5; audio.dispatchEvent(new Event("timeupdate")); });
@@ -98,4 +99,10 @@ it("updates bars from live measurements, freezes on pause and releases on replac
   expect(usePlayerStore.getState().currentTime).toBe(4);
   await render("/photo.png", "image");
   expect(release).toHaveBeenCalledOnce();
+});
+
+it("omits crossorigin for third-party preview audio URLs", async () => {
+  await render("https://cdn.example.com/voice.mp3", "audio");
+  const audio = document.querySelector("audio")!;
+  expect(audio.getAttribute("crossorigin")).toBeNull();
 });

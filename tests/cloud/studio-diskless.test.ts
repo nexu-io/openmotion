@@ -32,6 +32,7 @@ import { WorkspaceService } from '../../src/services/workspace-service.ts';
 import {
   DELETED_VERSION,
   InMemoryVirtualProject,
+  buildSubCompositionHtmlInMemory,
   bundlePreviewInMemory,
   createDisklessStudioApp,
   fileContentVersion,
@@ -703,6 +704,102 @@ describe('Pure In-Memory Hyperframes Engines (Bundle, Lint, Info, Timeline)', ()
     assert.equal(timeline.duration, 10);
     assert.equal(timeline.fps, 30);
     assert.ok(timeline.tracks.length >= 1);
+  });
+
+  it('adds crossorigin="anonymous" only to project-local audio/video media in root and sub-composition previews', async () => {
+    const html = `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-fps="30" data-duration="10">
+      <audio id="local-audio" src="assets/lfs/soundtrack.m4a" data-start="0"></audio>
+      <video id="local-video" src="/api/projects/proj-cors/preview/assets/intro.mp4" data-start="0"></video>
+      <audio id="source-audio" data-start="0"><source src="assets/voice.mp3" type="audio/mpeg"></audio>
+      <audio id="explicit-cors" src="assets/custom.m4a" crossorigin="use-credentials"></audio>
+      <audio id="external-audio" src="https://cdn.example.com/song.mp3"></audio>
+      <audio id="proto-rel-audio" src="//cdn.example.com/song.mp3"></audio>
+      <audio id="data-audio" src="data:audio/wav;base64,UklGRg=="></audio>
+      <audio id="empty-audio"></audio>
+      <template id="tpl-audio"><audio id="in-template" src="assets/tpl.m4a"></audio></template>
+    </div>
+  </body>
+</html>`;
+    const subCompHtml = `<template id="scene-a-template">
+  <div data-composition-id="scene-a" data-width="1920" data-height="1080" data-fps="30" data-duration="5">
+    <audio id="sub-local" src="../assets/sub.m4a" data-start="0"></audio>
+    <audio id="sub-ext" src="https://cdn.example.com/ext.mp3" data-start="0"></audio>
+  </div>
+</template>`;
+    const now = new Date();
+    const virtual = new InMemoryVirtualProject({
+      projectId: 'proj-cors',
+      projectName: 'CORS Media Test',
+      revision: 'c'.repeat(64),
+      files: [
+        {
+          path: 'index.html',
+          blobScope: 'workspace',
+          sha256: sha256Hex(html),
+          sizeBytes: Buffer.byteLength(html),
+          mimeType: 'text/html; charset=utf-8',
+          isText: true,
+          updatedAt: now,
+        },
+        {
+          path: 'compositions/scene-a.html',
+          blobScope: 'workspace',
+          sha256: sha256Hex(subCompHtml),
+          sizeBytes: Buffer.byteLength(subCompHtml),
+          mimeType: 'text/html; charset=utf-8',
+          isText: true,
+          updatedAt: now,
+        },
+        {
+          path: 'assets/sub.m4a',
+          blobScope: 'workspace',
+          sha256: 'd'.repeat(64),
+          sizeBytes: 128,
+          mimeType: 'audio/mp4',
+          isText: false,
+          updatedAt: now,
+        },
+      ],
+      textContents: {
+        'index.html': html,
+        'compositions/scene-a.html': subCompHtml,
+      },
+    });
+
+    const tagById = (docHtml: string, id: string): string => {
+      const match = new RegExp(`<(?:audio|video)\\b[^>]*\\bid="${id}"[^>]*>`, 'i').exec(docHtml);
+      assert.ok(match, `Expected element #${id}`);
+      return match[0];
+    };
+
+    const bundled = await bundlePreviewInMemory(virtual, {
+      runtimeUrl: '/api/runtime.js',
+      baseHref: '/api/projects/proj-cors/preview/',
+      skipDeterministicFonts: true,
+    });
+    assert.ok(bundled);
+    assert.match(tagById(bundled, 'local-audio'), /\bcrossorigin="anonymous"/i);
+    assert.match(tagById(bundled, 'local-video'), /\bcrossorigin="anonymous"/i);
+    assert.match(tagById(bundled, 'source-audio'), /\bcrossorigin="anonymous"/i);
+    assert.match(tagById(bundled, 'explicit-cors'), /\bcrossorigin="use-credentials"/i);
+    assert.doesNotMatch(tagById(bundled, 'external-audio'), /\bcrossorigin=/i);
+    assert.doesNotMatch(tagById(bundled, 'proto-rel-audio'), /\bcrossorigin=/i);
+    assert.doesNotMatch(tagById(bundled, 'data-audio'), /\bcrossorigin=/i);
+    assert.doesNotMatch(tagById(bundled, 'empty-audio'), /\bcrossorigin=/i);
+    assert.match(tagById(bundled, 'in-template'), /\bcrossorigin="anonymous"/i);
+
+    const subBundled = await buildSubCompositionHtmlInMemory(virtual, 'compositions/scene-a.html', {
+      runtimeUrl: '/api/runtime.js',
+      baseHref: '/api/projects/proj-cors/preview/',
+      skipDeterministicFonts: true,
+    });
+    assert.ok(subBundled);
+    assert.match(tagById(subBundled, 'sub-local'), /\bcrossorigin="anonymous"/i);
+    assert.doesNotMatch(tagById(subBundled, 'sub-ext'), /\bcrossorigin=/i);
   });
 });
 

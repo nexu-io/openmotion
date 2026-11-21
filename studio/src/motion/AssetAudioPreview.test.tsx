@@ -35,6 +35,7 @@ it('uses the selected audio element for the waveform and stops animation on paus
   await render();
   const audio = host.querySelector('audio')!;
   expect(audio.controls).toBe(true);
+  expect(audio.getAttribute('crossorigin')).toBe('anonymous');
   expect(audio.getAttribute('src')).toContain('/versions/v1/file');
   expect(acquireAudioPreviewAnalyser).toHaveBeenCalledWith(audio, expect.any(Function));
   expect(host.querySelectorAll('svg[role=img] rect')).toHaveLength(81);
