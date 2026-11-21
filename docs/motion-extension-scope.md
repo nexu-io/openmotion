@@ -7,7 +7,7 @@
 ## 当前分发与接口
 
 - 五个正式入口均随一期插件和四宿主适配器分发。`openmotion-template-to-video` 使用 `openmotion://workflow/template/start`，`openmotion-video-to-template` 使用 `openmotion://workflow/video-to-template/start`；短 workflow ID 保持兼容，读取不会启动服务或创建工程。
-- Phase one exposes [eighteen registered public Tool names](mcp-phase1-tools.md), including one asset compatibility alias. Use `openmotion_get_project` for project/file/job reads, `openmotion_edit_project` for managed source changes, `openmotion_import_assets` for batch imports and `openmotion_export_request` for export and technical verification.
+- Phase one exposes [twenty-two registered public Tool names](mcp-phase1-tools.md): eighteen video/workspace names including one asset compatibility alias, plus four `openmotion_design_*` Design Studio HTML tools. Use `openmotion_get_project` for project/file/job reads, `openmotion_edit_project` for managed source changes, `openmotion_import_assets` for batch imports and `openmotion_export_request` for export and technical verification.
 - The two public catalog Tools provide the local template index and individual template details/instructions. Older standalone comparison, workflow-reading and template-management handlers remain internal compatibility only; Skills must not require those hidden calls. Existing private template files are preserved.
 - 下载/分析参考、CLI 检查、原片对照视频与 ZIP 打包由宿主可用能力完成；工具不足须记录缺口。技术检查不代表人类视觉验收。
 
