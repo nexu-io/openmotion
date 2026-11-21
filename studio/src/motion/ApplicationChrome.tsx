@@ -14,7 +14,7 @@ import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
 import { repositorySupportLinks } from './githubRepository';
-import type { SettingsSection } from './SettingsCenter';
+import type { SettingsSection } from './workspacePageRouting';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 import { CreativeNavigation, type CreativeNavigationProps } from './CreativeNavigation';

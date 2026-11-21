@@ -14,6 +14,7 @@ Designers, creators, prompt authors and engineers are all welcome. The [OpenMoti
 | A motion design system | `library/design-systems/<name>/MOTION_DESIGN.md` | Visual language, pacing, movement, sound, references and review criteria. |
 | A Brandkit | `library/brandkits/<name>/BRANDKIT.md` | Confirmed facts, copy, identity, asset locations and permission notes. |
 | A Studio UI component | [packages/open-design-ui](packages/open-design-ui/README.md) | States, semantic tokens, an interactive example and a product usage. |
+| A Studio page or route | [studio/src/router/](docs/routing.md) | Lazy registration in `lazyPages.ts` + `routeRegistry.ts`, root-relative paths, no reserved backend prefixes, and `shellBoundary.test.ts`. |
 | Runtime / editor / agent support | Existing modules linked in the [architecture](docs/product/architecture.md) | A reproducible case, focused change and checks for the affected boundary. |
 
 Use the [entry checklist](library/ENTRY_TEMPLATE.md), link the new entry from its collection, and preserve sources and licenses. Label references, recipes and editable examples accurately. Adding a folder does not register it in Studio, the MCP workflow registry or the default five-Skill installation. Packaging uses an explicit file list.
