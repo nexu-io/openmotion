@@ -160,7 +160,7 @@ export function sanitizeText(value: string): string {
       `$1${REDACTED}`,
     )
     .replace(
-      /\b(?:sk-[\w-]{8,}|om_pat_[\w-]{8,}|sntrys_[\w-]{8,}|ph[cx]_[\w-]{8,}|gh[pousr]_[\w]{12,}|github_pat_[\w]{12,}|AKIA[A-Z0-9]{16}|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b/g,
+      /\b(?:sk-[\w-]{8,}|om_pat_[\w-]{8,}|sntry[su]_[\w-]{8,}|ph[cx]_[\w-]{8,}|gh[pousr]_[\w]{12,}|github_pat_[\w]{12,}|AKIA[A-Z0-9]{16}|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b/g,
       '[redacted token]',
     )
     .replace(/https?:\/\/[^\s<>"')]+/gi, (match) => sanitizeUrl(match))

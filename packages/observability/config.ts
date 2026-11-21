@@ -140,7 +140,7 @@ export function injectRuntimeConfigIntoHtml(
 ): string {
   const script = serializeRuntimeConfigScript(config);
   if (html.includes(RUNTIME_CONFIG_PLACEHOLDER)) {
-    return html.replace(RUNTIME_CONFIG_PLACEHOLDER, script);
+    return html.replace(RUNTIME_CONFIG_PLACEHOLDER, () => script);
   }
   if (!script) return html;
   const headCloseIndex = html.search(/<\/head>/i);

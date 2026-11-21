@@ -898,6 +898,257 @@ describe('Idempotent Catalog CAS Sync (syncCatalogCas)', () => {
     assert.equal(pg.tables.catalog_templates.length, 5);
     assert.equal(pg.tables.catalog_template_files.length, rowsBeforeRerun);
   });
+
+  it('hydrates missing LFS blobs when fetchRemote=true and skips remote downloads once present in S3', async () => {
+    const pg = new MockPgHarness();
+    const storage = new MockStorage();
+    const templateId = 'motion-1e48dea5-903d-48f6-b10e-99a70f1c183d';
+
+    // Run offline first to capture the exact LFS sha256/size from the catalog entry.
+    await syncCatalogCas({ db: pg.db, storage }, { templateIds: [templateId] });
+    const lfsRow = pg.tables.catalog_template_files.find(
+      (row) => row.template_id === templateId && row.path === 'assets/lfs/original-audio.m4a',
+    );
+    assert.ok(lfsRow);
+    assert.equal(lfsRow.is_available, false);
+
+    // Pre-populate the exact blob in S3 (simulating a previous sync or pre-seeded bucket)
+    // and verify fetchRemote=true marks it available with ZERO HTTP fetches.
+    const fakeBlob = Buffer.alloc(Number(lfsRow.size_bytes), 0x41);
+    await storage.putObject(catalogBlobKey(String(lfsRow.sha256)), fakeBlob, 'audio/mp4', fakeBlob.byteLength);
+
+    let fetchCalls = 0;
+    const countingFetch: typeof fetch = async (input) => {
+      fetchCalls++;
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      throw new Error(`Unexpected remote fetch for ${url}`);
+    };
+
+    // Only hydrate blobs whose sha256 is already in S3 for all non-project remoteAssets too,
+    // so we isolate testing the S3-hit skip on every missing file for this template.
+    for (const row of pg.tables.catalog_template_files) {
+      if (row.template_id === templateId && row.is_available === false) {
+        const buf = Buffer.alloc(Number(row.size_bytes), 0x42);
+        await storage.putObject(catalogBlobKey(String(row.sha256)), buf, String(row.mime_type), buf.byteLength);
+      }
+    }
+
+    const hydrated = await syncCatalogCas(
+      { db: pg.db, storage },
+      { templateIds: [templateId], fetchRemote: true, fetchImpl: countingFetch },
+    );
+    assert.equal(fetchCalls, 0, 'Must not re-download blobs already present in S3 CAS');
+    assert.equal(hydrated.unavailableFiles, 0);
+
+    const updatedLfsRow = pg.tables.catalog_template_files.find(
+      (row) => row.template_id === templateId && row.path === 'assets/lfs/original-audio.m4a',
+    );
+    assert.ok(updatedLfsRow);
+    assert.equal(updatedLfsRow.is_available, true);
+  });
+
+  it('hydrates absent remote LFS blobs via fetchImpl, preserves image dimensions on S3-hit re-runs, rejects integrity mismatches, and tolerates transient network failures', async () => {
+    const tmpCatalog = await mkdtemp(path.join(os.tmpdir(), 'om-catalog-remote-'));
+    try {
+      const templateId = 'remote-hydrate-demo';
+      const tplRoot = path.join(tmpCatalog, templateId);
+      await mkdir(path.join(tplRoot, 'source/assets/lfs'), { recursive: true });
+
+      // Valid minimal PNG signature + IHDR header encoding 640x360 dimensions.
+      const pngBytes = Buffer.alloc(32, 0);
+      pngBytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+      pngBytes.writeUInt32BE(13, 8);
+      pngBytes.write('IHDR', 12, 'ascii');
+      pngBytes.writeUInt32BE(640, 16);
+      pngBytes.writeUInt32BE(360, 20);
+      const pngSha = createHash('sha256').update(pngBytes).digest('hex');
+      const pngUrl = `https://releases.open-design.ai/open-motion/media/sha256/${pngSha}.png`;
+
+      const indexBytes = Buffer.from('<div data-composition-id="root"><img src="assets/lfs/hero.png"></div>', 'utf8');
+      const indexSha = createHash('sha256').update(indexBytes).digest('hex');
+
+      await writeFile(
+        path.join(tmpCatalog, 'catalog.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          templateIds: [templateId],
+          publication: {
+            resourceId: 'test-catalog',
+            environment: 'test',
+            channel: 'test',
+            publicationId: 'pub-1',
+            defaultLocale: 'en',
+            locales: ['en'],
+          },
+          localeContent: { en: { brands: [] } },
+        }),
+      );
+      await writeFile(
+        path.join(tplRoot, 'template.json'),
+        JSON.stringify({
+          templateId,
+          entry: {
+            templateId,
+            sortOrder: 1,
+            files: [
+              { path: 'index.html', bytes: indexBytes.byteLength, sha256: indexSha, mimeType: 'text/html; charset=utf-8' },
+              { path: 'assets/lfs/hero.png', bytes: pngBytes.byteLength, sha256: pngSha, mimeType: 'image/png', url: pngUrl },
+            ],
+          },
+          locales: { en: { original: { templateName: 'Remote Hydrate Demo' } } },
+          remoteAssets: [
+            {
+              url: pngUrl,
+              bytes: pngBytes.byteLength,
+              sha256: pngSha,
+              source: { path: 'assets/lfs/hero.png', bytes: pngBytes.byteLength, sha256: pngSha },
+            },
+          ],
+        }),
+      );
+      await writeFile(
+        path.join(tplRoot, 'source/manifest.json'),
+        JSON.stringify({
+          canvas: { width: 1920, height: 1080 },
+          fps: 30,
+          durationSeconds: 5,
+          files: [
+            { path: 'index.html', bytes: indexBytes.byteLength, sha256: indexSha },
+            { path: 'assets/lfs/hero.png', bytes: pngBytes.byteLength, sha256: pngSha },
+          ],
+        }),
+      );
+      await writeFile(path.join(tplRoot, 'source/index.html'), indexBytes);
+      await writeFile(
+        path.join(tplRoot, 'source/assets/lfs/hero.png'),
+        `version https://git-lfs.github.com/spec/v1\noid sha256:${pngSha}\nsize ${pngBytes.byteLength}\n`,
+      );
+
+      // 1. Absent S3 object + stubbed fetchImpl -> downloads, verifies, uploads, and extracts image dimensions.
+      const pg = new MockPgHarness();
+      const storage = new MockStorage();
+      let fetchCalls = 0;
+      const okFetch: typeof fetch = async () => {
+        fetchCalls++;
+        return new Response(new Uint8Array(pngBytes), { status: 200 });
+      };
+
+      const first = await syncCatalogCas(
+        { db: pg.db, storage },
+        { catalogRoot: tmpCatalog, repoOnly: true, fetchRemote: true, fetchImpl: okFetch },
+      );
+      assert.equal(fetchCalls, 1);
+      assert.equal(first.unavailableFiles, 0);
+      assert.equal(storage.objects.has(catalogBlobKey(pngSha)), true);
+      const firstRow = pg.tables.catalog_template_files.find(
+        (row) => row.template_id === templateId && row.path === 'assets/lfs/hero.png',
+      );
+      assert.ok(firstRow);
+      assert.equal(firstRow.is_available, true);
+      assert.deepEqual(
+        { width: (firstRow.metadata as { width?: number })?.width, height: (firstRow.metadata as { height?: number })?.height },
+        { width: 640, height: 360 },
+      );
+
+      // 2. Idempotent S3-hit re-run -> 0 remote fetches, 0 S3 gets, AND image dimensions are preserved.
+      fetchCalls = 0;
+      const getsBeforeRerun = storage.getCalls;
+      const second = await syncCatalogCas(
+        { db: pg.db, storage },
+        { catalogRoot: tmpCatalog, repoOnly: true, fetchRemote: true, fetchImpl: okFetch },
+      );
+      assert.equal(fetchCalls, 0);
+      assert.equal(storage.getCalls, getsBeforeRerun);
+      assert.equal(second.unavailableFiles, 0);
+      assert.ok(second.blobsSkipped >= 1);
+      const secondRow = pg.tables.catalog_template_files.find(
+        (row) => row.template_id === templateId && row.path === 'assets/lfs/hero.png',
+      );
+      assert.ok(secondRow);
+      assert.equal(secondRow.is_available, true);
+      assert.deepEqual(
+        { width: (secondRow.metadata as { width?: number })?.width, height: (secondRow.metadata as { height?: number })?.height },
+        { width: 640, height: 360 },
+      );
+
+      // 3. Pre-seeded S3 image blob with empty PG -> 0 remote fetches, extracts dimensions from S3 CAS.
+      const freshPg = new MockPgHarness();
+      const seededRun = await syncCatalogCas(
+        { db: freshPg.db, storage },
+        { catalogRoot: tmpCatalog, repoOnly: true, fetchRemote: true, fetchImpl: okFetch },
+      );
+      assert.equal(fetchCalls, 0);
+      assert.equal(seededRun.unavailableFiles, 0);
+      const seededRow = freshPg.tables.catalog_template_files.find(
+        (row) => row.template_id === templateId && row.path === 'assets/lfs/hero.png',
+      );
+      assert.deepEqual(
+        { width: (seededRow?.metadata as { width?: number })?.width, height: (seededRow?.metadata as { height?: number })?.height },
+        { width: 640, height: 360 },
+      );
+
+      // 4. Hash / byte-length mismatch MUST reject the sync (fail closed on corruption/tampering).
+      const badBytes = Buffer.from(pngBytes);
+      badBytes[badBytes.byteLength - 1] ^= 0xff;
+      await assert.rejects(
+        () =>
+          syncCatalogCas(
+            { db: new MockPgHarness().db, storage: new MockStorage() },
+            {
+              catalogRoot: tmpCatalog,
+              repoOnly: true,
+              fetchRemote: true,
+              fetchImpl: async () => new Response(new Uint8Array(badBytes), { status: 200 }),
+            },
+          ),
+        /SHA-256 mismatch|hash\/length mismatch/i,
+      );
+      await assert.rejects(
+        () =>
+          syncCatalogCas(
+            { db: new MockPgHarness().db, storage: new MockStorage() },
+            {
+              catalogRoot: tmpCatalog,
+              repoOnly: true,
+              fetchRemote: true,
+              fetchImpl: async () => new Response(new Uint8Array(pngBytes.subarray(0, 12)), { status: 200 }),
+            },
+          ),
+        /size mismatch|hash\/length mismatch/i,
+      );
+
+      // 5. Transient remote HTTP error is tolerated by default (local Compose stays up),
+      //    and rejected when strictRemote=true.
+      const offlinePg = new MockPgHarness();
+      const offlineFetch: typeof fetch = async () => new Response('upstream down', { status: 503 });
+      const offlineSummary = await syncCatalogCas(
+        { db: offlinePg.db, storage: new MockStorage() },
+        { catalogRoot: tmpCatalog, repoOnly: true, fetchRemote: true, fetchImpl: offlineFetch },
+      );
+      assert.equal(offlineSummary.unavailableFiles, 1);
+      const offlineRow = offlinePg.tables.catalog_template_files.find(
+        (row) => row.template_id === templateId && row.path === 'assets/lfs/hero.png',
+      );
+      assert.equal(offlineRow?.is_available, false);
+
+      await assert.rejects(
+        () =>
+          syncCatalogCas(
+            { db: new MockPgHarness().db, storage: new MockStorage() },
+            {
+              catalogRoot: tmpCatalog,
+              repoOnly: true,
+              fetchRemote: true,
+              strictRemote: true,
+              fetchImpl: offlineFetch,
+            },
+          ),
+        /HTTP 503/i,
+      );
+    } finally {
+      await rm(tmpCatalog, { recursive: true, force: true });
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -173,6 +173,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     pendingTimelineEditPathRef,
     reloadPreview,
     onOutsideChange: editHistory.noteOutsideChange,
+    onHistoryChanged: editHistory.refresh,
   });
   const invalidateGsapCacheRef = useRef<() => void>(() => {});
   const invalidateGsapCache = useCallback(() => invalidateGsapCacheRef.current(), []);

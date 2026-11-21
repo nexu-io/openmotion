@@ -15,6 +15,14 @@ import { blocksProjectWork, isPendingRender, mergeRenderJobs, readRenderStatus, 
 import { useRenderProgress } from "./useRenderProgress";
 import { beginStudioIo } from "../../telemetry/ioRecovery";
 import { usePlayerStore } from "../../player/store/playerStore";
+import { usePreviewIframeStore } from "../../player/store/previewIframeStore";
+import {
+  evaluateBrowserExportEligibility,
+  isBrowserWebCodecsSupported,
+  isIsolatedPreviewIframe,
+} from "../../render/browserExportPreflight";
+import { runBrowserExport } from "../../render/browserExport";
+import { getBrowserExportEnabled } from "./renderSettings";
 import { durationBucket, exportRejection, exportSettings, openTemplateFields, projectScaleFields, projectFields,
   reportExportRequest, reportExportResult, type ExportOrigin } from "../../motion/editorTracking";
 
@@ -22,6 +30,8 @@ export interface RenderJob {
   id: string;
   nativeJobId?: string;
   requestId?: string;
+  browserLocal?: boolean;
+  localBlobUrl?: string;
   workerActive?: boolean;
   requestNotFound?: boolean;
   status: "rendering" | "cancelling" | "unknown" | "complete" | "failed" | "cancelled";
@@ -62,6 +72,7 @@ export interface StartRenderOptions {
    */
   variables?: Record<string, unknown>;
   origin?: ExportOrigin;
+  engine?: "server" | "browser";
 }
 
 // "Hide" (formerly "Clear") is a view operation, not a delete: hidden ids are
@@ -113,6 +124,8 @@ export function useRenderQueue(
   const jobsRef = useRef(jobs);
   jobsRef.current = jobs;
   const closeActiveEventSource = useRenderProgress(projectId, jobs, setJobs);
+  const browserExportsRef = useRef(new Map<string, AbortController>());
+  const blobUrlsRef = useRef(new Set<string>());
   const startingRef = useRef<string | null>(null);
   const [startingProject, setStartingProject] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -162,6 +175,10 @@ export function useRenderQueue(
   }, [setJobs]);
 
   useEffect(() => {
+    for (const controller of browserExportsRef.current.values()) controller.abort();
+    browserExportsRef.current.clear();
+    for (const blobUrl of blobUrlsRef.current) URL.revokeObjectURL(blobUrl);
+    blobUrlsRef.current.clear();
     sessionJobs.current.clear();
     promptedJobIds.current.clear();
     requestSettings.current.clear();
@@ -170,6 +187,13 @@ export function useRenderQueue(
     setActionError(null);
     setChecking(false);
   }, [projectId]);
+
+  useEffect(() => () => {
+    for (const controller of browserExportsRef.current.values()) controller.abort();
+    browserExportsRef.current.clear();
+    for (const blobUrl of blobUrlsRef.current) URL.revokeObjectURL(blobUrl);
+    blobUrlsRef.current.clear();
+  }, []);
 
   const loadRenders = useCallback(async () => {
     if (!projectId) return;
@@ -232,7 +256,8 @@ export function useRenderQueue(
       }
       const exportId = generateId();
       const player = usePlayerStore.getState();
-      const openComposition = !opts.composition || opts.composition === activeCompPathRef.current;
+      const openComposition =
+        !opts.composition || opts.composition === (activeCompPathRef.current || "index.html");
       const timeline = openComposition && player.timelineReady;
       const tracked = { ...exportSettings(opts.origin, opts),
         video_duration_bucket: durationBucket(timeline ? player.duration : undefined), ...openTemplateFields() };
@@ -251,10 +276,24 @@ export function useRenderQueue(
           else if (pending) pending.reported = true;
         }
       };
+      const requestedFormat = opts.format ?? "mp4";
+      const previewIframe = usePreviewIframeStore.getState().iframe;
+      // Browser export captures the mounted preview iframe and player store, so it
+      // can only render the currently open composition; other compositions always
+      // fall back to the server render pipeline.
+      const useBrowserEngine =
+        openComposition &&
+        (opts.engine === "browser" ||
+          (opts.engine === undefined &&
+            getBrowserExportEnabled() &&
+            isBrowserWebCodecsSupported() &&
+            !isIsolatedPreviewIframe(previewIframe) &&
+            (requestedFormat === "mp4" || requestedFormat === "webm")));
+
       // The server would answer this with a 503 anyway. Refusing here keeps
       // the reason and the fix in the message, and keeps a control that
       // forgot to disable itself from producing a mystery failure.
-      if (ffmpegMissing) {
+      if (!useBrowserEngine && ffmpegMissing) {
         requestResult("rejected", ffmpeg?.runtime ? "RUNTIME_NOT_READY" : "FFMPEG_MISSING");
         if (ffmpeg?.runtime) return;
         addSessionJob(
@@ -330,6 +369,114 @@ export function useRenderQueue(
         render_composition: composition ?? "index.html",
         render_has_variables: Boolean(opts.variables && Object.keys(opts.variables).length > 0),
       };
+
+      if (useBrowserEngine) {
+        const iframe = previewIframe;
+        const eligibility = evaluateBrowserExportEligibility({
+          format,
+          elements: player.elements,
+          duration: player.duration,
+          iframe,
+        });
+        if (!eligibility.eligible) {
+          requestResult("rejected", "REQUEST_REJECTED");
+          const message = eligibility.reasons[0] ?? "Browser export is unavailable for this project.";
+          addSessionJob(
+            {
+              id: generateId(),
+              browserLocal: true,
+              status: "failed",
+              progress: 0,
+              error: message,
+              filename: "Export blocked",
+              createdAt: startTime,
+              settings,
+            },
+            settings,
+          );
+          return;
+        }
+        const jobId = exportId;
+        const controller = new AbortController();
+        browserExportsRef.current.set(jobId, controller);
+        requestResult("accepted");
+        const filename = `OpenMotion-${jobId.slice(0, 8)}.${format}`;
+        addSessionJob(
+          {
+            id: jobId,
+            requestId,
+            browserLocal: true,
+            status: "rendering",
+            progress: 0,
+            stage: "Preparing browser export",
+            filename,
+            createdAt: startTime,
+            settings,
+          },
+          settings,
+        );
+        void (async () => {
+          try {
+            const result = await runBrowserExport({
+              projectId,
+              format: format as "mp4" | "webm",
+              quality,
+              fps,
+              resolution,
+              duration: player.duration,
+              elements: player.elements,
+              keyframeCache: player.keyframeCache,
+              iframe,
+              signal: controller.signal,
+              onProgress: ({ progress, stage }) => {
+                if (currentProject.current !== projectId) return;
+                setJobs((prev) =>
+                  prev.map((j) => (j.id === jobId && j.status === "rendering" ? { ...j, progress, stage } : j)),
+                );
+              },
+            });
+            blobUrlsRef.current.add(result.blobUrl);
+            if (currentProject.current !== projectId) return;
+            const fpsInfo = result.stats
+              ? ` · ${result.stats.effectiveFps.toFixed(1)} fps (${result.stats.htmlMode}, snapdom ×${result.stats.snapdomCaptures})`
+              : "";
+            setJobs((prev) =>
+              prev.map((j) =>
+                j.id === jobId
+                  ? {
+                      ...j,
+                      status: "complete",
+                      progress: 100,
+                      stage: `Completed${fpsInfo}`,
+                      localBlobUrl: result.blobUrl,
+                      fileAvailable: true,
+                      durationMs: result.durationMs,
+                    }
+                  : j,
+              ),
+            );
+          } catch (err) {
+            if (currentProject.current !== projectId) return;
+            const aborted = controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError");
+            setJobs((prev) =>
+              prev.map((j) =>
+                j.id === jobId
+                  ? aborted
+                    ? { ...j, status: "cancelled", stage: "cancelled" }
+                    : {
+                        ...j,
+                        status: "failed",
+                        error: err instanceof Error ? err.message : "Browser export failed",
+                      }
+                  : j,
+              ),
+            );
+          } finally {
+            browserExportsRef.current.delete(jobId);
+          }
+        })();
+        return jobId;
+      }
       // "auto" / undefined means "render at the composition's authored size".
       // Omit the field entirely — sending "auto" would trip the route's
       // enum validation set.
@@ -465,7 +612,14 @@ export function useRenderQueue(
 
   const cancelRender = useCallback(async (jobId: string) => {
     const job = jobsRef.current.find(candidate => candidate.id === jobId);
-    if (!projectId || !job?.nativeJobId || !isPendingRender(job)) return;
+    if (!projectId || !job || !isPendingRender(job)) return;
+    if (job.browserLocal) {
+      setActionError(null);
+      setJobs(previous => previous.map(candidate => candidate.id === jobId ? { ...candidate, status: "cancelling" } : candidate));
+      browserExportsRef.current.get(jobId)?.abort();
+      return;
+    }
+    if (!job.nativeJobId) return;
     setActionError(null);
     setJobs(previous => previous.map(candidate => candidate.id === jobId ? { ...candidate, status: "cancelling" } : candidate));
     try {
@@ -489,6 +643,17 @@ export function useRenderQueue(
   const deleteRender = useCallback(
     async (jobId: string) => {
       setActionError(null);
+      const target = jobsRef.current.find((j) => j.id === jobId);
+      if (target?.browserLocal) {
+        browserExportsRef.current.get(jobId)?.abort();
+        browserExportsRef.current.delete(jobId);
+        if (target.localBlobUrl) {
+          URL.revokeObjectURL(target.localBlobUrl);
+          blobUrlsRef.current.delete(target.localBlobUrl);
+        }
+        setJobs((prev) => prev.filter((j) => j.id !== jobId));
+        return;
+      }
       closeActiveEventSource(jobId);
       try {
         const res = await studioApiFetch(studioProjectUrl(`/api/render/${encodeURIComponent(jobId)}`, projectId), { method: "DELETE" });

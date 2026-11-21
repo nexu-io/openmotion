@@ -32,6 +32,7 @@ import { WorkspaceService } from '../../src/services/workspace-service.ts';
 import {
   DELETED_VERSION,
   InMemoryVirtualProject,
+  buildSubCompositionHtmlInMemory,
   bundlePreviewInMemory,
   createDisklessStudioApp,
   fileContentVersion,
@@ -621,6 +622,28 @@ describe('Zero Local ProjectDir Disk Writes Guard', () => {
 });
 
 describe('Pure In-Memory Hyperframes Engines (Bundle, Lint, Info, Timeline)', () => {
+  it('keeps deferred composition scripts with the scene that mounts their DOM', async () => {
+    const sources = {
+      'index.html': '<html><body><div data-composition-id="main"><div data-composition-id="later" data-composition-src="later.html" data-start="15" data-duration="3"></div></div><script>window.rootReady = true;</script></body></html>',
+      'later.html': '<template><div data-composition-id="later"><canvas id="reel"></canvas></div><script>document.getElementById("reel").getContext("2d");</script></template>',
+    };
+    const project = new InMemoryVirtualProject({
+      projectId: 'scene-script', projectName: 'Scene script', revision: 'b'.repeat(64),
+      textContents: sources,
+      files: Object.entries(sources).map(([path, content]) => ({
+        path, blobScope: 'workspace', sha256: sha256Hex(content), sizeBytes: Buffer.byteLength(content),
+        mimeType: 'text/html', isText: true, updatedAt: new Date(),
+      })),
+    });
+    const bundled = await bundlePreviewInMemory(project, { skipDeterministicFonts: true });
+    assert.ok(bundled);
+    const scripts = [...bundled.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+    const scene = scripts.find(([, , body]) => body.includes('getElementById("reel")'));
+    assert.ok(scene);
+    assert.match(scene[1], /data-hf-scene="later"/);
+    assert.ok(!scene[2].includes('window.rootReady'));
+  });
+
   it('bundles preview HTML, lints with PG blob metadata (no ffprobe), and computes info + timeline purely in memory', async () => {
     const html = `<!DOCTYPE html>
 <html>
@@ -703,6 +726,102 @@ describe('Pure In-Memory Hyperframes Engines (Bundle, Lint, Info, Timeline)', ()
     assert.equal(timeline.duration, 10);
     assert.equal(timeline.fps, 30);
     assert.ok(timeline.tracks.length >= 1);
+  });
+
+  it('adds crossorigin="anonymous" only to project-local audio/video media in root and sub-composition previews', async () => {
+    const html = `<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8"></head>
+  <body>
+    <div id="root" data-composition-id="root" data-width="1920" data-height="1080" data-fps="30" data-duration="10">
+      <audio id="local-audio" src="assets/lfs/soundtrack.m4a" data-start="0"></audio>
+      <video id="local-video" src="/api/projects/proj-cors/preview/assets/intro.mp4" data-start="0"></video>
+      <audio id="source-audio" data-start="0"><source src="assets/voice.mp3" type="audio/mpeg"></audio>
+      <audio id="explicit-cors" src="assets/custom.m4a" crossorigin="use-credentials"></audio>
+      <audio id="external-audio" src="https://cdn.example.com/song.mp3"></audio>
+      <audio id="proto-rel-audio" src="//cdn.example.com/song.mp3"></audio>
+      <audio id="data-audio" src="data:audio/wav;base64,UklGRg=="></audio>
+      <audio id="empty-audio"></audio>
+      <template id="tpl-audio"><audio id="in-template" src="assets/tpl.m4a"></audio></template>
+    </div>
+  </body>
+</html>`;
+    const subCompHtml = `<template id="scene-a-template">
+  <div data-composition-id="scene-a" data-width="1920" data-height="1080" data-fps="30" data-duration="5">
+    <audio id="sub-local" src="../assets/sub.m4a" data-start="0"></audio>
+    <audio id="sub-ext" src="https://cdn.example.com/ext.mp3" data-start="0"></audio>
+  </div>
+</template>`;
+    const now = new Date();
+    const virtual = new InMemoryVirtualProject({
+      projectId: 'proj-cors',
+      projectName: 'CORS Media Test',
+      revision: 'c'.repeat(64),
+      files: [
+        {
+          path: 'index.html',
+          blobScope: 'workspace',
+          sha256: sha256Hex(html),
+          sizeBytes: Buffer.byteLength(html),
+          mimeType: 'text/html; charset=utf-8',
+          isText: true,
+          updatedAt: now,
+        },
+        {
+          path: 'compositions/scene-a.html',
+          blobScope: 'workspace',
+          sha256: sha256Hex(subCompHtml),
+          sizeBytes: Buffer.byteLength(subCompHtml),
+          mimeType: 'text/html; charset=utf-8',
+          isText: true,
+          updatedAt: now,
+        },
+        {
+          path: 'assets/sub.m4a',
+          blobScope: 'workspace',
+          sha256: 'd'.repeat(64),
+          sizeBytes: 128,
+          mimeType: 'audio/mp4',
+          isText: false,
+          updatedAt: now,
+        },
+      ],
+      textContents: {
+        'index.html': html,
+        'compositions/scene-a.html': subCompHtml,
+      },
+    });
+
+    const tagById = (docHtml: string, id: string): string => {
+      const match = new RegExp(`<(?:audio|video)\\b[^>]*\\bid="${id}"[^>]*>`, 'i').exec(docHtml);
+      assert.ok(match, `Expected element #${id}`);
+      return match[0];
+    };
+
+    const bundled = await bundlePreviewInMemory(virtual, {
+      runtimeUrl: '/api/runtime.js',
+      baseHref: '/api/projects/proj-cors/preview/',
+      skipDeterministicFonts: true,
+    });
+    assert.ok(bundled);
+    assert.match(tagById(bundled, 'local-audio'), /\bcrossorigin="anonymous"/i);
+    assert.match(tagById(bundled, 'local-video'), /\bcrossorigin="anonymous"/i);
+    assert.match(tagById(bundled, 'source-audio'), /\bcrossorigin="anonymous"/i);
+    assert.match(tagById(bundled, 'explicit-cors'), /\bcrossorigin="use-credentials"/i);
+    assert.doesNotMatch(tagById(bundled, 'external-audio'), /\bcrossorigin=/i);
+    assert.doesNotMatch(tagById(bundled, 'proto-rel-audio'), /\bcrossorigin=/i);
+    assert.doesNotMatch(tagById(bundled, 'data-audio'), /\bcrossorigin=/i);
+    assert.doesNotMatch(tagById(bundled, 'empty-audio'), /\bcrossorigin=/i);
+    assert.match(tagById(bundled, 'in-template'), /\bcrossorigin="anonymous"/i);
+
+    const subBundled = await buildSubCompositionHtmlInMemory(virtual, 'compositions/scene-a.html', {
+      runtimeUrl: '/api/runtime.js',
+      baseHref: '/api/projects/proj-cors/preview/',
+      skipDeterministicFonts: true,
+    });
+    assert.ok(subBundled);
+    assert.match(tagById(subBundled, 'sub-local'), /\bcrossorigin="anonymous"/i);
+    assert.doesNotMatch(tagById(subBundled, 'sub-ext'), /\bcrossorigin=/i);
   });
 });
 
@@ -869,6 +988,14 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
       initialFiles: [{ path: 'index.html', content: initialHtml }],
     });
 
+    const probe = await env.studioApp.request(
+      `/api/projects/${created.projectId}/file-mutations/probe-elements/index.html`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: [{ id: 'headline' }, { id: 'missing' }] }) },
+    );
+    assert.equal(probe.status, 200);
+    assert.deepEqual(await probe.json(), { ok: true, exists: [true, false], results: [true, false] });
+
     // DOM patch-element
     const patchRes = await env.studioApp.request(
       `/api/projects/${created.projectId}/file-mutations/patch-element/index.html`,
@@ -877,7 +1004,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           target: { id: 'headline' },
-          ops: [{ type: 'text-content', property: 'textContent', value: 'After Patch' }],
+          operations: [{ type: 'text-content', property: 'textContent', value: 'After Patch' }],
         }),
       },
     );

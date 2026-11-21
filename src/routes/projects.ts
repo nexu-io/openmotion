@@ -3,8 +3,10 @@ import type { AuthContext, PatScope, WorkspaceRole } from '../contracts/auth.ts'
 import { CloudError, isCloudError } from '../contracts/errors.ts';
 import type { ProjectType } from '../db/schema/projects.ts';
 import type { AssetNamesService } from '../services/asset-names-service.ts';
+import type { CatalogPort } from '../services/catalog-service.ts';
 import type { ExportService } from '../services/export-service.ts';
 import type { ProjectArchiveService } from '../services/project-archive-service.ts';
+import { createOrCloneProject, formatProjectCreationHttpResponse } from '../services/project-creation.ts';
 import type { ProjectFilesService } from '../services/project-files-service.ts';
 import type { VersionHistoryService } from '../services/version-history-service.ts';
 import type { WorkRoundsService } from '../services/work-rounds-service.ts';
@@ -29,6 +31,7 @@ export interface ProjectsRouterDeps {
   readonly assetNames: AssetNamesService;
   readonly workRounds: WorkRoundsService;
   readonly archives?: ProjectArchiveService;
+  readonly catalog?: Pick<CatalogPort, 'cloneTemplateToProject'>;
   readonly exports?: Pick<ExportService, 'listProjectExports'>;
   readonly resolveAuth?: (c: Context<{ Variables: ProductRouteVariables }>) => AuthContext | Promise<AuthContext>;
 }
@@ -95,6 +98,7 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
       templateId?: string;
+      locale?: string;
       projectType?: ProjectType;
       requirements?: string;
       namingLanguage?: string;
@@ -105,26 +109,24 @@ export function createProjectsRouter(deps: ProjectsRouterDeps): Hono<{ Variables
       selectActive?: boolean;
     };
 
-    const created = await deps.workspace.createProject(auth, {
-      title: body.title,
-      templateId: body.templateId,
-      projectType: body.projectType,
-      requirements: body.requirements,
-      namingLanguage: body.namingLanguage,
-      sessionId: body.sessionId,
-      requestId: body.requestId,
-      initialPrompt: body.prompt ?? body.instruction,
-      selectActive: body.selectActive,
-    });
-
-    return c.json(
+    const result = await createOrCloneProject(
+      { workspace: deps.workspace, catalog: deps.catalog },
+      auth,
       {
-        ...created,
-        projectTitle: created.title,
-        exportJob: null,
+        title: body.title,
+        templateId: body.templateId,
+        locale: body.locale,
+        projectType: body.projectType,
+        requirements: body.requirements,
+        namingLanguage: body.namingLanguage,
+        sessionId: body.sessionId,
+        requestId: body.requestId,
+        initialPrompt: body.prompt ?? body.instruction,
+        selectActive: body.selectActive,
       },
-      created.replayed ? 200 : 201,
     );
+    const formatted = formatProjectCreationHttpResponse(result);
+    return c.json(formatted.body, formatted.status);
   });
 
   // POST /motion-api/preview/open — Verify target project before mounting Studio ArtifactViewer.

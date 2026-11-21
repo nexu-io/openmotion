@@ -75,6 +75,12 @@ spec:
                 configMapKeyRef:
                   name: openmotion-config
                   key: S3_FORCE_PATH_STYLE
+            - name: CATALOG_SYNC_FETCH_REMOTE
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: CATALOG_SYNC_FETCH_REMOTE
+                  optional: true
             - name: S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:

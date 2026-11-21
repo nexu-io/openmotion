@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
@@ -90,7 +90,7 @@ describe('@openmotion/observability config & HTML runtime injection', () => {
     const config = buildBrowserObservabilityConfig({
       dsn: TEST_DSN,
       environment: 'staging</script><img src=x>',
-      release: 'openmotion@1.2.3',
+      release: "openmotion@1.2.3-$'-$$-$&",
       tracesSampleRate: 1.5,
       previewOrigin: 'https://preview.openmotion.example.com/extra/path',
       appVersion: '1.2.3',
@@ -99,15 +99,17 @@ describe('@openmotion/observability config & HTML runtime injection', () => {
     assert.equal(config.tracesSampleRate, 1);
     assert.equal(config.previewOrigin, 'https://preview.openmotion.example.com');
 
-    const html = `<!doctype html><html><head>${RUNTIME_CONFIG_PLACEHOLDER}</head><body></body></html>`;
+    const html = `<!doctype html><html><head>${RUNTIME_CONFIG_PLACEHOLDER}</head><body><main>ok</main></body></html>`;
     const rendered = injectRuntimeConfigIntoHtml(html, config);
     assert.ok(!rendered.includes(RUNTIME_CONFIG_PLACEHOLDER));
     assert.ok(!rendered.includes('staging</script>'));
     assert.ok(rendered.includes('\\u003c/script\\u003e'));
+    assert.ok(rendered.includes(`"release":"openmotion@1.2.3-$'-$$-$\\u0026"`));
+    assert.equal(rendered.match(/<main>ok<\/main>/g)?.length, 1);
     assert.ok(rendered.includes(`window.${RUNTIME_CONFIG_GLOBAL_KEY}=Object.freeze(`));
 
     const strippedHtml = injectRuntimeConfigIntoHtml(html, null);
-    assert.equal(strippedHtml, '<!doctype html><html><head></head><body></body></html>');
+    assert.equal(strippedHtml, '<!doctype html><html><head></head><body><main>ok</main></body></html>');
 
     const roundTripped = readBrowserObservabilityConfig({
       [RUNTIME_CONFIG_GLOBAL_KEY]: config,
@@ -267,7 +269,7 @@ describe('@openmotion/observability sanitization & noise filtering', () => {
 });
 
 describe('@openmotion/observability Vite sourcemap & zero-dependency Debug ID plugin', () => {
-  it('resolves sourcemap modes and injects deterministic Debug IDs without external CLI deps', () => {
+  it('resolves sourcemap modes and injects deterministic Debug IDs without external CLI deps', async (t) => {
     assert.equal(resolveStudioSourcemapOption({}), true);
     assert.equal(resolveObservabilityBuildConfig({}).injectDebugIds, false);
     assert.equal(createSentryVitePlugins({}).length, 0);
@@ -277,6 +279,10 @@ describe('@openmotion/observability Vite sourcemap & zero-dependency Debug ID pl
 
     assert.equal(resolveStudioSourcemapOption({ STUDIO_SOURCEMAP: 'hidden' }), 'hidden');
     assert.equal(resolveObservabilityBuildConfig({ STUDIO_SOURCEMAP: 'hidden' }).injectDebugIds, true);
+    assert.equal(
+      resolveObservabilityBuildConfig({ STUDIO_SOURCEMAP: 'hidden', SENTRY_DEBUG_IDS: '' }).injectDebugIds,
+      true,
+    );
 
     assert.equal(resolveStudioSourcemapOption({ STUDIO_SOURCEMAP: 'false', SENTRY_DEBUG_IDS: 'true' }), 'hidden');
     assert.equal(
@@ -289,11 +295,28 @@ describe('@openmotion/observability Vite sourcemap & zero-dependency Debug ID pl
     assert.equal(id1, id2);
     assert.match(id1, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
+    const outDir = await mkdtemp(path.join(tmpdir(), 'om-obs-vite-'));
+    t.after(() => rm(outDir, { recursive: true, force: true }));
+    await mkdir(path.join(outDir, 'editor-assets'), { recursive: true });
+    const jsPath = path.join(outDir, 'editor-assets/index-abc.js');
+    const mapPath = `${jsPath}.map`;
+    await writeFile(jsPath, 'console.log("studio");', 'utf8');
+    await writeFile(
+      mapPath,
+      JSON.stringify({ version: 3, sources: ['src/main.tsx'], mappings: '' }),
+      'utf8',
+    );
+
     const plugins = createSentryVitePlugins({ STUDIO_SOURCEMAP: 'hidden' });
     assert.equal(plugins.length, 1);
     const plugin = plugins[0] as unknown as {
-      generateBundle: (options: unknown, bundle: Record<string, Record<string, unknown>>) => void;
+      enforce?: string;
+      writeBundle: (
+        options: { dir?: string },
+        bundle: Record<string, Record<string, unknown>>,
+      ) => Promise<void>;
     };
+    assert.equal(plugin.enforce, 'post');
     const bundle: Record<string, Record<string, unknown>> = {
       'editor-assets/index-abc.js': {
         type: 'chunk',
@@ -306,10 +329,10 @@ describe('@openmotion/observability Vite sourcemap & zero-dependency Debug ID pl
         source: JSON.stringify({ version: 3, sources: ['src/main.tsx'], mappings: '' }),
       },
     };
-    plugin.generateBundle({}, bundle);
+    await plugin.writeBundle({ dir: outDir }, bundle);
 
-    const updatedCode = String(bundle['editor-assets/index-abc.js'].code);
-    const updatedMap = JSON.parse(String(bundle['editor-assets/index-abc.js.map'].source)) as {
+    const updatedCode = await readFile(jsPath, 'utf8');
+    const updatedMap = JSON.parse(await readFile(mapPath, 'utf8')) as {
       debugId?: string;
     };
     assert.ok(updatedMap.debugId);
@@ -395,6 +418,16 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     assert.equal(headRes.status, 200);
     assert.equal(headRes.headers.get('content-length'), String(Buffer.byteLength(injectedHtml, 'utf8')));
     assert.equal(await headRes.text(), '');
+
+    // 2B. Same-origin PREVIEW_PUBLIC_ORIGIN must NOT inject previewOrigin (would suppress Studio errors)
+    const sameOriginApi = createStubApiDeps(runtimeRoot, {
+      APP_PUBLIC_ORIGIN: 'https://motion.example.com',
+      PREVIEW_PUBLIC_ORIGIN: 'https://motion.example.com',
+      SENTRY_WEB_DSN: TEST_DSN,
+    });
+    const sameOriginHtml = await (await sameOriginApi.app.request('/')).text();
+    assert.ok(sameOriginHtml.includes(TEST_DSN));
+    assert.ok(!sameOriginHtml.includes('"previewOrigin"'));
 
     // 3. Production blocks `.map` static responses as defense-in-depth
     const blockedStatic = await serveStaticAsset('/editor-assets/index.js.map', runtimeRoot, false, {

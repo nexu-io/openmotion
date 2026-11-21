@@ -112,12 +112,14 @@ All runtime variables are validated strictly by [`src/infra/config.ts`](../src/i
 Production images never ship `.map` files (`deploy/Dockerfile` strips `*.map` from `prod-base`, and `api` returns `404` for `*.map` when `NODE_ENV=production`). To build `api` with embedded deterministic Debug IDs, export matching hidden `.js.map` files from the shared BuildKit cache, and upload them externally via `sentry-cli`:
 
 ```bash
-RELEASE="openmotion@$(git rev-parse --short HEAD)"
+SHA="$(git rev-parse --short HEAD)"
+IMAGE_TAG="openmotion-${SHA}"
+SENTRY_RELEASE="openmotion@${SHA}"
 
-docker buildx build -f deploy/Dockerfile --target api --build-arg STUDIO_SOURCEMAP=hidden -t "openmotion-api:${RELEASE}" .
+docker buildx build -f deploy/Dockerfile --target api --build-arg STUDIO_SOURCEMAP=hidden -t "openmotion-api:${IMAGE_TAG}" .
 docker buildx build -f deploy/Dockerfile --target studio-sourcemaps --build-arg STUDIO_SOURCEMAP=hidden --output type=local,dest=./dist/studio-sourcemaps .
 
-sentry-cli sourcemaps upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" --release "$RELEASE" --url-prefix "~/editor-assets" ./dist/studio-sourcemaps
+sentry-cli sourcemaps upload --org "$SENTRY_ORG" --project "$SENTRY_PROJECT" --release "$SENTRY_RELEASE" --url-prefix "~/editor-assets" ./dist/studio-sourcemaps
 rm -rf ./dist/studio-sourcemaps
 ```
 

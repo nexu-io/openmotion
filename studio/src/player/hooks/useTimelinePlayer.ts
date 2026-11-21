@@ -5,6 +5,7 @@ import { usePlaybackKeyboard } from "./usePlaybackKeyboard";
 import { useTimelineSyncCallbacks } from "./useTimelineSyncCallbacks";
 import { useShadowPreviewReload } from "./useShadowPreviewReload";
 import { resolvePlaybackAdapter } from "./playbackAdapterResolution";
+import { createPreviewAdapter } from "../lib/previewAdapter";
 import { subscribePreviewFrame, transportAdapter } from "../store/previewFrameStore";
 import { clampToDuration } from "../lib/time";
 import { useTimelinePlayerLoop } from "./useTimelinePlayerLoop";
@@ -28,7 +29,12 @@ export {
 } from "../lib/playbackShortcuts";
 
 import type { PlaybackAdapter, IframeWindow } from "../lib/playbackTypes";
-import { releaseStaticSeekCache, type StaticSeekCacheEntry } from "../lib/playbackAdapter";
+import {
+  createBridgePlaybackAdapter,
+  releaseStaticSeekCache,
+  type BridgePlaybackAdapter,
+  type StaticSeekCacheEntry,
+} from "../lib/playbackAdapter";
 import { mergeTimelineElementsPreservingDowngrades } from "../lib/timelineDOM";
 import { findTimelineElementInIframe } from "../../hooks/timelineEditingHelpers";
 import { normalizeToZones } from "../components/timelineZones";
@@ -72,6 +78,7 @@ export function useTimelinePlayer({
   const lastTimelineMessageRef = useRef<number>(0);
   const staticSeekAdapterRef = useRef<StaticSeekCacheEntry | null>(null);
   const staticSeekWarnedRef = useRef(false);
+  const bridgeAdapterRef = useRef(new Map<HTMLIFrameElement, BridgePlaybackAdapter>());
 
   const { setIsPlaying, setCurrentTime, setDuration, requestTimelineReady, setElements } =
     usePlayerStore.getState();
@@ -151,6 +158,14 @@ export function useTimelinePlayer({
         const iframe = overrideIframe !== undefined ? overrideIframe : iframeRef.current;
         const win = iframe?.contentWindow as IframeWindow | null;
         if (!iframe || !win) return null;
+        const preview = createPreviewAdapter({ iframe });
+        if (preview.token) {
+          const current = bridgeAdapterRef.current.get(iframe);
+          if (current) return current;
+          const adapter = createBridgePlaybackAdapter(preview);
+          bridgeAdapterRef.current.set(iframe, adapter);
+          return adapter;
+        }
         const adapter = resolvePlaybackAdapter(iframe, win, {
           cache: staticSeekAdapterRef,
           warned: staticSeekWarnedRef,
@@ -162,6 +177,11 @@ export function useTimelinePlayer({
     },
     [],
   );
+
+  useMountEffect(() => () => {
+    for (const adapter of bridgeAdapterRef.current.values()) adapter.dispose();
+    bridgeAdapterRef.current.clear();
+  });
 
   const setLoopStart = useCallback((seconds: number | null) => {
     try {

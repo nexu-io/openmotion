@@ -11,6 +11,7 @@ import type {
   StaticSeekPlaybackClock,
   TimelineLike,
 } from "./playbackTypes";
+import type { PreviewAdapter } from "./previewAdapter";
 
 // ---------------------------------------------------------------------------
 // Pure numeric helpers
@@ -214,4 +215,46 @@ export function wrapTimeline(tl: TimelineLike): PlaybackAdapter {
     getDuration: () => tl.duration(),
     isPlaying: () => tl.isActive(),
   };
+}
+
+/**
+ * Playback transport for an isolated preview. The bridge owns the actual
+ * runtime, while this adapter keeps the same synchronous PlaybackAdapter shape
+ * expected by the timeline and keyboard hooks.
+ */
+export type BridgePlaybackAdapter = PlaybackAdapter & { dispose: () => void };
+
+export function createBridgePlaybackAdapter(preview: PreviewAdapter): BridgePlaybackAdapter {
+  let currentTime = 0;
+  let duration = 0;
+  let playing = false;
+  const onMessage = (event: MessageEvent) => {
+    if (!preview.accepts(event)) return;
+    if (event.data.type !== "timeline-state") return;
+    if (typeof event.data.currentTime === "number") currentTime = Math.max(0, event.data.currentTime);
+    if (typeof event.data.duration === "number") duration = Math.max(0, event.data.duration);
+    if (typeof event.data.isPlaying === "boolean") playing = event.data.isPlaying;
+  };
+  window.addEventListener("message", onMessage);
+
+  const adapter: BridgePlaybackAdapter = {
+    play: () => {
+      preview.send("playback-control", { action: "play" });
+      playing = true;
+    },
+    pause: () => {
+      preview.send("playback-control", { action: "pause" });
+      playing = false;
+    },
+    seek: (time, options) => {
+      currentTime = Math.max(0, Number(time) || 0);
+      preview.send("playback-control", { action: "seek", time: currentTime });
+      if (!options?.keepPlaying) playing = false;
+    },
+    getTime: () => currentTime,
+    getDuration: () => duration,
+    isPlaying: () => playing,
+    dispose: () => window.removeEventListener("message", onMessage),
+  };
+  return adapter;
 }

@@ -39,7 +39,8 @@ interface NextStep {
 }
 
 interface HistoryView {
-  entries: HistoryListItem[];
+  currentSeq?: number; // Present on the cloud snapshot-based timeline.
+  entries: Array<Pick<HistoryListItem, "id" | "undoes"> & { endedAt: number | string }>;
   back: NextStep | null;
   forward: NextStep | null;
 }
@@ -197,9 +198,15 @@ async function restoredFiles(
   );
 }
 
+function timestamp(value: number | string): number {
+  return typeof value === "number" ? value : Date.parse(value);
+}
+
 function redoneAt(view: HistoryView): number | null {
+  if (view.currentSeq !== undefined) return view.forward?.endedAt ?? null;
   const undo = view.entries.find((entry) => entry.id === view.forward?.id);
-  return view.entries.find((entry) => entry.id === undo?.undoes)?.endedAt ?? null;
+  const original = view.entries.find((entry) => entry.id === undo?.undoes);
+  return original ? timestamp(original.endedAt) : null;
 }
 
 /** Studio's undo over the server's project history: an edit claims what it wrote; Cmd+Z steps the person's. */
@@ -226,7 +233,7 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
       : EMPTY;
     if (projectIdRef.current !== projectId) return;
     if (!next) return console.error("The history's reply was unreadable.");
-    observeStudioSavedAt(projectId, Math.max(0, ...next.entries.map(entry => entry.endedAt)));
+    observeStudioSavedAt(projectId, Math.max(0, ...next.entries.map(entry => timestamp(entry.endedAt))));
     setView(next);
     own.offered(seen, next);
   }, [projectId, own]);
@@ -311,7 +318,16 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
         // 404: this app keeps no history, so there is nothing to step.
         if (!posted.ok && posted.status === 404) return { ok: false, reason: "empty" };
         if (!posted.ok) return { ok: false, reason: "failed", message: posted.error };
-        const reply = posted.body as HistoryResult;
+        const reply = posted.body as HistoryResult | { ok: true; entry?: { label: string } | null; appliedFiles: string[] };
+        if ("appliedFiles" in reply) {
+          // Snapshot history returns the destination entry. Its own diff can describe a different edit.
+          return {
+            ok: true,
+            label: next?.label ?? reply.entry?.label,
+            paths: reply.appliedFiles,
+            files: await restoredFiles(reply.appliedFiles, previous, callbacks.readFile),
+          };
+        }
         if (!reply.ok) {
           if (projectIdRef.current === projectId && next && (!target || target === next.id)) {
             blockedRef.current = { ...blockedRef.current, [direction]: next };
@@ -377,8 +393,11 @@ export function usePersistentEditHistory({ projectId }: UsePersistentEditHistory
     claimKey,
     undo,
     redo,
+    refresh,
     predict: (direction: "undo" | "redo") =>
-      sameStep(blockedRef.current[direction], direction === "undo" ? view.back : view.forward)
+      // Snapshot steps reuse version IDs in both directions. The local inverse-entry cache
+      // is only valid for servers that append a distinct undo entry.
+      view.currentSeq !== undefined || sameStep(blockedRef.current[direction], direction === "undo" ? view.back : view.forward)
         ? null : own.predict(direction),
     claims: own.claimCount,
     noteOutsideChange,

@@ -14,7 +14,7 @@ RUN npm ci --no-audit --no-fund
 
 COPY . .
 ARG STUDIO_SOURCEMAP=false
-ARG SENTRY_DEBUG_IDS=false
+ARG SENTRY_DEBUG_IDS=
 RUN STUDIO_SOURCEMAP="${STUDIO_SOURCEMAP}" \
     SENTRY_DEBUG_IDS="${SENTRY_DEBUG_IDS}" \
     npm run build:studio \

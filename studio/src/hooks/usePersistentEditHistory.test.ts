@@ -76,6 +76,29 @@ async function studio({ withHistory = true, initialFiles = {} as Record<string, 
   return { dir, history, hook: () => hook, file, save, readFile, host };
 }
 
+it("uses the files actually restored by cloud history in both directions", async () => {
+  const { hook, save, readFile } = await studio();
+  let seq = 2;
+  const edit = { id: "edit", label: "Edit title", paths: ["index.html"], endedAt: 1000 };
+  vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      seq = JSON.parse(String(init.body)).direction === "back" ? 1 : 2;
+      save(seq === 1 ? "A" : "B");
+      return Response.json({ ok: true, appliedFiles: ["index.html"],
+        entry: { label: "Destination", files: [{ path: "other.html" }] } });
+    }
+    return Response.json({ currentSeq: seq, back: seq === 2 ? edit : null,
+      forward: seq === 1 ? edit : null, entries: [{ id: "edit", endedAt: new Date(1000).toISOString() }] });
+  });
+  save("B");
+  await act(() => hook().refresh());
+  const undo = await act(() => hook().undo({ readFile }));
+  expect(undo.files).toEqual({ "index.html": { previous: "B", restored: "A" } });
+  await vi.waitFor(() => expect(hook().state.redo).toEqual([{ createdAt: 1000 }]));
+  const redo = await act(() => hook().redo({ readFile }));
+  expect(redo.files).toEqual({ "index.html": { previous: "A", restored: "B" } });
+});
+
 it("reads a multi-file history step concurrently without waiting once per file", async () => {
   const { dir, hook, save, readFile } = await studio({ initialFiles: { "other.html": "X" } });
   save("B"); writeFileSync(join(dir, "other.html"), "Y");

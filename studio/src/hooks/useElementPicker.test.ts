@@ -176,6 +176,47 @@ describe("an edit to a picked element without an id", () => {
 });
 
 describe("a pick across a reload that swaps the preview frame", () => {
+  it("maps a scoped cross-origin bridge selection into the existing picker model", () => {
+    const iframe = mountPreview();
+    iframe.src = `${location.origin}/api/projects/project-1/preview?pt=token-1`;
+    const ref: { current: HTMLIFrameElement | null } = { current: iframe };
+    let api: ReturnType<typeof useElementPicker> | null = null;
+    function Harness() {
+      api = useElementPicker(ref);
+      return null;
+    }
+    root = createRoot(document.createElement("div"));
+    act(() => root?.render(React.createElement(Harness)));
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe.contentWindow,
+          origin: location.origin,
+          data: {
+            source: "openmotion-preview-bridge",
+            version: 1,
+            type: "select-element",
+            projectId: "project-1",
+            token: "token-1",
+            selection: {
+              elementId: "title",
+              tagName: "h1",
+              selector: "h1",
+              text: "Title",
+              geometry: { x: 12, y: 20, width: 120, height: 30 },
+            },
+          },
+        }),
+      );
+    });
+    expect(api?.pickedElement).toMatchObject({
+      id: "title",
+      selector: "h1",
+      textContent: "Title",
+      boundingBox: { x: 12, y: 20, width: 120, height: 30 },
+    });
+  });
+
   function mountSwapping() {
     const live = mountPreview();
     const ref: { current: HTMLIFrameElement | null } = { current: live };

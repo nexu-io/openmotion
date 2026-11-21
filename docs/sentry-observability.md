@@ -91,14 +91,16 @@ When built with `STUDIO_SOURCEMAP=hidden` (or `SENTRY_DEBUG_IDS=true`), [`packag
 Build the production `api` image with hidden sourcemaps + Debug IDs (`.map` files are automatically stripped from the final `api` image), then export the matching `studio-sourcemaps` artifacts from the shared BuildKit cache and upload with `sentry-cli`:
 
 ```bash
-RELEASE="openmotion@$(git rev-parse --short HEAD)"
+SHA="$(git rev-parse --short HEAD)"
+IMAGE_TAG="openmotion-${SHA}"
+SENTRY_RELEASE="openmotion@${SHA}"
 
 # 1. Build & push production api image (contains JS with Debug IDs, zero .map files)
 docker buildx build \
   -f deploy/Dockerfile \
   --target api \
   --build-arg STUDIO_SOURCEMAP=hidden \
-  -t "ghcr.io/nexu-io/openmotion-api:${RELEASE}" \
+  -t "ghcr.io/nexu-io/openmotion-api:${IMAGE_TAG}" \
   .
 
 # 2. Export the matching hidden .js + .js.map files from the same build cache
@@ -113,7 +115,7 @@ docker buildx build \
 sentry-cli sourcemaps upload \
   --org "$SENTRY_ORG" \
   --project "$SENTRY_PROJECT" \
-  --release "$RELEASE" \
+  --release "$SENTRY_RELEASE" \
   --url-prefix "~/editor-assets" \
   ./dist/studio-sourcemaps
 

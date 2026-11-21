@@ -113,6 +113,56 @@ function isRelativeUrl(url: string): boolean {
   return Boolean(trimmed) && !isNonRelativeUrl(trimmed) && !trimmed.startsWith('/');
 }
 
+function isProjectLocalMediaUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed) return false;
+  if (isRelativeUrl(trimmed)) return true;
+  // Same-origin app paths (e.g. /api/projects/:id/preview/..., /motion-api/..., /assets/...),
+  // excluding protocol-relative external URLs (`//cdn.example.com/...`).
+  return trimmed.startsWith('/') && !trimmed.startsWith('//');
+}
+
+function shouldInjectPreviewMediaCrossOrigin(el: Element): boolean {
+  if (Array.from(el.attributes).some((attr) => attr.name.toLowerCase() === 'crossorigin')) {
+    return false;
+  }
+  const urls: string[] = [];
+  const directSrc = el.getAttribute('src')?.trim();
+  if (directSrc) urls.push(directSrc);
+  for (const source of Array.from(el.querySelectorAll('source[src]'))) {
+    const src = source.getAttribute('src')?.trim();
+    if (src) urls.push(src);
+  }
+  return urls.length > 0 && urls.every((url) => isProjectLocalMediaUrl(url));
+}
+
+/**
+ * Cloud preview serves project binary assets via same-origin `/api/projects/:id/preview/*`
+ * URLs that `302` redirect to cross-origin presigned S3/R2 URLs (with canonical S3 CORS).
+ * Without `crossorigin="anonymous"`, Chromium loads redirected media in no-CORS mode, so
+ * Web Audio `createMediaElementSource()` permanently outputs silence even though
+ * `el.currentSrc` looks same-origin pre-redirect.
+ */
+function ensurePreviewMediaCrossOrigin(root: ParentNode): boolean {
+  let changed = false;
+  for (const el of Array.from(root.querySelectorAll('audio, video'))) {
+    if (shouldInjectPreviewMediaCrossOrigin(el)) {
+      el.setAttribute('crossorigin', 'anonymous');
+      changed = true;
+    }
+  }
+  for (const tpl of Array.from(root.querySelectorAll('template'))) {
+    const raw = tpl.innerHTML;
+    if (!/<(?:audio|video)\b/i.test(raw)) continue;
+    const tplDoc = parseHTMLContent(`<!DOCTYPE html><html><head></head><body>${raw}</body></html>`);
+    if (ensurePreviewMediaCrossOrigin(tplDoc.body)) {
+      tpl.innerHTML = tplDoc.body.innerHTML;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 function cssAttributeSelector(attr: string, value: string): string {
   const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/</g, '\\3c ');
   return `[${attr}="${escaped}"]`;
@@ -387,6 +437,95 @@ function injectBodyScript(html: string, scriptBody: string, deferred = true): st
 }
 
 /**
+ * Install the cookie-less preview bridge used when a preview is served from
+ * PREVIEW_PUBLIC_ORIGIN. The bridge is inert without a project token, so local
+ * same-origin previews keep their existing DOM/runtime fast path.
+ */
+export function createPreviewBridgeScript(projectId: string): string {
+  const encodedProjectId = JSON.stringify(projectId).replace(/</g, '\\u003c');
+  return `(function(){
+  var SOURCE='openmotion-preview-bridge', PARENT='openmotion-studio', VERSION=1;
+  var projectId=${encodedProjectId};
+  var token=new URL(location.href).searchParams.get('pt');
+  if(!token || window.parent===window) return;
+  var parentWindow=window.parent;
+  var pickMode=false;
+  var parentOrigin='*';
+  try { if(document.referrer) parentOrigin=new URL(document.referrer).origin; } catch (_) {}
+  function post(type,payload,requestId){
+    var message=Object.assign({source:SOURCE,version:VERSION,type:type,projectId:projectId,token:token},payload||{});
+    if(requestId) message.requestId=requestId;
+    parentWindow.postMessage(message,parentOrigin==='null'?'*':parentOrigin);
+  }
+  function player(){ return window.__player || null; }
+  function timeline(){
+    var p=player();
+    return {currentTime:p&&typeof p.getTime==='function'?Number(p.getTime())||0:0,
+      duration:p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0,
+      isPlaying:p&&typeof p.isPlaying==='function'?p.isPlaying()===true:false,
+      durationInFrames:window.__clipManifest&&Number(window.__clipManifest.durationInFrames)||0,
+      clips:window.__clipManifest&&Array.isArray(window.__clipManifest.clips)?window.__clipManifest.clips:[]};
+  }
+  function describe(element){
+    if(!element || element.nodeType!==1) return null;
+    var rect=element.getBoundingClientRect();
+    var text=(element.innerText||element.textContent||'').replace(/\\s+/g,' ').trim().slice(0,240);
+    return {elementId:element.id||null,selector:element.id?'#'+CSS.escape(element.id):null,
+      tagName:element.tagName.toLowerCase(),text:text||null,
+      geometry:{x:rect.left,y:rect.top,width:rect.width,height:rect.height},
+      viewport:{width:innerWidth,height:innerHeight}};
+  }
+  function respond(requestId,result,error){
+    post('response',error?{ok:false,error:String(error)}:{ok:true,result:result},requestId);
+  }
+  function ready(){ post('preview-ready',{capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode']}); post('timeline-state',timeline()); }
+  window.addEventListener('message',function(event){
+    if(event.source!==parentWindow) return;
+    var message=event.data;
+    if(!message || message.source!==PARENT || message.version!==VERSION || message.projectId!==projectId || message.token!==token) return;
+    var requestId=message.requestId;
+    try {
+      if(message.type==='handshake'){ ready(); respond(requestId,{ready:true}); return; }
+      if(message.type==='playback-control'){
+        var p=player(), action=message.action;
+        if(!p) throw new Error('Preview player is not ready');
+        if(action==='play' && typeof p.play==='function') p.play();
+        else if(action==='pause' && typeof p.pause==='function') p.pause();
+        else if(action==='seek' && typeof p.seek==='function') p.seek(Math.max(0,Number(message.time)||0));
+        else throw new Error('Unsupported playback action');
+        post('timeline-state',timeline()); respond(requestId,timeline()); return;
+      }
+      if(message.type==='pick-mode'){
+        pickMode=message.enabled===true;
+        respond(requestId,{enabled:pickMode}); return;
+      }
+      if(message.type==='selection-geometry'){
+        var target=message.elementId?document.getElementById(String(message.elementId)):null;
+        respond(requestId,target?describe(target):null); if(target) post('selection-geometry',{selection:describe(target)}); return;
+      }
+      if(message.type==='edit-element'){
+        // Editing is acknowledged here so the host can persist through Project API.
+        // The bridge never writes project files or trusts arbitrary HTML from a parent.
+        window.dispatchEvent(new CustomEvent('openmotion:edit-element',{detail:message}));
+        respond(requestId,{accepted:true}); return;
+      }
+      respond(requestId,{accepted:false},'Unsupported preview message');
+    } catch(error) { respond(requestId,null,error); post('runtime-error',{message:String(error&&error.message||error),sourceType:'bridge'}); }
+  });
+  document.addEventListener('click',function(event){
+    if(!pickMode) return;
+    var target=event.target;
+    var detail=describe(target);
+    if(detail) post('select-element',{selection:detail});
+  },true);
+  window.addEventListener('error',function(event){ post('runtime-error',{message:String(event.message||'Preview runtime error'),filename:event.filename||null,line:event.lineno||null}); });
+  window.addEventListener('unhandledrejection',function(event){ post('runtime-error',{message:String(event.reason&&event.reason.message||event.reason||'Unhandled preview rejection')}); });
+  window.addEventListener('load',ready);
+  setInterval(function(){ if(document.visibilityState!=='hidden') post('timeline-state',timeline()); },500);
+})();`;
+}
+
+/**
  * Create a Redis-cached Google Fonts `fetchImpl` so `injectDeterministicFontFaces` runs with
  * `allowSystemFontCapture: false` and zero local filesystem cache writes.
  */
@@ -471,7 +610,11 @@ function applyStudioPreviewAugmentations(
         `<meta name="${STUDIO_PREVIEW_MARK_META}">${EARLY_ERRORS_SCRIPT}`,
       );
 
-  // 2. GSAP base URL meta + project signature meta + CDN fallback
+  // 2. Cookie-less cross-origin preview bridge. It is a no-op for local
+  // previews because the script exits when the project token is absent.
+  out = injectBodyScript(out, createPreviewBridgeScript(project.projectId), false);
+
+  // 3. GSAP base URL meta + project signature meta + CDN fallback
   out = injectTagsAtHeadStart(
     out,
     `<meta name="${GSAP_BASE_URL_META}" content="${escapeGsapUrl(options.gsapBaseUrl)}">`,
@@ -479,7 +622,7 @@ function applyStudioPreviewAugmentations(
   out = injectProjectSignature(out, project.revision);
   out = injectGsapCdnFallback(out, options.gsapBaseUrl);
 
-  // 3. Studio motion manifest (.hyperframes/studio-motion.json)
+  // 4. Studio motion manifest (.hyperframes/studio-motion.json)
   const motionManifest = project.readText(STUDIO_MOTION_PATH) ?? '';
   if (motionManifest.trim()) {
     const motionScript = createStudioMotionRenderBodyScript(motionManifest, {
@@ -505,7 +648,7 @@ function applyStudioPreviewAugmentations(
     }
   }
 
-  // 4. Studio manual edits manifest (.hyperframes/studio-manual-edits.json)
+  // 5. Studio manual edits manifest (.hyperframes/studio-manual-edits.json)
   const manualEditsManifest = project.readText(STUDIO_MANUAL_EDITS_PATH) ?? '';
   if (manualEditsManifest.trim()) {
     const manualEditsScript = createStudioManualEditsRenderBodyScript(manualEditsManifest, {
@@ -516,10 +659,10 @@ function applyStudioPreviewAugmentations(
     }
   }
 
-  // 5. MotionPath plugin auto-injection when needed
+  // 6. MotionPath plugin auto-injection when needed
   out = injectMotionPathPluginIfNeeded(out, options.gsapBaseUrl);
 
-  // 6. Preview variable overrides
+  // 7. Preview variable overrides
   if (options.variables && Object.keys(options.variables).length > 0) {
     out = injectPreviewVariables(out, options.variables);
   }
@@ -646,10 +789,22 @@ export async function bundlePreviewInMemory(
   }
 
   const seenExternalScripts = new Set<string>();
-  const scriptChunks: string[] = [];
+  const scriptRuns: Array<{ scene?: string; chunks: string[] }> = [];
+  function appendScript(content: string, scene?: string) {
+    const last = scriptRuns.at(-1);
+    if (last && last.scene === scene) last.chunks.push(content);
+    else scriptRuns.push({ scene, chunks: [content] });
+  }
+  const sourceOwners = new Map<string, string | undefined>();
+  for (const item of subCompResult.scriptItems) {
+    if (item.kind === 'inline') continue;
+    // A script used by multiple scenes must also work when only one of them is mounted.
+    if (!sourceOwners.has(item.src)) sourceOwners.set(item.src, item.scene);
+    else if (sourceOwners.get(item.src) !== item.scene) sourceOwners.set(item.src, undefined);
+  }
   for (const item of subCompResult.scriptItems) {
     if (item.kind === 'inline') {
-      scriptChunks.push(item.content);
+      appendScript(item.content, item.scene);
       continue;
     }
     if (item.integrity?.trim() || seenExternalScripts.has(item.src)) {
@@ -662,7 +817,7 @@ export async function bundlePreviewInMemory(
       const resolved = resolveVirtualPath(sourceDir, decodedUrlPath(item.src));
       const js = resolved ? project.readText(resolved) : null;
       if (js !== null) {
-        scriptChunks.push(js);
+        appendScript(js, sourceOwners.get(item.src));
         continue;
       }
     }
@@ -678,11 +833,12 @@ export async function bundlePreviewInMemory(
     }
   }
 
-  if (scriptChunks.length > 0) {
-    const joined = joinJsChunks(scriptChunks);
-    const pieces = parsesAsScript(joined) ? [joined] : scriptChunks;
+  for (const { scene, chunks } of scriptRuns) {
+    const joined = joinJsChunks(chunks);
+    const pieces = parsesAsScript(joined) ? [joined] : chunks;
     for (const piece of pieces) {
       const script = document.createElement('script');
+      if (scene) script.setAttribute('data-hf-scene', scene);
       script.textContent = escapeInlineScriptSource(piece);
       document.body.appendChild(script);
     }
@@ -701,7 +857,7 @@ export async function bundlePreviewInMemory(
   }
 
   // Coalesce inline body scripts safely
-  const isPinned = (el: Element) => el.hasAttribute(RUNTIME_BOOTSTRAP_ATTR);
+  const isPinned = (el: Element) => el.hasAttribute(RUNTIME_BOOTSTRAP_ATTR) || el.hasAttribute('data-hf-scene');
   for (const { members, anchor } of inlineScriptRuns([...document.querySelectorAll('body script')], isPinned)) {
     const mergedJs = joinJsChunks(members.map((el) => el.textContent || ''));
     if (!mergedJs || !parsesAsScript(mergedJs)) continue;
@@ -730,8 +886,9 @@ export async function bundlePreviewInMemory(
     el.textContent = deduped[index] ?? '';
   });
 
-  // Assign deterministic media render IDs
+  // Assign deterministic media render IDs and opt project-local media into CORS for S3 302 redirects
   assignMediaRenderIds(document);
+  ensurePreviewMediaCrossOrigin(document);
 
   let html = document.toString();
   html = withPreviewBase(html, baseHref);
@@ -812,6 +969,7 @@ export async function buildSubCompositionHtmlInMemory(
   rewrittenContent = stripEmbeddedRuntimeScripts(rewrittenContent);
   const scriptsDoc = parseHTMLContent(`<!DOCTYPE html><html><head></head><body>${rewrittenContent}</body></html>`);
   deferScriptsUntilFonts(scriptsDoc);
+  ensurePreviewMediaCrossOrigin(scriptsDoc.body);
   const rootComp = scriptsDoc.body.querySelector('[data-composition-id]');
   if (rootComp && !rootComp.getAttribute('data-composition-file')) {
     rootComp.setAttribute('data-composition-file', compPath);
@@ -856,7 +1014,7 @@ export function previewEtag(
   const captureSalt = options.capture ? ':capture' : '';
   if (options.compPath) {
     const pathHash = createHash('sha1').update(options.compPath).digest('hex');
-    return `"comp:v2:${pathHash}:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
+    return `"comp:v3:${pathHash}:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
   }
-  return `"preview:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
+  return `"preview:v2:${signature}:gsap:${gsapSalt}${varsSalt}${captureSalt}"`;
 }

@@ -96,6 +96,32 @@ describe("external file change coordinator", () => {
         source.dispatchEvent(new MessageEvent("file-change", { data: JSON.stringify(payload) }));
       });
 
+    it("refreshes history for a matching history-changed event", async () => {
+      const onHistoryChanged = vi.fn();
+      await mountCoordinator({ onHistoryChanged });
+      await act(async () => {
+        source.dispatchEvent(
+          new MessageEvent("history-changed", {
+            data: JSON.stringify({ projectId: "project-a", revision: "rev-2", historySeq: 2 }),
+          }),
+        );
+      });
+      expect(onHistoryChanged).toHaveBeenCalledOnce();
+    });
+
+    it("ignores history-changed events for another project", async () => {
+      const onHistoryChanged = vi.fn();
+      await mountCoordinator({ onHistoryChanged });
+      await act(async () => {
+        source.dispatchEvent(
+          new MessageEvent("history-changed", {
+            data: JSON.stringify({ projectId: "project-b", revision: "rev-2", historySeq: 2 }),
+          }),
+        );
+      });
+      expect(onHistoryChanged).not.toHaveBeenCalled();
+    });
+
     it("delivers the held reconnect scope when a queued clean drain precedes React's commit", async () => {
       let finishAcceptance = () => {};
       const accepted = new Promise<void>((resolve) => {

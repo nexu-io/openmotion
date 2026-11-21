@@ -3,6 +3,23 @@ import type { StartRenderHandler } from "./RenderQueue";
 import type { ResolutionPreset } from "./useRenderQueue";
 
 const RENDER_SETTINGS_KEY = "hf-studio-render-settings";
+const BROWSER_EXPORT_KEY = "hf-studio-browser-export";
+
+export function getBrowserExportEnabled(): boolean {
+  try {
+    return localStorage.getItem(BROWSER_EXPORT_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setBrowserExportEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(BROWSER_EXPORT_KEY, enabled ? "true" : "false");
+  } catch {
+    /* ignore */
+  }
+}
 
 export interface PersistedRenderSettings {
   format: "mp4" | "webm" | "mov" | "gif";
@@ -50,10 +67,15 @@ export function resolveRenderFormat(value: string): PersistedRenderSettings["for
 
 export function startConfiguredRender(
   onStartRender: StartRenderHandler,
-  settings: PersistedRenderSettings & { resolution: ResolutionPreset | "auto"; gifLoop: number },
+  settings: PersistedRenderSettings & {
+    resolution: ResolutionPreset | "auto";
+    gifLoop: number;
+    engine?: "server" | "browser";
+  },
 ): void | Promise<void> {
-  const { format, quality, resolution, fps, gpu, gifLoop } = settings;
+  const { format, quality, resolution, fps, gpu, gifLoop, engine } = settings;
   if (format === "gif") return onStartRender(format, quality, resolution, fps, false, gifLoop);
+  if (engine === "browser") return onStartRender(format, quality, resolution, fps, gpu, undefined, "browser");
   return onStartRender(format, quality, resolution, fps, gpu);
 }
 

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { PluginOption } from 'vite';
 
 export interface ResolvedObservabilityBuildConfig {
@@ -96,16 +98,28 @@ export function createSentryVitePlugins(
     {
       name: 'openmotion-observability-debug-ids',
       apply: 'build',
-      generateBundle(_options, bundle) {
+      enforce: 'post',
+      async writeBundle(outputOptions, bundle) {
+        const outDir =
+          outputOptions.dir ?? (outputOptions.file ? path.dirname(outputOptions.file) : undefined);
+        if (!outDir) return;
+
         for (const item of Object.values(bundle)) {
           if (item.type !== 'chunk' || !item.fileName.endsWith('.js')) continue;
-          const mapAsset = bundle[`${item.fileName}.map`];
-          if (!mapAsset || mapAsset.type !== 'asset') continue;
 
-          const mapText =
-            typeof mapAsset.source === 'string'
-              ? mapAsset.source
-              : Buffer.from(mapAsset.source).toString('utf8');
+          const jsPath = path.resolve(outDir, item.fileName);
+          const mapPath = `${jsPath}.map`;
+
+          let jsCode: string;
+          let mapText: string;
+          try {
+            [jsCode, mapText] = await Promise.all([
+              readFile(jsPath, 'utf8'),
+              readFile(mapPath, 'utf8'),
+            ]);
+          } catch {
+            continue;
+          }
 
           let parsedMap: Record<string, unknown>;
           try {
@@ -117,14 +131,17 @@ export function createSentryVitePlugins(
           const debugId =
             typeof parsedMap.debugId === 'string' && parsedMap.debugId
               ? parsedMap.debugId
-              : deriveDeterministicDebugId(`${item.fileName}\0${item.code}`);
+              : deriveDeterministicDebugId(`${item.fileName}\0${jsCode}`);
 
           parsedMap.debugId = debugId;
-          mapAsset.source = JSON.stringify(parsedMap);
+          const nextJsCode = jsCode.includes(`//# debugId=${debugId}`)
+            ? jsCode
+            : `${jsCode}${buildDebugIdFooter(debugId)}`;
 
-          if (!item.code.includes(`//# debugId=${debugId}`)) {
-            item.code += buildDebugIdFooter(debugId);
-          }
+          await Promise.all([
+            writeFile(mapPath, JSON.stringify(parsedMap), 'utf8'),
+            nextJsCode === jsCode ? Promise.resolve() : writeFile(jsPath, nextJsCode, 'utf8'),
+          ]);
         }
       },
     },

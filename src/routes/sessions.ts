@@ -1,14 +1,17 @@
 import { Hono, type Context } from 'hono';
 import type { AuthContext, PatScope, WorkspaceRole } from '../contracts/auth.ts';
 import { CloudError, isCloudError } from '../contracts/errors.ts';
+import type { CatalogPort } from '../services/catalog-service.ts';
 import type { ExportService } from '../services/export-service.ts';
-import type { WorkspaceService } from '../services/workspace-service.ts';
+import { createOrCloneProject, formatProjectCreationHttpResponse } from '../services/project-creation.ts';
+import { DEFAULT_SESSION_TITLE, type WorkspaceService } from '../services/workspace-service.ts';
 import { assertAuthAccess } from '../studio/context.ts';
 import { artifactViewers, creationModes } from '../../shared/session.ts';
 import type { ProductRouteVariables, WorkspaceExportJobSummary } from './projects.ts';
 
 export interface SessionsRouterDeps {
   readonly workspace: WorkspaceService;
+  readonly catalog?: Pick<CatalogPort, 'getTemplate' | 'cloneTemplateToProject'>;
   readonly exports?: Pick<ExportService, 'listProjectExports'>;
   readonly resolveAuth?: (c: Context<{ Variables: ProductRouteVariables }>) => AuthContext | Promise<AuthContext>;
 }
@@ -85,14 +88,30 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       title?: string;
       mode?: string;
       templateId?: string;
+      locale?: string;
       prompt?: string;
       instruction?: string;
     };
+    const templateId =
+      typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
+    let resolvedTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : undefined;
+    if (!resolvedTitle && templateId && deps.catalog) {
+      try {
+        const template = await deps.catalog.getTemplate(templateId, { locale: body.locale });
+        if (template.title?.trim()) {
+          resolvedTitle = template.title.trim();
+        }
+      } catch (error) {
+        if (!isCloudError(error) || error.code !== 'NOT_FOUND') {
+          throw error;
+        }
+      }
+    }
     const created = await deps.workspace.createSession(auth, {
       id: body.id,
-      title: body.title,
+      title: resolvedTitle,
       mode: body.mode,
-      templateId: body.templateId,
+      templateId,
       prompt: body.prompt ?? body.instruction,
     });
     return c.json({ sessionId: created.id, session: created, ...created }, 201);
@@ -169,6 +188,7 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
     const body = (await c.req.json().catch(() => ({}))) as {
       title?: string;
       templateId?: string;
+      locale?: string;
       requirements?: string;
       namingLanguage?: string;
       requestId?: string;
@@ -176,24 +196,37 @@ export function createSessionsRouter(deps: SessionsRouterDeps): Hono<{ Variables
       instruction?: string;
       selectActive?: boolean;
     };
-    const created = await deps.workspace.createProject(auth, {
-      sessionId,
-      title: body.title,
-      templateId: body.templateId,
-      requirements: body.requirements,
-      namingLanguage: body.namingLanguage,
-      requestId: body.requestId,
-      initialPrompt: body.prompt ?? body.instruction,
-      selectActive: body.selectActive,
-    });
-    return c.json(
+    const session = await deps.workspace.getSession(auth, sessionId);
+    const requestedTemplateId =
+      typeof body.templateId === 'string' && body.templateId.trim() ? body.templateId.trim() : undefined;
+    const inheritedTemplateId =
+      !requestedTemplateId && session.artifacts.length === 0 && session.templateId ? session.templateId : undefined;
+    const effectiveTemplateId = requestedTemplateId ?? inheritedTemplateId;
+    const explicitTitle = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : undefined;
+    const sessionFallbackTitle =
+      session.artifacts.length === 0 && session.title && session.title !== DEFAULT_SESSION_TITLE
+        ? session.title
+        : undefined;
+    const title = explicitTitle ?? sessionFallbackTitle;
+
+    const result = await createOrCloneProject(
+      { workspace: deps.workspace, catalog: deps.catalog },
+      auth,
       {
-        ...created,
-        projectTitle: created.title,
-        exportJob: null,
+        sessionId,
+        title,
+        templateId: effectiveTemplateId,
+        templateInherited: Boolean(inheritedTemplateId),
+        locale: body.locale,
+        requirements: body.requirements,
+        namingLanguage: body.namingLanguage,
+        requestId: body.requestId,
+        initialPrompt: body.prompt ?? body.instruction,
+        selectActive: body.selectActive,
       },
-      created.replayed ? 200 : 201,
     );
+    const formatted = formatProjectCreationHttpResponse(result);
+    return c.json(formatted.body, formatted.status);
   });
 
   return app;

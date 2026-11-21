@@ -14,3 +14,35 @@ targetRules = ["generic-api-key"]
 paths = ['''(^|/)(README\.md|README\.zh-CN\.md|docs/README\.(zh-CN|ja)\.md)$''', '''(^|/)studio/src/motion/CommunityLink\.tsx$''', '''(^|/)studio/build/editor-assets/[^/]+\.js$''']
 regexTarget = "secret"
 regexes = ['''^b6cs46dc-acb2-48ed-941d-c45642ead841$''']
+
+[[allowlists]]
+description = "Cloud .env.example numeric MCP_MAX_BODY_BYTES following blank MCP_OAUTH_ISSUER"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)deploy/\.env\.example$''']
+regexTarget = "secret"
+regexes = ['''^MCP_MAX_BODY_BYTES=10485760$''']
+
+[[allowlists]]
+description = "Cloud export-service identifier property expression for result.logS3Key"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)src/services/export-service\.ts$''']
+regexTarget = "secret"
+regexes = ['''^result\.logS3Key$''']
+
+[[allowlists]]
+description = "Cloud worker-render-env test synthetic S3 secret fixture"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)tests/cloud/worker-render-env\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^synthetic-s3-secret-val$''']
+
+[[allowlists]]
+description = "Cloud test suites synthetic fixed SESSION_SECRET fixture"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)tests/cloud/(?:api-integration|auth-oidc-dev|infra-db|mcp-http|model-gateway)\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef0123456789abcdef$''']

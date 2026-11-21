@@ -7,6 +7,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { startRenderAndReadBody, type MountedQueue } from "./renderQueueTestHarness";
+import { setBrowserExportEnabled } from "./renderSettings";
+import { usePreviewIframeStore } from "../../player/store/previewIframeStore";
 
 vi.mock("../../telemetry/policy", () => ({ browserTelemetryAllowed: () => false }));
 vi.mock("../../telemetry/config", () => ({ getAnonymousId: () => "unused" }));
@@ -29,6 +31,8 @@ async function renderBody(
 afterEach(() => {
   queue?.unmount();
   queue = null;
+  localStorage.clear();
+  usePreviewIframeStore.getState().setIframe(null);
   document.body.innerHTML = "";
   vi.unstubAllGlobals();
 });
@@ -76,5 +80,48 @@ describe("GIF export transport", () => {
   it("omits GIF options for video exports", async () => {
     const body = await renderBody(null, { format: "mp4", gifLoop: 3 });
     expect(body).not.toHaveProperty("gifLoop");
+  });
+});
+
+describe("browser export composition & isolation gates", () => {
+  it("falls back to server export when rendering a composition other than the open preview", async () => {
+    vi.stubGlobal("VideoEncoder", class {});
+    vi.stubGlobal("VideoFrame", class {});
+    setBrowserExportEnabled(true);
+
+    const persistedFallback = await renderBody("parts/part-1.html", {
+      composition: "parts/part-4.html",
+      format: "mp4",
+      origin: "composition_card",
+    });
+    expect(persistedFallback["composition"]).toBe("parts/part-4.html");
+
+    queue?.unmount();
+    queue = null;
+
+    const explicitFallback = await renderBody("parts/part-1.html", {
+      composition: "parts/part-4.html",
+      format: "mp4",
+      engine: "browser",
+    });
+    expect(explicitFallback["composition"]).toBe("parts/part-4.html");
+  });
+
+  it("falls back to server export on persisted browser-export flag when preview is cross-origin isolated", async () => {
+    vi.stubGlobal("VideoEncoder", class {});
+    vi.stubGlobal("VideoFrame", class {});
+    setBrowserExportEnabled(true);
+
+    const isolatedIframe = document.createElement("iframe");
+    isolatedIframe.setAttribute("src", "https://preview.example.com/api/projects/demo/preview");
+    Object.defineProperty(isolatedIframe, "contentDocument", {
+      get: () => {
+        throw new Error("Blocked a frame with origin");
+      },
+    });
+    usePreviewIframeStore.getState().setIframe(isolatedIframe);
+
+    const body = await renderBody("parts/part-1.html", { format: "mp4", origin: "header" });
+    expect(body["composition"]).toBe("parts/part-1.html");
   });
 });

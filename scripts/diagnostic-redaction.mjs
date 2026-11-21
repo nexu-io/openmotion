@@ -9,7 +9,7 @@ export function redactDiagnostic(value, environment = {}, paths = []) {
     .replace(/((?:set-cookie|cookie|authorization)\s*:\s*)[^\r\n]+/gi, '$1[redacted]')
     .replace(/\b(?:Bearer|Basic)\s+[^\s"',;}]+/gi, '[redacted authorization]')
     .replace(/([\w-]*(?:token|secret|password|passwd|authorization|cookie|api.?key)[\w-]*["']?\s*[:=]\s*)("(?:\\.|[^"\\])*"|'[^']*'|[^\s,;}]+)/gi, '$1[redacted]')
-    .replace(/\b(?:sk-[\w-]{8,}|gh[pousr]_[\w]{12,}|github_pat_[\w]{12,}|AKIA[A-Z0-9]{16}|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b/g, '[redacted token]')
+    .replace(/\b(?:sk-[\w-]{8,}|om_pat_[\w-]{8,}|sntry[su]_[\w-]{8,}|ph[cx]_[\w-]{8,}|gh[pousr]_[\w]{12,}|github_pat_[\w]{12,}|AKIA[A-Z0-9]{16}|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b/g, '[redacted token]')
     .replace(/https?:\/\/[^\s<>"')]+/gi, value => {
       try { return new URL(value).origin + '/[redacted-url]'; } catch { return '[redacted-url]'; }
     });

@@ -196,7 +196,7 @@ describe('worker-render Security Boundary: buildRenderSubprocessEnv & Isolated S
       S3_ENDPOINT: 'http://s3:9000',
       S3_BUCKET: 'openmotion',
       S3_ACCESS_KEY_ID: 'synthetic-s3-access-id',
-      S3_SECRET_ACCESS_KEY: 'synthetic-s3-secret-val',
+      S3_SECRET_ACCESS_KEY: 'test-s3-secret-00000000',
       AWS_ACCESS_KEY_ID: 'synthetic-aws-access-id',
       AWS_SECRET_ACCESS_KEY: 'synthetic-aws-secret-val',
       AWS_SESSION_TOKEN: 'synthetic-aws-session',

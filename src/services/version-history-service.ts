@@ -87,6 +87,8 @@ export interface HistoryStepTarget {
   readonly seq: number;
   readonly point: string;
   readonly label: string;
+  readonly paths: string[];
+  readonly endedAt: number;
   readonly versionId: string;
 }
 
@@ -347,6 +349,8 @@ export class VersionHistoryService {
             id: backItem.id,
             seq: backItem.seq,
             point: backItem.point,
+            paths: backItem.files.map((file) => file.path),
+            endedAt: Date.parse(backItem.endedAt),
             label: backItem.label,
             versionId: backItem.versionId,
           }
@@ -356,6 +360,8 @@ export class VersionHistoryService {
             id: forwardItem.id,
             seq: forwardItem.seq,
             point: forwardItem.point,
+            paths: forwardItem.files.map((file) => file.path),
+            endedAt: Date.parse(forwardItem.endedAt),
             label: forwardItem.label,
             versionId: forwardItem.versionId,
           }

@@ -1,0 +1,245 @@
+name: Build and push container images
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_latest:
+        description: "Also update the :latest tag (allowed only on main after CI 'standalone' passes)"
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+      - feat/cloud-container-p1
+    paths:
+      - .dockerignore
+      - deploy/Dockerfile
+      - package.json
+      - package-lock.json
+      - src/**
+      - shared/**
+      - gateway/**
+      - tracking/**
+      - studio/**
+      - skills/**
+      - packages/**
+      - templates/**
+      - web/**
+      - mcp-ui/**
+      - library/**
+      - template-library/**
+      - scripts/**
+      - docs/transcripts.md
+      - hyperframes.ts
+      - server.ts
+      - template-library.ts
+      - LICENSE
+      - .github/workflows/container-images.yml
+
+permissions: {}
+
+concurrency:
+  group: container-images-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate publish policy and compute tags
+    if: github.repository == 'nexu-io/openmotion'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      registry_owner: ${{ steps.meta.outputs.registry_owner }}
+      sha_tag: ${{ steps.meta.outputs.sha_tag }}
+      branch_tag: ${{ steps.meta.outputs.branch_tag }}
+      push_latest: ${{ steps.meta.outputs.push_latest }}
+    steps:
+      - name: Compute image tags and enforce :latest gate
+        id: meta
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PUBLISH_LATEST: ${{ inputs.publish_latest }}
+        run: |
+          set -euo pipefail
+
+          registry_owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          sha_tag="sha-${GITHUB_SHA::12}"
+          sanitized_branch="$(printf '%s' "$GITHUB_REF_NAME" | sed -E 's/[^a-zA-Z0-9._-]+/-/g; s/^-+//; s/-+$//')"
+          branch_tag="branch-${sanitized_branch}"
+          push_latest="false"
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$INPUT_PUBLISH_LATEST" == "true" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Promoting :latest is only allowed from refs/heads/main (got ${GITHUB_REF})."
+              exit 1
+            fi
+
+            # shellcheck disable=SC2016
+            ci_summary="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&branch=main&per_page=100" \
+              | jq -c --arg repo "$GITHUB_REPOSITORY" '
+                  [.[].workflow_runs[]
+                    | select(.head_branch == "main"
+                        and .head_repository.full_name == $repo
+                        and (.event == "push" or .event == "workflow_dispatch"))] as $runs
+                  | {
+                      total: ($runs | length),
+                      active: ([$runs[] | select(.status != "completed")] | length),
+                      latest: ($runs | sort_by([.updated_at, .id]) | last | if . == null then null else {id, status, conclusion, run_attempt} end)
+                    }
+                ')"
+
+            total_runs="$(printf '%s' "$ci_summary" | jq -r '.total')"
+            active_runs="$(printf '%s' "$ci_summary" | jq -r '.active')"
+            latest_run_id="$(printf '%s' "$ci_summary" | jq -r '.latest.id // empty')"
+            latest_status="$(printf '%s' "$ci_summary" | jq -r '.latest.status // "missing"')"
+            latest_conclusion="$(printf '%s' "$ci_summary" | jq -r '.latest.conclusion // "missing"')"
+            latest_attempt="$(printf '%s' "$ci_summary" | jq -r '.latest.run_attempt // 0')"
+
+            if [[ "${total_runs:-0}" -lt 1 || -z "$latest_run_id" ]]; then
+              echo "::error::No Motion standalone checks (ci.yml) run found on main for ${GITHUB_SHA}."
+              exit 1
+            fi
+            if [[ "${active_runs:-0}" -gt 0 ]]; then
+              echo "::error::Motion standalone checks (ci.yml) still has ${active_runs} active run(s) on main for ${GITHUB_SHA}; wait for CI to finish before promoting :latest."
+              exit 1
+            fi
+            if [[ "$latest_status" != "completed" || "$latest_conclusion" != "success" ]]; then
+              echo "::error::Latest Motion standalone checks (ci.yml) run ${latest_run_id} (attempt ${latest_attempt}) for ${GITHUB_SHA} ended with status=${latest_status}, conclusion=${latest_conclusion}; cannot promote :latest."
+              exit 1
+            fi
+
+            # shellcheck disable=SC2016
+            standalone_job="$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runs/${latest_run_id}/jobs?filter=latest&per_page=100" \
+              | jq -c '
+                  [.[].jobs[] | select(.name == "standalone")] as $jobs
+                  | {
+                      count: ($jobs | length),
+                      status: ($jobs[0].status // "missing"),
+                      conclusion: ($jobs[0].conclusion // "missing")
+                    }
+                ')"
+
+            standalone_count="$(printf '%s' "$standalone_job" | jq -r '.count')"
+            standalone_status="$(printf '%s' "$standalone_job" | jq -r '.status')"
+            standalone_conclusion="$(printf '%s' "$standalone_job" | jq -r '.conclusion')"
+
+            if [[ "${standalone_count:-0}" -ne 1 || "$standalone_status" != "completed" || "$standalone_conclusion" != "success" ]]; then
+              echo "::error::Latest ci.yml run ${latest_run_id} for ${GITHUB_SHA} does not have a single completed successful standalone job (count=${standalone_count}, status=${standalone_status}, conclusion=${standalone_conclusion})."
+              exit 1
+            fi
+
+            push_latest="true"
+          fi
+
+          {
+            echo "registry_owner=${registry_owner}"
+            echo "sha_tag=${sha_tag}"
+            echo "branch_tag=${branch_tag}"
+            echo "push_latest=${push_latest}"
+          } >> "$GITHUB_OUTPUT"
+
+  build-and-push:
+    name: Build and push ${{ matrix.target }} (linux/amd64)
+    needs: prepare
+    if: github.repository == 'nexu-io/openmotion'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: api
+            image: openmotion-api
+            title: openmotion-api
+          - target: worker-media
+            image: openmotion-worker-media
+            title: openmotion-worker-media
+          - target: worker-render
+            image: openmotion-worker-render
+            title: openmotion-worker-render
+          - target: catalog-sync
+            image: openmotion-catalog-sync
+            title: openmotion-catalog-sync
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        env:
+          REGISTRY_OWNER: ${{ needs.prepare.outputs.registry_owner }}
+          IMAGE_NAME: ${{ matrix.image }}
+          SHA_TAG: ${{ needs.prepare.outputs.sha_tag }}
+          BRANCH_TAG: ${{ needs.prepare.outputs.branch_tag }}
+          PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
+        run: |
+          set -euo pipefail
+          image_ref="ghcr.io/${REGISTRY_OWNER}/${IMAGE_NAME}"
+          {
+            echo "image_ref=${image_ref}"
+            echo "tags<<EOF"
+            echo "${image_ref}:${SHA_TAG}"
+            echo "${image_ref}:${BRANCH_TAG}"
+            if [[ "$PUSH_LATEST" == "true" ]]; then
+              echo "${image_ref}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push ${{ matrix.target }}
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          target: ${{ matrix.target }}
+          platforms: linux/amd64
+          push: true
+          cache-from: type=gha,scope=openmotion-${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=openmotion-${{ matrix.target }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=${{ matrix.title }}
+
+      - name: Summarize published image
+        shell: bash
+        env:
+          TARGET_NAME: ${{ matrix.target }}
+          IMAGE_REF: ${{ steps.tags.outputs.image_ref }}
+          SHA_TAG: ${{ needs.prepare.outputs.sha_tag }}
+          BRANCH_TAG: ${{ needs.prepare.outputs.branch_tag }}
+          PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "## OpenMotion Container Image: \`${TARGET_NAME}\`"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Tags: \`${SHA_TAG}\`, \`${BRANCH_TAG}\` (latest: \`${PUSH_LATEST}\`)"
+            echo ""
+            echo "| Component | Image Ref | Digest |"
+            echo "| --- | --- | --- |"
+            echo "| \`${TARGET_NAME}\` | \`${IMAGE_REF}:${SHA_TAG}\` | \`${DIGEST}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

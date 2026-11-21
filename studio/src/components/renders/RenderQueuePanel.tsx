@@ -47,7 +47,7 @@ export const RenderQueuePanel = memo(function RenderQueuePanel() {
           ffmpeg={renderQueue.ffmpeg}
           ffmpegChecking={renderQueue.ffmpegChecking}
           onRecheckFfmpeg={renderQueue.recheckFfmpeg}
-          onStartRender={async (format, quality, resolution, fps, gpu, gifLoop) => {
+          onStartRender={async (format, quality, resolution, fps, gpu, gifLoop, engine) => {
             await waitForPendingDomEditSaves();
             // Use the explicit selected composition without changing the editor preview.
             await renderQueue.startRender({
@@ -58,6 +58,7 @@ export const RenderQueuePanel = memo(function RenderQueuePanel() {
               resolution,
               gpu,
               gifLoop,
+              engine,
               origin: "export_panel",
               // Render what the user is previewing: active variable overrides
               // from the Variables panel ride along (undefined = defaults).
@@ -67,6 +68,7 @@ export const RenderQueuePanel = memo(function RenderQueuePanel() {
           compositionDimensions={current ? compositionDimensions : null}
           isRendering={renderQueue.isRendering}
           emptyComposition={current && renderQueue.emptyComposition}
+          canBrowserExport={current}
         />
       </div>
     </div>

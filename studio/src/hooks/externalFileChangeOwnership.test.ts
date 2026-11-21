@@ -21,7 +21,7 @@ describe("external file-change subscription ownership", () => {
       new URL("./useExternalFileChangeCoordinator.ts", import.meta.url),
       "utf8",
     );
-    expect(coordinator.match(/sseFileChangeChannel\(handler, catchUp\)/g)).toHaveLength(1);
+    expect(coordinator).toContain("sseFileChangeChannel(handler, catchUp, historyHandler)");
   });
 
   it("asks to catch up on every reconnect, since changes made while disconnected are never resent", () => {
@@ -70,6 +70,27 @@ describe("external file-change subscription ownership", () => {
       expect(onDelivery).toHaveBeenCalledWith(event);
       stop();
       expect(close).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("delivers history-changed events through the shared EventSource", () => {
+    const listeners = new Map<string, (event: unknown) => void>();
+    class FakeEventSource {
+      addEventListener(type: string, listener: (event: unknown) => void) {
+        listeners.set(type, listener);
+      }
+      close = vi.fn();
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+    try {
+      const onHistoryChanged = vi.fn();
+      const stop = sseFileChangeChannel(vi.fn(), vi.fn(), onHistoryChanged);
+      const event = new MessageEvent("history-changed", { data: JSON.stringify({ projectId: "project-a" }) });
+      listeners.get("history-changed")?.(event);
+      expect(onHistoryChanged).toHaveBeenCalledWith(event);
+      stop();
     } finally {
       vi.unstubAllGlobals();
     }

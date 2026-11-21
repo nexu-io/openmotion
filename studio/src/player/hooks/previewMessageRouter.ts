@@ -24,6 +24,12 @@ import {
 } from "../store/previewQualitySlice";
 import { parseTimelineFromDOM } from "../lib/timelineDOM";
 import { hasPendingHistoryTimeline } from "../timelineRestorePending";
+import {
+  createPreviewAdapter,
+  isPreviewBridgeMessageValue,
+  PREVIEW_BRIDGE_SOURCE,
+  type PreviewBridgeMessage,
+} from "../lib/previewAdapter";
 
 /** What `processTimelineMessage` accepts — the clip-manifest postMessage. */
 export interface ClipManifestMessage {
@@ -39,12 +45,16 @@ interface PreviewMessage {
   source?: string;
   type?: string;
   clips?: unknown;
+  durationInFrames?: unknown;
   isPlaying?: unknown;
   copies?: unknown;
   health?: unknown;
   facts?: unknown;
   code?: unknown;
   details?: unknown;
+  currentTime?: unknown;
+  duration?: unknown;
+  selection?: unknown;
 }
 
 export interface PreviewMessageRouterDeps {
@@ -72,8 +82,48 @@ function acceptedPreviewMessage(
   if (hasTimelinePerformanceFixtureLease()) return null;
   if (isForeignSource(e, iframe)) return null;
   const data = e.data as PreviewMessage | null;
+  if (isPreviewBridgeMessageValue(data) && data.source === PREVIEW_BRIDGE_SOURCE) {
+    const adapter = iframe ? createPreviewAdapter({ iframe }) : null;
+    if (!adapter?.accepts(e)) return null;
+    return normalizeBridgeMessage(data);
+  }
   if (data?.source !== "hf-preview") return null;
   return acceptStudioRuntimeMessage(data) ? data : null;
+}
+
+function normalizeBridgeMessage(data: PreviewBridgeMessage): PreviewMessage {
+  switch (data.type) {
+    case "preview-ready":
+      return { source: "hf-preview", type: "ready" };
+    case "timeline-state":
+      if (Array.isArray(data.clips)) {
+        return {
+          source: "hf-preview",
+          type: "timeline",
+          clips: data.clips,
+          durationInFrames: Number(data.durationInFrames || 0),
+        };
+      }
+      return {
+        source: "hf-preview",
+        type: "state",
+        isPlaying: data.isPlaying === true,
+        currentTime: data.currentTime,
+        duration: data.duration,
+      };
+    case "runtime-error":
+      window.dispatchEvent(new CustomEvent("previewruntimeerror", { detail: data }));
+      return { source: "hf-preview", type: "diagnostic", details: data };
+    case "select-element":
+    case "selection-geometry":
+      window.dispatchEvent(new CustomEvent("previewselection", { detail: data }));
+      return { source: "hf-preview", type: "state", isPlaying: false };
+    case "preview-replaced":
+      window.dispatchEvent(new CustomEvent("previewreplaced", { detail: data }));
+      return { source: "hf-preview", type: "state", isPlaying: false };
+    default:
+      return { source: "hf-preview", type: "state", isPlaying: false };
+  }
 }
 
 /** Whether enrichment is due: no timeline message and no enrichment of ours for 500 ms. Marks it run. */

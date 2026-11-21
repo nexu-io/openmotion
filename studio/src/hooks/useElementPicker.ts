@@ -11,6 +11,11 @@ import {
   acceptStudioRuntimeMessage,
   postRuntimeControlMessage,
 } from "../player/lib/runtimeProtocol";
+import {
+  createPreviewAdapter,
+  isPreviewBridgeMessageValue,
+  PREVIEW_BRIDGE_SOURCE,
+} from "../player/lib/previewAdapter";
 import { compositionPathOfPreviewUrl } from "../player/components/CompositionThumbnail";
 import { getSourceFileForElement } from "../components/editor/domEditingDom";
 
@@ -77,7 +82,10 @@ export function useElementPicker(
 
   const enablePick = useCallback(() => {
     try {
-      postRuntimeControlMessage(getActiveIframe()?.contentWindow, "enable-pick-mode");
+      const iframe = getActiveIframe();
+      const adapter = iframe ? createPreviewAdapter({ iframe }) : null;
+      if (adapter?.token) adapter.send("pick-mode", { enabled: true });
+      else postRuntimeControlMessage(iframe?.contentWindow, "enable-pick-mode");
       setIsPickMode(true);
     } catch {
       /* cross-origin */
@@ -86,7 +94,10 @@ export function useElementPicker(
 
   const disablePick = useCallback(() => {
     try {
-      postRuntimeControlMessage(getActiveIframe()?.contentWindow, "disable-pick-mode");
+      const iframe = getActiveIframe();
+      const adapter = iframe ? createPreviewAdapter({ iframe }) : null;
+      if (adapter?.token) adapter.send("pick-mode", { enabled: false });
+      else postRuntimeControlMessage(iframe?.contentWindow, "disable-pick-mode");
     } catch {
       /* cross-origin */
     }
@@ -105,12 +116,37 @@ export function useElementPicker(
     // fallow-ignore-next-line complexity
     const handleMessage = (e: MessageEvent) => {
       const data = e.data;
-      if (data?.source !== "hf-preview") return;
-      if (!acceptStudioRuntimeMessage(data)) return;
       // The primary frame, the active override, or a primary frame a reload just swapped out.
       const activeIframe = getActiveIframe();
       if (!activeIframe) return;
       if (!e.source) return;
+
+      if (isPreviewBridgeMessageValue(data) && data.source === PREVIEW_BRIDGE_SOURCE) {
+        const adapter = createPreviewAdapter({ iframe: activeIframe });
+        if (!adapter.accepts(e) || data.type !== "select-element") return;
+        const selection = isRecord(data.selection) ? data.selection : null;
+        if (!selection) return;
+        const geometry = isRecord(selection.geometry) ? selection.geometry : {};
+        const picked = {
+          id: typeof selection.elementId === "string" ? selection.elementId : null,
+          tagName: typeof selection.tagName === "string" ? selection.tagName : "div",
+          selector: typeof selection.selector === "string" ? selection.selector : "",
+          label: typeof selection.text === "string" && selection.text ? selection.text.slice(0, 48) : "Element",
+          textContent: typeof selection.text === "string" ? selection.text : null,
+          boundingBox: {
+            x: typeof geometry.x === "number" ? geometry.x : 0,
+            y: typeof geometry.y === "number" ? geometry.y : 0,
+            width: typeof geometry.width === "number" ? geometry.width : 0,
+            height: typeof geometry.height === "number" ? geometry.height : 0,
+          },
+        };
+        setPickedElement(toPickedElement(picked, activeIframe));
+        setIsPickMode(false);
+        return;
+      }
+
+      if (data?.source !== "hf-preview") return;
+      if (!acceptStudioRuntimeMessage(data)) return;
       if (e.source === iframeRef.current?.contentWindow)
         windowsThatWerePrimary.current.add(e.source);
       else if (
@@ -264,6 +300,10 @@ export function useElementPicker(
     /** Ref that always points to the active iframe (focused canvas frame or preview panel) */
     activeIframeRef,
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 type PickedElementInfo = Partial<Omit<PickedElement, "computedStyles">>;

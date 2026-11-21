@@ -1267,5 +1267,15 @@
   "Use a public API address, not a local or private address.": "请使用公网 API 地址，不能使用本机或内网地址。",
   "Default parameters cannot exceed 64,000 characters after JSON formatting is removed.": "默认参数去除 JSON 格式空白后不能超过 64,000 个字符。",
   "Remove the reserved field “{field}” from default parameters.": "默认参数不能包含保留字段“{field}”，请移除该字段。",
-  "Use the API origin with no path, or with /v1 only.": "此服务商的 API 地址不能包含其他路径，仅支持不带路径或 /v1。"
+  "Use the API origin with no path, or with /v1 only.": "此服务商的 API 地址不能包含其他路径，仅支持不带路径或 /v1。",
+  "Browser export (Beta)": "浏览器极速导出（实验版）",
+  "WebCodecs VideoEncoder is unavailable in this browser.": "当前浏览器不支持 WebCodecs VideoEncoder。",
+  "Preparing browser export": "正在准备浏览器导出",
+  "Preparing isolated render frame": "正在准备离屏渲染环境",
+  "Mixing audio": "正在混音",
+  "Encoding audio": "正在编码音频",
+  "Finalizing export": "正在封装输出文件",
+  "Browser export only supports MP4 and WebM.": "浏览器导出目前仅支持 MP4 和 WebM 格式。",
+  "Browser export is unavailable while preview isolation is active.": "已启用预览域隔离，暂不支持浏览器导出，请使用服务端导出。",
+  "Browser export only applies to the currently open composition.": "浏览器导出仅支持当前打开的合成。"
 }

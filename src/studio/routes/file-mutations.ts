@@ -53,17 +53,19 @@ export function createStudioFileMutationsRoutes(
     const filePath = readTargetPath(c.req.url, '/file-mutations/patch-element/');
     const body = (await c.req.json().catch(() => null)) as {
       target?: SourceMutationTarget;
+      operations?: PatchOperation[];
       ops?: PatchOperation[];
       fontFaceCss?: string;
     } | null;
-    if (!body?.target || !Array.isArray(body.ops)) {
-      throw new CloudError('INVALID_ARGUMENT', 'Body must contain "target" and "ops" array.', {
+    const operations = body?.operations ?? body?.ops;
+    if (!body?.target || !Array.isArray(operations)) {
+      throw new CloudError('INVALID_ARGUMENT', 'Body must contain a target and an operations array.', {
         status: 400,
         applied: false,
       });
     }
 
-    const unsafe = findUnsafeDomPatchValues(body.ops);
+    const unsafe = findUnsafeDomPatchValues(operations);
     if (unsafe.length > 0) {
       return c.json({ error: 'Non-finite or unsafe DOM patch values', unsafe }, 400);
     }
@@ -82,7 +84,7 @@ export function createStudioFileMutationsRoutes(
       }
     }
     const takenIds = collectProjectHtmlIds(htmlByPath);
-    const patched = patchElementInHtml(currentText, body.target, body.ops, takenIds);
+    const patched = patchElementInHtml(currentText, body.target, operations, takenIds);
     let nextHtml = patched.html;
 
     if (body.fontFaceCss !== undefined) {
@@ -664,7 +666,8 @@ export function createStudioFileMutationsRoutes(
     }
     const current = await deps.files.readTextFile(auth, projectId, filePath);
     if (!current) return c.json({ error: 'Target file not found', path: filePath }, 404);
-    return c.json({ ok: true, result: probeElementInSource(current.content, body.target) });
+    const exists = probeElementInSource(current.content, body.target);
+    return c.json({ ok: true, exists, result: exists });
   });
 
   // POST /api/projects/:id/file-mutations/probe-elements/* — Read-only batch source probe.
@@ -678,7 +681,8 @@ export function createStudioFileMutationsRoutes(
     }
     const current = await deps.files.readTextFile(auth, projectId, filePath);
     if (!current) return c.json({ error: 'Target file not found', path: filePath }, 404);
-    return c.json({ ok: true, results: probeElementsInSource(current.content, body.targets) });
+    const exists = probeElementsInSource(current.content, body.targets);
+    return c.json({ ok: true, exists, results: exists });
   });
 
   // POST /api/projects/:id/file-mutations/duplicate-element/* — Clone element & GSAP animations.
