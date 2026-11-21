@@ -106,7 +106,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
           </span>
           <span className="om-video-keyframes-caption" aria-hidden="true">{t('A → B transition')}</span>
         </span>
-        <strong>{t('Keyframes')}</strong>
+        <strong>{t('Start & end frames')}</strong>
       </Button>
     </div>
 

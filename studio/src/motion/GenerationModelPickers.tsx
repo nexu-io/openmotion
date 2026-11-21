@@ -76,7 +76,7 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
   const visibleProviders = providerIds.filter(id => matches(providerName(id), id));
   const currentReady = Boolean(currentProvider && providerReady(providers, currentProvider));
   const providerPicker = currentProvider && <Popover side="bottom" align="start" open={open === 'provider'} onOpenChange={openChange('provider')}
-    aria-label={t('Provider')} className={popupClass} renderPanel={menuPanel}
+    aria-label={t('Provider')} tooltip={providerName(currentProvider)} className={popupClass} renderPanel={menuPanel}
     trigger={trigger(t('Provider'), <>
       <ProviderAvatar name={providerName(currentProvider)} provider={{ id: currentProvider, custom: selected?.source === 'custom' }} />
       <span className="om-picker-trigger-label" data-placeholder={!currentReady || undefined}>{providerName(currentProvider)}</span>
@@ -108,7 +108,7 @@ export function CreationModelPicker({ models, providers, selected, providerHeadi
   const label = (model: Model) => modelFamilyLabel(model);
   const visibleModels = providerModels.filter(model => matches(label(model), model.modelId));
   const modelPicker = <Popover side="bottom" align="start" open={open === 'model'} onOpenChange={openChange('model')}
-    aria-label={t('Generation model')} className={popupClass} renderPanel={menuPanel}
+    aria-label={t('Generation model')} tooltip={selected ? label(selected) : undefined} className={popupClass} renderPanel={menuPanel}
     trigger={trigger(t('Generation model'), selected ? <>
       <ModelAvatar name={label(selected)} modelId={selected.modelId} provider={{ id: selected.provider, custom: selected.source === 'custom' }} />
       <span className="om-picker-trigger-label">{label(selected)}</span>

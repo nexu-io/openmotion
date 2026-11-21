@@ -23,7 +23,7 @@ import type { StudioCreation } from './CreativeWorkspace';
 import { studioExamples } from './sceneShowcase';
 import { isFeatureScene, needsImage, sceneFeature, sceneVideoFeature } from './creativeStudios';
 import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices } from '../../../shared/image-features';
-import { videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
+import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
 import { FieldTextarea } from '../components/ui/FormField';
 import { Select } from '../components/ui/Select';
 import { creationModels } from './creationModels';
@@ -44,8 +44,9 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const { t } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const scene = studio?.destination.scene;
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
+  const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
   const imagePopupClass = imageWorkspace ? 'om-image-form-popup' : undefined;
-  const showSceneIntro = !imageWorkspace || scene?.id === 'character';
+  const showSceneIntro = (!imageWorkspace && !videoLanding) || scene?.id === 'character';
   const feature = scene && sceneFeature(scene);
   const featureRule = feature ? imageFeatures[feature] : undefined;
   const videoFeature = scene && sceneVideoFeature(scene);
@@ -210,7 +211,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     <RemixIcon name="plug-line" size={19} />{t('Set up to generate')}<RemixIcon name="arrow-right-line" size={18} />
   </Button> : <Button variant="plain" className="om-button om-creation-submit-button" data-primary
     disabled={busy || !selected || !promptReady || invalidReferences} onClick={() => void submit()}>
-    <RemixIcon name="sparkling-fill" size={19} />{t(busy ? 'Submitting your idea…' : kind.action)}
+    <RemixIcon name="sparkling-fill" size={19} />{t(busy ? 'Submitting your idea…' : featureRule?.actionLabel ?? kind.action)}
     <RemixIcon name="arrow-right-line" size={18} />
   </Button>;
 
@@ -254,13 +255,8 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
           })}
         </div>}
         {draft.references.length < (selected ? maximumReferences : 1) && <div className="om-source-actions">
-          {imageWorkspace ? <>
-            {onUploadReference && <Button variant="ghost" className="om-button h-auto" onClick={onUploadReference}><RemixIcon name="upload-line" size={18} />{t('Upload image')}</Button>}
-            <Button variant="ghost" className="om-button h-auto" onClick={onReference}><RemixIcon name="image-2-line" size={18} />{t('Choose an asset')}</Button>
-          </> : <>
-            <Button variant="ghost" className="om-button h-auto" onClick={onReference}><RemixIcon name="image-line" size={21} />{t('Choose an asset')}</Button>
-            {onUploadReference && <Button variant="plain" className="om-nav-item" onClick={onUploadReference}><RemixIcon name="upload-2-line" size={16} />{t('Upload image')}</Button>}
-          </>}
+          {onUploadReference && <Button variant="ghost" className="om-button h-auto" onClick={onUploadReference}><RemixIcon name="upload-line" size={18} />{t('Upload image')}</Button>}
+          <Button variant="ghost" className="om-button h-auto" onClick={onReference}><RemixIcon name="image-2-line" size={18} />{t('Choose an asset')}</Button>
         </div>}
       </section>}
       {feature === 'relight' && <section className="om-relight-controls" aria-label={t('Lighting')}>
@@ -274,7 +270,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       {videoFeatureRule && <section className="om-relight-controls" aria-label={t(scene!.label)}>
         {videoFeatureRule.controls.map(control => <div className="om-relight-field" key={control.key}>
           <span className="om-eyebrow">{t(control.label)}</span>
-          <Select label={t(control.label)} value={draft.videoChoices?.[control.key] ?? control.choices[0].value}
+          <Select label={t(control.label)} value={draft.videoChoices?.[control.key] ?? defaultVideoFeatureChoice(control).value}
             options={control.choices.map(choice => ({ value: choice.value, label: t(choice.label) }))}
             onCommit={value => setDraft(current => ({ ...current, videoChoices: { ...current.videoChoices, [control.key]: value } }))} />
         </div>)}

@@ -633,6 +633,10 @@ test('videoFeaturePrompt composes structured camera and multi-shot directions', 
   assert.match(multi, /match cuts/);
 
   assert.deepEqual(defaultVideoFeatureChoices('camera-control'), { movement: 'push-in', pace: 'slow' });
+  assert.deepEqual(defaultVideoFeatureChoices('multi-shot'), { shots: '3', style: 'narrative' });
+  const multiDefault = videoFeaturePrompt('multi-shot', 'A cyclist crossing a misty bridge');
+  assert.match(multiDefault, /3-shot narrative sequence/);
+  assert.match(multiDefault, /establishing wide shot to medium action and an intimate close-up/);
   assert.equal(videoFeaturePrompt('camera-control', '   '), '');
 });
 

@@ -207,7 +207,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
                   <McpClientAvatar client={client} /><span>{t(client.name)}</span>
                 </Button>)}
               </div>
-            </> : id === 'workflows' ? (expanded && onOpenScenario && onOpenScenarioHub && (
+            </> : id === 'workflows' ? (onOpenScenario && onOpenScenarioHub && (
               <ScenarioMegaMenu
                 activeScenarioId={scenarioActive ?? null}
                 onSelect={(scenarioId, runId) => {
@@ -219,7 +219,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
                   choose(() => onOpenScenarioHub());
                 }}
               />
-            )) : expanded && studio && (id === 'audio'
+            )) : studio && (id === 'audio'
               ? <AudioNavMenu destination={destination} activeSoundTab={soundTab} catalog={catalog.catalog} failed={catalog.failed}
                   onSelect={(next, nextSoundTab, source) => {
                     track(source === 'model' ? 'select_model' : 'select_scene', { ...where, ...destinationTarget(next) });

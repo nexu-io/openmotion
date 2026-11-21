@@ -60,6 +60,7 @@ export type VideoFeatureChoice = { value: string; label: string; prompt: string 
 export type VideoFeatureControl = {
   key: string;
   label: string;
+  defaultValue?: string;
   choices: readonly [VideoFeatureChoice, ...VideoFeatureChoice[]];
 };
 
@@ -110,6 +111,7 @@ export const videoFeatures: Record<VideoFeatureId, VideoFeatureSpec> = {
       {
         key: 'shots',
         label: 'Shot count',
+        defaultValue: '3',
         choices: [
           { value: '2', label: '2 shots', prompt: 'a cohesive 2-shot sequence' },
           { value: '3', label: '3 shots', prompt: 'a cohesive 3-shot narrative sequence' },
@@ -131,8 +133,12 @@ export const videoFeatures: Record<VideoFeatureId, VideoFeatureSpec> = {
 
 export type VideoFeatureChoices = Record<string, string>;
 
+export function defaultVideoFeatureChoice(control: VideoFeatureControl): VideoFeatureChoice {
+  return (control.defaultValue ? control.choices.find(choice => choice.value === control.defaultValue) : undefined) ?? control.choices[0];
+}
+
 export function defaultVideoFeatureChoices(feature: VideoFeatureId): VideoFeatureChoices {
-  return Object.fromEntries(videoFeatures[feature].controls.map(control => [control.key, control.choices[0].value]));
+  return Object.fromEntries(videoFeatures[feature].controls.map(control => [control.key, defaultVideoFeatureChoice(control).value]));
 }
 
 export function videoFeaturePrompt(feature: VideoFeatureId, prompt: string, choices: VideoFeatureChoices = {}): string {
@@ -140,7 +146,7 @@ export function videoFeaturePrompt(feature: VideoFeatureId, prompt: string, choi
   if (!userText) return '';
   const spec = videoFeatures[feature];
   const parts = spec.controls.map(control => {
-    const selected = control.choices.find(choice => choice.value === choices[control.key]) ?? control.choices[0];
+    const selected = control.choices.find(choice => choice.value === choices[control.key]) ?? defaultVideoFeatureChoice(control);
     return selected.prompt;
   });
   if (feature === 'camera-control') {

@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { durationTicks, parameterInputImageRatio, requestParameters, shotParameters } from './GenerationParameters';
+import { GenerationParameters, durationTicks, emptyParameters, parameterInputImageRatio, requestParameters, shotParameters } from './GenerationParameters';
 import { generationOptions } from '../../../shared/generation-options';
 import type { Model } from '../../../shared/gateway';
 import { toastErrorMessage } from '../components/ui/toastErrorMessage';
@@ -81,4 +81,58 @@ it('builds clean duration ticks and applies shotPreferences to bounded number du
     values: { ratio: '9:16' },
     advanced: '{}',
   });
+});
+
+it('prefixes non-numeric parameter summary choices with their field label while keeping ratios and resolutions compact', async () => {
+  const gptImageBase: Model = {
+    id: 'opendesign:gpt-image-2.6-flare',
+    provider: 'opendesign',
+    modelId: 'gpt-image-2.6-flare',
+    label: 'GPT Image 2.6 Flare',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    nativeOptions: { quality: { values: ['low', 'medium', 'high'], default: 'low' } },
+  };
+  const gptImage: Model = { ...gptImageBase, generationOptions: generationOptions(gptImageBase) };
+  const nanoBase: Model = {
+    id: 'opendesign:nano-banana-2',
+    provider: 'opendesign',
+    modelId: 'nano-banana-2',
+    label: 'Nano Banana 2',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    nativeOptions: {
+      profiles: {
+        generations: {
+          profiles: [{ aspect_ratio: '1:1', resolution: '1K' }, { aspect_ratio: '16:9', resolution: '2K' }],
+          default: { aspect_ratio: '1:1', resolution: '1K' },
+        },
+      },
+    },
+  };
+  const nano: Model = { ...nanoBase, generationOptions: generationOptions(nanoBase) };
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <GenerationParameters model={gptImage} draft={emptyParameters} appearance="boxed" onChange={vi.fn()} />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality low');
+
+    await act(async () => root.render(
+      <GenerationParameters model={gptImage} draft={{ values: { quality: 'high', background: 'transparent' }, advanced: '{}' }} appearance="boxed" onChange={vi.fn()} />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality high · Background Transparent');
+
+    await act(async () => root.render(
+      <GenerationParameters model={nano} draft={{ values: { aspect_ratio: '16:9', resolution: '2K' }, advanced: '{}' }} appearance="boxed" onChange={vi.fn()} />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toBe('16:9 · 2K');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
 });

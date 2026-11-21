@@ -685,7 +685,7 @@ it('offers only OpenDesign providers for feature entries and keeps the prompt wh
   expect(names()).toEqual(['Seedream 5.5']);
   await render('relight', [flux], [{ id: 'opendesign', label: 'OpenDesign Cloud', available: false }, { id: 'fal', label: 'fal.ai', available: true }, { id: 'account', label: 'OpenDesign', available: false }]);
   const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
-  expect(submit.textContent).toBe('Generate image');
+  expect(submit.textContent).toBe('Relight');
   expect(submit.disabled).toBe(true);
   await act(async () => submit.click());
   expect(chrome.openProviderSettings).not.toHaveBeenCalled();
@@ -868,7 +868,7 @@ it('renders VideoMegaMenu with open video scenes, Omni reference, Soon items, an
   const buttons = [...container.querySelectorAll('button')];
   expect(buttons.some(button => button.textContent?.includes('Create video') && !button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Camera control') && !button.disabled)).toBe(true);
-  expect(buttons.some(button => button.textContent?.includes('Keyframes') && button.disabled)).toBe(true);
+  expect(buttons.some(button => button.textContent?.includes('Start & end frames') && button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Omni reference') && button.disabled)).toBe(true);
   expect(buttons.some(button => button.textContent?.includes('Native audio video'))).toBe(false);
   expect(buttons.some(button => button.textContent?.includes('Video first frame'))).toBe(false);
@@ -971,4 +971,42 @@ it('keeps BYOK text-to-video models eligible in Workflows selectScenarioModels o
     multiShot,
   );
   expect(selected.map(item => item.id)).toEqual([falWan.id]);
+});
+
+it('uses action-verb CTAs for remove-background and relight, exposes full picker tooltips, and aligns video upload actions', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const catalog = {
+    models: [existing.sunburst, existing.seedream],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+
+  for (const [sceneId, expectedAction] of [
+    ['remove-background', 'Remove background'],
+    ['relight', 'Relight'],
+    ['character', 'Generate image'],
+  ] as const) {
+    await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Warm rim light', references: [reference('product')] }} studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination(sceneId),
+    }} />));
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.textContent).toBe(expectedAction);
+    const providerTrigger = container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]');
+    const modelTrigger = container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]');
+    expect(providerTrigger?.getAttribute('title')).toBeNull();
+    expect(modelTrigger?.getAttribute('title')).toBeNull();
+    expect(providerTrigger?.closest('span.contents')).not.toBeNull();
+    expect(modelTrigger?.closest('span.contents')).not.toBeNull();
+    await act(async () => root.unmount()); root = createRoot(container);
+  }
+
+  const seedance: Model = { id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1 };
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'video', prompt: 'An astronaut', references: [] }} studio={{
+    catalog: { catalog: { models: [seedance], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } }, failed: false, retry: vi.fn() },
+    chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('video-multi-shot'),
+  }} />));
+  const sourceButtons = [...container.querySelectorAll<HTMLButtonElement>('.om-source-actions button')].map(node => node.textContent);
+  expect(sourceButtons).toEqual(['Upload image', 'Choose an asset']);
+  expect(container.querySelector('.om-studio-form-heading')).toBeNull();
 });

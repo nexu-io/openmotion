@@ -1083,6 +1083,33 @@ describe('ScenarioWorkspace', () => {
     const firstCard = container.querySelector<HTMLElement>('[data-scenario-card]')!;
     expect(firstCard.textContent).toContain('Start workflow');
     expect(firstCard.textContent).toMatch(/\d+ steps · \d+ skills/);
+    const topBadge = container.querySelector<HTMLElement>('[data-nav-badge="Top"]')!;
+    expect(topBadge.textContent).toBe('Featured');
+  });
+
+  it('localizes the Top workflow badge as 精选 instead of 顶部 in zh-CN', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+      jsonResponse({ runs: [], nextOffset: null }),
+    );
+
+    await act(async () => {
+      root.render(
+        <I18nProvider initialLocale="zh-CN">
+          <ScenarioHub
+            category={null}
+            active
+            onCategory={vi.fn()}
+            onOpenScenario={vi.fn()}
+            onExplore={vi.fn()}
+          />
+        </I18nProvider>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const topBadge = container.querySelector<HTMLElement>('[data-nav-badge="Top"]')!;
+    expect(topBadge.textContent).toBe('精选');
   });
 
   it('caps Draft Switcher to 5 recent runs per workflow and manages active/archived history via ScenarioRunHistoryDialog', async () => {

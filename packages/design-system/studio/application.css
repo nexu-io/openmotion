@@ -572,8 +572,8 @@
 [data-motion-studio] .om-segmented > button.om-nav-item:enabled:not([aria-pressed="true"]):hover { background: var(--motion-hover); color: var(--motion-strong); }
 [data-motion-studio] .om-segmented > button.om-nav-item[aria-pressed="true"] { background: var(--motion-bg); border-color: var(--motion-border-subtle); color: var(--motion-strong); }
 
-/* Image and audio workbench scene tabs. */
-:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab, .om-image-scene-tab) {
+/* Image, video and audio workbench scene tabs. */
+:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab, .om-image-scene-tab, .om-video-scene-tab) {
   border: 1px solid transparent;
   border-radius: var(--motion-radius-md);
   color: var(--motion-text);
@@ -581,14 +581,15 @@
   font-weight: var(--motion-weight-medium);
   transition: background-color var(--motion-duration-fast), border-color var(--motion-duration-fast), color var(--motion-duration-fast);
 }
-:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab, .om-image-scene-tab):hover { background: var(--motion-nav-hover); color: var(--motion-strong); }
-:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab[data-status="live"], .om-image-scene-tab)[aria-current="page"] {
+:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab, .om-image-scene-tab, .om-video-scene-tab):hover { background: var(--motion-nav-hover); color: var(--motion-strong); }
+:root[data-motion-ui][data-motion-studio] .om-studio-bar :is(.om-sound-tab[data-status="live"], .om-image-scene-tab, .om-video-scene-tab)[aria-current="page"] {
   background: var(--motion-chrome-active);
   color: var(--motion-strong);
   font-weight: var(--motion-weight-semibold);
 }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="live"][aria-current="page"] .om-sound-tab-icon { color: var(--motion-creative-audio); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-image-scene-tab[aria-current="page"] > svg { color: var(--motion-accent); }
+:root[data-motion-ui][data-motion-studio] .om-studio-bar .om-video-scene-tab[aria-current="page"] > svg { color: var(--motion-creative-video); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="soon"] { color: var(--motion-dim); font-weight: var(--motion-weight-regular); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="soon"]:hover { background: var(--motion-nav-hover); color: var(--motion-muted); }
 :root[data-motion-ui][data-motion-studio] .om-studio-bar .om-sound-tab[data-status="soon"][aria-current="page"] {

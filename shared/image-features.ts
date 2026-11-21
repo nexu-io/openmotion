@@ -12,6 +12,7 @@ export type ImageFeature = {
   maxReferences: number;
   parameters?: Record<string, unknown>;
   promptOptional: boolean;
+  actionLabel?: string;
 };
 
 export const imageFeatures: Record<ImageFeatureId, ImageFeature> = {
@@ -21,12 +22,14 @@ export const imageFeatures: Record<ImageFeatureId, ImageFeature> = {
     maxReferences: 1,
     parameters: { background: 'transparent' },
     promptOptional: true,
+    actionLabel: 'Remove background',
   },
   relight: {
     requires: capabilities => capabilities.image.edit && capabilities.image.maxReferences >= 1,
     recommended: 'seedream-5.5',
     maxReferences: 1,
     promptOptional: true,
+    actionLabel: 'Relight',
   },
   // Seedream 5.5 stays eligible for 1 reference; creationModels drops models whose reference limit is below the attached count.
   character: {

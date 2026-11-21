@@ -1393,7 +1393,7 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
   await click('Video · Scenes');
   const videoMenu = document.querySelector('.om-creative-menu-video')!;
-  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Create video', 'Image to video', 'Camera control', 'Keyframes']);
+  expect([...videoMenu.querySelectorAll('.om-scene-tile')].map(node => node.querySelector('strong')?.textContent)).toEqual(['Create video', 'Image to video', 'Camera control', 'Start & end frames']);
   // Top cards are never duplicated inside the Video Features list, and Omni reference merges image+video references.
   const videoFeatureLabels = [...videoMenu.querySelectorAll('section[aria-label="Features"] .om-media-mega-label')].map(node => node.textContent);
   expect(videoFeatureLabels).toEqual(['Multi-shot', 'Omni reference', 'Edit video', 'Extend', '4K upscale']);
@@ -1404,6 +1404,12 @@ it('lists each primary destination once in order, with the Image mega menu and t
   const multiShot = [...videoMenu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Multi-shot'))!;
   await act(async () => multiShot.click());
   expect(page().studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'video-multi-shot' }, landing: true });
+  const videoHeader = container.querySelector('.om-studio-bar')!;
+  expect(videoHeader.getAttribute('data-video-bar')).toBe('true');
+  expect(videoHeader.querySelector('h1.sr-only')?.textContent).toBe('Multi-shot');
+  expect(videoHeader.querySelector('.om-studio-heading-icon')).toBeNull();
+  expect(videoHeader.querySelector('nav button[aria-current="page"]')?.textContent).toBe('Multi-shot');
+  expect(videoHeader.querySelectorAll('.om-video-scene-tab > svg')).toHaveLength(4);
   // Character reference and the live feature rows open their own landing pages without a pinned model.
   await click('Image · Scenes');
   const character = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.querySelector('strong')?.textContent === 'Character reference')!;

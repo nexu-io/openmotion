@@ -208,7 +208,14 @@ export function GenerationParameters({ model, draft, hasInputImage = false, hidd
     }
     onChange({ ...draft, values });
   };
-  const summary = [...(inputImageRatio ? [t('Follows first frame')] : []), ...fields.filter(f => f.kind !== 'text' && f.key !== 'seed' && f.presentation !== 'count' && value(f) !== undefined).map(label)].slice(0, 3).join(' · ');
+  const summaryLabel = (field: GenerationOption) => {
+    const text = label(field);
+    if (/\d/.test(text) || field.key === 'aspect_ratio' || field.key === 'ratio' || field.key === 'resolution' || field.key === 'size' || field.key === 'duration') {
+      return text;
+    }
+    return `${t(field.label)} ${text}`;
+  };
+  const summary = [...(inputImageRatio ? [t('Follows first frame')] : []), ...fields.filter(f => f.kind !== 'text' && f.key !== 'seed' && f.presentation !== 'count' && value(f) !== undefined).map(summaryLabel)].slice(0, 3).join(' · ');
   const constraints = Object.assign({}, ...fields.map(f => f.choices?.find(c => c.value === value(f))?.requires)) as Record<string, string | number>;
   const count = fields.find(f => f.presentation === 'count');
   const isVideo = model.modality === 'video';

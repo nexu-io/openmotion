@@ -59,7 +59,7 @@ export function ScenarioCard({ scenario, variant, onStart, meta }: ScenarioCardP
           )}
           {scenario.badge && (
             <span className="om-badge om-scenario-card-badge" data-nav-badge={scenario.badge}>
-              {t(scenario.badge)}
+              {t(scenario.badge === 'Top' ? 'Featured' : scenario.badge)}
             </span>
           )}
         </div>
