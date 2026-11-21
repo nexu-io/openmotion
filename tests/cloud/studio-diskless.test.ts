@@ -1796,18 +1796,38 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.deepEqual(silentPeaks.bins, []);
     assert.equal(env.enqueued.length, 0);
 
-    // 5. GET /api/projects/:id includes assetMetadata summary without extra queries
+    // 5. GET /api/projects/:id includes assetMetadata summary & optimizationStatus without extra queries
     const projRes = await env.studioApp.request(`/api/projects/${created.projectId}`);
     assert.equal(projRes.status, 200);
     const projBody = (await projRes.json()) as {
       assetMetadata?: Record<
         string,
-        { duration?: number; width?: number; height?: number; hasAudio?: boolean; spriteStatus?: string; thumbnailReady?: boolean }
+        {
+          duration?: number;
+          width?: number;
+          height?: number;
+          hasAudio?: boolean;
+          spriteStatus?: string;
+          thumbnailReady?: boolean;
+          optimizationStatus?: 'optimizing' | 'ready';
+        }
       >;
     };
     assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.duration, 18.5);
     assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.spriteStatus, 'ready');
     assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.thumbnailReady, true);
+    // Sprite is ready but previewProxy hasn't completed yet -> optimizing
+    assert.equal(projBody.assetMetadata?.['assets/hero.mp4']?.optimizationStatus, 'optimizing');
     assert.equal(projBody.assetMetadata?.['assets/silent.mp4']?.hasAudio, false);
+    assert.equal(projBody.assetMetadata?.['assets/silent.mp4']?.optimizationStatus, 'optimizing');
+
+    // Once proxy also finishes, hero.mp4 transitions cleanly to optimizationStatus === 'ready'
+    (heroBlob.metadata as Record<string, unknown>).previewProxy = { status: 'ready' };
+    const projReadyRes = await env.studioApp.request(`/api/projects/${created.projectId}`);
+    assert.equal(projReadyRes.status, 200);
+    const projReadyBody = (await projReadyRes.json()) as {
+      assetMetadata?: Record<string, { optimizationStatus?: 'optimizing' | 'ready' }>;
+    };
+    assert.equal(projReadyBody.assetMetadata?.['assets/hero.mp4']?.optimizationStatus, 'ready');
   });
 });

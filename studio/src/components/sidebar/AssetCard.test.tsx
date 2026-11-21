@@ -327,3 +327,27 @@ it('edits the display name without constructing a new storage path', () => {
   act(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
   expect(rename).toHaveBeenCalledExactlyOnceWith(asset, 'Dia 参考视频－原声');
 });
+
+describe('background optimization hints', () => {
+  it('renders optimizing badge on video/image AssetCard and AudioRow only while optimizing', () => {
+    const videoOptimizing = mount(
+      <AssetCard projectId="p1" asset="assets/clip.mp4" used={false} optimizing onCopy={() => {}} copyFeedback={null} />,
+    );
+    expect(videoOptimizing.querySelector('[data-asset-optimizing="true"]')?.textContent).toContain('Optimizing');
+
+    const videoReady = mount(
+      <AssetCard projectId="p1" asset="assets/clip.mp4" used={false} optimizing={false} onCopy={() => {}} copyFeedback={null} />,
+    );
+    expect(videoReady.querySelector('[data-asset-optimizing="true"]')).toBeNull();
+
+    const audioOptimizing = mount(
+      <AudioRow projectId="p1" asset="assets/bgm.wav" used={false} optimizing onCopy={() => {}} copyFeedback={null} />,
+    );
+    expect(audioOptimizing.querySelector('[data-asset-optimizing="true"]')?.textContent).toContain('Optimizing');
+
+    const audioReady = mount(
+      <AudioRow projectId="p1" asset="assets/bgm.wav" used={false} optimizing={false} onCopy={() => {}} copyFeedback={null} />,
+    );
+    expect(audioReady.querySelector('[data-asset-optimizing="true"]')).toBeNull();
+  });
+});

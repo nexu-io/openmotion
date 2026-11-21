@@ -230,6 +230,7 @@ export interface AssetCardProps {
   displayName?: string;
   used: boolean;
   duration?: number;
+  optimizing?: boolean;
   onCopy: (path: string) => void;
   copyFeedback: CopyFeedback;
   onDelete?: (path: string) => void;
@@ -253,6 +254,7 @@ export function AssetCard({
   displayName,
   used,
   duration,
+  optimizing = false,
   onCopy,
   copyFeedback,
   onDelete,
@@ -428,6 +430,30 @@ export function AssetCard({
           {used && (
             <span className="absolute top-1 left-1 text-[9px] font-semibold leading-none px-1.5 py-[3px] rounded-sm bg-neutral-950/80 text-panel-text-1">
               {t("In use")}</span>
+          )}
+
+          {/* Background optimization badge — bottom-left while proxy/sprite derives on worker-media */}
+          {optimizing && (
+            <Tooltip
+              label={
+                isVideo
+                  ? t("Optimizing preview & timeline frames in the background — ready to edit now")
+                  : t("Optimizing high-res preview in the background — ready to edit now")
+              }
+              wrap
+            >
+              <span
+                data-asset-optimizing="true"
+                role="status"
+                className="absolute bottom-1 left-1 inline-flex items-center gap-1 text-[9px] font-medium leading-none px-1.5 py-[3px] rounded-sm bg-neutral-950/80 text-panel-text-2"
+              >
+                <span
+                  aria-hidden="true"
+                  className="inline-block w-2 h-2 rounded-full border border-border border-t-panel-text-1 animate-spin motion-reduce:animate-none"
+                />
+                {t("Optimizing")}
+              </span>
+            </Tooltip>
           )}
 
           {/* Duration badge — top-right, media only */}

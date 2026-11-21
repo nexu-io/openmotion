@@ -41,6 +41,7 @@ export interface AssetMetadataSummary {
   spriteStatus?: "ready" | "failed";
   waveformReady?: boolean;
   thumbnailReady?: boolean;
+  optimizationStatus?: "optimizing" | "ready";
 }
 
 interface UseFileTreeOptions {
@@ -290,7 +291,13 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const unsubscribe = subscribeMediaDerived((event) => {
       if (event.projectId !== projectId) return;
-      if (event.kind !== "metadata" && event.kind !== "thumbnail" && event.kind !== "sprite" && event.kind !== "proxy") {
+      if (
+        event.kind !== "metadata" &&
+        event.kind !== "thumbnail" &&
+        event.kind !== "sprite" &&
+        event.kind !== "waveform" &&
+        event.kind !== "proxy"
+      ) {
         return;
       }
       if (timer) clearTimeout(timer);

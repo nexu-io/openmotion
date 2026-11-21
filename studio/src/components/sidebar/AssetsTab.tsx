@@ -390,6 +390,7 @@ export const AssetsTab = memo(function AssetsTab({
                           onRevealUsage={reveal}
                           displayName={assetNames?.[a]}
                           used={usedPaths.has(a)}
+                          optimizing={fileManager?.assetMetadata?.[a]?.optimizationStatus === "optimizing"}
                           meta={manifest.get(a)}
                           onCopy={handleCopyPath}
                           copyFeedback={copyFeedback}
@@ -410,6 +411,7 @@ export const AssetsTab = memo(function AssetsTab({
                               displayName={assetNames?.[a]}
                               used={usedPaths.has(a)}
                               duration={manifest.get(a)?.duration ?? serverMeta?.duration}
+                              optimizing={serverMeta?.optimizationStatus === "optimizing"}
                               onCopy={handleCopyPath}
                               copyFeedback={copyFeedback}
                               onDelete={onDelete}

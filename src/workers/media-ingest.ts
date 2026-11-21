@@ -2686,6 +2686,20 @@ export async function handleExtractWaveformPeaksJob(
     });
 
     return { key: derivedKey, samples: bucketCount, peaks, durationSec };
+  } catch (error) {
+    if (payload.blobScope === 'workspace') {
+      await updateWorkspaceBlobMetadata(deps.db, payload.workspaceId, payload.sha256, {
+        waveformFailed: true,
+      }).catch(() => {});
+    }
+    await publishMediaDerivedReady(deps, {
+      workspaceId: payload.workspaceId,
+      sha256: payload.sha256,
+      kind: 'waveform',
+      status: 'failed',
+      projectId: payload.projectId,
+    }).catch(() => {});
+    throw error;
   } finally {
     await rm(workDir, { recursive: true, force: true }).catch(() => {});
   }

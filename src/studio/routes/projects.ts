@@ -12,6 +12,7 @@ import {
 import { infoInMemory } from '../engine/inspect.ts';
 import { formatVersionFromSha256 } from '../etag.ts';
 import { listVirtualCompositions } from '../virtual-project-store.ts';
+import { classifyPreviewProxyTarget } from '../../workers/media-ingest.ts';
 
 export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
@@ -79,12 +80,36 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
         spriteStatus?: 'ready' | 'failed';
         waveformReady?: boolean;
         thumbnailReady?: boolean;
+        optimizationStatus?: 'optimizing' | 'ready';
       }
     > = {};
     for (const file of fileList) {
       const meta = file.metadata;
       if (!meta) continue;
       const previewProxy = (meta as { previewProxy?: { status?: 'ready' | 'failed' } }).previewProxy;
+      let optimizationStatus: 'optimizing' | 'ready' | undefined;
+      if (file.blobScope === 'workspace') {
+        const mime = (meta.mimeType ?? file.mimeType ?? '').toLowerCase();
+        const proxyTarget = classifyPreviewProxyTarget({
+          mimeType: mime,
+          sizeBytes: file.sizeBytes,
+          width: meta.width,
+          height: meta.height,
+        });
+        const proxySettled =
+          !proxyTarget || previewProxy?.status === 'ready' || previewProxy?.status === 'failed';
+        if (meta.modality === 'video' || mime.startsWith('video/')) {
+          const spriteSettled = meta.sprite?.status === 'ready' || meta.sprite?.status === 'failed';
+          optimizationStatus = spriteSettled && proxySettled ? 'ready' : 'optimizing';
+        } else if ((meta.modality === 'image' || mime.startsWith('image/')) && proxyTarget) {
+          optimizationStatus = proxySettled ? 'ready' : 'optimizing';
+        } else if (meta.modality === 'audio' || mime.startsWith('audio/')) {
+          const waveformSettled =
+            (typeof meta.waveformPeaksKey === 'string' && meta.waveformPeaksKey.length > 0) ||
+            meta.waveformFailed === true;
+          optimizationStatus = waveformSettled && proxySettled ? 'ready' : 'optimizing';
+        }
+      }
       const entry: (typeof assetMetadata)[string] = {
         ...(typeof meta.durationSec === 'number' && Number.isFinite(meta.durationSec)
           ? { duration: meta.durationSec }
@@ -103,6 +128,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
           ? { waveformReady: true }
           : {}),
         ...(meta.thumbnailReady === true ? { thumbnailReady: true } : {}),
+        ...(optimizationStatus ? { optimizationStatus } : {}),
       };
       if (Object.keys(entry).length > 0) {
         assetMetadata[file.path] = entry;

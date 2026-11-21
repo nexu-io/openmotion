@@ -340,6 +340,18 @@ export const VideoThumbnail = memo(function VideoThumbnail({
             {t("no preview")}</span>
         </div>
       )}
+      {sprite.status === "loading" && (
+        <span
+          data-sprite-optimizing="true"
+          className="pointer-events-none absolute top-1 right-1 z-10 inline-flex items-center gap-1 rounded-sm bg-neutral-950/75 px-1 py-px text-[8px] font-medium leading-none text-neutral-200"
+        >
+          <span
+            aria-hidden="true"
+            className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-studio-accent motion-reduce:animate-none"
+          />
+          {t("Optimizing")}
+        </span>
+      )}
       {label && (
         <div
           className="absolute inset-x-0 bottom-0 z-10 px-1.5 pb-0.5 pt-3"

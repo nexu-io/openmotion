@@ -63,6 +63,7 @@ export interface BlobMetadata {
   channels?: number;
   bitrate?: number;
   waveformPeaksKey?: string;
+  waveformFailed?: boolean;
   loudnessLufs?: number;
   sdrNormalized?: boolean;
   thumbnailReady?: boolean;
