@@ -19,6 +19,7 @@ import { AudioNavMenu } from './AudioNavMenu';
 import type { SoundTabId } from './soundTabs';
 import type { ScenarioId } from '../../../shared/scenarios';
 import { ScenarioMegaMenu } from './ScenarioMegaMenu';
+import { preloadStudioRoute, preloadWorkspacePage } from '../router/lazyPages';
 
 export type CreativeNavigationProps = {
   onChooseStudio: (studio: CreativeStudio, kind?: Modality) => void;
@@ -194,11 +195,12 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     return <div className="om-nav-row om-creative-split" data-active={Boolean(current)}>
           <Popover container={popupHost} modal={false} openOnHover={!inPanel} open={expanded}
             onOpenChange={value => {
+              if (value) preloadStudioRoute(id);
               if (value && !inPanel) setMoreOpen(false);
               setOpen(previous => value ? id : previous === id ? null : previous);
             }}
             aria-label={menuLabel} align="start" className={id === 'mcp' ? 'om-selection-panel om-creative-client-menu' : `om-selection-panel om-creative-menu om-creative-mega om-creative-menu-${id}`}
-            primaryAction={<Button variant="plain" className="om-nav-item om-nav-row-link" aria-label={id === 'workflows' ? label : undefined} aria-describedby={workflowsBadgeId} aria-current={current} onClick={() => { track(id === 'mcp' ? 'nav_mcp' : id === 'workflows' ? 'nav_studio' : 'nav_media', where); choose(onActivate); }}>{label}{workflowsBadgeId && <span className="om-badge" data-nav-badge="New" id={workflowsBadgeId} lang="en">New</span>}</Button>}
+            primaryAction={<Button variant="plain" className="om-nav-item om-nav-row-link" aria-label={id === 'workflows' ? label : undefined} aria-describedby={workflowsBadgeId} aria-current={current} onPointerEnter={() => preloadStudioRoute(id)} onFocus={() => preloadStudioRoute(id)} onClick={() => { track(id === 'mcp' ? 'nav_mcp' : id === 'workflows' ? 'nav_studio' : 'nav_media', where); choose(onActivate); }}>{label}{workflowsBadgeId && <span className="om-badge" data-nav-badge="New" id={workflowsBadgeId} lang="en">New</span>}</Button>}
             trigger={<Button variant="plain" className="om-nav-item om-nav-row-action" aria-label={menuLabel} aria-expanded={expanded}><RemixIcon name="arrow-down-s-line" size={12} /></Button>}>
             {id === 'mcp' ? <>
               <h2 lang="en">{menuLabel}</h2>
@@ -237,7 +239,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
 
   function item(index: number, inPanel = false) {
     if (index === 0) return <Button variant="plain" className="om-nav-item om-explore-link" aria-label={t('Explore')} title={t('Explore')}
-      aria-current={currentPage === 'explore' ? 'page' : undefined} onClick={() => { track('nav_explore', { navTarget: 'explore', inOverflow: inPanel }); choose(() => onOpenPage('explore')); }}>
+      aria-current={currentPage === 'explore' ? 'page' : undefined} onPointerEnter={() => preloadWorkspacePage('explore')} onFocus={() => preloadWorkspacePage('explore')} onClick={() => { track('nav_explore', { navTarget: 'explore', inOverflow: inPanel }); choose(() => onOpenPage('explore')); }}>
       <RemixIcon name="global-line" size={17} /><span>{t('Explore')}</span>
     </Button>;
     if (index < studioStart) return splitItem(index, inPanel);
@@ -247,8 +249,9 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
         || (studio.id === destination?.studio.id && !destination?.landing && !destination?.mediaTab) || studio.id === specialty?.id;
     const badge = 'navBadge' in studio ? studio.navBadge : undefined;
     const badgeId = badge && studio.id !== '3d' ? navId + '-' + studio.id + (inPanel ? '-more' : '') : undefined;
+    const preloadTarget = studio.surface === 'techniques' ? 'skills' : studio.id;
     return <Button variant="plain" className="om-nav-item" data-coming-soon={badge === 'Coming soon' || undefined} aria-current={isCurrent ? 'page' : undefined}
-      aria-label={t(studio.title)} aria-describedby={badgeId} onClick={() => { track('nav_studio', { navTarget: studio.id, studio: studio.id, inOverflow: inPanel }); choose(() => onChooseStudio(studio)); }}>
+      aria-label={t(studio.title)} aria-describedby={badgeId} onPointerEnter={() => preloadStudioRoute(preloadTarget)} onFocus={() => preloadStudioRoute(preloadTarget)} onClick={() => { track('nav_studio', { navTarget: studio.id, studio: studio.id, inOverflow: inPanel }); choose(() => onChooseStudio(studio)); }}>
       {inPanel && <span className="om-studio-heading-icon" data-tone={studioIconTone(studio)}><RemixIcon name={studio.icon} size={17} /></span>}
       {t(studio.title)}{badgeId && <span className="om-badge" data-nav-badge={badge} id={badgeId} lang="en">{badge}</span>}
     </Button>;

@@ -38,19 +38,22 @@ import {
 
 function RouteLoadingFallback() {
   return (
-    <div className="motion-route-state" role="status" aria-busy="true">
-      <Skeleton style={{ width: '36%', height: 'var(--motion-space-24)' }} />
-      <Skeleton style={{ width: '72%', height: 'var(--motion-space-16)' }} />
+    <div className="motion-route-skeleton" role="status" aria-busy="true">
+      <div className="motion-route-skeleton-header">
+        <Skeleton style={{ width: '220px', maxWidth: '45%', height: 'var(--motion-space-24)' }} />
+        <Skeleton style={{ width: '360px', maxWidth: '70%', height: 'var(--motion-space-14)' }} />
+      </div>
+      <div className="motion-route-skeleton-grid">
+        {Array.from({ length: 6 }, (_, index) => (
+          <Skeleton key={index} className="motion-route-skeleton-card" />
+        ))}
+      </div>
     </div>
   );
 }
 
 function RouteSurface({ children }: { children: ReactNode }) {
-  return (
-    <SettingsSurfaceBoundary>
-      <Suspense fallback={<RouteLoadingFallback />}>{children}</Suspense>
-    </SettingsSurfaceBoundary>
-  );
+  return <SettingsSurfaceBoundary>{children}</SettingsSurfaceBoundary>;
 }
 
 export type RouteViewportProps = {
@@ -145,24 +148,25 @@ export function RouteViewport({
   const { t } = useI18n();
   const { settings, assets: assetsOpen, skills: skillsOpen } = page;
   const mcpPage = settings === 'mcp' && (
-    <Suspense fallback={<RouteLoadingFallback />}>
-      <LazyMcpConnectionPage
-        entry={connectionEntry}
-        projectId={projectId}
-        hasProject={Boolean(projectId)}
-        previewsEnabled={!connectionsOpen}
-        openLibrary={openLibrary}
-        openProviders={openModelSettings}
-        route={page}
-        onRouteChange={navigatePage}
-        inSettings={page.mcpInSettings}
-        breadcrumb={source && <WorkspaceBreadcrumb source={source} destination="MCP" />}
-      />
-    </Suspense>
+    <LazyMcpConnectionPage
+      entry={connectionEntry}
+      projectId={projectId}
+      hasProject={Boolean(projectId)}
+      previewsEnabled={!connectionsOpen}
+      openLibrary={openLibrary}
+      openProviders={openModelSettings}
+      route={page}
+      onRouteChange={navigatePage}
+      inSettings={page.mcpInSettings}
+      breadcrumb={source && <WorkspaceBreadcrumb source={source} destination="MCP" />}
+    />
   );
 
+  // A single always-mounted Suspense boundary lets React's startTransition keep
+  // the currently visible route painted while the next lazy chunk resolves,
+  // avoiding blank flashes or skeleton flickers on in-app navigation.
   return (
-    <>
+    <Suspense fallback={<RouteLoadingFallback />}>
       {(exploreVisited || page.explore) && (
         <div
           className="om-explore-host"
@@ -495,35 +499,31 @@ export function RouteViewport({
 
       {visibleSettings === 'brand-kit' ? (
         <SettingsSurfaceBoundary key="brand-kit">
-          <Suspense fallback={<RouteLoadingFallback />}>
-            <LazyBrandKitPage
-              inWorkspace={!hostChrome}
-              onClose={openHome}
-              selectedId={page.brandKit}
-              onSelect={brandKit => navigatePage({ brandKit })}
-              previewsEnabled={!connectionsOpen}
-              hasProject={Boolean(projectId)}
-            />
-          </Suspense>
+          <LazyBrandKitPage
+            inWorkspace={!hostChrome}
+            onClose={openHome}
+            selectedId={page.brandKit}
+            onSelect={brandKit => navigatePage({ brandKit })}
+            previewsEnabled={!connectionsOpen}
+            hasProject={Boolean(projectId)}
+          />
         </SettingsSurfaceBoundary>
       ) : (
         visibleSettings && (
           <SettingsSurfaceBoundary key="settings">
-            <Suspense fallback={<RouteLoadingFallback />}>
-              <LazySettingsCenter
-                hasProject={Boolean(projectId)}
-                section={visibleSettings}
-                onBack={closeSettings}
-                onSection={openSettings}
-                openConnections={entry => openSettings('mcp', entry)}
-                mcp={mcpPage}
-                providerId={page.provider}
-                onProviderChange={provider => navigatePage({ provider })}
-              />
-            </Suspense>
+            <LazySettingsCenter
+              hasProject={Boolean(projectId)}
+              section={visibleSettings}
+              onBack={closeSettings}
+              onSection={openSettings}
+              openConnections={entry => openSettings('mcp', entry)}
+              mcp={mcpPage}
+              providerId={page.provider}
+              onProviderChange={provider => navigatePage({ provider })}
+            />
           </SettingsSurfaceBoundary>
         )
       )}
-    </>
+    </Suspense>
   );
 }

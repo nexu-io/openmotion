@@ -6,10 +6,10 @@ This guide defines how OpenMotion Studio organizes workspace pages, code splitti
 
 All workspace route registration and lazy surface wiring live under `studio/src/router/`:
 
-- `studio/src/router/lazyPages.ts` — Single source of truth for lazy-loaded workspace page and overlay components (`lazyWithChunkReload`) and `LAZY_PAGE_MODULE_PATHS`.
+- `studio/src/router/lazyPages.ts` — Single source of truth for lazy-loaded workspace page and overlay components (`lazyWithChunkReload`), `LAZY_PAGE_MODULE_PATHS`, and intent-based prefetch helpers (`preloadWorkspacePage`, `preloadStudioRoute`).
 - `studio/src/router/routeRegistry.ts` — Declarative route table (`workspaceRouteRegistry`) defining route IDs, match precedence, `keepAlive` policy, standalone flags, tracking page names, and arrival tracking helpers.
-- `studio/src/router/RouteViewport.tsx` — Renders the active workspace surface and KeepAlive slots inside `SettingsSurfaceBoundary` + `Suspense`.
-- `studio/src/router/OverlayLayer.tsx` — Renders cross-cutting overlays (template library dialog and standalone card preview) without coupling them into `WorkspaceFrame.tsx`.
+- `studio/src/router/RouteViewport.tsx` — Renders the active workspace surface and KeepAlive slots inside a single always-mounted `<Suspense>` boundary (with per-route `SettingsSurfaceBoundary` error isolation). Keeping `<Suspense>` always mounted allows `WorkspaceFrame`'s `useTransition` to hold the currently visible page painted while the next lazy chunk resolves, eliminating blank screens and skeleton flashes during in-app navigation.
+- `studio/src/router/OverlayLayer.tsx` — Renders cross-cutting overlays (template library dialog and standalone card preview) inside an always-mounted `<Suspense fallback={null}>` without coupling them into `WorkspaceFrame.tsx`.
 
 `studio/src/motion/WorkspaceFrame.tsx` is strictly the **App Shell** (header, project sidebar, chrome context, toasts, and keyboard shortcuts). Never import feature pages statically into `WorkspaceFrame.tsx` or `studio/src/main.tsx`.
 
@@ -26,6 +26,7 @@ All workspace route registration and lazy surface wiring live under `studio/src/
    - `/editor-assets`, `/guide-assets`, `/design-system`, `/web`
    - `/.well-known`, `/__hyperframes_config`
 6. **Root-relative asset paths.** `studio/vite.config.ts` pins `base: '/'`. Keep all HTML, CSS, font, and fetch URLs root-relative (`/...`) rather than relative (`./...`) so nested path routes resolve assets identically.
+7. **Shared vs. route-scoped stylesheets.** Cross-page workspace host stylesheets (`studio/src/motion/skills.css`, `sceneDiscovery.css`, `assets.css`) are imported eagerly in `studio/src/main.tsx` ahead of `studio.css` and `application.css` so every lazy route gets identical layout and cascade order on cold direct load. Keep page-specific CSS strictly prefixed to that page and import it in the page module itself.
 
 ## Verification checklist
 

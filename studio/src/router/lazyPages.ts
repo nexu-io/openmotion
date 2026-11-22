@@ -26,9 +26,33 @@ export const LAZY_PAGE_MODULE_PATHS = [
   'motion/ConnectionDialog.tsx',
 ] as const;
 
-const preloaders: Array<() => Promise<unknown>> = [];
+export type LazyPageKey =
+  | 'explore'
+  | 'motion'
+  | 'cinema'
+  | 'creative'
+  | 'design'
+  | 'designEditor'
+  | 'scenarioHub'
+  | 'scenario'
+  | 'game'
+  | 'assets'
+  | 'skills'
+  | 'modelOverview'
+  | 'modelHub'
+  | 'settings'
+  | 'mcp'
+  | 'brandKit'
+  | 'connectionDialog';
 
-function lazyPage<T extends ComponentType<any>>(importer: () => Promise<{ default: T }>) {
+const preloaders = new Map<LazyPageKey, () => Promise<unknown>>();
+
+function shouldSkipPrefetch(): boolean {
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+  return Boolean(connection?.saveData);
+}
+
+function lazyPage<T extends ComponentType<any>>(key: LazyPageKey, importer: () => Promise<{ default: T }>) {
   let pending: Promise<{ default: T }> | null = null;
   const load = () => {
     if (!pending) {
@@ -39,79 +63,103 @@ function lazyPage<T extends ComponentType<any>>(importer: () => Promise<{ defaul
     }
     return pending;
   };
-  preloaders.push(load);
+  preloaders.set(key, load);
   return lazyWithChunkReload(load);
+}
+
+/** Warm a single lazy page chunk on user navigation intent (hover / focus). */
+export function preloadWorkspacePage(key: LazyPageKey): void {
+  if (shouldSkipPrefetch()) return;
+  const load = preloaders.get(key);
+  if (!load) return;
+  void load().catch(() => {});
+}
+
+/** Map a top-bar studio or navigation id to its lazy chunk(s) and warm them. */
+export function preloadStudioRoute(target: string): void {
+  if (target === 'explore') { preloadWorkspacePage('explore'); return; }
+  if (target === 'design') { preloadWorkspacePage('design'); return; }
+  if (target === 'motion') { preloadWorkspacePage('motion'); return; }
+  if (target === 'cinema') { preloadWorkspacePage('cinema'); return; }
+  if (target === 'game') { preloadWorkspacePage('game'); return; }
+  if (target === 'workflows') { preloadWorkspacePage('scenarioHub'); preloadWorkspacePage('scenario'); return; }
+  if (target === 'mcp') { preloadWorkspacePage('mcp'); return; }
+  if (target === 'assets') { preloadWorkspacePage('assets'); return; }
+  if (target === 'brand-kit') { preloadWorkspacePage('brandKit'); return; }
+  if (target === 'settings') { preloadWorkspacePage('settings'); return; }
+  if (target === 'skills') { preloadWorkspacePage('skills'); return; }
+  preloadWorkspacePage('creative');
 }
 
 /** Preload all lazy workspace page chunks (used by tests to avoid transform-time suspense races). */
 export function preloadAllWorkspacePages(): Promise<unknown[]> {
-  return Promise.all(preloaders.map(load => load()));
+  return Promise.all(Array.from(preloaders.values(), load => load()));
 }
 
-export const LazyExploreStudios = lazyPage(() =>
+export const LazyExploreStudios = lazyPage('explore', () =>
   import('../motion/ExploreStudios').then(module => ({ default: module.ExploreStudios })),
 );
 
-export const LazyMotionStudioPage = lazyPage(() =>
+export const LazyMotionStudioPage = lazyPage('motion', () =>
   import('../motion/MotionStudioPage').then(module => ({ default: module.MotionStudioPage })),
 );
 
-export const LazyCinemaStudioPage = lazyPage(() =>
+export const LazyCinemaStudioPage = lazyPage('cinema', () =>
   import('../motion/CinemaStudioPage').then(module => ({ default: module.CinemaStudioPage })),
 );
 
-export const LazyCreativeWorkspace = lazyPage(() =>
+export const LazyCreativeWorkspace = lazyPage('creative', () =>
   import('../motion/CreativeWorkspace').then(module => ({ default: module.CreativeWorkspace })),
 );
 
-export const LazyDesignScenePage = lazyPage(() =>
+export const LazyDesignScenePage = lazyPage('design', () =>
   import('../design/scenes/DesignScenePage').then(module => ({ default: module.DesignScenePage })),
 );
 
-export const LazyDesignProjectEditor = lazyPage(() =>
+export const LazyDesignProjectEditor = lazyPage('designEditor', () =>
   import('../design/DesignProjectEditor').then(module => ({ default: module.DesignProjectEditor })),
 );
 
-export const LazyScenarioHub = lazyPage(() =>
+export const LazyScenarioHub = lazyPage('scenarioHub', () =>
   import('../scenario/ScenarioHub').then(module => ({ default: module.ScenarioHub })),
 );
 
-export const LazyScenarioWorkspace = lazyPage(() =>
+export const LazyScenarioWorkspace = lazyPage('scenario', () =>
   import('../scenario/ScenarioWorkspace').then(module => ({ default: module.ScenarioWorkspace })),
 );
 
-export const LazyGameStudio = lazyPage(() =>
+export const LazyGameStudio = lazyPage('game', () =>
   import('../motion/game/GameStudio').then(module => ({ default: module.GameStudio })),
 );
 
-export const LazyAssetsPage = lazyPage(() =>
+export const LazyAssetsPage = lazyPage('assets', () =>
   import('../motion/AssetsPage').then(module => ({ default: module.AssetsPage })),
 );
 
-export const LazySkillsPage = lazyPage(() =>
+export const LazySkillsPage = lazyPage('skills', () =>
   import('../motion/SkillsPage').then(module => ({ default: module.SkillsPage })),
 );
 
-export const LazyModelOverview = lazyPage(() =>
+export const LazyModelOverview = lazyPage('modelOverview', () =>
   import('../motion/ModelOverview').then(module => ({ default: module.ModelOverview })),
 );
 
-export const LazyModelHub = lazyPage(() =>
+export const LazyModelHub = lazyPage('modelHub', () =>
   import('../motion/ModelHub').then(module => ({ default: module.ModelHub })),
 );
 
-export const LazySettingsCenter = lazyPage(() =>
+export const LazySettingsCenter = lazyPage('settings', () =>
   import('../motion/SettingsCenter').then(module => ({ default: module.SettingsCenter })),
 );
 
-export const LazyMcpConnectionPage = lazyPage(() =>
+export const LazyMcpConnectionPage = lazyPage('mcp', () =>
   import('../motion/McpConnectionPage').then(module => ({ default: module.McpConnectionPage })),
 );
 
-export const LazyBrandKitPage = lazyPage(() =>
+export const LazyBrandKitPage = lazyPage('brandKit', () =>
   import('../motion/BrandKitPage').then(module => ({ default: module.BrandKitPage })),
 );
 
-export const LazyConnectionDialog = lazyPage(() =>
+export const LazyConnectionDialog = lazyPage('connectionDialog', () =>
   import('../motion/ConnectionDialog').then(module => ({ default: module.ConnectionDialog })),
 );

@@ -12,7 +12,7 @@ import { hasStudioHome, scenesForStudio, studioDestination, studioDraftKey, type
 import type { AssetDraft } from './AssetComposer';
 import type { SkillParameters } from './skillCatalog';
 import { findCinemaTemplate } from './cinemaTemplates';
-import { useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { useState, useRef, useCallback, useEffect, useTransition, type ReactNode } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { MotionIcon } from './icons';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -51,6 +51,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const { t, locale } = useI18n();
   const [page, setPage] = useState(() => readWorkspacePage(location.search, location.hash));
   const [source, setSource] = useState(workspaceHistorySource);
+  const [isRoutePending, startRouteTransition] = useTransition();
   const sourceUrl = source ? new URL(source.href) : null;
   const sourcePage = sourceUrl && readWorkspacePage(sourceUrl.search, sourceUrl.hash);
   const fromExplore = sourcePage?.explore && !sourcePage.templates && !sourcePage.template;
@@ -77,9 +78,11 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
       const next = readWorkspacePage(location.search, location.hash);
       if (libraryOpen.current && !next.templates) libraryClosed.current?.();
       libraryOpen.current = next.templates;
-      setPage(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
       const nextSource = workspaceHistorySource();
-      setSource(previous => previous?.index === nextSource?.index && previous?.href === nextSource?.href ? previous : nextSource);
+      startRouteTransition(() => {
+        setPage(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+        setSource(previous => previous?.index === nextSource?.index && previous?.href === nextSource?.href ? previous : nextSource);
+      });
     };
     window.addEventListener(WORKSPACE_LOCATION_CHANGED, sync);
     if (!onNavigate) window.addEventListener('popstate', sync);
@@ -405,6 +408,7 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         onOpenScenarioHub={() => openScenarioHub()}
         onNavigate={openStudio} onNavigateSound={openAudioNav} />
       <div className="motion-workspace">
+      {isRoutePending && <div className="motion-route-progress" role="progressbar" aria-hidden="true" />}
       <Dialog.Portal>
         <Dialog.Backdrop className="hf-overlay-backdrop motion-sidebar-backdrop" />
         <Dialog.Popup id="om-project-navigation" className="motion-sidebar-drawer" aria-label={t('Project list')} onKeyDown={event => event.stopPropagation()}>

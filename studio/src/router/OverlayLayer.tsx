@@ -61,8 +61,8 @@ export function OverlayLayer({
   const shouldRenderCollectionSkill =
     placement === 'in-workspace' && templatesPage && page.templateCollection === 'black-friday' && Boolean(page.skill);
 
-  if (!shouldRenderLibrary && !shouldRenderCollectionSkill) return null;
-
+  // Keep the Suspense boundary always mounted so startTransition holds the
+  // underlying surface painted while the lazy overlay chunk loads.
   return (
     <SettingsSurfaceBoundary>
       <Suspense fallback={null}>

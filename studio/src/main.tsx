@@ -12,6 +12,11 @@ import {
 } from "./utils/rejectionTelemetry";
 import { prefetchPreviewForHash } from "./utils/previewPrefetch";
 import { bindThumbnailPageLifecycle } from "./player/lib/thumbnailPageLifecycle";
+// Shared workspace host and discovery surface styles (imported before studio.css
+// and application.css to preserve exact cascade order across all lazy routes).
+import "./motion/skills.css";
+import "./motion/sceneDiscovery.css";
+import "./motion/assets.css";
 import "./styles/studio.css";
 import "./motion/theme.css";
 import "./motion/workspace.css";
