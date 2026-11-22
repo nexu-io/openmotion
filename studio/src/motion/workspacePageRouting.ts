@@ -20,7 +20,7 @@ export function isLegacyWorkspaceHref(search: string, page: WorkspacePage, pathn
   return new URLSearchParams(effectiveSearch).get('page') === 'design' && Boolean(page.studio?.landing);
 }
 
-/** Application pages live in the query; the project hash belongs to the editor. */
+/** Canonical application pages live in semantic pathnames; `#project/<id>` remains owned by the editor. */
 export const settingsSections = ['account', 'subscription', 'providers', 'models', 'local', 'general', 'appearance', 'privacy', 'about', 'help', 'mcp', 'brand-kit'] as const;
 export type SettingsSection = typeof settingsSections[number];
 export type ExploreFilters = { community: ExploreCommunity['id'] | null; medium: StudioScene['modality'] | null };
@@ -99,10 +99,11 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   const pathProject = editorProjectIdFromPath(originalPathname);
   const rawRetainedProject = pathProject ?? url.searchParams.get('project') ?? parseProjectIdFromHash(url.hash);
   const retainedProject = rawRetainedProject && isValidProjectId(rawRetainedProject) ? rawRetainedProject : null;
+  const isSpaRoute = originalPathname !== '/' && isSpaRoutePath(originalPathname);
   const currentSearchPage = new URLSearchParams(
-    originalPathname !== '/' && isSpaRoutePath(originalPathname) ? spaPathnameToSearch(originalPathname, url.search) : url.search,
+    isSpaRoute ? spaPathnameToSearch(originalPathname, url.search) : url.search,
   ).get('page');
-  if (originalPathname !== '/' && isSpaRoutePath(originalPathname)) url.pathname = '/';
+  if (isSpaRoute) url.pathname = '/';
   for (const key of ['page', 'home', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject', 'cinemaTemplate', 'scenario', 'run', 'step', 'mode', 'category']) url.searchParams.delete(key);
   if (current.settings === 'mcp' || page.settings === 'mcp') url.searchParams.delete('example');
   if (currentSearchPage === 'api') url.searchParams.delete('tool');

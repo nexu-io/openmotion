@@ -5,6 +5,7 @@ import puppeteer, { type Page } from 'puppeteer-core';
 import { browserExecutable } from '../browser.ts';
 import { gatewayFor } from '../gateway/service.ts';
 import { startServer } from '../server.ts';
+import { editorProjectIdFromPath } from '../shared/spa-routes.ts';
 import { fixture } from './fixtures.ts';
 
 async function checkCreator(page: Page, stacked: boolean) {
@@ -40,7 +41,8 @@ test('Explore is home and project navigation stays in the workspace', { timeout:
       const origin = (await running.info()).previewUrl;
       await page.goto(new URL('/', origin).href, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('.om-explore-host:not([hidden])');
-      assert.equal(new URL(page.url()).searchParams.get('project'), null);
+      await page.waitForFunction(() => location.pathname === '/explore');
+      assert.equal(editorProjectIdFromPath(new URL(page.url()).pathname), null);
       for (const [width, theme] of [[1440, 'light'], [390, 'dark']] as const) {
         await page.setViewport({ width, height: 800 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
@@ -95,7 +97,10 @@ test('Explore is home and project navigation stays in the workspace', { timeout:
       assert.equal(await page.$('.om-project-navigation'), null);
       await page.goBack();
       await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });
-      assert.equal(new URL(page.url()).searchParams.get('project'), new URL(editorUrl).searchParams.get('project'));
+      assert.equal(
+        editorProjectIdFromPath(new URL(page.url()).pathname),
+        editorProjectIdFromPath(new URL(editorUrl).pathname),
+      );
       await page.reload({ waitUntil: 'domcontentloaded' });
       await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });
       assert.ok(await page.waitForSelector('.om-project-navigation:not([inert])', { visible: true }));
@@ -117,7 +122,7 @@ test('Design template details keep the project tooltip and clipboard fallback in
           throw new Error('Clipboard access denied');
         };
       });
-      const scene = new URL('/?page=design&scene=prototype', (await running.info()).previewUrl).href;
+      const scene = new URL('/design/prototype', (await running.info()).previewUrl).href;
       const dialog = '.om-design-tpl-detail-popup';
       const remix = `${dialog} button[aria-label="Remix into project"]`;
       const recreate = `${dialog} .om-media-detail-action-row button[data-primary]`;
@@ -191,9 +196,7 @@ test('Studio controls fit their resizable generator and timeline panes', { timeo
         localStorage.setItem('hf-studio-ui-preferences', JSON.stringify({ theme: 'system' }));
       });
       await page.setViewport({ width: 1280, height: 800 });
-      const url = new URL((await running.info()).previewUrl);
-      url.searchParams.set('page', 'cinema');
-      url.searchParams.set('scene', 'text-to-video');
+      const url = new URL('/cinema/text-to-video', (await running.info()).previewUrl);
       await page.goto(url.href, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('.om-creator-pane .om-asset-direct > button.om-button', { visible: true });
       await page.evaluate(() => document.fonts.ready);
@@ -209,7 +212,7 @@ test('Studio controls fit their resizable generator and timeline panes', { timeo
       }
       await page.mouse.move(5, 750);
       await page.waitForSelector('.om-creative-client-menu', { hidden: true });
-      assert.equal(new URL(page.url()).searchParams.get('page'), 'cinema', 'Hovering a destination preserves the current Studio');
+      assert.equal(new URL(page.url()).pathname, '/cinema/text-to-video', 'Hovering a destination preserves the current Studio');
       const divider = await page.waitForSelector('.om-creator-pane [role="separator"]');
       for (const [key, width] of [['Home', 310], ['End', 650]] as const) {
         await divider!.press(key);
@@ -230,7 +233,7 @@ test('Studio controls fit their resizable generator and timeline panes', { timeo
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
         await page.waitForSelector(imageNav + ' > .om-nav-row-link', { visible: true });
         await page.click(imageNav + ' > .om-nav-row-link');
-        await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === 'design');
+        await page.waitForFunction(() => location.pathname === '/create/text-to-image');
         await page.waitForSelector('.om-creative-menu', { hidden: true });
         await page.waitForSelector('.om-generation-pickers [aria-label="Generation model"]', { visible: true });
         await page.mouse.move(5, 675);
@@ -243,7 +246,7 @@ test('Studio controls fit their resizable generator and timeline panes', { timeo
         await page.keyboard.press('Escape');
         await page.waitForSelector('.om-creative-menu', { hidden: true });
         await page.goBack();
-        await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === 'cinema');
+        await page.waitForFunction(() => location.pathname === '/cinema/text-to-video');
       }
       const more = await page.waitForSelector('::-p-aria([name="More Studio"][role="button"])', { visible: true });
       await more!.focus();
@@ -254,17 +257,17 @@ test('Studio controls fit their resizable generator and timeline panes', { timeo
         return bounds.left >= 0 && bounds.right <= innerWidth;
       }), 'The assets shortcut fits inside the narrow navigation menu');
       await folder!.click();
-      await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === 'assets');
+      await page.waitForFunction(() => location.pathname === '/assets');
       await page.goBack();
-      await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === 'cinema');
+      await page.waitForFunction(() => location.pathname === '/cinema/text-to-video');
       await page.setViewport({ width: 320, height: 690, hasTouch: true });
       await page.waitForSelector(imageNav);
       await page.tap(imageNav + ' > .om-nav-row-action');
       await page.waitForSelector('.om-creative-menu', { visible: true });
       await page.tap(imageNav + ' > .om-nav-row-link');
-      await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === 'design');
+      await page.waitForFunction(() => location.pathname === '/create/text-to-image');
       await page.waitForSelector('.om-creative-menu', { hidden: true });
-      await page.goto(new URL('/?page=editor', url).href, { waitUntil: 'domcontentloaded' });
+      await page.goto(new URL('/editor', url).href, { waitUntil: 'domcontentloaded' });
       const toolbar = await page.waitForSelector('.motion-timeline-icon-controls', { visible: true });
       assert.ok(await toolbar!.evaluate(el => {
         const bounds = el.getBoundingClientRect();
@@ -298,8 +301,7 @@ test('Explore fills every gallery row and plays the featured artwork in place', 
         } else void request.continue();
       });
       await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-      const url = new URL((await running.info()).previewUrl);
-      url.searchParams.set('page', 'explore');
+      const url = new URL('/explore', (await running.info()).previewUrl);
       await page.goto(url.href, { waitUntil: 'domcontentloaded' });
       await page.waitForSelector('.om-feed-group [data-template-id]');
       await page.evaluate(() => document.fonts.ready);
@@ -435,8 +437,7 @@ test('Sound Studio previews and seeks the welcome track in both wide and compact
         localStorage.setItem('motion.studio.locale', 'en');
         localStorage.setItem('hf-studio-ui-preferences', JSON.stringify({ theme: 'system' }));
       });
-      const url = new URL((await running.info()).previewUrl);
-      url.searchParams.set('page', 'sound');
+      const url = new URL('/sound/music', (await running.info()).previewUrl);
       for (const [width, theme] of [[1280, 'dark'], [390, 'light']] as const) {
         await page.setViewport({ width, height: 800 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
@@ -475,9 +476,7 @@ test('Sound Studio home shows the banner and templates and plays a template with
     try {
       const page = await browser.newPage();
       await page.evaluateOnNewDocument(() => localStorage.setItem('motion.studio.locale', 'en'));
-      const url = new URL((await running.info()).previewUrl);
-      url.searchParams.set('page', 'sound');
-      url.searchParams.set('home', '1');
+      const url = new URL('/sound', (await running.info()).previewUrl);
       for (const width of [1280, 390]) {
         await page.setViewport({ width, height: 800 });
         await page.goto(url.href, { waitUntil: 'domcontentloaded' });
@@ -504,7 +503,7 @@ test('the opt-in UI inspector outlines component roots, excludes its own control
     const browser = await puppeteer.launch({ executablePath: await browserExecutable(), headless: true });
     try {
       const page = await browser.newPage();
-      const url = new URL('/', (await running.info()).previewUrl);
+      const url = new URL('/explore', (await running.info()).previewUrl);
       await page.goto(url.href);
       await page.waitForSelector('[data-odui-component="button"]');
       assert.equal(await page.$('.odui-inspector'), null);
@@ -533,6 +532,32 @@ test('the opt-in UI inspector outlines component roots, excludes its own control
       await page.click('.odui-inspector-bar button:last-child');
       assert.equal(await page.$('.odui-inspector'), null);
       assert.notEqual(await page.$eval('#inspector-test > button', el => getComputedStyle(el).outlineStyle), 'dashed');
+    } finally { await browser.close(); await running.close(); }
+  });
+});
+
+test('legacy query bookmarks redirect in place to canonical semantic paths and preserve orthogonal params', { timeout: 60_000 }, async () => {
+  await fixture(async store => {
+    const running = await startServer(store, 0, { editor: false });
+    const browser = await puppeteer.launch({ executablePath: await browserExecutable(), headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.evaluateOnNewDocument(() => localStorage.setItem('motion.studio.locale', 'en'));
+      const origin = (await running.info()).previewUrl;
+      const cases = [
+        ['/?page=cinema&scene=text-to-video&embed=1', '/cinema/text-to-video', 'embed=1'],
+        ['/?page=settings&section=providers&embed=1', '/settings/providers', 'embed=1'],
+        ['/?page=mcp&host=claude&setup=manual', '/mcp-setup', 'host=claude'],
+        ['/?page=assets&embed=1', '/assets', 'embed=1'],
+        ['/?page=explore&community=product-films', '/explore', 'community=product-films'],
+      ] as const;
+      for (const [legacyHref, expectedPath, expectedQuery] of cases) {
+        await page.goto(new URL(legacyHref, origin).href, { waitUntil: 'domcontentloaded' });
+        await page.waitForFunction(path => location.pathname === path, { timeout: 15_000 }, expectedPath);
+        const current = new URL(page.url());
+        assert.equal(current.pathname, expectedPath);
+        assert.ok(current.search.includes(expectedQuery), `expected ${current.href} to preserve ${expectedQuery}`);
+      }
     } finally { await browser.close(); await running.close(); }
   });
 });

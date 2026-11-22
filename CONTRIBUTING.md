@@ -14,7 +14,7 @@ Designers, creators, prompt authors and engineers are all welcome. The [OpenMoti
 | A motion design system | `library/design-systems/<name>/MOTION_DESIGN.md` | Visual language, pacing, movement, sound, references and review criteria. |
 | A Brandkit | `library/brandkits/<name>/BRANDKIT.md` | Confirmed facts, copy, identity, asset locations and permission notes. |
 | A Studio UI component | [packages/open-design-ui](packages/open-design-ui/README.md) | States, semantic tokens, an interactive example and a product usage. |
-| A Studio page or route | [studio/src/router/](docs/routing.md) | Lazy registration in `lazyPages.ts` + `routeRegistry.ts`, root-relative paths, no reserved backend prefixes, and `shellBoundary.test.ts`. |
+| A Studio page or route | [studio/src/router/](docs/routing.md) | Semantic path route in `shared/spa-routes.ts`, `createAppRouter.tsx`, and `routeRegistry.ts`, lazy registration in `lazyPages.ts`, root-relative paths, no reserved backend prefixes, and passing `npm run check` + `shellBoundary.test.ts`. |
 | Studio UI copy / i18n | [studio/src/i18n/](docs/i18n.md) | Module JSON registered in `manifest.ts`, all 10 non-English locales, `{var}` placeholder parity, no static locale JSON imports, and `npm run check`. |
 | Runtime / editor / agent support | Existing modules linked in the [architecture](docs/product/architecture.md) | A reproducible case, focused change and checks for the affected boundary. |
 

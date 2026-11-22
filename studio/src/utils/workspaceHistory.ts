@@ -82,20 +82,20 @@ export function readLocationWorkspaceSource(locationState: unknown): WorkspaceSo
   return workspaceHistorySource();
 }
 
-export function workspaceHistorySource(): WorkspaceSource | null {
-  const fromBridge = readSourceFromRecord(activeBridge?.getLocationState() as Record<string, unknown> | null | undefined, sourceKey);
+function readWorkspaceSource(key: string): WorkspaceSource | null {
+  const fromBridge = readSourceFromRecord(activeBridge?.getLocationState() as Record<string, unknown> | null | undefined, key);
   if (fromBridge) return fromBridge;
-  const fromUsr = readSourceFromRecord(history.state?.usr as Record<string, unknown> | null | undefined, sourceKey);
+  const fromUsr = readSourceFromRecord(history.state?.usr as Record<string, unknown> | null | undefined, key);
   if (fromUsr) return fromUsr;
-  return readSourceFromRecord(history.state as Record<string, unknown> | null | undefined, sourceKey);
+  return readSourceFromRecord(history.state as Record<string, unknown> | null | undefined, key);
+}
+
+export function workspaceHistorySource(): WorkspaceSource | null {
+  return readWorkspaceSource(sourceKey);
 }
 
 export function workspaceSettingsSource(): WorkspaceSource | null {
-  const fromBridge = readSourceFromRecord(activeBridge?.getLocationState() as Record<string, unknown> | null | undefined, settingsSourceKey);
-  if (fromBridge) return fromBridge;
-  const fromUsr = readSourceFromRecord(history.state?.usr as Record<string, unknown> | null | undefined, settingsSourceKey);
-  if (fromUsr) return fromUsr;
-  return readSourceFromRecord(history.state as Record<string, unknown> | null | undefined, settingsSourceKey);
+  return readWorkspaceSource(settingsSourceKey);
 }
 
 export function restoreWorkspaceSource(source: WorkspaceSource): boolean {
