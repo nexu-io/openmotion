@@ -93,7 +93,7 @@ export function useWorkspace(
         if (acting.current) throw new Error(t('Switching projects. Please try again shortly.'));
         // Page switches preserve the mounted editor. Leaving a busy template
         // library or replacing the project still uses the existing save guard.
-        if (!sameProject || (readWorkspacePage(previous.search, previous.hash).templates && !readWorkspacePage(next.search, next.hash).templates)) await waitForSaves();
+        if (!sameProject || (readWorkspacePage(previous.search, previous.hash, previous.pathname).templates && !readWorkspacePage(next.search, next.hash, next.pathname).templates)) await waitForSaves();
         if (cancelled || attempt !== generation || location.href !== target) return;
         setNavigationError(null);
         if (sameProject) writeWorkspaceHistory(target, true);

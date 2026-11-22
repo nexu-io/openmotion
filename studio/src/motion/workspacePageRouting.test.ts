@@ -7,7 +7,7 @@ import { isLegacyWorkspaceHref, readWorkspacePage, settingsSections, workspacePa
 it.each(settingsSections)('round-trips the %s destination without changing editor or host context', settings => {
   const source = 'http://localhost/?session=project&project=project&embed=1&tracking_context=11111111-1111-1111-1111-111111111111#project/project?v=1&t=12&tab=design&rc=0';
   const next = new URL(workspacePageHref(source, { settings }), source);
-  expect(readWorkspacePage(next.search).settings).toBe(settings);
+  expect(readWorkspacePage(next.search, next.hash, next.pathname).settings).toBe(settings);
   expect(next.hash).toBe(new URL(source).hash);
   for (const key of ['session', 'project', 'embed', 'tracking_context']) expect(next.searchParams.get(key)).toBe(new URL(source).searchParams.get(key));
   const editor = new URL(workspacePageHref(next.href, { settings: null }), source);
@@ -17,10 +17,11 @@ it.each(settingsSections)('round-trips the %s destination without changing edito
 it('retains the library return page and selected detail, and clears page-specific options on exit', () => {
   const source = 'http://localhost/?page=mcp&host=claude&setup=manual';
   const library = new URL(workspacePageHref(source, { templates: true, template: 'film/a & b' }), source);
-  expect(readWorkspacePage(library.search)).toMatchObject({ settings: 'mcp', templates: true, template: 'film/a & b', client: 'claude', setup: 'manual' });
-  expect(workspacePageHref(library.href, { templates: false })).toBe('/?page=mcp&host=claude&setup=manual');
+  expect(library.pathname).toBe('/mcp-setup');
+  expect(readWorkspacePage(library.search, library.hash, library.pathname)).toMatchObject({ settings: 'mcp', templates: true, template: 'film/a & b', client: 'claude', setup: 'manual' });
+  expect(workspacePageHref(library.href, { templates: false })).toBe('/mcp-setup?host=claude&setup=manual');
   const providers = new URL(workspacePageHref(library.href, { settings: 'providers', templates: false, provider: 'custom-a' }), source);
-  expect(providers.search).toBe('?page=settings&section=providers&provider=custom-a');
+  expect(providers.pathname + providers.search).toBe('/?page=settings&section=providers&provider=custom-a');
   expect(workspacePageHref(providers.href, { settings: 'general' })).toBe('/?page=settings&section=general');
 });
 
@@ -31,10 +32,10 @@ it('keeps MCP setup inside settings until a standalone destination is explicitly
   expect(setup.searchParams.get('page')).toBe('settings');
   expect(setup.searchParams.get('section')).toBe('mcp');
   expect(setup.searchParams.get('entry_from')).toBe('agent_media_signed_out');
-  expect(readWorkspacePage(setup.search)).toMatchObject({ settings: 'mcp', mcpInSettings: true, client: 'claude', setup: 'manual' });
+  expect(readWorkspacePage(setup.search, setup.hash, setup.pathname)).toMatchObject({ settings: 'mcp', mcpInSettings: true, client: 'claude', setup: 'manual' });
   const standalone = new URL(workspacePageHref(setup.href, { settings: 'mcp' }), source);
-  expect(standalone.search).toBe('?page=mcp&host=claude&setup=manual');
-  expect(readWorkspacePage(standalone.search).mcpInSettings).toBe(false);
+  expect(standalone.pathname + standalone.search).toBe('/mcp-setup?host=claude&setup=manual');
+  expect(readWorkspacePage(standalone.search, standalone.hash, standalone.pathname).mcpInSettings).toBe(false);
 });
 
 it('round-trips the Black Friday collection and its selected Skill without leaking either into the regular library', () => {
@@ -80,7 +81,8 @@ it('preserves a Brand Kit selection behind template browsing and clears it when 
   const source = 'http://localhost/?page=brand-kit&kit=one&embed=1#project/retained';
   expect(readWorkspacePage(new URL(source).search)).toMatchObject({ settings: 'brand-kit', brandKit: 'one' });
   const next = new URL(workspacePageHref(source, { templates: true }), source);
-  expect(readWorkspacePage(next.search)).toMatchObject({ settings: 'brand-kit', brandKit: 'one', templates: true });
+  expect(next.pathname).toBe('/brand-kit/one');
+  expect(readWorkspacePage(next.search, next.hash, next.pathname)).toMatchObject({ settings: 'brand-kit', brandKit: 'one', templates: true });
   expect(workspacePageHref(next.href, { settings: null, templates: false })).toBe('/?embed=1#project/retained');
 });
 
@@ -203,14 +205,13 @@ it('restores each specialty brief, model overview and nested creator preview fro
     expect(readWorkspacePage(href.search)).toMatchObject({ specialty: entry, skill: entry.techniques[0], community: 'short-form' });
   }
   const model = open(origin, { modelOverview: 'custom:provider/model' });
-  expect(isWorkspaceSettingsPage(model.search)).toBe(true);
-  expect(readWorkspacePage(model.search).modelOverview).toBe('custom:provider/model');
+  expect(model.pathname).toBe('/models/custom%3Aprovider%2Fmodel');
+  expect(readWorkspacePage(model.search, model.hash, model.pathname).modelOverview).toBe('custom:provider/model');
   expect(open(model.href, { explore: true }).href).toBe(origin);
   // A model hub is a standalone page, so a session's first artifact must not pull the viewer away from it.
   const hub = open(origin, { modelHub: 'gemini-4' });
-  expect(hub.search).toContain('page=model-hub');
-  expect(isWorkspaceSettingsPage(hub.search)).toBe(true);
-  expect(readWorkspacePage(hub.search).modelHub).toBe('gemini-4');
+  expect(hub.pathname).toBe('/model-hub/gemini-4');
+  expect(readWorkspacePage(hub.search, hub.hash, hub.pathname).modelHub).toBe('gemini-4');
   expect(isWorkspaceSettingsPage('?page=model-hub')).toBe(false);
   expect(open(hub.href, { explore: true }).href).toBe(origin);
   const directory = open(origin, { templates: true, creators: true });

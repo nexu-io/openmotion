@@ -112,7 +112,7 @@ test('SPA route allowlist serves Studio HTML while reserved backend and unknown 
   const request = transport(store, {
     ensureStudio: async () => { ensureCalls++; throw new Error('Native project unavailable'); },
   });
-  for (const route of ['/explore', '/cinema/text-to-video', '/design/prototype', '/settings/providers?project=project', '/mcp-setup?project=project', '/scenarios', '/assets']) {
+  for (const route of ['/explore', '/cinema/text-to-video', '/design/prototype', '/settings/providers?project=project', '/mcp-setup?project=project', '/brand-kit/mine', '/model-hub/gemini-4', '/models/veo-3', '/skills/manim', '/scenarios', '/assets']) {
     const response = await request(route);
     assert.equal(response.status, 200, `expected 200 for SPA route ${route}`);
     assert.match(await response.text(), /data-motion-studio/);

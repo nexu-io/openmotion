@@ -82,7 +82,7 @@ export function readWorkspacePage(search: string, hash = '', pathname = ''): Wor
   return { motion: page === 'motion', ...(cinemaLanding && { cinemaLanding: true }), ...(cinemaTemplate && { cinemaTemplate }),
     ...(designScene ? { designScene } : {}), ...(designProject ? { designProject } : {}), ...(extendedSoundTab ? { soundTab: extendedSoundTab.id } : {}),
     modelOverview: page === 'model' ? model : null, modelHub: page === 'model-hub' ? query.get('hub') || null : null, creators, creator: creators ? query.get('creator')?.trim() || null : null, specialty, community, medium, assetId: page === 'assets' ? query.get('asset') || null : null,
-    assetVersion: page === 'assets' && query.get('asset') ? query.get('version') || null : null, explore: page === 'explore', scenarioHub, scenarioCategory, scenario, scenarioRun, scenarioStep, scenarioMode, studio, settings, brandKit: settings === 'brand-kit' ? query.get('kit') || null : null, assets: page === 'assets', skills: page === 'skills', skillCategory: page === 'skills' ? skillCategories.find(value => value === query.get('skillCategory')) ?? null : null, skill: selectedSkill, templates, templateCollection,
+    assetVersion: page === 'assets' && query.get('asset') ? query.get('version') || null : null, explore: page === 'explore', scenarioHub, scenarioCategory, scenario, scenarioRun, scenarioStep, scenarioMode, studio, settings, brandKit: settings === 'brand-kit' ? query.get('kit') || null : null, assets: page === 'assets', skills: page === 'skills', skillCategory: page === 'skills' ? skillCategories.find(value => value === (query.get('category') ?? query.get('skillCategory'))) ?? null : null, skill: selectedSkill, templates, templateCollection,
     mcpInSettings: page === 'settings' && settings === 'mcp',
     mcpExample: settings === 'mcp' ? query.get('example') : null,
     client: mcpClients.find(value => value.id === query.get('host'))?.id ?? 'codex',
@@ -143,11 +143,9 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     url.searchParams.set('scene', page.designScene);
     if (page.designProject) url.searchParams.set('designProject', page.designProject);
   } else if (page.modelOverview) {
-    url.searchParams.set('page', 'model');
-    url.searchParams.set('model', page.modelOverview);
+    url.pathname = `/models/${encodeURIComponent(page.modelOverview)}`;
   } else if (page.modelHub) {
-    url.searchParams.set('page', 'model-hub');
-    url.searchParams.set('hub', page.modelHub);
+    url.pathname = `/model-hub/${encodeURIComponent(page.modelHub)}`;
   } else if (page.specialty) {
     url.searchParams.set('page', page.specialty.id);
     if (page.specialty.techniques.some(id => id === page.skill)) url.searchParams.set('skill', page.skill!);
@@ -173,9 +171,8 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     if (page.studio.model) url.searchParams.set('model', page.studio.model);
     if (findCinemaTemplate(page.cinemaTemplate)?.scene === page.studio.scene.id && (page.studio.landing || page.studio.studio.id === 'cinema')) url.searchParams.set('cinemaTemplate', page.cinemaTemplate!);
   } else if (page.skills) {
-    url.searchParams.set('page', 'skills');
-    if (page.skillCategory) url.searchParams.set('skillCategory', page.skillCategory);
-    if (page.skill) url.searchParams.set('skill', page.skill);
+    url.pathname = page.skill ? `/skills/${encodeURIComponent(page.skill)}` : '/skills';
+    if (page.skillCategory) url.searchParams.set('category', page.skillCategory);
   } else if (page.assets) {
     url.searchParams.set('page', 'assets');
     if (page.assetId) {
@@ -183,11 +180,14 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
       if (page.assetVersion) url.searchParams.set('version', page.assetVersion);
     }
   } else if (page.settings === 'brand-kit') {
-    url.searchParams.set('page', 'brand-kit');
-    if (page.brandKit) url.searchParams.set('kit', page.brandKit);
+    url.pathname = page.brandKit ? `/brand-kit/${encodeURIComponent(page.brandKit)}` : '/brand-kit';
   } else if (page.settings === 'mcp') {
-    url.searchParams.set('page', page.mcpInSettings ? 'settings' : 'mcp');
-    if (page.mcpInSettings) url.searchParams.set('section', 'mcp');
+    if (page.mcpInSettings) {
+      url.searchParams.set('page', 'settings');
+      url.searchParams.set('section', 'mcp');
+    } else {
+      url.pathname = '/mcp-setup';
+    }
     url.searchParams.set('host', page.client);
     if (page.mcpExample) url.searchParams.set('example', page.mcpExample);
     if (page.setup === 'manual') url.searchParams.set('setup', 'manual');

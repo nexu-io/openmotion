@@ -8,6 +8,7 @@ import {
   createAppRouter,
   type AppRouteHandle,
 } from './createAppRouter';
+import { resolveLegacyQueryRedirect } from './LegacyQueryRedirect';
 import { KeepAliveSlot, useKeepAliveVisited } from './KeepAliveOutlet';
 import { useWorkspaceBlocker } from './useWorkspaceBlocker';
 import type { WorkspaceRouteId } from './routeRegistry';
@@ -59,6 +60,8 @@ describe('createAppRouter semantic route handles', () => {
     ['/skills', 'skills', false, true],
     ['/skills/editorial-poster', 'skills', false, true],
     ['/models/veo-3', 'model-overview', false, true],
+    ['/models/fal:fal-ai/suno/v4', 'model-overview', false, true],
+    ['/model-hub/gemini-4', 'model-hub', false, true],
     ['/models/hub/gemini-4', 'model-hub', false, true],
     ['/assets', 'assets', true, true],
     ['/assets/asset-1', 'assets', true, true],
@@ -266,11 +269,11 @@ describe('useWorkspaceBlocker', () => {
     expect(currentSearch).toBe('?session=s2&project=p2');
 
     // User navigates to a same-project page before the older save flush settles.
-    await act(async () => { void nav('/?session=s2&project=p2&page=mcp#project/p2'); });
-    expect(currentSearch).toBe('?session=s2&project=p2&page=mcp');
+    await act(async () => { void nav('/mcp-setup?session=s2&project=p2&host=codex#project/p2'); });
+    expect(currentSearch).toBe('?session=s2&project=p2&host=codex');
 
     await act(async () => { resolveSave(); await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(currentSearch).toBe('?session=s2&project=p2&page=mcp');
+    expect(currentSearch).toBe('?session=s2&project=p2&host=codex');
     expect(onProceed).not.toHaveBeenCalled();
   });
 
@@ -371,13 +374,13 @@ describe('StudioRouterProvider StrictMode and location.state bridge', () => {
 
     const originHref = `${location.origin}/?page=explore`;
     await act(async () => {
-      writeWorkspaceHistory('/?page=mcp', false, {
+      writeWorkspaceHistory('/mcp-setup?host=codex', false, {
         page: { href: originHref, index: 0 },
         settings: null,
       });
     });
 
-    expect(observedHref).toBe('/?page=mcp');
+    expect(observedHref).toBe('/mcp-setup?host=codex');
     expect(workspaceHistoryIndex()).toBe(1);
     expect(observedSourceHref).toBe(originHref);
 
@@ -385,6 +388,61 @@ describe('StudioRouterProvider StrictMode and location.state bridge', () => {
       expect(restoreWorkspaceSource({ href: originHref, index: 0 })).toBe(true);
     });
     expect(observedHref).toBe('/?page=explore');
+    expect(workspaceHistoryIndex()).toBe(0);
+  });
+});
+
+describe('LegacyQueryRedirect', () => {
+  it('computes canonical semantic paths for migrated Phase 4a legacy query URLs while preserving orthogonal params and hashes', () => {
+    expect(resolveLegacyQueryRedirect('/', '?page=brand-kit&kit=mine&embed=1', '#project/p1')).toBe(
+      '/brand-kit/mine?embed=1#project/p1',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=brand-kit')).toBe('/brand-kit');
+    expect(resolveLegacyQueryRedirect('/', '?page=mcp&host=claude&setup=manual&embed=1', '#project/p1?t=12')).toBe(
+      '/mcp-setup?embed=1&host=claude&setup=manual#project/p1?t=12',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=mcp&templates=1&template=missing')).toBe(
+      '/mcp-setup?host=codex&templates=1&template=missing',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=model&model=fal%3Afal-ai%2Fsuno%2Fv4&community=product-films')).toBe(
+      '/models/fal%3Afal-ai%2Fsuno%2Fv4?community=product-films',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=model-hub&hub=gemini-4&embed=1')).toBe(
+      '/model-hub/gemini-4?embed=1',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=skills&skill=manim&skillCategory=Motion+techniques')).toBe(
+      '/skills/manim?category=Motion+techniques',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=skills')).toBe('/skills');
+
+    // Non-migrated or incomplete legacy URLs remain untouched in Phase 4a.
+    expect(resolveLegacyQueryRedirect('/', '?page=settings&section=mcp')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?page=cinema&scene=text-to-video')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?page=model')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?page=model-hub')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/mcp-setup', '?host=claude')).toBeNull();
+  });
+
+  it('replaces a legacy query URL in place on mount without growing the history stack', async () => {
+    let observed = '';
+    function Probe() {
+      const loc = useLocation();
+      observed = `${loc.pathname}${loc.search}${loc.hash}`;
+      return null;
+    }
+
+    await act(async () =>
+      root.render(
+        <StudioRouterProvider
+          memory
+          initialEntries={['/?page=brand-kit&kit=mine&embed=1&templates=1#project/p1']}
+        >
+          <Probe />
+        </StudioRouterProvider>,
+      ),
+    );
+
+    expect(observed).toBe('/brand-kit/mine?embed=1&templates=1#project/p1');
     expect(workspaceHistoryIndex()).toBe(0);
   });
 });

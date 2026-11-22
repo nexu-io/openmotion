@@ -38,7 +38,7 @@ const catalog = { activeId: first, projects: artifacts.map(item => ({ id: item.p
 const provider = { id: 'account', label: 'OpenDesign', protocol: 'account', category: 'account', kinds: ['text'], configured: false, enabled: false, available: false };
 const info = { name: 'OpenMotion', version: '1.2.3', previewUrl: 'http://localhost', dataDirectory: '/fixture', templateSource: 'repository', tools: [], transport: { type: 'stdio', command: 'node', args: ['/fixture/mcp.ts'], env: { MOTION_DATA_DIR: '/fixture' } } };
 let root: Root, container: HTMLDivElement, fetcher: ReturnType<typeof vi.fn>;
-const page = () => readWorkspacePage(location.search);
+const page = () => readWorkspacePage(location.search, location.hash, location.pathname);
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === label || node.textContent?.trim() === label)!;
 const click = async (label: string) => { expect(button(label), label).toBeTruthy(); await act(async () => button(label).click()); };
 async function accountAction(label: string) {
@@ -114,6 +114,23 @@ it('cold-loads whitelisted semantic SPA path URLs directly into the requested su
   history.replaceState(null, '', `/editor/${second}`);
   await mount(4);
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
+});
+
+it('redirects legacy Phase 4a query bookmarks to canonical semantic paths via replace while preserving orthogonal params', async () => {
+  const cases = [
+    ['/?page=brand-kit&kit=mine&embed=1#project/' + first, '/brand-kit/mine', 'embed=1'],
+    ['/?page=mcp&host=claude&setup=manual&embed=1#project/' + first, '/mcp-setup', 'host=claude'],
+    ['/?page=model-hub&hub=gemini-4&embed=1', '/model-hub/gemini-4', 'embed=1'],
+    ['/?page=skills&skillCategory=Motion+techniques&embed=1', '/skills', 'category=Motion+techniques'],
+  ] as const;
+  for (const [index, [legacyHref, expectedPath, expectedQueryPart]] of cases.entries()) {
+    history.replaceState(null, '', legacyHref);
+    const beforeLength = history.length;
+    await mount(index);
+    expect(location.pathname).toBe(expectedPath);
+    expect(location.search).toContain(expectedQueryPart);
+    expect(history.length).toBe(beforeLength);
+  }
 });
 
 it.each(settingsSections)('restores a copied %s page on a fresh mount', async section => {
@@ -920,7 +937,8 @@ it.each([
   await act(async () => segments[slides.findIndex(item => item.dataset.scene === slide)].click());
   feed.scrollTop = 56;
   await act(async () => carousel.querySelector<HTMLButtonElement>('.om-feature-slide:not([inert]) [data-slide-action="destination"]')!.click());
-  expect(new URL(location.href).searchParams.get('page')).toBe(destination);
+  if (destination === 'model-hub') expect(location.pathname).toBe('/model-hub/gemini-4');
+  else expect(new URL(location.href).searchParams.get('page')).toBe(destination);
   expect(breadcrumb()).toBeNull();
   const returnControl = container.querySelector<HTMLButtonElement>('.om-back-to-explore');
   expect(returnControl?.textContent).toBe('Back to Explore');
@@ -991,8 +1009,8 @@ it('opens the Gemini 4 hub from the third Explore slide and returns with browser
   expect(container.querySelector('.om-feature-slide:not([inert]) h2')?.textContent).toBe('Gemini 4 Neon');
   await click('Try Gemini 4 Neon now');
   expect(page()).toMatchObject({ explore: false, modelHub: 'gemini-4' });
-  expect(location.search).toContain('page=model-hub');
-  expect(location.search).toContain('hub=gemini-4');
+  expect(location.pathname).toBe('/model-hub/gemini-4');
+  expect(location.search).not.toContain('hub=gemini-4');
   expect(container.querySelector('.om-model-hub-hero h1')?.textContent).toBe('Gemini 4 Neon');
   const wall = () => [...container.querySelectorAll<HTMLButtonElement>('.om-hub-video .om-gallery-cover')];
   expect(wall()).toHaveLength(gemini4Videos.length);

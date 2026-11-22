@@ -1,11 +1,13 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Outlet,
   RouterProvider,
   createBrowserRouter,
   createMemoryRouter,
   type RouteObject,
 } from 'react-router';
 import { registerWorkspaceHistoryBridge, type WorkspaceLocationState } from '../utils/workspaceHistory';
+import { LegacyQueryRedirect } from './LegacyQueryRedirect';
 import { getRouteDefinition, type WorkspaceRouteId } from './routeRegistry';
 
 export type AppRouteHandle = {
@@ -42,7 +44,7 @@ export function createAppRouteObjects(shellElement: ReactNode): RouteObject[] {
       path: '/',
       element: shellElement,
       children: [
-        { index: true, handle: handleFor('explore'), element: null },
+        { index: true, handle: handleFor('explore'), element: <LegacyQueryRedirect /> },
         leaf('explore', 'explore'),
         leaf('explore/:community', 'explore'),
         leaf('create/:scene', 'studio'),
@@ -59,8 +61,11 @@ export function createAppRouteObjects(shellElement: ReactNode): RouteObject[] {
         leaf('game', 'game'),
         leaf('skills', 'skills'),
         leaf('skills/:id', 'skills'),
+        leaf('model-hub', 'model-hub'),
+        leaf('model-hub/:id', 'model-hub'),
         leaf('models/hub/:id', 'model-hub'),
         leaf('models/:id', 'model-overview'),
+        leaf('models/*', 'model-overview'),
         leaf('assets', 'assets'),
         leaf('assets/:id', 'assets'),
         leaf('brand-kit', 'brand-kit'),
@@ -93,7 +98,13 @@ export function createAppRouter(shellElement: ReactNode, options?: AppRouterOpti
 const ShellSlotContext = createContext<ReactNode>(null);
 
 function ShellSlot() {
-  return useContext(ShellSlotContext);
+  const children = useContext(ShellSlotContext);
+  return (
+    <>
+      {children}
+      <Outlet />
+    </>
+  );
 }
 
 /**

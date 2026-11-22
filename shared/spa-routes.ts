@@ -38,6 +38,7 @@ export const SPA_ROUTE_PREFIXES = [
   '/game',
   '/skills',
   '/models',
+  '/model-hub',
   '/assets',
   '/brand-kit',
   '/settings',
@@ -172,8 +173,12 @@ export function spaPathnameToSearch(pathname: string, search = ''): string {
           if (!query.has('hub')) query.set('hub', third);
         } else if (second) {
           query.set('page', 'model');
-          if (!query.has('model')) query.set('model', second);
+          if (!query.has('model')) query.set('model', parts.slice(1).join('/'));
         }
+        break;
+      case 'model-hub':
+        query.set('page', 'model-hub');
+        if (second && !query.has('hub')) query.set('hub', second);
         break;
       case 'assets':
         query.set('page', 'assets');

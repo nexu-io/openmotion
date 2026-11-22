@@ -1,0 +1,61 @@
+import { Navigate, useLocation } from 'react-router';
+import { workspacePageHref } from '../motion/workspacePageRouting';
+
+/**
+ * Legacy `/?page=...` pages migrated to canonical semantic paths.
+ * Expanded incrementally across Phase 4a -> 4b -> 4c so outbound links and
+ * inbound `/` redirects stay in lockstep with zero double-navigation.
+ */
+const MIGRATED_LEGACY_QUERY_PAGES = new Set([
+  'brand-kit',
+  'mcp',
+  'model',
+  'model-hub',
+  'skills',
+]);
+
+/**
+ * Resolve a legacy root-path query URL (`/?page=...`) to its canonical
+ * semantic path URL, preserving orthogonal query parameters (`embed`,
+ * `hostChrome`, `templates`, `template`, `project`, `session`,
+ * `tracking_context`, etc.) and the `#project/...` hash.
+ *
+ * Returns `null` when the URL is already canonical or not yet migrated.
+ */
+export function resolveLegacyQueryRedirect(
+  pathname: string,
+  search: string,
+  hash = '',
+): string | null {
+  const normalizedPath = pathname || '/';
+  if (normalizedPath !== '/') return null;
+
+  const query = new URLSearchParams(search);
+  const rawPage = query.get('page');
+  if (!rawPage || !MIGRATED_LEGACY_QUERY_PAGES.has(rawPage)) return null;
+  if (rawPage === 'model' && !query.get('model')) return null;
+  if (rawPage === 'model-hub' && !query.get('hub')) return null;
+
+  const origin = 'http://workspace.local';
+  const current = `${normalizedPath}${search}${hash}`;
+  const canonical = workspacePageHref(`${origin}${current}`, {});
+  const parsedCanonical = new URL(canonical, origin);
+  if (parsedCanonical.pathname === '/' || canonical === current) return null;
+  return canonical;
+}
+
+/**
+ * Mounted on the root `/` index route to transparently `replace` legacy
+ * query-driven bookmarks onto their canonical semantic path URLs without
+ * adding an extra browser history entry or losing `location.state`.
+ */
+export function LegacyQueryRedirect() {
+  const routerLocation = useLocation();
+  const target = resolveLegacyQueryRedirect(
+    routerLocation.pathname,
+    routerLocation.search,
+    routerLocation.hash,
+  );
+  if (!target) return null;
+  return <Navigate to={target} replace state={routerLocation.state} />;
+}
