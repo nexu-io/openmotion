@@ -11,6 +11,7 @@ import { MotionApp } from './MotionApp';
 import { I18nProvider } from '../i18n/I18n';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 import { readWorkspacePage, settingsSections } from './workspacePageRouting';
+import { editorProjectIdFromPath } from '../../../shared/spa-routes';
 import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
 
@@ -116,7 +117,7 @@ it('cold-loads whitelisted semantic SPA path URLs directly into the requested su
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
 });
 
-it('redirects legacy Phase 4a and 4b query bookmarks to canonical semantic paths via replace while preserving orthogonal params', async () => {
+it('redirects legacy Phase 4a, 4b, and 4c query bookmarks to canonical semantic paths via replace while preserving orthogonal params', async () => {
   const cases = [
     ['/?page=brand-kit&kit=mine&embed=1#project/' + first, '/brand-kit/mine', 'embed=1'],
     ['/?page=mcp&host=claude&setup=manual&embed=1#project/' + first, '/mcp-setup', 'host=claude'],
@@ -130,6 +131,11 @@ it('redirects legacy Phase 4a and 4b query bookmarks to canonical semantic paths
     ['/?page=sound&home=1&embed=1', '/sound', 'embed=1'],
     ['/?page=audio&scene=sfx&embed=1', '/audio/sfx', 'embed=1'],
     ['/?page=3d&skill=three-js&embed=1', '/studios/3d', 'skill=three-js'],
+    ['/?page=explore&community=product-films&embed=1', '/explore', 'community=product-films'],
+    ['/?page=motion&embed=1', '/motion', 'embed=1'],
+    ['/?page=settings&section=providers&entry_from=agent_providers&embed=1', '/settings/providers', 'entry_from=agent_providers'],
+    ['/?page=settings&section=mcp&host=claude&embed=1', '/settings/mcp', 'host=claude'],
+    [`/?project=${first}&session=${first}&embed=1#project/${first}`, `/editor/${first}`, 'embed=1'],
   ] as const;
   for (const [index, [legacyHref, expectedPath, expectedQueryPart]] of cases.entries()) {
     history.replaceState(null, '', legacyHref);
@@ -204,7 +210,7 @@ it('keeps one history entry per page and returns to the resolved editor after a 
   const initialLength = history.length;
   await mount();
   const home = location.href;
-  expect(new URL(home).searchParams.get('project')).toBe(first);
+  expect(editorProjectIdFromPath(new URL(home).pathname)).toBe(first);
   expect(history.length).toBe(initialLength);
 
   await openMcp();
@@ -334,8 +340,7 @@ it.each(['motion', 'marketing'])('opens a card over %s while the full catalogue 
   });
   expect(page().template).toBeNull();
   expect(document.activeElement).toBe(card);
-  if (studio === 'marketing') expect(location.pathname).toBe('/studios/marketing');
-  else expect(new URLSearchParams(location.search).get('page')).toBe(studio);
+  expect(location.pathname).toBe(studio === 'marketing' ? '/studios/marketing' : '/motion');
   expect(location.hash).toContain('t=12');
 });
 
@@ -356,7 +361,8 @@ it('keeps loading, retry and missing-link recovery inside a standalone preview',
   await act(async () => finish(Response.json({ items: [], next: null })));
   expect(detail.querySelector('[role=alert]')?.textContent).toBe('This template is no longer available.');
   await click('Close template preview');
-  expect(location.search).toBe('?page=motion');
+  expect(location.pathname).toBe('/motion');
+  expect(location.search).toBe('');
   expect(container.querySelector('[data-motion-template-library]')).toBeNull();
 });
 
@@ -406,7 +412,7 @@ it('restores a rejected project history entry without losing the later Forward d
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
   editor.fail = true;
   await traverse(-1); await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
-  expect(new URLSearchParams(location.search).get('project')).toBe(second);
+  expect(editorProjectIdFromPath(location.pathname)).toBe(second);
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
   expect(document.querySelector('[data-feedback-layer] [role=alert]')).not.toBeNull();
   editor.fail = false;
@@ -435,14 +441,14 @@ it('ignores an older pending history navigation after the user returns to the cu
   let finish!: () => void;
   editor.wait = () => new Promise(resolve => { finish = resolve; });
   await traverse(-1);
-  expect(new URLSearchParams(location.search).get('project')).toBe(second);
+  expect(editorProjectIdFromPath(location.pathname)).toBe(second);
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
   // While the blocked Back save flush is pending, navigating to another page on the
   // current project and returning supersedes the older pending navigation.
   await traverse(1);
   await traverse(-1);
   await act(async () => finish());
-  expect(new URLSearchParams(location.search).get('project')).toBe(second);
+  expect(editorProjectIdFromPath(location.pathname)).toBe(second);
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
 });
 
@@ -948,7 +954,7 @@ it.each([
   await act(async () => carousel.querySelector<HTMLButtonElement>('.om-feature-slide:not([inert]) [data-slide-action="destination"]')!.click());
   if (destination === 'model-hub') expect(location.pathname).toBe('/model-hub/gemini-4');
   else if (destination === 'create') expect(location.pathname).toBe('/create/text-to-image');
-  else expect(new URL(location.href).searchParams.get('page')).toBe(destination);
+  else expect(location.pathname).toBe('/explore');
   expect(breadcrumb()).toBeNull();
   const returnControl = container.querySelector<HTMLButtonElement>('.om-back-to-explore');
   expect(returnControl?.textContent).toBe('Back to Explore');
@@ -1617,7 +1623,7 @@ it('keeps the settings sidebar mounted across MCP, agent and provider sections',
   expect(breadcrumb()).toBeNull();
   await click('Claude Code'); await click('Manual setup');
   const setupUrl = location.href;
-  expect(new URL(setupUrl).searchParams.get('page')).toBe('settings');
+  expect(new URL(setupUrl).pathname).toBe('/settings/mcp');
   const providers = [...sidebar!.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Model providers')!;
   await act(async () => providers.click());
   expect(page().settings).toBe('providers');

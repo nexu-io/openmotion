@@ -68,7 +68,8 @@ it.each([false, true])('prepares only existing projects while browsing, and crea
     expect(posts()[2][0]).toBe(`/motion-api/projects/${preparedId}/open${existing ? `?projectId=${id}` : ''}`);
     expect(JSON.parse(String(posts()[2][1]!.body))).toEqual({ expectedRevision: existing ? 'original-revision' : 'new-revision', expectedProjectId: existing ? id : preparedId });
     expect(assign).not.toHaveBeenCalled();
-    expect(location.search).toContain(`project=${preparedId}`);
+    expect(location.pathname).toBe(`/editor/${preparedId}`);
+    expect(location.hash).toBe(`#project/${preparedId}`);
     expect(location.search).not.toContain('templates=1');
     expect(container.querySelector('dialog[aria-label="Template library"]')).toBeNull();
   } finally {

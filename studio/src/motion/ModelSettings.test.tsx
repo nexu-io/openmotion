@@ -27,7 +27,7 @@ async function mount(providerId?: string | null) {
 function handoff(entry: ProviderSetupEntry) {
   const url = new URL(providerSettingsPreview(location.origin, { entry }).previewUrl);
   history.replaceState(null, '', url);
-  return readWorkspacePage(url.search).provider;
+  return readWorkspacePage(url.search, url.hash, url.pathname).provider;
 }
 // The OpenDesign provider also reads the account summary for its guides; count only directory loads.
 const directoryCalls = (fetcher: ReturnType<typeof vi.fn>) => fetcher.mock.calls.filter(([url]) => String(url).endsWith('/settings/providers')).length;

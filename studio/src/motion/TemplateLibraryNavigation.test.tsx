@@ -153,7 +153,7 @@ it('keeps the editor write guard active while the template library is open', asy
 
 it.each([false, true])('keeps the original editor mounted when its library closes (embedded=%s)', async embedded => {
   const { projectId, sessionId, fetcher } = workspace(true);
-  const url = `/?session=${sessionId}&project=${projectId}${embedded ? '&embed=1' : ''}#project/${projectId}`;
+  const url = `/editor/${projectId}?session=${sessionId}${embedded ? '&embed=1' : ''}#project/${projectId}`;
   history.replaceState(null, '', url);
   const assign = vi.spyOn(location, 'assign').mockImplementation(() => {});
   const replace = vi.spyOn(location, 'replace').mockImplementation(() => {});
@@ -174,7 +174,7 @@ it.each([false, true])('keeps the original editor mounted when its library close
       expect(container.querySelector('input[aria-label="Editor draft"]')).toBe(draft);
       expect(draft.value).toBe('Keep my unsaved edit');
       expect(document.activeElement).toBe(trigger);
-      expect(location.search + location.hash).toBe(url.slice(1));
+      expect(location.pathname + location.search + location.hash).toBe(url);
     }
     expect(editor).toEqual({ mounts: 1, unmounts: 0 });
     expect(assign).not.toHaveBeenCalled(); expect(replace).not.toHaveBeenCalled();

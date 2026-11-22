@@ -88,7 +88,7 @@ export function useWorkspace(
         return;
       }
       const previous = new URL(previousUrl), next = new URL(target);
-      const sameProject = requestedProject(next.search, next.hash) === requestedProject(previous.search, previous.hash)
+      const sameProject = requestedProject(next.search, next.hash, next.pathname) === requestedProject(previous.search, previous.hash, previous.pathname)
         && next.searchParams.get('session') === previous.searchParams.get('session');
       try {
         if (acting.current) throw new Error(t('Switching projects. Please try again shortly.'));

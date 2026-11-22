@@ -133,7 +133,7 @@ describe('KeepAliveSlot and useKeepAliveVisited', () => {
 
     await act(async () =>
       root.render(
-        <StudioRouterProvider memory initialEntries={['/?project=first#project/first']}>
+        <StudioRouterProvider memory initialEntries={['/editor/first#project/first']}>
           <Harness />
         </StudioRouterProvider>,
       ),
@@ -180,12 +180,12 @@ describe('useWorkspaceBlocker', () => {
     const onError = vi.fn();
     const onProceed = vi.fn();
     let nav!: ReturnType<typeof useNavigate>;
-    let currentSearch = '';
+    let currentHref = '';
 
     function GuardHarness() {
       const loc = useLocation();
       nav = useNavigate();
-      currentSearch = loc.search;
+      currentHref = `${loc.pathname}${loc.search}`;
       const actingRef = useRef(false);
       useWorkspaceBlocker({
         enabled: true,
@@ -196,28 +196,28 @@ describe('useWorkspaceBlocker', () => {
         onBlockedError: onError,
         onProjectChangeProceed: onProceed,
       });
-      return <div data-search={loc.search} />;
+      return <div data-href={currentHref} />;
     }
 
     await act(async () =>
       root.render(
-        <StudioRouterProvider memory initialEntries={['/?session=s1&project=p1#project/p1']}>
+        <StudioRouterProvider memory initialEntries={['/editor/p1?session=s1#project/p1']}>
           <GuardHarness />
         </StudioRouterProvider>,
       ),
     );
 
     await act(async () => {
-      void nav('/?session=s2&project=p2#project/p2');
+      void nav('/editor/p2?session=s2#project/p2');
     });
-    expect(currentSearch).toBe('?session=s2&project=p2');
+    expect(currentHref).toBe('/editor/p2?session=s2');
 
     // Attempt Back while save rejects — must stay on p2 and surface error.
     await act(async () => {
       void nav(-1);
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    expect(currentSearch).toBe('?session=s2&project=p2');
+    expect(currentHref).toBe('/editor/p2?session=s2');
     expect(onError).toHaveBeenCalledWith('Unsaved edit');
     expect(onProceed).not.toHaveBeenCalled();
 
@@ -227,7 +227,7 @@ describe('useWorkspaceBlocker', () => {
       void nav(-1);
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    expect(currentSearch).toBe('?session=s1&project=p1');
+    expect(currentHref).toBe('/editor/p1?session=s1');
     expect(onError).toHaveBeenLastCalledWith(null);
     expect(onProceed).toHaveBeenCalledTimes(1);
 
@@ -236,19 +236,19 @@ describe('useWorkspaceBlocker', () => {
       void nav(1);
       await new Promise(resolve => setTimeout(resolve, 0));
     });
-    expect(currentSearch).toBe('?session=s2&project=p2');
+    expect(currentHref).toBe('/editor/p2?session=s2');
   });
 
   it('cancels an older pending blocked POP when another navigation commits first', async () => {
     let resolveSave!: () => void;
     const onProceed = vi.fn();
     let nav!: ReturnType<typeof useNavigate>;
-    let currentSearch = '';
+    let currentHref = '';
 
     function PendingGuardHarness() {
       const loc = useLocation();
       nav = useNavigate();
-      currentSearch = loc.search;
+      currentHref = `${loc.pathname}${loc.search}`;
       const actingRef = useRef(false);
       useWorkspaceBlocker({
         enabled: true,
@@ -262,23 +262,23 @@ describe('useWorkspaceBlocker', () => {
 
     await act(async () =>
       root.render(
-        <StudioRouterProvider memory initialEntries={['/?session=s1&project=p1#project/p1']}>
+        <StudioRouterProvider memory initialEntries={['/editor/p1?session=s1#project/p1']}>
           <PendingGuardHarness />
         </StudioRouterProvider>,
       ),
     );
 
-    await act(async () => { void nav('/?session=s2&project=p2#project/p2'); });
+    await act(async () => { void nav('/editor/p2?session=s2#project/p2'); });
     await act(async () => { void nav(-1); await new Promise(resolve => setTimeout(resolve, 0)); });
     // Blocked Back keeps the active URL on p2 while saves flush.
-    expect(currentSearch).toBe('?session=s2&project=p2');
+    expect(currentHref).toBe('/editor/p2?session=s2');
 
     // User navigates to a same-project page before the older save flush settles.
-    await act(async () => { void nav('/mcp-setup?session=s2&project=p2&host=codex#project/p2'); });
-    expect(currentSearch).toBe('?session=s2&project=p2&host=codex');
+    await act(async () => { void nav('/mcp-setup?session=s2&host=codex#project/p2'); });
+    expect(currentHref).toBe('/mcp-setup?session=s2&host=codex');
 
     await act(async () => { resolveSave(); await new Promise(resolve => setTimeout(resolve, 0)); });
-    expect(currentSearch).toBe('?session=s2&project=p2&host=codex');
+    expect(currentHref).toBe('/mcp-setup?session=s2&host=codex');
     expect(onProceed).not.toHaveBeenCalled();
   });
 
@@ -307,7 +307,7 @@ describe('useWorkspaceBlocker', () => {
       await act(async () =>
         root.render(
           <I18nProvider key={locale} initialLocale={locale}>
-            <StudioRouterProvider memory initialEntries={['/?session=s1&project=p1#project/p1', '/?session=s2&project=p2#project/p2']}>
+            <StudioRouterProvider memory initialEntries={['/editor/p1?session=s1#project/p1', '/editor/p2?session=s2#project/p2']}>
               <ActingGuardHarness />
             </StudioRouterProvider>
           </I18nProvider>,
@@ -367,17 +367,17 @@ describe('StudioRouterProvider StrictMode and location.state bridge', () => {
     await act(async () =>
       root.render(
         <StrictMode>
-          <StudioRouterProvider memory initialEntries={['/?page=explore']}>
+          <StudioRouterProvider memory initialEntries={['/explore']}>
             <BridgeProbe />
           </StudioRouterProvider>
         </StrictMode>,
       ),
     );
 
-    expect(observedHref).toBe('/?page=explore');
+    expect(observedHref).toBe('/explore');
     expect(workspaceHistoryIndex()).toBe(0);
 
-    const originHref = `${location.origin}/?page=explore`;
+    const originHref = `${location.origin}/explore`;
     await act(async () => {
       writeWorkspaceHistory('/mcp-setup?host=codex', false, {
         page: { href: originHref, index: 0 },
@@ -392,13 +392,13 @@ describe('StudioRouterProvider StrictMode and location.state bridge', () => {
     await act(async () => {
       expect(restoreWorkspaceSource({ href: originHref, index: 0 })).toBe(true);
     });
-    expect(observedHref).toBe('/?page=explore');
+    expect(observedHref).toBe('/explore');
     expect(workspaceHistoryIndex()).toBe(0);
   });
 });
 
 describe('LegacyQueryRedirect', () => {
-  it('computes canonical semantic paths for migrated Phase 4a and 4b legacy query URLs while preserving orthogonal params and hashes', () => {
+  it('computes canonical semantic paths for migrated Phase 4a, 4b, and 4c legacy query URLs while preserving orthogonal params and hashes', () => {
     expect(resolveLegacyQueryRedirect('/', '?page=brand-kit&kit=mine&embed=1', '#project/p1')).toBe(
       '/brand-kit/mine?embed=1#project/p1',
     );
@@ -465,13 +465,38 @@ describe('LegacyQueryRedirect', () => {
     expect(resolveLegacyQueryRedirect('/', '?page=game&game=done')).toBe('/studios/game?game=done');
     expect(resolveLegacyQueryRedirect('/', '?page=shorts')).toBe('/studios/shorts');
 
-    // Non-migrated (Phase 4c) or incomplete legacy URLs remain untouched in Phase 4b.
-    expect(resolveLegacyQueryRedirect('/', '?page=explore')).toBeNull();
-    expect(resolveLegacyQueryRedirect('/', '?page=motion')).toBeNull();
-    expect(resolveLegacyQueryRedirect('/', '?page=settings&section=mcp')).toBeNull();
+    // Phase 4c — core surfaces and legacy root/editor entrypoints
+    expect(resolveLegacyQueryRedirect('/', '')).toBe('/explore');
+    expect(resolveLegacyQueryRedirect('/', '?embed=1')).toBe('/explore?embed=1');
+    expect(resolveLegacyQueryRedirect('/', '?page=explore&community=product-films&medium=image')).toBe(
+      '/explore?community=product-films&medium=image',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=motion&template=missing')).toBe('/motion?template=missing');
+    expect(
+      resolveLegacyQueryRedirect(
+        '/',
+        '?page=settings&section=providers&provider=account&entry_from=agent_media_upgrade_go&embed=1',
+      ),
+    ).toBe('/settings/providers?entry_from=agent_media_upgrade_go&embed=1&provider=account');
+    expect(resolveLegacyQueryRedirect('/', '?page=settings&section=mcp&host=claude&setup=manual')).toBe(
+      '/settings/mcp?host=claude&setup=manual',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=settings')).toBe('/settings/general');
+    expect(resolveLegacyQueryRedirect('/', '?page=editor')).toBe('/editor');
+    expect(
+      resolveLegacyQueryRedirect('/', '?project=p1&session=s1&embed=1', '#project/p1?v=1&t=12'),
+    ).toBe('/editor/p1?session=s1&embed=1#project/p1?v=1&t=12');
+    expect(resolveLegacyQueryRedirect('/', '', '#project/p1?t=12')).toBe('/editor/p1#project/p1?t=12');
+    expect(resolveLegacyQueryRedirect('/', '?session=s1')).toBe('/editor?session=s1');
+    expect(resolveLegacyQueryRedirect('/', '?page=api&tool=openmotion_media_use')).toBe('/explore');
+
+    // Root template/hostChrome embeds and incomplete/unknown legacy URLs remain untouched.
+    expect(resolveLegacyQueryRedirect('/', '?templates=1&embed=1')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?hostChrome=1&templates=1')).toBeNull();
     expect(resolveLegacyQueryRedirect('/', '?page=create&scene=missing')).toBeNull();
     expect(resolveLegacyQueryRedirect('/', '?page=model')).toBeNull();
     expect(resolveLegacyQueryRedirect('/', '?page=model-hub')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?page=unknown')).toBeNull();
     expect(resolveLegacyQueryRedirect('/mcp-setup', '?host=claude')).toBeNull();
   });
 

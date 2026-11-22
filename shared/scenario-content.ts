@@ -932,9 +932,10 @@ export function runReadme(
       links.push(`Design editor: ${origin ? origin + editorPath : editorPath}`);
     }
     if (st?.links.motionProjectId) {
+      const encoded = encodeURIComponent(st.links.motionProjectId);
       const editorPath = st.links.motionSessionId
-        ? `/?session=${encodeURIComponent(st.links.motionSessionId)}&project=${encodeURIComponent(st.links.motionProjectId)}#project/${encodeURIComponent(st.links.motionProjectId)}`
-        : `/#project/${encodeURIComponent(st.links.motionProjectId)}`;
+        ? `/editor/${encoded}?session=${encodeURIComponent(st.links.motionSessionId)}#project/${encoded}`
+        : `/editor/${encoded}#project/${encoded}`;
       links.push(`Motion editor: ${origin ? origin + editorPath : editorPath}`);
     }
     return `- **${step.title}** (\`${step.id}\`, ${st?.status ?? 'todo'})${links.length ? ` — ${links.join(' · ')}` : ''}`;

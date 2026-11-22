@@ -36,6 +36,7 @@ import { getTemplate } from './template-catalog.ts';
 import { execute, inspectProject, pluginRoot } from './hyperframes.ts';
 import { verificationBinaries } from './scripts/verify-export.ts';
 import { validateInstruction } from './shared/conversation.ts';
+import { editorProjectIdFromPath } from './shared/spa-routes.ts';
 import { sessionPath, templateLibraryPreview, providerSettingsPreview } from './shared/workspace-url.ts';
 import { phase1Tools, validateInput } from './shared/phase1-tools.ts';
 import { atomicJson, cloneFile, fileHash, jsonFile, ProjectVersions, recoverProjectTransactions } from './phase1-versions.ts';
@@ -330,7 +331,11 @@ export class Phase1Service {
     const target = new URL(this.context.origin() + sessionPath(detail.sessionId, detail.projectId, { embedded: true }));
     let observed: URL;
     try { observed = new URL(display.previewUrl); } catch { throw new Error('PREVIEW_TARGET_MISMATCH'); }
-    if (observed.origin !== target.origin || observed.pathname !== target.pathname || observed.searchParams.get('project') !== detail.projectId ||
+    const queryProject = observed.searchParams.get('project');
+    const observedProject = editorProjectIdFromPath(observed.pathname) ?? queryProject;
+    const validPath = observed.pathname === target.pathname || (observed.pathname === '/' && queryProject === detail.projectId);
+    if (observed.origin !== target.origin || !validPath || observedProject !== detail.projectId ||
+        (queryProject !== null && queryProject !== detail.projectId) ||
         observed.searchParams.get('session') !== detail.sessionId || observed.username || observed.password ||
         observed.hash.split('?')[0] !== target.hash) throw new Error('PREVIEW_TARGET_MISMATCH');
     const record = { ...display, projectId: detail.projectId, source: 'host_reported', requestId: args.requestId, recordedAt: Date.now() };

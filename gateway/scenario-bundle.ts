@@ -225,7 +225,8 @@ export async function buildScenarioBundle(
       fileSlug: string,
       onPath?: (rel: string) => void,
     ): Promise<string> => {
-      const editorPath = sessionId ? sessionPath(sessionId, projectId) : `/#project/${encodeURIComponent(projectId)}`;
+      const encodedProjectId = encodeURIComponent(projectId);
+      const editorPath = sessionId ? sessionPath(sessionId, projectId) : `/editor/${encodedProjectId}#project/${encodedProjectId}`;
       const origin = host.origin().replace(/\/+$/, '');
       const metaRel = addEntry(
         `motion/${fileSlug}.json`,

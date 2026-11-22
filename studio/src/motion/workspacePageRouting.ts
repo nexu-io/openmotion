@@ -2,8 +2,9 @@ import { findTemplateCollection, type TemplateCollection } from './templateColle
 import { skillCategories, type SkillCategory } from './skillCategories';
 import { blackFridaySkillIds } from '../../../shared/black-friday-collection';
 import { isDesignScenario, type DesignScenarioId } from '../../../shared/design-project';
-import { isSpaRoutePath, spaPathnameToSearch } from '../../../shared/spa-routes';
+import { editorProjectIdFromPath, isSpaRoutePath, spaPathnameToSearch } from '../../../shared/spa-routes';
 import { workspacePageName } from '../../../shared/workspace-url';
+import { isValidProjectId, parseProjectIdFromHash } from '../utils/projectRouting';
 import { mcpClients, type McpClient } from './mcpClients';
 import { exploreCommunities, findLandingScene, findMediaStudio, findTechniqueStudio, type ExploreCommunity, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
 import { findCinemaTemplate } from './cinemaTemplates';
@@ -94,10 +95,14 @@ export function readWorkspacePage(search: string, hash = '', pathname = ''): Wor
 
 export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): string {
   const url = new URL(href), current = readWorkspacePage(url.search, url.hash, url.pathname), page = { ...current, ...patch };
+  const originalPathname = url.pathname;
+  const pathProject = editorProjectIdFromPath(originalPathname);
+  const rawRetainedProject = pathProject ?? url.searchParams.get('project') ?? parseProjectIdFromHash(url.hash);
+  const retainedProject = rawRetainedProject && isValidProjectId(rawRetainedProject) ? rawRetainedProject : null;
   const currentSearchPage = new URLSearchParams(
-    url.pathname !== '/' && isSpaRoutePath(url.pathname) ? spaPathnameToSearch(url.pathname, url.search) : url.search,
+    originalPathname !== '/' && isSpaRoutePath(originalPathname) ? spaPathnameToSearch(originalPathname, url.search) : url.search,
   ).get('page');
-  if (url.pathname !== '/' && isSpaRoutePath(url.pathname)) url.pathname = '/';
+  if (originalPathname !== '/' && isSpaRoutePath(originalPathname)) url.pathname = '/';
   for (const key of ['page', 'home', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject', 'cinemaTemplate', 'scenario', 'run', 'step', 'mode', 'category']) url.searchParams.delete(key);
   if (current.settings === 'mcp' || page.settings === 'mcp') url.searchParams.delete('example');
   if (currentSearchPage === 'api') url.searchParams.delete('tool');
@@ -137,9 +142,9 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   const inSettings = Boolean(page.settings) && page.settings !== 'brand-kit' && (page.settings !== 'mcp' || page.mcpInSettings);
   if (!inSettings) url.searchParams.delete('entry_from');
   if (page.explore) {
-    url.searchParams.set('page', 'explore');
+    url.pathname = '/explore';
   } else if (page.motion) {
-    url.searchParams.set('page', 'motion');
+    url.pathname = '/motion';
   } else if (page.cinemaLanding) {
     url.pathname = '/cinema';
   } else if (page.designScene) {
@@ -198,21 +203,23 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   } else if (page.settings === 'brand-kit') {
     url.pathname = page.brandKit ? `/brand-kit/${encodeURIComponent(page.brandKit)}` : '/brand-kit';
   } else if (page.settings === 'mcp') {
-    if (page.mcpInSettings) {
-      url.searchParams.set('page', 'settings');
-      url.searchParams.set('section', 'mcp');
-    } else {
-      url.pathname = '/mcp-setup';
-    }
+    url.pathname = page.mcpInSettings ? '/settings/mcp' : '/mcp-setup';
     url.searchParams.set('host', page.client);
     if (page.mcpExample) url.searchParams.set('example', page.mcpExample);
     if (page.setup === 'manual') url.searchParams.set('setup', 'manual');
   } else if (page.settings) {
-    url.searchParams.set('page', 'settings');
-    url.searchParams.set('section', page.settings);
+    url.pathname = `/settings/${encodeURIComponent(page.settings)}`;
     if (page.settings === 'providers' && page.provider) url.searchParams.set('provider', page.provider);
-  } else if (!page.templates && workspacePageName(url.searchParams, url.hash) === 'explore') {
-    url.searchParams.set('page', 'editor');
+  } else if (retainedProject) {
+    const encodedProject = encodeURIComponent(retainedProject);
+    url.pathname = `/editor/${encodedProject}`;
+    url.searchParams.delete('project');
+    if (!url.hash.startsWith('#project/')) url.hash = `project/${encodedProject}`;
+  } else if (!page.templates) {
+    url.pathname = '/editor';
+  }
+  if (pathProject && isValidProjectId(pathProject) && !url.pathname.startsWith('/editor') && !url.searchParams.has('project') && !parseProjectIdFromHash(url.hash)) {
+    url.searchParams.set('project', pathProject);
   }
   if (page.explore || page.motion || page.cinemaLanding || page.modelOverview || page.modelHub || page.specialty || page.scenarioHub || page.scenario || page.studio || page.skills) {
     if (page.community) url.searchParams.set('community', page.community);

@@ -1,10 +1,11 @@
 import { Navigate, useLocation } from 'react-router';
+import { findLandingScene } from '../../../shared/studio-catalog';
 import { workspacePageHref } from '../motion/workspacePageRouting';
 
 /**
- * Legacy `/?page=...` pages migrated to canonical semantic paths.
- * Expanded incrementally across Phase 4a -> 4b -> 4c so outbound links and
- * inbound `/` redirects stay in lockstep with zero double-navigation.
+ * Legacy `/?page=...` pages migrated to canonical semantic paths across
+ * Phase 4a -> 4b -> 4c so outbound links and inbound `/` redirects stay
+ * in lockstep with zero double-navigation.
  */
 const MIGRATED_LEGACY_QUERY_PAGES = new Set([
   // Phase 4a — low-coupling standalone surfaces
@@ -27,15 +28,22 @@ const MIGRATED_LEGACY_QUERY_PAGES = new Set([
   'explainer',
   '3d',
   'game',
+  // Phase 4c — core surfaces
+  'explore',
+  'motion',
+  'settings',
+  'editor',
+  'api',
 ]);
 
 /**
- * Resolve a legacy root-path query URL (`/?page=...`) to its canonical
- * semantic path URL, preserving orthogonal query parameters (`embed`,
- * `hostChrome`, `templates`, `template`, `project`, `session`,
- * `tracking_context`, etc.) and the `#project/...` hash.
+ * Resolve a legacy root-path URL (`/?page=...`, bare `/`, or
+ * `/?project=...#project/...`) to its canonical semantic path URL, preserving
+ * orthogonal query parameters (`embed`, `hostChrome`, `templates`, `template`,
+ * `project`, `session`, `tracking_context`, etc.) and the `#project/...` hash.
  *
- * Returns `null` when the URL is already canonical or not yet migrated.
+ * Returns `null` when the URL is already canonical, incomplete, or a root
+ * template/hostChrome overlay embed.
  */
 export function resolveLegacyQueryRedirect(
   pathname: string,
@@ -47,9 +55,14 @@ export function resolveLegacyQueryRedirect(
 
   const query = new URLSearchParams(search);
   const rawPage = query.get('page');
-  if (!rawPage || !MIGRATED_LEGACY_QUERY_PAGES.has(rawPage)) return null;
-  if (rawPage === 'model' && !query.get('model')) return null;
-  if (rawPage === 'model-hub' && !query.get('hub')) return null;
+  if (rawPage !== null) {
+    if (!MIGRATED_LEGACY_QUERY_PAGES.has(rawPage)) return null;
+    if (rawPage === 'model' && !query.get('model')) return null;
+    if (rawPage === 'model-hub' && !query.get('hub')) return null;
+    if (rawPage === 'create' && !findLandingScene(query.get('scene'))) return null;
+  } else if (query.get('templates') === '1' || query.get('hostChrome') === '1') {
+    return null;
+  }
 
   const origin = 'http://workspace.local';
   const current = `${normalizedPath}${search}${hash}`;

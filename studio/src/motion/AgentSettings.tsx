@@ -3,6 +3,7 @@ import { Button } from 'open-design-ui/button';
 import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
 import { useEffect, useState } from 'react';
+import { editorProjectIdFromPath } from '../../../shared/spa-routes';
 import type { AgentChoice, AgentLaunch, LocalAgent } from '../../../shared/local-agents';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -17,6 +18,8 @@ import { notifyAgentsChanged, openAgentSettings, useLocalAgents } from './useLoc
 const authLabel = { 'signed-in': 'Signed in', 'signed-out': 'Sign-in required', unknown: 'Sign-in managed by Agent' };
 const agentIcon = (agent: LocalAgent) => ({ id: agent.icon, custom: false });
 const projectScope = () => {
+  const pathId = editorProjectIdFromPath(location.pathname);
+  if (pathId) return `?projectId=${encodeURIComponent(pathId)}`;
   const query = new URLSearchParams(location.search).get('project');
   if (query) return `?projectId=${encodeURIComponent(query)}`;
   try { const id = location.hash.match(/^#project\/([^?]+)/)?.[1]; return id ? `?projectId=${encodeURIComponent(decodeURIComponent(id))}` : ''; }

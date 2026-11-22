@@ -6,11 +6,11 @@ import { expect, it } from 'vitest';
 import { isLegacyWorkspaceHref, readWorkspacePage, settingsSections, workspacePageHref } from './workspacePageRouting';
 
 it.each(settingsSections)('round-trips the %s destination without changing editor or host context', settings => {
-  const source = 'http://localhost/?session=project&project=project&embed=1&tracking_context=11111111-1111-1111-1111-111111111111#project/project?v=1&t=12&tab=design&rc=0';
+  const source = 'http://localhost/editor/project?session=project&embed=1&tracking_context=11111111-1111-1111-1111-111111111111#project/project?v=1&t=12&tab=design&rc=0';
   const next = new URL(workspacePageHref(source, { settings }), source);
   expect(readWorkspacePage(next.search, next.hash, next.pathname).settings).toBe(settings);
   expect(next.hash).toBe(new URL(source).hash);
-  for (const key of ['session', 'project', 'embed', 'tracking_context']) expect(next.searchParams.get(key)).toBe(new URL(source).searchParams.get(key));
+  for (const key of ['session', 'embed', 'tracking_context']) expect(next.searchParams.get(key)).toBe(new URL(source).searchParams.get(key));
   const editor = new URL(workspacePageHref(next.href, { settings: null }), source);
   expect(editor.href).toBe(source);
 });
@@ -22,16 +22,17 @@ it('retains the library return page and selected detail, and clears page-specifi
   expect(readWorkspacePage(library.search, library.hash, library.pathname)).toMatchObject({ settings: 'mcp', templates: true, template: 'film/a & b', client: 'claude', setup: 'manual' });
   expect(workspacePageHref(library.href, { templates: false })).toBe('/mcp-setup?host=claude&setup=manual');
   const providers = new URL(workspacePageHref(library.href, { settings: 'providers', templates: false, provider: 'custom-a' }), source);
-  expect(providers.pathname + providers.search).toBe('/?page=settings&section=providers&provider=custom-a');
-  expect(workspacePageHref(providers.href, { settings: 'general' })).toBe('/?page=settings&section=general');
+  expect(providers.pathname + providers.search).toBe('/settings/providers?provider=custom-a');
+  expect(workspacePageHref(providers.href, { settings: 'general' })).toBe('/settings/general');
 });
 
 it('keeps MCP setup inside settings until a standalone destination is explicitly selected', () => {
   const source = 'http://localhost/?page=settings&section=local&entry_from=agent_media_signed_out';
   const mcp = new URL(workspacePageHref(source, { settings: 'mcp', mcpInSettings: true }), source);
   const setup = new URL(workspacePageHref(mcp.href, { client: 'claude', setup: 'manual' }), source);
-  expect(setup.searchParams.get('page')).toBe('settings');
-  expect(setup.searchParams.get('section')).toBe('mcp');
+  expect(setup.pathname).toBe('/settings/mcp');
+  expect(setup.searchParams.has('page')).toBe(false);
+  expect(setup.searchParams.has('section')).toBe(false);
   expect(setup.searchParams.get('entry_from')).toBe('agent_media_signed_out');
   expect(readWorkspacePage(setup.search, setup.hash, setup.pathname)).toMatchObject({ settings: 'mcp', mcpInSettings: true, client: 'claude', setup: 'manual' });
   const standalone = new URL(workspacePageHref(setup.href, { settings: 'mcp' }), source);
@@ -40,13 +41,13 @@ it('keeps MCP setup inside settings until a standalone destination is explicitly
 });
 
 it('round-trips the Black Friday collection and its selected Skill without leaking either into the regular library', () => {
-  const origin = 'http://localhost/?page=explore';
+  const origin = 'http://localhost/explore';
   const collection = new URL(workspacePageHref(origin, { templates: true, templateCollection: 'black-friday', skill: 'openmotion-sale-promo' }), origin);
-  expect(readWorkspacePage(collection.search)).toMatchObject({ explore: true, templates: true, templateCollection: 'black-friday', skill: 'openmotion-sale-promo' });
+  expect(readWorkspacePage(collection.search, collection.hash, collection.pathname)).toMatchObject({ explore: true, templates: true, templateCollection: 'black-friday', skill: 'openmotion-sale-promo' });
   expect(readWorkspacePage('?templates=1&collection=black-friday&skill=unknown').skill).toBeNull();
   expect(readWorkspacePage('?templates=1&view=creators&collection=black-friday').templateCollection).toBeNull();
-  expect(workspacePageHref(collection.href, { templates: false })).toBe('/?page=explore');
-  expect(workspacePageHref(collection.href, { templateCollection: null, skill: null })).toBe('/?page=explore&templates=1');
+  expect(workspacePageHref(collection.href, { templates: false })).toBe('/explore');
+  expect(workspacePageHref(collection.href, { templateCollection: null, skill: null })).toBe('/explore?templates=1');
 });
 
 it('opens retired API links in the usual workspace and drops their tool on navigation', () => {
@@ -54,7 +55,7 @@ it('opens retired API links in the usual workspace and drops their tool on navig
   expect(readWorkspacePage(new URL(link).search).explore).toBe(true);
   const project = new URL(link + '&project=film#project/film');
   expect(readWorkspacePage(project.search, project.hash)).toEqual(readWorkspacePage('?project=film', project.hash));
-  expect(workspacePageHref(project.href, { motion: true })).toBe('/?project=film&page=motion#project/film');
+  expect(workspacePageHref(project.href, { motion: true })).toBe('/motion?project=film#project/film');
 });
 
 it('keeps legacy editor and template URLs and safely defaults unknown options', () => {
@@ -63,11 +64,15 @@ it('keeps legacy editor and template URLs and safely defaults unknown options', 
   expect(readWorkspacePage('?page=unknown').settings).toBeNull();
   expect(readWorkspacePage('?page=settings&section=unknown').settings).toBe('general');
   expect(readWorkspacePage('?page=mcp&host=unknown&setup=unknown')).toMatchObject({ settings: 'mcp', client: 'codex', setup: 'agent' });
+  // Leaving /editor/:id without a project hash preserves ?project=:id so returning restores the editor path.
+  const withoutHash = new URL(workspacePageHref('http://localhost/editor/film?session=s1', { settings: 'general' }), 'http://localhost');
+  expect(withoutHash.pathname + withoutHash.search).toBe('/settings/general?session=s1&project=film');
+  expect(workspacePageHref(withoutHash.href, { settings: null })).toBe('/editor/film?session=s1#project/film');
 });
 
 
 it('round-trips Assets with editor context and preserves it underneath the template library', () => {
-  const source = 'http://localhost/?project=project&embed=1#project/project?t=12';
+  const source = 'http://localhost/editor/project?embed=1#project/project?t=12';
   const assets = new URL(workspacePageHref(source, { assets: true }), source);
   expect(assets.pathname).toBe('/assets');
   expect(readWorkspacePage(assets.search, assets.hash, assets.pathname)).toMatchObject({ assets: true, settings: null });
@@ -85,17 +90,19 @@ it('preserves a Brand Kit selection behind template browsing and clears it when 
   const next = new URL(workspacePageHref(source, { templates: true }), source);
   expect(next.pathname).toBe('/brand-kit/one');
   expect(readWorkspacePage(next.search, next.hash, next.pathname)).toMatchObject({ settings: 'brand-kit', brandKit: 'one', templates: true });
-  expect(workspacePageHref(next.href, { settings: null, templates: false })).toBe('/?embed=1#project/retained');
+  expect(workspacePageHref(next.href, { settings: null, templates: false })).toBe('/editor/retained?embed=1#project/retained');
 });
 
 it('keeps entry_from while switching settings sections and clears it when leaving settings', () => {
   const source = 'http://localhost/?page=settings&section=providers&provider=account&entry_from=agent_media_upgrade_go&embed=1';
   expect(readWorkspacePage(new URL(source).search)).toMatchObject({ settings: 'providers', provider: 'account' });
   const account = new URL(workspacePageHref(source, { settings: 'account' }), source);
+  expect(account.pathname).toBe('/settings/account');
   expect(account.searchParams.has('provider')).toBe(false);
-  expect(account.searchParams.get('section')).toBe('account');
+  expect(account.searchParams.has('section')).toBe(false);
   expect(account.searchParams.get('entry_from')).toBe('agent_media_upgrade_go');
   const subscription = new URL(workspacePageHref(account.href, { settings: 'subscription' }), source);
+  expect(subscription.pathname).toBe('/settings/subscription');
   expect(subscription.searchParams.get('entry_from')).toBe('agent_media_upgrade_go');
   const brandKit = new URL(workspacePageHref(subscription.href, { settings: 'brand-kit' }), source);
   expect(brandKit.searchParams.has('entry_from')).toBe(false);
@@ -119,7 +126,7 @@ it('round-trips studio scenes and provider-qualified models while preserving the
   expect(overlay.pathname).toBe('/cinema/image-to-video');
   expect(readWorkspacePage(overlay.search, overlay.hash, overlay.pathname)).toMatchObject({ studio: current.studio, templates: true });
   expect(workspacePageHref(overlay.href, { templates: false })).toContain('model=cloud%3Afilm%2Fv2');
-  expect(workspacePageHref(base, { studio: null })).toBe('/?embed=1#project/film?t=8');
+  expect(workspacePageHref(base, { studio: null })).toBe('/editor/film?embed=1#project/film?t=8');
   expect(workspacePageHref(base, { assets: true })).toBe('/assets?embed=1#project/film?t=8');
   expect(readWorkspacePage('?page=sound&scene=image-edit').studio?.scene.id).toBe('music');
   for (const [tab, backing] of [['sfx', 'music'], ['voice-clone', 'speech'], ['voice-changer', 'speech'], ['dubbing', 'speech'], ['stems', 'music']] as const) {
@@ -170,7 +177,7 @@ it('round-trips every registered studio scene and resolves models in the current
 });
 
 it('carries the originating community through a standalone studio, direct reload and return', () => {
-  const source = 'http://localhost/?page=explore&community=3d-motion&medium=video#project/film?t=8';
+  const source = 'http://localhost/explore?community=3d-motion&medium=video#project/film?t=8';
   const specialty = readWorkspacePage('?page=3d').specialty!;
   const next = new URL(workspacePageHref(source, { specialty, skill: 'three-js' }), source);
   expect(next.pathname).toBe('/studios/3d');
@@ -186,6 +193,7 @@ it('opens a pinned asset without carrying its version or a studio scene into unr
   expect(readWorkspacePage(next.search, next.hash, next.pathname)).toMatchObject({ assets: true, assetId: 'my-asset', assetVersion: 'older-version', studio: null });
   expect(next.searchParams.has('scene')).toBe(false);
   const settings = new URL(workspacePageHref(next.href, { settings: 'account' }), source);
+  expect(settings.pathname).toBe('/settings/account');
   expect(settings.searchParams.has('version')).toBe(false);
   expect(settings.searchParams.has('asset')).toBe(false);
   expect(settings.hash).toBe('#project/film');
@@ -193,14 +201,14 @@ it('opens a pinned asset without carrying its version or a studio scene into unr
 });
 
 it('opens every scene on its registered surface and round-trips the selected model and Explore collection', () => {
-  const base = 'http://localhost/?page=explore&community=product-films&medium=image&embed=1#project/film?t=8';
+  const base = 'http://localhost/explore?community=product-films&medium=image&embed=1#project/film?t=8';
   for (const scene of studioScenes) {
     const destination = sceneDestination(scene, null, 'provider:model/name');
     const url = new URL(workspacePageHref(base, { studio: destination }), base);
     expect(url.pathname).toBe(scene.entry === 'landing' ? `/create/${scene.id}` : `/${destination.studio.id}/${scene.id}`);
     expect(isStandaloneSpaPath(url.pathname, url.search, url.hash)).toBe(true);
     expect(readWorkspacePage(url.search, url.hash, url.pathname).studio).toEqual(destination);
-    expect(workspacePageHref(url.href, { explore: true })).toBe('/?embed=1&page=explore&community=product-films&medium=image#project/film?t=8');
+    expect(workspacePageHref(url.href, { explore: true })).toBe('/explore?embed=1&community=product-films&medium=image#project/film?t=8');
   }
   expect(isWorkspaceSettingsPage('?page=create&scene=missing')).toBe(false);
   expect(isStandaloneSpaPath('/create/missing')).toBe(false);
@@ -212,7 +220,7 @@ it('opens every scene on its registered surface and round-trips the selected mod
 });
 
 it('restores each specialty brief, model overview and nested creator preview from their URLs', () => {
-  const origin = 'http://localhost/?page=explore&community=short-form#project/film';
+  const origin = 'http://localhost/explore?community=short-form#project/film';
   const open = (url: string, patch: Parameters<typeof workspacePageHref>[1]) => new URL(workspacePageHref(url, patch), origin);
   for (const entry of creativeStudios) {
     if (entry.surface !== 'techniques') continue;
@@ -240,13 +248,13 @@ it('restores each specialty brief, model overview and nested creator preview fro
   const directory = open(origin, { templates: true, creators: true });
   const profile = open(directory.href, { creator: 'credit/Jane & Co' });
   const detail = open(profile.href, { template: 'work-1' });
-  expect(readWorkspacePage(detail.search)).toMatchObject({ explore: true, creators: true, creator: 'credit/Jane & Co', template: 'work-1' });
+  expect(readWorkspacePage(detail.search, detail.hash, detail.pathname)).toMatchObject({ explore: true, creators: true, creator: 'credit/Jane & Co', template: 'work-1' });
   expect(open(detail.href, { template: null }).href).toBe(profile.href);
   expect(open(profile.href, { templates: false }).href).toBe(origin);
 });
 
 it('round-trips scenario hub, scenario workspace, run/step overlay patches and safe fallbacks', () => {
-  const origin = 'http://localhost/?page=explore&community=product-films#project/film';
+  const origin = 'http://localhost/explore?community=product-films#project/film';
   const runId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const hub = new URL(workspacePageHref(origin, { scenarioHub: true, scenarioCategory: 'campaign' }), origin);
   expect(hub.pathname + hub.search).toBe('/scenarios?category=campaign&community=product-films');

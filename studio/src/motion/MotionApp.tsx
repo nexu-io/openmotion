@@ -100,8 +100,13 @@ function MotionAppContent() {
       if (!artifact) throw new Error('该产物不属于此会话');
       await resolveWorkspaceProject(artifact.projectId, controller.signal);
       if (controller.signal.aborted) return;
-      const url = new URL(location.href); url.searchParams.set('session', id); url.searchParams.set('project', artifact.projectId);
-      if (!url.hash.startsWith(`#project/${artifact.projectId}`)) url.hash = `project/${artifact.projectId}`;
+      const url = new URL(location.href);
+      const encodedProject = encodeURIComponent(artifact.projectId);
+      url.pathname = `/editor/${encodedProject}`;
+      url.searchParams.delete('page');
+      url.searchParams.delete('project');
+      url.searchParams.set('session', id);
+      if (!url.hash.startsWith(`#project/${encodedProject}`)) url.hash = `project/${encodedProject}`;
       writeWorkspaceHistory(url, true);
       setReady({ sessionId: id, artifact });
     }
@@ -115,7 +120,7 @@ function MotionAppContent() {
     sessionId={libraryOnly ? undefined : ready?.sessionId ?? sessionId ?? undefined} onNavigate={onNavigate}
     blocked={!ready && !error && !libraryOnly && !settingsPage} onLibraryClose={libraryOnly ? closeLibrary : undefined}>
     <div ref={surface} className="motion-project-surface">
-    {error ? <><div className="motion-home-navigation"><WorkspaceMenuButton /></div><RecoveryScreen title={t('Could not open project')} message={error}><Button variant="ghost" className="om-button h-auto" data-primary onClick={() => retry(value => value + 1)}>{t('Retry')}</Button><a className="om-button" href="/?page=editor">{t('Open active project')}</a></RecoveryScreen></>
+    {error ? <><div className="motion-home-navigation"><WorkspaceMenuButton /></div><RecoveryScreen title={t('Could not open project')} message={error}><Button variant="ghost" className="om-button h-auto" data-primary onClick={() => retry(value => value + 1)}>{t('Retry')}</Button><a className="om-button" href="/editor">{t('Open active project')}</a></RecoveryScreen></>
       : ready ? ready.artifact ? <ArtifactViewer key={ready.artifact.projectId} artifact={ready.artifact} loadingLayout={loadingLayout} /> : <div className="motion-route-state"><WorkspaceMenuButton />{t('Create a project with your Agent to start editing.')}</div>
       : libraryOnly ? <TemplateLibraryLanding /> : <EditorLoading layout={loadingLayout} />}
     </div>

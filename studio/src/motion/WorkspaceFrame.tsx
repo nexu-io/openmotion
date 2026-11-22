@@ -122,9 +122,13 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     } else if (mode !== 'keep' && changesWorkspaceDestination(patch)) {
       nextSource = null;
     }
+    const isSettingsCenter = (url: URL) => {
+      const parsed = readWorkspacePage(url.search, url.hash, url.pathname);
+      return Boolean(parsed.settings) && parsed.settings !== 'brand-kit' && (parsed.settings !== 'mcp' || parsed.mcpInSettings);
+    };
     let settingsSource = null;
-    if (target.searchParams.get('page') === 'settings') {
-      settingsSource = current.searchParams.get('page') === 'settings' ? workspaceSettingsSource() : origin;
+    if (isSettingsCenter(target)) {
+      settingsSource = isSettingsCenter(current) ? workspaceSettingsSource() : origin;
     }
     writeWorkspaceHistory(target, replace, { page: nextSource, settings: settingsSource });
   }, []);

@@ -148,7 +148,7 @@ it('waits for saves, deduplicates rapid actions and opens the new project in a n
   expect(writes()).toHaveLength(1);
   expect(writes()[0][0]).toBe(`/motion-api/projects?projectId=${first}`);
   expect(JSON.parse(writes()[0][1]!.body as string)).toEqual({ expectedRevision: status.revision, expectedProjectId: first });
-  expect(navigate).toHaveBeenCalledWith(`/?project=${second}#project/${second}`);
+  expect(navigate).toHaveBeenCalledWith(`/editor/${second}#project/${second}`);
 });
 it('save failures prevent creating, switching and leaving for home', async () => {
   await mount(async () => { throw new Error('Unsaved edit'); }, first);
@@ -188,13 +188,13 @@ it('an existing project page polls its own project without following another cli
   expect(fetcher.mock.calls.some(([url]) => url === `/motion-api/project/status?projectId=${first}`)).toBe(true);
 });
 it('an empty conversation opens its own first artifact even when another project is globally active', async () => {
-  history.replaceState(null, '', '/?session=conversation');
+  history.replaceState(null, '', '/editor?session=conversation');
   const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {});
   fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects')
     ? { projects: [], sessions: [{ id: 'conversation', artifacts: [{ id: 'artifact-a', projectId: first }], activeArtifactId: 'artifact-a' }] }
     : { ...status, projectId: second }));
   await mount(async () => {}, undefined, 'conversation');
-  expect(replace).toHaveBeenCalledWith(`/?session=conversation&project=${first}&openArtifact=1#project/${first}`);
+  expect(replace).toHaveBeenCalledWith(`/editor/${first}?session=conversation&openArtifact=1#project/${first}`);
 });
 it('keeps a home request after failure and clears it only once the project was created with that request', async () => {
   await mount(async () => {});
@@ -209,7 +209,7 @@ it('keeps a home request after failure and clears it only once the project was c
   await act(() => workspace.create('Make a launch video'));
   expect(JSON.parse(writes()[1][1]!.body as string).instruction).toBe('Make a launch video');
   expect(localStorage.getItem('motion.home.draft.v1')).toBeNull();
-  expect(navigate).toHaveBeenCalledWith(`/?project=${second}#project/${second}`);
+  expect(navigate).toHaveBeenCalledWith(`/editor/${second}#project/${second}`);
 });
 it('creates the conversation before generating an artifact and retains it when generation fails', async () => {
   await mount(async () => {});
@@ -222,20 +222,24 @@ it('creates the conversation before generating an artifact and retains it when g
   });
   await act(() => workspace.startSession('New film', 'product-promo'));
   expect(writes().map(call => call[0])).toEqual(['/design-api/sessions', '/design-api/sessions/new-session/artifacts']);
-  expect(navigate).toHaveBeenCalledWith('/?session=new-session');
+  expect(navigate).toHaveBeenCalledWith('/editor?session=new-session');
   expect(localStorage.getItem('motion.home.draft.v1')).toBeNull();
   expect(sessionStorage.getItem('opendesign.session-error:new-session')).toBe('Generation failed');
 });
 it('activates the viewer when an external Agent produces an artifact for an open empty conversation', async () => {
-  history.replaceState(null, '', '/?session=conversation');
+  history.replaceState(null, '', '/editor?session=conversation');
   const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {});
   const original = fetcher.getMockImplementation()!;
   fetcher.mockImplementation(async (url: string, init?: RequestInit) => url.endsWith('/projects') ? new Response(JSON.stringify({ projects: [], sessions: [{ id: 'conversation', artifacts: [{ id: 'artifact', projectId: first }] }] })) : original(url, init));
   await mount(async () => {}, undefined, 'conversation');
-  expect(replace).toHaveBeenCalledWith(`/?session=conversation&project=${first}&openArtifact=1#project/${first}`);
+  expect(replace).toHaveBeenCalledWith(`/editor/${first}?session=conversation&openArtifact=1#project/${first}`);
 });
 
 it.each([
+  '/explore?session=conversation',
+  '/motion?session=conversation',
+  '/settings/providers?session=conversation',
+  '/settings/mcp?session=conversation',
   '/model-hub/gemini-4?session=conversation',
   '/models/custom%3Aprovider%2Fmodel?session=conversation',
   '/mcp-setup?session=conversation&host=codex',
@@ -273,7 +277,7 @@ it('unlocks actions after an in-page switch and scopes subsequent polling to the
   const onNavigate = vi.fn();
   await mount(async () => {}, first, first, onNavigate);
   await act(() => workspace.open('projects', second));
-  expect(onNavigate).toHaveBeenCalledWith(`/?project=${second}#project/${second}`);
+  expect(onNavigate).toHaveBeenCalledWith(`/editor/${second}#project/${second}`);
   expect(navigate).not.toHaveBeenCalled();
   expect(workspace.busy).toBe(false);
   fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects') ? { projects: [] } : { ...status, projectId: second }));
@@ -283,8 +287,8 @@ it('unlocks actions after an in-page switch and scopes subsequent polling to the
 });
 
 it.each([false, true])('guards browser history navigation before replacing the project (save failure=%s)', async failure => {
-  const originalUrl = `/?session=${first}&project=${first}#project/${first}`;
-  const targetUrl = `/?session=${second}&project=${second}#project/${second}`;
+  const originalUrl = `/editor/${first}?session=${first}#project/${first}`;
+  const targetUrl = `/editor/${second}?session=${second}#project/${second}`;
   history.replaceState(null, '', originalUrl);
   let finishSave!: () => void;
   const pending = new Promise<void>(resolve => { finishSave = resolve; });
