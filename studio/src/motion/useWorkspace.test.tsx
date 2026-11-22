@@ -241,6 +241,21 @@ it.each([
   '/mcp-setup?session=conversation&host=codex',
   '/brand-kit/mine?session=conversation',
   '/skills/manim?session=conversation',
+  '/studios/3d?session=conversation',
+  '/studios/3d/text-to-video?session=conversation',
+  '/studios/game?session=conversation&game=done',
+  '/scenarios?session=conversation',
+  '/scenarios/black-friday?session=conversation',
+  '/assets?session=conversation',
+  '/assets/asset-1?session=conversation',
+  '/design/prototype?session=conversation',
+  '/design/projects/d-1?session=conversation',
+  '/cinema?session=conversation',
+  '/cinema/text-to-video?session=conversation',
+  '/sound?session=conversation',
+  '/sound/sfx?session=conversation',
+  '/audio/music?session=conversation',
+  '/create/text-to-image?session=conversation',
 ])('keeps migrated standalone path %s open when a retained session gains an artifact', async standaloneHref => {
   history.replaceState(null, '', standaloneHref);
   const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {});

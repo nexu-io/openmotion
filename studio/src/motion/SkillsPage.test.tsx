@@ -161,7 +161,9 @@ it('routes the skills page and selected skill through semantic paths while keepi
   expect(href).toBe('/skills/manim');
   expect(readWorkspacePage('', '', href)).toMatchObject({ skills: true, skill: 'manim', assets: false, settings: null });
   expect(readWorkspacePage('?page=skills&skill=manim')).toMatchObject({ skills: true, skill: 'manim', assets: false, settings: null });
-  expect(readWorkspacePage(workspacePageHref('http://local' + href, { assets: true }).slice(1))).toMatchObject({ assets: true, skills: false, skill: null });
+  const assetsHref = workspacePageHref('http://local' + href, { assets: true });
+  expect(assetsHref).toBe('/assets');
+  expect(readWorkspacePage('', '', assetsHref)).toMatchObject({ assets: true, skills: false, skill: null });
   expect(isWorkspaceSettingsPage('?page=skills')).toBe(true);
 });
 

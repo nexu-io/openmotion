@@ -116,12 +116,20 @@ it('cold-loads whitelisted semantic SPA path URLs directly into the requested su
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
 });
 
-it('redirects legacy Phase 4a query bookmarks to canonical semantic paths via replace while preserving orthogonal params', async () => {
+it('redirects legacy Phase 4a and 4b query bookmarks to canonical semantic paths via replace while preserving orthogonal params', async () => {
   const cases = [
     ['/?page=brand-kit&kit=mine&embed=1#project/' + first, '/brand-kit/mine', 'embed=1'],
     ['/?page=mcp&host=claude&setup=manual&embed=1#project/' + first, '/mcp-setup', 'host=claude'],
     ['/?page=model-hub&hub=gemini-4&embed=1', '/model-hub/gemini-4', 'embed=1'],
     ['/?page=skills&skillCategory=Motion+techniques&embed=1', '/skills', 'category=Motion+techniques'],
+    ['/?page=assets&asset=a1&version=v1&embed=1#project/' + first, '/assets/a1', 'version=v1'],
+    ['/?page=scenarios&category=campaign&embed=1', '/scenarios', 'category=campaign'],
+    ['/?page=scenario&scenario=black-friday&mode=agent&embed=1', '/scenarios/black-friday', 'mode=agent'],
+    ['/?page=design&scene=deck&embed=1', '/design/deck', 'embed=1'],
+    ['/?page=cinema&scene=text-to-video&embed=1', '/cinema/text-to-video', 'embed=1'],
+    ['/?page=sound&home=1&embed=1', '/sound', 'embed=1'],
+    ['/?page=audio&scene=sfx&embed=1', '/audio/sfx', 'embed=1'],
+    ['/?page=3d&skill=three-js&embed=1', '/studios/3d', 'skill=three-js'],
   ] as const;
   for (const [index, [legacyHref, expectedPath, expectedQueryPart]] of cases.entries()) {
     history.replaceState(null, '', legacyHref);
@@ -326,7 +334,8 @@ it.each(['motion', 'marketing'])('opens a card over %s while the full catalogue 
   });
   expect(page().template).toBeNull();
   expect(document.activeElement).toBe(card);
-  expect(new URLSearchParams(location.search).get('page')).toBe(studio);
+  if (studio === 'marketing') expect(location.pathname).toBe('/studios/marketing');
+  else expect(new URLSearchParams(location.search).get('page')).toBe(studio);
   expect(location.hash).toContain('t=12');
 });
 
@@ -701,7 +710,7 @@ it('opens a Video feature scene from Explore under Video without a legacy Cinema
   expect(button('Video').getAttribute('aria-current')).toBe('location');
   expect(button('Image').getAttribute('aria-current')).toBeNull();
   expect(button('Cinema Studio').getAttribute('aria-current')).toBeNull();
-  expect(new URL(location.href).searchParams.get('page')).toBe('create');
+  expect(location.pathname).toBe('/create/video-multi-shot');
   expect(container.querySelector('.om-studio-bar')?.textContent).not.toContain('Open in');
   await traverse(-1);
   expect(page().explore).toBe(true);
@@ -743,7 +752,7 @@ it('reports Explore once per arrival and its spotlight, index links and top navi
   await act(async () => inside('.om-capability-index', 'Cinema Studio').click());
   expect(clicks().at(-1)).toMatchObject({ page_name: 'explore', area: 'capability_index', element: 'open_studio', studio_id: 'cinema' });
   await act(async () => inside('.om-cinema-home', 'Create video').click());
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'text-to-video' });
+  expect(location.pathname).toBe('/create/text-to-video');
   const nav = container.querySelector('.om-creative-navigation')!;
   await act(async () => [...nav.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === 'Design Studio')!.click());
   expect(clicks().at(-1)).toMatchObject({ page_name: 'creative_studio', area: 'creative_nav', element: 'nav_studio', studio_id: 'design', in_overflow: false });
@@ -938,6 +947,7 @@ it.each([
   feed.scrollTop = 56;
   await act(async () => carousel.querySelector<HTMLButtonElement>('.om-feature-slide:not([inert]) [data-slide-action="destination"]')!.click());
   if (destination === 'model-hub') expect(location.pathname).toBe('/model-hub/gemini-4');
+  else if (destination === 'create') expect(location.pathname).toBe('/create/text-to-image');
   else expect(new URL(location.href).searchParams.get('page')).toBe(destination);
   expect(breadcrumb()).toBeNull();
   const returnControl = container.querySelector<HTMLButtonElement>('.om-back-to-explore');
@@ -953,7 +963,7 @@ it.each([
     expect(container.querySelector<HTMLInputElement>('[aria-label="Asset draft"]')?.value).toContain('Photograph an amber glass bottle');
     const editTab = [...header.querySelectorAll<HTMLButtonElement>('nav button')].find(tab => tab.textContent === 'Edit image')!;
     await act(async () => editTab.click());
-    expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'image-edit' });
+    expect(location.pathname).toBe('/create/image-edit');
     expect(button('Image').getAttribute('aria-current')).toBe('location');
     expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Edit image');
     expect(container.querySelector('.om-studio-bar [aria-current="page"]')?.textContent).toBe('Edit image');
@@ -987,9 +997,7 @@ it.each([
   const primaryCta = carousel.querySelector<HTMLButtonElement>('.om-feature-slide:not([inert]) [data-slide-action="workflow"]')!;
   expect(primaryCta.textContent).toBe('Start workflow');
   await act(async () => primaryCta.click());
-  const params = new URL(location.href).searchParams;
-  expect(params.get('page')).toBe('scenario');
-  expect(params.get('scenario')).toBe(scenarioId);
+  expect(location.pathname).toBe(`/scenarios/${scenarioId}`);
   expect(container.querySelector(`[data-scenario-workspace="${scenarioId}"]`)).not.toBeNull();
   const returnControl = container.querySelector<HTMLButtonElement>('.om-back-to-explore');
   if (returnControl) {
@@ -1128,7 +1136,7 @@ it('shows every Studio in Explore and opens the selected example or technique', 
   expect(page().studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'speech' } });
   await traverse(-1);
   await act(async () => [...imageCollection.querySelectorAll<HTMLButtonElement>('header button')].find(node => node.textContent === 'Image')!.click());
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'text-to-image' });
+  expect(location.pathname).toBe('/create/text-to-image');
   await traverse(-1);
   await act(async () => [...designCollection.querySelectorAll<HTMLButtonElement>('header button')].find(node => node.textContent === 'Design Studio')!.click());
   expect(page()).toMatchObject({ designScene: 'prototype', studio: null });
@@ -1297,7 +1305,8 @@ it('browses Cinema templates and opens editable generation drafts without submit
   expect(grid.querySelector('[data-template-id="product-window-light-push-in"] .om-design-thumb-badge')?.textContent).toBe('Image to video');
   await click('Slow-motion drink splash');
   expect(page()).toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { landing: true, scene: { id: 'text-to-video' } } });
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'text-to-video', cinemaTemplate: 'drink-splash-slow-motion' });
+  expect(location.pathname).toBe('/create/text-to-video');
+  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion' });
   expect(button('Video').getAttribute('aria-current')).toBe('location');
   expect(button('Cinema Studio').getAttribute('aria-current')).toBeNull();
   expect(container.querySelector('.om-studio-bar')?.textContent).not.toContain('Open in');
@@ -1326,7 +1335,7 @@ it('carries a community template brief and an audio example into the matching st
   const collectionUrl = location.href;
   await click('Use this prompt');
   expect(page().studio).toMatchObject({ landing: true, scene: { id: 'text-to-video' } });
-  expect(new URLSearchParams(location.search).get('page')).toBe('create');
+  expect(location.pathname).toBe('/create/text-to-video');
   expect(container.querySelector<HTMLInputElement>('.om-creative-workspace input')?.value).toBe('A slow product reveal.');
   await returnThroughBreadcrumb('Product films');
   expect(location.href).toBe(collectionUrl);
@@ -1336,7 +1345,7 @@ it('carries a community template brief and an audio example into the matching st
   expect(speechCard.querySelector('.om-feed-prompt-action.om-nav-item')?.textContent).toBe('Use this prompt');
   await act(async () => speechCard.click());
   expect(page().studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'speech' }, mediaTab: true });
-  expect(new URLSearchParams(location.search).get('page')).toBe('audio');
+  expect(location.pathname).toBe('/audio/speech');
   expect(container.querySelector<HTMLInputElement>('.om-creative-workspace input')?.value).toContain('Every idea deserves');
   await returnThroughBreadcrumb('Explore');
   expect(location.href).toBe(exploreUrl);
@@ -1633,15 +1642,16 @@ it('keeps the settings sidebar mounted across MCP, agent and provider sections',
 it('keeps the top-level Audio tab and Sound Studio home as independent navigation entries', async () => {
   await mount(); await click('Explore');
   await click('Audio');
-  expect(new URLSearchParams(location.search).get('page')).toBe('audio');
+  expect(location.pathname).toBe('/audio/music');
   expect(button('Audio').getAttribute('aria-current')).toBe('location');
   expect(button('Sound Studio').getAttribute('aria-current')).toBeNull();
   expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Audio');
   expect(container.querySelector('.om-studio-bar .om-workspace-back')).toBeNull();
 
   await click('Sound Studio');
-  expect(new URLSearchParams(location.search).get('page')).toBe('sound');
-  expect(new URLSearchParams(location.search).get('home')).toBe('1');
+  expect(location.pathname).toBe('/sound');
+  expect(new URLSearchParams(location.search).has('page')).toBe(false);
+  expect(new URLSearchParams(location.search).has('home')).toBe(false);
   expect(button('Sound Studio').getAttribute('aria-current')).toBe('page');
   expect(button('Audio').getAttribute('aria-current')).toBeNull();
 });
@@ -1663,7 +1673,8 @@ it.each([
 it('rewrites a bookmarked Design Studio image link to the unified Image editor', async () => {
   history.replaceState(null, '', firstUrl.replace('#', '&page=design&scene=image-edit&model=p%3Am#'));
   await mount();
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'image-edit', model: 'p:m' });
+  expect(location.pathname).toBe('/create/image-edit');
+  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ model: 'p:m' });
   expect(page().studio).toMatchObject({ landing: true, scene: { id: 'image-edit' }, model: 'p:m' });
   expect(button('Image').getAttribute('aria-current')).toBe('location');
   expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
@@ -1734,7 +1745,7 @@ it.each([
   await click(title);
   await click(action);
   expect(page()).toMatchObject({ studio: { landing: true, scene: { id: scene } }, specialty: null, skill: null });
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene });
+  expect(location.pathname).toBe(`/create/${scene}`);
   expect(button(tab).getAttribute('aria-current')).toBe('location');
   expect(button(title).getAttribute('aria-current')).toBeNull();
   await returnThroughBreadcrumb(title);
@@ -1747,7 +1758,8 @@ it('keeps Skill brief drafts from different studios apart in the unified editor 
   await mount();
   const draft = () => container.querySelector<HTMLInputElement>('[aria-label="Asset draft"]')?.value;
   await click('Create a shot from this brief');
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'create', scene: 'text-to-video', skill: marketing });
+  expect(location.pathname).toBe('/create/text-to-video');
+  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ skill: marketing });
   const marketingPrompt = draft();
   expect(marketingPrompt).toBeTruthy();
   await click('Explainer Studio');
@@ -1846,7 +1858,7 @@ it('opens model cases with a compatible provider and the same prompt from both d
   };
   await choose(section(), '.om-story-card');
   expect(page().studio).toMatchObject({ model: image.id, landing: true, scene: { id: 'text-to-image' } });
-  expect(new URLSearchParams(location.search).get('page')).toBe('create');
+  expect(location.pathname).toBe('/create/text-to-image');
   const draft = () => container.querySelector<HTMLInputElement>('[aria-label="Asset draft"]')?.value;
   const prompt = draft();
   expect(prompt).toContain('young witch');
@@ -1915,7 +1927,8 @@ it.each([
   await act(async () => tile.click());
   expect(page()).toMatchObject({ studio: { studio: { id: 'sound' }, scene: { id: 'music' }, model: id, mediaTab: true } });
   expect(page().soundTab ?? null).toBe(soundTab);
-  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ page: 'audio', scene: soundTab ?? 'music', model: id });
+  expect(location.pathname).toBe(`/audio/${soundTab ?? 'music'}`);
+  expect(Object.fromEntries(new URLSearchParams(location.search))).toMatchObject({ model: id });
   expect(button('Audio').getAttribute('aria-current')).toBe('location');
   await returnThroughBreadcrumb('Model details');
   expect(page().modelOverview).toBe(id);

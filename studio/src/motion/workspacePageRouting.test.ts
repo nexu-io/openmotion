@@ -69,12 +69,13 @@ it('keeps legacy editor and template URLs and safely defaults unknown options', 
 it('round-trips Assets with editor context and preserves it underneath the template library', () => {
   const source = 'http://localhost/?project=project&embed=1#project/project?t=12';
   const assets = new URL(workspacePageHref(source, { assets: true }), source);
-  expect(readWorkspacePage(assets.search)).toMatchObject({ assets: true, settings: null });
+  expect(assets.pathname).toBe('/assets');
+  expect(readWorkspacePage(assets.search, assets.hash, assets.pathname)).toMatchObject({ assets: true, settings: null });
   expect(assets.hash).toBe(new URL(source).hash);
   const library = new URL(workspacePageHref(assets.href, { templates: true }), source);
   expect(workspacePageHref(library.href, { templates: false })).toBe(assets.pathname + assets.search + assets.hash);
   const settings = new URL(workspacePageHref(assets.href, { settings: 'providers' }), source);
-  expect(readWorkspacePage(settings.search)).toMatchObject({ assets: false, settings: 'providers' });
+  expect(readWorkspacePage(settings.search, settings.hash, settings.pathname)).toMatchObject({ assets: false, settings: 'providers' });
   expect(workspacePageHref(assets.href, { assets: false })).toBe(new URL(source).pathname + new URL(source).search + new URL(source).hash);
 });
 
@@ -115,10 +116,11 @@ it('round-trips studio scenes and provider-qualified models while preserving the
   const current = readWorkspacePage(new URL(base).search);
   expect(current.studio).toMatchObject({ scene: { id: 'image-to-video', modality: 'video' }, model: 'cloud:film/v2' });
   const overlay = new URL(workspacePageHref(base, { templates: true }), base);
-  expect(readWorkspacePage(overlay.search)).toMatchObject({ studio: current.studio, templates: true });
+  expect(overlay.pathname).toBe('/cinema/image-to-video');
+  expect(readWorkspacePage(overlay.search, overlay.hash, overlay.pathname)).toMatchObject({ studio: current.studio, templates: true });
   expect(workspacePageHref(overlay.href, { templates: false })).toContain('model=cloud%3Afilm%2Fv2');
   expect(workspacePageHref(base, { studio: null })).toBe('/?embed=1#project/film?t=8');
-  expect(workspacePageHref(base, { assets: true })).toBe('/?embed=1&page=assets#project/film?t=8');
+  expect(workspacePageHref(base, { assets: true })).toBe('/assets?embed=1#project/film?t=8');
   expect(readWorkspacePage('?page=sound&scene=image-edit').studio?.scene.id).toBe('music');
   for (const [tab, backing] of [['sfx', 'music'], ['voice-clone', 'speech'], ['voice-changer', 'speech'], ['dubbing', 'speech'], ['stems', 'music']] as const) {
     const parsed = readWorkspacePage(`?page=sound&scene=${tab}`);
@@ -126,7 +128,9 @@ it('round-trips studio scenes and provider-qualified models while preserving the
     expect(parsed.studio?.scene.id).toBe(backing);
     expect(parsed.studio?.mediaTab).toBeUndefined();
     const roundTrip = workspacePageHref('http://localhost/?page=explore', { studio: parsed.studio, soundTab: tab });
-    expect(roundTrip).toBe(`/?page=sound&scene=${tab}`);
+    expect(roundTrip).toBe(`/sound/${tab}`);
+    const soundUrl = new URL(roundTrip, 'http://localhost');
+    expect(readWorkspacePage(soundUrl.search, soundUrl.hash, soundUrl.pathname)).toMatchObject({ soundTab: tab, studio: { studio: { id: 'sound' }, scene: { id: backing } } });
 
     const audioParsed = readWorkspacePage(`?page=audio&scene=${tab}`);
     expect(isWorkspaceSettingsPage(`?page=audio&scene=${tab}`)).toBe(true);
@@ -134,11 +138,18 @@ it('round-trips studio scenes and provider-qualified models while preserving the
     expect(audioParsed.studio?.scene.id).toBe(backing);
     expect(audioParsed.studio?.mediaTab).toBe(true);
     const audioRoundTrip = workspacePageHref('http://localhost/?page=explore', { studio: audioParsed.studio, soundTab: tab });
-    expect(audioRoundTrip).toBe(`/?page=audio&scene=${tab}`);
+    expect(audioRoundTrip).toBe(`/audio/${tab}`);
+    const audioUrl = new URL(audioRoundTrip, 'http://localhost');
+    expect(isStandaloneSpaPath(audioUrl.pathname, audioUrl.search, audioUrl.hash)).toBe(true);
+    expect(readWorkspacePage(audioUrl.search, audioUrl.hash, audioUrl.pathname)).toMatchObject({ soundTab: tab, studio: { studio: { id: 'sound' }, scene: { id: backing }, mediaTab: true } });
   }
   const audioMusic = readWorkspacePage('?page=audio&scene=music');
   expect(audioMusic.studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'music' }, mediaTab: true });
-  expect(workspacePageHref('http://localhost/?page=explore', { studio: audioMusic.studio })).toBe('/?page=audio&scene=music');
+  expect(workspacePageHref('http://localhost/?page=explore', { studio: audioMusic.studio })).toBe('/audio/music');
+  const soundHome = readWorkspacePage('?page=sound&home=1');
+  expect(soundHome.studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'music' }, home: true });
+  expect(workspacePageHref('http://localhost/?page=explore', { studio: soundHome.studio })).toBe('/sound');
+  expect(readWorkspacePage('', '', '/sound').studio).toMatchObject({ studio: { id: 'sound' }, scene: { id: 'music' }, home: true });
 });
 
 it('round-trips every registered studio scene and resolves models in the current studio', () => {
@@ -148,7 +159,7 @@ it('round-trips every registered studio scene and resolves models in the current
       const target = readWorkspacePage('?page=' + studio.id + '&scene=' + scene).studio!;
       expect([target.studio.id, target.scene.id]).toEqual([studio.id, scene]);
       const url = new URL(workspacePageHref('http://localhost/?page=explore', { studio: target }), 'http://localhost');
-      expect(readWorkspacePage(url.search).studio).toEqual(target);
+      expect(readWorkspacePage(url.search, url.hash, url.pathname).studio).toEqual(target);
       registered.add(scene);
     }
   }
@@ -162,7 +173,8 @@ it('carries the originating community through a standalone studio, direct reload
   const source = 'http://localhost/?page=explore&community=3d-motion&medium=video#project/film?t=8';
   const specialty = readWorkspacePage('?page=3d').specialty!;
   const next = new URL(workspacePageHref(source, { specialty, skill: 'three-js' }), source);
-  expect(readWorkspacePage(next.search)).toMatchObject({ specialty, skill: 'three-js', community: '3d-motion', medium: 'video' });
+  expect(next.pathname).toBe('/studios/3d');
+  expect(readWorkspacePage(next.search, next.hash, next.pathname)).toMatchObject({ specialty, skill: 'three-js', community: '3d-motion', medium: 'video' });
   expect(new URL(workspacePageHref(next.href, { explore: true }), source).href).toBe(source);
   expect(readWorkspacePage('?page=3d&skill=unregistered&community=unknown&medium=text')).toMatchObject({ specialty, skill: null, community: null, medium: null });
 });
@@ -170,7 +182,8 @@ it('carries the originating community through a standalone studio, direct reload
 it('opens a pinned asset without carrying its version or a studio scene into unrelated destinations', () => {
   const source = 'http://localhost/?embed=1&page=cinema&scene=image-to-video&model=registered#project/film';
   const next = new URL(workspacePageHref(source, { assets: true, assetId: 'my-asset', assetVersion: 'older-version' }), source);
-  expect(readWorkspacePage(next.search)).toMatchObject({ assets: true, assetId: 'my-asset', assetVersion: 'older-version', studio: null });
+  expect(next.pathname).toBe('/assets/my-asset');
+  expect(readWorkspacePage(next.search, next.hash, next.pathname)).toMatchObject({ assets: true, assetId: 'my-asset', assetVersion: 'older-version', studio: null });
   expect(next.searchParams.has('scene')).toBe(false);
   const settings = new URL(workspacePageHref(next.href, { settings: 'account' }), source);
   expect(settings.searchParams.has('version')).toBe(false);
@@ -184,16 +197,18 @@ it('opens every scene on its registered surface and round-trips the selected mod
   for (const scene of studioScenes) {
     const destination = sceneDestination(scene, null, 'provider:model/name');
     const url = new URL(workspacePageHref(base, { studio: destination }), base);
-    expect(url.searchParams.get('page')).toBe(scene.entry === 'landing' ? 'create' : destination.studio.id);
-    expect(isWorkspaceSettingsPage(url.search)).toBe(true);
-    expect(readWorkspacePage(url.search).studio).toEqual(destination);
+    expect(url.pathname).toBe(scene.entry === 'landing' ? `/create/${scene.id}` : `/${destination.studio.id}/${scene.id}`);
+    expect(isStandaloneSpaPath(url.pathname, url.search, url.hash)).toBe(true);
+    expect(readWorkspacePage(url.search, url.hash, url.pathname).studio).toEqual(destination);
     expect(workspacePageHref(url.href, { explore: true })).toBe('/?embed=1&page=explore&community=product-films&medium=image#project/film?t=8');
   }
   expect(isWorkspaceSettingsPage('?page=create&scene=missing')).toBe(false);
+  expect(isStandaloneSpaPath('/create/missing')).toBe(false);
   expect(readWorkspacePage('?page=create&scene=missing').studio).toBeNull();
   expect(readWorkspacePage('?page=create&scene=shot-image').studio).toMatchObject({ studio: { id: 'design' }, scene: { id: 'text-to-image' }, landing: true });
   expect(readWorkspacePage('?page=create&scene=video-native-audio').studio).toMatchObject({ studio: { id: 'cinema' }, scene: { id: 'text-to-video' }, landing: true });
-  expect(workspacePageHref('http://localhost/?page=create&scene=bad&model=bad', { assets: true })).toBe('/?page=assets');
+  expect(workspacePageHref('http://localhost/?page=create&scene=bad&model=bad', { assets: true })).toBe('/assets');
+  expect(workspacePageHref('http://localhost/create/bad?model=bad', { assets: true })).toBe('/assets');
 });
 
 it('restores each specialty brief, model overview and nested creator preview from their URLs', () => {
@@ -202,9 +217,13 @@ it('restores each specialty brief, model overview and nested creator preview fro
   for (const entry of creativeStudios) {
     if (entry.surface !== 'techniques') continue;
     const href = open(origin, { specialty: entry, skill: entry.techniques[0] });
-    expect(isWorkspaceSettingsPage(href.search)).toBe(true);
-    expect(readWorkspacePage(href.search)).toMatchObject({ specialty: entry, skill: entry.techniques[0], community: 'short-form' });
+    expect(href.pathname).toBe(`/studios/${entry.id}`);
+    expect(isStandaloneSpaPath(href.pathname, href.search, href.hash)).toBe(true);
+    expect(readWorkspacePage(href.search, href.hash, href.pathname)).toMatchObject({ specialty: entry, skill: entry.techniques[0], community: 'short-form' });
   }
+  // Leaving Game Studio drops its ?game=<id> selection while preserving it inside Game Studio.
+  expect(workspacePageHref('http://localhost/studios/game?game=done', {})).toBe('/studios/game?game=done');
+  expect(workspacePageHref('http://localhost/studios/game?game=done', { assets: true })).toBe('/assets');
   const model = open(origin, { modelOverview: 'custom:provider/model' });
   expect(model.pathname).toBe('/models/custom%3Aprovider%2Fmodel');
   expect(isStandaloneSpaPath(model.pathname, model.search, model.hash)).toBe(true);
@@ -230,21 +249,21 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
   const origin = 'http://localhost/?page=explore&community=product-films#project/film';
   const runId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const hub = new URL(workspacePageHref(origin, { scenarioHub: true, scenarioCategory: 'campaign' }), origin);
-  expect(hub.search).toBe('?page=scenarios&category=campaign&community=product-films');
+  expect(hub.pathname + hub.search).toBe('/scenarios?category=campaign&community=product-films');
   expect(hub.hash).toBe('#project/film');
-  expect(isWorkspaceSettingsPage(hub.search)).toBe(true);
-  expect(readWorkspacePage(hub.search)).toMatchObject({ scenarioHub: true, scenarioCategory: 'campaign', scenario: null, scenarioRun: null, scenarioStep: null, community: 'product-films' });
+  expect(isStandaloneSpaPath(hub.pathname, hub.search, hub.hash)).toBe(true);
+  expect(readWorkspacePage(hub.search, hub.hash, hub.pathname)).toMatchObject({ scenarioHub: true, scenarioCategory: 'campaign', scenario: null, scenarioRun: null, scenarioStep: null, community: 'product-films' });
 
   // Overlay category update retains scenarioHub.
   const roleHub = new URL(workspacePageHref(hub.href, { scenarioCategory: 'role' }), origin);
-  expect(roleHub.search).toBe('?page=scenarios&category=role&community=product-films');
-  expect(readWorkspacePage(roleHub.search)).toMatchObject({ scenarioHub: true, scenarioCategory: 'role' });
+  expect(roleHub.pathname + roleHub.search).toBe('/scenarios?category=role&community=product-films');
+  expect(readWorkspacePage(roleHub.search, roleHub.hash, roleHub.pathname)).toMatchObject({ scenarioHub: true, scenarioCategory: 'role' });
 
   // Scenario destination with run and step.
   const workspace = new URL(workspacePageHref(hub.href, { scenario: 'black-friday', scenarioRun: runId, scenarioStep: 'sales-film' }), origin);
-  expect(workspace.search).toBe(`?page=scenario&scenario=black-friday&run=${runId}&step=sales-film&community=product-films`);
-  expect(isWorkspaceSettingsPage(workspace.search)).toBe(true);
-  expect(readWorkspacePage(workspace.search)).toMatchObject({
+  expect(workspace.pathname + workspace.search).toBe(`/scenarios/black-friday?run=${runId}&step=sales-film&community=product-films`);
+  expect(isStandaloneSpaPath(workspace.pathname, workspace.search, workspace.hash)).toBe(true);
+  expect(readWorkspacePage(workspace.search, workspace.hash, workspace.pathname)).toMatchObject({
     scenarioHub: false,
     scenarioCategory: null,
     scenario: 'black-friday',
@@ -254,24 +273,24 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
 
   // Overlay step/run patch retains parent scenario.
   const nextStep = new URL(workspacePageHref(workspace.href, { scenarioStep: 'social' }), origin);
-  expect(readWorkspacePage(nextStep.search)).toMatchObject({ scenario: 'black-friday', scenarioRun: runId, scenarioStep: 'social', scenarioMode: null });
+  expect(readWorkspacePage(nextStep.search, nextStep.hash, nextStep.pathname)).toMatchObject({ scenario: 'black-friday', scenarioRun: runId, scenarioStep: 'social', scenarioMode: null });
 
   // Mode round-trips for 'agent', omits 'mode' for 'manual'/null, and clears when leaving.
   const agentMode = new URL(workspacePageHref(nextStep.href, { scenarioMode: 'agent' }), origin);
-  expect(agentMode.search).toBe(`?page=scenario&scenario=black-friday&run=${runId}&step=social&mode=agent&community=product-films`);
-  expect(readWorkspacePage(agentMode.search)).toMatchObject({
+  expect(agentMode.pathname + agentMode.search).toBe(`/scenarios/black-friday?run=${runId}&step=social&mode=agent&community=product-films`);
+  expect(readWorkspacePage(agentMode.search, agentMode.hash, agentMode.pathname)).toMatchObject({
     scenario: 'black-friday',
     scenarioRun: runId,
     scenarioStep: 'social',
     scenarioMode: 'agent',
   });
   const directAgent = new URL(workspacePageHref(origin, { scenario: 'black-friday', scenarioMode: 'agent' }), origin);
-  expect(directAgent.search).toBe('?page=scenario&scenario=black-friday&mode=agent&community=product-films');
-  expect(readWorkspacePage(directAgent.search).scenarioMode).toBe('agent');
+  expect(directAgent.pathname + directAgent.search).toBe('/scenarios/black-friday?mode=agent&community=product-films');
+  expect(readWorkspacePage(directAgent.search, directAgent.hash, directAgent.pathname).scenarioMode).toBe('agent');
 
   const manualOverlay = new URL(workspacePageHref(agentMode.href, { scenarioMode: 'manual' }), origin);
   expect(manualOverlay.searchParams.has('mode')).toBe(false);
-  expect(readWorkspacePage(manualOverlay.search)).toMatchObject({
+  expect(readWorkspacePage(manualOverlay.search, manualOverlay.hash, manualOverlay.pathname)).toMatchObject({
     scenario: 'black-friday',
     scenarioRun: runId,
     scenarioStep: 'social',
@@ -283,8 +302,9 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
 
   // Switching scenarios clears mode unless explicitly set.
   const switched = new URL(workspacePageHref(agentMode.href, { scenario: 'ai-influencer' }), origin);
+  expect(switched.pathname).toBe('/scenarios/ai-influencer');
   expect(switched.searchParams.has('mode')).toBe(false);
-  expect(readWorkspacePage(switched.search)).toMatchObject({ scenario: 'ai-influencer', scenarioMode: null });
+  expect(readWorkspacePage(switched.search, switched.hash, switched.pathname)).toMatchObject({ scenario: 'ai-influencer', scenarioMode: null });
 
   // Leaving scenario clears scenario, run, step, mode and category.
   const returned = new URL(workspacePageHref(agentMode.href, { explore: true }), origin);
@@ -314,27 +334,29 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
 });
 
 it.each([
-  ['text-to-image', '/?page=create&scene=text-to-image'],
-  ['image-edit', '/?page=create&scene=image-edit'],
-  ['text-to-video', '/?page=create&scene=text-to-video'],
-  ['image-to-video', '/?page=create&scene=image-to-video'],
-  ['music', '/?page=audio&scene=music'],
-  ['speech', '/?page=audio&scene=speech'],
+  ['text-to-image', '/create/text-to-image'],
+  ['image-edit', '/create/image-edit'],
+  ['text-to-video', '/create/text-to-video'],
+  ['image-to-video', '/create/image-to-video'],
+  ['music', '/audio/music'],
+  ['speech', '/audio/speech'],
 ] as const)('routes the %s media editor destination to the unified top-tab editor', (scene, href) => {
   const destination = mediaEditorDestination(scene);
   expect(workspacePageHref('http://localhost/?page=explore', { studio: destination })).toBe(href);
-  expect(readWorkspacePage(href.slice(1)).studio).toMatchObject({ scene: { id: scene } });
+  const parsed = new URL(href, 'http://localhost');
+  expect(readWorkspacePage(parsed.search, parsed.hash, parsed.pathname).studio).toMatchObject({ scene: { id: scene } });
   expect(mediaEditorDestination(studioScenes.find(item => item.id === scene)!, 'p:m')).toMatchObject({ scene: { id: scene }, model: 'p:m' });
 });
 
 it('keeps a Cinema template on the unified video editor and on legacy Cinema links', () => {
   const create = workspacePageHref('http://localhost/?page=cinema', { studio: mediaEditorDestination('text-to-video'), cinemaTemplate: 'drink-splash-slow-motion' });
-  expect(create).toBe('/?page=create&scene=text-to-video&cinemaTemplate=drink-splash-slow-motion');
-  expect(readWorkspacePage(create.slice(1))).toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { landing: true, scene: { id: 'text-to-video' } } });
+  expect(create).toBe('/create/text-to-video?cinemaTemplate=drink-splash-slow-motion');
+  const parsedCreate = new URL(create, 'http://localhost');
+  expect(readWorkspacePage(parsedCreate.search, parsedCreate.hash, parsedCreate.pathname)).toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { landing: true, scene: { id: 'text-to-video' } } });
   expect(readWorkspacePage('?page=cinema&scene=text-to-video&cinemaTemplate=drink-splash-slow-motion'))
     .toMatchObject({ cinemaTemplate: 'drink-splash-slow-motion', studio: { studio: { id: 'cinema' }, scene: { id: 'text-to-video' } } });
   expect(readWorkspacePage('?page=create&scene=image-to-video&cinemaTemplate=drink-splash-slow-motion').cinemaTemplate).toBeUndefined();
-  expect(workspacePageHref('http://localhost/', { studio: mediaEditorDestination('image-to-video'), cinemaTemplate: 'drink-splash-slow-motion' })).toBe('/?page=create&scene=image-to-video');
+  expect(workspacePageHref('http://localhost/', { studio: mediaEditorDestination('image-to-video'), cinemaTemplate: 'drink-splash-slow-motion' })).toBe('/create/image-to-video');
 });
 
 it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'character'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
@@ -342,19 +364,22 @@ it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'charact
   expect(page).toMatchObject({ studio: { landing: true, scene: { id: scene }, model: 'p:m' } });
   expect(page.designScene).toBeUndefined();
   expect(isLegacyWorkspaceHref(`?page=design&scene=${scene}`, page)).toBe(true);
-  expect(workspacePageHref(`http://localhost/?page=design&scene=${scene}&model=p%3Am`, { studio: page.studio })).toBe(`/?page=create&scene=${scene}&model=p%3Am`);
+  expect(isLegacyWorkspaceHref('', page, `/design/${scene}`)).toBe(true);
+  expect(workspacePageHref(`http://localhost/?page=design&scene=${scene}&model=p%3Am`, { studio: page.studio })).toBe(`/create/${scene}?model=p%3Am`);
 });
 
 it.each(['prototype', 'deck', 'document', 'web-clone', 'projects'])('keeps the Design Studio %s page for HTML design work', scene => {
   const page = readWorkspacePage(`?page=design&scene=${scene}`);
   expect(page).toMatchObject({ designScene: scene, studio: null });
   expect(isLegacyWorkspaceHref(`?page=design&scene=${scene}`, page)).toBe(false);
+  expect(isLegacyWorkspaceHref('', page, `/design/${scene}`)).toBe(false);
 });
 
 it('restores a Skill brief in the unified editor and ignores unknown Skills there', () => {
   const href = workspacePageHref('http://localhost/?page=marketing&skill=openmotion-ad-script', { studio: mediaEditorDestination('text-to-video') });
-  expect(href).toBe('/?page=create&scene=text-to-video&skill=openmotion-ad-script');
-  expect(readWorkspacePage(href.slice(1))).toMatchObject({ skill: 'openmotion-ad-script', studio: { landing: true } });
+  expect(href).toBe('/create/text-to-video?skill=openmotion-ad-script');
+  const parsed = new URL(href, 'http://localhost');
+  expect(readWorkspacePage(parsed.search, parsed.hash, parsed.pathname)).toMatchObject({ skill: 'openmotion-ad-script', studio: { landing: true } });
   expect(readWorkspacePage('?page=create&scene=text-to-video&skill=unknown').skill).toBeNull();
 });
 

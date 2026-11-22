@@ -42,6 +42,11 @@ test('whitelisted SPA routes match while backend, missing asset, and source path
     '/design/prototype',
     '/design/projects/demo-1',
     '/sound/speech',
+    '/audio',
+    '/audio/sfx',
+    '/studios/3d',
+    '/studios/3d/text-to-video',
+    '/studios/game',
     '/scenarios',
     '/scenarios/product-launch',
     '/game',
@@ -103,6 +108,16 @@ test('standalone SPA paths skip native Studio pre-launch while editor paths extr
   assert.equal(isStandaloneSpaPath('/models/veo-3', '?session=conversation'), true);
   assert.equal(isStandaloneSpaPath('/model-hub', '?session=conversation'), false);
   assert.equal(isStandaloneSpaPath('/models', '?session=conversation'), false);
+  assert.equal(isStandaloneSpaPath('/audio/sfx', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/sound', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/studios/3d', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/studios/3d/text-to-video', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/studios/game', '?session=conversation&game=done'), true);
+  assert.equal(isStandaloneSpaPath('/studios', '?session=conversation'), false);
+  assert.equal(isStandaloneSpaPath('/studios/unknown', '?session=conversation'), false);
+  assert.equal(isStandaloneSpaPath('/create/text-to-image', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/create/missing', '?session=conversation'), false);
+  assert.equal(isStandaloneSpaPath('/create', '?session=conversation'), false);
   assert.equal(isStandaloneSpaPath('/', '?page=settings&section=providers'), true);
 
   assert.equal(isStandaloneSpaPath('/', '?project=project'), false);
@@ -123,6 +138,12 @@ test('spaPathnameToSearch maps semantic SPA pathnames to workspace query paramet
   assert.equal(spaPathnameToSearch('/models/fal%3Afal-ai%2Fsuno%2Fv4'), '?page=model&model=fal%3Afal-ai%2Fsuno%2Fv4');
   assert.equal(spaPathnameToSearch('/sound'), '?page=sound&home=1');
   assert.equal(spaPathnameToSearch('/sound/speech'), '?page=sound&scene=speech');
+  assert.equal(spaPathnameToSearch('/audio'), '?page=audio');
+  assert.equal(spaPathnameToSearch('/audio/sfx'), '?page=audio&scene=sfx');
+  assert.equal(spaPathnameToSearch('/studios/3d'), '?page=3d');
+  assert.equal(spaPathnameToSearch('/studios/3d/text-to-video'), '?page=3d&scene=text-to-video');
+  assert.equal(spaPathnameToSearch('/studios/game', '?game=done'), '?game=done&page=game');
+  assert.equal(spaPathnameToSearch('/studios'), '?page=studios');
   assert.equal(spaPathnameToSearch('/templates'), '?templates=1');
   assert.equal(spaPathnameToSearch('/editor/proj-1'), '?page=editor&project=proj-1');
   assert.equal(spaPathnameToSearch('/', '?page=assets'), '?page=assets');

@@ -54,6 +54,11 @@ describe('createAppRouter semantic route handles', () => {
     ['/design/projects/design-1', 'design', false, true],
     ['/sound', 'studio', false, true],
     ['/sound/speech', 'studio', false, true],
+    ['/audio', 'studio', false, true],
+    ['/audio/sfx', 'studio', false, true],
+    ['/studios/game', 'game', false, true],
+    ['/studios/3d', 'skills', false, true],
+    ['/studios/3d/text-to-video', 'studio', false, true],
     ['/scenarios', 'scenarios', false, true],
     ['/scenarios/launch-video', 'scenario', false, true],
     ['/game', 'game', false, true],
@@ -393,7 +398,7 @@ describe('StudioRouterProvider StrictMode and location.state bridge', () => {
 });
 
 describe('LegacyQueryRedirect', () => {
-  it('computes canonical semantic paths for migrated Phase 4a legacy query URLs while preserving orthogonal params and hashes', () => {
+  it('computes canonical semantic paths for migrated Phase 4a and 4b legacy query URLs while preserving orthogonal params and hashes', () => {
     expect(resolveLegacyQueryRedirect('/', '?page=brand-kit&kit=mine&embed=1', '#project/p1')).toBe(
       '/brand-kit/mine?embed=1#project/p1',
     );
@@ -415,9 +420,56 @@ describe('LegacyQueryRedirect', () => {
     );
     expect(resolveLegacyQueryRedirect('/', '?page=skills')).toBe('/skills');
 
-    // Non-migrated or incomplete legacy URLs remain untouched in Phase 4a.
+    // Phase 4b — creative studios domain
+    expect(resolveLegacyQueryRedirect('/', '?page=assets&asset=a1&version=v2&embed=1', '#project/p1')).toBe(
+      '/assets/a1?embed=1&version=v2#project/p1',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=assets')).toBe('/assets');
+    expect(resolveLegacyQueryRedirect('/', '?page=scenarios&category=campaign&community=product-films')).toBe(
+      '/scenarios?category=campaign&community=product-films',
+    );
+    expect(
+      resolveLegacyQueryRedirect(
+        '/',
+        '?page=scenario&scenario=black-friday&run=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee&step=sales-film&mode=agent',
+      ),
+    ).toBe('/scenarios/black-friday?run=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee&step=sales-film&mode=agent');
+    expect(resolveLegacyQueryRedirect('/', '?page=design')).toBe('/design/prototype');
+    expect(resolveLegacyQueryRedirect('/', '?page=design&scene=deck')).toBe('/design/deck');
+    expect(resolveLegacyQueryRedirect('/', '?page=design&scene=projects&designProject=d-1')).toBe(
+      '/design/projects/d-1',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=design&scene=deck&designProject=d-1')).toBe(
+      '/design/projects/d-1?scene=deck',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=design&scene=image-edit&model=p%3Am')).toBe(
+      '/create/image-edit?model=p%3Am',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=cinema')).toBe('/cinema');
+    expect(resolveLegacyQueryRedirect('/', '?page=cinema&scene=text-to-video&model=cloud%3Afilm%2Fv2')).toBe(
+      '/cinema/text-to-video?model=cloud%3Afilm%2Fv2',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=sound&home=1')).toBe('/sound');
+    expect(resolveLegacyQueryRedirect('/', '?page=sound&scene=sfx')).toBe('/sound/sfx');
+    expect(resolveLegacyQueryRedirect('/', '?page=audio&scene=music&model=fal%3Asuno')).toBe(
+      '/audio/music?model=fal%3Asuno',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=create&scene=text-to-image&embed=1')).toBe(
+      '/create/text-to-image?embed=1',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=create&scene=shot-image')).toBe('/create/text-to-image');
+    expect(resolveLegacyQueryRedirect('/', '?page=3d&skill=three-js&community=3d-motion')).toBe(
+      '/studios/3d?skill=three-js&community=3d-motion',
+    );
+    expect(resolveLegacyQueryRedirect('/', '?page=3d&scene=text-to-video')).toBe('/studios/3d/text-to-video');
+    expect(resolveLegacyQueryRedirect('/', '?page=game&game=done')).toBe('/studios/game?game=done');
+    expect(resolveLegacyQueryRedirect('/', '?page=shorts')).toBe('/studios/shorts');
+
+    // Non-migrated (Phase 4c) or incomplete legacy URLs remain untouched in Phase 4b.
+    expect(resolveLegacyQueryRedirect('/', '?page=explore')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?page=motion')).toBeNull();
     expect(resolveLegacyQueryRedirect('/', '?page=settings&section=mcp')).toBeNull();
-    expect(resolveLegacyQueryRedirect('/', '?page=cinema&scene=text-to-video')).toBeNull();
+    expect(resolveLegacyQueryRedirect('/', '?page=create&scene=missing')).toBeNull();
     expect(resolveLegacyQueryRedirect('/', '?page=model')).toBeNull();
     expect(resolveLegacyQueryRedirect('/', '?page=model-hub')).toBeNull();
     expect(resolveLegacyQueryRedirect('/mcp-setup', '?host=claude')).toBeNull();

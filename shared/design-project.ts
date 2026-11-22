@@ -134,7 +134,7 @@ export const designRoutes = {
 } as const;
 
 /** Studio editor deep link. Design projects never use the Motion #project/ hash. */
-export const designEditorHref = (projectId: string) => `/?page=design&scene=projects&designProject=${encodeURIComponent(projectId)}`;
+export const designEditorHref = (projectId: string) => `/design/projects/${encodeURIComponent(projectId)}`;
 
 const fence = (value: string) => value.replace(/```/g, '`\u200b``');
 

@@ -74,7 +74,7 @@ test('Phase1Service dispatches all 4 openmotion_design_* tools end-to-end', asyn
     assert.equal(resolved.comment.status, 'resolved');
 
     const opened = await service.call('openmotion_design_project', { action: 'open', projectId: pid });
-    assert.equal(opened.editorUrl, `http://127.0.0.1:4321/?page=design&scene=projects&designProject=${pid}`);
+    assert.equal(opened.editorUrl, `http://127.0.0.1:4321/design/projects/${pid}`);
     assert.equal(opened.openComments, 0);
   } finally {
     await rm(dir, { recursive: true, force: true });

@@ -928,7 +928,7 @@ export function runReadme(
     const st = run.steps[step.id];
     const links: string[] = [];
     if (st?.links.designProjectId) {
-      const editorPath = `/?page=design&scene=projects&designProject=${encodeURIComponent(st.links.designProjectId)}`;
+      const editorPath = `/design/projects/${encodeURIComponent(st.links.designProjectId)}`;
       links.push(`Design editor: ${origin ? origin + editorPath : editorPath}`);
     }
     if (st?.links.motionProjectId) {

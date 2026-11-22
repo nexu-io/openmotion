@@ -47,7 +47,7 @@ import { useGameTitle } from './GameStudio';
 
 const statusLabels: Record<GameCard['status'], string> = { draft: 'Waiting for your Agent', building: 'Agent is running', ready: 'Ready to publish', failed: 'Not finished', published: 'Published' };
 
-/** Game Studio opens the game's detail page from `?page=game&game=<id>`. */
+/** Game Studio opens the game's detail page from `/studios/game?game=<id>` (legacy `?page=game&game=<id>` redirects). */
 export function openGameStudio(id?: string) {
   const studio = findTechniqueStudio('game');
   if (!studio) return;

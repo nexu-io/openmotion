@@ -7,11 +7,26 @@ import { workspacePageHref } from '../motion/workspacePageRouting';
  * inbound `/` redirects stay in lockstep with zero double-navigation.
  */
 const MIGRATED_LEGACY_QUERY_PAGES = new Set([
+  // Phase 4a — low-coupling standalone surfaces
   'brand-kit',
   'mcp',
   'model',
   'model-hub',
   'skills',
+  // Phase 4b — creative studios domain
+  'assets',
+  'audio',
+  'cinema',
+  'create',
+  'design',
+  'scenarios',
+  'scenario',
+  'sound',
+  'shorts',
+  'marketing',
+  'explainer',
+  '3d',
+  'game',
 ]);
 
 /**

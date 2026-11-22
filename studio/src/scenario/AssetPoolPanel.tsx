@@ -555,7 +555,7 @@ export function AssetPoolPanel({
     } else if (item.ref.type === 'motion') {
       void onOpenMotionProject(item.ref.projectId);
     } else if (item.ref.type === 'asset') {
-      const url = `/?page=assets&asset=${encodeURIComponent(item.ref.assetId)}`;
+      const url = `/assets/${encodeURIComponent(item.ref.assetId)}`;
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };

@@ -34,6 +34,8 @@ export const SPA_ROUTE_PREFIXES = [
   '/cinema',
   '/design',
   '/sound',
+  '/audio',
+  '/studios',
   '/scenarios',
   '/game',
   '/skills',
@@ -153,6 +155,15 @@ export function spaPathnameToSearch(pathname: string, search = ''): string {
         query.set('page', 'sound');
         if (second && !query.has('scene')) query.set('scene', second);
         else if (!second && !query.has('scene') && !query.has('home')) query.set('home', '1');
+        break;
+      case 'audio':
+        query.set('page', 'audio');
+        if (second && !query.has('scene')) query.set('scene', second);
+        break;
+      case 'studios':
+        query.set('page', second || 'studios');
+        if (second && third && !query.has('scene')) query.set('scene', third);
+        else if (second === 'sound' && !third && !query.has('scene') && !query.has('home')) query.set('home', '1');
         break;
       case 'scenarios':
         if (second) {

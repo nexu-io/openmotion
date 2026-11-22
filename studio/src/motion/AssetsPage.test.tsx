@@ -875,7 +875,7 @@ it('shows games made in Game Studio above the library and in their own category'
   expect(container.querySelectorAll('.om-asset-tile')).toHaveLength(2);
 
   await click('Open Station Defense in Game Studio');
-  expect(new URL(location.href).searchParams.get('page')).toBe('game');
+  expect(new URL(location.href).pathname).toBe('/studios/game');
   expect(new URL(location.href).searchParams.get('game')).toBe('done');
 });
 
@@ -887,7 +887,7 @@ it('hides the games row without games and offers Game Studio from the empty cate
   expect(container.textContent).toContain('No games yet');
   await click('Go to Game Studio');
   const url = new URL(location.href);
-  expect(url.searchParams.get('page')).toBe('game');
+  expect(url.pathname).toBe('/studios/game');
   expect(url.searchParams.has('game')).toBe(false);
 });
 

@@ -13,9 +13,10 @@ import { findScenario, findScenarioStep, scenarioCategories, type ScenarioCatego
 
 const scenarioRunUuidPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 
-/** Query pages that are parsed for compatibility and rewritten to their current address. */
-export function isLegacyWorkspaceHref(search: string, page: WorkspacePage) {
-  return new URLSearchParams(search).get('page') === 'design' && Boolean(page.studio?.landing);
+/** Query or semantic Design Studio image URLs parsed for compatibility and rewritten to `/create/:scene`. */
+export function isLegacyWorkspaceHref(search: string, page: WorkspacePage, pathname = '') {
+  const effectiveSearch = pathname && pathname !== '/' ? spaPathnameToSearch(pathname, search) : search;
+  return new URLSearchParams(effectiveSearch).get('page') === 'design' && Boolean(page.studio?.landing);
 }
 
 /** Application pages live in the query; the project hash belongs to the editor. */
@@ -93,8 +94,10 @@ export function readWorkspacePage(search: string, hash = '', pathname = ''): Wor
 
 export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): string {
   const url = new URL(href), current = readWorkspacePage(url.search, url.hash, url.pathname), page = { ...current, ...patch };
+  const currentSearchPage = new URLSearchParams(
+    url.pathname !== '/' && isSpaRoutePath(url.pathname) ? spaPathnameToSearch(url.pathname, url.search) : url.search,
+  ).get('page');
   if (url.pathname !== '/' && isSpaRoutePath(url.pathname)) url.pathname = '/';
-  const currentSearchPage = url.searchParams.get('page');
   for (const key of ['page', 'home', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject', 'cinemaTemplate', 'scenario', 'run', 'step', 'mode', 'category']) url.searchParams.delete(key);
   if (current.settings === 'mcp' || page.settings === 'mcp') url.searchParams.delete('example');
   if (currentSearchPage === 'api') url.searchParams.delete('tool');
@@ -130,6 +133,7 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   } else if ('soundTab' in patch) {
     page.soundTab = page.studio?.studio.id === 'sound' && !page.studio.landing && isExtendedSoundTab(patch.soundTab) ? patch.soundTab : null;
   }
+  if (current.specialty?.id === 'game' && page.specialty?.id !== 'game') url.searchParams.delete('game');
   const inSettings = Boolean(page.settings) && page.settings !== 'brand-kit' && (page.settings !== 'mcp' || page.mcpInSettings);
   if (!inSettings) url.searchParams.delete('entry_from');
   if (page.explore) {
@@ -137,36 +141,51 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
   } else if (page.motion) {
     url.searchParams.set('page', 'motion');
   } else if (page.cinemaLanding) {
-    url.searchParams.set('page', 'cinema');
+    url.pathname = '/cinema';
   } else if (page.designScene) {
-    url.searchParams.set('page', 'design');
-    url.searchParams.set('scene', page.designScene);
-    if (page.designProject) url.searchParams.set('designProject', page.designProject);
+    if (page.designProject) {
+      url.pathname = `/design/projects/${encodeURIComponent(page.designProject)}`;
+      if (page.designScene !== 'projects') url.searchParams.set('scene', page.designScene);
+    } else {
+      url.pathname = `/design/${encodeURIComponent(page.designScene)}`;
+    }
   } else if (page.modelOverview) {
     url.pathname = `/models/${encodeURIComponent(page.modelOverview)}`;
   } else if (page.modelHub) {
     url.pathname = `/model-hub/${encodeURIComponent(page.modelHub)}`;
   } else if (page.specialty) {
-    url.searchParams.set('page', page.specialty.id);
+    url.pathname = `/studios/${encodeURIComponent(page.specialty.id)}`;
     if (page.specialty.techniques.some(id => id === page.skill)) url.searchParams.set('skill', page.skill!);
   } else if (page.scenario) {
     const matched = findScenario(page.scenario);
     if (matched) {
-      url.searchParams.set('page', 'scenario');
-      url.searchParams.set('scenario', matched.id);
+      url.pathname = `/scenarios/${encodeURIComponent(matched.id)}`;
       if (page.scenarioRun && scenarioRunUuidPattern.test(page.scenarioRun)) url.searchParams.set('run', page.scenarioRun);
       if (page.scenarioStep && findScenarioStep(matched, page.scenarioStep)) url.searchParams.set('step', page.scenarioStep);
       if (page.scenarioMode === 'agent') url.searchParams.set('mode', 'agent');
     } else {
-      url.searchParams.set('page', 'scenarios');
+      url.pathname = '/scenarios';
     }
   } else if (page.scenarioHub) {
-    url.searchParams.set('page', 'scenarios');
+    url.pathname = '/scenarios';
     if (page.scenarioCategory) url.searchParams.set('category', page.scenarioCategory);
   } else if (page.studio) {
-    url.searchParams.set('page', page.studio.landing ? 'create' : page.studio.mediaTab ? page.studio.scene.modality : page.studio.studio.id);
-    if (page.studio.home) url.searchParams.set('home', '1');
-    url.searchParams.set('scene', page.studio.studio.id === 'sound' && !page.studio.landing && !page.studio.home && page.soundTab ? page.soundTab : page.studio.scene.id);
+    const soundSegment = page.studio.studio.id === 'sound' && !page.studio.landing && !page.studio.home && page.soundTab
+      ? page.soundTab
+      : page.studio.scene.id;
+    if (page.studio.landing) {
+      url.pathname = `/create/${encodeURIComponent(page.studio.scene.id)}`;
+    } else if (page.studio.mediaTab) {
+      url.pathname = `/${encodeURIComponent(page.studio.scene.modality)}/${encodeURIComponent(soundSegment)}`;
+    } else if (page.studio.studio.id === 'sound') {
+      url.pathname = page.studio.home ? '/sound' : `/sound/${encodeURIComponent(soundSegment)}`;
+    } else if (page.studio.studio.id === 'cinema') {
+      url.pathname = `/cinema/${encodeURIComponent(page.studio.scene.id)}`;
+    } else if (page.studio.studio.surface === 'techniques') {
+      url.pathname = `/studios/${encodeURIComponent(page.studio.studio.id)}/${encodeURIComponent(page.studio.scene.id)}`;
+    } else {
+      url.pathname = `/${encodeURIComponent(page.studio.studio.id)}/${encodeURIComponent(page.studio.scene.id)}`;
+    }
     if (page.studio.studio.surface === 'techniques' ? page.studio.studio.techniques.some(id => id === page.skill) : page.studio.landing && isStudioTechnique(page.skill)) url.searchParams.set('skill', page.skill!);
     if (page.studio.model) url.searchParams.set('model', page.studio.model);
     if (findCinemaTemplate(page.cinemaTemplate)?.scene === page.studio.scene.id && (page.studio.landing || page.studio.studio.id === 'cinema')) url.searchParams.set('cinemaTemplate', page.cinemaTemplate!);
@@ -174,11 +193,8 @@ export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): 
     url.pathname = page.skill ? `/skills/${encodeURIComponent(page.skill)}` : '/skills';
     if (page.skillCategory) url.searchParams.set('category', page.skillCategory);
   } else if (page.assets) {
-    url.searchParams.set('page', 'assets');
-    if (page.assetId) {
-      url.searchParams.set('asset', page.assetId);
-      if (page.assetVersion) url.searchParams.set('version', page.assetVersion);
-    }
+    url.pathname = page.assetId ? `/assets/${encodeURIComponent(page.assetId)}` : '/assets';
+    if (page.assetId && page.assetVersion) url.searchParams.set('version', page.assetVersion);
   } else if (page.settings === 'brand-kit') {
     url.pathname = page.brandKit ? `/brand-kit/${encodeURIComponent(page.brandKit)}` : '/brand-kit';
   } else if (page.settings === 'mcp') {

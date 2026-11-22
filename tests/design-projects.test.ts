@@ -23,7 +23,7 @@ test('design project lifecycle: create blank/template, revision conflict, idempo
     assert.equal(created.versionLabel, 'v1');
     assert(created.files.some(f => f.path === 'index.html'));
     assert(created.files.some(f => f.path === 'DESIGN.md'));
-    assert(created.editorUrl.includes(`designProject=${created.id}`));
+    assert.equal(created.editorUrl, `http://127.0.0.1:4100/design/projects/${created.id}`);
 
     // Replay same requestId returns identical project without duplicating.
     const replayed = await service.create({ requestId: 'req-create-1', scenario: 'prototype', title: 'Landing Demo', designSystemId: 'stripe' }, 'http://127.0.0.1:4100');

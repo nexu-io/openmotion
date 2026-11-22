@@ -108,7 +108,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     };
   }, [routerLocation]);
   useEffect(() => {
-    if (isLegacyWorkspaceHref(location.search, page)) writeWorkspaceHistory(workspacePageHref(location.href, { studio: page.studio }), true);
+    if (isLegacyWorkspaceHref(location.search, page, location.pathname)) writeWorkspaceHistory(workspacePageHref(location.href, { studio: page.studio }), true);
   }, [page]);
   const navigatePage = useCallback((patch: Partial<WorkspacePage>, replace = false, mode?: 'from-page' | 'keep') => {
     const current = new URL(location.href);

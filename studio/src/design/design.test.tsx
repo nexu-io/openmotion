@@ -100,7 +100,21 @@ describe('Design Studio client, bridge and routing', () => {
     expect(editor.studio).toBeNull();
 
     const href = workspacePageHref('http://localhost/?page=explore', { designScene: 'deck', designProject: projectId });
-    expect(href).toBe(`/?page=design&scene=deck&designProject=${projectId}`);
+    expect(href).toBe(`/design/projects/${projectId}?scene=deck`);
+    const parsedDeckProject = new URL(href, 'http://localhost');
+    expect(readWorkspacePage(parsedDeckProject.search, parsedDeckProject.hash, parsedDeckProject.pathname)).toMatchObject({
+      designScene: 'deck',
+      designProject: projectId,
+      studio: null,
+    });
+    const projectsHref = workspacePageHref('http://localhost/?page=explore', { designScene: 'projects', designProject: projectId });
+    expect(projectsHref).toBe(`/design/projects/${projectId}`);
+    const parsedProjectsEditor = new URL(projectsHref, 'http://localhost');
+    expect(readWorkspacePage(parsedProjectsEditor.search, parsedProjectsEditor.hash, parsedProjectsEditor.pathname)).toMatchObject({
+      designScene: 'projects',
+      designProject: projectId,
+      studio: null,
+    });
   });
 });
 
