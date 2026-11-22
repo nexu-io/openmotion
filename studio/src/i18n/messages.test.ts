@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { dictionaries, languages, translate, mvpMessages, isKnownMessage, sourceMessage } from './messages';
+import { languages, translate, isKnownMessage, sourceMessage } from './messages';
+import { dictionaries, mvpMessages } from './sourceCatalog';
 import mvpUi from './mvp-ui.json';
 import errorUi from './error-ui.json';
 import settingsUi from './settings-ui.json';

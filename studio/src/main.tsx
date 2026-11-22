@@ -26,6 +26,7 @@ import { MotionStudioHost } from "./motion/MotionStudioHost";
 import { initializeDiagnostics, recordBrowserDiagnostic } from './motion/diagnostics';
 import { bindEmbeddedStudioTheme } from './utils/studioTheme';
 import { bindVitePreloadErrorReload, lazyWithChunkReload } from './utils/chunkReload';
+import { ensureLocaleLoaded, isLocaleLoaded, readLocale } from './i18n/I18n';
 
 const ComponentInspector = new URLSearchParams(location.search).get('debug') === 'ui'
   ? lazyWithChunkReload(() => import('./components/ComponentInspector'))
@@ -137,17 +138,28 @@ window.addEventListener("unhandledrejection", (event) => {
   recordBrowserDiagnostic('unhandled_rejection', props.error_message, props.stack_trace ?? '');
 });
 
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    {/* One icon size and weight for the whole app, taken from the theme file.
-        Icons that pass their own size or weight still win. */}
-    <IconContext.Provider value={readIconTokens()}>
-      <ShowThemeToggle.Provider value>
-        <MotionStudioHost>
-          <MotionApp />
-          {ComponentInspector && <Suspense fallback={null}><ComponentInspector /></Suspense>}
-        </MotionStudioHost>
-      </ShowThemeToggle.Provider>
-    </IconContext.Provider>
-  </StrictMode>,
-);
+function mountStudio() {
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      {/* One icon size and weight for the whole app, taken from the theme file.
+          Icons that pass their own size or weight still win. */}
+      <IconContext.Provider value={readIconTokens()}>
+        <ShowThemeToggle.Provider value>
+          <MotionStudioHost>
+            <MotionApp />
+            {ComponentInspector && <Suspense fallback={null}><ComponentInspector /></Suspense>}
+          </MotionStudioHost>
+        </ShowThemeToggle.Provider>
+      </IconContext.Provider>
+    </StrictMode>,
+  );
+}
+
+const initialLocale = readLocale();
+if (isLocaleLoaded(initialLocale)) {
+  mountStudio();
+} else {
+  // Keep index.html's native loading splash visible while the active locale's
+  // lazy dictionary downloads so first paint is localized without an English flash.
+  void ensureLocaleLoaded(initialLocale).catch(() => {}).finally(mountStudio);
+}

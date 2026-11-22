@@ -30,6 +30,7 @@
 - [Scenario workflows: Topics, Campaigns, Roles and shared asset pool](scenario-workflows.md)
 - [editor-fork.md](editor-fork.md)
 - [Studio routing and lazy-loading architecture](routing.md)
+- [Studio internationalization (i18n) architecture and developer guide](i18n.md)
 - [hyperframes.md](hyperframes.md)
 - [mcp-phase1-tools.md](mcp-phase1-tools.md)
 - [Project import quick start, offline sharing and ZIP format](project-archives.md)

@@ -64,3 +64,7 @@ Follow [Core capabilities and shared APIs](AGENTS.md#core-capabilities-and-share
 ## Studio routing and shell boundaries
 
 Follow [Studio routing and shell boundaries](AGENTS.md#studio-routing-and-shell-boundaries) and [docs/routing.md](docs/routing.md). Register every Studio page lazily in `studio/src/router/lazyPages.ts` (`LAZY_PAGE_MODULE_PATHS`), keep `WorkspaceFrame.tsx` free of static page imports and parser barrels, avoid reserved backend/cloud prefixes (including `/mcp`), and verify `studio/src/shellBoundary.test.ts` on routing or shell edits.
+
+## Studio internationalization (i18n)
+
+Follow [Studio internationalization (i18n)](AGENTS.md#studio-internationalization-i18n) and [docs/i18n.md](docs/i18n.md). Keep feature copy in `studio/src/i18n/*-ui.json`, register any new module in `studio/src/i18n/manifest.ts` with all 10 non-English locales and intact `{var}` placeholders, never statically import locale JSON or `sourceCatalog.ts` from runtime code, avoid new `locale === 'zh-CN'` UI copy branches, and run `npm run check` plus `studio/src/shellBoundary.test.ts`.

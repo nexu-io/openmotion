@@ -94,6 +94,7 @@ function collectStaticImportGraph(entryFile: string): {
 
   while (queue.length > 0) {
     const current = queue.shift()!;
+    if (!/\.(?:[cm]?[jt]sx?)$/i.test(current)) continue;
     const source = readFileSync(current, "utf8");
     for (const specifier of collectRuntimeSpecifiers(source, current)) {
       if (specifier.startsWith(".")) {
@@ -138,12 +139,29 @@ describe("Studio entry shell dependency boundary", () => {
     const forbiddenEditorModules = [
       "utils/sourcePatcher.ts",
       "utils/studioHelpers.ts",
+      "i18n/sourceCatalog.ts",
+      "i18n/skill-library/index.ts",
       ...LAZY_PAGE_MODULE_PATHS,
     ];
     for (const rel of forbiddenEditorModules) {
       const fullPath = path.resolve(studioSrcDir, rel);
       expect(existsSync(fullPath), `guarded module must exist: ${rel}`).toBe(true);
       expect(graph.files.has(fullPath), `main.tsx must not statically import ${rel}`).toBe(false);
+    }
+
+    // Ensure no raw Studio i18n locale JSON files or per-locale virtual bundles are statically pulled into main.tsx.
+    const i18nDir = path.resolve(studioSrcDir, "i18n") + path.sep;
+    for (const file of graph.files) {
+      expect(
+        file.startsWith(i18nDir) && file.endsWith(".json"),
+        `main.tsx must not statically import locale dictionary JSON: ${file}`,
+      ).toBe(false);
+    }
+    for (const ext of graph.externals) {
+      expect(
+        ext.startsWith("virtual:openmotion-i18n/locale/"),
+        `main.tsx must load per-locale virtual chunks dynamically, not statically: ${ext}`,
+      ).toBe(false);
     }
   });
 

@@ -5,13 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveDesignSystemFile } from '../packages/design-system/index.js';
+import { openmotionI18nPlugin } from './vite-i18n-plugin';
 
 const local = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 
 export default defineConfig({
   base: '/',
   root: local('./'),
-  plugins: [react(), tailwindcss(), {
+  plugins: [react(), tailwindcss(), openmotionI18nPlugin(), {
     name: 'openmotion-design-system',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {

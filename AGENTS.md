@@ -126,6 +126,17 @@ Follow [Studio routing and lazy-loading architecture](docs/routing.md) whenever 
 
 `AGENTS.md` owns this requirement; `CLAUDE.md` links here. Apply it to all Studio routing and shell work.
 
+## Studio internationalization (i18n)
+
+Follow [Studio internationalization architecture and developer guide](docs/i18n.md) whenever adding or changing Studio copy or localization files.
+
+1. **Author by module, bundle by locale.** Keep translations organized by feature under `studio/src/i18n/*-ui.json` and register every new module file in `studio/src/i18n/manifest.ts` (`I18N_EXTENSION_SOURCES`). `studio/vite-i18n-plugin.ts` transposes them at build time into 10 independent lazy locale chunks (`en` stays 0 KB).
+2. **Never statically import Studio locale JSON in runtime code.** Production modules must consume translations through `useI18n()` or `translate()` and must never statically import `studio/src/i18n/*.json`, `skill-library/*`, or `sourceCatalog.ts`. `studio/src/shellBoundary.test.ts` enforces this boundary.
+3. **Complete translations, exact placeholders, no hardcoded bilingual branches.** Provide all 10 non-English locales for every new UI JSON module, keep `{var}` placeholders intact, avoid redefining existing keys with conflicting translations across files, and do not add new `locale === 'zh-CN'` UI copy branches.
+4. **Verify i18n gates.** Run `npm run check` (`scripts/check-i18n.ts`), `studio/src/shellBoundary.test.ts`, and affected `studio/src/i18n/*.test.*` suites before finishing.
+
+`AGENTS.md` owns this requirement; `CLAUDE.md` links here. Apply it to all Studio localization work.
+
 ## Product architecture review
 
 For every change, review the entire [product architecture](docs/product/architecture.md) and decide whether it still accurately describes the product. Consider positioning, core user flows, module responsibilities, dependencies, data and API boundaries, implemented capabilities, and current limitations together.
