@@ -3,12 +3,14 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { gameGenres, gameSettings, gameStyles, type GameCard, type GameCreated, type GameGenre, type GameSetting, type GameStyle } from '../../../../shared/game-contract';
+import { preservePresentation } from '../../../../shared/workspace-url';
 import { StudioToastViewport } from '../../components/StudioToastViewport';
 import { useToast } from '../../hooks/useToast';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
 import { WorkspaceBack } from '../WorkspaceBack';
 import { MotionIcon } from '../icons';
+import { projectHref } from '../workspaceRouting';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { bundledGames, communityGames, communityRemixPrompt, composeBrief, coverUrl, formatPlays, gameApi, gameSource, storedInstruction, genreCovers, genreLabels, settingCovers, styleCovers, genrePlaceholders, isLocalOnly, playableUrl, rememberInstruction, settingLabels, styleLabels } from './gameCatalog';
 import './gameStudio.css';
@@ -263,6 +265,11 @@ export function useGameTitle() {
     : game.title;
 }
 
+/** Canonical editor URL for opening a game's rendered trailer project in Motion. */
+export function trailerProjectHref(projectId: string, currentSearch = ''): string {
+  return preservePresentation(projectHref(projectId), currentSearch);
+}
+
 // One-click trailers are hidden this release; the service and MCP tool stay available.
 const trailersEnabled = false;
 
@@ -348,7 +355,7 @@ function GameProject({ game, offline, onClose, onRemix, onChange, onOpenMcp, not
     try { onChange({ ...game, trailer: await gameApi.startTrailer(game.id) }); notify(t('Making the trailer. It takes a few minutes; you can keep playing.'), 'info'); }
     catch (error) { notify(t('The trailer could not be started: {reason}', { reason: (error as Error).message }), 'error'); }
   };
-  const openTrailerProject = () => { if (trailer?.projectId) window.location.assign(`${location.pathname}?project=${encodeURIComponent(trailer.projectId)}`); };
+  const openTrailerProject = () => { if (trailer?.projectId) window.location.assign(trailerProjectHref(trailer.projectId, location.search)); };
   useEffect(() => { close.current?.focus(); const key = (event: KeyboardEvent) => { if (event.key === 'Escape' && document.activeElement !== frame.current) onClose(); }; addEventListener('keydown', key); return () => removeEventListener('keydown', key); }, []);
   const act = (request: () => Promise<GameCard>) => offline ? notify(t('Start the local game service to save reactions.'), 'info') : void request().then(onChange).catch(() => notify(t('Could not save. Try again.'), 'error'));
   // Games are published to this computer only. The link is copied for local use and labelled as such.
