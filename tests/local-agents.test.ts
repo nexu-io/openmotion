@@ -17,7 +17,7 @@ import {
   validModelId,
   vibeConfigModels,
 } from '../gateway/agent-discovery.ts';
-import { generateCodexImage, resolveAgent } from '../gateway/agents.ts';
+import { detectAgents, generateCodexImage, resolveAgent } from '../gateway/agents.ts';
 import { terminalCommand } from '../gateway/agent-terminal.ts';
 import { localAgents } from '../shared/local-agents.ts';
 
@@ -354,4 +354,30 @@ test('Windows npm Agent shims are resolved and launched without a shell', async 
   Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
   assert.equal(await resolveAgent('codex'), shim, 'npm only installs a .cmd shim on Windows');
   assert.equal((await generateCodexImage('a red dot', root, new AbortController().signal)).toString(), 'png');
+});
+
+test('Unsupported prefix-relative Windows shims report the shim reason instead of a login prompt', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'motion-agent-win-unsupported-'));
+  // yarn/pnpm-style shim whose target escapes the shim's own %~dp0 prefix via `..`.
+  const shim = path.join(root, 'codex.cmd');
+  await writeFile(shim, '@ECHO off\r\n"%~dp0\\..\\vendor\\codex\\bin\\codex.js" %*\r\n');
+  await chmod(shim, 0o755);
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  const previousPath = process.env.PATH;
+  const previousCodexBin = process.env.CODEX_BIN;
+  t.after(async () => {
+    Object.defineProperty(process, 'platform', platform);
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    if (previousCodexBin === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = previousCodexBin;
+    await rm(root, { recursive: true, force: true });
+  });
+  delete process.env.CODEX_BIN;
+  process.env.PATH = root;
+  Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+  assert.equal(await resolveAgent('codex'), shim, 'the shim itself is detected');
+  const codex = (await detectAgents()).find(agent => agent.id === 'codex')!;
+  assert.equal(codex.installed, true);
+  assert.equal(codex.available, false);
+  assert.match(codex.reason, /Unsupported CLI shim/, 'probe() must surface the shim rejection');
+  assert.doesNotMatch(codex.reason, /login/i, 'an unsupported shim must not be reported as a login problem');
 });

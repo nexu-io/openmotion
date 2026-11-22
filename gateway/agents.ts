@@ -35,7 +35,8 @@ export async function resolveAgent(bin: string): Promise<string | null> {
 function probe(bin: string, args: string[]): Promise<{ ok: boolean; text: string }> {
   return agentInvocation(bin, args).then(
     command => new Promise(resolve => execFile(command.bin, command.args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr }))),
-    () => ({ ok: false, text: '' }),
+    // A rejected shim is a detection result, not a login problem, so keep the reason for detectAgents().
+    (error: unknown) => ({ ok: false, text: error instanceof Error ? error.message : '' }),
   );
 }
 export async function detectAgents(): Promise<Agent[]> {
@@ -44,11 +45,13 @@ export async function detectAgents(): Promise<Agent[]> {
     if (!bin) return { id, label, installed: false, authenticated: false, imageGeneration: false, available: false, reason: 'Not installed' };
     if (id !== 'codex') return { id, label, installed: true, authenticated: false, imageGeneration: false, available: false, reason: 'Detected; no built-in media adapter registered' };
     const [login, features, help] = await Promise.all([probe(bin, ['login', 'status']), probe(bin, ['features', 'list']), probe(bin, ['exec', '--help'])]);
+    // An unsupported shim fails every probe before launch; name it instead of implying an expired login.
+    const shimError = [login, features, help].find(result => !result.ok && /unsupported cli shim/i.test(result.text))?.text;
     const authenticated = login.ok && /logged in|authenticated/i.test(login.text);
     const imageGeneration = features.ok && /^image_generation\s+.*\btrue\s*$/m.test(features.text);
     const compatible = help.ok && help.text.includes('--ephemeral');
     return { id, label, installed: true, authenticated, imageGeneration, available: authenticated && imageGeneration && compatible,
-      reason: !authenticated ? 'Run codex login first' : !imageGeneration ? 'Codex image_generation is not enabled' : !compatible ? 'Update Codex to a CLI with ephemeral exec support' : 'Local Codex is authenticated and image generation is enabled' };
+      reason: shimError ?? (!authenticated ? 'Run codex login first' : !imageGeneration ? 'Codex image_generation is not enabled' : !compatible ? 'Update Codex to a CLI with ephemeral exec support' : 'Local Codex is authenticated and image generation is enabled') };
   }));
 }
 /** Invoke the user's CLI; never read, duplicate or refresh its OAuth credentials. */
