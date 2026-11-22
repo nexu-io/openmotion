@@ -1,5 +1,5 @@
 declare module 'virtual:openmotion-i18n/meta' {
-  export const knownKeyHashes: readonly string[];
+  export const knownMessageDeltas: readonly number[];
   export const legacyZhReverse: Readonly<Record<string, string>>;
 }
 

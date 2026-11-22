@@ -63,15 +63,22 @@ function buildLocaleDictionary(locale: NonEnglishLocale): Record<string, Message
 function buildMetaModule(): { code: string; watchFiles: string[] } {
   const zhDictionary = buildLocaleDictionary('zh-CN');
   const knownKeys = Object.keys(zhDictionary);
-  const hashSet = new Set<string>();
-  const knownKeyHashes: string[] = [];
+  const hashSet = new Set<number>();
+  const sortedHashes: number[] = [];
   for (const key of knownKeys) {
     const digest = hashMessageKey(key);
     if (hashSet.has(digest)) {
       throw new Error(`openmotion-i18n: hash collision detected while indexing message key "${key}"`);
     }
     hashSet.add(digest);
-    knownKeyHashes.push(digest);
+    sortedHashes.push(digest);
+  }
+  sortedHashes.sort((a, b) => a - b);
+  const knownMessageDeltas: number[] = [];
+  let prev = 0;
+  for (const digest of sortedHashes) {
+    knownMessageDeltas.push(digest - prev);
+    prev = digest;
   }
 
   const legacyZhReverse: Record<string, string> = {};
@@ -96,7 +103,7 @@ function buildMetaModule(): { code: string; watchFiles: string[] } {
   }
 
   const code = [
-    `export const knownKeyHashes = ${JSON.stringify(knownKeyHashes)};`,
+    `export const knownMessageDeltas = ${JSON.stringify(knownMessageDeltas)};`,
     `export const legacyZhReverse = ${JSON.stringify(legacyZhReverse)};`,
   ].join('\n');
 

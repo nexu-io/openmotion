@@ -1,4 +1,4 @@
-import { knownKeyHashes, legacyZhReverse } from 'virtual:openmotion-i18n/meta';
+import { knownMessageDeltas, legacyZhReverse } from 'virtual:openmotion-i18n/meta';
 import {
   NON_ENGLISH_LOCALES,
   hashMessageKey,
@@ -14,7 +14,15 @@ import {
 export { languages, isLocale, NON_ENGLISH_LOCALES };
 export type { Locale, NonEnglishLocale, MessageValues, Translate };
 
-const knownKeyHashSet = new Set<string>(knownKeyHashes);
+const knownKeyHashSet = (() => {
+  const set = new Set<number>();
+  let acc = 0;
+  for (let i = 0; i < knownMessageDeltas.length; i++) {
+    acc += knownMessageDeltas[i];
+    set.add(acc);
+  }
+  return set;
+})();
 const loadedDictionaries: Partial<Record<NonEnglishLocale, Readonly<Record<string, Message>>>> = {};
 const pendingLoads = new Map<NonEnglishLocale, Promise<void>>();
 const reverseIndexes: Partial<Record<NonEnglishLocale, Map<string, string>>> = {};

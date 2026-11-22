@@ -130,11 +130,12 @@ export const LEGACY_ZH_EXTRA_SOURCE_KEYS: readonly string[] = [
 ];
 
 /**
- * Deterministic 64-bit double-FNV-1a hash encoded as compact base36.
- * Used at build time and runtime for zero-bloat `isKnownMessage()` lookups
- * without embedding all 7,600+ English source strings in the entry bundle.
+ * Deterministic 53-bit double-FNV-1a integer hash (exact JS safe integer).
+ * Emitted as sorted delta-encoded numeric literals at build time for zero-bloat
+ * `isKnownMessage()` lookups without embedding 7,600+ source strings or
+ * alphanumeric tokens in the entry bundle.
  */
-export function hashMessageKey(key: string): string {
+export function hashMessageKey(key: string): number {
   let h1 = 0x811c9dc5;
   let h2 = 0x9e3779b9;
   for (let i = 0; i < key.length; i++) {
@@ -145,5 +146,5 @@ export function hashMessageKey(key: string): string {
     h2 = Math.imul(h2, 0x85ebca6b);
     h2 = (h2 << 13) | (h2 >>> 19);
   }
-  return `${(h1 >>> 0).toString(36)}.${(h2 >>> 0).toString(36)}`;
+  return (h1 >>> 0) * 0x200000 + (h2 & 0x1fffff);
 }
