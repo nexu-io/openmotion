@@ -96,7 +96,9 @@ export function isStandaloneSpaPath(pathname: string, search = '', hash = ''): b
   const normalized = normalizePathname(pathname);
   if (normalized === '/') return isWorkspaceSettingsPage(search, hash);
   if (matchesPrefix(normalized, '/editor')) return false;
-  return STANDALONE_SPA_PREFIXES.some(prefix => matchesPrefix(normalized, prefix));
+  if (!STANDALONE_SPA_PREFIXES.some(prefix => matchesPrefix(normalized, prefix))) return false;
+  if (normalized === '/templates') return true;
+  return isWorkspaceSettingsPage(spaPathnameToSearch(normalized, search), hash);
 }
 
 /** Extract the project ID from `/editor/:projectId`, if present. */

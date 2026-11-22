@@ -1,4 +1,5 @@
 import type { Model } from '../../../shared/gateway';
+import { isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
 import { creativeStudios, studioScenes, sceneDestination, modelDestination, mediaEditorDestination } from './creativeStudios';
 import { expect, it } from 'vitest';
@@ -206,13 +207,16 @@ it('restores each specialty brief, model overview and nested creator preview fro
   }
   const model = open(origin, { modelOverview: 'custom:provider/model' });
   expect(model.pathname).toBe('/models/custom%3Aprovider%2Fmodel');
+  expect(isStandaloneSpaPath(model.pathname, model.search, model.hash)).toBe(true);
   expect(readWorkspacePage(model.search, model.hash, model.pathname).modelOverview).toBe('custom:provider/model');
   expect(open(model.href, { explore: true }).href).toBe(origin);
   // A model hub is a standalone page, so a session's first artifact must not pull the viewer away from it.
   const hub = open(origin, { modelHub: 'gemini-4' });
   expect(hub.pathname).toBe('/model-hub/gemini-4');
+  expect(isStandaloneSpaPath(hub.pathname, hub.search, hub.hash)).toBe(true);
   expect(readWorkspacePage(hub.search, hub.hash, hub.pathname).modelHub).toBe('gemini-4');
   expect(isWorkspaceSettingsPage('?page=model-hub')).toBe(false);
+  expect(isStandaloneSpaPath('/model-hub')).toBe(false);
   expect(open(hub.href, { explore: true }).href).toBe(origin);
   const directory = open(origin, { templates: true, creators: true });
   const profile = open(directory.href, { creator: 'credit/Jane & Co' });

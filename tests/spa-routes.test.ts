@@ -99,6 +99,10 @@ test('standalone SPA paths skip native Studio pre-launch while editor paths extr
   assert.equal(isStandaloneSpaPath('/design/prototype'), true);
   assert.equal(isStandaloneSpaPath('/settings/providers', '?project=project'), true);
   assert.equal(isStandaloneSpaPath('/mcp-setup', '?project=project'), true);
+  assert.equal(isStandaloneSpaPath('/model-hub/gemini-4', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/models/veo-3', '?session=conversation'), true);
+  assert.equal(isStandaloneSpaPath('/model-hub', '?session=conversation'), false);
+  assert.equal(isStandaloneSpaPath('/models', '?session=conversation'), false);
   assert.equal(isStandaloneSpaPath('/', '?page=settings&section=providers'), true);
 
   assert.equal(isStandaloneSpaPath('/', '?project=project'), false);

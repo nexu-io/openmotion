@@ -235,6 +235,25 @@ it('activates the viewer when an external Agent produces an artifact for an open
   expect(replace).toHaveBeenCalledWith(`/?session=conversation&project=${first}&openArtifact=1#project/${first}`);
 });
 
+it.each([
+  '/model-hub/gemini-4?session=conversation',
+  '/models/custom%3Aprovider%2Fmodel?session=conversation',
+  '/mcp-setup?session=conversation&host=codex',
+  '/brand-kit/mine?session=conversation',
+  '/skills/manim?session=conversation',
+])('keeps migrated standalone path %s open when a retained session gains an artifact', async standaloneHref => {
+  history.replaceState(null, '', standaloneHref);
+  const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {});
+  const onNavigate = vi.fn();
+  const original = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (url: string, init?: RequestInit) => url.endsWith('/projects')
+    ? new Response(JSON.stringify({ projects: [], sessions: [{ id: 'conversation', artifacts: [{ id: 'artifact', projectId: first }] }] }))
+    : original(url, init));
+  await mount(async () => {}, undefined, 'conversation', onNavigate);
+  expect(replace).not.toHaveBeenCalled();
+  expect(onNavigate).not.toHaveBeenCalled();
+});
+
 it('unlocks actions after an in-page switch and scopes subsequent polling to the next project', async () => {
   const onNavigate = vi.fn();
   await mount(async () => {}, first, first, onNavigate);
