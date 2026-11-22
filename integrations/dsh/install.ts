@@ -7,6 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
 
 const execute = promisify(execFile);
+// Windows resolves npm only with its .cmd suffix for execFile/spawn.
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const checkout = fileURLToPath(new URL("../../", import.meta.url));
 type Options = { profile: string; dataDirectory: string; dshHome?: string; language?: string; url?: string; resume?: string };
 
@@ -105,10 +107,11 @@ export async function installDsh(options: Options) {
     phases.push({ phase, milliseconds: Date.now() - started });
     return result;
   }
-  const run = (command: string, args: string[], cwd = root) => execute(command, args, { cwd, env, timeout: 600_000, maxBuffer: 32 * 1024 * 1024 });
+  // Node refuses to spawn a .cmd shim on Windows without a shell, so npm needs one there.
+  const run = (command: string, args: string[], cwd = root) => execute(command, args, { cwd, env, timeout: 600_000, maxBuffer: 32 * 1024 * 1024, shell: process.platform === "win32" && command === npm });
   const state = await import(new URL("../../scripts/source-build-state.mjs", import.meta.url).href);
   async function dependencies(directory: string) {
-    if (!await state.dependenciesCurrent(directory, { inspectInstalledLock: true })) await run("npm", ["ci", "--include=dev"], directory);
+    if (!await state.dependenciesCurrent(directory, { inspectInstalledLock: true })) await run(npm, ["ci", "--include=dev"], directory);
     await state.recordDependencies(directory);
   }
   await stage("dependencies (reuse matching locks)", async () => {
@@ -120,7 +123,7 @@ export async function installDsh(options: Options) {
   const patch = await workspacePatch(original, root, data, process.execPath, await profileModules(dump.stdout));
   await stage("Studio (reuse matching build)", async () => {
     if (!await state.sourceBuildCurrent(root)) {
-      await run("npm", ["run", "build:studio"]);
+      await run(npm, ["run", "build:studio"]);
       await state.recordSourceBuild(root);
     }
   });
@@ -142,7 +145,7 @@ export async function installDsh(options: Options) {
       return await installPublicSkill({ host: "deepseek", ref, projectDirectory: paths.profileDirectory, env,
         run: async (_command, args, settings: any) => {
           // Resolve npm through PATH, including standalone Node distributions.
-          await execute("npm", args.slice(1), { ...settings, env, cwd: paths.profileDirectory });
+          await execute(npm, args.slice(1), { ...settings, env, cwd: paths.profileDirectory, shell: process.platform === "win32" });
         } });
     } catch (error) { return { status: "unavailable", reason: error instanceof Error ? error.message : String(error) }; }
   });
