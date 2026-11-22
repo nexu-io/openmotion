@@ -1,0 +1,105 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  RESERVED_BACKEND_PREFIXES,
+  SPA_ROUTE_PREFIXES,
+  editorProjectIdFromPath,
+  isReservedBackendPath,
+  isSpaRoutePath,
+  isStandaloneSpaPath,
+} from '../shared/spa-routes.ts';
+
+test('SPA route prefixes never collide with reserved backend or cloud prefixes', () => {
+  for (const spa of SPA_ROUTE_PREFIXES) {
+    if (spa === '/') continue;
+    assert.equal(isReservedBackendPath(spa), false, `SPA prefix "${spa}" collides with reserved backend prefix`);
+    for (const reserved of RESERVED_BACKEND_PREFIXES) {
+      assert.notEqual(spa, reserved, `Exact collision on "${spa}"`);
+      assert.equal(spa.startsWith(reserved + '/'), false, `SPA prefix "${spa}" nests under "${reserved}"`);
+      assert.equal(reserved.startsWith(spa + '/'), false, `Reserved prefix "${reserved}" nests under "${spa}"`);
+    }
+  }
+  // Explicitly guard /mcp (cloud Streamable HTTP MCP) vs /mcp-setup (frontend page).
+  assert.equal(isReservedBackendPath('/mcp'), true);
+  assert.equal(isReservedBackendPath('/mcp/stream'), true);
+  assert.equal(isSpaRoutePath('/mcp'), false);
+  assert.equal(isSpaRoutePath('/mcp/stream'), false);
+  assert.equal(isSpaRoutePath('/mcp-setup'), true);
+  assert.equal(isSpaRoutePath('/mcp-setup/claude'), true);
+});
+
+test('whitelisted SPA routes match while backend, missing asset, and source paths are rejected', () => {
+  const allowed = [
+    '/',
+    '/explore',
+    '/explore/',
+    '/explore/film',
+    '/create/text-to-image',
+    '/motion',
+    '/cinema',
+    '/cinema/text-to-video',
+    '/design/prototype',
+    '/design/projects/demo-1',
+    '/sound/speech',
+    '/scenarios',
+    '/scenarios/product-launch',
+    '/game',
+    '/skills',
+    '/skills/kinetic-type',
+    '/models/gemini-4.0',
+    '/models/hub/gemini-4',
+    '/assets',
+    '/assets/asset-1',
+    '/brand-kit',
+    '/brand-kit/mine',
+    '/settings',
+    '/settings/providers',
+    '/mcp-setup',
+    '/templates',
+    '/editor/project',
+    '/editor/project.v2',
+  ];
+  for (const route of allowed) {
+    assert.equal(isSpaRoutePath(route), true, `expected SPA route: ${route}`);
+  }
+
+  const rejected = [
+    '/api',
+    '/api/unknown',
+    '/motion-api/projects',
+    '/design-api/sessions',
+    '/mcp',
+    '/mcp/tools',
+    '/mcp-ui/card',
+    '/connect/config',
+    '/sessions/abc',
+    '/editor-assets/missing.js',
+    '/guide-assets/viewer.js',
+    '/design-system',
+    '/web/app.ts',
+    '/.well-known/oauth-protected-resource',
+    '/__hyperframes_config',
+    '/workspace.ts',
+    '/studio/src/main.tsx',
+    '/explore/chunk.js',
+    '/settings/style.css',
+    '/unknown-page',
+  ];
+  for (const route of rejected) {
+    assert.equal(isSpaRoutePath(route), false, `must not match SPA fallback: ${route}`);
+  }
+});
+
+test('standalone SPA paths skip native Studio pre-launch while editor paths extract project IDs', () => {
+  assert.equal(isStandaloneSpaPath('/explore'), true);
+  assert.equal(isStandaloneSpaPath('/cinema/text-to-video'), true);
+  assert.equal(isStandaloneSpaPath('/design/prototype'), true);
+  assert.equal(isStandaloneSpaPath('/settings/providers', '?project=project'), true);
+  assert.equal(isStandaloneSpaPath('/mcp-setup', '?project=project'), true);
+  assert.equal(isStandaloneSpaPath('/', '?page=settings&section=providers'), true);
+
+  assert.equal(isStandaloneSpaPath('/', '?project=project'), false);
+  assert.equal(isStandaloneSpaPath('/editor/project'), false);
+  assert.equal(editorProjectIdFromPath('/editor/my%20proj'), 'my proj');
+  assert.equal(editorProjectIdFromPath('/explore'), null);
+});

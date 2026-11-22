@@ -162,6 +162,20 @@ export const workspaceRouteRegistry: readonly WorkspaceRouteDefinition[] = [
   },
 ];
 
+export function getRouteDefinition(id: WorkspaceRouteId): WorkspaceRouteDefinition {
+  const found = workspaceRouteRegistry.find(route => route.id === id);
+  if (!found) throw new Error(`Unknown workspace route id: ${id}`);
+  return found;
+}
+
+export const KEEP_ALIVE_ROUTE_IDS: readonly WorkspaceRouteId[] = workspaceRouteRegistry
+  .filter(route => route.keepAlive)
+  .map(route => route.id);
+
+export function isKeepAliveRoute(id: WorkspaceRouteId): boolean {
+  return getRouteDefinition(id).keepAlive;
+}
+
 export function resolveActiveWorkspaceRoute(
   page: WorkspacePage,
   context: WorkspaceRouteMatchContext,

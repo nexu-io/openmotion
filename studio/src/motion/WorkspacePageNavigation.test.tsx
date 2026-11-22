@@ -380,12 +380,16 @@ it('opens settings without starting the retained project and resolves it only on
 });
 
 it('ignores an older pending history navigation after the user returns to the current project', async () => {
-  await mount(); await click('Second project');
+  await mount(); await click('Second project'); await openMcp(); await traverse(-1);
   let finish!: () => void;
   editor.wait = () => new Promise(resolve => { finish = resolve; });
   await traverse(-1);
+  expect(new URLSearchParams(location.search).get('project')).toBe(second);
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);
+  // While the blocked Back save flush is pending, navigating to another page on the
+  // current project and returning supersedes the older pending navigation.
   await traverse(1);
+  await traverse(-1);
   await act(async () => finish());
   expect(new URLSearchParams(location.search).get('project')).toBe(second);
   expect(container.querySelector('[data-project]')?.getAttribute('data-project')).toBe(second);

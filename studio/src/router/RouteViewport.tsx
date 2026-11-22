@@ -35,6 +35,8 @@ import {
   LazySettingsCenter,
   LazySkillsPage,
 } from './lazyPages';
+import { KeepAliveSlot, useKeepAliveVisited } from './KeepAliveOutlet';
+import { resolveActiveWorkspaceRoute } from './routeRegistry';
 
 function RouteLoadingFallback() {
   return (
@@ -64,8 +66,6 @@ export type RouteViewportProps = {
   hostChrome: boolean;
   templatesPage: boolean;
   connectionsOpen: boolean;
-  exploreVisited: boolean;
-  assetsVisited: boolean;
   lastExplore: ExploreFilters;
   motionEditorDisabled: boolean;
   motionTemplatesOpen: boolean;
@@ -109,8 +109,6 @@ export function RouteViewport({
   hostChrome,
   templatesPage,
   connectionsOpen,
-  exploreVisited,
-  assetsVisited,
   lastExplore,
   motionEditorDisabled,
   motionTemplatesOpen,
@@ -147,6 +145,11 @@ export function RouteViewport({
 }: RouteViewportProps) {
   const { t } = useI18n();
   const { settings, assets: assetsOpen, skills: skillsOpen } = page;
+  const activeRoute = resolveActiveWorkspaceRoute(page, { templatesPage, standaloneMcp });
+  const keepAliveVisited = useKeepAliveVisited(activeRoute.id, [
+    ...(page.explore ? (['explore'] as const) : []),
+    ...(assetsOpen ? (['assets'] as const) : []),
+  ]);
   const mcpPage = settings === 'mcp' && (
     <LazyMcpConnectionPage
       entry={connectionEntry}
@@ -167,47 +170,45 @@ export function RouteViewport({
   // avoiding blank flashes or skeleton flickers on in-app navigation.
   return (
     <Suspense fallback={<RouteLoadingFallback />}>
-      {(exploreVisited || page.explore) && (
-        <div
-          className="om-explore-host"
-          hidden={!page.explore || templatesPage}
-          aria-hidden={!page.explore || templatesPage}
-          inert={!page.explore || templatesPage}
-        >
-          <RouteSurface>
-            <LazyExploreStudios
-              initialTemplateCollection={page.templateCollection}
-              onModel={openModelFromPage}
-              onModelHub={openModelHub}
-              onOpenMotionEditor={() => void openMotionEditor('last')}
-              motionEditorDisabled={motionEditorDisabled}
-              onOpenBlackFriday={trigger => {
-                reportBlackFridayEntry();
-                openLibrary(trigger, undefined, 'black-friday');
-              }}
-              onCreators={trigger => {
-                libraryTrigger.current = trigger;
-                navigatePage({ templates: true, creators: true, creator: null, template: null });
-              }}
-              onBrandKit={() => openSettings('brand-kit')}
-              onMcp={(client, example) => openMcp(client, example, true)}
-              onSelectDesignScene={designScene =>
-                navigatePage({ designScene, designProject: null, templates: false, ...lastExplore })
-              }
-              onOpenDesignProject={id =>
-                navigatePage({ designScene: 'projects', designProject: id, templates: false, ...lastExplore })
-              }
-              onStartScenario={id => openScenario(id, undefined, true)}
-              onOpenScenarioHub={() => openScenarioHub(true)}
-              filters={lastExplore}
-              onChooseStudio={studio => chooseStudio(studio, undefined, true)}
-              active={page.explore && !connectionsOpen}
-              onNavigate={openStudioFromPage}
-              onSkill={openSkill}
-            />
-          </RouteSurface>
-        </div>
-      )}
+      <KeepAliveSlot
+        routeId="explore"
+        active={page.explore && !templatesPage}
+        visited={keepAliveVisited}
+        className="om-explore-host"
+      >
+        <RouteSurface>
+          <LazyExploreStudios
+            initialTemplateCollection={page.templateCollection}
+            onModel={openModelFromPage}
+            onModelHub={openModelHub}
+            onOpenMotionEditor={() => void openMotionEditor('last')}
+            motionEditorDisabled={motionEditorDisabled}
+            onOpenBlackFriday={trigger => {
+              reportBlackFridayEntry();
+              openLibrary(trigger, undefined, 'black-friday');
+            }}
+            onCreators={trigger => {
+              libraryTrigger.current = trigger;
+              navigatePage({ templates: true, creators: true, creator: null, template: null });
+            }}
+            onBrandKit={() => openSettings('brand-kit')}
+            onMcp={(client, example) => openMcp(client, example, true)}
+            onSelectDesignScene={designScene =>
+              navigatePage({ designScene, designProject: null, templates: false, ...lastExplore })
+            }
+            onOpenDesignProject={id =>
+              navigatePage({ designScene: 'projects', designProject: id, templates: false, ...lastExplore })
+            }
+            onStartScenario={id => openScenario(id, undefined, true)}
+            onOpenScenarioHub={() => openScenarioHub(true)}
+            filters={lastExplore}
+            onChooseStudio={studio => chooseStudio(studio, undefined, true)}
+            active={page.explore && !connectionsOpen}
+            onNavigate={openStudioFromPage}
+            onSkill={openSkill}
+          />
+        </RouteSurface>
+      </KeepAliveSlot>
 
       {page.scenarioHub && !templatesPage && !settings && (
         <div className="om-explore-host">
@@ -444,24 +445,22 @@ export function RouteViewport({
         </div>
       )}
 
-      {(assetsVisited || assetsOpen) && (
-        <div
-          className="om-assets-host"
-          hidden={!assetsOpen || Boolean(settings) || templatesPage}
-          aria-hidden={!assetsOpen || Boolean(settings) || templatesPage}
-          inert={!assetsOpen || Boolean(settings) || templatesPage}
-        >
-          <RouteSurface>
-            <LazyAssetsPage
-              hasProject={Boolean(projectId)}
-              active={assetsOpen && !settings && !templatesPage}
-              routeId={page.assetId}
-              routeVersion={page.assetVersion}
-              onAssetRoute={selectAssetRoute}
-            />
-          </RouteSurface>
-        </div>
-      )}
+      <KeepAliveSlot
+        routeId="assets"
+        active={assetsOpen && !settings && !templatesPage}
+        visited={keepAliveVisited}
+        className="om-assets-host"
+      >
+        <RouteSurface>
+          <LazyAssetsPage
+            hasProject={Boolean(projectId)}
+            active={assetsOpen && !settings && !templatesPage}
+            routeId={page.assetId}
+            routeVersion={page.assetVersion}
+            onAssetRoute={selectAssetRoute}
+          />
+        </RouteSurface>
+      </KeepAliveSlot>
 
       {page.specialty?.id === 'game' && !skillsOpen && !settings && !templatesPage && (
         <div className="om-skills-host">

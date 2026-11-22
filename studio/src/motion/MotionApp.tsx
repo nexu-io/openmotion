@@ -1,5 +1,6 @@
 import { Button } from 'open-design-ui/button';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useInRouterContext, useLocation } from 'react-router';
 import { useI18n } from '../i18n/I18n';
 import { WorkspaceFrame, WorkspaceMenuButton, useWorkspaceChrome } from './WorkspaceFrame';
 import { motionApi, type ProjectCatalog } from './useWorkspace';
@@ -9,8 +10,9 @@ import { ArtifactViewer } from './ArtifactViewer';
 import { EditorLoading, readEditorLoadingLayout, type EditorLoadingLayout } from './EditorLoading';
 import { RecoveryScreen } from '../components/RecoveryScreen';
 import { trackMotion } from './tracking';
-import { WORKSPACE_LOCATION_CHANGED, writeWorkspaceHistory } from '../utils/workspaceHistory';
-import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
+import { writeWorkspaceHistory } from '../utils/workspaceHistory';
+import { editorProjectIdFromPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
+import { StudioRouterProvider } from '../router/createAppRouter';
 
 const noPendingSaves = async () => {};
 
@@ -24,16 +26,29 @@ export async function resolveWorkspaceProject(id: string, signal: AbortSignal) {
 
 /** Resolve the native service before mounting any editor that could read or save files. */
 export function MotionApp() {
+  const inRouter = useInRouterContext();
+  if (!inRouter) {
+    return (
+      <StudioRouterProvider>
+        <MotionAppContent />
+      </StudioRouterProvider>
+    );
+  }
+  return <MotionAppContent />;
+}
+
+function MotionAppContent() {
   const { t } = useI18n();
-  const [route, setRoute] = useState(() => ({ projectId: requestedProject(location.search, location.hash), sessionId: new URLSearchParams(location.search).get('session') }));
+  const routerLocation = useLocation();
+  const [route, setRoute] = useState(() => ({
+    projectId: editorProjectIdFromPath(routerLocation.pathname) ?? requestedProject(routerLocation.search, routerLocation.hash),
+    sessionId: new URLSearchParams(routerLocation.search).get('session'),
+  }));
   const { projectId, sessionId } = route;
-  const [settingsPage, setSettingsPage] = useState(() => isWorkspaceSettingsPage(location.search, location.hash));
-  useEffect(() => {
-    const sync = () => setSettingsPage(isWorkspaceSettingsPage(location.search, location.hash));
-    window.addEventListener(WORKSPACE_LOCATION_CHANGED, sync);
-    return () => window.removeEventListener(WORKSPACE_LOCATION_CHANGED, sync);
-  }, []);
-  const [libraryOnly, setLibraryOnly] = useState(() => new URLSearchParams(location.search).get('templates') === '1' && projectId === null && !sessionId);
+  const settingsPage = isStandaloneSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash);
+  const [libraryOnly, setLibraryOnly] = useState(
+    () => new URLSearchParams(routerLocation.search).get('templates') === '1' && projectId === null && !sessionId,
+  );
   const [ready, setReady] = useState<{ sessionId: string; artifact?: SessionArtifact } | null>(null);
   const [error, setError] = useState('');
   const [attempt, retry] = useState(0);
@@ -45,7 +60,10 @@ export function MotionApp() {
     setReady(null);
     setError('');
     setLibraryOnly(new URLSearchParams(location.search).get('templates') === '1');
-    setRoute({ projectId: requestedProject(location.search, location.hash), sessionId: new URLSearchParams(location.search).get('session') });
+    setRoute({
+      projectId: editorProjectIdFromPath(location.pathname) ?? requestedProject(location.search, location.hash),
+      sessionId: new URLSearchParams(location.search).get('session'),
+    });
   }, []);
   const view = useRef({ id: crypto.randomUUID(), started: performance.now(), sent: false });
   useEffect(() => {

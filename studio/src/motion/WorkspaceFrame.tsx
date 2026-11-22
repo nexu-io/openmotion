@@ -13,6 +13,7 @@ import type { AssetDraft } from './AssetComposer';
 import type { SkillParameters } from './skillCatalog';
 import { findCinemaTemplate } from './cinemaTemplates';
 import { useState, useRef, useCallback, useEffect, useTransition, type ReactNode } from 'react';
+import { useInRouterContext, useLocation } from 'react-router';
 import { useI18n } from '../i18n/I18n';
 import { MotionIcon } from './icons';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -32,7 +33,7 @@ import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
-import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
+import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, readLocationWorkspaceSource, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { clickMethod, searchStarted, trackStudioClick } from './editorTracking';
@@ -41,16 +42,33 @@ import type { ScenarioId } from '../../../shared/scenarios';
 import { isWorkspacePageOpen, resolveNavTrackingPage, resolveRouteArrival } from '../router/routeRegistry';
 import { RouteViewport } from '../router/RouteViewport';
 import { OverlayLayer } from '../router/OverlayLayer';
+import { StudioRouterProvider } from '../router/createAppRouter';
+import { useWorkspaceBlocker } from '../router/useWorkspaceBlocker';
 
 import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
-export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate }: {
+type WorkspaceFrameProps = {
   children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: () => void;
-}) {
+};
+
+export function WorkspaceFrame(props: WorkspaceFrameProps) {
+  const inRouter = useInRouterContext();
+  if (!inRouter) {
+    return (
+      <StudioRouterProvider>
+        <WorkspaceFrameInner {...props} />
+      </StudioRouterProvider>
+    );
+  }
+  return <WorkspaceFrameInner {...props} />;
+}
+
+function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate }: WorkspaceFrameProps) {
   const { t, locale } = useI18n();
-  const [page, setPage] = useState(() => readWorkspacePage(location.search, location.hash));
-  const [source, setSource] = useState(workspaceHistorySource);
+  const routerLocation = useLocation();
+  const [page, setPage] = useState(() => readWorkspacePage(routerLocation.search, routerLocation.hash));
+  const [source, setSource] = useState(() => readLocationWorkspaceSource(routerLocation.state));
   const [isRoutePending, startRouteTransition] = useTransition();
   const sourceUrl = source ? new URL(source.href) : null;
   const sourcePage = sourceUrl && readWorkspacePage(sourceUrl.search, sourceUrl.hash);
@@ -60,37 +78,35 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const selectedCinemaTemplate = findCinemaTemplate(page.cinemaTemplate);
   const detailOnly = Boolean(page.template) && !libraryRequested;
   const connectionsOpen = libraryRequested || detailOnly;
-  const hostChrome = window.parent !== window && new URLSearchParams(location.search).get('hostChrome') === '1';
+  const hostChrome = window.parent !== window && new URLSearchParams(routerLocation.search).get('hostChrome') === '1';
   const templatesPage = libraryRequested && !hostChrome;
   // Resource pages cover the editor without unmounting it.
   const pageOpen = isWorkspacePageOpen(page, templatesPage);
   const lastExplore = useRef({ community: page.community, medium: page.medium });
   if (page.explore) lastExplore.current = { community: page.community, medium: page.medium };
-  const [exploreVisited, setExploreVisited] = useState(page.explore);
-  useEffect(() => { if (page.explore) setExploreVisited(true); }, [page.explore]);
   const skillBriefs = useRef(new Map<string, SkillParameters>());
   const studioDrafts = useRef(new Map<string, AssetDraft>());
   const [studioVisit, setStudioVisit] = useState(0);
   const libraryOpen = useRef(libraryRequested);
   const libraryClosed = useRef(onLibraryClose); libraryClosed.current = onLibraryClose;
   useEffect(() => {
-    const sync = () => {
-      const next = readWorkspacePage(location.search, location.hash);
+    const sync = (search: string, hash: string, locationState?: unknown) => {
+      const next = readWorkspacePage(search, hash);
       if (libraryOpen.current && !next.templates) libraryClosed.current?.();
       libraryOpen.current = next.templates;
-      const nextSource = workspaceHistorySource();
+      const nextSource = locationState !== undefined ? readLocationWorkspaceSource(locationState) : workspaceHistorySource();
       startRouteTransition(() => {
         setPage(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
         setSource(previous => previous?.index === nextSource?.index && previous?.href === nextSource?.href ? previous : nextSource);
       });
     };
-    window.addEventListener(WORKSPACE_LOCATION_CHANGED, sync);
-    if (!onNavigate) window.addEventListener('popstate', sync);
+    sync(routerLocation.search, routerLocation.hash, routerLocation.state);
+    const onLocationChanged = () => sync(location.search, location.hash);
+    window.addEventListener(WORKSPACE_LOCATION_CHANGED, onLocationChanged);
     return () => {
-      window.removeEventListener(WORKSPACE_LOCATION_CHANGED, sync);
-      if (!onNavigate) window.removeEventListener('popstate', sync);
+      window.removeEventListener(WORKSPACE_LOCATION_CHANGED, onLocationChanged);
     };
-  }, [onNavigate]);
+  }, [routerLocation]);
   useEffect(() => {
     if (isLegacyWorkspaceHref(location.search, page)) writeWorkspaceHistory(workspacePageHref(location.href, { studio: page.studio }), true);
   }, [page]);
@@ -129,13 +145,27 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
     writeWorkspaceHistory(target, replace);
     onNavigate();
   }, [onNavigate]);
-  const workspace = useWorkspace(beforeViewChange, projectId, sessionId, navigate);
+  const workspace = useWorkspace(beforeViewChange, projectId, sessionId, navigate, { externalHistoryGuard: Boolean(onNavigate) });
+  const fallbackActingRef = useRef(false);
+  const [blockerError, setBlockerError] = useState<{ message: string } | null>(null);
+  useEffect(() => { setBlockerError(null); }, [projectId, sessionId]);
+  const handleBlockedError = useCallback((errorMessage: string | null) => {
+    setBlockerError(errorMessage ? { message: errorMessage } : null);
+  }, []);
+  useWorkspaceBlocker({
+    enabled: Boolean(onNavigate),
+    actingRef: workspace.actingRef ?? fallbackActingRef,
+    waitForSaves: beforeViewChange,
+    onBlockedError: handleBlockedError,
+    onProjectChangeProceed: onNavigate,
+  });
+  const navigationError = blockerError ?? workspace.navigationError;
   const navigationToast = useToast();
   useEffect(() => {
-    if (!workspace.navigationError) return;
-    const id = navigationToast.showToast(workspace.navigationError.message, 'error', 'feedback');
+    if (!navigationError) return;
+    const id = navigationToast.showToast(navigationError.message, 'error', 'feedback');
     return () => navigationToast.dismissToast(id);
-  }, [workspace.navigationError, navigationToast.showToast, navigationToast.dismissToast]);
+  }, [navigationError, navigationToast.showToast, navigationToast.dismissToast]);
   const connectionEntry = useRef<McpEntry>('direct_link');
   // A later visit through history or a pasted link has no control behind it.
   useEffect(() => { if (settings !== 'mcp') connectionEntry.current = 'direct_link'; }, [settings]);
@@ -185,8 +215,6 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
   const navigationCollapsed = !editorActive;
   const toggleSidebar = useCallback(() => setSidebarOpen(open => !open), []);
   const openEditor = () => { navigatePage({ motion: false, templates: false }); if (narrow) setSidebarOpen(false); };
-  const [assetsVisited, setAssetsVisited] = useState(assetsOpen);
-  useEffect(() => { if (assetsOpen) setAssetsVisited(true); }, [assetsOpen]);
   const openAssets = useCallback(() => { navigatePage({ assets: true, assetId: null, assetVersion: null, templates: false }); }, [navigatePage]);
   const openSkills = useCallback((skillCategory: SkillCategory | null = null, trigger?: HTMLElement) => {
     skillsTrigger.current = trigger ?? null;
@@ -431,8 +459,6 @@ export function WorkspaceFrame({ children, waitForSaves, projectId, sessionId, b
         hostChrome={hostChrome}
         templatesPage={templatesPage}
         connectionsOpen={connectionsOpen}
-        exploreVisited={exploreVisited}
-        assetsVisited={assetsVisited}
         lastExplore={lastExplore.current}
         motionEditorDisabled={motionEditorDisabled}
         motionTemplatesOpen={motionTemplatesOpen}

@@ -47,7 +47,7 @@ import { validPending, uuid } from './tracking/core.ts';
 import { validHostContext, unknownHost, previewTrackingContext } from './tracking/host.ts';
 import type { HostContext } from './tracking/host.ts';
 import { collectDiagnostics, diagnosticLimits, recordDiagnostic } from './scripts/diagnostics.mjs';
-import { isWorkspaceSettingsPage } from './shared/workspace-url.ts';
+import { editorProjectIdFromPath, isSpaRoutePath, isStandaloneSpaPath } from './shared/spa-routes.ts';
 import { TaskLedger } from './tracking/task-ledger.ts';
 import { WorkRounds, workRoundMode } from './inline-video.ts';
 import { brandKitHttp } from './gateway/brand-http.ts';
@@ -371,8 +371,9 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (projectHeader !== undefined && projectHeader !== id) return json(res, 400, { error: 'PROJECT_SCOPE_MISMATCH' });
       store = store.forProject(id);
     }
-    if (context.ensureStudio && !isWorkspaceSettingsPage(url.search) && (url.pathname === '/' || url.pathname.startsWith('/sessions/'))) {
-      const projectId = url.searchParams.get('project'), sessionId = url.searchParams.get('session');
+    if (context.ensureStudio && !isStandaloneSpaPath(url.pathname, url.search) && (isSpaRoutePath(url.pathname) || url.pathname.startsWith('/sessions/'))) {
+      const projectId = editorProjectIdFromPath(url.pathname) ?? url.searchParams.get('project');
+      const sessionId = url.searchParams.get('session');
       if (projectId !== null) {
         if (store.projectCatalog().projects.some(project => project.id === projectId && !project.trashedAt)) await context.ensureStudio(projectId);
       } else if (sessionId) {

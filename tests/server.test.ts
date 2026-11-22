@@ -106,3 +106,31 @@ test('container connection instructions launch Docker on the host, preserving th
     else process.env.MOTION_CONTAINER_NAME = previous;
   }
 }));
+
+test('SPA route allowlist serves Studio HTML while reserved backend and unknown paths never fall back', () => fixture(async store => {
+  let ensureCalls = 0;
+  const request = transport(store, {
+    ensureStudio: async () => { ensureCalls++; throw new Error('Native project unavailable'); },
+  });
+  for (const route of ['/explore', '/cinema/text-to-video', '/design/prototype', '/settings/providers?project=project', '/mcp-setup?project=project', '/scenarios', '/assets']) {
+    const response = await request(route);
+    assert.equal(response.status, 200, `expected 200 for SPA route ${route}`);
+    assert.match(await response.text(), /data-motion-studio/);
+  }
+  // Standalone SPA routes must not trigger native Studio startup even when ?project is attached.
+  assert.equal(ensureCalls, 0);
+
+  // Reserved backend / cloud MCP / unknown paths must never return SPA HTML.
+  for (const route of ['/mcp', '/mcp/stream', '/unknown-page', '/workspace.ts']) {
+    const response = await request(route);
+    assert.equal(response.status, 404, `expected 404 for ${route}`);
+  }
+  const missingAsset = await request('/editor-assets/missing.js');
+  assert.equal(missingAsset.status, 503);
+  assert.doesNotMatch(await missingAsset.text(), /data-motion-studio/);
+  assert.equal((await request('/api/unknown')).status, 503);
+
+  // Explicit editor path triggers native Studio pre-launch.
+  assert.equal((await request('/editor/project')).status, 400);
+  assert.equal(ensureCalls, 1);
+}));

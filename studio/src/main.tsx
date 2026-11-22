@@ -23,6 +23,7 @@ import "./motion/workspace.css";
 import "../../packages/design-system/studio.css";
 import "./motion/application.css";
 import { MotionStudioHost } from "./motion/MotionStudioHost";
+import { StudioRouterProvider } from "./router/createAppRouter";
 import { initializeDiagnostics, recordBrowserDiagnostic } from './motion/diagnostics';
 import { bindEmbeddedStudioTheme } from './utils/studioTheme';
 import { bindVitePreloadErrorReload, lazyWithChunkReload } from './utils/chunkReload';
@@ -146,7 +147,9 @@ function mountStudio() {
       <IconContext.Provider value={readIconTokens()}>
         <ShowThemeToggle.Provider value>
           <MotionStudioHost>
-            <MotionApp />
+            <StudioRouterProvider>
+              <MotionApp />
+            </StudioRouterProvider>
             {ComponentInspector && <Suspense fallback={null}><ComponentInspector /></Suspense>}
           </MotionStudioHost>
         </ShowThemeToggle.Provider>
