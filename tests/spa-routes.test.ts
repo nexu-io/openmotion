@@ -7,6 +7,7 @@ import {
   isReservedBackendPath,
   isSpaRoutePath,
   isStandaloneSpaPath,
+  spaPathnameToSearch,
 } from '../shared/spa-routes.ts';
 
 test('SPA route prefixes never collide with reserved backend or cloud prefixes', () => {
@@ -102,4 +103,18 @@ test('standalone SPA paths skip native Studio pre-launch while editor paths extr
   assert.equal(isStandaloneSpaPath('/editor/project'), false);
   assert.equal(editorProjectIdFromPath('/editor/my%20proj'), 'my proj');
   assert.equal(editorProjectIdFromPath('/explore'), null);
+});
+
+test('spaPathnameToSearch maps semantic SPA pathnames to workspace query parameters', () => {
+  assert.equal(spaPathnameToSearch('/settings/providers'), '?page=settings&section=providers');
+  assert.equal(spaPathnameToSearch('/cinema/text-to-video'), '?page=cinema&scene=text-to-video');
+  assert.equal(spaPathnameToSearch('/design/projects/d-1'), '?page=design&scene=projects&designProject=d-1');
+  assert.equal(spaPathnameToSearch('/mcp-setup/claude', '?setup=manual'), '?setup=manual&page=mcp&host=claude');
+  assert.equal(spaPathnameToSearch('/models/hub/gemini-4'), '?page=model-hub&hub=gemini-4');
+  assert.equal(spaPathnameToSearch('/models/veo-3'), '?page=model&model=veo-3');
+  assert.equal(spaPathnameToSearch('/sound'), '?page=sound&home=1');
+  assert.equal(spaPathnameToSearch('/sound/speech'), '?page=sound&scene=speech');
+  assert.equal(spaPathnameToSearch('/templates'), '?templates=1');
+  assert.equal(spaPathnameToSearch('/editor/proj-1'), '?page=editor&project=proj-1');
+  assert.equal(spaPathnameToSearch('/', '?page=assets'), '?page=assets');
 });

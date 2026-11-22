@@ -12,11 +12,14 @@ import { KeepAliveSlot, useKeepAliveVisited } from './KeepAliveOutlet';
 import { useWorkspaceBlocker } from './useWorkspaceBlocker';
 import type { WorkspaceRouteId } from './routeRegistry';
 import {
+  navigateWorkspaceHistory,
   readLocationWorkspaceSource,
+  registerWorkspaceHistoryBridge,
   restoreWorkspaceSource,
   workspaceHistoryIndex,
   writeWorkspaceHistory,
 } from '../utils/workspaceHistory';
+import { I18nProvider, ensureLocaleLoaded } from '../i18n/I18n';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -269,6 +272,75 @@ describe('useWorkspaceBlocker', () => {
     await act(async () => { resolveSave(); await new Promise(resolve => setTimeout(resolve, 0)); });
     expect(currentSearch).toBe('?session=s2&project=p2&page=mcp');
     expect(onProceed).not.toHaveBeenCalled();
+  });
+
+  it('localizes the active-switch blocked navigation message across locales', async () => {
+    await ensureLocaleLoaded('zh-CN');
+    const onError = vi.fn();
+    let nav!: ReturnType<typeof useNavigate>;
+
+    function ActingGuardHarness() {
+      nav = useNavigate();
+      const actingRef = useRef(true);
+      useWorkspaceBlocker({
+        enabled: true,
+        actingRef,
+        waitForSaves: async () => {},
+        onBlockedError: onError,
+      });
+      return null;
+    }
+
+    for (const [locale, expected] of [
+      ['en', 'Switching projects. Please try again shortly.'],
+      ['zh-CN', '正在切换项目，请稍后重试。'],
+    ] as const) {
+      onError.mockClear();
+      await act(async () =>
+        root.render(
+          <I18nProvider key={locale} initialLocale={locale}>
+            <StudioRouterProvider memory initialEntries={['/?session=s1&project=p1#project/p1', '/?session=s2&project=p2#project/p2']}>
+              <ActingGuardHarness />
+            </StudioRouterProvider>
+          </I18nProvider>,
+        ),
+      );
+      await act(async () => {
+        void nav(-1);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      });
+      expect(onError).toHaveBeenCalledWith(expected);
+    }
+  });
+});
+
+describe('navigateWorkspaceHistory async commit ordering', () => {
+  it('awaits an asynchronous Data Router navigation before resolving callers', async () => {
+    let resolveNav!: () => void;
+    const unregister = registerWorkspaceHistoryBridge({
+      navigate: to => new Promise<void>(resolve => {
+        resolveNav = () => {
+          if (typeof to === 'string') history.pushState({ idx: 1 }, '', to);
+          resolve();
+        };
+      }),
+      getLocationState: () => null,
+      getIndex: () => 0,
+    });
+
+    try {
+      let committedHref = '';
+      const done = navigateWorkspaceHistory('/?session=s2&project=p2#project/p2').then(() => {
+        committedHref = location.search;
+      });
+      await Promise.resolve();
+      expect(committedHref).toBe('');
+      resolveNav();
+      await done;
+      expect(committedHref).toBe('?session=s2&project=p2');
+    } finally {
+      unregister();
+    }
   });
 });
 

@@ -90,7 +90,7 @@ export function useWorkspace(
       const sameProject = requestedProject(next.search, next.hash) === requestedProject(previous.search, previous.hash)
         && next.searchParams.get('session') === previous.searchParams.get('session');
       try {
-        if (acting.current) throw new Error('正在切换项目，请稍后重试。');
+        if (acting.current) throw new Error(t('Switching projects. Please try again shortly.'));
         // Page switches preserve the mounted editor. Leaving a busy template
         // library or replacing the project still uses the existing save guard.
         if (!sameProject || (readWorkspacePage(previous.search, previous.hash).templates && !readWorkspacePage(next.search, next.hash).templates)) await waitForSaves();

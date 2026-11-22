@@ -13,6 +13,7 @@ import { trackMotion } from './tracking';
 import { writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { editorProjectIdFromPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { StudioRouterProvider } from '../router/createAppRouter';
+import { readWorkspacePage } from './workspacePageRouting';
 
 const noPendingSaves = async () => {};
 
@@ -47,22 +48,27 @@ function MotionAppContent() {
   const { projectId, sessionId } = route;
   const settingsPage = isStandaloneSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash);
   const [libraryOnly, setLibraryOnly] = useState(
-    () => new URLSearchParams(routerLocation.search).get('templates') === '1' && projectId === null && !sessionId,
+    () =>
+      readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname).templates &&
+      projectId === null &&
+      !sessionId,
   );
   const [ready, setReady] = useState<{ sessionId: string; artifact?: SessionArtifact } | null>(null);
   const [error, setError] = useState('');
   const [attempt, retry] = useState(0);
   const surface = useRef<HTMLDivElement>(null);
   const [loadingLayout, setLoadingLayout] = useState<EditorLoadingLayout | null>(null);
-  const onNavigate = useCallback(() => {
+  const onNavigate = useCallback((targetHref?: string) => {
     const layout = readEditorLoadingLayout(surface.current);
     if (layout) setLoadingLayout(layout);
+    const target = targetHref ? new URL(targetHref, location.origin) : new URL(location.href);
+    const nextPage = readWorkspacePage(target.search, target.hash, target.pathname);
     setReady(null);
     setError('');
-    setLibraryOnly(new URLSearchParams(location.search).get('templates') === '1');
+    setLibraryOnly(nextPage.templates);
     setRoute({
-      projectId: editorProjectIdFromPath(location.pathname) ?? requestedProject(location.search, location.hash),
-      sessionId: new URLSearchParams(location.search).get('session'),
+      projectId: editorProjectIdFromPath(target.pathname) ?? requestedProject(target.search, target.hash),
+      sessionId: target.searchParams.get('session'),
     });
   }, []);
   const view = useRef({ id: crypto.randomUUID(), started: performance.now(), sent: false });

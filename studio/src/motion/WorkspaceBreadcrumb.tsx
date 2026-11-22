@@ -8,7 +8,7 @@ import { readWorkspacePage } from './workspacePageRouting';
 
 function sourceLabel(href: string): string {
   const url = new URL(href);
-  const page = readWorkspacePage(url.search, url.hash);
+  const page = readWorkspacePage(url.search, url.hash, url.pathname);
   if (page.creators) return 'Creators';
   if (page.templates || page.template) return 'Template library';
   if (page.settings === 'mcp') return 'MCP';

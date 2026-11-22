@@ -2,6 +2,7 @@ import { findTemplateCollection, type TemplateCollection } from './templateColle
 import { skillCategories, type SkillCategory } from './skillCategories';
 import { blackFridaySkillIds } from '../../../shared/black-friday-collection';
 import { isDesignScenario, type DesignScenarioId } from '../../../shared/design-project';
+import { isSpaRoutePath, spaPathnameToSearch } from '../../../shared/spa-routes';
 import { workspacePageName } from '../../../shared/workspace-url';
 import { mcpClients, type McpClient } from './mcpClients';
 import { exploreCommunities, findLandingScene, findMediaStudio, findTechniqueStudio, type ExploreCommunity, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
@@ -31,8 +32,9 @@ export function changesWorkspaceDestination(patch: Partial<WorkspacePage>): bool
   return ['explore', 'motion', 'cinemaLanding', 'designScene', 'scenario', 'scenarioHub', 'studio', 'modelOverview', 'modelHub', 'specialty', 'assets', 'skills', 'settings'].some(key => key in patch);
 }
 
-export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
-  const query = new URLSearchParams(search), page = workspacePageName(query, hash), section = query.get('section');
+export function readWorkspacePage(search: string, hash = '', pathname = ''): WorkspacePage {
+  const effectiveSearch = pathname && pathname !== '/' ? spaPathnameToSearch(pathname, search) : search;
+  const query = new URLSearchParams(effectiveSearch), page = workspacePageName(query, hash), section = query.get('section');
   const settings = page === 'brand-kit' ? 'brand-kit' : page === 'mcp' ? 'mcp' : page === 'settings'
     ? settingsSections.find(value => value === section) ?? 'general' : null;
   const sceneId = query.get('scene'), model = query.get('model') || null;
@@ -90,7 +92,8 @@ export function readWorkspacePage(search: string, hash = ''): WorkspacePage {
 }
 
 export function workspacePageHref(href: string, patch: Partial<WorkspacePage>): string {
-  const url = new URL(href), current = readWorkspacePage(url.search, url.hash), page = { ...current, ...patch };
+  const url = new URL(href), current = readWorkspacePage(url.search, url.hash, url.pathname), page = { ...current, ...patch };
+  if (url.pathname !== '/' && isSpaRoutePath(url.pathname)) url.pathname = '/';
   const currentSearchPage = url.searchParams.get('page');
   for (const key of ['page', 'home', 'section', 'templates', 'host', 'setup', 'provider', 'template', 'skill', 'skillCategory', 'kit', 'community', 'medium', 'collection', 'hub', 'designProject', 'cinemaTemplate', 'scenario', 'run', 'step', 'mode', 'category']) url.searchParams.delete(key);
   if (current.settings === 'mcp' || page.settings === 'mcp') url.searchParams.delete('example');

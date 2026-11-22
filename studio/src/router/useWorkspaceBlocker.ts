@@ -1,6 +1,7 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { useBlocker, useLocation } from 'react-router';
 import { editorProjectIdFromPath } from '../../../shared/spa-routes';
+import { useI18n } from '../i18n/I18n';
 import { requestedProject } from '../motion/workspaceRouting';
 import { readWorkspacePage } from '../motion/workspacePageRouting';
 
@@ -9,7 +10,7 @@ export type WorkspaceBlockerOptions = {
   actingRef: RefObject<boolean>;
   waitForSaves: () => Promise<void>;
   onBlockedError: (message: string | null) => void;
-  onProjectChangeProceed?: () => void;
+  onProjectChangeProceed?: (targetHref?: string) => void;
 };
 
 type LocationLike = { pathname: string; search: string; hash: string };
@@ -39,6 +40,7 @@ export function useWorkspaceBlocker({
   onBlockedError,
   onProjectChangeProceed,
 }: WorkspaceBlockerOptions): void {
+  const { t } = useI18n();
   const routerLocation = useLocation();
   const latestLocation = useRef<LocationLike>(routerLocation);
   latestLocation.current = routerLocation;
@@ -48,6 +50,8 @@ export function useWorkspaceBlocker({
   latestOnError.current = onBlockedError;
   const latestOnProceed = useRef(onProjectChangeProceed);
   latestOnProceed.current = onProjectChangeProceed;
+  const latestTranslate = useRef(t);
+  latestTranslate.current = t;
   const pendingProceedKey = useRef<string | null>(null);
   const attemptRef = useRef(0);
   const lastLocationKey = useRef(locationKey(routerLocation));
@@ -56,8 +60,8 @@ export function useWorkspaceBlocker({
     if (!enabled || historyAction !== 'POP') return false;
     const sameProject = isSameProjectAndSession(currentLocation, nextLocation);
     const leavingTemplates =
-      readWorkspacePage(currentLocation.search, currentLocation.hash).templates &&
-      !readWorkspacePage(nextLocation.search, nextLocation.hash).templates;
+      readWorkspacePage(currentLocation.search, currentLocation.hash, currentLocation.pathname).templates &&
+      !readWorkspacePage(nextLocation.search, nextLocation.hash, nextLocation.pathname).templates;
     return actingRef.current || !sameProject || leavingTemplates;
   });
 
@@ -82,7 +86,7 @@ export function useWorkspaceBlocker({
 
     void (async () => {
       try {
-        if (actingRef.current) throw new Error('正在切换项目，请稍后重试。');
+        if (actingRef.current) throw new Error(latestTranslate.current('Switching projects. Please try again shortly.'));
         await latestWait.current();
         if (cancelled || attempt !== attemptRef.current) return;
         latestOnError.current(null);
@@ -106,6 +110,6 @@ export function useWorkspaceBlocker({
     if (!targetKey || blocker.state !== 'unblocked') return;
     if (locationKey(routerLocation) !== targetKey) return;
     pendingProceedKey.current = null;
-    latestOnProceed.current?.();
+    latestOnProceed.current?.(targetKey);
   }, [blocker.state, routerLocation]);
 }

@@ -33,7 +33,7 @@ import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
 import type { SoundTabId } from './soundTabs';
-import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, readLocationWorkspaceSource, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
+import { WORKSPACE_LOCATION_CHANGED, initializeWorkspaceHistory, navigateWorkspaceHistory, readLocationWorkspaceSource, restoreWorkspaceSource, workspaceHistoryIndex, workspaceHistorySource, workspaceSettingsSource, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { clickMethod, searchStarted, trackStudioClick } from './editorTracking';
@@ -49,7 +49,7 @@ import { WorkspaceChromeContext, useWorkspaceChrome, type WorkspaceChrome, type 
 export { useWorkspaceChrome, useOptionalWorkspaceChrome, type EditorGuard } from './WorkspaceChromeContext';
 
 type WorkspaceFrameProps = {
-  children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: () => void;
+  children: ReactNode; waitForSaves: () => Promise<void>; projectId?: string; sessionId?: string; blocked?: boolean; message?: string; saveState?: string; onLibraryClose?: () => void; onNavigate?: (targetHref?: string) => void;
 };
 
 export function WorkspaceFrame(props: WorkspaceFrameProps) {
@@ -67,11 +67,11 @@ export function WorkspaceFrame(props: WorkspaceFrameProps) {
 function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blocked = false, message = '', saveState = '', onLibraryClose, onNavigate }: WorkspaceFrameProps) {
   const { t, locale } = useI18n();
   const routerLocation = useLocation();
-  const [page, setPage] = useState(() => readWorkspacePage(routerLocation.search, routerLocation.hash));
+  const [page, setPage] = useState(() => readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname));
   const [source, setSource] = useState(() => readLocationWorkspaceSource(routerLocation.state));
   const [isRoutePending, startRouteTransition] = useTransition();
   const sourceUrl = source ? new URL(source.href) : null;
-  const sourcePage = sourceUrl && readWorkspacePage(sourceUrl.search, sourceUrl.hash);
+  const sourcePage = sourceUrl && readWorkspacePage(sourceUrl.search, sourceUrl.hash, sourceUrl.pathname);
   const fromExplore = sourcePage?.explore && !sourcePage.templates && !sourcePage.template;
   const { settings, assets: assetsOpen, skills: skillsOpen, templates: libraryRequested } = page;
   const standaloneMcp = settings === 'mcp' && !page.mcpInSettings;
@@ -90,8 +90,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const libraryOpen = useRef(libraryRequested);
   const libraryClosed = useRef(onLibraryClose); libraryClosed.current = onLibraryClose;
   useEffect(() => {
-    const sync = (search: string, hash: string, locationState?: unknown) => {
-      const next = readWorkspacePage(search, hash);
+    const sync = (search: string, hash: string, pathname: string, locationState?: unknown) => {
+      const next = readWorkspacePage(search, hash, pathname);
       if (libraryOpen.current && !next.templates) libraryClosed.current?.();
       libraryOpen.current = next.templates;
       const nextSource = locationState !== undefined ? readLocationWorkspaceSource(locationState) : workspaceHistorySource();
@@ -100,8 +100,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         setSource(previous => previous?.index === nextSource?.index && previous?.href === nextSource?.href ? previous : nextSource);
       });
     };
-    sync(routerLocation.search, routerLocation.hash, routerLocation.state);
-    const onLocationChanged = () => sync(location.search, location.hash);
+    sync(routerLocation.search, routerLocation.hash, routerLocation.pathname, routerLocation.state);
+    const onLocationChanged = () => sync(location.search, location.hash, location.pathname);
     window.addEventListener(WORKSPACE_LOCATION_CHANGED, onLocationChanged);
     return () => {
       window.removeEventListener(WORKSPACE_LOCATION_CHANGED, onLocationChanged);
@@ -142,8 +142,9 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const navigate = useCallback((url: string, replace = false) => {
     if (!onNavigate) { navigateWorkspace(url, replace); return; }
     const target = preservePresentation(url, location.search);
-    writeWorkspaceHistory(target, replace);
-    onNavigate();
+    void navigateWorkspaceHistory(target, replace).then(() => {
+      onNavigate(target);
+    });
   }, [onNavigate]);
   const workspace = useWorkspace(beforeViewChange, projectId, sessionId, navigate, { externalHistoryGuard: Boolean(onNavigate) });
   const fallbackActingRef = useRef(false);
@@ -313,7 +314,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     navigatePage({ ...(specialty ? { specialty } : { skills: true }), skill, templates: false, ...lastExplore.current });
   };
   const selectAssetRoute = useCallback((assetId: string | null, assetVersion: string | null) => {
-    if (readWorkspacePage(location.search, location.hash).assets) navigatePage({ assetId, assetVersion });
+    if (readWorkspacePage(location.search, location.hash, location.pathname).assets) navigatePage({ assetId, assetVersion });
   }, [navigatePage]);
   const openStudio = (studio: StudioDestination | null, seed?: string | AssetDraft, fromPage = false) => {
     // A brief started from a technique studio keeps its Skill so its draft stays separate from other studios' briefs.

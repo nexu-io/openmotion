@@ -11,7 +11,7 @@ export type WorkspaceLocationState = {
 };
 
 type RouterHistoryBridge = {
-  navigate: (to: string | number, options?: { replace?: boolean; state?: WorkspaceLocationState }) => void;
+  navigate: (to: string | number, options?: { replace?: boolean; state?: WorkspaceLocationState }) => Promise<void> | void;
   getLocationState: () => unknown;
   getIndex: () => number | null;
 };
@@ -28,8 +28,9 @@ function generateSessionToken(): string {
 }
 
 /**
- * Connect the active React Router v7 instance so history mutations flow through
- * the Data Router (`location.state` + `idx`) instead of raw `history.pushState`.
+ * Connect the active React Router Data Router instance so history mutations
+ * flow through the Data Router (`location.state` + `idx`) instead of raw
+ * `history.pushState`.
  */
 export function registerWorkspaceHistoryBridge(bridge: RouterHistoryBridge | null): () => void {
   activeBridge = bridge;
@@ -101,17 +102,20 @@ export function restoreWorkspaceSource(source: WorkspaceSource): boolean {
   const index = workspaceHistoryIndex();
   if (index === null || index <= source.index) return false;
   const delta = source.index - index;
-  if (activeBridge) activeBridge.navigate(delta);
+  if (activeBridge) void activeBridge.navigate(delta);
   else history.go(delta);
   return true;
 }
 
-/** Keep history identity when the editor updates its hash or the shell resolves a project. */
-export function writeWorkspaceHistory(
+/**
+ * Navigate through the active Data Router (or legacy History fallback) and
+ * resolve once the router navigation has committed.
+ */
+export function navigateWorkspaceHistory(
   target: string | URL,
   replace = false,
   sources?: { page: WorkspaceSource | null; settings: WorkspaceSource | null },
-) {
+): Promise<void> {
   const url = new URL(target, location.href);
   if (url.origin !== location.origin) throw new Error('Workspace navigation must stay on this origin');
   const relativeTarget = `${url.pathname}${url.search}${url.hash}`;
@@ -126,10 +130,14 @@ export function writeWorkspaceHistory(
       sources && (existing[sourceKey] !== sources.page || existing[settingsSourceKey] !== sources.settings),
     );
     if (url.href !== location.href || stateChanged) {
-      activeBridge.navigate(relativeTarget, { replace: shouldReplace, state: nextState });
+      return Promise.resolve(
+        activeBridge.navigate(relativeTarget, { replace: shouldReplace, state: nextState }),
+      ).then(() => {
+        window.dispatchEvent(new Event(WORKSPACE_LOCATION_CHANGED));
+      });
     }
     window.dispatchEvent(new Event(WORKSPACE_LOCATION_CHANGED));
-    return;
+    return Promise.resolve();
   }
 
   initializeWorkspaceHistory();
@@ -144,4 +152,14 @@ export function writeWorkspaceHistory(
     history.pushState({ [entryKey]: index + 1, [sessionKey]: session, ...sourceState }, '', url);
   }
   window.dispatchEvent(new Event(WORKSPACE_LOCATION_CHANGED));
+  return Promise.resolve();
+}
+
+/** Keep history identity when the editor updates its hash or the shell resolves a project. */
+export function writeWorkspaceHistory(
+  target: string | URL,
+  replace = false,
+  sources?: { page: WorkspaceSource | null; settings: WorkspaceSource | null },
+): void {
+  void navigateWorkspaceHistory(target, replace, sources);
 }

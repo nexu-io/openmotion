@@ -140,13 +140,14 @@ export function StudioRouterProvider({
     const unregister = registerWorkspaceHistoryBridge({
       navigate: (to, options) => {
         if (typeof to === 'number') {
-          void router.navigate(to);
-        } else {
-          void router.navigate(to, {
+          return Promise.resolve(router.navigate(to)).then(() => undefined);
+        }
+        return Promise.resolve(
+          router.navigate(to, {
             replace: options?.replace,
             state: options?.state as WorkspaceLocationState | undefined,
-          });
-        }
+          }),
+        ).then(() => undefined);
       },
       getLocationState: () => router.state.location.state,
       getIndex: () => {
