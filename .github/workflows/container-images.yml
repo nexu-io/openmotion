@@ -54,6 +54,7 @@ jobs:
     outputs:
       registry_owner: ${{ steps.meta.outputs.registry_owner }}
       sha_tag: ${{ steps.meta.outputs.sha_tag }}
+      full_sha_tag: ${{ steps.meta.outputs.full_sha_tag }}
       branch_tag: ${{ steps.meta.outputs.branch_tag }}
       push_latest: ${{ steps.meta.outputs.push_latest }}
     steps:
@@ -68,6 +69,7 @@ jobs:
 
           registry_owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
           sha_tag="sha-${GITHUB_SHA::12}"
+          full_sha_tag="sha-${GITHUB_SHA}"
           sanitized_branch="$(printf '%s' "$GITHUB_REF_NAME" | sed -E 's/[^a-zA-Z0-9._-]+/-/g; s/^-+//; s/-+$//')"
           branch_tag="branch-${sanitized_branch}"
           push_latest="false"
@@ -138,6 +140,7 @@ jobs:
           {
             echo "registry_owner=${registry_owner}"
             echo "sha_tag=${sha_tag}"
+            echo "full_sha_tag=${full_sha_tag}"
             echo "branch_tag=${branch_tag}"
             echo "push_latest=${push_latest}"
           } >> "$GITHUB_OUTPUT"
@@ -190,6 +193,7 @@ jobs:
           REGISTRY_OWNER: ${{ needs.prepare.outputs.registry_owner }}
           IMAGE_NAME: ${{ matrix.image }}
           SHA_TAG: ${{ needs.prepare.outputs.sha_tag }}
+          FULL_SHA_TAG: ${{ needs.prepare.outputs.full_sha_tag }}
           BRANCH_TAG: ${{ needs.prepare.outputs.branch_tag }}
           PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
         run: |
@@ -199,6 +203,7 @@ jobs:
             echo "image_ref=${image_ref}"
             echo "tags<<EOF"
             echo "${image_ref}:${SHA_TAG}"
+            echo "${image_ref}:${FULL_SHA_TAG}"
             echo "${image_ref}:${BRANCH_TAG}"
             if [[ "$PUSH_LATEST" == "true" ]]; then
               echo "${image_ref}:latest"
@@ -252,6 +257,7 @@ jobs:
           TARGET_NAME: ${{ matrix.target }}
           IMAGE_REF: ${{ steps.tags.outputs.image_ref }}
           SHA_TAG: ${{ needs.prepare.outputs.sha_tag }}
+          FULL_SHA_TAG: ${{ needs.prepare.outputs.full_sha_tag }}
           BRANCH_TAG: ${{ needs.prepare.outputs.branch_tag }}
           PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
           DIGEST: ${{ steps.build.outputs.digest }}
@@ -260,7 +266,7 @@ jobs:
             echo "## OpenMotion Container Image: \`${TARGET_NAME}\`"
             echo ""
             echo "- Commit: \`${GITHUB_SHA}\`"
-            echo "- Tags: \`${SHA_TAG}\`, \`${BRANCH_TAG}\` (latest: \`${PUSH_LATEST}\`)"
+            echo "- Tags: \`${SHA_TAG}\`, \`${FULL_SHA_TAG}\`, \`${BRANCH_TAG}\` (latest: \`${PUSH_LATEST}\`)"
             echo ""
             echo "| Component | Image Ref | Digest |"
             echo "| --- | --- | --- |"

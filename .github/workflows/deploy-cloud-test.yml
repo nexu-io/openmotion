@@ -40,7 +40,7 @@ jobs:
       - name: Publish tested image digests to Orbit
         if: vars.ORBIT_OPENMOTION_PULL == 'true'
         env:
-          ORBIT_API_URL: ${{ vars.ORBIT_API_URL || 'https://orbit.powerformer.com' }}
+          ORBIT_API_URL: ${{ vars.ORBIT_API_URL }}
           ORBIT_API_KEY: ${{ secrets.ORBIT_API_KEY }}
           ORBIT_OPENMOTION_BUILD_TOKEN: ${{ secrets.ORBIT_OPENMOTION_BUILD_TOKEN }}
         run: node .github/scripts/orbit-publish-cloud-test.mjs "$RUNNER_TEMP/digests"

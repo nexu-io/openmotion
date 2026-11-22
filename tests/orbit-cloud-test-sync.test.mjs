@@ -12,6 +12,7 @@ import {
 } from "../.github/scripts/orbit-publish-cloud-test.mjs";
 
 const SOURCE_SHA = "a".repeat(40);
+const TEST_ORBIT_API_URL = "https://orbit.example.invalid";
 
 function sha256(text) {
 	return `sha256:${createHash("sha256").update(text).digest("hex")}`;
@@ -48,7 +49,7 @@ async function createDigestsFixture({ trailingNewline = false } = {}) {
 
 function baseEnv(overrides = {}) {
 	return {
-		ORBIT_API_URL: "https://orbit.powerformer.com",
+		ORBIT_API_URL: TEST_ORBIT_API_URL,
 		ORBIT_API_KEY: "orbit-legacy-key",
 		ORBIT_OPENMOTION_BUILD_TOKEN: "orbit-build-token",
 		GITHUB_REF: "refs/heads/feat/cloud-container-p1",
@@ -108,7 +109,7 @@ test("publishes all four image digests and manifests to Orbit with idempotency",
 
 		assert.equal(calls.length, 2);
 		const first = calls[0];
-		assert.equal(first.url, "https://orbit.powerformer.com/api/app/sync");
+		assert.equal(first.url, `${TEST_ORBIT_API_URL}/api/app/sync`);
 		assert.equal(first.options.method, "POST");
 		assert.equal(first.options.headers["X-Orbit-API-Key"], "orbit-legacy-key");
 		assert.equal(
@@ -188,14 +189,30 @@ test("skips Orbit publication without calling API when a newer commit superseded
 test("rejects tampered manifests, missing artifacts, wrong branch or endpoint, and invalid receipts", async () => {
 	const { dir } = await createDigestsFixture();
 	try {
-		await assert.rejects(
-			() =>
-				buildOpenMotionOrbitPayload(
-					baseEnv({ ORBIT_API_URL: "https://evil.example" }),
-					dir,
-				),
-			/production Orbit machine endpoint/,
+		const normalized = await buildOpenMotionOrbitPayload(
+			baseEnv({ ORBIT_API_URL: `${TEST_ORBIT_API_URL}/` }),
+			dir,
 		);
+		assert.equal(normalized.orbitApiUrl, TEST_ORBIT_API_URL);
+
+		for (const badUrl of [
+			"",
+			"not-a-url",
+			"http://orbit.example.invalid",
+			"https://user:pass@orbit.example.invalid",
+			"https://orbit.example.invalid/custom/path",
+			"https://orbit.example.invalid/?q=1",
+			"https://orbit.example.invalid/#frag",
+		]) {
+			await assert.rejects(
+				() =>
+					buildOpenMotionOrbitPayload(
+						baseEnv({ ORBIT_API_URL: badUrl }),
+						dir,
+					),
+				/ORBIT_API_URL/,
+			);
+		}
 		await assert.rejects(
 			() =>
 				buildOpenMotionOrbitPayload(
@@ -282,6 +299,11 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 	);
 	assert.match(
 		releaseWorkflow,
+		/ORBIT_API_URL:\s*\$\{\{\s*vars\.ORBIT_API_URL\s*\}\}/,
+	);
+	assert.doesNotMatch(releaseWorkflow, /powerformer\./i);
+	assert.match(
+		releaseWorkflow,
 		/ORBIT_API_KEY:\s*\$\{\{\s*secrets\.ORBIT_API_KEY\s*\}\}/,
 	);
 	assert.match(
@@ -293,6 +315,8 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 		new URL("../.github/workflows/container-images.yml", import.meta.url),
 		"utf8",
 	);
+	assert.match(imagesWorkflow, /full_sha_tag="sha-\$\{GITHUB_SHA\}"/);
+	assert.match(imagesWorkflow, /\$\{image_ref\}:\$\{FULL_SHA_TAG\}/);
 	assert.match(
 		imagesWorkflow,
 		/docker buildx imagetools inspect "\$\{IMAGE_REF\}@\$\{IMAGE_DIGEST\}" --raw > "\$RUNNER_TEMP\/\$\{TARGET\}\.manifest\.json"/,

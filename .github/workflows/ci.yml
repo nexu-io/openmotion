@@ -113,7 +113,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node .github/scripts/ci-scope.mjs
       - name: Test release controls without publication credentials
-        run: node --test tests/release-workflows.test.mjs tests/release-scan.test.mjs tests/registry-download.test.mjs tests/stable-release.test.mjs tests/release-notes.test.mjs tests/publish-template-catalog.test.mjs tests/template-registry-consumer.test.mjs
+        run: node --test tests/release-workflows.test.mjs tests/release-scan.test.mjs tests/registry-download.test.mjs tests/stable-release.test.mjs tests/release-notes.test.mjs tests/publish-template-catalog.test.mjs tests/template-registry-consumer.test.mjs tests/orbit-cloud-test-sync.test.mjs
       - name: Exercise cloud test promotion against a local remote
         run: bash tests/cloud-test-promotion.sh
       - name: Install locked Motion dependencies

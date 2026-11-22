@@ -5,7 +5,6 @@ import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const PRODUCTION_ORBIT_API_URL = "https://orbit.powerformer.com";
 const DEFAULT_SOURCE_REF = "refs/heads/feat/cloud-container-p1";
 const GITOPS_REPOSITORY = "infra/apps";
 const GITOPS_ENVIRONMENT = "test";
@@ -14,6 +13,31 @@ const GITOPS_VALUES_FILE_PATH = "kubernetes/envs/test/openmotion/values.yaml";
 const RECEIPT_ID_PATTERN = /^(?:dep|batch)_[A-Za-z0-9_-]{1,80}$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+
+export function parseOrbitApiUrl(value) {
+	const raw = requireNonEmpty(value, "ORBIT_API_URL");
+	let parsed;
+	try {
+		parsed = new URL(raw);
+	} catch (error) {
+		throw new Error("ORBIT_API_URL must be a valid HTTPS origin URL", {
+			cause: error,
+		});
+	}
+	if (
+		parsed.protocol !== "https:" ||
+		parsed.username ||
+		parsed.password ||
+		parsed.search ||
+		parsed.hash ||
+		parsed.pathname.replace(/\/+$/, "") !== ""
+	) {
+		throw new Error(
+			"ORBIT_API_URL must be an HTTPS origin URL without credentials, path, query, or fragment",
+		);
+	}
+	return parsed.origin;
+}
 
 export const COMPONENT_TARGETS = [
 	{
@@ -97,15 +121,7 @@ export async function readComponentArtifacts(digestsDir, registryOwner) {
 }
 
 export async function buildOpenMotionOrbitPayload(env, digestsDir) {
-	const orbitApiUrl = requireNonEmpty(env.ORBIT_API_URL, "ORBIT_API_URL").replace(
-		/\/+$/,
-		"",
-	);
-	if (orbitApiUrl !== PRODUCTION_ORBIT_API_URL) {
-		throw new Error(
-			"The build record requires the production Orbit machine endpoint",
-		);
-	}
+	const orbitApiUrl = parseOrbitApiUrl(env.ORBIT_API_URL);
 	requireNonEmpty(env.ORBIT_API_KEY, "ORBIT_API_KEY");
 	requireNonEmpty(
 		env.ORBIT_OPENMOTION_BUILD_TOKEN,
