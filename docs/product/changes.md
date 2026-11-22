@@ -1,5 +1,9 @@
 # 公开变更记录
 
+## 2026-11-22: Propose a scene-timing component for the Library
+
+- Add a source-only frame scheduler for mixed fixed and weighted storyboard beats. It does not change Studio, MCP, existing templates, or project data.
+
 ## 2026-11-20: Show verified media capabilities and streamline model editing in Provider Settings
 
 - Replace non-executable LLM capability toggles (`Reasoning`, `Tools`), input-modality toggles (`Vision`, `Audio`, `Video`) and token-limit inputs in Studio's `ModelEditor` with executable settings: directly visible `Model type` (for compatible/custom and newly added models), `Transcription response` (for `transcription` models), structured default parameter controls derived from `shared/generation-options.ts` schemas, and collapsed raw JSON defaults under More settings. Backend `connections.json` metadata override validation stays backward-compatible.
