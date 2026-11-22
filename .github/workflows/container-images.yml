@@ -224,18 +224,24 @@ jobs:
             org.opencontainers.image.title=${{ matrix.title }}
 
       - name: Record the test image digest
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/cloud-container-p1'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat/cloud-container-p1'
         env:
+          IMAGE_REF: ${{ steps.tags.outputs.image_ref }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
           TARGET: ${{ matrix.target }}
-        run: printf '%s\n' "$IMAGE_DIGEST" > "$RUNNER_TEMP/$TARGET"
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$IMAGE_DIGEST" > "$RUNNER_TEMP/$TARGET"
+          docker buildx imagetools inspect "${IMAGE_REF}@${IMAGE_DIGEST}" --raw > "$RUNNER_TEMP/${TARGET}.manifest.json"
 
       - name: Upload the test image digest
-        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/cloud-container-p1'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat/cloud-container-p1'
         uses: actions/upload-artifact@v7.0.2
         with:
           name: test-digest-${{ matrix.target }}
-          path: ${{ runner.temp }}/${{ matrix.target }}
+          path: |
+            ${{ runner.temp }}/${{ matrix.target }}
+            ${{ runner.temp }}/${{ matrix.target }}.manifest.json
           if-no-files-found: error
           overwrite: true
           retention-days: 14
