@@ -4,19 +4,40 @@ import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Agent } from '../shared/gateway.ts';
+import { agentInvocation } from './agent-discovery.ts';
 
 export async function resolveAgent(bin: string): Promise<string | null> {
   const override = process.env[`${bin.toUpperCase()}_BIN`];
-  const dirs = [...(process.env.PATH || '').split(path.delimiter), path.join(os.homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin'];
-  const candidates = [override, ...dirs.filter(Boolean).map(dir => path.join(dir, bin + (process.platform === 'win32' ? '.exe' : '')))];
-  for (const candidate of candidates) {
+  const home = os.homedir();
+  const dirs = [
+    ...(process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)),
+    path.join(home, '.local/bin'),
+    path.join(home, '.bun/bin'),
+    path.join(home, '.cargo/bin'),
+    path.join(home, '.npm-global/bin'),
+    path.join(home, '.opencode/bin'),
+    path.join(home, '.cursor/bin'),
+    path.join(home, '.antigravity/bin'),
+    path.join(home, '.claude/local'),
+    path.join(home, '.kiro/bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    ...(process.platform === 'win32' && process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm')] : []),
+  ];
+  // npm installs on Windows only create a `.cmd` shim; probing `.exe` alone reports a working CLI as missing.
+  const suffixes = process.platform === 'win32' ? ['.exe', '.cmd'] : [''];
+  for (const candidate of [override, ...dirs.flatMap(dir => suffixes.map(suffix => path.join(dir, bin + suffix)))]) {
     if (!candidate || !path.isAbsolute(candidate)) continue;
     try { await access(candidate, constants.X_OK); return candidate; } catch { /* continue */ }
   }
   return null;
 }
 function probe(bin: string, args: string[]): Promise<{ ok: boolean; text: string }> {
-  return new Promise(resolve => execFile(bin, args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr })));
+  return agentInvocation(bin, args).then(
+    command => new Promise(resolve => execFile(command.bin, command.args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr }))),
+    // A rejected shim is a detection result, not a login problem, so keep the reason for detectAgents().
+    (error: unknown) => ({ ok: false, text: error instanceof Error ? error.message : '' }),
+  );
 }
 export async function detectAgents(): Promise<Agent[]> {
   return Promise.all([['codex', 'Codex'], ['claude', 'Claude Code'], ['gemini', 'Gemini CLI']].map(async ([id, label]) => {
@@ -24,11 +45,13 @@ export async function detectAgents(): Promise<Agent[]> {
     if (!bin) return { id, label, installed: false, authenticated: false, imageGeneration: false, available: false, reason: 'Not installed' };
     if (id !== 'codex') return { id, label, installed: true, authenticated: false, imageGeneration: false, available: false, reason: 'Detected; no built-in media adapter registered' };
     const [login, features, help] = await Promise.all([probe(bin, ['login', 'status']), probe(bin, ['features', 'list']), probe(bin, ['exec', '--help'])]);
+    // An unsupported shim fails every probe before launch; name it instead of implying an expired login.
+    const shimError = [login, features, help].find(result => !result.ok && /unsupported cli shim/i.test(result.text))?.text;
     const authenticated = login.ok && /logged in|authenticated/i.test(login.text);
     const imageGeneration = features.ok && /^image_generation\s+.*\btrue\s*$/m.test(features.text);
     const compatible = help.ok && help.text.includes('--ephemeral');
     return { id, label, installed: true, authenticated, imageGeneration, available: authenticated && imageGeneration && compatible,
-      reason: !authenticated ? 'Run codex login first' : !imageGeneration ? 'Codex image_generation is not enabled' : !compatible ? 'Update Codex to a CLI with ephemeral exec support' : 'Local Codex is authenticated and image generation is enabled' };
+      reason: shimError ?? (!authenticated ? 'Run codex login first' : !imageGeneration ? 'Codex image_generation is not enabled' : !compatible ? 'Update Codex to a CLI with ephemeral exec support' : 'Local Codex is authenticated and image generation is enabled') };
   }));
 }
 /** Invoke the user's CLI; never read, duplicate or refresh its OAuth credentials. */
@@ -48,9 +71,10 @@ export async function generateCodexImage(prompt: string, directory: string, sign
     } catch { /* Ignore non-JSON output and unrelated tool events. */ }
   };
   const args = ['exec', '--ephemeral', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-c', 'approval_policy="never"', '-C', directory, ...(referenceImage ? ['--image', referenceImage] : []), '-'];
+  const command = await agentInvocation(bin, args);
   let timedOut = false;
   const exitCode = await new Promise<number | null>((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(command.bin, command.args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       for (const part of chunk.split(/(?<=\n)/)) {
