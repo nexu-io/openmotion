@@ -7,11 +7,10 @@ import { onboardingSourceFiles, onboardingTemplateIds } from '../shared/onboardi
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
-// Local-only maintainer material must never reach a published package, however a
-// caller assembles its selection. These names are reserved at the repository root
-// only, so a nested document such as docs/superpowers/specs is unaffected.
-const localOnlyPaths = ['AGENTS_PR_RULE.md', 'PR_SKILLS.md', 'PRE-PR.md', 'codex-security', 'superpowers', 'humanizer', 'AUDIT_PR'];
-export const isLocalOnlyPath = (file: string) => localOnlyPaths.some(entry => file === entry || file.startsWith(entry + '/'));
+// The reserved local-only names live in the dependency-free guard module, so the commit guard and
+// the package selection cannot drift apart.
+export { isLocalOnlyPath } from './local-only-paths.ts';
+import { isLocalOnlyPath } from './local-only-paths.ts';
 
 /** The single selection rule for every shipped artifact: caller inclusion, minus reserved local-only material. */
 export function selectDistributionFiles(files: Iterable<string>, include: (file: string) => boolean) {
@@ -750,7 +749,7 @@ export async function distributionFiles(profile: string, include: (file: string)
     'scripts/install-onboarding.mjs', 'scripts/inline-onboarding.mjs', 'scripts/codex-host-handoff.mjs', 'scripts/onboarding-catalog.ts', 'scripts/open-template-library.ts', 'scripts/install-library-skill.mjs',
     'scripts/inline-storyboard.mjs', 'mcp-ui/storyboard/inline.css', 'mcp-ui/storyboard/inline.js',
     'scripts/diagnostics.mjs', 'scripts/diagnostic-redaction.mjs', 'scripts/zip.mjs',
-    'scripts/verify-export.ts', 'scripts/export-adapters.ts', 'scripts/package.ts', 'scripts/distribution.ts', 'scripts/build-template-guide.mjs',
+    'scripts/verify-export.ts', 'scripts/export-adapters.ts', 'scripts/package.ts', 'scripts/distribution.ts', 'scripts/local-only-paths.ts', 'scripts/build-template-guide.mjs',
     'scripts/repository-media.ts', 'scripts/prepare-font.ts', 'scripts/font-specimen.ts', 'scripts/build-template-cards.mjs',
     'shared/install-attribution.ts', 'shared/asset-name-ui.json', 'shared/workflow-entry.js', 'shared/inline-video-result.js', 'shared/provider-registry-LICENSE.txt', 'shared/provider-registry-NOTICE.md', 'studio/LICENSE', 'studio/README.md', 'studio/skill-cover-attribution.md', 'template-library/LICENSE', 'shared/editor-launch.pl',
     'gateway/brand-capture/LICENSE', 'gateway/brand-capture/NOTICE.md',

@@ -8,6 +8,10 @@ import { releaseProfile } from '../shared/mcp-registry.ts';
 import { checkDesign } from './design-check.ts';
 import { checkI18n } from './check-i18n.ts';
 import { checkRouting } from './check-routing.ts';
+// Contributor-workflow material that belongs to one local checkout lives in its own dependency-free
+// module, so the guard can run before the dependency install and stay unconditional in CI.
+import { localOnlyOffender, trackedFiles } from './local-only-paths.ts';
+export { localOnlyPaths, localOnlyOffender, trackedFiles } from './local-only-paths.ts';
 import { getWorkflow, markdownAnchors, workflowLinkAnchors, workflowRegistry, phase1WorkflowNames } from '../shared/workflow.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -83,6 +87,9 @@ export async function check() {
   assert.match(await readFile(path.join(root, 'templates/index.html'), 'utf8'), /data-composition-id/);
   await checkI18n();
   await checkRouting();
+  // An installed copy is not a Git checkout, so the guard applies only where tracked files exist.
+  const tracked = trackedFiles(root);
+  if (tracked) assert.ok(!localOnlyOffender(tracked), `${localOnlyOffender(tracked)} is local-only agent material and must not be committed`);
   await checkDesign();
   console.log('Plugin manifest, marketplace, skill, i18n, routing and TypeScript syntax checks passed.');
 }

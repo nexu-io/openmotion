@@ -138,3 +138,12 @@ desktop/build/icon.png
 desktop/build/icon.svg
 desktop/build/icon.icns
 desktop/build/icon.ico
+# Local-only agent support material. It documents contributor workflows for one checkout and must
+# never become part of the project source, a commit or a published artifact.
+/AGENTS_PR_RULE.md
+/PRE-PR.md
+/PR_SKILLS.md
+/AUDIT_PR/
+/codex-security/
+/superpowers/
+/humanizer/
