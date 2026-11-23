@@ -1,5 +1,13 @@
 # 公开变更记录
 
+## 2026-11-22: Add WaveSpeedAI built-in models
+
+- Add three offline WaveSpeedAI choices to the built-in model list, beside the existing Atlas Cloud and fal.ai entries: Seedream 5.5 (`bytedance/seedream-v5.5`, image), Wan 3.0 (`alibaba/wan-3.0/text-to-video`, video) and Qwen3 TTS (`wavespeed-ai/qwen3-tts/text-to-speech`, speech). A user with a WaveSpeedAI key can pick a model before refreshing the live catalogue; like the other built-in entries, they do not prove account entitlement.
+- Qwen3 TTS requires `language` and `voice` in its schema, so the entry carries `defaults: { language: 'auto', voice: 'Vivian' }` (the schema's own defaults); spoken text is still sent as `text`.
+- Keep those built-in defaults when a cached or refreshed WaveSpeedAI catalogue row with the same model ID replaces the built-in entry, so a request after `openmotion_media_use {action:"models", refresh:true}` still sends `language` and `voice`. The WaveSpeedAI provider reference lists the three models with dated official links and a Qwen3 TTS request example.
+- List the three models in the BYOK preset table of the English, Simplified Chinese (both copies) and Japanese READMEs.
+- Validation: `npm run check`, `npm run typecheck:studio`, `npm run build:studio`, `npm test` (no new failures against an unmodified checkout), a fixture test that each entry submits once to its model path with the right body, a fixture refresh test that returns the Qwen3 TTS model ID and checks the submitted body, and one live generation per entry through the WaveSpeed adapter.
+
 ## 2026-11-20: Show verified media capabilities and streamline model editing in Provider Settings
 
 - Replace non-executable LLM capability toggles (`Reasoning`, `Tools`), input-modality toggles (`Vision`, `Audio`, `Video`) and token-limit inputs in Studio's `ModelEditor` with executable settings: directly visible `Model type` (for compatible/custom and newly added models), `Transcription response` (for `transcription` models), structured default parameter controls derived from `shared/generation-options.ts` schemas, and collapsed raw JSON defaults under More settings. Backend `connections.json` metadata override validation stays backward-compatible.

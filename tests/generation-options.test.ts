@@ -177,6 +177,28 @@ test('Kokoro sends spoken text in prompt alongside native voice and speed, witho
   assert.deepEqual(urls, ['https://cdn.example/voice.wav']);
 });
 
+test('WaveSpeedAI built-in models submit once to their own model path, with speech text in text and prompts in prompt', async () => {
+  const builtin = builtinModels.filter(m => m.provider === 'wavespeed');
+  assert.deepEqual(builtin.map(m => [m.modelId, m.modality, m.mode]), [
+    ['bytedance/seedream-v5.5', 'image', 'text-to-image'],
+    ['alibaba/wan-3.0/text-to-video', 'video', 'text-to-video'],
+    ['wavespeed-ai/qwen3-tts/text-to-speech', 'audio', 'text-to-speech'],
+  ]);
+  for (const model of builtin) {
+    const posts: { url: string; body: any }[] = [];
+    const job = { model, modality: model.modality, prompt: 'Hello world', parameters: {} } as GenerationJob;
+    const urls = await providerAdapters.wavespeed.generate(job, {
+      key: 'fixture-only', signal: new AbortController().signal, progress: async () => {}, pollMs: 0,
+      fetcher: async (url, init) => {
+        if (init?.method === 'POST') { posts.push({ url: String(url), body: JSON.parse(String(init.body)) }); return Response.json({ code: 200, data: { id: 'remote-test', status: 'created' } }); }
+        return Response.json({ code: 200, data: { id: 'remote-test', status: 'completed', outputs: ['https://cdn.example/output'] } });
+      },
+    });
+    assert.deepEqual(posts, [{ url: `https://api.wavespeed.ai/api/v3/${model.modelId}`, body: model.mode === 'text-to-speech' ? { language: 'auto', voice: 'Vivian', text: 'Hello world' } : { prompt: 'Hello world' } }]);
+    assert.deepEqual(urls, ['https://cdn.example/output']);
+  }
+});
+
 test('ElevenLabs Sound Effects v2 exposes bounded duration_seconds and seamless loop options', () => {
   const sfx = builtinModels.find(m => m.modelId === 'fal-ai/elevenlabs/sound-effects/v2')!;
   const schema = generationOptions(sfx)!;

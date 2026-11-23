@@ -21,6 +21,10 @@ export const builtinModels: Model[] = [
   builtin('fal', 'fal-ai/wan/v2.2-a14b/text-to-video', 'Wan 2.2', 'video', 'text-to-video'),
   builtin('fal', 'fal-ai/kokoro/american-english', 'Kokoro', 'audio', 'text-to-speech'),
   builtin('fal', 'fal-ai/elevenlabs/sound-effects/v2', 'ElevenLabs Sound Effects v2', 'audio', 'text-to-audio'),
+  builtin('wavespeed', 'bytedance/seedream-v5.5', 'Seedream 5.5', 'image', 'text-to-image'),
+  builtin('wavespeed', 'alibaba/wan-3.0/text-to-video', 'Wan 3.0', 'video', 'text-to-video'),
+  // Language and voice are required by this model's schema; the defaults keep a text-only request valid.
+  { ...builtin('wavespeed', 'wavespeed-ai/qwen3-tts/text-to-speech', 'Qwen3 TTS', 'audio', 'text-to-speech'), defaults: { language: 'auto', voice: 'Vivian' } },
   builtin('opendesign', 'elevenlabs-v3', 'ElevenLabs Voice', 'audio', 'text-to-speech'),
   builtin('opendesign', 'byteplus-tts-2', 'BytePlus Voice', 'audio', 'text-to-speech'),
   // The Cloud catalogue does not list its music model yet, so discovery would otherwise show no music.

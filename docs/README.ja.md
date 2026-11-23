@@ -429,10 +429,10 @@ Brand Kit セクションには、ブランド情報、語り口、確認済み�
 
 | 必要な素材 | 内蔵モデルカタログの例 | 動画への用途 |
 | --- | --- | --- |
-| **🖼️ 画像** | Codex Image、Atlas Cloud の Nano Banana 2、fal.ai の FLUX Schnell | ブランド画像、シーンの絵、補助画像。対応する Codex 画像経路で参考画像を用いた編集 |
-| **🎬 動画** | Atlas Cloud の Seedance 2.0、fal.ai の Wan 2.2 | 撮影素材やモーションと組み合わせるショット、B ロール |
+| **🖼️ 画像** | Codex Image、Atlas Cloud の Nano Banana 2、fal.ai の FLUX Schnell、WaveSpeedAI の Seedream 5.5 | ブランド画像、シーンの絵、補助画像。対応する Codex 画像経路で参考画像を用いた編集 |
+| **🎬 動画** | Atlas Cloud の Seedance 2.0、fal.ai の Wan 2.2、WaveSpeedAI の Wan 3.0 | 撮影素材やモーションと組み合わせるショット、B ロール |
 | **🎵 音楽** | Atlas Cloud の Suno v4 | 雰囲気と企画に合ったサウンドトラック |
-| **🎙️ TTS / ナレーション** | fal.ai の Kokoro | 承認済み台本から音声を生成し、映像・音楽と配置 |
+| **🎙️ TTS / ナレーション** | fal.ai の Kokoro、WaveSpeedAI の Qwen3 TTS | 承認済み台本から音声を生成し、映像・音楽と配置 |
 
 > 「Motion.md の Brand Kit と確定済みの台本を使って、冒頭のビジュアル、挿入カット、BGM、ナレーションを生成してください。選んだ素材をプロジェクトに入れ、音と映像を合わせてから全編を見せてください。」
 

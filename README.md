@@ -439,10 +439,10 @@ Connect fal.ai in **Model Settings** and refresh its catalog to find GPT Image 2
 
 | Make what the video needs | Built-in model catalog examples | Bring it into your film |
 | --- | --- | --- |
-| **🖼️ Images** | Codex Image; Nano Banana 2 via Atlas Cloud; FLUX Schnell via fal.ai | Brand visuals, scene artwork and supporting images; reference-based editing with Codex Image or an OpenDesign account image model that supports edits |
-| **🎬 Video** | Seedance 2.0 via Atlas Cloud; Wan 2.2 via fal.ai | Generated shots and B-roll to combine with your footage and motion |
+| **🖼️ Images** | Codex Image; Nano Banana 2 via Atlas Cloud; FLUX Schnell via fal.ai; Seedream 5.5 via WaveSpeedAI | Brand visuals, scene artwork and supporting images; reference-based editing with Codex Image or an OpenDesign account image model that supports edits |
+| **🎬 Video** | Seedance 2.0 via Atlas Cloud; Wan 2.2 via fal.ai; Wan 3.0 via WaveSpeedAI | Generated shots and B-roll to combine with your footage and motion |
 | **🎵 Music** | Suno v4 via Atlas Cloud | A soundtrack built around your mood and creative brief |
-| **🎙️ TTS / voice-over** | Kokoro via fal.ai | Narration from your approved script, placed alongside the visuals and music |
+| **🎙️ TTS / voice-over** | Kokoro via fal.ai; Qwen3 TTS via WaveSpeedAI | Narration from your approved script, placed alongside the visuals and music |
 
 > “Use the Brand Kit section of our Motion.md and our approved script. Generate artwork for the opening, a video insert, background music and TTS narration. Add the selected results to the recreated project, align the sound and visuals, then show me the full cut.”
 

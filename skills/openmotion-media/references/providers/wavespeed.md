@@ -34,6 +34,14 @@ Speech — [speech API example](https://wavespeed.ai/docs/generate-speech):
 {"action":"generate","requestId":"wave-speech-01","model":"wavespeed:minimax/speech-2.6-hd","modality":"audio","mode":"text-to-speech","prompt":"Welcome to a quiet morning.","parameters":{"voice_id":"Friendly_Person","speed":1}}
 ```
 
+Built-in entries, checked against their official model pages on 2026-11-23, are offered before discovery: [Seedream 5.5](https://wavespeed.ai/models/bytedance/seedream-v5.5) (`bytedance/seedream-v5.5`, image), [Wan 3.0](https://wavespeed.ai/models/alibaba/wan-3.0/text-to-video) (`alibaba/wan-3.0/text-to-video`, video) and [Qwen3 TTS](https://wavespeed.ai/models/wavespeed-ai/qwen3-tts/text-to-speech) (`wavespeed-ai/qwen3-tts/text-to-speech`, speech). Qwen3 TTS requires `language` and `voice` (not `voice_id`); its entry defaults them to `auto` and `Vivian`, also after a catalogue refresh lists the same model, and explicit parameters override them:
+
+```json
+{"action":"generate","requestId":"wave-qwen-tts-01","model":"wavespeed:wavespeed-ai/qwen3-tts/text-to-speech","modality":"audio","mode":"text-to-speech","prompt":"Welcome to a quiet morning.","parameters":{"language":"English","voice":"Vivian"}}
+```
+
+The submitted body is `{"language":"English","voice":"Vivian","text":"Welcome to a quiet morning."}`. Seedream 5.5 and Wan 3.0 accept a prompt-only body; check their pages for optional size, duration and reference fields before adding parameters.
+
 Voice IDs belong to the selected model. Music/SFX models can also appear in audio discovery, but their schemas differ from speech; do not send `voice_id` or assume a `text` field without checking that model.
 
 Wire mapping: POST `https://api.wavespeed.ai/api/v3/{full model ID}`, body `{...parameters,prompt}` or `{...parameters,text}` for `text-to-speech`. The model ID belongs in the path, not the body.

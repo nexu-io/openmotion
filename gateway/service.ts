@@ -28,6 +28,7 @@ type Options = { tracking?: OmTracking; fetcher?: Fetcher; detect?: () => Promis
 type SavedOutput = { path: string; mimeType: string; bytes: number; sha256: string };
 const saveUnavailable = 'SAVE_NOT_AVAILABLE: retained outputs are missing, changed or unreadable; no model request was made';
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+const builtinDefaults = new Map(builtinModels.filter(model => model.defaults).map(model => [model.id, model.defaults!]));
 const uuid = (id: unknown): id is string => typeof id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id);
 function alive(pid?: number) { try { if (!pid) return false; process.kill(pid, 0); return true; } catch { return false; } }
 async function readJson<T>(file: string, fallback: T): Promise<T> {
@@ -128,8 +129,9 @@ export class ModelGateway {
     // Read bound Cloud rows last: no asynchronous work may revive them after this identity check.
     const cloud = await this.cachedCloudModels();
     return [...new Map([...builtinModels, ...cached.filter(model => model.provider !== 'opendesign'), ...cloud, ...custom, ...compatible, ...account].map(model => [model.id, model])).values()].map(model => {
-      const live = cloud.find(row => row.id === model.id);
-      const merged = { ...model, ...overrides[model.id], ...(live ? { supportsImageReference: live.supportsImageReference, maxInputImages: live.maxInputImages, nativeOptions: live.nativeOptions } : {}) };
+      const live = cloud.find(row => row.id === model.id), required = builtinDefaults.get(model.id);
+      // A same-ID catalogue row replaces the built-in entry; keep the built-in defaults a request needs.
+      const merged = { ...model, ...(required ? { defaults: { ...required, ...model.defaults } } : {}), ...overrides[model.id], ...(live ? { supportsImageReference: live.supportsImageReference, maxInputImages: live.maxInputImages, nativeOptions: live.nativeOptions } : {}) };
       const normalized = ['opendesign', 'account'].includes(merged.provider) && merged.modality === 'image' && merged.supportsImageReference
         ? { ...merged, maxInputImages: modelReferenceLimit(merged) }
         : merged;

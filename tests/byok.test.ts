@@ -244,8 +244,35 @@ test('WaveSpeed discovers authenticated media models and excludes text, training
   assert.equal(calls, 0);
   await gateway.configureProvider('wavespeed', { apiKey: 'wavespeed-discovery' });
   const result = await api.call('openmotion_media_use', { action: 'models', provider: 'wavespeed', refresh: true });
-  assert.deepEqual(result.catalogs[0].models.map((m: any) => m.modality), ['image', 'video', 'audio']);
+  assert.deepEqual(result.catalogs[0].models.filter((m: any) => m.source === 'live').map((m: any) => [m.modelId, m.modality]), [['vendor/image', 'image'], ['vendor/video', 'video'], ['vendor/voice', 'audio']]);
+  assert.deepEqual(result.catalogs[0].models.filter((m: any) => m.source === 'builtin').map((m: any) => m.modality), ['image', 'video', 'audio']);
   assert.equal(calls, 1); assert.doesNotMatch(JSON.stringify(result), /wavespeed-discovery/);
+  await gateway.close();
+}));
+
+test('WaveSpeed Qwen3 TTS keeps its required built-in language and voice after a catalogue refresh returns the same model', () => fixture(async store => {
+  const api = service(store), gateway = gatewayFor(store); gateway.options.detect = async () => []; gateway.options.pollMs = 1;
+  const modelId = 'wavespeed-ai/qwen3-tts/text-to-speech', bodies: any[] = [];
+  gateway.options.download = async () => audio;
+  gateway.options.fetcher = (async (raw, init = {}) => {
+    const url = String(raw);
+    if (url === 'https://api.wavespeed.ai/api/v3/models') return Response.json({ code: 200, data: [{ model_id: modelId, name: 'Qwen3 TTS live', type: 'text-to-speech' }] });
+    if (init.method === 'POST') {
+      assert.equal(url, `https://api.wavespeed.ai/api/v3/${modelId}`); bodies.push(JSON.parse(String(init.body)));
+      return Response.json({ code: 200, data: { id: 'remote-test', status: 'created' } });
+    }
+    return Response.json({ code: 200, data: { status: 'completed', outputs: ['https://cdn.example/output'] } });
+  }) as Fetcher;
+  await gateway.configureProvider('wavespeed', { apiKey: 'private-wavespeed' });
+  const listed = await api.call('openmotion_media_use', { action: 'models', provider: 'wavespeed', refresh: true });
+  const row = listed.catalogs[0].models.find((m: any) => m.modelId === modelId);
+  assert.equal(row.source, 'live');
+  assert.deepEqual(row.defaults, { language: 'auto', voice: 'Vivian' });
+  const submitted = await api.call('openmotion_media_use', { action: 'generate', provider: 'wavespeed', model: modelId, projectId: store.projectId, requestId: 'qwen3-tts-refresh',
+    modality: 'audio', mode: 'text-to-speech', prompt: 'Hello world' });
+  const job = await finish(store, submitted.job.id);
+  assert.equal(job.state, 'completed', job.error);
+  assert.deepEqual(bodies, [{ language: 'auto', voice: 'Vivian', text: 'Hello world' }]);
   await gateway.close();
 }));
 

@@ -429,10 +429,10 @@ Brand Kit 章节记录品牌身份、语气和已确认的产品信息；Design 
 
 | 视频所需素材 | 内置模型目录示例 | 如何用于影片 |
 | --- | --- | --- |
-| **🖼️ 图片** | Codex Image；Atlas Cloud 的 Nano Banana 2；fal.ai 的 FLUX Schnell | 品牌视觉、场景美术、辅助图片；Codex Image 或支持编辑的 OpenDesign 账号图片模型可基于参考图编辑 |
-| **🎬 视频** | Atlas Cloud 的 Seedance 2.0；fal.ai 的 Wan 2.2 | 生成镜头和 B-roll，与实拍及动效组合 |
+| **🖼️ 图片** | Codex Image；Atlas Cloud 的 Nano Banana 2；fal.ai 的 FLUX Schnell；WaveSpeedAI 的 Seedream 5.5 | 品牌视觉、场景美术、辅助图片；Codex Image 或支持编辑的 OpenDesign 账号图片模型可基于参考图编辑 |
+| **🎬 视频** | Atlas Cloud 的 Seedance 2.0；fal.ai 的 Wan 2.2；WaveSpeedAI 的 Wan 3.0 | 生成镜头和 B-roll，与实拍及动效组合 |
 | **🎵 音乐** | Atlas Cloud 的 Suno v4 | 根据情绪和创作简报生成配乐 |
-| **🎙️ TTS / 旁白** | fal.ai 的 Kokoro | 根据已确认脚本生成旁白，编排到画面和音乐中 |
+| **🎙️ TTS / 旁白** | fal.ai 的 Kokoro；WaveSpeedAI 的 Qwen3 TTS | 根据已确认脚本生成旁白，编排到画面和音乐中 |
 
 > “使用 Motion.md 中的 Brand Kit 和已确认脚本，生成开场美术、插入视频、背景音乐和 TTS。把选中的结果加入重建工程，对齐声画，再展示完整剪辑。”
 
