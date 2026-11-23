@@ -62,12 +62,16 @@ test('Unified Capability Registry drives shared image/video features and separat
   assert.match(imageFeaturePrompt('relight', 'Sharp rim.', { direction: 'back', temperature: 'warm', mood: 'neon' }), /backlight.*3200K.*neon/i);
   assert.match(videoFeaturePrompt('camera-control', 'Mountain peak', { movement: 'orbit', pace: 'slow' }), /360-degree camera orbit.*Mountain peak/);
 
-  assert.equal(defaultCapabilities.length, 32);
+  assert.equal(defaultCapabilities.length, 33);
   const liveIds = defaultCapabilities.filter(c => c.status === 'live').map(c => c.id);
   assert.equal(liveIds.length, 14);
   for (const id of ['text-to-image', 'remove-background', 'image-blend', 'relight', 'camera-control', 'multi-shot', 'native-audio', 'music', 'speech', 'asr-transcribe']) {
     assert.ok(liveIds.includes(id), `expected live capability ${id}`);
   }
+  const deprecatedCharacter = defaultCapabilities.find(c => c.id === 'character');
+  assert.equal(deprecatedCharacter?.status, 'deprecated');
+  assert.equal(deprecatedCharacter?.replacementCapabilityId, 'image-blend');
+  assert.equal(liveIds.includes('character'), false);
   const soonIds = defaultCapabilities.filter(c => c.status === 'coming_soon').map(c => c.id);
   assert.equal(soonIds.length, 18);
   for (const id of ['inpainting', 'expand-image', 'upscale-4k', 'omni-reference', 'lipsync', 'voice-changer', 'dubbing', 'digital-human', '3d-asset']) {

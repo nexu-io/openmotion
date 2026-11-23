@@ -395,6 +395,14 @@ it.each(['text-to-image', 'image-edit', 'remove-background', 'image-blend', 'rel
   expect(workspacePageHref(`http://localhost/?page=design&scene=${scene}&model=p%3Am`, { studio: page.studio })).toBe(`/create/${scene}?model=p%3Am`);
 });
 
+it('keeps legacy character scene bookmarks and /create/character links resolving to image-blend', () => {
+  const legacy = readWorkspacePage('?page=design&scene=character&model=p%3Am');
+  expect(legacy).toMatchObject({ studio: { landing: true, scene: { id: 'image-blend' }, model: 'p:m' } });
+  expect(legacy.designScene).toBeUndefined();
+  expect(readWorkspacePage('', '', '/design/character')).toMatchObject({ studio: { landing: true, scene: { id: 'image-blend' } } });
+  expect(readWorkspacePage('', '', '/create/character')).toMatchObject({ studio: { landing: true, scene: { id: 'image-blend' } } });
+});
+
 it.each(['prototype', 'deck', 'document', 'web-clone', 'projects'])('keeps the Design Studio %s page for HTML design work', scene => {
   const page = readWorkspacePage(`?page=design&scene=${scene}`);
   expect(page).toMatchObject({ designScene: scene, studio: null });

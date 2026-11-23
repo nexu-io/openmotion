@@ -51,6 +51,7 @@ export function capabilityScene(capability: CapabilityDefinition): StudioScene {
 const legacySceneAliases: Record<string, StudioScene['id']> = {
   'video-native-audio': 'text-to-video',
   'shot-image': 'text-to-image',
+  character: 'image-blend',
 };
 
 /** Only independently addressable scenes can mount the focused generator. */

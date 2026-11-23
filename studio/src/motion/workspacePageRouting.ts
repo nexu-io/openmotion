@@ -77,8 +77,11 @@ export function readWorkspacePage(search: string, hash = '', pathname = '', capa
   const studioKind = collection?.scenes.some(id => id === sceneId) ? collection
     : isDesignHtmlScene || cinemaLanding ? undefined : findMediaStudio(isAudioTab ? 'sound' : page);
   // Bookmarked Design Studio image links open the unified Image editor; HTML design scenarios keep their own page.
+  const requestedDesignScene = page === 'design' && !isDesignHtmlScene ? findLandingScene(sceneId, capabilities) : undefined;
   const legacyDesignImage = page === 'design' && !isDesignHtmlScene
-    ? findMediaStudio('design')!.scenes.map(id => findLandingScene(id)!).find(scene => scene.id === sceneId) ?? findLandingScene('text-to-image')
+    ? (requestedDesignScene && findMediaStudio('design')!.scenes.some(id => id === requestedDesignScene.id)
+      ? requestedDesignScene
+      : findLandingScene('text-to-image'))
     : undefined;
   const landing = page === 'create' ? findLandingScene(sceneId, capabilities) : legacyDesignImage;
   const home = Boolean(!landing && !isAudioTab && studioKind && hasStudioHome(studioKind) && query.get('home') === '1');
