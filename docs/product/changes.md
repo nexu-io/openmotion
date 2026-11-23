@@ -1,5 +1,12 @@
 # 公开变更记录
 
+## 2026-11-18: Add AI/ML API as a BYOK media provider
+
+- Add AI/ML API as a dedicated media provider: one key (saved in Model providers, or `AIMLAPI_API_KEY`) covers image, video, music and speech through the existing gateway, jobs, Tool and Studio settings.
+- Discovery reads the public `/v1/models` catalogue and classifies rows only by their `type`; chat, transcription, embedding, editing and realtime rows are not listed. Without a key, a general catalogue refresh does not contact the provider.
+- Video and music tasks are submitted once and polled by their original ID; image and speech are synchronous. Built-in examples (FLUX Schnell, Seedance 1.0 Pro Fast, Stable Audio, OpenAI TTS-1) carry their checked parameter schemas.
+- Existing providers, saved routes and auto-selection are unchanged; the new provider is listed after the existing media providers. Live paid generation was checked separately from the deterministic fixtures.
+
 ## 2026-11-20: Show verified media capabilities and streamline model editing in Provider Settings
 
 - Replace non-executable LLM capability toggles (`Reasoning`, `Tools`), input-modality toggles (`Vision`, `Audio`, `Video`) and token-limit inputs in Studio's `ModelEditor` with executable settings: directly visible `Model type` (for compatible/custom and newly added models), `Transcription response` (for `transcription` models), structured default parameter controls derived from `shared/generation-options.ts` schemas, and collapsed raw JSON defaults under More settings. Backend `connections.json` metadata override validation stays backward-compatible.

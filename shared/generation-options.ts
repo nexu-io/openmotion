@@ -302,6 +302,21 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
     choice('voice', 'Speech voice', ['af_heart', 'af_alloy', 'af_aoede', 'af_bella', 'af_jessica', 'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx', 'am_puck', 'am_santa'], 'af_heart'),
     number('speed', 'Speech speed', 1, undefined, undefined, 0.1),
   ];
+  if (endpoint === 'aimlapi:flux/schnell' && model.modality === 'image') fields = [
+    { ...choice('image_size', 'Image size', [], 'landscape_4_3', 'ratio'), choices: [
+      ['square_hd', '1:1 HD'], ['square', '1:1'], ['portrait_4_3', '3:4'], ['portrait_16_9', '9:16'], ['landscape_4_3', '4:3'], ['landscape_16_9', '16:9'],
+    ].map(([value, label]) => ({ value, label })) },
+    { ...number('num_images', 'Output count', 1, 1, 4), presentation: 'count' }, number('seed', 'Seed', undefined, 1),
+  ];
+  if (endpoint === 'aimlapi:bytedance/seedance-1-0-pro-fast' && model.modality === 'video') fields = [
+    choice('resolution', 'Resolution', ['480p', '720p', '1080p'], '1080p'), choice('duration', 'Duration (seconds)', [5, 10]),
+    toggle('camerafixed', 'Fixed camera'), number('seed', 'Seed'),
+  ];
+  if (endpoint === 'aimlapi:stable-audio' && model.modality === 'audio') fields = [number('seconds_total', 'Duration (seconds)', 30, 1, 47), number('steps', 'Steps', 100, 1, 1000)];
+  if (endpoint === 'aimlapi:openai/tts-1' && model.modality === 'audio') fields = [
+    choice('voice', 'Speech voice', ['alloy', 'ash', 'ballad', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer', 'verse'], 'alloy'),
+    number('speed', 'Speech speed', 1, 0.25, 4, 0.05),
+  ];
   if (endpoint === 'fal:fal-ai/elevenlabs/sound-effects/v2' && model.modality === 'audio') fields = [
     number('duration_seconds', 'Duration (seconds)', undefined, 0.5, 22, 0.5),
     toggle('loop', 'Seamless loop'),

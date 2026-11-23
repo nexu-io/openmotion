@@ -9,6 +9,7 @@ import { builtinModels, discoverModels, modelKey, providerIds, providerLabels, v
 import { detectAgents, generateCodexImage } from './agents.ts';
 import { downloadMedia, mediaType, publicProviderFetch, ProviderError, retryRead, type Fetcher } from './network.ts';
 import { providerAdapters, waveSpeedModels } from './providers.ts';
+import { aimlapiModels } from './aimlapi.ts';
 import { cloudModels } from './opendesign.ts';
 import { ProviderConnections, type GatewayConfig } from './connections.ts';
 import { isGatewayProvider, isMediaProvider, registeredProvider } from '../shared/provider-registry.ts';
@@ -153,6 +154,8 @@ export class ModelGateway {
             const key = (await this.credential(id)).key;
             return key ? await waveSpeedModels(key, this.options.fetcher ?? fetch) : [];
           }
+          // Public catalogue, but an unconfigured workspace only contacts it when this provider is requested.
+          if (id === 'aimlapi') return input.provider === id || (await this.credential(id)).key ? await aimlapiModels(this.options.fetcher ?? fetch) : [];
           return await discoverModels(id, String(input.query ?? ''), this.options.fetcher ?? fetch);
         }
         catch { warnings.push(`${providerLabels[id]} catalogue unavailable; showing cached and built-in models`); return []; }

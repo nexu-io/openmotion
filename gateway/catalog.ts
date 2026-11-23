@@ -25,6 +25,10 @@ export const builtinModels: Model[] = [
   builtin('opendesign', 'byteplus-tts-2', 'BytePlus Voice', 'audio', 'text-to-speech'),
   // The Cloud catalogue does not list its music model yet, so discovery would otherwise show no music.
   builtin('opendesign', 'elevenlabs-music-v2', 'ElevenLabs Music', 'audio', 'text-to-audio'),
+  builtin('aimlapi', 'flux/schnell', 'FLUX Schnell', 'image', 'text-to-image'),
+  builtin('aimlapi', 'bytedance/seedance-1-0-pro-fast', 'Seedance 1.0 Pro Fast', 'video', 'text-to-video'),
+  builtin('aimlapi', 'stable-audio', 'Stable Audio', 'audio', 'text-to-audio'),
+  builtin('aimlapi', 'openai/tts-1', 'OpenAI TTS-1', 'audio', 'text-to-speech'),
 ];
 /** Prefer explicit output/task metadata; never infer image output from image input. */
 export function classifyModel(category: string, output?: string): { modality: Modality; mode: string } | null {

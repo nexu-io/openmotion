@@ -229,6 +229,9 @@ export const providerIcons = Object.freeze({
   "wavespeed": {
     "file": "providers/wavespeed.svg"
   },
+  "aimlapi": {
+    "file": "providers/aimlapi.svg"
+  },
   "codex": {
     "file": "providers/codex-color.svg"
   },

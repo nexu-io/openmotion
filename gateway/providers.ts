@@ -3,6 +3,7 @@ import type { GenerationJob, Model } from '../shared/gateway.ts';
 import { apiJson, ProviderError, type Fetcher } from './network.ts';
 import { normalizeModels } from './catalog.ts';
 import { opendesign } from './opendesign.ts';
+import { aimlapi } from './aimlapi.ts';
 import { registeredProvider, type MediaProviderId } from '../shared/provider-registry.ts';
 
 const atlasOrigin = registeredProvider('atlascloud')!.baseUrl;
@@ -117,4 +118,4 @@ const fal: ProviderAdapter = {
   },
 };
 /** Add providers here without changing Studio, job persistence or the MCP contract. */
-export const providerAdapters: Record<MediaProviderId, ProviderAdapter> = { atlascloud: atlas, fal, opendesign, wavespeed };
+export const providerAdapters: Record<MediaProviderId, ProviderAdapter> = { atlascloud: atlas, fal, opendesign, wavespeed, aimlapi };

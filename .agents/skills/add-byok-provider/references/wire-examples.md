@@ -81,6 +81,41 @@ curl --fail-with-body --silent --show-error \
   -H "Authorization: Bearer ${WAVESPEED_API_KEY:?Set WAVESPEED_API_KEY locally}"
 ```
 
+## AI/ML API
+
+Public catalogue (no authentication); `include=modalities` adds the input/output lists:
+
+```bash
+curl --fail-with-body --silent --show-error 'https://api.aimlapi.com/v1/models?include=modalities'
+```
+
+Image submission (synchronous):
+
+```bash
+curl --fail-with-body --silent --show-error 'https://api.aimlapi.com/v1/images/generations' \
+  -H "Authorization: Bearer ${AIMLAPI_API_KEY:?Set AIMLAPI_API_KEY locally}" -H 'Content-Type: application/json' \
+  --data '{"model":"flux/schnell","prompt":"A ceramic cup on a wooden table, soft morning light","image_size":"square"}'
+```
+
+Video submission, then polling the original task (music uses `/v2/generate/audio` the same way):
+
+```bash
+curl --fail-with-body --silent --show-error 'https://api.aimlapi.com/v2/video/generations' \
+  -H "Authorization: Bearer ${AIMLAPI_API_KEY:?Set AIMLAPI_API_KEY locally}" -H 'Content-Type: application/json' \
+  --data '{"model":"bytedance/seedance-1-0-pro-fast","prompt":"Steam rises from a ceramic cup","resolution":"480p","duration":5}'
+curl --fail-with-body --silent --show-error --get 'https://api.aimlapi.com/v2/video/generations' \
+  --data-urlencode "generation_id=${AIMLAPI_TASK_ID:?Use the original id}" \
+  -H "Authorization: Bearer ${AIMLAPI_API_KEY:?Set AIMLAPI_API_KEY locally}"
+```
+
+Speech; the response is JSON with `audio.url` or, for some models, the audio bytes:
+
+```bash
+curl --fail-with-body --silent --show-error 'https://api.aimlapi.com/v1/tts' \
+  -H "Authorization: Bearer ${AIMLAPI_API_KEY:?Set AIMLAPI_API_KEY locally}" -H 'Content-Type: application/json' \
+  --data '{"model":"openai/tts-1","text":"Welcome to a quiet morning.","voice":"alloy"}'
+```
+
 ## OpenDesign Cloud
 
 Set `OPENDESIGN_MEDIA_ORIGIN` to the dashboard's HTTPS API origin without `/v1` or a trailing slash.
