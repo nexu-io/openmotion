@@ -186,7 +186,6 @@ export function trackDocumentAssetReadiness(
   let skipped = false;
   let manualRetryCounter = retryDelaysMs.length;
   const cleanups: Array<() => void> = [];
-  const abortController = new AbortController();
   const items: TrackedAssetItem[] = [];
 
   const buildSnapshot = (): PreviewAssetProgress => {
@@ -291,11 +290,24 @@ export function trackDocumentAssetReadiness(
       onComplete: (ok: boolean, reason: "error" | "timeout" | null) => void,
     ) => {
       let finished = false;
+      let probing = false;
       let cancelTimer: (() => void) | null = null;
-      const detach = () => {
+      let cancelRetryTimer: (() => void) | null = null;
+      let probeController: AbortController | null = null;
+      const detachListeners = () => {
         img.removeEventListener("load", onLoad);
         img.removeEventListener("error", onError);
+      };
+      const detach = () => {
+        detachListeners();
         cancelTimer?.();
+        cancelTimer = null;
+        cancelRetryTimer?.();
+        cancelRetryTimer = null;
+        if (probeController) {
+          probeController.abort();
+          probeController = null;
+        }
       };
       const done = (ok: boolean, reason: "error" | "timeout" | null) => {
         if (finished || disposed) return;
@@ -305,19 +317,23 @@ export function trackDocumentAssetReadiness(
       };
       const onLoad = () => done(true, null);
       const onError = () => {
-        detach();
+        if (finished || probing || disposed) return;
+        probing = true;
+        detachListeners();
         if (!allowAutoRetry || retryIndex >= retryDelaysMs.length || !originalSrc) {
           done(false, "error");
           return;
         }
+        probeController = new AbortController();
         void isUrlRetryable(
           originalSrc,
           baseHref,
           sameOrigin,
           fetchImpl,
-          abortController.signal,
+          probeController.signal,
         ).then((retryable) => {
           if (disposed || finished) return;
+          probeController = null;
           if (!retryable) {
             done(false, "error");
             return;
@@ -327,10 +343,13 @@ export function trackDocumentAssetReadiness(
             done(false, "error");
             return;
           }
+          cancelTimer?.();
+          cancelTimer = null;
           const delay = retryDelaysMs[retryIndex] ?? 500;
-          scheduleTimeout(delay, () => {
+          cancelRetryTimer = scheduleTimeout(delay, () => {
             if (disposed || finished) return;
             finished = true;
+            cancelRetryTimer = null;
             watchImageAttempt(retryIndex + 1, true, false, onComplete);
             applyRetrySource(img, nextUrl);
           });
@@ -341,7 +360,7 @@ export function trackDocumentAssetReadiness(
       img.addEventListener("error", onError);
       cleanups.push(detach);
       cancelTimer = scheduleTimeout(itemTimeoutMs, () => {
-        if (img.complete && img.naturalWidth > 0) done(true, null);
+        if (!probing && img.complete && img.naturalWidth > 0) done(true, null);
         else done(false, "timeout");
       });
 
@@ -387,13 +406,26 @@ export function trackDocumentAssetReadiness(
       onComplete: (ok: boolean, reason: "error" | "timeout" | null) => void,
     ) => {
       let finished = false;
+      let probing = false;
       let cancelTimer: (() => void) | null = null;
-      const detach = () => {
+      let cancelRetryTimer: (() => void) | null = null;
+      let probeController: AbortController | null = null;
+      const detachListeners = () => {
         media.removeEventListener("loadeddata", onProgressEvent);
         media.removeEventListener("canplay", onProgressEvent);
         media.removeEventListener("canplaythrough", onProgressEvent);
         media.removeEventListener("error", onError);
+      };
+      const detach = () => {
+        detachListeners();
         cancelTimer?.();
+        cancelTimer = null;
+        cancelRetryTimer?.();
+        cancelRetryTimer = null;
+        if (probeController) {
+          probeController.abort();
+          probeController = null;
+        }
       };
       const done = (ok: boolean, reason: "error" | "timeout" | null) => {
         if (finished || disposed) return;
@@ -408,19 +440,23 @@ export function trackDocumentAssetReadiness(
         }
       };
       const onError = () => {
-        detach();
+        if (finished || probing || disposed) return;
+        probing = true;
+        detachListeners();
         if (!allowAutoRetry || retryIndex >= retryDelaysMs.length || !originalSrc) {
           done(false, "error");
           return;
         }
+        probeController = new AbortController();
         void isUrlRetryable(
           originalSrc,
           baseHref,
           sameOrigin,
           fetchImpl,
-          abortController.signal,
+          probeController.signal,
         ).then((retryable) => {
           if (disposed || finished) return;
+          probeController = null;
           if (!retryable) {
             done(false, "error");
             return;
@@ -430,10 +466,13 @@ export function trackDocumentAssetReadiness(
             done(false, "error");
             return;
           }
+          cancelTimer?.();
+          cancelTimer = null;
           const delay = retryDelaysMs[retryIndex] ?? 500;
-          scheduleTimeout(delay, () => {
+          cancelRetryTimer = scheduleTimeout(delay, () => {
             if (disposed || finished) return;
             finished = true;
+            cancelRetryTimer = null;
             startAttempt(retryIndex + 1, true, false, onComplete);
             applyRetrySource(media, nextUrl);
           });
@@ -447,7 +486,7 @@ export function trackDocumentAssetReadiness(
       cleanups.push(detach);
 
       cancelTimer = scheduleTimeout(itemTimeoutMs, () => {
-        if (media.readyState >= MEDIA_HAVE_CURRENT_DATA) done(true, null);
+        if (!probing && media.readyState >= MEDIA_HAVE_CURRENT_DATA) done(true, null);
         else done(false, "timeout");
       });
 
@@ -618,7 +657,6 @@ export function trackDocumentAssetReadiness(
     dispose: () => {
       if (disposed) return;
       disposed = true;
-      abortController.abort();
       while (cleanups.length > 0) {
         cleanups.pop()?.();
       }

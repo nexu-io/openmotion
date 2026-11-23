@@ -25,6 +25,7 @@ const IDB_NAME = "openmotion-client-comp-thumbs-v1";
 const IDB_STORE = "strips";
 const IDB_MAX_ENTRIES = 120;
 const MEMORY_STRIP_CACHE_MAX = 64;
+const SHARED_COVER_CACHE_MAX = 128;
 
 interface CachedStripRecord {
   key: string;
@@ -36,13 +37,19 @@ interface CachedStripRecord {
 }
 
 interface MemoryStripEntry {
+  blobs: readonly Blob[];
   value: ThumbnailValue;
+  coverValue: ThumbnailValue;
   urls: string[];
   aspect: number;
   width: number;
   height: number;
   weight: number;
+  baseCoverKey: string;
   compPathKey: string;
+  inCache: boolean;
+  refCount: number;
+  revoked: boolean;
 }
 
 interface CapturePreviewWindow extends Window {
@@ -80,16 +87,71 @@ const sharedCoverCache = new Map<string, { blob: Blob; aspect: number; width: nu
 // In-memory LRU strip cache keyed independent of sessionEpoch so switching projects/compositions
 // renders captured filmstrips synchronously in 0ms without re-queuing or re-fetching posters.
 const memoryStripCache = new Map<string, MemoryStripEntry>();
-const inFlightIdbReads = new Map<string, Promise<ThumbnailValue | null>>();
+// Maps any ThumbnailValue handed out from memoryStripCache back to its entry for owner ref-counting.
+const entryByValue = new WeakMap<ThumbnailValue, MemoryStripEntry>();
+const inFlightIdbReads = new Map<string, Promise<MemoryStripEntry | null>>();
+
+function putSharedCoverCache(
+  baseCoverKey: string,
+  entry: { blob: Blob; aspect: number; width: number; height: number },
+): void {
+  if (sharedCoverCache.has(baseCoverKey)) sharedCoverCache.delete(baseCoverKey);
+  sharedCoverCache.set(baseCoverKey, entry);
+  while (sharedCoverCache.size > SHARED_COVER_CACHE_MAX) {
+    const oldestKey = sharedCoverCache.keys().next().value;
+    if (!oldestKey) break;
+    sharedCoverCache.delete(oldestKey);
+  }
+}
+
+function maybeRevokeEntry(entry: MemoryStripEntry): void {
+  if (entry.revoked || entry.inCache || entry.refCount > 0) return;
+  entry.revoked = true;
+  for (const url of entry.urls) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function retainMemoryEntry(entry: MemoryStripEntry): () => void {
+  entry.refCount += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.refCount = Math.max(0, entry.refCount - 1);
+    maybeRevokeEntry(entry);
+  };
+}
+
+/**
+ * Retain ownership of a ThumbnailValue returned by `peekCachedCompositionCapture`
+ * so LRU cache eviction does not revoke its object URLs while mounted.
+ */
+export function retainCachedCompositionCapture(
+  value: ThumbnailValue | null | undefined,
+): () => void {
+  if (!value) return () => {};
+  const entry = entryByValue.get(value);
+  if (!entry) return () => {};
+  return retainMemoryEntry(entry);
+}
 
 /** Reset in-memory capture caches between unit tests. */
 export function clearClientCompositionCaptureCacheForTest(): void {
   for (const entry of memoryStripCache.values()) {
-    for (const url of entry.urls) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {
-        // ignore
+    entry.inCache = false;
+    if (!entry.revoked) {
+      entry.revoked = true;
+      for (const url of entry.urls) {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {
+          // ignore
+        }
       }
     }
   }
@@ -858,6 +920,7 @@ function stripMemoryCacheKey(
 
 function putMemoryStripCache(
   idbKey: string,
+  baseCoverKey: string,
   compPathKey: string,
   blobs: readonly Blob[],
   aspect: number,
@@ -876,7 +939,28 @@ function putMemoryStripCache(
     urls.length === 1
       ? { kind: "image", url: urls[0]!, aspect, representative: "render" }
       : { kind: "filmstrip", urls, aspect };
-  const entry: MemoryStripEntry = { value, urls, aspect, width, height, weight, compPathKey };
+  const coverUrl = urls[Math.min(urls.length - 1, Math.floor(urls.length / 2))]!;
+  const coverValue: ThumbnailValue =
+    value.kind === "image"
+      ? value
+      : { kind: "image", url: coverUrl, aspect, representative: "render" };
+  const entry: MemoryStripEntry = {
+    blobs,
+    value,
+    coverValue,
+    urls,
+    aspect,
+    width,
+    height,
+    weight,
+    baseCoverKey,
+    compPathKey,
+    inCache: true,
+    refCount: 0,
+    revoked: false,
+  };
+  entryByValue.set(value, entry);
+  if (coverValue !== value) entryByValue.set(coverValue, entry);
   memoryStripCache.set(idbKey, entry);
   while (memoryStripCache.size > MEMORY_STRIP_CACHE_MAX) {
     const oldestKey = memoryStripCache.keys().next().value;
@@ -884,30 +968,83 @@ function putMemoryStripCache(
     const evicted = memoryStripCache.get(oldestKey);
     memoryStripCache.delete(oldestKey);
     if (evicted) {
-      for (const url of evicted.urls) {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {
-          // ignore
-        }
-      }
+      evicted.inCache = false;
+      maybeRevokeEntry(evicted);
     }
   }
   return entry;
 }
 
+function retainOrRematerialize(idbKey: string, entry: MemoryStripEntry): MemoryStripEntry {
+  if (!entry.revoked) return entry;
+  return putMemoryStripCache(
+    idbKey,
+    entry.baseCoverKey,
+    entry.compPathKey,
+    entry.blobs,
+    entry.aspect,
+    entry.width,
+    entry.height,
+  );
+}
+
 function memoryEntryToThumbnailResult(entry: MemoryStripEntry): ThumbnailLoadedResult {
-  // URL lifetime is owned by memoryStripCache LRU eviction so switching projects/compositions
-  // reuses warm strips synchronously without revoking active blob URLs.
+  // Retain the entry on behalf of ThumbnailScheduler so LRU eviction in memoryStripCache
+  // only drops cache ownership; object URLs stay valid until ThumbnailScheduler disposes
+  // its result and all direct consumers release their leases.
+  const release = retainMemoryEntry(entry);
   return {
     value: entry.value,
     weight: entry.weight,
+    dispose: release,
   };
+}
+
+function peekMemoryEntry(
+  input: Pick<
+    ClientCaptureInput,
+    "projectId" | "previewUrl" | "contentRevision" | "frameCount" | "selector" | "selectorIndex"
+  >,
+): { entry: MemoryStripEntry; value: ThumbnailValue } | null {
+  const { idbKey, baseCoverKey, compPathKey } = stripMemoryCacheKey(input);
+  const exact = memoryStripCache.get(idbKey);
+  if (exact) {
+    memoryStripCache.delete(idbKey);
+    memoryStripCache.set(idbKey, exact);
+    return { entry: exact, value: exact.value };
+  }
+  if (input.frameCount === 1) {
+    // Reuse an already-resident multi-frame strip's middle frame without creating duplicate
+    // object URLs or triggering LRU eviction during React render.
+    for (const [key, entry] of memoryStripCache) {
+      if (entry.baseCoverKey === baseCoverKey) {
+        memoryStripCache.delete(key);
+        memoryStripCache.set(key, entry);
+        return { entry, value: entry.coverValue };
+      }
+    }
+    const shared = sharedCoverCache.get(baseCoverKey);
+    if (shared) {
+      const entry = putMemoryStripCache(
+        idbKey,
+        baseCoverKey,
+        compPathKey,
+        [shared.blob],
+        shared.aspect,
+        shared.width,
+        shared.height,
+      );
+      return { entry, value: entry.value };
+    }
+  }
+  return null;
 }
 
 /**
  * Synchronously return a warm in-memory captured strip/cover when available.
  * Independent of `sessionEpoch` so switching projects or sub-compositions renders in 0ms.
+ * Callers holding the returned value across renders should retain it via
+ * `retainCachedCompositionCapture(value)` so LRU eviction never revokes active URLs.
  */
 export function peekCachedCompositionCapture(
   input: Pick<
@@ -915,27 +1052,25 @@ export function peekCachedCompositionCapture(
     "projectId" | "previewUrl" | "contentRevision" | "frameCount" | "selector" | "selectorIndex"
   >,
 ): ThumbnailValue | null {
+  return peekMemoryEntry(input)?.value ?? null;
+}
+
+/** Seed an in-memory cached capture strip in unit tests to exercise LRU/ownership semantics. */
+export function seedClientCompositionCaptureForTest(
+  input: Pick<
+    ClientCaptureInput,
+    "projectId" | "previewUrl" | "contentRevision" | "frameCount" | "selector" | "selectorIndex"
+  >,
+  blobs: readonly Blob[],
+  dims: { aspect?: number; width?: number; height?: number } = {},
+): ThumbnailValue {
   const { idbKey, baseCoverKey, compPathKey } = stripMemoryCacheKey(input);
-  const exact = memoryStripCache.get(idbKey);
-  if (exact) {
-    memoryStripCache.delete(idbKey);
-    memoryStripCache.set(idbKey, exact);
-    return exact.value;
-  }
-  if (input.frameCount === 1) {
-    const shared = sharedCoverCache.get(baseCoverKey);
-    if (shared) {
-      return putMemoryStripCache(
-        idbKey,
-        compPathKey,
-        [shared.blob],
-        shared.aspect,
-        shared.width,
-        shared.height,
-      ).value;
-    }
-  }
-  return null;
+  const aspect = dims.aspect ?? 16 / 9;
+  const width = dims.width ?? CAPTURE_TARGET_WIDTH;
+  const height = dims.height ?? 135;
+  const coverBlob = blobs[Math.min(blobs.length - 1, Math.floor(blobs.length / 2))]!;
+  putSharedCoverCache(baseCoverKey, { blob: coverBlob, aspect, width, height });
+  return putMemoryStripCache(idbKey, baseCoverKey, compPathKey, blobs, aspect, width, height).value;
 }
 
 /** True when any frame count for this composition is already cached in RAM (no blocking gate needed). */
@@ -955,43 +1090,55 @@ export function hasAnyCachedCompositionCapture(
 /**
  * Fast-path IndexedDB lookup that bypasses `thumbnailScheduler`'s 2-slot composition bucket
  * so warm page reloads recover all cached strips in parallel (~5–15ms).
+ * Returns a retained lease that the caller must release when unmounting or changing keys.
  */
-export function readCachedCompositionCaptureFromIdb(
+export function acquireCachedCompositionCaptureFromIdb(
   input: Pick<
     ClientCaptureInput,
     "projectId" | "previewUrl" | "contentRevision" | "frameCount" | "selector" | "selectorIndex"
   >,
-): Promise<ThumbnailValue | null> {
-  const syncHit = peekCachedCompositionCapture(input);
-  if (syncHit) return Promise.resolve(syncHit);
-  const { idbKey, baseCoverKey, compPathKey } = stripMemoryCacheKey(input);
-  const existing = inFlightIdbReads.get(idbKey);
-  if (existing) return existing;
-  const promise = readCachedStrip(idbKey)
-    .then((cached) => {
-      if (!cached) return null;
-      const coverBlob =
-        cached.blobs[Math.min(cached.blobs.length - 1, Math.floor(cached.blobs.length / 2))]!;
-      sharedCoverCache.set(baseCoverKey, {
-        blob: coverBlob,
-        aspect: cached.aspect,
-        width: cached.width,
-        height: cached.height,
-      });
-      return putMemoryStripCache(
-        idbKey,
-        compPathKey,
-        cached.blobs,
-        cached.aspect,
-        cached.width,
-        cached.height,
-      ).value;
-    })
-    .finally(() => {
-      inFlightIdbReads.delete(idbKey);
+): Promise<{ value: ThumbnailValue; release: () => void } | null> {
+  const syncHit = peekMemoryEntry(input);
+  if (syncHit) {
+    return Promise.resolve({
+      value: syncHit.value,
+      release: retainMemoryEntry(syncHit.entry),
     });
-  inFlightIdbReads.set(idbKey, promise);
-  return promise;
+  }
+  const { idbKey, baseCoverKey, compPathKey } = stripMemoryCacheKey(input);
+  let entryPromise = inFlightIdbReads.get(idbKey);
+  if (!entryPromise) {
+    entryPromise = readCachedStrip(idbKey)
+      .then((cached) => {
+        if (!cached) return null;
+        const coverBlob =
+          cached.blobs[Math.min(cached.blobs.length - 1, Math.floor(cached.blobs.length / 2))]!;
+        putSharedCoverCache(baseCoverKey, {
+          blob: coverBlob,
+          aspect: cached.aspect,
+          width: cached.width,
+          height: cached.height,
+        });
+        return putMemoryStripCache(
+          idbKey,
+          baseCoverKey,
+          compPathKey,
+          cached.blobs,
+          cached.aspect,
+          cached.width,
+          cached.height,
+        );
+      })
+      .finally(() => {
+        inFlightIdbReads.delete(idbKey);
+      });
+    inFlightIdbReads.set(idbKey, entryPromise);
+  }
+  return entryPromise.then((entry) => {
+    if (!entry) return null;
+    const live = retainOrRematerialize(idbKey, entry);
+    return { value: live.value, release: retainMemoryEntry(live) };
+  });
 }
 
 async function runClientCompositionCapture(
@@ -1010,10 +1157,23 @@ async function runClientCompositionCapture(
 
   // 1. Fast path: 1-frame sidebar covers reuse any already-captured strip frame immediately.
   if (input.frameCount === 1) {
+    for (const [key, entry] of memoryStripCache) {
+      if (entry.baseCoverKey === baseCoverKey) {
+        memoryStripCache.delete(key);
+        memoryStripCache.set(key, entry);
+        const release = retainMemoryEntry(entry);
+        return {
+          value: entry.coverValue,
+          weight: entry.width * entry.height * 4,
+          dispose: release,
+        };
+      }
+    }
     const shared = sharedCoverCache.get(baseCoverKey);
     if (shared) {
       const entry = putMemoryStripCache(
         idbKey,
+        baseCoverKey,
         compPathKey,
         [shared.blob],
         shared.aspect,
@@ -1029,7 +1189,7 @@ async function runClientCompositionCapture(
   if (signal.aborted) throw abortError();
   if (cached) {
     const coverBlob = cached.blobs[Math.min(cached.blobs.length - 1, Math.floor(cached.blobs.length / 2))]!;
-    sharedCoverCache.set(baseCoverKey, {
+    putSharedCoverCache(baseCoverKey, {
       blob: coverBlob,
       aspect: cached.aspect,
       width: cached.width,
@@ -1037,6 +1197,7 @@ async function runClientCompositionCapture(
     });
     const entry = putMemoryStripCache(
       idbKey,
+      baseCoverKey,
       compPathKey,
       cached.blobs,
       cached.aspect,
@@ -1061,7 +1222,7 @@ async function runClientCompositionCapture(
   if (result.blobs.length === 0) throw new Error("Client composition capture returned no frames");
 
   const coverBlob = result.blobs[Math.min(result.blobs.length - 1, Math.floor(result.blobs.length / 2))]!;
-  sharedCoverCache.set(baseCoverKey, {
+  putSharedCoverCache(baseCoverKey, {
     blob: coverBlob,
     aspect: result.aspect,
     width: result.width,
@@ -1079,6 +1240,7 @@ async function runClientCompositionCapture(
 
   const entry = putMemoryStripCache(
     idbKey,
+    baseCoverKey,
     compPathKey,
     result.blobs,
     result.aspect,

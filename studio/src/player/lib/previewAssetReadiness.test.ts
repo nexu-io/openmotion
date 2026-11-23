@@ -256,4 +256,83 @@ describe("trackDocumentAssetReadiness", () => {
       tracker.dispose();
     }
   });
+
+  it("keeps the item deadline active and aborts a stalled same-origin HEAD probe for images", async () => {
+    const doc = makeDocument();
+    const stalled = makeImg(doc, "/assets/stalled.png");
+    let capturedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal ?? undefined;
+      return new Promise<Response>(() => {});
+    });
+    const updates: PreviewAssetProgress[] = [];
+    const tracker = trackDocumentAssetReadiness(doc, window, (p) => updates.push(p), {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      itemTimeoutMs: 4_000,
+    });
+    try {
+      stalled.fail();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(capturedSignal?.aborted).toBe(false);
+      expect(updates.at(-1)?.status).toBe("loading");
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(capturedSignal?.aborted).toBe(true);
+      expect(updates.at(-1)).toEqual({
+        status: "ready",
+        completed: 1,
+        total: 1,
+        failed: [{ id: "img-0", label: "stalled.png", kind: "image", reason: "timeout" }],
+      });
+    } finally {
+      tracker.dispose();
+    }
+  });
+
+  it("times out a stalled HEAD probe on video error and frees the video concurrency slot", async () => {
+    const doc = makeDocument();
+    const stalledVideo = makeMedia(doc, "video", "/assets/stalled.mp4", { preload: "none" });
+    const queuedVideo = makeMedia(doc, "video", "/assets/next.mp4", { preload: "none" });
+    let capturedSignal: AbortSignal | undefined;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal ?? undefined;
+      return new Promise<Response>(() => {});
+    });
+    const updates: PreviewAssetProgress[] = [];
+    const tracker = trackDocumentAssetReadiness(doc, window, (p) => updates.push(p), {
+      fetchImpl: fetchMock as unknown as typeof fetch,
+      itemTimeoutMs: 3_000,
+      maxConcurrentVideos: 1,
+    });
+    try {
+      expect(stalledVideo.el.preload).toBe("auto");
+      expect(queuedVideo.el.preload).toBe("none");
+
+      stalledVideo.fail();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(capturedSignal?.aborted).toBe(false);
+      expect(queuedVideo.el.preload).toBe("none");
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect(capturedSignal?.aborted).toBe(true);
+      // Slot is released immediately so the queued video begins preloading.
+      expect(queuedVideo.el.preload).toBe("auto");
+      expect(updates.at(-1)).toMatchObject({
+        status: "loading",
+        completed: 1,
+        total: 2,
+        failed: [{ id: "video-0", label: "stalled.mp4", kind: "video", reason: "timeout" }],
+      });
+
+      queuedVideo.resolve(2);
+      expect(updates.at(-1)).toEqual({
+        status: "ready",
+        completed: 2,
+        total: 2,
+        failed: [{ id: "video-0", label: "stalled.mp4", kind: "video", reason: "timeout" }],
+      });
+    } finally {
+      tracker.dispose();
+    }
+  });
 });

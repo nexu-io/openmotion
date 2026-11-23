@@ -22,6 +22,7 @@ import {
   canCaptureCompositionInBrowser,
   createClientCompositionCaptureRequest,
   peekCachedCompositionCapture,
+  retainCachedCompositionCapture,
 } from "../../player/lib/clientCompositionCapture";
 import { setPreviewMediaMuted } from "../../player/lib/timelineIframeHelpers";
 import { postFrameDisplayScale } from "../../player/lib/runtimeProtocol";
@@ -264,6 +265,8 @@ function CompCard({
         : null,
     [contentRevision, nearViewport, previewUrl, projectId],
   );
+  // Keep cached cover object URLs alive while this card renders them, even after LRU eviction.
+  useLayoutEffect(() => retainCachedCompositionCapture(syncCachedCover), [syncCachedCover]);
   const thumbnailRequest = useMemo(
     () =>
       nearViewport && !syncCachedCover

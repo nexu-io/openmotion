@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import {
@@ -21,11 +21,12 @@ import {
   loadCloudCompositionPoster,
 } from "../lib/cloudCompositionPoster";
 import {
+  acquireCachedCompositionCaptureFromIdb,
   canCaptureCompositionInBrowser,
   createClientCompositionCaptureRequest,
   peekCachedCompositionCapture,
   quantizeCompositionFrameCount,
-  readCachedCompositionCaptureFromIdb,
+  retainCachedCompositionCapture,
   selectInitialGateCompositionPaths,
 } from "../lib/clientCompositionCapture";
 import { studioApiFetch } from "../../utils/studioApiFetch";
@@ -256,12 +257,16 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     ],
   );
 
+  // Keep the sync cache entry's object URLs alive while this tile renders them, even after LRU eviction.
+  useLayoutEffect(() => retainCachedCompositionCapture(syncCachedValue), [syncCachedValue]);
+
   // Tier 1: parallel fast-path IndexedDB check (bypasses thumbnailScheduler's 2-slot composition bucket).
   const [idbProbe, setIdbProbe] = useState<{ key: string; value: ThumbnailValue | null } | null>(null);
   useEffect(() => {
     if (!captureCacheKey || syncCachedValue) return;
     let cancelled = false;
-    void readCachedCompositionCaptureFromIdb({
+    let releaseLease: (() => void) | null = null;
+    void acquireCachedCompositionCaptureFromIdb({
       previewUrl,
       projectId,
       contentRevision,
@@ -269,14 +274,21 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
       selector,
       selectorIndex,
     })
-      .then((value) => {
-        if (!cancelled) setIdbProbe({ key: captureCacheKey, value });
+      .then((lease) => {
+        if (cancelled) {
+          lease?.release();
+          return;
+        }
+        releaseLease = lease?.release ?? null;
+        setIdbProbe({ key: captureCacheKey, value: lease?.value ?? null });
       })
       .catch(() => {
         if (!cancelled) setIdbProbe({ key: captureCacheKey, value: null });
       });
     return () => {
       cancelled = true;
+      releaseLease?.();
+      releaseLease = null;
     };
   }, [
     captureCacheKey,

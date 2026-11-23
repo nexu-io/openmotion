@@ -42,17 +42,19 @@ export const PREVIEW_ASSET_READINESS = `
     }
     try { el.load(); } catch(_){}
   }
-  function checkRetryable(raw,cb){
+  function checkRetryable(raw,signal,cb){
     if(!raw || typeof fetch!=='function'){ cb(false); return; }
     var u;
     try { u=new URL(raw,assetBase()); } catch(_){ cb(false); return; }
     if(u.protocol!=='http:' && u.protocol!=='https:'){ cb(false); return; }
     if(u.origin!==location.origin){ cb(true); return; }
-    fetch(u.href,{method:'HEAD',redirect:'manual'}).then(function(r){
+    var opts={method:'HEAD',redirect:'manual'};
+    if(signal) opts.signal=signal;
+    fetch(u.href,opts).then(function(r){
       if(r.type==='opaqueredirect'||r.status===0){ cb(true); return; }
       var nonRetryable=r.status>=400 && r.status<500 && r.status!==408 && r.status!==429;
       cb(!nonRetryable);
-    },function(){ cb(true); });
+    },function(){ cb(!(signal && signal.aborted)); });
   }
   function lottieReady(anim){
     if(!anim || typeof anim!=='object') return true;
@@ -108,28 +110,40 @@ export const PREVIEW_ASSET_READINESS = `
       items.push(it);
       if(ok) return;
       function watch(retryIdx,auto,checkExisting,doneCb){
-        var finished=false, cancelT=null;
-        function detach(){ img.removeEventListener('load',onLoad); img.removeEventListener('error',onErr); if(cancelT) cancelT(); }
+        var finished=false, probing=false, cancelT=null, cancelRetry=null, probeCtrl=null;
+        function detachListeners(){ img.removeEventListener('load',onLoad); img.removeEventListener('error',onErr); }
+        function detach(){
+          detachListeners();
+          if(cancelT){ cancelT(); cancelT=null; }
+          if(cancelRetry){ cancelRetry(); cancelRetry=null; }
+          if(probeCtrl){ try{ probeCtrl.abort(); }catch(_){} probeCtrl=null; }
+        }
         function finish(good,reason){ if(finished||disposed) return; finished=true; detach(); doneCb(good,reason); }
         function onLoad(){ finish(true,null); }
         function onErr(){
-          detach();
+          if(finished||probing||disposed) return;
+          probing=true;
+          detachListeners();
           if(!auto || retryIdx>=ASSET_RETRY_DELAYS.length || !orig){ finish(false,'error'); return; }
-          checkRetryable(orig,function(can){
+          probeCtrl=(typeof AbortController==='function') ? new AbortController() : null;
+          checkRetryable(orig,probeCtrl?probeCtrl.signal:null,function(can){
             if(disposed||finished) return;
+            probeCtrl=null;
             if(!can){ finish(false,'error'); return; }
             var next=withAssetRetry(orig,retryIdx+1);
             if(!next){ finish(false,'error'); return; }
-            later(ASSET_RETRY_DELAYS[retryIdx]||500,function(){
+            if(cancelT){ cancelT(); cancelT=null; }
+            cancelRetry=later(ASSET_RETRY_DELAYS[retryIdx]||500,function(){
               if(disposed||finished) return;
               finished=true;
+              cancelRetry=null;
               watch(retryIdx+1,true,false,doneCb);
               applyAssetSource(img,next);
             });
           });
         }
         img.addEventListener('load',onLoad); img.addEventListener('error',onErr); cleanups.push(detach);
-        cancelT=later(ASSET_TIMEOUT_MS,function(){ if(img.complete&&img.naturalWidth>0) finish(true,null); else finish(false,'timeout'); });
+        cancelT=later(ASSET_TIMEOUT_MS,function(){ if(!probing&&img.complete&&img.naturalWidth>0) finish(true,null); else finish(false,'timeout'); });
         if(checkExisting && img.complete){ if(img.naturalWidth>0) finish(true,null); else onErr(); }
       }
       it.retry=function(attempt,cb){
@@ -143,27 +157,38 @@ export const PREVIEW_ASSET_READINESS = `
     });
     function watchMedia(el,it,orig,targetState,onDone){
       function start(retryIdx,auto,kick,doneCb){
-        var finished=false, cancelT=null;
-        function detach(){
+        var finished=false, probing=false, cancelT=null, cancelRetry=null, probeCtrl=null;
+        function detachListeners(){
           el.removeEventListener('loadeddata',onProg);
           el.removeEventListener('canplay',onProg);
           el.removeEventListener('canplaythrough',onProg);
           el.removeEventListener('error',onErr);
-          if(cancelT) cancelT();
+        }
+        function detach(){
+          detachListeners();
+          if(cancelT){ cancelT(); cancelT=null; }
+          if(cancelRetry){ cancelRetry(); cancelRetry=null; }
+          if(probeCtrl){ try{ probeCtrl.abort(); }catch(_){} probeCtrl=null; }
         }
         function finish(good,reason){ if(finished||disposed) return; finished=true; detach(); doneCb(good,reason); }
         function onProg(){ if(el.readyState>=targetState || (it.kind==='video' && el.readyState>=2)) finish(true,null); }
         function onErr(){
-          detach();
+          if(finished||probing||disposed) return;
+          probing=true;
+          detachListeners();
           if(!auto || retryIdx>=ASSET_RETRY_DELAYS.length || !orig){ finish(false,'error'); return; }
-          checkRetryable(orig,function(can){
+          probeCtrl=(typeof AbortController==='function') ? new AbortController() : null;
+          checkRetryable(orig,probeCtrl?probeCtrl.signal:null,function(can){
             if(disposed||finished) return;
+            probeCtrl=null;
             if(!can){ finish(false,'error'); return; }
             var next=withAssetRetry(orig,retryIdx+1);
             if(!next){ finish(false,'error'); return; }
-            later(ASSET_RETRY_DELAYS[retryIdx]||500,function(){
+            if(cancelT){ cancelT(); cancelT=null; }
+            cancelRetry=later(ASSET_RETRY_DELAYS[retryIdx]||500,function(){
               if(disposed||finished) return;
               finished=true;
+              cancelRetry=null;
               start(retryIdx+1,true,false,doneCb);
               applyAssetSource(el,next);
             });
@@ -172,7 +197,7 @@ export const PREVIEW_ASSET_READINESS = `
         el.addEventListener('loadeddata',onProg); el.addEventListener('canplay',onProg);
         el.addEventListener('canplaythrough',onProg); el.addEventListener('error',onErr);
         cleanups.push(detach);
-        cancelT=later(ASSET_TIMEOUT_MS,function(){ if(el.readyState>=2) finish(true,null); else finish(false,'timeout'); });
+        cancelT=later(ASSET_TIMEOUT_MS,function(){ if(!probing&&el.readyState>=2) finish(true,null); else finish(false,'timeout'); });
         if(kick){
           if(el.error){ onErr(); return; }
           if(el.readyState>=targetState){ finish(true,null); return; }

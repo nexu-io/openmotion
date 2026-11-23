@@ -33,7 +33,7 @@ html, body, #root { margin: 0; width: 100%; height: 100%; }
 #root > .motion-loading { width: calc(100% - var(--motion-space-8)); height: calc(100% - var(--motion-space-8)); margin: var(--motion-space-4); border-radius: var(--motion-radius-step-10); }
 body:has(#root > .motion-loading) { background: var(--motion-shell); }
 
-/* Unified editor asset-loading scrim: frosted workspace backdrop + opaque themed card. */
+/* Unified editor asset-loading scrim: uniform scrim tint + opaque themed card. */
 .motion-editor-asset-loading {
   position: absolute;
   inset: 0;
@@ -42,8 +42,6 @@ body:has(#root > .motion-loading) { background: var(--motion-shell); }
   place-items: center;
   padding: var(--motion-space-24);
   background: var(--motion-scrim);
-  -webkit-backdrop-filter: var(--motion-media-preview-backdrop);
-  backdrop-filter: var(--motion-media-preview-backdrop);
   opacity: 0;
   transition: opacity var(--motion-duration-normal) var(--motion-ease-out);
   user-select: none;
@@ -161,8 +159,6 @@ body:has(#root > .motion-loading) { background: var(--motion-shell); }
   .motion-editor-asset-loading,
   .motion-preview-loading {
     background: var(--motion-scrim-solid);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {
