@@ -24,6 +24,7 @@ jobs:
 
   promote:
     name: Publish tested image digests for Argo CD
+    environment: orbit-cloud-test
     needs: [checks, images]
     if: github.repository == 'nexu-io/openmotion' && github.ref == 'refs/heads/feat/cloud-container-p1'
     runs-on: ubuntu-24.04

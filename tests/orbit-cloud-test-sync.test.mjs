@@ -473,13 +473,54 @@ test("rejects tampered manifests, missing artifacts, wrong branch or endpoint, 4
 	}
 });
 
+const PROMOTE_ENV_PATTERN = /\n    environment:\s*orbit-cloud-test(?:\s|$)/;
+
+function extractJobBlock(workflowYaml, jobName) {
+	const normalized = workflowYaml.replace(/\r\n/g, "\n");
+	const jobsMatch = /^jobs:\s*$/m.exec(normalized);
+	assert.ok(jobsMatch, "workflow must define a top-level jobs block");
+	const afterJobsHeader = normalized.slice(
+		jobsMatch.index + jobsMatch[0].length,
+	);
+	const nextTopLevel = /\n[^\s#]/.exec(afterJobsHeader);
+	const jobsBody =
+		nextTopLevel === null
+			? afterJobsHeader
+			: afterJobsHeader.slice(0, nextTopLevel.index);
+	const escapedName = jobName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	const jobMatch = new RegExp(`^  ${escapedName}:\\s*$`, "m").exec(jobsBody);
+	assert.ok(jobMatch, `workflow must define jobs.${jobName}`);
+	const start = jobMatch.index;
+	const rest = jobsBody.slice(start + jobMatch[0].length);
+	const nextSiblingJob = /\n  [A-Za-z0-9_-]+:\s*(?:\n|$)/.exec(rest);
+	return nextSiblingJob === null
+		? jobsBody.slice(start)
+		: jobsBody.slice(start, start + jobMatch[0].length + nextSiblingJob.index);
+}
+
 test("release and container image workflows wire CI + 4-image gate, manifests, and ORBIT_OPENMOTION_PULL toggle without legacy API key", async () => {
 	const releaseWorkflow = await readFile(
 		new URL("../.github/workflows/deploy-cloud-test.yml", import.meta.url),
 		"utf8",
 	);
 	assert.match(releaseWorkflow, /branches:\s*\[feat\/cloud-container-p1\]/);
-	assert.match(releaseWorkflow, /needs:\s*\[checks,\s*images\]/);
+	const promoteJob = extractJobBlock(releaseWorkflow, "promote");
+	assert.match(promoteJob, PROMOTE_ENV_PATTERN);
+	assert.match(promoteJob, /\n    needs:\s*\[checks,\s*images\]/);
+
+	const movedToSiblingJob = `${releaseWorkflow.replace(
+		/\n    environment:\s*orbit-cloud-test\b/,
+		"",
+	)}\n  trailing_job:\n    runs-on: ubuntu-24.04\n    environment: orbit-cloud-test\n    steps: []\n`;
+	assert.doesNotMatch(
+		extractJobBlock(movedToSiblingJob, "promote"),
+		PROMOTE_ENV_PATTERN,
+	);
+	assert.match(
+		extractJobBlock(movedToSiblingJob, "trailing_job"),
+		PROMOTE_ENV_PATTERN,
+	);
+
 	assert.match(
 		releaseWorkflow,
 		/if:\s*vars\.ORBIT_OPENMOTION_PULL\s*==\s*'true'/,
