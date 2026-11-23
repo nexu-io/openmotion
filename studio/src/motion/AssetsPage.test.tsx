@@ -1230,9 +1230,16 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
   await act(async () => codexDialog.querySelector<HTMLButtonElement>('[aria-label="Picture BIG"]')!.click());
   await click('Use selected version');
   expect(rememberCodex.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['BIG']);
+});
 
-  // Generation history's Use as reference action also validates OpenDesign size/format limits.
-  await act(async () => root.unmount()); root = createRoot(container);
+it('rejects oversized generated assets when attaching from the Generations lightbox', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const catalog = {
+    models: [sunburst],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  records.clear();
   const generatedBig = fixture('GENBIG');
   generatedBig.versions[0].source = 'generation';
   generatedBig.versions[0].bytes = 3 * 1024 * 1024;
@@ -1244,11 +1251,17 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberGen, chooseModel: vi.fn(),
   }} />)); await flush();
+
+  expect(document.body.textContent).not.toContain('The reference image is larger than the 2 MiB OpenDesign upload limit.');
+  expect(rememberGen).toHaveBeenCalled();
+
   await act(async () => container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1].click()); await flush();
-  const useRefBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Use as reference' || node.getAttribute('aria-label') === 'Use as reference');
-  if (useRefBtn) {
-    await act(async () => useRefBtn.click()); await flush();
-    expect(document.body.textContent).toContain('The reference image is larger than the 2 MiB OpenDesign upload limit.');
-    expect(rememberGen.mock.lastCall?.[0].references ?? []).toHaveLength(0);
-  }
+  await act(async () => { container.querySelector<HTMLButtonElement>('.om-gen-open')!.click(); }); await flush();
+  const lightbox = container.querySelector<HTMLElement>('[role="dialog"].om-gen-lightbox')!;
+  expect(lightbox).not.toBeNull();
+  const useRefBtn = [...lightbox.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.includes('Use as reference'));
+  expect(useRefBtn).toBeDefined();
+  await act(async () => { useRefBtn!.click(); }); await flush();
+  expect(document.body.textContent).toContain('The reference image is larger than the 2 MiB OpenDesign upload limit.');
+  expect(rememberGen.mock.lastCall?.[0].references).toEqual([]);
 });
