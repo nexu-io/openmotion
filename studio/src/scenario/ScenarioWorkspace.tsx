@@ -36,6 +36,7 @@ import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from '../motion/useIntegrationInfo';
+import { ScenarioStudioView } from './ScenarioStudioView';
 import { ScenarioAgentModeView } from './ScenarioAgentModeView';
 import { AssetPoolPanel, type PoolPickRequest } from './AssetPoolPanel';
 import { IterationHistory } from './IterationHistory';
@@ -207,12 +208,13 @@ export function ScenarioWorkspace({
   const toast = useToast();
   const { info: integration } = useIntegrationInfo();
 
-  const [activeMode, setActiveMode] = useState<ScenarioWorkspaceMode>(routedMode ?? 'manual');
+  const [activeMode, setActiveMode] = useState<ScenarioWorkspaceMode>(routedMode ?? (stepId ? 'manual' : 'studio'));
   const [poolOpen, setPoolOpen] = useState(false);
 
   useEffect(() => {
-    setActiveMode(routedMode ?? 'manual');
-  }, [routedMode]);
+    // The visual studio is the default; a step link or an explicit mode opens the workflow views.
+    setActiveMode(routedMode ?? (stepId ? 'manual' : 'studio'));
+  }, [routedMode, stepId]);
   const [exportingBundle, setExportingBundle] = useState(false);
   const [poolWidth, setPoolWidth] = useState<number>(readStoredPoolWidth);
   const [poolCollapsed, setPoolCollapsed] = useState<boolean>(readStoredPoolCollapsed);
@@ -481,8 +483,13 @@ export function ScenarioWorkspace({
     [activeMode, activeStep.id, activeStep.type, briefSaveRef, onRoute, run?.id, runId, scenario.id, t, toast],
   );
 
+  // The studio saves its typed brief before the run or the view changes, so nothing typed is lost.
+  const studioFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const flushStudio = useCallback(async () => (studioFlushRef.current ? studioFlushRef.current() : true), []);
+
   const handleModeChange = useCallback(
-    (next: ScenarioWorkspaceMode) => {
+    async (next: ScenarioWorkspaceMode) => {
+      if (!(await flushStudio())) return;
       setActiveMode(next);
       onRoute(
         {
@@ -524,13 +531,15 @@ export function ScenarioWorkspace({
   }, [scenarioId]);
 
   const handleSelectRun = useCallback(
-    (selectedRunId: string) => {
+    async (selectedRunId: string) => {
+      if (!(await flushStudio())) return;
       onRoute({ run: selectedRunId, step: null }, false);
     },
-    [onRoute],
+    [flushStudio, onRoute],
   );
 
   const handleNewRun = useCallback(async () => {
+    if (!(await flushStudio())) return;
     try {
       await startNewRun();
       toast.showToast(t('Started a new draft'), 'info', 'feedback');
@@ -543,7 +552,7 @@ export function ScenarioWorkspace({
         );
       }
     }
-  }, [startNewRun, t, toast]);
+  }, [flushStudio, startNewRun, t, toast]);
 
   const handleRenameRun = useCallback(
     async (title: string) => {
@@ -584,12 +593,14 @@ export function ScenarioWorkspace({
       try {
         await navigator.clipboard.writeText(text);
         toast.showToast(successMessage, 'info', 'feedback');
+        return true;
       } catch {
         toast.showToast(
           t('Could not copy. Select and copy the text manually.'),
           'error',
           'feedback',
         );
+        return false;
       }
     },
     [t, toast],
@@ -618,7 +629,7 @@ export function ScenarioWorkspace({
         locale,
         integration,
       });
-      await copyToClipboard(prompt, t('Copied. Paste into your Agent.'));
+      return copyToClipboard(prompt, t('Copied. Paste into your Agent.'));
     },
     [copyToClipboard, ensureRun, integration, locale, run, scenario, t],
   );
@@ -631,6 +642,7 @@ export function ScenarioWorkspace({
   const handleExportBundle = useCallback(
     async (options?: {
       poolItemIds?: string[];
+      stepIds?: string[];
       activeOnly?: boolean;
       includeStandaloneHtml?: boolean;
       includeMotionSource?: boolean;
@@ -647,6 +659,7 @@ export function ScenarioWorkspace({
             includeStandaloneHtml: options?.includeStandaloneHtml ?? true,
             includeMotionSource: options?.includeMotionSource ?? false,
             ...(options?.poolItemIds?.length ? { poolItemIds: options.poolItemIds } : {}),
+            ...(!options?.poolItemIds?.length && options?.stepIds?.length ? { stepIds: options.stepIds } : {}),
           },
         );
         const downloadUrl = bundleDownloadUrl(res.bundle.bundleId);
@@ -1138,10 +1151,35 @@ export function ScenarioWorkspace({
       <div
         className="om-scenario-body"
         data-mode={activeMode}
-        data-pool-collapsed={activeMode === 'agent' ? 'true' : poolCollapsed ? 'true' : 'false'}
+        data-pool-collapsed={activeMode !== 'manual' ? 'true' : poolCollapsed ? 'true' : 'false'}
         data-resizing-pool={activeMode === 'manual' && (resizingPool || resizingWorkbench) ? 'true' : undefined}
       >
-        {activeMode === 'agent' ? (
+        {activeMode === 'studio' ? (
+          loading ? (
+            <div className="om-agent-mode-state">{loadingStateNode}</div>
+          ) : errorStateNode ? (
+            <div className="om-agent-mode-state">{errorStateNode}</div>
+          ) : (
+            <ScenarioStudioView
+              key={scenario.id}
+              scenario={scenario}
+              run={run}
+              api={stepApi}
+              toast={stepToast}
+              poolItems={poolItems}
+              onAddPoolItems={handleAddPoolItems}
+              onRemovePoolItem={handleRemovePoolItem}
+              onRegisterFlush={flush => { studioFlushRef.current = flush; }}
+              onOpenDesignProject={onOpenDesignProject}
+              onOpenMotionProject={onOpenMotionProject}
+              onCopyAgentPrompt={handleCopyAgentPrompt}
+              onExportBundle={handleExportBundle}
+              exportingBundle={exportingBundle}
+              onSwitchToManual={() => handleModeChange('manual')}
+              onOpenMcp={onOpenMcp}
+            />
+          )
+        ) : activeMode === 'agent' ? (
           loading ? (
             <div className="om-agent-mode-state">{loadingStateNode}</div>
           ) : errorStateNode ? (

@@ -111,14 +111,6 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     action();
   };
   const menuDestinations = [
-    ...(hasWorkflows ? [{
-      id: 'workflows' as const,
-      studio: null,
-      label: t('Workflows'),
-      current: scenarioActive ? 'page' as const : undefined,
-      menuLabel: t('Workflows') + ' · ' + t('Topics, campaigns and roles'),
-      onActivate: () => onOpenScenarioHub!(),
-    }] : []),
     ...creativeStudios.filter((studio): studio is MediaStudio => studio.surface === 'media').map(studio => {
       const kind = studio.primaryModality;
       const label = t(mediaLabels[kind]);
@@ -140,9 +132,21 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
     }),
     { id: 'mcp' as const, studio: null, label: 'MCP', current: currentPage === 'mcp' ? 'page' as const : undefined,
       menuLabel: 'Generate with Open Design MCP', onActivate: () => onOpenPage('mcp') },
+    ...(hasWorkflows ? [{
+      id: 'workflows' as const,
+      studio: null,
+      label: t('Workflows'),
+      current: scenarioActive ? 'page' as const : undefined,
+      menuLabel: t('Workflows') + ' · ' + t('Topics, campaigns and roles'),
+      onActivate: () => onOpenScenarioHub!(),
+    }] : []),
   ];
+  // Order: Explore, the media menus and MCP, Super Agent, then Workflows, then the studios.
   const splitStart = 1;
   const studioStart = splitStart + menuDestinations.length;
+  // Workflows is the last menu entry, so it sits right after MCP and before the studios.
+  const destinationAt = (index: number) => menuDestinations[index - splitStart];
+  const indexOfDestination = (id: string) => splitStart + menuDestinations.findIndex(entry => entry.id === id);
   const count = studioStart + creativeStudios.length;
   const hasMore = visibleCount < count || Boolean(overflowActions);
 
@@ -184,10 +188,9 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
   }, [visibleCount, hasMore]);
 
   function splitItem(index: number, inPanel: boolean) {
-    const { id, studio, label, current, menuLabel, onActivate } = menuDestinations[index - splitStart];
+    const { id, studio, label, current, menuLabel, onActivate } = destinationAt(index);
     const expanded = open === id && (index >= visibleCount) === inPanel;
     const where = { navTarget: id, inOverflow: inPanel };
-    const workflowsBadgeId = id === 'workflows' ? navId + '-workflows' + (inPanel ? '-more' : '') : undefined;
     const selectScene = (next: StudioDestination) => {
       track('select_scene', { ...where, ...destinationTarget(next) });
       choose(() => onNavigate(next));
@@ -200,7 +203,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
               setOpen(previous => value ? id : previous === id ? null : previous);
             }}
             aria-label={menuLabel} align="start" className={id === 'mcp' ? 'om-selection-panel om-creative-client-menu' : `om-selection-panel om-creative-menu om-creative-mega om-creative-menu-${id}`}
-            primaryAction={<Button variant="plain" className="om-nav-item om-nav-row-link" aria-label={id === 'workflows' ? label : undefined} aria-describedby={workflowsBadgeId} aria-current={current} onPointerEnter={() => preloadStudioRoute(id)} onFocus={() => preloadStudioRoute(id)} onClick={() => { track(id === 'mcp' ? 'nav_mcp' : id === 'workflows' ? 'nav_studio' : 'nav_media', where); choose(onActivate); }}>{label}{workflowsBadgeId && <span className="om-badge" data-nav-badge="New" id={workflowsBadgeId} lang="en">New</span>}</Button>}
+            primaryAction={<Button variant="plain" className="om-nav-item om-nav-row-link" aria-label={id === 'workflows' ? label : undefined} aria-current={current} onPointerEnter={() => preloadStudioRoute(id)} onFocus={() => preloadStudioRoute(id)} onClick={() => { track(id === 'mcp' ? 'nav_mcp' : id === 'workflows' ? 'nav_studio' : 'nav_media', where); choose(onActivate); }}>{label}</Button>}
             trigger={<Button variant="plain" className="om-nav-item om-nav-row-action" aria-label={menuLabel} aria-expanded={expanded}><RemixIcon name="arrow-down-s-line" size={12} /></Button>}>
             {id === 'mcp' ? <>
               <h2 lang="en">{menuLabel}</h2>
@@ -271,7 +274,7 @@ export function CreativeNavigation({ specialty, onChooseStudio, destination, sou
             } else {
               setOpen(previous => {
                 if (!previous) return null;
-                const index = splitStart + menuDestinations.findIndex(entry => entry.id === previous);
+                const index = indexOfDestination(previous);
                 return index >= visibleCount ? null : previous;
               });
             }
