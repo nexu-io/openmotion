@@ -94,13 +94,14 @@ type BrowserActions = {
   compact?: boolean;
   selectedId?: string;
   selectedIds?: ReadonlySet<string>;
+  attachedIds?: ReadonlySet<string>;
   onLoadedAssets?: (assets: LibraryAsset[]) => void;
 };
 export function AssetBrowser({ kind, revision, active, ...actions }: BrowserActions & { kind: AssetKind; revision?: number; active?: boolean }) {
   const browser = useAssetBrowser({ kind, revision, active });
   return <AssetBrowserContent browser={browser} {...actions} />;
 }
-export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false, selectedId, selectedIds, onLoadedAssets, toolbar, emptyContent, leadingTiles, hoverPreview = false }: BrowserActions & { browser: ReturnType<typeof useAssetBrowser>; toolbar?: ReactNode; emptyContent?: ReactNode; leadingTiles?: ReactNode; hoverPreview?: boolean }) {
+export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false, selectedId, selectedIds, attachedIds, onLoadedAssets, toolbar, emptyContent, leadingTiles, hoverPreview = false }: BrowserActions & { browser: ReturnType<typeof useAssetBrowser>; toolbar?: ReactNode; emptyContent?: ReactNode; leadingTiles?: ReactNode; hoverPreview?: boolean }) {
   const { t } = useI18n();
   const { kind, query, setQuery, source, setSource, sort, setSort, data, stale, loading, error, page, setPage, retry } = browser;
   const [previewId, setPreviewId] = useState<string>();
@@ -143,11 +144,14 @@ export function AssetBrowserContent({ browser, onOpen, onCreate, compact = false
         : !data?.assets.length && !leadingTiles && emptyContent && !query && source === 'all' ? emptyContent
         : !data?.assets.length && !leadingTiles && onCreate && !query && source === 'all' && kind !== 'trash' ? <div className="om-asset-welcome"><span className="om-creation-kicker">{t('YOUR NEXT CREATION STARTS HERE')}</span><h2 className="om-title">{t('One idea. Endless possibilities.')}</h2><p className="om-muted">{t('Upload your own media or create an image, video or audio asset.')}</p><div className="om-asset-starters">{creationKinds.filter(k => kind === 'all' || kind === k.id).map(item => <Button variant="plain" className="om-creation-suggestion om-asset-starter" key={item.id} onClick={() => onCreate(item.id)}><CreationEmblem kind={item.id} /><strong>{t(item.title)}</strong><span className="om-muted">{t(item.hint)}</span><span className="om-asset-starter-action">{t(item.action)}<RemixIcon name="arrow-right-line" size={16} /></span></Button>)}</div></div>
         : !data?.assets.length && !leadingTiles ? <div className="om-empty om-asset-empty"><RemixIcon name={kind === 'trash' ? 'delete-bin-line' : 'image-line'} size={40} /><h2 className="om-subtitle">{t(query || source !== 'all' ? 'No matching assets' : kind === 'trash' ? 'Trash is empty' : 'Your next idea starts here')}</h2><p className="om-muted">{t(kind === 'trash' ? 'Assets moved to trash can be restored.' : 'Upload your own media or create an image, video or audio asset.')}</p></div>
-        : <>{data && data.total > 0 && <p className="om-muted">{t('{count} assets', { count: data.total })}</p>}<div className="om-asset-grid">{leadingTiles}{data?.assets.map(asset => <div key={asset.id} className="om-asset-tile om-card"><Button variant="plain" className="om-nav-item om-asset-open" onClick={() => onOpen(asset)} aria-label={asset.name} aria-current={selectedId === asset.id || selectedIds?.has(asset.id) ? 'true' : undefined}
+        : <>{data && data.total > 0 && <p className="om-muted">{t('{count} assets', { count: data.total })}</p>}<div className="om-asset-grid">{leadingTiles}{data?.assets.map(asset => {
+          const isAttached = Boolean(attachedIds?.has(asset.id));
+          return <div key={asset.id} className="om-asset-tile om-card" data-attached={isAttached || undefined}><Button variant="plain" className="om-nav-item om-asset-open" onClick={() => onOpen(asset)} aria-label={asset.name} aria-current={selectedId === asset.id ? 'true' : undefined} aria-pressed={selectedIds ? selectedIds.has(asset.id) : undefined}
           onPointerEnter={event => { if (event.pointerType !== 'touch') preview(asset); }} onPointerLeave={() => setPreviewId(undefined)} onPointerCancel={() => setPreviewId(undefined)}
           onFocus={event => { if (event.currentTarget.matches(':focus-visible')) preview(asset); }} onBlur={() => setPreviewId(undefined)}>
-          <AssetPreview asset={asset} previewing={canPreview && previewId === asset.id} /><span className="om-asset-tile-caption"><AssetTitle name={asset.name} />{!compact && <span className="om-muted">{t(assetVersion(asset)?.source === 'upload' ? 'Local upload' : 'AI generated')} · V{asset.versions.findIndex(v => v.id === asset.currentVersionId) + 1}</span>}</span>
-        </Button></div>)}</div>{data && (page > 0 || data.nextOffset !== null) && <div className="om-asset-pagination"><Button variant="ghost" className="om-button h-auto" disabled={!page || loading} onClick={() => setPage(v => v - 1)}>{t('Previous')}</Button><span className="om-muted">{page + 1}</span><Button variant="ghost" className="om-button h-auto" disabled={data.nextOffset === null || loading} onClick={() => setPage(v => v + 1)}>{t('Next')}</Button></div>}</>}
+          <AssetPreview asset={asset} previewing={canPreview && previewId === asset.id} /><span className="om-asset-tile-caption"><AssetTitle name={asset.name} />{!compact && <span className="om-muted">{isAttached ? t('Already attached') : `${t(assetVersion(asset)?.source === 'upload' ? 'Local upload' : 'AI generated')} · V${asset.versions.findIndex(v => v.id === asset.currentVersionId) + 1}`}</span>}</span>
+        </Button></div>;
+        })}</div>{data && (page > 0 || data.nextOffset !== null) && <div className="om-asset-pagination"><Button variant="ghost" className="om-button h-auto" disabled={!page || loading} onClick={() => setPage(v => v - 1)}>{t('Previous')}</Button><span className="om-muted">{page + 1}</span><Button variant="ghost" className="om-button h-auto" disabled={data.nextOffset === null || loading} onClick={() => setPage(v => v + 1)}>{t('Next')}</Button></div>}</>}
     </div>
   </section>;
 }
@@ -156,8 +160,11 @@ export function AssetPicker({
   onPick,
   onPickMany,
   multiple = false,
+  maxSelect,
+  attachedVersionKeys,
   title = 'Choose an asset',
   confirmLabel = 'Use selected version',
+  multiConfirmLabel = 'Import ({count})',
   busyLabel = 'Working…',
   busy = false,
   revision = 0,
@@ -165,57 +172,135 @@ export function AssetPicker({
 }: {
   imageOnly?: boolean;
   multiple?: boolean;
+  maxSelect?: number;
+  attachedVersionKeys?: ReadonlySet<string>;
   onClose: () => void;
   onPick?: (reference: AssetReference, asset: LibraryAsset) => void;
   onPickMany?: (items: { reference: AssetReference; asset: LibraryAsset }[]) => void;
   title?: string;
   confirmLabel?: string;
+  multiConfirmLabel?: string;
   busyLabel?: string;
   busy?: boolean;
   revision?: number;
 }) {
   const { t } = useI18n(), [kind, setKind] = useState<AssetKind>(imageOnly ? 'image' : 'all'), [selected, setSelected] = useState<LibraryAsset>(), [version, setVersion] = useState('');
-  const [selectedMap, setSelectedMap] = useState<Map<string, LibraryAsset>>(() => new Map());
+  const [selectedMap, setSelectedMap] = useState<Map<string, { asset: LibraryAsset; versionId: string }>>(() => new Map());
+  const [statusNotice, setStatusNotice] = useState<'limit' | 'attached' | undefined>();
   const [loadedAssets, setLoadedAssets] = useState<LibraryAsset[]>([]);
   const selectedIds = useMemo(() => new Set(selectedMap.keys()), [selectedMap]);
   const selectedList = useMemo(() => Array.from(selectedMap.values()), [selectedMap]);
-  const allLoadedSelected = loadedAssets.length > 0 && loadedAssets.every(asset => selectedMap.has(asset.id));
+  const defaultVersionFor = useCallback((asset: LibraryAsset): string | undefined => {
+    if (!attachedVersionKeys) return asset.currentVersionId;
+    return attachedVersionKeys.has(`${asset.id}/${asset.currentVersionId}`) ? undefined : asset.currentVersionId;
+  }, [attachedVersionKeys]);
+  const attachedIds = useMemo(() => {
+    if (!attachedVersionKeys || !attachedVersionKeys.size) return undefined;
+    const ids = new Set<string>();
+    for (const asset of loadedAssets) {
+      if (!defaultVersionFor(asset)) ids.add(asset.id);
+    }
+    return ids.size ? ids : undefined;
+  }, [attachedVersionKeys, defaultVersionFor, loadedAssets]);
+  const selectableLoadedAssets = useMemo(
+    () => (attachedIds ? loadedAssets.filter(asset => !attachedIds.has(asset.id)) : loadedAssets),
+    [attachedIds, loadedAssets],
+  );
+  const allLoadedSelected = selectableLoadedAssets.length > 0 && selectableLoadedAssets.every(asset => selectedMap.has(asset.id));
+
+  useEffect(() => {
+    if (!multiple) return;
+    setSelectedMap(prev => {
+      let changed = false;
+      const next = new Map<string, { asset: LibraryAsset; versionId: string }>();
+      for (const [id, entry] of prev) {
+        if (attachedVersionKeys?.has(`${entry.asset.id}/${entry.versionId}`)) {
+          const fallback = defaultVersionFor(entry.asset);
+          if (!fallback) { changed = true; continue; }
+          if (fallback !== entry.versionId) {
+            next.set(id, { asset: entry.asset, versionId: fallback });
+            changed = true;
+            continue;
+          }
+        }
+        if (maxSelect !== undefined && next.size >= maxSelect) {
+          changed = true;
+          break;
+        }
+        next.set(id, entry);
+      }
+      return changed ? next : prev;
+    });
+  }, [attachedVersionKeys, defaultVersionFor, maxSelect, multiple]);
 
   const pick = useCallback((asset: LibraryAsset) => {
     if (busy) return;
     if (multiple) {
-      setSelectedMap(prev => {
-        const next = new Map(prev);
-        if (next.has(asset.id)) {
+      if (selectedMap.has(asset.id)) {
+        setStatusNotice(undefined);
+        setSelectedMap(prev => {
+          if (!prev.has(asset.id)) return prev;
+          const next = new Map(prev);
           next.delete(asset.id);
-        } else {
-          next.set(asset.id, asset);
-          if (next.size === 1) setVersion(asset.currentVersionId);
-        }
+          return next;
+        });
+        return;
+      }
+      const chosenVersion = defaultVersionFor(asset);
+      if (!chosenVersion) {
+        setStatusNotice('attached');
+        return;
+      }
+      if (maxSelect !== undefined && selectedMap.size >= maxSelect) {
+        setStatusNotice('limit');
+        return;
+      }
+      setStatusNotice(undefined);
+      setSelectedMap(prev => {
+        if (prev.has(asset.id) || (maxSelect !== undefined && prev.size >= maxSelect)) return prev;
+        const next = new Map(prev);
+        next.set(asset.id, { asset, versionId: chosenVersion });
         return next;
       });
       return;
     }
     setSelected(asset);
-    setVersion(asset.currentVersionId);
-  }, [busy, multiple]);
+    setVersion(defaultVersionFor(asset) ?? asset.currentVersionId);
+  }, [busy, defaultVersionFor, maxSelect, multiple, selectedMap]);
 
   const toggleSelectAllLoaded = useCallback(() => {
-    if (busy || loadedAssets.length === 0) return;
+    if (busy || selectableLoadedAssets.length === 0) return;
+    setStatusNotice(undefined);
     setSelectedMap(prev => {
       const next = new Map(prev);
-      if (loadedAssets.every(asset => next.has(asset.id))) {
-        for (const asset of loadedAssets) next.delete(asset.id);
+      if (selectableLoadedAssets.every(asset => next.has(asset.id))) {
+        for (const asset of selectableLoadedAssets) next.delete(asset.id);
       } else {
-        for (const asset of loadedAssets) next.set(asset.id, asset);
-      }
-      if (next.size === 1) {
-        const [only] = next.values();
-        setVersion(only.currentVersionId);
+        for (const asset of selectableLoadedAssets) {
+          if (maxSelect !== undefined && next.size >= maxSelect) break;
+          if (next.has(asset.id)) continue;
+          const chosenVersion = defaultVersionFor(asset);
+          if (chosenVersion) next.set(asset.id, { asset, versionId: chosenVersion });
+        }
       }
       return next;
     });
-  }, [busy, loadedAssets]);
+  }, [busy, defaultVersionFor, maxSelect, selectableLoadedAssets]);
+
+  const updateSelectedVersion = useCallback((assetId: string, nextVersionId: string) => {
+    if (attachedVersionKeys?.has(`${assetId}/${nextVersionId}`)) {
+      setStatusNotice('attached');
+      return;
+    }
+    setStatusNotice(undefined);
+    setSelectedMap(prev => {
+      const existing = prev.get(assetId);
+      if (!existing || existing.versionId === nextVersionId) return prev;
+      const next = new Map(prev);
+      next.set(assetId, { ...existing, versionId: nextVersionId });
+      return next;
+    });
+  }, [attachedVersionKeys]);
 
   return <SettingsDialog title={t(title)} onClose={onClose}><div className="om-asset-picker">
     {!imageOnly && (
@@ -223,11 +308,11 @@ export function AssetPicker({
         <div className="om-asset-tabs">{assetKinds.map(item => <Button variant="plain" key={item.id} className="om-nav-item" disabled={busy} aria-pressed={kind === item.id} onClick={() => setKind(item.id)}>{t(item.label)}</Button>)}</div>
         {multiple && (
           <div className="om-asset-picker-bulk">
-            <Button variant="secondary" size="sm" type="button" disabled={busy || loadedAssets.length === 0} onClick={toggleSelectAllLoaded}>
-              {t(allLoadedSelected ? 'Deselect all' : 'Select all ({count})', { count: loadedAssets.length })}
+            <Button variant="secondary" size="sm" type="button" disabled={busy || selectableLoadedAssets.length === 0} onClick={toggleSelectAllLoaded}>
+              {t(allLoadedSelected ? 'Deselect all' : 'Select all ({count})', { count: selectableLoadedAssets.length })}
             </Button>
             {selectedMap.size > 0 && (
-              <Button variant="ghost" size="sm" type="button" disabled={busy} onClick={() => setSelectedMap(new Map())}>
+              <Button variant="ghost" size="sm" type="button" disabled={busy} onClick={() => { setSelectedMap(new Map()); setStatusNotice(undefined); }}>
                 {t('Clear')}
               </Button>
             )}
@@ -239,37 +324,48 @@ export function AssetPicker({
       kind={kind}
       onOpen={pick}
       revision={revision}
+      selectedId={!multiple ? selected?.id : undefined}
       selectedIds={multiple ? selectedIds : undefined}
-      onLoadedAssets={multiple ? setLoadedAssets : undefined}
+      attachedIds={attachedIds}
+      onLoadedAssets={multiple || Boolean(attachedVersionKeys?.size) ? setLoadedAssets : undefined}
     />
     {multiple ? (
       <div className="om-asset-picker-selection">
         {selectedList.length === 1 ? (
           <>
-            <strong>{selectedList[0].name}</strong>
+            <strong>{selectedList[0].asset.name}</strong>
             <Select
               disabled={busy}
               label={t('Version')}
-              value={version && selectedList[0].versions.some(v => v.id === version) ? version : selectedList[0].currentVersionId}
-              onCommit={setVersion}
-              options={selectedList[0].versions.map((v, i) => ({ value: v.id, label: `V${i + 1}` }))}
+              value={selectedList[0].versionId}
+              onCommit={nextVersionId => updateSelectedVersion(selectedList[0].asset.id, nextVersionId)}
+              options={selectedList[0].asset.versions.map((v, i) => ({ value: v.id, label: `V${i + 1}` }))}
             />
+            {maxSelect !== undefined && <span className="om-muted om-asset-picker-count">{t('{count} / {max} selected', { count: 1, max: maxSelect })}</span>}
           </>
         ) : selectedList.length > 1 ? (
-          <strong>{t('{count} selected', { count: selectedList.length })}</strong>
+          <strong>{maxSelect !== undefined ? t('{count} / {max} selected', { count: selectedList.length, max: maxSelect }) : t('{count} selected', { count: selectedList.length })}</strong>
         ) : (
-          <span className="om-muted">{t('Click items to select one, several, or all assets.')}</span>
+          <span className="om-muted">{maxSelect !== undefined ? t('Select up to {count} images.', { count: maxSelect }) : t('Click items to select one, several, or all assets.')}</span>
         )}
+        {statusNotice && <span className="om-muted" role="status">{t(statusNotice === 'attached' ? 'Already attached' : 'Reference limit reached.')}</span>}
         <div className="om-asset-picker-footer-actions">
-          <Button
-            variant="secondary"
-            size="sm"
-            type="button"
-            disabled={busy || loadedAssets.length === 0}
-            onClick={() => onPickMany?.(loadedAssets.map(asset => ({ reference: { assetId: asset.id, versionId: asset.currentVersionId }, asset })))}
-          >
-            {t('Import all ({count})', { count: loadedAssets.length })}
-          </Button>
+          {imageOnly && selectedList.length > 0 && (
+            <Button variant="ghost" size="sm" type="button" disabled={busy} onClick={() => { setSelectedMap(new Map()); setStatusNotice(undefined); }}>
+              {t('Clear')}
+            </Button>
+          )}
+          {maxSelect === undefined && (
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              disabled={busy || selectableLoadedAssets.length === 0}
+              onClick={() => onPickMany?.(selectableLoadedAssets.map(asset => ({ reference: { assetId: asset.id, versionId: defaultVersionFor(asset) ?? asset.currentVersionId }, asset })))}
+            >
+              {t('Import all ({count})', { count: selectableLoadedAssets.length })}
+            </Button>
+          )}
           <Button
             variant="primary"
             size="sm"
@@ -277,17 +373,11 @@ export function AssetPicker({
             disabled={busy || selectedList.length === 0}
             aria-busy={busy}
             onClick={() => {
-              if (selectedList.length === 1) {
-                const only = selectedList[0];
-                const chosenVersion = version && only.versions.some(v => v.id === version) ? version : only.currentVersionId;
-                onPickMany?.([{ reference: { assetId: only.id, versionId: chosenVersion }, asset: only }]);
-              } else {
-                onPickMany?.(selectedList.map(asset => ({ reference: { assetId: asset.id, versionId: asset.currentVersionId }, asset })));
-              }
+              onPickMany?.(selectedList.map(({ asset, versionId }) => ({ reference: { assetId: asset.id, versionId }, asset })));
             }}
           >
             {busy && <RemixIcon name="loader-4-line" size={16} className="animate-spin motion-reduce:animate-none" />}
-            {t(busy ? busyLabel : 'Import ({count})', { count: selectedList.length })}
+            {t(busy ? busyLabel : multiConfirmLabel, { count: selectedList.length })}
           </Button>
         </div>
       </div>

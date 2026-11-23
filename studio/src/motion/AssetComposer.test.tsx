@@ -1133,4 +1133,121 @@ it('keeps Character reference upload actions available up to 5 images even with 
     destination: mediaEditorDestination('remove-background'),
   }} />));
   expect(container.querySelector('.om-source-actions')).toBeNull();
+  expect(container.querySelector('.om-scene-source-count')).toBeNull();
+  expect(container.querySelector('.om-scene-source-files')?.getAttribute('data-layout')).toBeNull();
+});
+
+it('shows reference quota counter, compact thumbnail grid, drag/paste upload, stable uploading button, and auto-switch toast', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const multiCatalog = {
+    models: [existing.sunburst, existing.seedream],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  const onUploadFiles = vi.fn();
+  const onInfo = vi.fn();
+  const studio = {
+    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() },
+    chooseModel: vi.fn(),
+    remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  };
+
+  // 1 reference with Seedream 5.5 selected -> shows 1 / 5 counter and grid layout.
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    onUploadReference={vi.fn()}
+    onUploadFiles={onUploadFiles}
+    onInfo={onInfo}
+    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1')] }}
+    studio={studio}
+  />));
+  expect(container.querySelector('.om-scene-source-count')?.textContent).toBe('1 / 5');
+  expect(container.querySelector('.om-scene-source-files')?.getAttribute('data-layout')).toBe('grid');
+  expect(container.querySelector('.om-scene-source-file')?.getAttribute('data-layout')).toBe('grid');
+  expect(container.querySelector('.om-source-hint')?.textContent).toBe('Drop or paste images here');
+
+  // Dragging & dropping image files onto the reference section triggers onUploadFiles.
+  const sourceSection = container.querySelector<HTMLElement>('.om-scene-source')!;
+  const dropped = new File(['img'], 'drop.png', { type: 'image/png' });
+  const dragEnter = new Event('dragenter', { bubbles: true, cancelable: true });
+  Object.defineProperty(dragEnter, 'dataTransfer', { value: { types: ['Files'], files: [dropped] } });
+  await act(async () => sourceSection.dispatchEvent(dragEnter));
+  expect(sourceSection.getAttribute('data-dragging')).toBe('true');
+
+  const dropEvent = new Event('drop', { bubbles: true, cancelable: true });
+  Object.defineProperty(dropEvent, 'dataTransfer', { value: { types: ['Files'], files: [dropped] } });
+  await act(async () => sourceSection.dispatchEvent(dropEvent));
+  expect(sourceSection.getAttribute('data-dragging')).toBeNull();
+  expect(onUploadFiles).toHaveBeenCalledWith([dropped], 'drop');
+
+  // Pasting an image works even when focus is on document.body (e.g. after clicking the drop zone).
+  onUploadFiles.mockClear();
+  const pasted = new File(['clip'], 'clip.png', { type: 'image/png' });
+  const bodyImagePaste = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(bodyImagePaste, 'clipboardData', {
+    value: {
+      getData: () => '',
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => pasted }],
+      files: [pasted],
+    },
+  });
+  await act(async () => document.body.dispatchEvent(bodyImagePaste));
+  expect(bodyImagePaste.defaultPrevented).toBe(true);
+  expect(onUploadFiles).toHaveBeenCalledWith([pasted], 'paste');
+
+  // Pasting rich text + image from Word/Excel into the prompt textarea does not hijack text paste.
+  onUploadFiles.mockClear();
+  const promptTextarea = container.querySelector<HTMLTextAreaElement>('textarea')!;
+  const richPaste = new Event('paste', { bubbles: true, cancelable: true });
+  Object.defineProperty(richPaste, 'clipboardData', {
+    value: {
+      getData: (type: string) => (type === 'text/plain' ? 'Copied prompt text' : ''),
+      items: [{ kind: 'file', type: 'image/png', getAsFile: () => pasted }],
+      files: [pasted],
+    },
+  });
+  await act(async () => promptTextarea.dispatchEvent(richPaste));
+  expect(richPaste.defaultPrevented).toBe(false);
+  expect(onUploadFiles).not.toHaveBeenCalled();
+
+  // Uploading state keeps the upload button mounted/disabled AND disables Generate so credits cannot be spent mid-upload.
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    onUploadReference={vi.fn()}
+    onUploadFiles={onUploadFiles}
+    uploadingReferences
+    onInfo={onInfo}
+    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1')] }}
+    studio={studio}
+  />));
+  const uploadingBtn = container.querySelector<HTMLButtonElement>('.om-source-actions button')!;
+  expect(uploadingBtn.disabled).toBe(true);
+  expect(uploadingBtn.textContent).toBe('Uploading…');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(true);
+
+  // Growing from 1 -> 2 references triggers model switch from Seedream 5.5 to Sunburst and emits one info notice.
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    onUploadReference={vi.fn()}
+    onUploadFiles={onUploadFiles}
+    onInfo={onInfo}
+    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2')] }}
+    studio={studio}
+  />));
+  expect(container.querySelector('.om-scene-source-count')?.textContent).toBe('2 / 5');
+  expect(onInfo).toHaveBeenCalledTimes(1);
+  expect(onInfo).toHaveBeenCalledWith('{from} supports 1 reference image. Switched to {to}.');
+
+  // Adding a 3rd reference does not repeat the switch notice.
+  onInfo.mockClear();
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    onUploadReference={vi.fn()}
+    onUploadFiles={onUploadFiles}
+    onInfo={onInfo}
+    draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2'), reference('hero-3')] }}
+    studio={studio}
+  />));
+  expect(onInfo).not.toHaveBeenCalled();
 });

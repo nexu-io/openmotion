@@ -346,7 +346,13 @@
     "Open Game Studio": "打开游戏工作室",
     "Explore games": "浏览全部游戏",
     "Build, play, and deploy multiplayer web games with your Agent": "用 Agent 一句话构建、试玩并部署可联机网页游戏",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "一句话描述你的游戏创意，在 Super Agent 中实时对话打磨，支持单人或多人联机并部署可分享的线上链接。"
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "一句话描述你的游戏创意，在 Super Agent 中实时对话打磨，支持单人或多人联机并部署可分享的线上链接。",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} 仅支持 1 张参考图，已切换为 {to}。",
+    "Drop or paste images here": "拖拽或粘贴图片到此处",
+    "Use selected ({count})": "使用所选（{count}）",
+    "{count} / {max} selected": "已选 {count} / {max}",
+    "Select up to {count} images.": "最多可选择 {count} 张图片。",
+    "Already attached": "已添加"
   },
   "ja": {
     "Open Motion Editor": "Motion エディターを開く",
@@ -695,7 +701,13 @@
     "Open Game Studio": "ゲームスタジオを開く",
     "Explore games": "ゲームを探す",
     "Build, play, and deploy multiplayer web games with your Agent": "Agent でマルチプレイ Web ゲームを作成・試遊・公開",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "ゲームを一行で説明するだけで、Super Agent とライブで磨き上げ、ソロやマルチプレイで遊び、共有リンクを公開できます。"
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "ゲームを一行で説明するだけで、Super Agent とライブで磨き上げ、ソロやマルチプレイで遊び、共有リンクを公開できます。",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} は参照画像1枚のみ対応のため、{to} に切り替えました。",
+    "Drop or paste images here": "ここに画像をドロップまたは貼り付け",
+    "Use selected ({count})": "選択を使用（{count}）",
+    "{count} / {max} selected": "{count} / {max} 件選択中",
+    "Select up to {count} images.": "最大 {count} 枚の画像を選択できます。",
+    "Already attached": "添付済み"
   },
   "ko": {
     "Open Motion Editor": "Motion 편집기 열기",
@@ -1044,7 +1056,13 @@
     "Open Game Studio": "게임 스튜디오 열기",
     "Explore games": "게임 둘러보기",
     "Build, play, and deploy multiplayer web games with your Agent": "Agent로 멀티플레이어 웹 게임을 만들고 플레이·배포하세요",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "게임을 한 줄로 설명하면 Super Agent와 실시간으로 다듬고, 싱글·멀티플레이로 즐기며 공유 링크를 배포할 수 있습니다."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "게임을 한 줄로 설명하면 Super Agent와 실시간으로 다듬고, 싱글·멀티플레이로 즐기며 공유 링크를 배포할 수 있습니다.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from}은(는) 참조 이미지 1장만 지원하여 {to}(으)로 전환했습니다.",
+    "Drop or paste images here": "여기에 이미지를 드롭하거나 붙여넣기",
+    "Use selected ({count})": "선택 항목 사용 ({count})",
+    "{count} / {max} selected": "{count} / {max}개 선택됨",
+    "Select up to {count} images.": "최대 {count}장의 이미지를 선택하세요.",
+    "Already attached": "이미 첨부됨"
   },
   "de": {
     "Open Motion Editor": "Motion-Editor öffnen",
@@ -1393,7 +1411,13 @@
     "Open Game Studio": "Spielestudio öffnen",
     "Explore games": "Spiele entdecken",
     "Build, play, and deploy multiplayer web games with your Agent": "Multiplayer-Webspiele mit deinem Agent erstellen, spielen und veröffentlichen",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Beschreibe dein Spiel in einem Satz, verfeinere es live mit dem Super Agent, spiele allein oder im Multiplayer und veröffentliche einen teilbaren Link."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Beschreibe dein Spiel in einem Satz, verfeinere es live mit dem Super Agent, spiele allein oder im Multiplayer und veröffentliche einen teilbaren Link.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} unterstützt 1 Referenzbild. Zu {to} gewechselt.",
+    "Drop or paste images here": "Bilder hier ablegen oder einfügen",
+    "Use selected ({count})": "Auswahl verwenden ({count})",
+    "{count} / {max} selected": "{count} / {max} ausgewählt",
+    "Select up to {count} images.": "Bis zu {count} Bilder auswählen.",
+    "Already attached": "Bereits angehängt"
   },
   "fr": {
     "Open Motion Editor": "Ouvrir l’éditeur Motion",
@@ -1742,7 +1766,13 @@
     "Open Game Studio": "Ouvrir Studio de jeux",
     "Explore games": "Explorer les jeux",
     "Build, play, and deploy multiplayer web games with your Agent": "Créez, jouez et déployez des jeux web multijoueurs avec votre Agent",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Décrivez un jeu en une ligne, affinez-le en direct avec Super Agent, jouez en solo ou en multijoueur et déployez un lien partageable."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Décrivez un jeu en une ligne, affinez-le en direct avec Super Agent, jouez en solo ou en multijoueur et déployez un lien partageable.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} prend en charge 1 image de référence. Passage à {to}.",
+    "Drop or paste images here": "Déposez ou collez des images ici",
+    "Use selected ({count})": "Utiliser la sélection ({count})",
+    "{count} / {max} selected": "{count} / {max} sélectionnées",
+    "Select up to {count} images.": "Sélectionnez jusqu’à {count} images.",
+    "Already attached": "Déjà jointe"
   },
   "ru": {
     "Open Motion Editor": "Открыть редактор Motion",
@@ -2091,7 +2121,13 @@
     "Open Game Studio": "Открыть игровую студию",
     "Explore games": "Все игры",
     "Build, play, and deploy multiplayer web games with your Agent": "Создавайте, запускайте и публикуйте многопользовательские веб-игры с помощью Agent",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Опишите игру одной строкой, дорабатывайте её вживую в Super Agent, играйте в одиночку или по сети и публикуйте ссылку для друзей."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Опишите игру одной строкой, дорабатывайте её вживую в Super Agent, играйте в одиночку или по сети и публикуйте ссылку для друзей.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} поддерживает 1 референс. Выбрана модель {to}.",
+    "Drop or paste images here": "Перетащите или вставьте изображения сюда",
+    "Use selected ({count})": "Использовать выбранные ({count})",
+    "{count} / {max} selected": "Выбрано {count} из {max}",
+    "Select up to {count} images.": "Выберите до {count} изображений.",
+    "Already attached": "Уже прикреплено"
   },
   "es": {
     "Open Motion Editor": "Abrir el editor de Motion",
@@ -2440,7 +2476,13 @@
     "Open Game Studio": "Abrir Estudio de juegos",
     "Explore games": "Explorar juegos",
     "Build, play, and deploy multiplayer web games with your Agent": "Crea, juega y publica juegos web multijugador con tu Agent",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Describe un juego en una línea, perfecciónalo en vivo con Super Agent, juega en solitario o en multijugador y publica un enlace compartible."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Describe un juego en una línea, perfecciónalo en vivo con Super Agent, juega en solitario o en multijugador y publica un enlace compartible.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} admite 1 imagen de referencia. Se cambió a {to}.",
+    "Drop or paste images here": "Arrastra o pega imágenes aquí",
+    "Use selected ({count})": "Usar selección ({count})",
+    "{count} / {max} selected": "{count} / {max} seleccionadas",
+    "Select up to {count} images.": "Selecciona hasta {count} imágenes.",
+    "Already attached": "Ya adjuntada"
   },
   "pt-BR": {
     "Open Motion Editor": "Abrir o editor do Motion",
@@ -2789,7 +2831,13 @@
     "Open Game Studio": "Abrir Estúdio de jogos",
     "Explore games": "Explorar jogos",
     "Build, play, and deploy multiplayer web games with your Agent": "Crie, jogue e publique jogos web multijogador com seu Agent",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Descreva um jogo em uma linha, refine ao vivo com o Super Agent, jogue solo ou em multijogador e publique um link compartilhável."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Descreva um jogo em uma linha, refine ao vivo com o Super Agent, jogue solo ou em multijogador e publique um link compartilhável.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} aceita 1 imagem de referência. Alternado para {to}.",
+    "Drop or paste images here": "Arraste ou cole imagens aqui",
+    "Use selected ({count})": "Usar selecionadas ({count})",
+    "{count} / {max} selected": "{count} / {max} selecionadas",
+    "Select up to {count} images.": "Selecione até {count} imagens.",
+    "Already attached": "Já anexada"
   },
   "it": {
     "Open Motion Editor": "Apri l’editor di Motion",
@@ -3138,7 +3186,13 @@
     "Open Game Studio": "Apri Studio giochi",
     "Explore games": "Esplora i giochi",
     "Build, play, and deploy multiplayer web games with your Agent": "Crea, gioca e pubblica giochi web multigiocatore con il tuo Agent",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Descrivi un gioco in una riga, perfezionalo dal vivo con Super Agent, gioca in singolo o multigiocatore e pubblica un link condivisibile."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Descrivi un gioco in una riga, perfezionalo dal vivo con Super Agent, gioca in singolo o multigiocatore e pubblica un link condivisibile.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} supporta 1 immagine di riferimento. Passato a {to}.",
+    "Drop or paste images here": "Trascina o incolla immagini qui",
+    "Use selected ({count})": "Usa selezionate ({count})",
+    "{count} / {max} selected": "{count} / {max} selezionate",
+    "Select up to {count} images.": "Seleziona fino a {count} immagini.",
+    "Already attached": "Già allegata"
   },
   "tr": {
     "Open Motion Editor": "Motion düzenleyicisini aç",
@@ -3487,6 +3541,12 @@
     "Open Game Studio": "Oyun Stüdyosu’nu Aç",
     "Explore games": "Oyunları keşfet",
     "Build, play, and deploy multiplayer web games with your Agent": "Agent ile çok oyunculu web oyunları oluştur, oyna ve yayınla",
-    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Oyunu tek satırda tarif et, Super Agent ile canlı olarak geliştir, tek veya çok oyunculu oyna ve paylaşılabilir bir bağlantı yayınla."
+    "Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.": "Oyunu tek satırda tarif et, Super Agent ile canlı olarak geliştir, tek veya çok oyunculu oyna ve paylaşılabilir bir bağlantı yayınla.",
+    "{from} supports 1 reference image. Switched to {to}.": "{from} yalnızca 1 referans görsel destekler. {to} modeline geçildi.",
+    "Drop or paste images here": "Görselleri buraya bırakın veya yapıştırın",
+    "Use selected ({count})": "Seçilenleri kullan ({count})",
+    "{count} / {max} selected": "{count} / {max} seçildi",
+    "Select up to {count} images.": "En fazla {count} görsel seçin.",
+    "Already attached": "Zaten eklendi"
   }
 }

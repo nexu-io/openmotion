@@ -14,7 +14,9 @@ vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string, values?: Re
 vi.mock('./ResizablePane', () => ({ ResizablePane: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 let lastComposerOnCreated: ((job: import('../../../shared/gateway').GenerationJob) => void) | undefined;
 let lastShowCurrentJob: boolean | undefined;
-vi.mock('./AssetComposer', () => ({ AssetComposer: ({ draft, onReference, onCreated, showCurrentJob }: { draft: AssetDraft; onReference: () => void; onCreated: (job: import('../../../shared/gateway').GenerationJob) => void; showCurrentJob?: boolean }) => { lastComposerOnCreated = onCreated; lastShowCurrentJob = showCurrentJob; return <><input aria-label="Creation draft" data-reference-count={draft.references.length} /><button onClick={onReference}>References</button></>; } }));
+let lastComposerOnUploadFiles: ((files: File[]) => void) | undefined;
+let lastComposerUploadingReferences: boolean | undefined;
+vi.mock('./AssetComposer', () => ({ AssetComposer: ({ draft, onReference, onUploadFiles, uploadingReferences, onCreated, showCurrentJob }: { draft: AssetDraft; onReference: () => void; onUploadFiles?: (files: File[]) => void; uploadingReferences?: boolean; onCreated: (job: import('../../../shared/gateway').GenerationJob) => void; showCurrentJob?: boolean }) => { lastComposerOnCreated = onCreated; lastShowCurrentJob = showCurrentJob; lastComposerOnUploadFiles = onUploadFiles; lastComposerUploadingReferences = uploadingReferences; return <><input aria-label="Creation draft" data-reference-count={draft.references.length} /><button onClick={onReference}>References</button></>; } }));
 vi.mock('./AssetTaskHistory', () => ({ AssetTaskMenu: () => null }));
 vi.mock('./assetClient', () => ({ assetRequest: vi.fn(), uploadLibraryAsset: vi.fn() }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: async () => ({ conversations: [] }) }));
@@ -1031,4 +1033,201 @@ it('shows Reference limit reached when another reference fills the last slot whi
   expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
   expect(remember.mock.lastCall?.[0].references.some((item: { reference: { assetId: string } }) => item.reference.assetId === 'late-upload')).toBe(false);
   expect(document.body.textContent).toContain('Reference limit reached.');
+});
+
+it('supports multi-select in AssetPicker capped to remaining reference slots and rejects uncompressible >2 MiB drops early', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const catalog = {
+    models: [sunburst],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  records.set('C', fixture('C'));
+  const remember = vi.fn();
+  const threeRefs = ['r1', 'r2', 'r3'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
+  const studio = {
+    destination: mediaEditorDestination('character'),
+    initialDraft: { modality: 'image' as const, prompt: '', references: threeRefs },
+    draftKey: 'character:multipick',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember, chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
+
+  // 3 of 5 slots used -> picker opens in multi-select mode with maxSelect = 2 and hides Import all.
+  await click('References'); await flush();
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  expect(dialog.textContent).toContain('Select up to 2 images.');
+  expect([...dialog.querySelectorAll('button')].some(b => b.textContent?.includes('Import all'))).toBe(false);
+
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Picture A"]')!.click());
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Picture B"]')!.click());
+  expect(dialog.textContent).toContain('2 / 2 selected');
+
+  // Clicking a 3rd item is blocked by maxSelect = 2 and shows Reference limit reached.
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Picture C"]')!.click());
+  expect(dialog.textContent).toContain('2 / 2 selected');
+  expect(dialog.textContent).toContain('Reference limit reached.');
+
+  await click('Use selected (2)');
+  expect(remember.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['r1', 'r2', 'r3', 'A', 'B']);
+
+  // Dropping an uncompressible > 2 MiB image on a fresh Character reference draft surfaces the 2 MiB error early without calling uploadLibraryAsset.
+  await act(async () => root.unmount()); root = createRoot(container);
+  vi.mocked(uploadLibraryAsset).mockClear();
+  vi.stubGlobal('createImageBitmap', vi.fn(async () => { throw new Error('cannot decode'); }));
+  vi.stubGlobal('Image', undefined);
+  const freshStudio = {
+    destination: mediaEditorDestination('character'),
+    draftKey: 'character:oversized',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember: vi.fn(), chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={freshStudio} />)); await flush();
+  const huge = new File([new Uint8Array(2 * 1024 * 1024 + 512)], 'huge.png', { type: 'image/png' });
+  await act(async () => { lastComposerOnUploadFiles?.([huge]); }); await flush();
+  expect(uploadLibraryAsset).not.toHaveBeenCalled();
+  expect(lastComposerUploadingReferences).toBe(false);
+  expect(document.body.textContent).toContain('The reference image is larger than the 2 MiB OpenDesign upload limit.');
+
+  // Sub-2 MiB undecodable HEIC is rejected early without consuming slots from a following valid PNG.
+  const validPng = new File(['ok'], 'valid.png', { type: 'image/png' });
+  const heic = new File([new Uint8Array(1024)], 'iphone.heic', { type: 'image/heic' });
+  vi.mocked(uploadLibraryAsset).mockResolvedValueOnce(fixture('valid-after-heic'));
+  await act(async () => { lastComposerOnUploadFiles?.([heic, validPng]); }); await flush();
+  expect(uploadLibraryAsset).toHaveBeenCalledTimes(1);
+  expect(document.body.textContent).toContain('OpenDesign does not accept this reference image format.');
+});
+
+it('keeps AssetPicker multi-select stable across in-flight uploads, ignores already-attached assets for quota, validates picked size, and stops batch on unmount', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const catalog = {
+    models: [sunburst],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  records.set('C', fixture('C'));
+  const bigLibraryAsset = fixture('BIG');
+  bigLibraryAsset.versions[0].bytes = 3 * 1024 * 1024;
+  records.set('BIG', bigLibraryAsset);
+  const remember = vi.fn();
+  // Asset A is already attached (plus 2 more -> 3 / 5 attached, 2 remaining).
+  const initialRefs = [
+    { reference: { assetId: 'A', versionId: 'A-v1' }, name: 'Picture A' },
+    { reference: { assetId: 'r2', versionId: 'r2-v1' }, name: 'Picture r2' },
+    { reference: { assetId: 'r3', versionId: 'r3-v1' }, name: 'Picture r3' },
+  ];
+  const studio = {
+    destination: mediaEditorDestination('character'),
+    initialDraft: { modality: 'image' as const, prompt: '', references: initialRefs },
+    draftKey: 'character:picker-stability',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember, chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
+
+  // Start an in-flight upload (1 file), then open the picker while 2 slots remain.
+  const inflight = deferred<LibraryAsset>();
+  vi.mocked(uploadLibraryAsset).mockReturnValueOnce(inflight.promise);
+  await act(async () => { lastComposerOnUploadFiles?.([new File(['data'], 'u1.png', { type: 'image/png' })]); });
+
+  await click('References'); await flush();
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  // Already-attached Asset A shows Already attached and does not consume a slot.
+  expect(dialog.textContent).toContain('Already attached');
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Picture A"]')!.click());
+  expect(dialog.textContent).not.toContain('1 / 2 selected');
+
+  // Select Picture B while upload is in flight, then complete the upload (draft moves 3 -> 4, remaining 2 -> 1).
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Picture B"]')!.click());
+  expect(dialog.textContent).toContain('1 / 2 selected');
+  await act(async () => { inflight.resolve(fixture('uploaded-4')); await inflight.promise; }); await flush();
+  // Picker stays in multi-select mode with Picture B still selected (1 / 1 selected) and confirm button intact!
+  expect(dialog.textContent).toContain('1 / 1 selected');
+  expect(dialog.textContent).toContain('Use selected (1)');
+  await click('Use selected (1)');
+  expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
+
+  // Oversized 3 MiB library asset is rejected immediately at pick time.
+  await act(async () => root.unmount()); root = createRoot(container);
+  const rememberBig = vi.fn();
+  await act(async () => root.render(<AssetsPage active studio={{
+    destination: mediaEditorDestination('character'),
+    draftKey: 'character:big-pick',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember: rememberBig, chooseModel: vi.fn(),
+  }} />)); await flush();
+  await click('References'); await flush();
+  const bigDialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  await act(async () => bigDialog.querySelector<HTMLButtonElement>('[aria-label="Picture BIG"]')!.click());
+  await click('Use selected (1)');
+  expect(document.body.textContent).toContain('The reference image is larger than the 2 MiB OpenDesign upload limit.');
+  expect(rememberBig.mock.lastCall?.[0].references ?? []).toHaveLength(0);
+
+  // Unmounting mid-batch stops subsequent uploads in the batch.
+  vi.mocked(uploadLibraryAsset).mockClear();
+  const firstUpload = deferred<LibraryAsset>();
+  vi.mocked(uploadLibraryAsset).mockReturnValueOnce(firstUpload.promise);
+  await act(async () => {
+    lastComposerOnUploadFiles?.([
+      new File(['1'], 'one.png', { type: 'image/png' }),
+      new File(['2'], 'two.png', { type: 'image/png' }),
+    ]);
+  });
+  await act(async () => root.unmount());
+  await act(async () => { firstUpload.resolve(fixture('one')); await firstUpload.promise; });
+  expect(uploadLibraryAsset).toHaveBeenCalledTimes(1);
+  root = createRoot(container);
+
+  // A backend-rejected file (e.g. empty PNG) does not consume the remaining slot from a following valid PNG.
+  const fourRefs = ['r1', 'r2', 'r3', 'r4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
+  const rememberFallback = vi.fn();
+  await act(async () => root.render(<AssetsPage active studio={{
+    destination: mediaEditorDestination('character'),
+    initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
+    draftKey: 'character:rejected-first',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember: rememberFallback, chooseModel: vi.fn(),
+  }} />)); await flush();
+  vi.mocked(uploadLibraryAsset).mockClear();
+  vi.mocked(uploadLibraryAsset)
+    .mockRejectedValueOnce(new AssetUploadError('rejected', 'empty'))
+    .mockResolvedValueOnce(fixture('valid-5th'));
+  await act(async () => {
+    lastComposerOnUploadFiles?.([
+      new File([], 'empty.png', { type: 'image/png' }),
+      new File(['ok'], 'valid.png', { type: 'image/png' }),
+    ]);
+  }); await flush();
+  expect(uploadLibraryAsset).toHaveBeenCalledTimes(2);
+  expect(rememberFallback.mock.lastCall?.[0].references).toHaveLength(5);
+  expect(rememberFallback.mock.lastCall?.[0].references[4].reference.assetId).toBe('valid-5th');
+
+  // Codex-only edit-image does NOT enforce OpenDesign's 2 MiB limit on a valid 3 MiB PNG library asset.
+  await act(async () => root.unmount()); root = createRoot(container);
+  const codexOnlyCatalog = {
+    models: [
+      { id: 'codex:image-generation', provider: 'codex', modelId: 'image-generation', label: 'Codex Image', modality: 'image' as const, mode: 'text-to-image', source: 'builtin' as const, supportsImageReference: true, maxInputImages: 1 },
+      { ...sunburst },
+    ],
+    status: {
+      routes: {},
+      providers: [
+        { id: 'codex', label: 'Codex', available: true },
+        { id: 'opendesign', label: 'OpenDesign Cloud', available: false },
+      ],
+    },
+  };
+  const rememberCodex = vi.fn();
+  await act(async () => root.render(<AssetsPage active studio={{
+    destination: mediaEditorDestination('image-edit'),
+    draftKey: 'image-edit:codex-only',
+    catalog: { catalog: codexOnlyCatalog, failed: false, retry: vi.fn() },
+    remember: rememberCodex, chooseModel: vi.fn(),
+  }} />)); await flush();
+  await click('References'); await flush();
+  const codexDialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+  await act(async () => codexDialog.querySelector<HTMLButtonElement>('[aria-label="Picture BIG"]')!.click());
+  await click('Use selected version');
+  expect(rememberCodex.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['BIG']);
 });

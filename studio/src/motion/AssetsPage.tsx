@@ -34,12 +34,14 @@ import { resolveAudioModelLabel, resolveSavedVoiceName } from './soundPresets';
 import { classifyAudioTrackTab } from './soundTabs';
 import { formatDuration } from '../components/sidebar/assetHelpers';
 import { attachableReferenceLimit, creationModels } from './creationModels';
-import { imageModelLabel } from './imageMenuModels';
+import { isFeatureScene } from './creativeStudios';
+import { isSupportedReferenceMime, OPEN_DESIGN_MAX_REFERENCE_BYTES, prepareReferenceImage, ReferenceImageError } from './compressReferenceImage';
+import { imageModelLabel, isOpenDesignProvider } from './imageMenuModels';
 import { AssetGalleryToolbar } from './AssetGalleryToolbar';
 import './assets.css';
 export function AssetsPage({ active, hasProject = false, studio, routeId, routeVersion, onAssetRoute }: { routeId?: string | null; routeVersion?: string | null; onAssetRoute?: (id: string | null, version: string | null) => void; active: boolean; hasProject?: boolean; studio?: StudioCreation }) {
   const { t } = useI18n(), toast = useToast();
-  const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
+  const [kind, setKind] = useState<AssetKind>(studio?.destination.scene.modality ?? 'all'), [revision, setRevision] = useState(0), [creating, setCreating] = useState(Boolean(studio) && !studio?.openCreate), [picking, setPicking] = useState(false), [pickerMulti, setPickerMulti] = useState(false), [uploading, setUploading] = useState(false), [selected, setSelected] = useState<LibraryAsset>(), [versionId, setVersionId] = useState(''), [jobs, setJobs] = useState<GenerationJob[]>([]), [sessionJobIds, setSessionJobIds] = useState<string[]>([]), [dismissedJobIds, setDismissedJobIds] = useState<Set<string>>(() => new Set());
   const [draft, setDraft] = useState<AssetDraft>(() => studio?.initialDraft ?? { modality: studio?.destination.scene.modality ?? 'image', prompt: '', references: [] });
   const [draftKeyState, setDraftKeyState] = useState(studio?.draftKey);
   if (studio?.draftKey && studio.draftKey !== draftKeyState) {
@@ -91,7 +93,10 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     return [chat, ...current.filter(item => item.id !== chat.id)];
   }), []);
   const referenceUpload = useRef<HTMLInputElement>(null), upload = useRef<HTMLInputElement>(null), replace = useRef<HTMLInputElement>(null), knownJobs = useRef<GenerationJob[]>([]);
-  const refresh = useCallback(() => setRevision(v => v + 1), []), onError = useCallback((message: string) => toast.showToast(message), [toast.showToast]);
+  const mountedRef = useRef(true);
+  const uploadingRef = useRef(false);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+  const refresh = useCallback(() => setRevision(v => v + 1), []), onError = useCallback((message: string) => toast.showToast(message), [toast.showToast]), onInfo = useCallback((message: string) => toast.showToast(message, 'info'), [toast.showToast]);
   const missingVersion = t('Asset version unavailable');
   const clearPreview = useCallback(() => {
     selectionRequest.current++; assetReadRequest.current++; selectedAsset.current = undefined;
@@ -172,14 +177,19 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     }).catch(error => { if (!cancelled && request === assetReadRequest.current) onError(error.message); });
     return () => { cancelled = true; };
   }, [active, selected?.id, revision, onError, closePreview, refresh]);
-  const importFiles = async (files: File[], newVersion = false, entry: 'library_button' | 'library_drop' | 'library_new_version' = newVersion ? 'library_new_version' : 'library_button', onImported?: (asset: LibraryAsset) => void) => {
+  const importFiles = async (files: File[], newVersion = false, entry: 'library_button' | 'library_drop' | 'library_new_version' | 'other' = newVersion ? 'library_new_version' : 'library_button', onImported?: (asset: LibraryAsset) => void, shouldContinue?: () => boolean) => {
     const targetId = newVersion ? selected?.id : undefined, parentVersionId = newVersion ? versionId : undefined, request = selectionRequest.current;
     if (newVersion && !targetId) return;
-    if (uploading || !files.length) return; setUploading(true);
+    if (uploadingRef.current || !files.length) return;
+    uploadingRef.current = true;
+    setUploading(true);
     const summary: AssetUploadSummary = { uploaded: 0, failed: 0, unknown: 0, reasons: new Set() };
+    let attempted = 0;
     try {
       for (const file of files) {
-        try { const asset = await uploadLibraryAsset(file, { assetId: targetId, parentVersionId }); summary.uploaded++; if (request === selectionRequest.current) onImported?.(asset); if (newVersion && request === selectionRequest.current && selectedAsset.current?.id === targetId) open(asset); }
+        if (!mountedRef.current || (shouldContinue && !shouldContinue())) break;
+        attempted++;
+        try { const asset = await uploadLibraryAsset(file, { assetId: targetId, parentVersionId }); summary.uploaded++; if (mountedRef.current && request === selectionRequest.current) onImported?.(asset); if (newVersion && mountedRef.current && request === selectionRequest.current && selectedAsset.current?.id === targetId) open(asset); }
         catch (error) {
           if (error instanceof AssetUploadError && error.outcome === 'rejected') {
             summary.failed++; if (error.reason) summary.reasons.add(error.reason);
@@ -190,10 +200,16 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
           } else summary.unknown++;
         }
       }
+      if (!mountedRef.current) return;
       if (summary.uploaded || summary.unknown) refresh();
-      toast.showToast(assetUploadMessage(summary), summary.failed || summary.unknown ? 'error' : 'info');
-      tracking.reportLibraryImport(entry, files.length, summary.uploaded);
-    } finally { setUploading(false); }
+      if (attempted > 0 && (!shouldContinue || shouldContinue())) {
+        toast.showToast(assetUploadMessage(summary), summary.failed || summary.unknown ? 'error' : 'info');
+      }
+      if (attempted > 0) tracking.reportLibraryImport(entry, attempted, summary.uploaded);
+    } finally {
+      uploadingRef.current = false;
+      if (mountedRef.current) setUploading(false);
+    }
   };
   const persistUpdate = async (assetId: string, changes: Record<string, unknown>) => {
     if (pendingWrites.current.has(assetId)) throw new Error(t('This asset is being updated. Try again in a moment.'));
@@ -368,12 +384,132 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       />
     ))
     : undefined;
-  const studioModels = studioForm ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, false, draft.references.length, draft.preferredModel) : undefined;
+  const studioModels = studioForm ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, isFeatureScene(studioForm.destination.scene), draft.references.length, draft.preferredModel) : undefined;
   const studioAttachableReferences = studioForm && studioModels ? attachableReferenceLimit(studioModels, studioForm.destination.scene) : Infinity;
+  const enforceOpenDesignLimits = Boolean(
+    studioForm && (
+      isFeatureScene(studioForm.destination.scene)
+      || (studioModels?.selected ? isOpenDesignProvider(studioModels.selected.provider) : (!studioForm.catalog.catalog && studioForm.destination.scene.modality === 'image'))
+    ),
+  );
+  const attachedReferenceVersionKeys = useMemo(
+    () => new Set(draft.references.map(item => `${item.reference.assetId}/${item.reference.versionId}`)),
+    [draft.references],
+  );
+  const validateLibraryReference = (asset: LibraryAsset, chosenVersionId: string): string | undefined => {
+    const itemVersion = assetVersion(asset, chosenVersionId);
+    if (!itemVersion) return undefined;
+    if (!isSupportedReferenceMime(itemVersion.mimeType, itemVersion.filename)) {
+      return t('OpenDesign does not accept this reference image format.');
+    }
+    if (enforceOpenDesignLimits && typeof itemVersion.bytes === 'number' && itemVersion.bytes > OPEN_DESIGN_MAX_REFERENCE_BYTES) {
+      return t('The reference image is larger than the 2 MiB OpenDesign upload limit.');
+    }
+    return undefined;
+  };
   const draftContextRef = useRef({ draftKey: draftKeyState, taskEpoch, sceneId: studioForm?.destination.scene.id, attachLimit: studioAttachableReferences, references: draft.references });
   useLayoutEffect(() => {
     draftContextRef.current = { draftKey: draftKeyState, taskEpoch, sceneId: studioForm?.destination.scene.id, attachLimit: studioAttachableReferences, references: draft.references };
   }, [draftKeyState, taskEpoch, studioForm?.destination.scene.id, studioAttachableReferences, draft.references]);
+  const uploadingReferences = uploading;
+  const uploadReferenceFiles = async (picked: File[], entry: 'library_button' | 'library_drop' | 'other' = 'library_button') => {
+    if (!picked.length || !studioForm) return;
+    if (uploadingRef.current) { onInfo(t('Uploading…')); return; }
+    const imageFiles = picked.filter(file => !file.type || file.type.startsWith('image/'));
+    if (!imageFiles.length) { onError(t('Choose an image file.')); return; }
+    const live = draftContextRef.current;
+    if (live.references.length >= live.attachLimit) { onError(t('Reference limit reached.')); return; }
+    const skippedNonImage = imageFiles.length < picked.length;
+    const uploadDraftKey = live.draftKey;
+    const uploadEpoch = live.taskEpoch;
+    const uploadSceneId = live.sceneId;
+    const request = selectionRequest.current;
+    const preserveAlpha = studioForm.destination.scene.id === 'remove-background';
+    const maxBytes = enforceOpenDesignLimits ? OPEN_DESIGN_MAX_REFERENCE_BYTES : Infinity;
+    const shouldContinue = () => mountedRef.current
+      && draftContextRef.current.draftKey === uploadDraftKey
+      && draftContextRef.current.taskEpoch === uploadEpoch
+      && draftContextRef.current.sceneId === uploadSceneId;
+    const attachedInBatch = new Set<string>();
+    const currentEffectiveCount = () => {
+      const ctx = draftContextRef.current;
+      const liveKeys = new Set(ctx.references.map(existing => `${existing.reference.assetId}/${existing.reference.versionId}`));
+      let pendingDistinct = 0;
+      for (const key of attachedInBatch) if (!liveKeys.has(key)) pendingDistinct++;
+      return { count: liveKeys.size + pendingDistinct, liveKeys, attachLimit: ctx.attachLimit };
+    };
+    uploadingRef.current = true;
+    setUploading(true);
+    const summary: AssetUploadSummary = { uploaded: 0, failed: 0, unknown: 0, reasons: new Set() };
+    let attempted = 0;
+    let tooLargeCount = 0;
+    let unsupportedCount = 0;
+    let truncated = false;
+    let hitLimit = false;
+    try {
+      for (const file of imageFiles) {
+        if (!shouldContinue()) break;
+        const beforePrepare = currentEffectiveCount();
+        if (beforePrepare.count >= beforePrepare.attachLimit) { truncated = true; break; }
+        let ready: File;
+        try {
+          ({ file: ready } = await prepareReferenceImage(file, { maxBytes, preserveAlpha }));
+        } catch (error) {
+          if (error instanceof ReferenceImageError && error.code === 'too-large') tooLargeCount++;
+          else unsupportedCount++;
+          continue;
+        }
+        if (!shouldContinue()) break;
+        const beforeUpload = currentEffectiveCount();
+        if (beforeUpload.count >= beforeUpload.attachLimit) { truncated = true; break; }
+        attempted++;
+        try {
+          const asset = await uploadLibraryAsset(ready);
+          summary.uploaded++;
+          if (!mountedRef.current || request !== selectionRequest.current || !shouldContinue()) continue;
+          if (asset.modality !== 'image') { onError(t('Choose an image file.')); continue; }
+          const afterUpload = currentEffectiveCount();
+          const item = { reference: { assetId: asset.id, versionId: asset.currentVersionId }, name: asset.name };
+          const itemKey = `${asset.id}/${asset.currentVersionId}`;
+          const alreadyPresent = afterUpload.liveKeys.has(itemKey) || attachedInBatch.has(itemKey);
+          if (!alreadyPresent) {
+            if (afterUpload.count >= afterUpload.attachLimit) { hitLimit = true; continue; }
+            attachedInBatch.add(itemKey);
+          }
+          setDraft(current => {
+            if (current.references.some(existing => existing.reference.assetId === item.reference.assetId && existing.reference.versionId === item.reference.versionId)) return current;
+            if (current.references.length >= draftContextRef.current.attachLimit) return current;
+            return { ...current, references: [...current.references, item] };
+          });
+        } catch (error) {
+          if (error instanceof AssetUploadError && error.outcome === 'rejected') {
+            summary.failed++; if (error.reason) summary.reasons.add(error.reason);
+            if (error.reason === 'unsupported' || error.reason === 'unreadable') summary.imageFormatHelp = true;
+          } else summary.unknown++;
+        }
+      }
+      if (!mountedRef.current) return;
+      if (summary.uploaded || summary.unknown) refresh();
+      if (attempted > 0 && shouldContinue()) {
+        toast.showToast(assetUploadMessage(summary), summary.failed || summary.unknown ? 'error' : 'info');
+      }
+      if (attempted > 0) tracking.reportLibraryImport(entry, attempted, summary.uploaded);
+      if (!shouldContinue()) return;
+      if (tooLargeCount > 0) onError(t('The reference image is larger than the 2 MiB OpenDesign upload limit.'));
+      if (unsupportedCount > 0) onError(t('OpenDesign does not accept this reference image format.'));
+      if (skippedNonImage) onError(t('Choose an image file.'));
+      if (truncated || hitLimit) toast.showToast(t('Reference limit reached.'), 'info');
+    } finally {
+      uploadingRef.current = false;
+      if (mountedRef.current) setUploading(false);
+    }
+  };
+  const openReferencePicker = () => {
+    tracking.reportAssetsClick('asset_create', 'add_reference', { task_mode: mode });
+    const remainingSlots = studioForm ? Math.max(0, studioAttachableReferences - draft.references.length) : Infinity;
+    setPickerMulti(Boolean(studioForm && mode === 'direct' && studioAttachableReferences > 1 && remainingSlots > 1));
+    setPicking(true);
+  };
   const attachReference = (item: AssetDraft['references'][number]) => {
     if (draft.references.some(existing => existing.reference.assetId === item.reference.assetId && existing.reference.versionId === item.reference.versionId)) {
       setMobileView('create');
@@ -398,7 +534,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const composer = <AssetComposer studio={studioForm} key={taskEpoch} active={active} draft={draft} setDraft={setDraft} agentReferences={agentReferences} setAgentReferences={setAgentReferences} jobs={jobs} showCurrentJob={mediaGenerations ? false : !showLibraryPlaceholders} mode={mode} onMode={next => { if (next !== mode) tracking.reportAssetsClick('asset_create', 'mode_switch', { task_mode: next }); setMode(next); }} taskIds={taskIds} history={history} selectingTask={selectingTask}
     onNew={() => startDraft(mode === 'agent' ? draft : { modality: draft.modality, prompt: '', references: [] }, mode)} onChatChanged={chatChanged}
     onChatStarted={id => setTaskIds(current => ({ ...current, agent: id }))}
-    onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} onUploadReference={studioForm && !uploading ? () => referenceUpload.current?.click() : undefined} onReference={() => { tracking.reportAssetsClick('asset_create', 'add_reference', { task_mode: mode }); setPicking(true); }} onCreated={job => {
+    onCancel={cancelJob} onRetrySave={retrySave} onResume={resumeJob} onView={viewJob} uploadingReferences={uploadingReferences} onUploadReference={studioForm ? () => referenceUpload.current?.click() : undefined} onUploadFiles={studioForm ? (files, source) => { void uploadReferenceFiles(files, source === 'paste' ? 'other' : 'library_drop'); } : undefined} onReference={openReferencePicker} onCreated={job => {
       knownJobs.current = mergeAssetJobs(knownJobs.current, [job]); setJobs(knownJobs.current); setTaskIds(current => ({ ...current, direct: job.id }));
       setSessionJobIds(prev => prev.includes(job.id) ? prev : [...prev, job.id]);
       setDismissedJobIds(prev => { if (!prev.has(job.id)) return prev; const next = new Set(prev); next.delete(job.id); return next; });
@@ -409,7 +545,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       if (browser.page > 0) browser.setPage(0);
       if (gallery.current) gallery.current.scrollTo({ top: 0, behavior: 'smooth' });
       refresh(); toast.showToast(t(studio ? 'Added to Generations' : 'Generation started. Track it in Tasks.'), 'info');
-    }} onError={onError} onClose={() => { selectionRequest.current++; setSelectingTask(false); setCreating(false); }} />;
+    }} onError={onError} onInfo={onInfo} onClose={() => { selectionRequest.current++; setSelectingTask(false); setCreating(false); }} />;
   const soundWorkbench = studio?.destination.scene.modality === 'audio' && !audioStudio;
   const libraryToolbar = <AssetGalleryToolbar browser={browser} games={gamesView} onGames={() => { setGamesView(true); if (kind === 'trash') setKind('all'); }} onKindChange={next => {
     if (next !== kind || gamesView) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next });
@@ -524,56 +660,70 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     <input ref={upload} type="file" multiple accept={studio ? studio.destination.scene.modality + '/*' : 'image/*,video/*,audio/*'} hidden onChange={e => { void importFiles(Array.from(e.target.files ?? [])); e.target.value = ''; }} />
     <input ref={referenceUpload} data-reference-upload="true" type="file" multiple={studioAttachableReferences > 1} accept="image/*" hidden onChange={event => {
       const picked = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = '';
-      if (!picked.length || !studioForm) return;
-      const imageFiles = picked.filter(file => !file.type || file.type.startsWith('image/'));
-      if (!imageFiles.length) { onError(t('Choose an image file.')); return; }
-      const remaining = Math.max(0, studioAttachableReferences - draft.references.length);
-      if (remaining === 0) { onError(t('Reference limit reached.')); return; }
-      const filesToImport = imageFiles.slice(0, remaining);
-      const skippedNonImage = imageFiles.length < picked.length;
-      const truncated = imageFiles.length > remaining;
-      const uploadDraftKey = draftKeyState;
-      const uploadEpoch = taskEpoch;
-      const uploadSceneId = studioForm.destination.scene.id;
-      const attachedInBatch = new Set<string>();
-      let hitLimit = false;
-      void importFiles(filesToImport, false, 'library_button', asset => {
-        if (asset.modality !== 'image') { onError(t('Choose an image file.')); return; }
-        const ctx = draftContextRef.current;
-        if (ctx.draftKey !== uploadDraftKey || ctx.taskEpoch !== uploadEpoch || ctx.sceneId !== uploadSceneId) return;
-        const item = { reference: { assetId: asset.id, versionId: asset.currentVersionId }, name: asset.name };
-        const itemKey = `${asset.id}/${asset.currentVersionId}`;
-        const liveKeys = new Set(ctx.references.map(existing => `${existing.reference.assetId}/${existing.reference.versionId}`));
-        const alreadyPresent = liveKeys.has(itemKey) || attachedInBatch.has(itemKey);
-        if (!alreadyPresent) {
-          let pendingDistinct = 0;
-          for (const key of attachedInBatch) if (!liveKeys.has(key)) pendingDistinct++;
-          if (liveKeys.size + pendingDistinct >= ctx.attachLimit) { hitLimit = true; return; }
-          attachedInBatch.add(itemKey);
-        }
-        setDraft(current => {
-          if (current.references.some(existing => existing.reference.assetId === item.reference.assetId && existing.reference.versionId === item.reference.versionId)) return current;
-          if (current.references.length >= draftContextRef.current.attachLimit) return current;
-          return { ...current, references: [...current.references, item] };
-        });
-      }).then(() => {
-        if (skippedNonImage) onError(t('Choose an image file.'));
-        if (truncated || hitLimit) toast.showToast(t('Reference limit reached.'), 'info');
-      });
+      void uploadReferenceFiles(picked, 'library_button');
     }} />
     <input ref={replace} type="file" accept={`${selected?.modality ?? 'image'}/*`} hidden onChange={e => { void importFiles(Array.from(e.target.files ?? []), true); e.target.value = ''; }} />
-    {active && picking && <AssetPicker imageOnly={mode === 'direct' || Boolean(studioForm)} revision={revision} onClose={() => setPicking(false)} onPick={(reference, asset) => {
-      if (mode === 'agent') {
-        const references = [...agentReferences.filter(r => r.reference.assetId !== reference.assetId || r.reference.versionId !== reference.versionId), { reference, name: asset.name }];
-        setAgentReferences(references); setPicking(false); return;
-      }
-      const alreadyAttached = draft.references.some(r => r.reference.assetId === reference.assetId && r.reference.versionId === reference.versionId);
-      if (studioForm && !alreadyAttached && draft.references.length >= studioAttachableReferences) {
-        onError(t('Reference limit reached.')); setPicking(false); return;
-      }
-      const references = [...draft.references.filter(r => r.reference.assetId !== reference.assetId || r.reference.versionId !== reference.versionId), { reference, name: asset.name }];
-      setDraft({ ...draft, references }); setPicking(false);
-    }} />}
+    {active && picking && (() => {
+      const remainingSlots = studioForm ? Math.max(0, studioAttachableReferences - draft.references.length) : Infinity;
+      const multiPickReferences = Boolean(pickerMulti && studioForm && mode === 'direct');
+      return <AssetPicker
+        imageOnly={mode === 'direct' || Boolean(studioForm)}
+        multiple={multiPickReferences}
+        maxSelect={multiPickReferences ? remainingSlots : undefined}
+        attachedVersionKeys={studioForm && mode === 'direct' ? attachedReferenceVersionKeys : undefined}
+        multiConfirmLabel={multiPickReferences ? 'Use selected ({count})' : undefined}
+        revision={revision}
+        onClose={() => setPicking(false)}
+        onPickMany={multiPickReferences ? items => {
+          const live = draftContextRef.current;
+          const existingKeys = new Set(live.references.map(r => `${r.reference.assetId}/${r.reference.versionId}`));
+          const additions: AssetDraft['references'] = [];
+          const validationErrors = new Set<string>();
+          let hitLimit = false;
+          for (const { reference, asset } of items) {
+            const key = `${reference.assetId}/${reference.versionId}`;
+            if (existingKeys.has(key)) continue;
+            const invalidReason = validateLibraryReference(asset, reference.versionId);
+            if (invalidReason) { validationErrors.add(invalidReason); continue; }
+            if (existingKeys.size >= live.attachLimit) { hitLimit = true; break; }
+            existingKeys.add(key);
+            additions.push({ reference, name: asset.name });
+          }
+          if (additions.length) {
+            setDraft(current => {
+              const seen = new Set(current.references.map(r => `${r.reference.assetId}/${r.reference.versionId}`));
+              const next = [...current.references];
+              for (const item of additions) {
+                const key = `${item.reference.assetId}/${item.reference.versionId}`;
+                if (seen.has(key) || next.length >= draftContextRef.current.attachLimit) continue;
+                seen.add(key);
+                next.push(item);
+              }
+              return { ...current, references: next };
+            });
+          }
+          setPicking(false);
+          for (const message of validationErrors) onError(message);
+          if (hitLimit) toast.showToast(t('Reference limit reached.'), 'info');
+        } : undefined}
+        onPick={(reference, asset) => {
+          if (mode === 'agent') {
+            const references = [...agentReferences.filter(r => r.reference.assetId !== reference.assetId || r.reference.versionId !== reference.versionId), { reference, name: asset.name }];
+            setAgentReferences(references); setPicking(false); return;
+          }
+          const alreadyAttached = draft.references.some(r => r.reference.assetId === reference.assetId && r.reference.versionId === reference.versionId);
+          if (studioForm && !alreadyAttached) {
+            const invalidReason = validateLibraryReference(asset, reference.versionId);
+            if (invalidReason) { onError(invalidReason); setPicking(false); return; }
+          }
+          if (studioForm && !alreadyAttached && draft.references.length >= studioAttachableReferences) {
+            onError(t('Reference limit reached.')); setPicking(false); return;
+          }
+          const references = [...draft.references.filter(r => r.reference.assetId !== reference.assetId || r.reference.versionId !== reference.versionId), { reference, name: asset.name }];
+          setDraft({ ...draft, references }); setPicking(false);
+        }}
+      />;
+    })()}
     <StudioToastViewport {...toast} />
   </div>;
 }
