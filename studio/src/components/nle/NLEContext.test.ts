@@ -2,7 +2,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { shouldDisableTimelineWhileCompositionLoading, NLEProvider } from "./NLEContext";
+import { shouldDisableTimelineWhileCompositionLoading, NLEProvider, useNLEContext } from "./NLEContext";
 import { useAssetPreviewStore } from "../../utils/assetPreviewStore";
 import { installReactActEnvironment } from "../../hooks/domSelectionTestHarness";
 import { isPreviewChanging, requestPreviewReload } from "../../player/previewReloading";
@@ -164,6 +164,70 @@ describe("NLEProvider — a requested reload", () => {
 
     await renderNleProvider(root, { projectId: "p", refreshKey: 1 });
     expect(isPreviewChanging()).toBe(false);
+
+    act(() => root.unmount());
+    host.remove();
+  });
+});
+
+describe("NLEProvider — composition switch loading lifecycle", () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("no network in tests"))),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("never strands compositionLoading=true when hydrating master or returning from a sub-composition", async () => {
+    let latestCtx!: ReturnType<typeof useNLEContext>;
+    function Probe() {
+      latestCtx = useNLEContext();
+      return null;
+    }
+
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (activeCompositionPath: string | null) =>
+      act(async () => {
+        root.render(
+          React.createElement(
+            NLEProvider,
+            { projectId: "proj-1", activeCompositionPath },
+            React.createElement(Probe),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+    // Initial load settles before activeCompositionPath hydrates from null -> "index.html".
+    await render(null);
+    act(() => latestCtx.setCompositionLoading(false));
+    expect(latestCtx.compositionLoading).toBe(false);
+
+    await render("index.html");
+    expect(latestCtx.compositionLoading).toBe(false);
+    expect(latestCtx.timelineDisabled).toBe(false);
+
+    // Drill into sub-composition: hasLoadedOnceRef resets so Player can report loading, then clears.
+    await render("compositions/glean-film.html");
+    expect(latestCtx.hasLoadedOnceRef.current).toBe(false);
+    act(() => latestCtx.setCompositionLoading(true));
+    expect(latestCtx.compositionLoading).toBe(true);
+    act(() => latestCtx.setCompositionLoading(false));
+    expect(latestCtx.compositionLoading).toBe(false);
+
+    // Return to master via null then "index.html": never strands timelineDisabled=true.
+    await render(null);
+    expect(latestCtx.compositionLoading).toBe(false);
+    expect(latestCtx.timelineDisabled).toBe(false);
+    await render("index.html");
+    expect(latestCtx.compositionLoading).toBe(false);
+    expect(latestCtx.timelineDisabled).toBe(false);
 
     act(() => root.unmount());
     host.remove();

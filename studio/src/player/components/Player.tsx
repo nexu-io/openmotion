@@ -13,6 +13,8 @@ import { applyPreviewVariablesToUrl } from "../../hooks/previewVariablesStore";
 import { HyperframesLoader } from "../../components/ui";
 import { brandPlayerLoading } from "../../components/ui/openDesignLoading";
 import { usePlayerStore } from "../store/playerStore";
+import { registerRetryFailedAssetsHandler } from "../store/readinessSlice";
+import { trackDocumentAssetReadiness } from "../lib/previewAssetReadiness";
 import { announcePreviewDocumentLoaded } from "../sceneSwap";
 import type { IframeWindow } from "../lib/playbackTypes";
 // Importing "@hyperframes/player" registers a class extending HTMLElement at
@@ -51,6 +53,8 @@ export interface PlayerProps {
   noLoadTimeout?: boolean;
   /** Show the live preview’s loading indicator until its first displayable frame. */
   showInitialLoading?: boolean;
+  /** Track all referenced composition assets for the unified editor readiness gate (live slot only). */
+  trackAssets?: boolean;
 }
 
 interface HyperframesPlayerElement extends HTMLElement {
@@ -189,6 +193,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       suppressLoadingOverlay,
       noLoadTimeout,
       showInitialLoading,
+      trackAssets,
       ...host
     },
     ref,
@@ -211,8 +216,11 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
     onReadyToShowChangeRef.current = onReadyToShowChange;
     const onPaintedRef = useRef(onPainted);
     onPaintedRef.current = onPainted;
-    // A shadow promoted in place already has a frame and never needs an initial cover.
+    // A shadow promoted in place already has a frame and never needs an initial cover or asset gate.
     const startsWithLoading = useRef(showInitialLoading === true).current;
+    const tracksAssets = useRef(trackAssets === true).current;
+    const assetReadinessGenRef = useRef(usePlayerStore.getState().assetReadinessGeneration);
+    const [assetScanTick, setAssetScanTick] = useState(0);
     const [awaitingFirstFrame, setAwaitingFirstFrame] = useState(startsWithLoading);
     const awaitingFrameRef = useRef(awaitingFirstFrame);
     awaitingFrameRef.current = awaitingFirstFrame;
@@ -251,6 +259,10 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         directUrl || (projectId ? buildProjectApiPath(projectId, "/preview") : null);
       if (!previewSource) return;
 
+      if (tracksAssets) {
+        assetReadinessGenRef.current = usePlayerStore.getState().beginAssetReadinessLoad();
+      }
+
       let canceled = false;
       let cleanup: (() => void) | undefined;
 
@@ -267,6 +279,9 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
           const retryUrl = new URL(src, window.location.origin);
           retryUrl.searchParams.set("_hfStudioRetry", String(retryCountRef.current));
           setPreviewError(null);
+          if (tracksAssets) {
+            assetReadinessGenRef.current = usePlayerStore.getState().beginAssetReadinessLoad();
+          }
           setCompositionLoading(true);
           loadStartedAtRef.current = performance.now();
           loadIdRef.current += 1;
@@ -304,6 +319,14 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
           onPreviewErrorRef.current?.(message);
           setPreviewError(message);
           setCompositionLoading(false);
+          if (tracksAssets) {
+            const store = usePlayerStore.getState();
+            store.setPreviewLoadError(true);
+            store.updateAssetReadiness(
+              { status: "ready", completed: 0, total: 0, failed: [] },
+              assetReadinessGenRef.current,
+            );
+          }
         };
         const handleLoad = () => {
           const doc = iframe.contentDocument;
@@ -311,6 +334,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
           loadedDocument = doc;
           loadCountRef.current++;
           setLoaded(true);
+          setAssetScanTick((tick) => tick + 1);
           setPreviewError(null);
           setShaderTransitionLoading(false);
           setCompositionLoading(!player.ready);
@@ -449,6 +473,14 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         if (canceled) return;
         setPreviewError(PLAYER_MODULE_ERROR);
         setCompositionLoading(false);
+        if (tracksAssets) {
+          const store = usePlayerStore.getState();
+          store.setPreviewLoadError(true);
+          store.updateAssetReadiness(
+            { status: "ready", completed: 0, total: 0, failed: [] },
+            assetReadinessGenRef.current,
+          );
+        }
         onPreviewErrorRef.current?.(PLAYER_MODULE_ERROR);
       });
 
@@ -537,6 +569,33 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
     useEffect(() => {
       if (previewError) usePlayerStore.getState().markPreviewBooted();
     }, [previewError]);
+
+    // Track every referenced asset in the live composition document once the
+    // runtime has booted so Studio unlocks only after composition media settles.
+    useEffect(() => {
+      if (!tracksAssets || previewError || !loaded || compositionLoading) return;
+      const iframe = playerRef.current?.iframeElement;
+      const doc = iframe?.contentDocument;
+      if (!doc) return;
+      const isInitialBlank =
+        doc.URL === "about:blank" &&
+        (doc.body?.childElementCount ?? 0) === 0 &&
+        !runtimeBootedIn(iframe);
+      if (isInitialBlank) return;
+      const generation = assetReadinessGenRef.current;
+      const tracker = trackDocumentAssetReadiness(
+        doc,
+        iframe.contentWindow,
+        (progress) => {
+          usePlayerStore.getState().updateAssetReadiness(progress, generation);
+        },
+      );
+      registerRetryFailedAssetsHandler(generation, () => tracker.retryFailed());
+      return () => {
+        registerRetryFailedAssetsHandler(generation, null);
+        tracker.dispose();
+      };
+    }, [tracksAssets, previewError, loaded, compositionLoading, assetScanTick]);
 
     useEffect(() => {
       const timer = setTimeout(

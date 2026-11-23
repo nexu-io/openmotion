@@ -149,7 +149,7 @@ export function usePlaybackKeyboard({
 
   const handlePlaybackKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.defaultPrevented || ignoresPlaybackKey(e)) return;
+      if (e.defaultPrevented || usePlayerStore.getState().editorInputLocked || ignoresPlaybackKey(e)) return;
       const action = playbackActionOf(e);
       if (action === "pause") heldPauseRef.current.add(e.code || e.key);
       if (!action) return;

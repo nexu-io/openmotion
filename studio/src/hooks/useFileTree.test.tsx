@@ -358,3 +358,70 @@ it('lets a verified import finish while a background refresh is still pending', 
     expect(handle.current?.compositions).toEqual(['index.html', 'new.html']);
   } finally { fetchSpy.mockRestore(); }
 });
+
+it('serves previously loaded project trees immediately via stale-while-revalidate when switching back', async () => {
+  const responses: Record<string, { files: string[]; compositions: string[] }> = {
+    'proj-swr-a': { files: ['index.html', 'compositions/a.html'], compositions: ['index.html', 'compositions/a.html'] },
+    'proj-swr-b': { files: ['index.html'], compositions: ['index.html'] },
+  };
+  let deferReturnA: ((res: Response) => void) | null = null;
+  let callsA = 0;
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
+    const id = String(url).split('/').pop()!;
+    if (id === 'proj-swr-a') {
+      callsA += 1;
+      if (callsA === 2) {
+        return new Promise<Response>((resolve) => {
+          deferReturnA = resolve;
+        });
+      }
+    }
+    return Promise.resolve(Response.json(responses[id] ?? { files: [], compositions: [] }));
+  });
+  let latestLoaded = false;
+  let latestComps: string[] = [];
+  function SwrHarness({ projectId }: { projectId: string }) {
+    const projectIdRef = useRef(projectId);
+    projectIdRef.current = projectId;
+    const tree = useFileTree({ projectId, projectIdRef });
+    latestLoaded = tree.fileTreeLoaded;
+    latestComps = tree.compositions;
+    return null;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  try {
+    await act(async () => {
+      root!.render(<SwrHarness projectId="proj-swr-a" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latestLoaded).toBe(true);
+    expect(latestComps).toEqual(['index.html', 'compositions/a.html']);
+
+    await act(async () => {
+      root!.render(<SwrHarness projectId="proj-swr-b" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latestComps).toEqual(['index.html']);
+
+    // Switch back to proj-swr-a while its background refresh is still pending:
+    // fileTreeLoaded and compositions are immediately available from the SWR cache.
+    act(() => {
+      root!.render(<SwrHarness projectId="proj-swr-a" />);
+    });
+    expect(latestLoaded).toBe(true);
+    expect(latestComps).toEqual(['index.html', 'compositions/a.html']);
+
+    await act(async () => {
+      deferReturnA?.(Response.json({ files: ['index.html', 'compositions/a.html', 'compositions/a2.html'], compositions: ['index.html', 'compositions/a.html', 'compositions/a2.html'] }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latestComps).toEqual(['index.html', 'compositions/a.html', 'compositions/a2.html']);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});

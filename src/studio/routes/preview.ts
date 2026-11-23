@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import {
   extractWildcardPath,
@@ -114,6 +117,24 @@ function documentSignature(revision: string, assetBase?: string): string {
   return assetBase ? `${revision}:${createHash('sha256').update(assetBase).digest('hex').slice(0, 16)}` : revision;
 }
 
+export const SNAPDOM_VENDOR_PATH = '/api/vendor/snapdom.js';
+
+let cachedSnapdomBundle: Promise<Buffer | null> | null = null;
+function loadSnapdomVendorBundle(): Promise<Buffer | null> {
+  if (!cachedSnapdomBundle) {
+    cachedSnapdomBundle = (async () => {
+      try {
+        const req = createRequire(import.meta.url);
+        const pkgDir = path.dirname(req.resolve('@zumer/snapdom/package.json'));
+        return await readFile(path.join(pkgDir, 'dist', 'snapdom.js'));
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return cachedSnapdomBundle;
+}
+
 export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
 
@@ -127,6 +148,15 @@ export function createStudioPreviewRoutes(deps: DisklessStudioDeps): Hono<{ Vari
     c.header('Cache-Control', exactBuild ? 'public, max-age=31536000, immutable' : 'no-store');
     c.header('Content-Type', 'application/javascript; charset=utf-8');
     return c.body(PREVIEW_BRIDGE_SCRIPT);
+  });
+
+  app.get(SNAPDOM_VENDOR_PATH, async c => {
+    const bundle = await loadSnapdomVendorBundle();
+    if (!bundle) return c.text('SnapDOM bundle unavailable', 404);
+    c.header('Cache-Control', 'public, max-age=31536000, immutable');
+    c.header('Content-Type', 'application/javascript; charset=utf-8');
+    c.header('X-Content-Type-Options', 'nosniff');
+    return c.body(new Uint8Array(bundle));
   });
 
   async function documentResponse(c: Context<{ Variables: StudioVariables }>, compPath?: string) {

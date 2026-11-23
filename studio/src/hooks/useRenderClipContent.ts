@@ -181,6 +181,7 @@ export function useRenderClipContent({
 
           seekTime: resolveThumbnailSeekTime(el.duration),
           duration: 0,
+          clipDuration: el.duration,
           projectId: pid,
           sessionEpoch,
           contentRevision: thumbnailRevisionOf(thumbnailRevisions, compSrc),

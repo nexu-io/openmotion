@@ -5,13 +5,15 @@ export function PreviewCompositionLoading() {
   const { t } = useI18n();
   return (
     <div
-      className="absolute inset-0 z-30 flex select-none items-center justify-center bg-black/80"
+      className="motion-preview-loading"
       data-hyperframes-ignore=""
       data-testid="composition-loading-overlay"
       onDragStart={(event) => event.preventDefault()}
       onPointerDown={(event) => event.preventDefault()}
     >
-      <HyperframesLoader title={t("Loading composition")} size={56} />
+      <div className="motion-preview-loading-card">
+        <HyperframesLoader title={t("Loading composition")} size={56} />
+      </div>
     </div>
   );
 }

@@ -233,7 +233,7 @@ export function useAppHotkeys({
 
   const handleAppKeyDown = useCallback((event: KeyboardEvent) => {
     const player = usePlayerStore.getState();
-    if (!projectId || player.timelineProjectId !== projectId || !player.timelineReady) return;
+    if (!projectId || player.timelineProjectId !== projectId || !player.timelineReady || player.editorInputLocked) return;
     const cb = cbRef.current;
     const key = event.key.toLowerCase();
     if (document.fullscreenElement?.matches('[data-studio-fullscreen-target]')) {

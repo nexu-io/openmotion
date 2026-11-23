@@ -1,0 +1,102 @@
+{
+  "zh-CN": {
+    "Preparing project assets": "正在准备项目素材",
+    "Editing and preview will unlock once assets finish loading.": "素材加载完成后即可开始编辑与预览",
+    "{completed} / {total} assets": "{completed} / {total} 项素材",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "当前网络较慢，可以先进入编辑，剩余素材将在后台继续加载。",
+    "Skip waiting, enter editor": "跳过等待，立即进入",
+    "{count} asset failed to load ({name})": "{count} 项素材加载失败（{name}）",
+    "{count} assets failed to load": "{count} 项素材加载失败",
+    "Assets reloaded": "素材已重新加载"
+  },
+  "ja": {
+    "Preparing project assets": "プロジェクト素材を準備中",
+    "Editing and preview will unlock once assets finish loading.": "素材の読み込みが完了すると編集とプレビューが利用可能になります。",
+    "{completed} / {total} assets": "{completed} / {total} 件の素材",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "読み込みに時間がかかっています。今すぐエディターに入り、残りの素材をバックグラウンドで読み込めます。",
+    "Skip waiting, enter editor": "待機をスキップして編集へ",
+    "{count} asset failed to load ({name})": "{count} 件の素材の読み込みに失敗しました（{name}）",
+    "{count} assets failed to load": "{count} 件の素材の読み込みに失敗しました",
+    "Assets reloaded": "素材を再読み込みしました"
+  },
+  "ko": {
+    "Preparing project assets": "프로젝트 에셋 준비 중",
+    "Editing and preview will unlock once assets finish loading.": "에셋 로딩이 완료되면 편집과 미리보기를 사용할 수 있습니다.",
+    "{completed} / {total} assets": "{completed} / {total}개 에셋",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "로딩이 예상보다 오래 걸립니다. 지금 편집기로 들어가고 나머지 에셋은 백그라운드에서 계속 불러올 수 있습니다.",
+    "Skip waiting, enter editor": "기다리지 않고 편집기로 이동",
+    "{count} asset failed to load ({name})": "에셋 {count}개를 불러오지 못했습니다 ({name})",
+    "{count} assets failed to load": "에셋 {count}개를 불러오지 못했습니다",
+    "Assets reloaded": "에셋을 다시 불러왔습니다"
+  },
+  "de": {
+    "Preparing project assets": "Projektmedien werden vorbereitet",
+    "Editing and preview will unlock once assets finish loading.": "Bearbeitung und Vorschau werden freigeschaltet, sobald alle Medien geladen sind.",
+    "{completed} / {total} assets": "{completed} / {total} Medien",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "Das Laden dauert länger als erwartet. Du kannst den Editor jetzt öffnen, während die restlichen Medien im Hintergrund geladen werden.",
+    "Skip waiting, enter editor": "Warten überspringen, Editor öffnen",
+    "{count} asset failed to load ({name})": "{count} Medium konnte nicht geladen werden ({name})",
+    "{count} assets failed to load": "{count} Medien konnten nicht geladen werden",
+    "Assets reloaded": "Medien neu geladen"
+  },
+  "fr": {
+    "Preparing project assets": "Préparation des médias du projet",
+    "Editing and preview will unlock once assets finish loading.": "L’édition et l’aperçu seront disponibles une fois les médias chargés.",
+    "{completed} / {total} assets": "{completed} / {total} médias",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "Le chargement prend plus de temps que prévu. Vous pouvez ouvrir l’éditeur maintenant pendant que les autres médias se chargent en arrière-plan.",
+    "Skip waiting, enter editor": "Ignorer l’attente, ouvrir l’éditeur",
+    "{count} asset failed to load ({name})": "Échec du chargement de {count} média ({name})",
+    "{count} assets failed to load": "Échec du chargement de {count} médias",
+    "Assets reloaded": "Médias rechargés"
+  },
+  "ru": {
+    "Preparing project assets": "Подготовка материалов проекта",
+    "Editing and preview will unlock once assets finish loading.": "Редактирование и предпросмотр откроются после загрузки всех материалов.",
+    "{completed} / {total} assets": "{completed} / {total} материалов",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "Загрузка занимает больше времени, чем обычно. Можно открыть редактор сейчас, а оставшиеся материалы загрузятся в фоне.",
+    "Skip waiting, enter editor": "Пропустить ожидание и открыть редактор",
+    "{count} asset failed to load ({name})": "Не удалось загрузить {count} материал ({name})",
+    "{count} assets failed to load": "Не удалось загрузить материалов: {count}",
+    "Assets reloaded": "Материалы перезагружены"
+  },
+  "es": {
+    "Preparing project assets": "Preparando los recursos del proyecto",
+    "Editing and preview will unlock once assets finish loading.": "La edición y la vista previa se activarán cuando terminen de cargarse los recursos.",
+    "{completed} / {total} assets": "{completed} / {total} recursos",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "La carga está tardando más de lo esperado. Puedes entrar al editor ahora mientras el resto de los recursos termina de cargarse en segundo plano.",
+    "Skip waiting, enter editor": "Omitir espera y entrar al editor",
+    "{count} asset failed to load ({name})": "No se pudo cargar {count} recurso ({name})",
+    "{count} assets failed to load": "No se pudieron cargar {count} recursos",
+    "Assets reloaded": "Recursos recargados"
+  },
+  "pt-BR": {
+    "Preparing project assets": "Preparando os recursos do projeto",
+    "Editing and preview will unlock once assets finish loading.": "A edição e a prévia serão liberadas assim que os recursos terminarem de carregar.",
+    "{completed} / {total} assets": "{completed} / {total} recursos",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "O carregamento está demorando mais que o esperado. Você pode entrar no editor agora enquanto o restante carrega em segundo plano.",
+    "Skip waiting, enter editor": "Pular espera e entrar no editor",
+    "{count} asset failed to load ({name})": "Falha ao carregar {count} recurso ({name})",
+    "{count} assets failed to load": "Falha ao carregar {count} recursos",
+    "Assets reloaded": "Recursos recarregados"
+  },
+  "it": {
+    "Preparing project assets": "Preparazione delle risorse del progetto",
+    "Editing and preview will unlock once assets finish loading.": "Modifica e anteprima si sbloccheranno al termine del caricamento delle risorse.",
+    "{completed} / {total} assets": "{completed} / {total} risorse",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "Il caricamento sta richiedendo più tempo del previsto. Puoi entrare subito nell’editor mentre le risorse rimanenti continuano in background.",
+    "Skip waiting, enter editor": "Salta l’attesa, entra nell’editor",
+    "{count} asset failed to load ({name})": "Impossibile caricare {count} risorsa ({name})",
+    "{count} assets failed to load": "Impossibile caricare {count} risorse",
+    "Assets reloaded": "Risorse ricaricate"
+  },
+  "tr": {
+    "Preparing project assets": "Proje varlıkları hazırlanıyor",
+    "Editing and preview will unlock once assets finish loading.": "Varlıkların yüklenmesi tamamlandığında düzenleme ve önizleme açılacaktır.",
+    "{completed} / {total} assets": "{completed} / {total} varlık",
+    "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.": "Yükleme beklenenden uzun sürüyor. Kalan varlıklar arka planda yüklenirken şimdi editöre geçebilirsiniz.",
+    "Skip waiting, enter editor": "Beklemeyi atla, editöre gir",
+    "{count} asset failed to load ({name})": "{count} varlık yüklenemedi ({name})",
+    "{count} assets failed to load": "{count} varlık yüklenemedi",
+    "Assets reloaded": "Varlıklar yeniden yüklendi"
+  }
+}

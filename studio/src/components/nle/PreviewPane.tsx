@@ -174,6 +174,7 @@ export function PreviewPane({
             portrait={portrait}
             directUrl={directUrl}
             suppressLoadingOverlay={hasLoadedOnceRef.current}
+            loadingUi="host"
             onStageRef={handleStageRef}
             onCompositionSizeChange={setPreviewCompositionSize}
           />

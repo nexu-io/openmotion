@@ -1,16 +1,33 @@
-import { memo, useMemo, type CSSProperties } from "react";
+import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import {
   createThumbnailKey,
   type ThumbnailPriority,
   type ThumbnailRequest,
+  type ThumbnailValue,
 } from "../lib/thumbnailScheduler";
+import { usePlayerStore } from "../store/playerStore";
 import { TIMELINE_VIEWPORT_BUDGETS } from "../lib/timelineViewportBudgets";
 import { ThumbnailTiles } from "./ThumbnailTiles";
-import { computeThumbnailStrip, probeImageAspect } from "./thumbnailUtils";
+import {
+  computeThumbnailStrip,
+  probeImageAspect,
+} from "./thumbnailUtils";
+import { useValueAtRest } from "./timelineMotion";
 import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
-import { loadCloudCompositionPoster } from "../lib/cloudCompositionPoster";
+import {
+  compositionDisplayName,
+  loadCloudCompositionPoster,
+} from "../lib/cloudCompositionPoster";
+import {
+  canCaptureCompositionInBrowser,
+  createClientCompositionCaptureRequest,
+  peekCachedCompositionCapture,
+  quantizeCompositionFrameCount,
+  readCachedCompositionCaptureFromIdb,
+  selectInitialGateCompositionPaths,
+} from "../lib/clientCompositionCapture";
 import { studioApiFetch } from "../../utils/studioApiFetch";
 import { Skeleton } from "../../components/ui/Skeleton";
 
@@ -22,6 +39,8 @@ interface CompositionThumbnailProps {
   selectorIndex?: number;
   seekTime?: number;
   duration?: number;
+  /** Actual clip duration on the timeline, used to space multi-frame client captures. */
+  clipDuration?: number;
   width?: number;
   height?: number;
   projectId?: string;
@@ -178,12 +197,15 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
   selectorIndex,
   seekTime = 2,
   duration = 5,
+  clipDuration,
   projectId = previewUrl,
   sessionEpoch = 0,
   contentRevision = 0,
   priority = "visible",
 }: CompositionThumbnailProps) {
   const [container, setContainerRef, watchGap] = useThumbnailStripSize();
+  const cloud = getCachedCloudDisklessMode();
+  const compPath = useMemo(() => compositionPathOfPreviewUrl(previewUrl), [previewUrl]);
   const url = buildCompositionThumbnailUrl({
     previewUrl,
     seekTime,
@@ -195,23 +217,199 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     output: selector ? "source" : undefined,
     contentRevision,
   });
-  const request = useMemo(
-    () => compositionThumbnailRequest(url, projectId, { sessionEpoch, priority, rich: true }),
-    [priority, projectId, sessionEpoch, url],
+
+  const effectiveClipDuration = clipDuration ?? duration;
+  const captureEnabled = cloud && canCaptureCompositionInBrowser();
+  const desiredCaptureFrames = useValueAtRest(
+    quantizeCompositionFrameCount(
+      computeThumbnailStrip(container.width, 16 / 9, container.height, 48).frameCount,
+      effectiveClipDuration,
+    ),
   );
-  const snapshot = useThumbnailLease(request);
+  const captureMeasured = useValueAtRest(container.width > 0);
+  const captureCacheKey = captureEnabled && captureMeasured
+    ? `${projectId}|${previewUrl}|${contentRevision}|${desiredCaptureFrames}|${selector ?? ""}|${selectorIndex ?? 0}`
+    : null;
+
+  // Tier 0: synchronous in-memory hit (0ms across project/composition switches).
+  const syncCachedValue = useMemo(
+    () =>
+      captureEnabled && captureMeasured
+        ? peekCachedCompositionCapture({
+            previewUrl,
+            projectId,
+            contentRevision,
+            frameCount: desiredCaptureFrames,
+            selector,
+            selectorIndex,
+          })
+        : null,
+    [
+      captureEnabled,
+      captureMeasured,
+      contentRevision,
+      desiredCaptureFrames,
+      previewUrl,
+      projectId,
+      selector,
+      selectorIndex,
+    ],
+  );
+
+  // Tier 1: parallel fast-path IndexedDB check (bypasses thumbnailScheduler's 2-slot composition bucket).
+  const [idbProbe, setIdbProbe] = useState<{ key: string; value: ThumbnailValue | null } | null>(null);
+  useEffect(() => {
+    if (!captureCacheKey || syncCachedValue) return;
+    let cancelled = false;
+    void readCachedCompositionCaptureFromIdb({
+      previewUrl,
+      projectId,
+      contentRevision,
+      frameCount: desiredCaptureFrames,
+      selector,
+      selectorIndex,
+    })
+      .then((value) => {
+        if (!cancelled) setIdbProbe({ key: captureCacheKey, value });
+      })
+      .catch(() => {
+        if (!cancelled) setIdbProbe({ key: captureCacheKey, value: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    captureCacheKey,
+    contentRevision,
+    desiredCaptureFrames,
+    previewUrl,
+    projectId,
+    selector,
+    selectorIndex,
+    syncCachedValue,
+  ]);
+
+  const idbValue = captureCacheKey && idbProbe?.key === captureCacheKey ? idbProbe.value : null;
+  const cachedValue = syncCachedValue ?? idbValue;
+  const idbPending = Boolean(captureCacheKey && !syncCachedValue && idbProbe?.key !== captureCacheKey);
+
+  const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
+  const inInitialGateSet = usePlayerStore((s) => {
+    if (!captureEnabled || selector || priority === "overscan" || s.timelinePreviewSettledInitial) {
+      return false;
+    }
+    return selectInitialGateCompositionPaths(s.elements, s.currentTime).includes(compPath);
+  });
+  const participatesInInitialGate =
+    Boolean(captureCacheKey) && !syncCachedValue && inInitialGateSet;
+
+  // Skip HTTP poster fetch when client capture is already cached or still checking fast IDB.
+  const request = useMemo(
+    () =>
+      cachedValue || idbPending
+        ? null
+        : compositionThumbnailRequest(url, projectId, { sessionEpoch, priority, rich: true }),
+    [cachedValue, idbPending, priority, projectId, sessionEpoch, url],
+  );
+  const posterSnapshot = useThumbnailLease(request);
+
+  // Tier 2: serialized priority-queued offscreen browser capture (cold misses only).
+  const captureRequest = useMemo(
+    () =>
+      captureEnabled && captureMeasured && !cachedValue && !idbPending
+        ? createClientCompositionCaptureRequest({
+            previewUrl,
+            projectId,
+            sessionEpoch,
+            contentRevision,
+            frameCount: desiredCaptureFrames,
+            duration: effectiveClipDuration,
+            seekTime,
+            selector,
+            selectorIndex,
+            priority,
+            gatePriority: participatesInInitialGate,
+            rich: true,
+          })
+        : null,
+    [
+      cachedValue,
+      captureEnabled,
+      captureMeasured,
+      contentRevision,
+      desiredCaptureFrames,
+      effectiveClipDuration,
+      idbPending,
+      participatesInInitialGate,
+      previewUrl,
+      priority,
+      projectId,
+      seekTime,
+      selector,
+      selectorIndex,
+      sessionEpoch,
+    ],
+  );
+  const captureSnapshot = useThumbnailLease(captureRequest);
+  const gateTaskId = useMemo(
+    () => (participatesInInitialGate ? `${projectId}:${previewUrl}:${contentRevision}` : null),
+    [contentRevision, participatesInInitialGate, previewUrl, projectId],
+  );
+  const captureSettled =
+    Boolean(cachedValue) ||
+    captureSnapshot.status === "ready" ||
+    captureSnapshot.status === "error";
+
+  useEffect(() => {
+    if (!gateTaskId) return;
+    const store = usePlayerStore.getState();
+    store.registerTimelinePreviewTask(gateTaskId, loadGeneration);
+    return () => {
+      usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
+    };
+  }, [gateTaskId, loadGeneration]);
+
+  useEffect(() => {
+    if (!gateTaskId || !captureSettled) return;
+    usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
+  }, [captureSettled, gateTaskId, loadGeneration]);
+
+  const snapshot = captureSnapshot.status === "ready" ? captureSnapshot : posterSnapshot;
+  const resolvedValue =
+    cachedValue ??
+    (snapshot.status === "ready" &&
+    (snapshot.value.kind === "image" || snapshot.value.kind === "filmstrip")
+      ? snapshot.value
+      : null);
   const value =
-    snapshot.status === "ready" && snapshot.value.kind === "image" ? snapshot.value : null;
+    resolvedValue && (resolvedValue.kind === "image" || resolvedValue.kind === "filmstrip")
+      ? resolvedValue
+      : null;
   const { frameW, frameCount } = computeThumbnailStrip(
     container.width,
     value?.aspect ?? 16 / 9,
     container.height,
     48,
   );
+  const compositionName = useMemo(() => compositionDisplayName(compPath), [compPath]);
+  const isTextStrip = value?.kind === "image" && value.representative === "text";
+  const isSingleMediaStrip = value?.kind === "image" && value.representative !== "text";
+  const textTitle = isTextStrip ? (label || value.label || compositionName) : "";
+  const textMeta =
+    isTextStrip &&
+    !selector &&
+    compositionName &&
+    compositionName.toLowerCase() !== textTitle.toLowerCase() &&
+    container.width >= 260
+      ? compositionName
+      : "";
+  const mediaTitle = isSingleMediaStrip ? (label || (!selector ? compositionName : "")) : "";
+  const showInlineMediaTitle = Boolean(mediaTitle) && container.width >= frameW + 48;
+  const showOverlayLabel = Boolean(label) && !isTextStrip && !showInlineMediaTitle;
 
   return (
     <div ref={setContainerRef} className="absolute inset-0 overflow-hidden">
-      {value && (
+      {value?.kind === "filmstrip" && value.urls.length > 0 && (
         <ThumbnailTiles
           strip={container}
           frameW={frameW}
@@ -222,27 +420,96 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
               "var(--timeline-composition-thumbnail-blend)" as CSSProperties["mixBlendMode"],
           }}
         >
-          {(index) => (
-            <div
-              key={index}
-              className="relative h-full shrink-0 overflow-hidden"
-              style={{ width: frameW }}
-            >
-              <img
-                src={value.url}
-                alt=""
-                draggable={false}
-                className="absolute inset-0 h-full w-full object-contain"
-                style={{ opacity: "var(--timeline-composition-thumbnail-opacity)" }}
-              />
+          {(index) => {
+            const frameIndex =
+              frameCount <= 1 || value.urls.length <= 1
+                ? 0
+                : Math.min(
+                    value.urls.length - 1,
+                    Math.round((index / (frameCount - 1)) * (value.urls.length - 1)),
+                  );
+            return (
+              <div
+                key={index}
+                className="relative h-full shrink-0 overflow-hidden"
+                style={{ width: frameW }}
+              >
+                <img
+                  src={value.urls[frameIndex]}
+                  alt=""
+                  draggable={false}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  style={{ opacity: "var(--timeline-composition-thumbnail-opacity)" }}
+                />
+              </div>
+            );
+          }}
+        </ThumbnailTiles>
+      )}
+      {isSingleMediaStrip && (
+        <div
+          className="timeline-composition-strip"
+          data-composition-strip="media"
+          style={{
+            mixBlendMode:
+              "var(--timeline-composition-thumbnail-blend)" as CSSProperties["mixBlendMode"],
+          }}
+        >
+          <div
+            className="timeline-composition-strip__thumb relative h-full shrink-0 overflow-hidden"
+            style={{ width: frameW }}
+          >
+            <img
+              src={value.url}
+              alt=""
+              draggable={false}
+              className="absolute inset-0 h-full w-full object-contain"
+              style={{ opacity: "var(--timeline-composition-thumbnail-opacity)" }}
+            />
+          </div>
+          {showInlineMediaTitle && (
+            <div className="timeline-composition-strip__body">
+              <span className="timeline-composition-strip__title">{mediaTitle}</span>
             </div>
           )}
-        </ThumbnailTiles>
+        </div>
+      )}
+      {isTextStrip && (
+        <div
+          className="timeline-composition-strip timeline-composition-strip--text"
+          data-composition-strip="text"
+        >
+          <div className="timeline-composition-strip__body">
+            {(container.width === 0 || container.width >= 110) && (
+              <span className="timeline-composition-strip__icon" aria-hidden="true">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+                  <rect
+                    x="2"
+                    y="3"
+                    width="12"
+                    height="10"
+                    rx="1.75"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                  />
+                  <path
+                    d="M5.5 3v10M10.5 3v10"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    opacity="0.65"
+                  />
+                </svg>
+              </span>
+            )}
+            {textTitle && <span className="timeline-composition-strip__title">{textTitle}</span>}
+            {textMeta && <span className="timeline-composition-strip__meta">{textMeta}</span>}
+          </div>
+        </div>
       )}
       {!value && snapshot.status !== "error" && (
         <Skeleton animated={false} style={{ position: "absolute", inset: 0 }} />
       )}
-      {label && (
+      {showOverlayLabel && (
         <div className="absolute inset-y-0 left-3 z-10 flex items-center">
           <span
             className="block max-w-full truncate text-[10px] font-semibold leading-none"

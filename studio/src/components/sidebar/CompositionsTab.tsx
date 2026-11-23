@@ -17,6 +17,12 @@ import {
   resolveThumbnailSeekTime,
   THUMBNAIL_SEEK_TIME_SECONDS,
 } from "../../player/components/CompositionThumbnail";
+import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
+import {
+  canCaptureCompositionInBrowser,
+  createClientCompositionCaptureRequest,
+  peekCachedCompositionCapture,
+} from "../../player/lib/clientCompositionCapture";
 import { setPreviewMediaMuted } from "../../player/lib/timelineIframeHelpers";
 import { postFrameDisplayScale } from "../../player/lib/runtimeProtocol";
 import { usePlayerStore } from "../../player/store/playerStore";
@@ -140,7 +146,13 @@ export function syncIframePlayback(iframe: HTMLIFrameElement | null, shouldPlay:
 }
 
 const imageUrlOf = (snapshot: ThumbnailSnapshot) =>
-  snapshot.status === "ready" && snapshot.value.kind === "image" ? snapshot.value.url : null;
+  snapshot.status === "ready"
+    ? snapshot.value.kind === "image"
+      ? snapshot.value.url
+      : snapshot.value.kind === "filmstrip"
+        ? (snapshot.value.urls[0] ?? null)
+        : null
+    : null;
 
 // A layout effect takes the old frame's lease before the passive cleanup drops the first one.
 function useLastFrame(request: ThumbnailRequest | null, snapshot: ThumbnailSnapshot) {
@@ -240,18 +252,63 @@ function CompCard({
   const thumbnailUrl = compositionCardThumbnailUrl(projectId, comp, contentRevision);
   const [thumbnailBox, nearViewport] = useNearViewport<HTMLDivElement>();
   const timelineSessionEpoch = usePlayerStore((state) => state.timelineSessionEpoch);
+  const syncCachedCover = useMemo(
+    () =>
+      nearViewport && getCachedCloudDisklessMode() && canCaptureCompositionInBrowser()
+        ? peekCachedCompositionCapture({
+            previewUrl,
+            projectId,
+            contentRevision,
+            frameCount: 1,
+          })
+        : null,
+    [contentRevision, nearViewport, previewUrl, projectId],
+  );
   const thumbnailRequest = useMemo(
     () =>
-      nearViewport
+      nearViewport && !syncCachedCover
         ? compositionThumbnailRequest(thumbnailUrl, projectId, {
             sessionEpoch: timelineSessionEpoch,
             rich: true,
           })
         : null,
-    [nearViewport, thumbnailUrl, projectId, timelineSessionEpoch],
+    [nearViewport, projectId, syncCachedCover, thumbnailUrl, timelineSessionEpoch],
   );
-  const thumbnail = useThumbnailLease(thumbnailRequest);
-  const frameUrl = useLastFrame(thumbnailRequest, thumbnail);
+  const captureRequest = useMemo(
+    () =>
+      nearViewport && !syncCachedCover && getCachedCloudDisklessMode() && canCaptureCompositionInBrowser()
+        ? createClientCompositionCaptureRequest({
+            previewUrl,
+            projectId,
+            sessionEpoch: timelineSessionEpoch,
+            contentRevision,
+            frameCount: 1,
+            seekTime: THUMBNAIL_SEEK_TIME_SECONDS,
+            priority: "overscan",
+            rich: true,
+          })
+        : null,
+    [contentRevision, nearViewport, previewUrl, projectId, syncCachedCover, timelineSessionEpoch],
+  );
+  const posterThumbnail = useThumbnailLease(thumbnailRequest);
+  const captureThumbnail = useThumbnailLease(captureRequest);
+  const activeRequest = syncCachedCover
+    ? null
+    : captureThumbnail.status === "ready"
+      ? captureRequest
+      : thumbnailRequest;
+  const thumbnail: ThumbnailSnapshot = syncCachedCover
+    ? { status: "ready", value: syncCachedCover }
+    : captureThumbnail.status === "ready"
+      ? captureThumbnail
+      : posterThumbnail;
+  const lastFrameUrl = useLastFrame(activeRequest, thumbnail);
+  const frameUrl =
+    syncCachedCover?.kind === "image"
+      ? syncCachedCover.url
+      : syncCachedCover?.kind === "filmstrip"
+        ? (syncCachedCover.urls[0] ?? null)
+        : lastFrameUrl;
   const thumbnailFailed = thumbnail.status === "error";
   const posterUrl = !thumbnailFailed && frameUrl !== failedFrameUrl ? frameUrl : null;
   const posterLoaded = !!posterUrl && loadedFrameUrl === posterUrl;

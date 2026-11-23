@@ -8,6 +8,7 @@ import { trackStudioEvent } from "../utils/studioTelemetry";
 import { errorProps } from "../utils/rejectionTelemetry";
 import { encodeUrlPath } from "@hyperframes/parsers";
 import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import { setCachedProjectRevision } from "../player/lib/clientCompositionCapture";
 import {
   subscribeMediaDerived,
   subscribeMediaIngestStatus,
@@ -98,22 +99,46 @@ function reportRefreshFailure(err: unknown): void {
  */
 export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
   const [fetched, setFetched] = useState<FetchedFileTree | null>(null);
+  const cacheByProjectRef = useRef<Map<string, FetchedFileTree>>(new Map());
   const refreshRequestRef = useRef(0);
   const appliedRequestRef = useRef(0);
   const refreshAbortRef = useRef<AbortController | null>(null);
   const failureReportedRef = useRef(false);
-  const current = fetched?.projectId === projectId ? fetched : null;
+  const current =
+    fetched?.projectId === projectId
+      ? fetched
+      : projectId
+        ? (cacheByProjectRef.current.get(projectId) ?? null)
+        : null;
   const fileTree = current?.fileTree ?? EMPTY_FILE_LIST;
   const compositionPaths = current?.compositionPaths ?? EMPTY_FILE_LIST;
   const projectDir = current?.projectDir ?? null;
   const fileTreeLoaded = current?.loaded ?? false;
+
+  const rememberProjectTree = useCallback((entry: FetchedFileTree) => {
+    const cache = cacheByProjectRef.current;
+    cache.delete(entry.projectId);
+    cache.set(entry.projectId, entry);
+    while (cache.size > 16) {
+      const oldest = cache.keys().next().value;
+      if (!oldest) break;
+      cache.delete(oldest);
+    }
+  }, []);
 
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
     const requestId = ++refreshRequestRef.current;
-    setFetched({ projectId, loaded: false, fileTree: [], compositionPaths: [], projectDir: null });
+    const warm = cacheByProjectRef.current.get(projectId);
+    if (warm) {
+      // Stale-while-revalidate: serve previously fetched project tree immediately on revisit
+      // while refreshing silently in the background.
+      setFetched(warm);
+    } else {
+      setFetched({ projectId, loaded: false, fileTree: [], compositionPaths: [], projectDir: null });
+    }
     studioApiFetch(buildProjectApiPath(projectId))
       // An unresolvable project answers 404 with a JSON body, so without this
       // the error path parsed cleanly and the success branch below recorded an
@@ -129,7 +154,10 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         if (typeof data.dir === "string" && data.dir.startsWith("/virtual/")) {
           setCachedCloudDisklessMode(true);
         }
-        setFetched({
+        if (typeof (data as { revision?: unknown }).revision === "string") {
+          setCachedProjectRevision(projectId, (data as { revision?: string }).revision);
+        }
+        const nextEntry: FetchedFileTree = {
           projectId,
           loaded: true,
           fileTree: data.files ?? [],
@@ -139,20 +167,23 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
           assetNames: data.assetNames,
           assetMetadata: data.assetMetadata,
           pendingImports: Array.isArray(data.pendingImports) ? data.pendingImports : undefined,
-        });
+        };
+        rememberProjectTree(nextEntry);
+        setFetched(nextEntry);
         // Snapshot how this project was made, while the listing is in hand and
         // the app is still alive. A crash later has no other way to learn it.
         void captureProjectProvenance(projectId, data.files ?? [], data.compositions ?? []);
       })
       .catch(() => {
         if (!cancelled) {
+          cacheByProjectRef.current.delete(projectId);
           setFetched((prev) => (prev?.projectId === projectId ? { ...prev, loaded: true } : prev));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, rememberProjectTree]);
 
   const refreshFileTree = useCallback(async (options?: FileTreeRefreshOptions) => {
     const pid = options?.projectId ?? projectIdRef.current;
@@ -186,29 +217,33 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
       if (typeof data.dir === "string" && data.dir.startsWith("/virtual/")) {
         setCachedCloudDisklessMode(true);
       }
-      setFetched((prev) =>
-        prev?.projectId === pid
-          ? {
-              ...prev,
-              loaded: true,
-              projectDir: typeof data.dir === 'string' ? data.dir : prev.projectDir,
-              fileTree: data.files ?? prev.fileTree,
-              // A response that omits `compositions` must not wipe out a
-              // known-good list — only replace it when the field is present.
-              compositionPaths: data.compositions ?? prev.compositionPaths,
-              fonts: data.fonts ?? prev.fonts,
-              assetNames: data.assetNames ?? prev.assetNames,
-              assetMetadata: data.assetMetadata ?? prev.assetMetadata,
-              pendingImports: Array.isArray(data.pendingImports)
-                ? data.pendingImports
-                : prev.pendingImports?.filter(
-                    (item) => !item.targetPath || !(data.files ?? prev.fileTree).includes(item.targetPath),
-                  ),
-            }
-          : prev,
-      );
+      if (typeof (data as { revision?: unknown }).revision === "string") {
+        setCachedProjectRevision(pid, (data as { revision?: string }).revision);
+      }
+      setFetched((prev) => {
+        if (prev?.projectId !== pid) return prev;
+        const nextEntry: FetchedFileTree = {
+          ...prev,
+          loaded: true,
+          projectDir: typeof data.dir === "string" ? data.dir : prev.projectDir,
+          fileTree: data.files ?? prev.fileTree,
+          // A response that omits `compositions` must not wipe out a
+          // known-good list — only replace it when the field is present.
+          compositionPaths: data.compositions ?? prev.compositionPaths,
+          fonts: data.fonts ?? prev.fonts,
+          assetNames: data.assetNames ?? prev.assetNames,
+          assetMetadata: data.assetMetadata ?? prev.assetMetadata,
+          pendingImports: Array.isArray(data.pendingImports)
+            ? data.pendingImports
+            : prev.pendingImports?.filter(
+                (item) => !item.targetPath || !(data.files ?? prev.fileTree).includes(item.targetPath),
+              ),
+        };
+        rememberProjectTree(nextEntry);
+        return nextEntry;
+      });
     }
-  }, [projectIdRef]);
+  }, [projectIdRef, rememberProjectTree]);
 
   const dismissPendingImport = useCallback((id: string) => {
     setFetched((prev) =>

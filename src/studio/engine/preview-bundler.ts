@@ -531,7 +531,8 @@ function applyStudioPreviewAugmentations(
   out = options.capture
     ? injectTagsAtHeadStart(
         out,
-        `<meta name="${STUDIO_PREVIEW_MARK_META}" content="${STUDIO_PREVIEW_CAPTURE_MODE}">`,
+        `<meta name="${STUDIO_PREVIEW_MARK_META}" content="${STUDIO_PREVIEW_CAPTURE_MODE}">` +
+          `<script>(function(){var o=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(t,a){if(t==='webgl'||t==='webgl2'||t==='experimental-webgl'){a=Object.assign({},a||{},{preserveDrawingBuffer:true});}return o.call(this,t,a);};})();</script>`,
       )
     : injectTagsAtHeadStart(
         lazyPreviewImages(out),

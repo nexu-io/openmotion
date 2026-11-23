@@ -6,6 +6,7 @@ import settingsUi from './settings-ui.json';
 import templateUi from './template-ui.json';
 import mcpUi from './mcp-ui.json';
 import studioNavigationUi from './studio-navigation-ui.json';
+import editorLoadingUi from './editor-loading-ui.json';
 import { mcpFaq } from '../motion/mcpCapabilities';
 import { creativeStudios } from '../../../shared/studio-catalog';
 import { errorNoticeMessage } from '../components/ui/errorNoticeMessage';
@@ -180,5 +181,20 @@ it('localizes audited controls and history without translating authored names', 
     expect(historyEntryLabel('Undid: Move timeline clips', t)).toContain(t('Move timeline clips'));
     expect(historyEntryLabel('Add block: My Custom Title', t)).toContain('My Custom Title');
     expect(historyEntryLabel('My authored version name', t)).toBe('My authored version name');
+  }
+});
+
+it('keeps editor asset-loading messages complete and placeholder-safe across all locales', () => {
+  const keys = Object.keys(editorLoadingUi['zh-CN']).sort();
+  for (const { locale } of languages) {
+    if (locale === 'en') continue;
+    const entries = editorLoadingUi[locale];
+    expect(Object.keys(entries).sort(), locale).toEqual(keys);
+    for (const [source, translation] of Object.entries(entries)) {
+      expect(translation.trim(), `${locale}: ${source}`).not.toBe('');
+      if (locale === 'zh-CN') expect(translation, source).not.toContain('工程');
+      const placeholders = (text: string) => [...text.matchAll(/\{\w+\}/g)].map(m => m[0]).sort();
+      expect(placeholders(translation), `${locale}: ${source}`).toEqual(placeholders(source));
+    }
   }
 });

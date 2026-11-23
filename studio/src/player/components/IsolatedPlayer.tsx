@@ -9,8 +9,37 @@ import { bindPreviewLease } from "../lib/previewLease";
 import { rememberPreviewPosition } from "../lib/previewReconnect";
 import { announcePreviewDocumentLoaded } from "../sceneSwap";
 import { usePlayerStore } from "../store/playerStore";
+import { registerRetryFailedAssetsHandler } from "../store/readinessSlice";
+import type { PreviewAssetFailure, PreviewAssetProgress } from "../lib/previewAssetReadiness";
 import { PreviewCompositionLoading } from "./PreviewCompositionLoading";
 import type { PlayerProps } from "./Player";
+
+function parseBridgeAssetProgress(raw: unknown): PreviewAssetProgress | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const status = record.status === "ready" ? "ready" : record.status === "loading" ? "loading" : null;
+  if (!status) return null;
+  const completed = Number.isFinite(record.completed) ? Math.max(0, Number(record.completed)) : 0;
+  const total = Number.isFinite(record.total) ? Math.max(0, Number(record.total)) : 0;
+  const failed: PreviewAssetFailure[] = Array.isArray(record.failed)
+    ? record.failed
+        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+        .map((item, idx) => ({
+          id: typeof item.id === "string" ? item.id : `asset-${idx}`,
+          label: typeof item.label === "string" ? item.label : `asset-${idx + 1}`,
+          kind:
+            item.kind === "image" ||
+            item.kind === "video" ||
+            item.kind === "audio" ||
+            item.kind === "font" ||
+            item.kind === "lottie"
+              ? item.kind
+              : "image",
+          reason: item.reason === "timeout" ? "timeout" : "error",
+        }))
+    : [];
+  return { status, completed, total, failed };
+}
 
 /** The remote runtime owns the document. Studio can size the frame and use its scoped message channel. */
 export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { origin: string; passive?: boolean }>(
@@ -26,6 +55,8 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
     const prepared = useContext(InitialPreviewLeaseContext);
     const initialLease = useRef(prepared);
     const passive = props.passive === true;
+    const tracksAssets = useRef(props.trackAssets === true).current;
+    const assetReadinessGenRef = useRef(0);
     const lease = useRef<ReturnType<typeof bindPreviewLease> | null>(null);
     const busyRetries = useRef(0);
     const [error, setError] = useState<string>();
@@ -53,7 +84,11 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       let paintFrame = 0;
       let busyTimer: ReturnType<typeof setTimeout>;
       let busyForLoad = false;
+      let sawAssetReadiness = false;
       busyRetries.current = 0;
+      if (tracksAssets && !passive) {
+        assetReadinessGenRef.current = usePlayerStore.getState().beginAssetReadinessLoad();
+      }
       function resize() {
         const [width, height] = size;
         const scale = Math.min(stage!.clientWidth / width, stage!.clientHeight / height);
@@ -69,10 +104,26 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         setError(message);
         callbacks.current.onCompositionLoadingChange?.(false);
         callbacks.current.onPreviewError?.(message);
+        if (tracksAssets && !passive) {
+          const store = usePlayerStore.getState();
+          store.setPreviewLoadError(true);
+          store.updateAssetReadiness(
+            { status: "ready", completed: 0, total: 0, failed: [] },
+            assetReadinessGenRef.current,
+          );
+        }
         if (!passive) usePlayerStore.getState().markPreviewBooted();
       }
       function message(event: MessageEvent) {
         if (!bridge?.accepts(event)) return;
+        if (event.data.type === "asset-readiness") {
+          const parsed = parseBridgeAssetProgress(event.data);
+          if (parsed && tracksAssets && !passive) {
+            sawAssetReadiness = true;
+            usePlayerStore.getState().updateAssetReadiness(parsed, assetReadinessGenRef.current);
+          }
+          return;
+        }
         if (event.data.type === "preview-build-busy") {
           if (ready || busyForLoad) return;
           busyForLoad = true;
@@ -88,6 +139,11 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         }
         if (event.data.type !== "timeline-state") return;
         if (Number.isFinite(event.data.currentTime)) runtimeTime = event.data.currentTime;
+        const assetSnapshot = parseBridgeAssetProgress(event.data.assets);
+        if (assetSnapshot && tracksAssets && !passive) {
+          sawAssetReadiness = true;
+          usePlayerStore.getState().updateAssetReadiness(assetSnapshot, assetReadinessGenRef.current);
+        }
         if (ready || !(event.data.duration > 0)) return;
         if (!timelineLoaded) {
           timelineLoaded = true;
@@ -118,6 +174,12 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           callbacks.current.onCompositionLoadingChange?.(false);
           callbacks.current.onPainted?.({ iframe: iframe!, startedAt, loadId });
           callbacks.current.onReadyToShowChange?.(true);
+          if (tracksAssets && !passive && !sawAssetReadiness) {
+            usePlayerStore.getState().updateAssetReadiness(
+              { status: "ready", completed: 0, total: 0, failed: [] },
+              assetReadinessGenRef.current,
+            );
+          }
           if (!passive) usePlayerStore.getState().markPreviewBooted();
         });
       }
@@ -128,6 +190,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         if (ready && !passive && !callbacks.current.noLoadTimeout) rememberPreviewPosition(iframe, runtimeTime);
         ready = false;
         timelineLoaded = false;
+        sawAssetReadiness = false;
         setAwaitingFirstFrame(callbacks.current.showInitialLoading === true);
         busyForLoad = false;
         clearTimeout(busyTimer);
@@ -136,14 +199,37 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         cancelAnimationFrame(paintFrame);
         startedAt = performance.now();
         loadId++;
+        if (tracksAssets && !passive) {
+          usePlayerStore.getState().setPreviewLoadError(false);
+        }
         callbacks.current.onReadyToShowChange?.(false);
         callbacks.current.onCompositionLoadingChange?.(true);
         runtimeTime = undefined;
         iframe.src = next.href;
         bridge = createPreviewAdapter({ iframe, expectedOrigin: props.origin });
+        if (tracksAssets && !passive) {
+          const gen = assetReadinessGenRef.current;
+          const activeBridge = bridge;
+          registerRetryFailedAssetsHandler(gen, async () => {
+            try {
+              const result = await activeBridge.request<unknown>("retry-failed-assets", {}, 15_000);
+              const parsed = parseBridgeAssetProgress(result);
+              if (parsed) {
+                usePlayerStore.getState().updateAssetReadiness(parsed, gen);
+                return parsed.failed;
+              }
+            } catch {
+              /* bridge unavailable */
+            }
+            return usePlayerStore.getState().assetReadinessFailed;
+          });
+        }
         deadline = setTimeout(() => fail("The composition preview did not become ready."), 15_000);
       }, fail, initialLease.current);
       return () => {
+        if (tracksAssets && !passive) {
+          registerRetryFailedAssetsHandler(assetReadinessGenRef.current, null);
+        }
         clearTimeout(busyTimer);
         clearTimeout(deadline);
         cancelAnimationFrame(paintFrame);
@@ -151,7 +237,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         window.removeEventListener("message", message);
         lease.current?.dispose();
       };
-    }, [props.origin, passive]);
+    }, [props.origin, passive, tracksAssets]);
 
     return (
       <div className="relative h-full w-full overflow-hidden" style={props.style} ref={container}>
@@ -165,6 +251,9 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           <Button variant="plain" onClick={() => {
             busyRetries.current = 0;
             setError(undefined);
+            if (tracksAssets && !passive) {
+              assetReadinessGenRef.current = usePlayerStore.getState().beginAssetReadinessLoad();
+            }
             setAwaitingFirstFrame(props.showInitialLoading === true);
             void lease.current?.retry();
           }}>{t("Retry preview")}</Button>

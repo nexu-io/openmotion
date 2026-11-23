@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { bindPreviewLease } from "../lib/previewLease";
 import { PREVIEW_BRIDGE_SOURCE, PREVIEW_BRIDGE_VERSION } from "../lib/previewAdapter";
+import { usePlayerStore } from "../store/playerStore";
 import { IsolatedPlayer } from "./IsolatedPlayer";
 
 vi.mock("../lib/previewLease", () => ({ bindPreviewLease: vi.fn() }));
@@ -136,4 +137,81 @@ it("offers retry on first-frame media failure or a stalled first frame, ignoring
     player.notify("timeline-state", undefined, "error");
     expect(player.error).toHaveBeenCalledTimes(2);
   } finally { player.unmount(); }
+});
+
+it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
+  const origin = "https://preview.test";
+  let grant = 0;
+  vi.mocked(bindPreviewLease).mockImplementation((source, _, navigate) => {
+    navigate(new URL(source.pathname + "?pt=grant-" + ++grant, origin));
+    return { retry: vi.fn(async () => {}), dispose: vi.fn() };
+  });
+  const host = document.createElement("main");
+  const root = createRoot(host);
+  act(() =>
+    root.render(
+      <IsolatedPlayer
+        projectId="p"
+        origin={origin}
+        onLoad={vi.fn()}
+        showInitialLoading
+        trackAssets
+        loadingUi="host"
+      />,
+    ),
+  );
+  const frame = host.querySelector("iframe")!;
+  Object.defineProperty(frame, "contentWindow", { value: window });
+  try {
+    expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: frame.contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            projectId: "p",
+            token: "grant-" + grant,
+            type: "asset-readiness",
+            status: "loading",
+            completed: 3,
+            total: 10,
+            failed: [],
+          },
+        }),
+      );
+    });
+    expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
+    expect(usePlayerStore.getState().assetReadinessCompleted).toBe(3);
+    expect(usePlayerStore.getState().assetReadinessTotal).toBe(10);
+
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: frame.contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            projectId: "p",
+            token: "grant-" + grant,
+            type: "asset-readiness",
+            status: "ready",
+            completed: 10,
+            total: 10,
+            failed: [{ id: "img-1", label: "hero.png", kind: "image", reason: "error" }],
+          },
+        }),
+      );
+    });
+    expect(usePlayerStore.getState().assetReadinessPhase).toBe("ready");
+    expect(usePlayerStore.getState().assetReadinessCompleted).toBe(10);
+    expect(usePlayerStore.getState().assetReadinessFailed).toEqual([
+      { id: "img-1", label: "hero.png", kind: "image", reason: "error" },
+    ]);
+  } finally {
+    act(() => root.unmount());
+  }
 });

@@ -78,4 +78,93 @@ describe("cloud composition representatives", () => {
     await expect(loadCloudCompositionPoster(url(), "other", 0, signal())).rejects.toThrow();
     expect(fetch).not.toHaveBeenCalled();
   });
+  it("skips decorative avatars, brand marks and tiny insets, falling back to a semantic text poster", async () => {
+    const html = [
+      '<template><style>#lockup img{width:42px;height:42px}.portrait{width:200px;height:200px}</style>',
+      '<div data-composition-id="film" data-width="1280" data-height="720">',
+      '<div id="lockup"><img src="assets/brand-mark.svg" alt=""></div>',
+      '<img class="avatar" src="assets/photos/avatar-13.jpg" style="width:46px;height:46px">',
+      '<div class="portrait"><img src="assets/photos/person-one.jpg"></div>',
+      '<span data-var-text="brand">OpenMotion</span>',
+      '<span data-var-text="product">Glean Agents</span>',
+      "</div></template>",
+    ].join("");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ content: html })));
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:text-cover");
+    const result = await loadCloudCompositionPoster(url(), "p", 0, signal());
+    expect(decodeImageThumbnail).not.toHaveBeenCalled();
+    expect(result.value).toMatchObject({
+      kind: "image",
+      url: "blob:text-cover",
+      representative: "text",
+      label: "Glean Agents",
+    });
+    expect(await (create.mock.calls[0]![0] as Blob).text()).toContain("Glean Agents");
+  });
+  it("skips a leading logo icon to pick a real hero image later in the composition", async () => {
+    const html = [
+      '<template><div data-composition-id="hero" data-width="1920" data-height="1080">',
+      '<img class="logo" src="assets/brand-mark.svg" style="width:42px;height:42px">',
+      '<img src="assets/hero-stage.jpg" style="width:1920px;height:1080px">',
+      "</div></template>",
+    ].join("");
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ content: html })));
+    vi.mocked(decodeImageThumbnail).mockResolvedValue(picture);
+    expect(await loadCloudCompositionPoster(url(), "p", 0, signal())).toEqual(picture);
+    expect(decodeImageThumbnail).toHaveBeenCalledWith(
+      new URL("/api/projects/p/preview/assets/hero-stage.jpg", location.origin).href,
+      expect.anything(),
+    );
+  });
+  it("joins sibling data-var-text phrases, uses canvas aria-label, and strips .html from fallback names", async () => {
+    const create = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:text-cover");
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      Response.json({
+        content: '<template><div id="contrast"><span data-var-text="a">Not just</span><span data-var-text="b">a video.</span></div></template>',
+      }),
+    ));
+    const phrase = await loadCloudCompositionPoster(url(), "p", 0, signal());
+    expect(phrase.value).toMatchObject({ representative: "text", label: "Not just a video." });
+
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      Response.json({
+        content: '<template><canvas aria-label="Editable motion artwork montage"></canvas></template>',
+      }),
+    ));
+    const canvas = await loadCloudCompositionPoster(
+      new URL("/api/projects/p/thumbnail/compositions/reel.html", location.origin),
+      "p",
+      0,
+      signal(),
+    );
+    expect(canvas.value).toMatchObject({
+      representative: "text",
+      label: "Editable motion artwork montage",
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ content: "<template><canvas></canvas></template>" })));
+    const stem = await loadCloudCompositionPoster(
+      new URL("/api/projects/p/thumbnail/compositions/reel.html", location.origin),
+      "p",
+      0,
+      signal(),
+    );
+    expect(stem.value).toMatchObject({ representative: "text", label: "reel" });
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+  it("skips decorative avatar entries in the live manifest when loading a whole composition poster", async () => {
+    usePlayerStore.setState({
+      previewBooted: true,
+      timelineProjectId: "p",
+      timelineSessionEpoch: 4,
+      elements: [
+        { id: "av", tag: "img", src: "assets/photos/avatar-13.jpg", sourceFile: "compositions/scene.html", start: 0, duration: 4, track: 0 },
+      ],
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ content: "<template><h1>Launch Film</h1></template>" })));
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:text-cover");
+    const result = await loadCloudCompositionPoster(url(), "p", 4, signal());
+    expect(decodeImageThumbnail).not.toHaveBeenCalled();
+    expect(result.value).toMatchObject({ representative: "text", label: "Launch Film" });
+  });
 });

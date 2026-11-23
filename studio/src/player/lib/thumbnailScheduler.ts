@@ -4,7 +4,15 @@ export type ThumbnailPriority = "overscan" | "visible" | "interaction";
 export type ThumbnailJobKind = "video" | "image" | "composition" | "waveform";
 
 export type ThumbnailValue =
-  | { kind: "image"; url: string; aspect: number }
+  | {
+      kind: "image";
+      url: string;
+      aspect: number;
+      /** Distinguishes synthesized text covers from real visual frames on single-poster strips. */
+      representative?: "render" | "media" | "text";
+      /** Human-readable composition title for non-repeating text strips. */
+      label?: string;
+    }
   | { kind: "filmstrip"; urls: readonly string[]; aspect: number }
   | { kind: "waveform"; peaks: readonly number[] };
 

@@ -2131,6 +2131,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       pathname === '/api/health/live' ||
       pathname === '/api/runtime.js' ||
       pathname === PREVIEW_BRIDGE_PATH ||
+      pathname === '/api/vendor/snapdom.js' ||
       pathname.startsWith('/api/vendor/gsap/');
     const isReadOnlyFontAsset = pathname === '/api/fonts' || pathname.startsWith('/api/fonts/');
     const projectPreviewMatch = PREVIEW_PROJECT_PATH_RE.exec(pathname);

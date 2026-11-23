@@ -288,6 +288,19 @@ export function NLEProvider({
 
   const hasLoadedOnceRef = useRef(false);
   const [compositionLoading, setCompositionLoadingRaw] = useState(true);
+  const activePreviewScope =
+    compositionStack.length > 1
+      ? `${projectId}::${compositionStack[compositionStack.length - 1]?.previewUrl ?? ""}`
+      : `${projectId}::master`;
+  const loadedScopeRef = useRef(activePreviewScope);
+  useLayoutEffect(() => {
+    if (loadedScopeRef.current === activePreviewScope) return;
+    loadedScopeRef.current = activePreviewScope;
+    // Allow the newly mounted Player for the switched project/composition to report
+    // loading again without forcing compositionLoading=true out-of-band (which would
+    // strand the timeline disabled if Player already settled before this effect ran).
+    hasLoadedOnceRef.current = false;
+  }, [activePreviewScope]);
   const setCompositionLoading = useCallback((loading: boolean) => {
     if (!loading) hasLoadedOnceRef.current = true;
     if (loading && hasLoadedOnceRef.current) return;

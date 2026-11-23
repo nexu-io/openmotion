@@ -110,9 +110,10 @@ export const NLEPreview = memo(function NLEPreview({
     onStageRef?.(stageRef);
   }, [onStageRef]);
 
-  // Composition switch: drop any in-flight shadow reload (skipped on first mount).
+  // Composition switch: drop any in-flight shadow reload BEFORE the new Player's mount effect
+  // navigates its iframe, so resetPreviewSlots() never clears a freshly settled timelineReady.
   const previousActiveKeyRef = useRef(activeKey);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (previousActiveKeyRef.current === activeKey) return;
     previousActiveKeyRef.current = activeKey;
     resetPreviewSlots();
@@ -513,6 +514,7 @@ export const NLEPreview = memo(function NLEPreview({
                   key={`${activeKey}-${slot.gen}`}
                   ref={setPreviewIframeRef}
                   showInitialLoading
+                  trackAssets
                   projectId={directUrl ? undefined : projectId}
                   directUrl={directUrl}
                   onLoad={() => {

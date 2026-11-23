@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { PREVIEW_FIRST_FRAME } from './preview-first-frame.ts';
+import { PREVIEW_ASSET_READINESS } from './preview-asset-readiness.ts';
 import { PREVIEW_INSPECTOR } from './preview-inspector.ts';
 import { PREVIEW_TIMELINE_MANIFEST } from './preview-timeline-manifest.ts';
 import { PREVIEW_LAYERS } from './preview-layers.ts';
 import { PREVIEW_INLINE_TEXT } from './preview-inline-text.ts';
 import { PREVIEW_CANVAS_DRAG } from './preview-canvas-drag.ts';
+import { PREVIEW_THUMBNAIL_CAPTURE } from './preview-thumbnail-capture.ts';
 
 function scopedScript(configuration: string, body: string): string {
   return `(function(){
@@ -40,11 +42,17 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   var pickMode=false, picked=null;
   function player(){ return window.__player || null; }
   ${PREVIEW_FIRST_FRAME}
+  ${PREVIEW_ASSET_READINESS}
+  function assetState(duration){
+    if(!(duration>0)) return {status:'loading',completed:0,total:0,failed:[]};
+    return ensureAssetTracker(function(snapshot){ post('asset-readiness',snapshot); }).snapshot();
+  }
   function timeline(includeManifest){
     var p=player();
     var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
     var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
     return {currentTime:currentTime,duration:duration,firstFrame:duration>0?visualFrameStatus(currentTime):'loading',
+      assets:assetState(duration),
       isPlaying:p&&typeof p.isPlaying==='function'?p.isPlaying()===true:false,
       width:window.__clipManifest&&window.__clipManifest.compositionWidth, height:window.__clipManifest&&window.__clipManifest.compositionHeight,
       fps:window.__clipManifest&&window.__clipManifest.fps,
@@ -71,10 +79,15 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   ${PREVIEW_INLINE_TEXT}
   ${PREVIEW_INSPECTOR}
   ${PREVIEW_LAYERS}
-  function respond(requestId,result,error){
-    post('response',error?{ok:false,error:String(error)}:{ok:true,result:result},requestId);
+  ${PREVIEW_THUMBNAIL_CAPTURE}
+  function respond(requestId,result,error,transfer){
+    var message=Object.assign({source:SOURCE,version:VERSION,type:'response',projectId:projectId,token:token},error?{ok:false,error:String(error)}:{ok:true,result:result});
+    if(requestId) message.requestId=requestId;
+    var targetOrigin=parentOrigin==='null'?'*':parentOrigin;
+    if(transfer&&transfer.length) parentWindow.postMessage(message,targetOrigin,transfer);
+    else parentWindow.postMessage(message,targetOrigin);
   }
-  function ready(){ post('preview-ready',{capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text']}); post('timeline-state',timeline(true)); }
+  function ready(){ post('preview-ready',{capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture']}); post('timeline-state',timeline(true)); }
   window.addEventListener('message',function(event){
     if(event.source!==parentWindow) return;
     var message=event.data;
@@ -84,6 +97,19 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       if(message.type==='handshake'){
         if(message.timelineOnly) post('timeline-state',timeline(true));
         else { ready(); respond(requestId,{ready:true}); }
+        return;
+      }
+      if(message.type==='retry-failed-assets'){
+        var tracker=ensureAssetTracker(function(snapshot){ post('asset-readiness',snapshot); });
+        tracker.retryFailed(function(snapshot){ post('asset-readiness',snapshot); respond(requestId,snapshot); });
+        return;
+      }
+      if(message.type==='capture-frames'){
+        capturePreviewFrames(message).then(function(result){
+          respond(requestId,result,null,result&&Array.isArray(result.frames)?result.frames:undefined);
+        },function(error){
+          respond(requestId,null,error);
+        });
         return;
       }
       if(message.type==='playback-control'){
