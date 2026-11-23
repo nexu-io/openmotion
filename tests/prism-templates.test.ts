@@ -21,7 +21,7 @@ test('catalog returns a local searchable index; disk cache revalidates with ETag
   const remote = mockPrism();
   const catalog = new TemplateCatalog(directory, { fetch: remote.request });
   const [index, page] = await Promise.all([catalog.index(), catalog.page({ query: '品牌' })]);
-  assert.equal(remote.requests.length, 1);
+  assert.deepEqual(remote.requests.map(req => new URL(req.url).pathname.split('/').at(-1)), ['manifest.json', 'zh-CN.json']);
   assert.equal(index.total, 5); // One published template and four built-ins.
   assert.equal('items' in index, false);
   const lines = (await readFile(index.indexPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
@@ -204,22 +204,107 @@ test('gallery carries Prism facets and ordering without leaking project files', 
   assert.equal('files' in items[0], false);
 });
 
-test('one cached publication serves concurrent locales and locale-specific downloads', async t => {
+test('v4 manifest fetches only requested locales lazily and never downloads full main.json', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'motion-prism-locales-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const remote = mockPrism(), data = publication();
   const localized = (title: string, document: string) => ({ templates: data.content['zh-CN'].templates.map(item => ({ ...item,
     original: { ...item.original, templateName: title }, motionDocumentUrl: document,
   })) });
-  Object.assign(data.content, { en: localized('English template', 'https://example.com/en.zip'), 'pt-br': localized('Modelo', 'https://example.com/pt.zip') });
+  Object.assign(data.content, { en: localized('English template', 'https://example.com/en.zip'), 'pt-br': localized('Modelo', 'https://example.com/pt.zip'), fr: localized('Modele', 'https://example.com/fr.zip') });
   remote.update(data);
   const catalog = new TemplateCatalog(directory, { fetch: remote.request });
   const [english, portuguese, chinese, fallback] = await Promise.all(['en', 'pt-BR', 'zh', 'ja'].map(locale => catalog.page({ locale })));
-  assert.equal(remote.requests.length, 1);
+  const fetched = remote.requests.map(req => new URL(req.url).pathname.split('/').at(-1));
+  assert.equal(fetched.filter(name => name === 'manifest.json').length, 1);
+  assert.equal(fetched.includes('main.json'), false);
+  assert.equal(fetched.includes('fr.json'), false, 'Unused locales must not be downloaded');
+  assert.deepEqual(fetched.filter(name => name !== 'manifest.json').sort(), ['en.json', 'pt-br.json', 'zh-CN.json']);
   assert.equal(english.items[0].title, 'English template');
   assert.equal(portuguese.items[0].title, 'Modelo');
   assert.equal(portuguese.items[0].motionDocumentUrl, 'https://example.com/pt.zip');
   assert.equal(chinese.items[0].title, '测试模板 1');
   assert.equal(fallback.items[0].title, 'English template');
   assert.equal((await catalog.get('test-motion-1')).files[0].url, data.content['zh-CN'].templates[0].files[0].url);
+});
+
+test('falls back to main.json when manifest.json returns 404 and revalidates with ETag', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-prism-legacy-main-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const remote = mockPrism({ manifest: false }), data = publication();
+  Object.assign(data.content, { en: { templates: data.content['zh-CN'].templates.map(item => ({ ...item, original: { ...item.original, templateName: 'English fallback' } })) } });
+  remote.update(data);
+  const catalog = new TemplateCatalog(directory, { fetch: remote.request });
+  const [english, chinese] = await Promise.all([catalog.page({ locale: 'en' }), catalog.page({ locale: 'zh-CN' })]);
+  assert.deepEqual(remote.requests.map(req => new URL(req.url).pathname.split('/').at(-1)), ['manifest.json', 'main.json']);
+  assert.equal(english.items[0].title, 'English fallback');
+  assert.equal(chinese.items[0].title, '测试模板 1');
+  const reopened = new TemplateCatalog(directory, { fetch: remote.request });
+  assert.equal((await reopened.index()).catalogVersion, 'test-publication-1');
+  assert.equal(remote.requests.at(-1)!.url.endsWith('/main.json'), true);
+  assert.equal(remote.requests.at(-1)!.etag, '"test-publication-1"');
+});
+
+test('v4 manifest rejects tampered locale payloads and cross-origin content URLs while preserving cache', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-prism-integrity-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const remote = mockPrism();
+  const catalog = new TemplateCatalog(directory, { fetch: remote.request });
+  const good = await catalog.index();
+  assert.equal(good.catalogVersion, 'test-publication-1');
+
+  const tamperedFetch: typeof fetch = async input => {
+    const url = String(input);
+    if (url.endsWith('/manifest.json')) {
+      return Response.json({
+        manifestVersion: 'v4', resourceId: remote.current.resourceId, environment: 'prod', channel: 'default',
+        publicationId: 'test-publication-tampered', defaultLocale: 'zh-CN',
+        contents: [{ locale: 'zh-CN', contentUrl: `/resources/${remote.current.resourceId}/channels/default/versions/tampered/zh-CN.json`, sha256: 'a'.repeat(64), byteLength: 2 }],
+      });
+    }
+    return new Response('{}', { headers: { 'content-type': 'application/json' } });
+  };
+  await assert.rejects(new TemplateCatalog(path.join(directory, 'cold-tamper'), { fetch: tamperedFetch }).index(), /校验失败/);
+
+  const crossOriginFetch: typeof fetch = async () => Response.json({
+    manifestVersion: 'v4', resourceId: remote.current.resourceId, environment: 'prod', channel: 'default',
+    publicationId: 'test-publication-evil', defaultLocale: 'zh-CN',
+    contents: [{ locale: 'zh-CN', contentUrl: 'https://evil.example/resources/fake/zh-CN.json', sha256: 'a'.repeat(64), byteLength: 2 }],
+  });
+  await assert.rejects(new TemplateCatalog(path.join(directory, 'cold-origin'), { fetch: crossOriginFetch }).index(), /地址无效/);
+
+  const cachedPreserved = await new TemplateCatalog(directory, { fetch: tamperedFetch }).index();
+  assert.equal(cachedPreserved.catalogVersion, good.catalogVersion);
+  assert.match(cachedPreserved.warning!, /校验失败/);
+});
+
+test('falls back to main.json when manifest.json has an unrecognized version or non-JSON body', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-prism-manifest-fallback-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const data = publication(1);
+  const requests: string[] = [];
+  const v5Fetch: typeof fetch = async input => {
+    const url = String(input);
+    requests.push(new URL(url).pathname.split('/').at(-1)!);
+    if (url.endsWith('/manifest.json')) {
+      return Response.json({ manifestVersion: 'v5', resourceId: data.resourceId, environment: 'prod', channel: 'default', publicationId: 'v5-pub', defaultLocale: 'zh-CN', locales: [] });
+    }
+    if (url.endsWith('/main.json')) return Response.json(data, { headers: { etag: '"main-v5-fallback"' } });
+    return new Response('missing', { status: 404 });
+  };
+  const fromV5 = await new TemplateCatalog(path.join(directory, 'v5'), { fetch: v5Fetch }).index();
+  assert.equal(fromV5.catalogVersion, 'test-publication-1');
+  assert.deepEqual(requests, ['manifest.json', 'main.json']);
+
+  const htmlRequests: string[] = [];
+  const htmlFetch: typeof fetch = async input => {
+    const url = String(input);
+    htmlRequests.push(new URL(url).pathname.split('/').at(-1)!);
+    if (url.endsWith('/manifest.json')) return new Response('<!doctype html><html><body>Not found</body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    if (url.endsWith('/main.json')) return Response.json(data, { headers: { etag: '"main-html-fallback"' } });
+    return new Response('missing', { status: 404 });
+  };
+  const fromHtml = await new TemplateCatalog(path.join(directory, 'html'), { fetch: htmlFetch }).index();
+  assert.equal(fromHtml.catalogVersion, 'test-publication-1');
+  assert.deepEqual(htmlRequests, ['manifest.json', 'main.json']);
 });

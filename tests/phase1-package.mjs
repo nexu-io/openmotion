@@ -7,7 +7,7 @@ import {createInterface} from 'node:readline';
 import {createServer} from 'node:net';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {catalogUrl, publication, contents} from './prism-fixture.ts';
+import {catalogUrl, manifestUrl, publication, contents} from './prism-fixture.ts';
 const archive=process.argv[2];assert.ok(path.isAbsolute(archive));
 const work=await realpath(await mkdtemp(path.join(tmpdir(),'om-phase1-package-')));
 const evidence=process.argv[3]?path.resolve(process.argv[3]):path.join(work,'evidence');await mkdir(evidence,{recursive:true});
@@ -35,7 +35,7 @@ const sock=createServer();await new Promise(resolve=>sock.listen(Number(process.
 // A deterministic published catalog, injected only into this isolated package test.
 const catalogFixture=path.join(work,'prism-fixture.mjs');
 await writeFile(catalogFixture, `const original=globalThis.fetch; const publication=${JSON.stringify(publication())}; const contents=${JSON.stringify(contents)};
-globalThis.fetch=async (input,init)=>{const url=String(input);if(url===${JSON.stringify(catalogUrl)})return Response.json(publication,{headers:{etag:'"fixture"'}});const file=publication.content['zh-CN'].templates[0].files.find(f=>f.url===url);return file?new Response(contents[file.path]):original(input,init);};`);
+globalThis.fetch=async (input,init)=>{const url=String(input);if(url===${JSON.stringify(manifestUrl)})return new Response('missing',{status:404});if(url===${JSON.stringify(catalogUrl)})return Response.json(publication,{headers:{etag:'"fixture"'}});const file=publication.content['zh-CN'].templates[0].files.find(f=>f.url===url);return file?new Response(contents[file.path]):original(input,init);};`);
 const child=spawn(process.execPath,['--experimental-strip-types',path.join(root,'mcp.ts')],{cwd:tmpdir(),env:{...process.env,NODE_OPTIONS:[process.env.NODE_OPTIONS,'--import='+catalogFixture].filter(Boolean).join(' '),MOTION_DATA_DIR:data,PORT:String(port)},stdio:['pipe','pipe','pipe']});
 let stderr='',counter=0;const pending=new Map(), calledTools=new Set(), calls=[];child.stderr.on('data',d=>stderr+=d);
 createInterface({input:child.stdout}).on('line',line=>{try{const item=JSON.parse(line);const slot=pending.get(item.id);if(slot){clearTimeout(slot.timer);pending.delete(item.id);item.error?slot.reject(Error(JSON.stringify(item.error))):slot.resolve(item.result);}}catch(e){stderr+='\nNON-JSON STDOUT '+line;}});

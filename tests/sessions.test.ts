@@ -6,7 +6,7 @@ import { fixture } from './fixtures.ts';
 import { startServer } from '../server.ts';
 import { WorkspaceStore } from '../workspace.ts';
 import { callTool } from '../mcp.ts';
-import { catalogUrl, contents, mockPrism } from './prism-fixture.ts';
+import { contents, mockPrism, resourceId } from './prism-fixture.ts';
 
 // This suite exercises the published CMS flow with a mocked Prism response.
 process.env.MOTION_TEMPLATE_SOURCE = 'cms';
@@ -39,7 +39,7 @@ test('legacy projects and conversation files become sessions without changing pr
 
 test('Motion sessions own multiple independent artifacts and restore the last selected artifact', { timeout: 180_000 }, t => fixture(async store => {
   const originalFetch = globalThis.fetch, prism = mockPrism();
-  t.mock.method(globalThis, 'fetch', (input, init) => String(input) === catalogUrl || String(input).startsWith('https://r.open-design.ai/files/') ? prism.request(input, init) : originalFetch(input, init));
+  t.mock.method(globalThis, 'fetch', (input, init) => String(input).startsWith(`https://r.open-design.ai/resources/${resourceId}/`) || String(input).startsWith('https://r.open-design.ai/files/') ? prism.request(input, init) : originalFetch(input, init));
   const running = await startServer(store, 0);
   const origin = `http://127.0.0.1:${(running.server.address() as { port: number }).port}`;
   await writeFile(path.join(store.directory, 'preview.json'), JSON.stringify({ port: (running.server.address() as { port: number }).port }));

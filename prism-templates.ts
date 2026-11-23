@@ -22,15 +22,30 @@ type PrismTemplate = {
   brand?: string; creationModels?: string[]; colors?: string[]; industries?: string[];
   width?: number; height?: number; featuredOrder?: number | null;
 };
+type LocaleContent = { templates: PrismTemplate[]; brands?: { name: string; logoUrl: string }[] };
 type Publication = {
   resourceId: string; environment: string; channel: string; publicationId: string;
-  defaultLocale: string; content: Record<string, { templates: PrismTemplate[]; brands?: { name: string; logoUrl: string }[] }>;
+  defaultLocale: string; content: Record<string, LocaleContent>;
 };
-type Snapshot = { etag: string | null; publication: Publication; repository?: Awaited<ReturnType<typeof loadRepositoryCatalog>>; hosted?: HostedRepositoryCatalog };
+type ManifestLocale = { locale: string; contentUrl: string; sha256: string; byteLength: number };
+type Manifest = {
+  manifestVersion: 'v4';
+  resourceId: string; environment: string; channel: string; publicationId: string;
+  defaultLocale: string; contents: ManifestLocale[];
+};
+type Snapshot = {
+  etag: string | null;
+  publication: Publication;
+  manifest?: Manifest;
+  repository?: Awaited<ReturnType<typeof loadRepositoryCatalog>>;
+  hosted?: HostedRepositoryCatalog;
+};
 export type EditableTemplate = GalleryTemplate & { files?: TemplateFile[]; catalogVersion?: string; conversionStatus?: string; conversionNotes?: string };
 const splitTags = (value = '') => value.split(/[,，]/).map(tag => tag.trim()).filter(Boolean);
 const builtinTemplates = libraryTemplates.filter(template => template.kind === 'builtin');
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
+const MANIFEST_TIMEOUT_MS = 10_000;
+const CATALOG_TIMEOUT_MS = 30_000;
 
 async function atomicWrite(filename: string, content: string | Buffer): Promise<void> {
   await mkdir(path.dirname(filename), { recursive: true });
@@ -44,11 +59,14 @@ export class TemplateCatalog {
   private snapshot?: Snapshot;
   private checkedAt = 0;
   private pending?: Promise<Snapshot>;
+  private readonly localePending = new Map<string, Promise<void>>();
   private warning?: string;
+  private readonly origin: string;
   readonly environment: string;
   readonly resourceId: string;
   readonly locale: string;
   readonly url: string;
+  readonly manifestUrl: string;
   readonly directory: string;
   readonly source: 'repository' | 'hosted' | 'cms';
   readonly repositoryRoot: string;
@@ -62,16 +80,82 @@ export class TemplateCatalog {
     this.locale = options.locale ?? config.locale;
     this.source = options.source ?? config.source;
     this.repositoryRoot = options.repositoryRoot ?? repositoryCatalogRoot;
-    const origin = this.environment === 'dev' ? 'https://r.powerformer.net' : 'https://r.open-design.ai';
-    this.url = `${origin}/resources/${encodeURIComponent(this.resourceId)}/channels/default/main.json`;
+    this.origin = this.environment === 'dev' ? 'https://r.powerformer.net' : 'https://r.open-design.ai';
+    const channelBase = `${this.origin}/resources/${encodeURIComponent(this.resourceId)}/channels/default`;
+    this.url = `${channelBase}/main.json`;
+    this.manifestUrl = `${channelBase}/manifest.json`;
     this.directory = path.resolve(dataDirectory, 'template-cache', hash(this.source + ':' + this.url + this.locale).slice(0, 16));
     this.request = options.fetch ?? fetch;
   }
 
-  private entries(publication: Publication, requested = this.locale): PrismTemplate[] {
-    if (this.source === 'cms' && (publication.resourceId !== this.resourceId || publication.environment !== this.environment || publication.channel !== 'default' || !publication.publicationId)) {
+  private validateIdentity(meta: { resourceId?: string; environment?: string; channel?: string; publicationId?: string }): void {
+    if (meta.resourceId !== this.resourceId || meta.environment !== this.environment || meta.channel !== 'default' || !meta.publicationId) {
       throw new Error('模板目录的发布身份不匹配');
     }
+  }
+
+  private isV4Manifest(value: unknown): value is Manifest {
+    if (!value || typeof value !== 'object') return false;
+    const candidate = value as Partial<Manifest>;
+    return candidate.manifestVersion === 'v4'
+      && typeof candidate.defaultLocale === 'string'
+      && Array.isArray(candidate.contents)
+      && candidate.contents.length > 0
+      && candidate.contents.every(item =>
+        item && typeof item.locale === 'string' && item.locale.length > 0
+        && typeof item.contentUrl === 'string' && item.contentUrl.length > 0
+        && typeof item.sha256 === 'string' && /^[a-f0-9]{64}$/.test(item.sha256)
+        && Number.isSafeInteger(item.byteLength) && item.byteLength > 0);
+  }
+
+  private resolveLocaleUrl(contentUrl: string): URL {
+    const url = new URL(contentUrl, this.origin);
+    const prefix = `/resources/${encodeURIComponent(this.resourceId)}/`;
+    if (url.origin !== this.origin || !url.pathname.startsWith(prefix)) {
+      throw new Error('模板目录语种内容地址无效');
+    }
+    return url;
+  }
+
+  private async fetchLocaleContent(entry: ManifestLocale): Promise<LocaleContent> {
+    const url = this.resolveLocaleUrl(entry.contentUrl);
+    const response = await this.request(url, { redirect: 'error', signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS) });
+    if (!response.ok) throw new Error(`模板目录语种下载失败：${entry.locale}（HTTP ${response.status}）`);
+    const bytes = await boundedMediaBody(response, entry.byteLength);
+    if (bytes.length !== entry.byteLength || hash(bytes) !== entry.sha256) {
+      throw new Error(`模板目录语种校验失败：${entry.locale}`);
+    }
+    return JSON.parse(bytes.toString('utf8')) as LocaleContent;
+  }
+
+  private async ensureLocale(snapshot: Snapshot, requested?: string): Promise<void> {
+    const manifest = snapshot.manifest;
+    if (!manifest || !requested) return;
+    const locale = catalogLocale(manifest.contents.map(item => item.locale), requested, manifest.defaultLocale);
+    if (snapshot.publication.content[locale]) return;
+    const entry = manifest.contents.find(item => item.locale === locale);
+    if (!entry) return;
+    const key = `${manifest.publicationId}:${locale}`;
+    let pending = this.localePending.get(key);
+    if (!pending) {
+      pending = (async () => {
+        try {
+          const content = await this.fetchLocaleContent(entry);
+          const candidate: Publication = { ...snapshot.publication, content: { ...snapshot.publication.content, [locale]: content } };
+          this.entries(candidate, locale);
+          snapshot.publication.content[locale] = content;
+          await atomicWrite(path.join(this.directory, 'catalog.json'), JSON.stringify({ publication: snapshot.publication, etag: snapshot.etag, manifest }));
+        } catch (error) {
+          this.warning = `模板语种加载失败，使用已缓存语种：${(error as Error).message}`;
+        }
+      })().finally(() => { this.localePending.delete(key); });
+      this.localePending.set(key, pending);
+    }
+    await pending;
+  }
+
+  private entries(publication: Publication, requested = this.locale): PrismTemplate[] {
+    if (this.source === 'cms') this.validateIdentity(publication);
     const locale = catalogLocale(Object.keys(publication.content ?? {}), requested, publication.defaultLocale);
     const entries = publication.content?.[locale]?.templates;
     if (!Array.isArray(entries) || entries.some(item => !item.templateId || !item.original?.templateName || !Array.isArray(item.files))) {
@@ -125,6 +209,21 @@ export class TemplateCatalog {
     return this.pending;
   }
 
+  private async downloadMain(filename: string): Promise<void> {
+    const response = await this.request(this.url, {
+      headers: !this.snapshot?.manifest && this.snapshot?.etag ? { 'If-None-Match': this.snapshot.etag } : {},
+      signal: AbortSignal.timeout(CATALOG_TIMEOUT_MS),
+    });
+    if (response.status !== 304 || !this.snapshot) {
+      if (!response.ok) throw new Error(`模板目录下载失败（HTTP ${response.status}）`);
+      const publication: Publication = await response.json();
+      this.entries(publication);
+      const candidate: Snapshot = { publication, etag: response.headers.get('etag') };
+      await atomicWrite(filename, JSON.stringify(candidate));
+      this.snapshot = candidate;
+    }
+  }
+
   private async download(): Promise<Snapshot> {
     const filename = path.join(this.directory, 'catalog.json');
     if (!this.snapshot) {
@@ -137,19 +236,57 @@ export class TemplateCatalog {
       }
     }
     try {
-      const response = await this.request(this.url, {
-        headers: this.snapshot?.etag ? { 'If-None-Match': this.snapshot.etag } : {},
-        signal: AbortSignal.timeout(10_000),
+      const response = await this.request(this.manifestUrl, {
+        headers: this.snapshot?.manifest && this.snapshot.etag ? { 'If-None-Match': this.snapshot.etag } : {},
+        signal: AbortSignal.timeout(MANIFEST_TIMEOUT_MS),
       });
-      if (response.status !== 304 || !this.snapshot) {
-        if (!response.ok) throw new Error(`模板目录下载失败（HTTP ${response.status}）`);
-        const publication: Publication = await response.json();
-        this.entries(publication);
-        const candidate = { publication, etag: response.headers.get('etag') };
-        await atomicWrite(filename, JSON.stringify(candidate));
-        this.snapshot = candidate;
+      if (response.status === 304 && this.snapshot?.manifest) {
+        this.warning = undefined;
+      } else if (response.status === 404) {
+        await this.downloadMain(filename);
+        this.warning = undefined;
+      } else {
+        if (!response.ok) throw new Error(`模板目录清单下载失败（HTTP ${response.status}）`);
+        let payload: unknown;
+        try {
+          payload = await response.json();
+        } catch {
+          await this.downloadMain(filename);
+          this.warning = undefined;
+          this.checkedAt = Date.now();
+          return this.snapshot!;
+        }
+        if (this.isV4Manifest(payload)) {
+          this.validateIdentity(payload);
+          const targetLocale = catalogLocale(payload.contents.map(item => item.locale), this.locale, payload.defaultLocale);
+          const entry = payload.contents.find(item => item.locale === targetLocale);
+          if (!entry) throw new Error(`模板目录缺少 ${targetLocale} 模板数据`);
+          const samePublication = this.snapshot?.publication.publicationId === payload.publicationId;
+          const existing = samePublication ? this.snapshot!.publication.content : {};
+          const localeContent = existing[targetLocale] ?? await this.fetchLocaleContent(entry);
+          const publication: Publication = {
+            resourceId: payload.resourceId,
+            environment: payload.environment,
+            channel: payload.channel,
+            publicationId: payload.publicationId,
+            defaultLocale: payload.defaultLocale,
+            content: { ...existing, [targetLocale]: localeContent },
+          };
+          this.entries(publication, targetLocale);
+          const candidate: Snapshot = { publication, etag: response.headers.get('etag'), manifest: payload };
+          await atomicWrite(filename, JSON.stringify(candidate));
+          this.snapshot = candidate;
+        } else if (payload && typeof payload === 'object' && 'content' in payload) {
+          const publication = payload as Publication;
+          this.entries(publication);
+          const candidate: Snapshot = { publication, etag: response.headers.get('etag') };
+          await atomicWrite(filename, JSON.stringify(candidate));
+          this.snapshot = candidate;
+        } else {
+          await this.downloadMain(filename);
+        }
+        this.warning = undefined;
       }
-      this.warning = undefined;
     } catch (error) {
       if (!this.snapshot) throw error;
       this.warning = `模板更新失败，使用已缓存目录：${(error as Error).message}`;
@@ -244,6 +381,7 @@ export class TemplateCatalog {
 
   async page(options: Parameters<typeof templatePage>[1] & { covered?: boolean; locale?: string } = {}) {
     const snapshot = await this.refresh();
+    await this.ensureLocale(snapshot, options.locale);
     const items = this.templates(snapshot, options.locale).map(({ files: _files, ...item }) => item);
     const visible = options.covered ? items.filter(item => item.posterUrl) : items;
     return { ...templatePage(visible, options), catalogTotal: items.length, catalogVersion: snapshot.repository?.version ?? snapshot.hosted?.version ?? snapshot.publication.publicationId, source: this.source, warning: this.warning };

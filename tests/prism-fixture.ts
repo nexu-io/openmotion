@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 export const resourceId = '1500c9af-186b-457f-b74d-a58113f657d8';
 export const catalogUrl = `https://r.open-design.ai/resources/${resourceId}/channels/default/main.json`;
+export const manifestUrl = `https://r.open-design.ai/resources/${resourceId}/channels/default/manifest.json`;
 export const contents = {
   'index.html': '<!doctype html><html><head><script src="assets/gsap.min.js"></script></head><body><main id="main" data-composition-id="main" data-width="320" data-height="180" data-start="0" data-duration="1"><div class="clip" data-start="0" data-duration="1" data-track-index="1">Prism template</div></main><script src="animation.js"></script></body></html>',
   'animation.js': 'window.__timelines={main:gsap.timeline({paused:true}).to(".clip",{opacity:0.5,duration:1})};',
@@ -22,16 +23,47 @@ export function publication(generation = 1, environment = 'prod') {
   };
 }
 
-export function mockPrism() {
+export function mockPrism(options: { manifest?: boolean } = {}) {
+  const serveManifest = options.manifest ?? true;
   let current = publication();
   let offline = false;
   const requests: { url: string; etag: string | null }[] = [];
+  const localeBytes = (locale: string) => Buffer.from(JSON.stringify(current.content[locale as keyof typeof current.content]));
   const request: typeof fetch = async (input, init) => {
     const url = String(input);
     requests.push({ url, etag: new Headers(init?.headers).get('If-None-Match') });
     if (offline) throw new Error('offline');
+    const etag = `"${current.publicationId}"`;
+    if (url.endsWith('/manifest.json')) {
+      if (!serveManifest) return new Response('missing', { status: 404 });
+      if (new Headers(init?.headers).get('If-None-Match') === etag) return new Response(null, { status: 304 });
+      return Response.json({
+        manifestVersion: 'v4',
+        resourceId: current.resourceId,
+        environment: current.environment,
+        channel: current.channel,
+        publicationId: current.publicationId,
+        defaultLocale: current.defaultLocale,
+        contents: Object.keys(current.content).map(locale => {
+          const bytes = localeBytes(locale);
+          return {
+            locale,
+            contentUrl: `/resources/${current.resourceId}/channels/default/versions/${current.publicationId}/${locale}.json`,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            byteLength: bytes.length,
+          };
+        }),
+      }, { headers: { etag } });
+    }
+    const localeMatch = new RegExp(`/resources/${current.resourceId}/channels/default/versions/([^/]+)/([^/]+)\\.json$`).exec(url);
+    if (localeMatch) {
+      const [, pubId, locale] = localeMatch;
+      if (pubId === current.publicationId && Object.prototype.hasOwnProperty.call(current.content, locale)) {
+        return new Response(localeBytes(locale), { headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('missing', { status: 404 });
+    }
     if (url.endsWith('/main.json')) {
-      const etag = `"${current.publicationId}"`;
       if (new Headers(init?.headers).get('If-None-Match') === etag) return new Response(null, { status: 304 });
       return Response.json(current, { headers: { etag } });
     }
