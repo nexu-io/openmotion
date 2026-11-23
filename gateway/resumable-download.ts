@@ -92,10 +92,13 @@ export async function resumableDownload(directory: string, resolve: () => Promis
         await save();
         if (bytes !== asset.size) throw new Error(downloadInterrupted);
         return await file.readFile();
-      } catch {
+      } catch (error) {
         await response?.body?.cancel().catch(() => {});
         await save(); signal.throwIfAborted();
-        if (attempt + 1 === attempts) throw new Error(downloadInterrupted);
+        if (attempt + 1 === attempts) {
+          const message = error instanceof Error ? error.message.replace(/https?:\/\/\S+/gi, '[redacted-url]') : String(error);
+          throw new Error(downloadInterrupted, { cause: message && message !== downloadInterrupted ? new Error(message) : undefined });
+        }
         await delay(500 * (attempt + 1), undefined, { signal });
       }
     }

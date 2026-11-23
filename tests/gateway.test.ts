@@ -11,7 +11,7 @@ import { fixture } from './fixtures.ts';
 import { transport } from './http.ts';
 import { ModelGateway, gatewayFor } from '../gateway/service.ts';
 import { classifyModel, discoverModels, normalizeModels } from '../gateway/catalog.ts';
-import { apiJson, downloadMedia, isPublicAddress, mediaType, providerOrigin, publicProviderFetch, type Fetcher } from '../gateway/network.ts';
+import { apiJson, downloadMedia, isPublicAddress, mediaType, providerOrigin, publicProviderFetch, resolvePublicAddresses, type Fetcher } from '../gateway/network.ts';
 import { publicBrandAddress, brandWebsite } from '../gateway/brand-network.ts';
 import { callTool } from '../mcp.ts';
 import { createTracker, validProperties, type PendingEvent } from '../tracking/core.ts';
@@ -447,3 +447,46 @@ test('account image auto retry verifies Range and never appends changed or corru
     assert.deepEqual(result, expected, mode);
   }
 }));
+
+test('resolvePublicAddresses falls back to public DNS only when all OS answers are Fake-IP', async () => {
+  const signal = new AbortController().signal;
+  let queried = 0;
+  const publicAnswer = [{ address: '52.217.223.42', family: 4 }];
+  const resolved = await resolvePublicAddresses('media.example', signal, 'Generated media points to a non-public address', {
+    lookup: async () => [{ address: '198.18.31.124', family: 4 }],
+    publicDns: async () => { queried++; return publicAnswer; },
+  });
+  assert.equal(queried, 1);
+  assert.deepEqual(resolved, publicAnswer);
+
+  // Mixed Fake-IP + private IP must never fall back to public DNS.
+  await assert.rejects(
+    resolvePublicAddresses('media.example', signal, 'Generated media points to a non-public address', {
+      lookup: async () => [{ address: '198.18.1.42', family: 4 }, { address: '10.0.0.1', family: 4 }],
+      publicDns: async () => { queried++; return publicAnswer; },
+    }),
+    /non-public address/,
+  );
+  assert.equal(queried, 1);
+
+  // Loopback, RFC1918, and link-local addresses must be rejected without calling publicDns.
+  for (const address of ['127.0.0.1', '192.168.1.1', '169.254.1.1']) {
+    await assert.rejects(
+      resolvePublicAddresses('media.example', signal, 'Generated media points to a non-public address', {
+        lookup: async () => [{ address, family: 4 }],
+        publicDns: async () => { queried++; return publicAnswer; },
+      }),
+      /non-public address/,
+    );
+  }
+  assert.equal(queried, 1);
+
+  // Non-public answers from publicDns itself must also be rejected.
+  await assert.rejects(
+    resolvePublicAddresses('media.example', signal, 'Generated media points to a non-public address', {
+      lookup: async () => [{ address: '198.18.31.124', family: 4 }],
+      publicDns: async () => [{ address: '127.0.0.1', family: 4 }],
+    }),
+    /non-public address/,
+  );
+});

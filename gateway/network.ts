@@ -82,6 +82,67 @@ function isGlobalUnicastV6(address: string) {
   if (first === 0x2001 && (second === 0x0000 || second === 0x0db8)) return false;
   return first !== 0x2002;
 }
+export type ResolvedAddress = { address: string; family: number };
+const syntheticAddress = (address: string) => /^198\.(?:18|19)\./.test(address);
+
+/** A public resolver handles proxy Fake-IP answers without admitting synthetic/private peers. */
+export async function publicDns(hostname: string, signal?: AbortSignal): Promise<ResolvedAddress[]> {
+  const url = new URL('https://cloudflare-dns.com/dns-query');
+  url.searchParams.set('name', hostname);
+  url.searchParams.set('type', 'A');
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, {
+      signal,
+      headers: { Accept: 'application/dns-json' },
+      // Bootstrap the resolver independently of the synthetic OS DNS. TLS still verifies its hostname.
+      lookup: (_host, options, done) => {
+        if ((options as { all?: boolean }).all) (done as Function)(null, [{ address: '1.1.1.1', family: 4 }]);
+        else done(null, '1.1.1.1', 4);
+      },
+    }, response => {
+      const chunks: Buffer[] = []; let length = 0;
+      response.on('data', (chunk: Buffer) => {
+        length += chunk.length;
+        if (length > 65_536) response.destroy(new Error('Public DNS response is too large'));
+        else chunks.push(chunk);
+      });
+      response.on('error', reject);
+      response.on('end', () => {
+        try {
+          if (response.statusCode !== 200) throw new Error('Public DNS lookup failed');
+          const answer = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if (answer.Status !== 0 || !Array.isArray(answer.Answer)) throw new Error('Public DNS lookup failed');
+          resolve(answer.Answer.filter((record: { type: number; data: string }) => record.type === 1)
+            .map((record: { data: string }) => ({ address: record.data, family: 4 })));
+        } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(5000, () => request.destroy(new Error('Public DNS lookup timed out')));
+    request.on('error', reject);
+  });
+}
+
+export async function resolvePublicAddresses(
+  hostname: string,
+  signal?: AbortSignal,
+  errorMessage = 'Generated media points to a non-public address',
+  dependencies = {
+    lookup: (name: string) => lookup(name, { all: true }),
+    publicDns,
+  },
+): Promise<ResolvedAddress[]> {
+  let addresses = await dependencies.lookup(hostname);
+  signal?.throwIfAborted();
+  // Only the well-defined benchmarking/Fake-IP range gets a second resolution path.
+  // A loopback, RFC1918, mixed private or link-local DNS answer remains a hard rejection.
+  if (addresses.length && addresses.every(({ address }) => syntheticAddress(address)))
+    addresses = await dependencies.publicDns(hostname, signal);
+  signal?.throwIfAborted();
+  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address)))
+    throw new Error(errorMessage);
+  return addresses;
+}
+
 export function providerOrigin(raw: unknown): string {
   if (typeof raw !== 'string' || raw.length > 2048) throw new Error('A public HTTPS API origin is required');
   const url = new URL(raw);
@@ -93,8 +154,8 @@ export function providerOrigin(raw: unknown): string {
 /** Custom Cloud origins use pinned public DNS and never forward credentials on redirects. */
 export async function publicProviderFetch(raw: Parameters<Fetcher>[0], init: RequestInit = {}, idleTimeoutMs = 60_000, maxBytes = MAX_MEDIA_BYTES): Promise<Response> {
   const url = new URL(String(raw)); providerOrigin(url.origin);
-  const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Provider points to a non-public address');
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  const addresses = await resolvePublicAddresses(hostname, init.signal ?? undefined, 'Provider points to a non-public address');
   return new Promise<Response>((resolve, reject) => {
     const req = https.request(url, { method: init.method ?? 'GET', headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
       lookup: (_host, options, done) => {
@@ -118,8 +179,8 @@ export const MAX_MEDIA_BYTES = 256 * 1024 * 1024;
 /** Streaming, credential-free transport for resumable media. Validate and pin every redirect's DNS. */
 export async function streamMedia(raw: string, init: RequestInit, redirects = 0): Promise<Response> {
   const url = new URL(raw); providerOrigin(url.origin);
-  const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Generated media points to a non-public address');
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  const addresses = await resolvePublicAddresses(hostname, init.signal ?? undefined, 'Generated media points to a non-public address');
   return new Promise<Response>((resolve, reject) => {
     const req = https.get(url, { headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
       lookup: (_host, options, done) => {
@@ -151,8 +212,7 @@ export async function downloadMedia(raw: string, signal: AbortSignal, redirects 
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) throw new Error('Generated media must use public HTTPS');
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
-  const addresses = await lookup(hostname, { all: true });
-  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Generated media points to a non-public address');
+  const addresses = await resolvePublicAddresses(hostname, signal, 'Generated media points to a non-public address');
   return new Promise<Buffer>((resolve, reject) => {
     const req = https.get(url, { signal, lookup: (_host, options, done) => {
       if ((options as { all?: boolean }).all) (done as Function)(null, addresses);
