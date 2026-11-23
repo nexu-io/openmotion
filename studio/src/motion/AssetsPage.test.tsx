@@ -1230,4 +1230,25 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
   await act(async () => codexDialog.querySelector<HTMLButtonElement>('[aria-label="Picture BIG"]')!.click());
   await click('Use selected version');
   expect(rememberCodex.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['BIG']);
+
+  // Generation history's Use as reference action also validates OpenDesign size/format limits.
+  await act(async () => root.unmount()); root = createRoot(container);
+  const generatedBig = fixture('GENBIG');
+  generatedBig.versions[0].source = 'generation';
+  generatedBig.versions[0].bytes = 3 * 1024 * 1024;
+  records.set('GENBIG', generatedBig);
+  const rememberGen = vi.fn();
+  await act(async () => root.render(<AssetsPage active studio={{
+    destination: mediaEditorDestination('character'),
+    draftKey: 'character:gen-history-big',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember: rememberGen, chooseModel: vi.fn(),
+  }} />)); await flush();
+  await act(async () => container.querySelectorAll<HTMLButtonElement>('.om-assets-heading .om-choice-tabs button')[1].click()); await flush();
+  const useRefBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Use as reference' || node.getAttribute('aria-label') === 'Use as reference');
+  if (useRefBtn) {
+    await act(async () => useRefBtn.click()); await flush();
+    expect(document.body.textContent).toContain('The reference image is larger than the 2 MiB OpenDesign upload limit.');
+    expect(rememberGen.mock.lastCall?.[0].references ?? []).toHaveLength(0);
+  }
 });

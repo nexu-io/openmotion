@@ -490,7 +490,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
       }
       if (!mountedRef.current) return;
       if (summary.uploaded || summary.unknown) refresh();
-      if (attempted > 0 && shouldContinue()) {
+      if (attempted > 0) {
         toast.showToast(assetUploadMessage(summary), summary.failed || summary.unknown ? 'error' : 'info');
       }
       if (attempted > 0) tracking.reportLibraryImport(entry, attempted, summary.uploaded);
@@ -514,6 +514,11 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     if (draft.references.some(existing => existing.reference.assetId === item.reference.assetId && existing.reference.versionId === item.reference.versionId)) {
       setMobileView('create');
       return;
+    }
+    const sourceAsset = browser.data?.assets.find(candidate => candidate.id === item.reference.assetId);
+    if (sourceAsset) {
+      const invalidReason = validateLibraryReference(sourceAsset, item.reference.versionId);
+      if (invalidReason) { onError(invalidReason); return; }
     }
     if (draft.references.length >= studioAttachableReferences) {
       onError(t('Reference limit reached.'));
