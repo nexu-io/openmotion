@@ -7,7 +7,6 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fixture } from './fixtures.ts';
 import { gatewayFor } from '../gateway/service.ts';
-import { builtinModels } from '../gateway/catalog.ts';
 import { Phase1Service } from '../phase1.ts';
 import { pluginRoot } from '../hyperframes.ts';
 import { accountMediaState } from '../gateway/account-media.ts';
@@ -33,7 +32,7 @@ test('public media tool reads guides, generates fal media once and binds job que
   await gateway.configureProvider('fal', { apiKey: 'test-fal-private' });
   assert.equal((await stat(path.join(gateway.root, 'secrets.json'))).mode & 0o777, 0o600);
   const inspect = await api.call('openmotion_media_use', { action: 'inspect' });
-  assert.deepEqual(inspect.providers.map((p: any) => [p.id, p.enabled]), [['aimlapi', false], ['atlascloud', false], ['fal', true], ['opendesign', false], ['wavespeed', false], ['account', false]]);
+  assert.deepEqual(inspect.providers.map((p: any) => [p.id, p.enabled]), [['atlascloud', false], ['fal', true], ['opendesign', false], ['wavespeed', false], ['aimlapi', false], ['account', false]]);
   assert.doesNotMatch(JSON.stringify(inspect), /test-fal-private/);
   const reference = await api.call('openmotion_media_use', { action: 'reference', provider: 'fal' });
   assert.match(reference.content, /https:\/\/fal.ai\/docs\//);
@@ -274,24 +273,6 @@ for (const kind of ['image', 'video', 'music', 'speech'] as const) {
     await gateway.close();
   }));
 }
-
-test('AI/ML API leads third-party automatic selection only when configured; saved routes and Codex keep priority', () => fixture(async store => {
-  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
-  const previous = process.env.AIMLAPI_API_KEY; delete process.env.AIMLAPI_API_KEY;
-  const selected = async () => Object.fromEntries((await gateway.status()).capabilities.map(c => [c.modality, c.selectedModelId]));
-  try {
-    // Codex stays ahead of every keyed provider; AI/ML API built-ins come next.
-    const order = builtinModels.map(model => model.provider);
-    assert.equal(order.indexOf('codex'), 0);
-    assert(order.indexOf('aimlapi') < order.indexOf('atlascloud'));
-    await gateway.configureProvider('atlascloud', { apiKey: 'atlas-key' });
-    assert.deepEqual(await selected(), { image: 'atlascloud:google/nano-banana-2/text-to-image', video: 'atlascloud:bytedance/seedance-2.0/text-to-video', audio: 'atlascloud:suno/chirp-v4' });
-    await gateway.configureProvider('aimlapi', { apiKey: 'aimlapi-key' });
-    assert.deepEqual(await selected(), { image: 'aimlapi:flux/schnell', video: 'aimlapi:bytedance/seedance-1-0-pro-fast', audio: 'aimlapi:stable-audio' });
-    await gateway.setRoute('video', 'atlascloud:bytedance/seedance-2.0/text-to-video');
-    assert.equal((await selected()).video, 'atlascloud:bytedance/seedance-2.0/text-to-video');
-  } finally { if (previous === undefined) delete process.env.AIMLAPI_API_KEY; else process.env.AIMLAPI_API_KEY = previous; await gateway.close(); }
-}));
 
 test('AI/ML API speech accepts audio bytes returned directly instead of a file link', () => fixture(async store => {
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];

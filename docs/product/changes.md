@@ -5,7 +5,7 @@
 - Add AI/ML API as a dedicated media provider: one key (saved in Model providers, or `AIMLAPI_API_KEY`) covers image, video, music and speech through the existing gateway, jobs, Tool and Studio settings.
 - Discovery reads the public `/v1/models` catalogue and classifies rows only by their `type`; chat, transcription, embedding, editing and realtime rows are not listed. Without a key, a general catalogue refresh does not contact the provider.
 - Video and music tasks are submitted once and polled by their original ID; image and speech are synchronous. Built-in examples (FLUX Schnell, Seedance 1.0 Pro Fast, Stable Audio, OpenAI TTS-1) carry their checked parameter schemas.
-- AI/ML API is listed first among third-party media providers, after Codex, and its built-in models lead automatic selection among keyed cloud providers. This only affects workspaces that configure it; saved routes, Codex and workspaces without its key are unchanged. Live paid generation was checked separately from the deterministic fixtures.
+- Existing providers, saved routes and auto-selection are unchanged; the new provider is listed after the existing media providers. Live paid generation was checked separately from the deterministic fixtures.
 
 ## 2026-11-18: Add the primary OpenMotion Skill
 
