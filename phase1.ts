@@ -1,5 +1,6 @@
 import { dispatchGameTool } from './game-projects.ts';
 import { ToolInputError } from './shared/tool-input-error.ts';
+import { clientErrorMessage, isFilesystemError } from './shared/client-error.ts';
 import { assetImportError, toolFailureFields } from './tracking/tool-fields.ts';
 import { readProjectAssetNames } from './project-asset-names.ts';
 import { namingLanguage, projectAssetKind, validateAssetDisplayName } from './shared/asset-names.ts';
@@ -133,8 +134,11 @@ export class Phase1Service {
           this.context.tracking.track('host_state_changed', { run_id: args.workId, sequence: 2, state: 'failed', phase: name }, undefined, undefined, host);
         }
       }
+      // A masked failure carries the original error as `cause`, so the local record keeps the path,
+      // syscall and originating stack even though the client-facing text is the safe one.
+      const diagnosticSource = error instanceof Error && error.cause instanceof Error ? error.cause : error;
       await recordDiagnostic(this.store.directory, { kind: 'mcp_failure', tool: name, requestId: args?.requestId,
-        projectId: args?.projectId, message: errorText(error), stack: error instanceof Error ? error.stack : undefined });
+        projectId: args?.projectId, message: errorText(diagnosticSource), stack: diagnosticSource instanceof Error ? diagnosticSource.stack : undefined });
       throw error;
     }
   }
@@ -239,10 +243,21 @@ export class Phase1Service {
       if (args.workId) await this.workRounds.observed(name, args, result);
     }
     catch (error) {
-      if (workAccepted) await this.workRounds.failed(args.projectId, args.workId, errorText(error));
+      // A failed request is replayed from this record, and the replay throws the stored text without
+      // the errno fields that let the transport classify it, so persistence keeps the client-safe
+      // message while the diagnostics log above keeps the raw one.
+      const stored = clientErrorMessage(error, 'Tool failed');
+      if (workAccepted) await this.workRounds.failed(args.projectId, args.workId, stored);
       const { error_code, ...validation } = toolFailureFields(error);
-      await atomicJson(file, { ...record, state: 'failed', error: errorText(error), ...((error as any)?.applied === false ? { applied: false } : {}),
-        ...(error_code !== 'TOOL_FAILED' ? { failure: { code: error_code, ...validation } } : {}) });
+      // The replayed error is rebuilt from JSON, so the code that the transport derives from the
+      // errno has to be recorded here as well, or a retry would report the generic tool failure.
+      const failureCode = isFilesystemError(error) ? 'FILE_OPERATION_FAILED' : error_code;
+      await atomicJson(file, { ...record, state: 'failed', error: stored, ...((error as any)?.applied === false ? { applied: false } : {}),
+        ...(failureCode !== 'TOOL_FAILED' ? { failure: { code: failureCode, ...validation } } : {}) });
+      // An in-process caller gets the same client-safe text and code the stored record carries, so a
+      // first attempt cannot leak the resolved path either; the raw error travels as `cause`, which
+      // the diagnostic below unwraps, so the local record keeps the path, syscall and stack.
+      if (stored !== errorText(error)) throw Object.assign(new Error(stored, { cause: error }), { code: failureCode, ...((error as any)?.applied === false ? { applied: false } : {}) });
       throw error;
     }
     await atomicJson(file, { ...record, state: 'completed', result }); return result;
@@ -751,12 +766,12 @@ export class Phase1Service {
               changes.push(...fontChanges); added.push(asset); items.push({ ...asset, status: 'completed' }); continue;
             }
             if (item.licensePath) throw new Error('FONT_LICENSE_REQUIRES_FONT');
-            const media = await probeLibraryMedia(staged).catch(error => { throw new Error('INVALID_MEDIA: ' + errorText(error)); });
+            const media = await probeLibraryMedia(staged).catch(error => { throw new Error('INVALID_MEDIA: ' + clientErrorMessage(error, 'media probe failed')); });
             const assetId = crypto.randomUUID(), relative = 'assets/imported/' + assetId + '.' + media.extension;
             const asset = { itemId: item.itemId, assetId, inputHash, path: relative, mimeType: media.mimeType, size: media.bytes,
               sha256, width: media.width, height: media.height, duration: media.duration, originalName: path.basename(item.sourcePath), name: item.name?.trim() ? validateAssetDisplayName(item.name) : path.basename(item.sourcePath) };
             changes.push({ path: relative, source: staged }); added.push(asset); items.push({ ...asset, status: 'completed' });
-          } catch (error) { items.push({ itemId: item.itemId, status: 'failed', error: errorText(error), error_code: assetImportError(error) }); }
+          } catch (error) { items.push({ itemId: item.itemId, status: 'failed', error: clientErrorMessage(error, 'Tool failed'), error_code: assetImportError(error) }); }
         }
         let saved: any = null;
         if (added.length) saved = await this.context.mutation(() => this.store.lock(() => versions.withHistory(async history => {
