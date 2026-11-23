@@ -6,13 +6,14 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_SOURCE_REF = "refs/heads/feat/cloud-container-p1";
-const GITOPS_REPOSITORY = "infra/apps";
-const GITOPS_ENVIRONMENT = "test";
-const GITOPS_APPLICATION = "openmotion";
-const GITOPS_VALUES_FILE_PATH = "kubernetes/envs/test/openmotion/values.yaml";
-const RECEIPT_ID_PATTERN = /^(?:dep|batch)_[A-Za-z0-9_-]{1,80}$/;
+const ORBIT_APP = "openmotion";
+const ORBIT_ENVIRONMENT = "test";
+const RELEASE_ID_PATTERN = /^rel_[A-Za-z0-9_-]{1,80}$/;
+const DEPLOYMENT_ID_PATTERN = /^dep_[A-Za-z0-9_-]{1,80}$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const DEFAULT_MAX_ATTEMPTS = 4;
+const DEFAULT_RETRY_DELAY_MS = 15_000;
 
 export function parseOrbitApiUrl(value) {
 	const raw = requireNonEmpty(value, "ORBIT_API_URL");
@@ -74,6 +75,10 @@ function requireNonEmpty(value, name) {
 	return trimmed;
 }
 
+function defaultSleep(ms) {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function resolveRemoteHead(sourceRef) {
 	const out = execFileSync(
 		"git",
@@ -122,7 +127,6 @@ export async function readComponentArtifacts(digestsDir, registryOwner) {
 
 export async function buildOpenMotionOrbitPayload(env, digestsDir) {
 	const orbitApiUrl = parseOrbitApiUrl(env.ORBIT_API_URL);
-	requireNonEmpty(env.ORBIT_API_KEY, "ORBIT_API_KEY");
 	requireNonEmpty(
 		env.ORBIT_OPENMOTION_BUILD_TOKEN,
 		"ORBIT_OPENMOTION_BUILD_TOKEN",
@@ -143,10 +147,9 @@ export async function buildOpenMotionOrbitPayload(env, digestsDir) {
 		env.GITHUB_REPOSITORY,
 		"GITHUB_REPOSITORY",
 	);
-	const serverUrl = (env.GITHUB_SERVER_URL?.trim() || "https://github.com").replace(
-		/\/+$/,
-		"",
-	);
+	const serverUrl = (
+		env.GITHUB_SERVER_URL?.trim() || "https://github.com"
+	).replace(/\/+$/, "");
 	const owner = requireNonEmpty(
 		env.GITHUB_REPOSITORY_OWNER,
 		"GITHUB_REPOSITORY_OWNER",
@@ -157,43 +160,23 @@ export async function buildOpenMotionOrbitPayload(env, digestsDir) {
 		throw new Error("Missing numeric GitHub Actions run identity");
 	}
 
-	const { images, valuesImages } = await readComponentArtifacts(
-		digestsDir,
-		owner,
-	);
-	const sourceTag = `sha-${sourceSha}`;
-	const taggedImages = Object.fromEntries(
-		Object.entries(valuesImages).map(([key, item]) => [
-			key,
-			{ tag: sourceTag, digest: item.digest },
-		]),
-	);
+	const { images } = await readComponentArtifacts(digestsDir, owner);
 
 	return {
 		orbitApiUrl,
 		payload: {
-			repository: GITOPS_REPOSITORY,
-			environment: GITOPS_ENVIRONMENT,
-			syncMode: "publishVersion",
-			changes: [
-				{
-					application: GITOPS_APPLICATION,
-					valuesFilePath: GITOPS_VALUES_FILE_PATH,
-					valuesContent: JSON.stringify({ images: taggedImages }),
-				},
-			],
-			build: {
-				sourceSha,
-				sourceRef,
-				buildId: `${repository}:${runId}.${runAttempt}`,
-				buildUrl: `${serverUrl}/${repository}/actions/runs/${runId}`,
-				artifact: {
-					kind: "container",
-					uri: images.api.uri,
-					digest: images.api.digest,
-					manifest: images.api.manifest,
-					images,
-				},
+			app: ORBIT_APP,
+			environment: ORBIT_ENVIRONMENT,
+			sourceSha,
+			sourceRef,
+			buildId: `${repository}:${runId}.${runAttempt}`,
+			buildUrl: `${serverUrl}/${repository}/actions/runs/${runId}`,
+			artifact: {
+				kind: "container",
+				uri: images.api.uri,
+				digest: images.api.digest,
+				manifest: images.api.manifest,
+				images,
 			},
 		},
 	};
@@ -204,6 +187,9 @@ export async function publishCloudTestToOrbit({
 	env = process.env,
 	fetchImpl = globalThis.fetch,
 	getRemoteHead = resolveRemoteHead,
+	maxAttempts = DEFAULT_MAX_ATTEMPTS,
+	retryDelayMs = DEFAULT_RETRY_DELAY_MS,
+	sleep = defaultSleep,
 	log = console.log,
 	writeOutput = async (name, value) => {
 		if (!env.GITHUB_OUTPUT) return;
@@ -215,99 +201,152 @@ export async function publishCloudTestToOrbit({
 	},
 } = {}) {
 	requireNonEmpty(digestsDir, "digestsDir");
+	if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+		throw new Error("maxAttempts must be a positive integer");
+	}
+	if (typeof retryDelayMs !== "number" || !Number.isFinite(retryDelayMs) || retryDelayMs < 0) {
+		throw new Error("retryDelayMs must be a non-negative number");
+	}
+
 	const { orbitApiUrl, payload } = await buildOpenMotionOrbitPayload(
 		env,
 		digestsDir,
 	);
 	const allowedRef = env.ORBIT_ALLOWED_SOURCE_REF?.trim() || DEFAULT_SOURCE_REF;
-	const remoteSha = getRemoteHead(allowedRef);
-	if (!remoteSha) {
-		throw new Error(`Missing remote branch ${allowedRef}`);
-	}
-	if (remoteSha !== payload.build.sourceSha) {
-		const message = `A newer merge (${remoteSha}) superseded ${payload.build.sourceSha}; skipped Orbit publication.`;
-		log(message);
-		await writeSummary(message);
-		return { skipped: true, reason: "superseded", remoteSha };
-	}
+	const endpoint = `${orbitApiUrl}/api/automation/v1/publications`;
+	const headers = {
+		"Content-Type": "application/json",
+		Authorization: `Bearer ${env.ORBIT_OPENMOTION_BUILD_TOKEN.trim()}`,
+		"Idempotency-Key": payload.buildId,
+	};
+	const body = JSON.stringify(payload);
 
-	const response = await fetchImpl(`${orbitApiUrl}/api/app/sync`, {
-		method: "POST",
-		redirect: "error",
-		headers: {
-			"Content-Type": "application/json",
-			"X-Orbit-API-Key": env.ORBIT_API_KEY.trim(),
-			Authorization: `Bearer ${env.ORBIT_OPENMOTION_BUILD_TOKEN.trim()}`,
-			"Idempotency-Key": payload.build.buildId,
-		},
-		body: JSON.stringify(payload),
-	});
-	const rawBody = await response.text();
 	let responseBody = {};
-	if (rawBody.trim()) {
-		try {
-			responseBody = JSON.parse(rawBody);
-		} catch (error) {
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		const remoteSha = getRemoteHead(allowedRef);
+		if (!remoteSha) {
+			throw new Error(`Missing remote branch ${allowedRef}`);
+		}
+		if (remoteSha !== payload.sourceSha) {
+			const message = `A newer merge (${remoteSha}) superseded ${payload.sourceSha}; skipped Orbit publication.`;
+			log(message);
+			await writeSummary(message);
+			return { skipped: true, reason: "superseded", remoteSha };
+		}
+
+		const response = await fetchImpl(endpoint, {
+			method: "POST",
+			redirect: "error",
+			headers,
+			body,
+		});
+		const rawBody = await response.text();
+		let parsedBody = {};
+		if (rawBody.trim()) {
+			try {
+				parsedBody = JSON.parse(rawBody);
+			} catch (error) {
+				if (response.status === 503 && attempt < maxAttempts) {
+					log(
+						`Orbit publication returned HTTP 503 (attempt ${attempt}/${maxAttempts}); retrying in ${retryDelayMs}ms`,
+					);
+					await sleep(retryDelayMs);
+					continue;
+				}
+				throw new Error(
+					`Orbit publication returned invalid JSON: ${rawBody.slice(0, 2000)}`,
+					{ cause: error },
+				);
+			}
+		}
+
+		log(
+			`Orbit publication HTTP status: ${response.status} (attempt ${attempt}/${maxAttempts})`,
+		);
+		if (response.status === 503 && attempt < maxAttempts) {
+			const detail =
+				parsedBody?.code ??
+				parsedBody?.error ??
+				parsedBody?.message ??
+				rawBody.slice(0, 200);
+			log(
+				`Orbit publication temporarily unavailable (${detail || "503"}); retrying attempt ${attempt + 1}/${maxAttempts} in ${retryDelayMs}ms`,
+			);
+			await sleep(retryDelayMs);
+			continue;
+		}
+		if (response.status < 200 || response.status >= 300) {
 			throw new Error(
-				`Orbit sync returned invalid JSON: ${rawBody.slice(0, 2000)}`,
-				{ cause: error },
+				`Orbit publication failed with HTTP status ${response.status}: ${parsedBody?.error ?? parsedBody?.message ?? rawBody.slice(0, 500)}`,
 			);
 		}
+		responseBody = parsedBody;
+		break;
 	}
 
-	log(`Orbit sync HTTP status: ${response.status}`);
-	if (response.status < 200 || response.status >= 300) {
-		throw new Error(
-			`Orbit sync failed with HTTP status ${response.status}: ${responseBody?.error ?? responseBody?.message ?? rawBody.slice(0, 500)}`,
-		);
-	}
-	if (responseBody.success !== true || responseBody.mode !== "desired") {
-		throw new Error(
-			`Orbit sync did not accept a cluster-pull desired publication: ${responseBody?.error ?? responseBody?.message ?? "unexpected mode"}`,
-		);
-	}
-
-	const updates = Array.isArray(responseBody.updates) ? responseBody.updates : [];
-	const matching = updates.filter(
-		(entry) =>
-			entry?.application === GITOPS_APPLICATION &&
-			entry?.filePath === GITOPS_VALUES_FILE_PATH,
-	);
-	const update = matching[0];
-	const receipt = update?.deploymentId ?? update?.batchId;
+	const releaseId =
+		responseBody && typeof responseBody === "object" && !Array.isArray(responseBody)
+			? responseBody.releaseId
+			: undefined;
+	const deploymentId =
+		responseBody && typeof responseBody === "object" && !Array.isArray(responseBody)
+			? responseBody.deploymentId
+			: undefined;
+	const status =
+		responseBody && typeof responseBody === "object" && !Array.isArray(responseBody)
+			? responseBody.status
+			: undefined;
 	if (
-		matching.length !== 1 ||
-		typeof receipt !== "string" ||
-		!RECEIPT_ID_PATTERN.test(receipt) ||
-		typeof update?.status !== "string" ||
-		!update.status.trim()
+		typeof releaseId !== "string" ||
+		!RELEASE_ID_PATTERN.test(releaseId) ||
+		typeof deploymentId !== "string" ||
+		!DEPLOYMENT_ID_PATTERN.test(deploymentId) ||
+		typeof status !== "string" ||
+		!status.trim()
 	) {
 		throw new Error(
-			`Missing matching Orbit publication receipt; updates=${JSON.stringify(responseBody.updates ?? null).slice(0, 2000)}`,
+			`Invalid Orbit publication receipt: ${JSON.stringify(responseBody).slice(0, 2000)}`,
 		);
 	}
 
-	log(`Orbit accepted ${receipt} (${update.status})`);
+	const generation = responseBody.generation;
+	const blockedReason =
+		typeof responseBody.blockedReason === "string" &&
+		responseBody.blockedReason.trim()
+			? responseBody.blockedReason.trim()
+			: null;
+
+	log(`Orbit accepted ${deploymentId} (${status}) for release ${releaseId}`);
 	await writeOutput("publication_result", "orbit_publication_accepted");
-	await writeOutput("publication_receipt", receipt);
+	await writeOutput("publication_receipt", deploymentId);
+	await writeOutput("release_id", releaseId);
 	await writeSummary(
 		[
 			"## OpenMotion Orbit Cluster-Pull Publication",
 			"",
-			`- Commit: \`${payload.build.sourceSha}\``,
-			`- Orbit receipt: \`${receipt}\` (\`${update.status}\`)`,
-			update.generation != null ? `- Generation: \`${update.generation}\`` : "",
+			`- Commit: \`${payload.sourceSha}\``,
+			`- Release: \`${releaseId}\``,
+			`- Deployment: \`${deploymentId}\` (\`${status}\`)`,
+			generation != null ? `- Generation: \`${generation}\`` : "",
+			blockedReason ? `- Blocked reason: ${blockedReason}` : "",
 			"",
 			"| Component | Image |",
 			"| --- | --- |",
-			...Object.entries(payload.build.artifact.images).map(
+			...Object.entries(payload.artifact.images).map(
 				([key, img]) => `| \`${key}\` | \`${img.uri}\` |`,
 			),
 		]
 			.filter(Boolean)
 			.join("\n"),
 	);
-	return { skipped: false, payload, response: responseBody, receipt };
+	return {
+		skipped: false,
+		payload,
+		response: responseBody,
+		releaseId,
+		deploymentId,
+		receipt: deploymentId,
+	};
 }
 
 if (
