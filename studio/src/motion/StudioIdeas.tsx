@@ -126,6 +126,10 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
         ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{t(idea.prompt)}</p></blockquote>
         : <ExampleMedia key={idea.title} example={idea} enabled={active} />}
     </div>
+    {options.length > 1 && <div className="om-scene-hero-examples" role="group" aria-label={t('Try an idea')}>{options.map((item, index) =>
+      <Button variant="plain" key={item.title} aria-label={t(item.title)} aria-pressed={index === selected} onClick={() => setSelected(index)}>
+        <img src={item.poster} alt="" style={{ objectPosition: item.posterPosition }} />
+      </Button>)}</div>}
     <div className="om-guide-heading">
       <h2 className="om-title">{t(idea.title)}</h2>
       {scene.id !== 'speech' && <p className="om-muted">{t(idea.prompt)}</p>}

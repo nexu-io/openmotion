@@ -400,15 +400,9 @@
   .om-agent-nav-menu .om-media-mega-entries { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .om-edit-demo-sparkle { position: absolute; left: var(--motion-space-8); bottom: var(--motion-space-8); color: var(--motion-overlay-ink); opacity: .9; pointer-events: none; }
-.om-character-demo { position: relative; display: grid; align-content: center; justify-items: center; gap: var(--motion-space-6); padding: var(--motion-space-10); background: radial-gradient(ellipse at 50% 0%, var(--motion-neutral-n10), var(--motion-on-brand) 68%, var(--motion-neutral-n11)); }
-.om-character-portraits { display: flex; align-items: center; justify-content: center; }
-.om-character-portraits > img { width: 34px; height: 34px; border-radius: var(--motion-radius-full); object-fit: cover; border: 1px solid var(--motion-border); opacity: .72; }
-.om-character-portraits > img:first-child { margin-inline-end: -8px; }
-.om-character-portraits > img:last-child { margin-inline-start: -8px; }
-.om-character-portrait-main { position: relative; z-index: 1; display: grid; place-items: center; width: 46px; height: 46px; border-radius: var(--motion-radius-full); border: 2px solid var(--motion-signature-band); box-shadow: 0 0 12px color-mix(in srgb, var(--motion-signature-band) 35%, transparent); }
-.om-character-portrait-main img { width: 100%; height: 100%; border-radius: var(--motion-radius-full); object-fit: cover; }
-.om-character-portrait-main i { position: absolute; bottom: -5px; width: 16px; height: 16px; display: grid; place-items: center; border-radius: var(--motion-radius-full); background: var(--motion-signature-band); color: var(--motion-on-signature-band); font-style: normal; font-size: var(--motion-text-xs); font-weight: var(--motion-weight-bold); line-height: 1; }
-.om-character-caption { font-size: var(--motion-text-step-10); color: var(--motion-overlay-ink); opacity: .72; }
+/* The cutout artwork is the same before/after render the Remove background landing page shows. */
+.om-remove-bg-demo { overflow: hidden; }
+.om-scene-tile-art.om-remove-bg-demo img { width: 90cqw; height: auto; aspect-ratio: 1004 / 688; object-fit: contain; filter: drop-shadow(0 1cqw 2.5cqw color-mix(in srgb, var(--motion-neutral-n11) 35%, transparent)); }
 .om-media-mega-entries .om-scene-tile-disabled { opacity: .68; cursor: not-allowed; }
 .om-video-tile-art { position: relative; overflow: hidden; }
 .om-video-tile-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -451,6 +445,8 @@
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
   .om-media-menu-grid .om-scene-tile-art:not(.om-media-demo) img { transition: transform var(--motion-duration-fast) var(--motion-ease-out); }
   .om-media-menu-grid button:hover .om-scene-tile-art:not(.om-media-demo) img { transform: scale(1.04); }
+  .om-remove-bg-demo img { transition: transform var(--motion-duration-fast) var(--motion-ease-out); }
+  .om-media-menu-grid button:hover .om-remove-bg-demo img { transform: scale(1.04); }
 }
 .om-scene-tile-art.om-media-demo {
   container-type: inline-size;

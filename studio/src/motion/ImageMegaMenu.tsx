@@ -10,7 +10,7 @@ import { editImageScene, imageMenuModels, imageModelBadge, imageScene, type Mode
 import { ModelAvatar } from './settingsPrimitives';
 import type { useMediaCatalog } from './useMediaCatalog';
 import lunarStill from './scene-art/lunar-shot-still.webp';
-import pepper from './scene-art/pepper.webp';
+import sofaCutout from './scene-art/sofa-cutout.webp';
 import speakerRoom from './scene-art/speaker-room.webp';
 import speakerStudio from './scene-art/speaker-studio.webp';
 
@@ -55,7 +55,7 @@ export function ModelMenuColumn({ families, onOpen }: { families: ModelFamily[];
 }
 
 const findScene = (id: StudioScene['id']) => studioScenes.find(scene => scene.id === id)!;
-const characterScene = findScene('character');
+const removeBackgroundScene = findScene('remove-background');
 const sceneCards = [imageScene, editImageScene] as const;
 
 function ImageMenuArt({ scene }: { scene: typeof sceneCards[number]['id'] }) {
@@ -99,7 +99,7 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
   const imageFeatureCaps = listCapabilitiesForChannel(capabilities, 'gui', {
     modality: 'image',
     includeComingSoon: true,
-  }).filter(cap => !['text-to-image', 'image-edit', 'character', 'shot-image', 'upscale-4k'].includes(cap.id));
+  }).filter(cap => !['text-to-image', 'image-edit', 'remove-background', 'shot-image', 'upscale-4k'].includes(cap.id));
   const liveFeatureCaps = imageFeatureCaps.filter(cap => cap.status === 'live');
   const upcomingFeatureCaps = imageFeatureCaps.filter(cap => cap.status === 'coming_soon');
 
@@ -109,16 +109,9 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
         aria-current={destination?.scene.id === scene.id ? 'page' : undefined} onClick={() => openScene(scene)}>
         <ImageMenuArt scene={scene.id} /><strong>{t(scene.label)}</strong>
       </Button>)}
-      <Button variant="plain" className="om-scene-tile" aria-current={destination?.scene.id === characterScene.id ? 'page' : undefined} onClick={() => openFeature(characterScene)}>
-        <span className="om-scene-tile-art om-character-demo">
-          <span className="om-character-portraits" aria-hidden="true">
-            <img src={pepper} alt="" />
-            <span className="om-character-portrait-main"><img src={lunarStill} alt="" /><i>+</i></span>
-            <img src={speakerStudio} alt="" />
-          </span>
-          <span className="om-character-caption" aria-hidden="true">{t('Your character')}</span>
-        </span>
-        <strong>{t(characterScene.label)}</strong>
+      <Button variant="plain" className="om-scene-tile" aria-current={destination?.scene.id === removeBackgroundScene.id ? 'page' : undefined} onClick={() => openFeature(removeBackgroundScene)}>
+        <span className="om-scene-tile-art om-media-demo om-remove-bg-demo" aria-hidden="true"><img src={sofaCutout} alt="" /></span>
+        <strong>{t(removeBackgroundScene.label)}</strong>
       </Button>
       <Button variant="plain" className={upscaleLive ? 'om-scene-tile' : 'om-scene-tile om-scene-tile-disabled'}
         disabled={!upscaleLive} aria-disabled={!upscaleLive || undefined}

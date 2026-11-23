@@ -916,7 +916,7 @@ it('keeps the empty studio canvas model aligned with composer selection on Codex
     { models: [seedream, sunburst], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } } as never,
     'image',
     seedream.id,
-    studioScenes.find(scene => scene.id === 'character')!,
+    studioScenes.find(scene => scene.id === 'image-blend')!,
     false,
     2,
   );
@@ -925,7 +925,7 @@ it('keeps the empty studio canvas model aligned with composer selection on Codex
   expect(multiRefResult.compatible.some(model => model.modelId === 'seedream-5.5')).toBe(false);
 });
 
-it('supports multi-file reference upload up to 5 images on Character reference while keeping single-file upload on Remove background', async () => {
+it('supports multi-file reference upload up to 5 images on Image blend while keeping single-file upload on Remove background', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
   const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
   const seedream = { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 1 };
@@ -934,12 +934,12 @@ it('supports multi-file reference upload up to 5 images on Character reference w
     status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
   };
   const remember = vi.fn();
-  const characterStudio = {
-    destination: mediaEditorDestination('character'),
+  const blendStudio = {
+    destination: mediaEditorDestination('image-blend'),
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
-  await act(async () => root.render(<AssetsPage active studio={characterStudio} />)); await flush();
+  await act(async () => root.render(<AssetsPage active studio={blendStudio} />)); await flush();
 
   const refInput = container.querySelector<HTMLInputElement>('input[data-reference-upload="true"]')!;
   expect(refInput.multiple).toBe(true);
@@ -951,7 +951,7 @@ it('supports multi-file reference upload up to 5 images on Character reference w
   Object.defineProperty(refInput, 'files', { configurable: true, value: files });
   await act(async () => refInput.dispatchEvent(new Event('change', { bubbles: true }))); await flush();
 
-  // Caps imported references at the Character reference limit (5) without uploading the excess 6th file.
+  // Caps imported references at the Image blend limit (5) without uploading the excess 6th file.
   expect(uploadLibraryAsset).toHaveBeenCalledTimes(5);
   expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
   expect(remember.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
@@ -963,9 +963,9 @@ it('supports multi-file reference upload up to 5 images on Character reference w
   const rememberPartial = vi.fn();
   const fourRefs = ['c1', 'c2', 'c3', 'c4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const partialStudio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
     initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
-    draftKey: 'character:partial',
+    draftKey: 'image-blend:partial',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberPartial, chooseModel: vi.fn(),
   };
@@ -1007,9 +1007,9 @@ it('shows Reference limit reached when another reference fills the last slot whi
   const fourRefs = ['c1', 'c2', 'c3', 'c4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const remember = vi.fn();
   const studio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
     initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
-    draftKey: 'character:race',
+    draftKey: 'image-blend:race',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
@@ -1046,9 +1046,9 @@ it('supports multi-select in AssetPicker capped to remaining reference slots and
   const remember = vi.fn();
   const threeRefs = ['r1', 'r2', 'r3'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const studio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
     initialDraft: { modality: 'image' as const, prompt: '', references: threeRefs },
-    draftKey: 'character:multipick',
+    draftKey: 'image-blend:multipick',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
@@ -1072,14 +1072,14 @@ it('supports multi-select in AssetPicker capped to remaining reference slots and
   await click('Use selected (2)');
   expect(remember.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['r1', 'r2', 'r3', 'A', 'B']);
 
-  // Dropping an uncompressible > 2 MiB image on a fresh Character reference draft surfaces the 2 MiB error early without calling uploadLibraryAsset.
+  // Dropping an uncompressible > 2 MiB image on a fresh Image blend draft surfaces the 2 MiB error early without calling uploadLibraryAsset.
   await act(async () => root.unmount()); root = createRoot(container);
   vi.mocked(uploadLibraryAsset).mockClear();
   vi.stubGlobal('createImageBitmap', vi.fn(async () => { throw new Error('cannot decode'); }));
   vi.stubGlobal('Image', undefined);
   const freshStudio = {
-    destination: mediaEditorDestination('character'),
-    draftKey: 'character:oversized',
+    destination: mediaEditorDestination('image-blend'),
+    draftKey: 'image-blend:oversized',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: vi.fn(), chooseModel: vi.fn(),
   };
@@ -1118,9 +1118,9 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
     { reference: { assetId: 'r3', versionId: 'r3-v1' }, name: 'Picture r3' },
   ];
   const studio = {
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
     initialDraft: { modality: 'image' as const, prompt: '', references: initialRefs },
-    draftKey: 'character:picker-stability',
+    draftKey: 'image-blend:picker-stability',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember, chooseModel: vi.fn(),
   };
@@ -1152,8 +1152,8 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
   await act(async () => root.unmount()); root = createRoot(container);
   const rememberBig = vi.fn();
   await act(async () => root.render(<AssetsPage active studio={{
-    destination: mediaEditorDestination('character'),
-    draftKey: 'character:big-pick',
+    destination: mediaEditorDestination('image-blend'),
+    draftKey: 'image-blend:big-pick',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberBig, chooseModel: vi.fn(),
   }} />)); await flush();
@@ -1183,9 +1183,9 @@ it('keeps AssetPicker multi-select stable across in-flight uploads, ignores alre
   const fourRefs = ['r1', 'r2', 'r3', 'r4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
   const rememberFallback = vi.fn();
   await act(async () => root.render(<AssetsPage active studio={{
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
     initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
-    draftKey: 'character:rejected-first',
+    draftKey: 'image-blend:rejected-first',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberFallback, chooseModel: vi.fn(),
   }} />)); await flush();
@@ -1246,8 +1246,8 @@ it('rejects oversized generated assets when attaching from the Generations light
   records.set('GENBIG', generatedBig);
   const rememberGen = vi.fn();
   await act(async () => root.render(<AssetsPage active studio={{
-    destination: mediaEditorDestination('character'),
-    draftKey: 'character:gen-history-big',
+    destination: mediaEditorDestination('image-blend'),
+    draftKey: 'image-blend:gen-history-big',
     catalog: { catalog, failed: false, retry: vi.fn() },
     remember: rememberGen, chooseModel: vi.fn(),
   }} />)); await flush();

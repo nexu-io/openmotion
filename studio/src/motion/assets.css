@@ -472,6 +472,22 @@
   height: 100%;
   object-fit: cover;
 }
+.om-scene-hero-examples { display: flex; justify-content: center; gap: var(--motion-space-8); }
+[data-motion-studio] .om-scene-hero-examples > button {
+  inline-size: var(--motion-space-56);
+  aspect-ratio: 4 / 3;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: var(--motion-radius-md);
+  background: var(--motion-panel);
+  opacity: .64;
+  transition: opacity var(--motion-duration-fast) ease, border-color var(--motion-duration-fast) ease;
+}
+[data-motion-studio] .om-scene-hero-examples > button:is(:hover, [aria-pressed="true"]) { opacity: 1; border-color: var(--motion-border-strong); }
+[data-motion-studio] .om-scene-hero-examples > button:focus-visible { outline: 2px solid var(--motion-focus); outline-offset: 1px; }
+.om-scene-hero-examples img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .om-scene-hero > .om-guide-heading {
   gap: var(--motion-space-8);
   justify-items: center;
@@ -682,6 +698,27 @@
   outline: 2px solid var(--motion-focus);
   outline-offset: 1px;
 }
+/* Bottom-left keeps the order label clear of the top-right remove control; the overlay pair stays legible over any image. */
+.om-scene-source-index {
+  position: absolute;
+  inset-block-end: var(--motion-space-4);
+  inset-inline-start: var(--motion-space-4);
+  max-inline-size: calc(100% - var(--motion-space-8));
+  padding: 1px var(--motion-space-6);
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-video-overlay);
+  color: var(--motion-overlay-ink);
+  font-size: var(--motion-text-step-10);
+  font-weight: var(--motion-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.om-scene-source-status { display: flex; align-items: center; gap: var(--motion-space-6); margin: 0; font-size: var(--motion-text-xs); line-height: 1.5; }
+.om-scene-source-status > svg { flex: none; }
 .om-scene-source-file > :is(img, button) { flex-shrink: 0; }
 .om-scene-source-file > span { flex: 1; min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .om-source-actions { display: flex; flex-wrap: wrap; gap: var(--motion-space-8); padding: var(--motion-space-12); border: 1px dashed var(--motion-border); border-radius: var(--motion-radius-lg); transition: border-color var(--motion-duration-fast), background-color var(--motion-duration-fast); }

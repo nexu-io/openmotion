@@ -65,7 +65,7 @@ test('Unified Capability Registry drives shared image/video features and separat
   assert.equal(defaultCapabilities.length, 32);
   const liveIds = defaultCapabilities.filter(c => c.status === 'live').map(c => c.id);
   assert.equal(liveIds.length, 14);
-  for (const id of ['text-to-image', 'remove-background', 'relight', 'character', 'camera-control', 'multi-shot', 'native-audio', 'music', 'speech', 'asr-transcribe']) {
+  for (const id of ['text-to-image', 'remove-background', 'image-blend', 'relight', 'camera-control', 'multi-shot', 'native-audio', 'music', 'speech', 'asr-transcribe']) {
     assert.ok(liveIds.includes(id), `expected live capability ${id}`);
   }
   const soonIds = defaultCapabilities.filter(c => c.status === 'coming_soon').map(c => c.id);

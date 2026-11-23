@@ -4,8 +4,8 @@ export const studioScenes = [
   { id: 'text-to-image', entry: 'landing', modality: 'image', label: 'Create image', icon: 'image-line', hint: 'Describe a subject, a mood, a world.' },
   { id: 'image-edit', entry: 'landing', modality: 'image', requiresImage: true, label: 'Edit image', icon: 'edit-line', hint: 'Choose an image and describe your changes.' },
   { id: 'remove-background', entry: 'landing', modality: 'image', requiresImage: true, feature: 'remove-background', label: 'Remove background', icon: 'scissors-cut-line', hint: 'Choose an image. The subject is kept on a transparent background.' },
+  { id: 'image-blend', entry: 'landing', modality: 'image', requiresImage: true, feature: 'image-blend', label: 'Image blend', icon: 'layout-2-line', hint: 'Add 2 to 5 images, then describe how to combine them (for example, “Place the subject from Image 1 into the scene from Image 2”).' },
   { id: 'relight', entry: 'landing', modality: 'image', requiresImage: true, feature: 'relight', label: 'Relight', icon: 'sun-line', hint: 'Choose an image, then set the light direction, color and mood.' },
-  { id: 'character', entry: 'landing', modality: 'image', requiresImage: true, feature: 'character', label: 'Character reference', icon: 'user-3-line', hint: 'Add 1 to 5 images of your character, then describe the new scene.' },
   { id: 'text-to-video', entry: 'landing', modality: 'video', label: 'Create video', icon: 'film-line', hint: 'Describe the scene, movement and atmosphere.' },
   { id: 'image-to-video', entry: 'landing', modality: 'video', requiresImage: true, label: 'Image to video', icon: 'movie-line', hint: 'Choose a first frame and describe the motion.' },
   { id: 'video-camera-control', entry: 'landing', modality: 'video', videoFeature: 'camera-control', label: 'Camera control', icon: 'camera-line', hint: 'Choose a camera movement, add an optional first frame, and describe your scene.' },
@@ -78,7 +78,7 @@ type StudioEntry = {
 
 // Media studios open their first listed scene. The editor surface retains the current project.
 export const creativeStudios = [
-  { id: 'design', surface: 'media', primaryModality: 'image', title: 'Design Studio', navBadge: 'New', icon: 'palette-line', scenes: ['text-to-image', 'image-edit', 'remove-background', 'relight', 'character'] },
+  { id: 'design', surface: 'media', primaryModality: 'image', title: 'Design Studio', navBadge: 'New', icon: 'palette-line', scenes: ['text-to-image', 'image-edit', 'remove-background', 'image-blend', 'relight'] },
   { id: 'motion', surface: 'editor', modalities: ['video'], title: 'Motion Studio', navBadge: 'Top', icon: 'movie-line', scenes: [] },
   { id: 'cinema', surface: 'media', primaryModality: 'video', title: 'Cinema Studio', navBadge: 'Hot', icon: 'clapperboard-line', scenes: ['text-to-video', 'image-to-video', 'video-camera-control', 'video-multi-shot'] },
   { id: 'sound', surface: 'media', primaryModality: 'audio', title: 'Sound Studio', icon: 'music-2-line', scenes: ['music', 'speech'] },

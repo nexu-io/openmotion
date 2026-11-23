@@ -48,7 +48,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
   const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
   const imagePopupClass = imageWorkspace ? 'om-image-form-popup' : undefined;
-  const showSceneIntro = (!imageWorkspace && !videoLanding) || scene?.id === 'character';
+  const showSceneIntro = !imageWorkspace && !videoLanding;
   const feature = scene && sceneFeature(scene);
   const featureRule = feature ? imageFeatures[feature] : undefined;
   const videoFeature = scene && sceneVideoFeature(scene);
@@ -208,9 +208,12 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     finally { if (mounted.current) setSyncing(false); }
   };
   const capabilityBlocked = Boolean(activeCapability && (activeCapability.status !== 'live' || !activeCapability.channels.gui));
-  const invalidReferences = draft.references.length > maximumReferences
-    || draft.references.length < (activeCapability?.input.minReferences ?? 0)
-    || Boolean(scene && needsImage(scene) && !draft.references.length);
+  const minimumReferences = Math.max(
+    activeCapability?.input.minReferences ?? 0,
+    featureRule?.minReferences ?? (scene && needsImage(scene) ? 1 : 0),
+  );
+  const invalidReferences = draft.references.length < minimumReferences || draft.references.length > maximumReferences;
+  const missingBlendReferences = feature === 'image-blend' && minimumReferences >= 2 && draft.references.length < minimumReferences;
   const shotPreferences = draft.shotPreferences ?? (studio?.destination.studio.id === 'shorts' ? { aspect: '9:16' } : undefined);
   const parameterModel = selected;
   const parameterKey = parameterModel ? `${scene?.id ?? 'direct'}:${parameterModel.id}` : '';
@@ -386,7 +389,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
           {attachableReferences > 1 && <span className="om-eyebrow om-scene-source-count">{draft.references.length} / {attachableReferences}</span>}
         </div>
         {draft.references.length > 0 && <div className="om-scene-source-files" data-layout={gridReferences ? 'grid' : undefined}>
-          {draft.references.map(item => {
+          {draft.references.map((item, index) => {
             const { assetId, versionId } = item.reference;
             const key = assetId + '/' + versionId;
             const preview = <><img src={assetMediaUrl(assetId, versionId)} alt="" /><span>{item.name}</span></>;
@@ -397,6 +400,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
             }));
             return imageWorkspace ? (gridReferences ? <div key={key} className="om-scene-source-file" data-layout="grid" title={item.name}>
               <img src={assetMediaUrl(assetId, versionId)} alt="" />
+              {feature === 'image-blend' && <span className="om-scene-source-index">{t('Image {index}', { index: index + 1 })}</span>}
               <span className="om-sr-only">{item.name}</span>
               <IconButton variant="plain" className="om-scene-source-remove" aria-label={removeLabel} icon={removeIcon} onClick={remove} />
             </div> : <div key={key} className="om-scene-source-file">
@@ -407,6 +411,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
             </Button>;
           })}
         </div>}
+        {missingBlendReferences && <p className="om-muted om-scene-source-status" role="status">
+          <RemixIcon name="information-line" size={14} />
+          {t('Add at least {min} images to blend ({count}/{min}).', { min: minimumReferences, count: draft.references.length })}
+        </p>}
         {draft.references.length < attachableReferences && <div className="om-source-actions" role={onUploadFiles ? 'group' : undefined} tabIndex={onUploadFiles ? 0 : undefined} aria-label={onUploadFiles ? t('Drop or paste images here') : undefined}>
           {onUploadReference && <Button variant="ghost" className="om-button h-auto" disabled={uploadingReferences} aria-busy={uploadingReferences || undefined} onClick={onUploadReference}>
             <RemixIcon name={uploadingReferences ? 'loader-4-line' : 'upload-line'} size={18} className={uploadingReferences ? 'animate-spin motion-reduce:animate-none' : undefined} />

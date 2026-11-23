@@ -822,7 +822,7 @@ export const scenarioDefinitions = [
             role: 'Consistent persona portraits from references',
           },
         ],
-        scenes: ['character', 'text-to-image'],
+        scenes: ['image-edit', 'image-blend', 'text-to-image'],
         promptTemplate: 'Consistent portrait of {personaName}, {niche} creator talking about {topic}, natural studio lighting',
       },
       {

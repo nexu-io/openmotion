@@ -242,10 +242,10 @@ function buildImageCardsByCategory(category: string, isZh: boolean): CuratedShow
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
   }));
-  const char: CuratedShowcaseCard[] = sceneExamples.character.map((ex, idx) => ({
-    id: `char-${idx}`,
+  const blend: CuratedShowcaseCard[] = sceneExamples['image-blend'].map((ex, idx) => ({
+    id: `image-blend-${idx}`,
     title: ex.title,
-    subtitle: ['Character reference'],
+    subtitle: ['Image blend'],
     poster: ex.poster,
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
@@ -276,14 +276,14 @@ function buildImageCardsByCategory(category: string, isZh: boolean): CuratedShow
   if (category === 'text-to-image') return t2i;
   if (category === 'image-edit') return edit;
   if (category === 'remove-background') return bg;
+  if (category === 'image-blend') return blend;
   if (category === 'relight') return relight;
-  if (category === 'character') return char;
 
   const seenTitles = new Set<string>();
   const seenPosters = new Set<string>();
   const primary: CuratedShowcaseCard[] = [];
   const secondary: CuratedShowcaseCard[] = [];
-  for (const item of [...gpt, ...t2i, ...edit, ...bg, ...relight, ...char, ...cinemaStills]) {
+  for (const item of [...gpt, ...t2i, ...edit, ...bg, ...blend, ...relight, ...cinemaStills]) {
     if (seenTitles.has(item.title)) continue;
     seenTitles.add(item.title);
     if (item.poster && !seenPosters.has(item.poster)) {
@@ -628,8 +628,8 @@ export function ModeResourceShowcase({
           { id: 'text-to-image', label: 'Text to image', count: sceneExamples['text-to-image'].length },
           { id: 'image-edit', label: 'Image editing', count: sceneExamples['image-edit'].length },
           { id: 'remove-background', label: 'Remove background', count: sceneExamples['remove-background'].length },
+          { id: 'image-blend', label: 'Image blend', count: sceneExamples['image-blend'].length },
           { id: 'relight', label: 'Relight', count: sceneExamples.relight.length },
-          { id: 'character', label: 'Character reference', count: sceneExamples.character.length },
           { id: 'design-template', label: 'Design templates', count: designTemplates?.length },
           { id: 'asset', label: 'Workspace Assets', count: assets ? assets.filter(a => a.modality === 'image').length : undefined },
           { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },

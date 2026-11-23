@@ -386,7 +386,7 @@ it('keeps a Cinema template on the unified video editor and on legacy Cinema lin
   expect(workspacePageHref('http://localhost/', { studio: mediaEditorDestination('image-to-video'), cinemaTemplate: 'drink-splash-slow-motion' })).toBe('/create/image-to-video');
 });
 
-it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'character'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
+it.each(['text-to-image', 'image-edit', 'remove-background', 'image-blend', 'relight'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
   const page = readWorkspacePage(`?page=design&scene=${scene}&model=p%3Am`);
   expect(page).toMatchObject({ studio: { landing: true, scene: { id: scene }, model: 'p:m' } });
   expect(page.designScene).toBeUndefined();

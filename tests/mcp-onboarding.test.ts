@@ -189,19 +189,19 @@ test('timeline hover inspection remains a localized, non-mutating preview scenar
   }
 });
 
-test('image feature handbook scenarios cover background removal, relight and character consistency with limits and recovery', () => {
+test('image feature handbook scenarios cover background removal, relight and image blend with limits and recovery', () => {
   const translations = JSON.parse(readFileSync(new URL('../studio/src/i18n/mcp-ui.json', import.meta.url), 'utf8'));
   const removeBg = mcpScenarios.find(item => item.id === 'image-remove-background')!;
   const relight = mcpScenarios.find(item => item.id === 'image-relight')!;
-  const character = mcpScenarios.find(item => item.id === 'image-character')!;
+  const blend = mcpScenarios.find(item => item.id === 'image-blend')!;
   assert.ok(removeBg.prompt.includes(imageFeaturePrompt('remove-background', '')));
   assert.match(removeBg.prompt, /"background":"transparent"/);
   assert.match(removeBg.prompt, /gpt-image-2\.6-sunburst/);
   assert.ok(relight.prompt.includes(imageFeaturePrompt('relight', 'Keep the logo sharp.', { direction: 'left', temperature: 'warm', mood: 'golden-hour' })));
   assert.match(relight.prompt, /seedream-5\.5/);
-  assert.ok(character.prompt.includes(imageFeaturePrompt('character', 'Show the character walking through a sunlit café.')));
-  assert.match(character.prompt, /drop seedream-5\.5 when using 2 or more references/);
-  for (const scenario of [removeBg, relight, character]) {
+  assert.ok(blend.prompt.includes(imageFeaturePrompt('image-blend', 'Place the speaker from Image 1 onto the wooden table in Image 2, matching the warm daylight and natural shadows.')));
+  assert.match(blend.prompt, /exclude 1-reference models such as seedream-5\.5/);
+  for (const scenario of [removeBg, relight, blend]) {
     assert.match(scenario.prompt, /target=providers/);
     assert.match(scenario.prompt, /action=resume/);
     assert.match(scenario.prompt, /2 MiB/);

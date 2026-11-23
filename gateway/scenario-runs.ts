@@ -241,10 +241,11 @@ function computeDefaultBindings(run: ScenarioRun, scenario: ScenarioDefinition):
       [...preceding].reverse().find(step => step.type === type);
 
     if (def.type === 'image' && !Object.hasOwn(bindings, 'references')) {
-      if (def.scenes?.includes('character')) {
-        bindings.references = run.pool
+      if (def.scenes?.includes('image-blend') || def.scenes?.includes('image-edit')) {
+        const personaRefs = run.pool
           .filter(item => item.kind === 'image' && item.source === 'upload' && item.tags.some(t => t === 'persona' || t === 'product'))
           .map(item => item.id);
+        bindings.references = def.scenes?.includes('image-blend') ? personaRefs : [];
       } else {
         bindings.references = [];
       }

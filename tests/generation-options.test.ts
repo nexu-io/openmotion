@@ -705,10 +705,10 @@ const placeholderOpenDesignModel = (provider: 'opendesign' | 'account', modelId:
 
 test('existing OpenDesign image and video models keep exact feature eligibility across Cloud, account and placeholders', () => {
   const imageMatrix: [string, Record<ImageFeatureId, boolean>][] = [
-    ['gpt-image-2.6-sunburst', { 'remove-background': true, relight: true, character: true }],
-    ['gpt-image-2.6-flare', { 'remove-background': true, relight: true, character: true }],
-    ['seedream-5.5', { 'remove-background': false, relight: true, character: true }],
-    ['seedream-5.0-flash', { 'remove-background': false, relight: true, character: true }],
+    ['gpt-image-2.6-sunburst', { 'remove-background': true, relight: true, 'image-blend': true }],
+    ['gpt-image-2.6-flare', { 'remove-background': true, relight: true, 'image-blend': true }],
+    ['seedream-5.5', { 'remove-background': false, relight: true, 'image-blend': false }],
+    ['seedream-5.0-flash', { 'remove-background': false, relight: true, 'image-blend': true }],
   ];
   const videoMatrix: [string, Record<VideoFeatureId, boolean>][] = [
     ['doubao-seedance-2-5-260628', { 'camera-control': true, 'multi-shot': true }],
@@ -775,10 +775,11 @@ test('modelCapabilities derives image edit, reference limits and transparent bac
 
   assert.equal(imageFeatureSupported('remove-background', futureTransparent), true);
   assert.equal(imageFeatureSupported('relight', futureTransparent), true);
-  assert.equal(imageFeatureSupported('character', futureTransparent), true);
+  assert.equal(imageFeatureSupported('image-blend', futureTransparent), true);
   assert.equal(imageFeatureSupported('relight', futureNoEdit), false);
-  assert.equal(imageFeatureSupported('character', futureNoEdit), false);
+  assert.equal(imageFeatureSupported('image-blend', futureNoEdit), false);
   assert.equal(imageFeatureSupported('remove-background', zeroRefI2i), false);
+  assert.equal(imageFeatureCapable('image-blend', codex), false);
 
   // Pure capability checks remain provider-agnostic, while Studio feature checks scope to OpenDesign.
   assert.equal(imageFeatureCapable('remove-background', codex), true);

@@ -7,6 +7,7 @@ export type CapabilityCategory = 'generate' | 'atomic-edit' | 'audio-voice' | 'p
 export type CapabilityCostTier = 'low' | 'medium' | 'high';
 export type CapabilityModelRequirement =
   | 'image-edit'
+  | 'image-multi-reference'
   | 'image-transparent-background'
   | 'video-text-to-video';
 
@@ -292,6 +293,27 @@ export const defaultCapabilities: readonly CapabilityDefinition[] = [
     },
   },
   {
+    id: 'image-blend',
+    title: 'Image blend',
+    summary: 'Combine 2 to 5 pinned reference images seamlessly into one cohesive image with unified lighting and composition.',
+    modality: 'image',
+    category: 'atomic-edit',
+    icon: 'layout-2-line',
+    status: 'live',
+    channels: { gui: true, mcp: true },
+    costTier: 'low',
+    requiresExplicitApproval: false,
+    input: { promptRequired: true, minReferences: 2, maxReferences: 5 },
+    executor: {
+      kind: 'prompt-preset',
+      providers: openDesignFeatureProviders,
+      models: ['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare', 'seedream-5.0-flash'],
+      modelRequires: 'image-multi-reference',
+      recommendedModel: 'gpt-image-2.6-sunburst',
+      mode: 'text-to-image',
+    },
+  },
+  {
     id: 'relight',
     title: 'Relight',
     summary: 'Change light direction, color temperature and mood on 1 reference image while preserving subject geometry and details.',
@@ -309,27 +331,6 @@ export const defaultCapabilities: readonly CapabilityDefinition[] = [
       models: ['seedream-5.5', 'gpt-image-2.6-sunburst', 'gpt-image-2.6-flare', 'seedream-5.0-flash'],
       modelRequires: 'image-edit',
       recommendedModel: 'seedream-5.5',
-      mode: 'text-to-image',
-    },
-  },
-  {
-    id: 'character',
-    title: 'Character reference',
-    summary: 'Keep the same character identity across scenes from 1 to 5 pinned reference images.',
-    modality: 'image',
-    category: 'atomic-edit',
-    icon: 'user-3-line',
-    status: 'live',
-    channels: { gui: true, mcp: true },
-    costTier: 'low',
-    requiresExplicitApproval: false,
-    input: { promptRequired: true, minReferences: 1, maxReferences: 5 },
-    executor: {
-      kind: 'prompt-preset',
-      providers: openDesignFeatureProviders,
-      models: ['gpt-image-2.6-sunburst', 'gpt-image-2.6-flare', 'seedream-5.0-flash', 'seedream-5.5'],
-      modelRequires: 'image-edit',
-      recommendedModel: 'gpt-image-2.6-sunburst',
       mode: 'text-to-image',
     },
   },
@@ -803,6 +804,9 @@ function matchesModelRequirement(requirement: CapabilityModelRequirement, model:
   if (requirement === 'image-transparent-background') {
     return caps.image.edit && caps.image.maxReferences >= 1 && caps.image.transparentBackground;
   }
+  if (requirement === 'image-multi-reference') {
+    return caps.image.edit && caps.image.maxReferences >= 2;
+  }
   if (requirement === 'image-edit') {
     return caps.image.edit && caps.image.maxReferences >= 1;
   }
@@ -904,8 +908,8 @@ export function buildCapabilityPrompt(
     return 'Relight this image. Keep the subject, composition, pose and every detail unchanged; change only the lighting, shadows and reflections. '
       + `Lighting: ${light}.` + (note ? ' ' + note : '');
   }
-  if (capabilityId === 'character') {
-    return 'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. '
+  if (capabilityId === 'image-blend') {
+    return 'Combine the provided reference images (Image 1, Image 2, and any additional images in order) seamlessly into a single cohesive image with unified lighting, perspective, shadows, and color harmony. '
       + note;
   }
   if (capabilityId === 'camera-control' || capabilityId === 'multi-shot' || capabilityId === 'native-audio') {
