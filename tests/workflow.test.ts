@@ -164,6 +164,10 @@ test('Markdown references resolve across workflows, deduplicate canonical paths,
   for (const target of ['missing.md', '../../../outside.md', '/absolute.md', '..%2F..%2Foutside.md']) {
     assert.throws(() => workflowReferences(`[missing](${target})`, documentId), /Unregistered workflow Markdown link/);
   }
+  // A list continuation is indented prose rather than an example block, so its reference still counts.
+  assert.deepEqual(workflowReferences('1. Step one\n\n    See [sound](references/sound-narrative.md).\n', documentId), [
+    { workflow: 'director', section: 'sound', documentId: 'skills/openmotion-director/references/sound-narrative.md' },
+  ]);
 });
 
 test('Markdown heading anchors follow rendered slugs and every packaged #fragment link resolves', async () => {

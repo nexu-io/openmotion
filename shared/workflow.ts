@@ -160,22 +160,61 @@ for (const [legacy, canonical] of Object.entries(workflowDocumentAliases)) {
   documents.set(legacy, target);
 }
 
-// A fence closes only on a run of the same character at least as long as its opener; an unclosed fence runs to the end of the document.
-function withoutFences(content: string) {
+/**
+ * Fenced blocks hold examples rather than content. Every fenced line becomes empty while the line
+ * count stays, so a caller that reports line numbers can share one fence rule with the readers that
+ * only scan text. A fence closes only on a run of the same character at least as long as its opener
+ * with nothing else on the line, so a nested example that opens with an info string does not close
+ * the fence that contains it; an unclosed fence runs to the end of the document.
+ */
+export function withoutFences(content: string) {
   let fence: string | undefined;
-  return content.split(/\r\n?|\n/).filter(line => {
+  return content.split(/\r\n?|\n/).map(line => {
     if (fence) {
       if (new RegExp(`^ {0,3}${fence[0] === '`' ? '`' : '~'}{${fence.length},}[ \\t]*$`).test(line)) fence = undefined;
-      return false;
+      return '';
     }
     fence = line.match(/^ {0,3}(`{3,}(?=[^`]*$)|~{3,})/)?.[1];
-    return !fence;
+    return fence ? '' : line;
   }).join('\n');
 }
 
-// Inline links and reference-link definitions; ignore fenced examples and inline code.
+// A code span is example syntax rather than a link, so its characters are dropped while its line
+// breaks stay, which keeps the line numbers of callers that report findings. A span cannot cross a
+// line here, so an unbalanced backtick at most affects the line that holds it.
+export function withoutInlineCode(content: string) {
+  return content.replace(/(`+)[^\n]*?\1/g, '');
+}
+
+/**
+ * An indented block is example syntax as well, so its lines are blanked while the line count stays.
+ * A block starts at a line indented by four spaces or a tab that follows a blank line, and it runs
+ * until the first line that is neither indented nor blank. The rule is not list-aware: indentation
+ * that continues a list item is blanked too, which for a reader that only reports coverage means a
+ * missed finding, so the reference resolver deliberately does not use this helper.
+ */
+export function withoutIndentedCode(content: string) {
+  let inCode = false, previousBlank = true;
+  return content.split('\n').map(line => {
+    const blank = line.trim() === '', indented = /^(?: {4}|\t)/.test(line);
+    if (inCode) {
+      if (blank || indented) return '';
+      inCode = false;
+    }
+    if (!inCode && indented && previousBlank) {
+      inCode = true;
+      return '';
+    }
+    previousBlank = blank;
+    return line;
+  }).join('\n');
+}
+
+// Inline links and reference-link definitions; ignore fenced examples and inline code. Indented
+// blocks are deliberately not stripped here: this resolver drives packaged reference discovery, so a
+// list continuation must keep its links.
 function markdownHrefs(content: string) {
-  const prose = withoutFences(content).replace(/(`+)[^\n]*?\1/g, '');
+  const prose = withoutInlineCode(withoutFences(content));
   return [
     ...prose.matchAll(/\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)/g),
     ...prose.matchAll(/^ {0,3}\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm),
