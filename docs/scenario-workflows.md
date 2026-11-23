@@ -37,7 +37,7 @@ Opening any workflow navigates to `?page=scenario&scenario=<id>[&run=<uuid>][&mo
 
 ## MCP and Agent integration
 
-Workflows preserve the twenty-two registered phase-one MCP tool names and share one backend domain service (`gateway/scenario-runs.ts`) across Studio and external Agents:
+Workflows preserve the thirty-four registered phase-one MCP tool names and share one backend domain service (`gateway/scenario-runs.ts`) across Studio and external Agents:
 
 - **Workflow / scenario orchestration:** `openmotion_assets_use` with `action="scenario"` exposes `catalog`, `list`, `get`, `create`, `update_run`, `update_brief`, `update_step`, `add_pool`, `update_pool`, `remove_pool`, `add_iteration`, `generate`, `sync`, `cancel`, `promote`, `create_page`, `embed_image`, `link_design`, `create_motion`, `link_motion`, and `export`. Mutations carry explicit `runId`, `expectedRevision`, and a stable `requestId`; `add_pool` accepts optional `recordIteration=true` and `note` to write Agent-processed workspace assets back into both **Assets** and the target step's version history atomically.
 - **Concise Skills handoff (`scenarioConcisePrompt` & `ScenarioSkillRef`):** in **Agent mode** (`?mode=agent`), clicking **Copy for Agent** (or inspecting **Preview prompt**) formats compact `[Metadata]`, `[Task & Parameters]`, `[Skills Pipeline]`, and `[Instructions]` via `scenarioConcisePrompt` in `shared/scenarios.ts`. Instead of repeating prose instructions per step, it lists each step's Skills cleanly as `library:<skillId>` (loaded by the Agent via `openmotion_get_skill(skillId)`) or `resource:<resourceUri>` (loaded via MCP `resources/read`, e.g., `openmotion://workflow/*`). `scenarioSkills(scenario)` exposes the deduplicated Skill list per workflow.

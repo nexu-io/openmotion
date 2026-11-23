@@ -34,7 +34,7 @@ The [native engine boundary](../skills/openmotion-production/references/native.m
 
 Director and its existing quality references now cover concrete visual events, joint material/motion design, recognizable action windows, representative prototypes and reuse of accepted implementations. Shared intake/runtime guidance covers scoped material acquisition; edit and verification own timing-evidence invalidation and evidence classification. No Skill, Resource section, public Tool or media service is added.
 
-The current five-route video contract with twenty-two registered Tool names (one compatibility alias and four Design Studio HTML tools), editor-first handoff, requested-export behavior and distribution layout remain active alongside the supporting `openmotion-media` and `openmotion-design` Skills. This guidance does not establish cross-task creative reliability or native audiovisual model-review capability. See [the director guide](openmotion-director.md). Version-specific statements below describe their historical snapshots.
+The current five-route video contract with thirty-four registered Tool names (one compatibility alias, four Design Studio HTML tools and twelve Game Studio tools), editor-first handoff, requested-export behavior and distribution layout remain active alongside the supporting `openmotion-media` and `openmotion-design` Skills. This guidance does not establish cross-task creative reliability or native audiovisual model-review capability. See [the director guide](openmotion-director.md). Version-specific statements below describe their historical snapshots.
 
 ## Reference reconstruction guidance
 
@@ -109,7 +109,7 @@ A prior local trial used only “做一个哈利波特宣传片” in a fresh gp
 
 原创制作按任务读取动作脚本、动态表现和短句参考，无需用户额外说“Motion 感”。多段/截图/状态延续、声音设计和动态审片按职责加载相应参考。模板与复刻按影响复用相同标准，不强制换成原创叙事、固定动效或固定音乐结构。
 
-一期公开接口已收敛为 [18 个 openmotion_ 注册名](mcp-phase1-tools.md)（17 项领域能力，含素材库兼容别名）。旧 28 项实现只留内部兼容；读文件、任务查询及技术校验分别并入项目读取与导出流程。一期插件和四宿主薄适配器包含上述五个创作入口、支撑 Skill `openmotion-media` 及其参考；源码中原有的 reference-video 兼容入口已在确认无源码安装、提示词或宿主配置按名称调用后删除。核心 Skill 指引同步使用新契约；不新增制作引擎或自动复刻算法。
+一期公开接口已收敛为 [34 个 openmotion_ 注册名](mcp-phase1-tools.md)（33 项领域能力；34 个注册名中含素材库兼容别名）。旧 28 项实现只留内部兼容；读文件、任务查询及技术校验分别并入项目读取与导出流程。一期插件和四宿主薄适配器包含上述五个创作入口、支撑 Skill `openmotion-media` 及其参考；源码中原有的 reference-video 兼容入口已在确认无源码安装、提示词或宿主配置按名称调用后删除。核心 Skill 指引同步使用新契约；不新增制作引擎或自动复刻算法。
 
 ## Shared production reading scope
 

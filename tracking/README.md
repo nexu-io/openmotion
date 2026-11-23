@@ -351,7 +351,7 @@ backend/data directory. Deterministic coverage lives in
   the result carries `outcome=success`. A rolled-back setup does not emit a success
   result. The installer accepts `--utm-source`; explicit installs update the saved
   source, untagged upgrades preserve it, and the installation ID stays stable.
-- All twenty-three page WebMCP tools: `webmcp_tool_started` and
+- All twenty-seven page WebMCP tools: `webmcp_tool_started` and
   `webmcp_tool_finished`, correlated by a fresh `call_id` per invocation, with
   the public `tool_name`, `transport=webmcp`, observed `outcome` and bounded
   `duration_ms`. These are browser-call measurements, separate from stdio MCP

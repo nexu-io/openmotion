@@ -21,7 +21,7 @@ Ordinary builds retain candidate installation-guide artifacts for review; they d
 
 Explicit builds accept stable `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-test.N[.N]`. The shared helper selects next-patch `test.<run>.<attempt>` (for example, 0.6.3 → 0.6.4-test.42.1). [Motion package and release](release-workflows.md#1-build) runs from `main`. In `mode=prepublish`, a blank test version uses a short workflow-counter version, for example `0.6.4-test.7` (rerun `0.6.4-test.7.2`). Ordinary check builds retain their workflow-local numbering. To publish a retained candidate, select `mode=publish` and enter its exact version and `candidate_run_id`. All embedded identities agree; output directories cannot be overwritten and source versions do not change. Explicit test npm builds default to DEV and candidate; stable npm builds default to prod and stage. Unversioned and channel/environment-mismatched builds remain private. The backup ZIP builder defaults to prod.
 
-PR / main 工作流执行清单、类型、Studio 构建与回归、安装/打包测试，以及逐一调用全部 18 个公开注册 Tool 名的真实 ZIP E2E。Linux 是组装与测试环境，不是已支持的用户运行平台。发布工作流在 macOS 和 Windows 验证 npm 候选包安装。完整 ZIP 的最终试装和真实出片仍需在对应系统验收。
+PR / main 工作流执行清单、类型、Studio 构建与回归、安装/打包测试，以及逐一调用全部 34 个公开注册 Tool 名的真实 ZIP E2E。Linux 是组装与测试环境，不是已支持的用户运行平台。发布工作流在 macOS 和 Windows 验证 npm 候选包安装。完整 ZIP 的最终试装和真实出片仍需在对应系统验收。
 
 ## 固定运行时
 
