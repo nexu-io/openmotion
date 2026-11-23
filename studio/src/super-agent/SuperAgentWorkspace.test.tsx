@@ -551,7 +551,7 @@ it('shows Chinese image controls and keeps the draft when switching creation mod
   await flush();
 
   expect(container.querySelector('.om-sa-mode-hero-copy h2')?.textContent).toBe('创作图像素材');
-  expect(container.querySelector('[role="tablist"]')?.textContent).toContain('角色参考');
+  expect(container.querySelector('[role="tablist"]')?.textContent).toContain('多图融合');
   const example = container.querySelector<HTMLButtonElement>('.om-sa-showcase-card')!;
   expect(example.textContent).toContain('GPT Image 2.6 · 图片');
   const composer = container.querySelector<HTMLTextAreaElement>('textarea')!;
