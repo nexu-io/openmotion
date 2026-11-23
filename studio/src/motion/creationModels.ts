@@ -51,3 +51,27 @@ export function creationModels(
   const choices = scene ? compatible : available;
   return { available, selected, choices, compatible, preferred };
 }
+
+/**
+ * Maximum number of reference images the user can attach in a Studio scene.
+ * Feature scenes (e.g. Character reference, up to 5) auto-switch away from 1-ref models once >= 2
+ * references are attached, so attaching stays open up to the best available (or compatible) model's
+ * cap clamped by the feature rule — even while a 1-ref model is selected or before provider setup.
+ */
+export function attachableReferenceLimit(
+  resolved: ReturnType<typeof creationModels>,
+  scene?: StudioScene,
+): number {
+  const feature = scene && sceneFeature(scene);
+  const featureMax = feature ? imageFeatures[feature].maxReferences : undefined;
+  const ceiling = featureMax ?? (scene?.modality === 'video' ? 1 : Infinity);
+  if (isFeatureScene(scene)) {
+    const pool = resolved.available.length ? resolved.available : resolved.compatible;
+    if (!pool.length) return featureMax ?? 1;
+    const best = pool.reduce((max, model) => Math.max(max, modelReferenceLimit(model)), 0);
+    return Math.min(best, ceiling);
+  }
+  const activeModel = resolved.selected ?? resolved.preferred;
+  const limit = activeModel ? modelReferenceLimit(activeModel) : 1;
+  return Math.min(limit, ceiling);
+}

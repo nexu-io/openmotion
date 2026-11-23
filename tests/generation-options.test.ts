@@ -817,3 +817,69 @@ test('videoFeatureParameters strictly honors published duration schemas and keep
   assert.equal(videoFeatureCapable('camera-control', atlasSeedance), true);
   assert.equal(videoFeatureSupported('multi-shot', atlasSeedance), false);
 });
+
+test('modelReferenceLimit falls back to measured caps for OpenDesign Cloud models omitting max_input_images', () => {
+  const freshSunburst = capImageModel({
+    id: 'opendesign:gpt-image-2.6-sunburst',
+    modelId: 'gpt-image-2.6-sunburst',
+    supportsImageReference: true,
+    nativeOptions: { edits: true },
+  });
+  const staleCachedSunburst = capImageModel({
+    id: 'opendesign:gpt-image-2.6-sunburst',
+    modelId: 'gpt-image-2.6-sunburst',
+    supportsImageReference: true,
+    maxInputImages: 1,
+    nativeOptions: { edits: true },
+  });
+  const explicitSingleSunburst = capImageModel({
+    id: 'opendesign:gpt-image-2.6-sunburst',
+    modelId: 'gpt-image-2.6-sunburst',
+    supportsImageReference: true,
+    maxInputImages: 1,
+    nativeOptions: { edits: true, max_input_images: 1 },
+  });
+  const freshFlash = capImageModel({
+    id: 'opendesign:seedream-5.0-flash',
+    modelId: 'seedream-5.0-flash',
+    supportsImageReference: true,
+    nativeOptions: { edits: true },
+  });
+  const seedream55 = capImageModel({
+    id: 'opendesign:seedream-5.5',
+    modelId: 'seedream-5.5',
+    supportsImageReference: true,
+    maxInputImages: 4,
+    nativeOptions: { edits: true, max_input_images: 4 },
+  });
+  const unknownCloud = capImageModel({
+    id: 'opendesign:future-single-ref',
+    modelId: 'future-single-ref',
+    supportsImageReference: true,
+    nativeOptions: { edits: true },
+  });
+
+  assert.equal(modelCapabilities(freshSunburst).image.maxReferences, 16);
+  assert.equal(modelCapabilities(staleCachedSunburst).image.maxReferences, 16);
+  assert.equal(modelCapabilities(explicitSingleSunburst).image.maxReferences, 1);
+  assert.equal(modelCapabilities(freshFlash).image.maxReferences, 10);
+  assert.equal(modelCapabilities(seedream55).image.maxReferences, 1);
+  assert.equal(modelCapabilities(unknownCloud).image.maxReferences, 1);
+});
+
+test('cloudModels populates measured maxInputImages when OpenDesign Cloud omits max_input_images', async () => {
+  const { cloudModels } = await import('../gateway/opendesign.ts');
+  const models = await cloudModels('https://cloud.example', 'test-key', (async () => Response.json({
+    models: [
+      { model: 'gpt-image-2.6-sunburst', kind: 'image', capabilities: { edits: true } },
+      { model: 'seedream-5.0-flash', kind: 'image', capabilities: { edits: true } },
+      { model: 'seedream-5.5', kind: 'image', capabilities: { edits: true } },
+      { model: 'future-unknown-image', kind: 'image', capabilities: { edits: true } },
+    ],
+  })) as never);
+  const byId = new Map(models.map(model => [model.modelId, model.maxInputImages]));
+  assert.equal(byId.get('gpt-image-2.6-sunburst'), 16);
+  assert.equal(byId.get('seedream-5.0-flash'), 10);
+  assert.equal(byId.get('seedream-5.5'), 1);
+  assert.equal(byId.get('future-unknown-image'), 1);
+});

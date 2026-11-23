@@ -1064,3 +1064,73 @@ it('uses action-verb CTAs for remove-background and relight, exposes full picker
   expect(sourceButtons).toEqual(['Upload image', 'Choose an asset']);
   expect(container.querySelector('.om-studio-form-heading')).toBeNull();
 });
+
+it('keeps Character reference upload actions available up to 5 images even with a 1-ref model selected or before setup', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const multiCatalog = {
+    models: [existing.sunburst, existing.seedream],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  const oneRef = [reference('hero-1')];
+  const fiveRefs = ['hero-1', 'hero-2', 'hero-3', 'hero-4', 'hero-5'].map(id => reference(id));
+
+  // Even when Seedream 5.5 (1-ref) is selected, Character reference keeps Upload/Choose open because Sunburst (multi-ref) is available.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: oneRef }} studio={{
+    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  }} />));
+  expect(container.querySelector('.om-source-actions')).not.toBeNull();
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // Hides Upload/Choose once all 5 Character reference slots are filled.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: fiveRefs }} studio={{
+    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  }} />));
+  expect(container.querySelector('.om-source-actions')).toBeNull();
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // Before provider setup (!selected), Character reference still allows attaching up to 5 images.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
+    catalog: { catalog: { models: [], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: false }] } }, failed: false, retry: vi.fn() },
+    chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  }} />));
+  expect(container.querySelector('.om-source-actions')).not.toBeNull();
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // While catalog is still loading (undefined), Character reference falls back to its 5-image limit.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  }} />));
+  expect(container.querySelector('.om-source-actions')).not.toBeNull();
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // Going from 1 -> 2 references with Seedream 5.5 selected switches the active model to Sunburst.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2')] }} studio={{
+    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  }} />));
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')?.textContent).toContain('GPT Image 2.6 Sunburst');
+  expect(container.querySelector('.om-source-actions')).not.toBeNull();
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // When only a 1-ref model is available on Character reference, Upload/Choose closes after 1 image.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
+    catalog: { catalog: { models: [existing.seedream], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } }, failed: false, retry: vi.fn() },
+    chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('character'),
+  }} />));
+  expect(container.querySelector('.om-source-actions')).toBeNull();
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // Single-reference features (remove-background) still close after 1 image.
+  await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: '', references: oneRef }} studio={{
+    catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('remove-background'),
+  }} />));
+  expect(container.querySelector('.om-source-actions')).toBeNull();
+});

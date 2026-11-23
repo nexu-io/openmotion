@@ -130,7 +130,10 @@ export class ModelGateway {
     return [...new Map([...builtinModels, ...cached.filter(model => model.provider !== 'opendesign'), ...cloud, ...custom, ...compatible, ...account].map(model => [model.id, model])).values()].map(model => {
       const live = cloud.find(row => row.id === model.id);
       const merged = { ...model, ...overrides[model.id], ...(live ? { supportsImageReference: live.supportsImageReference, maxInputImages: live.maxInputImages, nativeOptions: live.nativeOptions } : {}) };
-      return { ...merged, generationOptions: generationOptions(merged) };
+      const normalized = ['opendesign', 'account'].includes(merged.provider) && merged.modality === 'image' && merged.supportsImageReference
+        ? { ...merged, maxInputImages: modelReferenceLimit(merged) }
+        : merged;
+      return { ...normalized, generationOptions: generationOptions(normalized) };
     });
   }
   async listModels(input: { provider?: unknown; modality?: unknown; query?: unknown; refresh?: unknown; offset?: unknown; limit?: unknown } = {}) {

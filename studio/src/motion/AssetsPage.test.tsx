@@ -922,3 +922,113 @@ it('keeps the empty studio canvas model aligned with composer selection on Codex
   expect(multiRefResult.available.map(model => model.id)).toEqual([sunburst.id]);
   expect(multiRefResult.compatible.some(model => model.modelId === 'seedream-5.5')).toBe(false);
 });
+
+it('supports multi-file reference upload up to 5 images on Character reference while keeping single-file upload on Remove background', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const seedream = { id: 'opendesign:seedream-5.5', provider: 'opendesign', modelId: 'seedream-5.5', label: 'seedream-5.5', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 1 };
+  const catalog = {
+    models: [seedream, sunburst],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  const remember = vi.fn();
+  const characterStudio = {
+    destination: mediaEditorDestination('character'),
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember, chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={characterStudio} />)); await flush();
+
+  const refInput = container.querySelector<HTMLInputElement>('input[data-reference-upload="true"]')!;
+  expect(refInput.multiple).toBe(true);
+
+  const imported = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6'].map(id => fixture(id));
+  vi.mocked(uploadLibraryAsset).mockClear();
+  for (const item of imported.slice(0, 5)) vi.mocked(uploadLibraryAsset).mockResolvedValueOnce(item);
+  const files = imported.map(item => new File(['data'], `${item.id}.png`, { type: 'image/png' }));
+  Object.defineProperty(refInput, 'files', { configurable: true, value: files });
+  await act(async () => refInput.dispatchEvent(new Event('change', { bubbles: true }))); await flush();
+
+  // Caps imported references at the Character reference limit (5) without uploading the excess 6th file.
+  expect(uploadLibraryAsset).toHaveBeenCalledTimes(5);
+  expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
+  expect(remember.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+  expect(container.querySelector('.om-source-actions')).toBeNull();
+  expect(document.body.textContent).toContain('Reference limit reached.');
+
+  // Nearly-full case (4 of 5 attached) with mixed non-image + 2 images: keeps 1 image and shows both notices.
+  await act(async () => root.unmount()); root = createRoot(container);
+  const rememberPartial = vi.fn();
+  const fourRefs = ['c1', 'c2', 'c3', 'c4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
+  const partialStudio = {
+    destination: mediaEditorDestination('character'),
+    initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
+    draftKey: 'character:partial',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember: rememberPartial, chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={partialStudio} />)); await flush();
+  const partialInput = container.querySelector<HTMLInputElement>('input[data-reference-upload="true"]')!;
+  const extraFive = fixture('c5');
+  vi.mocked(uploadLibraryAsset).mockResolvedValueOnce(extraFive);
+  Object.defineProperty(partialInput, 'files', {
+    configurable: true,
+    value: [
+      new File(['bad'], 'notes.txt', { type: 'text/plain' }),
+      new File(['data'], 'c5.png', { type: 'image/png' }),
+      new File(['data'], 'c6.png', { type: 'image/png' }),
+    ],
+  });
+  await act(async () => partialInput.dispatchEvent(new Event('change', { bubbles: true }))); await flush();
+  expect(rememberPartial.mock.lastCall?.[0].references.map((item: { reference: { assetId: string } }) => item.reference.assetId)).toEqual(['c1', 'c2', 'c3', 'c4', 'c5']);
+  expect(document.body.textContent).toContain('Choose an image file.');
+  expect(document.body.textContent).toContain('Reference limit reached.');
+
+  await act(async () => root.unmount()); root = createRoot(container);
+  const removeBgStudio = {
+    destination: mediaEditorDestination('remove-background'),
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember: vi.fn(), chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={removeBgStudio} />)); await flush();
+  const singleRefInput = container.querySelector<HTMLInputElement>('input[data-reference-upload="true"]')!;
+  expect(singleRefInput.multiple).toBe(false);
+});
+
+it('shows Reference limit reached when another reference fills the last slot while an upload is in flight', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const sunburst = { id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst', modality: 'image' as const, mode: 'text-to-image', source: 'live' as const, supportsImageReference: true, maxInputImages: 16 };
+  const catalog = {
+    models: [sunburst],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+  };
+  const fourRefs = ['c1', 'c2', 'c3', 'c4'].map(id => ({ reference: { assetId: id, versionId: `${id}-v1` }, name: `Picture ${id}` }));
+  const remember = vi.fn();
+  const studio = {
+    destination: mediaEditorDestination('character'),
+    initialDraft: { modality: 'image' as const, prompt: '', references: fourRefs },
+    draftKey: 'character:race',
+    catalog: { catalog, failed: false, retry: vi.fn() },
+    remember, chooseModel: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />)); await flush();
+
+  const inflight = deferred<LibraryAsset>();
+  vi.mocked(uploadLibraryAsset).mockReturnValueOnce(inflight.promise);
+  const refInput = container.querySelector<HTMLInputElement>('input[data-reference-upload="true"]')!;
+  Object.defineProperty(refInput, 'files', { configurable: true, value: [new File(['data'], 'late.png', { type: 'image/png' })] });
+  await act(async () => refInput.dispatchEvent(new Event('change', { bubbles: true })));
+
+  // Fill the 5th slot via the reference picker while the upload is still in flight.
+  await click('References'); await flush();
+  const pickBtn = document.querySelector<HTMLButtonElement>('[role=dialog] [aria-label="Picture A"]')!;
+  await act(async () => pickBtn.click()); await flush();
+  await click('Use selected version');
+  expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
+
+  // Resolve the in-flight upload; it should not exceed 5 and must surface Reference limit reached.
+  await act(async () => { inflight.resolve(fixture('late-upload')); await inflight.promise; }); await flush();
+  expect(remember.mock.lastCall?.[0].references).toHaveLength(5);
+  expect(remember.mock.lastCall?.[0].references.some((item: { reference: { assetId: string } }) => item.reference.assetId === 'late-upload')).toBe(false);
+  expect(document.body.textContent).toContain('Reference limit reached.');
+});

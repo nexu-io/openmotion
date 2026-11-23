@@ -26,7 +26,7 @@ import { imageFeaturePrompt, imageFeatures, relightControls, type RelightChoices
 import { defaultVideoFeatureChoice, videoFeatureParameters, videoFeaturePrompt, videoFeatures } from '../../../shared/video-features';
 import { FieldTextarea } from '../components/ui/FormField';
 import { Select } from '../components/ui/Select';
-import { creationModels } from './creationModels';
+import { attachableReferenceLimit, creationModels } from './creationModels';
 import { isOpenDesignProvider, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
 import { ProviderSetupNotice } from './ProviderSetupNotice';
@@ -64,14 +64,16 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const [syncing, setSyncing] = useState(false);
   const selectedTask = history.tasks.find(task => task.key === history.selectedKey);
   const switching = busy || agentSending || selectingTask;
-  const { available, selected, choices, compatible, preferred } = creationModels(
+  const resolvedModels = creationModels(
     gateway, draft.modality, modelId, scene, featureMode, draft.references.length, draft.preferredModel,
   );
+  const { available, selected, choices, compatible, preferred } = resolvedModels;
   const preferredProvider = preferred && gateway?.status.providers.find(provider => provider.id === preferred.provider);
   const unconfiguredPreferred = Boolean(studio && gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
   const providerLabel = preferredProvider?.label ?? (preferred && registeredProvider(preferred.provider)?.label) ?? preferred?.provider ?? '';
   const accountNotIncluded = selected?.provider === 'account' && preferredProvider?.mediaEntitlement === 'not-included';
   const maximumReferences = selected ? Math.min(modelReferenceLimit(selected), featureRule?.maxReferences ?? Infinity) : 0;
+  const attachableReferences = scene ? attachableReferenceLimit(resolvedModels, scene) : maximumReferences;
   const unknownReferences = selected?.provider === 'opendesign' && selected.modality === 'image' && selected.supportsImageReference === undefined;
   const cloudModelMissing = !!gateway && !!modelId?.startsWith('opendesign:') && !selected && !unconfiguredPreferred;
   const openDesignMissing = Boolean(studio && gateway && featureMode && !compatible.length);
@@ -261,7 +263,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
             </Button>;
           })}
         </div>}
-        {draft.references.length < (selected ? maximumReferences : 1) && <div className="om-source-actions">
+        {draft.references.length < attachableReferences && <div className="om-source-actions">
           {onUploadReference && <Button variant="ghost" className="om-button h-auto" onClick={onUploadReference}><RemixIcon name="upload-line" size={18} />{t('Upload image')}</Button>}
           <Button variant="ghost" className="om-button h-auto" onClick={onReference}><RemixIcon name="image-2-line" size={18} />{t('Choose an asset')}</Button>
         </div>}
