@@ -2,14 +2,27 @@ import { createHash } from 'node:crypto';
 import { createReadStream, constants } from 'node:fs';
 import { copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { WorkspaceStore, projectPath } from './workspace.ts';
 import type { SourceFile } from './workspace.ts';
 
+// Windows refuses to replace a file for a moment while another process
+// (virus scanner, indexer, file watcher) still has it open.
+const transientRename = new Set(['EPERM', 'EACCES', 'EBUSY']);
+async function renameWithRetry(from: string, to: string) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await rename(from, to); }
+    catch (error) {
+      if (attempt >= 5 || !transientRename.has((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      await sleep(25 * 2 ** attempt);
+    }
+  }
+}
 export async function atomicJson(file: string, data: unknown) {
   await mkdir(path.dirname(file), { recursive: true });
   const temporary = file + '.' + crypto.randomUUID() + '.tmp';
-  try { await writeFile(temporary, JSON.stringify(data), { mode: 0o600 }); await rename(temporary, file); }
+  try { await writeFile(temporary, JSON.stringify(data), { mode: 0o600 }); await renameWithRetry(temporary, file); }
   finally { await rm(temporary, { force: true }); }
 }
 export async function jsonFile<T>(file: string, fallback: T): Promise<T> {

@@ -264,11 +264,20 @@ export class Phase1Service {
         || name === 'motion_export_request' && /^(VERSION_CONFLICT|INVALID_|REVIEW_)/.test(code);
       if (workAccepted && !recoverableWorkError) await this.workRounds.failed(args.projectId, args.workId, errorText(error));
       const { error_code, ...validation } = toolFailureFields(error);
+      // The caller needs the task's own error, not the journal's.
       await atomicJson(file, { ...record, state: 'failed', error: errorText(error), ...((error as any)?.applied === false ? { applied: false } : {}),
-        ...(error_code !== 'TOOL_FAILED' ? { failure: { code: error_code, ...validation } } : {}) });
+        ...(error_code !== 'TOOL_FAILED' ? { failure: { code: error_code, ...validation } } : {}) })
+        .catch(journalError => this.journalFailed(name, args, 'failed', journalError));
       throw error;
     }
-    await atomicJson(file, { ...record, state: 'completed', result }); return result;
+    // The task already ran (an export may be queued), so a failed journal write must not report it as failed.
+    // A retry with the same requestId recovers the version or job through the branch above.
+    await atomicJson(file, { ...record, state: 'completed', result }).catch(journalError => this.journalFailed(name, args, 'result', journalError));
+    return result;
+  }
+  private journalFailed(tool: string, args: any, phase: 'failed' | 'result', error: unknown) {
+    return recordDiagnostic(this.store.directory, { kind: 'request_journal_failed', tool, requestId: args.requestId,
+      projectId: args.projectId, message: phase + ' record not written: ' + errorText(error) });
   }
   async completeGeneration(args: any) {
     const detail = await this.detail(args.projectId);
