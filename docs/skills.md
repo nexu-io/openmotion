@@ -78,12 +78,12 @@ MCP 工具说明和领域执行位于 `mcp-tools.ts`；`mcp.ts` 保留初始化�
 
 | Skill | workflow 短 ID | section |
 | --- | --- | --- |
-| openmotion-production | production（默认） | start、intake、templates、production、verification、context、native、edit、portable、materials、transcripts、decisions、review、sound、account、compatible、fal、opendesign、atlascloud、wavespeed、typography、fonts、reference（共 23 项） |
+| openmotion-production | production（默认） | start、intake、templates、production、verification、context、native、edit、portable、materials、transcripts、decisions、review、sound、account、compatible、fal、opendesign、atlascloud、wavespeed、aimlapi、typography、fonts、reference（共 24 项） |
 | openmotion-director | director | start、actions、craft、phrases、decisions、sound、review、examples |
 | openmotion-template-to-video | template | start、unchanged、firstuse、recipes、adaptation（共 5 项） |
 | openmotion-recreate | recreate | start、rebuild、reconstruction、rendering、rendercode、verification |
 | openmotion-video-to-template | video-to-template | start、measure、rebuild、project、verification、sources |
-| openmotion-media | media（辅助素材生成，非成片主入口） | start、planning、setup、jobs、inspection、account、compatible、fal、opendesign、atlascloud、wavespeed（共 11 项） |
+| openmotion-media | media（辅助素材生成，非成片主入口） | start、planning、setup、jobs、inspection、account、compatible、fal、opendesign、atlascloud、wavespeed、codex、aimlapi（共 13 项） |
 
 ```json
 {"uri":"openmotion://workflow/director/start"}
