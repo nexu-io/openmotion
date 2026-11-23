@@ -8,8 +8,8 @@ import { RenderDurationNote } from "./RenderDurationNote";
 import { RenderQueueItem } from "./RenderQueueItem";
 import { FfmpegRequiredNotice } from "./FfmpegRequiredNotice";
 import type { FfmpegStatus } from "./useFfmpegStatus";
-import { Button } from "../ui/Button";
-import { IconButton } from "../ui/IconButton";
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { Select, type SelectOption } from "../ui/Select";
 import { Tooltip } from "../ui/Tooltip";
 import { Popover } from "../ui/Popover";
@@ -166,10 +166,8 @@ function FormatInfoTooltip() {
   return <Popover openOnHover modal={false} container={null} side="top" initialFocus={false}
     aria-label={t("About video formats")}
     className="studio-tooltip rounded-md px-3 py-2 shadow-menu max-w-[min(300px,calc(100vw-16px))] whitespace-normal break-words"
-    trigger={<button type="button" aria-label={t("About video formats")}
-      className="flex items-center justify-center p-0.5 -m-0.5 rounded-sm text-text-5 hover:text-text-3 transition-colors cursor-help outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent">
-      <RemixIcon name="question-line" size={14} />
-    </button>}>
+    trigger={<IconButton variant="plain" type="button" aria-label={t("About video formats")}
+      className="flex items-center justify-center p-0.5 -m-0.5 rounded-sm text-text-5 hover:text-text-3 transition-colors cursor-help outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-accent" icon={<RemixIcon name="question-line" size={14} />} />}>
     <span className="block font-semibold">{t("About video formats")}</span>
     <span className="mt-1 block whitespace-pre-line font-normal leading-normal">{description}</span>
   </Popover>;

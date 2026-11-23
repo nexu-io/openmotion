@@ -153,6 +153,7 @@ export function createTimelineElementFromManifestClip(params: {
       if (rawSrc) entry.src = new URL(rawSrc, hostEl.baseURI).href;
     }
     if (hostEl.hasAttribute("data-hidden")) entry.hidden = true;
+    if (hostEl.hasAttribute("data-timeline-locked")) entry.timelineLocked = true;
     const timelineRole = hostEl.getAttribute("data-timeline-role");
     if (timelineRole) entry.timelineRole = timelineRole;
     const link = hostEl.getAttribute("data-link");
@@ -419,6 +420,17 @@ function scanTimelineFromDOM(
 // Merge helpers
 // ---------------------------------------------------------------------------
 
+export function restoreAuthoredTrack(element: TimelineElement): TimelineElement {
+  if (
+    element.implicitTextTiming ||
+    element.authoredTrack == null ||
+    element.authoredTrack === element.track
+  ) {
+    return element;
+  }
+  return { ...element, track: element.authoredTrack };
+}
+
 export function mergeTimelineElementsPreservingDowngrades(
   currentElements: TimelineElement[],
   nextElements: TimelineElement[],
@@ -438,17 +450,22 @@ export function mergeTimelineElementsPreservingDowngrades(
   }
 
   const nextIdentities = new Set(nextElements.map(getTimelineElementIdentity));
-  const preserved = currentElements.filter(
-    (element) =>
-      !nextIdentities.has(getTimelineElementIdentity(element)) &&
-      // Only preserve enriched sub-composition children (compositionSrc set),
-      // which a bare DOM re-scan legitimately drops and enrichMissingCompositions
-      // re-adds. A TOP-LEVEL element missing from the fresh scan was genuinely
-      // removed (undo of a split, a delete), so let it go — otherwise undoing a
-      // split leaves a ghost clip in the timeline even though the file is reverted.
-      element.compositionSrc != null &&
-      stillInPreview(element),
-  );
+  const preserved = currentElements
+    .filter(
+      (element) =>
+        !nextIdentities.has(getTimelineElementIdentity(element)) &&
+        // Only preserve enriched sub-composition children (compositionSrc set),
+        // which a bare DOM re-scan legitimately drops and enrichMissingCompositions
+        // re-adds. A TOP-LEVEL element missing from the fresh scan was genuinely
+        // removed (undo of a split, a delete), so let it go — otherwise undoing a
+        // split leaves a ghost clip in the timeline even though the file is reverted.
+        element.compositionSrc != null &&
+        stillInPreview(element),
+    )
+    // Restore authored track space before merging with fresh authored nextElements:
+    // currentElements carry normalized display lanes, and mixing display lanes with
+    // authored tracks makes normalizeToZones drift preserved clips onto new rows.
+    .map(restoreAuthoredTrack);
   if (preserved.length === 0) return nextElements;
   return [...nextElements, ...preserved];
 }

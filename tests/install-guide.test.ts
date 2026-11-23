@@ -87,6 +87,13 @@ test('guide rendering pins the exact npm package, built source and hash while re
   assert(text.includes('verify any mirrored tgz against the matching immutable guide\'s SHA256 before executing it'), 'Mirror recovery must preserve an independently recorded package identity');
   assert(text.includes('Permission or checksum failures stop immediately') && text.includes('terminal handoff') && text.includes('A local tgz still needs npm access'), 'Retain fail-closed recovery, terminal handoff and the online dependency boundary');
   assert(text.includes(await installationInstructions(fileURLToPath(new URL('../', import.meta.url)))), 'Published guide must preserve the exact setup reply contract');
+  assert.match(text, /^# Install OpenMotion 0\.6\.4-test\.1\n/);
+  assert(text.includes(`skills@1.9.0 add https://github.com/nexu-io/openmotion/tree/${manifest.commit} --skill openmotion`));
+  assert(!text.includes('skills@1.9.0 add nexu-io/openmotion '), 'A release guide must not pair its app with main-branch Skill instructions');
+  assert(text.includes('For DSH, use `universal`'));
+  assert(text.includes('Reuse an existing official installation'));
+  assert(!text.includes('source-only:') && !text.includes('npm start') && !text.includes('git clone'));
+  assert(!text.includes('automatic source installation') && !text.includes('openmotion-source-install.sh'));
   assert.equal(record.channel, 'test'); assert.equal(record.candidate, false);
   assert.equal(validateGuideSpec('openmotion', '0.6.4'), 'stable');
   for (const name of ['https://evil.invalid/a', 'x;echo bad', '--script', '@bad/no/extra']) assert.throws(() => validateGuideSpec(name, pkg.version));
@@ -191,7 +198,11 @@ test('PR CI has no publication credentials; publication requires a separate manu
   assert(workflow.includes('workflow_dispatch:') && !workflow.includes('pull_request:') && !workflow.includes('push:'));
   assert(!workflow.includes('environment:'), 'No independent approval environment is enabled');
   assert(!workflow.includes('accepted:') && !workflow.includes('MOTION_ACCEPTED'));
-  assert(!workflow.split('  snapshot:\n')[0].includes('secrets.'));
+  const [readOnly, remainder] = workflow.split('      - name: Prepare immutable template resources for publication\n');
+  assert(!readOnly!.includes('secrets.'));
+  const [stage, afterStage] = remainder!.split('\n      - uses: actions/upload-artifact@');
+  assert(stage!.includes("inputs.mode == 'publish'") && stage!.includes('CLOUDFLARE_R2_RELEASES_SK'));
+  assert(!afterStage!.split('  snapshot:\n')[0]!.includes('secrets.'));
 });
 
 test('moving guides use channel tags while immutable guides and current version remain exact', async t => {

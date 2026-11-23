@@ -429,10 +429,11 @@ describe("MVP centered track geometry", () => {
       const tracksHeight = 160;
       for (const height of [400, 560, 200]) {
         await act(async () => { clientHeight = height; for (const observer of resizeObservers) observer.resize(); });
-        const pad = Math.max(48, (height - 24 - tracksHeight) / 2);
+        const spare = height - 24 - tracksHeight;
+        const pad = Math.max(8, Math.min(spare / 2, spare - 48));
         const lane = host.querySelector<HTMLElement>('[data-testid="timeline-ghost-lane"]')!;
         expect(parseFloat(lane.style.top)).toBe(24 + pad + tracksHeight + 3);
-        expect(onContentHeightChange.mock.calls.at(-1)?.[0]).toBe(24 + 48 + tracksHeight + 48);
+        expect(onContentHeightChange.mock.calls.at(-1)?.[0]).toBe(24 + 8 + tracksHeight + 48);
         for (const [track, rowHeight] of rowHeights.entries()) {
           const rowTop = 24 + pad + track * 48;
           act(() => usePlayerStore.getState().setSelectedElementId(`clip-${track}`));

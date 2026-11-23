@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../i18n/I18n";
 import { useCallback, useState } from "react";
 import { createPortal } from "react-dom";
@@ -56,7 +57,7 @@ export function LinkedSelectionToggle() {
             : t("Linked Selection off: a click selects one clip")
         }
       >
-        <button
+        <IconButton variant="plain"
           type="button"
           onClick={() => setLinkedSelection(!linkedSelection)}
           onContextMenu={(e) => {
@@ -66,9 +67,8 @@ export function LinkedSelectionToggle() {
           aria-label={t("Linked Selection")}
           aria-pressed={linkedSelection}
           className={linkedSelection ? flatActive : flatIdle}
-        >
-          <LinkSimple size={16} weight="bold" aria-hidden="true" />
-        </button>
+          icon={<LinkSimple size={16} weight="bold" aria-hidden="true" />}
+        />
       </Tooltip>
       {menuAt && <SyncIndicatorMenu x={menuAt.x} y={menuAt.y} onClose={closeMenu} />}
     </>

@@ -114,17 +114,29 @@ export function exportTranscript(document: TranscriptDocument, format: Transcrip
 export function exportSubtitleSegments(segments: TranscriptSegment[], format: 'srt' | 'vtt') {
   if (format !== 'srt' && format !== 'vtt') throw new Error('Choose SRT or VTT');
   const separator = format === 'vtt' ? '.' : ',';
-  const cues = segments.map((s, index) => `${index + 1}\n${transcriptTimestamp(s.start!, separator)} --> ${transcriptTimestamp(s.end!, separator)}\n${s.text.replace(/\r?\n\s*\r?\n/g, '\n')}`);
+  // WebVTT cue text is markup: a bare "<" opens a tag and "&" a character reference. SRT is plain text.
+  const cueText = (text: string) => format === 'vtt' ? text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : text;
+  const cues = segments.map((s, index) => `${index + 1}\n${transcriptTimestamp(s.start!, separator)} --> ${transcriptTimestamp(s.end!, separator)}\n${cueText(s.text.replace(/\r?\n\s*\r?\n/g, '\n'))}`);
   return { content: (format === 'vtt' ? 'WEBVTT\n\n' : '') + cues.join('\n\n') + '\n', mimeType: format === 'vtt' ? 'text/vtt' : 'application/x-subrip', extension: format };
 }
 
 export function parseTranscriptSubtitles(text: string): TranscriptSegment[] {
   if (typeof text !== 'string' || text.length > 2_000_000) throw new Error('Subtitle file exceeds 2 MB');
   const time = (s: string) => { const parts = s.replace(',', '.').split(':').map(Number); const seconds = parts.pop()!, minutes = parts.pop()!, hours = parts.pop() ?? 0; if (minutes >= 60 || seconds >= 60) throw new Error('Invalid subtitle timestamp'); return hours * 3600 + minutes * 60 + seconds; };
+  // Read back the references a WebVTT export writes; one pass, so "&amp;lt;" stays the text "&lt;".
+  // Cue span tags (<v Name>, <i>, <c.loud>, <00:01.500>) are markup, not speech, so they go before the references are read.
+  // Only the tags WebVTT defines are taken; any other "<" stays text, as in "a < b and c > d".
+  // A tag's classes or annotation stop at the next "<", so an unclosed "<b " is not rescanned to the end of the cue from every later one.
+  const references: Record<string, string> = { amp: '&', lt: '<', gt: '>' };
+  const cueTag = /<\/?(?:c|i|b|u|ruby|rt|v|lang)(?:[.\s][^<>]*)?>|<(?:\d{2,}:)?\d{2}:\d{2}\.\d{3}>/g;
+  const cueText = /^\uFEFF?WEBVTT/.test(text) ? (value: string) => value.replace(cueTag, '').replace(/&(amp|lt|gt);/g, (_, name: string) => references[name]) : (value: string) => value;
   const rows = text.replace(/^\uFEFF/, '').replace(/\r/g, '').split(/\n\s*\n/).flatMap(block => {
     const match = block.match(/(?:^|\n)((?:\d{2,}:)?\d{2}:\d{2}[,.]\d{3})\s+-->\s+((?:\d{2,}:)?\d{2}:\d{2}[,.]\d{3})[^\n]*\n([\s\S]+)/);
     if (!match && block.includes('-->')) throw new Error('Invalid subtitle cue');
-    return match ? [{ start: time(match[1]), end: time(match[2]), text: match[3].trim() }] : [];
+    if (!match) return [];
+    const raw = match[3].trim(), spoken = cueText(raw).trim();
+    // A cue that held nothing but tags has no speech to caption; an empty cue is still malformed.
+    return raw && !spoken ? [] : [{ start: time(match[1]), end: time(match[2]), text: spoken }];
   });
   if (!rows.length) throw new Error('No valid subtitle cues were found');
   return validateSegments(rows);

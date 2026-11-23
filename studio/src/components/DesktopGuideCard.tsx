@@ -3,7 +3,8 @@ import { ArrowSquareOut, Check, Copy } from "../icons/RemixIcons";
 import { useEffect, useState, type ReactNode } from "react";
 import { copyTextToClipboard } from "../utils/clipboard";
 import { FrameyGlyph, type FrameyMood } from "./FrameyGlyph";
-import { Button, cn } from "./ui";
+import { Button } from "open-design-ui/button";
+import { cn } from "./ui";
 
 // The desktop-app guide card under OpenInDesktopButton: Framey and three steps (download, install, open), all drawn
 // from one `Progress`.
@@ -187,12 +188,12 @@ function DownloadStep({ progress, onDownload }: CardProps) {
       <p className={NOTE}>
         {installed ? t("Already on this {value0}.", { value0: deviceName(context.os) }) : t("Started in your browser.")}
         {!installed && downloadUrl && (
-          <button
+          <Button variant="plain"
             type="button"
             className="ml-1.5 cursor-pointer font-medium text-accent-ink hover:underline"
             onClick={onDownload}
           >
-            {t("Download again")}</button>
+            {t("Download again")}</Button>
         )}
       </p>
     </Step>

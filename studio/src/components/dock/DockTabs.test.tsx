@@ -170,20 +170,20 @@ describe("dock tab fill", () => {
     expect(fill()?.style.width).toBe(`${TAB_WIDTH}px`);
     await activate("renders");
     expect(stripOf("design")?.querySelectorAll(".hf-dock-tab-fill")).toHaveLength(1);
-    expect(fill()?.style.transform).toBe(`translateX(${2 * TAB_STEP}px)`);
+    expect(fill()?.style.transform).toBe(`translateX(${tab("renders")!.offsetLeft}px)`);
   });
 
   it("keeps the shown tab whole when its strip narrows, as when the strip's actions appear", async () => {
     const strip = stripOf("design");
     if (!strip) throw new Error("no design strip");
     await activate("variables");
-    // The four tabs fit, so the strip is unscrolled; then it narrows to two and a half tabs.
+    // All tabs fit, so the strip is unscrolled; then it narrows to two and a half tabs.
     strip.scrollLeft = 0;
     Object.defineProperty(strip, "clientWidth", { value: 1000, configurable: true });
     act(() => resizeAll());
     Object.defineProperty(strip, "clientWidth", { value: 250, configurable: true });
     act(() => resizeAll());
-    expect(strip.scrollLeft).toBe(3 * TAB_STEP + TAB_WIDTH + 1 - 250);
+    expect(strip.scrollLeft).toBe(tab("variables")!.offsetLeft + TAB_WIDTH + 1 - 250);
   });
 
   it("leaves a strip the user scrolled alone when something else in the dock changes", async () => {
@@ -238,7 +238,7 @@ describe("dock tab fill", () => {
     act(() => resizeAll());
     Object.defineProperty(strip, "clientWidth", { value: 250, configurable: true });
     act(() => resizeAll());
-    expect(strip.scrollLeft).toBe(3 * TAB_STEP + TAB_WIDTH + 1 - 250);
+    expect(strip.scrollLeft).toBe(tab("variables")!.offsetLeft + TAB_WIDTH + 1 - 250);
   });
 
   it("reveals the shown tab when a panel beside it closes and it moves", async () => {
@@ -248,8 +248,9 @@ describe("dock tab fill", () => {
     Object.defineProperty(strip, "clientWidth", { value: 150, configurable: true });
     act(() => resizeAll());
     strip.scrollLeft = 0;
+    const previousLeft = tab("variables")!.offsetLeft;
     await act(async () => useDockLayoutStore.getState().togglePanel("design"));
-    // Variables moved from the fourth place to the third; its right edge is at 290.
-    expect(strip.scrollLeft).toBe(2 * TAB_STEP + TAB_WIDTH + 1 - 150);
+    expect(tab("variables")!.offsetLeft).toBe(previousLeft - TAB_STEP);
+    expect(strip.scrollLeft).toBe(tab("variables")!.offsetLeft + TAB_WIDTH + 1 - 150);
   });
 });

@@ -22,6 +22,9 @@ import type { CutoverResult } from "../utils/sdkCutover";
 import { reseekPreviewRuntime } from "./timelineTrackVisibility";
 import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
 import { readProjectFileContent } from "../utils/studioFileHistory";
+import { applyUndoRestoreToPreview } from "../utils/gsapUndoRestore";
+import { syncRestoredTimelineFromPreview } from "../player/lib/timelineRestoreSync";
+import { usePlayerStore } from "../player/store/playerStore";
 
 import type { RecordEditInput } from "../utils/studioFileHistory";
 export type { RecordEditInput } from "../utils/studioFileHistory";
@@ -162,7 +165,7 @@ export function useDomEditPersist({
         } else {
           patchData = await postPatchElement(pid, targetPath, patchBody, showToast);
         }
-        if (!patchData.changed) return { patchData, patchedContent: null, finalContent: null };
+        if (!patchData.changed) return { patchData, originalContent, patchedContent: null, finalContent: null };
 
         const patchedContent =
           typeof patchData.content === "string" ? patchData.content : originalContent;
@@ -193,10 +196,10 @@ export function useDomEditPersist({
           ],
           files: { [targetPath]: { before: originalContent, after: finalContent } },
         });
-        return { patchData, patchedContent, finalContent };
+        return { patchData, originalContent, patchedContent, finalContent };
       });
       if (saved === null) return;
-      const { patchData, patchedContent, finalContent } = saved;
+      const { patchData, originalContent, patchedContent, finalContent } = saved;
 
       if (finalContent === null) {
         if (patchData.matched === false) {
@@ -222,7 +225,16 @@ export function useDomEditPersist({
       }
       forceReloadSdkSession?.();
 
-      if (!options?.skipRefresh) {
+      if (options?.syncTimingInPlace) {
+        // Reuse the same attribute-only diff and runtime rebind as soft undo.
+        // Keep the iframe, media decoder, thumbnails and ruler alive during a slider drag.
+        const strategy = applyUndoRestoreToPreview(
+          previewIframeRef.current, activeCompPath,
+          { [targetPath]: { previous: originalContent, restored: finalContent } },
+          usePlayerStore.getState().currentTime, reloadPreview,
+        );
+        if (strategy === "soft") syncRestoredTimelineFromPreview(previewIframeRef.current?.contentDocument);
+      } else if (!options?.skipRefresh) {
         reloadPreview();
       }
       const outcome = completePersistence(

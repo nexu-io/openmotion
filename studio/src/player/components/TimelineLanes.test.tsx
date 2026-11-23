@@ -215,20 +215,21 @@ function beatHighlight(host: HTMLElement): HTMLElement | undefined {
   );
 }
 
-it("moves the main track label when the bottom visual track changes", () => {
+it("preserves track names when the bottom visual track changes", () => {
   const overlay = element("overlay", TRACK_A);
   const main = element("main clip", TRACK_B);
   const audio = { ...element("audio", 2), tag: "audio" };
   const view = renderLanes({ elements: [overlay, main, audio] });
-  const markedHeaders = () => [...view.host.querySelectorAll('[role="rowheader"]')]
-    .map((header) => header.textContent)
-    .filter((label) => label?.includes("Main track"));
+  const headerText = () => [...view.host.querySelectorAll('[role="rowheader"]')]
+    .map((header) => header.textContent).join(" ");
 
-  expect(markedHeaders()).toEqual([expect.stringContaining("Main track · main clip")]);
+  expect(headerText()).toContain("main clip");
+  expect(headerText()).not.toContain("Main track");
 
   view.rerender({ elements: [overlay, { ...main, track: 0 }, audio] });
 
-  expect(markedHeaders()).toEqual([expect.stringContaining("Main track · overlay")]);
+  expect(headerText()).toContain("overlay");
+  expect(headerText()).not.toContain("Main track");
   act(() => view.root.unmount());
 });
 

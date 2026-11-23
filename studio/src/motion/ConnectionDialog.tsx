@@ -1,6 +1,8 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { useMvpEditor } from "./StudioHost";
 import { useI18n } from '../i18n/I18n';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ComponentProps } from 'react';
 import { mountConnection } from '../../../web/connect';
 import connectionPage from '../../../web/connect.html?raw';
 import { TemplateLibraryDialog } from './TemplateLibraryDialog';
@@ -10,7 +12,7 @@ import { reportTemplateEvent } from './editorTracking';
 import '../../../web/connect.css';
 import '../../../web/template-gallery.css';
 
-type Props = { open: boolean; section?: 'setup' | 'templates'; busy: boolean; openingDisabled?: boolean; error: string; returnFocus?: HTMLElement | null; onClose: () => void; onOpen: (id: string) => void; templateId?: string | null; onTemplateChange?: (id: string | null) => void; projectId?: string };
+type Props = ComponentProps<typeof TemplateLibraryDialog> & { section?: 'setup' | 'templates' };
 
 /** The original integration page lives inside one modal; Studio stays mounted beneath it. */
 export function ConnectionDialog(props: Props) {
@@ -68,9 +70,9 @@ function LegacyConnectionDialog(props: Props) {
       <h2 id="connection-dialog-title">{t(mvp ? "Template library" : "MCP connection · Templates")}</h2>
       <div className="connection-dialog-tools">
         <input id="template-search" className="ui-input connection-search" type="search" maxLength={200} placeholder={t("Search templates, creators, styles…")} aria-label={t("Search templates")} />
-        <button id="connection-templates" className="ui-button ui-button--ghost ui-button--sm" onClick={() => controller.current?.showTemplates()}>{t("View all templates")}</button>
+        <Button variant="plain" id="connection-templates" className="ui-button ui-button--ghost ui-button--sm" onClick={() => controller.current?.showTemplates()}>{t("View all templates")}</Button>
       </div>
-      <button id="close-connections" className="ui-button ui-button--ghost ui-button--icon" aria-label={t(mvp ? "Close template library" : "Close MCP connection")} disabled={props.busy} onClick={props.onClose}><MotionIcon name="close" /></button>
+      <IconButton variant="plain" id="close-connections" className="ui-button ui-button--ghost ui-button--icon" aria-label={t(mvp ? "Close template library" : "Close MCP connection")} disabled={props.busy} onClick={props.onClose} icon={<MotionIcon name="close" />} />
     </div>
     {props.error ? <p className="connect-error" role="alert">{t(props.error)}</p> : props.busy && <p className="connect-progress" role="status"><span className="connect-progress-spinner" aria-hidden="true" />{t('Preparing editable project…')}</p>}
     <div id="connection-root" ref={root} />

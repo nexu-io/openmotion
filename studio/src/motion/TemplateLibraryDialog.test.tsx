@@ -8,6 +8,7 @@ import { TemplateLibraryDialog } from './TemplateLibraryDialog';
 import { MAX_TEMPLATE_PLAYERS } from './useTemplatePlayback';
 import { validProperties } from '../../../tracking/core.ts';
 import { studioEvents } from '../../../tracking/events.ts';
+import { TemplatePreparationBlockedError, pendingTemplateProjects } from './templateHandoff';
 
 const tracked = vi.hoisted(() => [] as { event: string; properties: Record<string, unknown> }[]);
 vi.mock('./tracking', () => ({ trackMotion: async (event: string, properties: Record<string, unknown>) => { tracked.push({ event, properties }); return 'queued'; } }));
@@ -30,9 +31,10 @@ class Observer {
 }
 let motionPreference: EventTarget & { matches: boolean };
 function fetchItems(data = items, templateSource?: 'repository' | 'cms') {
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/integration') ? { templateSource, templateEnvironment: 'dev', transport: { env: {} } } : { items: data, catalogVersion: 'v1', next: null, total: data.length })));
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json(url.endsWith('/integration') ? { templateSource, templateEnvironment: 'dev', transport: { env: {} } } : url.endsWith('/projects') ? { projects: [], sessions: [] } : { items: data, catalogVersion: 'v1', next: null, total: data.length })));
 }
 beforeEach(() => {
+  sessionStorage.setItem('motion.template-handoff.preview', '0');
   window.happyDOM.settings.enableIframePageLoading = false;
   Observer.instances = []; tracked.length = 0;
   vi.stubGlobal('IntersectionObserver', Observer);
@@ -45,7 +47,7 @@ beforeEach(() => {
   fetchItems();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); sessionStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const button = (label: string, scope: ParentNode = host) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find(node => node.getAttribute('aria-label') === label || node.textContent === label)!;
 const cards = () => [...host.querySelectorAll('[data-template-id]')].map(el => el.getAttribute('data-template-id'));
 const current = () => host.querySelector('dialog[aria-label="Template preview"] h2')?.textContent;
@@ -63,6 +65,344 @@ async function search(value: string) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
+const recovery = () => host.querySelector<HTMLElement>('section[aria-label="Find another starting point"]')!;
+async function fill(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+const searchInput = () => host.querySelector<HTMLInputElement>('input[type=search]')!;
+const confirmSearch = () => act(async () => searchInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+const clearKeyword = () => act(async () => button(`Remove filter ${searchInput().value}`).click());
+it('shows all Black Friday templates in one masonry gallery and previews them in order', async () => {
+  const onClose = vi.fn();
+  await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog collection="black-friday" open busy={false} error="" onClose={onClose} onOpen={vi.fn()} /></I18nProvider>));
+  expect(host.querySelector('[aria-label="Video purpose"]')).toBeNull();
+  const banner = host.querySelector('[data-black-friday] header')!;
+  expect(banner.querySelector('h1')?.textContent).toBe('Black Friday');
+  expect(button('Back to Explore', banner)).toBeTruthy();
+  expect(banner.querySelectorAll('button')).toHaveLength(1);
+  expect(cards()).toHaveLength(59);
+  const galleries = host.querySelectorAll('[data-black-friday] .om-gallery-masonry');
+  expect(galleries).toHaveLength(1);
+  expect(galleries[0].querySelectorAll(':scope > .om-gallery-card')).toHaveLength(59);
+  expect(galleries[0].querySelector('.om-gallery-avatar')).toBeNull();
+  expect(galleries[0].querySelector('.om-gallery-card-caption small')?.textContent).toBe('Zzz_Futurist');
+  expect([...host.querySelectorAll('[data-black-friday] h2')].map(heading => heading.textContent)).toEqual(['Black Friday templates']);
+  expect(host.querySelector('[data-black-friday] .ui-text-link')).toBeNull();
+  expect(document.activeElement).toBe(host.querySelector('[data-black-friday] h1'));
+  const filters = host.querySelector('nav[aria-label="Black Friday collection"]')!;
+  expect(filters.previousElementSibling?.textContent).toBe('Black Friday templates');
+  expect(filters.nextElementSibling?.querySelector('input[type=search]')).toBe(searchInput());
+  expect(host.querySelector('header .om-gallery-page-label, header .om-gallery-header-actions')).toBeNull();
+  const all = button('All', filters);
+  expect(filters.querySelector('button[aria-pressed="true"]')).toBe(all);
+  for (const [label, count] of [['Before the sale', 5], ['Sale launch', 48], ['Cyber Monday and last call', 6]] as const) {
+    const stage = button(label, filters);
+    await act(async () => stage.click());
+    expect([...filters.querySelectorAll('button[aria-pressed="true"]')]).toEqual([stage]);
+    expect(cards()).toHaveLength(count);
+  }
+  await act(async () => all.click());
+  expect(cards()).toHaveLength(59);
+  const playback = observer();
+  const visibleCards = playback.elements.slice(0, 2);
+  act(() => playback.emit(1, visibleCards));
+  expect(loadedVideos()).toHaveLength(2);
+  act(() => playback.emit(0, visibleCards));
+  expect(loadedVideos()).toHaveLength(0);
+  await act(async () => preview('Black Friday | 3D Type and Product Reveal'));
+  expect(current()).toBe('Black Friday | 3D Type and Product Reveal');
+  expect(events('ui_click', { area: 'template_card', element: 'open_detail' }).at(-1)).toMatchObject({ placement: 'black_friday' });
+  const detail = host.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!;
+  await act(async () => button('Next template', detail).click());
+  expect(current()).toBe('Agentcard | Black-and-Gold Type and Card Launch');
+  await act(async () => button('Next template', detail).click());
+  expect(current()).toBe('Black Friday | Adobe — Illustrated A Monogram');
+  await act(async () => button('Close template preview', detail).click());
+  await act(async () => button('Back to Explore').click());
+  expect(onClose).toHaveBeenCalledOnce();
+});
+
+it('omits the project return in both the template library and Black Friday details', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  const template = { ...items[1], id: 'black-friday-a5238e113514', title: 'Black Friday | 3D Type and Product Reveal' };
+  fetchItems([template]);
+
+  for (const blackFriday of [true, false]) {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog key={String(blackFriday)} collection={blackFriday ? 'black-friday' : null} open inWorkspace busy={false} error="" onClose={vi.fn()} onOpen={vi.fn()} /></I18nProvider>));
+    await act(async () => preview(template.title));
+    const detail = host.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!;
+    expect(detail.open).toBe(true);
+    expect(current()).toBe(template.title);
+    expect(button('Back to current project', detail)).toBeUndefined();
+    await act(async () => button('Close template preview', detail).click());
+  }
+});
+
+it('keeps the search in the header and preserves filters when clearing the keyword', async () => {
+  await mount();
+  expect(host.querySelectorAll('input[type=search]')).toHaveLength(1);
+  expect(searchInput().closest('header')?.querySelector('a[href*="github.com"]')).toBeNull();
+  await act(async () => button('Brand & company films').click());
+  await search('not-here');
+  await confirmSearch();
+  await clearKeyword();
+  expect(cards()).toEqual(['three']);
+  expect(button('Remove filter Brand & company films')).toBeDefined();
+  await act(async () => button('Clear filters').click());
+  await search('Figma');
+  await confirmSearch();
+  expect(cards()).toEqual(['one']);
+  expect(events('template_search_result').at(-1)).toMatchObject({ search_keyword: 'Figma', result_count: 1 });
+});
+it('opens the reference-link form from each category without changing browsing or creating a search', async () => {
+  await mount();
+  const actionLabel = 'Paste a video link to make your own';
+  for (const category of ['All', 'TOP 100 brands', 'Product demos & explainers', 'Brand & company films']) {
+    await act(async () => button(category).click());
+    expect(button(actionLabel)).toBeDefined();
+  }
+  const intro = host.querySelector('.om-gallery-intro')!;
+  const trigger = button(actionLabel, intro);
+  const actions = intro.querySelector('.om-gallery-intro-actions')!;
+  expect(actions.querySelector('a')?.textContent).toBe('Submit template');
+  expect(actions.querySelector('a')?.classList.contains('om-gallery-submit')).toBe(true);
+  expect(button('Surprise me', actions).classList.contains('om-gallery-surprise')).toBe(true);
+  expect(actions.nextElementSibling?.contains(trigger)).toBe(true);
+  expect(trigger.hasAttribute('data-primary')).toBe(false);
+  expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
+  const initialCards = cards();
+  expect(events('surface_view', { element: 'reference' })).toHaveLength(0);
+  await act(async () => trigger.click());
+  const [referenceImpression] = events('surface_view', { element: 'reference' });
+  expect(referenceImpression).toMatchObject({ reference_entry: 'library_home', result_set_id: expect.any(String) });
+  const popup = host.querySelector<HTMLDialogElement>('dialog[data-search-recovery][open]')!;
+  const input = popup.querySelector<HTMLInputElement>('input[type=url]')!;
+  expect(document.activeElement).toBe(input);
+  expect(button('Copy request', popup).disabled).toBe(true);
+  const link = 'https://example.com/reference.mp4';
+  await fill(input, link);
+  await act(async () => button('Copy request', popup).click());
+  expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expect.stringContaining(link));
+  expect(events('ui_click', { element: 'reference', reference_entry: 'library_home' })).toHaveLength(1);
+  expect(events('template_search_handoff_result').at(-1)).toMatchObject({
+    reference_entry: 'library_home', source_kind: 'link', handoff_status: 'clipboard_written',
+  });
+  expect(events('template_search_result')).toHaveLength(0);
+  expect(JSON.stringify(tracked)).not.toContain(link);
+  for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+  await act(async () => button('Local video', popup).click());
+  const picker = popup.querySelector('input[type=file]')!;
+  await act(async () => button('Choose local video', popup).click());
+  await act(async () => picker.dispatchEvent(new Event('cancel', { bubbles: true })));
+  expect(events('ui_click', { element: 'choose_local_video' })).toEqual([expect.objectContaining({
+    reference_entry: 'library_home', source_kind: 'local', result_set_id: referenceImpression.result_set_id,
+  })]);
+  expect(events('studio_asset_import_result')).toHaveLength(0);
+  expect(popup.open).toBe(true);
+  expect(button('Copy request', popup).disabled).toBe(true);
+  await act(async () => popup.dispatchEvent(new Event('cancel', { cancelable: true, bubbles: true })));
+  expect(host.querySelector('dialog[data-search-recovery]')).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(cards()).toEqual(initialCards);
+  expect(button('Brand & company films').getAttribute('aria-pressed')).toBe('true');
+  expect(searchInput().value).toBe('');
+  await act(async () => trigger.click());
+  expect(events('surface_view', { element: 'reference' })).toHaveLength(1);
+});
+it('counts the home reference entry after visible dwell once per result set', async () => {
+  vi.useFakeTimers();
+  try {
+    await mount();
+    const impressions = () => events('surface_view', { element: 'reference', reference_entry: 'library_home' });
+    const currentObserver = () => Observer.instances.findLast(instance => !instance.disconnected &&
+      instance.elements.some(element => element.hasAttribute('data-reference-entry')))!;
+    const initial = currentObserver();
+    initial.emit(0.49);
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(impressions()).toHaveLength(0);
+    initial.emit(0.5);
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(impressions()).toHaveLength(1);
+    initial.emit();
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(impressions()).toHaveLength(1);
+    await act(async () => button('Brand & company films').click());
+    currentObserver().emit();
+    await act(async () => vi.advanceTimersByTime(1000));
+    expect(impressions()).toHaveLength(2);
+    expect(impressions()[0].result_set_id).not.toBe(impressions()[1].result_set_id);
+  } finally { vi.useRealTimers(); }
+});
+it('commits Enter and debounce once, never commits IME text, and counts A to B to A as three searches', async () => {
+  vi.useFakeTimers();
+  try {
+    await mount();
+    const input = host.querySelector<HTMLInputElement>('input[type=search]')!;
+    await act(async () => input.dispatchEvent(new Event('compositionstart', { bubbles: true })));
+    await search('产品');
+    await act(async () => { vi.advanceTimersByTime(700); });
+    expect(events('template_search_result')).toHaveLength(0);
+    await confirmSearch();
+    expect(events('template_search_result')).toHaveLength(0);
+    expect(recovery()).toBeNull();
+    await act(async () => input.dispatchEvent(new Event('compositionend', { bubbles: true })));
+    await search('Ada');
+    await confirmSearch();
+    await act(async () => { vi.advanceTimersByTime(700); });
+    expect(events('template_search_result')).toHaveLength(1);
+    await search('Other');
+    await act(async () => { vi.advanceTimersByTime(500); });
+    await search('Ada');
+    await confirmSearch();
+    const results = events('template_search_result');
+    expect(results.map(result => result.search_keyword)).toEqual(['Ada', 'Other', 'Ada']);
+    expect(new Set(results.map(result => result.search_id)).size).toBe(3);
+    expect(new Set(results.map(result => result.discovery_id)).size).toBe(1);
+    expect(new Set(results.map(result => result.result_set_id)).size).toBe(3);
+    await act(async () => preview('First'));
+    expect(events('surface_view', { area: 'template_detail' }).at(-1)).toMatchObject({ search_id: results[2].search_id, discovery_id: results[2].discovery_id, result_set_id: results[2].result_set_id });
+  } finally { vi.useRealTimers(); }
+});
+it('prepares link and local-video instructions, retains drafts and distinguishes copy failure from sending', async () => {
+  await mount(); await search('missing');
+  await confirmSearch();
+  await act(async () => button('Make a video from a reference', recovery()).click());
+  expect(button('Copy request', recovery()).disabled).toBe(true);
+  await fill(recovery().querySelector<HTMLInputElement>('input[type=url]')!, 'javascript:alert(1)');
+  expect(button('Copy request', recovery()).disabled).toBe(true);
+  const reference = 'https://example.com/private-reference';
+  await fill(recovery().querySelector<HTMLInputElement>('input[type=url]')!, reference);
+  await fill(recovery().querySelector('textarea')!, 'Private creative notes');
+  await act(async () => button('Copy request', recovery()).click());
+  expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expect.stringContaining(reference));
+  expect(events('template_search_handoff_result').at(-1)).toMatchObject({ source_kind: 'link', handoff_status: 'clipboard_written' });
+  expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('Paste the request in your chat and send it.');
+  await act(async () => button('Back', recovery()).click());
+  await act(async () => button('Make a video from a reference', recovery()).click());
+  expect(recovery().querySelector<HTMLInputElement>('input[type=url]')!.value).toBe(reference);
+  await act(async () => button('Local video', recovery()).click());
+  await act(async () => button('Local video', recovery()).click());
+  const searchContext = events('template_search_result').at(-1)!;
+  expect(events('ui_click', { element: 'reference_source_select' })).toEqual([expect.objectContaining({
+    source_kind: 'local', result_set_id: searchContext.result_set_id, search_id: searchContext.search_id,
+  })]);
+  expect(button('Copy request', recovery()).disabled).toBe(true);
+  const picker = recovery().querySelector<HTMLInputElement>('input[type=file]')!;
+  expect(picker.accept).toBe('video/*');
+  const file = new File(['video'], 'private-reference.mp4', { type: 'video/mp4' });
+  const asset = { id: 'pinned-asset', modality: 'video', currentVersionId: 'pinned-version', versions: [{ id: 'pinned-version' }] };
+  Object.defineProperty(picker, 'files', { value: [file] });
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: 'Unsupported media type' }, { status: 400 }));
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(button('Copy request', recovery()).disabled).toBe(true);
+  expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('Choose a readable video file.');
+  vi.mocked(fetch).mockRejectedValueOnce(new Error('private network error'));
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(button('Copy request', recovery()).disabled).toBe(true);
+  const upload = Promise.withResolvers<Response>();
+  vi.mocked(fetch).mockReturnValueOnce(upload.promise);
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(button('Copy request', recovery()).disabled).toBe(true);
+  expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining('modality=video'), expect.objectContaining({ body: file }));
+  await act(async () => upload.resolve(Response.json({ asset })));
+  expect(button('Copy request', recovery()).disabled).toBe(false);
+  expect(button('Replace video', recovery())).toBeDefined();
+  expect(recovery().textContent).toContain(file.name);
+  expect(events('studio_asset_import_result')).toEqual([
+    expect.objectContaining({ entry_point: 'template_reference', outcome: 'failure', failed_count: 1, error_category: 'unsupported_format' }),
+    expect.objectContaining({ entry_point: 'template_reference', outcome: 'unknown', failed_count: 0, unknown_count: 1 }),
+    expect.objectContaining({ entry_point: 'template_reference', outcome: 'success', added_count: 1 }),
+  ]);
+  expect(events('studio_asset_import_result').every(event => event.result_set_id === searchContext.result_set_id &&
+    event.search_id === searchContext.search_id && event.reference_entry === undefined)).toBe(true);
+  vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+  await act(async () => button('Copy request', recovery()).click());
+  expect(events('template_search_handoff_result').at(-1)).toMatchObject({ source_kind: 'local', handoff_status: 'manual_fallback' });
+  const manual = recovery().querySelector<HTMLTextAreaElement>('textarea[readonly]')!;
+  expect(manual.value).toContain('openmotion_assets_use {"action":"read","assetId":"pinned-asset","versionId":"pinned-version"}');
+  expect(manual.value).toContain('/motion-api/assets/pinned-asset/versions/pinned-version/file');
+  expect(JSON.stringify(tracked)).not.toContain(file.name);
+  expect(JSON.stringify(tracked)).not.toContain(asset.id);
+  expect(JSON.stringify(tracked)).not.toContain('private network error');
+  expect(manual.value).not.toContain(reference);
+  expect(JSON.stringify(tracked)).not.toContain(reference);
+  expect(JSON.stringify(tracked)).not.toContain('Private creative notes');
+  for (const item of tracked) expect(validProperties(studioEvents, item.event, item.properties), JSON.stringify(item)).toBe(true);
+});
+it('retains the selected video and notes while changing the search or a category', async () => {
+  await mount();
+  await search('missing');
+  await confirmSearch();
+  const initialResult = events('template_search_result').at(-1)!;
+  await act(async () => button('Make a video from a reference', recovery()).click());
+  await act(async () => button('Local video', recovery()).click());
+  const notes = 'Keep the opening transition';
+  await fill(recovery().querySelector('textarea')!, notes);
+  const video = new File(['video'], 'sample.mp4', { type: 'video/mp4' });
+  const picker = recovery().querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(picker, 'files', { value: [video] });
+  const upload = Promise.withResolvers<Response>();
+  vi.mocked(fetch).mockReturnValueOnce(upload.promise);
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+
+  searchInput().focus();
+  await search('still missing');
+  expect(recovery()).toBeNull();
+  const asset = { id: 'reference-asset', modality: 'video', currentVersionId: 'original', versions: [{ id: 'original' }] };
+  await act(async () => upload.resolve(Response.json({ asset })));
+  expect(events('studio_asset_import_result').at(-1)).toMatchObject({
+    outcome: 'success', result_set_id: initialResult.result_set_id,
+  });
+  await confirmSearch();
+  expect(document.activeElement).toBe(searchInput());
+  expect(recovery().querySelector('textarea')?.value).toBe(notes);
+
+  await act(async () => button('Brand & company films').click());
+  expect(recovery().textContent).toContain(video.name);
+  expect(recovery().querySelector('textarea')?.value).toBe(notes);
+  await act(async () => button('Copy request', recovery()).click());
+  expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expect.stringContaining('"assetId":"reference-asset","versionId":"original"'));
+  expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expect.stringContaining(notes));
+  expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.body === video)).toHaveLength(1);
+
+  await act(async () => button('Video link', recovery()).click());
+  const link = 'https://example.com/video.mp4';
+  await fill(recovery().querySelector<HTMLInputElement>('input[type=url]')!, link);
+  searchInput().focus();
+  await search('another missing result');
+  await confirmSearch();
+  expect(document.activeElement).toBe(searchInput());
+  expect(recovery().querySelector<HTMLInputElement>('input[type=url]')?.value).toBe(link);
+});
+it('keeps description inside the creation path and hides unavailable request intake', async () => {
+  await mount();
+  await act(async () => button('Nothing suitable?').click());
+  expect(button('Describe your video', recovery())).toBeUndefined();
+  await act(async () => button('Make a video from a reference', recovery()).click());
+  await act(async () => button('Describe your video', recovery()).click());
+  const copyRequest = button('Copy request', recovery());
+  expect(copyRequest.disabled).toBe(true);
+  expect(copyRequest.parentElement?.nextElementSibling?.textContent).toContain('Connect an Agent');
+  await fill(recovery().querySelector('textarea')!, 'An original launch film');
+  await act(async () => copyRequest.click());
+  expect(events('template_search_handoff_result').at(-1)).toMatchObject({ source_kind: 'description', handoff_status: 'clipboard_written' });
+  expect(button('Request a template', recovery())).toBeUndefined();
+  expect(JSON.stringify(tracked)).not.toContain('An original launch film');
+});
+it('offers a verified single-filter recovery without clearing the keyword or unrelated conditions', async () => {
+  await mount();
+  await act(async () => button('Brand & company films').click());
+  await search('Figma');
+  await confirmSearch();
+  expect(cards()).toHaveLength(0);
+  await act(async () => button('Remove Brand & company films · Show 1 template', recovery()).click());
+  expect(cards()).toEqual(['one']);
+  expect(host.querySelector<HTMLInputElement>('input[type=search]')!.value).toBe('Figma');
+  expect(events('template_filter_result').at(-1)).toMatchObject({ result_count: 1 });
+});
 it('uses one ordered gallery without a duplicate featured section and combines category, search and facets', async () => {
   await mount();
   expect(host.textContent).not.toContain('Popular templates');
@@ -75,10 +415,13 @@ it('uses one ordered gallery without a duplicate featured section and combines c
   expect(gallery.scrollTop).toBe(0);
   expect(cards()).toEqual(['one']);
   await act(async () => button('Clear filters').click());
+  expect(cards()).toEqual(['one']);
+  expect(host.querySelector<HTMLInputElement>('input[type=search]')!.value).toBe('Ada clean');
+  await clearKeyword();
   expect(cards()).toHaveLength(3);
   await act(async () => button('Filters').click());
   await act(async () => button('Reference brands').click());
-  await act(async () => button('Figma').click());
+  await act(async () => button('Figma', host.querySelector('[role=dialog][aria-label=Filters]')!).click());
   expect(cards()).toHaveLength(3);
   expect(events('ui_click', { element: 'filter_option' })).toHaveLength(0);
   expect(host.querySelector('[role=dialog][aria-label=Filters]')).not.toBeNull();
@@ -130,7 +473,7 @@ it('filters brand templates directly and preserves category, search and reset be
   ]);
   await mount();
   const categories = host.querySelector('[role=group][aria-label="Video purpose"]')!;
-  expect(categories.children[1]).toBe(button('TOP 100 brands'));
+  expect(categories.querySelectorAll('button')[1]).toBe(button('TOP 100 brands'));
   expect(cards()).toHaveLength(5);
 
   await act(async () => button('TOP 100 brands').click());
@@ -158,6 +501,9 @@ it('filters brand templates directly and preserves category, search and reset be
   expect(events('template_filter_result').at(-1)).toMatchObject({ action: 'filter_apply', result_count: 3, applied_filter_count: 0 });
   await act(async () => button('TOP 100 brands').click());
   await act(async () => button('Clear filters').click());
+  expect(cards()).toHaveLength(3);
+  expect(host.querySelector<HTMLInputElement>('input[type=search]')!.value).toBe('Ada');
+  await clearKeyword();
   expect(cards()).toHaveLength(5);
   expect(button('All').getAttribute('aria-pressed')).toBe('true');
 
@@ -191,7 +537,7 @@ it('copies the shared brief, retains guides and gates editable-project opening',
   await act(async () => button('复刻模板').click());
   expect(host.querySelector('dialog[aria-label=复刻模板]')).toBeNull();
   expect(document.querySelector('[data-feedback-layer]')?.textContent).toContain('已复制，发给 Agent 即可。');
-  expect(navigator.clipboard.writeText).toHaveBeenCalledWith('使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。\n指定模板：First（one）\n创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。\n我的要求：\n');
+  expect(navigator.clipboard.writeText).toHaveBeenCalledWith('使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。\n指定模板：First（one）\n创作要求：基于模板，结合我的要求和附件创作。保留原模板的场景、界面和动画结构（可编辑模板直接原地替换文字与素材），不另写简陋文字卡页面；需要舍弃内容时先说明取舍，并交付 HTML 和 MP4。\n我的要求：\n');
   await act(async () => button('打开并编辑').click());
   expect(onOpen).toHaveBeenCalledWith('one');
   await act(async () => button('预览模板 Second', host.querySelector('main')!).click());
@@ -205,13 +551,13 @@ it.each(['repository', 'cms'] as const)('updates the displayed and copied title 
     const expected = [
       '使用说明：请使用 OpenMotion 插件。如未安装，请按 `https://github.com/nexu-io/openmotion` 安装并接入后继续。',
       `指定模板：${title}（${id}）`,
-      '创作要求：基于模板，结合我的要求和附件创作，默认保留主要动效与风格，并交付 HTML 和 MP4。',
+      '创作要求：基于模板，结合我的要求和附件创作。保留原模板的场景、界面和动画结构（可编辑模板直接原地替换文字与素材），不另写简陋文字卡页面；需要舍弃内容时先说明取舍，并交付 HTML 和 MP4。',
       '我的要求：\n',
     ].join('\n');
     expect(host.querySelector('section[aria-label="模板复刻指令"] p')?.textContent).toBe(expected);
     await act(async () => button('复刻模板').click());
     expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(expected);
-    if (id === 'one') await act(async () => button('下一个模板').click());
+    if (id === 'one') await act(async () => button('下一个').click());
   }
 });
 it('random discovery honors filters, avoids consecutive repeats and handles a singleton', async () => {
@@ -243,13 +589,17 @@ it('navigates the filtered order with wraparound and keyboard, then follows rela
   expect(detail.hasAttribute('open')).toBe(false);
   expect(cards()).toEqual(['two', 'three']);
 });
-it('returns an actionable empty state and disables random discovery for no matches', async () => {
+it('gives recovery priority when nothing matches and restores the gallery after clearing', async () => {
   await mount(); await search('nothing-matches');
   expect(cards()).toHaveLength(0);
-  expect(button('Surprise me').disabled).toBe(true);
-  expect(host.textContent).toContain('No matching templates');
-  await act(async () => button('Clear filters').click());
+  expect(button('Surprise me')).toBeUndefined();
+  await confirmSearch();
+  expect(host.textContent).toContain('No templates match the current conditions.');
+  expect(button('Make a video from a reference')).toBeDefined();
+  expect(button('Clear filters')).toBeUndefined();
+  await clearKeyword();
   expect(cards()).toHaveLength(3);
+  expect(button('Surprise me').disabled).toBe(false);
 });
 it('reveals metadata labels only while truncated and hides the tooltip when space becomes available', async () => {
   const observers: ResizeObserverStub[] = [];
@@ -374,7 +724,7 @@ it('does not duplicate a brand when the catalog has no author identity', async (
 
 it('copies contribution instructions with the selected template without opening another dialog', async () => {
   await mount();
-  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md"]')?.textContent).toContain('Submit video');
+  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md"]')?.textContent).toContain('Submit template');
   await act(async () => preview('First'));
   await act(async () => button('Recreate and submit').click());
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('First (one)'));
@@ -491,9 +841,9 @@ it('distinguishes brand-filtered impressions even when all templates have a bran
 });
 it('reports the library funnel with registered fields: library, card open, detail, instruction, copy and download', async () => {
   await mount();
-  expect(events('surface_view', { area: 'template_library' })).toEqual([{ page_name: 'studio', area: 'template_library', element: 'library' }]);
+  expect(events('surface_view', { area: 'template_library' })).toEqual([{ page_name: 'studio', area: 'template_library', element: 'library', library_view_id: expect.any(String) }]);
   await act(async () => preview('First'));
-  expect(events('ui_click', { element: 'open_detail' })).toEqual([{ page_name: 'studio', area: 'template_card', element: 'open_detail', template_id: 'one', resource_kind: 'editable_project', placement: 'catalog', position: 2, sort: 'recommended', applied_filter_count: 0 }]);
+  expect(events('ui_click', { element: 'open_detail' })).toEqual([{ page_name: 'studio', area: 'template_card', element: 'open_detail', template_id: 'one', resource_kind: 'editable_project', placement: 'catalog', position: 2, sort: 'recommended', applied_filter_count: 0, library_view_id: expect.any(String), result_set_id: expect.any(String) }]);
   const [shown] = events('surface_view', { area: 'template_detail' });
   expect(shown).toMatchObject({ template_id: 'one', placement: 'catalog', position: 2, detail_mode: 'modal' });
   expect(shown.detail_view_id).toMatch(uuid);
@@ -523,8 +873,8 @@ it('reports discovery choices with the list they produced, and one search per se
   try {
     await mount();
     await act(async () => button('Product launch films').click());
-    expect(events('ui_click', { element: 'category_select' })).toEqual([{ page_name: 'studio', area: 'template_discovery', element: 'category_select', filter_group: 'uses', filter_value: 'product-launch-films', selected: true, sort: 'recommended', applied_filter_count: 0 }]);
-    expect(events('template_filter_result')).toEqual([{ page_name: 'studio', area: 'template_discovery', action: 'category_select', result_count: 2, outcome: 'success', sort: 'recommended', applied_filter_count: 1 }]);
+    expect(events('ui_click', { element: 'category_select' })).toEqual([{ page_name: 'studio', area: 'template_discovery', element: 'category_select', filter_group: 'uses', filter_value: 'product-launch-films', selected: true, sort: 'recommended', applied_filter_count: 0, library_view_id: expect.any(String), result_set_id: expect.any(String) }]);
+    expect(events('template_filter_result')).toEqual([{ page_name: 'studio', area: 'template_discovery', action: 'category_select', result_count: 2, outcome: 'success', sort: 'recommended', applied_filter_count: 1, library_view_id: expect.any(String), discovery_id: expect.any(String), result_set_id: expect.any(String) }]);
     await search('Ad'); await search('Ada');
     expect(events('template_search_result')).toHaveLength(0);
     await act(async () => { vi.advanceTimersByTime(500); });
@@ -537,7 +887,8 @@ it('reports discovery choices with the list they produced, and one search per se
     await act(async () => host.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!.close());
     await act(async () => button('Clear filters').click());
     expect(events('ui_click', { element: 'filter_clear' })).toHaveLength(1);
-    expect(events('template_filter_result', { action: 'filter_clear' })).toEqual([expect.objectContaining({ result_count: 3, applied_filter_count: 0 })]);
+    expect(events('template_filter_result', { action: 'filter_clear' })).toEqual([expect.objectContaining({ result_count: 1, applied_filter_count: 0 })]);
+    await clearKeyword();
     await act(async () => button('Sort').click());
     await act(async () => [...host.querySelectorAll<HTMLElement>('[role=menuitemradio]')].find(el => el.textContent === 'Duration')!.click());
     expect(events('ui_click', { element: 'sort_option' })).toEqual([expect.objectContaining({ sort: 'duration', previous_sort: 'recommended', changed: true })]);
@@ -564,7 +915,7 @@ it('counts a card impression after an unbroken visible second, once per result s
     expect(seen()).toHaveLength(0);
     await act(async () => impressions().emit(1, card('two')));
     await act(async () => { vi.advanceTimersByTime(1000); });
-    expect(seen()).toEqual([{ page_name: 'studio', area: 'template_card', element: 'card', template_id: 'two', resource_kind: 'reference', placement: 'catalog', position: 1, sort: 'recommended', applied_filter_count: 0 }]);
+    expect(seen()).toEqual([{ page_name: 'studio', area: 'template_card', element: 'card', template_id: 'two', resource_kind: 'reference', placement: 'catalog', position: 1, sort: 'recommended', applied_filter_count: 0, library_view_id: expect.any(String), result_set_id: expect.any(String) }]);
     await act(async () => { vi.advanceTimersByTime(3000); });
     expect(seen()).toHaveLength(1);
     await act(async () => button('Sort').click());
@@ -587,7 +938,7 @@ it('counts each library opening while catalog loading is pending or failed, with
     : new Promise<Response>((_resolve, reject) => { fail = reject; })));
   await mount();
   expect(events('surface_view', { area: 'template_library' })).toEqual([
-    { page_name: 'studio', area: 'template_library', element: 'library' },
+    { page_name: 'studio', area: 'template_library', element: 'library', library_view_id: expect.any(String) },
   ]);
   await act(async () => fail(new Error('CATALOG_OFFLINE')));
   expect(host.querySelector('[role="alert"]')?.textContent).toContain('CATALOG_OFFLINE');
@@ -696,11 +1047,11 @@ it('discards unapplied changes on dismissal and starts from the committed filter
   await act(async () => button('Product launch films').click());
   await act(async () => button('Filters').click());
   await act(async () => button('Reference brands').click());
-  await act(async () => button('Figma').click());
+  await act(async () => button('Figma', host.querySelector('[role=dialog][aria-label=Filters]')!).click());
   await act(async () => button('Close filters').click());
   expect(cards()).toEqual(['two', 'one']);
   await act(async () => button('Filters').click());
-  expect(button('Figma').getAttribute('aria-checked')).toBe('false');
+  expect(button('Figma', host.querySelector('[role=dialog][aria-label=Filters]')!).getAttribute('aria-checked')).toBe('false');
   await act(async () => button('Video purpose').click());
   const popup = host.querySelector('[role=dialog][aria-label=Filters]')!;
   expect(button('Product launch films', popup).getAttribute('aria-checked')).toBe('true');
@@ -739,9 +1090,321 @@ it('opens the template requested by the MCP page without selecting a different c
   expect(current()).toBe('First');
 });
 
-it('keeps TOP100 discovery actions and keeps ordinary template details identical to main in review mode', async () => {
+it.each(['en', 'zh-CN'] as const)('keeps reference and contribution copying distinct in local review (%s)', async locale => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  await mount(locale);
+  await act(async () => button(translate(locale, 'Preview template {title}', { title: 'Second' })).click());
+  const detail = host.querySelector('dialog[aria-label="' + translate(locale, 'Template preview') + '"]')!;
+  const copy = button(translate(locale, 'Recreate this template'), detail);
+  expect(detail.textContent).not.toContain('Local review');
+  expect(detail.textContent).not.toContain('本地评审');
+  expect(copy).toBeDefined();
+  const browse = detail.querySelector('nav[aria-label="' + translate(locale, 'Browse videos') + '"]')!;
+  expect([...browse.querySelectorAll('button')].map(item => item.textContent)).toEqual([translate(locale, 'Previous template'), translate(locale, 'Next template')]);
+  expect(button(translate(locale, 'Open and edit'), detail)).toBeUndefined();
+  await act(async () => copy.click());
+  const regular = vi.mocked(navigator.clipboard.writeText).mock.calls.at(-1)![0];
+  expect(regular).toContain('two');
+  expect(regular).not.toContain('contribution guide');
+  await act(async () => button(translate(locale, 'Copy contribution brief'), detail).click());
+  const contribution = vi.mocked(navigator.clipboard.writeText).mock.calls.at(-1)![0];
+  expect(contribution).toContain('two');
+  expect(contribution).toContain(locale === 'en' ? 'contribution' : '准备贡献');
+  const intents = events('ui_click', { element: 'start_use' });
+  const results = events('template_instruction_copy_result');
+  expect(intents.map(item => item.template_action)).toEqual(['recreate', 'recreate_submit']);
+  expect(intents.map(item => item.copy_attempt_id)).toEqual(results.map(item => item.copy_attempt_id));
+  expect(results.map(item => item.copy_status)).toEqual(['clipboard_written', 'clipboard_written']);
+  await act(async () => button(translate(locale, 'Next steps'), detail).click());
+  expect(detail.textContent).toContain(translate(locale, 'Add content and send'));
+  expect(detail.textContent).not.toContain('Visual rules');
+  expect(detail.textContent).not.toContain('Production rules');
+  const shelf = detail.querySelector('section[aria-label="' + translate(locale, 'Similar templates') + '"]');
+  expect(shelf).not.toBeNull();
+  expect(shelf!.parentElement?.parentElement).toBe(detail);
+});
+
+it('keeps a text download beside GitHub, contribution beside pinned copying, and help by the instruction heading', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  await mount(); await act(async () => preview('First'));
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  expect(document.activeElement).toBe(detail.querySelector('h2'));
+  expect(detail.querySelector('[role="tooltip"]')).toBeNull();
+  act(() => button('Close template preview', detail).focus());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(detail.querySelector('[role="tooltip"]')?.textContent).toBe('Close template preview');
+  act(() => (detail.querySelector('h2') as HTMLElement).focus());
+  const github = [...detail.querySelectorAll('a')].find(node => node.textContent?.includes('View on GitHub'))!;
+  const materials = detail.querySelector('[aria-label="About this starting point"]')!;
+  expect(github.compareDocumentPosition(materials) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const resources = detail.querySelector('section[aria-label="Template resources"]')!;
+  const specs = detail.querySelector('[aria-label="Video specifications"]')!;
+  expect(specs.nextElementSibling?.textContent).toContain('Ada Designer');
+  expect(specs.nextElementSibling?.nextElementSibling).toBe(resources);
+  expect(resources.contains(github)).toBe(true);
+  expect(resources.querySelector('details')).toBeNull();
+  expect(resources.contains(button('Download motion.md', detail))).toBe(true);
+  expect(github.querySelectorAll('svg')).toHaveLength(1);
+  expect(resources.contains(button('Copy contribution brief', detail))).toBe(false);
+  expect(button('Download motion.md', detail).textContent).toBe('Download motion.md');
+  const actions = detail.querySelector('[aria-label="Template actions"]')!;
+  expect(actions.contains(button('Copy contribution brief', detail))).toBe(true);
+  expect(actions.contains(button('Recreate this template', detail))).toBe(true);
+  expect(button('Copy contribution brief', detail).textContent).toBe('');
+  expect([...detail.querySelectorAll('details summary')].map(item => item.textContent)).not.toContain('Create and contribute a template');
+  const production = detail.querySelector('[aria-label="Production references"]')!;
+  expect(production.contains(button('View motion.md guide', detail))).toBe(true);
+  expect(production.parentElement?.lastElementChild).toBe(production);
+  expect(production.contains(button('Download motion.md', detail))).toBe(false);
+  const creation = detail.querySelector('section[aria-label="Template recreation instruction"]')!;
+  expect(creation.querySelector('header h3')?.textContent).toBe('Template recreation instruction');
+  expect(creation.querySelector(':scope > p')?.textContent).toContain('one');
+  expect(creation.querySelector('header')?.contains(button('Next steps', detail))).toBe(true);
+  expect(detail.querySelector('section[aria-label="After copying"]')).toBeNull();
+  await act(async () => button('Next steps', detail).click());
+  const steps = detail.querySelector('section[aria-label="After copying"]')!;
+  expect(steps.querySelectorAll('li')).toHaveLength(3);
+  expect(steps.textContent).toContain('Your copy; screenshots or recordings if needed.');
+  expect(detail.querySelectorAll('dialog')).toHaveLength(0);
+  expect(detail.textContent).not.toContain('Your Agent will make a new video from this reference and your materials.');
+  expect(detail.querySelector('video[controls]')).not.toBeNull();
+  await act(async () => button('View motion.md guide', detail).click());
+  const guide = detail.querySelector('section[aria-label="Interactive walkthrough"]')!;
+  expect(guide).not.toBeNull();
+  expect(detail.querySelector('dialog')).toBeNull();
+  expect(detail.querySelector('video[controls]')).toBeNull();
+  expect(guide.querySelector('iframe')?.getAttribute('sandbox')).toBe('allow-scripts');
+  await act(async () => button('Back to template', guide).click());
+  expect(detail.querySelector('section[aria-label="Interactive walkthrough"]')).toBeNull();
+  expect(current()).toBe('First');
+});
+
+it('replaces related details in place and retains the original search on dismissal', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  await mount(); await search('First'); await act(async () => preview('First'));
+  const detail = host.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!;
+  const shelf = detail.querySelector('section[aria-label="Similar templates"]')!;
+  const next = shelf.querySelector<HTMLButtonElement>('button[aria-label="Preview template Second"]')!;
+  expect(next).not.toBeNull();
+  await act(async () => next.click());
+  expect(host.querySelector('dialog[aria-label="Template preview"]')).toBe(detail);
+  expect(current()).toBe('Second');
+  expect(detail.querySelectorAll('dialog')).toHaveLength(0);
+  await act(async () => button('Recreate this template', detail).click());
+  expect(vi.mocked(navigator.clipboard.writeText).mock.calls.at(-1)![0]).toContain('two');
+  await act(async () => button('Close template preview', detail).click());
+  expect(host.querySelector<HTMLInputElement>('input[type=search]')?.value).toBe('First');
+  expect(cards()).toEqual(['one']);
+});
+
+it.each(['en', 'zh-CN'] as const)('retains motion metadata while removing only the requested fields and restores optional after-copy help (%s)', async locale => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  await mount(locale);
+  await act(async () => button(translate(locale, 'Preview template {title}', { title: 'First' })).click());
+  const detail = host.querySelector('dialog[aria-label="' + translate(locale, 'Template preview') + '"]')!;
+  const info = detail.querySelector('section[aria-label="' + translate(locale, 'Video information') + '"]')!;
+  expect(info).not.toBeNull();
+  const specs = detail.querySelector('[aria-label="' + translate(locale, 'Video specifications') + '"]')!;
+  expect(specs.textContent).toContain(translate(locale, 'Editable project'));
+  expect(info.textContent).not.toContain(translate(locale, 'Editable project'));
+  expect(specs.compareDocumentPosition(info) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(info.querySelectorAll('dt')).toHaveLength(2);
+  expect(info.textContent).toContain(translate(locale, 'Motion style'));
+  expect(info.textContent).toContain('UI');
+  expect(info.textContent).toContain(translate(locale, 'Video purpose'));
+  for (const removed of ['Good for', 'Industry', 'Reference brands']) expect(info.textContent).not.toContain(translate(locale, removed));
+  expect(info.textContent).not.toContain('Figma');
+  expect(info.querySelector('details')).toBeNull();
+  expect(detail.querySelector('section[aria-label="' + translate(locale, 'What to bring') + '"]')).toBeNull();
+  expect(button(translate(locale, 'View motion.md guide'), detail)).toBeDefined();
+  expect(detail.textContent).not.toContain(translate(locale, 'Copying does not send a message or create a project.'));
+  const creation = detail.querySelector('section[aria-label="' + translate(locale, 'Template recreation instruction') + '"]')!;
+  const actions = detail.querySelector('[aria-label="' + translate(locale, 'Template actions') + '"]')!;
+  expect(actions.contains(button(translate(locale, 'Recreate this template'), detail))).toBe(true);
+  expect(creation.contains(actions)).toBe(false);
+  expect(detail.querySelector('section[aria-label="' + translate(locale, 'After copying') + '"]')).toBeNull();
+  const previewText = creation.querySelector(':scope > p')!;
+  expect(previewText.textContent).toContain('one');
+  expect(button(translate(locale, 'Show instruction'), creation).getAttribute('aria-expanded')).toBe('false');
+  await act(async () => Observer.instances.filter(item => !item.disconnected).forEach(item => item.emit()));
+  expect(events('surface_view', { area: 'template_instruction' })).toHaveLength(1);
+  const helpTrigger = button(translate(locale, 'Next steps'), creation);
+  await act(async () => {
+    helpTrigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, composed: true }));
+    helpTrigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, composed: true }));
+    helpTrigger.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, composed: true }));
+    await new Promise(resolve => setTimeout(resolve, 350));
+  });
+  const help = detail.querySelector('section[aria-label="' + translate(locale, 'After copying') + '"]')!;
+  const stepTwo = help.querySelector('ol > li:nth-child(2)')!;
+  expect(stepTwo.textContent).toContain(translate(locale, 'Your copy; screenshots or recordings if needed.'));
+  await act(async () => button(translate(locale, 'Show instruction'), creation).click());
+  expect(button(translate(locale, 'Show less'), creation).getAttribute('aria-expanded')).toBe('true');
+  expect(actions.contains(button(translate(locale, 'Recreate this template'), detail))).toBe(true);
+  const instruction = creation.querySelector(':scope > p')!;
+  expect(instruction).not.toBeNull();
+  await act(async () => Observer.instances.filter(item => !item.disconnected).forEach(item => item.emit()));
+  expect(events('surface_view', { area: 'template_instruction' })).toHaveLength(1);
+});
+
+it('shows the original description below the title, renders original production notes as bottom text and keeps material guidance', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  fetchItems([{ ...items[0], id: 'motion-be2a4af0-0183-4979-ab05-2a68413c0890', description: 'Original authored description' }]);
+  await mount(); await act(async () => preview('First'));
+  const detail = host.querySelector('dialog[aria-label="Template preview"]')!;
+  expect(detail.querySelector('section[aria-label="Why this video works"]')).toBeNull();
+  expect(detail.querySelector('section[aria-label="About this video"]')).toBeNull();
+  const description = [...detail.querySelectorAll('p')].find(item => item.textContent === 'Original authored description')!;
+  expect(description).toBeDefined();
+  expect(description.closest('details')).toBeNull();
+  expect(description.previousElementSibling?.tagName).toBe('H2');
+  expect(description.nextElementSibling?.getAttribute('aria-label')).toBe('Video specifications');
+  expect([...detail.querySelectorAll('summary')].some(item => item.textContent === 'Video notes')).toBe(false);
+  expect(detail.textContent?.match(/Original authored description/g)).toHaveLength(1);
+  const notes = detail.querySelector('section[aria-label="Production details"]')!;
+  expect(notes.textContent).toContain('Visual style');
+  expect(notes.textContent).toContain('Visual rules');
+  expect(notes.textContent).toContain('Production notes');
+  expect(notes.textContent).toContain('Production rules');
+  expect(notes.querySelectorAll('details')).toHaveLength(0);
+  expect([...notes.querySelectorAll('h4')].map(item => item.textContent)).toEqual(['Visual style', 'Production notes']);
+  expect([...notes.querySelectorAll('p')].map(item => item.textContent)).toEqual(['Visual rules', 'Production rules']);
+  expect(notes.contains(button('View motion.md guide', detail))).toBe(true);
+  expect(notes.parentElement?.lastElementChild).toBe(notes);
+  await act(async () => button('Next steps', detail).click());
+  const secondStep = detail.querySelector('section[aria-label="After copying"] ol > li:nth-child(2)')!;
+  expect(secondStep.textContent).toContain('Your headline.');
+  expect(secondStep.textContent).not.toContain('Your screenshots or recording');
+  expect(secondStep.textContent).toContain('Optional: logo, colors and audio.');
+});
+
+it('brings the manual instruction into view when the pinned copy action fails', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  await mount(); await act(async () => preview('Second'));
+  vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('Denied'));
+  await act(async () => button('Recreate this template').click());
+  const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Content to copy"]')!;
+  expect(field.readOnly).toBe(true);
+  expect(field.value).toContain('two');
+  expect(document.activeElement).toBe(field);
+  expect(field.selectionStart).toBe(0);
+  expect(field.selectionEnd).toBe(field.value.length);
+  expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+  expect(events('template_instruction_copy_result').map(item => item.copy_status)).toEqual(['manual_fallback_shown']);
+});
+
+
+it('retries opening the exact prepared project without creating another one after a real callback failure', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  const prepare = vi.fn(async (template, requestId: string) => ({ projectId: 'bd951eb6-bbbc-4942-9507-8f2856ec7d3b', sessionId: requestId,
+    title: 'My new project', templateId: template.id, originalProjectId: 'original-A', requestId }));
+  const open = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} error="" projectId="original-A"
+    onClose={() => {}} onOpen={() => {}} onPrepareTemplate={prepare} onOpenProject={open} /></I18nProvider>));
+  await act(async () => preview('First'));
+  await act(async () => button('Open and edit').click());
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(open).toHaveBeenLastCalledWith('bd951eb6-bbbc-4942-9507-8f2856ec7d3b');
+  expect(host.textContent).toContain('Project created, preview not opened');
+  await act(async () => button('Retry opening this project').click());
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(open.mock.calls).toEqual([['bd951eb6-bbbc-4942-9507-8f2856ec7d3b'], ['bd951eb6-bbbc-4942-9507-8f2856ec7d3b']]);
+  expect(host.textContent).toContain('This project is ready');
+  expect(events('ui_click', { template_action: 'open_edit' })).toHaveLength(1);
+  const results = events('template_project_result');
+  expect(results.map(item => [item.stage, item.outcome])).toEqual([['create', 'success'], ['open', 'failure'], ['open', 'success']]);
+  expect(new Set(results.map(item => item.operation_id)).size).toBe(1);
+  expect(events('ui_click', { template_action: 'open_edit' })[0].operation_id).toBe(results[0].operation_id);
+  expect(new Set(results.map(item => item.handoff_attempt_id)).size).toBe(3);
+  expect(results.every(item => item.project_id === 'bd951eb6-bbbc-4942-9507-8f2856ec7d3b')).toBe(true);
+});
+
+it('keeps an uncertain real creation result separate from failure and prevents a second creation', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  const prepare = vi.fn().mockRejectedValue(new Error('Connection interrupted'));
+  await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} error="" projectId="original-A"
+    onClose={() => {}} onOpen={() => {}} onPrepareTemplate={prepare} onOpenProject={async () => true} /></I18nProvider>));
+  await act(async () => preview('First'));
+  await act(async () => button('Open and edit').click());
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('Creation result needs checking');
+  expect(host.textContent).not.toContain('Project not created');
+  expect(button('Open and edit').disabled).toBe(true);
+  await act(async () => button('Check creation result').click());
+  expect(prepare).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain('Project not created');
+  expect(button('Open and edit').disabled).toBe(false);
+  expect(events('template_project_result').map(item => [item.stage, item.outcome])).toEqual([['create', 'unknown'], ['reconcile', 'not_found']]);
+  await act(async () => button('Retry creation').click());
+  expect(prepare).toHaveBeenCalledTimes(2);
+  expect(prepare.mock.calls[1][1]).toBe(prepare.mock.calls[0][1]);
+  expect(host.textContent).toContain('Creation result needs checking');
+});
+
+it('allows a preflight-blocked creation to retry without treating it as an ambiguous server result', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  const prepare = vi.fn().mockRejectedValue(new TemplatePreparationBlockedError('Save your changes first.'));
+  await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} error="" projectId="original-A"
+    onClose={() => {}} onOpen={() => {}} onPrepareTemplate={prepare} /></I18nProvider>));
+  await act(async () => preview('First'));
+  await act(async () => button('Open and edit').click());
+  expect(host.textContent).toContain('Save your changes first.');
+  expect(host.textContent).toContain('Project not created');
+  expect(host.textContent).not.toContain('Creation result needs checking');
+  expect(pendingTemplateProjects()).toEqual([]);
+  expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/projects'))).toBe(false);
+  await act(async () => button('Retry creation').click());
+  expect(prepare).toHaveBeenCalledTimes(2);
+  expect(prepare.mock.calls[1][1]).toBe(prepare.mock.calls[0][1]);
+  expect(events('template_project_result').map(item => item.outcome)).toEqual(['failure', 'failure']);
+});
+
+it('reconciles a retained request after remount without minting a new creation identity', async () => {
+  sessionStorage.setItem('motion.template-handoff.preview', '1');
+  const prepare = vi.fn().mockRejectedValue(new Error('Connection interrupted'));
+  const render = () => <I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} error="" projectId="original-A"
+    onClose={() => {}} onOpen={() => {}} onPrepareTemplate={prepare} /></I18nProvider>;
+  await act(async () => root.render(render()));
+  await act(async () => preview('First'));
+  await act(async () => button('Open and edit').click());
+  const requestId = prepare.mock.calls[0][1];
+  expect(pendingTemplateProjects()).toMatchObject([{ requestId, templateId: 'one', originalProjectId: 'original-A' }]);
+  act(() => root.unmount()); root = createRoot(host);
+  await act(async () => root.render(render()));
+  await act(async () => preview('First'));
+  expect(button('Open and edit').disabled).toBe(true);
+  expect(host.textContent).toContain('Creation result needs checking');
+  expect(prepare).toHaveBeenCalledTimes(1);
+  await act(async () => button('Check creation result').click());
+  await act(async () => button('Retry creation').click());
+  expect(prepare).toHaveBeenCalledTimes(2);
+  expect(prepare.mock.calls[1][1]).toBe(requestId);
+});
+
+it('keeps a delayed handoff result tied to its initiating detail and does not switch a later selection', async () => {
+  sessionStorage.removeItem('motion.template-handoff.preview');
+  let finish!: (value: any) => void;
+  const prepare = vi.fn((_template, _requestId) => new Promise<any>(resolve => { finish = resolve; }));
+  const open = vi.fn().mockResolvedValue(true);
+  await act(async () => root.render(<I18nProvider initialLocale="en"><TemplateLibraryDialog open busy={false} error="" projectId="project"
+    onClose={() => {}} onOpen={() => {}} onPrepareTemplate={prepare} onOpenProject={open} /></I18nProvider>));
+  await act(async () => preview('First'));
+  const sourceView = events('surface_view', { area: 'template_detail' }).at(-1)!.detail_view_id;
+  await act(async () => button('Open and edit').click());
+  const detail = host.querySelector<HTMLDialogElement>('dialog[aria-label="Template preview"]')!;
+  await act(async () => detail.querySelector<HTMLButtonElement>('section[aria-label="Similar templates"] button[aria-label="Preview template Second"]')!.click());
+  const requestId = prepare.mock.calls[0][1];
+  await act(async () => finish({ projectId: 'bd951eb6-bbbc-4942-9507-8f2856ec7d3b', sessionId: requestId, title: 'Independent project', templateId: 'one', originalProjectId: 'project', requestId }));
+  expect(current()).toBe('Second');
+  expect(open).not.toHaveBeenCalled();
+  expect(events('template_project_result')).toMatchObject([{ template_id: 'one', detail_view_id: sourceView, operation_id: requestId, stage: 'create', outcome: 'success' }]);
+});
+
+it('preserves the TOP100 detail and return path alongside the regular template handoff', async () => {
   const previous = location.href;
   history.replaceState({}, '', '/?brandStoriesPreview=1');
+  sessionStorage.removeItem('motion.template-handoff.preview');
   try {
     await mount();
     await act(async () => button('TOP 100 brands').click());
@@ -761,6 +1424,12 @@ it('keeps TOP100 discovery actions and keeps ordinary template details identical
     expect(detail.querySelector('video')).not.toBeNull();
     await act(async () => button('Close template preview', detail).click());
     expect(host.querySelector('dialog[aria-label="Figma brand story"][open]')).not.toBeNull();
+    await act(async () => button('Close brand story', brand).click());
+    await act(async () => button('Remove filter TOP 100 brands').click());
+    await act(async () => preview('Second'));
+    expect(button('Recreate this template', detail)).toBeDefined();
+    expect(detail.querySelector('section[aria-label="Template recreation instruction"]')).not.toBeNull();
+    expect(host.querySelector('dialog[aria-label="Figma brand story"][open]')).toBeNull();
   } finally { history.replaceState({}, '', previous); }
 });
 
@@ -824,7 +1493,8 @@ it('attributes the brand timeline, work changes and nested detail actions withou
     expect(events('surface_view', { area: 'template_series_detail' })).toHaveLength(1);
     expect(events('surface_view', { area: 'template_series_work' })).toHaveLength(2);
     await act(async () => button('Close brand story', brand).click());
-    expect(events('ui_click', { element: 'close_detail', series_view_id: opened.series_view_id })).toHaveLength(1);
+    expect(events('ui_click', { area: 'template_detail', element: 'close_detail', series_view_id: opened.series_view_id })).toEqual([expect.objectContaining({ detail_view_id: detail.detail_view_id })]);
+    expect(events('ui_click', { area: 'template_series_detail', element: 'close_detail', series_view_id: opened.series_view_id })).toHaveLength(1);
     for (const row of tracked) expect(validProperties(studioEvents, row.event, row.properties), JSON.stringify(row)).toBe(true);
   } finally { history.replaceState({}, '', previous); }
 });

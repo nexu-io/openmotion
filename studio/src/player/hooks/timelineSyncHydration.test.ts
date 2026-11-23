@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   collectSubCompositionDomChildren,
   collectSubCompositionHostState,
+  buildTimelineElementsFromClips,
 } from "./timelineSyncHydration";
+import { parseTimelineFromDOM } from '../lib/timelineDOM';
 import type { ClipManifestClip } from "../lib/playbackTypes";
 
 const clip = (over: Partial<ClipManifestClip>): ClipManifestClip => ({
@@ -45,6 +47,13 @@ function mountScene(): Document {
 // (the runtime's clip tree publishes `scene-2-slot`), so the collector resolves
 // the host by clip.id in the clip's own composition, exactly as the sibling walk does.
 const sceneClips = [clip({ id: "scene-2-slot", kind: "composition", compositionId: "scene-2" })];
+
+it('canvas containers never become extra timeline clips when the runtime infers their timing', () => {
+  document.body.innerHTML = `<div data-composition-id="main" data-duration="2"><div id="frame" data-canvas-frame data-start="0" data-duration="2"><div id="main" data-canvas-content data-hf-autostamped="1" data-start="0" data-duration="2"><h1 id="title" data-start="0" data-duration="2" data-track-index="1">Title</h1></div></div></div>`;
+  const clips = ['frame', 'main', 'title'].map(id => clip({ id, tagName: id === 'title' ? 'h1' : 'div', duration: 2 }));
+  expect(buildTimelineElementsFromClips(clips, document).map(element => element.domId)).toEqual(['title']);
+  expect(parseTimelineFromDOM(document, 2).map(element => element.domId)).toEqual(['title']);
+});
 
 describe("collectSubCompositionHostState", () => {
   it("reaches a clip nested below an id'd wrapper, which the sibling walk cannot", () => {

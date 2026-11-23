@@ -14,7 +14,7 @@ export function mountFeedbackLayer(element: HTMLElement): () => void {
   };
   const refresh = () => {
     dialogs = dialogs.filter(dialog => dialog.isConnected && dialog.matches(modalSelector));
-    const parent = dialogs.filter(isModal).at(-1) ?? doc.body;
+    const parent = dialogs.filter(isModal).at(-1) ?? doc.fullscreenElement ?? doc.body;
     if (canPopover && element.matches(':popover-open')) element.hidePopover();
     if (element.parentElement !== parent) parent.append(element);
     // Modal libraries may have classified this portal as outside before it moved.
@@ -52,9 +52,11 @@ export function mountFeedbackLayer(element: HTMLElement): () => void {
   };
   element.setAttribute('data-feedback-layer', '');
   doc.addEventListener('toggle', onToggle, true);
+  doc.addEventListener('fullscreenchange', refresh);
   return () => {
     observer.disconnect();
     doc.removeEventListener('toggle', onToggle, true);
+    doc.removeEventListener('fullscreenchange', refresh);
     if (canPopover && element.matches(':popover-open')) element.hidePopover();
     if (originalPopover === null) element.removeAttribute('popover');
     else element.setAttribute('popover', originalPopover);

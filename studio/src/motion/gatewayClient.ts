@@ -4,7 +4,7 @@ export type { GatewayStatus, Model, GenerationJob, GenerateInput, Modality, Gene
 export async function gatewayRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch('/motion-api/' + path, { method, headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || 'Model gateway request failed');
+  if (!response.ok) throw Object.assign(new Error(data.error || 'Model gateway request failed'), data.applied === false ? { applied: false } : {});
   return data as T;
 }
 export async function loadModels(): Promise<Model[]> {

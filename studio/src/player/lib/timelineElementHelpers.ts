@@ -88,6 +88,9 @@ export function readDurationAttribute(el: Element | null | undefined): number {
 }
 
 export function isTimelineIgnoredElement(el: Element): boolean {
+  // Canvas framing is structural, even if the native runtime infers a timing window for it.
+  // Its authored children remain ordinary clips, so do not use an ancestor/closest check here.
+  if (el.hasAttribute('data-canvas-frame') || el.hasAttribute('data-canvas-content')) return true;
   // An `<hf-audio-group>` is a mixer bus with no timing of its own, drawn as a group row, never a clip.
   if (el.tagName.toLowerCase() === HF_AUDIO_GROUP_TAG) return true;
   return Boolean(

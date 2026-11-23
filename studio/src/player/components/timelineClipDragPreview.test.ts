@@ -715,11 +715,12 @@ describe("computeDragPreview — the ghost start is the committed start", () => 
       expect(ghost).toMatchObject({ previewTrack: 0, insertRow: 0, previewStart: 3.43 });
     });
 
-    it("opens above a different occupied row without retiming", () => {
+    it("lands in an exact-length gap on another row when rounding needs a minimal push", () => {
       const c = clip("c", 1, 0, 3.333, 1);
       const d = clip("d", 1, 6.666, 4, 1);
       const ghost = preview(m, [...row, c, d], 0, 1.5);
-      expect(ghost).toMatchObject({ previewTrack: 1, insertRow: 1, previewStart: 3.33 });
+      expect(ghost).toMatchObject({ previewTrack: 1, insertRow: null, previewStart: 3.34 });
+      expect(ghost.insertion).toEqual(new Map([["m", 3.34], ["d", 6.68]]));
     });
   });
 

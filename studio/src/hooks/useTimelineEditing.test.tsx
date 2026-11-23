@@ -9,12 +9,7 @@ import { usePlayerStore, type TimelineElement } from "../player";
 import { jsonResponse, requestUrl } from "./fetchStubTestUtils";
 import { useElementLifecycleOps } from "./useElementLifecycleOps";
 import { useTimelineEditing } from "./useTimelineEditing";
-import {
-  buildMissingCompositionElements,
-  createTimelineElementFromManifestClip,
-  parseTimelineFromDOM,
-} from "../player/lib/timelineDOM";
-import type { ClipManifestClip, IframeWindow } from "../player/lib/playbackTypes";
+import { parseTimelineFromDOM } from "../player/lib/timelineDOM";
 import { computeResizePreview } from "../player/components/timelineClipDragPreview";
 import {
   buildTimelineGroupResizeMembers,
@@ -25,6 +20,10 @@ import {
   scalePositionsInScript,
   shiftPositionsInScript,
 } from "@hyperframes/core/gsap-writer-acorn";
+
+// Keep background analytics out of assertions about editing network requests.
+// The tracking transport has its own integration coverage.
+vi.mock("../motion/tracking", () => ({ trackMotion: vi.fn(async () => "queued") }));
 
 vi.mock("../components/editor/manualEditingAvailability", async (importOriginal) => {
   const actual =
@@ -1955,17 +1954,6 @@ function setupNestedHarness() {
   const doc = iframe.contentDocument!;
   doc.body.innerHTML = NESTED_PREVIEW;
   const row = (domId: string) => parseTimelineFromDOM(doc, 20).find((e) => e.domId === domId)!;
-  // The app's path: the runtime manifest's root clips, then the missing-host pass.
-  const manifestRow = (domId: string) => {
-    const intro = { id: "intro", start: 2, duration: 10, track: 0, kind: "composition" };
-    const clip = { ...intro, tagName: "div", compositionId: "intro" } as ClipManifestClip;
-    const hostEl = doc.getElementById("intro");
-    const roots = [createTimelineElementFromManifestClip({ clip, fallbackIndex: 0, doc, hostEl })];
-    const win = iframe.contentWindow as IframeWindow;
-    return buildMissingCompositionElements(doc, win, roots, 20).missing.find(
-      (e) => e.domId === domId,
-    )!;
-  };
   const playsAt = (domId: string) => {
     const resolver = createRuntimeStartTimeResolver({
       includeAuthoredTimingAttrs: true,
@@ -2011,7 +1999,6 @@ function setupNestedHarness() {
   return {
     doc,
     row,
-    manifestRow,
     playsAt,
     written,
     writtenRootDuration,
@@ -2128,7 +2115,7 @@ describe("useTimelineEditing: nested rows write composition-local starts", () =>
 
   it("stops a head trim past the host's start at the host's start, end held", async () => {
     const h = setupNestedHarness();
-    const logo = h.manifestRow("logo");
+    const logo: TimelineElement = { ...h.row("logo"), kind: undefined, playbackStart: undefined };
     expect(logo).toMatchObject({ start: 5, duration: 5, parentCompositionStart: 2 });
     const pps = 100;
     const preview = computeResizePreview(
@@ -2164,7 +2151,7 @@ describe("useTimelineEditing: nested rows write composition-local starts", () =>
 
   it("stops a group head trim at the nested member's host start", async () => {
     const h = setupNestedHarness();
-    const logo = h.manifestRow("logo");
+    const logo: TimelineElement = { ...h.row("logo"), kind: undefined, playbackStart: undefined };
     const outro: TimelineElement = {
       ...logo,
       id: "outro",
@@ -2196,9 +2183,9 @@ describe("useTimelineEditing: nested rows write composition-local starts", () =>
     h.unmount();
   });
 
-  it("round-trips a depth-3 host from the manifest path", async () => {
+  it("round-trips a depth-3 host through nested composition start resolution", async () => {
     const h = setupNestedHarness();
-    const star = h.manifestRow("star");
+    const star = h.row("star");
     expect(star).toMatchObject({ start: 6.5, parentCompositionStart: 5 });
 
     await act(async () => {
@@ -2207,7 +2194,7 @@ describe("useTimelineEditing: nested rows write composition-local starts", () =>
 
     expect(h.written("compositions/logo.html", "star", "data-start")).toBe("2.5");
     expect(h.playsAt("star")).toBe(7.5);
-    expect(h.manifestRow("star").start).toBe(7.5);
+    expect(h.row("star").start).toBe(7.5);
     h.unmount();
   });
 

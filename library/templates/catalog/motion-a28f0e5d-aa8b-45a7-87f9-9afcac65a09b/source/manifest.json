@@ -107,6 +107,11 @@
       "sha256": "ae2dd7e8a4c357a66fb0108026f6c2d89eaf031ef42c4366a7194ba9bbf8d8ef"
     },
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
@@ -118,18 +123,18 @@
     },
     {
       "path": "assets/lfs/Caveat.ttf",
-      "bytes": 403648,
-      "sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988"
+      "sha256": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988",
+      "bytes": 403648
     },
     {
       "path": "assets/lfs/NotoSerifDisplay-VF.ttf",
-      "bytes": 1835176,
-      "sha256": "4b661adcf6a5d38bf5befdc4d976e8a7238a4aeb57e62c1c1a67775380a09df9"
+      "sha256": "4b661adcf6a5d38bf5befdc4d976e8a7238a4aeb57e62c1c1a67775380a09df9",
+      "bytes": 1835176
     },
     {
       "path": "assets/lfs/original-audio.m4a",
-      "bytes": 341646,
-      "sha256": "846a482f23a61850e06acb7508cf891aa75b5a31197bcc9966253f1b986bf140"
+      "sha256": "846a482f23a61850e06acb7508cf891aa75b5a31197bcc9966253f1b986bf140",
+      "bytes": 341646
     },
     {
       "path": "assets/motion.js",

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import { usePlayerStore } from '../player/store/playerStore';
 import { useStudioShellContext } from '../contexts/StudioContext';

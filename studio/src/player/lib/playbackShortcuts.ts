@@ -19,9 +19,9 @@ const FRAME_STEP_ACTIONS = [
 ] as const;
 
 const PLAYBACK_SHORTCUT_IGNORED_SELECTOR = [
-  "button",
+  "button:not([data-fullscreen-playback-surface])",
   "a[href]",
-  "[role='button']",
+  "[role='button']:not([data-fullscreen-playback-surface])",
   "[role='checkbox']",
   "[role='menuitem']",
   // Base UI's menu radio item is a `<div>`, so `button` above no longer catches it.

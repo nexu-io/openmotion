@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect } from "react";
 import type { ClipPathInsetSides } from "./clipPathHelpers";
@@ -43,26 +44,26 @@ export function CropPresetBar({
       style={{ left, top: Math.max(4, top - 34), transform: "translateX(-50%)" }}
       onPointerDown={(event) => event.stopPropagation()}
     >
-      <button type="button" className={CHIP} title={t("Drag the edges freely")}>
-        {t("Free")}</button>
+      <Button variant="plain" type="button" className={CHIP} title={t("Drag the edges freely")}>
+        {t("Free")}</Button>
       {CROP_ASPECT_PRESETS.map((preset) => (
-        <button
+        <Button variant="plain"
           key={preset.label}
           type="button"
           className={CHIP}
           onClick={() => onApply(centredCropInsets(elementWidth, elementHeight, preset.ratio))}
         >
           {preset.label}
-        </button>
+        </Button>
       ))}
-      <button type="button" className={CHIP} onClick={() => onApply(null)}>
-        {t("Reset")}</button>
-      <button
+      <Button variant="plain" type="button" className={CHIP} onClick={() => onApply(null)}>
+        {t("Reset")}</Button>
+      <Button variant="plain"
         type="button"
         className="rounded-sm border border-studio-accent bg-studio-accent px-1.5 py-0.5 text-[10px] font-semibold text-black"
         onClick={onDone}
       >
-        {t("Done")}</button>
+        {t("Done")}</Button>
     </div>
   );
 }

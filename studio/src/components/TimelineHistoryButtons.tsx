@@ -1,9 +1,10 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../i18n/I18n";
 import { useStudioShellContextOptional } from "../contexts/StudioContext";
 import { RotateCcw, RotateCw } from "../icons/SystemIcons";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { historyEntryLabel } from '../i18n/historyMessages';
-import { getHistoryShortcutLabel } from '../utils/studioHelpers';
+import { getHistoryShortcutLabel } from '../utils/historyShortcuts';
 import { flatBtn, flatDisabled, flatIdle } from "./timelineToolbarStyles";
 import { Tooltip } from "./ui";
 import { clickMethod, noteHistoryTrigger } from "../motion/editorTracking";
@@ -26,7 +27,7 @@ function HistoryButton({ action, can, label, onClick }: HistoryButtonProps) {
   const shortcut = getHistoryShortcutLabel(action);
   return (
     <Tooltip label={!mvp && label ? t('{action} {label} ({shortcut})', { action: verb, label: historyEntryLabel(label, t), shortcut }) : t('{action} ({shortcut})', { action: verb, shortcut })}>
-      <button
+      <IconButton variant="plain"
         type="button"
         aria-label={action === "undo" ? t("Undo") : t("Redo")}
         disabled={!enabled}
@@ -36,9 +37,8 @@ function HistoryButton({ action, can, label, onClick }: HistoryButtonProps) {
           noteHistoryTrigger(clickMethod(event));
           void onClick?.();
         }}
-      >
-        {mvp ? <RemixIcon name={action === "undo" ? "arrow-go-back-line" : "arrow-go-forward-line"} size={16} /> : <Icon size={16} />}
-      </button>
+        icon={mvp ? <RemixIcon name={action === "undo" ? "arrow-go-back-line" : "arrow-go-forward-line"} size={16} /> : <Icon size={16} />}
+      />
     </Tooltip>
   );
 }

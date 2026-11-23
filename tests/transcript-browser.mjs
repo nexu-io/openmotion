@@ -205,17 +205,25 @@ try {
   await page.waitForFunction(() => [...document.querySelectorAll('[role=status]')].some(n => n.textContent.includes('Captions updated')));
   let styledSource = await readFile(path.join(store.projectDirectory, 'index.html'), 'utf8');
   assert.match(styledSource, /data-caption-preset="card"/); assert.match(styledSource, /data-caption-position="top"/); assert.match(styledSource, /Reviewed speech/);
-  for (const label of ['Record voiceover', 'Open transcript', 'Caption visibility']) {
+  for (const label of ['Record voiceover', 'Open transcript']) {
     const icon = await page.$(`button[aria-label="${label}"]`);
     assert.equal(await icon.evaluate(n => n.textContent.trim()), '');
     assert(await icon.evaluate(n => n.getBoundingClientRect().width <= 36));
   }
+  const captionControl = await page.$('button[aria-label="Caption visibility"]');
+  assert.equal(await captionControl.evaluate(n => n.textContent.trim()), 'On');
+  assert(await captionControl.evaluate(n => {
+    const rect = n.getBoundingClientRect(), label = n.querySelector('span').getBoundingClientRect();
+    return rect.width > 36 && n.scrollWidth <= n.clientWidth && label.left >= rect.left && label.right <= rect.right;
+  }), 'The CC label fits in the status control');
   await click('button', 'Caption visibility');
   await (await page.waitForSelector('button[aria-label^="Hide C1 ·"]')).click();
   await page.waitForSelector('button[aria-label^="Show C1 ·"]');
+  assert.equal(await captionControl.evaluate(n => n.textContent.trim()), 'Off');
   assert.match(await readFile(path.join(store.projectDirectory, 'index.html'), 'utf8'), /data-hidden/);
   await (await page.waitForSelector('button[aria-label^="Show C1 ·"]')).click();
   await page.waitForSelector('button[aria-label^="Hide C1 ·"]');
+  assert.equal(await captionControl.evaluate(n => n.textContent.trim()), 'On');
   await page.keyboard.press('Escape');
   assert.doesNotMatch(await readFile(path.join(store.projectDirectory, 'index.html'), 'utf8'), /data-hidden/);
   await page.waitForFunction(() => [...document.querySelectorAll('.motion-track-badge')].some(n => n.textContent === 'C1'));

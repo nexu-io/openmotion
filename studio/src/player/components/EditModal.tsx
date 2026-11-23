@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useState, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -199,7 +200,7 @@ export function EditPopover({ rangeStart, rangeEnd, anchorX, anchorY, onClose, i
             {t("Copy failed. Check clipboard permissions and try again.")}</p>
         )}
         <div className="grid grid-cols-2 gap-2 px-3 pb-3">
-          <button
+          <Button variant="plain"
             onClick={handleCopyPrompt}
             disabled={!buildPromptCopyText(prompt)}
             className={`py-1.5 text-[11px] font-medium rounded-lg transition-all border ${
@@ -209,8 +210,8 @@ export function EditPopover({ rangeStart, rangeEnd, anchorX, anchorY, onClose, i
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {copiedPromptOnly ? t("Prompt Copied!") : t("Copy Prompt")}
-          </button>
-          <button
+          </Button>
+          <Button variant="plain"
             onClick={handleCopy}
             className={`py-1.5 text-[11px] font-medium rounded-lg transition-all ${
               copiedAgentPrompt
@@ -222,7 +223,7 @@ export function EditPopover({ rangeStart, rangeEnd, anchorX, anchorY, onClose, i
             {!copiedAgentPrompt && (
               <span className="text-[9px] text-text-muted ml-1.5">Cmd+Enter</span>
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </div>,

@@ -15,6 +15,7 @@ describe("style source paths", () => {
     const files = listSourceFiles((file) => (seen.push(file), file.endsWith("styleSources.ts")));
 
     expect([...files.keys()]).toEqual(["styles/styleSources.ts"]);
+    expect(seen).toContain("../../packages/open-design-ui/button.tsx");
     expect(seen.every((file) => !file.includes("\\"))).toBe(true);
   });
 });

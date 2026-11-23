@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import type { ButtonHTMLAttributes } from "react";
 
 interface FilterChipProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -6,7 +7,7 @@ interface FilterChipProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 export function FilterChip({ active, className = "", ...props }: FilterChipProps) {
   return (
-    <button
+    <Button variant="plain"
       {...props}
       type="button"
       aria-pressed={active}

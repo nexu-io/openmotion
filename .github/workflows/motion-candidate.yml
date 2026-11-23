@@ -2,23 +2,28 @@ name: Motion candidate build
 run-name: Motion candidate · ${{ inputs.channel || 'test' }} · ${{ inputs.version || 'auto' }}
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       channel:
-        description: 'test builds DEV prereleases; stable builds prod with an explicit stable version'
-        type: choice
-        options: [test, stable]
-        default: test
+        type: string
+        required: true
       version:
-        description: 'test: optional short version override; stable: required MAJOR.MINOR.PATCH; build only'
         type: string
         required: false
         default: ''
       source_sha:
-        description: 'Optional reviewed full SHA integrated into main; empty freezes the selected dispatch commit'
         type: string
         required: false
         default: ''
+    outputs:
+      artifact_id:
+        value: ${{ jobs.candidate.outputs.artifact_id }}
+      version:
+        value: ${{ jobs.candidate.outputs.version }}
+      sha256:
+        value: ${{ jobs.candidate.outputs.sha256 }}
+      attempt:
+        value: ${{ jobs.candidate.outputs.attempt }}
 
 permissions:
   contents: read
@@ -29,6 +34,11 @@ jobs:
     if: github.repository == 'nexu-io/openmotion'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+      version: ${{ steps.source.outputs.version }}
+      sha256: ${{ steps.seal.outputs.tgz_sha256 }}
+      attempt: ${{ github.run_attempt }}
     env:
       MOTION_RELEASE_CHANNEL: ${{ inputs.channel || 'test' }}
       MOTION_TEMPLATE_ENVIRONMENT: ${{ inputs.channel == 'stable' && 'prod' || 'dev' }}
@@ -122,7 +132,7 @@ jobs:
           npm run build:tracking
           node --experimental-strip-types --test tests/tracking.test.ts tests/install.test.ts tests/npm-installer.test.ts tests/native-runtime.test.ts tests/npm-package.test.ts tests/test-package.test.ts tests/source-install.test.ts tests/bootstrap.test.ts tests/mcp-registry.test.ts tests/mcp-runtime.test.ts tests/mcp-upgrade.test.ts tests/preview.test.ts tests/phase1.test.ts tests/preview-handoff.test.ts tests/adapters.test.ts tests/package.test.ts tests/library-install.test.mjs tests/recreate-measure.test.ts tests/workflow.test.ts tests/catalog.test.ts tests/prism-templates.test.ts tests/extension-boundary.test.ts tests/connections.test.ts tests/install-guide.test.ts
           npm run test:studio -- --maxWorkers=2
-          npm run package:phase1
+          node --experimental-strip-types scripts/package.ts --mcp-profile=phase1
           archive="$PWD/dist/openmotion-$(node -p "require('./package.json').version")-phase1.zip"
           node tests/phase1-package.mjs "$archive" "$RUNNER_TEMP/phase1-e2e"
       - name: Build the final application tgz once and scan both archives
@@ -131,6 +141,9 @@ jobs:
           MOTION_VERSION: ${{ steps.source.outputs.version }}
         run: |
           node source/scripts/package-npm.mjs "$RUNNER_TEMP/build" "$MOTION_VERSION" --template-env="$MOTION_TEMPLATE_ENVIRONMENT"
+          budget=()
+          if [[ ! -f source/.github/scripts/npm-package-size.py ]]; then budget=(--report-only); fi
+          python3 control/.github/scripts/npm-package-size.py "$RUNNER_TEMP/build/openmotion-app-$MOTION_VERSION.tgz" "${budget[@]}"
           cp "$RUNNER_TEMP/source-scan.json" "$RUNNER_TEMP/build/source-scan.json"
           node control/.github/scripts/motion-scan.mjs package "$RUNNER_TEMP/build/openmotion-app-$MOTION_VERSION.tgz" "$RUNNER_TEMP/build/package-scan.json" "$RUNNER_TEMP/scanner/gitleaks"
       - name: Prepare read-only release notes for this exact candidate
@@ -146,7 +159,7 @@ jobs:
           npm ci --prefix integrations/dsh --ignore-scripts --no-audit --no-fund
           npm run typecheck --prefix integrations/dsh
           npm run test --prefix integrations/dsh
-          node --test tests/dsh-integration.test.ts tests/dsh-distribution.test.ts
+          node --test tests/dsh-integration.test.ts tests/dsh-distribution.test.ts tests/dsh-release.test.ts tests/dsh-template-cards.test.ts
       - name: Freeze and scan the matching DSH plugin once
         if: ${{ hashFiles('source/integrations/dsh/build.ts') != '' }}
         env:
@@ -156,6 +169,7 @@ jobs:
           node control/integrations/dsh/release.ts prepare "$RUNNER_TEMP/build" source
           node control/.github/scripts/motion-scan.mjs plugin "$RUNNER_TEMP/build/openmotion-dsh-$MOTION_VERSION.tgz" "$RUNNER_TEMP/build/dsh-package-scan.json" "$RUNNER_TEMP/scanner/gitleaks"
       - name: Seal the package and notes together
+        id: seal
         env:
           MOTION_SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
           MOTION_VERSION: ${{ steps.source.outputs.version }}
@@ -171,11 +185,12 @@ jobs:
       - name: Show candidate download and tester instructions
         run: |
           node --input-type=module <<'JS'
-          import { readFileSync, appendFileSync } from 'node:fs';
+          import { readFileSync, appendFileSync, statSync } from 'node:fs';
           const c = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/candidate/candidate.json'));
           const notes = readFileSync(process.env.RUNNER_TEMP + '/candidate/release-notes.md', 'utf8');
+          const size = statSync(process.env.RUNNER_TEMP + '/candidate/' + c.tgz).size;
           const run = `https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Candidate ready for acceptance\n\nVersion: ${c.version}\n\nSource: ${c.sourceCommit}\n\nTGZ SHA256: ${c.tgzSHA256}\n\n[Download motion-candidate-${c.version}](${run}#artifacts), extract it and give the folder to your Agent with this instruction:\n\n> Follow candidate-install.md in this folder to install this exact local candidate into an isolated test profile, application home, project data and Skills directory. Verify host loading without waiting for background video-component preparation. Run prepare only when explicitly asked to wait or before requested media/capture/export acceptance checks. Record actual results in a private copy of acceptance.md; mark unrun checks NOT RUN. Do not publish.\n\nUse candidate-install.md before publication, not the sibling registry install.md. To publish, manually open Motion npm publication, select the same channel and enter ${c.version}; no acceptance checkbox is required. Nothing was published by this build.\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, `## Candidate ready for acceptance\n\nVersion: ${c.version}\n\nSource: ${c.sourceCommit}\n\nTGZ SHA256: ${c.tgzSHA256}\nNpm package: ${(size / 1024 ** 2).toFixed(2)} MiB (${size} bytes)\n\n[Download motion-candidate-${c.version}](${run}#artifacts), extract it and give the folder to your Agent with this instruction:\n\n> Follow candidate-install.md in this folder to install this exact local candidate into an isolated test profile, application home, project data and Skills directory. Verify host loading without waiting for background video-component preparation. Run prepare only when explicitly asked to wait or before requested media/capture/export acceptance checks. Record actual results in a private copy of acceptance.md; mark unrun checks NOT RUN. Do not publish.\n\nUse candidate-install.md before publication, not the sibling registry install.md. To publish these bytes, open Motion package and release, select publish, and enter candidate run ID ${c.workflow.runId} and version ${c.version}; no acceptance checkbox is required.\n`);
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\n---\n\n## Candidate release notes (unpublished)\n\n${notes}`);
           if (c.schemaVersion >= 4) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\nThe same artifact includes openmotion-dsh-${c.version}.tgz, dsh-plugin.json and its scan. The plugin shares the application version and source commit; use the source-checkout DSH guide to test it.\n`);
           JS

@@ -25,7 +25,7 @@ let container: HTMLDivElement;
 beforeEach(() => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 });
   localStorage.clear();
-  history.replaceState(null, '', '/');
+  history.replaceState(null, '', '/?project=demo');
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);

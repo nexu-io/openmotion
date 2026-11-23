@@ -1,3 +1,5 @@
+import { IconButton } from 'open-design-ui/icon-button';
+import { Button } from 'open-design-ui/button';
 import { useEffect, useRef, useState } from 'react';
 import { brandCatalogFile } from '../../../shared/brand-catalog';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -60,13 +62,11 @@ export function BrandKitLivePreview({ id, poster, enabled }: { id: string; poste
       title={t('Brand Kit preview')} sandbox="allow-scripts" tabIndex={-1} hidden={state !== 'ready'}
       onError={() => setState('failed')} />}
     {state === 'ready' && <div className="om-brand-preview-transport">
-      <button type="button" className="om-button om-icon-button" onClick={() => setPlaying(value => !value)} aria-label={label} title={label}>
-        <RemixIcon name={playing ? 'pause-line' : 'play-line'} size={18} />
-      </button>
+      <IconButton variant="ghost" type="button" className="om-button om-icon-button" onClick={() => setPlaying(value => !value)} aria-label={label} title={label} icon={<RemixIcon name={playing ? 'pause-line' : 'play-line'} size={18} />} />
     </div>}
     {state === 'loading' && <div className="om-media-detail-loading" role="status"><span>{t('Loading preview…')}</span><Skeleton className="om-media-detail-progress" /></div>}
     {state === 'failed' && <div className="om-media-detail-failure" role="status"><span>{t('Preview unavailable. Try again.')}</span>
-      <button onClick={() => { setState('loading'); setAttempt(value => value + 1); }}>{t('Retry')}</button>
+      <Button variant="plain" onClick={() => { setState('loading'); setAttempt(value => value + 1); }}>{t('Retry')}</Button>
     </div>}
   </div>;
 }

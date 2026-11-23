@@ -1,9 +1,11 @@
 import { IconGlyph } from "../../../../packages/design-system/react/IconGlyph";
 import { useHostTheme } from "./theme";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { registerEditingWorkspace } from "./editing";
 import { studio, configureStudio, studioAssetUrl } from "./studio";
 import { useDashboardList } from "./useDashboardList";
+import { OPENMOTION_TEMPLATE_ACTION } from "./templateRecommendationAction";
+import { TemplateRecommendationCard } from "./TemplateRecommendationCard";
 const selectedKey = "openmotion-dsh-project";
 type Page = "home" | "templates" | "brands" | "assets";
 const pageNames: Record<Page, string> = {
@@ -29,11 +31,13 @@ type Project = { id: string; title: string; trashedAt?: number };
 type Template = {
   id: string;
   title: string;
+  description?: string;
   posterUrl?: string;
   previewUrl?: string;
   duration?: number;
   brand?: string;
   hasHtmlProject?: boolean;
+  editable?: boolean;
 };
 function Icon({ name = "play", size = 18 }: { name?: string; size?: number }) {
   const ids: Record<string, string> = {
@@ -62,6 +66,46 @@ const Mark = () => (
     height="24"
   />
 );
+
+export function registerTemplateRecommendationBody(ctx: any): void {
+  if (!ctx.actionCards?.register) return;
+  ctx.effect(() => ctx.locale?.register("openmotionTemplateRecommendations", {
+    en: {},
+    zh: {},
+    ja: {},
+    ko: {},
+    fr: {},
+    es: {},
+    de: {},
+    ru: {},
+    pt: {},
+  }));
+  ctx.effect(() => ctx.actionCards.register({
+    action: OPENMOTION_TEMPLATE_ACTION,
+    locale: "openmotionTemplateRecommendations",
+    Body: function RecommendationBody(props: React.ComponentProps<typeof TemplateRecommendationCard>) {
+      const [libraryOpened, setLibraryOpened] = useState(false);
+      useEffect(() => {
+        if (!props.proposal.details.onboarding) return;
+        const ready = () => setLibraryOpened(true);
+        window.addEventListener("openmotion:library-ready", ready);
+        // Open the library in the current conversation's native right-hand pane.
+        // This is browsing, so do not select or create a project.
+        const callId = props.proposal.callId;
+        const key = callId ? "omd-onboarding:" + callId : undefined;
+        if (!key || localStorage.getItem(key) !== "requested") {
+          ctx.sidebarRight.openTab("openmotion-studio", { params: { page: "templates" } });
+          const sessionId = ctx.sidebarRight.mounted?.getSnapshot();
+          if (sessionId) localStorage.setItem("omd-session-page:" + sessionId, "templates");
+          if (key) localStorage.setItem(key, "requested");
+        }
+        return () => window.removeEventListener("openmotion:library-ready", ready);
+      }, [props.proposal.callId, props.proposal.details.onboarding]);
+      return <TemplateRecommendationCard {...props} proposal={{ ...props.proposal,
+        details: { ...props.proposal.details, libraryOpened } }} />;
+    },
+  }), "openmotion-dsh: template recommendation body");
+}
 export function Dashboard({
   begin,
   openConversation,
@@ -350,6 +394,8 @@ export const inject = [
   "uiWorkspace",
   "sidebarRight",
   "sidebarRightTabs",
+  "actionCards",
+  "locale",
 ];
 export async function apply(ctx: any) {
   const response = await fetch("/openmotion-dsh/status");
@@ -358,8 +404,10 @@ export async function apply(ctx: any) {
       "OpenMotion host connection is unavailable. Restart DSH and inspect its log.",
     );
   configureStudio((await response.json()).studioUrl);
+  registerTemplateRecommendationBody(ctx);
   const links = [
-    studio + "/design-system/ui.css",
+    "/openmotion-dsh/design-system/ui.css",
+    "/openmotion-dsh/design-system/studio/feedback.css",
     "/openmotion-dsh/style.css",
   ].map((href) => {
     const link = document.createElement("link");
@@ -390,6 +438,7 @@ export async function apply(ctx: any) {
       requestAnimationFrame(() => {
         if (mounted.getSnapshot() !== sessionId) return;
         localStorage.setItem("omd-session:" + sessionId, projectId);
+        localStorage.removeItem("omd-session-page:" + sessionId);
         ctx.sidebarRight.openTab("openmotion-studio", { params: { projectId } });
       });
       return true;
@@ -423,39 +472,16 @@ export async function apply(ctx: any) {
       () => <Mark />,
     ),
   );
-  ctx.slots.inject("sidebar.brand.mark", () =>
-    ctx.slots.register({ name: "sidebar.brand.mark", priority: -10 }, () => (
-      <Mark />
-    )),
-  );
-  ctx.slots.inject("conversation.hero.brand.mark", () =>
-    ctx.slots.register(
-      { name: "conversation.hero.brand.mark" },
-      ({ size = 34 }: { size?: number }) => (
-        <img
-          src={studio + "/design-system/brand/favicon.svg"}
-          alt="OpenMotion"
-          width={size}
-          height={size}
-        />
-      ),
-    ),
-  );
-  ctx.slots.inject("sidebar.brand.name", () =>
-    ctx.slots.register({ name: "sidebar.brand.name", priority: -10 }, () => (
-      <span>OpenMotion</span>
-    )),
-  );
   ctx.effect(() =>
     ctx.sidebarRightTabs.register({
       id: "openmotion.studio",
       kind: "openmotion-studio",
-      title: () => "OpenMotion Studio",
+      title: () => "OpenMotion",
       guide: [
         {
           id: "studio",
           order: -20,
-          title: () => "OpenMotion Studio",
+          title: () => "OpenMotion",
           description: () => "Edit and preview your video project",
         },
       ],
@@ -471,9 +497,8 @@ export async function apply(ctx: any) {
         "project";
       localStorage.setItem(key, project);
       ctx.sidebarRight.openTab("openmotion-studio", {
-        params: { projectId: project },
+        params: localStorage.getItem("omd-session-page:" + sessionId) === "templates" ? { page: "templates" } : { projectId: project },
       });
-      window.dispatchEvent(new Event("openmotion:reveal-studio"));
     },
   });
   const StudioAction = ({ openStudio }: { openStudio: () => void }) => (
@@ -483,14 +508,11 @@ export async function apply(ctx: any) {
         onClick={openStudio}
         title="Open current OpenMotion project"
       >
-        <Icon size={15} /> Studio
+        <Icon size={15} /> OpenMotion
       </button>
     </span>
   );
-  for (const slot of [
-    "conversation.session.header.actions",
-    "conversation.input.right",
-  ])
+  for (const slot of ["conversation.session.header.actions"])
     ctx.slots.inject(slot, () =>
       ctx.slots.register(
         { name: slot, id: "openmotion-studio", inject: studioActions },

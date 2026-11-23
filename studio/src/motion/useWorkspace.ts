@@ -3,6 +3,7 @@ import { useI18n } from '../i18n/I18n';
 import { projectHref, requestedProject, sessionHref } from './workspaceRouting';
 import { availableSession, type CreativeSession, type CreationMode } from '../../../shared/session';
 import { preservePresentation } from '../../../shared/workspace-url';
+import { isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { diagnosticFetch } from './diagnosticRequests';
 import { initializeWorkspaceHistory, WORKSPACE_LOCATION_CHANGED, workspaceHistoryIndex, workspaceHistorySession, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { readWorkspacePage } from './workspacePageRouting';
@@ -27,9 +28,17 @@ export function navigateWorkspace(url: string, replace = false) {
 }
 const jsonBody = (body: unknown) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: string, sessionId?: string, navigate = navigateWorkspace) {
+export function useWorkspace(
+  waitForSaves: () => Promise<void>,
+  projectId?: string,
+  sessionId?: string,
+  navigate = navigateWorkspace,
+  options?: { externalHistoryGuard?: boolean },
+) {
+  const externalHistoryGuard = Boolean(options?.externalHistoryGuard);
   const { t } = useI18n();
   const [projects, setProjects] = useState<SavedProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const displayedProjects = useMemo(() => projects.map(project => project.id === 'project' && project.titleKey === 'OpenMotion Sample Video'
     ? { ...project, title: t(project.titleKey) } : project), [projects, t]);
   const [sessions, setSessions] = useState<CreativeSession[]>([]);
@@ -59,12 +68,13 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
   const updateCatalog = useCallback((catalog: ProjectCatalog) => {
     // The catalog keeps project order; opening a project must not move its sidebar row.
     const ordered = catalog.projects;
+    setActiveProjectId(catalog.activeId);
     setProjects(previous => JSON.stringify(previous) === JSON.stringify(ordered) ? previous : ordered);
     const nextSessions = [...(catalog.sessions ?? [])].sort((a, b) => (b.openedAt ?? b.createdAt ?? 0) - (a.openedAt ?? a.createdAt ?? 0));
     setSessions(previous => JSON.stringify(previous) === JSON.stringify(nextSessions) ? previous : nextSessions);
   }, []);
   useEffect(() => {
-    if (navigate === navigateWorkspace) return;
+    if (navigate === navigateWorkspace || externalHistoryGuard) return;
     initializeWorkspaceHistory();
     let previousUrl = location.href, previousIndex = workspaceHistoryIndex(), previousSession = workspaceHistorySession();
     let cancelled = false, generation = 0;
@@ -78,13 +88,13 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
         return;
       }
       const previous = new URL(previousUrl), next = new URL(target);
-      const sameProject = requestedProject(next.search, next.hash) === requestedProject(previous.search, previous.hash)
+      const sameProject = requestedProject(next.search, next.hash, next.pathname) === requestedProject(previous.search, previous.hash, previous.pathname)
         && next.searchParams.get('session') === previous.searchParams.get('session');
       try {
-        if (acting.current) throw new Error('正在切换项目，请稍后重试。');
+        if (acting.current) throw new Error(t('Switching projects. Please try again shortly.'));
         // Page switches preserve the mounted editor. Leaving a busy template
         // library or replacing the project still uses the existing save guard.
-        if (!sameProject || (readWorkspacePage(previous.search).templates && !readWorkspacePage(next.search).templates)) await waitForSaves();
+        if (!sameProject || (readWorkspacePage(previous.search, previous.hash, previous.pathname).templates && !readWorkspacePage(next.search, next.hash, next.pathname).templates)) await waitForSaves();
         if (cancelled || attempt !== generation || location.href !== target) return;
         setNavigationError(null);
         if (sameProject) writeWorkspaceHistory(target, true);
@@ -104,7 +114,7 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
     window.addEventListener(WORKSPACE_LOCATION_CHANGED, accepted);
     window.addEventListener('popstate', restore);
     return () => { cancelled = true; window.removeEventListener(WORKSPACE_LOCATION_CHANGED, accepted); window.removeEventListener('popstate', restore); };
-  }, [navigate, projectId, sessionId, waitForSaves]);
+  }, [navigate, projectId, sessionId, waitForSaves, externalHistoryGuard]);
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -124,7 +134,7 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
         const savedSession = !projectId && sessionId ? catalog.sessions?.find(item => item.id === sessionId) : undefined;
         const session = savedSession && availableSession(savedSession, new Set(catalog.projects.filter(project => project.trashedAt).map(project => project.id)));
         const generated = session?.artifacts.find(item => item.id === session.activeArtifactId) ?? session?.artifacts.at(-1);
-        if (generated && !acting.current) { navigate(sessionHref(sessionId!, generated.projectId, true), true); return; }
+        if (generated && !acting.current && !isStandaloneSpaPath(location.pathname, location.search, location.hash)) { navigate(sessionHref(sessionId!, generated.projectId, true), true); return; }
         setStatus(data); setConnectionError('');
       } catch (err) { if (!controller.signal.aborted) setConnectionError((err as Error).message); }
       finally { if (!controller.signal.aborted) setCheckingConnection(false); }
@@ -194,5 +204,6 @@ export function useWorkspace(waitForSaves: () => Promise<void>, projectId?: stri
   }, [updateCatalog]);
   const rename = useCallback((id: string, title: string) => renameItem(id, title, 'projects'), [renameItem]);
   const renameSession = useCallback((id: string, title: string) => renameItem(id, title, 'sessions'), [renameItem]);
-  return { projects: displayedProjects.filter(project => !project.trashedAt), trashedProjects: displayedProjects.filter(project => Boolean(project.trashedAt)), sessions: visibleSessions, session: visibleSessions.find(item => item.id === sessionId), status, busy, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError: () => { setError(''); } };
+  const clearError = useCallback(() => { setError(''); }, []);
+  return { projects: displayedProjects.filter(project => !project.trashedAt), activeProjectId, trashedProjects: displayedProjects.filter(project => Boolean(project.trashedAt)), sessions: visibleSessions, session: visibleSessions.find(item => item.id === sessionId), status, busy, actingRef: acting, navigationError, connectionError, error: error || connectionError, errorSource: error ? 'operation' as const : 'connection' as const, checkingConnection, retryConnection, open, followActiveProject, create, home, rename, startSession, openSession, createArtifact, renameSession, clearError };
 }

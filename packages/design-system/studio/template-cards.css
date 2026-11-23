@@ -4,6 +4,23 @@
 .om-gallery-cover { display: block; width: 100%; position: relative; padding: 0; text-align: left; cursor: pointer; }
 .om-gallery-poster, .om-gallery-cover > video { display: block; width: 100%; height: 100%; position: absolute; inset: 0; object-fit: cover; }
 .om-gallery-poster { overflow: hidden; }
+.om-cover-placeholder {
+  --cover-placeholder-surface: color-mix(in srgb, var(--motion-inset) 45%, var(--motion-border));
+  display: grid;
+  place-items: center;
+  background: var(--cover-placeholder-surface);
+  color: color-mix(in srgb, var(--motion-muted) 30%, var(--cover-placeholder-surface));
+  border-radius: inherit;
+  pointer-events: none;
+}
+.om-cover-placeholder::before {
+  content: "";
+  width: var(--motion-space-40);
+  height: var(--motion-space-40);
+  background: currentColor;
+  mask: url("../brand/loading-mark.svg") center / contain no-repeat;
+}
+.om-cover-placeholder--fill { position: absolute; inset: 0; }
 .om-gallery-poster img { display: block; width: 100%; height: 100%; object-fit: cover; }
 /* Transparent website artwork needs the same neutral backing as brand avatars. */
 .om-gallery-poster-cover { position: absolute; inset: 0; background: var(--motion-asset-logo-bg); }
@@ -13,9 +30,13 @@
 .om-gallery-poster-fallback span { font-size: var(--motion-text-sm); text-align: center; }
 .om-gallery-card-shade { position: absolute; inset: 0; background: linear-gradient(transparent 45%, var(--motion-video-overlay)); opacity: 0; }
 .om-gallery-card-top { position: absolute; top: var(--motion-space-12); left: var(--motion-space-12); right: var(--motion-space-12); display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-8); opacity: 0; }
-.om-gallery-card-top > span, [data-motion-ui] .motion-media-label { padding: var(--motion-space-4) var(--motion-space-8); color: var(--motion-overlay-ink); font-size: var(--motion-text-xs); border-radius: var(--motion-radius-full); background: var(--motion-video-overlay); backdrop-filter: blur(8px); }
+.om-gallery-card-top > span, .om-feed-skill-badge, [data-motion-ui] .motion-media-label { padding: var(--motion-space-4) var(--motion-space-8); font-size: var(--motion-text-xs); border-radius: var(--motion-radius-full); }
+.om-gallery-card-top > span, .om-feed-skill-badge { line-height: var(--motion-leading-body); white-space: nowrap; }
+.om-feed-skill-badge { flex: none; padding-block: var(--motion-space-2); font-weight: var(--motion-weight-semibold); color: var(--motion-accent); background: var(--motion-brand-soft); }
+.om-gallery-card-top > span, [data-motion-ui] .motion-media-label { color: var(--motion-overlay-ink); background: var(--motion-video-overlay); backdrop-filter: blur(8px); }
 .om-gallery-card-bottom { position: absolute; bottom: var(--motion-space-12); left: var(--motion-space-12); right: var(--motion-space-12); display: flex; align-items: center; gap: var(--motion-space-8); color: var(--motion-overlay-ink); }
 .om-gallery-avatar { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 30px; width: 30px; height: 30px; border-radius: var(--motion-radius-full); overflow: hidden; font-size: var(--motion-text-sm); font-weight: var(--motion-weight-semibold); background: var(--color-template-brand-bg); color: var(--color-template-brand-text); box-shadow: 0 0 0 1px var(--motion-gallery-border); }
+.om-gallery-avatar-skeleton { position: absolute; inset: 0; border-radius: inherit; }
 .om-gallery-avatar img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
 .om-gallery-avatar[data-favicon] img { object-fit: contain; padding: var(--motion-space-6); background: var(--motion-asset-logo-bg); }
 .om-gallery-source-caption { display: grid; min-width: 0; flex: 1; gap: var(--motion-space-2); }
@@ -27,16 +48,16 @@
 .om-gallery-card-source > svg { flex: none; }
 .om-gallery-card-source:hover { color: var(--color-template-text); background: var(--color-template-hover); text-decoration: none; }
 .om-gallery-card-source:hover .om-gallery-source-caption strong { text-decoration: underline; text-underline-offset: var(--motion-space-4); }
-.om-gallery-card-source:focus-visible { outline: 2px solid var(--color-template-focus); outline-offset: 2px; }
+.om-gallery-card-source:focus-visible { outline: 1px solid var(--motion-focus); outline-offset: 1px; }
 .om-gallery-card-caption { min-width: 0; flex: 1; opacity: 0; transform: translateY(4px); }
 .om-gallery-card-caption strong, .om-gallery-card-caption small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .om-gallery-card-caption strong { font-size: var(--motion-text-md); font-weight: var(--motion-weight-medium); line-height: var(--motion-leading-body); }
 .om-gallery-card-caption small { font-size: var(--motion-text-xs); opacity: .75; }
 .om-gallery-card-arrow { flex: 0 0 28px; width: 28px; height: 28px; border-radius: var(--motion-radius-full); background: var(--motion-overlay-ink); color: var(--motion-video-ink); display: grid; place-items: center; opacity: 0; }
 .om-gallery-cover:is(:hover, :focus-visible) :is(.om-gallery-card-shade, .om-gallery-card-top, .om-gallery-card-caption, .om-gallery-card-arrow) { opacity: 1; transform: none; }
-.om-gallery-cover:focus-visible { outline: 2px solid var(--color-template-focus); outline-offset: 3px; }
+.om-gallery-cover:focus-visible { outline: 1px solid var(--motion-focus); outline-offset: 1px; }
 @media (prefers-reduced-motion: no-preference) {
-  .om-gallery-cover > video, .om-gallery-poster img, .om-gallery-card-shade, .om-gallery-card-top, .om-gallery-card-caption { transition: opacity var(--motion-duration-normal), transform var(--motion-duration-normal); }
+  .om-gallery-cover > video, .om-gallery-poster img, .om-gallery-avatar img, .om-gallery-card-shade, .om-gallery-card-top, .om-gallery-card-caption { transition: opacity var(--motion-duration-normal), transform var(--motion-duration-normal); }
 }
 @media (hover: none) { .om-gallery-card-shade, .om-gallery-card-caption { opacity: 1; transform: none; } }
 
@@ -45,7 +66,7 @@
   .om-gallery-avatar { width: 26px; height: 26px; flex-basis: 26px; }
 }
 @media (max-width: 420px) {
-  .om-gallery-card-caption small, .om-gallery-card-arrow { display: none; }
+  .om-gallery-card-caption:not([data-brand-credit]) small, .om-gallery-card-arrow { display: none; }
   .om-gallery-card-caption strong { font-size: var(--motion-text-xs); }
 }
 

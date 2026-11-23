@@ -11,10 +11,12 @@ import { StudioHostContext } from "../../motion/StudioHost";
 vi.mock("../editor/PreviewGuides", () => ({ PreviewGuides: () => <i data-testid="guides" /> }));
 const emptyState = vi.hoisted(() => ({ empty: false }));
 vi.mock("./useEmptyPreview", () => ({ useEmptyPreview: () => emptyState.empty }));
-vi.mock("../../player", () => ({ PlayerControls: () => <i data-testid="transport" /> }));
+vi.mock("../../player", () => ({ PlayerControls: ({ onToggleFullscreen, isFullscreen }: { onToggleFullscreen: () => void; isFullscreen: boolean }) => <button data-testid="transport" onClick={onToggleFullscreen}>{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}</button> }));
 vi.mock("./NLEPreview", () => ({ NLEPreview: () => <i data-testid="preview" /> }));
 vi.mock("./CompositionBreadcrumb", () => ({ CompositionBreadcrumb: () => <nav data-testid="breadcrumb" /> }));
 vi.mock("./AssetPreviewOverlay", () => ({ AssetPreviewOverlay: () => null }));
+vi.mock("../../motion/ReviewComposerOverlay", () => ({ ReviewComposerOverlay: () => null }));
+vi.mock("../../motion/ReviewAnnotationOverlay", () => ({ ReviewAnnotationOverlay: () => null }));
 vi.mock("./usePreviewBlockDrop", () => ({
   usePreviewBlockDrop: () => ({
     isDragOver: false,
@@ -63,9 +65,25 @@ it("omits duplicate preview navigation only in the MVP", () => {
   expect(host.querySelector('[data-studio-fullscreen-target]')).not.toBeNull();
   act(() => root.render(<StudioHostContext.Provider value={{ mvpEditor: true }}><PreviewPane /></StudioHostContext.Provider>));
   expect(host.querySelector('[data-testid="breadcrumb"]')).toBeNull();
-  expect(host.querySelector('[data-studio-fullscreen-target]')).toBeNull();
+  expect(host.querySelector('[data-studio-fullscreen-target]')).not.toBeNull();
   expect(host.querySelector('[data-testid="guides"]')).not.toBeNull();
   act(() => root.unmount());
+});
+
+it('fullscreen hides editing guides without remounting the player and restores them on exit', async () => {
+  const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+  await act(async () => root.render(<StudioHostContext.Provider value={{ mvpEditor: true }}><PreviewPane previewOverlay={<i data-testid="selection" />} /></StudioHostContext.Provider>));
+  const target = host.querySelector<HTMLElement>('[data-studio-fullscreen-target]')!, preview = host.querySelector('[data-testid="preview"]');
+  const enter = vi.fn(async () => { Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: target }); document.dispatchEvent(new Event('fullscreenchange')); });
+  Object.defineProperty(target, 'requestFullscreen', { configurable: true, value: enter });
+  Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="transport"]')!.click());
+  expect(enter).toHaveBeenCalledOnce(); expect(host.querySelector('[data-testid="preview"]')).toBe(preview);
+  expect(host.querySelector('[data-testid="guides"]')).toBeNull(); expect(host.querySelector('[data-testid="selection"]')).toBeNull();
+  expect(host.querySelector('[data-fullscreen-playback-surface]')).not.toBeNull();
+  await act(async () => { Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null }); document.dispatchEvent(new Event('fullscreenchange')); });
+  expect(host.querySelector('[data-testid="preview"]')).toBe(preview); expect(host.querySelector('[data-testid="selection"]')).not.toBeNull();
+  await act(async () => root.unmount());
 });
 
 it("hides placeholder transport while empty and restores controls when content arrives without unmounting preview", () => {

@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useMvpEditor } from "../motion/StudioHost";
 import { ConflictNotice } from "./ConflictNotice";
 import { useI18n } from "../i18n/I18n";
@@ -58,8 +59,8 @@ function ConflictReview({
             <p className="mt-1 text-xs text-neutral-400">
               {t("Reviewing or exporting does not change either version.")}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-sm px-2 py-1 text-neutral-400">
-            {t("Close")}</button>
+          <Button variant="plain" type="button" onClick={onClose} className="rounded-sm px-2 py-1 text-neutral-400">
+            {t("Close")}</Button>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {[
@@ -70,20 +71,20 @@ function ConflictReview({
               <div className="mb-2 flex items-center justify-between gap-2">
                 <h3 className="text-sm font-medium">{t(side.title)}</h3>
                 <div className="flex gap-2">
-                  <button
+                  <Button variant="plain"
                     type="button"
                     className="rounded-sm border border-neutral-700 px-2 py-1 text-[11px]"
                     onClick={() => void navigator.clipboard.writeText(side.content)}
                   >
-                    {t("Copy")}</button>
-                  <button
+                    {t("Copy")}</Button>
+                  <Button variant="plain"
                     type="button"
                     className="rounded-sm border border-neutral-700 px-2 py-1 text-[11px]"
                     onClick={() =>
                       downloadText(`${conflict.error.filePath}.${side.suffix}.html`, side.content)
                     }
                   >
-                    {t("Download")}</button>
+                    {t("Download")}</Button>
                 </div>
               </div>
               <textarea
@@ -133,22 +134,22 @@ function FailedDraftReview({
             <p className="mt-1 text-xs text-neutral-400">
               {t("Copy or download this draft before choosing to discard it.")}</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-sm px-2 py-1 text-neutral-400">
-            {t("Close")}</button>
+          <Button variant="plain" type="button" onClick={onClose} className="rounded-sm px-2 py-1 text-neutral-400">
+            {t("Close")}</Button>
         </div>
         <div className="mt-4 flex justify-end gap-2">
-          <button
+          <Button variant="plain"
             type="button"
             className="rounded-sm border border-neutral-700 px-2 py-1 text-[11px]"
             onClick={() => void navigator.clipboard.writeText(content)}
           >
-            {t("Copy")}</button>
-          <button
+            {t("Copy")}</Button>
+          <Button variant="plain"
             type="button"
             className="rounded-sm border border-neutral-700 px-2 py-1 text-[11px]"
             onClick={() => downloadText(`${path}.studio.html`, content)}
           >
-            {t("Download")}</button>
+            {t("Download")}</Button>
         </div>
         <textarea
           readOnly
@@ -187,25 +188,25 @@ export function ExternalFileConflictBanner({
             : t("Studio could not safely finish local saves: {value0}. Preview is paused.", { value0: errorMessage(blocked.error) })}
         </span>
         {conflict && (
-          <button type="button" onClick={() => setReviewing(true)} className="underline">
-            {t("Review or export both")}</button>
+          <Button variant="plain" type="button" onClick={() => setReviewing(true)} className="underline">
+            {t("Review or export both")}</Button>
         )}
         {failure?.studioContent != null && (
-          <button type="button" onClick={() => setReviewing(true)} className="underline">
-            {t("Review or export Studio draft")}</button>
+          <Button variant="plain" type="button" onClick={() => setReviewing(true)} className="underline">
+            {t("Review or export Studio draft")}</Button>
         )}
         {failure && !failure.recovered && failure.studioContent != null && (
-          <button type="button" onClick={() => void coordinator.retry()} className="underline">
-            {t("Retry save")}</button>
+          <Button variant="plain" type="button" onClick={() => void coordinator.retry()} className="underline">
+            {t("Retry save")}</Button>
         )}
-        <button
+        <Button variant="plain"
           type="button"
           onClick={() => void coordinator.useExternalFile()}
           className="rounded-sm border border-amber-200/30 px-2 py-1"
         >
-          {t("Discard Studio edits and reload file")}</button>
+          {t("Discard Studio edits and reload file")}</Button>
         {conflict && (
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => {
               if (
@@ -218,10 +219,10 @@ export function ExternalFileConflictBanner({
             }}
             className="rounded-sm border border-red-300/40 px-2 py-1 text-red-100"
           >
-            {t("Overwrite file with Studio version")}</button>
+            {t("Overwrite file with Studio version")}</Button>
         )}
         {failure?.recovered && failure.studioContent != null && (
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => {
               if (
@@ -234,7 +235,7 @@ export function ExternalFileConflictBanner({
             }}
             className="rounded-sm border border-red-300/40 px-2 py-1 text-red-100"
           >
-            {t("Overwrite file with recovered Studio draft")}</button>
+            {t("Overwrite file with recovered Studio draft")}</Button>
         )}
       </div>
       {reviewing && conflict && (

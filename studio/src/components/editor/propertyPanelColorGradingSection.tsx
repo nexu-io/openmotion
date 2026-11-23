@@ -1,3 +1,6 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
+import { NativeSelect } from "../ui/FormField";
 import { useI18n } from "../../i18n/I18n";
 import { type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { isHfColorGradingActive } from "@hyperframes/core/color-grading";
@@ -189,7 +192,7 @@ export function ColorGradingSection({
             onHoldChange={commitCompare}
           />
           <StatusPill status={runtimeStatus} />
-          <button
+          <IconButton variant="plain" aria-label={t("Reset color grading")}
             type="button"
             onClick={(event) => {
               event.stopPropagation();
@@ -198,9 +201,8 @@ export function ColorGradingSection({
             }}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-panel-text-4 transition-colors hover:bg-panel-hover hover:text-panel-text-1"
             title={t("Reset color grading")}
-          >
-            <RotateCcw size={12} />
-          </button>
+            icon={<RotateCcw size={12} />}
+          />
         </div>
       }
     >
@@ -213,7 +215,7 @@ export function ColorGradingSection({
       />
       {onApplyScope && (
         <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <select
+          <NativeSelect
             value={applyScope}
             onChange={(event) => {
               track("select", "Apply scope");
@@ -225,8 +227,8 @@ export function ColorGradingSection({
           >
             <option value="source-file">{t("Current file media")}</option>
             <option value="project">{t("All project media")}</option>
-          </select>
-          <button
+          </NativeSelect>
+          <Button variant="plain"
             type="button"
             disabled={applyBusy}
             onClick={(event) => {
@@ -238,7 +240,7 @@ export function ColorGradingSection({
             title={t("Copy these color grading settings to the selected scope")}
           >
             {applyBusy ? t("Applying") : t("Apply")}
-          </button>
+          </Button>
         </div>
       )}
     </Section>

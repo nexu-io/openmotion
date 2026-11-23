@@ -17,6 +17,12 @@ export const purposeOrder = [
   'Product demos & explainers', 'Event & campaign films', 'Milestones & results', 'Partnership announcements',
 ];
 
+export function orderedPurposes(values: Iterable<string>) {
+  const remaining = new Set(values);
+  const primary = purposeOrder.filter(value => remaining.delete(value));
+  return [...primary, ...remaining];
+}
+
 // These two catalog entries explicitly announce funding. Exact IDs keep this
 // editorial classification stable when their titles are translated.
 const fundraisingIds = new Set([
@@ -32,8 +38,9 @@ export function discoveryPurposes(template: GalleryTemplate): string[] {
 // Conservative browsing collections for the repository catalog, whose industry
 // arrays are currently empty. Published industry metadata takes precedence;
 // unreviewed brands remain unclassified instead of being guessed from prose.
+export const aiTechnologyIndustry = 'AI & technology';
 const industryBrands: [string, string[]][] = [
-  ['AI & technology', ['OpenAI', 'Anthropic', 'Manus', 'xAI / Grok', 'Kimi', 'Mistral', 'ElevenLabs', 'Perplexity', 'Genspark', 'Nous Research', 'Cohere', 'Exa', 'Goodfire', 'Humans&', 'Prime Intellect', 'Z.ai', 'Higgsfield']],
+  [aiTechnologyIndustry, ['OpenAI', 'Anthropic', 'Manus', 'xAI / Grok', 'Kimi', 'Mistral', 'ElevenLabs', 'Perplexity', 'Genspark', 'Nous Research', 'Cohere', 'Exa', 'Goodfire', 'Humans&', 'Prime Intellect', 'Z.ai', 'Higgsfield']],
   ['Business software', ['Linear', 'Notion', 'Lark', 'Slack', 'Airtable', 'Miro', 'Glean', 'Granola', 'Zapier']],
   ['Design & creative tools', ['Figma', 'Framer', 'Adobe', 'Canva', 'Jitter', 'Modyfi', 'Webflow', 'Krea', 'Ideogram', 'Runway', 'HeyGen', 'Descript', 'Rive']],
   ['Developer tools', ['Cursor', 'Vercel', 'GitHub', 'Supabase', 'Replit', 'Firecrawl', 'CodeRabbit', 'Cognition', 'Factory', 'Resend', 'Mintlify', 'Lovable', 'Emergent', 'Bolt']],

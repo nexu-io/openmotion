@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 /**
  * The preset shelf for the FX rack.
@@ -109,7 +110,7 @@ export function FxPresetMenu({
             {t(FAMILY_LABEL[family])}
           </span>
           {audioFxPresetsByFamily(family).map((preset) => (
-            <button
+            <Button variant="plain"
               key={preset.id}
               type="button"
               // `pr-8` so a long complaint does not run under the wave.
@@ -160,7 +161,7 @@ export function FxPresetMenu({
                   <span />
                 </span>
               ) : null}
-            </button>
+            </Button>
           ))}
         </div>
       ))}

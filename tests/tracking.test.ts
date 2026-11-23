@@ -6,14 +6,15 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createTracker, deviceContext, validProperties } from '../tracking/core.ts';
 import { createNodeTracking, createPosthogSender, loadIdentity } from '../tracking/node.ts';
-import { assetActions, assetToolAction, omEvents, studioEvents } from '../tracking/events.ts';
+import { omEvents, studioEvents } from '../tracking/events.ts';
+import { assetActions, toolFailureFields, toolInputFields } from '../tracking/tool-fields.ts';
 import { closeTracking, createAppTracking, saveTrackingPreference, trackingError } from '../shared/tracking.ts';
 import { Phase1Service } from '../phase1.ts';
-import { renderNext, technicalCheckResult, trackExportTerminal } from '../server.ts';
+import { cancelExport, renderNext, technicalCheckResult, trackExportTerminal } from '../server.ts';
 import { TaskLedger } from '../tracking/task-ledger.ts';
 import { pluginRoot } from '../hyperframes.ts';
 import { fixture } from './fixtures.ts';
-import { phase1Tools } from '../shared/phase1-tools.ts';
+import { phase1Tools, validateInput } from '../shared/phase1-tools.ts';
 import { toolNames } from '../tracking/events.ts';
 import { identifyHost } from '../tracking/host.ts';
 import { transport } from './http.ts';
@@ -130,13 +131,20 @@ test('editor dimensions are closed buckets and a bounded template id, never raw 
   no('studio_load_result', { ...load, host_product: 'codex' });
 });
 
-test('asset call action is a closed optional dimension and never includes arbitrary input', () => {
+test('tool dimensions use only the published actions, defaults and schema field names', () => {
   assert.deepEqual([...assetActions], phase1Tools.find(tool => tool.name === 'openmotion_assets_use')!.inputSchema.properties.action.enum);
-  for (const name of ['openmotion_assets_use', 'openmotion_assets', 'motion_assets_use', 'motion_assets']) {
-    for (const action of assetActions) assert.equal(assetToolAction(name, { action, prompt: 'PRIVATE_PROMPT' }), action);
-    for (const input of [null, {}, { action: 'PRIVATE_ACTION' }, { action: 42 }, { action: ['read'] }]) assert.equal(assetToolAction(name, input), undefined);
+  for (const tool of phase1Tools) {
+    const schema = tool.inputSchema as { properties: { action?: { enum: string[] } } };
+    for (const action of schema.properties.action?.enum ?? []) {
+      assert.equal(toolInputFields(tool.name, { action, prompt: 'PRIVATE_PROMPT' }).action, action);
+    }
+    for (const action of ['PRIVATE_ACTION', 42, ['read']]) assert.equal(toolInputFields(tool.name, { action }).action, undefined);
   }
-  assert.equal(assetToolAction('openmotion_media_use', { action: 'read' }), undefined);
+  assert.deepEqual(toolInputFields('openmotion_export_request', {}), { action: 'request' });
+  assert.deepEqual(toolInputFields('openmotion_open_preview', {}), { action: 'open', target: 'project' });
+  assert.deepEqual(toolInputFields('openmotion_open_preview', { action: 'begin', target: 'PRIVATE' }), { action: 'begin' });
+  assert.equal(toolInputFields('openmotion_assets', { action: 'read' }).action, undefined);
+  assert.equal(toolInputFields('openmotion_media_use', { action: 'read' }).action, undefined);
   for (const event of ['mcp_tool_started', 'mcp_tool_finished', 'webmcp_tool_started', 'webmcp_tool_finished']) {
     const web = event.startsWith('webmcp');
     const fields = { tool_name: web ? 'openmotion_assets_use' : 'motion_assets', call_id: crypto.randomUUID(),
@@ -146,6 +154,64 @@ test('asset call action is a closed optional dimension and never includes arbitr
     for (const action of assetActions) assert(validProperties(omEvents, event, { ...fields, action }));
     for (const action of ['PRIVATE_ACTION', 42, ['read']]) assert(!validProperties(omEvents, event, { ...fields, action }));
     assert(!validProperties(omEvents, event, { ...fields, action: 'read', data: 'PRIVATE_BASE64' }));
+  }
+  const edit = phase1Tools.find(tool => tool.name === 'openmotion_edit_project')!.inputSchema;
+  const args = { projectId: 'project', requestId: 'request', expectedRevision: 'a'.repeat(64), expectedVersionId: 'v1' };
+  for (const [files, field, rule] of [
+    [[{ content: 'PRIVATE_SOURCE' }], 'files[].path', 'missing'],
+    [[{ path: 'index.html', content: 'PRIVATE_SOURCE', PRIVATE_KEY: 1 }], 'unknown_field', 'unknown_field'],
+  ] as const) {
+    assert.throws(() => validateInput(edit, { ...args, files }), error => {
+      const normalized = toolFailureFields(error);
+      assert.deepEqual(normalized, { error_code: 'INVALID_ARGUMENT', invalid_field: field, validation_rule: rule });
+      const result = { call_id: crypto.randomUUID(), tool_name: 'openmotion_edit_project', transport: 'webmcp', outcome: 'failure', duration_ms: 1 };
+      assert(validProperties(studioEvents, 'webmcp_tool_finished', { ...result, ...normalized }));
+      assert(!validProperties(studioEvents, 'webmcp_tool_finished', { ...result, ...normalized, invalid_field: 'PRIVATE_KEY' }));
+      assert(!validProperties(studioEvents, 'webmcp_tool_finished', { ...result, ...normalized, error_code: 'PRIVATE_ERROR' }));
+      return true;
+    });
+  }
+});
+
+test('nested tool inputs identify missing fields and invalid operation or command names', () => {
+  const schema = phase1Tools.find(tool => tool.name === 'openmotion_assets_use')!.inputSchema;
+  for (const [args, field, rule] of [
+    [{}, 'action', 'missing'],
+    [{ unknown: true }, 'action', 'missing'],
+    [{ action: 'brand_kit', brandKit: { operation: 'PRIVATE_VALUE' } }, 'brandKit.operation', 'invalid_enum'],
+    [{ action: 'brand_kit', brandKit: {} }, 'brandKit.operation', 'missing'],
+    [{ action: 'brand_kit', brandKit: { operation: 'retry' } }, 'brandKit.kitId', 'missing'],
+    [{ action: 'brand_kit', brandKit: [] }, 'brandKit', 'invalid_type'],
+    [{ action: 'transcript', transcript: { command: 'PRIVATE_VALUE' } }, 'transcript.command', 'invalid_enum'],
+    [{ action: 'transcript', transcript: { command: 'get', projectId: 'project' } }, 'transcript.transcriptId', 'missing'],
+  ] as const) {
+    assert.throws(() => validateInput(schema, args), error => {
+      assert.deepEqual(toolFailureFields(error), { error_code: 'INVALID_ARGUMENT', invalid_field: field, validation_rule: rule });
+      return true;
+    });
+  }
+});
+
+test('review comment tracking keeps closed action and error fields without review content', () => {
+  const schema = phase1Tools.find(tool => tool.name === 'openmotion_manage_project')!.inputSchema;
+  assert.deepEqual(toolInputFields('openmotion_manage_project', { action: 'comments', text: 'PRIVATE_COMMENT' }), { action: 'comments' });
+  for (const [args, field, rule] of [
+    [{ operation: 'PRIVATE_OPERATION' }, 'operation', 'invalid_enum'],
+    [{ expectedCommentRevision: 0 }, 'expectedCommentRevision', 'out_of_range'],
+    [{ anchor: { scope: 'frame', compositionPath: 'index.html', time: -1 } }, 'anchor.time', 'out_of_range'],
+    [{ anchor: { scope: 'element', compositionPath: 'index.html', element: { handle: 'PRIVATE_HANDLE', sourceFile: 'index.html', label: 'PRIVATE_LABEL', tagName: 'h1', PRIVATE_KEY: true } } }, 'unknown_field', 'unknown_field'],
+    [{ anchor: { scope: 'frame', compositionPath: 'index.html', annotation: { version: 1, coordinateSpace: 'normalized', width: 640, height: 360, marks: [{ kind: 'pen', points: [{ x: 2, y: 0 }] }] } } }, 'anchor.annotation.marks[].points[].x', 'out_of_range'],
+  ] as const) {
+    assert.throws(() => validateInput(schema, { action: 'comments', projectId: 'project', ...args }), error => {
+      assert.deepEqual(toolFailureFields(error), { error_code: 'INVALID_ARGUMENT', invalid_field: field, validation_rule: rule });
+      assert(!JSON.stringify(toolFailureFields(error)).includes('PRIVATE'));
+      return true;
+    });
+  }
+  for (const code of ['COMMENT_TARGET_NOT_FOUND', 'COMMENT_NOT_FOUND', 'COMMENT_CONFLICT', 'COMMENT_LIMIT']) {
+    const normalized = toolFailureFields(new Error(`${code}: PRIVATE_COMMENT`));
+    assert.deepEqual(normalized, { error_code: code });
+    assert(validProperties(omEvents, 'mcp_tool_finished', { tool_name: legacyToolName('openmotion_manage_project'), accepted: true, call_id: crypto.randomUUID(), action: 'comments', outcome: 'failure', duration_ms: 1, ...normalized }));
   }
 });
 
@@ -307,6 +373,17 @@ test('domain events follow real commits, skip replay and retain safe failure wit
     ['project_create_result', 'success'], ['project_edit_result', 'success'], ['project_edit_result', 'failure'],
   ]);
   assert.equal(events[2].properties.error_code, 'VERSION_CONFLICT');
+  assert.equal(events[0].properties.creation_route, 'natural_language');
+  const { inlineWork } = await service.call('openmotion_open_preview', {
+    projectId: created.projectId, action: 'begin', mode: 'modify', requestId: crypto.randomUUID(),
+  });
+  await service.workRounds.failed(created.projectId, inlineWork.id, 'PRIVATE_FAILURE');
+  await assert.rejects(service.call('openmotion_edit_project', {
+    ...edit, workId: inlineWork.id, requestId: crypto.randomUUID(),
+  }), /WORK_CLOSED/);
+  await tracking.flush();
+  assert.equal(events.filter(event => event.event === 'project_edit_result').at(-1)?.properties.error_code, 'WORK_CLOSED');
+  assert.equal(events.find(event => event.event === 'host_run_failed')?.properties.error_code, 'WORK_CLOSED');
   assert.doesNotMatch(JSON.stringify(events), /PRIVATE_|private\.txt/); tracking.close();
 }, false));
 
@@ -377,6 +454,27 @@ test('cancelled and unfinished exports are unreviewed technical checks, not erro
   assert.equal(technicalCheckResult({ ...base, state: 'completed', verification: { status: 'passed' } }), 'pass');
 });
 
+test('repeated MCP cancels leave one terminal export result and one ledger outcome', () => fixture(async store => {
+  const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
+  const service = new Phase1Service(store, pluginRoot, { tracking, origin: () => 'http://127.0.0.1:4173',
+    nativeUrl: () => undefined, openProject: async () => {}, mutation: async task => task(),
+    cancel: (projectId, jobId) => cancelExport(store, projectId, jobId, tracking) });
+  try {
+    const current = await store.get();
+    const job = await store.requestExport(current.revision);
+    const args = { projectId: store.projectId, jobId: job.id };
+    const [first, second] = await Promise.all([crypto.randomUUID(), crypto.randomUUID()].map(requestId =>
+      service.call('openmotion_export_cancel', { ...args, requestId })));
+    assert.equal(first.job.state, 'cancelled');
+    assert.deepEqual(second.job, first.job);
+    await tracking.flush();
+    assert.equal(events.filter(event => event.event === 'export_result').length, 1);
+    assert.equal(events.filter(event => event.event === 'task_terminal').length, 1);
+    assert.equal(events.filter(event => event.event === 'export_cancel_result').length, 2);
+    assert.equal((await new TaskLedger(store.directory).snapshot())[job.id].outcome, 'cancelled');
+  } finally { tracking.close(); }
+}));
+
 test('worker reports a real terminal render failure once, separately from queue acceptance', () => fixture(async store => {
   const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
   const host = identifyHost({ name: 'dsh-mcp-client', version: '0.0.1' });
@@ -397,7 +495,11 @@ test('worker reports a real terminal render failure once, separately from queue 
   assert.equal(queue[0].properties.queued_count, 1);
   assert.equal(events.filter(event => event.event === 'check_completed').length, 0, 'legacy exports have no version-bound quality check');
   assert.equal((await store.get()).revision, current.revision);
-  assert.equal(terminal[0].properties.technical_check, 'unknown'); tracking.close();
+  assert.equal(terminal[0].properties.technical_check, 'unknown');
+  assert.equal(terminal[0].properties.failure_stage, 'lint');
+  assert.equal(terminal[0].properties.error_code, 'EXPORT_LINT_FAILED');
+  assert.equal(events.find(event => event.event === 'task_terminal')?.properties.error_code, 'EXPORT_LINT_FAILED');
+  assert.equal((await store.job(job.id))?.failureStage, 'lint'); tracking.close();
 }));
 
 test('an interrupted export is closed by the worker tick with one unknown terminal outcome', () => fixture(async store => {
@@ -411,11 +513,35 @@ test('an interrupted export is closed by the worker tick with one unknown termin
   assert.equal(terminal.length, 1, 'a second tick does not claim the same outcome again');
   assert.equal(terminal[0].entrypoint, 'worker');
   assert.equal(terminal[0].properties.outcome, 'unknown');
+  assert.equal(terminal[0].properties.error_code, 'EXPORT_DEADLINE_EXCEEDED');
+  const exportResults = events.filter(event => event.event === 'export_result');
+  assert.equal(exportResults.length, 1);
+  assert.equal(exportResults[0].properties.error_code, 'EXPORT_DEADLINE_EXCEEDED');
+  assert.equal(exportResults[0].properties.failure_stage, 'queued');
   assert.equal(terminal[0].properties.applied, 'unknown');
   assert.ok(terminal[0].properties.terminal_at);
   assert.equal((await store.job(job.id))!.state, 'failed');
   assert.equal((await new TaskLedger(store.directory).snapshot())[job.id].outcome, 'unknown');
   tracking.close();
+}));
+
+test('a status read captures an interrupted worker as a single export result', () => fixture(async store => {
+  const events: PendingEvent[] = [], tracking = core(async batch => { events.push(...batch); return 'accepted'; });
+  store.tracking = tracking;
+  try {
+    const current = await store.get(), job = await store.requestExport(current.revision);
+    assert.equal((await store.claimExport())?.id, job.id);
+    await store.saveJob({ ...(await store.job(job.id))!, stage: 'rendering', workerPid: undefined });
+    assert.equal((await store.status(job.id)).exportJob?.state, 'failed');
+    await renderNext(store, pluginRoot, tracking);
+    await tracking.flush();
+    const results = events.filter(event => event.event === 'export_result');
+    assert.equal(results.length, 1);
+    assert.equal(results[0].properties.job_id, job.id);
+    assert.equal(results[0].properties.failure_stage, 'render');
+    assert.equal(results[0].properties.error_code, 'EXPORT_WORKER_INTERRUPTED');
+    assert.equal(events.find(event => event.event === 'task_terminal')?.properties.outcome, 'unknown');
+  } finally { tracking.close(); }
 }));
 
 test('a claimed export past its deadline is closed once and not restated by its worker', () => fixture(async store => {
@@ -482,7 +608,9 @@ test('provider setup handoff tracks MCP entries exclusively without counting Web
       body: JSON.stringify({ name: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_upgrade_go' } }),
     });
     assert.equal(webmcp.status, 200);
-    assert.equal(new URL((await webmcp.json()).previewUrl).searchParams.has('entry_from'), false);
+    const webmcpUrl = new URL((await webmcp.json()).previewUrl);
+    assert.equal(webmcpUrl.searchParams.has('entry_from'), false);
+    assert.equal(webmcpUrl.searchParams.get('provider'), 'account');
 
     await rpc({ jsonrpc: '2.0', id: 'init', method: 'initialize', params: { clientInfo: { name: 'codex-mcp-client', version: '1.2.3' } } }, store);
     await rpc({ jsonrpc: '2.0', id: 'p1', method: 'tools/call', params: { name: 'openmotion_open_preview', arguments: { target: 'providers' } } }, store);
@@ -504,6 +632,65 @@ test('provider setup handoff tracks MCP entries exclusively without counting Web
     assert.equal(validProperties(studioEvents, 'page_view', { page_name: 'settings', view_id: crypto.randomUUID(), embedded: true, has_project: false, settings_section: 'providers', entry_from: 'agent_media_upgrade_go' }), true);
     assert.equal(validProperties(studioEvents, 'ui_click', { page_name: 'settings', area: 'account', element: 'manage_subscription', entry_from: 'agent_media_upgrade_go' }), true);
     assert.equal(validProperties(studioEvents, 'ui_click', { page_name: 'settings', area: 'account', element: 'manage_subscription', entry_from: 'PRIVATE_PROMPT' }), false);
+  } finally {
+    await running.close();
+    tracking.close();
+  }
+}));
+
+test('template handoff admits observed results and rejects content, made-up outcomes and invalid identities', () => {
+  const ids = { template_id: 'motion-example', operation_id: crypto.randomUUID(), handoff_attempt_id: crypto.randomUUID(), detail_view_id: crypto.randomUUID() };
+  const valid = { ...ids, page_name: 'studio', stage: 'open', outcome: 'success', project_id: crypto.randomUUID() };
+  assert.equal(validProperties(studioEvents, 'template_project_result', valid), true);
+  const click = { page_name: 'studio', area: 'template_detail', element: 'start_use', template_action: 'open_edit', operation_id: ids.operation_id };
+  assert.equal(validProperties(studioEvents, 'ui_click', click), true);
+  assert.equal(validProperties(studioEvents, 'ui_click', { ...click, operation_id: 'private-path' }), false);
+  for (const stage of ['create', 'reconcile', 'open']) for (const outcome of ['success', 'failure', 'unknown', 'not_found']) {
+    assert.equal(validProperties(studioEvents, 'template_project_result', { ...valid, stage, outcome }), true);
+  }
+  for (const extra of [{ prompt: 'private text' }, { color: '#123456' }, { url: 'https://private.invalid' }, { raw_error: 'private stack' }, { materials: 'private asset' }]) {
+    assert.equal(validProperties(studioEvents, 'template_project_result', { ...valid, ...extra }), false);
+  }
+  assert.equal(validProperties(studioEvents, 'template_project_result', { ...valid, outcome: 'film_created' }), false);
+  assert.equal(validProperties(studioEvents, 'template_project_result', { ...valid, operation_id: 'not-a-uuid' }), false);
+  assert.equal(validProperties(studioEvents, 'template_project_result', { ...valid, template_id: '/private/path' }), false);
+  assert.equal(validProperties(studioEvents, 'surface_view', { page_name: 'studio', area: 'template_card', element: 'card', placement: 'related', ...ids, source_template_id: 'motion-source', position: 1 }), false);
+  assert.equal(validProperties(studioEvents, 'surface_view', { page_name: 'studio', area: 'template_card', element: 'card', placement: 'related', template_id: ids.template_id, detail_view_id: ids.detail_view_id, source_template_id: 'motion-source', position: 1 }), true);
+});
+
+test('MCP export failures keep action and service validation details on the original call and replay', () => fixture(async store => {
+  const { startServer } = await import('../server.ts');
+  const { rpc } = await import('../mcp.ts');
+  const events: PendingEvent[] = [];
+  const tracking = core(async batch => { events.push(...batch); return 'accepted'; });
+  const running = await startServer(store, 0, { editor: false });
+  const address = running.server.address();
+  assert.ok(address && typeof address !== 'string');
+  await writeFile(path.join(store.directory, 'preview.json'), JSON.stringify({ port: address.port }));
+  store.tracking = tracking;
+  try {
+    const requestId = crypto.randomUUID();
+    for (const [id, name, args] of [
+      [1, 'openmotion_export_request', { requestId }],
+      [2, 'openmotion_export_request', { action: 'record_review', projectId: 'project', requestId }],
+      [3, 'openmotion_export_request', { action: 'record_review', projectId: 'project', requestId }],
+      [4, 'openmotion_show_video', { PRIVATE_KEY: 1 }],
+      [5, 'openmotion_show_template_recommendations', { PRIVATE_KEY: 1 }],
+    ] as const) {
+      const reply: any = await rpc({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }, store);
+      assert.equal(reply.result.isError, true);
+    }
+    await tracking.flush();
+    const finished = events.filter(e => e.event === 'mcp_tool_finished');
+    assert.deepEqual(finished.map(({ properties: p }) => [p.tool_name, p.action, p.accepted, p.error_code, p.invalid_field, p.validation_rule]), [
+      ['motion_export_request', 'request', false, 'INVALID_ARGUMENT', 'projectId', 'missing'],
+      ['motion_export_request', 'record_review', true, 'INVALID_ARGUMENT', 'jobId', 'missing'],
+      ['motion_export_request', 'record_review', true, 'INVALID_ARGUMENT', 'jobId', 'missing'],
+      ['motion_show_video', undefined, false, 'MCP_TOOL_NOT_EXPOSED', undefined, undefined],
+      ['motion_show_template_recommendations', undefined, false, 'MCP_TOOL_NOT_EXPOSED', undefined, undefined],
+    ]);
+    assert(finished.slice(0, 3).every(e => e.properties.operation_id === requestId));
+    assert.doesNotMatch(JSON.stringify(events), /PRIVATE_KEY|is required/);
   } finally {
     await running.close();
     tracking.close();

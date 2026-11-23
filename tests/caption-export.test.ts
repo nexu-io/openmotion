@@ -15,6 +15,11 @@ test('exports saved caption text, timing, multiline entities, trim and hidden st
   assert.equal(result.content, '1\n00:00:01,000 --> 00:00:03,000\nEdited & styled\nline\n\n2\n00:00:04,000 --> 00:00:06,000\nLater\n');
   assert.match(exportCaptionSource(source, 'vtt', parseHTML).content, /^WEBVTT\n\n1\n00:00:01.000/);
 });
+test('WebVTT export escapes cue text that would otherwise read as markup; SRT stays plain', () => {
+  const source = root(cue('Tom &amp; Jerry &lt;3 Q&amp;A', 0, 1) + cue('Use the &lt;video&gt; tag if a &lt; b --&gt; c', 1, 1));
+  assert.equal(exportCaptionSource(source, 'vtt', parseHTML).content, 'WEBVTT\n\n1\n00:00:00.000 --> 00:00:01.000\nTom &amp; Jerry &lt;3 Q&amp;A\n\n2\n00:00:01.000 --> 00:00:02.000\nUse the &lt;video&gt; tag if a &lt; b --&gt; c\n');
+  assert.equal(exportCaptionSource(source, 'srt', parseHTML).content, '1\n00:00:00,000 --> 00:00:01,000\nTom & Jerry <3 Q&A\n\n2\n00:00:01,000 --> 00:00:02,000\nUse the <video> tag if a < b --> c\n');
+});
 test('coalesces highlighted sentence fragments but preserves gaps and overlapping tracks', () => {
   const result = exportCaptionSource(root(cue('<span>Word</span> one', 0, 1) + cue('Word <span>one</span>', 1, 1) + cue('Word one', 3, 1) + cue('Other', 0, 2).replace('track="a"', 'track="b"')), 'srt', parseHTML);
   assert.equal(result.cueCount, 3); // An overlapping track keeps its own cue.

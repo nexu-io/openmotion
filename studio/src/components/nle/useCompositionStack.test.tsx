@@ -54,9 +54,10 @@ describe("useCompositionStack — drilling into a composition file", () => {
       root.render(<Harness />);
     });
     await act(async () => {
-      stack.handleDrillDown({ id: "x", compositionSrc: "./compositions/x.html" });
+      stack.handleDrillDown({ id: "x", label: "Opening scene", compositionSrc: "./compositions/x.html" });
     });
     expect(stack.compositionStack[1]?.id).toBe("compositions/x.html");
+    expect(stack.compositionStack[1]?.label).toBe("Opening scene");
     act(() => root.unmount());
   });
 });

@@ -106,15 +106,16 @@ function renderReadyWaveform(parent: HTMLElement = document.body) {
   });
 }
 
-/** A 6 x 20 canvas whose 2D context records every fill as [style, x, y, width, height]. */
+/** A 6 x 20 canvas whose 2D context records every fill as [style, x, y, width, height, opacity]. */
 function recordingCanvas() {
-  const fills: Array<[string, number, number, number, number]> = [];
+  const fills: Array<[string, number, number, number, number, number]> = [];
   const context = {
     scale: vi.fn(),
     clearRect: vi.fn(),
     fillStyle: "",
+    globalAlpha: 1,
     fillRect: (x: number, y: number, width: number, height: number) =>
-      fills.push([String(context.fillStyle), x, y, width, height]),
+      fills.push([String(context.fillStyle), x, y, width, height, context.globalAlpha]),
   } as unknown as CanvasRenderingContext2D;
   const canvas = document.createElement("canvas");
   Object.defineProperties(canvas, {
@@ -333,8 +334,7 @@ describe("AudioWaveform", () => {
       [0, 0, 3, 10],
       [3, 0, 3, 20],
     ]);
-    const alpha = (style: string) => Number(style.split(",").at(-1)?.replace(")", ""));
-    expect(alpha(bars[1][0])).toBeCloseTo(alpha(bars[0][0]) * 0.27, 2);
+    expect(bars[1][5]).toBeCloseTo(bars[0][5] * 0.27, 2);
   });
 
   it("leases waveform decoding with the clip's project, session, and viewport priority", () => {

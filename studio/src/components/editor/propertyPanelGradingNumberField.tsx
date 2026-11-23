@@ -1,3 +1,5 @@
+import { OverflowText } from "../ui/OverflowText";
+import { FieldInput } from "../ui/FormField";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useRef, useState } from "react";
 import { clampNumber } from "../../utils/studioHelpers";
@@ -71,8 +73,8 @@ export function GradingNumberField({
 
   return (
     <label className={labelClassName}>
-      <span className={labelTextClassName}>{t(label)}</span>
-      <input
+      <OverflowText text={t(label)} className={`${labelTextClassName} block min-w-0 truncate`} />
+      <FieldInput appearance="inline"
         type="text"
         inputMode="decimal"
         aria-label={ariaLabel}

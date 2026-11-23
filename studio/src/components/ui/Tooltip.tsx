@@ -10,6 +10,7 @@ import {
   useId,
   useRef,
   useState,
+  type ComponentProps,
   type CSSProperties,
   type ReactElement,
 } from "react";
@@ -32,6 +33,8 @@ interface TooltipProps {
   wrap?: boolean;
   /** Keep this tooltip in its trigger's native dialog top layer. Enabled by default. */
   withinDialog?: boolean;
+  /** Portal into an explicit overlay when its stacking layer is not a native dialog. */
+  portalContainer?: ComponentProps<typeof BaseTooltip.Portal>["container"];
 }
 
 /** Matches the old bubble's gap from its trigger, and its viewport margin. */
@@ -43,16 +46,21 @@ export function Tooltip({
   description,
   children,
   delay = 200,
-  side = "top",
+  side,
   disabled = false,
   lines,
   wrap = false,
   withinDialog = true,
+  portalContainer,
 }: TooltipProps) {
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLSpanElement>(null);
   const tooltipId = useId();
   const unavailable = disabled || !label;
+  const resolvedSide = side ?? (boxRef.current?.closest(".om-app-header") ? "bottom" : "top");
+  const container = portalContainer
+    ?? (withinDialog ? boxRef.current?.closest("dialog") : null)
+    ?? (document.fullscreenElement?.contains(boxRef.current) ? document.fullscreenElement as HTMLElement : undefined);
   useEffect(() => { if (unavailable) setOpen(false); }, [unavailable]);
 
   return (
@@ -64,14 +72,14 @@ export function Tooltip({
             : children.props["aria-describedby"],
         })}
       </BaseTooltip.Trigger>
-      {/* Native modal dialogs make body portals inert and paint above them. */}
-      <BaseTooltip.Portal container={withinDialog ? boxRef.current?.closest("dialog") ?? undefined : undefined}>
+      {/* Dialogs and fullscreen paint above ordinary body portals. */}
+      <BaseTooltip.Portal container={container}>
         <BaseTooltip.Positioner
           anchor={() => boxRef.current?.firstElementChild ?? null}
-          side={side}
+          side={resolvedSide}
           sideOffset={SIDE_OFFSET}
           collisionPadding={VIEWPORT_MARGIN}
-          className={POPUP_LAYER}
+          className={cn(POPUP_LAYER, "pointer-events-none")}
         >
           <BaseTooltip.Popup
             id={tooltipId}

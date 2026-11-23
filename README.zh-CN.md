@@ -59,17 +59,17 @@ OpenMotion 是一个**由 AI Agent 驱动的全栈视频创作工作台**，也�
 复制下面的指令，发给你的本地 Agent，即可从源码安装 OpenMotion：
 
 ```text
-阅读 https://github.com/nexu-io/openmotion/blob/main/install.md，按照指南在当前 Agent 中安装并连接 OpenMotion。
+阅读 https://github.com/nexu-io/openmotion/blob/main/docs/install.md，按照指南在当前 Agent 中安装并连接 OpenMotion。
 ```
 
-安装完成后，Agent 会打开本地模板库并推荐一个模板，确认选择后再创建工程。[源码安装指南](install.md)
+安装完成后，Agent 会打开本地模板库并推荐一个模板，确认选择后再创建工程。[源码安装指南](docs/install.md)
 
 ### 安装已发布的 npm 应用（可选）
 
 上方源码安装仍是仓库安装的默认方式。如需明确选择包含预构建 Studio 及已配置在线模板库的已发布应用，请复制下面的指令，发给你的本地 Agent：
 
 ```text
-阅读 https://github.com/nexu-io/openmotion/blob/main/docs/install.md，按照指南在当前的 Agent 中安装并连接已发布的 npm 应用。
+阅读 https://releases.open-design.ai/motion，按照指南在当前的 Agent 中安装并连接已发布的 npm 应用。
 ```
 
 [已发布应用的安装与版本通道选择](docs/install.md)。已发布的版本可能落后于当前检出的源码。
@@ -445,7 +445,7 @@ Brand Kit 章节记录品牌身份、语气和已确认的产品信息；Design 
 
 ### 从源码安装
 
-任何 Agent 入口安装成功后，都应在当前对话按 [安装回复规则与示例](docs/install-onboarding.md#installation-success-reply) 发出体验邀请。安装结果附带真实模板摘要；用户接受后才按所选模板创建工程。
+任何 Agent 入口安装成功后，都应在当前对话按 [安装回复规则与示例](docs/install.md#installation-success-reply) 发出体验邀请。安装结果附带真实模板摘要；用户接受后才按所选模板创建工程。
 
 通过 Agent 安装，请使用[上方的安装指令](#quick-start)。如需从源码运行，使用下面的步骤。
 
@@ -534,7 +534,7 @@ npx skills add ./skills --skill openmotion-director openmotion-production openmo
 }
 ```
 
-**十六个公开 MCP 名称（含一个素材库兼容别名）**覆盖模板发现与详情、工程创建与读取、编辑、预览、媒体导入与 BYOK 生成、可复用素材版本、工程管理与 ZIP 分享、导出、版本恢复与取消。共享工作流和引擎指引通过 MCP resources 提供。[工具契约](docs/mcp-phase1-tools.md)
+**十八个公开 MCP 名称（含一个素材库兼容别名）**覆盖模板发现与详情、Skill 发现与读取、工程创建与读取、编辑、预览、媒体导入与 BYOK 生成、可复用素材版本、工程管理与 ZIP 分享、导出、版本恢复与取消。共享工作流和引擎指引通过 MCP resources 提供。[工具契约](docs/mcp-phase1-tools.md)
 
 用 `openmotion_list_templates` 查找模板，`openmotion_get_template` 查看详情，再用 `openmotion_create_project` 创建可编辑副本。[模板目录](docs/template-catalog.md)
 
@@ -639,7 +639,7 @@ MP4 + 可编辑源码 + 素材 + 版本和导出证据
 
 </details>
 
-BYOA 连接已有 Agent 客户端；素材工作区支持直接用模型生成和复用素材。BYOK 连接受支持的模型账号。Studio 与本地服务管理可编辑工程，供应商凭据不写入工程文件。一期公开 MCP 包含**十六个名称：九个工程工具、两个模板目录工具、一个工程归档工具、一个工程管理工具、一个 BYOK 媒体工具，以及同一素材库能力的两个名称**。先在 Studio 配置供应商密钥，再用 `openmotion_media_use` 发现模型、经本地 Gateway 生成媒体。用 `openmotion_assets_use`（`openmotion_assets` 仍兼容）上传、查看或生成可复用素材，保留版本，并把选定版本导入影片。[素材库指南](docs/assets.md)。密钥留在服务内；公开 MCP 契约不包含发布。
+BYOA 连接已有 Agent 客户端；素材工作区支持直接用模型生成和复用素材。BYOK 连接受支持的模型账号。Studio 与本地服务管理可编辑工程，供应商凭据不写入工程文件。一期公开 MCP 包含**十八个名称：九个工程工具、两个模板目录工具、两个 Skill 库工具、一个工程归档工具、一个工程管理工具、一个 BYOK 媒体工具，以及同一素材库能力的两个名称**。先在 Studio 配置供应商密钥，再用 `openmotion_media_use` 发现模型、经本地 Gateway 生成媒体。用 `openmotion_assets_use`（`openmotion_assets` 仍兼容）上传、查看或生成可复用素材，保留版本，并把选定版本导入影片。[素材库指南](docs/assets.md)。密钥留在服务内；公开 MCP 契约不包含发布。
 
 #### 技术栈与源码索引
 
@@ -739,7 +739,7 @@ OpenMotion 采用 [Apache-2.0](LICENSE)许可。第三方代码、模板、媒�
 
 | 来源 | 关联 |
 | --- | --- |
-| [OpenDesign](https://github.com/nexu-io/open-design) | OpenMotion 的开发团队，负责界面设计、资源结构和品牌方向。[设计体系](docs/design-system.md) 和 [Motion 展示](https://open-design.ai/zh/motion/) |
+| [OpenDesign](https://github.com/nexu-io/open-design) | OpenMotion 的开发团队，负责界面设计、资源结构、品牌方向，并提供 Apache-2.0 HTML 设计模板、设计系统、Skills、工艺规范与场景任务指南；[设计体系](docs/design-system.md)、[设计资源声明](library/design/NOTICE.md)和 [Motion 展示](https://open-design.ai/zh/motion/) |
 | [Hyperframes](https://github.com/heygen-com/hyperframes) | HTML 视频合成、Studio 和渲染基础，固定为 0.9.7；创作者参考、外部改编演示与组件源码；[引擎说明](docs/hyperframes.md)、[模板声明](template-library/NOTICE.md) 和[目录来源](docs/template-catalog.md) |
 | [MotionGit](https://motiongit.com/) / adunext | Kinetic Tech 源码以 Presenter Tech 打包；[许可与署名](library/templates/presenter-tech/NOTICE.md) |
 | [Hypit](https://github.com/hypit-ai/hypit) | Agent 主导热门视频复刻与可编辑版本的灵感来源；未引入运行时 |

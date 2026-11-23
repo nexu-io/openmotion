@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 /**
  * Context menu for a right-click inside an automation time selection: the four
@@ -52,7 +53,7 @@ export const AutomationSelectionMenu = memo(function AutomationSelectionMenu({
       style={{ left: adjustedX, top: adjustedY }}
     >
       {AUTOMATION_SHAPES.map((shape) => (
-        <button
+        <Button variant="plain"
           key={shape.id}
           type="button"
           className={row}
@@ -62,10 +63,10 @@ export const AutomationSelectionMenu = memo(function AutomationSelectionMenu({
           }}
         >
           {t(shape.label)}
-        </button>
+        </Button>
       ))}
       <div className={menuClasses.divider} />
-      <button
+      <Button variant="plain"
         type="button"
         className={row}
         disabled={!canSimplify}
@@ -75,7 +76,7 @@ export const AutomationSelectionMenu = memo(function AutomationSelectionMenu({
           onClose();
         }}
       >
-        {t("Simplify")}</button>
+        {t("Simplify")}</Button>
     </div>,
     document.body,
   );

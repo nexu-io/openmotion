@@ -93,7 +93,7 @@ test("nested composition parsing and optional asset metadata in the real Studio"
       await writeFile(path.join(output, "initial-ui.json"), JSON.stringify(await inspect(page), null, 2));
       await clickText(page, "Assets");
       await page.waitForSelector("[data-assets-list]");
-      await page.waitForFunction(() => document.querySelector("[data-assets-list]")?.textContent?.includes("picture.svg"));
+      await page.waitForSelector('[data-assets-list] img[src*="/assets/picture.svg"]', { visible: true });
       for (let i = 0; i < 2; i++) {
         await clickText(page, "Compositions");
         await clickText(page, "Assets");
@@ -112,7 +112,7 @@ test("nested composition parsing and optional asset metadata in the real Studio"
       await page.waitForSelector("[data-assets-list]");
       await waitFor(() => responses.some(response => response.url === manifestUrl && response.status === 200));
       await page.type('input[aria-label="Search assets"]', "unique metadata");
-      await page.waitForFunction(() => document.querySelector("[data-assets-list]")?.textContent?.includes("picture.svg"));
+      await page.waitForSelector('[data-assets-list] img[src*="/assets/picture.svg"]', { visible: true });
       checks.push("Native listing exposes a newly added project manifest; reloaded Studio fetches it and metadata search finds its asset");
       await page.screenshot({ path: path.join(output, "assets-with-metadata.png") });
       assert.deepEqual(errors, []);

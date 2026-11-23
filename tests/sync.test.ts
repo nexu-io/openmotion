@@ -106,7 +106,7 @@ test('a vendored dependency changed while freezing an export rejects the snapsho
     }
     return info;
   };
-  await assert.rejects(store.requestExport(before.revision), Conflict);
+  await assert.rejects(store.requestExport(before.revision), error => error instanceof Conflict && error.code === 'VERSION_CONFLICT');
   assert.equal(changed, true, 'the dependency changed after it had been copied');
   assert.equal((await store.get()).revision, before.revision, 'the complete render fingerprint catches changes outside native history');
   assert.equal(await store.job(), null, 'the rejected snapshot never becomes an export job');

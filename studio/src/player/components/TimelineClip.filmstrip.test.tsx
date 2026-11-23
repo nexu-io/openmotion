@@ -146,13 +146,13 @@ describe("Filmstrip clips", () => {
     );
   });
 
-  it("exports a single 1px selection ring around a visual clip using the shared radius", () => {
+  it("exports a single 3px outside selection ring around a visual clip using the shared radius", () => {
     const clip = render("video").querySelector(".timeline-clip");
     expect(clip?.classList.contains("is-selected")).toBe(true);
     expect(css).toMatch(/--timeline-clip-radius:\s*var\(--motion-radius-sm\);/);
     expect(css).toMatch(/--motion-radius-sm:\s*4px;/);
     expect(css).toMatch(
-      /\.timeline-clip\.is-selected,\s*\.timeline-clip\[data-active\]\.is-selected\s*\{[^}]*outline:\s*1px solid var\(--timeline-clip-selection\);[^}]*outline-offset:\s*0;/,
+      /\.timeline-clip\.is-selected,\s*\.timeline-clip\[data-active\]\.is-selected\s*\{[^}]*outline:\s*3px solid var\(--timeline-clip-selection\);[^}]*outline-offset:\s*0;/,
     );
     expect(css).toMatch(/\.timeline-clip:not\(\.is-audio\)\s*\{\s*border-width:\s*0;/);
   });

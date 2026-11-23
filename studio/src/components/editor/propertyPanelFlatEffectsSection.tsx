@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useState } from "react";
 import {
@@ -23,6 +25,7 @@ import {
   type EffectControl,
   type EffectSpec,
 } from "./propertyPanelFlatEffectSpecs";
+import { ColorField } from "./propertyPanelColor";
 import { FlatEffectControl } from "./propertyPanelFlatEffectControl";
 import { presetPreviewHandlers } from "./propertyPanelPresetPreview";
 
@@ -41,7 +44,7 @@ export function FlatEffectsAccessory({
   const track = useTrackDesignInput();
   if (!activeColorGradingEffectCount(grading)) return null;
   return (
-    <button
+    <IconButton variant="plain" aria-label={t("Reset effects")}
       type="button"
       data-flat-effects-reset="true"
       title={t("Reset effects")}
@@ -51,9 +54,8 @@ export function FlatEffectsAccessory({
         onCommitColorGrading({ ...grading, effects: { ...DEFAULT_EFFECTS }, palette: null });
       }}
       className="shrink-0 text-panel-text-3 hover:text-panel-text-1"
-    >
-      <RotateCcw size={12} />
-    </button>
+      icon={<RotateCcw size={12} />}
+    />
   );
 }
 
@@ -155,7 +157,7 @@ export function FlatEffectsSection({
               palette?.length === preset.colors.length &&
               palette.every((color, index) => color === preset.colors[index]);
             return (
-              <button
+              <Button variant="plain"
                 key={preset.id}
                 type="button"
                 title={`${t(preset.group)}: ${t(preset.label)}`}
@@ -177,12 +179,12 @@ export function FlatEffectsSection({
                   ))}
                 </span>
                 <span className="block truncate text-[8px] text-panel-text-3">{t(preset.label)}</span>
-              </button>
+              </Button>
             );
           })}
         </div>
         {!palette ? (
-          <button
+          <Button variant="plain"
             type="button"
             data-flat-effects-add-palette="true"
             onClick={() => {
@@ -191,36 +193,36 @@ export function FlatEffectsSection({
             }}
             className="flex min-h-[28px] items-center gap-1 text-[10px] font-medium text-accent-ink hover:text-accent-ink/80"
           >
-            <Plus size={11} /> {t("Custom palette")}</button>
+            <Plus size={11} /> {t("Custom palette")}</Button>
         ) : (
           <>
             <div className="flex items-center justify-between">
               <span className="text-[11px] text-panel-text-3">{t("Custom palette")}</span>
-              <button
+              <IconButton variant="plain" aria-label={t("Use default palette")}
                 type="button"
                 title={t("Use default palette")}
                 onClick={() => onCommitColorGrading({ ...grading, palette: null })}
                 className="text-panel-text-4 hover:text-panel-text-1"
-              >
-                <RotateCcw size={11} />
-              </button>
+                icon={<RotateCcw size={11} />}
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="space-y-1.5">
               {palette.map((color, index) => (
-                <span key={`${index}-${color}`} className="group/swatch relative">
-                  <input
-                    type="color"
-                    aria-label={t("Palette color {value0}", { value0: index + 1 })}
-                    value={color}
-                    onChange={(event) => {
-                      const nextPalette = [...palette];
-                      nextPalette[index] = event.target.value;
-                      onCommitColorGrading({ ...grading, palette: nextPalette });
-                    }}
-                    className="h-6 w-6 cursor-pointer rounded-xs border border-panel-border-input bg-transparent p-0"
-                  />
+                <div key={index} className="flex items-center gap-1.5">
+                  <div className="min-w-0 flex-1">
+                    <ColorField
+                      label={t("Palette color {value0}", { value0: index + 1 })}
+                      value={color}
+                      opaque
+                      onCommit={(next) => {
+                        const nextPalette = [...palette];
+                        nextPalette[index] = next;
+                        onCommitColorGrading({ ...grading, palette: nextPalette });
+                      }}
+                    />
+                  </div>
                   {palette.length > 2 && (
-                    <button
+                    <IconButton variant="plain"
                       type="button"
                       aria-label={t("Remove palette color {value0}", { value0: index + 1 })}
                       onClick={() =>
@@ -229,15 +231,14 @@ export function FlatEffectsSection({
                           palette: palette.filter((_, colorIndex) => colorIndex !== index),
                         })
                       }
-                      className="absolute -right-1 -top-1 hidden h-3.5 w-3.5 items-center justify-center rounded-full bg-panel-bg text-panel-text-2 shadow-sm group-hover/swatch:flex"
-                    >
-                      <X size={8} />
-                    </button>
+                      className="flex size-7 shrink-0 items-center justify-center rounded-md text-panel-text-2"
+                      icon={<X size={12} />}
+                    />
                   )}
-                </span>
+                </div>
               ))}
               {palette.length < 6 && (
-                <button
+                <IconButton variant="plain"
                   type="button"
                   aria-label={t("Add palette color")}
                   onClick={() =>
@@ -247,9 +248,8 @@ export function FlatEffectsSection({
                     })
                   }
                   className="flex h-6 w-6 items-center justify-center rounded-xs border border-panel-border-input text-panel-text-4 hover:text-panel-text-1"
-                >
-                  <Plus size={11} />
-                </button>
+                  icon={<Plus size={11} />}
+                />
               )}
             </div>
           </>
@@ -265,7 +265,7 @@ export function FlatEffectsSection({
           {activeEffects.map((effect) => {
             const selected = selectedEffect?.key === effect.key;
             return (
-              <button
+              <Button variant="plain"
                 key={effect.key}
                 type="button"
                 data-flat-effect-active={effect.key}
@@ -281,7 +281,7 @@ export function FlatEffectsSection({
                 <span className="text-[9px] text-panel-text-5">
                   {selected ? t("Editing") : t("Active")}
                 </span>
-              </button>
+              </Button>
             );
           })}
         </div>
@@ -297,22 +297,20 @@ export function FlatEffectsSection({
               {t(selectedEffect.label)}
             </span>
             <span className="flex items-center gap-2">
-              <button
+              <IconButton variant="plain" aria-label={t("Reset {value0}", { value0: t(selectedEffect.label) })}
                 type="button"
                 title={t("Reset {value0}", { value0: t(selectedEffect.label) })}
                 onClick={() => applyEffect(selectedEffect)}
                 className="text-panel-text-4 hover:text-panel-text-1"
-              >
-                <RotateCcw size={11} />
-              </button>
-              <button
+                icon={<RotateCcw size={11} />}
+              />
+              <IconButton variant="plain" aria-label={t("Remove {value0}", { value0: t(selectedEffect.label) })}
                 type="button"
                 title={t("Remove {value0}", { value0: t(selectedEffect.label) })}
                 onClick={() => removeEffect(selectedEffect)}
                 className="text-panel-text-4 hover:text-danger-ink"
-              >
-                <X size={11} />
-              </button>
+                icon={<X size={11} />}
+              />
             </span>
           </div>
           {selectedEffect.showMaster !== false && (
@@ -349,14 +347,14 @@ export function FlatEffectsSection({
         </div>
       )}
 
-      <button
+      <Button variant="plain"
         type="button"
         data-flat-effects-add-toggle="true"
         aria-expanded={catalogOpen}
         onClick={() => setCatalogOpen((open) => !open)}
         className="flex min-h-[30px] items-center gap-1 text-[10px] font-medium text-accent-ink hover:text-accent-ink/80"
       >
-        <Plus size={11} /> {t("Add effect")}</button>
+        <Plus size={11} /> {t("Add effect")}</Button>
 
       {catalogOpen && (
         <div data-flat-effects-catalog="true" className="space-y-2">
@@ -394,7 +392,7 @@ export function FlatEffectsSection({
                   const selected = grading.preset === preset.id;
                   const preview = presetPreviews.images[preset.id];
                   return (
-                    <button
+                    <Button variant="plain"
                       key={preset.id}
                       type="button"
                       data-flat-effect-preset={preset.id}
@@ -436,14 +434,14 @@ export function FlatEffectsSection({
                         )}
                       </span>
                       <span className="block truncate px-2 py-1.5">{t(preset.label)}</span>
-                    </button>
+                    </Button>
                   );
                 })}
                 {group.effects.map((effect) => {
                   const active = grading.effects[effect.key] > 0.0001;
                   const preview = previews.images[effect.key];
                   return (
-                    <button
+                    <Button variant="plain"
                       key={effect.key}
                       type="button"
                       data-flat-effect-option={effect.key}
@@ -492,7 +490,7 @@ export function FlatEffectsSection({
                         )}
                       </span>
                       <span className="block truncate px-2 py-1.5">{t(effect.label)}</span>
-                    </button>
+                    </Button>
                   );
                 })}
               </div>

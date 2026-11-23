@@ -6,7 +6,7 @@ import { transcriptRequest, downloadTranscript } from '../../motion/transcriptCl
 import type { CaptionTrack } from '../../../../shared/transcript-captions';
 import { useDockLayoutStore } from '../dock/dockLayoutStore';
 import { RemixIcon } from '../../icons/RemixIcons';
-import { Button } from '../ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Select } from '../ui/Select';
 import { ChoiceTiles } from '../ui/ChoiceTiles';
 import { Skeleton } from '../ui/Skeleton';

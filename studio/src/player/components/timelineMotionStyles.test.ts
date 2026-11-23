@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const studioCss = readFileSync(new URL("../../styles/components.css", import.meta.url), "utf8");
+const selectionCss = readFileSync(new URL("../../../../packages/design-system/studio/timeline-selection.css", import.meta.url), "utf8");
 const themeCss = readFileSync(new URL("../../../../packages/design-system/studio/tokens.css", import.meta.url), "utf8") + readFileSync(new URL("../../../../packages/design-system/studio/theme.css", import.meta.url), "utf8");
 const timelineOverlaySources = [
   "TimelineShortcutHint.tsx",
@@ -44,7 +45,7 @@ describe("timeline motion styles", () => {
     ["--timeline-border-strong", "color-mix(in oklab, var(--color-text-0) 20%, transparent)"],
     ["--timeline-group-member-tint", "color-mix(in oklab, var(--color-text-0) 3.5%, transparent)"],
     ["--timeline-overlay-text", "var(--color-text-2)"],
-    ["--timeline-playhead-glow", "color-mix(in oklab, var(--color-accent) 14%, transparent)"],
+    ["--timeline-playhead-glow", "color-mix(in oklab, var(--motion-selected) 14%, transparent)"],
   ])("keeps the migrated default for %s", (token, expected) => {
     expect(themeTokenValue(token)).toBe(expected);
   });
@@ -64,7 +65,7 @@ describe("timeline motion styles", () => {
     );
   });
 
-  it("layers the active mint bloom through opacity instead of a gradient background swap", () => {
+  it("layers the active clip bloom through opacity instead of a gradient background swap", () => {
     const baseTimelineClipRule = expectRule(studioCss, ".timeline-clip");
     const timelineClipLabelRule = expectRule(studioCss, ".timeline-clip__label");
     const timelineClipTimecodeRule = expectRule(studioCss, ".timeline-clip__timecode");
@@ -73,7 +74,7 @@ describe("timeline motion styles", () => {
     const audioClipDraggingRule = expectRule(studioCss, ".timeline-clip.is-audio.is-dragging");
     const activeTimelineClipRule = expectRule(studioCss, ".timeline-clip[data-active]");
     const selectedTimelineClipRule = expectRule(
-      studioCss,
+      selectionCss,
       ".timeline-clip.is-selected,\n.timeline-clip[data-active].is-selected",
     );
     const bloomOverlayRule = expectRule(studioCss, ".timeline-clip::before");
@@ -103,7 +104,7 @@ describe("timeline motion styles", () => {
     expect(audioClipRule).toContain("border-color: var(--timeline-clip-audio-border)");
     expect(audioClipHoverRule).toContain("background-color: var(--timeline-clip-audio-bg-hover)");
     expect(audioClipDraggingRule).toContain("var(--timeline-clip-audio-bg-dragging)");
-    expect(selectedTimelineClipRule).toContain("outline: 1px solid var(--timeline-clip-selection)");
+    expect(selectedTimelineClipRule).toContain("outline: 3px solid var(--timeline-clip-selection)");
     expect(selectedTimelineClipRule).toContain("outline-offset: 0");
     expect(activeTimelineClipRule).not.toContain("background: linear-gradient");
     expect(activeTimelineClipRule).toContain("border-color: var(--clip-border-active)");

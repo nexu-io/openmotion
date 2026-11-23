@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Model } from '../shared/gateway.ts';
+import { openDesignImageReferenceCap } from '../shared/opendesign-models.ts';
 import { resolveGenerationParameters } from '../shared/generation-options.ts';
 import { apiJson, publicProviderFetch, ProviderError, retryRead, type Fetcher } from './network.ts';
 import type { ProviderAdapter, ProviderContext } from './providers.ts';
@@ -22,14 +23,27 @@ function inputImages(row: any): Partial<Model> {
   const capabilities = row.capabilities && typeof row.capabilities === 'object' && !Array.isArray(row.capabilities) ? row.capabilities as Record<string, unknown> : undefined;
   if (!capabilities) return {};
   const max = Number.isInteger(capabilities.max_input_images) && (capabilities.max_input_images as number) > 0 ? capabilities.max_input_images as number : undefined;
-  if (row.kind === 'image' && capabilities.edits === true) return { nativeOptions: capabilities, supportsImageReference: true, maxInputImages: max ?? 1 };
+  if (row.kind === 'image' && capabilities.edits === true) return { nativeOptions: capabilities, supportsImageReference: true, maxInputImages: max ?? openDesignImageReferenceCap(row.model) ?? 1 };
   // Only the first-frame role is implemented; the provider maximum stays visible in nativeOptions.
   if (row.kind === 'video' && max) return { nativeOptions: capabilities, maxInputImages: 1 };
   return { nativeOptions: capabilities, ...(row.kind === 'image' && capabilities.edits === false ? { supportsImageReference: false } : {}) };
 }
 
+/** Cloud image requests carry ratio and resolution together as one `output` object. */
+export function cloudImageParameters(parameters: Record<string, unknown>): Record<string, unknown> {
+  const hasRatio = parameters.aspect_ratio !== undefined, hasResolution = parameters.resolution !== undefined;
+  if (!hasRatio && !hasResolution) return parameters;
+  if (parameters.size !== undefined) throw new Error('Cannot combine size with aspect_ratio or resolution.');
+  if (parameters.output !== undefined) throw new Error('Cannot combine output with aspect_ratio or resolution.');
+  if (typeof parameters.aspect_ratio !== 'string' || !parameters.aspect_ratio.trim() || typeof parameters.resolution !== 'string' || !parameters.resolution.trim()) {
+    throw new Error('OpenDesign Cloud image requests require both aspect_ratio and resolution together, or an explicit output object.');
+  }
+  const { aspect_ratio, resolution, ...rest } = parameters;
+  return { ...rest, output: { aspect_ratio, resolution } };
+}
+
 /** Three-step Cloud upload: create, PUT the bytes without credentials, then commit. */
-async function uploadInputs(fetcher: Fetcher, api: string, headers: Record<string, string>, jobId: string, ctx: ProviderContext): Promise<string[]> {
+export async function uploadInputs(fetcher: Fetcher, api: string, headers: Record<string, string>, jobId: string, ctx: Pick<ProviderContext, 'references' | 'progress' | 'signal'>): Promise<string[]> {
   const ids: string[] = [];
   for (const [index, input] of (ctx.references ?? []).entries()) {
     const bytes = await readFile(input.file);
@@ -61,11 +75,12 @@ export const opendesign: ProviderAdapter = {
       const parameters = resolveGenerationParameters(job.model, job.parameters, !!ctx.references?.length);
       const { voice, ...speechOptions } = parameters;
       if (speech && (typeof voice !== 'string' || !voice.trim())) throw new Error('Choose a provider voice ID in parameters.voice');
+      const wireParameters = job.modality === 'image' ? cloudImageParameters(parameters) : parameters;
       const audioBody = speech ? { voice, parameters: { ...speechOptions, text: job.prompt } } : { parameters: { ...parameters, prompt: job.prompt } };
       const inputs = audio ? [] : await uploadInputs(fetcher, api, headers, job.id, ctx);
       const images = inputs.length ? { images: job.modality === 'video' ? [{ asset_id: inputs[0], role: 'first_frame' }] : inputs } : {};
       const payload = audio ? { model: job.model.modelId, ...audioBody }
-        : { ...parameters, model: job.model.modelId, prompt: job.prompt, ...images };
+        : { ...wireParameters, model: job.model.modelId, prompt: job.prompt, ...images };
       const endpoint = audio ? speech ? '/audio/speech' : '/audio/music' : job.modality === 'image' ? inputs.length || Array.isArray(parameters.images) && parameters.images.length ? '/images/edits' : '/images/generations' : '/videos/tasks';
       const submitted = await apiJson(fetcher, api + endpoint, { method: 'POST', headers: { ...headers, 'Idempotency-Key': job.id }, body: JSON.stringify(payload), signal: ctx.signal });
       if (typeof submitted.task_id !== 'string' || !/^[a-zA-Z0-9_-]{1,180}$/.test(submitted.task_id)) throw new Error('OpenDesign Cloud did not return a task ID');

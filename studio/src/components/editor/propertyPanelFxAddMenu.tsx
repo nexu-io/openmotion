@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 /**
@@ -105,7 +106,7 @@ export function FxAddMenu({
         <span className="hf-fx-add-group-label w-full font-mono text-[9px] uppercase tracking-wide text-panel-text-2">
           {t("Tone")}</span>
         {onLevel ? (
-          <button
+          <Button variant="plain"
             type="button"
             className="hf-fx-add-composite rounded-[3px] bg-panel-surface px-1.5 py-0.5 text-[10px] text-panel-text-1 hover:text-panel-text-0"
             title={t("Listen to this track and even out its loud and quiet parts.")}
@@ -139,9 +140,9 @@ export function FxAddMenu({
           >
             {levelled ? t("Remove levelling") : t("Even Out Levels")}
             {auditioningLevel ? <span className="hf-fx-add-working"> {t("measuring…")}</span> : null}
-          </button>
+          </Button>
         ) : null}
-        <button
+        <Button variant="plain"
           type="button"
           // Not hf-fx-add-item: Tone is a composite over several filters, not
           // an entry in the effect registry, and a count of the registry must
@@ -158,7 +159,7 @@ export function FxAddMenu({
           }}
           onClick={onEq}
         >
-          {t("Tone (EQ)")}</button>
+          {t("Tone (EQ)")}</Button>
       </div>
       {GROUPED.map(({ group, defs, jobs }) => (
         <div key={group} className="hf-fx-add-group flex flex-wrap items-center gap-1">
@@ -166,7 +167,7 @@ export function FxAddMenu({
             {t(GROUP_LABEL[group])}
           </span>
           {jobs.map((job) => (
-            <button
+            <Button variant="plain"
               key={job.id}
               type="button"
               // Same class as any other entry: a job IS an effect, and one
@@ -182,10 +183,10 @@ export function FxAddMenu({
               onFocus={() => audition((base) => withJob(base, job))}
             >
               {t(job.label)}
-            </button>
+            </Button>
           ))}
           {defs.map((d) => (
-            <button
+            <Button variant="plain"
               key={d.id}
               type="button"
               className="hf-fx-add-item rounded-[3px] bg-panel-surface px-1.5 py-0.5 text-[10px] text-panel-text-1 hover:text-panel-text-0"
@@ -209,7 +210,7 @@ export function FxAddMenu({
               onFocus={() => audition((base) => withEffect(base, d.id))}
             >
               {t(EFFECT_COPY[d.id]?.title ?? d.label)}
-            </button>
+            </Button>
           ))}
         </div>
       ))}

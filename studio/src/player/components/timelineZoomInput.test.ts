@@ -51,7 +51,7 @@ afterEach(() => {
 let unregisterViewport = () => {};
 const publishScroll = vi.fn();
 
-/** A 1080px timeline viewport with 32px of track headers, holding one scaled row. */
+/** A 1080px timeline viewport with 32px of track headers and one clip row. */
 function viewport(scrollLeft = 0, scrollWidth = 20_000) {
   const scroll = document.createElement("div");
   Object.defineProperties(scroll, {
@@ -77,156 +77,108 @@ const laidOutX = (time: number) => {
 };
 
 describe("requestTimelineZoom", () => {
-  it("scales the drawn rows during a gesture and lays the zoom out once it rests", () => {
+  it("coalesces a burst into one real layout per frame without stretching rows or text", () => {
     const { row, ruler, tick } = viewport();
     const writes = vi.fn();
     const unsubscribe = usePlayerStore.subscribe(writes);
     requestTimelineZoom(120, { time: 4, x: 100 });
     requestTimelineZoom(150, { time: 4, x: 100 });
-    vi.advanceTimersToNextFrame();
     expect(writes).not.toHaveBeenCalled();
     expect(currentTimelineZoomPercent()).toBe(150);
-    // 4 s stays at 100px: 32 + 4 * 15 - left = 100, left = -8 clamps to 0, translated by 0.
-    expect(row.style.transform).toBe("translateX(0px) scaleX(1.5)");
-    expect(ruler.style.transform).toBe("");
-    expect(tick.style.transform).toBe("translateX(100px)");
-    expect(tick.querySelector("span")!.style.transform).toBe("");
-    vi.advanceTimersByTime(150);
-    unsubscribe();
+    vi.advanceTimersToNextFrame();
     expect(writes).toHaveBeenCalledTimes(1);
     expect(usePlayerStore.getState()).toMatchObject({
-      zoomMode: "manual",
-      manualZoomPercent: 150,
-      timelinePps: 15,
-      userZoomCount: 1,
+      zoomMode: "manual", manualZoomPercent: 150, timelinePps: 15, userZoomCount: 1,
     });
-    expect(row.style.transform).toBe("");
-
+    expect(isTimelineZoomPreviewing()).toBe(false);
+    for (const percent of [180, 250, 170, 100]) {
+      requestTimelineZoom(percent);
+      vi.advanceTimersToNextFrame();
+      expect(usePlayerStore.getState().timelinePps).toBe(percent / 10);
+      for (const el of [row, ruler, tick, tick.querySelector("span")!]) {
+        expect(el.style.transform).toBe("");
+      }
+    }
+    expect(writes).toHaveBeenCalledTimes(5);
+    vi.advanceTimersByTime(200);
+    expect(writes).toHaveBeenCalledTimes(5);
+    unsubscribe();
   });
 
-  it("keeps the time under the pointer while previewing, then lays it out there", () => {
+  it.each([200, 600, 2000])("keeps the pointer's time anchored on every layout at %s%%", (percent) => {
     usePlayerStore.setState({ zoomMode: "manual", manualZoomPercent: 400, timelinePps: 40 });
     const { scroll, row } = viewport(400);
-    // 432px in: (400 + 432 - 32) / 40 = 20 s.
-    requestTimelineZoom(600, { time: 20, x: 432 });
-    vi.advanceTimersToNextFrame();
+    requestTimelineZoom(percent, { time: 20, x: 432 });
     const mapping = timelineZoomMapping(40, 32);
-    expect(mapping.pps).toBe(60);
     expect(mapping.contentOrigin + 20 * mapping.pps - scroll.scrollLeft).toBeCloseTo(432);
-    expect(row.style.transform).toContain("scaleX(1.5)");
-    vi.advanceTimersByTime(150);
+    vi.advanceTimersToNextFrame();
     expect(laidOutX(20)).toBeCloseTo(432);
+    expect(timelineTimeAtX(432)).toBeCloseTo(20);
+    expect(row.style.transform).toBe("");
   });
 
-  it("never previews a scroll the laid-out zoom cannot reach, zooming in from below Fit", () => {
+  it("clamps the target scroll when zooming in from below Fit", () => {
     usePlayerStore.setState({ zoomMode: "manual", manualZoomPercent: 50, timelinePps: 5 });
-    viewport();
-    // 90 s sits 482px in at 5 px/s. At 110% the content is 32 + 1046 * 1.1 wide,
-    // so the view can scroll at most 102.6px.
+    const { scroll } = viewport();
     requestTimelineZoom(110, { time: 90, x: 482 });
-    expect(timelineTimeAtX(32)! * 11).toBeLessThanOrEqual(102.6 + 1e-6);
-  });
-
-  it("lays a zoom-out about the left edge out at once, before it shows unmounted time", () => {
-    usePlayerStore.setState({ duration: 1000 });
-    viewport();
-    // Mounted to (1080 - 32 + 270) / 10 = 131.8 s; at 5 px/s the view reaches 209.6 s.
-    requestTimelineZoom(50, { time: 0, x: 32 });
     vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(5);
+    expect(scroll.scrollLeft).toBeCloseTo(102.6);
   });
 
-  it("previews a zoom-out about the middle that stays within what is mounted", () => {
-    usePlayerStore.setState({
-      duration: 100,
-      zoomMode: "manual",
-      manualZoomPercent: 1000,
-      timelinePps: 100,
-    });
-    viewport(5000);
-    // Mounted 46.98..63.18 s; at 70 px/s about 55.24 s the view shows 47.75..62.73 s.
-    requestTimelineZoom(700, { time: 55.24, x: 556 });
+  it.each([
+    { percent: 50, base: 100, left: 0, width: 1080 },
+    { percent: 60, base: 100, left: 0, width: 20000 },
+    { percent: 700, base: 1000, left: 5000, width: 20000 },
+    { percent: 300, base: 330, left: 2403, width: 3483 },
+  ])("lays out zoom-outs without waiting for rest: $base -> $percent", ({ percent, base, left, width }) => {
+    usePlayerStore.setState({ zoomMode: "manual", manualZoomPercent: base, timelinePps: base / 10 });
+    const { row } = viewport(left, width);
+    requestTimelineZoom(percent);
     vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(100);
+    expect(usePlayerStore.getState().timelinePps).toBe(percent / 10);
+    expect(row.style.transform).toBe("");
   });
 
-  it("lays out a zoom-out before it shows past the window ruler ticks are drawn in", () => {
-    // 50 s of clips in content 1996 s wide: ticks are drawn to 131.8 s, a view and a quarter in.
-    usePlayerStore.setState({ duration: 50 });
-    viewport();
-    requestTimelineZoom(60, { time: 0, x: 32 });
-    vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(6);
-  });
-
-  it("lays a zoom-out out at once before it shows past where the ruler is drawn", () => {
-    // 50 s of clips at Fit: the ruler and lanes are drawn to the viewport's edge, 104.8 s.
-    usePlayerStore.setState({ duration: 50 });
-    viewport(0, 1080);
-    requestTimelineZoom(50, { time: 0, x: 32 });
-    vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(5);
-  });
-
-  it("previews a zoom-out at the content's end without laying out each frame", () => {
-    // At 330% the content is 32 + 1046 * 3.3 = 3483.8px, reported whole as 3483; the view is
-    // scrolled to its end, and a zoom-out lands that end a fraction of a pixel past it.
-    usePlayerStore.setState({ zoomMode: "manual", manualZoomPercent: 330, timelinePps: 33 });
-    viewport(2403, 3483);
-    requestTimelineZoom(300, { time: 100, x: 800 });
-    vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(33);
-  });
-
-  it("keeps previewing through a scroll, and scales the rows the scroll mounted", async () => {
+  it("keeps newly mounted rows unscaled during a scroll and pending zoom", async () => {
     const { scroll } = viewport();
     requestTimelineZoom(150);
-    vi.advanceTimersToNextFrame();
-    // React mounts the row after the scroll's redraw frame; it is scaled before it paints.
     redrawTimelineZoomPreview();
-    vi.advanceTimersToNextFrame();
     const mountedRow = document.createElement("div");
     mountedRow.setAttribute("data-timeline-zoom-scale", "");
-    scroll.appendChild(document.createElement("div")).appendChild(mountedRow);
+    scroll.appendChild(mountedRow);
     await Promise.resolve();
-    expect(usePlayerStore.getState().timelinePps).toBe(10);
-    expect(mountedRow.style.transform).toContain("scaleX(1.5)");
-    const mountedTick = document.createElement("div");
-    mountedTick.dataset.timelineRulerTime = "30";
-    scroll.appendChild(mountedTick);
-    await Promise.resolve();
-    expect(mountedTick.style.transform).toBe("translateX(150px)");
+    vi.advanceTimersToNextFrame();
+    expect(usePlayerStore.getState().timelinePps).toBe(15);
+    expect(mountedRow.style.transform).toBe("");
   });
 
-  it("lays a pending zoom out at once when settled, as a press does", () => {
+  it("settles pending geometry immediately before hit testing", () => {
     viewport();
     requestTimelineZoom(150);
     settleTimelineZoom();
     expect(usePlayerStore.getState().timelinePps).toBe(15);
+    expect(isTimelineZoomPreviewing()).toBe(false);
   });
 
   it("tells listeners when a pending zoom is dropped", () => {
     viewport();
     requestTimelineZoom(150);
-    vi.advanceTimersToNextFrame();
-    let shownAfterDrop: boolean | null = null;
+    let pendingAfterDrop: boolean | null = null;
     const unsubscribe = subscribeTimelineZoomPreview(() => {
-      shownAfterDrop = isTimelineZoomPreviewing();
+      pendingAfterDrop = isTimelineZoomPreviewing();
     });
     cancelTimelineZoom();
     unsubscribe();
-    expect(shownAfterDrop).toBe(false);
+    expect(pendingAfterDrop).toBe(false);
   });
 
-  it("drops a pending zoom when cancelled, as Fit does", () => {
+  it("cancels an unpainted request, as Fit does", () => {
     const { row } = viewport();
     requestTimelineZoom(150);
-    vi.advanceTimersToNextFrame();
     cancelTimelineZoom();
     vi.advanceTimersByTime(300);
     expect(usePlayerStore.getState().timelinePps).toBe(10);
     expect(row.style.transform).toBe("");
-
   });
 
   it("lays the zoom out before the timeline counts as at rest", () => {
@@ -242,35 +194,23 @@ describe("requestTimelineZoom", () => {
     expect(ppsAtRest).toBe(15);
   });
 
-  it("keeps a pending zoom when the timeline registers again, as a re-render does", async () => {
+  it("keeps a pending zoom when the timeline registers again", async () => {
     const { scroll } = viewport();
     requestTimelineZoom(150);
     unregisterViewport();
     unregisterViewport = registerTimelineZoomViewport({ scroll, contentOrigin: 32, publishScroll });
     await Promise.resolve();
-    vi.advanceTimersByTime(200);
+    vi.advanceTimersToNextFrame();
     expect(usePlayerStore.getState().timelinePps).toBe(15);
   });
 
   it("keeps a newer timeline's registration when an older one unmounts", () => {
     const unregisterOlder = registerTimelineZoomViewport({
-      scroll: document.createElement("div"),
-      contentOrigin: 32,
-      publishScroll,
+      scroll: document.createElement("div"), contentOrigin: 32, publishScroll,
     });
     viewport();
     unregisterOlder();
     expect(currentTimelineRange()).not.toBeNull();
-  });
-
-  it("lays the zoom out mid-gesture once the preview has scaled too far", () => {
-    viewport();
-    requestTimelineZoom(300);
-    vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(10);
-    requestTimelineZoom(500);
-    vi.advanceTimersToNextFrame();
-    expect(usePlayerStore.getState().timelinePps).toBe(50);
   });
 });
 
@@ -306,13 +246,18 @@ describe("zoomTimelineToRange", () => {
   });
 
   it("eases there over several frames and ends exactly on the range", () => {
-    viewport();
+    const { row, tick } = viewport();
     void zoomTimelineToRange(10, 20);
     vi.advanceTimersToNextFrame();
     vi.advanceTimersToNextFrame();
     expect(currentTimelineZoomPercent()).toBeGreaterThan(100);
     expect(currentTimelineZoomPercent()).toBeLessThan(1000);
-    for (let i = 0; i < 30; i++) vi.advanceTimersToNextFrame();
+    for (let i = 0; i < 30; i++) {
+      vi.advanceTimersToNextFrame();
+      expect(row.style.transform).toBe("");
+      expect(tick.style.transform).toBe("");
+      expect(usePlayerStore.getState().manualZoomPercent).toBe(currentTimelineZoomPercent());
+    }
     expect(usePlayerStore.getState().timelinePps).toBeCloseTo(100);
     expect(laidOutX(10)).toBeCloseTo(56);
   });

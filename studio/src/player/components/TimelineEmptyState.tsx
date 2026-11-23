@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
 import type { DragEventHandler, Ref } from "react";
@@ -59,7 +60,7 @@ export function TimelineEmptyState({
       />
       {/* Ruler */}
       <div
-        className="shrink-0 border-b border-neutral-800/40 flex items-end relative"
+        className={`relative flex shrink-0 items-end ${mvp ? "bg-[var(--timeline-ruler-bg)]" : "border-b border-neutral-800/40"}`}
         style={{ height: RULER_H, paddingLeft: emptyOrigin }}
       >
         {[0, 10, 20, 30, 40, 50].map((s) => (
@@ -123,8 +124,8 @@ export function TimelineEmptyState({
                 {onFileDrop && <span>{t(mvp ? "Import files or describe your video to your Agent." : "Import files, generate media, or describe your video to your Agent.")}</span>}
               </div>
               {onFileDrop && gateway && <div className="motion-empty-media-actions">
-                <button onClick={gateway.importFiles}>{t("Import files")}</button>
-{!mvp && <>                 <button className="motion-media-primary" onClick={event => gateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t("Generate media")}</button> </>}
+                <Button variant="plain" onClick={gateway.importFiles}>{t("Import files")}</Button>
+{!mvp && <>                 <Button variant="plain" className="motion-media-primary" onClick={event => gateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t("Generate media")}</Button> </>}
               </div>}
             </>
           )}

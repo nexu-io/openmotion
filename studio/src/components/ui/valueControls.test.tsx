@@ -15,7 +15,7 @@ vi.mock("../../utils/studioTelemetry", () => ({
 import { Input } from "./Input";
 import { NumberField } from "./NumberField";
 import { Select } from "./Select";
-import { Slider } from "./Slider";
+import { Slider } from "open-design-ui/slider";
 import { Toggle } from "./Toggle";
 import { isTypingTarget } from "../../utils/typingTarget";
 import { shouldIgnorePlaybackShortcutTarget } from "../../player/lib/playbackShortcuts";
@@ -83,7 +83,8 @@ beforeAll(async () => {
     loadStylesheet,
   });
   // The shared package owns control recipes; feature CSS only composes them.
-  const hostCss = readFileSync(path.join(STYLES_DIR, "../../../packages/design-system/studio/adapter.css"), "utf8")
+  const hostCss = readFileSync(path.join(STYLES_DIR, "../../../packages/design-system/studio/control-recipes.css"), "utf8")
+    + readFileSync(path.join(STYLES_DIR, "../../../packages/design-system/studio/adapter.css"), "utf8")
     + readFileSync(path.join(STYLES_DIR, "../motion/theme.css"), "utf8");
   compileStudioCss = (candidates) => compiled.build(candidates) + hostCss;
 });

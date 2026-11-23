@@ -1,6 +1,7 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { applyInlineStyle } from "./inlineTextStyleRange";
 import {
@@ -8,7 +9,8 @@ import {
   readInlineStyle,
   readInlineStyleSpread,
 } from "./inlineTextStyleRead";
-import { resolvePickerColor } from "./colorValue";
+import { ColorField } from "./propertyPanelColor";
+import { parseCssColor, resolvePickerColor } from "./colorValue";
 import type { InlineTextEditSession } from "../../hooks/useInlineTextEdit";
 
 /**
@@ -27,8 +29,8 @@ const READ_PROPERTIES = ["color", "font-weight", "font-style", "text-decoration-
 
 /** Enough above the text to clear it, without leaving the element behind. */
 const GAP_PX = 10;
-/** h-6 controls + p-1 + the border. Used only to keep an above-toolbar onscreen. */
-const TOOLBAR_HEIGHT_PX = 34;
+/** Boxed color field + p-1 + the border. */
+const TOOLBAR_HEIGHT_PX = 42;
 const DEFAULT_COLOR = "#ffffff";
 
 interface ToolbarPlacement {
@@ -50,8 +52,10 @@ export function InlineTextToolbar({
   const { t } = useI18n();
   const mvp = useMvpEditor();
   const [placement, setPlacement] = useState<ToolbarPlacement | null>(null);
+  const colorRange = useRef<Range | null>(null);
 
   const refresh = useCallback(() => {
+    if (session?.colorPickerOpen) return;
     setPlacement(session && iframe ? placeOverSelection(session.element, iframe) : null);
   }, [session, iframe]);
 
@@ -63,7 +67,11 @@ export function InlineTextToolbar({
       return;
     }
     doc.addEventListener("selectionchange", refresh);
-    return () => doc.removeEventListener("selectionchange", refresh);
+    return () => {
+      doc.removeEventListener("selectionchange", refresh);
+      session.colorPickerOpen = false;
+      colorRange.current = null;
+    };
   }, [session, refresh]);
 
   const apply = useCallback(
@@ -78,8 +86,30 @@ export function InlineTextToolbar({
     [session, refresh],
   );
 
-  if (!placement || !iframe) return null;
+  if (!placement || !iframe || !session) return null;
   const styles = placement.styles;
+
+  const handlePickerOpenChange = (open: boolean) => {
+    const element = session.element;
+    const selection = element.ownerDocument.defaultView?.getSelection();
+    if (open) {
+      const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (range && element.contains(range.commonAncestorContainer)) {
+        colorRange.current = range.cloneRange();
+      }
+      session.colorPickerOpen = true;
+      return;
+    }
+    const range = colorRange.current;
+    colorRange.current = null;
+    if (range && selection && element.isContentEditable) {
+      element.focus({ preventScroll: true });
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    session.colorPickerOpen = false;
+    refresh();
+  };
 
   return createPortal(
     <div
@@ -106,35 +136,21 @@ export function InlineTextToolbar({
       onMouseDown={swallow}
       onClick={(event) => event.stopPropagation()}
     >
-      <label
-        className="group relative flex h-6 w-6 cursor-pointer items-center justify-center rounded-md hover:bg-hover"
-        title={t("Text colour")}
-      >
-        <span
-          aria-hidden="true"
-          className="h-4 w-4 rounded-full border-2 border-border-strong transition-transform duration-150 group-hover:scale-110 group-active:scale-95"
-          // `background` maps a gradient to the PADDING box and then repeats it
-          // to fill the border box, so the 1px border shows the strip either
-          // side of the tile: the end colour on the left, the start colour on
-          // the right. A red-to-green swatch grew a green edge and a red one.
-          // Set after the shorthand, which resets it.
-          style={{
-            background: swatchBackground(placement.colours, styles.color),
-            backgroundOrigin: "border-box",
-          }}
-        />
-        {/* `inset-0` is not enough on its own: a colour input carries a
-            user-agent minimum width, which wins over the right edge and lets
-            the invisible input spill across the buttons beside it. Hovering
-            bold then opened the colour picker. The size is pinned instead. */}
-        <input
-          type="color"
-          aria-label={t("Text colour")}
-          className="absolute inset-0 h-full w-full min-w-0 cursor-pointer opacity-0"
-          value={placement.pickerColour}
-          onChange={(event) => apply({ color: event.target.value })}
-        />
-      </label>
+      <ColorField
+        layout="trigger"
+        label={t("Text colour")}
+        value={placement.pickerColour}
+        mixed={placement.colours.length > 1}
+        swatchBackground={swatchBackground(placement.colours, styles.color)}
+        onPickerOpenChange={handlePickerOpenChange}
+        onCommit={(next) => {
+          const range = colorRange.current;
+          if (range && session.element.contains(range.commonAncestorContainer)) {
+            colorRange.current = applyInlineStyle(range, { color: next }, false) ?? range;
+            setPlacement({ ...placement, pickerColour: next, colours: [next] });
+          }
+        }}
+      />
       {!mvp && (
         <ToolbarToggle
           label={t("Bold")}
@@ -187,8 +203,9 @@ export function swatchBackground(
   return `linear-gradient(135deg, ${stops.join(", ")})`;
 }
 
-function swallow(event: { preventDefault: () => void; stopPropagation: () => void }): void {
-  event.preventDefault();
+function swallow(event: ReactMouseEvent<HTMLDivElement>): void {
+  // Popover contents are portaled and must be able to focus their input fields.
+  if (event.currentTarget.contains(event.target as Node)) event.preventDefault();
   event.stopPropagation();
 }
 
@@ -210,7 +227,7 @@ function ToolbarToggle({
   underline?: boolean;
 }) {
   return (
-    <button
+    <IconButton variant="plain"
       type="button"
       title={label}
       aria-label={label}
@@ -224,9 +241,8 @@ function ToolbarToggle({
         textDecoration: underline ? "underline" : "none",
       }}
       onClick={() => onToggle(!on)}
-    >
-      {glyph}
-    </button>
+      icon={glyph}
+    />
   );
 }
 
@@ -254,14 +270,15 @@ function placeOverSelection(
 
   const styles = readInlineStyle(range, READ_PROPERTIES);
   const colours = readInlineStyleSpread(range, "color");
+  const firstColor = styles.color ?? colours[0];
   return {
     left: box.left + (rect.left + rect.width / 2) * scale,
     top: placeBelow ? box.top + (rect.top + rect.height) * scale + GAP_PX : above,
     placeBelow,
     styles,
     colours,
-    pickerColour: resolvePickerColor(
-      styles.color ?? colours[0],
+    pickerColour: firstColor && parseCssColor(firstColor) ? firstColor : resolvePickerColor(
+      firstColor,
       readFirstPaintedElement(range, "color"),
       DEFAULT_COLOR,
     ),

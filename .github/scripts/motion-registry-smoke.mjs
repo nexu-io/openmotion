@@ -67,12 +67,12 @@ async function discover(transport, env, version, tools, templateCheck) {
   }
 }
 
-export async function registrySmoke(directory) {
+export async function registrySmoke(directory, { fromCandidate = false } = {}) {
   const c = await verifyDownloaded(directory, process.env.MOTION_EXPECTED_SHA256, process.env.MOTION_VERSION);
   const platform = process.platform + '-' + process.arch;
   assert(['darwin-arm64', 'win32-x64'].includes(platform), 'Use a supported native runner');
   const file = path.join(directory, `registry-${platform}.json`);
-  let phase = 'registry-download';
+  let phase = fromCandidate ? 'candidate-verified' : 'registry-download';
   const checkpoint = async next => { phase = next; console.log('Installation phase: ' + phase); await writeJSON(file, { status: 'running', phase, version: c.version, platform, tgzSHA256: c.tgzSHA256 }); };
   await checkpoint(phase);
   try {
@@ -83,8 +83,8 @@ export async function registrySmoke(directory) {
   await writeFile(path.join(env.CODEX_HOME, 'config.toml'), '[mcp_servers.unrelated]\ncommand = "keep-this-server"\n');
   const npm = path.join(path.dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
   const cli = args => runFile(process.execPath, [npm, ...args], { cwd: project, env, timeout: 20 * 60_000 });
-  console.log('Fetching the exact version anonymously from the public registry');
-  const { tgz } = await verifyRegistryDownload(directory, { destination: work });
+  if (!fromCandidate) console.log('Fetching the exact version anonymously from the public registry');
+  const tgz = fromCandidate ? path.join(directory, c.tgz) : (await verifyRegistryDownload(directory, { destination: work })).tgz;
   await checkpoint('host-install');
   console.log('Installing the pinned test host in an isolated prefix');
   await cli(['install', '--prefix', host, '--no-save', '--ignore-scripts', '--no-audit', '--no-fund', '@openai/codex@0.166.0']);
@@ -103,7 +103,7 @@ export async function registrySmoke(directory) {
   assert.equal(state.templateEnvironment, manifest.templateEnvironment);
   const templateConfig = JSON.parse(await readFile(path.join(first.appRoot, 'shared/template-config.json')));
   assert.equal(templateConfig.environment, manifest.templateEnvironment);
-  for (const skill of manifest.skills) await access(path.join(skills, 'openmotion/skills', skill, 'SKILL.md'));
+  for (const skill of manifest.skills) await access(path.join(state.skillsDirectory, 'skills', skill, 'SKILL.md'));
   console.log('Preparing the checksum-pinned browser, FFmpeg and ffprobe');
   await checkpoint('native-prepare');
   await cli([...command, 'prepare', '--home', home]);
@@ -119,7 +119,9 @@ export async function registrySmoke(directory) {
   await runFile(process.execPath, [fileURLToPath(import.meta.url), 'consumer', consumerInput], { cwd: project, env, timeout: 10 * 60_000 });
   const templateRuntime = JSON.parse(await readFile(consumerReport, 'utf8'));
   const report = { status: 'passed', platform, version: c.version, sourceCommit: c.sourceCommit, tgzSHA256: c.tgzSHA256,
-    node: process.version, codex: '0.166.0', templateEnvironment: templateConfig.environment, registryColdInstall: 'passed', repeatSetup: 'passed', unrelatedSettings: 'preserved',
+    node: process.version, codex: '0.166.0', templateEnvironment: templateConfig.environment,
+    ...(fromCandidate ? { candidateColdInstall: 'passed', registryColdInstall: 'not-run' } : { registryColdInstall: 'passed' }),
+    repeatSetup: 'passed', unrelatedSettings: 'preserved',
     nativePreparation: 'passed', mcpTools: manifest.mcp.tools.length, skills: manifest.skills.length, resources: 'passed', templateRuntime,
     realModelTurn: 'not-run', humanPlayback: 'not-run', windowsDesktopAcceptance: 'not-run' };
   await writeJSON(file, report); return report;
@@ -133,5 +135,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (process.argv[2] === 'consumer') {
     const input = JSON.parse(await readFile(process.argv[3], 'utf8'));
     await writeJSON(input.report, await discover(input.transport, process.env, input.version, input.tools, input.templateCheck));
-  } else await registrySmoke(path.resolve(process.argv[2]));
+  } else await registrySmoke(path.resolve(process.argv[2]), { fromCandidate: process.argv[3] === '--candidate' });
 }

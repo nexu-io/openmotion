@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 const ERROR_PULSES_BEFORE_IDLE = 3;
 
@@ -15,7 +16,7 @@ export function SidebarLintButton({
   const { t } = useI18n();
   return (
     <div className="border-t border-neutral-800 p-2 shrink-0">
-      <button
+      <Button variant="plain"
         type="button"
         onClick={onLint}
         disabled={linting}
@@ -50,7 +51,7 @@ export function SidebarLintButton({
             </span>
           </span>
         )}
-      </button>
+      </Button>
     </div>
   );
 }

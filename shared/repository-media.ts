@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { setTimeout } from 'node:timers/promises';
 
 export const mediaOrigin = 'https://releases.open-design.ai';
+export const skillPreviewMedia = /^studio\/src\/motion\/skill-covers\/[a-z0-9-]+\.(?:mp4|webm|gif|webp)$/;
 export const mediaPrefix = 'open-motion/media/sha256/';
 export const maxMediaBytes = 50 * 1024 * 1024;
 export type MediaLock = { path: string; url: string; bytes: number; sha256: string };
@@ -33,7 +34,9 @@ export function validateMediaManifest(value: MediaManifest): MediaManifest {
   const paths = new Set<string>();
   for (const file of value.files) {
     validateMediaLock(file);
-    assert(/^(?:docs\/readme|library|examples)\//.test(file.path) && !file.path.startsWith('library/templates/catalog/'), 'Catalog media belongs in template.json.remoteAssets');
+    assert(skillPreviewMedia.test(file.path) ||
+      (/^(?:docs\/readme|library|examples)\//.test(file.path) && !file.path.startsWith('library/templates/catalog/')),
+    'Repository media must be in a supported media directory. Catalog media belongs in template.json.remoteAssets');
     assert(!paths.has(file.path), 'Duplicate repository media path');
     paths.add(file.path);
   }

@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 /**
  * The FX popover the timeline's per-track/per-group FX button opens (C1).
@@ -168,7 +169,7 @@ export function TimelineFxPopover({
         />
       </div>
       <div className="mt-2 flex shrink-0 items-center justify-between border-t border-border pt-2 text-[10px] text-text-muted">
-        <button
+        <Button variant="plain"
           type="button"
           className="hover:text-text-0"
           onClick={() => {
@@ -176,8 +177,8 @@ export function TimelineFxPopover({
             onOpenRack();
           }}
         >
-          {t("+ effect")}</button>
-        <button
+          {t("+ effect")}</Button>
+        <Button variant="plain"
           type="button"
           className="hover:text-text-0"
           onClick={() => {
@@ -185,7 +186,7 @@ export function TimelineFxPopover({
             onOpenRack();
           }}
         >
-          {t("Open rack ›")}</button>
+          {t("Open rack ›")}</Button>
       </div>
     </div>
   );

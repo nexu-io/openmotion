@@ -1,3 +1,6 @@
+import { Button } from "open-design-ui/button";
+import { OverflowText } from "../ui/OverflowText";
+import { FieldInput, NativeSelect } from "../ui/FormField";
 import { systemMessage } from "../../i18n/systemMessages";
 import { useI18n } from "../../i18n/I18n";
 /**
@@ -89,7 +92,7 @@ export function AutomationToggle({
   if (!onAutomate && !onRemoveAutomation) return null;
   return (
     <Tooltip label={automated ? t("Automated") : t("Automate")}>
-      <button
+      <Button variant="plain"
         type="button"
         className={`hf-fx-automate w-[16px] shrink-0 rounded-[3px] border font-mono text-[9px] leading-none ${
           automated
@@ -101,7 +104,7 @@ export function AutomationToggle({
         onClick={() => (automated ? onRemoveAutomation?.(paramKey) : onAutomate?.(paramKey))}
       >
         A
-      </button>
+      </Button>
     </Tooltip>
   );
 }
@@ -192,17 +195,11 @@ export function FxParamRow({
   if (param.kind === "enum") {
     return (
       <label className="hf-fx-row flex min-h-6 items-center gap-2" title={param.hint ? systemMessage(param.hint, t) : undefined}>
-        {/* Wraps rather than truncating. These names are whole questions — "How
-            big the space is" — so 86px of truncation left "How big the sp…", and
-            three rows of that read as the same word four times. A title only
-            answers it on hover, one row at a time; wrapping answers it for the
-            whole column at rest. `wrap-break-word` so a long single token breaks
-            instead of widening the column. The row keeps a localized `title` for the hint:
-            the name and the explanation are different questions. */}
-        <span className="hf-fx-label w-[86px] shrink-0 wrap-break-word text-[10px] leading-tight text-panel-text-2">
-          {t(param.label)}
-        </span>
-        <select
+        <OverflowText
+          text={t(param.label)}
+          className="hf-fx-label w-[86px] shrink-0 truncate text-[10px] leading-tight text-panel-text-2"
+        />
+        <NativeSelect
           className="hf-fx-select min-w-0 flex-1 rounded-[3px] bg-panel-surface px-1 py-0.5 font-mono text-[10px] text-panel-text-0"
           value={String(value)}
           disabled={disabled}
@@ -217,7 +214,7 @@ export function FxParamRow({
               {t(o.label)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </label>
     );
   }
@@ -238,14 +235,12 @@ export function FxParamRow({
       title={param.hint ? systemMessage(param.hint, t) : undefined}
       data-automated={automated ? "" : undefined}
     >
-      {/* See the enum row above for why the name wraps instead of truncating. */}
-      <span
-        className={`hf-fx-label w-[86px] shrink-0 wrap-break-word text-[10px] leading-tight ${
+      <OverflowText
+        text={t(param.label)}
+        className={`hf-fx-label w-[86px] shrink-0 truncate text-[10px] leading-tight ${
           automated ? "text-accent-ink" : "text-panel-text-2"
         }`}
-      >
-        {t(param.label)}
-      </span>
+      />
       <input
         className="hf-fx-slider h-1 min-w-0 flex-1 accent-panel-accent"
         type="range"
@@ -261,7 +256,7 @@ export function FxParamRow({
         onKeyUp={commit}
         onBlur={commit}
       />
-      <input
+      <FieldInput
         className="hf-fx-number w-[54px] shrink-0 rounded-[3px] bg-panel-surface px-1 py-0.5 text-right font-mono text-[10px] text-panel-text-0"
         type="number"
         min={param.min}

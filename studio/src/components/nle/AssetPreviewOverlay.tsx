@@ -1,3 +1,4 @@
+import { IconButton } from 'open-design-ui/icon-button';
 import { useFileManagerContextOptional } from '../../contexts/FileManagerContext';
 import { AssetPreviewDialog } from "./AssetPreviewDialog";
 import { RemixIcon } from "../../icons/RemixIcons";
@@ -145,16 +146,15 @@ export function AssetPreviewOverlay({ modal = false, onOpen }: { modal?: boolean
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
-        <button
+        <IconButton variant="plain"
           className="absolute top-2 right-2 w-6 h-6 rounded-full bg-raised hover:bg-press text-text-2 hover:text-text-0 flex items-center justify-center transition-colors z-10"
           onClick={(e) => {
             e.stopPropagation();
             clearPreviewAsset();
           }}
           aria-label={t("Close preview")}
-        >
-          <RemixIcon name="close-line" size={14} />
-        </button>
+          icon={<RemixIcon name="close-line" size={14} />}
+        />
 
         <AssetPreviewMedia kind={resolveAssetKind(previewAsset)} serveUrl={serveUrl} name={name} />
 

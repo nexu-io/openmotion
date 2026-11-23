@@ -17,9 +17,10 @@ import { ensureEditor, editorRequest, editorHeaders, sharedEditorEnabled } from 
 import { isMain } from './shared/entry.ts';
 import { resolveProviderSetupEntry } from './shared/workspace-url.ts';
 import type { Selection } from './editor-runtime.ts';
-import { createAppTracking, closeTracking, trackingError, type OmTracking } from './shared/tracking.ts';
+import { createAppTracking, closeTracking, type OmTracking } from './shared/tracking.ts';
 import { uuid } from './tracking/core.ts';
-import { assetToolAction, toolNames } from './tracking/events.ts';
+import { mcpToolNames } from './tracking/events.ts';
+import { toolFailureFields, toolInputFields } from './tracking/tool-fields.ts';
 import { identifyHost, unknownHost } from './tracking/host.ts';
 import type { HostContext } from './tracking/host.ts';
 import { templateCatalogFor } from './prism-templates.ts';
@@ -70,13 +71,19 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
   const trackingContext = contexts.get(hostKey)!;
   const name = legacyToolName(message?.params?.name);
   if (message?.jsonrpc !== '2.0' || message.id === undefined || message.method !== 'tools/call'
-    || registry.profile !== 'phase1' || !(toolNames as readonly unknown[]).includes(name)) return invokeRpc(message, store, registry, connection, host, trackingContext, clientState);
+    || registry.profile !== 'phase1' || !(mcpToolNames as readonly unknown[]).includes(name)) return invokeRpc(message, store, registry, connection, host, trackingContext, clientState);
   const tracking = await trackingFor(store), started = performance.now(), callId = crypto.randomUUID();
+  const publicName = publicToolName(message.params.name);
+  const definition = phase1Tools.find(tool => tool.name === publicName)
+    ?? (publicName === templatePresentationName ? clientState?.presentation?.tool
+      : videoAppClients.has(clientState ?? connection ?? store) ? finalVideoTool : undefined);
+  const args = message.params.arguments;
   let accepted = false;
-  try { validateInput(phase1Tools.find(tool => tool.name === publicToolName(message.params.name))!.inputSchema, message.params.arguments ?? {}); accepted = true; } catch {}
-  const action = assetToolAction(name, message.params.arguments);
-  const fields = { tool_name: name as typeof toolNames[number], call_id: callId, accepted, ...(action ? { action } : {}),
-    ...(uuid.test(message.params.arguments?.requestId) ? { operation_id: message.params.arguments.requestId } : {}) };
+  if (definition) {
+    try { validateInput(definition.inputSchema, args ?? {}); accepted = true; } catch { /* The invocation reports the validation failure. */ }
+  }
+  const fields = { tool_name: name as typeof mcpToolNames[number], call_id: callId, accepted, ...toolInputFields(publicName, args),
+    ...(typeof args?.requestId === 'string' && uuid.test(args.requestId) ? { operation_id: args.requestId } : {}) };
   if (accepted) tracking.track('mcp_tool_started', fields, undefined, undefined, host);
   const response = await invokeRpc(message, store, registry, connection, host, trackingContext, clientState);
   const value = (response as any)?.result;
@@ -89,8 +96,11 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
     }, undefined, undefined, host);
   }
   const outcome = value?.isError || content?.status === 'failed' ? 'failure' : content?.status === 'partial' ? 'partial' : value ? 'success' : 'unknown';
+  const importRejected = (outcome === 'partial' || outcome === 'failure')
+    && (name === 'motion_import_assets' || name === 'motion_assets' && fields.action === 'import_to_project');
   tracking.track('mcp_tool_finished', { ...fields, outcome, duration_ms: Math.min(86_400_000, Math.round(performance.now() - started)),
-    ...(value?.isError ? { error_code: trackingError(new Error(String(content?.error?.code ?? 'TOOL_FAILED'))) } : {}),
+    ...(value?.isError ? toolFailureFields(content?.error)
+      : importRejected ? { error_code: 'ASSET_IMPORT_FAILED' as const } : {}),
     ...(typeof content?.replayed === 'boolean' ? { replayed: content.replayed } : {}) }, undefined, undefined, host);
   return response;
 }
@@ -158,15 +168,17 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
       }
       if (registry.profile === 'phase1') {
         const internalName = legacyToolName(name);
-        const args = { ...(message.params.arguments ?? {}) };
         const finalVideo = name === finalVideoTool.name;
         const definition = finalVideo ? finalVideoTool : phase1Tools.find(tool => tool.name === publicToolName(name))!;
-        validateInput(definition.inputSchema, args);
+        const input = message.params.arguments ?? {};
+        validateInput(definition.inputSchema, input);
+        const args = { ...input };
         if (internalName === 'motion_open_preview' && args.target !== 'templates' && args.target !== 'providers' && !args.projectId && !args.sessionId && args.action !== 'record_review') args.sessionId = selections.get(store)?.sessionId;
         if (args.sessionId === undefined) delete args.sessionId;
-        if (['repository', 'hosted'].includes(templateConfig().source) && ['motion_list_templates', 'motion_get_template'].includes(internalName)) {
+        if (['repository', 'hosted'].includes(templateConfig().source) && ['motion_list_templates', 'motion_get_template', 'motion_list_skills', 'motion_get_skill'].includes(internalName)) {
           const catalog = templateCatalogFor(store.directory);
-          const value = internalName === 'motion_list_templates' ? await catalog.index() : await catalog.detail(args.templateId);
+          const value = internalName === 'motion_list_templates' ? await catalog.index() : internalName === 'motion_get_template' ? await catalog.detail(args.templateId)
+            : internalName === 'motion_list_skills' ? await catalog.skillIndex() : await catalog.skillDetail(args.skillId);
           return result({ content: [{ type: 'text', text: JSON.stringify(value) }], structuredContent: value });
         }
         const transportName = finalVideo ? 'openmotion_get_project' : name;
@@ -178,7 +190,9 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
         const raw = await response.json();
         const normalized = response.ok && transportName === 'openmotion_get_project' && transportArgs.workId ? normalizeInlineResult(raw) : undefined;
         const value = publicToolResult(normalized?.structuredContent ?? raw);
-        if (!response.ok) throw Object.assign(new Error(value.error || 'Tool failed'), { code: value.code, details: value.runtime });
+        if (!response.ok) throw Object.assign(new Error(value.error || 'Tool failed'), {
+          code: value.code, details: value.runtime, invalid_field: value.invalid_field, validation_rule: value.validation_rule, ...(value.applied === false ? { applied: false } : {}),
+        });
         if (finalVideo && (!value.inlineWork?.playable || value.inlineWork.state !== 'completed' || !normalized?._meta?.inlineVideo?.video))
           throw new Error('FINAL_VIDEO_NOT_READY: Display only after the MP4 export completes and passes verification');
         if (value.projectId && value.sessionId) selections.set(store, { projectId: value.projectId, sessionId: value.sessionId });
@@ -205,10 +219,12 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Tool failed';
       const code = (error as any).code || /^([A-Z][A-Z_]+):?/.exec(message)?.[1] || 'TOOL_FAILED';
+      const { invalid_field, validation_rule } = toolFailureFields(error);
       const runtimeFailure = ['MCP_RUNTIME_RELOAD_REQUIRED', 'EDITOR_RUNTIME_INCOMPATIBLE', 'NATIVE_RUNTIME_NOT_READY'].includes(code);
       return result({ isError: true, content: [{ type: 'text', text: message }], structuredContent: { error: { code, message,
+        ...(invalid_field ? { invalid_field, validation_rule } : {}),
         ...(runtimeFailure && (error as any).details ? { details: (error as any).details } : {}),
-        applied: runtimeFailure || /^(NATIVE_RUNTIME_NOT_READY|INVALID_|VERSION_CONFLICT|VERSION_NOT_RESTORABLE|PROJECT_NOT_|PROJECT_SESSION_|REQUEST_ID_CONFLICT|MCP_TOOL_NOT_EXPOSED|EXPORT_NOT_|TEMPLATE_NOT_)/.test(code) ? false : 'unknown' } } });
+        applied: (error as any).applied === false || runtimeFailure || /^(NATIVE_RUNTIME_NOT_READY|INVALID_|VERSION_CONFLICT|VERSION_NOT_RESTORABLE|PROJECT_NOT_|PROJECT_SESSION_|REQUEST_ID_CONFLICT|MCP_TOOL_NOT_EXPOSED|EXPORT_NOT_|TEMPLATE_NOT_)/.test(code) ? false : 'unknown' } } });
     }
   }
   return { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } };

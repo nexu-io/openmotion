@@ -1,20 +1,37 @@
-name: Motion npm publication
-run-name: Motion publication · ${{ inputs.channel || 'test' }} · ${{ inputs.version }}
+name: Motion package and release
+run-name: Motion ${{ inputs.archive_only && 'recovery' || inputs.mode }} · ${{ inputs.channel || 'test' }} · ${{ inputs.version || 'auto' }}
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Prepublish builds and validates a candidate. Publish uploads after validation.'
+        type: choice
+        options: [prepublish, publish]
+        default: prepublish
       channel:
-        description: 'test publishes DEV to test; stable publishes prod to stage, then verified latest'
+        description: 'test uses DEV templates; stable uses prod templates'
         type: choice
         options: [test, stable]
         default: test
       version:
-        description: 'Exact candidate version: test e.g. 0.6.4-test.7; stable e.g. 0.6.4'
+        description: 'Exact version. Required for stable or an existing candidate; blank names a new test candidate.'
         type: string
-        required: true
+        required: false
+      candidate_run_id:
+        description: 'Optional existing candidate run ID. Enter its exact version to reuse the original package.'
+        type: string
+        required: false
+      source_sha:
+        description: 'Optional source commit already integrated into main when building a new candidate.'
+        type: string
+        required: false
   workflow_call:
     inputs:
+      mode:
+        type: string
+      source_sha:
+        type: string
       channel:
         type: string
         default: test
@@ -24,28 +41,43 @@ on:
       archive_only:
         type: boolean
         required: true
+      candidate_run_id:
+        type: string
+        required: false
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: motion-test-publication
+  group: ${{ !inputs.archive_only && inputs.mode == 'prepublish' && format('motion-prepublish-{0}', github.run_id) || 'motion-test-publication' }}
   cancel-in-progress: false
 
 env:
   MOTION_RELEASE_CHANNEL: ${{ inputs.channel || 'test' }}
   MOTION_VERSION: ${{ inputs.version }}
-  MOTION_RELEASE_ACTION: ${{ inputs.archive_only && 'archive-only' || inputs.channel == 'stable' && 'publish-stable' || 'publish-test' }}
+  MOTION_RELEASE_ACTION: ${{ inputs.archive_only && 'archive-only' || inputs.mode != 'publish' && 'prepublish' || inputs.channel == 'stable' && 'publish-stable' || 'publish-test' }}
 
 jobs:
+  candidate:
+    if: ${{ github.repository == 'nexu-io/openmotion' && !inputs.archive_only && !inputs.candidate_run_id }}
+    uses: ./.github/workflows/motion-candidate.yml
+    with:
+      channel: ${{ inputs.channel || 'test' }}
+      version: ${{ inputs.version }}
+      source_sha: ${{ inputs.source_sha }}
+
   verify:
-    if: github.repository == 'nexu-io/openmotion'
+    needs: candidate
+    if: ${{ always() && !cancelled() && github.repository == 'nexu-io/openmotion' && (needs.candidate.result == 'success' || needs.candidate.result == 'skipped' && (inputs.archive_only || inputs.candidate_run_id)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      MOTION_VERSION: ${{ needs.candidate.outputs.version || inputs.version }}
     outputs:
       artifact_id: ${{ steps.artifact.outputs.artifact-id }}
       tgz_sha256: ${{ steps.download.outputs.tgz_sha256 }}
+      version: ${{ needs.candidate.outputs.version || inputs.version }}
     steps:
       - name: Require Motion integration branch
         run: |
@@ -61,12 +93,26 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '26.11.1'
-      - name: Verify successful candidate producer and download its immutable artifact
+      - name: Download the candidate produced by this run
+        if: ${{ needs.candidate.result == 'success' }}
+        uses: actions/download-artifact@v8.0.2
+        with:
+          artifact-ids: ${{ needs.candidate.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - name: Verify candidate identity and immutable artifact
         id: download
         env:
           GH_TOKEN: ${{ github.token }}
+          MOTION_EXPECTED_SHA256: ${{ needs.candidate.outputs.sha256 }}
+          MOTION_CANDIDATE_ARTIFACT_ID: ${{ needs.candidate.outputs.artifact_id }}
+          MOTION_CANDIDATE_ATTEMPT: ${{ needs.candidate.outputs.attempt }}
+          MOTION_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          MOTION_SOURCE_SHA: ${{ inputs.source_sha }}
         run: node .github/scripts/motion-release.mjs download "$RUNNER_TEMP/candidate"
-      - name: Recheck the integrated source and both archives
+      - name: Recheck the integrated source and archives of a retained candidate
+        if: ${{ needs.candidate.result == 'skipped' }}
         env:
           GH_TOKEN: ${{ github.token }}
           MOTION_EXPECTED_SHA256: ${{ steps.download.outputs.tgz_sha256 }}
@@ -82,11 +128,60 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+  prepare-templates:
+    if: ${{ always() && !cancelled() && !inputs.archive_only && needs.verify.result == 'success' }}
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+      MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
+    outputs:
+      artifact_id: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - name: Validate the frozen template and Skill snapshot
+        if: ${{ inputs.mode == 'prepublish' }}
+        run: node .github/scripts/publish-template-catalog.mjs validate "$MOTION_VERSION" "$RUNNER_TEMP/candidate"
+      - name: Prepare immutable template resources for publication
+        if: ${{ inputs.mode == 'publish' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_RELEASES_AK }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_RELEASES_SK }}
+          AWS_EC2_METADATA_DISABLED: 'true'
+          AWS_PAGER: ''
+          MOTION_R2_ENDPOINT: ${{ vars.CLOUDFLARE_R2_RELEASES_URL }}
+          MOTION_R2_BUCKET: ${{ vars.CLOUDFLARE_R2_RELEASES_BUCKET }}
+          MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
+        run: node .github/scripts/publish-template-catalog.mjs stage "$MOTION_VERSION" "$RUNNER_TEMP/candidate"
+      - uses: actions/upload-artifact@v7.0.2
+        id: artifact
+        if: ${{ inputs.mode == 'publish' }}
+        with:
+          name: template-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate/template-preparation.json
+          retention-days: 30
+          if-no-files-found: error
+
   npm:
-    if: ${{ always() && !cancelled() && needs.verify.result == 'success' }}
+    if: ${{ always() && !cancelled() && (inputs.archive_only || inputs.mode == 'publish') && needs.verify.result == 'success' && (inputs.archive_only || needs.prepare-templates.result == 'success' && needs.registry-mac.result == 'success' && needs.registry-windows.result == 'success') }}
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
-    needs: verify
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+    needs: [verify, registry-mac, registry-windows, prepare-templates]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -112,6 +207,14 @@ jobs:
           path: ${{ runner.temp }}/candidate
       - name: Use the pinned npm CLI with trusted dist-tag support
         run: npm install --global npm@11.21.2 --ignore-scripts --no-audit --no-fund
+      - uses: actions/download-artifact@v8.0.2
+        if: ${{ !inputs.archive_only }}
+        with:
+          artifact-ids: ${{ needs.registry-mac.outputs.artifact_id }},${{ needs.registry-windows.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/candidate
       - name: Record manual publication operator
         env:
           GH_TOKEN: ${{ github.token }}
@@ -131,11 +234,11 @@ jobs:
           if-no-files-found: warn
 
   registry-mac:
-    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && (inputs.channel == 'stable' || needs.snapshot.result == 'success') }}
+    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && (!inputs.archive_only || inputs.channel == 'stable') }}
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
-    needs: [verify, npm, snapshot]
-    continue-on-error: ${{ inputs.channel != 'stable' }}
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+    needs: verify
     runs-on: macos-26
     timeout-minutes: 40
     outputs:
@@ -154,17 +257,20 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
           path: ${{ runner.temp }}/candidate
-      - name: Anonymous exact-version cold installation and native MCP discovery
+      - name: Exact-version cold installation and native MCP discovery
         shell: bash
         run: |
           node .github/scripts/motion-release.mjs verify "$RUNNER_TEMP/candidate"
-          node .github/scripts/motion-registry-smoke.mjs "$RUNNER_TEMP/candidate"
-      - name: Report post-publication installation failure
+          if [ "$MOTION_RELEASE_ACTION" = "archive-only" ]; then
+            node .github/scripts/motion-registry-smoke.mjs "$RUNNER_TEMP/candidate"
+          else
+            node .github/scripts/motion-registry-smoke.mjs "$RUNNER_TEMP/candidate" --candidate
+          fi
+      - name: Report native installation failure
         if: failure()
         shell: bash
         run: |
-          echo '::warning::Native installation failed. Test delivery remains available; stable latest promotion is blocked. Inspect this job before recommending the version.'
-          echo 'Native installation failed; inspect the platform report. Stable latest promotion is blocked.' >> "$GITHUB_STEP_SUMMARY"
+          echo '::error::Native installation failed. Inspect the platform report before continuing.'
       - uses: actions/upload-artifact@v7.0.2
         id: artifact
         if: always()
@@ -177,11 +283,11 @@ jobs:
           if-no-files-found: warn
 
   registry-windows:
-    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && (inputs.channel == 'stable' || needs.snapshot.result == 'success') }}
+    if: ${{ always() && !cancelled() && needs.verify.result == 'success' && (!inputs.archive_only || inputs.channel == 'stable') }}
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
-    needs: [verify, npm, snapshot]
-    continue-on-error: ${{ inputs.channel != 'stable' }}
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+    needs: verify
     runs-on: windows-2025
     timeout-minutes: 40
     outputs:
@@ -200,17 +306,20 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
           path: ${{ runner.temp }}/candidate
-      - name: Anonymous exact-version cold installation and native MCP discovery
+      - name: Exact-version cold installation and native MCP discovery
         shell: bash
         run: |
           node .github/scripts/motion-release.mjs verify "$RUNNER_TEMP/candidate"
-          node .github/scripts/motion-registry-smoke.mjs "$RUNNER_TEMP/candidate"
-      - name: Report post-publication installation failure
+          if [ "$MOTION_RELEASE_ACTION" = "archive-only" ]; then
+            node .github/scripts/motion-registry-smoke.mjs "$RUNNER_TEMP/candidate"
+          else
+            node .github/scripts/motion-registry-smoke.mjs "$RUNNER_TEMP/candidate" --candidate
+          fi
+      - name: Report native installation failure
         if: failure()
         shell: bash
         run: |
-          echo '::warning::Native installation failed. Test delivery remains available; stable latest promotion is blocked. Inspect this job before recommending the version.'
-          echo 'Native installation failed; inspect the platform report. Stable latest promotion is blocked.' >> "$GITHUB_STEP_SUMMARY"
+          echo '::error::Native installation failed. Inspect the platform report before continuing.'
       - uses: actions/upload-artifact@v7.0.2
         id: artifact
         if: always()
@@ -222,11 +331,43 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
-  promote-test:
-    if: ${{ inputs.channel != 'stable' && always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' }}
+  registry-readback:
+    if: ${{ always() && !cancelled() && !inputs.archive_only && needs.verify.result == 'success' && needs.npm.result == 'success' }}
+    needs: [verify, npm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
-    needs: [verify, npm]
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.11.1'
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          artifact-ids: ${{ needs.verify.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - name: Verify the public npm package before changing its channel
+        run: node .github/scripts/motion-release.mjs registry-readback "$RUNNER_TEMP/candidate"
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: registry-readback-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/candidate/registry-package.json
+          retention-days: 30
+          if-no-files-found: error
+
+  promote-test:
+    if: ${{ inputs.channel != 'stable' && always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && (inputs.archive_only || needs.registry-readback.result == 'success') }}
+    env:
+      MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+    needs: [verify, npm, registry-readback]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     outputs:
@@ -274,8 +415,9 @@ jobs:
     if: ${{ inputs.channel != 'stable' && always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && needs.promote-test.result == 'success' }}
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
       MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
-    needs: [verify, npm, promote-test]
+    needs: [verify, npm, promote-test, prepare-templates]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -304,6 +446,13 @@ jobs:
       - uses: actions/download-artifact@v8.0.2
         with:
           artifact-ids: ${{ needs.promote-test.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@v8.0.2
+        if: ${{ !inputs.archive_only }}
+        with:
+          artifact-ids: ${{ needs.prepare-templates.outputs.artifact_id }}
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
           path: ${{ runner.temp }}/candidate
@@ -362,10 +511,11 @@ jobs:
           JS
 
   promote-stable:
-    if: ${{ inputs.channel == 'stable' && always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && needs.registry-mac.result == 'success' && needs.registry-windows.result == 'success' }}
+    if: ${{ inputs.channel == 'stable' && always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && needs.registry-mac.result == 'success' && needs.registry-windows.result == 'success' && (inputs.archive_only || needs.registry-readback.result == 'success') }}
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
-    needs: [verify, npm, registry-mac, registry-windows]
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
+    needs: [verify, npm, registry-mac, registry-windows, registry-readback]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     outputs:
@@ -425,8 +575,9 @@ jobs:
     if: ${{ inputs.channel == 'stable' && always() && !cancelled() && needs.verify.result == 'success' && needs.npm.result == 'success' && needs.promote-stable.result == 'success' }}
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
       MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
-    needs: [verify, npm, promote-stable, registry-mac, registry-windows]
+    needs: [verify, npm, promote-stable, registry-mac, registry-windows, prepare-templates]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -455,6 +606,13 @@ jobs:
       - uses: actions/download-artifact@v8.0.2
         with:
           artifact-ids: ${{ needs.promote-stable.outputs.artifact_id }}
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+          path: ${{ runner.temp }}/candidate
+      - uses: actions/download-artifact@v8.0.2
+        if: ${{ !inputs.archive_only }}
+        with:
+          artifact-ids: ${{ needs.prepare-templates.outputs.artifact_id }}
           github-token: ${{ github.token }}
           run-id: ${{ github.run_id }}
           path: ${{ runner.temp }}/candidate
@@ -537,6 +695,7 @@ jobs:
       actions: read
     env:
       MOTION_EXPECTED_SHA256: ${{ needs.verify.outputs.tgz_sha256 }}
+      MOTION_VERSION: ${{ needs.verify.outputs.version }}
       MOTION_INSTALL_PUBLIC_ORIGIN: ${{ vars.CLOUDFLARE_R2_RELEASES_PUBLIC_ORIGIN }}
     steps:
       - uses: actions/checkout@v6.0.2

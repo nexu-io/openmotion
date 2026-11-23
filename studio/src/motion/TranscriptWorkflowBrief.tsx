@@ -5,7 +5,7 @@ import { transcriptWorkflowPrompt } from '../../../shared/transcript-workflow';
 import { defaultPlatformExportTarget, platformExportTargets, type PlatformExportTarget } from '../../../shared/platform-export';
 import { useI18n } from '../i18n/I18n';
 import { useStudioShellContext } from '../contexts/StudioContext';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from './useIntegrationInfo';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
@@ -59,25 +59,25 @@ export function TranscriptWorkflowBrief({ projectId, sourcePaths, transcript }: 
       <fieldset className="min-w-0 space-y-2">
         <legend className="mb-2 flex items-center gap-1.5 text-step-12 font-medium"><RemixIcon name="scissors-cut-line" size={14} />{t('Version goal')}</legend>
         <div className="grid grid-cols-2 gap-2">
-          {([{ value: 'highlights', icon: 'scissors-cut-line', label: 'Extract highlights', detail: 'Up to 3 clips · 30–60s' }, { value: 'adapt', icon: 'film-line', label: 'Adapt the full video', detail: 'Keep the complete story' }] as const).map(option => <button key={option.value} type="button" className="om-preset-choice" data-layout="card" aria-label={t(option.label)} aria-pressed={goal === option.value} disabled={busy} onClick={() => setGoal(option.value)}>
+          {([{ value: 'highlights', icon: 'scissors-cut-line', label: 'Extract highlights', detail: 'Up to 3 clips · 30–60s' }, { value: 'adapt', icon: 'film-line', label: 'Adapt the full video', detail: 'Keep the complete story' }] as const).map(option => <Button variant="plain" key={option.value} type="button" className="om-preset-choice" data-layout="card" aria-label={t(option.label)} aria-pressed={goal === option.value} disabled={busy} onClick={() => setGoal(option.value)}>
             <span className="flex w-full items-center justify-between gap-2"><span className="om-creation-icon" data-tone="video"><RemixIcon name={option.icon} size={16} /></span>{goal === option.value && <RemixIcon name="check-line" size={14} />}</span>
             <span className="text-step-12 font-medium">{t(option.label)}</span><span className="text-step-11 text-text-3">{t(option.detail)}</span>
-          </button>)}
+          </Button>)}
         </div>
       </fieldset>
       <fieldset className="min-w-0">
         <legend className="mb-2 flex w-full items-center gap-1.5 text-step-12 font-medium"><RemixIcon name="slideshow-line" size={14} />{t('Target platforms')}<span className="ml-auto text-step-11 font-normal text-text-3">{t('Choose multiple')}</span></legend>
         <div className="grid grid-cols-2 gap-1.5">
-          {platformExportTargets.map(target => <button key={target.id} type="button" className="om-preset-choice" aria-label={t(target.label)} aria-pressed={platforms.includes(target.id)} disabled={busy} onClick={() => togglePlatform(target.id)}>
+          {platformExportTargets.map(target => <Button variant="plain" key={target.id} type="button" className="om-preset-choice" aria-label={t(target.label)} aria-pressed={platforms.includes(target.id)} disabled={busy} onClick={() => togglePlatform(target.id)}>
             <RemixIcon name={platforms.includes(target.id) ? 'check-line' : 'file-video-line'} size={14} /><span className="min-w-0 flex-1 text-left">{t(target.label)}</span><span className="text-step-10 text-text-3">{target.aspect}</span>
-          </button>)}
+          </Button>)}
         </div>
       </fieldset>
       <fieldset className="min-w-0">
         <legend className="mb-2 flex w-full items-center gap-1.5 text-step-12 font-medium"><RemixIcon name="closed-captioning-line" size={14} />{t('Subtitle language')}<span className="ml-auto text-step-11 font-normal text-text-3">{t('Choose multiple')}</span></legend>
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" className="om-preset-choice" aria-pressed={sourceLanguage} disabled={busy} onClick={() => { setLanguages([]); setOtherLanguages(''); }}><RemixIcon name={sourceLanguage ? 'check-line' : 'voiceprint-line'} size={14} />{t('Source language')}</button>
-          {subtitleLanguages.map(language => <button key={language.id} type="button" className="om-preset-choice" lang={language.id} aria-pressed={languages.includes(language.id)} disabled={busy} onClick={() => setLanguages(current => current.includes(language.id) ? current.filter(value => value !== language.id) : [...current, language.id])}><RemixIcon name="check-line" size={14} className={languages.includes(language.id) ? undefined : 'invisible'} />{language.label}</button>)}
+          <Button variant="plain" type="button" className="om-preset-choice" aria-pressed={sourceLanguage} disabled={busy} onClick={() => { setLanguages([]); setOtherLanguages(''); }}><RemixIcon name={sourceLanguage ? 'check-line' : 'voiceprint-line'} size={14} />{t('Source language')}</Button>
+          {subtitleLanguages.map(language => <Button variant="plain" key={language.id} type="button" className="om-preset-choice" lang={language.id} aria-pressed={languages.includes(language.id)} disabled={busy} onClick={() => setLanguages(current => current.includes(language.id) ? current.filter(value => value !== language.id) : [...current, language.id])}><RemixIcon name="check-line" size={14} className={languages.includes(language.id) ? undefined : 'invisible'} />{language.label}</Button>)}
         </div>
         <p className="mt-2 flex items-center gap-1.5 text-step-11 text-text-3"><RemixIcon name="volume-up-line" size={12} />{t('Original voice retained')}</p>
       </fieldset>

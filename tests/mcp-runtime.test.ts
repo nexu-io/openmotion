@@ -66,6 +66,19 @@ test('MCP reports unavailable historical files as not applied', { skip: !sharedE
   } finally { await editor.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
+test('MCP preserves confirmed unapplied guide-creation failures without guessing from the error text', { skip: !sharedEditorEnabled }, async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-guide-create-failure-'));
+  const message = 'Temporary source unavailable';
+  const editor = await incompatibleEditor(directory, { mcp: { protocol: 1, tools: ['openmotion_create_project'] } }, message);
+  try {
+    const response: any = await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'openmotion_create_project', arguments: {
+      requestId: 'guide-failed', projectType: 'template', templateId: 'motion-be2a4af0-0183-4979-ab05-2a68413c0890', title: 'Guide', requirements: 'Continue example', guideDraft: { title: 'Guide', accent: '#63fe13' },
+    } } }, new WorkspaceStore(directory));
+    assert.equal(response.result.isError, true);
+    assert.deepEqual(response.result.structuredContent.error, { code: 'TOOL_FAILED', message, applied: false });
+  } finally { await editor.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('MCP reports incompatible editor identity fields without starting an export or exposing credentials', { skip: !sharedEditorEnabled }, async t => {
   for (const changed of [{ protocol: 999 }, { version: '0.0.0' }, { build: '0'.repeat(64) }]) await t.test(Object.keys(changed)[0], async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'motion-runtime-mismatch-'));

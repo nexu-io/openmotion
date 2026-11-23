@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useDialogBehavior } from "../ui/useDialogBehavior";
@@ -67,12 +69,11 @@ export function PromptPreviewModal({
             <h3 className="text-sm font-medium text-neutral-200">{t("Ask agent")}</h3>
             <p className="text-xs text-neutral-500 mt-0.5">{title}</p>
           </div>
-          <button
+          <IconButton variant="plain"
             aria-label={t("Close")}
             className="p-1 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 active:scale-[0.95]"
             onClick={onClose}
-          >
-            <svg
+            icon={<svg
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -84,8 +85,8 @@ export function PromptPreviewModal({
             >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+            </svg>}
+          />
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <p className="text-[11px] text-neutral-500 mb-2">
@@ -104,7 +105,7 @@ export function PromptPreviewModal({
         <div className="flex items-center justify-between px-5 py-3 border-t border-neutral-800/60">
           <span className="text-[11px] text-neutral-600">
             {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}{t("+Enter to copy")}</span>
-          <button
+          <Button variant="plain"
             className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors active:scale-[0.97] ${
               copyState === "copied"
                 ? "bg-accent text-on-accent"
@@ -119,7 +120,7 @@ export function PromptPreviewModal({
               : copyState === "failed"
                 ? t("Copy failed")
                 : t("Copy prompt")}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

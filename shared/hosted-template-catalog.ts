@@ -1,3 +1,4 @@
+import type { LibrarySkill } from './library-skill-catalog.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { boundedMediaBody } from './repository-media.ts';
@@ -5,6 +6,8 @@ import type { PublishedTemplate, TemplatePublication } from './repository-templa
 
 export const hostedCatalogUrl = 'https://releases.open-design.ai/open-motion/templates/main/catalog.json';
 const maxJsonBytes = 1024 * 1024;
+// The main catalog embeds library Skill instructions; per-file reads keep the 1 MB cap.
+const maxCatalogBytes = 16 * 1024 * 1024;
 
 type Request = typeof fetch;
 type TemplateRecord = { templateId: string; entry: Record<string, any>; locales: Record<string, Record<string, any>>; [key: string]: any };
@@ -12,6 +15,7 @@ type SourceFile = { path: string; bytes?: number; sha256?: string };
 export type HostedSourceManifest = { files: SourceFile[]; [key: string]: any };
 
 export type HostedRepositoryCatalog = {
+  skills?: LibrarySkill[];
   commit: string;
   baseUrl: string;
   objectBaseUrl: string;
@@ -23,6 +27,7 @@ export type HostedRepositoryCatalog = {
 };
 
 type HostedRepositoryCatalogSnapshot = {
+  skills?: LibrarySkill[];
   commit: string;
   baseUrl: string;
   objectBaseUrl: string;
@@ -52,7 +57,7 @@ async function fetchJson(request: Request, url: string): Promise<any> {
   return JSON.parse((await responseBytes(await request(url, {
     headers: { accept: 'application/json', 'user-agent': 'openmotion-template-catalog' },
     redirect: 'error', signal: AbortSignal.timeout(30_000),
-  }), maxJsonBytes)).toString('utf8'));
+  }), maxCatalogBytes)).toString('utf8'));
 }
 
 function createCatalog(manifest: any, publication: TemplatePublication, records: Map<string, TemplateRecord>, request: Request, warning?: string): HostedRepositoryCatalog {
@@ -70,7 +75,7 @@ function createCatalog(manifest: any, publication: TemplatePublication, records:
     return value;
   };
   return {
-    commit, baseUrl, objectBaseUrl, publication, records, warning, version: 'hosted:' + commit,
+    skills: manifest.skills ?? [], commit, baseUrl, objectBaseUrl, publication, records, warning, version: 'hosted:' + commit,
     fetchFile: async (templateId, name, limit = maxJsonBytes) => {
       assert(records.has(templateId), 'Hosted template not found');
       if (name === 'source/manifest.json' || name === 'TEMPLATE.md' || name === 'hosted-files.json') return fetchFile(request, baseUrl, `${templateId}/${name}`, limit);
@@ -88,7 +93,7 @@ function createCatalog(manifest: any, publication: TemplatePublication, records:
 }
 
 export function serializeHostedCatalog(catalog: HostedRepositoryCatalog): string {
-  return JSON.stringify({ commit: catalog.commit, baseUrl: catalog.baseUrl, objectBaseUrl: catalog.objectBaseUrl, publication: catalog.publication, records: [...catalog.records.entries()], warning: catalog.warning });
+  return JSON.stringify({ skills: catalog.skills, commit: catalog.commit, baseUrl: catalog.baseUrl, objectBaseUrl: catalog.objectBaseUrl, publication: catalog.publication, records: [...catalog.records.entries()], warning: catalog.warning });
 }
 
 export function restoreHostedCatalog(value: unknown, request: Request = fetch): HostedRepositoryCatalog {

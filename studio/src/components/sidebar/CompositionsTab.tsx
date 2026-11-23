@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
@@ -397,7 +398,7 @@ function CompCard({
         <OverflowText text={comp} className="text-[9px] text-neutral-600 truncate block" />
       </div>
       {onAddToTimeline && (
-        <Tooltip label={t("Add {name} to timeline at playhead", { name: name })} wrap><button
+        <Tooltip label={t("Add {name} to timeline at playhead", { name: name })} wrap><IconButton variant="plain"
           type="button"
           aria-label={t("Add {name} to timeline at playhead", { name: name })}
           onClick={(event) => {
@@ -405,13 +406,12 @@ function CompCard({
             onAddToTimeline();
           }}
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm text-neutral-600 opacity-0 transition-[color,background-color,opacity] hover:bg-neutral-800 hover:text-accent-ink group-hover/card:opacity-100 group-focus-within/card:opacity-100 focus:opacity-100"
-        >
-          <span aria-hidden="true">+</span>
-        </button></Tooltip>
+          icon={<span aria-hidden="true">+</span>}
+        /></Tooltip>
       )}
       {onRender && (
         <Tooltip label={isRendering ? t("A render is already in progress") : t("Render {name}", { name: name })}>
-          <button
+          <IconButton variant="plain"
             type="button"
             aria-label={isRendering ? t("A render is already in progress") : t("Render {name}", { name: name })}
             disabled={isRendering}
@@ -427,9 +427,8 @@ function CompCard({
                 ? "text-neutral-600 cursor-not-allowed"
                 : "text-neutral-600 hover:text-accent-ink hover:bg-neutral-800"
             }`}
-          >
-            <RemixIcon name="download-2-line" size={14} />
-          </button>
+            icon={<RemixIcon name="download-2-line" size={14} />}
+          />
         </Tooltip>
       )}
     </div>

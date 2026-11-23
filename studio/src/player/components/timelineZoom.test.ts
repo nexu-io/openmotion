@@ -41,8 +41,8 @@ describe("getTimelineZoomPercent", () => {
     expect(getTimelineZoomPercent("fit", 375, FIT_PPS)).toBe(100);
   });
 
-  it("returns the clamped manual zoom percent", () => {
-    expect(getTimelineZoomPercent("manual", 125.2, FIT_PPS)).toBe(125);
+  it("retains fractional manual pins while clamping their bounds", () => {
+    expect(getTimelineZoomPercent("manual", 125.2, FIT_PPS)).toBe(125.2);
   });
 });
 
@@ -138,6 +138,16 @@ describe("computePinnedZoomPercent", () => {
     expect(percent).toBe(250);
     // Round-trips through getTimelinePixelsPerSecond back to the on-screen pps.
     expect(getTimelinePixelsPerSecond(fitPps, "manual", percent)).toBeCloseTo(currentPps, 5);
+  });
+
+  it("keeps fractional pins exact across repeated speed-induced duration changes", () => {
+    const originalPps = 68.015625;
+    let pps = originalPps;
+    for (const fit of [97.31, 43.57, 134.92, 74.0625, 97.31]) {
+      const percent = computePinnedZoomPercent(pps, fit);
+      pps = getTimelinePixelsPerSecond(fit, "manual", percent);
+      expect(pps).toBeCloseTo(originalPps, 10);
+    }
   });
 
   it("clamps a pin that would exceed the manual-zoom bounds", () => {

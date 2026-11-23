@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { AssetQuickAdd } from "./AssetQuickAdd";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { OverflowText } from "../ui/OverflowText";
@@ -161,7 +163,7 @@ export function AudioRow({
         className="motion-audio-row om-asset-action-row"
         data-used={used || undefined}
       >
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-label={playing || pending ? t("Pause preview of {name}", { name }) : t("Play preview of {name}", { name })}
           aria-pressed={playing || pending}
@@ -171,31 +173,30 @@ export function AudioRow({
           onPointerDown={e => e.stopPropagation()}
           onPointerUp={e => e.stopPropagation()}
           onClick={e => { e.stopPropagation(); void toggle(); }}
-        >
-          <RemixIcon name={playing || pending ? "pause-fill" : "play-fill"} size={16} />
-        </button>
+          icon={<RemixIcon name={playing || pending ? "pause-fill" : "play-fill"} size={16} />}
+        />
         <div className="motion-audio-content">
           <div className="motion-audio-heading">
             {renaming && onRename ? <InlineAssetRename displayName={displayName} asset={asset} onRename={onRename} onDone={() => setRenaming(false)} /> :
               <OverflowText text={name} className="motion-audio-name" />}
             {onAddAssetToTimeline && <AssetQuickAdd compact asset={asset} onAdd={onAddAssetToTimeline} />}
-            <button type="button" className="motion-audio-menu-button" aria-label={t("Actions for {value0}", { value0: name })} title={t("Actions for {value0}", { value0: name })} aria-haspopup="menu" onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }}><RemixIcon name="more-line" size={16} /></button>
+            <IconButton variant="plain" type="button" className="motion-audio-menu-button" aria-label={t("Actions for {value0}", { value0: name })} title={t("Actions for {value0}", { value0: name })} aria-haspopup="menu" onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }} icon={<RemixIcon name="more-line" size={16} />} />
           </div>
           <div className="motion-audio-detail">
             <div className="motion-audio-usages">
               <span className={used ? "motion-audio-used" : "motion-audio-unused"}>{t(used ? "In use" : "Unused")}</span>
-              {usages.length > 1 && <button type="button" className="motion-audio-usage-toggle" aria-expanded={usageExpanded} aria-controls={usageListId}
+              {usages.length > 1 && <Button variant="plain" type="button" className="motion-audio-usage-toggle" aria-expanded={usageExpanded} aria-controls={usageListId}
                 onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); setUsageExpanded(value => !value); }}>{t("{count} uses", { count: usages.length })}</button>}
+                onClick={e => { e.stopPropagation(); setUsageExpanded(value => !value); }}>{t("{count} uses", { count: usages.length })}</Button>}
               <span id={usageListId} className={usages.length > 1 ? "motion-audio-usage-list" : "contents"} hidden={usages.length > 1 && !usageExpanded}>
               {(usages.length > 1 && !usageExpanded ? [] : usages).map((usage, index) => {
                 const start = formatDuration(usage.start) || "00:00", end = formatDuration(usage.end) || "00:00";
-                return <button type="button" key={`${usage.clipId}-${index}`} className="motion-audio-usage-range"
+                return <Button variant="plain" type="button" key={`${usage.clipId}-${index}`} className="motion-audio-usage-range"
                   aria-label={t("Locate {name} at {start}–{end} on the timeline", { name, start, end })}
                   onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); stop(); onRevealUsage?.(usage); }}>
                   {start}–{end}
-                </button>;
+                </Button>;
               })}
               </span>
             </div>

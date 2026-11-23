@@ -51,6 +51,8 @@ export interface InlineTextEditSession {
   outlineOffset: string;
   /** Holds the preview on screen while the edit is open. */
   gesture?: string;
+  /** The color popover can move focus out of the preview during an edit. */
+  colorPickerOpen?: boolean;
 }
 
 /** The live markup to persist and the session snapshot to restore on failure. */
@@ -224,7 +226,9 @@ export function useInlineTextEdit({
     };
     // Clicking away keeps the work, which is what every other field in Studio
     // does and what a user who has just typed something expects.
-    const onBlur = () => commit();
+    const onBlur = () => {
+      if (!session.colorPickerOpen) commit();
+    };
     // Nothing here for double or triple click: the browser already takes the
     // word on two and the whole text on three, which is what a text field does
     // everywhere else. Overriding the double click to take everything cost the

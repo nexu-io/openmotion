@@ -7,5 +7,6 @@ export const platformIcons = Object.freeze({
   tiktok: 'platforms/tiktok.svg',
   reels: 'platforms/reels.svg',
   shorts: 'platforms/shorts.svg',
+  x: 'platforms/x.svg',
 });
 export const platformIconFiles = Object.freeze(Object.values(platformIcons));

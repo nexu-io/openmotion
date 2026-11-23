@@ -8,7 +8,7 @@ import { isMain } from '../shared/entry.ts';
 import { checkTemplateLibrary } from './check-template-library.ts';
 import { checkRepositoryStorage } from './check-repository-storage.ts';
 import { lfsPointer } from '../shared/repository-template-catalog.ts';
-import { boundedMediaBody, mediaDigest, mediaKey, mediaOrigin, maxMediaBytes, downloadMedia, validateMediaLock, validateMediaManifest, type MediaLock } from '../shared/repository-media.ts';
+import { boundedMediaBody, mediaDigest, mediaKey, mediaOrigin, skillPreviewMedia, maxMediaBytes, downloadMedia, validateMediaLock, validateMediaManifest, type MediaLock } from '../shared/repository-media.ts';
 export type CleanupChange = { path: string; content: string | null };
 export type CleanupPlan = { schemaVersion: 1; sourceSHA: string; pullNumber: number; changes: CleanupChange[]; media: MediaLock[] };
 
@@ -52,7 +52,8 @@ export async function prepareMediaCleanup(inputs: Inputs, read: (file: TreeFile)
     return originals.get(name)!;
   };
   const candidates = inputs.head.filter(file => file.type === 'blob' && previous.get(file.path) !== file.sha && mediaFile.test(file.path) &&
-    /^(?:library|docs\/readme|examples)\//.test(file.path) && (videoOrAudio.test(file.path) || file.size > (catalogAsset.test(file.path) ? 100_000 : 1024 * 1024)));
+    (skillPreviewMedia.test(file.path) || (/^(?:library|docs\/readme|examples)\//.test(file.path) &&
+      (videoOrAudio.test(file.path) || file.size > (catalogAsset.test(file.path) ? 100_000 : 1024 * 1024)))));
   assert(candidates.length <= 100, 'Too many media files; split this PR');
   let total = 0;
   const locks: MediaLock[] = [];

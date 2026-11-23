@@ -1,11 +1,12 @@
 /* Adapted from OpenDesign material.css and dialog.module.css (20c49e75c).
-   Functional floating surfaces only. Content cards and video previews stay solid/isolated.
+   Functional floating surfaces use opaque theme colors, without glass or blur.
+   Content cards and video previews stay isolated.
    No positioning, sizing, stacking or event behavior belongs in this layer. */
 :where([data-motion-ui]) {
-  --motion-floating-surface: var(--motion-glass);
-  --motion-floating-backdrop: var(--motion-glass-backdrop);
-  --motion-dialog-scrim: var(--motion-scrim);
-  --motion-dialog-backdrop: var(--motion-scrim-backdrop);
+  --motion-floating-surface: var(--motion-raised);
+  --motion-floating-backdrop: none;
+  --motion-dialog-scrim: var(--motion-overlay);
+  --motion-dialog-backdrop: none;
 }
 :root[data-motion-ui] .hf-od-floating-surface {
   background: var(--motion-floating-surface);
@@ -24,21 +25,9 @@
   -webkit-backdrop-filter: var(--motion-dialog-backdrop);
   backdrop-filter: var(--motion-dialog-backdrop);
 }
-/* Fall back at the material seam, so every consumer keeps the same treatment. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :where([data-motion-ui]) {
-    --motion-floating-surface: var(--motion-raised);
-    --motion-floating-backdrop: none;
-    --motion-dialog-scrim: var(--motion-scrim-solid);
-    --motion-dialog-backdrop: none;
-  }
-}
 @media (prefers-reduced-transparency: reduce) {
   :where([data-motion-ui]) {
-    --motion-floating-surface: var(--motion-raised);
-    --motion-floating-backdrop: none;
     --motion-dialog-scrim: var(--motion-scrim-solid);
-    --motion-dialog-backdrop: none;
   }
 }
 /* Portable decorative loading geometry; the owning region announces progress. */

@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../i18n/I18n";
 import { reportNoticeShown } from "../motion/editorTracking";
 import { useNoticeShown } from "../motion/useNoticeShown";
@@ -78,13 +79,13 @@ export function ProjectUnreachableBanner({ projectId }: ProjectUnreachableBanner
               to the project this server actually serves. That is the same
               fallback a fresh load performs, so the button promises nothing
               beyond what a reload already does. */}
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => window.location.reload()}
             className="shrink-0 rounded-sm border border-amber-300/20 px-2 py-1 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/10 active:scale-[0.98]"
           >
             {t("Open")}{" "}{servedLabel}
-          </button>
+          </Button>
         </>
       ) : (
         <span>{t("Couldn't open this project. It may have been renamed, moved, or deleted.")}</span>

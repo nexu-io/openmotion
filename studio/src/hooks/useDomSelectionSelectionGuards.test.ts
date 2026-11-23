@@ -44,8 +44,8 @@ vi.mock("../components/editor/domEditing", async (importOriginal) => {
 const { useDomSelection } = await import("./useDomSelection");
 
 interface HarnessProps {
-  rightPanelTab: "design" | "variables";
-  setRightPanelTab: (tab: "design" | "variables") => void;
+  rightPanelTab: "design" | "variables" | "comments";
+  setRightPanelTab: (tab: "design" | "variables" | "comments") => void;
   iframe: HTMLIFrameElement | null;
   timelineElements: TimelineElement[];
   setSelectedTimelineElementId?: (id: string | null, options?: SelectElementOptions) => void;
@@ -95,12 +95,12 @@ function renderHarness(props: HarnessProps) {
 }
 
 describe("useDomSelection — Variables tab preservation", () => {
-  it("does not yank the user off the Variables tab when selecting on canvas", () => {
+  it.each(["variables", "comments"] as const)("preserves the %s panel when selecting on canvas", rightPanelTab => {
     const setRightPanelTab = vi.fn();
     const el = document.createElement("div");
     el.id = "headline";
     const harness = renderHarness({
-      rightPanelTab: "variables",
+      rightPanelTab,
       setRightPanelTab,
       iframe: null,
       timelineElements: [],

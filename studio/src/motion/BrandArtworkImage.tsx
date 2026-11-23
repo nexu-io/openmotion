@@ -1,62 +1,67 @@
 import { useEffect, useRef, type ComponentPropsWithoutRef } from 'react';
 
 // Website artwork can wait on remote hosts even though its URL is local.
-// Keep browser connections free for detail navigation, playback and downloads.
-const maxRequests = 3;
-let inFlight = 0;
-const waiting = new Set<() => void>();
-const nearby = new Map<Element, () => void>();
+// Keep browser connections free for detail navigation, playback and downloads,
+// and isolate fast favicons from slower cover downloads.
+type ArtworkChannel = 'cover' | 'favicon';
+const queues: Record<ArtworkChannel, { max: number; inFlight: number; waiting: Set<() => void> }> = {
+  cover: { max: 6, inFlight: 0, waiting: new Set() },
+  favicon: { max: 6, inFlight: 0, waiting: new Set() },
+};
+const visibility = new Map<Element, (visible: boolean) => void>();
 let observer: IntersectionObserver | undefined;
 
-function drain() {
-  while (inFlight < maxRequests && waiting.size) {
-    const start = waiting.values().next().value!;
-    waiting.delete(start);
+function drain(channel: ArtworkChannel) {
+  const queue = queues[channel];
+  while (queue.inFlight < queue.max && queue.waiting.size) {
+    const start = queue.waiting.values().next().value!;
+    queue.waiting.delete(start);
     start();
   }
 }
 
-function requestArtwork(startRequest: () => void) {
-  let active = false;
-  const start = () => { active = true; inFlight++; startRequest(); };
-  waiting.add(start);
-  drain();
-  return () => {
-    waiting.delete(start);
-    if (active) { active = false; inFlight--; drain(); }
-  };
-}
-
-function whenNearby(node: Element, start: () => void) {
-  if (typeof IntersectionObserver === 'undefined') { start(); return () => {}; }
+function observeVisibility(node: Element, onChange: (visible: boolean) => void) {
+  if (typeof IntersectionObserver === 'undefined') { onChange(true); return () => {}; }
   observer ??= new IntersectionObserver(entries => {
-    for (const entry of entries) if (entry.isIntersecting) {
-      const load = nearby.get(entry.target);
-      nearby.delete(entry.target);
-      observer?.unobserve(entry.target);
-      load?.();
-    }
-  }, { rootMargin: '160px' });
-  nearby.set(node, start);
+    for (const entry of entries) visibility.get(entry.target)?.(entry.isIntersecting);
+  }, { rootMargin: '240px' });
+  visibility.set(node, onChange);
   observer.observe(node);
   return () => {
-    nearby.delete(node);
+    visibility.delete(node);
     observer?.unobserve(node);
-    if (!nearby.size) { observer?.disconnect(); observer = undefined; }
+    if (!visibility.size) { observer?.disconnect(); observer = undefined; }
   };
 }
 
-export function BrandArtworkImage({ src, onLoad, onError, ...props }: ComponentPropsWithoutRef<'img'> & { src: string }) {
+export function BrandArtworkImage({ src, channel = 'cover', onLoad, onError, ...props }: ComponentPropsWithoutRef<'img'> & { src: string; channel?: ArtworkChannel }) {
   const image = useRef<HTMLImageElement>(null);
   const finish = useRef<() => void>(() => {});
   useEffect(() => {
     const node = image.current;
     if (!node) return;
-    const stop = whenNearby(node, () => {
-      finish.current = requestArtwork(() => { node.src = src; });
+    const queue = queues[channel];
+    let active = false, started = false;
+    let stop = () => {};
+    const release = () => {
+      queue.waiting.delete(start);
+      if (active) { active = false; queue.inFlight--; drain(channel); }
+    };
+    const start = () => {
+      started = true;
+      active = true;
+      queue.inFlight++;
+      stop();
+      node.src = src;
+    };
+    finish.current = release;
+    stop = observeVisibility(node, visible => {
+      if (started) return;
+      if (visible) { queue.waiting.add(start); drain(channel); }
+      else queue.waiting.delete(start);
     });
-    return () => { stop(); node.removeAttribute('src'); finish.current(); };
-  }, [src]);
+    return () => { stop(); release(); node.removeAttribute('src'); };
+  }, [src, channel]);
   return <img {...props} ref={image} data-artwork-src={src} decoding="async" fetchPriority="low"
     onLoad={event => { finish.current(); onLoad?.(event); }}
     onError={event => { finish.current(); onError?.(event); }} />;

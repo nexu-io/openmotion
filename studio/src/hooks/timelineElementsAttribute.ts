@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useCaptionWorkspace } from "../motion/captionWorkspace";
 import type { TimelineEditCallbacks } from "../player/components/timelineCallbacks";
 import { syncStoredElementAttribute } from "../player/lib/automationStoreSync";
 import { setPreviewMediaMuted } from "../player/lib/timelineIframeHelpers";
@@ -99,6 +100,7 @@ export function useSetElementsAttribute({
           recordEdit,
         });
         patchLive(previewIframeRef.current, edits, attr, activeCompPath);
+        if (attr === "data-timeline-locked") useCaptionWorkspace.getState().changed();
         return { status: "saved" };
       } catch (error) {
         const reason = error instanceof Error ? error.message : "Could not save the clips";

@@ -3,7 +3,7 @@
 // `*Styles`/`*Classes` bindings). Bare strings are ignored so prose and paths never become "classes".
 // Pure: text in, candidates out.
 
-import { escapeRegex } from "../utils/sourcePatcher";
+type Chunk = { text: string; offset: number };
 
 /** A class candidate and where it came from. */
 export interface ClassCandidate {
@@ -76,8 +76,8 @@ function endOfString(text: string, start: number): number {
 
 // Splits a template literal body into safe chunks. A chunk touching an interpolation is dropped at
 // that edge (`w-${size}` claims no class `w-`) unless whitespace separates it from the hole.
-function templateChunks(body: string): string[] {
-  const chunks: string[] = [];
+function templateChunks(body: string, offset: number): Chunk[] {
+  const chunks: Chunk[] = [];
   let cursor = 0;
   let precededByHole = false;
   while (cursor <= body.length) {
@@ -86,7 +86,7 @@ function templateChunks(body: string): string[] {
     let chunk = body.slice(cursor, end);
     if (precededByHole && !/^\s/.test(chunk)) chunk = chunk.replace(/^\S+/, "");
     if (hole !== -1 && !/\s$/.test(chunk)) chunk = chunk.replace(/\S+$/, "");
-    chunks.push(chunk);
+    if (chunk) chunks.push({ text: chunk, offset: offset + body.indexOf(chunk, cursor) });
     if (hole === -1) break;
     cursor = endOfRegion(body, hole + 1);
     precededByHole = true;
@@ -153,8 +153,8 @@ function opensClassContext(mask: string, from: number, i: number): boolean {
  * Every string and template body inside a source region. Where the strings are
  * is decided on the mask; what they contain is read from the real text.
  */
-function stringsIn(text: string, mask: string, start: number, end: number): string[] {
-  const found: string[] = [];
+function stringsIn(text: string, mask: string, start: number, end: number): Chunk[] {
+  const found: Chunk[] = [];
   const classy: boolean[] = [];
   for (let i = start; i < end; i += 1) {
     const ch = mask[i];
@@ -164,7 +164,7 @@ function stringsIn(text: string, mask: string, start: number, end: number): stri
       const close = endOfString(mask, i);
       const body = text.slice(i + 1, close);
       if (classy.at(-1) !== false && isClassList(mask, start, i, body)) {
-        found.push(...(ch === "`" ? templateChunks(body) : [body]));
+        found.push(...(ch === "`" ? templateChunks(body, i + 1) : [{ text: body, offset: i + 1 }]));
       }
       i = close;
     }
@@ -225,12 +225,17 @@ function regionAfter(mask: string, at: number): number {
 }
 
 /** Split one class list into candidates, keeping the first spelling of each. */
-function collect(byRaw: Map<string, ClassCandidate>, list: string): void {
-  for (const raw of list.split(/\s+/)) {
-    if (raw === "" || !TOKEN.test(raw) || byRaw.has(raw)) continue;
+type OnCandidate = (candidate: ClassCandidate, offset: number) => void;
+
+function collect(byRaw: Map<string, ClassCandidate>, chunk: Chunk, onCandidate?: OnCandidate): void {
+  for (const match of chunk.text.matchAll(/\S+/g)) {
+    const raw = match[0];
+    if (!TOKEN.test(raw)) continue;
     const base = stripVariants(raw);
     if (base === "") continue;
-    byRaw.set(raw, { base, raw, arbitrary: base.includes("[") });
+    const candidate = { base, raw, arbitrary: base.includes("[") };
+    byRaw.set(raw, candidate);
+    onCandidate?.(candidate, chunk.offset + match.index);
   }
 }
 
@@ -252,15 +257,15 @@ function regionsAfter(mask: string, anchor: RegExp): [number, number][] {
 
 // Every string bound to `name` by an assignment in this file. A name with no literal binding
 // (parameter, import, call result) yields nothing, so an over-broad reference scan is safe.
-function boundStrings(text: string, mask: string, name: string): string[] {
+function boundStrings(text: string, mask: string, name: string): Chunk[] {
   const anchor = new RegExp(
-    `(?<![\\w$])${escapeRegex(name)}(?![\\w$])(?:\\s*:[^=;{}()[\\]]*)?\\s*=(?!=)\\s*`,
+    `(?<![\\w$])${name.replaceAll("$", "\\$")}(?![\\w$])(?:\\s*:[^=;{}()[\\]]*)?\\s*=(?!=)\\s*`,
   );
   return regionsAfter(mask, anchor).flatMap(([start, end]) => stringsIn(text, mask, start, end));
 }
 
 /** Every class candidate claimed by one source file. */
-export function extractClassCandidates(source: string): ClassCandidate[] {
+export function extractClassCandidates(source: string, onCandidate?: OnCandidate): ClassCandidate[] {
   // Anchors and region bounds come from the mask (code only); the strings
   // themselves are read back out of the real text.
   const mask = maskLiterals(source);
@@ -268,14 +273,19 @@ export function extractClassCandidates(source: string): ClassCandidate[] {
   const referenced = new Set<string>();
   for (const [index, anchor] of ANCHORS.entries()) {
     for (const [start, end] of regionsAfter(mask, anchor)) {
-      for (const text of stringsIn(source, mask, start, end)) collect(byRaw, text);
+      for (const text of stringsIn(source, mask, start, end)) collect(byRaw, text, onCandidate);
       if (index >= CLASS_POSITIONS) continue;
       const used = mask.slice(start, end).replace(SUBSCRIPT, "");
-      for (const [name] of used.matchAll(REFERENCE)) referenced.add(name);
+      for (const match of used.matchAll(REFERENCE)) {
+        const name = match[0];
+        // A prop used to choose a class branch is not itself a class list.
+        if (/^\s*(?:[=!]==?|[<>]=?)/.test(used.slice(match.index + name.length))) continue;
+        referenced.add(name);
+      }
     }
   }
   for (const name of referenced) {
-    for (const text of boundStrings(source, mask, name)) collect(byRaw, text);
+    for (const text of boundStrings(source, mask, name)) collect(byRaw, text, onCandidate);
   }
   return [...byRaw.values()];
 }

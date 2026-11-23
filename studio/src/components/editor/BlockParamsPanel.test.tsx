@@ -81,13 +81,26 @@ function renderPanel(fileManager: ReturnType<typeof makeFileManager>["value"], l
 }
 
 function changeParam(label: string, next: string) {
-  const input = document.querySelector<HTMLInputElement>(`input[aria-label="${label} value"]`);
-  if (!input) throw new Error(`no input for ${label}`);
+  const trigger = document.querySelector<HTMLButtonElement>(`[aria-label="Pick ${label.toLowerCase()} color"]`)!;
+  expect(trigger.dataset.formControl).toBe("boxed");
+  act(() => trigger.click());
+  const picker = document.querySelector<HTMLElement>('.motion-color-picker[data-open]')!;
+  const format = picker.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+  if (format.textContent !== "HEX") {
+    act(() => format.click());
+    const hex = [...document.querySelectorAll<HTMLElement>('.om-select-popup[data-open] [role="option"]')]
+      .find(option => option.textContent === "HEX")!;
+    act(() => hex.click());
+  }
+  const input = picker.querySelector<HTMLInputElement>('input[aria-label="Hex"]')!;
   act(() => {
+    input.focus();
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
     setter?.call(input, next);
     input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.blur();
   });
+  act(() => trigger.click());
 }
 
 async function flushCommit() {

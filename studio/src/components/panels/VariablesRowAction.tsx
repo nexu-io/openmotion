@@ -1,4 +1,5 @@
 /** Small text-button used in the Variables tab rows (Edit / Remove / Set default / Declare). */
+import { Button } from "open-design-ui/button";
 export function RowAction({
   label,
   title,
@@ -11,7 +12,7 @@ export function RowAction({
   onClick: () => void;
 }) {
   return (
-    <button
+    <Button variant="plain"
       type="button"
       onClick={onClick}
       title={title}
@@ -20,6 +21,6 @@ export function RowAction({
       }`}
     >
       {label}
-    </button>
+    </Button>
   );
 }

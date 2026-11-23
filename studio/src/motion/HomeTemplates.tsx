@@ -1,3 +1,5 @@
+import { Button } from 'open-design-ui/button';
+import { IconButton } from 'open-design-ui/icon-button';
 import { useEffect, useRef, useState } from 'react';
 import { isEditableTemplate, formatTemplateViews, type GalleryTemplate, type TemplatePage } from '../../../shared/catalog';
 import { hostNames, templatePrompt, type IntegrationHost, type IntegrationInfo } from '../../../shared/integration';
@@ -94,7 +96,7 @@ export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTempl
     <div className="motion-section-heading"><h2 id="home-template-title">{t('Templates')}</h2><MotionIcon name="grid" size={20} /></div>
     <div className="motion-template-toolbar">
       <div className="motion-template-filters" role="group" aria-label={t('Template categories')}>
-        {categories.map(([id, label]) => <button key={id} aria-pressed={category === id} onClick={() => filter(id)}>{id === 'builtin' && <MotionIcon name="scissors" size={14} />}{t(label)}</button>)}
+        {categories.map(([id, label]) => <Button variant="plain" key={id} aria-pressed={category === id} onClick={() => filter(id)}>{id === 'builtin' && <MotionIcon name="scissors" size={14} />}{t(label)}</Button>)}
       </div>
       <label className="motion-template-search"><MotionIcon name="search" /><input type="search" maxLength={200} value={query} placeholder={t('Search templates…')} aria-label={t('Search templates')} onChange={event => filter(category, event.target.value)} /></label>
     </div>
@@ -103,24 +105,24 @@ export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTempl
     {manualCopy && <textarea className="motion-manual-copy" aria-label={t('Template instruction')} readOnly value={manualCopy} onFocus={event => event.target.select()} />}
     <div className="motion-template-grid" aria-busy={loading}>
       {page?.items.map(template => <article className="motion-home-template" key={template.id} data-template-id={template.id}>
-        <button className="motion-template-cover" onClick={() => setPreview(template)} aria-label={t('Preview {title}', { title: template.title })}>
+        <Button variant="plain" className="motion-template-cover" onClick={() => setPreview(template)} aria-label={t('Preview {title}', { title: template.title })}>
           {template.posterUrl && <img src={template.posterUrl} alt={template.title} loading="lazy" />}
           <span className="motion-template-duration">{template.duration != null ? `${template.duration}s` : template.ratio}</span>
           {isEditableTemplate(template) && <span className="motion-editable-badge"><MotionIcon name="scissors" size={12} />{t('Ready to edit')}</span>}
           <span className="motion-template-preview-hint"><MotionIcon name="eye" />{t('Preview')}</span>
-        </button>
+        </Button>
         <div className="motion-template-info"><h3>{template.title}</h3>
           <div className="motion-template-footer"><div><a href={template.sourceUrl} target="_blank" rel="noreferrer">{template.authorName || template.author}<MotionIcon name="arrow-up-right" size={11} /></a>{template.social && <small title={`${template.social.platform} · ${template.social.views} · ${template.social.syncedAt}`}>{formatTemplateViews(template.social.views, locale)} {t('views')}</small>}</div>
-            <button className="motion-button" disabled={(Boolean(onSelect) || isEditableTemplate(template)) && switchingDisabled} onClick={() => action(template)}><MotionIcon name={onSelect ? 'plus' : isEditableTemplate(template) ? 'scissors' : 'copy'} size={14} />{t(onSelect ? 'Use template' : isEditableTemplate(template) ? 'Open and edit' : 'Copy to recreate')}</button>
+            <Button variant="plain" className="motion-button" disabled={(Boolean(onSelect) || isEditableTemplate(template)) && switchingDisabled} onClick={() => action(template)}><MotionIcon name={onSelect ? 'plus' : isEditableTemplate(template) ? 'scissors' : 'copy'} size={14} />{t(onSelect ? 'Use template' : isEditableTemplate(template) ? 'Open and edit' : 'Copy to recreate')}</Button>
           </div>
         </div>
       </article>)}
     </div>
     {page?.warning && <p role="status">{t(page.warning)}</p>}
     {loading && <p className="motion-home-empty" role="status">{t('Loading templates…')}</p>}
-    {error && <div className="motion-home-empty" role="alert">{t(error)} <button className="motion-button" onClick={() => retry(value => value + 1)}>{t('Retry')}</button></div>}
+    {error && <div className="motion-home-empty" role="alert">{t(error)} <Button variant="plain" className="motion-button" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button></div>}
     {!loading && !error && page?.items.length === 0 && <p className="motion-home-empty">{t('No matching templates. Try another name or category.')}</p>}
-    {page?.next != null && !error && <button className="motion-button motion-more-templates" disabled={loading} onClick={() => setOffset(page.next!)}>{t('More templates')}<MotionIcon name="arrow-right" /></button>}
+    {page?.next != null && !error && <Button variant="plain" className="motion-button motion-more-templates" disabled={loading} onClick={() => setOffset(page.next!)}>{t('More templates')}<MotionIcon name="arrow-right" /></Button>}
     {preview && <TemplatePreview template={preview} selecting={Boolean(onSelect)} busy={switchingDisabled} onClose={() => setPreview(null)} onAction={action} feedback={feedback} manualCopy={manualCopy} />}
   </section>;
 }
@@ -132,7 +134,7 @@ function TemplatePreview({ template, selecting, busy, onClose, onAction, feedbac
   const [failed, setFailed] = useState(false);
   useEffect(() => { dialog.current?.showModal(); return () => dialog.current?.close(); }, []);
   return <dialog className="motion-template-dialog" ref={dialog} aria-labelledby="home-preview-title" onCancel={event => { event.preventDefault(); onClose(); }} onKeyDown={event => event.stopPropagation()}>
-    <header><h2 id="home-preview-title">{selected.title}</h2><button className="motion-icon-button" aria-label={t('Close preview')} onClick={onClose}><MotionIcon name="close" /></button></header>
+    <header><h2 id="home-preview-title">{selected.title}</h2><IconButton variant="ghost" className="motion-icon-button" aria-label={t('Close preview')} onClick={onClose} icon={<MotionIcon name="close" />} /></header>
     <div className="motion-template-preview-stage">
       {selected.previewUrl ? <video key={selected.id} controls playsInline preload="metadata" poster={selected.posterUrl} src={selected.previewUrl} onError={() => setFailed(true)} aria-label={selected.title} /> : <img src={selected.posterUrl} alt={selected.title} />}
     </div>
@@ -140,7 +142,7 @@ function TemplatePreview({ template, selecting, busy, onClose, onAction, feedbac
       {failed && <p role="status">{t('Preview unavailable. You can still use the template instruction.')}</p>}
       {template.variants && <label>{t('Versions')}<select aria-label={t('Template version')} value={selected.id} onChange={event => { setSelected(template.variants!.find(item => item.id === event.target.value)!); setFailed(false); }}>{template.variants.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}
       <p>{selected.description || selected.subtitle}</p>
-      <div className="motion-template-footer"><a href={selected.sourceUrl} target="_blank" rel="noreferrer">{selected.authorName || selected.author}<MotionIcon name="arrow-up-right" size={13} /></a><button className="motion-button motion-button-primary" disabled={(selecting || isEditableTemplate(selected)) && busy} onClick={() => onAction(selected)}>{t(selecting ? 'Use template' : isEditableTemplate(selected) ? 'Open and edit' : 'Copy to recreate')}</button></div>
+      <div className="motion-template-footer"><a href={selected.sourceUrl} target="_blank" rel="noreferrer">{selected.authorName || selected.author}<MotionIcon name="arrow-up-right" size={13} /></a><Button variant="plain" className="motion-button motion-button-primary" disabled={(selecting || isEditableTemplate(selected)) && busy} onClick={() => onAction(selected)}>{t(selecting ? 'Use template' : isEditableTemplate(selected) ? 'Open and edit' : 'Copy to recreate')}</Button></div>
       {feedback && <p role="status">{feedback}</p>}{manualCopy && <textarea className="motion-manual-copy" aria-label={t('Template instruction')} readOnly value={manualCopy} onFocus={event => event.target.select()} />}
     </div>
   </dialog>;

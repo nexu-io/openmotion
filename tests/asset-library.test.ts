@@ -7,10 +7,14 @@ import { transport } from './http.ts';
 import { execute, pluginRoot } from '../hyperframes.ts';
 import { verificationBinaries } from '../scripts/verify-export.ts';
 import { AssetLibrary, assetHash } from '../gateway/asset-library.ts';
+import { audioAssetTitle, classifyAudioKind } from '../shared/audio-kind.ts';
+import { probeLibraryMedia } from '../gateway/asset-probe.ts';
 import { ModelGateway, gatewayFor } from '../gateway/service.ts';
 import { assetOperation } from '../gateway/asset-operations.ts';
 import { AssetConversations, type AssetAgentRpc } from '../gateway/asset-chat.ts';
 import { Phase1Service } from '../phase1.ts';
+import { assetDownloadUrl } from '../shared/asset-library.ts';
+import { mediaFilename } from '../shared/render-name.ts';
 
 async function image(dir: string, name = 'image.png', color = 'red') {
   const file = path.join(dir, name);
@@ -19,6 +23,15 @@ async function image(dir: string, name = 'image.png', color = 'red') {
 }
 const agents = async () => [{ id: 'codex', label: 'Codex', installed: true, authenticated: true, imageGeneration: true, available: true, reason: 'ready' }];
 const until = async (predicate: () => boolean | Promise<boolean>) => { for (let i = 0; i < 100; i++) { if (await predicate()) return; await new Promise(resolve => setTimeout(resolve, 20)); } throw new Error('Timed out'); };
+
+test('media download names preserve Unicode and keep version suffixes within portable limits', () => {
+  assert.equal(mediaFilename('测试.PNG', '.png'), '测试.png');
+  assert.equal(mediaFilename('CON', '.mp4'), '_CON.mp4');
+  assert.equal(mediaFilename('../配乐:春天 v3', '.mp3'), '__配乐_春天 v3.mp3');
+  const longName = mediaFilename('夏'.repeat(120) + ' v4', '.mp3');
+  assert.match(longName, / v4\.mp3$/u);
+  assert.ok(Buffer.byteLength(longName, 'utf8') < 255);
+});
 
 test('missing media tools reject library generation before invoking the model and preserve idempotency', () => fixture(async store => {
   const original = process.env.HYPERFRAMES_FFPROBE_PATH;
@@ -66,6 +79,29 @@ test('immutable upload versions, content-based receipts, filters and reversible 
   await assert.rejects(library.importFile(path.join(store.directory, 'fake.png'), { requestId: 'fake', name: 'fake' }), /not readable/);
 }, false));
 
+test('an AVIF still is probed as an image, not as the MP4 its container resembles', () => fixture(async store => {
+  // 64 x 64 red still, major brand "avif".
+  const still = Buffer.from('AAAAIGZ0eXBhdmlmAAAAAGF2aWZtaWYxbWlhZk1BMUIAAAD5bWV0YQAAAAAAAAAvaGRscgAAAAAAAAAAcGljdAAAAAAAAAAAAAAAAFBpY3R1cmVIYW5kbGVyAAAAAA5waXRtAAAAAAABAAAAHmlsb2MAAAAARAAAAQABAAAAAQAAASEAAAAlAAAAKGlpbmYAAAAAAAEAAAAaaW5mZQIAAAAAAQAAYXYwMUNvbG9yAAAAAGppcHJwAAAAS2lwY28AAAAUaXNwZQAAAAAAAABAAAAAQAAAABBwaXhpAAAAAAMICAgAAAAMYXYxQ4EADAAAAAATY29scm5jbHgAAgACAAIAAAAAF2lwbWEAAAAAAAAAAQABBAECgwQAAAAtbWRhdAoLAgAABVV//Gr5gEAyFhAA1wIZZMMCAAAIAYtJxybx8/EU+8A=', 'base64');
+  const file = path.join(store.directory, 'still.avif');
+  await writeFile(file, still);
+  assert.deepEqual(await probeLibraryMedia(file), { modality: 'image', mimeType: 'image/avif', extension: 'avif', bytes: still.length, width: 64, height: 64 });
+  const asset = await new AssetLibrary(store).importFile(file, { requestId: 'avif', name: 'Still' });
+  assert.equal(asset.modality, 'image');
+}));
+
+test('a video stored sideways is probed at the size it plays at', () => fixture(async store => {
+  const ffmpeg = async (...args: string[]) => { const result = await execute(verificationBinaries().ffmpeg, ['-v', 'error', ...args], store.directory, 20_000); assert.equal(result.code, 0, result.stderr); };
+  const flat = path.join(store.directory, 'flat.mp4'), turned = path.join(store.directory, 'turned.mp4'), flipped = path.join(store.directory, 'flipped.mp4');
+  await ffmpeg('-f', 'lavfi', '-i', 'testsrc2=size=64x48:rate=10:duration=1', '-an', '-y', flat);
+  // What a phone held upright records: landscape frames plus a display matrix.
+  await ffmpeg('-display_rotation', '90', '-i', flat, '-c', 'copy', '-y', turned);
+  await ffmpeg('-display_rotation', '180', '-i', flat, '-c', 'copy', '-y', flipped);
+  const size = async (file: string) => { const media = await probeLibraryMedia(file); return [media.width, media.height]; };
+  assert.deepEqual(await size(flat), [64, 48]);
+  assert.deepEqual(await size(turned), [48, 64]);
+  assert.deepEqual(await size(flipped), [64, 48]);
+}));
+
 test('workspace generation keeps job identity and pinned references without requiring a project', () => fixture(async store => {
   const original = await image(store.directory), bytes = await readFile(original); let calls = 0;
   const gateway = new ModelGateway(store, { detect: agents, codex: async () => { calls++; return bytes; } });
@@ -89,12 +125,21 @@ test('workspace generation keeps job identity and pinned references without requ
 
 test('asset HTTP uploads are replayable and media supports byte ranges; project imports pin independent copies', () => fixture(async store => {
   const source = await image(store.directory), bytes = await readFile(source), fetch = transport(store);
-  const upload = () => fetch('/motion-api/assets/upload?requestId=browser-upload', { method: 'POST', body: new Blob([bytes]), headers: { 'X-File-Name': encodeURIComponent('My image.png') } });
+  const upload = (request = 'browser-upload') => fetch('/motion-api/assets/upload?requestId=' + request, { method: 'POST', body: new Blob([bytes]), headers: { 'X-File-Name': encodeURIComponent('My image.png') } });
+  const refused = await upload('video-picker&modality=video');
+  assert.equal(refused.ok, false);
+  assert.match(await refused.text(), /Unsupported media type/);
+  assert.equal((await new AssetLibrary(store).list()).total, 0);
   const response = await upload(); assert.equal(response.status, 200, await response.clone().text());
   const { asset } = await response.json(); assert.equal((await (await upload()).json()).asset.id, asset.id);
   const url = `/motion-api/assets/${asset.id}/versions/${asset.currentVersionId}/file`;
   const range = await fetch(url, { headers: { Range: 'bytes=0-7' } }); assert.equal(range.status, 206); assert.deepEqual(Buffer.from(await range.arrayBuffer()), bytes.subarray(0, 8));
   const download = await fetch(url + '?download=1'); assert.match(download.headers.get('content-disposition')!, /attachment/);
+  const named = await fetch(assetDownloadUrl(asset.id, asset.currentVersionId, "测试 · 夏日's 封面"), { method: 'HEAD' });
+  assert.equal(named.status, 200);
+  const utf8Name = named.headers.get('content-disposition')!.split("UTF-8''")[1];
+  assert.ok(utf8Name.includes('%27'));
+  assert.equal(decodeURIComponent(utf8Name), "测试 · 夏日's 封面.png");
   const invalid = await fetch(url, { headers: { Range: 'bytes=999999-' } }); assert.equal(invalid.status, 416);
   const service = new Phase1Service(store, pluginRoot, { origin: () => 'http://localhost:4173', nativeUrl: () => undefined, openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
   const project = await service.call('openmotion_create_project', { requestId: 'project', projectType: 'natural_language', title: 'Film', requirements: 'A silent film' });
@@ -245,4 +290,71 @@ test('legacy conversation receipts survive new turns and replay after references
     await assert.rejects(restarted.start(chat.id, { ...input, text: 'Changed legacy input' }), /REQUEST_ID_CONFLICT/);
     assert.equal(launches, 1);
   } finally { await chats.close(); }
+}, false));
+
+test('audio assets persist probed waveforms, filter by server-side audioKind, search voice names, and derive short titles', () => fixture(async store => {
+  const library = new AssetLibrary(store);
+  const wav = path.join(store.directory, 'voice-sample.wav');
+  assert.equal((await execute(verificationBinaries().ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.4', wav], store.directory)).code, 0);
+  const uploaded = await library.importFile(wav, { requestId: 'upload-audio-1', name: 'Uploaded cue' });
+  assert.ok(Array.isArray(uploaded.versions[0].waveform) && uploaded.versions[0].waveform!.length === 128);
+  assert.equal(uploaded.versions[0].audioKind, 'upload');
+
+  const speechPrepared = await library.prepare(wav);
+  const speech = await store.lock(() => library.addLocked(speechPrepared, {
+    name: audioAssetTitle('把需求详情页做成一个交付视图。负责人打开需求后，可以直接看出需求拆成了哪些工作、每项进展如何。'),
+    expectedModality: 'audio',
+    version: { source: 'generated', prompt: '把需求详情页做成一个交付视图。负责人打开需求后，可以直接看出需求拆成了哪些工作、每项进展如何。', model: 'opendesign:elevenlabs-v3', parameters: { voice: '21m00Tcm4TlvDq8ikWAM' }, references: [], requestId: 'gen-speech-1', requestHash: 'h1' },
+  }));
+  assert.equal(speech.name, '把需求详情页做成一个交付视图。');
+  assert.equal(speech.versions[0].audioKind, 'speech');
+
+  const sfxPrepared = await library.prepare(wav);
+  await store.lock(() => library.addLocked(sfxPrepared, {
+    name: 'Whoosh',
+    expectedModality: 'audio',
+    version: { source: 'generated', prompt: 'Cinema whoosh', model: 'fal:fal-ai/elevenlabs/sound-effects/v2', parameters: { duration_seconds: 2 }, references: [], requestId: 'gen-sfx-1', requestHash: 'h2' },
+  }));
+
+  // Persisted audioKind preserves catalogue mode/label classification even for opaque endpoint IDs.
+  const opaqueSpeechPrepared = await library.prepare(wav);
+  const opaqueSpeech = await store.lock(() => library.addLocked(opaqueSpeechPrepared, {
+    name: 'Opaque narrator',
+    expectedModality: 'audio',
+    version: {
+      source: 'generated',
+      prompt: 'Narrator intro',
+      model: 'opendesign:acme/narrator-v2',
+      audioKind: classifyAudioKind('opendesign:acme/narrator-v2', 'text-to-speech', 'generated', 'acme/narrator-v2 Acme Narrator'),
+      parameters: {},
+      references: [],
+      requestId: 'gen-opaque-speech',
+      requestHash: 'h3',
+    },
+  }));
+  assert.equal(opaqueSpeech.versions[0].audioKind, 'speech');
+
+  const opaqueSfxPrepared = await library.prepare(wav);
+  const opaqueSfx = await store.lock(() => library.addLocked(opaqueSfxPrepared, {
+    name: 'Opaque impact',
+    expectedModality: 'audio',
+    version: {
+      source: 'generated',
+      prompt: 'Impact boom',
+      model: 'opendesign:acme/impact-v1',
+      audioKind: classifyAudioKind('opendesign:acme/impact-v1', 'text-to-audio', 'generated', 'acme/impact-v1 Acme Sound Effects'),
+      parameters: {},
+      references: [],
+      requestId: 'gen-opaque-sfx',
+      requestHash: 'h4',
+    },
+  }));
+  assert.equal(opaqueSfx.versions[0].audioKind, 'sfx');
+
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'speech' })).total, 2);
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'sfx' })).total, 2);
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'upload' })).total, 1);
+  assert.equal((await library.list({ modality: 'audio', audioKind: 'music' })).total, 0);
+  // Searching by friendly voice name finds assets storing the raw ElevenLabs voice ID.
+  assert.equal((await library.list({ modality: 'audio', query: 'Rachel' })).assets.map(a => a.id).includes(speech.id), true);
 }, false));

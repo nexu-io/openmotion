@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -124,7 +126,7 @@ export function PropertyPanelColorSecondary({
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-1">
           {secondaries.map((_, index) => (
-            <button
+            <Button variant="plain"
               key={index}
               type="button"
               aria-pressed={activeIndex === index}
@@ -141,41 +143,39 @@ export function PropertyPanelColorSecondary({
               }`}
             >
               {index + 1}
-            </button>
+            </Button>
           ))}
         </span>
         <span className="flex items-center gap-2">
-          <button
+          <IconButton variant="plain"
             type="button"
             aria-label={t("Add secondary color selection")}
             title={t("Add secondary color selection")}
             disabled={secondaries.length >= SECONDARY_CAPABILITIES.max}
             onClick={addSecondary}
             className="text-panel-text-3 hover:text-panel-text-1 disabled:opacity-35"
-          >
-            <Plus size={12} />
-          </button>
-          <button
+            icon={<Plus size={12} />}
+          />
+          <IconButton variant="plain"
             type="button"
             aria-label={t("Remove selected secondary")}
             title={t("Remove selected secondary")}
             disabled={!selected}
             onClick={removeSelected}
             className="text-panel-text-3 hover:text-panel-text-1 disabled:opacity-35"
-          >
-            <Trash size={12} />
-          </button>
+            icon={<Trash size={12} />}
+          />
         </span>
       </div>
 
       {!selected ? (
-        <button
+        <Button variant="plain"
           type="button"
           title={t("Add color selection")}
           onClick={addSecondary}
           className="w-full border border-dashed border-panel-border-input px-2 py-2 text-[10px] text-panel-text-4 hover:border-panel-accent/50 hover:text-panel-text-2"
         >
-          {t("Add a color selection")}</button>
+          {t("Add a color selection")}</Button>
       ) : (
         <>
           <FlatToggle
@@ -183,7 +183,7 @@ export function PropertyPanelColorSecondary({
             checked={selected.enabled}
             onChange={(enabled) => replaceSelected({ ...selected, enabled })}
           />
-          <button
+          <Button variant="plain"
             type="button"
             disabled={sampling}
             onClick={async () => {
@@ -209,7 +209,7 @@ export function PropertyPanelColorSecondary({
           >
             <Eyedropper size={12} />
             {sampling ? t("Capturing frame") : t("Sample color from frame")}
-          </button>
+          </Button>
           {captureError && (
             <p role="alert" className="text-[9px] leading-4 text-danger-ink">
               {captureError}
@@ -218,20 +218,20 @@ export function PropertyPanelColorSecondary({
           {sampleFrame && samplePixels && (
             <div className="space-y-1">
               <div className="flex gap-2 text-[9px]">
-                <button
+                <Button variant="plain"
                   type="button"
                   aria-pressed={!showMatte}
                   onClick={() => setShowMatte(false)}
                   className={!showMatte ? "text-accent-ink" : "text-panel-text-4"}
                 >
-                  {t("Source")}</button>
-                <button
+                  {t("Source")}</Button>
+                <Button variant="plain"
                   type="button"
                   aria-pressed={showMatte}
                   onClick={() => setShowMatte(true)}
                   className={showMatte ? "text-accent-ink" : "text-panel-text-4"}
                 >
-                  {t("Selection matte")}</button>
+                  {t("Selection matte")}</Button>
               </div>
               {showMatte ? (
                 <canvas

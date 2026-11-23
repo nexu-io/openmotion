@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n/I18n";
 import { useCallback, useEffect, useRef, type RefObject } from "react";
@@ -83,7 +84,7 @@ export function PreviewZoomOverlay({
   const controls = (
     <div
       className={controlsTarget
-        ? "flex items-center gap-2 px-1 text-xs text-text-0 whitespace-nowrap"
+        ? "motion-preview-header-zoom flex items-center text-xs text-text-0 whitespace-nowrap"
         : "absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 rounded-md py-1 pl-2.5 pr-1 text-xs text-white/90 bg-black/80 backdrop-blur-xs"}
       data-testid="preview-zoom-chip"
       onPointerDown={(event) => event.stopPropagation()}
@@ -93,21 +94,21 @@ export function PreviewZoomOverlay({
           align="end"
           className="motion-preview-zoom-menu"
           aria-label={t("Scale")}
-          trigger={<button
+          trigger={<Button variant="plain"
             type="button"
             aria-label={`${t("Scale")}: ${Math.round(zoom.zoomPercent)}%`}
             className="flex items-center gap-1 rounded px-2 py-1 tabular-nums text-[11px] hover:bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-studio-accent"
             data-testid="preview-zoom-menu"
           >
             {Math.round(zoom.zoomPercent)}%<CaretDown size={12} />
-          </button>}
+          </Button>}
         >
           <MenuRadioGroup value={zoom.zoomPercent} onValueChange={(value) => onZoomPercent(Number(value))}>
             {ZOOM_PRESETS.map(percent => <MenuRadioItem key={percent} value={percent} closeOnClick>{percent}%</MenuRadioItem>)}
           </MenuRadioGroup>
         </Menu>
       ) : <span className="tabular-nums">{!atFit && isFitZoom(zoom.zoomPercent) ? t("Panned") : t("Zoomed {percent}%", { percent: Math.round(zoom.zoomPercent) })}</span>}
-      {!atFit && <button
+      {!atFit && <Button variant="plain"
         type="button"
         className={controlsTarget
           ? "rounded px-2 py-1 font-medium text-text-0 bg-hover hover:bg-press disabled:opacity-40 disabled:cursor-default"
@@ -117,7 +118,7 @@ export function PreviewZoomOverlay({
         data-testid="preview-zoom-fit"
       >
         {t("Fit")}
-      </button>}
+      </Button>}
     </div>
   );
   return (

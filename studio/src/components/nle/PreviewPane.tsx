@@ -1,10 +1,13 @@
-import { useCallback, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { PlayerControls } from "../../player";
 import { useMvpEditor } from "../../motion/StudioHost";
+import { PreviewCanvasMenu } from "../../motion/PreviewCanvasMenu";
 import type { TimelineElement } from "../../player";
 import { useDockHeaderSlot } from "../dock/DockHeaderSlots";
 import { PreviewEmptyState } from "./PreviewEmptyState";
 import { useEmptyPreview } from "./useEmptyPreview";
+import { TimelineHoverPreview } from "./TimelineHoverPreview";
 import { NLEPreview } from "./NLEPreview";
 import { CompositionBreadcrumb } from "./CompositionBreadcrumb";
 import { usePreviewBlockDrop } from "./usePreviewBlockDrop";
@@ -12,15 +15,15 @@ import { useNLEContext } from "./NLEContext";
 import { AssetPreviewOverlay } from "./AssetPreviewOverlay";
 import { PreviewGuides } from "../editor/PreviewGuides";
 import { PreviewOverlayProvider } from "../editor/PreviewOverlayProvider";
+import { ReviewComposerOverlay } from '../../motion/ReviewComposerOverlay';
+import { ReviewAnnotationOverlay } from '../../motion/ReviewAnnotationOverlay';
+import { ReviewPlayerControls } from '../../motion/ReviewPlayerControls';
 
-function subscribeFullscreen(cb: () => void) {
-  document.addEventListener("fullscreenchange", cb);
-  return () => document.removeEventListener("fullscreenchange", cb);
-}
-
-function getFullscreenElement() {
-  return document.fullscreenElement;
-}
+import { useFullscreenPlayback } from './useFullscreenPlayback';
+import { togglePreviewFullscreen } from '../../player/lib/previewFullscreen';
+import { useToast } from '../../hooks/useToast';
+import { StudioToastViewport } from '../StudioToastViewport';
+import { useI18n } from '../../i18n/I18n';
 
 // Clear the timeline selection when a pointer lands outside the composition
 // frame (clicks *inside* the frame are handled by the DOM-edit overlay).
@@ -60,6 +63,7 @@ export function PreviewPane({
   onPreviewBlockDrop,
 }: PreviewPaneProps) {
   const mvp = useMvpEditor();
+  const { t } = useI18n(), toast = useToast();
   const previewHeader = useDockHeaderSlot("preview");
   const {
     projectId,
@@ -105,17 +109,8 @@ export function PreviewPane({
   // Preview-only fullscreen: fullscreen targets THIS pane's container, so the
   // browser shows only the preview (sidebars + timeline are excluded naturally).
   const containerRef = useRef<HTMLDivElement>(null);
-  const fullscreenElement = useSyncExternalStore(subscribeFullscreen, getFullscreenElement);
-  const isFullscreen = fullscreenElement === containerRef.current && fullscreenElement != null;
-
-  const toggleFullscreen = useCallback(() => {
-    if (!containerRef.current) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void containerRef.current.requestFullscreen();
-    }
-  }, []);
+  const { fullscreen: isFullscreen, controlsHidden } = useFullscreenPlayback(containerRef);
+  const toggleFullscreen = () => { void togglePreviewFullscreen(containerRef.current, message => toast.showToast(t(message), 'error')); };
 
   const currentLevel = compositionStack[compositionStack.length - 1];
   const directUrl = compositionStack.length > 1 ? currentLevel.previewUrl : undefined;
@@ -126,24 +121,28 @@ export function PreviewPane({
       ref={containerRef}
       // MVP insets only the canvas; the transport background reaches the panel edges.
       // Fullscreen removes the inset so the preview fills the screen.
-      className={`relative scheme-dark flex-1 min-h-0 flex flex-col overflow-hidden ${mvp ? "bg-transparent" : "bg-[var(--studio-preview-bg,var(--color-neutral-950))]"} ${
-        isFullscreen ? "" : mvp ? (empty ? "my-3" : "mt-3") : "m-3 rounded-md border border-border"
+      className={`motion-preview-player relative scheme-dark flex-1 min-h-0 flex flex-col overflow-hidden ${mvp ? "bg-transparent" : "bg-[var(--studio-preview-bg,var(--color-neutral-950))]"} ${
+        isFullscreen ? "" : mvp ? (empty ? "mb-3" : "") : "m-3 rounded-md border border-border"
       }`}
-      data-studio-fullscreen-target={mvp ? undefined : ""}
+      data-studio-fullscreen-target=""
+      data-controls-hidden={controlsHidden || undefined}
     >
+      {previewHeader && !isFullscreen && createPortal(<PreviewCanvasMenu />, previewHeader)}
       <div
-        className={`flex-1 min-h-0 relative overflow-hidden ${mvp && !isFullscreen ? "mx-3" : ""}`}
+        className={`flex-1 min-h-0 relative overflow-hidden ${mvp && !isFullscreen ? "motion-preview-viewport" : ""}`}
         data-preview-pan-surface="true"
         onPointerDown={(e) =>
-          deselectIfPointerOutsideFrame(e, iframeRef.current, onSelectTimelineElement)
+          !isFullscreen && deselectIfPointerOutsideFrame(e, iframeRef.current, onSelectTimelineElement)
         }
-        onDragEnter={handlePreviewDragEnter}
-        onDragOver={handlePreviewDragOver}
-        onDragLeave={handlePreviewDragLeave}
-        onDrop={handlePreviewDrop}
+        onDragEnter={isFullscreen ? undefined : handlePreviewDragEnter}
+        onDragOver={isFullscreen ? undefined : handlePreviewDragOver}
+        onDragLeave={isFullscreen ? undefined : handlePreviewDragLeave}
+        onDrop={isFullscreen ? undefined : handlePreviewDrop}
       >
         <div className="absolute inset-0 overflow-hidden">
           <NLEPreview
+            presentationMode={isFullscreen}
+            fillBox={isFullscreen}
             zoomControlsTarget={mvp && !isFullscreen ? previewHeader : null}
             projectId={projectId}
             iframeRef={iframeRef}
@@ -161,16 +160,19 @@ export function PreviewPane({
             onStageRef={handleStageRef}
             onCompositionSizeChange={setPreviewCompositionSize}
           />
-          {previewDragOver && (
+          {!isFullscreen && previewDragOver && (
             <div className="absolute inset-2 z-40 rounded-lg border-2 border-dashed border-studio-accent/50 bg-studio-accent/4 pointer-events-none" />
           )}
-          {!mvp && <AssetPreviewOverlay />}
+          {!mvp && !isFullscreen && <AssetPreviewOverlay />}
         </div>
-        {!empty && <PreviewOverlayProvider>
+        {!empty && !isFullscreen && <PreviewOverlayProvider>
           <PreviewGuides />
-          {!isFullscreen && previewOverlay}
+          {previewOverlay}
+          {mvp && <><ReviewAnnotationOverlay /><ReviewComposerOverlay /></>}
         </PreviewOverlayProvider>}
         {empty && <PreviewEmptyState />}
+        {!empty && !isFullscreen && <TimelineHoverPreview />}
+        {isFullscreen && <button type="button" data-fullscreen-playback-surface="" className="absolute inset-0 border-0 bg-transparent" aria-label={t('Play or pause preview')} onClick={togglePlay} />}
       </div>
       {/* The MVP transport fills both side edges and the bottom inset. */}
       {!empty && <div data-preview-transport="" className={`shrink-0 ${mvp ? "motion-preview-transport" : ""}`}>
@@ -178,15 +180,17 @@ export function PreviewPane({
           <CompositionBreadcrumb stack={compositionStack} onNavigate={handleNavigateComposition} />
         )}
         <PlayerControls
+          reviewControls={mvp && !isFullscreen ? <ReviewPlayerControls projectId={projectId} disabled={timelineDisabled || compositionLoading} /> : undefined}
           onTogglePlay={togglePlay}
           onSeek={seek}
           disabled={timelineDisabled}
           isFullscreen={isFullscreen}
-          onToggleFullscreen={mvp ? undefined : toggleFullscreen}
+          onToggleFullscreen={toggleFullscreen}
         />
       </div>
       }
-      {mvp && <AssetPreviewOverlay modal onOpen={pause} />}
+      {mvp && !isFullscreen && <AssetPreviewOverlay modal onOpen={pause} />}
+      <StudioToastViewport {...toast} />
     </div>
   );
 }

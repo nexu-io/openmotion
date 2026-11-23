@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { useState } from "react";
 import type { DomEditSelection } from "./domEditingTypes";
@@ -321,24 +323,15 @@ export function PropertyPanel3dTransform({
 
   return (
     <div className="mt-3 border-t border-neutral-800/40 pt-3">
-      <button
+      <Button variant="plain"
         type="button"
         onClick={() => setCollapsed((v) => !v)}
         aria-expanded={!collapsed}
         className="mb-2 flex w-full items-center justify-between text-[10px] font-medium uppercase tracking-wider text-neutral-600 hover:text-neutral-400 active:scale-[0.99]"
       >
         <span>{t("3D Transform")}</span>
-        <svg
-          width="9"
-          height="9"
-          viewBox="0 0 10 10"
-          fill="currentColor"
-          aria-hidden
-          className={`transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`}
-        >
-          <path d="M2 3l3 4 3-4z" />
-        </svg>
-      </button>
+        <RemixIcon name="arrow-down-s-fill" size={9} className={`transition-transform duration-150 ${collapsed ? "-rotate-90" : ""}`} />
+      </Button>
       {collapsed ? null : (
         <>
           {onCommitAnimatedProperties && (

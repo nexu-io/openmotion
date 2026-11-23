@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { TRACK_H } from "./timelineLayout";
 import { TrackClipCount } from "./TrackClipCount";
@@ -29,7 +30,7 @@ export function LaneToggleButton({
 }) {
   const { t } = useI18n();
   return (
-    <button
+    <IconButton variant="plain"
       type="button"
       // ponytail: No focus id here; keyboard routing belongs to the enclosing logical row.
       tabIndex={-1}
@@ -49,9 +50,8 @@ export function LaneToggleButton({
         event.stopPropagation();
         onToggle();
       }}
-    >
-      <span aria-hidden="true">∿</span>
-    </button>
+      icon={<span aria-hidden="true">∿</span>}
+    />
   );
 }
 

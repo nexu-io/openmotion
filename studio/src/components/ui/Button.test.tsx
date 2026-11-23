@@ -10,8 +10,8 @@ import path from "node:path";
 import React, { act } from "react";
 import { compile } from "tailwindcss";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { Button, type ButtonSize, type ButtonVariant } from "./Button";
-import { IconButton } from "./IconButton";
+import { Button, type ButtonSize, type ButtonVariant } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { Tab, Tabs, TabsList } from "./Tabs";
 import { cleanupMounted, mountHost } from "./mountHost.testHelpers";
 import { isTypingTarget } from "../../utils/typingTarget";
@@ -46,8 +46,8 @@ beforeAll(async () => {
     base: STYLES_DIR,
     loadStylesheet,
   });
-  // The app imports the Motion adapter after Studio; semantic hooks live there.
-  const hostCss = readFileSync(path.join(STYLES_DIR, "../../../packages/design-system/studio/adapter.css"), "utf8") + readFileSync(path.join(STYLES_DIR, "../motion/theme.css"), "utf8");
+  // Studio layers shared control recipes and app styles on top of Tailwind.
+  const hostCss = readFileSync(path.join(STYLES_DIR, "../../../packages/design-system/studio/control-recipes.css"), "utf8") + readFileSync(path.join(STYLES_DIR, "../motion/theme.css"), "utf8");
   compileStudioCss = (candidates) => compiled.build(candidates) + hostCss;
 });
 
@@ -142,6 +142,20 @@ describe("Button classes", () => {
 });
 
 describe("Button behaviour", () => {
+  it("keeps keyboard focus without imposing dimensions on a custom layout", () => {
+    const host = mountHost(<>
+      <Button variant="plain" className="text-left">Read paragraph</Button>
+      <IconButton variant="plain" className="size-4" aria-label="Reset" icon={<svg />} />
+    </>);
+    const [text, icon] = host.querySelectorAll("button");
+    for (const control of [text, icon]) {
+      expect(control.classList.contains("focus-visible:outline-accent")).toBe(true);
+      expect(control.className).not.toMatch(/(?:h-ctl|size-ctl|whitespace-nowrap|inline-flex)/);
+    }
+    expect(text.classList.contains("text-left")).toBe(true);
+    expect(icon.classList.contains("size-4")).toBe(true);
+  });
+
   it("does not fire a disabled click, and says it is disabled", () => {
     let clicks = 0;
     const host = mountHost(

@@ -5,12 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { resolveDesignSystemFile } from '../packages/design-system/index.js';
+import { openmotionI18nPlugin } from './vite-i18n-plugin';
 
 const local = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 
 export default defineConfig({
+  base: '/',
   root: local('./'),
-  plugins: [react(), tailwindcss(), {
+  plugins: [react(), tailwindcss(), openmotionI18nPlugin(), {
     name: 'openmotion-design-system',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
@@ -26,6 +28,7 @@ export default defineConfig({
   }],
   define: { __STUDIO_VERSION__: JSON.stringify('0.9.7'), ...(!process.env.VITEST ? { 'import.meta.env.VITE_HYPERFRAMES_NO_TELEMETRY': JSON.stringify('1') } : {}) },
   resolve: { alias: [
+    { find: 'open-design-ui', replacement: local('../packages/open-design-ui') },
     { find: 'canvas', replacement: local('./src/shims/canvasBrowserStub.js') },
     { find: /^\/design-system\//, replacement: local('../packages/design-system/') },
   ] },

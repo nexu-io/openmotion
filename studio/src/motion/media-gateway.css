@@ -95,7 +95,6 @@
 .motion-asset-generate { width: 100%; margin-bottom: 8px; color: var(--motion-accent); background: var(--motion-accent-soft); }
 .motion-asset-menu-button, .motion-audio-menu-button { flex-shrink: 0; border-radius: var(--motion-radius-sm); width: 24px; height: 24px; color: var(--motion-muted); font-weight: var(--motion-weight-bold); }
 .motion-asset-menu-button:hover, .motion-audio-menu-button:hover { background: var(--motion-hover); color: var(--motion-strong); }
-.motion-media-notice { position: fixed; right: 20px; bottom: 24px; z-index: 210; padding: 12px; border-radius: var(--motion-radius-md); color: var(--motion-danger); background: var(--motion-danger-soft); }
 @media (max-width: 780px) { .motion-provider-grid { grid-template-columns: 1fr; } .motion-empty-media-actions { margin-left: 0; flex-direction: column; } .motion-timeline-media-actions button:last-child { display: none; } .motion-model-dialog { padding: 16px; } }
 
 .motion-byok-dialog { width: min(840px, calc(100vw - 32px)); }

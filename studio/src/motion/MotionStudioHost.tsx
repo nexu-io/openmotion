@@ -81,9 +81,14 @@ function WorkspaceHistoryActions() {
   </div>;
 }
 
+function WorkspaceHeaderActions() {
+  const chrome = useOptionalWorkspaceChrome();
+  return <>{chrome?.projectNavigation}<WorkspaceSaveStatus /></>;
+}
+
 const host: StudioHost = {
   mvpEditor: true,
-  headerActions: <WorkspaceSaveStatus />,
+  headerActions: <WorkspaceHeaderActions />,
   projectLabel: <WorkspaceProject />,
   communityAction: <></>,
   historyActions: <WorkspaceHistoryActions />,

@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { RemixIcon, X } from "../../icons/RemixIcons";
 import { usePlayerStore } from "../store/playerStore";
@@ -57,13 +58,14 @@ export function TimelinePendingAssetDrops({
       >
         {!drop.failed && <RemixIcon name="loader-4-line" size={14} className="shrink-0 motion-safe:animate-spin" aria-hidden="true" />}
         {!compact && <span className="min-w-0 truncate">{drop.failed ? `${message} · ${name}` : name}</span>}
-        {drop.failed && <button
+        {drop.failed && <IconButton variant="plain"
           type="button"
           className="ml-auto shrink-0 rounded p-1 focus-visible:outline focus-visible:outline-2"
           aria-label={t("Dismiss error")}
           onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => { event.stopPropagation(); dismissPendingAssetDrop(drop.id); }}
-        ><X size={12} /></button>}
+          icon={<X size={12} />}
+        />}
       </div>
     );
   });

@@ -1,3 +1,4 @@
+import { IconButton } from 'open-design-ui/icon-button';
 import { useEffect, useRef, useState } from 'react';
 import { trackStudioClick } from './editorTracking';
 import { useI18n } from '../i18n/I18n';
@@ -40,7 +41,7 @@ export function PrivacySettings({ onClose, embedded = false }: { onClose: () => 
     </section><section className={embedded ? 'om-card om-card-stack' : undefined}><DiagnosticExport /></section><StudioToastViewport {...toast} /></>;
   if (embedded) return content;
   return <dialog ref={dialog} className="motion-model-dialog motion-media-surface motion-privacy-dialog" aria-labelledby="privacy-settings-title" onCancel={event => { event.preventDefault(); onClose(); }}>
-    <header><h2 id="privacy-settings-title">{t('Privacy settings')}</h2><button className="motion-media-close" aria-label={t('Close')} onClick={onClose}>×</button></header>
+    <header><h2 id="privacy-settings-title">{t('Privacy settings')}</h2><IconButton variant="plain" className="motion-media-close" aria-label={t('Close')} onClick={onClose} icon="×" /></header>
     {content}
   </dialog>;
 }

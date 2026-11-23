@@ -10,6 +10,8 @@ import { buildTimelineTrackInsertLayout } from "./timelineTrackInsertLayout";
 import {
   TRACK_H,
   MAIN_TRACK_H,
+  TRACKS_TOP_PAD,
+  TRACKS_BOTTOM_PAD,
   createTimelineRowGeometry,
   type TimelineRowGeometry,
   type TimelineTrackPadding,
@@ -260,7 +262,7 @@ export function useTimelineTrackLayout(
   trackPadding?: TimelineTrackPadding,
   viewportHeight = 0,
 ) {
-  const centered = useMvpEditor();
+  const mvp = useMvpEditor();
   const { tracks, trackStyles, trackOrder, groups, trackGroupOf } =
     useTimelineTrackDerivations(expandedElements);
   const trackOrderRef = useRef(trackOrder);
@@ -277,10 +279,10 @@ export function useTimelineTrackLayout(
     selectedElementId,
     selectedElementIds,
     groups,
-    centered ? { top: trackPadding?.top ?? TRACK_H, bottom: trackPadding?.bottom ?? TRACK_H } : trackPadding,
-    centered,
+    mvp ? { top: trackPadding?.top ?? TRACKS_TOP_PAD, bottom: trackPadding?.bottom ?? TRACKS_BOTTOM_PAD } : trackPadding,
+    mvp,
   );
-  const rowGeometry = useMemo(() => centered ? centerTimelineTracks(naturalGeometry, viewportHeight) : naturalGeometry, [centered, naturalGeometry, viewportHeight]);
+  const rowGeometry = useMemo(() => mvp ? centerTimelineTracks(naturalGeometry, viewportHeight) : naturalGeometry, [mvp, naturalGeometry, viewportHeight]);
   const rowGeometryRef = useRef(rowGeometry);
   rowGeometryRef.current = rowGeometry;
 

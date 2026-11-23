@@ -318,6 +318,24 @@ describe("usePlaybackKeyboard — a focused native player owns its keys", () => 
   });
 });
 
+describe("usePlaybackKeyboard — fullscreen surface", () => {
+  it.each([
+    { code: "ArrowLeft", key: "ArrowLeft" }, { code: "ArrowRight", key: "ArrowRight" },
+    { code: "KeyJ", key: "j" }, { code: "KeyK", key: "k" }, { code: "KeyL", key: "l" },
+    { code: "KeyM", key: "m" }, { code: "KeyL", key: "L", shiftKey: true }, { code: "Space", key: " " },
+  ])("handles $code on the fullscreen surface but leaves ordinary buttons alone", init => {
+    const { dispatch } = setupHook();
+    const surface = document.createElement("button");
+    for (const fullscreen of [false, true]) {
+      surface.toggleAttribute("data-fullscreen-playback-surface", fullscreen);
+      const event = keydown(init);
+      Object.defineProperty(event, "target", { value: surface });
+      act(() => dispatch(event));
+      expect(event.defaultPrevented).toBe(fullscreen);
+    }
+  });
+});
+
 describe("usePlaybackKeyboard — frame step", () => {
   it.each([
     [25, 3],

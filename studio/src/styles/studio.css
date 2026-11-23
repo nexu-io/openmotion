@@ -2,9 +2,10 @@
 @import "../../../packages/design-system/tailwind.css";
 @import "./components.css";
 
-/* Explicit sources: Studio's own TypeScript and its shell HTML. Automatic
+/* Explicit sources: Studio TypeScript, shared controls and the shell HTML. Automatic
  * detection would walk up to the repo root and scan `data/projects`, gitignored user content. */
 @source "../**/*.{ts,tsx}";
+@source "../../../packages/open-design-ui/*.tsx";
 @source "../../index.html";
 
 /* Tailwind v4 preflight no longer gives enabled buttons a pointer cursor. */

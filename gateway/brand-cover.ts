@@ -19,7 +19,7 @@ const entities = (value: string) => value.replace(/&(#x[\da-f]+|#\d+|amp|quot|ap
 
 /** Metadata is inert input. Resolve relative URLs, then apply the same public-HTTPS boundary as capture. */
 function brandMetadata(html: string, pageUrl: string) {
-  const document = html.replace(/<!--[\s\S]*?-->|<(script|style|template|svg|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  const document = html.replace(/<!--[\s\S]*?-->|<(script|style|template|svg)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
   const tags = [...document.matchAll(/<(\/?)([a-z][\w:-]*)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi)]
     .filter(tag => /^(meta|base|link|picture|source|img)$/i.test(tag[2])).map(tag => {
       const attributes: Record<string, string> = {};
@@ -44,12 +44,16 @@ const imageUrl = (raw: string, base: string) => {
 function socialImages({ tags, base }: BrandMetadata): string[] {
   const images: { priority: number; url: string }[] = [];
   for (const { name, attributes } of tags) {
-    if (name !== 'meta') continue;
-    const property = (attributes.property || attributes.name || '').toLowerCase();
-    const priority = ['og:image:secure_url', 'og:image', 'og:image:url', 'twitter:image', 'twitter:image:src'].indexOf(property);
-    if (priority < 0 || !attributes.content) continue;
-    const url = imageUrl(attributes.content, base);
-    if (url) images.push({ priority, url });
+    if (name === 'meta') {
+      const property = (attributes.property || attributes.name || attributes.itemprop || '').toLowerCase();
+      const priority = ['og:image:secure_url', 'og:image', 'og:image:url', 'twitter:image', 'twitter:image:src', 'image'].indexOf(property);
+      if (priority < 0 || !attributes.content) continue;
+      const url = imageUrl(attributes.content, base);
+      if (url) images.push({ priority, url });
+    } else if (name === 'link' && attributes.href && (attributes.rel || '').toLowerCase().split(/\s+/).includes('image_src')) {
+      const url = imageUrl(attributes.href, base);
+      if (url) images.push({ priority: 6, url });
+    }
   }
   return [...new Set(images.sort((a, b) => a.priority - b.priority).map(image => image.url))].slice(0, 6);
 }
@@ -74,6 +78,12 @@ function pageImages({ tags, base }: BrandMetadata): string[] {
   };
   let sources: string[] | undefined;
   for (const { name, attributes: a } of tags) {
+    if (name === 'link' && (a.rel || '').toLowerCase().split(/\s+/).includes('preload') && (a.as || '').toLowerCase() === 'image') {
+      const preloaded = (a.imagesrcset && responsiveImage(a.imagesrcset)) || a.href;
+      if (preloaded && !/\b(?:logo|logos|icon|icons|avatar|badge|pixel|tracking|spacer|favicon)\b/i.test(preloaded)) append(preloaded);
+      if (urls.size >= 8) break;
+      continue;
+    }
     if (name === 'picture') { sources = []; continue; }
     if (name === '/picture') { sources = undefined; continue; }
     if (name === 'source' && sources && a.type !== 'image/svg+xml') {
@@ -150,7 +160,11 @@ export function brandCoverMime(body: Buffer): string | undefined {
   if (body[0] === 255 && body[1] === 216 && body[2] === 255) return 'image/jpeg';
   if (/^GIF8[79]a/.test(body.toString('ascii', 0, 6))) return 'image/gif';
   if (body.toString('ascii', 0, 4) === 'RIFF' && body.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
-  if (body.toString('ascii', 4, 8) === 'ftyp' && /^(avif|avis)$/.test(body.toString('ascii', 8, 12))) return 'image/avif';
+  if (body.toString('ascii', 4, 8) === 'ftyp') {
+    const brand = body.toString('ascii', 8, 12);
+    if (/^(avif|avis)$/.test(brand) || (brand === 'mif1' && body.subarray(16, Math.min(body.length, 64)).includes('avif')))
+      return 'image/avif';
+  }
 }
 
 export function brandFaviconMime(body: Buffer): string | undefined {
@@ -160,7 +174,7 @@ export function brandFaviconMime(body: Buffer): string | undefined {
     const svg = body.toString('utf8').replace(/^\uFEFF?\s*(?:<\?xml\s+[^?]*\?>\s*)?/, '');
     // Served only as an image under a scriptless opaque-origin CSP.
     if (/^\s*<svg(?:\s|>)/i.test(svg) && /<\/svg>\s*$/i.test(svg) &&
-      !/<!\s*(?:doctype|entity)|<\?|<(?:[a-z]+:)?(?:script|foreignObject|a)(?:\s|\/|>)|\s(?:on\w+|[\w:]*href)\s*=/i.test(svg))
+      !/<!\s*(?:doctype|entity)|<\?|<(?:[a-z]+:)?(?:script|foreignObject|a)(?:\s|\/|>)|\s(?:on\w+\s*=|[\w:]*href\s*=\s*(?:"(?!#)|'(?!#)|[^"'#\s]))/i.test(svg))
       return 'image/svg+xml';
   }
   if (body.length < 22 || body.readUInt32LE(0) !== 0x00010000) return;
@@ -171,6 +185,29 @@ export function brandFaviconMime(body: Buffer): string | undefined {
     if (!length || start < 6 + count * 16 || start + length > body.length) return;
   }
   return 'image/vnd.microsoft.icon';
+}
+
+export function sameBrandSite(website: string, candidate: string) {
+  try {
+    const a = new URL(website), b = new URL(candidate);
+    if (a.protocol !== 'https:' || b.protocol !== 'https:') return false;
+    const base = a.hostname.toLowerCase().replace(/^www\./, '');
+    const target = b.hostname.toLowerCase();
+    return target === base || target.endsWith('.' + base);
+  } catch { return false; }
+}
+
+/** Deduplicate GitHub tree/blob paths so catalogue entries share one favicon and repo OG fetch. */
+function normalizeArtworkUrl(url: string, kind: 'cover' | 'favicon', hasDirectCover: boolean, hasCoverPage: boolean) {
+  if (hasCoverPage) return url;
+  const parsed = new URL(url);
+  if (parsed.hostname.toLowerCase() !== 'github.com') return url;
+  if (kind === 'favicon') return 'https://github.com/';
+  if (!hasDirectCover) {
+    const repo = parsed.pathname.match(/^\/([^/]+\/[^/]+)\/(?:tree|blob)\//);
+    if (repo) return `https://github.com/${repo[1]}`;
+  }
+  return url;
 }
 
 /** Optional discovery artwork, cached outside both the checkout and the reusable Motion Package. */
@@ -196,8 +233,9 @@ export class BrandCoverCache {
     try { url = brandWebsite(website); } catch { return Promise.resolve(undefined); }
     if (coverPage) {
       coverPage = imageUrl(coverPage, url);
-      if (coverPage && (new URL(coverPage).origin !== new URL(url).origin || coverPage === url)) coverPage = undefined;
+      if (coverPage && (!sameBrandSite(url, coverPage) || coverPage === url)) coverPage = undefined;
     }
+    url = normalizeArtworkUrl(url, kind, Boolean(capturedImage), Boolean(coverPage));
     const key = digest(url + '\n' + (kind === 'favicon' ? 'favicon' : capturedImage || '') + (coverPage ? '\n' + coverPage : ''));
     const existing = this.pending.get(key);
     if (existing) return existing;
@@ -223,7 +261,7 @@ export class BrandCoverCache {
     else this.running++;
     let cover: Cover | undefined;
     try {
-      const signal = AbortSignal.timeout(20_000);
+      const signal = AbortSignal.timeout(25_000);
       const fetch = async (input: string, timeout: number) => {
         const deadline = AbortSignal.any([signal, AbortSignal.timeout(timeout)]);
         let url = brandWebsite(input);
@@ -240,16 +278,23 @@ export class BrandCoverCache {
         throw new Error('Too many cover redirects');
       };
       const seen = new Set<string>();
+      let smallSocial: Cover | undefined;
       const image = async (url: string, fromPage = false) => {
         if (seen.has(url)) return;
         seen.add(url);
-        const response = await fetch(url, kind === 'cover' ? 3500 : 5000);
+        const response = await fetch(url, kind === 'cover' ? 8000 : 6000);
         const mime = imageMime(response.body);
         if (!mime) throw new Error('Cover is not a raster image');
         if (kind === 'cover') {
           const size = coverDimensions(response.body, mime);
-          if (size ? size[0] < 240 || size[1] < 135 || size[0] * size[1] > 32_000_000 || (fromPage && size[0] / size[1] > 3.5) : fromPage)
+          if (size && size[0] * size[1] > 32_000_000) throw new Error('Image does not fit a gallery cover');
+          if (!size && fromPage) throw new Error('Image does not fit a gallery cover');
+          if (size && (size[0] < 240 || size[1] < 135 || (fromPage && size[0] / size[1] > 3.5))) {
+            // Keep compact explicit OG/Twitter images (e.g. 180x180 or 200x200) as a fallback if no larger cover exists.
+            if (!fromPage && !smallSocial && size[0] >= 120 && size[1] >= 120)
+              smallSocial = { body: response.body, source: response.url, mime };
             throw new Error('Image does not fit a gallery cover');
+          }
         }
         return { body: response.body, source: response.url, mime };
       };
@@ -258,7 +303,7 @@ export class BrandCoverCache {
       }
       for (const url of coverPage ? [website, coverPage] : [website]) {
         if (cover) break;
-        const page = await fetch(url, kind === 'cover' ? 7500 : 10_000).catch(() => undefined);
+        const page = await fetch(url, 10_000).catch(() => undefined);
         const html = /(?:text\/html|application\/xhtml\+xml)/i.test(page?.headers['content-type'] || '') ? page!.body.toString('utf8') : '';
         const pageUrl = page?.url || url;
         const first = async (urls: string[], fromPage = false) => {
@@ -269,12 +314,17 @@ export class BrandCoverCache {
             } catch { signal.throwIfAborted(); }
           }
         };
-        if (kind === 'favicon') cover = await first(brandFavicons(html, pageUrl));
-        else {
+        if (kind === 'favicon') {
+          const fallbackIcons = ['/apple-touch-icon.png', '/favicon.png', '/favicon.svg']
+            .map(pathname => { try { return brandWebsite(new URL(pathname, pageUrl).href); } catch { return ''; } })
+            .filter(Boolean);
+          cover = await first(brandFavicons(html, pageUrl)) ?? await first(fallbackIcons);
+        } else {
           const metadata = brandMetadata(html, pageUrl);
           cover = await first(socialImages(metadata)) ?? await first(pageImages(metadata), true);
         }
       }
+      cover ??= smallSocial;
     } catch { /* Optional metadata must never block browsing, extraction or playback. */ }
     finally {
       const next = this.waiting.shift();

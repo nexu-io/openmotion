@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 /**
  * SlideshowSubPanels — internal sub-surface components for SlideshowPanel.
@@ -22,7 +24,7 @@ export function SectionHeader({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <Button variant="plain"
       type="button"
       className="flex w-full items-center justify-between px-3 py-2 text-[11px] font-medium text-neutral-400 hover:text-neutral-200 active:bg-neutral-800/60 border-b border-neutral-800 transition-colors"
       onClick={onToggle}
@@ -30,7 +32,7 @@ export function SectionHeader({
     >
       <span>{children}</span>
       <span className="text-[10px] text-neutral-600">{expanded ? "▲" : "▼"}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -95,7 +97,7 @@ export function SlideList({
             <span className="flex-1 truncate">{scene.label || scene.id}</span>
             {isSlide && (
               <span className="flex gap-0.5 shrink-0">
-                <button
+                <IconButton variant="plain"
                   type="button"
                   aria-label={t("Move slide up")}
                   title={t("Move up")}
@@ -105,10 +107,9 @@ export function SlideList({
                     e.stopPropagation();
                     onReorder(scene.id, "up");
                   }}
-                >
-                  ▲
-                </button>
-                <button
+                  icon="▲"
+                />
+                <IconButton variant="plain"
                   type="button"
                   aria-label={t("Move slide down")}
                   title={t("Move down")}
@@ -118,9 +119,8 @@ export function SlideList({
                     e.stopPropagation();
                     onReorder(scene.id, "down");
                   }}
-                >
-                  ▼
-                </button>
+                  icon="▼"
+                />
               </span>
             )}
           </div>
@@ -173,14 +173,14 @@ export function SlideInspector({
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <span className="text-[11px] text-neutral-400">{t("Fragment hold-points")}</span>
-          <button
+          <Button variant="plain"
             type="button"
             className="text-[10px] px-2 py-0.5 rounded-sm bg-hover hover:bg-press text-neutral-200 transition-colors"
             onClick={onMarkFragment}
             title={t("Mark {value0}s as hold-point", { value0: currentTime.toFixed(2) })}
           >
             {t("Mark")}{" "}{currentTime.toFixed(2)}s
-          </button>
+          </Button>
         </div>
         {fragments.length > 0 ? (
           <div className="flex flex-wrap gap-1">
@@ -190,14 +190,13 @@ export function SlideInspector({
                 className="inline-flex items-center gap-1 bg-neutral-700 rounded-sm px-1.5 py-0.5 text-[10px] text-neutral-200"
               >
                 {time.toFixed(2)}s
-                <button
+                <IconButton variant="plain"
                   type="button"
                   aria-label={t("Remove fragment at {value0}s", { value0: time.toFixed(2) })}
                   className="text-neutral-400 hover:text-danger-ink transition-colors"
                   onClick={() => onRemoveFragment(time)}
-                >
-                  ×
-                </button>
+                  icon="×"
+                />
               </span>
             ))}
           </div>
@@ -260,12 +259,12 @@ export function BranchTree({
           }}
           aria-label={t("New branch sequence name")}
         />
-        <button
+        <Button variant="plain"
           type="button"
           className="px-2 py-1 rounded-sm bg-hover hover:bg-press text-[11px] text-neutral-200 transition-colors shrink-0"
           onClick={handleCreate}
         >
-          {t("Add")}</button>
+          {t("Add")}</Button>
       </div>
 
       {sequences.length === 0 ? (
@@ -340,30 +339,23 @@ function BranchItem({
             aria-label={t("Rename branch {value0}", { value0: seq.label })}
           />
         ) : (
-          <span
-            role="button"
-            tabIndex={0}
-            className="flex-1 text-[11px] text-text-0 font-medium truncate cursor-pointer hover:text-neutral-300"
+          <Button
+            type="button"
+            variant="plain"
+            className="flex-1 truncate text-left text-[11px] font-medium text-text-0 hover:text-neutral-300"
             title={t("Click to rename")}
             onClick={() => setEditing(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setEditing(true);
-              }
-            }}
           >
             {seq.label}
-          </span>
+          </Button>
         )}
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Delete branch {value0}", { value0: seq.label })}
           className="text-[10px] text-neutral-500 hover:text-danger-ink active:scale-[0.95] transition-colors px-1"
           onClick={() => setConfirmingDelete(true)}
-        >
-          ✕
-        </button>
+          icon="✕"
+        />
       </div>
       {confirmingDelete && (
         <div className="px-2 py-1.5 bg-danger/15 border-l-2 border-red-500 flex flex-col gap-1 rounded-xs">
@@ -374,7 +366,7 @@ function BranchItem({
               : ""}
             {t("? Hotspots pointing to it will no longer resolve.")}</span>
           <div className="flex items-center justify-end gap-1">
-            <button
+            <Button variant="plain"
               type="button"
               onClick={() => {
                 setConfirmingDelete(false);
@@ -382,13 +374,13 @@ function BranchItem({
               }}
               className="px-2 py-0.5 text-[10px] rounded-sm bg-danger text-on-danger hover:brightness-95 active:brightness-90 transition-colors"
             >
-              {t("Delete")}</button>
-            <button
+              {t("Delete")}</Button>
+            <Button variant="plain"
               type="button"
               onClick={() => setConfirmingDelete(false)}
               className="px-2 py-0.5 text-[10px] rounded-sm text-neutral-400 hover:text-neutral-200 transition-colors"
             >
-              {t("Cancel")}</button>
+              {t("Cancel")}</Button>
           </div>
         </div>
       )}
@@ -409,7 +401,7 @@ function BranchItem({
                 className="accent-studio-accent shrink-0"
               />
               {assigned ? (
-                <button
+                <Button variant="plain"
                   type="button"
                   aria-pressed={isSelected}
                   className={`flex-1 text-left truncate transition-colors hover:text-neutral-200 ${
@@ -418,7 +410,7 @@ function BranchItem({
                   onClick={() => onSelectBranchSlide(seq.id, scene.id)}
                 >
                   {scene.label || scene.id}
-                </button>
+                </Button>
               ) : (
                 <span className="flex-1 truncate">{scene.label || scene.id}</span>
               )}
@@ -515,7 +507,7 @@ export function HotspotTool({
             </option>
           ))}
         </select>
-        <button
+        <Button variant="plain"
           type="button"
           disabled={!elementKey || !targetSequenceId}
           title={
@@ -528,7 +520,7 @@ export function HotspotTool({
           className="px-3 py-1.5 rounded-sm bg-accent enabled:hover:bg-accent-hover enabled:active:scale-[0.98] text-on-accent text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           onClick={handleMakeHotspot}
         >
-          {t("Make hotspot")}</button>
+          {t("Make hotspot")}</Button>
       </div>
 
       {hotspots.length > 0 && (
@@ -544,14 +536,13 @@ export function HotspotTool({
                 <span className="flex-1 text-[11px] text-neutral-200 truncate">
                   {h.label} → <span className="text-neutral-400">{seqLabel}</span>
                 </span>
-                <button
+                <IconButton variant="plain"
                   type="button"
                   aria-label={t("Remove hotspot {value0}", { value0: h.label })}
                   className="text-[10px] text-neutral-500 hover:text-danger-ink transition-colors"
                   onClick={() => onRemoveHotspot(selectedSceneId, h.id)}
-                >
-                  ✕
-                </button>
+                  icon="✕"
+                />
               </div>
             );
           })}

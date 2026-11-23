@@ -131,6 +131,7 @@ if (args[0] === 'login') {
 // The connector reports speech and music models as `audio_speech` / `audio_music`.
 // Only `fixture-image` publishes `edits`; `fixture-image-basic` generates without input images.
 else if (args[0] === 'media') json({ models: [...['image', 'video', 'audio'].map(kind => ({ model: `fixture-${kind}`, kind: kind === 'audio' ? 'audio_speech' : kind, enabled: true, capabilities: kind === 'image' ? { edits: true, max_input_images: 4 } : {} })),
+  { model: 'fixture-i2v', kind: 'video', enabled: true, capabilities: { max_input_images: 1, ratios: { values: ['16:9', 'adaptive'], default: '16:9' } } },
   { model: 'fixture-image-basic', kind: 'image', capabilities: { edits: false, max_input_images: 0 } }, { model: 'fixture-music', kind: 'audio_music', capabilities: {} }, { model: 'elevenlabs-v3', kind: 'audio_speech', capabilities: {} }] });
 else if (args[1] === 'get') {
   // A failed result download after the task was accepted.
@@ -142,8 +143,9 @@ else if (args[1] === 'get') {
   // A succeeded `image get` prints the downloaded asset instead of the task.
   json(args[0] === 'image' ? { asset_id: 'fixture-asset', status: 'ready', kind: 'image', mime_type: 'image/png', size_bytes: bytes.length } : { task_id: args[2], status: 'succeeded' });
 } else if (['gen', 'edit', 'speech', 'music'].includes(args[1])) {
-  // `image edit` uploads the file named by --image, so it must exist when the command runs.
+  // `image edit` and `video gen --first-frame` upload the referenced local file, so it must exist when the command runs.
   if (args[1] === 'edit' && !existsSync(args[args.indexOf('--image') + 1])) { console.error('Error: input image not found'); process.exit(1); }
+  if (args.includes('--first-frame') && !existsSync(args[args.indexOf('--first-frame') + 1])) { console.error('Error: first-frame image not found'); process.exit(1); }
   // Media commands report service failures as `<text> (code, HTTP status)`; the leading text stands in for private detail.
   const failures = { 'media-invalid': 'invalid_request, HTTP 400', 'media-plan': 'model_access_denied, HTTP 403', 'media-401': 'unauthorized, HTTP 401', 'media-unknown-code': 'new_service_code, HTTP 409', 'media-empty-code': ', HTTP 502' };
   if (failures[mode()]) { console.error(`Error: private request detail for fixture-user-id (${failures[mode()]})`); process.exit(1); }

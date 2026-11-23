@@ -2,7 +2,8 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
-import { parameterInputImageRatio, requestParameters } from './GenerationParameters';
+import { GenerationParameters, durationTicks, emptyParameters, parameterInputImageRatio, requestParameters, shotParameters } from './GenerationParameters';
+import { generationOptions } from '../../../shared/generation-options';
 import type { Model } from '../../../shared/gateway';
 import { toastErrorMessage } from '../components/ui/toastErrorMessage';
 import { languages, translate } from '../i18n/messages';
@@ -58,4 +59,93 @@ it('resizes with keyboard, bounds the pane, remembers width and resets on double
     expect(localStorage.getItem('test-width')).toBe('460');
     localStorage.setItem('test-width', 'Infinity'); expect(readPaneWidth('test-width', 460, 340, 800)).toBe(460);
   } finally { await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals(); }
+});
+
+it('builds clean duration ticks and applies shotPreferences to bounded number duration fields', () => {
+  expect(durationTicks(4, 30)).toEqual([4, 10, 15, 20, 30]);
+  expect(durationTicks(2, 15)).toEqual([2, 5, 10, 15]);
+  const base: Model = {
+    id: 'account:doubao-seedance-2-5-260628', provider: 'account', modelId: 'doubao-seedance-2-5-260628',
+    label: 'doubao-seedance-2-5-260628', modality: 'video', mode: 'text-to-video', source: 'live',
+    nativeOptions: {
+      durations: { values: [5, 4, ...Array.from({ length: 25 }, (_, i) => i + 6)], default: 5 },
+      ratios: { values: ['16:9', '9:16'], default: '16:9' },
+    },
+  };
+  const seedance: Model = { ...base, generationOptions: generationOptions(base) };
+  expect(shotParameters(seedance, { aspect: '9:16', duration: 15 })).toEqual({
+    values: { ratio: '9:16', duration: 15 },
+    advanced: '{}',
+  });
+  expect(shotParameters(seedance, { aspect: '9:16', duration: 99 })).toEqual({
+    values: { ratio: '9:16' },
+    advanced: '{}',
+  });
+});
+
+it('prefixes non-numeric parameter summary choices with their field label while keeping ratios and resolutions compact', async () => {
+  const gptImageBase: Model = {
+    id: 'opendesign:gpt-image-2.6-flare',
+    provider: 'opendesign',
+    modelId: 'gpt-image-2.6-flare',
+    label: 'GPT Image 2.6 Flare',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    nativeOptions: { quality: { values: ['low', 'medium', 'high'], default: 'low' } },
+  };
+  const gptImage: Model = { ...gptImageBase, generationOptions: generationOptions(gptImageBase) };
+  const nanoBase: Model = {
+    id: 'opendesign:nano-banana-2',
+    provider: 'opendesign',
+    modelId: 'nano-banana-2',
+    label: 'Nano Banana 2',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'live',
+    nativeOptions: {
+      profiles: {
+        generations: {
+          profiles: [{ aspect_ratio: '1:1', resolution: '1K' }, { aspect_ratio: '16:9', resolution: '2K' }],
+          default: { aspect_ratio: '1:1', resolution: '1K' },
+        },
+      },
+    },
+  };
+  const nano: Model = { ...nanoBase, generationOptions: generationOptions(nanoBase) };
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <GenerationParameters model={gptImage} draft={emptyParameters} appearance="boxed" onChange={vi.fn()} />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality low');
+    expect(gptImage.generationOptions?.fields.find(f => f.key === 'quality')?.choices?.map(c => c.value)).toEqual(['low', 'medium', 'high']);
+
+    // Fields with a concrete default omit the dead "Model default" option; fields without a default keep it.
+    await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+    const optionsFor = async (fieldLabel: string) => {
+      const trigger = document.querySelector<HTMLButtonElement>(`.om-generation-popover [aria-label="${fieldLabel}"]`)!;
+      await act(async () => trigger.click());
+      const listbox = document.getElementById(trigger.getAttribute('aria-controls')!)!;
+      return [...listbox.querySelectorAll('[role="option"]')].map(option => option.textContent);
+    };
+    expect(await optionsFor('Quality')).toEqual(['low', 'medium', 'high']);
+    expect(await optionsFor('Background')).toEqual(['Model default', 'Transparent']);
+    await act(async () => container.querySelector<HTMLButtonElement>('.om-generation-summary')!.click());
+
+    await act(async () => root.render(
+      <GenerationParameters model={gptImage} draft={{ values: { quality: 'high', background: 'transparent' }, advanced: '{}' }} appearance="boxed" onChange={vi.fn()} />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toBe('Quality high · Background Transparent');
+
+    await act(async () => root.render(
+      <GenerationParameters model={nano} draft={{ values: { aspect_ratio: '16:9', resolution: '2K' }, advanced: '{}' }} appearance="boxed" onChange={vi.fn()} />,
+    ));
+    expect(container.querySelector('.om-generation-summary')?.textContent).toBe('16:9 · 2K');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
 });

@@ -45,9 +45,13 @@ describe("Studio's theme", () => {
     expect(boots()).toBe(savedStudioTheme());
   });
 
-  it("opens light the first time", () => {
-    expect(boots()).toBe("light");
-    expect(savedStudioTheme()).toBe("light");
+  it("opens dark the first time without saving an explicit choice", () => {
+    expect(boots()).toBe("dark");
+    expect(savedStudioTheme()).toBe("dark");
+    expect(document.documentElement.dataset.themePreference).toBe("dark");
+    expect(localStorage.getItem(KEY)).toBeNull();
+    const chrome = page.querySelector<HTMLMetaElement>('meta[name="theme-color"]')!;
+    expect(chrome.content).toBe(chrome.dataset.dark);
   });
 
   it("runs the boot script before the app's module", () => {

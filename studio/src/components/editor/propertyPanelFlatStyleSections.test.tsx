@@ -237,9 +237,12 @@ describe("FlatStyleSection — Stroke and Radius", () => {
     ).find((btn) => btn.getAttribute("aria-label") === "Pick stroke color color");
     if (!trigger) throw new Error("expected the stroke color trigger");
     act(() => trigger.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const hexInput = Array.from(document.querySelectorAll<HTMLInputElement>("input")).find(
-      (input) => !host.contains(input),
-    );
+    const dialog = document.querySelector('.motion-color-picker[role="dialog"]')!;
+    const format = dialog.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+    act(() => format.click());
+    act(() => [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find(option => option.textContent === "HEX")!.click());
+    const hexInput = dialog.querySelector<HTMLInputElement>('input[aria-label="Hex"]');
     if (!hexInput) throw new Error("expected the color picker's hex input");
     act(() => {
       setInputValue(hexInput, "#112233");
@@ -604,7 +607,8 @@ describe("FlatStyleSection — Opacity", () => {
       );
     });
     expect(host.textContent).toContain("Opacity");
-    expect(host.textContent).toContain("100%");
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Opacity value"][data-form-control="boxed"]')!;
+    expect(input.value).toBe("100%");
     const tracks = host.querySelectorAll('[data-flat-slider-track="true"]');
     const opacityTrack = tracks[tracks.length - 1];
     Object.defineProperty(opacityTrack, "getBoundingClientRect", {
@@ -615,16 +619,20 @@ describe("FlatStyleSection — Opacity", () => {
       opacityTrack.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 50 }));
     });
     expect(onSetStyle).toHaveBeenCalledWith("opacity", "0.5");
+    act(() => setInputValue(input, "79"));
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(onSetStyle).toHaveBeenLastCalledWith("opacity", "0.79");
     act(() => root.unmount());
   });
 });
 
-it("MVP exposes only solid color and opacity, leaving authored effects untouched", () => {
+it("MVP exposes only solid color and opacity for layers without text", () => {
   const styles = { "background-image": "linear-gradient(90deg, #000, #fff)", "box-shadow": "2px 2px 4px #000", "border-radius": "20px", filter: "blur(2px)" };
   const before = JSON.stringify(styles);
   const { host, root, onSetStyle } = renderSection(styles, {}, null, true);
   expect(host.textContent).toContain("Fill color");
   expect(host.textContent).toContain("Opacity");
+  expect(host.textContent).not.toContain("Text color");
   for (const label of ["Gradient", "Stroke", "Radius", "Shadow", "Blend", "Blur", "Mask"]) expect(host.textContent).not.toContain(label);
   expect(onSetStyle).not.toHaveBeenCalled();
   expect(JSON.stringify(styles)).toBe(before);
@@ -632,9 +640,14 @@ it("MVP exposes only solid color and opacity, leaving authored effects untouched
 });
 
 describe("MVP solid fill", () => {
-  function openFill(host: HTMLElement) {
-    act(() => host.querySelector<HTMLButtonElement>('[data-flat-color-trigger="true"]')!.click());
-    return document.querySelector<HTMLInputElement>('input[spellcheck="false"]')!;
+  function openColorInput(host: HTMLElement, label = "fill color") {
+    act(() => host.querySelector<HTMLButtonElement>(`[aria-label="Pick ${label} color"]`)!.click());
+    const dialog = document.querySelector('.motion-color-picker[role="dialog"]')!;
+    const format = dialog.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+    act(() => format.click());
+    act(() => [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find(option => option.textContent === "HEX")!.click());
+    return dialog.querySelector<HTMLInputElement>('input[aria-label="Hex"]')!;
   }
 
   it.each(["linear-gradient(90deg, #000, #fff)", "none"])(
@@ -645,7 +658,7 @@ describe("MVP solid fill", () => {
         "border-radius": "20px",
         "box-shadow": "2px 2px 4px #000",
       }, {}, null, true);
-      const input = openFill(host);
+      const input = openColorInput(host);
       act(() => setInputValue(input, "#FF0000"));
       expect(onSetStyle).not.toHaveBeenCalled();
       act(() => input.dispatchEvent(new Event("focusout", { bubbles: true })));
@@ -661,11 +674,26 @@ describe("MVP solid fill", () => {
     const { host, root, onSetStyle } = renderSection({
       "background-image": "linear-gradient(90deg, #000, #fff)",
     }, {}, null, true);
-    const input = openFill(host);
+    const input = openColorInput(host);
     expect(onSetStyle).not.toHaveBeenCalled();
     act(() => setInputValue(input, "#FF0000"));
     act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(onSetStyle).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("sets the text color on a container without editable text fields", () => {
+    const { host, root, onSetStyle } = renderSection(
+      { color: "rgb(255, 253, 240)", "background-color": "transparent" },
+      { textContent: "MOTION", textFields: [] },
+      null,
+      true,
+    );
+    const input = openColorInput(host, "text color");
+    expect(input.value).toBe("#FFFDF0");
+    act(() => setInputValue(input, "#FF0000"));
+    act(() => input.dispatchEvent(new Event("focusout", { bubbles: true })));
+    expect(onSetStyle).toHaveBeenCalledExactlyOnceWith("color", "rgb(255, 0, 0)");
     act(() => root.unmount());
   });
 });
@@ -678,7 +706,8 @@ it("edits overall opacity separately from an animated opacity value", () => {
   const onSetStyle = vi.fn();
   act(() => root.render(<FlatOpacitySlider styles={{opacity: "0.99", filter: "blur(2px)"}}
     inlineStyles={{filter: "blur(2px)"}} preserveOpacityAnimation disabled={false} onSetStyle={onSetStyle} />));
-  expect(host.textContent).toContain("100%");
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="Opacity value"]')!;
+  expect(input.value).toBe("100%");
   const track = host.querySelector('[data-flat-slider-track="true"]')!;
   Object.defineProperty(track, "getBoundingClientRect", {value: () => ({left: 0, width: 100})});
   act(() => {
@@ -686,5 +715,8 @@ it("edits overall opacity separately from an animated opacity value", () => {
     track.dispatchEvent(new MouseEvent("pointerup", {bubbles: true, clientX: 47}));
   });
   expect(onSetStyle).toHaveBeenCalledWith({"--hf-layer-opacity": "0.47", filter: "blur(2px) opacity(var(--hf-layer-opacity))"});
+  act(() => setInputValue(input, "79%"));
+  act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(onSetStyle).toHaveBeenLastCalledWith({"--hf-layer-opacity": "0.79", filter: "blur(2px) opacity(var(--hf-layer-opacity))"});
   act(() => root.unmount());
 });

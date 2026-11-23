@@ -11,6 +11,7 @@ export type BrandCatalogEntry = {
   sourceUrl: string;
   websiteUrl?: string;
   coverPage?: string;
+  coverImage?: string;
   sample: BrandSample;
   files: { path: string; sha256: string }[];
 };
@@ -20,7 +21,9 @@ export type BrandCatalog = {
   revision: string;
   entries: BrandCatalogEntry[];
 };
-export const brandCoverRevision = 4;
+export const brandCoverRevision = 5;
 const brandCatalogShowcaseRevision = 3;
+export const brandCatalogArtworkUrl = (entry: Pick<BrandCatalogEntry, 'websiteUrl' | 'sourceUrl'>) =>
+  entry.websiteUrl || entry.sourceUrl;
 export const brandCatalogFile = (id: string, file: 'poster.svg' | 'style-cover.svg' | 'showcase' | 'cover' | 'favicon') =>
   `/motion-api/brand-kits/catalog/${encodeURIComponent(id)}/${file}?v=${file === 'showcase' ? brandCatalogShowcaseRevision : file === 'poster.svg' ? brandKitShowcase.revision : brandCoverRevision}`;

@@ -8,6 +8,7 @@ import { PlayerControls } from "./PlayerControls";
 import { StudioHostContext } from "../../motion/StudioHost";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+vi.mock('../../utils/studioTelemetry', () => ({ trackStudioEvent: vi.fn() }));
 
 let host: HTMLDivElement;
 let root: Root;
@@ -37,11 +38,13 @@ beforeEach(async () => {
 });
 
 describe("PlayerControls preview seeking", () => {
-  it("omits fullscreen in the MVP while keeping playback controls", async () => {
+  it("exposes real fullscreen in the MVP alongside playback controls", async () => {
+    const fullscreen = vi.fn();
     await act(async () => root.render(<StudioHostContext.Provider value={{ mvpEditor: true }}>
-      <PlayerControls onTogglePlay={() => {}} onSeek={onSeek} onToggleFullscreen={vi.fn()} />
+      <PlayerControls onTogglePlay={() => {}} onSeek={onSeek} onToggleFullscreen={fullscreen} />
     </StudioHostContext.Provider>));
-    expect(host.querySelector('[aria-label="Enter fullscreen"]')).toBeNull();
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Enter fullscreen"]')!.click());
+    expect(fullscreen).toHaveBeenCalledOnce();
     expect(host.querySelector('[data-studio-control="playback"]')).not.toBeNull();
     expect(seekBar().disabled).toBe(false);
   });

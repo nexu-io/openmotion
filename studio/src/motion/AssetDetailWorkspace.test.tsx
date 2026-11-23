@@ -18,6 +18,16 @@ beforeEach(() => { vi.clearAllMocks(); update.mockReset().mockResolvedValue(true
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 async function render(versionId = 'v2', editor?: ReactNode, selected = asset) { await act(async () => root.render(<AssetDetailWorkspace asset={selected} versionId={versionId} navigation={<div>Asset navigation</div>} active uploading={false} editor={editor} onBack={back} onVersion={version} onUpdate={update} onEdit={edit} onReference={vi.fn()} onOpenReference={reference} onUpload={vi.fn()} onDownload={vi.fn()} />)); }
 const button = (text: string) => [...container.querySelectorAll('button')].find(node => node.textContent?.includes(text))!;
+it.each([
+  [0, '0 B'], [174, '174 B'], [1023, '1023 B'], [1024, '1 KB'],
+  [1536, '1.5 KB'], [1048575, '1 MB'], [1048576, '1 MB'],
+  [2569011, '2.45 MB'], [1073741824, '1 GB'],
+])('shows %i bytes in a readable unit as %s', async (bytes, label) => {
+  const selected = { ...asset, versions: asset.versions.map(item => ({ ...item, bytes })) };
+  await render('v1', undefined, selected);
+  expect(container.querySelector('.om-asset-viewer-caption')?.textContent).toContain(label);
+  expect(container.querySelector('.om-asset-viewer-caption')?.textContent).not.toContain('0.00 MB');
+});
 it('pauses media when the responsive layout hides the preview', async () => {
   let notify!: ResizeObserverCallback;
   const observer = vi.spyOn(globalThis, 'ResizeObserver').mockImplementation(function (callback) {

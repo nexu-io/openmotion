@@ -13,7 +13,8 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-sidebar",
         "@deepseek-ai/dsh-client-ui-workspace",
-        "@deepseek-ai/dsh-client-ui-sidebar-right"
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-action-cards"
       ]
     }
   },
@@ -28,7 +29,10 @@
     "node": ">=24"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-mcp-client": "0.2.2-rc.1"
+    "@deepseek-ai/dsh-mcp-client": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-llm": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-action-cards": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-client-ui-action-cards": "0.2.2-rc.1"
   },
   "license": "Apache-2.0"
 }

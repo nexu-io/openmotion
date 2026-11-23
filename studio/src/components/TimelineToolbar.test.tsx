@@ -259,7 +259,7 @@ describe("TimelineToolbar Fit", () => {
     vi.useRealTimers();
   });
 
-  /** A mounted timeline for the zoom to preview on: 1080px wide, 32px of headers. */
+  /** A mounted timeline for frame-coalesced zoom: 1080px wide, 32px of headers. */
   function mountTimelineViewport() {
     const scroll = document.createElement("div");
     Object.defineProperties(scroll, {
@@ -284,7 +284,7 @@ describe("TimelineToolbar Fit", () => {
     };
   }
 
-  it("moves the slider and its readout with a zoom while it is previewed", () => {
+  it("updates zoom geometry, the slider and its readout together on the next frame", () => {
     const { unregister } = mountTimelineViewport();
     const { host, root } = renderToolbar();
     const slider = host.querySelector<HTMLInputElement>('input[aria-label="Timeline zoom"]')!;
@@ -296,11 +296,15 @@ describe("TimelineToolbar Fit", () => {
       );
       slider.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    act(() => vi.advanceTimersToNextFrame());
-    // Not laid out yet: the store still holds Fit, but the toolbar shows the zoom on screen.
+    // Input waits for the next frame instead of stretching the existing timeline.
     expect(usePlayerStore.getState().zoomMode).toBe("fit");
+    act(() => vi.advanceTimersToNextFrame());
+    const { zoomMode, manualZoomPercent, timelinePps, timelineFitPps } = usePlayerStore.getState();
+    expect(zoomMode).toBe("manual");
+    expect(manualZoomPercent).toBeGreaterThan(100);
+    expect(timelinePps).toBeCloseTo(timelineFitPps * manualZoomPercent / 100);
     expect(slider.value).not.toBe(before);
-    expect(host.querySelector('[aria-label="Timeline zoom level"]')?.textContent).not.toBe("Fit");
+    expect(host.querySelector('[aria-label="Timeline zoom level"]')?.textContent).toBe(`${manualZoomPercent}%`);
     act(() => root.unmount());
     act(() => unregister());
   });
@@ -782,4 +786,17 @@ describe("MVP split actions", () => {
       expect(button.disabled).toBe(false);
     } finally { act(() => root.unmount()); }
   });
+});
+
+it('rounds a pinned fractional zoom for the readout and tooltip without changing geometry', async () => {
+  usePlayerStore.setState({ zoomMode: 'manual', manualZoomPercent: 68.015625, timelineFitPps: 100, timelinePps: 68.015625 });
+  const { host, root } = renderToolbar();
+  expect(host.querySelector('[aria-label="Timeline zoom level"]')?.textContent).toBe('68%');
+  expect(usePlayerStore.getState().manualZoomPercent).toBe(68.015625);
+  expect(usePlayerStore.getState().timelinePps).toBe(68.015625);
+  const slider = host.querySelector<HTMLInputElement>('input[aria-label="Timeline zoom"]')!;
+  act(() => slider.focus());
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(document.querySelector('[role="tooltip"]')?.textContent).toBe('68%');
+  act(() => root.unmount());
 });

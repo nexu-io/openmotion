@@ -161,7 +161,7 @@ describe("buildMissingCompositionElements — on a settled timeline", () => {
 });
 
 describe("buildMissingCompositionElements — nested master time", () => {
-  it("places hosts two and three levels deep at their master time", () => {
+  it("skips composition hosts nested inside another timed sub-composition so they do not leak onto the root timeline", () => {
     const doc = makeDoc(`
       <div data-composition-id="main" data-start="0" data-duration="20">
         <div id="intro" data-composition-id="intro" data-start="2" data-duration="10">
@@ -178,8 +178,42 @@ describe("buildMissingCompositionElements — nested master time", () => {
     const { missing } = buildMissingCompositionElements(doc, window as IframeWindow, [], 20);
     expect(missing.map((e) => [e.domId, e.start, e.duration, e.parentCompositionStart])).toEqual([
       ["intro", 2, 10, 0],
-      ["logo", 5, 5, 2],
-      ["badge", 6, 2, 5],
+    ]);
+  });
+
+  it("does not re-inject a nested sub-composition inside an already-present parent scene", () => {
+    const doc = makeDoc(`
+      <div id="root" data-composition-id="main" data-start="0" data-duration="20">
+        <div id="scene-1" data-hf-id="hf-s1" data-composition-id="scene1-logo-intro"
+          data-composition-file="compositions/scene1-logo-intro.html" data-start="0" data-duration="1.5" data-track-index="1">
+          <div data-hf-inner-root="true">
+            <div id="scene2-4-canvas" data-composition-id="scene2-4-canvas"
+              data-composition-src="scene2-4-canvas.html" data-start="0" data-duration="12.5" data-track-index="1"></div>
+          </div>
+        </div>
+        <div id="scene-2-4" data-hf-id="hf-s2" data-composition-id="scene2-4-canvas"
+          data-composition-file="compositions/scene2-4-canvas.html" data-start="1.5" data-duration="12.5" data-track-index="1"></div>
+      </div>
+    `);
+    const current = [
+      { id: "scene-1", domId: "scene-1", hfId: "hf-s1", key: "index.html#scene-1", tag: "div", start: 0, duration: 1.5, track: 0, authoredTrack: 1 },
+      { id: "scene-2-4", domId: "scene-2-4", hfId: "hf-s2", key: "index.html#scene-2-4", tag: "div", start: 1.5, duration: 12.5, track: 0, authoredTrack: 1 },
+    ];
+    const { missing } = buildMissingCompositionElements(doc, window as IframeWindow, current, 20);
+    expect(missing).toEqual([]);
+  });
+
+  it("still recovers a host nested inside an untimed phantom wrapper at its master time", () => {
+    const doc = makeDoc(`
+      <div data-composition-id="main" data-start="0" data-duration="20">
+        <div data-composition-id="wrapper">
+          <div id="scene-a" data-composition-id="scene-a" data-start="3" data-duration="5"></div>
+        </div>
+      </div>
+    `);
+    const { missing } = buildMissingCompositionElements(doc, window as IframeWindow, [], 20);
+    expect(missing.map((e) => [e.domId, e.start, e.duration, e.parentCompositionStart])).toEqual([
+      ["scene-a", 3, 5, 0],
     ]);
   });
 

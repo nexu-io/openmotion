@@ -1,3 +1,6 @@
+import { Button } from "open-design-ui/button";
+import { OverflowText } from "../ui/OverflowText";
+import { NativeSelect } from "../ui/FormField";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -73,19 +76,19 @@ export function MetricField({
     scrub && !disabled
       ? ({
           className:
-            "shrink-0 text-[11px] font-medium text-neutral-500 cursor-ew-resize select-none",
+            "min-w-0 max-w-[45%] shrink-0 text-[11px] font-medium text-neutral-500 cursor-ew-resize select-none",
           onPointerDown: handleScrubPointerDown,
           onPointerMove: handleScrubPointerMove,
           onPointerUp: handleScrubPointerUp,
           onPointerCancel: handleScrubPointerUp,
           onLostPointerCapture: handleScrubPointerUp,
         } as const)
-      : ({ className: "shrink-0 text-[11px] font-medium text-neutral-500" } as const);
+      : ({ className: "min-w-0 max-w-[45%] shrink-0 text-[11px] font-medium text-neutral-500" } as const);
 
   return (
     <div className={FIELD} title={tooltip ? t(tooltip) : undefined}>
       <div className="flex min-w-0 items-center gap-3">
-        <span {...scrubProps}>{t(label)}</span>
+        <span {...scrubProps}><OverflowText text={t(label)} className="block truncate cursor-[inherit]" /></span>
         <CommitField value={value} disabled={disabled} liveCommit={liveCommit} onCommit={commit} />
         {suffix && <span className="shrink-0 text-[10px] text-neutral-600">{suffix}</span>}
       </div>
@@ -116,7 +119,7 @@ export function DetailField({
   };
   return (
     <label className="grid min-w-0 gap-1.5">
-      <span className={LABEL}>{t(label)}</span>
+      <OverflowText text={t(label)} className={`${LABEL} block min-w-0 truncate`} />
       <div className={FIELD}>
         <CommitField value={value} disabled={disabled} onCommit={commit} />
       </div>
@@ -229,7 +232,7 @@ export function SegmentedControl({
       style={{ gridTemplateColumns: `repeat(${options.length}, minmax(0, 1fr))` }}
     >
       {options.map((option) => (
-        <button
+        <Button variant="plain"
           key={option.value}
           type="button"
           disabled={disabled}
@@ -245,7 +248,7 @@ export function SegmentedControl({
           }`}
         >
           {t(option.label)}
-        </button>
+        </Button>
       ))}
     </div>
   );
@@ -268,9 +271,9 @@ export function SelectField({
   const track = useTrackDesignInput();
   const renderedOptions = value && !options.includes(value) ? [value, ...options] : options;
   return (
-    <label className={`${FIELD} flex items-center gap-3`}>
-      <span className="shrink-0 text-[11px] font-medium text-neutral-500">{t(label)}</span>
-      <select
+    <label className={`${FIELD} flex items-center gap-3`} data-form-field="intrinsic">
+      <OverflowText text={t(label)} className="min-w-0 max-w-[45%] shrink-0 truncate text-[11px] font-medium text-neutral-500" />
+      <NativeSelect appearance="embedded"
         value={value}
         disabled={disabled}
         onChange={(e) => {
@@ -284,7 +287,7 @@ export function SelectField({
             {options.includes(option) ? t(option) : option}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </label>
   );
 }
@@ -313,7 +316,7 @@ export function Section({
     <DesignPanelInputProvider section={section}>
       <section className="min-w-0 border-t border-panel-border" data-panel-section={section}>
         <div className="flex w-full items-center gap-2 px-4 py-2.5">
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => setCollapsed((v) => !v)}
             aria-expanded={!collapsed}
@@ -321,7 +324,7 @@ export function Section({
           >
             <h3 className="text-[12px] font-semibold text-panel-text-1">{t(title)}</h3>
             {collapseIcon}
-          </button>
+          </Button>
           {accessory && <div className="flex shrink-0 items-center">{accessory}</div>}
         </div>
         {!collapsed && <div className="px-4 pb-3">{children}</div>}

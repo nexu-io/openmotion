@@ -18,7 +18,7 @@ async function fixture(run: (context: { directory: string; destination: string; 
     const log = path.join(directory, 'commands.log');
     await mkdir(bin);
     for (const file of ['scripts/install-motion.command', 'scripts/install-public-skill.ts', 'scripts/source-build-state.mjs', 'scripts/inline-onboarding.mjs', 'scripts/source-marketplace.mjs', 'scripts/install-onboarding.mjs', 'scripts/codex-host-handoff.mjs', 'scripts/check-installed-mcp.mjs', 'shared/onboarding-templates.ts', 'scripts/runtime-assets.mjs',
-      'docs/install-onboarding.md', 'shared/template-config.json', 'marketplace.example.json', 'mcp-ui/template-recommendations/i18n.ts']) {
+      'docs/install.md', 'shared/template-config.json', 'marketplace.example.json', 'mcp-ui/template-recommendations/i18n.ts']) {
       await mkdir(path.dirname(path.join(source, file)), { recursive: true });
       await copyFile(path.join(root, file), path.join(source, file));
     }
@@ -195,10 +195,10 @@ test('MCP verification failure is reported even after plugin registration', asyn
 
 test('a missing onboarding contract stops before plugin registration', async () => {
   await fixture(async ({ log, env }) => {
-    await rm(path.join(env.MOTION_TEST_SOURCE!, 'docs/install-onboarding.md'));
+    await rm(path.join(env.MOTION_TEST_SOURCE!, 'docs/install.md'));
     const result = spawnSync('bash', [path.join(root, 'install.sh')], { env, encoding: 'utf8' });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /install-onboarding\.md/);
+    assert.match(result.stderr, /install\.md/);
     assert.doesNotMatch(await readFile(log, 'utf8'), /marketplace add|plugin add openmotion@/);
     assert.doesNotMatch(result.stdout, /preflight succeeded|Installation-success reply/);
   });

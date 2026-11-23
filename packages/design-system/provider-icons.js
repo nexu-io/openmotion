@@ -216,6 +216,13 @@ export const providerIcons = Object.freeze({
   "fal": {
     "file": "providers/fal-color.svg"
   },
+  "bytedance": { "file": "providers/models/bytedance-color.svg" },
+  "alibaba": { "file": "providers/models/alibaba-color.svg" },
+  "google": { "file": "providers/models/google-color.svg" },
+  "nano-banana": { "file": "providers/models/nano-banana-color.svg" },
+  "flux": { "file": "providers/models/flux.svg" },
+  "suno": { "file": "providers/models/suno.svg" },
+  "elevenlabs": { "file": "providers/models/elevenlabs.svg" },
   "atlascloud": {
     "file": "providers/atlascloud.svg"
   },
@@ -256,7 +263,11 @@ export const providerIconFiles = Object.freeze([...new Set(Object.values(provide
 
 /** Recognized model families use their own artwork; unknown IDs retain their connection identity. */
 export function modelBrandId(modelId) {
-  const id = String(modelId).toLowerCase().split('/').pop() || '';
+  const path = String(modelId).toLowerCase();
+  // Media routes can end in a task or variant instead of the model name.
+  const media = mediaFamilies.find(([pattern]) => pattern.test(path));
+  if (media) return media[1];
+  const id = path.split('/').pop() || '';
   /** @type {Array<[RegExp, string]>} */
   const families = [
     [/^(?:gpt[-.]|o[1-9](?:-|$)|chatgpt-|dall-e|text-embedding-|whisper-)/, 'openai'],
@@ -268,3 +279,15 @@ export function modelBrandId(modelId) {
   ];
   return families.find(([pattern]) => pattern.test(id))?.[1];
 }
+
+/** @type {Array<[RegExp, string]>} */
+const mediaFamilies = [
+  [/^(?:bytedance\/|doubao-)?seedance(?:[-/.]|$)/, 'bytedance'],
+  [/^(?:bytedance\/|doubao-)?seedream(?:[-/.]|$)/, 'bytedance'],
+  [/^(?:google\/)?nano-banana(?:[-/.]|$)/, 'nano-banana'],
+  [/^(?:google\/)?veo(?:[-/.0-9]|$)/, 'google'],
+  [/^(?:fal-ai\/)?flux(?:[-/.]|$)/, 'flux'],
+  [/^(?:fal-ai\/)?wan(?:[-/.0-9]|$)/, 'alibaba'],
+  [/^suno(?:[-/]|$)/, 'suno'],
+  [/^elevenlabs(?:[-/]|$)/, 'elevenlabs'],
+];

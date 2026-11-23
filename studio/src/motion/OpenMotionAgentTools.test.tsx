@@ -41,8 +41,8 @@ it('native registration coexists with the five Studio observation/navigation too
   const studio = buildStudioTools({ current: {} as StudioAgentToolsDeps });
   expect((await registerStudioTools(native, studio, studioController.signal)).failed).toEqual([]);
   await act(async () => root.render(<StrictMode><OpenMotionAgentTools /></StrictMode>));
-  expect([...native.registered.keys()].sort()).toEqual([...studio, ...phase1Tools].map(tool => tool.name).sort());
-  expect(native.registered.size).toBe(21);
+  expect([...native.registered.keys()].sort()).toEqual([...studio, ...phase1Tools.filter(tool => !tool.name.startsWith('openmotion_game_'))].map(tool => tool.name).sort());
+  expect(native.registered.size).toBe(27);
   expect([...native.registered.keys()]).not.toContain('openmotion_studio_set_text');
   expect(loadPolyfill).not.toHaveBeenCalled();
   const count = native.registerTool.mock.calls.length;
@@ -60,7 +60,7 @@ it('uses the existing polyfill and unregisters only its own tools on cleanup', a
   const fallback = context(); loadPolyfill.mockResolvedValue(fallback);
   await act(async () => root.render(<OpenMotionAgentTools />));
   expect(loadPolyfill).toHaveBeenCalledOnce();
-  expect(fallback.registered.size).toBe(16);
+  expect(fallback.registered.size).toBe(22);
   await act(async () => root.unmount());
   expect(fallback.registered.size).toBe(0);
 });

@@ -38,6 +38,8 @@ import {
 import { ColorField } from "./propertyPanelColor";
 import { GradientField, ImageFillField } from "./propertyPanelFill";
 import { BorderRadiusEditor } from "./BorderRadiusEditor";
+import { FlatOpacitySlider } from "./propertyPanelFlatStyleSections";
+import type { PropertyPanelProps } from "./propertyPanelTypes";
 
 // fallow-ignore-next-line complexity
 export function StyleSections({
@@ -55,7 +57,7 @@ export function StyleSections({
   element: DomEditSelection;
   styles: Record<string, string>;
   assets: string[];
-  onSetStyle: (prop: string, value: string) => void | Promise<unknown>;
+  onSetStyle: PropertyPanelProps["onSetStyle"];
   onSetHtmlAttribute: (attr: string, value: string | null) => void | Promise<void>;
   onImportAssets?: (files: FileList) => Promise<string[]>;
   gsapBorderRadius?: { tl: number; tr: number; br: number; bl: number } | null;
@@ -76,7 +78,6 @@ export function StyleSections({
     gsapBorderRadius?.br ?? parseNumericValue(styles["border-bottom-right-radius"]) ?? radiusValue;
   const radiusBL =
     gsapBorderRadius?.bl ?? parseNumericValue(styles["border-bottom-left-radius"]) ?? radiusValue;
-  const opacityValue = Math.round((parseNumericValue(styles.opacity) ?? 1) * 100);
   const borderWidthValue =
     parsePxMetricValue(styles["border-width"] ?? "") ??
     parsePxMetricValue(styles["border-top-width"] ?? "") ??
@@ -437,16 +438,10 @@ export function StyleSections({
 
       <Section title="Transparency" icon={<Eye size={15} />} defaultCollapsed>
         <div className="space-y-4">
-          <SliderControl
-            trackName="Opacity"
-            value={opacityValue}
-            min={0}
-            max={100}
-            step={1}
+          <FlatOpacitySlider
+            styles={styles}
             disabled={styleEditingDisabled}
-            displayValue={`${opacityValue}%`}
-            formatDisplayValue={(next) => `${Math.round(next)}%`}
-            onCommit={(next) => onSetStyle("opacity", formatNumericValue(next / 100))}
+            onSetStyle={onSetStyle}
           />
           <SelectField
             label={t("Mode")}

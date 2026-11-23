@@ -11,7 +11,7 @@ export function PropertyLabel({ label, className = "", ...props }: {
   return (
     <Tooltip label={label} wrap disabled={!overflowing}>
       <span {...props} tabIndex={overflowing ? 0 : undefined} onPointerEnter={measure} onFocus={measure} className={`min-w-0 flex-1 cursor-default text-[11px] ${className}`}>
-        <span ref={ref} className="line-clamp-2 [overflow-wrap:anywhere]">{label}</span>
+        <span ref={ref} className="block truncate">{label}</span>
       </span>
     </Tooltip>
   );

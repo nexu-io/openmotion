@@ -47,19 +47,29 @@ test('provider setup opens without a project and preserves workspace state', asy
     for (const presentation of ['foreground', 'background', 'now']) {
       const opened = await service.call('openmotion_open_preview', { target: 'providers', presentation });
       const url = new URL(opened.previewUrl);
-      assert.equal(url.searchParams.get('page'), 'settings');
-      assert.equal(url.searchParams.get('section'), 'providers');
+      assert.equal(url.pathname, '/settings/providers');
+      assert.equal(url.searchParams.has('page'), false);
+      assert.equal(url.searchParams.has('section'), false);
       assert.equal(url.searchParams.get('entry_from'), 'agent_providers');
+      assert.equal(url.searchParams.has('provider'), false);
       assert.equal(url.searchParams.has('project'), false);
       assert.equal(opened.target, 'providers');
       assert.equal(opened.projectCreated, false);
       assert.equal(opened.previewHandoff.openedByHost, false);
       assert.equal(opened.previewHandoff.hostActionRequired, presentation !== 'background');
       assert.match(opened.previewHandoff.instructions, /Model providers/);
+      assert.match(opened.previewHandoff.instructions, /Sign in with OpenDesign or Upgrade to Plus directly on the opened OpenDesign page/);
       assert.match(opened.previewHandoff.instructions, /OpenDesign Plus or above/);
+      assert.doesNotMatch(opened.previewHandoff.instructions, /Settings > Account|Subscription & usage/);
     }
-    const upgrade = await service.call('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_free' });
-    assert.equal(new URL(upgrade.previewUrl).searchParams.get('entry_from'), 'agent_media_upgrade_free');
+    for (const entry of ['agent_media_signed_out', 'agent_media_upgrade_free', 'agent_media_upgrade_go', 'agent_media_balance_low', 'agent_media_key_rejected', 'agent_media_handbook']) {
+      const handoff = await service.call('openmotion_open_preview', { target: 'providers', entry });
+      const url = new URL(handoff.previewUrl);
+      assert.equal(url.searchParams.get('entry_from'), entry);
+      assert.equal(url.searchParams.get('embed'), '1');
+      assert.equal(url.searchParams.get('provider'), entry === 'agent_media_key_rejected' || entry === 'agent_media_handbook' ? null : 'account');
+      assert.equal(handoff.previewHandoff.nextAction.previewUrl, handoff.previewUrl);
+    }
     assert.deepEqual(await store.get(), before);
     assert.deepEqual(store.projectCatalog(), catalog);
     for (const args of [{ projectId: 'project' }, { sessionId: 'session' }, { action: 'begin' }, { action: 'record_display' }, { entry: 'PRIVATE_ENTRY' }]) {
@@ -118,7 +128,9 @@ test('every edit returns a version-bound foreground handoff without claiming the
   assert.equal(first.previewHandoff.placement, 'right');
   assert.equal(first.previewHandoff.reuseExistingTab, true);
   assert.equal(first.previewHandoff.openedByHost, false);
-  assert.equal(new URL(first.previewHandoff.previewUrl).searchParams.get('project'), p.projectId);
+  const firstPreviewUrl = new URL(first.previewHandoff.previewUrl);
+  assert.equal(firstPreviewUrl.pathname, `/editor/${p.projectId}`);
+  assert.equal(firstPreviewUrl.hash, `#project/${p.projectId}`);
   const args = display(first);
   const confirmed = await service.call('openmotion_open_preview', args);
   assert.equal(confirmed.previewHandoff.state, 'confirmed');
@@ -146,6 +158,15 @@ test('queued, hidden, unavailable and unverified content remain pending; backgro
   assert.equal((await service.call('openmotion_open_preview', display(saved, 'visible', false))).previewHandoff.state, 'pending');
   const bad = display(saved); bad.display.previewUrl = origin + '/?project=' + crypto.randomUUID();
   await assert.rejects(service.call('openmotion_open_preview', bad), /PREVIEW_TARGET_MISMATCH/);
+  const badPath = display(saved); badPath.display.previewUrl = origin + '/editor/' + crypto.randomUUID();
+  await assert.rejects(service.call('openmotion_open_preview', badPath), /PREVIEW_TARGET_MISMATCH/);
+  const badSurface = display(saved); badSurface.display.previewUrl = origin + '/explore';
+  await assert.rejects(service.call('openmotion_open_preview', badSurface), /PREVIEW_TARGET_MISMATCH/);
+  // Legacy /?project=:id receipts remain accepted alongside canonical /editor/:id URLs.
+  const legacySession = new URL(saved.previewHandoff.previewUrl).searchParams.get('session')!;
+  const legacyReceipt = display(saved);
+  legacyReceipt.display.previewUrl = `${origin}/?session=${legacySession}&project=${p.projectId}&embed=1#project/${p.projectId}`;
+  assert.equal((await service.call('openmotion_open_preview', legacyReceipt)).previewHandoff.state, 'confirmed');
   const background = await edit(service, saved, 'background', 'background');
   assert.equal(background.previewHandoff.state, 'background');
   assert.equal(background.previewHandoff.hostActionRequired, false);
@@ -255,7 +276,7 @@ test('public MCP round trips expose the handoff and reject a stale host receipt'
     const p = created.structuredContent;
     const settings = await call('openmotion_open_preview', { target: 'providers' });
     assert.equal(settings.isError, undefined, 'A bound project must not leak into provider setup');
-    assert.equal(new URL(settings.structuredContent.previewUrl).searchParams.get('section'), 'providers');
+    assert.equal(new URL(settings.structuredContent.previewUrl).pathname, '/settings/providers');
     assert.equal(settings.structuredContent.projectId, undefined);
     const boundLibrary = await call('openmotion_open_preview', { target: 'templates' });
     assert.equal(boundLibrary.isError, undefined, 'A project binding must not leak into the template library target');

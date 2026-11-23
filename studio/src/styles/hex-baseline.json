@@ -1,5 +1,5 @@
 {
-  "total": 158,
+  "total": 157,
   "files": {
     "studio/src/captions/components/CaptionOverlay.tsx": 5,
     "studio/src/captions/components/CaptionTimeline.tsx": 11,
@@ -32,7 +32,7 @@
     "studio/src/components/editor/propertyPanelStyleSections.tsx": 3,
     "studio/src/components/editor/transform3dProjection.ts": 3,
     "studio/src/components/panels/VariablesBindElement.tsx": 2,
-    "studio/src/components/panels/VariablesValueControls.tsx": 2,
+    "studio/src/components/panels/VariablesValueControls.tsx": 1,
     "studio/src/components/ui/HyperframesMark.tsx": 4,
     "studio/src/hooks/useInlineTextEdit.ts": 1,
     "studio/src/player/components/AudioWaveform.tsx": 2,

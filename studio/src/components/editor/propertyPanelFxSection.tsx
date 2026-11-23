@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 /**
@@ -560,7 +561,7 @@ export function FxSection({
           was the only thing that set these false, so the only exits were adding
           an effect they did not want or deselecting the clip. */}
       <div className="flex flex-col gap-1">
-        <button
+        <Button variant="plain"
           type="button"
           className="hf-fx-preset w-full rounded-[4px] border border-panel-text-0 py-1.5 text-[11px] font-semibold text-panel-text-0 disabled:opacity-40"
           aria-expanded={picking}
@@ -575,8 +576,8 @@ export function FxSection({
           }}
         >
           {picking ? t("Close") : t("Presets")}
-        </button>
-        <button
+        </Button>
+        <Button variant="plain"
           type="button"
           className="hf-fx-add self-end px-1 text-[10px] text-panel-text-2 hover:text-panel-text-0 disabled:opacity-40"
           aria-expanded={adding}
@@ -591,7 +592,7 @@ export function FxSection({
           }}
         >
           {adding ? t("Close") : t("+ effect")}
-        </button>
+        </Button>
       </div>
     </div>
   );

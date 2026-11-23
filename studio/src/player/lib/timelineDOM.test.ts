@@ -11,6 +11,7 @@ import { clipTimingStart, resolveClipTimingBasis } from "../../hooks/gsapShared"
 import { toAuthoredStart } from "../store/timelineElement";
 import { computeResizePreview } from "../components/timelineClipDragPreview";
 import { buildTimelineResizeTimingPatch } from "../../hooks/timelineEditingHelpers";
+import { normalizeToZones } from "../components/timelineZones";
 import type { TimelineElement } from "../store/playerStore";
 import {
   MAX_PLAYBACK_RATE,
@@ -283,6 +284,19 @@ describe("parseTimelineFromDOM — hfId from data-hf-id", () => {
     const hero = elements.find((el) => el.domId === "hero");
 
     expect(hero?.hidden).toBe(true);
+  });
+
+  it('keeps session locks during manifest rediscovery and reflects an explicit unlock', () => {
+    const doc = makeDoc('<div id="cue" data-timeline-locked></div>');
+    const hostEl = doc.getElementById('cue')!;
+    const read = () => createTimelineElementFromManifestClip({
+      clip: { id: 'cue', label: 'Caption', kind: 'element', tagName: 'div', start: 0, duration: 2,
+        track: 0, compositionId: null, parentCompositionId: null, compositionSrc: null, assetUrl: null },
+      fallbackIndex: 0, doc, hostEl,
+    });
+    expect(read().timelineLocked).toBe(true);
+    hostEl.removeAttribute('data-timeline-locked');
+    expect(read().timelineLocked).toBeUndefined();
   });
 
   it("marks manifest timeline elements hidden when the host has data-hidden", () => {
@@ -629,6 +643,27 @@ describe("mergeTimelineElementsPreservingDowngrades — genuine removal vs trans
     expect(
       mergeTimelineElementsPreservingDowngrades(current, next, 30, 30).map((e) => e.id),
     ).toEqual(["a", "c"]);
+  });
+
+  it("restores authoredTrack on preserved compositions so re-normalizing with fresh authored clips does not drift lanes", () => {
+    // Store holds normalized display lanes (authoredTrack 1 -> display track 0, authoredTrack 2 -> display track 1).
+    const current = [
+      el("scene-1", { start: 0, duration: 1.5, track: 0, authoredTrack: 1 }),
+      el("scene-2", { start: 1.5, duration: 5, track: 0, authoredTrack: 1, compositionSrc: "scene2.html" }),
+      el("captions", { start: 1.5, duration: 5, track: 1, authoredTrack: 2 }),
+    ];
+    // Next manifest arrives in authored track space (1 and 2) without the enriched scene-2.
+    const next = [
+      el("scene-1", { start: 0, duration: 1.5, track: 1, authoredTrack: 1 }),
+      el("captions", { start: 1.5, duration: 5, track: 2, authoredTrack: 2 }),
+    ];
+    const normalized = normalizeToZones(
+      mergeTimelineElementsPreservingDowngrades(current, next, 20, 20),
+    );
+    const byId = new Map(normalized.map((e) => [e.id, e.track]));
+    expect(byId.get("scene-1")).toBe(0);
+    expect(byId.get("scene-2")).toBe(0);
+    expect(byId.get("captions")).toBe(1);
   });
 });
 

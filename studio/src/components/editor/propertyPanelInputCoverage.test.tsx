@@ -348,14 +348,16 @@ describe.each(["classic", "flat"] as const)("shared %s input telemetry", (ui) =>
 
   it("tracks ColorField exactly once for a real color change", () => {
     const host = render(
-      section(<ColorField flat={ui === "flat"} label="Color" value="#FF0000" onCommit={vi.fn()} />),
+      section(<ColorField label="Color" value="#FF0000" onCommit={vi.fn()} />),
     );
     const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Pick color color"]');
     act(() => trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const hex = Array.from(document.body.querySelectorAll<HTMLInputElement>("input")).find(
-      (input) => input.value === "#FF0000",
-    );
-    if (!hex) throw new Error("expected color hex input");
+    const picker = document.querySelector<HTMLElement>('.motion-color-picker[data-open]')!;
+    act(() => picker.querySelector<HTMLButtonElement>('[role="combobox"]')!.click());
+    const hexOption = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find(option => option.textContent === "HEX")!;
+    act(() => hexOption.click());
+    const hex = picker.querySelector<HTMLInputElement>('input[aria-label="Hex"]')!;
     act(() => {
       changeInput(hex, "#00FF00");
       blurInput(hex);

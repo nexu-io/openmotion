@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { fixCaptureModule } from '../shared/hyperframes-capture-fix.mjs';
+import { browserAutomation } from '../browser.ts';
 import { HYPERFRAMES_VERSION, runHyperframes, runtimeEnv } from '../hyperframes.ts';
 
 const captureUrl = new URL('../node_modules/hyperframes/dist/chunk-IAZ2A7D6.js', import.meta.url);
@@ -13,6 +14,23 @@ const engine = await import(captureUrl.href);
 const originalRetry = await readFile(retryUrl, 'utf8');
 const retrySource = fixCaptureModule(retryUrl.href, originalRetry);
 const bufferError = 'net::ERR_NO_BUFFER_SPACE at http://localhost:62840/index.html';
+
+test('managed Chrome suppresses the macOS search icon and preserves caller-provided disabled features', async () => {
+  const browser = await browserAutomation(path.resolve(import.meta.dirname, '..'));
+  const args = await browser.defaultArgs({ headless: true, args: ['--disable-features=AudioServiceOutOfProcess'] });
+  const disabled = args.find(arg => arg.startsWith('--disable-features='))!.slice('--disable-features='.length).split(',');
+  assert.ok(disabled.includes('AudioServiceOutOfProcess'));
+  assert.equal(disabled.includes('OmniboxEverywhere'), process.platform === 'darwin');
+});
+
+test('an unexpected Chrome launcher still loads with its original options', t => {
+  const url = new URL('../node_modules/puppeteer-core/lib/puppeteer/node/ChromeLauncher.js', import.meta.url);
+  const warn = t.mock.method(process, 'emitWarning', () => {});
+  for (const source of ['const defaultFeatures = [];', '        const disabledFeatures = [\n        const disabledFeatures = [']) {
+    assert.equal(fixCaptureModule(url.href, source), source);
+  }
+  assert.equal(warn.mock.callCount(), process.platform === 'darwin' ? 2 : 0);
+});
 
 test('accelerated canvas injection supports modern and legacy HTML-in-Canvas APIs', async () => {
   const source = fixCaptureModule(captureUrl.href, await readFile(captureUrl, 'utf8'));

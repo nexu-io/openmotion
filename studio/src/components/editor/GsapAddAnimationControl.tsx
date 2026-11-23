@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { ADD_METHODS, ADD_METHOD_LABELS, METHOD_TOOLTIPS } from "./gsapAnimationConstants";
 
@@ -37,7 +38,7 @@ export function GsapAddAnimationControl({
       {open ? (
         <div className="flex gap-1.5">
           {ADD_METHODS.map((method) => (
-            <button
+            <Button variant="plain"
               key={method}
               type="button"
               title={METHOD_TOOLTIPS[method]}
@@ -49,19 +50,19 @@ export function GsapAddAnimationControl({
               className={styles.method}
             >
               {ADD_METHOD_LABELS[method] ?? method}
-            </button>
+            </Button>
           ))}
-          <button type="button" onClick={() => setOpen(false)} className={styles.cancel}>
-            {t("Cancel")}</button>
+          <Button variant="plain" type="button" onClick={() => setOpen(false)} className={styles.cancel}>
+            {t("Cancel")}</Button>
         </div>
       ) : (
-        <button
+        <Button variant="plain"
           type="button"
           onClick={() => setOpen(true)}
           className={styles.trigger}
           title={t("Add a new animation effect to this element")}
         >
-          {t("+ Add effect")}</button>
+          {t("+ Add effect")}</Button>
       )}
     </div>
   );

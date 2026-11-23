@@ -3,17 +3,23 @@
 @import "./fonts.css";
 @import "./controls.css";
 @import "./material.css";
+@import "./studio/control-recipes.css";
 @import "./studio/adapter.css";
 @import "./studio/control-states.css";
 @import "./studio/feedback.css";
 @import "./studio/editor-workspace.css";
 @import "./studio/application.css";
+@import "./studio/primary-navigation.css";
 @import "./studio/mcp.css";
 @import "./studio/template-cards.css";
 @import "./studio/discovery.css";
 @import "./studio/media-detail.css";
 @import "./studio/audio-assets.css";
 @import "./studio/media-quick-actions.css";
+@import "./studio/formFields.css";
+@import "./studio/menuPanels.css";
+@import "./studio/propertyPanelControls.css";
+@import "./studio/disclosure.css";
 
 /* Asset geometry is shared; currentColor follows the application's selected theme. */
 .motion-brand-lockup {
@@ -24,6 +30,12 @@
   vertical-align: middle;
   background: currentColor;
   mask: url("./brand/openmotion-logo.svg") center / contain no-repeat;
+}
+
+.motion-brand-lockup:where([data-brand="editor"]) {
+  color: var(--motion-strong);
+  aspect-ratio: 1705 / 291;
+  mask-image: url("./opendesign-dark.svg");
 }
 
 /* Shared placement feedback: crisp target geometry and a readable live readout. */

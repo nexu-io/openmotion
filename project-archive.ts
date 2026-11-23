@@ -1,3 +1,4 @@
+import { ToolInputError } from './shared/tool-input-error.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
@@ -141,12 +142,16 @@ async function validateExport(store: WorkspaceStore, bytes: Buffer, root: string
 
 /** Shared domain operation for public MCP and browser transports. No source or active selection changes on export. */
 export async function projectArchive(store: WorkspaceStore, input: ProjectArchiveInput, runtimeRoot?: string) {
-  if (!/^[\w-]{1,100}$/.test(input.requestId)) throw new Error('INVALID_ARGUMENT: Stable requestId required');
+  if (!/^[\w-]{1,100}$/.test(input.requestId)) throw new ToolInputError('Stable requestId required', 'requestId', 'invalid_format');
   if (input.action === 'export') {
-    if (input.sourcePath || Boolean(input.all) === Boolean(input.projectIds?.length)) throw new Error('INVALID_ARGUMENT: Choose projectIds or all');
+    if (input.sourcePath || Boolean(input.all) === Boolean(input.projectIds?.length)) throw new ToolInputError('Choose projectIds or all', input.sourcePath ? 'sourcePath' : 'projectIds', 'invalid_combination');
     return exportProjects(store, input, runtimeRoot);
   }
-  if (input.action !== 'import' || !input.sourcePath || !path.isAbsolute(input.sourcePath) || input.all !== undefined || input.projectIds || input.expectedRevisions) throw new Error('INVALID_ARGUMENT: Import requires an absolute ZIP sourcePath');
+  const message = 'Import requires an absolute ZIP sourcePath';
+  if (!input.sourcePath) throw new ToolInputError(message, 'sourcePath', 'missing');
+  if (!path.isAbsolute(input.sourcePath)) throw new ToolInputError(message, 'sourcePath', 'invalid_format');
+  const unsupported = input.action !== 'import' ? 'action' : (['all', 'projectIds', 'expectedRevisions'] as const).find(field => input[field] !== undefined);
+  if (unsupported) throw new ToolInputError(message, unsupported, 'invalid_combination');
   const bytes = await readBounded(input.sourcePath);
   return importProjects(store, input.requestId, bytes, runtimeRoot);
 }
@@ -186,8 +191,8 @@ async function exportProjects(store: WorkspaceStore, input: ProjectArchiveInput,
 
 async function snapshotProjects(store: WorkspaceStore, input: ProjectArchiveInput) {
   const catalog = store.projectCatalog(), ids = input.all ? catalog.projects.filter(p => !p.trashedAt).map(p => p.id) : input.projectIds!;
-  if (!ids.length || ids.length > limits.projects || new Set(ids).size !== ids.length) throw new Error('INVALID_ARGUMENT: Choose 1–100 distinct projects');
-  if (input.expectedRevisions && Object.keys(input.expectedRevisions).some(id => !ids.includes(id))) throw new Error('INVALID_ARGUMENT: Unexpected project revision');
+  if (!ids.length || ids.length > limits.projects || new Set(ids).size !== ids.length) throw new ToolInputError('Choose 1–100 distinct projects', 'projectIds', 'invalid_combination');
+  if (input.expectedRevisions && Object.keys(input.expectedRevisions).some(id => !ids.includes(id))) throw new ToolInputError('Unexpected project revision', 'expectedRevisions', 'invalid_combination');
   const skippedProjectIds: string[] = [];
   const entries: { name: string; data: Buffer }[] = [], projects = [], revisions: Record<string, string> = {}; let total = 0;
   for (const id of ids) {
@@ -221,7 +226,7 @@ export async function duplicateProject(store: WorkspaceStore, input: { projectId
 }
 
 export async function importProjects(store: WorkspaceStore, requestId: string, bytes: Buffer, runtimeRoot?: string, copy?: { title?: string }) {
-  if (!/^[\w-]{1,100}$/.test(requestId)) throw new Error('INVALID_ARGUMENT: Stable requestId required');
+  if (!/^[\w-]{1,100}$/.test(requestId)) throw new ToolInputError('Stable requestId required', 'requestId', 'invalid_format');
   const inputHash = copy ? hash(hash(bytes) + JSON.stringify(copy)) : hash(bytes), root = path.join(store.directory, 'project-archives'), receiptPath = path.join(root, 'imports', hash(requestId) + '.json');
   await mkdir(root, { recursive: true, mode: 0o700 });
   return withProcessLock(receiptPath + '.lock', async () => {

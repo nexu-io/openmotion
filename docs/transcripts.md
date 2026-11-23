@@ -53,7 +53,7 @@ This is a product-guided Agent workflow built from the existing editor and publi
 
 ## Public operations and storage
 
-Use `openmotion_assets_use` with `action: "transcript"` and nested `transcript` arguments. The tool inventory remains sixteen registered names.
+Use `openmotion_assets_use` with `action: "transcript"` and nested `transcript` arguments. The tool inventory remains eighteen registered names.
 
 | Command | Inputs and result |
 | --- | --- |
@@ -112,3 +112,9 @@ Timeline clip moves use OpenReel's 40-pixel clip-edge snap radius. Music beats s
 The shared public operation is `openmotion_assets_use({action: "transcript", transcript: {command: "caption_export", projectId, compositionPath: "index.html", format: "srt"}})`. Optional `transcriptId` selects a managed track. It returns `content`, `mimeType`, `extension`, `cueCount` and the requested project/composition identity. `caption_tracks` discovers available identities. Missing tracks, empty visible captions and invalid timing report recoverable errors. Independent nested scenes must be exported from their own composition; this operation does not guess placement across scene references. SRT/VTT contain text and timing; authored appearance remains in video output and the editable project.
 
 Transcript **export** still downloads the reviewed source document; **caption_export** is the saved timeline result. The UI and public MCP call the same implementation. Editing remains version guarded; exporting subtitles is read only.
+
+## Canvas and caption visibility
+
+The timeline toolbar offers 16:9, 9:16, 1:1, 4:3 and 3:4 canvas presets. Letterbox preserves the complete authored frame; Crop fills the canvas with a centered crop. Both preserve proportions, clip timing and audio. The shared `openmotion_edit_project` operation accepts `canvas: { compositionPath, ratio, fit }` (`fit` is `contain` or `cover`), with `expectedRevision`, `expectedVersionId` and a stable `requestId`. Preview and export read the same saved source. This is geometric framing, not subject detection or automatic editorial relayout. New presets use the documented HD canvas sizes.
+
+CC displays On or Off at all times after loading. Its menu sets visibility for all caption tracks, leaving ordinary text tracks unchanged. The first On creates an empty native caption lane without invented text or recognition. Adding, importing or generating captions fills that lane; Off preserves its source, timing and history. External Agents use `openmotion_assets_use` with `action=transcript`, `command=caption_toggle`, `visible`, `projectId`, `compositionPath`, both project revision guards and a stable `requestId`. `caption_tracks` reports the empty lane with `cueCount: 0`. Locked tracks reject visibility changes. On conflicts, reload and reconcile; retry an interrupted response with the same request identity. Empty tracks do not contribute subtitle cues or rendered pixels.

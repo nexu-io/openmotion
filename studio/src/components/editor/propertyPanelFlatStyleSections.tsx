@@ -19,6 +19,7 @@ import {
   inferBoxShadowPreset,
   inferClipPathPreset,
   normalizePanelPxValue,
+  parseNumericToken,
   parseNumericValue,
   parsePxMetricValue,
   setCssFilterFunctionPx,
@@ -34,6 +35,8 @@ import { FlatMaskInsetRows } from "./propertyPanelFlatMaskInsetRows";
 import { resolveValueTier } from "./propertyPanelValueTier";
 import { ColorField } from "./propertyPanelColor";
 import { GradientField, ImageFillField } from "./propertyPanelFill";
+
+const DEFAULT_TEXT_COLOR = "rgb(0, 0, 0)";
 
 /* ------------------------------------------------------------------ */
 /*  Flat Fill sub-block (design_handoff_studio_inspector, #11a)        */
@@ -109,7 +112,6 @@ function FlatFillFields({
       />
       {preferredFillMode === "Solid" ? (
         <ColorField
-          flat
           label={t("Color")}
           value={styles["background-color"] ?? "transparent"}
           disabled={styleEditingDisabled}
@@ -141,9 +143,8 @@ function FlatFillFields({
       )}
       {!hasTextControls && (
         <ColorField
-          flat
           label={t("Text color")}
-          value={styles.color ?? "rgb(0, 0, 0)"}
+          value={styles.color ?? DEFAULT_TEXT_COLOR}
           disabled={styleEditingDisabled}
           onCommit={(next) => onSetStyle("color", next)}
         />
@@ -220,7 +221,6 @@ function FlatStrokeRow({
         }}
       />
       <ColorField
-        flat
         label={t("Stroke color")}
         value={borderColorValue}
         disabled={disabled}
@@ -452,6 +452,10 @@ export function FlatOpacitySlider({
   const { t } = useI18n();
   const independent = preserveOpacityAnimation || LAYER_OPACITY_PROPERTY in inlineStyles;
   const opacityValue = Math.round((independent ? layerOpacityValue(inlineStyles) : parseNumericValue(styles.opacity) ?? 1) * 100);
+  const commitOpacity = (percent: number) => {
+    if (independent) void onSetStyle(layerOpacityStyles(percent / 100, inlineStyles, styles));
+    else void onSetStyle("opacity", formatNumericValue(percent / 100));
+  };
 
   return (
     <FlatSlider
@@ -461,10 +465,15 @@ export function FlatOpacitySlider({
       max={100}
       tier="explicitCustom"
       displayValue={`${opacityValue}%`}
+      readout="input"
+      layout="inline"
       disabled={disabled}
-      onCommit={(next) => {
-        if (independent) void onSetStyle(layerOpacityStyles(next / 100, inlineStyles, styles));
-        else void onSetStyle("opacity", formatNumericValue(next / 100));
+      onCommit={commitOpacity}
+      onCommitText={(text) => {
+        const token = parseNumericToken(text.replace(/\s+%$/, "%"));
+        if (!token || (token.unit !== "" && token.unit !== "%")) return false;
+        commitOpacity(Math.round(Math.max(0, Math.min(100, token.value))));
+        return true;
       }}
     />
   );
@@ -497,9 +506,14 @@ export function FlatStyleSection({
   const mvp = useMvpEditor();
   const styleEditingDisabled = !element.capabilities.canEditStyles;
   if (mvp) return <div className="space-y-1.5">
-    <ColorField flat label={t("Fill color")} value={styles["background-color"] ?? "transparent"}
+    <ColorField label={t("Fill color")} value={styles["background-color"] ?? "transparent"}
       disabled={styleEditingDisabled} onPreview={next => onPreviewStyle?.("background-color", next)}
       onCommit={next => onSetStyle({ "background-color": next, "background-image": "none" })} />
+    {element.textContent?.trim() && (
+      <ColorField label={t("Text color")} value={styles.color ?? DEFAULT_TEXT_COLOR}
+        disabled={styleEditingDisabled} onPreview={next => onPreviewStyle?.("color", next)}
+        onCommit={next => onSetStyle("color", next)} />
+    )}
     <FlatOpacitySlider styles={styles} inlineStyles={element.inlineStyles} preserveOpacityAnimation={preserveOpacityAnimation} disabled={styleEditingDisabled} onSetStyle={onSetStyle} />
   </div>;
   return (

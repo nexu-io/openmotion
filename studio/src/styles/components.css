@@ -1,3 +1,5 @@
+@import "../../../packages/design-system/studio/timeline-selection.css";
+
 /* Rules for Studio's components, for any page that renders them. Reads the tokens in
  * theme.css. The app shell (body, #root, preflight) stays in studio.css. */
 
@@ -384,9 +386,7 @@
   opacity: 1;
 }
 
-/* Audio clips read as a distinct kind — a persistent violet tint vs the teal-
-   accented visual clips — so the audio zone at the bottom is visually separate
-   at a glance (the timeline's kinds: visual on top, audio below). */
+/* The audio lane uses the brand tint and a higher-contrast waveform. */
 .timeline-clip.is-audio {
   background-color: var(--timeline-clip-audio-bg);
   border-color: var(--timeline-clip-audio-border);
@@ -462,12 +462,6 @@
 
 .timeline-clip[data-active].is-hovered {
   border-color: var(--clip-border-hover);
-}
-
-.timeline-clip.is-selected,
-.timeline-clip[data-active].is-selected {
-  outline: 1px solid var(--timeline-clip-selection);
-  outline-offset: 0;
 }
 
 .timeline-clip.is-dragging {
@@ -733,31 +727,33 @@
 @keyframes hf-toast-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(-10px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes hf-toast-out {
   from {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(-6px) scale(0.97);
   }
 }
 
 .hf-toast-enter {
-  animation: hf-toast-in 160ms ease-out;
+  animation: hf-toast-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
 }
 
 .hf-toast-exit {
-  animation: hf-toast-out 160ms ease-in forwards;
+  animation: hf-toast-out 160ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  will-change: transform, opacity;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -42,7 +42,7 @@ function renderColorField({
   roots.push(root);
   act(() => {
     root.render(
-      <ColorField flat label="Color" value={value} onPreview={onPreview} onCommit={onCommit} />,
+      <ColorField label="Color" value={value} onPreview={onPreview} onCommit={onCommit} />,
     );
   });
   return host;
@@ -59,13 +59,24 @@ function openHexInput(host: HTMLElement): HTMLInputElement {
   const trigger = host.querySelector<HTMLButtonElement>('[data-flat-color-trigger="true"]');
   if (!trigger) throw new Error("Color trigger was not rendered");
   act(() => trigger.click());
-  const input = document.querySelector<HTMLInputElement>('input[spellcheck="false"]');
+  const dialog = document.querySelector<HTMLElement>('.motion-color-picker[data-open]')!;
+  const format = dialog.querySelector<HTMLButtonElement>('[role="combobox"]')!;
+  if (format.textContent !== "HEX") {
+    act(() => format.click());
+    const hex = [...document.querySelectorAll<HTMLElement>('[role="option"]')]
+      .find(option => option.textContent === "HEX")!;
+    act(() => hex.click());
+  }
+  const input = dialog.querySelector<HTMLInputElement>('input[aria-label="Hex"]');
   if (!input) throw new Error("Hex input was not rendered");
   return input;
 }
 
 function clickOutside(): void {
-  document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  const event = { bubbles: true, cancelable: true, composed: true };
+  document.body.dispatchEvent(new PointerEvent("pointerdown", { ...event, pointerType: "mouse" }));
+  document.body.dispatchEvent(new PointerEvent("pointerup", { ...event, pointerType: "mouse" }));
+  document.body.dispatchEvent(new MouseEvent("click", { ...event, detail: 1 }));
 }
 
 describe("ColorField flat trigger", () => {
@@ -99,6 +110,22 @@ describe("ColorField flat trigger", () => {
     });
 
     expect(onCommit).toHaveBeenCalledOnce();
+  });
+
+  it("uses the operation panel and commits an RGBA channel edit once", () => {
+    const onCommit = vi.fn();
+    const host = renderColorField({ value: "rgba(34, 68, 102, 0.5)", onCommit });
+    const trigger = host.querySelector<HTMLButtonElement>("[data-flat-color-trigger]")!;
+    act(() => trigger.click());
+    const panel = document.querySelector('.motion-color-picker[data-menu-panel][role="dialog"]')!;
+    expect(panel).not.toBeNull();
+    const red = panel.querySelector<HTMLInputElement>('input[aria-label="Red"]')!;
+    expect(red.value).toBe("34");
+    act(() => red.focus());
+    act(() => changeInput(red, "64"));
+    expect(onCommit).not.toHaveBeenCalled();
+    act(() => red.blur());
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith("rgba(64, 68, 102, 0.5)");
   });
 });
 
@@ -136,10 +163,8 @@ describe("ColorField hex editing", () => {
     expect(trigger.textContent).toContain(`${alpha * 100}%`);
     const input = openHexInput(host);
     expect(input.value).toBe("#224466");
-    const dialog = document.querySelector('[role="dialog"]')!;
-    expect(dialog.textContent).toContain("#224466");
-    expect(dialog.textContent).not.toContain("rgba(");
-    expect(dialog.textContent).toContain(`A ${alpha * 100}%`);
+    const dialog = input.closest('[role="dialog"]')!;
+    expect(dialog.querySelector("output")?.textContent).toBe(`${alpha * 100}%`);
     act(clickOutside);
     expect(onCommit).not.toHaveBeenCalled();
   });

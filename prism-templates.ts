@@ -1,8 +1,10 @@
+import { blackFridayReference } from './shared/black-friday-collection.ts';
+import { loadLibrarySkills, assertSkillIds, skillUsage, skillNextStep } from './shared/library-skill-catalog.ts';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { templatePage, templateWorkflow, type GalleryTemplate } from './shared/catalog.ts';
+import { isShortFormTemplate, templatePage, templateWorkflow, type GalleryTemplate } from './shared/catalog.ts';
 import { catalogLocale } from './shared/template-locale.ts';
 import { templateConfig } from './shared/template-config.ts';
 import { libraryTemplates, templateRecipe } from './template-catalog.ts';
@@ -194,15 +196,50 @@ export class TemplateCatalog {
     return [...remote, ...builtinTemplates];
   }
 
+  private async skills(snapshot: Snapshot) {
+    // CMS publishes templates only; Skills come from the library/skills shipped with this application.
+    const skills = this.source === 'hosted' ? snapshot.hosted?.skills ?? [] : await loadLibrarySkills();
+    assertSkillIds(skills, this.templates(snapshot).map(item => item.id));
+    return skills;
+  }
+
+  // CMS Skill reads never wait on (or fail with) a template publication download.
+  private async skillSource() {
+    if (this.source === 'cms') return { skills: await loadLibrarySkills(), snapshot: undefined };
+    const snapshot = await this.refresh();
+    return { skills: await this.skills(snapshot), snapshot };
+  }
+
   async index() {
     const snapshot = await this.refresh();
     const items = this.templates(snapshot);
     const catalogVersion = snapshot.repository?.version ?? snapshot.hosted?.version ?? snapshot.publication.publicationId;
-    const indexPath = path.join(this.directory, `templates.${hash(catalogVersion).slice(0, 16)}.index.jsonl`);
+    const indexPath = path.join(this.directory, `templates.${hash('short-form-v1:' + catalogVersion).slice(0, 16)}.index.jsonl`);
     const lines = items.map(item => JSON.stringify({ templateId: item.id, name: item.title, summary: item.description,
-      category: item.subtitle, tags: item.tags, durationSeconds: item.duration, kind: item.kind, localSource: item.localSource })).join('\n') + '\n';
+      category: item.subtitle, tags: item.tags, durationSeconds: item.duration, shortForm: isShortFormTemplate(item) || undefined, kind: item.kind, localSource: item.localSource })).join('\n') + '\n';
     await atomicWrite(indexPath, lines);
     return { indexPath, total: items.length, catalogVersion, source: this.source, warning: this.warning };
+  }
+
+  // Library Skills have their own index and detail tools; they share only the hosted publication and object store.
+  async skillIndex() {
+    const { skills } = await this.skillSource();
+    const skillVersion = hash(JSON.stringify(skills));
+    const indexPath = path.join(this.directory, `skills.${skillVersion.slice(0, 16)}.index.jsonl`);
+    const lines = skills.map(({ instructions: _instructions, files: _files, objects: _objects, ...skill }) => JSON.stringify({ ...skill, skillId: skill.id })).join('\n');
+    await atomicWrite(indexPath, lines ? lines + '\n' : '');
+    return { indexPath, total: skills.length, skillVersion, source: this.source,
+      ...(this.source !== 'cms' && this.warning ? { warning: this.warning } : {}) };
+  }
+
+  async skillDetail(id: string) {
+    const { skills, snapshot } = await this.skillSource();
+    const skill = skills.find(item => item.id === id);
+    if (!skill) throw new Error('Skill 不存在，请先调用 openmotion_list_skills 获取 Skill 目录');
+    // Hosted/npm installs have no library files; publish them as hash-verified objects like template sources.
+    const objects = skill.localSource ? undefined : skill.objects?.map(file => ({ ...file, url: `${snapshot!.hosted!.objectBaseUrl}/${file.sha256}` }));
+    return { ...skill, ...(objects ? { objects } : {}), skillId: skill.id, motionDocument: { path: skill.localSource ? path.join(skill.localSource, 'SKILL.md') : 'SKILL.md', content: skill.instructions }, source: this.source,
+      workflowGuide: { workflow: 'skill', nextStep: objects ? skillNextStep + ' Supporting files are not installed locally: download only the ones SKILL.md references from objects[].url into your working directory at objects[].path, and check bytes and sha256 before running scripts or reading references.' : skillNextStep } };
   }
 
   async page(options: Parameters<typeof templatePage>[1] & { covered?: boolean; locale?: string } = {}) {
@@ -213,10 +250,12 @@ export class TemplateCatalog {
   }
 
   async get(id: string): Promise<EditableTemplate> {
+    if (this.source === 'repository' && (await loadLibrarySkills()).some(item => item.id === id)) throw new Error(skillUsage);
     const builtin = builtinTemplates.find(item => item.id === id);
     if (builtin) return builtin;
     const snapshot = await this.refresh();
-    const template = this.templates(snapshot).find(item => item.id === id);
+    if ((await this.skills(snapshot)).some(item => item.id === id)) throw new Error(skillUsage);
+    const template = this.templates(snapshot).find(item => item.id === id) ?? blackFridayReference(id, this.locale);
     if (!template) throw new Error('模板不存在，请重新获取模板目录');
     return template;
   }
@@ -226,8 +265,14 @@ export class TemplateCatalog {
     if (builtin) return { ...builtin, instructions: templateRecipe(builtin), source: this.source,
       workflowGuide: { workflow: 'template', section: 'start', status: 'ready' }, warning: this.warning };
     const snapshot = await this.refresh();
-    const template: EditableTemplate | undefined = this.templates(snapshot).find(item => item.id === id);
-    if (!template) throw new Error('模板不存在，请重新获取模板目录');
+    if ((await this.skills(snapshot)).some(item => item.id === id)) throw new Error(skillUsage);
+    const template = this.templates(snapshot).find(item => item.id === id);
+    if (!template) {
+      const reference = blackFridayReference(id, this.locale);
+      if (!reference) throw new Error('模板不存在，请重新获取模板目录');
+      return { ...reference, instructions: templateRecipe(reference), source: this.source,
+        workflowGuide: { workflow: 'recreate', section: 'start', status: 'ready' }, warning: this.warning };
+    }
     if (template.localSource) {
       const instructions = (await readRepositoryFile(this.repositoryRoot, id + '/TEMPLATE.md')).toString('utf8');
       const content = (await readRepositoryFile(this.repositoryRoot, id + '/source/motion.md')).toString('utf8');

@@ -1,7 +1,7 @@
 import type { ProjectMessage } from './conversation.ts';
 
 /** Mode selects production tools; artifact kind selects its viewer. Neither depends on an Agent host. */
-export const creationModes = [{ id: 'motion', title: 'OpenMotion', skill: 'openmotion-production', artifactKind: 'motion-project', templateCategories: ['builtin', 'featured', 'ads', 'motion', 'script', 'all'] }] as const;
+export const creationModes = [{ id: 'motion', title: 'OpenMotion', skill: 'openmotion-production', artifactKind: 'motion-project', templateCategories: ['builtin', 'featured', 'ads', 'motion', 'script', 'short-form', 'all'] }] as const;
 export const artifactViewers = { 'motion-project': { id: 'motion', title: 'OpenMotion', scheme: 'motion', embeddable: true } } as const;
 export type ArtifactKind = keyof typeof artifactViewers;
 export type CreationMode = typeof creationModes[number]['id'];

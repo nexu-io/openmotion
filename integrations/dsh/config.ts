@@ -47,6 +47,7 @@ export function integrationPatch(
   config: ReturnType<typeof integrationConfig>,
   executable: string,
   env: NodeJS.ProcessEnv = process.env,
+  modules: string[] = [],
 ): string {
   const scalar = JSON.stringify;
   return `- insert:
@@ -56,5 +57,8 @@ export function integrationPatch(
         root: ${scalar(config.root)}
         dataDirectory: ${scalar(config.data)}
         node: ${scalar(executable)}
-${env.MOTION_TEMPLATE_SOURCE ? `        templateSource: ${scalar(env.MOTION_TEMPLATE_SOURCE)}\n` : ""}`;
+${env.MOTION_TEMPLATE_SOURCE ? `        templateSource: ${scalar(env.MOTION_TEMPLATE_SOURCE)}\n` : ""}${[
+    ["action-cards", "@deepseek-ai/dsh-action-cards"],
+    ["client-ui-action-cards", "@deepseek-ai/dsh-client-ui-action-cards"],
+  ].filter(([, name]) => !modules.includes(name)).map(([id, name]) => `    - id: ${id}\n      name: ${scalar(name)}\n`).join("")}`;
 }

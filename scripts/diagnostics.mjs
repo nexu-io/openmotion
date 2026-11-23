@@ -91,6 +91,10 @@ export async function recordDiagnostic(directory, event) {
   try { await task; } finally { if (writers.get(directory) === task) writers.delete(directory); }
 }
 
+/**
+ * Collect a redacted diagnostics bundle for one installation.
+ * @param {{ appRoot?: string, dataDirectory?: string, installHome?: string, browserErrors?: unknown[] }} [options]
+ */
 export async function collectDiagnostics({ appRoot = appDirectory, dataDirectory, installHome, browserErrors = [] } = {}) {
   const entries = [], files = [];
   let remaining = diagnosticLimits.totalBytes;

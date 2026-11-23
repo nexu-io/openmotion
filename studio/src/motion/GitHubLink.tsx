@@ -25,7 +25,7 @@ export function GitHubLink({ className = '' }: { className?: string } = {}) {
   }, []);
   const count = stars === null ? '10K' : new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(stars);
   const label = stars === null ? t('OpenMotion on GitHub') : `${t('OpenMotion on GitHub')}, ${t('{count} GitHub stars', { count: formatNumber(stars) })}`;
-  return <Tooltip label={label} wrap><a className={`${styles.link} motion-github-link ${className}`} href={GITHUB_REPOSITORY} target="_blank" rel="noopener noreferrer"
+  return <Tooltip label={t('Star us on GitHub')} side="bottom"><a className={`${styles.link} motion-github-link ${className}`} href={GITHUB_REPOSITORY} target="_blank" rel="noopener noreferrer"
     aria-label={label}>
     <GitHubMark /><span className={styles.count} aria-hidden="true">{count}</span>
   </a></Tooltip>;

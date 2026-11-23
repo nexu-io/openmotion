@@ -228,10 +228,10 @@
     "Write the words you want spoken.": "输入希望朗读的文字…",
     "Speech text": "朗读文本",
     "Text to speech": "语音合成",
-    "Music & sound": "音乐与声音",
+    "Music & sound": "音乐与音效",
     "Text to video": "文生视频",
-    "Image editing": "参考图编辑",
-    "Text to image": "文生图片",
+    "Image editing": "图像编辑",
+    "Text to image": "文生图",
     "Settings follow your model": "参数随模型切换",
     "Resize asset navigation": "调整资产侧栏宽度",
     "Resize creator": "调整创作面板宽度",
@@ -323,7 +323,14 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "添加首帧后，固定比例选项不可用。移除首帧可恢复文生视频的比例选择。",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "图生视频的画面比例跟随首帧。请删除 parameters.ratio，或将其设为 \"adaptive\"。",
     "Locate {name} at {start}–{end} on the timeline": "在时间轴定位 {name} 的 {start}–{end}",
-    "{count} uses": "{count} 处"
+    "{count} uses": "{count} 处",
+    "Continue download": "继续下载",
+    "Continuing download…": "正在继续下载…",
+    "Downloaded": "已下载",
+    "Download the original task image. Draft changes apply only to your next generation.": "取回原任务的图片。草稿修改仅用于下一次生成。",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "原图片下载未完成。可继续下载此任务，无需重新生成。",
+    "{provider} needs setup before generating.": "{provider} 需要先完成配置才能生成。",
+    "Configure {provider}": "配置 {provider}"
   },
   "ja": {
     "Follows first frame": "最初のフレームに合わせる",
@@ -331,7 +338,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "最初のフレームがある場合、固定の縦横比は選べません。削除するとテキスト動画の縦横比設定に戻ります。",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "最初のフレームを使う動画の縦横比は入力画像に合わせます。parameters.ratio を削除するか、\"adaptive\" に設定してください。",
     "Locate {name} at {start}–{end} on the timeline": "タイムラインで {name} の {start}–{end} を表示",
-    "{count} uses": "{count} か所"
+    "{count} uses": "{count} か所",
+    "Continue download": "ダウンロードを再開",
+    "Continuing download…": "再開中…",
+    "Downloaded": "ダウンロード済み",
+    "Download the original task image. Draft changes apply only to your next generation.": "元のタスクの画像を取得します。下書きの変更は次の生成に適用されます。",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "元の画像を取得できませんでした。再生成せずにダウンロードを再開できます。",
+    "{provider} needs setup before generating.": "生成する前に {provider} の設定が必要です。",
+    "Configure {provider}": "{provider} を設定",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "参照画像が OpenDesign の 2 MiB アップロード上限を超えています。",
+    "OpenDesign does not accept this reference image format.": "OpenDesign はこの参照画像形式に対応していません。"
   },
   "ko": {
     "Follows first frame": "첫 프레임에 맞춤",
@@ -339,7 +355,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "첫 프레임이 첨부되면 고정 비율을 선택할 수 없습니다. 제거하면 텍스트 동영상의 비율 선택이 복원됩니다.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "첫 프레임을 사용하는 동영상은 입력 이미지의 비율을 따릅니다. parameters.ratio를 삭제하거나 \"adaptive\"로 설정하세요.",
     "Locate {name} at {start}–{end} on the timeline": "타임라인에서 {name}의 {start}–{end} 구간 찾기",
-    "{count} uses": "{count}곳"
+    "{count} uses": "{count}곳",
+    "Continue download": "다운로드 계속",
+    "Continuing download…": "다운로드 재개 중…",
+    "Downloaded": "다운로드됨",
+    "Download the original task image. Draft changes apply only to your next generation.": "원래 작업의 이미지를 가져옵니다. 초안 변경은 다음 생성에 적용됩니다.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "원본 이미지를 다운로드하지 못했습니다. 다시 생성하지 않고 다운로드를 계속하세요.",
+    "{provider} needs setup before generating.": "생성하기 전에 {provider} 설정이 필요합니다.",
+    "Configure {provider}": "{provider} 설정",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "참조 이미지가 OpenDesign의 2 MiB 업로드 한도를 초과합니다.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign에서 지원하지 않는 참조 이미지 형식입니다."
   },
   "de": {
     "Follows first frame": "Wie das erste Bild",
@@ -347,7 +372,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Mit einem ersten Bild sind feste Seitenverhältnisse nicht verfügbar. Entfernen Sie es, um die Auswahl für Text-zu-Video wiederherzustellen.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "Videos mit einem ersten Bild übernehmen dessen Seitenverhältnis. Entfernen Sie parameters.ratio oder setzen Sie es auf \"adaptive\".",
     "Locate {name} at {start}–{end} on the timeline": "{name} bei {start}–{end} in der Zeitleiste anzeigen",
-    "{count} uses": "{count} Verwendungen"
+    "{count} uses": "{count} Verwendungen",
+    "Continue download": "Download fortsetzen",
+    "Continuing download…": "Download wird fortgesetzt…",
+    "Downloaded": "Heruntergeladen",
+    "Download the original task image. Draft changes apply only to your next generation.": "Lädt das Bild des ursprünglichen Auftrags. Entwurfsänderungen gelten für die nächste Generierung.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "Das ursprüngliche Bild konnte nicht heruntergeladen werden. Setze den Download ohne erneute Generierung fort.",
+    "{provider} needs setup before generating.": "{provider} muss vor dem Generieren eingerichtet werden.",
+    "Configure {provider}": "{provider} einrichten",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Das Referenzbild überschreitet das OpenDesign-Upload-Limit von 2 MiB.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign unterstützt dieses Referenzbildformat nicht."
   },
   "fr": {
     "Follows first frame": "Selon la première image",
@@ -355,7 +389,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Les formats fixes sont indisponibles lorsqu’une première image est jointe. Retirez-la pour retrouver votre choix texte-vers-vidéo.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "La vidéo reprend le format de la première image. Supprimez parameters.ratio ou définissez-le sur \"adaptive\".",
     "Locate {name} at {start}–{end} on the timeline": "Afficher {name} de {start} à {end} sur la timeline",
-    "{count} uses": "{count} utilisations"
+    "{count} uses": "{count} utilisations",
+    "Continue download": "Reprendre le téléchargement",
+    "Continuing download…": "Reprise du téléchargement…",
+    "Downloaded": "Téléchargé",
+    "Download the original task image. Draft changes apply only to your next generation.": "Récupère l’image de la tâche initiale. Les modifications du brouillon s’appliquent à la prochaine génération.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "Impossible de télécharger l’image initiale. Reprenez le téléchargement sans la générer à nouveau.",
+    "{provider} needs setup before generating.": "{provider} doit être configuré avant de générer.",
+    "Configure {provider}": "Configurer {provider}",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "L’image de référence dépasse la limite de 2 Mio d’OpenDesign.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign ne prend pas en charge ce format d’image de référence."
   },
   "ru": {
     "Follows first frame": "По первому кадру",
@@ -363,7 +406,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "При добавленном первом кадре фиксированные пропорции недоступны. Удалите его, чтобы восстановить выбор пропорций для видео из текста.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "Видео с первым кадром использует пропорции входного изображения. Удалите parameters.ratio или задайте \"adaptive\".",
     "Locate {name} at {start}–{end} on the timeline": "Найти {name} в интервале {start}–{end} на шкале времени",
-    "{count} uses": "Использований: {count}"
+    "{count} uses": "Использований: {count}",
+    "Continue download": "Продолжить загрузку",
+    "Continuing download…": "Продолжение загрузки…",
+    "Downloaded": "Загружено",
+    "Download the original task image. Draft changes apply only to your next generation.": "Загрузить изображение исходной задачи. Изменения черновика применятся к следующей генерации.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "Не удалось загрузить исходное изображение. Продолжите загрузку без повторной генерации.",
+    "{provider} needs setup before generating.": "Перед генерацией необходимо настроить {provider}.",
+    "Configure {provider}": "Настроить {provider}",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Размер референсного изображения превышает лимит OpenDesign в 2 МиБ.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign не поддерживает этот формат референсного изображения."
   },
   "es": {
     "Follows first frame": "Según el primer fotograma",
@@ -371,7 +423,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Las proporciones fijas no están disponibles con un primer fotograma adjunto. Elimínelo para recuperar la proporción de texto a vídeo.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "El vídeo utiliza la proporción de la imagen inicial. Elimine parameters.ratio o establézcalo en \"adaptive\".",
     "Locate {name} at {start}–{end} on the timeline": "Localizar {name} de {start} a {end} en la línea de tiempo",
-    "{count} uses": "{count} usos"
+    "{count} uses": "{count} usos",
+    "Continue download": "Continuar descarga",
+    "Continuing download…": "Continuando descarga…",
+    "Downloaded": "Descargado",
+    "Download the original task image. Draft changes apply only to your next generation.": "Recupera la imagen de la tarea original. Los cambios del borrador se aplican a la próxima generación.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "No se pudo descargar la imagen original. Continúa la descarga sin volver a generarla.",
+    "{provider} needs setup before generating.": "{provider} requiere configuración antes de generar.",
+    "Configure {provider}": "Configurar {provider}",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "La imagen de referencia supera el límite de carga de 2 MiB de OpenDesign.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign no admite este formato de imagen de referencia."
   },
   "pt-BR": {
     "Follows first frame": "Conforme o primeiro quadro",
@@ -379,7 +440,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "As proporções fixas ficam indisponíveis com um primeiro quadro anexado. Remova-o para restaurar a proporção de texto para vídeo.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "O vídeo usa a proporção da imagem inicial. Remova parameters.ratio ou defina-o como \"adaptive\".",
     "Locate {name} at {start}–{end} on the timeline": "Localizar {name} de {start} a {end} na linha do tempo",
-    "{count} uses": "{count} usos"
+    "{count} uses": "{count} usos",
+    "Continue download": "Continuar download",
+    "Continuing download…": "Continuando download…",
+    "Downloaded": "Baixado",
+    "Download the original task image. Draft changes apply only to your next generation.": "Recupera a imagem da tarefa original. As alterações do rascunho valem para a próxima geração.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "Não foi possível baixar a imagem original. Continue o download sem gerar novamente.",
+    "{provider} needs setup before generating.": "{provider} precisa ser configurado antes de gerar.",
+    "Configure {provider}": "Configurar {provider}",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "A imagem de referência excede o limite de envio de 2 MiB do OpenDesign.",
+    "OpenDesign does not accept this reference image format.": "O OpenDesign não aceita este formato de imagem de referência."
   },
   "it": {
     "Follows first frame": "Come il primo fotogramma",
@@ -387,7 +457,16 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "Le proporzioni fisse non sono disponibili con un primo fotogramma allegato. Rimuovilo per ripristinare la scelta per il video da testo.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "Il video usa le proporzioni dell’immagine iniziale. Rimuovi parameters.ratio o impostalo su \"adaptive\".",
     "Locate {name} at {start}–{end} on the timeline": "Individua {name} da {start} a {end} sulla timeline",
-    "{count} uses": "{count} utilizzi"
+    "{count} uses": "{count} utilizzi",
+    "Continue download": "Riprendi download",
+    "Continuing download…": "Ripresa del download…",
+    "Downloaded": "Scaricato",
+    "Download the original task image. Draft changes apply only to your next generation.": "Recupera l’immagine dell’attività originale. Le modifiche alla bozza valgono per la prossima generazione.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "Impossibile scaricare l’immagine originale. Riprendi il download senza generarla di nuovo.",
+    "{provider} needs setup before generating.": "{provider} deve essere configurato prima di generare.",
+    "Configure {provider}": "Configura {provider}",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "L’immagine di riferimento supera il limite di caricamento di 2 MiB di OpenDesign.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign non accetta questo formato di immagine di riferimento."
   },
   "tr": {
     "Follows first frame": "İlk kareye göre",
@@ -395,6 +474,15 @@
     "Fixed ratio choices are unavailable while a first frame is attached. Remove it to restore your text-to-video ratio.": "İlk kare eklendiğinde sabit oranlar kullanılamaz. Metinden video oranını geri yüklemek için ilk kareyi kaldırın.",
     "First-frame video follows the input image ratio. Remove parameters.ratio or set it to \"adaptive\".": "İlk kareli video, giriş görüntüsünün oranını kullanır. parameters.ratio değerini kaldırın veya \"adaptive\" olarak ayarlayın.",
     "Locate {name} at {start}–{end} on the timeline": "Zaman çizelgesinde {name} için {start}–{end} aralığını bul",
-    "{count} uses": "{count} kullanım"
+    "{count} uses": "{count} kullanım",
+    "Continue download": "İndirmeye devam et",
+    "Continuing download…": "İndirme sürdürülüyor…",
+    "Downloaded": "İndirilen",
+    "Download the original task image. Draft changes apply only to your next generation.": "Asıl görevin görselini alır. Taslak değişiklikleri sonraki üretime uygulanır.",
+    "The original image could not be downloaded. Continue downloading this task without generating again.": "Asıl görsel indirilemedi. Yeniden üretmeden indirmeye devam edin.",
+    "{provider} needs setup before generating.": "Üretmeden önce {provider} kurulumu gerekiyor.",
+    "Configure {provider}": "{provider} yapılandır",
+    "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Referans görsel OpenDesign’ın 2 MiB yükleme sınırını aşıyor.",
+    "OpenDesign does not accept this reference image format.": "OpenDesign bu referans görsel biçimini kabul etmiyor."
   }
 }

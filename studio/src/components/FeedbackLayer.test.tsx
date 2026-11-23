@@ -57,3 +57,25 @@ it('keeps actions inside a shared modal focus boundary and returns them when it 
   expect(layer.parentElement).toBe(document.body);
   await act(async () => root.unmount());
 });
+
+it('follows fullscreen entry and exit without losing the interactive feedback node', () => {
+  const origin = document.createElement('div'), feedback = document.createElement('button'), player = document.createElement('div');
+  origin.append(feedback); document.body.append(origin, player);
+  const original = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
+  const stop = mountFeedbackLayer(feedback), dismiss = vi.fn();
+  feedback.addEventListener('click', dismiss);
+  try {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: player });
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(feedback.parentElement).toBe(player);
+    feedback.click(); expect(dismiss).toHaveBeenCalledOnce();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: null });
+    document.dispatchEvent(new Event('fullscreenchange'));
+    expect(feedback.parentElement).toBe(document.body);
+  } finally {
+    stop();
+    if (original) Object.defineProperty(document, 'fullscreenElement', original);
+    else Reflect.deleteProperty(document, 'fullscreenElement');
+  }
+  expect(feedback.parentElement).toBe(origin);
+});

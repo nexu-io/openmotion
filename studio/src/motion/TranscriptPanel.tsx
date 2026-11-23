@@ -4,7 +4,7 @@ import type { TranscriptDocument, TranscriptionJob } from '../../../shared/trans
 import { useStudioShellContext } from '../contexts/StudioContext';
 import { useFileManagerContext } from '../contexts/FileManagerContext';
 import { useI18n } from '../i18n/I18n';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Select } from '../components/ui/Select';
 import { Popover } from '../components/ui/Popover';
 import { Menu, MenuItem } from '../components/ui/Menu';

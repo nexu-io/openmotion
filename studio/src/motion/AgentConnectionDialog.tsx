@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { Tooltip } from "../components/ui/Tooltip";
 import { useState } from 'react';
 import { hostNames, integrationHost, integrationHosts, manualConnection, setupPrompt, setupGuideUrl } from '../../../shared/integration';
@@ -25,14 +27,14 @@ export function AgentConnectionDialog({ onClose, returnFocus }: { onClose: () =>
     <div className="om-agent-connection">
       <p className="om-muted">{t('Choose your Agent, then paste the connection instruction into its conversation.')}</p>
       <div className="om-label"><span>{t('Agent client')}</span><Select label={t('Agent client')} value={host} onCommit={value => setHost(integrationHost(value))} options={integrationHosts.map(value => ({ value, label: hostNames[value] }))} /></div>
-      {info && <div className="om-settings-row"><span className="om-badge">{t('Workspace reachable')} · v{info.version}</span><Tooltip label={t('Refresh status')}><button className="motion-icon-button" aria-label={t('Refresh status')} onClick={retry}><RemixIcon name="refresh-line" size={16} /></button></Tooltip></div>}
+      {info && <div className="om-settings-row"><span className="om-badge">{t('Workspace reachable')} · v{info.version}</span><Tooltip label={t('Refresh status')}><IconButton variant="ghost" className="motion-icon-button" aria-label={t('Refresh status')} onClick={retry} icon={<RemixIcon name="refresh-line" size={16} />} /></Tooltip></div>}
           <div className="om-card om-card-stack"><h3 className="om-subtitle">{t(host === 'chatgpt' ? 'Remote connection unavailable' : 'Connect from your Agent')}</h3>
             <p className="om-muted">{t(host === 'chatgpt' ? 'ChatGPT cloud cannot connect to this local workspace. Choose a local Agent above.' : 'Send this instruction to your Agent. It will check installation, start OpenMotion if needed, and verify the connection.')}</p>
             <pre className="om-code-block">{prompt}</pre>
-            {host !== 'chatgpt' && <button className="om-button" data-primary onClick={() => void copy(prompt)}><RemixIcon name="file-copy-line" size={15} />{t('Copy connection instruction')}</button>}
+            {host !== 'chatgpt' && <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => void copy(prompt)}><RemixIcon name="file-copy-line" size={15} />{t('Copy connection instruction')}</Button>}
             <a className="om-text-link" href={setupGuideUrl(info)} target="_blank" rel="noreferrer">{t('Connection guide')}<RemixIcon name="external-link-line" size={14} /></a>
           </div>
-          {host !== 'chatgpt' && <details key={host}><summary className="om-muted">{t('Manual setup')}</summary>{failed ? <div className="om-card om-card-stack" role="alert"><h3 className="om-subtitle">{t('Could not reach this workspace')}</h3><p className="om-muted">{t('Check your connection and try again.')}</p><button className="om-button" onClick={retry}>{t('Retry')}</button></div> : !info ? <SettingsLoading /> : <><pre className="om-code-block">{manual}</pre><div className="om-settings-actions"><button className="om-button" onClick={() => void copy(manual)}>{t('Copy configuration')}</button><a className="om-button" href={`/connect/config?host=${host}`} download>{t('Download configuration')}</a><a className="om-text-link" href={`/connect/guide?host=${host}`} target="_blank" rel="noreferrer">{t('Connection guide')}<RemixIcon name="external-link-line" size={14} /></a></div></>}</details>}
+          {host !== 'chatgpt' && <details key={host}><summary className="om-muted">{t('Manual setup')}</summary>{failed ? <div className="om-card om-card-stack" role="alert"><h3 className="om-subtitle">{t('Could not reach this workspace')}</h3><p className="om-muted">{t('Check your connection and try again.')}</p><Button variant="ghost" className="om-button h-auto" onClick={retry}>{t('Retry')}</Button></div> : !info ? <SettingsLoading /> : <><pre className="om-code-block">{manual}</pre><div className="om-settings-actions"><Button variant="ghost" className="om-button h-auto" onClick={() => void copy(manual)}>{t('Copy configuration')}</Button><a className="om-button" href={`/connect/config?host=${host}`} download>{t('Download configuration')}</a><a className="om-text-link" href={`/connect/guide?host=${host}`} target="_blank" rel="noreferrer">{t('Connection guide')}<RemixIcon name="external-link-line" size={14} /></a></div></>}</details>}
           <p className="om-muted">{t('Workspace status confirms this app is reachable. Your Agent verifies its connection after setup.')}</p>
     </div>
     <StudioToastViewport {...toast} />

@@ -10,7 +10,7 @@ test('plugin preparation uses its declared MCP workspace instead of silently sel
   t.after(() => rm(appRoot, { recursive: true, force: true }));
   const dataDirectory = path.join(appRoot, 'selected-data');
   await mkdir(path.join(appRoot, 'docs')); await mkdir(path.join(appRoot, 'scripts'));
-  await writeFile(path.join(appRoot, 'docs/install-onboarding.md'), '<!-- installation-onboarding:start -->Reuse the connection workspace.<!-- installation-onboarding:end -->');
+  await writeFile(path.join(appRoot, 'docs/install.md'), '<!-- installation-onboarding:start -->Reuse the connection workspace.<!-- installation-onboarding:end -->');
   await writeFile(path.join(appRoot, '.mcp.json'), JSON.stringify({ mcpServers: { openmotion: { cwd: '.', env: { MOTION_DATA_DIR: dataDirectory } } } }));
   await writeFile(path.join(appRoot, 'scripts/open-template-library.ts'), `if(process.env.MOTION_DATA_DIR!==${JSON.stringify(dataDirectory)}) throw new Error('Wrong workspace'); console.log(JSON.stringify({target:'templates',projectCreated:false,previewUrl:'http://127.0.0.1:4173/?templates=1'}));`);
   // This seam tests the workspace/preview protocol without contacting a native

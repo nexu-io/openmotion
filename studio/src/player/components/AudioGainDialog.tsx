@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -192,13 +193,13 @@ export function AudioGainDialog({
         </div>
         {outOfRange && <div className="mt-1 text-red-400">{t("Peak targets must be 0 dB or lower.")}</div>}
         <div className="mt-4 flex justify-end gap-2">
-          <button
+          <Button variant="plain"
             type="button"
             className="rounded px-3 py-1 text-neutral-300 hover:bg-neutral-800"
             onClick={onClose}
           >
-            {t("Cancel")}</button>
-          <button
+            {t("Cancel")}</Button>
+          <Button variant="plain"
             type="button"
             disabled={!canApply}
             autoFocus
@@ -206,7 +207,7 @@ export function AudioGainDialog({
             onClick={() => void apply()}
           >
             {t("OK")}
-          </button>
+          </Button>
         </div>
       </div>
     </div>,

@@ -11,6 +11,7 @@ export const PANEL_IDS = [
   "catalog",
   "design",
   "layers",
+  "comments",
   "renders",
   "variables",
   "slideshow",
@@ -20,7 +21,7 @@ export const PANEL_IDS = [
 
 export type PanelId = (typeof PANEL_IDS)[number];
 export const MVP_PANEL_IDS: readonly PanelId[] = [
-  "preview", "timeline", "compositions", "assets", "transcript", "captions", "catalog", "design", "layers",
+  "preview", "timeline", "compositions", "assets", "transcript", "captions", "catalog", "design", "layers", "comments",
 ];
 export type PanelZone = "left" | "center" | "right";
 
@@ -61,6 +62,7 @@ export const PANEL_DEFINITIONS = {
     reopen: { near: "compositions", direction: "within" },
   },
   design: { title: "Design", zone: "right", reopen: { near: "preview", direction: "right" } },
+  comments: { title: "Comments", zone: "right", reopen: { near: "design", direction: "within" }, keepMounted: true },
   layers: { title: "Layers", zone: "right", reopen: { near: "design", direction: "within" } },
   renders: { title: "Renders", zone: "right", reopen: { near: "design", direction: "within" } },
   variables: { title: "Variables", zone: "right", reopen: { near: "design", direction: "within" } },

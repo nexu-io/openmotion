@@ -3,6 +3,7 @@ import type { LocalTemplateSource } from './repository-template-catalog.ts';
 export const templateCategories = [
   { id: 'featured', label: '精选模板' }, { id: 'clone', label: '视频复刻' },
   { id: 'ads', label: '产品宣传' }, { id: 'motion', label: '动态设计' }, { id: 'script', label: '口播内容' },
+  { id: 'short-form', label: '短视频' },
 ] as const;
 export const collectionNames = { reference: '完整参考', moment: '创作片段', block: '动效模板', component: '动效组件', example: '影片范例', builtin: '本地模板' };
 export type CatalogEntry = {
@@ -53,6 +54,17 @@ export function socialPlatform(value?: string): SocialPlatform | undefined {
 export function formatTemplateViews(value: number, locale = 'en-US') {
   if (!Number.isSafeInteger(value) || value < 0) return '';
   return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: value >= 10_000 && value < 1_000_000 ? 0 : 1 }).format(value);
+}
+export function isShortFormTemplate(item: GalleryTemplate) {
+  const [width, height] = item.width && item.height && item.width > 0 && item.height > 0
+    ? [item.width, item.height] : (item.ratio || '').split(/[/:]/).map(Number);
+  if (width > 0 && height > width) return true;
+  const platform = socialPlatform(item.sourceUrl);
+  if (!platform || !item.sourceUrl) return false;
+  const path = new URL(item.sourceUrl).pathname;
+  if (platform === 'YouTube') return /^\/shorts\/[^/]+\/?$/.test(path);
+  if (platform === 'Instagram') return /^\/reels?\/[^/]+\/?$/.test(path);
+  return platform === 'TikTok' && /^\/(?:@[^/]+\/)?video\/\d+\/?$/.test(path);
 }
 function displayRatio(value?: string) {
   if (!value) return undefined;
@@ -116,19 +128,22 @@ export function groupTemplates(items: GalleryTemplate[]) {
     return items.length === 1 ? primary : { ...primary, variants: [primary, ...items.filter(item => item !== primary)] };
   });
 }
+export function matchesTemplateCategory(item: GalleryTemplate, category: string) {
+  const spoken = item.tags.includes('口播') || item.role === 'a-roll';
+  return category === 'builtin' ? isEditableTemplate(item)
+    : category === 'clone' ? item.kind === 'reference'
+    : category === 'script' ? spoken
+    : category === 'short-form' ? isShortFormTemplate(item)
+    : category === 'motion' ? !spoken
+    : category === 'ads' ? item.kind === 'reference' || item.tags.some(tag => /ad|product|social|showcase|marketing|品牌|宣传|发布/i.test(tag))
+    : true;
+}
 export function templatePage(items: GalleryTemplate[], options: { category?: string; query?: string; offset?: number; limit?: number; grouped?: boolean } = {}): TemplatePage {
   const { category = 'featured', query = '', offset = 0, limit = 12, grouped = false } = options;
-  if (!['featured', 'all', 'clone', 'ads', 'motion', 'script', 'builtin'].includes(category) || query.length > 200 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 60) throw new Error('模板分页参数无效');
+  if (!['all', 'builtin', ...templateCategories.map(option => option.id)].includes(category) || query.length > 200 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 60) throw new Error('模板分页参数无效');
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const matches = items.filter(item => {
-    const spoken = item.tags.includes('口播') || item.role === 'a-roll';
-    const categoryMatch = category === 'builtin' ? isEditableTemplate(item)
-      : category === 'clone' ? item.kind === 'reference'
-      : category === 'script' ? spoken
-      : category === 'motion' ? !spoken
-      : category === 'ads' ? item.kind === 'reference' || item.tags.some(tag => /ad|product|social|showcase|marketing|品牌|宣传|发布/i.test(tag))
-      : true;
-    return categoryMatch && terms.every(term => `${item.id} ${item.title} ${item.description} ${item.subtitle} ${item.authorName || ''} ${item.tags.join(' ')} ${collectionNames[item.collection]} ${templateCategoryLabel(item)} ${socialPlatform(item.sourceUrl) || ''}`.toLowerCase().includes(term));
+    return matchesTemplateCategory(item, category) && terms.every(term => `${item.id} ${item.title} ${item.description} ${item.subtitle} ${item.authorName || ''} ${item.tags.join(' ')} ${collectionNames[item.collection]} ${templateCategoryLabel(item)} ${socialPlatform(item.sourceUrl) || ''}`.toLowerCase().includes(term));
   });
   if (category === 'featured' || category === 'all') {
     const rank = (item: GalleryTemplate) => { const index = item.kind === 'prism' ? -1 : featuredTemplateIds.indexOf(item.id); return index < 0 ? featuredTemplateIds.length : index; };

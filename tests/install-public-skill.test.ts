@@ -102,3 +102,20 @@ test('a legacy Codex bundle defers public Skill installation when adding Claude'
   assert.equal(await readFile(path.join(directory, 'keep.txt'), 'utf8'), 'legacy workflow bundle');
   assert.equal(options.calls.length, 0);
 });
+
+test('DSH installs the official universal Skill in the selected profile without touching global entries', async t => {
+  const options = await fixture(t);
+  const projectDirectory = path.join(options.homeDirectory, 'dsh/profiles/trial');
+  await mkdir(projectDirectory, { recursive: true });
+  const scoped = { ...options, host: 'deepseek', projectDirectory };
+  assert.equal((await installPublicSkill(scoped)).status, 'installed');
+  assert.equal(options.calls.length, 1);
+  assert(!options.calls[0].args.includes('--global'));
+  assert.equal(options.calls[0].args.at(-3), 'universal');
+  assert.equal(options.calls[0].options.cwd, projectDirectory);
+  await mkdir(path.join(projectDirectory, '.agents/skills/openmotion'), { recursive: true });
+  await writeFile(path.join(projectDirectory, '.agents/skills/openmotion/SKILL.md'), '---\nname: openmotion\n---\n');
+  await writeFile(path.join(projectDirectory, 'skills-lock.json'), JSON.stringify({ version: 2, skills: { openmotion: { source: 'nexu-io/openmotion' } } }));
+  assert.equal((await installPublicSkill(scoped)).status, 'present');
+  assert.equal(options.calls.length, 1);
+});

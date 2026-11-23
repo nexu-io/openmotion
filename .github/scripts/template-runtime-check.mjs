@@ -15,14 +15,20 @@ export async function checkTemplateRuntime({ call, appRoot, browserPath, output,
     assert.equal(index.source, expectedSource);
     assert(!index.warning, 'Catalog must load successfully, not fall back: ' + index.warning);
     const rows = (await readFile(index.indexPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    assert.equal(rows.length, index.total);
+    assert.equal(rows.length, index.total, 'Template count must match the index');
+    assert(rows.every(row => row.kind !== 'skill'), 'Template index must not contain Skill rows');
+    const skills = await call('openmotion_list_skills');
+    assert.equal(skills.source, expectedSource);
+    assert(!skills.warning, 'Skill catalog must load successfully, not fall back: ' + skills.warning);
+    const skillRows = (await readFile(skills.indexPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(skillRows.length, skills.total, 'Skill count must match the index');
     const reference = rows.find(row => row.kind !== 'builtin');
     assert(reference, 'The live catalog must contain a non-builtin template');
     const detail = await call('openmotion_get_template', { templateId: reference.templateId });
     assert.equal(detail.id, reference.templateId);
     assert(detail.instructions?.length && detail.motionDocument?.content?.length);
     if (expectedSource === 'hosted') assert.equal(detail.localSource, undefined);
-    check('public MCP lists the catalog and reads a non-builtin guide', { total: index.total, catalogVersion: index.catalogVersion, templateId: reference.templateId });
+    check('public MCP lists the catalog and reads a non-builtin guide', { total: index.total, skillTotal: skills.total, catalogVersion: index.catalogVersion, templateId: reference.templateId });
     const opened = await call('openmotion_open_preview', { target: 'templates' });
     const origin = new URL(opened.previewUrl).origin;
     assert.equal(opened.projectCreated, false);
@@ -56,7 +62,8 @@ export async function checkTemplateRuntime({ call, appRoot, browserPath, output,
       const localized = gallery.items.find(item => item.id === reference.templateId);
       assert(localized, 'The selected template must be present in the localized gallery');
       assert.equal(await page.$eval(`${preview} h2`, node => node.textContent), localized.title);
-      await page.waitForFunction(selector => Boolean(document.querySelector(selector + ' [aria-label="Template instruction"] p')?.textContent), {}, preview);
+      await page.waitForFunction(selector => Boolean(document.querySelector(selector)
+        ?.querySelector('[aria-label="Template instruction"] p, [aria-label="Template recreation instruction"] p')?.textContent?.trim()), {}, preview);
       if (theme === 'light') {
         await page.waitForFunction(selector => {
           const video = document.querySelector(selector + ' video');
@@ -64,9 +71,13 @@ export async function checkTemplateRuntime({ call, appRoot, browserPath, output,
         }, { timeout: 60_000 }, preview);
         check('reference video loads and its playback clock advances');
       }
-      const summary = await page.waitForFunction(selector => [...document.querySelectorAll(selector + ' details summary')].find(node => node.textContent.trim() === 'Motion guide'), {}, preview);
-      await summary.asElement().click();
-      const frameElement = await page.waitForSelector(`${preview} iframe[title="Motion guide"]`);
+      const guide = await page.waitForFunction(selector => {
+        const detail = document.querySelector(selector);
+        return detail?.querySelector('button[aria-label="View motion.md guide"]')
+          ?? [...detail?.querySelectorAll('details summary') ?? []].find(node => node.textContent.trim() === 'Motion guide');
+      }, {}, preview);
+      await guide.asElement().click();
+      const frameElement = await page.waitForSelector(`${preview} :is(iframe[title="Motion guide"], iframe[title="Interactive walkthrough"])`);
       await frameElement.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
       const frame = await frameElement.contentFrame();
       await frame.waitForFunction(() => document.body?.innerText.trim().length > 10);

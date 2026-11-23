@@ -1,4 +1,4 @@
-// Standalone Studio defaults to Light; embedded Studio (embed=1) defaults to System,
+// Standalone Studio defaults to Dark; embedded Studio (embed=1) defaults to System,
 // i.e. it follows the host app until the user picks Light or Dark. Each context keeps
 // its own saved choice. index.html mirrors this before first paint.
 import { useSyncExternalStore } from "react";
@@ -16,7 +16,7 @@ export function savedStudioTheme(): StudioTheme {
 
 export function savedStudioThemePreference(): StudioThemePreference {
   const preferences = readStudioUiPreferences();
-  return studioUsesHostTheme() ? preferences.embeddedTheme ?? 'system' : preferences.theme ?? 'light';
+  return studioUsesHostTheme() ? preferences.embeddedTheme ?? 'system' : preferences.theme ?? 'dark';
 }
 const systemTheme = (): StudioTheme => window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ? 'dark' : 'light';
 

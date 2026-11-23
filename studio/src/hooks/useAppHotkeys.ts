@@ -15,6 +15,8 @@ import {
   type UseEditHistoryActionsOptions,
 } from "./useEditHistoryActions";
 import { useStableHandlers } from "./useStableHandlers";
+import { matchesKey } from '../player/components/studioShortcuts';
+import { togglePreviewFullscreen } from '../player/lib/previewFullscreen';
 
 function iframeContentWindow(iframe: HTMLIFrameElement | null): Window | null {
   try {
@@ -233,6 +235,15 @@ export function useAppHotkeys({
     if (document.querySelector('[data-editor-initializing="true"]')) return;
     const cb = cbRef.current;
     const key = event.key.toLowerCase();
+    if (document.fullscreenElement?.matches('[data-studio-fullscreen-target]')) {
+      if (event.key === 'Escape' && !document.fullscreenElement.querySelector('[role=menu], [role=dialog]')) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        void togglePreviewFullscreen(undefined, cb.showToast);
+        return;
+      }
+      if (matchesKey(event, 'fullscreen')) dispatchPlainKey(event, key, cb);
+      return;
+    }
     if (dispatchLinkShortcut(event, cb)) return;
     if (dispatchModifierKey(event, key, cb)) return;
     dispatchPlainKey(event, key, cb);

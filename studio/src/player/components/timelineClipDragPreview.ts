@@ -19,6 +19,7 @@ import {
 } from "../../utils/timelineInspector";
 import {
   stickyTimelineTime,
+  TIMELINE_SNAP_PX,
   type TimelineSnapTarget,
   type TimelineSnapType,
 } from "./timelineSnapping";
@@ -302,13 +303,14 @@ export function computeDragPreview(
   const savedStart = keepOrigin || group.moving.size > 1 ||
     authoredStart < group.floor || authoredStart - origin < shift.min || authoredStart - origin > shift.max
     ? previewStart : authoredStart;
-  const insertion = ctx.canInsertClips !== false && drag.pointerId !== null && aim.insertRow === null &&
+  const insertion = !keepOrigin && ctx.canInsertClips !== false && drag.pointerId !== null && aim.insertRow === null &&
     trackOrder[aimedRow] !== undefined && !ctx.groupTracks?.has(desiredTrack) &&
     !isPendingTimelineRow(desiredTrack, ctx.elements) &&
     ((ctx.selectedKeys.size < 2 && !drag.element.expandedHostKey) || !resolveExpandedHostAlias(drag, ctx))
     ? previewClipInsert(
       ctx.elements, drag.element, group.moving, desiredTrack, rawStart,
       requestedStart + drag.pointerOffsetX / Math.max(pps, 1), !drag.altKey,
+      TIMELINE_SNAP_PX / Math.max(pps, 1),
     ) : null;
   let placement: TimelineDropPlacement = insertion
     ? { track: desiredTrack, insertRow: null, start: insertion.start }

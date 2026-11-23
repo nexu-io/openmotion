@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { PanelEmptyState } from "../ui/PanelEmptyState";
 import { useEmptyPreview } from "../nle/useEmptyPreview";
 import { useStudioShellContextOptional } from "../../contexts/StudioContext";
@@ -88,15 +90,14 @@ function FlatMultiSelectState({
           <div className="mt-px font-mono text-[10px] text-panel-text-3">
             {t("shift-click to add or remove")}</div>
         </div>
-        <button
+        <IconButton variant="plain"
           type="button"
           data-flat-multiselect-clear="true"
           aria-label={t("Clear selection")}
           onClick={onClearSelection}
           className="flex h-[26px] w-[26px] shrink-0 items-center justify-center text-panel-text-3"
-        >
-          <RemixIcon name="close-line" size={14} />
-        </button>
+          icon={<RemixIcon name="close-line" size={14} />}
+        />
       </div>
       <div className="flex flex-col gap-1">
         {multiSelectedElements.map((element) => {
@@ -130,7 +131,7 @@ function FlatMultiSelectState({
           they own keyboard paths no hidden button can gate. */}
       {!hasAudio && (
         <div className="flex gap-2">
-          <button
+          <Button variant="plain"
             type="button"
             data-flat-multiselect-group="true"
             onClick={() => {
@@ -141,8 +142,8 @@ function FlatMultiSelectState({
             className="flex h-[34px] flex-1 items-center justify-center gap-2 rounded-lg bg-panel-hover text-[11px] font-semibold text-panel-text-0"
           >
             <Layers size={13} />
-            {t("Group selection")}</button>
-          <button
+            {t("Group selection")}</Button>
+          <Button variant="plain"
             type="button"
             data-flat-multiselect-hide-all="true"
             onClick={() => {
@@ -153,7 +154,7 @@ function FlatMultiSelectState({
             className="flex h-[34px] items-center gap-1.5 rounded-lg border border-panel-border-input bg-panel-input px-3 text-[11px] font-medium text-panel-text-2"
           >
             <Eye size={13} />
-            {t("Hide all")}</button>
+            {t("Hide all")}</Button>
         </div>
       )}
       <span className="text-center text-[10px] text-panel-text-5">

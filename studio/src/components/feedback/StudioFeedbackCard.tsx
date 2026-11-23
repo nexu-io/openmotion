@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useState, useCallback, useRef, useEffect } from "react";
 import { ErrorNotice } from "../ui/ErrorNotice";
@@ -231,20 +233,19 @@ export const StudioFeedbackCard = memo(function StudioFeedbackCard() {
               rel="noopener noreferrer"
               onClick={() => {
                 const req = stateRef.current.request;
-                if (req) trackStudioFeedbackInterviewClick({ reason: req.reason });
+                if (req) trackStudioFeedbackInterviewClick({ reason: req.reason, render_id: req.renderId });
                 close("sent");
               }}
               className="h-6 shrink-0 whitespace-nowrap rounded-full border border-border-strong bg-hover px-2.5 text-[11px] leading-6 text-neutral-100 transition-[background-color,border-color,transform] duration-150 ease-out hover:border-text-muted hover:bg-press active:scale-[0.97] motion-reduce:transition-none"
             >
               {t("Talk to us, 30 min")}</a>
           )}
-          <button
+          <IconButton variant="plain"
             type="button"
             onClick={() => close("close")}
             className="-mr-1 -mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-neutral-500 transition-colors duration-150 hover:bg-press hover:text-neutral-200"
             aria-label={t("Dismiss")}
-          >
-            <svg
+            icon={<svg
               width="10"
               height="10"
               viewBox="0 0 10 10"
@@ -253,8 +254,8 @@ export const StudioFeedbackCard = memo(function StudioFeedbackCard() {
               strokeWidth="1.5"
             >
               <path d="M2 2l6 6M8 2l-6 6" />
-            </svg>
-          </button>
+            </svg>}
+          />
         </div>
 
         {/* The failure text the user already saw, quoted back so the report
@@ -301,7 +302,7 @@ export const StudioFeedbackCard = memo(function StudioFeedbackCard() {
                 exist. The field below stays for anything the chips miss. */}
             <div className="flex flex-wrap gap-1.5">
               {followUp.presets.map((preset) => (
-                <button
+                <Button variant="plain"
                   key={t(preset.label)}
                   type="button"
                   onClick={() => submit(preset.label)}
@@ -323,7 +324,7 @@ export const StudioFeedbackCard = memo(function StudioFeedbackCard() {
                   }`}
                 >
                   {t(preset.label)}
-                </button>
+                </Button>
               ))}
             </div>
             {/* Inline, not a floating tooltip. The card is 340px in a corner,
@@ -347,12 +348,12 @@ export const StudioFeedbackCard = memo(function StudioFeedbackCard() {
                 maxLength={500}
                 className="h-7 min-w-0 flex-1 rounded-md border border-border bg-input px-2 text-[11px] text-neutral-100 outline-hidden transition-colors duration-150 placeholder:text-neutral-500 focus:border-ring"
               />
-              <button
+              <Button variant="plain"
                 type="button"
                 onClick={() => submit()}
                 className="h-7 shrink-0 rounded-md bg-press px-2.5 text-[11px] text-neutral-100 transition-[background-color,transform] duration-150 ease-out hover:bg-on active:scale-[0.97] motion-reduce:transition-none"
               >
-                {t("Send")}</button>
+                {t("Send")}</Button>
             </div>
           </>
         )}

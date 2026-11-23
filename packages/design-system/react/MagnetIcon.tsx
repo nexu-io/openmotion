@@ -10,7 +10,8 @@ export const MagnetIcon = forwardRef<SVGSVGElement, IconProps>(function MagnetIc
     aria-hidden={alt ? undefined : true} aria-label={alt} {...props}
     style={mirrored ? { ...style, transform: `${style?.transform ?? ""} scaleX(-1)` } : style}>
     {alt && <title>{alt}</title>}
-    <g transform="rotate(45 12 12)">
+    {/* Enlarge and center the silhouette without thickening its 2-unit stroke. */}
+    <g strokeWidth={2 / 1.1} transform="translate(-3.7 1.3) scale(1.1) rotate(45 12 12)">
       <path d="M6 3h4v9a2 2 0 0 0 4 0V3h4v9a6 6 0 0 1-12 0V3Z" />
       <path d="M6 7h4m4 0h4" />
     </g>

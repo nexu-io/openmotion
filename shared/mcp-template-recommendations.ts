@@ -1,3 +1,4 @@
+import { ToolInputError } from './tool-input-error.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -202,12 +203,12 @@ export function negotiateTemplatePresentation(state: McpClientState | undefined,
 
 export function showTemplateRecommendations(presentation: TemplatePresentation, args: { templateIds: string[]; onboarding?: boolean; language?: string }) {
   requireValue(Array.isArray(args.templateIds), 'templateIds is required');
-  if (args.onboarding !== undefined && typeof args.onboarding !== 'boolean') throw new Error('INVALID_ARGUMENT: onboarding must be boolean');
-  if (args.language !== undefined && !supportedLanguages.includes(args.language)) throw new Error('INVALID_ARGUMENT: unsupported presentation language');
+  if (args.onboarding !== undefined && typeof args.onboarding !== 'boolean') throw new ToolInputError('onboarding must be boolean', 'onboarding', 'invalid_type');
+  if (args.language !== undefined && !supportedLanguages.includes(args.language)) throw new ToolInputError('unsupported presentation language', 'language', 'invalid_enum');
   if (args.templateIds.length !== 3 || new Set(args.templateIds).size !== 3
-    || args.templateIds.some(id => !supportedIds.includes(id))) throw new Error('INVALID_ARGUMENT: choose three distinct approved template IDs');
+    || args.templateIds.some(id => !supportedIds.includes(id))) throw new ToolInputError('choose three distinct approved template IDs', 'templateIds', 'invalid_combination');
   if (args.onboarding === true && args.templateIds.some(id => !(onboardingTemplateIds as readonly string[]).includes(id)))
-    throw new Error('INVALID_ARGUMENT: onboarding requires three distinct curated reference IDs; preserve the prepared order and accepted template during recovery');
+    throw new ToolInputError('onboarding requires three distinct curated reference IDs; preserve the prepared order and accepted template during recovery', 'templateIds', 'invalid_combination');
   const cards = args.templateIds.map((templateId, index) => {
     const template = presentation.templates.find(item => item.id === templateId)!;
     const actionRequestId = randomUUID();

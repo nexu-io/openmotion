@@ -49,6 +49,6 @@ export function brandCard(kit: BrandKit, subtitle: string): GalleryTemplate {
     height,
     previewUrl: kit.preview ? brandFile(kit, "preview.mp4") : undefined,
     posterUrl: kit.poster ? brandFile(kit, "poster.png") : kit.catalogId ? brandCatalogFile(kit.catalogId, "style-cover.svg") : undefined,
-    brandLogoUrl: website ? `/motion-api/brand-kits/${kit.id}/favicon?v=${brandCoverRevision}` : undefined,
+    brandLogoUrl: website || kit.url ? `/motion-api/brand-kits/${kit.id}/favicon?v=${brandCoverRevision}` : undefined,
   };
 }

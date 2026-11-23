@@ -180,6 +180,11 @@ test('imports retain historical media and reject missing or corrupt blobs withou
   process.env.HYPERFRAMES_HISTORY_ROOT = historyRoot;
   t.after(() => { if (previous === undefined) delete process.env.HYPERFRAMES_HISTORY_ROOT; else process.env.HYPERFRAMES_HISTORY_ROOT = previous; });
   const service = api(store), p = await create(service);
+  const events: import('../tracking/core.ts').PendingEvent[] = [];
+  const tracking = createTracker({ registry: omEvents, entrypoint: 'mcp', enabled: true, flushIntervalMs: 0,
+    send: async batch => { events.push(...batch); return 'accepted'; } });
+  service.context.tracking = tracking;
+  t.after(() => tracking.close());
   const png = path.join(store.directory, 'source.png');
   const pngResult = await execute('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=red:size=16x16', '-frames:v', '1', png], store.directory);
   assert.equal(pngResult.code, 0, pngResult.stderr);
@@ -191,7 +196,7 @@ test('imports retain historical media and reject missing or corrupt blobs withou
   assert.equal(made.code, 0, made.stderr); await writeFile(fake, 'not an image');
   const oversized = path.join(store.directory, 'oversized.mp4');
   await writeFile(oversized, ''); await truncate(oversized, MAX_ASSET_BYTES + 1);
-  const args = { projectId: p.projectId, requestId: 'import', items: [{ itemId: 'audio', sourcePath: wav }, { itemId: 'fake', sourcePath: fake }, { itemId: 'image', sourcePath: png }, { itemId: 'video', sourcePath: video }, { itemId: 'oversized', sourcePath: oversized }] };
+  const args = { projectId: p.projectId, requestId: crypto.randomUUID(), items: [{ itemId: 'audio', sourcePath: wav }, { itemId: 'fake', sourcePath: fake }, { itemId: 'image', sourcePath: png }, { itemId: 'video', sourcePath: video }, { itemId: 'oversized', sourcePath: oversized }] };
   const imported = await service.call('openmotion_import_assets', args);
   assert.equal(imported.status, 'partial'); assert.equal(imported.items[0].mimeType, 'audio/wav'); assert.equal(imported.items[1].status, 'failed'); assert.equal(imported.items[2].mimeType, 'image/png'); assert.equal(imported.items[3].mimeType, 'video/mp4');
   assert.equal(imported.items[4].status, 'failed');
@@ -199,6 +204,16 @@ test('imports retain historical media and reject missing or corrupt blobs withou
   assert.equal((await service.call('openmotion_import_assets', args)).items[0].assetId, imported.items[0].assetId);
   const deduped = await service.call('openmotion_import_assets', { ...args, requestId: 'new-import', items: [args.items[0]] });
   assert.equal(deduped.items[0].reused, true);
+  await tracking.flush();
+  const imports = events.filter(event => event.event === 'asset_import_result').map(event => event.properties);
+  assert.equal(imports.length, 2, 'a replay has no extra business result');
+  assert.deepEqual(imports.map(({ outcome, requested_count, added_count, reused_count, failed_count }) =>
+    [outcome, requested_count, added_count, reused_count, failed_count]), [['partial', 5, 3, 0, 2], ['success', 1, 0, 1, 0]]);
+  const failures = events.filter(event => event.event === 'asset_import_item_failure').map(event => event.properties);
+  assert.deepEqual(failures.map(({ error_code, failed_count }) => [error_code, failed_count]),
+    [['INVALID_MEDIA', 1], ['ASSET_TOO_LARGE_OR_NOT_FILE', 1]]);
+  assert(failures.every(row => row.operation_id === args.requestId && row.project_id === p.projectId));
+  assert.doesNotMatch(JSON.stringify(events), /oversized.mp4|fake.png|not an image/);
   await rm(wav);
   const after = await service.call('openmotion_get_project', { projectId: p.projectId });
   const restored = await service.call('openmotion_restore_version', { projectId: p.projectId, requestId: 'before-media', versionId: p.version.versionId, expectedVersionId: after.version.versionId, expectedRevision: after.revision });

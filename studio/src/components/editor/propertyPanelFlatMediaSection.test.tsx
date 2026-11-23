@@ -85,6 +85,13 @@ describe("FlatMediaSection — MVP scope", () => {
     expect(host.querySelector('[aria-label="Automate Speed"]')).toBeNull();
     if (tagName !== "img") {
       for (const label of ["Speed", "Media start", "Loop"]) expect(host.textContent).toContain(label);
+      for (const label of ["Speed", "Media start"]) {
+        const slider = host.querySelector(`[role="slider"][aria-label="${label}"]`);
+        expect(slider?.querySelector("[data-flat-slider-fill]")).not.toBeNull();
+        expect(slider?.querySelector("[data-flat-slider-knob]")?.classList.contains("bg-text-0")).toBe(true);
+        expect(host.querySelector(`input[aria-label="${label} value"][data-form-control="boxed"]`)?.getAttribute("data-form-density")).toBe("compact");
+      }
+      expect(host.querySelector('[role="switch"][aria-label="Loop"]')?.classList.contains("om-switch")).toBe(true);
     }
     if (tagName !== "audio") {
       expect(host.textContent).toContain("Fit");
@@ -288,7 +295,7 @@ describe("FlatMediaSection — volume/rate/media-start", () => {
     },
   );
 
-  it("commits a new rate value on slider track pointerdown", () => {
+  it.each([[0, "0.1"], [49, "2"], [74, "5"], [100, "10"], [62, "3.44"]])("uses exact stops and continuous rates on the speed track at %dpx", (clientX, expected) => {
     const onSetAttribute = vi.fn();
     const element = makeVideoElement();
     const host = document.createElement("div");
@@ -308,15 +315,18 @@ describe("FlatMediaSection — volume/rate/media-start", () => {
       );
     });
     const rateTrack = host.querySelector('[data-flat-slider-track="true"][aria-label="Speed"]')!;
+    expect(Array.from(rateTrack.querySelectorAll<HTMLElement>("[data-flat-slider-stop]"), tick => [tick.dataset.flatSliderStop, tick.style.left]))
+      .toEqual([["0.1x", "0%"], ["1x", "25%"], ["2x", "50%"], ["5x", "75%"], ["10x", "100%"]]);
+    expect(rateTrack.getAttribute("aria-valuenow")).toBe("250");
+    expect(host.querySelector('[aria-label="Media start"] [data-flat-slider-stop]')).toBeNull();
     Object.defineProperty(rateTrack, "getBoundingClientRect", {
       value: () => ({ left: 0, width: 100, top: 0, height: 2, right: 100, bottom: 2 }),
     });
     act(() => {
-      rateTrack.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 100 }));
-      rateTrack.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 100 }));
+      rateTrack.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX }));
+      rateTrack.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX }));
     });
-    // the speed slider is log-scaled 0.1x..10x, so the far end of the track is 10x
-    expect(onSetAttribute).toHaveBeenCalledWith("playback-rate", "10");
+    expect(onSetAttribute.mock.calls).toEqual([["playback-rate", expected]]);
     act(() => root.unmount());
   });
 
@@ -584,9 +594,8 @@ describe("FlatMediaSection — audio clips", () => {
       `[data-flat-slider-track="true"][aria-label="${label}"]`,
     )?.parentElement;
     const readout = row?.querySelector<HTMLElement>('[data-flat-slider-value="true"]');
-    if (!readout) throw new Error(`expected ${label} readout`);
-    act(() => readout.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const input = host.querySelector<HTMLInputElement>('[data-flat-slider-input="true"]');
+    if (readout) act(() => readout.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const input = row?.querySelector<HTMLInputElement>(`input[aria-label="${label} value"]`);
     if (!input) throw new Error(`expected ${label} input`);
     act(() => {
       typeInto(input, typed);
@@ -608,19 +617,29 @@ describe("FlatMediaSection — audio clips", () => {
       attrs[name] = value;
     });
     const { host, root } = renderWithRate(makeAudioElement(attrs), onSetAttribute);
-    const readout = host
-      .querySelector('[data-flat-slider-track="true"][aria-label="Media start"]')
-      ?.parentElement?.querySelector<HTMLElement>('[data-flat-slider-value="true"]');
-    if (!readout) throw new Error("expected Media start readout");
-    expect(readout.textContent).toBe(formatTimingValue(playbackReads()));
-    act(() => readout.dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    const input = host.querySelector<HTMLInputElement>('[data-flat-slider-input="true"]');
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Media start value"]');
     if (!input) throw new Error("expected Media start input");
+    expect(input.value).toBe(formatTimingValue(playbackReads()));
     act(() => {
       typeInto(input, "3");
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
     expect(playbackReads()).toBe(3);
+    act(() => root.unmount());
+  });
+
+  it("keeps the speed input visible when an invalid draft is cancelled", () => {
+    const { host, root, onSetAttribute } = renderWithRate(makeAudioElement());
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="Speed value"]');
+    if (!input) throw new Error("expected Speed input");
+    expect(input.value).toBe("1x");
+    act(() => typeInto(input, "invalid"));
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    act(() => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(input.value).toBe("1x");
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+    expect(onSetAttribute).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
 

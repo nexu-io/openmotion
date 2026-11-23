@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /** Share of the clip height the sound strip takes under a video's thumbnails: tall enough for the bars to read. */
 const AUDIBLE_VIDEO_WAVE_SHARE = 0.5;
-const AUDIO_CLIP_SURFACE = "var(--timeline-clip-audio-bg)";
+const VIDEO_WAVE_SURFACE = "var(--timeline-video-wave-bg)";
 
 /** A video that carries sound: thumbnails on top, its waveform strip along the bottom. */
 export function AudibleVideoClipContent({
@@ -21,7 +21,7 @@ export function AudibleVideoClipContent({
       <div
         className="audible-video-wave absolute inset-x-0 bottom-0"
         data-testid="audible-video-wave"
-        style={{ height: waveHeight, backgroundColor: AUDIO_CLIP_SURFACE }}
+        style={{ height: waveHeight, backgroundColor: VIDEO_WAVE_SURFACE }}
       >
         {waveform}
       </div>

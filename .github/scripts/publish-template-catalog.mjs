@@ -1,3 +1,4 @@
+import { loadLibrarySkills, assertSkillIds } from '../../shared/library-skill-catalog.ts';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { lstat, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -81,8 +82,16 @@ export async function buildTemplatePublication(root, commit, { origin = publicOr
       await writeFile(hostedManifestPath, jsonBytes(hostedManifest));
       uploads.push({ key: `${prefix}/${id}/hosted-files.json`, body: hostedManifestPath, contentType: 'application/json; charset=utf-8', cache: 'public, max-age=31536000, immutable', immutable: true });
     }
+    const skills = await loadLibrarySkills(root, false);
+    assertSkillIds(skills, sourceCatalog.templateIds);
+    // Skill supporting files share the content-addressed object store used by template sources.
+    for (const skill of skills) {
+      const files = await walk(path.join(root, 'library/skills', skill.id));
+      skill.objects = files.map(file => ({ path: file.relative, bytes: file.bytes, sha256: file.sha256 })).sort((a, b) => a.path.localeCompare(b.path));
+      for (const file of files) objectFiles.set(file.sha256, file.absolute);
+    }
     for (const [sha256, body] of objectFiles) uploads.push({ key: `${catalogRoot}/objects/${sha256}`, body, contentType: contentType(body), cache: 'public, max-age=31536000, immutable', immutable: true, object: true });
-    const catalog = { ...sourceCatalog, commit, baseUrl, objectBaseUrl, hosted: { schemaVersion: 1, commit, source: 'openmotion-r2', baseUrl, objectBaseUrl } };
+    const catalog = { ...sourceCatalog, skills, commit, baseUrl, objectBaseUrl, hosted: { schemaVersion: 1, commit, source: 'openmotion-r2', baseUrl, objectBaseUrl } };
     const catalogPath = path.join(staging, 'catalog.json');
     await writeFile(catalogPath, jsonBytes(catalog));
     uploads.push({ key: `${prefix}/catalog.json`, body: catalogPath, contentType: 'application/json; charset=utf-8', cache: 'public, max-age=31536000, immutable', immutable: true });
@@ -169,28 +178,77 @@ export async function publishTemplateCatalog(root, { mode = 'main', version, com
     }
     const pointerUrl = `${storage.origin}/${pointerKey}`;
     await verifyPublic(fetcher, pointerUrl, catalogBytes);
-    return { mode, version: version || null, commit, pointerKey, pointerUrl, snapshotKey, promoted: updatePointer, uploaded, reused, templateCount: publication.catalog.templateIds.length };
+    return { mode, version: version || null, commit, pointerKey, pointerUrl, snapshotKey, promoted: updatePointer, uploaded, reused,
+      catalogSHA256: digest(catalogBytes), templateCount: publication.catalog.templateIds.length };
   } finally { await rm(publication.staging, { recursive: true, force: true }); }
+}
+
+export async function finalizeTemplateSnapshot(candidate, receipt, { endpoint, bucket, origin = publicOrigin, promote, run = runFile, fetcher = fetch }) {
+  const storage = validateStorageConfig({ endpoint, bucket, origin });
+  assert.equal(receipt.version, candidate.version);
+  assert.equal(receipt.commit, candidate.sourceCommit);
+  assert.equal(receipt.tgzSHA256, candidate.tgzSHA256);
+  assert.equal(receipt.promoted, false);
+  assert(commitPattern.test(candidate.sourceCommit));
+  const snapshotKey = `${catalogRoot}/snapshots/${candidate.sourceCommit}`;
+  assert.equal(receipt.snapshotKey, snapshotKey);
+  const snapshotUrl = `${storage.origin}/${snapshotKey}/catalog.json`;
+  const response = await fetcher(snapshotUrl, { redirect: 'error', headers: { 'cache-control': 'no-cache' }, signal: AbortSignal.timeout(30_000) });
+  assert(response.ok, `Prepared template catalog returned HTTP ${response.status}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.equal(digest(bytes), receipt.catalogSHA256, 'Prepared template catalog bytes differ');
+  if (!promote) return receipt;
+  const pointerKey = `${catalogRoot}/releases/catalog.json`;
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'openmotion-catalog-pointer-'));
+  try {
+    const body = path.join(directory, 'catalog.json');
+    await writeFile(body, bytes);
+    await putObject(run, storage, { key: pointerKey, body, contentType: 'application/json; charset=utf-8', cache: 'public, max-age=60, must-revalidate' });
+    const pointerUrl = `${storage.origin}/${pointerKey}`;
+    await verifyPublic(fetcher, pointerUrl, bytes);
+    return { ...receipt, pointerKey, pointerUrl, promoted: true };
+  } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [mode = 'main', version, candidateDirectory] = process.argv.slice(2);
-  for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']) assert(process.env[name], `Missing publication credential: ${name}`);
+  assert(['main', 'release', 'stage', 'validate'].includes(mode), 'Unknown template operation');
+  if (mode === 'stage') assert(['publish-test', 'publish-stable'].includes(process.env.MOTION_RELEASE_ACTION), 'Template staging requires a publication run');
+  if (mode !== 'validate') {
+    for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY']) assert(process.env[name], `Missing publication credential: ${name}`);
+  }
+  const config = { endpoint: process.env.MOTION_R2_ENDPOINT, bucket: process.env.MOTION_R2_BUCKET, origin: process.env.MOTION_INSTALL_PUBLIC_ORIGIN };
   const root = process.cwd();
-  let source = root, commit = process.env.GITHUB_SHA, work, promote = true;
+  let source = root, commit = process.env.GITHUB_SHA, work;
   try {
-    if (mode === 'release') {
+    if (mode === 'main') {
+      console.log(JSON.stringify(await publishTemplateCatalog(source, { ...config, mode, commit }), null, 2));
+    } else {
       assert(candidateDirectory, 'Release publication requires the verified candidate directory');
       const candidate = JSON.parse(await readFile(path.join(candidateDirectory, 'candidate.json'), 'utf8'));
-      assert(candidate.version === version && commitPattern.test(candidate.sourceCommit), 'Release template source must match the verified candidate');
-      promote = releaseCatalogPromotion(version, JSON.parse(await readFile(path.join(candidateDirectory, 'publication.json'), 'utf8')));
+      assert(versionPattern.test(version) && candidate.version === version && commitPattern.test(candidate.sourceCommit), 'Release template source must match the verified candidate');
       commit = candidate.sourceCommit;
-      work = await mkdtemp(path.join(os.tmpdir(), 'openmotion-template-release-'));
-      source = path.join(work, 'source');
-      await runFile('git', ['worktree', 'add', '--detach', source, commit], { cwd: root, env: { ...process.env, GIT_LFS_SKIP_SMUDGE: '1' } });
-      await runFile('git', ['lfs', 'pull', '--include=library/templates/catalog/**', '--exclude='], { cwd: source });
+      const promote = mode === 'release' && releaseCatalogPromotion(version, JSON.parse(await readFile(path.join(candidateDirectory, 'publication.json'), 'utf8')));
+      const receiptFile = path.join(candidateDirectory, 'template-preparation.json');
+      if (mode === 'release' && process.env.MOTION_RELEASE_ACTION !== 'archive-only') {
+        const receipt = JSON.parse(await readFile(receiptFile, 'utf8'));
+        console.log(JSON.stringify(await finalizeTemplateSnapshot(candidate, receipt, { ...config, promote }), null, 2));
+      } else {
+        work = await mkdtemp(path.join(os.tmpdir(), 'openmotion-template-release-'));
+        source = path.join(work, 'source');
+        await runFile('git', ['worktree', 'add', '--detach', source, commit], { cwd: root, env: { ...process.env, GIT_LFS_SKIP_SMUDGE: '1' } });
+        await runFile('git', ['lfs', 'pull', '--include=library/templates/catalog/**,library/skills/**', '--exclude='], { cwd: source });
+        if (mode === 'validate') {
+          const plan = await buildTemplatePublication(source, commit);
+          await rm(plan.staging, { recursive: true, force: true });
+          console.log(`Validated template and Skill snapshot for ${commit}`);
+        } else {
+          const result = await publishTemplateCatalog(source, { ...config, mode: 'release', version, commit, promote });
+          if (mode === 'stage') await writeFile(receiptFile, jsonBytes({ ...result, tgzSHA256: candidate.tgzSHA256 }));
+          console.log(JSON.stringify(result, null, 2));
+        }
+      }
     }
-    console.log(JSON.stringify(await publishTemplateCatalog(source, { mode, version, commit, promote, endpoint: process.env.MOTION_R2_ENDPOINT, bucket: process.env.MOTION_R2_BUCKET, origin: process.env.MOTION_INSTALL_PUBLIC_ORIGIN }), null, 2));
   } finally {
     if (work) {
       await runFile('git', ['worktree', 'remove', '--force', source], { cwd: root }).catch(() => {});

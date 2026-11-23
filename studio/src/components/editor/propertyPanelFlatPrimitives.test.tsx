@@ -1335,7 +1335,7 @@ describe("FlatSlider — typed value", () => {
       />,
     );
     const readout = host.querySelector<HTMLElement>('[data-flat-slider-value="true"]');
-    expect(readout?.getAttribute("role")).toBe("button");
+    expect(readout).toBeInstanceOf(HTMLButtonElement);
     act(() => readout?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const input = host.querySelector<HTMLInputElement>('[data-flat-slider-input="true"]');
     if (!input) throw new Error("expected the readout to become an input");

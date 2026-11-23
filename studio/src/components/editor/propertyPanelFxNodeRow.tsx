@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { systemMessage } from "../../i18n/systemMessages";
 import { useI18n } from "../../i18n/I18n";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
@@ -133,15 +135,14 @@ function FxMoveButton({
   onClick(): void;
 }) {
   return (
-    <button
+    <IconButton variant="plain" aria-label={label}
       type="button"
       className="hf-fx-move px-1 font-mono text-[10px] text-panel-text-2 hover:text-panel-text-0 disabled:opacity-25"
       title={label}
       disabled={disabled}
       onClick={onClick}
-    >
-      {glyph}
-    </button>
+      icon={glyph}
+    />
   );
 }
 
@@ -185,7 +186,7 @@ function FxNodeHeader({
           {String(position).padStart(2, "0")}
         </span>
       ) : null}
-      <button
+      <Button variant="plain"
         type="button"
         className={`hf-fx-node-name flex-1 truncate text-left text-[11px] text-panel-text-1 hover:text-panel-text-0 ${family}`}
         // Truncated in the same narrow column as the param labels below, so it
@@ -195,8 +196,8 @@ function FxNodeHeader({
         onClick={onToggleOpen}
       >
         {label}
-      </button>
-      <button
+      </Button>
+      <Button variant="plain"
         type="button"
         className="hf-fx-bypass rounded-[3px] border border-panel-border-input px-1.5 py-0.5 font-mono text-[9px] text-panel-text-2 hover:text-panel-text-0 disabled:opacity-40"
         aria-pressed={bypassed}
@@ -205,7 +206,7 @@ function FxNodeHeader({
         onClick={onToggleBypass}
       >
         {bypassed ? t("Off") : t("On")}
-      </button>
+      </Button>
       <FxMoveButton
         label={t("Move up")}
         glyph="&uarr;"
@@ -218,15 +219,14 @@ function FxNodeHeader({
         disabled={Boolean(disabled) || last}
         onClick={() => onMove(1)}
       />
-      <button
+      <IconButton variant="plain" aria-label={t("Remove")}
         type="button"
         className="hf-fx-remove px-1 font-mono text-[11px] text-panel-text-2 hover:text-danger-ink disabled:opacity-40"
         title={t("Remove")}
         disabled={disabled}
         onClick={onRemove}
-      >
-        &times;
-      </button>
+        icon="&times;"
+      />
     </div>
   );
 }

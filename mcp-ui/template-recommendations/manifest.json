@@ -369,8 +369,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/template.json",
-          "sha256": "b076879790c63717969ac038340a6f938a7498b098b02f15f9296f4b3e5f4a3e",
-          "bytes": 30821
+          "sha256": "e532968a2e9611d9db7da37025937ac036290ed31bf1daba6853fda6e630c08e",
+          "bytes": 31023
         },
         {
           "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/TEMPLATE.md",
@@ -389,8 +389,8 @@
         },
         {
           "path": "library/templates/catalog/motion-664184d9-593e-4984-b473-701248b69cfe/source/manifest.json",
-          "sha256": "fb6c88477f18dc0e686415e1004d305e9d80722137ceb7ae82764cb6887b7d92",
-          "bytes": 9144
+          "sha256": "7a29711688eb627f90d456a25c0eaadfdd1cc27cb2edb3f78f62608b7277e3d4",
+          "bytes": 9302
         }
       ]
     },
@@ -399,7 +399,7 @@
       "kind": "reference",
       "title": "Glean Agents 发布",
       "description": "从一个输入框展开到跨部门工作流。任务卡、人物和数据源通过连线建立关系，结果回到可读的界面。",
-      "durationSeconds": 61.0,
+      "durationSeconds": 61,
       "width": 1280,
       "height": 720,
       "videoUrl": "https://r.open-design.ai/files/82cada1c091bda4b6e5d82284dc956df7857acaabaff600ccad14854a4b53361",
@@ -407,8 +407,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/template.json",
-          "sha256": "b2884864ca0cedb3f1819554b0c018712db8f70ac550a8398a511a9edb753ae1",
-          "bytes": 36175
+          "sha256": "0bb738a7eafee621dcaab94237e8e0be496d20c9a7dd5bead24514effa9d4c48",
+          "bytes": 36377
         },
         {
           "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/TEMPLATE.md",
@@ -427,8 +427,8 @@
         },
         {
           "path": "library/templates/catalog/motion-f6f244d1-c549-4081-8a5d-f0e1e3660044/source/manifest.json",
-          "sha256": "3ea29e75ce7ef15f98cda6ad2b73516bdcdcf48bdc62d0313e38c49242e0a5a3",
-          "bytes": 10980
+          "sha256": "b08435bb5ef95e71d29d0b91dc35da9b027ce01f358c120ac4f4f9691d613104",
+          "bytes": 11138
         }
       ]
     },
@@ -445,8 +445,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/template.json",
-          "sha256": "ddaa49f260270c806e6d3ef6da5f8754abc926ec3e0117bb6114ec71ca82dd33",
-          "bytes": 30448
+          "sha256": "2699a535b6afa69118fd61fc0a2fb958855d07a1993f3ef9fbd9e0e89275b628",
+          "bytes": 30650
         },
         {
           "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/TEMPLATE.md",
@@ -465,8 +465,8 @@
         },
         {
           "path": "library/templates/catalog/motion-0ad92fd0-b2fb-4885-957c-b71152df15fd/source/manifest.json",
-          "sha256": "232404f8567ba90fe3d97ea1b107c857ce3c24065272b029815df1c3b3bc5b70",
-          "bytes": 8923
+          "sha256": "96c019c1f13e0a59c382e88ba327327c53546f12bca9c3cee33f55bc52ec6a5e",
+          "bytes": 9081
         }
       ]
     },
@@ -475,7 +475,7 @@
       "kind": "reference",
       "title": "免费语音输入",
       "description": "标志键帽与文字键帽落下排成一行，再向两边散开，露出发光的黑色声波胶囊。胶囊成为后续演示的共同锚点。",
-      "durationSeconds": 21.0,
+      "durationSeconds": 21,
       "width": 1280,
       "height": 720,
       "videoUrl": "https://r.open-design.ai/files/7afb51d9324bfb62b6a85517671ea314d481894b53ad1bf89b6dadce87c4877c",
@@ -483,8 +483,8 @@
       "sourceFiles": [
         {
           "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/template.json",
-          "sha256": "2032b03790914be8cf1cc27d6b751ffb86fffdb0e3e0a15b5175e4e938db1a41",
-          "bytes": 30290
+          "sha256": "b75b16959ef86848875159822e39725f1378476faed1cad8108f1680bb96daa5",
+          "bytes": 30492
         },
         {
           "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/TEMPLATE.md",
@@ -503,8 +503,8 @@
         },
         {
           "path": "library/templates/catalog/motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b/source/manifest.json",
-          "sha256": "90d6fa535ec51e0a275f26f8467c59dc0c1df4d43f3f12a5f87f864d97aaa3fa",
-          "bytes": 9459
+          "sha256": "bf3079597a40c34cb6905957d8758d186ee5d95aebaa46b0b7cf3a1e6428b444",
+          "bytes": 9617
         }
       ]
     }

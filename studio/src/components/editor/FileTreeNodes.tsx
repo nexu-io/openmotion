@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import {
@@ -341,16 +342,16 @@ export function DeleteConfirm({
         )}
       </p>
       <div className="flex gap-1.5">
-        <button
+        <Button variant="plain"
           onClick={onCancel}
           className="flex-1 px-2 py-1 rounded-sm bg-hover text-neutral-300 hover:bg-press transition-colors"
         >
-          {t("Cancel")}</button>
-        <button
+          {t("Cancel")}</Button>
+        <Button variant="plain"
           onClick={onConfirm}
           className="flex-1 px-2 py-1 rounded-sm bg-danger/15 text-danger-ink hover:bg-danger/25 transition-colors"
         >
-          {t("Delete")}</button>
+          {t("Delete")}</Button>
       </div>
     </div>
   );

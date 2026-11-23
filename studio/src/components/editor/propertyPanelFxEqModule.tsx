@@ -1,3 +1,6 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 /**
  * The Tone module: a multi-band EQ as one control surface over several nodes.
@@ -152,23 +155,22 @@ export function FxEqModule({
       style={{ borderLeftColor: fxFamilyTint({ type: "eq", fromEq: "eq" }) }}
     >
       <div className="hf-fx-node-head flex items-center gap-1.5 px-1.5 py-1">
-        <button
+        <Button variant="plain"
           type="button"
           className={`hf-fx-node-name flex-1 text-left text-[11px] text-panel-text-0 ${FX_FAMILY_TYPE.smart}`}
           aria-expanded={open}
           onClick={onToggleOpen}
         >
-          {t("Tone")}</button>
+          {t("Tone")}</Button>
         <span className="font-mono text-[9px] text-panel-text-2">{t("{count}-band", { count: bands.length })}</span>
-        <button
+        <IconButton variant="plain"
           type="button"
           className="hf-fx-remove px-1 text-[11px] text-panel-text-2 hover:text-danger-ink"
           aria-label={t("Remove Tone")}
           disabled={disabled}
           onClick={onRemove}
-        >
-          ×
-        </button>
+          icon={<RemixIcon name="close-line" size={12} />}
+        />
       </div>
 
       {open ? (

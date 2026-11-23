@@ -1,4 +1,5 @@
-import { assetToolAction, webMcpToolNames } from '../../../tracking/events';
+import { webMcpToolNames } from '../../../tracking/events';
+import { toolFailureFields, toolInputFields } from '../../../tracking/tool-fields';
 import type { studioEvents } from '../../../tracking/events';
 import type { EventFields } from '../../../tracking/core';
 import type { ModelContextTool } from './types';
@@ -39,18 +40,25 @@ export function withWebMcpTracking(tool: ModelContextTool): ModelContextTool {
   const toolName = tool.name;
   return { ...tool, execute: async (input, options) => {
     let call: { call_id: string; started: number } | undefined;
-    let action: ReturnType<typeof assetToolAction>;
+    let fields: ReturnType<typeof toolInputFields> = {};
     try {
-      action = assetToolAction(toolName, input);
+      fields = toolInputFields(toolName, input);
       call = { call_id: crypto.randomUUID(), started: performance.now() };
-      report('webmcp_tool_started', { tool_name: toolName, transport: 'webmcp', call_id: call.call_id, ...(action ? { action } : {}) });
+      report('webmcp_tool_started', { tool_name: toolName, transport: 'webmcp', call_id: call.call_id, ...fields });
     } catch { /* Measurement must not prevent a tool invocation. */ }
-    const finish = (result: unknown, failure?: Outcome) => {
+    const finish = (result: unknown, failure?: Outcome, error?: unknown) => {
       if (!call) return;
       try {
-        report('webmcp_tool_finished', { tool_name: toolName, transport: 'webmcp', call_id: call.call_id, ...(action ? { action } : {}),
-          outcome: failure ?? outcome(result),
-          duration_ms: duration(call.started) });
+        const observed = failure ?? outcome(result);
+        const reply = result as { error?: unknown; kind?: string } | undefined;
+        const importRejected = (observed === 'partial' || observed === 'failure')
+          && (toolName === 'openmotion_import_assets' || fields.action === 'import_to_project');
+        const code = observed === 'cancelled' ? 'ABORTED' : importRejected && !reply?.error ? 'ASSET_IMPORT_FAILED'
+          : reply?.kind === 'invalid' ? 'INVALID_ARGUMENT' : reply?.kind === 'blocked' ? 'STUDIO_TOOL_BLOCKED'
+          : reply?.kind === 'internal' ? 'STUDIO_TOOL_INTERNAL' : undefined;
+        report('webmcp_tool_finished', { tool_name: toolName, transport: 'webmcp', call_id: call.call_id, ...fields,
+          outcome: observed, duration_ms: duration(call.started),
+          ...(['failure', 'partial', 'cancelled'].includes(observed) ? toolFailureFields(code ? { code } : reply?.error ?? error) : {}) });
       } catch { /* Results, errors and private contents belong to the caller, not telemetry. */ }
     };
     try {
@@ -58,7 +66,7 @@ export function withWebMcpTracking(tool: ModelContextTool): ModelContextTool {
       finish(result);
       return result;
     } catch (error) {
-      finish(undefined, error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failure');
+      finish(undefined, error instanceof Error && error.name === 'AbortError' ? 'cancelled' : 'failure', error);
       throw error;
     }
   } };

@@ -326,11 +326,28 @@ function openFlatGroup(host: HTMLElement, title: string) {
 const openGroupText = (host: HTMLElement) =>
   host.querySelector('[data-flat-group-open="true"]')?.textContent ?? "";
 
+function expectInlineOpacity(host: HTMLElement) {
+  const track = host.querySelector('[role="slider"][aria-label="Opacity"]');
+  const row = track?.parentElement;
+  expect(row?.firstElementChild?.textContent).toBe("Opacity");
+  expect(row?.classList.contains("flex-wrap")).toBe(false);
+  expect(row?.querySelector(".basis-full")).toBeNull();
+  expect(row?.querySelector('input[aria-label="Opacity value"][data-form-control="boxed"]')).not.toBeNull();
+}
+
 describe("PropertyPanel — STUDIO_FLAT_INSPECTOR_ENABLED off", () => {
   it("renders the legacy header, not the flat header", async () => {
     const { host, root } = await renderPanel(false);
     expect(host.querySelector('[data-flat-header-icon="true"]')).toBeNull();
     expect(host.textContent).toContain("Mono Label");
+    act(() => root.unmount());
+  });
+
+  it("uses the shared inline opacity control in Transparency", async () => {
+    const { host, root } = await renderPanel(false);
+    const header = host.querySelector<HTMLButtonElement>('[data-panel-section="transparency"] button[aria-expanded="false"]')!;
+    act(() => header.click());
+    expectInlineOpacity(host);
     act(() => root.unmount());
   });
 });
@@ -1076,4 +1093,15 @@ describe("MVP property panel with no available controls", () => {
     expect(host.textContent).toContain("ask the agent to edit this element");
     act(() => root.unmount());
   });
+});
+
+it.each([
+  ["text", baseElement],
+  ["shape", () => ({ ...baseElement(), textContent: "", textFields: [] })],
+  ["image", imageElement],
+  ["video", videoElement],
+] as const)("keeps opacity on one row for %s selections", async (_kind, fixture) => {
+  const { host, root } = await renderPanel(true, fixture(), {}, { mvp: true });
+  expectInlineOpacity(host);
+  act(() => root.unmount());
 });

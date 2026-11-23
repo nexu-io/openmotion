@@ -317,7 +317,8 @@ it("lists actual project declarations, imports and installed fonts without remot
     const text = document.body.textContent;
     for (const family of ["Authored Remote", "Project Brand", "Imported Brand", "Menlo"]) expect(text).toContain(family);
     for (const family of ["Google Only", "Roboto", "system-ui", "Outer UI Font"]) expect(text).not.toContain(family);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    const requests = vi.mocked(fetch).mock.calls.map(([url]) => url);
+    expect(requests.filter((url) => url !== "/motion-api/tracking")).toEqual(["/api/fonts"]);
     const option = Array.from(document.querySelectorAll<HTMLButtonElement>("[data-font-option-index]")).find(button => button.textContent?.includes("Project Brand"));
     await act(async () => option?.click());
     expect(commit).toHaveBeenCalledWith('"Project Brand", ui-sans-serif, system-ui, sans-serif');

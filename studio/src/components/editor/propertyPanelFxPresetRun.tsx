@@ -1,3 +1,6 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 /**
@@ -149,7 +152,7 @@ export function FxPresetRun({
       }}
     >
       <div className="hf-fx-preset-run-head flex min-h-6 items-center gap-1 px-0.5">
-        <button
+        <Button variant="plain"
           type="button"
           className={`hf-fx-preset-run-label min-w-0 flex-1 truncate text-left leading-tight hover:opacity-80 ${style.type}`}
           // The face and the colour are data, not classes: a Tailwind class
@@ -166,9 +169,7 @@ export function FxPresetRun({
           }
           onClick={onToggleCollapse}
         >
-          <span className="hf-fx-preset-run-caret pr-1 font-mono opacity-60" aria-hidden="true">
-            {collapsed ? "▸" : "▾"}
-          </span>
+          <RemixIcon name={collapsed ? "arrow-right-s-fill" : "arrow-down-s-fill"} size={12} className="hf-fx-preset-run-caret opacity-60" />
           {t(preset.label)}
           {/* Collapsed, the count is what says the preset is still a chain
               rather than one opaque effect. */}
@@ -177,11 +178,11 @@ export function FxPresetRun({
               {run.items.length}
             </span>
           ) : null}
-        </button>
+        </Button>
         {/* The whole preset, on or off. Partly-bypassed reads as off, because
             "some of it is running" is not a state an author set — it is one
             they arrived at, and the switch is how they get back out of it. */}
-        <button
+        <Button variant="plain"
           type="button"
           className="hf-fx-preset-run-toggle rounded-[3px] border border-panel-border-input px-1.5 py-0.5 font-mono text-[9px] text-panel-text-2 hover:text-panel-text-0 disabled:opacity-40"
           aria-pressed={runOn}
@@ -193,16 +194,15 @@ export function FxPresetRun({
           }}
         >
           {runOn ? t("On") : t("Off")}
-        </button>
-        <button
+        </Button>
+        <IconButton variant="plain" aria-label={t("Remove {value0}", { value0: t(preset.label) })}
           type="button"
           className="hf-fx-preset-run-remove px-1 font-mono text-[11px] text-panel-text-2 hover:text-danger-ink disabled:opacity-40"
           title={t("Remove {value0}", { value0: t(preset.label) })}
           disabled={disabled}
           onClick={onRemoveRun}
-        >
-          &times;
-        </button>
+          icon="&times;"
+        />
       </div>
       {/* The same value the switch sets, so an author can put the preset half
           in — and the lane below ramps it continuously. */}

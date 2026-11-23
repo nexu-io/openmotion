@@ -31,8 +31,12 @@ it('delivers all registered tools through the actual browser sender and never qu
   const tracking = await import('../motion/tracking');
   await tracking.initializeTracking();
   const { registered, execute, reply } = await registerTools();
-  for (const tool of registered) expect(await tool.execute({ path: '/PRIVATE', prompt: 'PRIVATE',
-    ...(tool.name === 'openmotion_assets_use' ? { action: 'read' } : tool.name === 'openmotion_assets' ? { action: 'get' } : {}) })).toBe(reply);
+  for (const tool of registered) {
+    expect(await tool.execute({ path: '/PRIVATE', prompt: 'PRIVATE',
+      ...(tool.name === 'openmotion_assets_use' ? { action: 'read' } : tool.name === 'openmotion_assets' ? { action: 'get' } : {}) })).toBe(reply);
+    // Keep the burst under the bounded browser queue (64); production also flushes on an interval.
+    await vi.dynamicImportSettled(); await tracking.flushMotionTracking();
+  }
   await vi.dynamicImportSettled();
   for (let i = 0; i < 10 && tracking.getMotionTrackingStatus().pending; i++) await tracking.flushMotionTracking();
   expect(tracking.getMotionTrackingStatus().pending).toBe(0);

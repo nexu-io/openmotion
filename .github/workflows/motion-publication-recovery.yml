@@ -12,6 +12,9 @@ on:
         description: 'Exact existing candidate version; the identical package must already be public on npm'
         type: string
         required: true
+      candidate_run_id:
+        description: 'Optional exact candidate run ID when multiple candidates have this version'
+        type: string
 
 permissions:
   contents: read
@@ -39,5 +42,6 @@ jobs:
     with:
       channel: ${{ inputs.channel || 'test' }}
       version: ${{ inputs.version }}
+      candidate_run_id: ${{ inputs.candidate_run_id }}
       archive_only: true
     secrets: inherit

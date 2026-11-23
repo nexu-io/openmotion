@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { HiddenToggleIcon, hiddenToggleVerb } from "../../player/components/hiddenToggle";
@@ -56,7 +57,7 @@ export function PropertyPanelFlatHeader({
       </div>
       <div className="flex shrink-0 items-center gap-2.5 text-panel-text-3">
         {showUngroup && (
-          <button
+          <IconButton variant="plain"
             type="button"
             aria-label={t("Ungroup")}
             title={t("Ungroup ({value0})", { value0: keyHint("ungroup", useStudioKeys()) })}
@@ -64,12 +65,11 @@ export function PropertyPanelFlatHeader({
               track("button", "Ungroup");
               onUngroup?.();
             }}
-          >
-            <RemixIcon name="shape-2-line" size={14} />
-          </button>
+            icon={<RemixIcon name="shape-2-line" size={14} />}
+          />
         )}
         {onToggleHidden && (
-          <button
+          <IconButton variant="plain"
             type="button"
             aria-label={visibilityLabel}
             title={visibilityLabel}
@@ -77,11 +77,10 @@ export function PropertyPanelFlatHeader({
               track("toggle", "Element visibility");
               onToggleHidden();
             }}
-          >
-            <HiddenToggleIcon asMute={asMute} hidden={hidden} size={13} />
-          </button>
+            icon={<HiddenToggleIcon asMute={asMute} hidden={hidden} size={13} />}
+          />
         )}
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Copy element info to clipboard")}
           title={copied ? t("Copied!") : t("Copy element info for any AI agent")}
@@ -90,19 +89,17 @@ export function PropertyPanelFlatHeader({
             onCopy();
           }}
           className={copied ? "text-accent-ink" : undefined}
-        >
-          <ClipboardList size={13} />
-        </button>
-        <button
+          icon={<ClipboardList size={13} />}
+        />
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Clear selection")}
           onClick={() => {
             track("button", "Clear selection");
             onClear();
           }}
-        >
-          <X size={13} />
-        </button>
+          icon={<X size={13} />}
+        />
       </div>
     </div>
   );

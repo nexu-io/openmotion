@@ -7,7 +7,7 @@ import { NumberField as BaseNumberField } from "@base-ui/react/number-field";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "./cn";
 import { fieldBase, fieldText } from "./Input";
-import type { PreviewState } from "./Button";
+import type { PreviewState } from "open-design-ui/button";
 
 export interface NumberFieldProps {
   /** Accessible name. The inspector's row label is the usual one. */

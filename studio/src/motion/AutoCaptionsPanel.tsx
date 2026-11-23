@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DirectoryModel } from '../../../shared/provider-directory';
 import type { TranscriptDocument, TranscriptionJob } from '../../../shared/transcript';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Select } from '../components/ui/Select';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useI18n } from '../i18n/I18n';

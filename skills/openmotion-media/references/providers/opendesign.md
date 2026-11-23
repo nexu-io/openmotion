@@ -1,6 +1,6 @@
 # OpenDesign Cloud media
 
-Based on the Cloud media API contract; reviewed 2026-11-17. This is a test-stage contract. Sections: discovery, request templates, polling, errors, boundaries.
+Based on the Cloud media API contract; reviewed 2026-11-17. This is a test-stage contract. Sections: discovery, video model choice, request templates, polling, errors, boundaries.
 
 ## Setup and discovery
 
@@ -17,6 +17,10 @@ Discovery calls the authenticated `GET /api/v1/media/models` on the dashboard AP
 The catalogue is bound to the configured key and API origin. Use `action: "models"` with `refresh: true` or Settings → Sync models to refresh it. Explicit `capabilities.edits: false` disables image references; absent or malformed values mean unknown and remain disabled. Refreshing never submits a generation request. Model names and generic image-input metadata do not establish editing access.
 
 Cloud catalogue kinds `audio_speech` and `audio_music` both appear as `modality: "audio"`, with `mode: "text-to-speech"` and `mode: "text-to-audio"` respectively. Legacy `audio` entries retain speech behavior. Use the discovered model's mode; a vendor name alone does not establish whether it generates speech or music.
+
+## Choosing a video model
+
+When the user has not named a video model and discovery lists both `wan-2.7` and `doubao-seedance-2-5-260628`, use `wan-2.7` for every clip whose duration, resolution and ratio it lists; in OpenMotion trials it finished short clips faster and failed less often. Use Seedance for a clip that needs a longer duration or an option only Seedance lists (at review: Wan 2–15 s, Seedance 4–30 s, with 480p and 21:9 only on Seedance). Read the current values from the catalogue. When a confirmed remote failure leaves a clip to regenerate within the approved retries, switch to the other model only when its current catalogue supports the clip's full duration, resolution and ratio and the user's approval covers that model; otherwise retry on the same model or report the limitation, without changing the requested clip.
 
 ## Request templates
 
@@ -70,10 +74,12 @@ Wire mapping (all paths are relative to the dashboard API origin):
 
 | Type | POST path | JSON body | Poll path |
 | --- | --- | --- | --- |
-| Image | `/api/v1/media/images/generations` | `{model,prompt,...parameters}` | `/api/v1/media/images/tasks/{task_id}` |
+| Image | `/api/v1/media/images/generations` (or `/api/v1/media/images/edits` with references) | `{model,prompt,...parameters}` (top-level `aspect_ratio` + `resolution` packed as `output:{aspect_ratio,resolution}`) | `/api/v1/media/images/tasks/{task_id}` |
 | Video | `/api/v1/media/videos/tasks` | `{model,prompt,...parameters}` | `/api/v1/media/videos/tasks/{task_id}` |
 | Speech | `/api/v1/media/audio/speech` | `{model,voice,parameters:{text,...options}}` | `/api/v1/media/audio/tasks/{task_id}` |
 | Music | `/api/v1/media/audio/music` | `{model,parameters:{prompt,...options}}` | `/api/v1/media/audio/tasks/{task_id}` |
+
+For Cloud image requests, `aspect_ratio` and `resolution` represent a paired output profile: when the synced catalogue publishes `capabilities.profiles` (using the `edits` envelope when input references or `parameters.images` are present, and `generations` otherwise), OpenMotion validates against the active envelope, completes a missing half using the envelope's default or first matching pair, and packs the pair into `output: { aspect_ratio, resolution }` on the wire. Unpublished ratios, resolutions, or pairs, as well as combining `size` or `output` with `aspect_ratio`/`resolution`, are rejected before submission. An explicit `parameters.output` object passes through unchanged. When a model publishes no `capabilities.profiles`, passing only one of `aspect_ratio` or `resolution` is rejected before submission; supply both together or pass an explicit `output` object.
 
 The speech adapter extracts `parameters.voice` and nests the remaining options, using the tool's prompt as `parameters.text`. Do not send fal-style flat speech fields.
 
@@ -99,7 +105,7 @@ The supplied contract does **not** define a complete authoritative Cloud HTTP er
 | --- | --- |
 | HTTP 401 | Authentication was not accepted. Check dashboard API origin/path, Bearer header, selected workspace key and saved-vs-environment source. Do not assert expired key, wrong key or insufficient balance without provider evidence. |
 | HTTP 403 / 404 | Check workspace/model/task ownership, endpoint path and access. Confirm the actual Cloud code/message; HTTP status alone does not identify the exact permission/resource issue. |
-| HTTP 400 / 422 | Check current contract fields: image/video fields are flat, speech text is nested and voice must match the model. Inspect actual validation detail if available. |
+| HTTP 400 / 422 | Check current contract fields: paired image `aspect_ratio`/`resolution` are sent inside `output`, other image/video fields are flat, speech text is nested and voice must match the model. Inspect actual validation detail if available. |
 | Quota/balance rejection | Check workspace model allowance and recharge balance. The contract does not assign one guaranteed HTTP status to this case. |
 | HTTP 429 / 5xx / network timeout | Possible limits/transient failure or uncertain outcome. Check the original task/history before another paid submit; do not assume a timeout means no task was created. |
 | `audio_outcome_unknown` | Explicit unknown audio outcome. Query the original task and workspace usage before considering another generation. Do not treat it as a definite failure or a refund. |

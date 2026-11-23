@@ -9,7 +9,7 @@
   "templates": [
     {
       "id": "motion-664184d9-593e-4984-b473-701248b69cfe",
-      "sourceFilesSha256": "7d1263c8140f0a6ac1524c92a0849c20f5e73bbc0c0ce6b999dc07dc2b996efe",
+      "sourceFilesSha256": "d09f51b3b5caa7dce58c2dbdcfa90a0aa3af2885cdb96846f72ea7d80eb08e08",
       "durationSeconds": 43,
       "width": 512,
       "height": 288,
@@ -29,7 +29,7 @@
     },
     {
       "id": "motion-f6f244d1-c549-4081-8a5d-f0e1e3660044",
-      "sourceFilesSha256": "26447a6d53e08ea612c65643948858b042ddb1f4ed8b19ada2479929e918abc5",
+      "sourceFilesSha256": "c294ed6a6015d6660e56efa82b7fad76aee19a176e845de1f1914291d557dbb5",
       "durationSeconds": 61,
       "width": 512,
       "height": 288,
@@ -49,7 +49,7 @@
     },
     {
       "id": "motion-0ad92fd0-b2fb-4885-957c-b71152df15fd",
-      "sourceFilesSha256": "77583e3c014a7858787cd42e3d4f2d9871f6e85e0eab6f14be523743390dc065",
+      "sourceFilesSha256": "c52ac79e5e06f3135ddafb35c89de6695b1b9727705b019d9e47cfba811ab510",
       "durationSeconds": 24.083,
       "width": 512,
       "height": 318,
@@ -69,7 +69,7 @@
     },
     {
       "id": "motion-a28f0e5d-aa8b-45a7-87f9-9afcac65a09b",
-      "sourceFilesSha256": "d4d8bed9b38a5088bf7adc85debe71f983afc36fd0730ba6ce1e050ceda22753",
+      "sourceFilesSha256": "4ed69468c2862a4b33fcb3160d50fee0bdf1f45266d7262a150e5f3673479d2b",
       "durationSeconds": 21.083,
       "width": 512,
       "height": 288,

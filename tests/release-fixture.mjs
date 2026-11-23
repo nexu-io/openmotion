@@ -56,7 +56,7 @@ export async function candidateFixture(t, branch = 'main', options = {}) {
   await writeJSON(path.join(directory, 'authorization.json'), authorization);
   for (const platform of ['darwin-arm64', 'win32-x64']) await writeJSON(path.join(directory, `registry-${platform}.json`), {
     status: 'passed', templateEnvironment, platform, version, sourceCommit: commit, tgzSHA256: candidate.tgzSHA256,
-    registryColdInstall: 'passed', nativePreparation: 'passed', repeatSetup: 'passed', resources: 'passed', mcpTools: manifest.mcp.tools.length, skills: manifest.skills.length,
+    candidateColdInstall: 'passed', registryColdInstall: 'not-run', nativePreparation: 'passed', repeatSetup: 'passed', resources: 'passed', mcpTools: manifest.mcp.tools.length, skills: manifest.skills.length,
   });
   await writeJSON(path.join(directory, 'npm-publication.json'), { tgzSHA256: candidate.tgzSHA256, previousLatest: '0.6.3' });
   await writeJSON(path.join(directory, 'test-promotion.json'), { version, tgzSHA256: candidate.tgzSHA256, action: inputs.action, publicationRun: publicationEnv.GITHUB_RUN_ID, status: 'already-promoted' });

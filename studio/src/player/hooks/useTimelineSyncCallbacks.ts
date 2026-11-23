@@ -13,7 +13,7 @@ import { useCallback, useRef } from "react";
 import { liveTime, usePlayerStore } from "../store/playerStore";
 import type { TimelineElement } from "../store/playerStore";
 import type { PlaybackAdapter, IframeWindow } from "../lib/playbackTypes";
-import { readTimelineDurationFromDocument } from "../lib/timelineDOM";
+import { readTimelineDurationFromDocument, restoreAuthoredTrack } from "../lib/timelineDOM";
 import { buildMissingCompositionElements } from "../lib/timelineIframeHelpers";
 import { acceptedRuntimeMessageFps } from "../lib/runtimeProtocol";
 import { useLinkedClipPreferences } from "../../utils/linkedClipPreferences";
@@ -237,7 +237,11 @@ export function useTimelineSyncCallbacks({
         // Dedup: ensure no missing element duplicates an existing one
         const finalIds = new Set(updatedEls.map((e) => e.id));
         const dedupedMissing = missing.filter((m) => !finalIds.has(m.id));
-        syncTimelineElements([...updatedEls, ...dedupedMissing]);
+        // Store elements carry normalized display lanes while recovered hosts carry
+        // authored tracks; restore authored tracks before re-normalizing together.
+        const baseEls =
+          dedupedMissing.length > 0 ? updatedEls.map(restoreAuthoredTrack) : updatedEls;
+        syncTimelineElements([...baseEls, ...dedupedMissing]);
       }
     } catch {}
   }, [iframeRef, syncTimelineElements]);

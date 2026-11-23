@@ -11,7 +11,7 @@ const MIN_SIDE_W_FLOOR = 120;
 // the default workspace without taking over the preview.
 const DEFAULT_TIMELINE_H = 224;
 const DEFAULT_LEFT = ["compositions", "assets", "captions", "transcript", "code", "catalog"] as const;
-const DEFAULT_RIGHT = ["design", "layers", "renders", "variables", "motionBlur"] as const;
+const DEFAULT_RIGHT = ["design", "comments", "layers", "renders", "variables", "motionBlur"] as const;
 export const COLLAPSED_SIDE_WIDTH = 48;
 export const MIN_MVP_SIDE_WIDTH = { left: 160, right: 200 } as const;
 export const MIN_COMPACT_PREVIEW_WIDTH = 240;

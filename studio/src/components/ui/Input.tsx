@@ -6,7 +6,7 @@
 import { Input as BaseInput } from "@base-ui/react/input";
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
 import { cn } from "./cn";
-import type { PreviewState } from "./Button";
+import type { PreviewState } from "open-design-ui/button";
 
 /**
  * Shared field look (also used by NumberField and Select). Each interactive state is written

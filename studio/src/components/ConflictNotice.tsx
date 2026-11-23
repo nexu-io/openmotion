@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useRef, useState } from "react";
 import { useI18n } from "../i18n/I18n";
 import type { ExternalFileChangeCoordinatorHandle } from "../hooks/useExternalFileChangeCoordinator";
@@ -33,9 +34,9 @@ export function ConflictNotice({ coordinator }: { coordinator: ExternalFileChang
   return <div className="motion-conflict-notice" role="alert" aria-busy={busy}>
     <p>{t(actionError ?? reason)}</p>
     {(canUseUpdated || canKeep || canRetry) && <div className="motion-conflict-actions">
-      {canUseUpdated && <button className="motion-button" disabled={busy} onClick={() => void run(coordinator.useExternalFile, "Use the updated version and discard your unsaved changes?")}>{t("Use updated version")}</button>}
-      {canKeep && <button className="motion-button" disabled={busy} onClick={() => void run(coordinator.keepStudioFile, "Keep your changes and replace the version updated elsewhere?")}>{t("Keep my changes")}</button>}
-      {canRetry && <button className="motion-button" disabled={busy} onClick={() => void run(coordinator.retry)}>{t("Retry saving")}</button>}
+      {canUseUpdated && <Button variant="plain" className="motion-button" disabled={busy} onClick={() => void run(coordinator.useExternalFile, "Use the updated version and discard your unsaved changes?")}>{t("Use updated version")}</Button>}
+      {canKeep && <Button variant="plain" className="motion-button" disabled={busy} onClick={() => void run(coordinator.keepStudioFile, "Keep your changes and replace the version updated elsewhere?")}>{t("Keep my changes")}</Button>}
+      {canRetry && <Button variant="plain" className="motion-button" disabled={busy} onClick={() => void run(coordinator.retry)}>{t("Retry saving")}</Button>}
     </div>}
   </div>;
 }

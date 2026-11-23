@@ -1,3 +1,6 @@
+import { Button } from "open-design-ui/button";
+import { MenuPanel } from "../ui/MenuPanel";
+import { FieldTrigger } from "../ui/FormField";
 import { PropertyLabel } from "./PropertyLabel";
 import { Tooltip } from "../ui/Tooltip";
 import { SearchInput } from "../ui/SearchInput";
@@ -20,6 +23,7 @@ import { runWhenInputIdle } from "./overlayFrameLoop";
 import { studioApiFetch } from "../../utils/studioApiFetch";
 import { useStudioShellContextOptional } from "../../contexts/StudioContext";
 import { RemixIcon } from "../../icons/RemixIcons";
+import { SelectArrow } from "../ui/SelectArrow";
 
 /* ------------------------------------------------------------------ */
 /*  Font helper functions                                              */
@@ -337,14 +341,14 @@ export function FontFamilyField({
           aria-autocomplete="list"
           className="min-w-0"
         />
-        <button
+        <Button variant="plain"
           type="button"
           disabled={disabled || importingFonts || !onImportFonts}
           onClick={() => fontInputRef.current?.click()}
           className="rounded-lg border border-neutral-700 bg-neutral-900 px-2.5 text-[10px] font-medium text-neutral-400 transition-colors hover:border-neutral-600 hover:text-neutral-100 disabled:cursor-not-allowed disabled:text-text-off"
         >
           {importingFonts ? "..." : t("Import")}
-        </button>
+        </Button>
         <input
           ref={fontInputRef}
           type="file"
@@ -373,15 +377,12 @@ export function FontFamilyField({
               key={`${option.source}-${option.family}`}
               type="button"
               data-font-option-index={index}
+              data-menu-row=""
+              data-highlighted={index === activeIndex || undefined}
+              data-selected={option.family === currentFamily || undefined}
               disabled={disabled || importingFonts}
               onClick={() => commitFamily(option)}
-              className={`flex w-full min-w-0 items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-[11px] transition-colors ${
-                index === activeIndex
-                  ? "bg-neutral-800 text-neutral-50"
-                  : option.family === currentFamily
-                    ? "bg-studio-accent/15 text-neutral-50"
-                    : "text-neutral-300 hover:bg-neutral-900 hover:text-neutral-100"
-              }`}
+              className="justify-between transition-colors"
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 <Tooltip label={option.family} wrap><span className="truncate font-medium" style={{ fontFamily: `"${option.family}"` }}>
@@ -406,9 +407,9 @@ export function FontFamilyField({
         {lists.error && (
           <div role="alert" className="px-2 py-3 text-[11px] text-neutral-500">
             <p>{t("Couldn't load local fonts.")}</p>
-            <button type="button" onClick={preloadFontLists} className="mt-2 rounded px-2 py-1 text-neutral-300 hover:bg-neutral-900">
+            <Button variant="plain" type="button" onClick={preloadFontLists} className="mt-2 rounded px-2 py-1 text-neutral-300 hover:bg-neutral-900">
               {t("Retry")}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -423,7 +424,8 @@ export function FontFamilyField({
       align="end"
       aria-label={t("Font family")}
       initialFocus={inputRef}
-      className="w-64 max-w-[calc(100vw-16px)] overflow-hidden p-0"
+      renderPanel={<MenuPanel data-menu-layout="custom" />}
+      className="w-64 overflow-hidden"
     >
       {dropdown}
     </Popover>
@@ -439,29 +441,21 @@ export function FontFamilyField({
     return (
       <div className="relative flex min-h-[30px] min-w-0 items-center justify-between gap-2">
         <PropertyLabel label={t("Font")} className="text-panel-text-2" />
-        {renderPicker(<button
+        {renderPicker(<FieldTrigger
           type="button"
           data-flat-font-trigger="true"
           disabled={disabled || importingFonts}
           aria-busy={importingFonts}
-          className="flex min-w-0 max-w-[65%] items-center gap-1.5 disabled:cursor-not-allowed"
+          className="flex min-w-0 items-center gap-1.5 disabled:cursor-not-allowed"
         >
           <span
-            className="max-w-[200px] truncate font-mono text-[11px] text-panel-text-0"
+            className="min-w-0 flex-1 truncate text-left"
             style={{ fontFamily: value }}
           >
             {currentFamily}
           </span>
-          {fontLoadingIndicator ?? <svg
-            width="10"
-            height="10"
-            viewBox="0 0 10 10"
-            fill="currentColor"
-            className="shrink-0 text-panel-text-5"
-          >
-            <path d="M2 3l3 4 3-4z" />
-          </svg>}
-        </button>)}
+          {fontLoadingIndicator ?? <SelectArrow />}
+        </FieldTrigger>)}
       </div>
     );
   }
@@ -469,7 +463,7 @@ export function FontFamilyField({
   return (
     <div className="relative grid min-w-0 gap-1.5">
       <span className={LABEL}>{t("Font family")}</span>
-      {renderPicker(<button
+      {renderPicker(<FieldTrigger density="intrinsic"
         type="button"
         disabled={disabled || importingFonts}
         aria-busy={importingFonts}
@@ -483,7 +477,7 @@ export function FontFamilyField({
         </span>
         {fontLoadingIndicator ?? <span className="shrink-0 text-[10px] uppercase tracking-[0.14em] text-neutral-600">
           {t("Font")}</span>}
-      </button>)}
+      </FieldTrigger>)}
     </div>
   );
 }

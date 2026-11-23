@@ -1,16 +1,20 @@
+import { gameHttp, attachGameRooms } from './game-projects.ts';
+import type { ExportFailure } from './tracking/tool-fields.ts';
+import { toolFailureFields } from './tracking/tool-fields.ts';
 import { transcriptsFor, closeTranscripts } from './gateway/transcription.ts';
 import { projectArchiveHttp } from './gateway/project-archive-http.ts';
 import { modelMetadata } from './gateway/model-metadata.ts';
 import { assetConversations } from './gateway/asset-chat.ts';
 import { assetHttp } from './gateway/asset-http.ts';
 import { getWorkflow } from './shared/workflow.ts';
+import { attachmentDisposition } from './shared/http-header.ts';
 import { isMain } from './shared/entry.ts';
 import { createServer } from 'node:http';
 import { createReadStream } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { WorkspaceStore, Conflict, createBlankProject, validateProjectTitle, interruptedExport } from './workspace.ts';
+import { WorkspaceStore, Conflict, createBlankProject, validateProjectTitle, interruptedExport, trackExportResult } from './workspace.ts';
 import type { ExportJob } from './workspace.ts';
 import { cliPath, ensureRuntime, execute, HYPERFRAMES_VERSION, inspectProject, pluginRoot, runHyperframes, startStudio, stopCommands } from './hyperframes.ts';
 import type { Studio } from './hyperframes.ts';
@@ -18,6 +22,7 @@ import { VERSION } from './preview.ts';
 import { templates } from './template-library.ts';
 import { templateRecipe } from './template-catalog.ts';
 import { templateCatalogFor } from './prism-templates.ts';
+import { upgradeTemplateGuidePage, compactNativeGuideStage, authoredTemplateGuide } from './shared/template-guide.ts';
 import { isEditableTemplate } from './shared/catalog.ts';
 import { proxyStudio, renderDownloadDisposition, serveEditorFile } from './editor-server.ts';
 import { publicTools as mcpTools } from './mcp.ts';
@@ -43,11 +48,14 @@ import { validPending, uuid } from './tracking/core.ts';
 import { validHostContext, unknownHost, previewTrackingContext } from './tracking/host.ts';
 import type { HostContext } from './tracking/host.ts';
 import { collectDiagnostics, diagnosticLimits, recordDiagnostic } from './scripts/diagnostics.mjs';
-import { isWorkspaceSettingsPage } from './shared/workspace-url.ts';
+import { editorProjectIdFromPath, isSpaRoutePath, isStandaloneSpaPath } from './shared/spa-routes.ts';
 import { TaskLedger } from './tracking/task-ledger.ts';
 import { WorkRounds, workRoundMode } from './inline-video.ts';
 import { brandKitHttp } from './gateway/brand-http.ts';
 import { brandKitsFor } from './gateway/brand-kits.ts';
+import { AssetLibrary } from './gateway/asset-library.ts';
+import { scenarioHttp } from './gateway/scenario-http.ts';
+import { designHttp } from './design-projects.ts';
 
 const sharedStore = new WorkspaceStore();
 export type Service = { trackingHosts?: Map<string, { host: HostContext; createdAt: number }>; diagnostics?: { running: boolean; lastExport: number; events: number; window: number }; studio?: Studio; runtimeRoot?: string; nativeRoot?: string; ffmpeg?: boolean; switching?: boolean; studioPort?: number; browser?: WorkspaceBrowser; editorToken?: string; ensureStudio?: (projectId?: string) => Promise<Studio>; launchStudio?: (directory: string, port: number) => Promise<Studio>; phase1?: Phase1Service; phase1Mutation?: Promise<void>; tracking?: OmTracking };
@@ -68,17 +76,20 @@ async function emitQueueTelemetry(store: WorkspaceStore, tracking?: OmTracking) 
   tracking.track('worker_heartbeat', { collector_id: collectorId, instance_id: workerInstanceId, active: true, queue_count: queued + running }, undefined, 'worker');
 }
 
-export async function cancelExport(store: WorkspaceStore, projectId: string, jobId: string) {
+export async function cancelExport(store: WorkspaceStore, projectId: string, jobId: string, tracking = store.tracking) {
   return store.lock(async () => {
     const job = await store.job(jobId);
     if (!job || job.projectId !== projectId) throw new Error('EXPORT_NOT_FOUND: 任务不属于该项目');
-    if (job.state === 'pending') { job.state = 'cancelled'; job.stage = 'cancelled'; job.terminalAt = Date.now(); job.observedOutcome = 'cancelled'; }
-    else if (job.state === 'running') job.state = 'cancelling';
-    await store.saveJob(job);
-    if (job.state === 'cancelled') {
-      await rm(store.snapshotDirectory(job.id), { recursive: true, force: true });
-      await new TaskLedger(store.directory).terminal(job.id, 'cancelled', 'unknown').catch(() => {});
+    if (job.state === 'pending') {
+      job.state = 'cancelled'; job.stage = 'cancelled'; job.terminalAt = Date.now(); job.observedOutcome = 'cancelled';
+      await store.saveJob(job);
+      trackExportResult(tracking, job);
+      await trackExportTerminal(store, job, tracking);
+    } else if (job.state === 'running') {
+      job.state = 'cancelling';
+      await store.saveJob(job);
     }
+    if (job.state === 'cancelled') await rm(store.snapshotDirectory(job.id), { recursive: true, force: true });
     if (job.state === 'cancelling') runningExports.get(job.id)?.abort();
     const { token, workerPid, trackingHost, ...safe } = job; return safe;
   });
@@ -103,26 +114,39 @@ export async function trackExportTerminal(store: WorkspaceStore, final: ExportJo
   if (final.observedOutcome === 'unknown') return;
   const outcome = final.state === 'completed' ? 'success' : final.state === 'cancelled' ? 'cancelled' : 'failure';
   const applied = outcome === 'success' ? 'true' : 'unknown';
-  await new TaskLedger(store.directory).terminal(final.id, outcome, applied, outcome === 'failure' ? 'EXPORT_FAILED' : undefined).catch(() => {});
+  const errorCode = outcome === 'failure' ? final.failureCode ?? 'EXPORT_FAILED' : undefined;
+  await new TaskLedger(store.directory).terminal(final.id, outcome, applied, errorCode).catch(() => {});
   const host = validHostContext(final.trackingHost) ? final.trackingHost : undefined;
   tracking?.track('task_terminal', { task_id: final.id, task_type: 'export', ...(final.projectId ? { project_id: final.projectId } : {}),
     ...(final.workId ? { run_id: final.workId } : {}), outcome, applied,
-    terminal_at: new Date(final.terminalAt ?? Date.now()).toISOString(), ...(outcome === 'failure' ? { error_code: 'EXPORT_FAILED' } : {}) }, undefined, 'worker', host);
+    terminal_at: new Date(final.terminalAt ?? Date.now()).toISOString(), ...(errorCode ? { error_code: errorCode } : {}) }, undefined, 'worker', host);
+  if (tracking && outcome === 'cancelled' && final.workId && final.projectId) {
+    const taskType = await workRoundMode(store, final.projectId, final.workId) ?? 'modify';
+    tracking.track('host_run_cancelled', { run_id: final.workId, task_type: taskType, reason_code: 'EXPORT_CANCELLED' }, undefined, 'worker', host);
+  }
 }
 
 export async function renderNext(store: WorkspaceStore, runtimeRoot: string, tracking?: OmTracking) {
   await emitQueueTelemetry(store, tracking);
   const pending = await store.job();
-  if (pending?.projectId) store = store.forProject(pending.projectId);
   const key = store.directory;
   // The tick that renders a job also owns its record, so no tick reconciles work still running in this process.
   if (working.has(key)) return;
   working.add(key);
   let job;
   let control: AbortController | undefined;
+  let failure: ExportFailure = { failureStage: 'lint', failureCode: 'EXPORT_LINT_FAILED' };
   try {
     // A queued job whose deadline passed, or a claimed job whose worker vanished, is closed before claiming.
     if (pending && interruptedExport(pending)) await trackInterruptedExport(store, pending, tracking);
+    else if (pending?.state === 'pending' && pending.projectId) {
+      // Cancel queued exports whose project was trashed or deleted so they cannot block other active projects.
+      const project = store.projectCatalog().projects.find(item => item.id === pending.projectId);
+      if (!project || project.trashedAt) {
+        await cancelExport(store, pending.projectId, pending.id, tracking);
+        return;
+      }
+    }
     job = await store.claimExport();
     if (!job) return;
     control = new AbortController(); runningExports.set(job.id, control);
@@ -136,36 +160,47 @@ export async function renderNext(store: WorkspaceStore, runtimeRoot: string, tra
     await stage('checking');
     const lint = await inspectProject(runtimeRoot, directory, 'lint', control.signal);
     if (lint.exitCode) throw new Error('Hyperframes lint 失败：' + JSON.stringify(lint.result));
+    failure = { failureStage: 'output', failureCode: 'EXPORT_OUTPUT_INVALID' };
     const output = store.exportPath(job);
     await mkdir(path.dirname(output), { recursive: true });
     // The service owns this job; a short-lived Agent client must not cancel it.
+    failure = { failureStage: 'render', failureCode: 'EXPORT_RENDER_FAILED' };
     await stage('rendering');
     // Let the engine read the snapshot's exact data-fps (including rational rates).
     const result = await runHyperframes(runtimeRoot, directory, ['render', '.', ...(job.compositionPath ? ['--composition', job.compositionPath] : []), '--output', output, '--format', 'mp4', '--json'], 25 * 60_000, { HYPERFRAMES_RENDER_DETACHED: '1' }, control.signal);
     await writeFile(path.join(store.directory, 'jobs', job.id, 'render.log'), result.stdout + '\n' + result.stderr, { mode: 0o600 });
     if (result.code) throw new Error('Hyperframes render 失败：' + (result.stderr || result.stdout).slice(-1800));
     // Never label an absent or non-MP4 output as completed, even after exit code 0.
+    failure = { failureStage: 'output', failureCode: 'EXPORT_OUTPUT_INVALID' };
     const file = await (await import('node:fs/promises')).open(output, 'r');
     try {
       const header = Buffer.alloc(12); await file.read(header, 0, 12, 0);
       if (header.subarray(4, 8).toString() !== 'ftyp') throw new Error('Hyperframes 未生成有效的 MP4');
     } finally { await file.close(); }
     if (job.phase1) {
+      failure = { failureStage: 'verification', failureCode: 'EXPORT_VERIFICATION_FAILED' };
       await stage('verifying');
       const report = await verifyExport(output, job.expected!, undefined, control.signal);
       await stage('verified', report);
-      if (report.status !== 'passed') throw new Error('EXPORT_VERIFICATION_FAILED: ' + JSON.stringify(report.checks));
+      if (report.status !== 'passed') {
+        if (report.status === 'blocked') failure.failureCode = 'EXPORT_VERIFICATION_BLOCKED';
+        throw new Error('EXPORT_VERIFICATION_FAILED: ' + JSON.stringify(report.checks));
+      }
     }
+    failure = { failureStage: 'finalize', failureCode: 'EXPORT_FINALIZE_FAILED' };
     const finished = await store.finishExport(job.id, job.token!);
     if (finished.state === 'cancelled') await rm(output, { force: true });
   } catch (error) {
     if (!job) throw error;
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (failure.failureStage === 'render' && code === 'COMMAND_TIMEOUT') failure.failureCode = 'EXPORT_RENDER_TIMEOUT';
+    if (failure.failureStage === 'output' && code === 'ENOENT') failure.failureCode = 'EXPORT_OUTPUT_MISSING';
     await recordDiagnostic(store.directory, { kind: 'export_failed', jobId: job.id, projectId: job.projectId,
       message: error instanceof Error ? error.message : 'Render failed' });
     await rm(store.exportPath(job), { force: true });
     const current = await store.job(job.id);
     if (current && ['running', 'cancelling'].includes(current.state)) {
-      try { await store.finishExport(job.id, job.token!, error instanceof Error ? error.message : '渲染失败'); }
+      try { await store.finishExport(job.id, job.token!, error instanceof Error ? error.message : '渲染失败', failure); }
       catch {
         tracking?.track('incident_confirmed', { incident_id: job.id, incident_type: 'other', severity: 'sev1', subject_id: job.id, evidence_ref: 'terminal_persist_failed' }, undefined, 'worker', validHostContext(job.trackingHost) ? job.trackingHost : undefined);
       }
@@ -173,13 +208,8 @@ export async function renderNext(store: WorkspaceStore, runtimeRoot: string, tra
   } finally {
     if (job && tracking) {
       const final = await store.job(job.id).catch(() => null);
-      if (final && ['completed', 'failed', 'cancelled'].includes(final.state)) {
-        tracking.track('export_result', {
-          job_id: final.id, job_state: final.state as 'completed' | 'failed' | 'cancelled',
-          duration_ms: Math.min(86_400_000, Math.max(0, Date.now() - final.createdAt)),
-          technical_check: (final.verification as any)?.status === 'passed' ? 'passed'
-            : (final.verification as any)?.status === 'failed' ? 'failed' : 'unknown',
-        }, undefined, 'worker', validHostContext(final.trackingHost) ? final.trackingHost : undefined);
+      if (final && final.observedOutcome !== 'unknown' && ['completed', 'failed', 'cancelled'].includes(final.state)) {
+        trackExportResult(tracking, final);
         await trackExportTerminal(store, final, tracking);
         if (final.state === 'completed' && final.projectId && final.workId)
           await new WorkRounds(store, tracking).exported(final.projectId, final.workId, 'mcp').catch(() => {});
@@ -188,11 +218,12 @@ export async function renderNext(store: WorkspaceStore, runtimeRoot: string, tra
           version_id: final.versionId, subject_id: final.id, checklist_version: 'export-v1', checker_type: 'automated',
           result: technicalCheckResult(final), evidence_ref: final.id }, undefined, 'worker', host);
         if (final.workId && final.projectId) {
-          const taskType = await workRoundMode(store, final.projectId, final.workId) ?? 'modify';
           if (final.state === 'completed' && final.verification && (final.verification as any).status === 'passed') tracking.track('host_run_delivered', {
             run_id: final.workId, delivery_mode: 'technical_export', project_id: final.projectId, revision: final.revision, delivery_evidence_ref: final.id }, undefined, 'worker', host);
-          else if (final.state === 'cancelled') tracking.track('host_run_cancelled', { run_id: final.workId, task_type: taskType, reason_code: 'EXPORT_CANCELLED' }, undefined, 'worker', host);
-          else tracking.track('host_run_failed', { run_id: final.workId, task_type: taskType, error_code: 'EXPORT_FAILED', stage: final.stage ?? 'unknown' }, undefined, 'worker', host);
+          else if (final.state !== 'cancelled') {
+            const taskType = await workRoundMode(store, final.projectId, final.workId) ?? 'modify';
+            tracking.track('host_run_failed', { run_id: final.workId, task_type: taskType, error_code: final.failureCode ?? 'EXPORT_FAILED', stage: final.failureStage ?? 'unknown' }, undefined, 'worker', host);
+          }
           tracking.track('host_state_changed', { run_id: final.workId, sequence: 2,
             state: final.state === 'completed' && final.verification && (final.verification as any).status === 'passed' ? 'delivered' : final.state === 'cancelled' ? 'cancelled' : 'failed',
             phase: 'technical_export', state_reason: final.state === 'completed' ? 'EXPORT_VERIFIED' : final.state === 'cancelled' ? 'EXPORT_CANCELLED' : 'EXPORT_FAILED' }, undefined, 'worker', host);
@@ -341,8 +372,9 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (projectHeader !== undefined && projectHeader !== id) return json(res, 400, { error: 'PROJECT_SCOPE_MISMATCH' });
       store = store.forProject(id);
     }
-    if (context.ensureStudio && !isWorkspaceSettingsPage(url.search) && (url.pathname === '/' || url.pathname.startsWith('/sessions/'))) {
-      const projectId = url.searchParams.get('project'), sessionId = url.searchParams.get('session');
+    if (context.ensureStudio && !isStandaloneSpaPath(url.pathname, url.search) && (isSpaRoutePath(url.pathname) || url.pathname.startsWith('/sessions/'))) {
+      const projectId = editorProjectIdFromPath(url.pathname) ?? url.searchParams.get('project');
+      const sessionId = url.searchParams.get('session');
       if (projectId !== null) {
         if (store.projectCatalog().projects.some(project => project.id === projectId && !project.trashedAt)) await context.ensureStudio(projectId);
       } else if (sessionId) {
@@ -377,9 +409,12 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       return json(res, 405, { error: 'Unsupported conversation request' });
     }
     if (motionRequest && url.pathname.startsWith('/api/project-archives/') && await projectArchiveHttp(req, res, url, store.workspaceStore ?? store, context.runtimeRoot)) return;
+    if (motionRequest && url.pathname.startsWith('/api/scenarios/') && await scenarioHttp(req, res, url, store.workspaceStore ?? store)) return;
     if (motionRequest && url.pathname.startsWith('/api/assets/') && await assetHttp(req, res, url, store)) return;
     if (motionRequest && await brandKitHttp(req, res, url, store.directory, input)) return;
     const editorUrl = `http://${host || 'localhost'}/#project/${store.projectId}`;
+    if ((url.pathname === '/api/games' || url.pathname.startsWith('/api/games/')) && await gameHttp(req, res, url, (store.workspaceStore ?? store).directory, input, context.runtimeRoot)) return;
+    if (motionRequest && url.pathname.startsWith('/api/design/') && await designHttp(req, res, url, (store.workspaceStore ?? store).directory, new URL(editorUrl).origin, input, ref => new AssetLibrary(store.workspaceStore ?? store).resolve(ref))) return;
     if (motionRequest && ['/api/diagnostics', '/api/diagnostics/events'].includes(url.pathname)) {
       // Downloads are POST-only: cross-origin links must not trigger a collection.
       if (req.method !== 'POST') return json(res, 405, { error: 'POST_REQUIRED' });
@@ -404,7 +439,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       state.running = true; state.lastExport = Date.now();
       try {
         const result = await collectDiagnostics({ appRoot: context.nativeRoot ?? pluginRoot, dataDirectory: directory, browserErrors: data.errors });
-        res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${result.filename}"`,
+        res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': attachmentDisposition(result.filename),
           'Content-Length': result.data.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
         res.end(result.data); return;
       } finally { state.running = false; }
@@ -456,7 +491,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
           context.phase1Mutation = new Promise<void>(resolve => { release = resolve; });
           try { return await task(); } finally { release(); context.phase1Mutation = undefined; }
         },
-        cancel: (projectId, jobId) => cancelExport(authority, projectId, jobId),
+        cancel: (projectId, jobId) => cancelExport(authority, projectId, jobId, context.tracking),
         tracking: context.tracking,
       });
       const data = await input(req);
@@ -480,7 +515,10 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       }
       catch (error) {
         const message = error instanceof Error ? error.message : 'Tool failed';
-        return json(res, 400, { error: message, applied: message.startsWith('VERSION_NOT_RESTORABLE:') ? false : 'unknown' });
+        const { error_code, invalid_field, validation_rule } = toolFailureFields(error);
+        return json(res, 400, { error: message, ...(error_code !== 'TOOL_FAILED' ? { code: error_code } : {}),
+          ...(invalid_field ? { invalid_field, validation_rule } : {}),
+          applied: (error as any)?.applied === false || message.startsWith('VERSION_NOT_RESTORABLE:') ? false : 'unknown' });
       }
     }
     if (req.method === 'GET' && ['/api/integration', '/connect/guide', '/connect/config'].includes(url.pathname)) {
@@ -501,7 +539,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end(agentGuide(info, selected) + recipe);
       }
       const config = integrationConfig(info, selected);
-      res.writeHead(200, { 'Content-Type': config.contentType, 'Content-Disposition': `attachment; filename="${config.filename}"` });
+      res.writeHead(200, { 'Content-Type': config.contentType, 'Content-Disposition': attachmentDisposition(config.filename) });
       return res.end(config.text);
     }
     if (req.method === 'GET' && /^\/connect\/?$/.test(url.pathname)) {
@@ -576,6 +614,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (url.pathname === '/api/settings/account/login' && req.method === 'POST') return json(res, 200, await gateway.account.login());
       if (url.pathname === '/api/settings/account/cancel' && req.method === 'POST') return json(res, 200, await gateway.account.cancel());
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
+      if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') return json(res, 200, await gateway.account.openSubscription());
       return json(res, 404, { error: 'Settings endpoint not found' });
     }
     if (motionRequest && (url.pathname.startsWith('/api/models') || url.pathname.startsWith('/api/generations'))) {
@@ -613,8 +652,20 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       const mime: Record<string, string> = { '.html': 'text/html', '.md': 'text/plain', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp', '.avif': 'image/avif', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf', '.otf': 'font/otf', '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm', '.m4v': 'video/mp4', '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.flac': 'audio/flac' };
       const type = mime[path.extname(name).toLowerCase()] || 'application/octet-stream';
       try {
-        const bytes = await templateCatalogFor(store.directory).sourceFile(templateSource[1], name);
-        res.writeHead(200, { 'Content-Type': type, 'Content-Length': bytes.length }); res.end(bytes); return;
+        const catalog = templateCatalogFor(store.directory);
+        let bytes = await catalog.sourceFile(templateSource[1], name);
+        if (name === 'viewer/guide.js') {
+          bytes = Buffer.from(bytes.toString().replaceAll("location.protocol==='file:'?'*':location.origin", "(location.protocol==='file:' || location.origin === 'null') ? '*' : location.origin"));
+        }
+        if (name === 'preview.html' && url.searchParams.get('raw') !== '1') {
+          const template = await catalog.get(templateSource[1]);
+          bytes = Buffer.from(upgradeTemplateGuidePage(bytes.toString(), { id: template.id, title: template.title, brand: template.brand,
+            sourceUrl: template.sourceUrl, previewUrl: template.previewUrl, posterUrl: template.posterUrl, hasHtmlProject: template.hasHtmlProject,
+            ...(!authoredTemplateGuide(bytes.toString()) ? { motionDocument: (await catalog.sourceFile(template.id, 'motion.md')).toString() } : {}) }));
+        }
+        else if (name === 'preview.html' && url.searchParams.get('stage') === '1') bytes = Buffer.from(compactNativeGuideStage(bytes.toString()));
+        res.writeHead(200, { 'Content-Type': type, 'Content-Length': bytes.length,
+          ...(name === 'motion.md' && url.searchParams.get('download') === '1' ? { 'Content-Disposition': 'attachment; filename="motion.md"' } : {}) }); res.end(bytes); return;
       } catch (error) {
         if ((error as { code?: string }).code === 'TEMPLATE_LFS_NOT_FETCHED')
           return json(res, 409, { code: 'TEMPLATE_LFS_NOT_FETCHED', error: (error as Error).message });
@@ -811,6 +862,7 @@ export async function startServer(store = sharedStore, port = Number(process.env
   };
   if (options.editor !== false) await context.ensureStudio();
   const server = createServer((req, res) => { void (async () => { if (!options.privateHandler || !await options.privateHandler(req, res)) await handler(req, res, store, context); })().catch(error => { if (!res.headersSent) json(res, 500, { error: (error as Error).message }); else res.destroy(); }); });
+  attachGameRooms(server, (store.workspaceStore ?? store).directory);
   try {
     const listen = (target: number) => new Promise<void>((resolve, reject) => {
       server.once('error', reject);

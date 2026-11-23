@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../i18n/I18n";
 import { useState, useRef, type CSSProperties } from "react";
 import { useMountEffect } from "../hooks/useMountEffect";
@@ -92,12 +94,11 @@ export function AskAgentModal({
               {selectionLabel.length > 50 ? `${selectionLabel.slice(0, 49)}…` : selectionLabel}
             </p>
           </div>
-          <button
+          <IconButton variant="plain"
             className="p-1 rounded-md text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800/50 active:scale-[0.98]"
             onClick={onClose}
             aria-label={t("Close")}
-          >
-            <svg
+            icon={<svg
               width="14"
               height="14"
               viewBox="0 0 24 24"
@@ -108,8 +109,8 @@ export function AskAgentModal({
             >
               <line x1="18" y1="6" x2="6" y2="18" />
               <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+            </svg>}
+          />
         </div>
         <div className="px-5 py-4 space-y-3">
           <textarea
@@ -137,12 +138,12 @@ export function AskAgentModal({
         <div className="flex items-center justify-between px-5 py-3 border-t border-neutral-800/60">
           <span className="text-[11px] text-neutral-600">
             {navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}{t("+Enter to copy")}</span>
-          <button
+          <Button variant="plain"
             className="px-4 py-1.5 rounded-lg bg-accent text-xs font-medium text-on-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={!value.trim()}
             onClick={handleSubmit}
           >
-            {t("Copy prompt")}</button>
+            {t("Copy prompt")}</Button>
         </div>
       </div>
     </div>

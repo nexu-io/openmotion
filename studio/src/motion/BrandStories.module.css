@@ -149,7 +149,7 @@
   .storyDialog .reelFrame:global(.om-button) { height:70px; grid-template-columns:64px minmax(0,1fr); }
   .selectedStory { order:1; display:flex; flex-direction:column; gap:var(--motion-space-20); }
   .videoColumn { container-type:normal; width:100%; background:transparent; }
-  .videoStage { width:min(100%,calc((100dvh - 360px) * var(--story-media-ratio))); }
+  .videoStage { width:min(100%,calc(max(128px,100dvh - 360px) * var(--story-media-ratio))); }
   .selectedCopy { display:block; border-left:0; padding-left:0; }
   .workHeader { padding-top:0; }
   .inspectorBody { overflow:visible; padding-right:0; }
@@ -164,6 +164,10 @@
   .artCaption > span:last-child { display:none; }
   .collectionIntro { grid-column:1/-1; }
   .relatedShelf { padding:var(--motion-space-20); }
+}
+@media(max-width:699px) and (orientation:landscape) {
+  .storyDialog[open] { padding-bottom:0; }
+  .actionDock { position:static; margin-top:var(--motion-space-12); padding-inline:0; box-shadow:none; }
 }
 @media(prefers-reduced-motion:no-preference) {
   .stackItem { transition:transform var(--motion-duration-normal) var(--motion-ease-out); }

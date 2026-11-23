@@ -9,6 +9,7 @@ import { useTimelineEditContext } from "../../contexts/TimelineEditContext";
 import { useNLEContext } from "./NLEContext";
 import { useTimelineDockSizing } from "./useTimelineDockSizing";
 import { MotionTimelineMedia } from "../../motion/MotionTimelineMedia";
+import { TimelineCompositionNavigation } from "./TimelineCompositionNavigation";
 
 export interface TimelinePaneProps {
   /** Slot rendered above the timeline tracks (toolbar with split, delete, zoom) */
@@ -82,6 +83,7 @@ export function TimelinePane({
     seek,
     handleDrillDown,
     compositionStack,
+    handleNavigateComposition,
     updateCompositionStack,
     timelineDisabled,
     timelineSessionEpoch,
@@ -107,7 +109,10 @@ export function TimelinePane({
           }
         }}
       >
-        <div ref={sizing.toolbar} className="shrink-0 motion-timeline-toolbar">{timelineToolbar}<MotionTimelineMedia projectId={projectId} compositionId={compositionStack.at(-1)?.id ?? 'master'} disabled={timelineDisabled || !onAssetDrop} onFileDrop={onFileDrop} onAssetDrop={onAssetDrop} /></div>
+        <div ref={sizing.toolbar} className="shrink-0 motion-timeline-toolbar motion-timeline-toolbar-shell">
+          {timelineToolbar}<MotionTimelineMedia projectId={projectId} compositionId={compositionStack.at(-1)?.id ?? 'master'} disabled={timelineDisabled || !onAssetDrop} onFileDrop={onFileDrop} onAssetDrop={onAssetDrop} />
+          <TimelineCompositionNavigation stack={compositionStack} onNavigate={handleNavigateComposition} disabled={timelineDisabled} />
+        </div>
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1">
             <Timeline

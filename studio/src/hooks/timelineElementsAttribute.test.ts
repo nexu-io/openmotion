@@ -16,6 +16,7 @@ vi.mock("../utils/studioFileHistory", () => ({
   }),
 }));
 
+import { useCaptionWorkspace } from "../motion/captionWorkspace";
 import { useSetElementsAttribute } from "./timelineElementsAttribute";
 
 const clip = (id: string, sourceFile?: string): TimelineElement => ({
@@ -35,6 +36,30 @@ afterEach(() => {
 });
 
 describe("useSetElementsAttribute", () => {
+  it('refreshes caption lock discovery only after a successful track lock save', async () => {
+    const iframe = document.createElement('iframe'); document.body.append(iframe);
+    iframe.contentDocument!.body.innerHTML = '<div id="cue"></div>';
+    const cue = { ...clip('cue'), tag: 'div' };
+    usePlayerStore.setState({ elements: [cue] });
+    const changed = vi.spyOn(useCaptionWorkspace.getState(), 'changed');
+    let write: ReturnType<typeof useSetElementsAttribute> | null = null;
+    function Probe() {
+      write = useSetElementsAttribute({ projectIdRef: { current: 'p1' }, activeCompPath: 'index.html',
+        showToast: vi.fn(), writeProjectFile: vi.fn(async () => {}), recordEdit: vi.fn(async () => {}),
+        previewIframeRef: { current: iframe }, pendingTimelineEditPathRef: { current: new Set() } });
+      return null;
+    }
+    const root = createRoot(document.createElement('div')); act(() => root.render(createElement(Probe)));
+    await act(async () => { await write?.([{ element: cue, value: '' }], 'data-timeline-locked', 'Lock track'); });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().elements[0].timelineLocked).toBe(true);
+    vi.mocked(saveProjectFilesWithHistory).mockRejectedValueOnce(new Error('Conflict'));
+    await act(async () => { await write?.([{ element: cue, value: null }], 'data-timeline-locked', 'Unlock track'); });
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(usePlayerStore.getState().elements[0].timelineLocked).toBe(true);
+    act(() => root.unmount());
+  });
+
   it.each([false, true])("syncs saved track mute and unmute with monitor mute=%s", async (audioMuted) => {
     const iframe = document.createElement("iframe");
     document.body.append(iframe);

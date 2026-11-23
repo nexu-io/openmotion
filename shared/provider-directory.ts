@@ -13,13 +13,14 @@ export type ProviderConnection = ProviderDefinition & {
   configured: boolean; enabled: boolean; available: boolean; custom: boolean;
   credentialSource: 'stored' | 'environment' | 'local-agent' | 'account' | 'none';
   reason: string;
+  verification?: 'unverified' | 'verified' | 'rejected';
 };
 /** Keep registry internals and saved revisions outside the public connection payload. */
 export function publicProviderConnection(provider: ProviderConnection): ProviderConnection {
   const { id, label, protocol, baseUrl, kinds, category, website, docs, setupRequired, baseUrlEditable,
-    configured, enabled, available, custom, credentialSource, reason } = provider;
+    configured, enabled, available, custom, credentialSource, reason, verification } = provider;
   return { id, label, protocol, baseUrl, kinds, category, website, docs, setupRequired, baseUrlEditable,
-    configured, enabled, available, custom, credentialSource, reason };
+    configured, enabled, available, custom, credentialSource, reason, ...(verification ? { verification } : {}) };
 }
 export const modelCapabilities = ['reasoning', 'tools'] as const;
 export const inputModalities = ['vision', 'audio', 'video'] as const;
@@ -33,6 +34,10 @@ export type DirectoryModel = ModelMetadata & {
   enabled: boolean; source: 'builtin' | 'live' | 'custom'; mode?: string;
   /** Accepts one input image to edit; set only from the provider's own capability data. */
   supportsImageReference?: boolean;
+  /** Most input images the provider accepts: edit references for images, a first frame for video. */
+  maxInputImages?: number;
+  /** Provider-published native options (durations, resolutions, ratios, quality, sizes, profiles). */
+  nativeOptions?: Record<string, unknown>;
 };
 export type ProviderDirectory = {
   providers: ProviderConnection[]; models: DirectoryModel[];
@@ -57,5 +62,7 @@ export type AccountSummary = {
   /** Service rejection behind `billingUnavailable`, when the connector reported one. */
   billingError?: { status: number; code?: string };
   error?: string; errorCode?: AccountErrorCode; attempt?: AccountAttempt;
+  /** After `connector_unavailable`: the terminal command that installs the sign-in component where this service looks for it. */
+  connectorInstall?: { command: string };
   consoleUrl: string;
 };

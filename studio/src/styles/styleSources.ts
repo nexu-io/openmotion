@@ -23,7 +23,7 @@ export function loadStylesheet(id: string, base: string) {
 export const toPosixPath = (relativePath: string): string => relativePath.replace(/\\/g, "/");
 
 /**
- * Studio's own sources, keyed by path relative to `from`, for every file the
+ * Studio and its shared component sources, keyed by path relative to `from`, for every file the
  * caller keeps. Build output and dependencies are never walked.
  */
 export function listSourceFiles(
@@ -31,11 +31,11 @@ export function listSourceFiles(
   from: string = SRC_DIR,
 ): Map<string, string> {
   const files = new Map<string, string>();
-  const walk = (dir: string) => {
+  const walk = (dir: string, recursive = true) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name !== "node_modules" && entry.name !== "dist") walk(full);
+        if (recursive && entry.name !== "node_modules" && entry.name !== "dist") walk(full);
       } else {
         const relative = toPosixPath(path.relative(from, full));
         if (keep(relative)) files.set(relative, readFileSync(full, "utf8"));
@@ -43,5 +43,6 @@ export function listSourceFiles(
     }
   };
   walk(SRC_DIR);
+  walk(path.join(REPO_ROOT, "packages/open-design-ui"), false);
   return files;
 }

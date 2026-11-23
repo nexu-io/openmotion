@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useEffect, useRef, useState } from "react";
 import { copyTextToClipboard } from "../../utils/clipboard";
@@ -95,13 +96,13 @@ export const FfmpegRequiredNotice = memo(function FfmpegRequiredNotice({
           </code>
           {/* Fixed width so swapping the label to "Copied" cannot shift the
               command block sideways under the pointer. */}
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => void copy(status.command ?? "")}
             className={`h-6 w-14 shrink-0 rounded-xs border border-amber-500/30 text-[10px] font-medium text-warning-ink transition-colors hover:bg-amber-500/20 active:scale-[0.98] ${FOCUS_RING}`}
           >
             {copied ? t("Copied") : t("Copy")}
-          </button>
+          </Button>
         </div>
       ) : (
         status.hint && (
@@ -112,7 +113,7 @@ export const FfmpegRequiredNotice = memo(function FfmpegRequiredNotice({
       )}
 
       <div className="flex items-center gap-3">
-        <button
+        <Button variant="plain"
           type="button"
           onClick={(event) => {
             trackStudioClick("export_panel", "ffmpeg_recheck", projectId, clickMethod(event));
@@ -122,7 +123,7 @@ export const FfmpegRequiredNotice = memo(function FfmpegRequiredNotice({
           className={`rounded-xs py-0.5 text-[10px] font-medium text-warning-ink underline-offset-2 transition-colors hover:underline disabled:opacity-50 ${FOCUS_RING}`}
         >
           {checking ? t("Checking…") : t("Recheck")}
-        </button>
+        </Button>
         <a
           href={DOWNLOAD_URL}
           target="_blank"

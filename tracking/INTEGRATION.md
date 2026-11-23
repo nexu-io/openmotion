@@ -184,9 +184,13 @@ the domain operation and worker. An editor uses only its opening-link context;
 never copy a host name into semantic event properties or assign all pages to the
 most recently active Agent. See [attribution limits](README.md#host-agent-attribution).
 
-The current installation identity may retain `utm_source`; landing-to-installer
-`--source` propagation is separate work and an unknown source remains null. An event
-addition must not claim that acquisition plumbing is already implemented.
+The npm installer accepts `--utm-source NAME` and persists it with the installation
+identity. An explicit install updates the saved source; an upgrade without the flag
+preserves the existing source, and the installation ID remains unchanged. A new
+installation without a source keeps `utm_source` null. The installer emits
+`installation_started` at setup start and `installation_result` only after
+registration, onboarding persistence and Skill installation complete; a rolled-back
+setup does not emit a success result.
 
 Events go to the existing OpenDesign project (420348), with `product=openmotion`.
 Filter OM queries by that property and exclude OM from unrelated shared reports.

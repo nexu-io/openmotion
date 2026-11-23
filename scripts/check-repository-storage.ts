@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { isMain } from '../shared/entry.ts';
 import { lfsPointer, maxLfsAssetBytes, repositoryMediaFile } from '../shared/repository-template-catalog.ts';
-import { validateMediaManifest } from '../shared/repository-media.ts';
+import { skillPreviewMedia, validateMediaManifest } from '../shared/repository-media.ts';
 
 const maxGitFileBytes = 1024 * 1024;
 const checkoutWarningBytes = 128 * 1024 * 1024;
@@ -46,6 +46,7 @@ export function checkRepositoryStorage(cwd: string, base?: string, options: { fi
   for (const entry of entries) {
     const size = sizes.get(entry.oid)!;
     gitBytes += size;
+    if (skillPreviewMedia.test(entry.name)) errors.push(`${entry.name}: Skill previews are hosted. Use Prepare and merge PR to transfer skill cover media.`);
     if (size > maxGitFileBytes && changed.has(entry.name)) errors.push(`${entry.name}: staged ordinary Git file exceeds 1 MiB; use LFS or Prepare and merge PR`);
     const bytes = contents.get(entry.oid), pointer = bytes && lfsPointer(bytes);
     if (filters.get(entry.name) !== 'lfs' && !pointer && !bytes?.toString().startsWith('version https://git-lfs.github.com/spec/v1')) continue;

@@ -47,6 +47,8 @@ const TYPING_SELECTOR = [
   "[role='switch']",
   "[role='dialog'][aria-modal='true']",
   ".cm-editor",
+  // Review canvases own drawing undo/redo; their keys must never edit the video.
+  "[data-studio-keyboard-owner]",
 ].join(",");
 
 function asElement(target: EventTarget | null): HTMLElement | null {

@@ -31,6 +31,7 @@ test('social metadata prefers OG, resolves bases/entities and excludes executabl
     'https://cdn.example/secure.webp', 'https://brand.example/brand/og.png?a=1&b=2', 'https://brand.example/brand/twitter.png',
   ]);
   assert.equal(brandCoverMime(png), 'image/png');
+  assert.equal(brandCoverMime(Buffer.from('\x00\x00\x00\x1cftypmif1\x00\x00\x00\x00mif1avif')), 'image/avif');
   assert.equal(brandCoverMime(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')), undefined);
   assert.equal(brandCoverMime(Buffer.from('<!doctype html><html>blocked</html>')), undefined);
 });
@@ -177,4 +178,54 @@ test('favicons use their own cache, accept complete ICO payloads and recover wit
   await cache.favicon('https://brand.example');
   assert.equal(requests.length, 2);
   assert.equal(await cache.get('https://brand.example'), undefined, 'the OG cover must not become a favicon');
+});
+
+test('supports same-site subdomain coverPages, preload/noscript images, compact OG fallback, SVG local refs and GitHub deduplication', async t => {
+  const directory = await folder(t);
+  const requests: string[] = [];
+  // Minimal valid 180x180 PNG header (IHDR width=180, height=180)
+  const smallOg = Buffer.from(coverPng);
+  smallOg.writeUInt32BE(180, 16);
+  smallOg.writeUInt32BE(180, 20);
+  const svgWithLocalGrad = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/><linearGradient href="#g"/></defs><rect width="16" height="16"/></svg>');
+  const svgWithExternalHref = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://evil.example/a.png"/></svg>');
+  assert.equal(brandFaviconMime(svgWithLocalGrad), 'image/svg+xml');
+  assert.equal(brandFaviconMime(svgWithExternalHref), undefined);
+
+  const cache = new BrandCoverCache(directory, async url => {
+    requests.push(url);
+    if (url === 'https://brand.example/') return response('blocked', 'text/html', 403);
+    if (url === 'https://docs.brand.example/') return response('<meta property="og:image" content="/docs-og.png">');
+    if (url === 'https://preload.example/') return response('<link rel="preload" as="image" href="/hero.png">');
+    if (url === 'https://noscript.example/') return response('<noscript><img src="/fallback-hero.png"></noscript>');
+    if (url === 'https://compact.example/') return response('<meta property="og:image" content="/icon-180.png">');
+    if (url.endsWith('/icon-180.png')) return response(smallOg, 'image/png');
+    if (url === 'https://touchonly.example/') return response('blocked', 'text/html', 403);
+    if (url === 'https://touchonly.example/favicon.ico') return response('', 'text/plain', 404);
+    if (url === 'https://touchonly.example/apple-touch-icon.png') return response(png, 'image/png');
+    if (url === 'https://github.com/') return response('<link rel="icon" href="https://github.githubassets.com/favicons/favicon.png">');
+    if (url === 'https://github.com/org/repo') return response('<meta property="og:image" content="https://repository-images.githubusercontent.com/1/og.png">');
+    return response(coverPng, 'image/png');
+  });
+
+  assert.equal((await cache.get('https://brand.example/', undefined, 'https://docs.brand.example/'))?.source, 'https://docs.brand.example/docs-og.png');
+  assert.equal((await cache.get('https://preload.example/'))?.source, 'https://preload.example/hero.png');
+  assert.equal((await cache.get('https://noscript.example/'))?.source, 'https://noscript.example/fallback-hero.png');
+  assert.equal((await cache.get('https://compact.example/'))?.source, 'https://compact.example/icon-180.png');
+  assert.equal((await cache.favicon('https://touchonly.example/'))?.source, 'https://touchonly.example/apple-touch-icon.png');
+
+  const beforeGh = requests.length;
+  const [ghFav1, ghFav2] = await Promise.all([
+    cache.favicon('https://github.com/org/repo/tree/abc/design-systems/a'),
+    cache.favicon('https://github.com/org/repo/tree/abc/design-systems/b'),
+  ]);
+  assert.equal(ghFav1?.source, 'https://github.githubassets.com/favicons/favicon.png');
+  assert.equal(ghFav2?.source, ghFav1?.source);
+  const [ghCov1, ghCov2] = await Promise.all([
+    cache.get('https://github.com/org/repo/tree/abc/design-systems/a'),
+    cache.get('https://github.com/org/repo/tree/abc/design-systems/b'),
+  ]);
+  assert.equal(ghCov1?.source, 'https://repository-images.githubusercontent.com/1/og.png');
+  assert.equal(ghCov2?.source, ghCov1?.source);
+  assert.equal(requests.length - beforeGh, 4, 'GitHub tree paths deduplicate into one favicon and one repo OG fetch');
 });

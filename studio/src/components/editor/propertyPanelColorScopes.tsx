@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useRef, useState } from "react";
 import type { ColorGradingCapturedFrame } from "./useColorGradingPreviews";
@@ -204,25 +206,24 @@ export function PropertyPanelColorScopes({
   return (
     <div data-flat-grade-scopes="true" className="border-b border-panel-hairline pb-1.5">
       <div className="flex min-h-7 items-center justify-between">
-        <button
+        <Button variant="plain"
           type="button"
           onClick={() => setOpen((value) => !value)}
           className="flex min-h-7 flex-1 items-center justify-between text-left"
         >
           <span className="text-[11px] text-panel-text-2">{t("Scopes")}</span>
           <span className="text-[9px] text-panel-text-5">{open ? status : t("Off")}</span>
-        </button>
+        </Button>
         <span className="flex items-center gap-2">
           {open && (
-            <button
+            <IconButton variant="plain"
               type="button"
               aria-label={t("Refresh scopes")}
               title={t("Refresh scopes")}
               onClick={refresh}
               className="p-1 text-panel-text-4 hover:text-panel-text-1"
-            >
-              <RotateCw size={10} />
-            </button>
+              icon={<RotateCw size={10} />}
+            />
           )}
         </span>
       </div>
@@ -230,7 +231,7 @@ export function PropertyPanelColorScopes({
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 overflow-x-auto">
             {MODES.map((candidate) => (
-              <button
+              <Button variant="plain"
                 key={candidate.id}
                 type="button"
                 aria-pressed={mode === candidate.id}
@@ -242,7 +243,7 @@ export function PropertyPanelColorScopes({
                 }`}
               >
                 {t(candidate.label)}
-              </button>
+              </Button>
             ))}
           </div>
           <canvas

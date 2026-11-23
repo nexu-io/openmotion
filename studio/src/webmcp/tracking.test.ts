@@ -49,7 +49,11 @@ describe('WebMCP registration and invocation tracking', () => {
         duration_ms: ['invalid_arguments', 'cancelled'].includes(mode) ? 0 : 42 });
       expect(request).toHaveBeenCalledTimes(['invalid_arguments', 'cancelled'].includes(mode) ? 0 : 1);
       expect(validProperties(studioEvents, 'webmcp_tool_finished', finish)).toBe(true);
-      expect(JSON.stringify(track.mock.calls)).not.toMatch(/PRIVATE|assetId|versionId|mimeType/);
+      if (mode === 'invalid_arguments') expect(finish).toMatchObject({
+        error_code: 'INVALID_ARGUMENT', invalid_field: 'versionId', validation_rule: 'missing',
+      });
+      expect(JSON.stringify(track.mock.calls)).not.toMatch(/PRIVATE|mimeType/);
+      expect(finish).not.toHaveProperty('versionId');
     });
 
   it('keeps action from the start and omits unknown actions and actions on other tools', async () => {
@@ -67,11 +71,12 @@ describe('WebMCP registration and invocation tracking', () => {
     expect(JSON.stringify(track.mock.calls)).not.toContain('PRIVATE_ACTION');
   });
 
-  it('covers exactly the 21 public descriptors through the real registrar, preserving schema, signals and replies', async () => {
+  it('covers exactly the 27 public descriptors through the real registrar, preserving schema, signals and replies', async () => {
     const original = [...buildOpenMotionWebMcpTools(vi.fn()), ...buildStudioTools({ current: {} as never })];
     expect([...webMcpToolNames].sort()).toEqual(original.map(tool => tool.name).sort());
-    expect(webMcpToolNames).toHaveLength(21);
-    expect(original.slice(0, phase1Tools.length).map(tool => tool.inputSchema)).toEqual(phase1Tools.map(tool => tool.inputSchema));
+    expect(webMcpToolNames).toHaveLength(27);
+    const exposed = phase1Tools.filter(tool => !tool.name.startsWith('openmotion_game_'));
+    expect(original.slice(0, exposed.length).map(tool => tool.inputSchema)).toEqual(exposed.map(tool => tool.inputSchema));
     const reply = { ok: true, privateResult: 'PRIVATE_CONTENT' };
     const handlers = original.map(() => vi.fn(async () => reply));
     const tools = original.map((tool, i) => ({ ...tool, execute: handlers[i] }));
@@ -105,6 +110,21 @@ describe('WebMCP registration and invocation tracking', () => {
     }
     expect(JSON.stringify(track.mock.calls)).not.toContain('PRIVATE');
     expect(track.mock.calls.every(([event]) => event.startsWith('webmcp_'))).toBe(true);
+  });
+
+  it('reports export actions and closed error dimensions without forwarding arbitrary error fields', async () => {
+    const tool = withWebMcpTracking({
+      ...descriptor(async () => ({ isError: true, error: {
+        code: 'INVALID_ARGUMENT', invalid_field: 'versionId', validation_rule: 'missing', message: 'PRIVATE',
+      } })),
+      name: 'openmotion_export_request',
+    });
+    await tool.execute({});
+    await vi.dynamicImportSettled();
+    expect(reported('webmcp_tool_finished')).toEqual([expect.objectContaining({
+      action: 'request', outcome: 'failure', error_code: 'INVALID_ARGUMENT', invalid_field: 'versionId', validation_rule: 'missing',
+    })]);
+    expect(JSON.stringify(track.mock.calls)).not.toContain('PRIVATE');
   });
 
   it.each([

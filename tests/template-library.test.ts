@@ -301,3 +301,12 @@ test('source manifests register arbitrary project formats without changing catal
   await refreshManifest(f.id, f.catalog); f.stage(); git(['commit', '-qm', 'Add native project files'], f.root);
   assert.deepEqual(checkTemplateLibrary(f.root, base), []);
 });
+
+test('the catalog index documents every registered template exactly once', async () => {
+  const manifest = JSON.parse(await readFile(path.join(catalogRoot, 'catalog.json'), 'utf8')) as { templateIds: string[] };
+  const readme = await readFile(path.join(catalogRoot, 'README.md'), 'utf8');
+  const documented = [...readme.matchAll(/^\| *\[[^\]]*\]\(([^)\/]+)\/TEMPLATE\.md\)/gm)].map(match => match[1]);
+  assert.equal(documented.length, new Set(documented).size, 'The catalog table must not repeat a template');
+  assert.deepEqual([...documented].sort(), [...manifest.templateIds].sort(),
+    'The catalog table must list exactly the registered template IDs');
+});

@@ -1,17 +1,20 @@
 import test from 'node:test';
 import { mediaBytes } from './media-fixtures.ts';
 import assert from 'node:assert/strict';
-import { access, chmod, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readdir, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { execFile, spawn, type SpawnOptions } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fixture } from './fixtures.ts';
 import { gatewayFor, ModelGateway } from '../gateway/service.ts';
 import { ProviderConnections, connectionBaseUrl } from '../gateway/connections.ts';
-import { AccountRequestError, OpenDesignAccount, type SignInRecord } from '../gateway/account.ts';
+import { AccountRequestError, OpenDesignAccount, systemBrowserCommand, type SignInRecord } from '../gateway/account.ts';
+import { accountDirectory, sharedAccountDirectory } from '../gateway/account-directory.ts';
+import { ConnectorUnavailable, findNpmCli, installConnector, manualInstallCommand, npmCliCandidates } from '../gateway/account-connector.ts';
 import { createTracker, validProperties } from '../tracking/core.ts';
 import { createPosthogSender } from '../tracking/node.ts';
 import { omEvents } from '../tracking/events.ts';
@@ -28,6 +31,22 @@ import { callTool } from '../mcp.ts';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=', 'base64');
 const binary = fileURLToPath(new URL('./fixtures/account-cli.mjs', import.meta.url));
+function imageTransport(directory: string) {
+  const home = path.join(directory, 'account', 'credentials');
+  return {
+    fetcher: (async (input: any, init: any) => {
+      assert.match(String(input), /^https:\/\/amr-api.open-design.ai\/api\/v1\/media\/images\/tasks\/fixture-task-\d+$/);
+      assert.equal(init.headers.Authorization, 'Bearer synthetic-private-control-key');
+      const taskId = String(input).split('/').at(-1)!;
+      const calls = JSON.parse(await readFile(path.join(home, 'submissions.json'), 'utf8')) as string[][];
+      const args = calls[Number(taskId.split('-').at(-1)) - 1];
+      return Response.json({ task_id: taskId, status: 'succeeded', model: args[args.indexOf('--model') + 1],
+        assets: [{ asset_id: 'fixture-asset', status: 'ready', mime_type: 'image/png', size_bytes: png.length, url: 'https://media.example/image' }] });
+    }) as Fetcher,
+    download: async () => new Response(png, { headers: { etag: '"fixture"', 'content-length': String(png.length) } }),
+  };
+}
+
 async function until(check: () => Promise<boolean>) { for (let n = 0; n < 500; n++) { if (await check()) return; await delay(20); } throw new Error('Fixture timed out'); }
 async function finish(store: any, id: string) { const g = gatewayFor(store); await g.tick(); await Promise.all([...g.active.values()].map(task => task.done)); return g.getJob(id); }
 async function signIn(account: OpenDesignAccount) {
@@ -80,7 +99,7 @@ test('legacy files retain credentials, models and defaults across shared HTTP, M
     assert.equal(await gateway.connections.identity(custom), 'saved-revision');
     assert.deepEqual(await Promise.all(Object.keys(files).map(file => readFile(path.join(root, file), 'utf8'))), before, 'Reading old configuration must not rewrite it');
     assert.doesNotMatch(JSON.stringify(directory), /legacy-.*-key|environment-fal-key/);
-    const publicFields = new Set(['id', 'label', 'protocol', 'baseUrl', 'kinds', 'category', 'website', 'docs', 'setupRequired', 'baseUrlEditable', 'configured', 'enabled', 'available', 'custom', 'credentialSource', 'reason']);
+    const publicFields = new Set(['id', 'label', 'protocol', 'baseUrl', 'kinds', 'category', 'website', 'docs', 'setupRequired', 'baseUrlEditable', 'configured', 'enabled', 'available', 'custom', 'credentialSource', 'reason', 'verification']);
     for (const provider of [...directory.providers, ...await gateway.connections.list()]) {
       assert.deepEqual(Object.keys(provider).filter(key => !publicFields.has(key)), [], `${provider.id} must contain only public connection fields`);
     }
@@ -204,7 +223,7 @@ test('unsafe custom endpoints and failed catalogue sync cannot leak keys or eras
 test('account device authorization, billing, remote models and all media outputs use the same isolated session', t => fixture(async store => {
   await chmod(binary, 0o755);
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
-  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1 });
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory) });
   t.after(() => gateway.close());
   await mkdir(account.home, { recursive: true });
   await Promise.all((['video', 'audio'] as const).map(async kind => writeFile(path.join(account.home, `fixture-${kind}`), await mediaBytes(kind))));
@@ -239,7 +258,7 @@ test('account device authorization, billing, remote models and all media outputs
 test('account music, default-voice speech and one-image editing run the matching connector commands', t => fixture(async store => {
   await chmod(binary, 0o755);
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
-  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1 });
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory) });
   t.after(() => gateway.close());
   await signIn(account); await account.models(true);
   await writeFile(path.join(account.home, 'fixture-audio'), await mediaBytes('audio'));
@@ -301,10 +320,57 @@ test('account music, default-voice speech and one-image editing run the matching
   assert.deepEqual((await submissions()).at(-1)?.slice(-2), ['--voice', '21m00Tcm4TlvDq8ikWAM']);
 }));
 
+test('signed-in accounts expose built-in audio fallbacks when omitted by the remote catalogue without overriding live entries', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory) });
+  t.after(() => gateway.close());
+  assert.deepEqual(await account.models(), []);
+  assert.deepEqual((await gateway.listModels({ provider: 'account', modality: 'audio' })).models, []);
+
+  await signIn(account); await account.models(true);
+  await writeFile(path.join(account.home, 'fixture-audio'), await mediaBytes('audio'));
+  const directory = await providerDirectory(gateway);
+  // Fixture returns elevenlabs-v3 live, while omitting byteplus-tts-2 and elevenlabs-music-v2.
+  assert.equal(directory.models.find(m => m.id === 'account:elevenlabs-v3')?.source, 'live');
+  assert.equal(directory.models.find(m => m.id === 'account:byteplus-tts-2')?.source, 'builtin');
+  assert.equal(directory.models.find(m => m.id === 'account:byteplus-tts-2')?.mode, 'text-to-speech');
+  assert.equal(directory.models.find(m => m.id === 'account:elevenlabs-music-v2')?.source, 'builtin');
+  assert.equal(directory.models.find(m => m.id === 'account:elevenlabs-music-v2')?.mode, 'text-to-audio');
+
+  const listed = (await gateway.listModels({ provider: 'account', modality: 'audio' })).models;
+  const musicModel = listed.find(m => m.id === 'account:elevenlabs-music-v2');
+  const byteplusModel = listed.find(m => m.id === 'account:byteplus-tts-2');
+  assert.equal(musicModel?.generationOptions?.fields[0]?.key, 'duration');
+  assert.equal(byteplusModel?.generationOptions?.fields[0]?.default, 'zh_female_vv_uranus_bigtts');
+
+  const queuedMusic = await mediaUse(store, { action: 'generate', provider: 'account', model: 'elevenlabs-music-v2', projectId: store.projectId, modality: 'audio', mode: 'text-to-audio', prompt: 'soft piano', parameters: { duration: 15 }, requestId: 'account-builtin-music' });
+  assert.equal((await finish(store, queuedMusic.job.id)).state, 'completed');
+  const submissions = JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][];
+  assert.deepEqual(submissions.at(-1)?.slice(0, 4), ['audio', 'music', '--model', 'elevenlabs-music-v2']);
+  assert.deepEqual(submissions.at(-1)?.slice(-2), ['--duration', '15']);
+
+  // A live catalogue entry with enabled=false must suppress the built-in fallback.
+  const disabled = new OpenDesignAccount(store.directory, {
+    run: async args => args[0] === 'model'
+      ? JSON.stringify({ source: 'remote', data: [] })
+      : JSON.stringify({ models: [{ model: 'elevenlabs-music-v2', kind: 'audio_music', enabled: false }] }),
+  });
+  t.after(() => disabled.close());
+  const refreshed = await disabled.models(true);
+  assert.equal(refreshed.find(m => m.id === 'account:elevenlabs-music-v2')?.enabled, false);
+  assert.equal(refreshed.find(m => m.id === 'account:elevenlabs-music-v2')?.source, 'live');
+  assert.equal((await disabled.mediaModels()).some(m => m.id === 'account:elevenlabs-music-v2'), false);
+  assert.equal((await disabled.mediaModels()).some(m => m.id === 'account:byteplus-tts-2'), true);
+
+  await account.logout();
+  assert.deepEqual(await account.models(), []);
+}));
+
 test('account media failures report the service reason without connector output', t => fixture(async store => {
   await chmod(binary, 0o755);
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
-  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1 });
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory) });
   t.after(() => gateway.close());
   await signIn(account); await account.models(true);
   const cases: [string, RegExp][] = [
@@ -347,6 +413,70 @@ test('source installations use the connector locked with their dependencies inst
   });
 });
 
+test('the connector installer finds npm beside Homebrew and other Node layouts, then on PATH', { skip: process.platform === 'win32' }, async t => {
+  // A Homebrew Node reports its resolved Cellar binary; npm lives under libexec there, not under lib.
+  assert.deepEqual(npmCliCandidates('/opt/homebrew/Cellar/node/24.1.0/bin/node', 'darwin', {}), [
+    '/opt/homebrew/Cellar/node/24.1.0/lib/node_modules/npm/bin/npm-cli.js', '/opt/homebrew/Cellar/node/24.1.0/libexec/lib/node_modules/npm/bin/npm-cli.js']);
+  // npm's own entry is preferred when npm launched this process; another package manager's entry is ignored.
+  assert.equal(npmCliCandidates('/usr/local/bin/node', 'darwin', { npm_execpath: '/x/npm/bin/npm-cli.js' })[0], '/x/npm/bin/npm-cli.js');
+  assert.equal(npmCliCandidates('/usr/local/bin/node', 'darwin', { npm_execpath: '/x/pnpm/bin/pnpm.cjs' })[0], '/usr/local/lib/node_modules/npm/bin/npm-cli.js');
+  assert.deepEqual(npmCliCandidates('C:\\Program Files\\nodejs\\node.exe', 'win32', {}), ['C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js']);
+  await fixture(async store => {
+    const cellar = path.join(store.directory, 'Cellar/node/24.1.0'), cli = path.join(cellar, 'libexec/lib/node_modules/npm/bin/npm-cli.js');
+    await mkdir(path.dirname(cli), { recursive: true }); await writeFile(cli, '');
+    assert.equal(await findNpmCli(path.join(cellar, 'bin/node'), 'darwin', { PATH: '' }), cli);
+    // Without npm beside Node, the `npm` link on PATH is followed to its entry.
+    const bin = path.join(store.directory, 'path-bin'); await mkdir(bin); await symlink(cli, path.join(bin, 'npm'));
+    assert.equal(await findNpmCli(path.join(store.directory, 'standalone/bin/node'), 'darwin', { PATH: '/missing:' + bin }), await realpath(cli));
+    assert.equal(await findNpmCli(path.join(store.directory, 'standalone/bin/node'), 'darwin', { PATH: '/missing' }), undefined);
+  });
+});
+
+test('the manual connector command quotes the private directory for the shell, and its failure telemetry is valid', t => fixture(async store => {
+  assert.equal(manualInstallCommand("/Users/o'neil/$HOME/runtime", 'darwin'), `npm install --prefix '/Users/o'\\''neil/$HOME/runtime' --ignore-scripts @powerformer/vela-cli@0.1.10`);
+  assert.equal(manualInstallCommand('C:\\Users\\me\\runtime', 'win32'), 'npm install --prefix "C:\\Users\\me\\runtime" --ignore-scripts @powerformer/vela-cli@0.1.10');
+  const records: SignInRecord[] = [];
+  const account = new OpenDesignAccount(store.directory, { binary: path.join(store.directory, 'missing-connector'), log: () => {}, track: record => records.push(record) });
+  t.after(() => account.close());
+  await account.login(); await until(async () => (await account.summary()).state !== 'authorizing');
+  assert.equal(records.length, 1); assert.equal(records[0].error_code, 'connector_unavailable'); assert.equal(records[0].connector_problem, 'start_failed');
+  assert(validProperties(omEvents, 'account_sign_in_result', records[0]), JSON.stringify(records[0]));
+  assert.doesNotMatch(JSON.stringify(records[0]), /missing-connector|ENOENT/);
+}));
+
+test('the connector installation reports why it failed and reuses a working installation', { skip: process.platform === 'win32' }, async t => {
+  await fixture(async store => {
+    // A stand-in npm: installs a connector whose binary prints the requested version, or fails like an unreachable registry.
+    const npm = path.join(store.directory, 'fake-npm.mjs');
+    await writeFile(npm, `import { mkdirSync, writeFileSync, chmodSync, appendFileSync } from 'node:fs'; import path from 'node:path';
+const prefix = process.argv[process.argv.indexOf('--prefix') + 1], mode = process.env.FAKE_NPM;
+appendFileSync(path.join(path.dirname(prefix), 'npm-calls'), 'x');
+if (mode === 'offline') { console.error('npm error code ECONNREFUSED'); process.exit(1); }
+const pkg = path.join(prefix, 'node_modules/@powerformer/vela-cli'); mkdirSync(pkg, { recursive: true });
+writeFileSync(path.join(prefix, 'package.json'), '{}');
+writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: '@powerformer/vela-cli', main: 'index.js' }));
+writeFileSync(path.join(pkg, 'vela'), '#!/bin/sh\\necho ' + (mode === 'wrong' ? '0.0.9' : '0.1.10') + '\\n'); chmodSync(path.join(pkg, 'vela'), 0o755);
+writeFileSync(path.join(pkg, 'index.js'), 'exports.resolveVelaCliBin = () => __dirname + "/vela";');`);
+    const install = async (name: string, mode: string, findNpm: () => Promise<string | undefined> = async () => npm) => {
+      process.env.FAKE_NPM = mode;
+      try { return await installConnector(path.join(store.directory, name, 'runtime'), { findNpm }); } finally { delete process.env.FAKE_NPM; }
+    };
+    const problem = (name: string, mode: string, findNpm?: () => Promise<string | undefined>) => install(name, mode, findNpm).then(() => assert.fail('installed'), (error: ConnectorUnavailable) => {
+      assert.ok(error instanceof ConnectorUnavailable); return [error.problem, error.detail];
+    });
+    assert.deepEqual(await problem('none', 'ok', async () => undefined), ['npm_missing', `npm was not found next to ${process.execPath} or on PATH`]);
+    const [offline, detail] = await problem('offline', 'offline'); assert.equal(offline, 'install_failed'); assert.match(detail, /ECONNREFUSED/);
+    assert.equal((await problem('wrong', 'wrong'))[0], 'start_failed');
+    const binary = await install('ok', 'ok'); assert.match(binary, /vela$/);
+    // A data directory that cannot be written is an installation failure, not a connector that fails to start.
+    await writeFile(path.join(store.directory, 'blocked'), '');
+    assert.equal((await installConnector(path.join(store.directory, 'blocked', 'runtime'), { findNpm: async () => npm }).catch((error: ConnectorUnavailable) => error.problem)), 'install_failed');
+    // An existing working installation is reused without running npm again.
+    assert.equal(await install('ok', 'offline'), binary);
+    assert.equal(await readFile(path.join(store.directory, 'ok', 'npm-calls'), 'utf8'), 'x');
+  });
+});
+
 test('cancelling account authorization cannot register a provider from a late completion', t => fixture(async store => {
   await chmod(binary, 0o755); const account = new OpenDesignAccount(store.directory, { binary }); t.after(() => account.close());
   await account.login(); await until(async () => Boolean((await account.summary()).authorizationUrl));
@@ -377,7 +507,9 @@ test('sign-in failures are classified by the stage reached and logged without ac
   assert.deepEqual(created.attempt?.stages, ['attempt_started:started', 'device_auth_create_result:failed:network_error']); assert.equal(created.attempt?.exitCode, 1);
   const missing = await attempt('', { binary: path.join(store.directory, 'missing-connector'), authorize: false });
   assert.equal(missing.errorCode, 'connector_unavailable');
-  assert.match(missing.error ?? '', /npm install -g @powerformer\/vela-cli@0\.1\.10/);
+  assert.equal(missing.error, "The OpenDesign sign-in component set by OPENMOTION_ACCOUNT_CLI couldn't start. Check or clear that path, then select Retry.");
+  // An explicit connector path is used as is, so the private-directory command would not help it.
+  assert.equal(missing.connectorInstall, undefined);
   const denied = await attempt('login-denied');
   assert.equal(denied.errorCode, 'authorization_expired'); assert.equal(denied.attempt?.stages.at(-1), 'device_authorization_result:failed:oauth_denied');
   assert.equal((await attempt('', { authorize: false, authorizationMs: 300 })).errorCode, 'authorization_expired');
@@ -396,6 +528,8 @@ test('sign-in failures are classified by the stage reached and logged without ac
   assert.equal(persisted.errorCode, 'setup_failed'); assert.equal(persisted.attempt?.stages.at(-1), 'credential_persist_result:failed:credential_persist_error');
   assert.equal(persisted.attempt?.persisted, false);
   assert.equal(logs.length, 9);
+  // The local log keeps why the connector was unavailable for support.
+  assert.match(logs.join('\n'), /"connectorProblem":"start_failed","connectorDetail":"spawn [^"]*missing-connector ENOENT"/);
   assert.doesNotMatch(logs.join('\n'), /synthetic-private|TEST-123|open-design\.ai|fixture@example|Fixture user|fixture-user-id|private upstream/);
 }));
 
@@ -592,11 +726,67 @@ test('production billing uses the authenticated summary and preserves HTTP refus
   });
   const summary = await account.summary(true);
   assert.equal(summary.plan, 'pro'); assert.equal(summary.balance, '12.3456');
+  response = Response.json({ membershipTier: 'free', balanceUsd: '0.00', totalAvailableCreditsUsd: '5.50' });
+  const credited = await account.summary(true);
+  assert.equal(credited.plan, 'free'); assert.equal(credited.balance, '5.50');
   response = Response.json({ error: 'workspace_billing_scope_locked' }, { status: 403 });
   const denied = await account.summary(true);
   assert.deepEqual(denied.billingError, { status: 403, code: 'workspace_billing_scope_locked' });
   assert.equal(denied.balance, undefined);
 }));
+
+test('the subscription page opens in the system browser through a one-time account intent, falling back to the plain page', t => fixture(async store => {
+  const account = new OpenDesignAccount(store.directory);
+  await mkdir(account.home, { recursive: true });
+  await writeFile(path.join(store.directory, 'account/session.json'), JSON.stringify({ id: 'test-session' }));
+  const profile = { apiUrl: 'https://amr-api.open-design.ai', user: { id: 'test' }, controlKey: 'test-control', controlKeyId: 'test-id', runtimeKey: 'test-runtime' };
+  await writeFile(path.join(account.home, 'config.json'), JSON.stringify({ profiles: { prod: profile } }));
+  const targets: string[] = [];
+  let response: () => Response = () => Response.json({ intentId: 'intent_1-a', expiresAt: '2026-11-20T00:10:00.000Z' });
+  t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    assert.equal(url, 'https://amr-api.open-design.ai/api/v1/auth/intents');
+    assert.equal(init.method, 'POST'); assert.equal(init.redirect, 'error');
+    assert.equal(new Headers(init.headers).get('Authorization'), 'Bearer test-control');
+    targets.push(JSON.parse(String(init.body)).target);
+    return response();
+  });
+  const opened: string[] = [];
+  const launch = async (url: string) => { opened.push(url); };
+  assert.deepEqual(await account.openSubscription(launch), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
+  assert.deepEqual(opened, ['https://open-design.ai/cloud/login?intentId=intent_1-a']);
+  const target = new URL(targets[0], 'https://open-design.ai'), params = target.searchParams;
+  assert.equal(target.pathname, '/dashboard');
+  assert.deepEqual([...params.keys()].sort(), ['billing', 'od_entry_at', 'od_entry_id', 'od_entry_source', 'od_origin']);
+  assert.equal(params.get('billing'), 'plan'); assert.equal(params.get('od_origin'), 'openmotion');
+  assert.equal(params.get('od_entry_source'), 'openmotion_manage_subscription');
+  assert.match(params.get('od_entry_id')!, /^[0-9a-f-]{36}$/); assert.equal(new Date(params.get('od_entry_at')!).toISOString(), params.get('od_entry_at'));
+  // Each open carries a fresh entry; a refused or malformed intent still opens the plain page.
+  for (const refusal of [() => Response.json({ error: 'unauthorized' }, { status: 401 }), () => Response.json({ intentId: '../evil' }), () => { throw new TypeError('offline'); }]) {
+    response = refusal;
+    const result = await account.openSubscription(launch);
+    assert.equal(new URL(result.url).origin + new URL(result.url).pathname, 'https://open-design.ai/cloud/dashboard');
+    assert.equal(new URL(result.url).searchParams.get('od_origin'), 'openmotion'); assert.equal(result.opened, true);
+  }
+  assert.equal(new Set(targets.map(value => new URL(value, 'https://x.test').searchParams.get('od_entry_id'))).size, targets.length);
+  // A launcher failure hands the link back to Studio.
+  response = () => Response.json({ intentId: 'intent-2' });
+  assert.deepEqual(await account.openSubscription(async () => { throw new Error('no browser'); }), { url: 'https://open-design.ai/cloud/login?intentId=intent-2', opened: false });
+  // Signed out (or another connector environment): no intent request, the plain page opens.
+  await writeFile(path.join(account.home, 'config.json'), JSON.stringify({ profiles: { prod: { ...profile, apiUrl: 'https://amr-api.example.test' } } }));
+  const calls = targets.length;
+  assert.match((await account.openSubscription(launch)).url, /^https:\/\/open-design\.ai\/cloud\/dashboard\?billing=plan&/);
+  await rm(path.join(store.directory, 'account/session.json'));
+  await writeFile(path.join(account.home, 'config.json'), JSON.stringify({ profiles: { prod: profile } }));
+  assert.match((await account.openSubscription(launch)).url, /^https:\/\/open-design\.ai\/cloud\/dashboard\?/);
+  assert.equal(targets.length, calls);
+}));
+
+test('the subscription launcher uses the system default browser on each platform', () => {
+  const url = 'https://open-design.ai/cloud/login?intentId=a&b=c';
+  assert.deepEqual(systemBrowserCommand(url, 'darwin'), { command: '/usr/bin/open', args: [url] });
+  assert.deepEqual(systemBrowserCommand(url, 'win32'), { command: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url] });
+  assert.deepEqual(systemBrowserCommand(url, 'linux'), { command: 'xdg-open', args: [url] });
+});
 
 test('billing reads an empty tier as Free, keeps the session on refusal and asks to sign in again on a rejected key', t => fixture(async store => {
   await chmod(binary, 0o755);
@@ -715,6 +905,51 @@ test('an in-flight billing refresh cannot report an old account after sign-out',
   assert.equal(summary.state, 'signed-out'); assert.equal(summary.plan, undefined); assert.equal(summary.balance, undefined);
 }));
 
+test('concurrent billing reads keep the latest plan and sync newly entitled account models', t => fixture(async store => {
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary }); t.after(() => gateway.close());
+  await signIn(account);
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-go');
+  assert.equal((await account.summary(true)).plan?.trim().toLowerCase(), 'go');
+  // Remember the last verified entitlement even when a temporary billing failure hides the plan.
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-403');
+  assert.equal((await account.summary(true)).plan, undefined);
+
+  const staleGo = Promise.withResolvers<string>(), stale401 = Promise.withResolvers<string>();
+  const staleCatalog = Promise.withResolvers<string>();
+  let billingReads = 0, catalogReads = 0;
+  account.options.run = async args => {
+    if (args[0] === 'billing') {
+      billingReads++;
+      if (billingReads === 1) return staleGo.promise;
+      if (billingReads === 2) return stale401.promise;
+      return JSON.stringify({ membershipTier: 'Plus', balanceUsd: '4.00' });
+    }
+    if (args[0] === 'model') return JSON.stringify({ source: 'remote', data: [{ id: 'language-one' }] });
+    assert.deepEqual(args, ['media', 'models', '--json']);
+    if (++catalogReads === 1) return staleCatalog.promise;
+    return JSON.stringify({ models: [{ model: 'new-plus-image', kind: 'image' }] });
+  };
+  const oldSync = account.models(true); await until(async () => catalogReads === 1);
+  const slow = account.summary(true); await until(async () => billingReads === 1);
+  const failed = account.summary(true); await until(async () => billingReads === 2);
+  const updated = await gateway.status(false, { refreshAccount: true });
+  staleGo.resolve(JSON.stringify({ membershipTier: 'Go', balanceUsd: '0.00' }));
+  stale401.reject(new AccountRequestError('API request failed with status 401'));
+  assert.equal(updated.providers.find(p => p.id === 'account')?.plan, 'plus');
+  assert.deepEqual(updated.capabilities.find(capability => capability.modality === 'image')?.modelIds, ['account:new-plus-image']);
+  for (const result of await Promise.all([slow, failed, account.summary(true)])) {
+    assert.equal(result.state, 'signed-in');
+    assert.equal(result.plan, 'Plus');
+    assert.equal(result.balance, '4.00');
+    assert.equal(result.billingUnavailable, false);
+  }
+  staleCatalog.resolve(JSON.stringify({ models: [] }));
+  await oldSync;
+  assert.equal(catalogReads, 2, 'a stable entitled plan does not keep refreshing the catalogue');
+  assert((await account.models()).some(model => model.id === 'account:new-plus-image'));
+}));
+
 test('model overrides survive catalogue sync and reach generation with per-request precedence', () => fixture(async store => {
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
   const fetcher: Fetcher = async (url, init) => {
@@ -745,12 +980,23 @@ test('media setup discovery rechecks saved and removed keys without executing a 
   gateway.options.fetcher = async () => { throw new Error('Setup must not call a paid model'); };
   const inspect = () => mediaUse(store, { action: 'inspect' });
   const before = await inspect();
-  assert.deepEqual(before.settingsHandoff, { tool: 'openmotion_open_preview', arguments: { target: 'providers' } });
+  assert.deepEqual(before.settingsHandoff, { tool: 'openmotion_open_preview', arguments: { target: 'providers', entry: 'agent_media_signed_out' } });
+  assert.match(before.settings, /Model providers > OpenDesign to sign in or upgrade to Plus/);
   assert.equal(before.providers.some(provider => provider.available), false);
   await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-onboarding-key' });
   const saved = await inspect();
   assert.equal(saved.providers.find(provider => provider.id === 'atlascloud')?.available, true);
   assert.doesNotMatch(JSON.stringify(saved), /synthetic-onboarding-key/);
+  assert.deepEqual(saved.settingsHandoff.arguments, { target: 'providers' });
+  assert((await mediaUse(store, { action: 'models' })).providers.includes('atlascloud'));
+  await gateway.connections.verifyKey('atlascloud', 'synthetic-onboarding-key', 'rejected');
+  const rejected = await inspect();
+  assert.deepEqual(rejected.settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_key_rejected' });
+  const connection = (await providerDirectory(gateway)).providers.find(provider => provider.id === 'atlascloud')!;
+  assert.equal(connection.verification, 'rejected'); assert.equal(connection.enabled, true); assert.equal(connection.available, false);
+  assert.doesNotMatch(JSON.stringify(connection), /synthetic-onboarding-key|keyHash/);
+  assert.deepEqual(await mediaUse(store, { action: 'models', provider: 'atlascloud', refresh: true }), { providers: [], catalogs: [], setupRequired: true });
+  assert(!(await mediaUse(store, { action: 'models' })).providers.includes('atlascloud'));
   await gateway.configureProvider('atlascloud', { apiKey: null });
   assert.equal((await inspect()).providers.find(provider => provider.id === 'atlascloud')?.available, false);
 }));
@@ -760,21 +1006,29 @@ test('media inspection refreshes advisory billing without disabling account mode
   const gateway = gatewayFor(store); gateway.options.detect = async () => [];
   const account = gateway.account = new OpenDesignAccount(store.directory, { binary });
   t.after(() => gateway.close());
-  const inspect = async () => (await mediaUse(store, { action: 'inspect' })).providers.find(p => p.id === 'account')!;
-  const signedOut = await inspect();
+  const inspect = () => mediaUse(store, { action: 'inspect' });
+  const signedOut = (await inspect()).providers.find(p => p.id === 'account')!;
   assert.equal(signedOut.available, false); assert.equal(Object.hasOwn(signedOut, 'mediaEntitlement'), false);
   assert.equal(signedOut.plan, undefined); assert.equal(signedOut.hasBalance, undefined);
   await signIn(account);
   for (const [mode, entitlement, plan, hasBalance] of [
     ['billing-free', 'not-included', 'free', false], ['billing-go', 'not-included', 'go', false],
     ['billing-plus', 'included', 'plus', undefined], ['', 'included', 'pro', undefined],
-    ['billing-topup', 'unknown', 'free', true], ['billing-malformed', 'unknown', 'free', undefined],
-    ['billing-missing', 'unknown', 'go', undefined], ['billing-403', 'unknown', undefined, undefined],
+    ['billing-topup', 'not-included', 'free', true], ['billing-malformed', 'not-included', 'free', undefined],
+    ['billing-missing', 'not-included', 'go', undefined], ['billing-403', 'unknown', undefined, undefined],
     ['billing-failure', 'unknown', undefined, undefined],
   ] as const) {
     await writeFile(path.join(account.home, 'fixture-mode'), mode);
-    const provider = await inspect();
+    const report = await inspect();
+    const provider = report.providers.find(p => p.id === 'account')!;
     assert.equal(provider.mediaEntitlement, entitlement, mode); assert.equal(provider.available, true, mode);
+    assert.deepEqual(report.settingsHandoff.arguments, plan === 'free' || plan === 'go'
+      ? { target: 'providers', entry: 'agent_media_upgrade_' + plan } : { target: 'providers' }, mode);
+    const { capabilities } = await gateway.status();
+    for (const capability of capabilities) {
+      assert.equal(capability.available, entitlement !== 'not-included', mode + '/' + capability.modality);
+      if (entitlement === 'not-included') assert.deepEqual(capability.modelIds, []);
+    }
     assert.equal(provider.plan, plan, mode); assert.equal(provider.hasBalance, hasBalance, mode);
     const directory = await providerDirectory(gateway);
     const official = directory.providers.find(p => p.id === 'account')!;
@@ -791,8 +1045,20 @@ test('media inspection refreshes advisory billing without disabling account mode
       await gateway.cancel(queued.id);
     }
   }
+  // An eligible alternative keeps the generic handoff and supplies its own capabilities.
+  await writeFile(path.join(account.home, 'fixture-mode'), 'billing-go');
+  await gateway.configureProvider('atlascloud', { apiKey: 'synthetic-onboarding-key' });
+  assert.deepEqual((await inspect()).settingsHandoff.arguments, { target: 'providers' });
+  const { capabilities } = await gateway.status();
+  assert(capabilities.some(capability => capability.available));
+  assert(capabilities.every(capability => capability.modelIds.every(id => id.startsWith('atlascloud:'))));
+  await gateway.connections.verifyKey('atlascloud', 'synthetic-onboarding-key', 'rejected');
+  assert.deepEqual((await inspect()).settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_upgrade_go' });
+  await gateway.configureProvider('atlascloud', { apiKey: null });
   await writeFile(path.join(account.home, 'fixture-mode'), 'billing-401');
-  const rejected = await inspect();
+  const expired = await inspect();
+  assert.deepEqual(expired.settingsHandoff.arguments, { target: 'providers', entry: 'agent_media_signed_out' });
+  const rejected = expired.providers.find(p => p.id === 'account')!;
   assert.equal(rejected.available, false); assert.equal(Object.hasOwn(rejected, 'mediaEntitlement'), false);
   assert.equal((await account.summary()).state, 'reauth-required');
 }));
@@ -809,4 +1075,328 @@ test('provider directory keeps a signed-in account usable before billing is fetc
   assert.equal(account.available, true);
   assert.equal(account.reason, 'Signed in; model access and balance are checked when generating');
   assert.equal(Object.hasOwn(account, 'mediaEntitlement'), false, 'directory public fields stay unchanged');
+}));
+
+test('account image recovery through MCP keeps the original task and snapshot without a second submission', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  const transport = imageTransport(store.directory);
+  let interrupted = true, downloads = 0;
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...transport,
+    download: async (_url, init) => {
+      downloads++;
+      const offset = Number(new Headers(init.headers).get('range')?.match(/\d+/)?.[0] ?? 0);
+      if (!interrupted) return new Response(png.subarray(offset), { status: offset ? 206 : 200, headers: {
+        etag: '"original"', ...(offset ? { 'content-range': `bytes ${offset}-${png.length - 1}/${png.length}` } : {}) } });
+      let read = false;
+      return new Response(new ReadableStream({ pull(controller) { if (read) controller.error(new Error('private signed URL')); else { read = true; if (!offset) controller.enqueue(png.subarray(0, 32)); } } }), {
+        status: offset ? 206 : 200, headers: { etag: '"original"', ...(offset ? { 'content-range': `bytes ${offset}-${png.length - 1}/${png.length}` } : {}) } });
+    } });
+  t.after(() => gateway.close()); await signIn(account); await account.models(true);
+  const api = new Phase1Service(store, pluginRoot, { origin: () => 'http://localhost:4173', nativeUrl: () => undefined, openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
+  const queued = await api.call('openmotion_assets_use', { action: 'generate', model: 'account:fixture-image', modality: 'image', prompt: 'original prompt', requestId: 'original-download' });
+  const failed = await finish(store, queued.job.id);
+  assert.equal(failed.state, 'failed'); assert.equal(failed.download?.receivedBytes, 32); assert.equal(downloads, 3);
+  assert.doesNotMatch(JSON.stringify(failed), /private signed|media.example/);
+  // Disk exhaustion can leave a truncated output before the manifest is committed.
+  const unfinishedOutput = path.join(gateway.root, 'work', failed.id, `${failed.id}-1.png`);
+  await writeFile(unfinishedOutput, png.subarray(0, 16));
+  // A crashed worker must leave the verified partial file available after restart recovery.
+  await writeFile(path.join(gateway.root, 'jobs', failed.id + '.json'), JSON.stringify({ ...failed, state: 'running', workerPid: 2147483647 }));
+  await gateway.tick();
+  assert.equal((await gateway.getJob(failed.id)).phase, 'interrupted');
+  assert.equal((await stat(path.join(gateway.root, 'work', failed.id, 'image.partial'))).size, 32);
+  assert.equal((await stat(unfinishedOutput)).size, 16);
+  interrupted = false;
+  const resumed = await api.call('openmotion_assets_use', { action: 'resume', jobId: failed.id, requestId: 'resume-original' });
+  assert.equal(resumed.job.id, failed.id);
+  const duplicate = await gateway.resume(failed.id, 'resume-original'); assert.equal(duplicate.id, failed.id);
+  const completed = await finish(store, failed.id);
+  assert.equal(completed.state, 'completed', completed.error); assert.equal(completed.remoteId, failed.remoteId);
+  assert.equal(completed.prompt, 'original prompt'); assert.deepEqual(completed.parameters, failed.parameters); assert.deepEqual(completed.model, failed.model);
+  assert.equal(JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')).length, 1);
+  await assert.rejects(access(path.join(gateway.root, 'work', failed.id, 'image.partial')));
+  assert.equal((await gateway.resume(failed.id, 'again-completed')).state, 'completed');
+  assert.equal(downloads, 4);
+}));
+
+async function interruptedAccountImage(t: any, store: any) {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  let downloads = 0;
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory),
+    download: async (_url, init) => {
+      downloads++;
+      const offset = Number(new Headers(init.headers).get('range')?.match(/\d+/)?.[0] ?? 0);
+      let pulled = false;
+      return new Response(new ReadableStream({ pull(controller) {
+        if (pulled) controller.error(new Error('fixture disconnect'));
+        else { pulled = true; if (!offset) controller.enqueue(png.subarray(0, 32)); }
+      } }), { status: offset ? 206 : 200, headers: { etag: '"original"', ...(offset ? { 'content-range': `bytes ${offset}-${png.length - 1}/${png.length}` } : {}) } });
+    } });
+  t.after(() => gateway.close()); await signIn(account); await account.models(true);
+  const api = new Phase1Service(store, pluginRoot, { origin: () => 'http://localhost:4173', nativeUrl: () => undefined,
+    openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
+  const queued = await api.call('openmotion_assets_use', { action: 'generate', model: 'account:fixture-image', modality: 'image', prompt: 'original prompt', requestId: 'interrupted-image' });
+  const failed = await finish(store, queued.job.id);
+  assert.equal(failed.state, 'failed'); assert.equal(failed.download?.receivedBytes, 32);
+  return { gateway, account, api, failed, downloads: () => downloads, directory: path.join(gateway.root, 'work', failed.id) };
+}
+
+test('account image recovery replaces an output left before manifest commit using the complete verified download', t => fixture(async store => {
+  const { gateway, account, api, failed, downloads, directory } = await interruptedAccountImage(t, store);
+  // Reproduce a crash after the image and final-name output reached disk, before outputs.json.
+  const checkpoint = { assetId: 'fixture-asset', size: png.length, mime: 'image/png', bytes: png.length,
+    sha256: createHash('sha256').update(png).digest('hex'), etag: '"original"' };
+  await writeFile(path.join(directory, 'image.partial'), png);
+  await writeFile(path.join(directory, 'image-download.json'), JSON.stringify(checkpoint));
+  await writeFile(path.join(directory, `${failed.id}-1.png`), png);
+  await writeFile(path.join(gateway.root, 'jobs', failed.id + '.json'), JSON.stringify({ ...failed, state: 'running', workerPid: 2147483647 }));
+  await gateway.tick();
+  assert.equal((await gateway.getJob(failed.id)).phase, 'interrupted');
+  assert.deepEqual(JSON.parse(await readFile(path.join(directory, 'image-download.json'), 'utf8')), checkpoint);
+  await assert.rejects(access(path.join(directory, 'outputs.json')));
+  const before = downloads();
+  await api.call('openmotion_assets_use', { action: 'resume', jobId: failed.id, requestId: 'resume-complete-download' });
+  const completed = await finish(store, failed.id);
+  assert.equal(completed.state, 'completed', completed.error); assert.equal(completed.remoteId, failed.remoteId);
+  assert.equal(downloads(), before, 'the verified complete download needs no new transfer');
+  assert.equal(JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')).length, 1);
+  const result = await new AssetLibrary(store).resolve(completed.libraryAssets![0]);
+  assert.deepEqual(await readFile(result.filename), png);
+  await assert.rejects(access(directory));
+}));
+
+test('cancelling a queued account image recovery removes partial files despite a prior started attempt', t => fixture(async store => {
+  const { gateway, account, api, failed, downloads, directory } = await interruptedAccountImage(t, store);
+  assert(failed.startedAt); assert.equal(failed.workerPid, process.pid);
+  await access(path.join(directory, 'image.partial')); await access(path.join(directory, 'image-download.json'));
+  await api.call('openmotion_assets_use', { action: 'resume', jobId: failed.id, requestId: 'resume-then-cancel' });
+  assert.equal((await gateway.getJob(failed.id)).state, 'queued');
+  const before = downloads();
+  await api.call('openmotion_assets_use', { action: 'cancel', jobId: failed.id });
+  await assert.rejects(access(directory));
+  await api.call('openmotion_assets_use', { action: 'cancel', jobId: failed.id });
+  await gateway.tick();
+  const restarted = new ModelGateway(store); t.after(() => restarted.close());
+  assert.equal((await restarted.cancel(failed.id)).state, 'cancelled'); await restarted.tick();
+  assert.equal(restarted.active.size, 0); assert.equal(gateway.active.size, 0);
+  assert.equal(downloads(), before);
+  assert.equal(JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')).length, 1);
+  await assert.rejects(access(directory));
+}));
+
+test('AccountRequestError classifies local CLI flag errors as invalid requests rather than connection failures', () => {
+  const cases = [
+    'Error: if any flags in the group [aspect-ratio resolution] are set they must all be set; missing [aspect-ratio]\n',
+    'Error: if any flags in the group [size aspect-ratio] are set none of the others can be; [aspect-ratio size] were all set\n',
+    'Error: unknown flag: --bad-flag\n',
+    'Error: invalid argument "abc" for "--duration" flag: strconv.ParseInt: parsing "abc": invalid syntax\n',
+    'Error: required flag(s) "model" not set\n',
+  ];
+  for (const stderr of cases) {
+    const error = new AccountRequestError(stderr);
+    assert.equal(error.status, undefined, stderr);
+    assert.equal(error.code, undefined, stderr);
+    assert.equal(error.message, 'OpenDesign rejected this request for the selected model. Choose another model or change the options, then try again.', stderr);
+  }
+  const connection = new AccountRequestError('spawn failed');
+  assert.equal(connection.message, 'OpenDesign account request failed. Check your connection and sign in again if needed.');
+});
+
+test('account video first-frame uses --first-frame and OpenDesign providers reject reference images over 2 MiB before queueing', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store); gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, { binary, pollMs: 1, ...imageTransport(store.directory) });
+  t.after(() => gateway.close());
+  await signIn(account); await account.models(true);
+  await writeFile(path.join(account.home, 'fixture-video'), await mediaBytes('video'));
+  const api = new Phase1Service(store, pluginRoot, { origin: () => 'http://localhost:4173', nativeUrl: () => undefined,
+    openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
+  const models = (await gateway.listModels({ provider: 'account', modality: 'video' })).models;
+  assert.equal(models.find(m => m.modelId === 'fixture-i2v')?.maxInputImages, 1);
+  assert.equal(models.find(m => m.modelId === 'fixture-video')?.maxInputImages, undefined);
+
+  const source = path.join(store.directory, 'first-frame.png'); await writeFile(source, png);
+  const frame = await new AssetLibrary(store).importFile(source, { requestId: 'account-first-frame', name: 'First Frame' });
+  const reference = { assetId: frame.id, versionId: frame.currentVersionId };
+  const queued = await api.call('openmotion_assets_use', {
+    action: 'generate', requestId: 'account-video-i2v', model: 'account:fixture-i2v', modality: 'video', prompt: 'slow camera push', references: [reference],
+  });
+  const completed = await finish(store, queued.job.id);
+  assert.equal(completed.state, 'completed', completed.error);
+  const calls = JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][];
+  assert.deepEqual(calls.at(-1)?.slice(0, 2), ['video', 'gen']);
+  assert.match(calls.at(-1)![calls.at(-1)!.indexOf('--first-frame') + 1], /reference\.png$/);
+
+  // Oversized reference (> 2 MiB) is rejected before queueing for OpenDesign account and Cloud providers.
+  const { crc32 } = await import('node:zlib');
+  const textType = Buffer.from('tEXt'), textPayload = Buffer.alloc(2 * 1024 * 1024 + 16, 0x61);
+  const length = Buffer.alloc(4); length.writeUInt32BE(textPayload.length, 0);
+  const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(Buffer.concat([textType, textPayload])), 0);
+  const oversizedPng = Buffer.concat([png.subarray(0, png.length - 12), length, textType, textPayload, checksum, png.subarray(png.length - 12)]);
+  const oversizedPath = path.join(store.directory, 'oversized.png');
+  await writeFile(oversizedPath, oversizedPng);
+  const oversized = await new AssetLibrary(store).importFile(oversizedPath, { requestId: 'oversized-ref', name: 'Oversized' });
+  const oversizedRef = { assetId: oversized.id, versionId: oversized.currentVersionId };
+  await assert.rejects(
+    api.call('openmotion_assets_use', { action: 'generate', requestId: 'account-too-large', model: 'account:fixture-image', modality: 'image', prompt: 'edit', references: [oversizedRef] }),
+    /2 MiB OpenDesign upload limit/,
+  );
+  await assert.rejects(
+    api.call('openmotion_assets_use', { action: 'generate', requestId: 'account-i2v-too-large', model: 'account:fixture-i2v', modality: 'video', prompt: 'animate', references: [oversizedRef] }),
+    /2 MiB OpenDesign upload limit/,
+  );
+  assert.equal((JSON.parse(await readFile(path.join(account.home, 'submissions.json'), 'utf8')) as string[][]).length, 1);
+}));
+
+test('the account directory is per user, except for temporary workspaces and an explicit MOTION_ACCOUNT_DIR', () => {
+  assert.equal(sharedAccountDirectory('darwin', {}, '/synthetic/account-holder'), '/synthetic/account-holder/Library/Application Support/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('win32', { LOCALAPPDATA: 'C:\\Profile\\AppData\\Local' }, 'C:\\Profile'), 'C:\\Profile\\AppData\\Local\\OpenDesign\\account');
+  assert.equal(sharedAccountDirectory('win32', {}, 'C:\\Profile'), 'C:\\Profile\\AppData\\Local\\OpenDesign\\account');
+  assert.equal(sharedAccountDirectory('linux', {}, '/synthetic/account-holder'), '/synthetic/account-holder/.local/share/OpenDesign/account');
+  assert.equal(sharedAccountDirectory('linux', { XDG_DATA_HOME: '/data/xdg' }, '/synthetic/account-holder'), '/data/xdg/OpenDesign/account');
+  const env = { ...process.env }; delete env.MOTION_ACCOUNT_DIR;
+  // Workspaces selected by different installations, channels or MOTION_DATA_DIR values share one sign-in.
+  const workspace = path.join(path.dirname(fileURLToPath(import.meta.url)), 'never-created-workspace');
+  assert.equal(accountDirectory(workspace, env), sharedAccountDirectory(process.platform, env));
+  assert.equal(accountDirectory(path.join(workspace, '-dev'), env), sharedAccountDirectory(process.platform, env));
+  assert.equal(accountDirectory(path.join(tmpdir(), 'motion-scratch'), env), path.join(path.resolve(tmpdir()), 'motion-scratch', 'account'));
+  assert.equal(accountDirectory(workspace, { ...env, MOTION_ACCOUNT_DIR: '/srv/motion/account' }), path.resolve('/srv/motion/account'));
+});
+
+/** Points every workspace created in this test at one account directory, as the per-user default does outside tests. */
+function sharedAccount(t: { after: (fn: () => void) => void }, directory: string) {
+  const previous = process.env.MOTION_ACCOUNT_DIR;
+  process.env.MOTION_ACCOUNT_DIR = directory;
+  t.after(() => { if (previous === undefined) delete process.env.MOTION_ACCOUNT_DIR; else process.env.MOTION_ACCOUNT_DIR = previous; });
+}
+
+test('workspaces with different data directories share one sign-in, catalogue and sign-out', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  sharedAccount(t, path.join(store.directory, 'shared-account'));
+  const studio = new OpenDesignAccount(path.join(store.directory, 'studio-data'), { binary }); t.after(() => studio.close());
+  const agent = new OpenDesignAccount(path.join(store.directory, 'agent-data'), { binary }); t.after(() => agent.close());
+  assert.equal(studio.home, agent.home);
+  assert.equal((await agent.summary()).state, 'signed-out');
+  await signIn(studio);
+  // The Agent host's workspace was never signed in, yet it sees the account and its catalogue without another sign-in.
+  assert.equal((await agent.summary()).state, 'signed-in');
+  assert.equal(await agent.identity(), await studio.identity());
+  assert.deepEqual(await agent.models(), await studio.models());
+  await assert.rejects(stat(path.join(store.directory, 'agent-data', 'account')), { code: 'ENOENT' });
+  assert.equal((await agent.logout()).state, 'signed-out');
+  assert.equal((await studio.summary()).state, 'signed-out');
+  assert.deepEqual(await studio.models(), []);
+}));
+
+test('a workspace sign-in from before the shared directory moves there once and is not restored after sign-out', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const first = path.join(store.directory, 'first-data'), second = path.join(store.directory, 'second-data'), shared = path.join(store.directory, 'shared-account');
+  // Earlier releases kept the credentials, session and catalogue in each workspace.
+  const legacy = async (directory: string) => {
+    sharedAccount(t, path.join(directory, 'account'));
+    const account = new OpenDesignAccount(directory, { binary }); await signIn(account); const identity = await account.identity(); await account.close();
+    return identity;
+  };
+  const third = path.join(store.directory, 'third-data');
+  const firstIdentity = await legacy(first);
+  await legacy(second); await legacy(third);
+  sharedAccount(t, shared);
+  const moved = new OpenDesignAccount(first, { binary }); t.after(() => moved.close());
+  assert.equal((await moved.summary()).state, 'signed-in');
+  assert.equal(await moved.identity(), firstIdentity);
+  assert((await moved.models()).length > 0);
+  assert.equal((await stat(path.join(shared, 'credentials', 'config.json'))).mode & 0o777, 0o600);
+  for (const file of ['credentials/config.json', 'session.json', 'models.json']) await assert.rejects(stat(path.join(first, 'account', file)), { code: 'ENOENT' });
+  // A second workspace finds the shared account signed in: it keeps that account and drops its own copy.
+  const other = new OpenDesignAccount(second, { binary }); t.after(() => other.close());
+  assert.equal((await other.summary()).state, 'signed-in');
+  assert.equal(await other.identity(), firstIdentity);
+  await assert.rejects(stat(path.join(second, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+  await moved.logout();
+  const restarted = new OpenDesignAccount(second, { binary }); t.after(() => restarted.close());
+  assert.equal((await restarted.summary()).state, 'signed-out');
+  // A workspace opened for the first time after the sign-out does not sign the computer in again with its old copy.
+  const late = new OpenDesignAccount(third, { binary }); t.after(() => late.close());
+  assert.equal((await late.summary()).state, 'signed-out');
+  await assert.rejects(stat(path.join(third, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+  // A workspace that signed in after that sign-out (with an earlier release) still brings its sign-in along.
+  const fourth = path.join(store.directory, 'fourth-data');
+  const fourthIdentity = await legacy(fourth); sharedAccount(t, shared);
+  const newer = new OpenDesignAccount(fourth, { binary }); t.after(() => newer.close());
+  assert.equal((await newer.summary()).state, 'signed-in');
+  assert.equal(await newer.identity(), fourthIdentity);
+}));
+
+test('a workspace whose account directory is the shared one under another spelling keeps its sign-in', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const workspace = path.join(store.directory, 'data');
+  sharedAccount(t, path.join(workspace, 'account'));
+  const original = new OpenDesignAccount(workspace, { binary }); await signIn(original); await original.close();
+  await symlink(path.join(workspace, 'account'), path.join(store.directory, 'linked-account'));
+  sharedAccount(t, path.join(store.directory, 'linked-account'));
+  const linked = new OpenDesignAccount(workspace, { binary }); t.after(() => linked.close());
+  assert.equal((await linked.summary()).state, 'signed-in');
+  assert((await stat(path.join(workspace, 'account', 'credentials', 'config.json'))).isFile());
+}));
+
+test('a failed legacy migration keeps the workspace sign-in and leaves no shared marker behind', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const shared = path.join(store.directory, 'shared-account');
+  const createLegacy = async (name: string) => {
+    const directory = path.join(store.directory, name);
+    sharedAccount(t, path.join(directory, 'account'));
+    const account = new OpenDesignAccount(directory, { binary }); await signIn(account); const identity = await account.identity(); await account.close();
+    return { directory, identity };
+  };
+  const first = await createLegacy('failed-first');
+  // Replace models.json with a directory so copying fails after session.json has already been staged.
+  const firstModels = path.join(first.directory, 'account', 'models.json');
+  await rm(firstModels, { force: true });
+  await mkdir(firstModels);
+
+  sharedAccount(t, shared);
+  const logs: string[] = [];
+  const failed = new OpenDesignAccount(first.directory, { binary, log: line => logs.push(line) }); t.after(() => failed.close());
+  assert.equal((await failed.summary()).state, 'signed-out');
+  assert(logs.some(line => line.includes('could not be moved to the shared directory')));
+  // No shared marker or temporary file is left behind, and the workspace still owns its only sign-in.
+  await assert.rejects(stat(path.join(shared, 'session.json')), { code: 'ENOENT' });
+  await assert.rejects(stat(path.join(shared, 'models.json')), { code: 'ENOENT' });
+  await assert.rejects(stat(path.join(shared, 'credentials', 'config.json')), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(shared)).filter(name => name.endsWith('.tmp')), []);
+  assert.deepEqual((await readdir(path.join(shared, 'credentials'))).filter(name => name.endsWith('.tmp')), []);
+  assert((await stat(path.join(first.directory, 'account', 'credentials', 'config.json'))).isFile());
+  assert((await stat(path.join(first.directory, 'account', 'session.json'))).isFile());
+
+  // Once the transient copy failure is gone, the next start adopts the preserved workspace sign-in cleanly.
+  await rm(firstModels, { recursive: true, force: true });
+  const recovered = new OpenDesignAccount(first.directory, { binary }); t.after(() => recovered.close());
+  assert.equal((await recovered.summary()).state, 'signed-in');
+  assert.equal(await recovered.identity(), first.identity);
+  assert.equal((await stat(path.join(shared, 'credentials', 'config.json'))).mode & 0o777, 0o600);
+  await assert.rejects(stat(path.join(first.directory, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+
+  // A failed migration when the shared directory already has a sign-out marker preserves that marker and still recovers.
+  await recovered.logout();
+  const markerBefore = (await stat(path.join(shared, 'session.json'))).mtimeMs;
+  await delay(25);
+  const second = await createLegacy('failed-second');
+  const secondModels = path.join(second.directory, 'account', 'models.json');
+  await rm(secondModels, { force: true });
+  await mkdir(secondModels);
+
+  sharedAccount(t, shared);
+  const failedAgain = new OpenDesignAccount(second.directory, { binary, log: () => {} }); t.after(() => failedAgain.close());
+  assert.equal((await failedAgain.summary()).state, 'signed-out');
+  assert.equal((await stat(path.join(shared, 'session.json'))).mtimeMs, markerBefore);
+  await assert.rejects(stat(path.join(shared, 'credentials', 'config.json')), { code: 'ENOENT' });
+  assert((await stat(path.join(second.directory, 'account', 'credentials', 'config.json'))).isFile());
+
+  await rm(secondModels, { recursive: true, force: true });
+  const recoveredAgain = new OpenDesignAccount(second.directory, { binary }); t.after(() => recoveredAgain.close());
+  assert.equal((await recoveredAgain.summary()).state, 'signed-in');
+  assert.equal(await recoveredAgain.identity(), second.identity);
+  await assert.rejects(stat(path.join(second.directory, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
 }));

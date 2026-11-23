@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { runFile } from '../scripts/runtime-assets.mjs';
+import { checkTemplateRuntime } from '../.github/scripts/template-runtime-check.mjs';
 import { consumerEnvironment } from '../.github/scripts/motion-registry-smoke.mjs';
 
 const script = fileURLToPath(new URL('../.github/scripts/motion-registry-smoke.mjs', import.meta.url));
@@ -35,4 +36,26 @@ for await(const line of createInterface({input:process.stdin})){
   const result = JSON.parse(await readFile(path.join(output, 'result.json')));
   assert.equal(result.status, 'failed');
   assert.match(result.error, /Hosted service unavailable/);
+});
+
+test('template smoke checks templates and Skills as separate index counts', async t => {
+  const output = await mkdtemp(path.join(os.tmpdir(), 'openmotion-template-index-'));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  const indexPath = path.join(output, 'index.jsonl'), skillIndexPath = path.join(output, 'skills.jsonl');
+  const rows = [{ kind: 'builtin', templateId: 'builtin' }, { kind: 'reference', templateId: 'template' }];
+  await writeFile(indexPath, rows.map(row => JSON.stringify(row)).join('\n') + '\n');
+  await writeFile(skillIndexPath, JSON.stringify({ skillId: 'skill' }) + '\n');
+  const browserBoundary = new Error('browser phase reached');
+  const run = counts => checkTemplateRuntime({ output, call: async (name, args) => {
+    if (name === 'openmotion_list_templates') return { source: 'hosted', indexPath, ...counts };
+    if (name === 'openmotion_list_skills') return { source: 'hosted', indexPath: skillIndexPath, total: counts.skillTotal ?? 1 };
+    if (name === 'openmotion_get_template') {
+      assert.equal(args.templateId, 'template');
+      return { id: 'template', instructions: 'Instructions', motionDocument: { content: 'Guide' } };
+    }
+    throw browserBoundary;
+  } });
+  await assert.rejects(run({ total: 2, skillTotal: 1 }), error => error === browserBoundary);
+  await assert.rejects(run({ total: 3, skillTotal: 1 }), /Template count must match/);
+  await assert.rejects(run({ total: 2, skillTotal: 2 }), /Skill count must match/);
 });

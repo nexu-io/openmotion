@@ -639,7 +639,7 @@ This copies instructions; it does not install the runtime or register MCP. Keep 
 }
 ```
 
-The **sixteen registered public MCP tool names** (including one asset compatibility alias) cover template discovery and details, project creation, reading, management and archives, editing, preview, media import, the asset library and media generation, export, version restoration and cancellation. Shared workflow and engine guides are available through MCP resources. [Tool contract](docs/mcp-phase1-tools.md)
+The **eighteen registered public MCP tool names** (including one asset compatibility alias) cover template discovery and details, Skill discovery and reading, project creation, reading, management and archives, editing, preview, media import, the asset library and media generation, export, version restoration and cancellation. Shared workflow and engine guides are available through MCP resources. [Tool contract](docs/mcp-phase1-tools.md)
 
 Find a template with `openmotion_list_templates`, inspect it with `openmotion_get_template`, then create an editable copy with `openmotion_create_project`. [Template catalog](docs/template-catalog.md)
 
@@ -767,7 +767,7 @@ Version-linked outcomes -> team memory / RAG -> evaluated Skill improvements
 
 </details>
 
-BYOA keeps the agent in your existing client; BYOK connects your supported model accounts. Studio and the local service manage the editable work, while provider credentials remain outside project files. The public phase-one MCP surface contains **sixteen registered tool names, including one asset compatibility alias**. Agents reach model generation through `openmotion_media_use`, and Studio uses the same local Gateway service; the diagram does not add publishing tools to that public MCP contract.
+BYOA keeps the agent in your existing client; BYOK connects your supported model accounts. Studio and the local service manage the editable work, while provider credentials remain outside project files. The public phase-one MCP surface contains **eighteen registered tool names, including one asset compatibility alias**. Agents reach model generation through `openmotion_media_use`, and Studio uses the same local Gateway service; the diagram does not add publishing tools to that public MCP contract.
 
 The diagrams follow the cover’s painterly visual language. [Artwork, source reference and prompts](docs/readme/diagrams/ARTWORK.md)
 

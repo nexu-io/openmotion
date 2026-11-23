@@ -14,7 +14,7 @@ beforeEach(() => {
   }
   vi.stubGlobal("ResizeObserver", class {
     constructor(private notify: () => void) {}
-    observe(element: Element) { if (element.classList.contains("line-clamp-2")) observers.add(this.notify); }
+    observe(element: Element) { if (element.classList.contains("truncate")) observers.add(this.notify); }
     unobserve() {}
     disconnect() { observers.delete(this.notify); }
   });
@@ -22,7 +22,7 @@ beforeEach(() => {
 afterEach(() => { cleanupMounted(); observers.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
 
-it("uses an arrow cursor and does not show a tooltip for a complete two-line name", async () => {
+it("uses an arrow cursor and does not show a tooltip for a complete name", async () => {
   const host = mountHost(<PropertyLabel label="Font size" />);
   const label = host.querySelector('.cursor-default') as HTMLElement;
   expect(label.getAttribute('tabindex')).toBeNull();
@@ -34,7 +34,7 @@ it("uses an arrow cursor and does not show a tooltip for a complete two-line nam
   expect(document.querySelector('[role="tooltip"]')).toBeNull();
 });
 
-it.each(["horizontal", "two-line"])("shows the full %s overflow and closes the tooltip when widening removes it", async (kind) => {
+it.each(["horizontal", "vertical"])("shows the full %s overflow and closes the tooltip when widening removes it", async (kind) => {
   if (kind === "horizontal") contentWidth = 120;
   else contentHeight = 42;
   const host = mountHost(<PropertyLabel label="Full translated property name" />);
@@ -55,7 +55,7 @@ it("rechecks overflow when the translated name changes without a box resize", ()
   const root = trackedRoot(host);
   act(() => root.render(<PropertyLabel label="Font" />));
   expect(host.querySelector('[tabindex="0"]')).toBeNull();
-  contentHeight = 42;
+  contentWidth = 140;
   act(() => root.render(<PropertyLabel label="A much longer translated name" />));
   expect(host.querySelector('[tabindex="0"]')).not.toBeNull();
 });

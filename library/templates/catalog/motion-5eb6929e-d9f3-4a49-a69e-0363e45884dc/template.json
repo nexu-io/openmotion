@@ -55,6 +55,12 @@
         "url": "https://r.open-design.ai/files/6f56409fd3d64bb85f7d070bce20749db2d66b6d63cec586cc22d1c761be2491"
       },
       {
+        "path": "assets/GSAP-LICENSE.txt",
+        "mimeType": "text/plain",
+        "bytes": 4538,
+        "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+      },
+      {
         "path": "assets/gsap.min.js",
         "mimeType": "text/javascript",
         "bytes": 72927,

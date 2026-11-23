@@ -5,7 +5,8 @@ import { createRoot } from "react-dom/client";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
 import { afterEach, describe, expect, it } from "vitest";
 import { usePlayerStore, type TimelineElement } from "../store/playerStore";
-import { LANE_H, TRACK_H, MAIN_TRACK_H } from "./timelineLayout";
+import { LANE_H, TRACK_H, MAIN_TRACK_H, RULER_H, TRACKS_TOP_PAD } from "./timelineLayout";
+import { StudioHostContext } from "../../motion/StudioHost";
 import { AUTOMATION_LANE_H } from "./automationLaneHeight";
 import { getTimelinePropertyLanes } from "./TimelinePropertyLanes";
 import { mainTrackRowHeights, resolveTrackKeyframeClip, useTimelineTrackLayout } from "./useTimelineTrackLayout";
@@ -158,6 +159,33 @@ describe("collapsed audio groups", () => {
 });
 
 describe("useTimelineTrackLayout", () => {
+  it("shrinks centered MVP padding with the viewport and keeps pointer geometry aligned", () => {
+    let layout!: ReturnType<typeof useTimelineTrackLayout>;
+    function Probe({ height }: { height: number }) {
+      layout = useTimelineTrackLayout([
+        { id: "scene", tag: "div", start: 0, duration: 5, track: 0 },
+        { id: "music", tag: "audio", start: 0, duration: 5, track: 1 },
+      ], new Map(), null, new Set(), undefined, height);
+      return null;
+    }
+    const root = createRoot(document.createElement("div"));
+    const render = (height: number) => act(() => root.render(React.createElement(StudioHostContext.Provider, { value: { mvpEditor: true } }, React.createElement(Probe, { height }))));
+    render(400);
+    const tallPadding = layout.rowGeometry.padding.top;
+    expect(tallPadding).toBe(layout.rowGeometry.padding.bottom);
+    expect(layout.rowGeometry.canvasHeight).toBe(400);
+    render(180);
+    expect(layout.rowGeometry.padding.top).toBeLessThan(tallPadding);
+    expect(layout.rowGeometry.padding.top).toBe(TRACKS_TOP_PAD);
+    expect(layout.rowGeometry.padding.bottom).toBe(TRACK_H);
+    expect(layout.rowGeometry.canvasHeight).toBeGreaterThanOrEqual(180);
+    render(100);
+    expect(layout.rowGeometry.getRowTop(0)).toBe(RULER_H + TRACKS_TOP_PAD);
+    expect(layout.rowGeometry.getRowFromY(RULER_H + TRACKS_TOP_PAD + 1)).toBeGreaterThanOrEqual(0);
+    expect(layout.rowGeometry.getRowFromY(RULER_H + TRACKS_TOP_PAD + 1)).toBeLessThan(1);
+    act(() => root.unmount());
+  });
+
   it("counts a flat tween lane and reserves its expanded row height", () => {
     const elements: TimelineElement[] = [
       { id: "clip-1", tag: "div", start: 0, duration: 1, track: 0 },

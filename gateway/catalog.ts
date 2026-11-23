@@ -20,6 +20,7 @@ export const builtinModels: Model[] = [
   builtin('fal', 'fal-ai/flux/schnell', 'FLUX Schnell', 'image', 'text-to-image'),
   builtin('fal', 'fal-ai/wan/v2.2-a14b/text-to-video', 'Wan 2.2', 'video', 'text-to-video'),
   builtin('fal', 'fal-ai/kokoro/american-english', 'Kokoro', 'audio', 'text-to-speech'),
+  builtin('fal', 'fal-ai/elevenlabs/sound-effects/v2', 'ElevenLabs Sound Effects v2', 'audio', 'text-to-audio'),
   builtin('opendesign', 'elevenlabs-v3', 'ElevenLabs Voice', 'audio', 'text-to-speech'),
   builtin('opendesign', 'byteplus-tts-2', 'BytePlus Voice', 'audio', 'text-to-speech'),
   // The Cloud catalogue does not list its music model yet, so discovery would otherwise show no music.

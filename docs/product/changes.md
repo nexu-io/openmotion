@@ -7,6 +7,47 @@
 - Video and music tasks are submitted once and polled by their original ID; image and speech are synchronous. Built-in examples (FLUX Schnell, Seedance 1.0 Pro Fast, Stable Audio, OpenAI TTS-1) carry their checked parameter schemas.
 - Existing providers, saved routes and auto-selection are unchanged; the new provider is listed after the existing media providers. Live paid generation was checked separately from the deterministic fixtures.
 
+## 2026-11-20: Show verified media capabilities and streamline model editing in Provider Settings
+
+- Replace non-executable LLM capability toggles (`Reasoning`, `Tools`), input-modality toggles (`Vision`, `Audio`, `Video`) and token-limit inputs in Studio's `ModelEditor` with executable settings: directly visible `Model type` (for compatible/custom and newly added models), `Transcription response` (for `transcription` models), structured default parameter controls derived from `shared/generation-options.ts` schemas, and collapsed raw JSON defaults under More settings. Backend `connections.json` metadata override validation stays backward-compatible.
+- Hide the model edit menu on service-managed `account` (OpenDesign) and local `agent` (Codex) rows to keep managed catalogues read-only in Provider Settings (while preserving backward-compatible backend `modelOverrides` persistence).
+- Render verified, read-only media capability hints beneath media models from provider capability metadata and shared generation schemas (reference image editing limits, transparent background, first-frame image-to-video, native audio, duration ranges, resolution tiers and speech/music modes), gracefully omitting the line when new or minimal models publish no capability metadata; align all multimodal model rows to two lines (single friendly display name on managed `account`/`agent` rows with raw ID in tooltip and search, plus non-redundant inline monospace `modelId` on BYOK/API rows) and remove the redundant clear-filters bar below the model search input.
+- Group and badge official channels (`OpenDesign` account and `OpenDesign Cloud` API key) together at the top of the provider sidebar, sink `setupRequired` presets (such as ComfyUI) to the bottom without an empty Models section, replace generic "Built-in provider" subtitles with accurate role/protocol copy, streamline local Agent (`Codex`) into a compact status bar without duplicate sync or single-model search controls, and disclose non-media execution limits on Anthropic/Google connections.
+- Validation: `npm run check`, `npm run typecheck:studio`, `npm run design:check`, `npm run build:studio`, Studio unit tests (`modelMediaCapabilities.test.ts`, `ModelEditor.test.tsx`, `ModelSettings.test.tsx`, `Transcript.test.tsx`, `messages.test.ts`, `I18n.test.tsx`), backend `tests/provider-settings.test.ts`, and headless Chrome screenshot inspection across dark theme, light (`paper`) theme, Official/Codex/BYOK/setupRequired views, edit dialogs and narrow viewport.
+
+## 2026-11-20: Host Skill cover WebP posters on demand
+
+- Host Skill cover WebP posters alongside preview animations via `repository-media.json` (`Prepare and merge PR`), with existing posters resolved from a pinned public source snapshot (`008e46e8`) instead of being bundled into `studio/build/editor-assets/`.
+- Reduces the default compressed npm install package by ~3.64 MiB (from 21.20 MiB to 17.56 MiB). When offline or when a remote poster cannot load, Studio falls back to the Skill card's built-in motif illustration.
+
+## 2026-11-19: Load Skill card animation on demand
+
+- Bundle static WebP posters for Skills. Load preview videos when viewport autoplay, hover, keyboard focus or opening the Skill triggers playback. Keep the poster available when the network is unavailable.
+- Use the media preparation workflow for new previews and report the default npm package size in PR and release candidate builds.
+
+## 2026-11-18: Add the holiday-sale library Skills
+
+- Add optional [`openmotion-sale-promo`](../../library/skills/openmotion-sale-promo/SKILL.md): one offer → a 10 or 15 s promo (occasion, discount, regular price struck through before the sale price lands, code and real deadline, call to action) in 9:16, 4:5, 1:1 or 16:9.
+- Add optional [`openmotion-sale-countdown`](../../library/skills/openmotion-sale-countdown/SKILL.md): giant digits roll down to the true days or hours left, computed from the posting time and the sale's start or end.
+- Add optional [`openmotion-sale-carousel`](../../library/skills/openmotion-sale-carousel/SKILL.md): 3–7 sale products → one card per product with exact prices and a badge, then an end grid with code and call to action.
+- Every price, percentage, saving and remaining time is computed by the script; `--check` rejects contradictory prices, past deadlines, missing photos and text that will not fit. Themes for Black Friday, Cyber Monday, holiday, New Year and light; `labels` and `locale` localise the fixed words and prices.
+- The advertiser's brand leads each film; the end card carries a small "Made with OpenMotion" sign-off (`--no-credit` removes it). Each Skill ships an unchanged copy of the two design-system brand files.
+- Method adapted from the MIT-licensed iart-ai promo-video, countdown-video and photo-slideshow Skills, rewritten for OpenMotion HTML compositions. The Studio Skills page lists all three, linked to the upstream repositories. Library content only: not registered as an MCP resource. Sample runs: three offers, three countdowns and three carousels across 9:16, 1:1 and 16:9 with generated sample product photos. Each Skill ships the Anton display face (SIL OFL).
+
+## 2026-11-18: Continue authored template-guide examples
+
+- Unify existing catalog guide pages while preserving each entry's own example, reference and breakdown. Declared text/accent trials can continue into an independent native project with the complete linked guide-source bundle.
+- Document this explicit guide-example scope in the Studio MCP handbook, shared connection instructions and template workflow. It does not reconstruct the reference film or change ordinary reference routing.
+- Preserve complete creation arguments across retries and language changes; only confirmed, cleaned-up creation failures permit a new request. Copying and editor-only handoff do not automatically export or send a task.
+
+## 2026-11-18: Add the Design Styles library Skill
+
+- Add optional [`openmotion-design-styles`](../../library/skills/openmotion-design-styles/SKILL.md): 21 design-style cards and 2 layout cards (palette, open-licensed typefaces, five rules, signature motion, what to avoid, render tier) that an Agent applies to the user's content as a short HyperFrames film.
+- `scripts/style.mjs` lists and shows cards, checks a `plan.json` (known style, palette-only colours, headline length, a motion move per scene, OpenMotion end credit) and downloads glyph-subset fonts for the plan and composition text.
+- Films carry the OpenMotion wordmark in the opening and a "Made with OpenMotion" credit; the Skill ships an unchanged copy of the two design-system brand files.
+- Style topics were studied from guanmo-ai/design-style; the Skill's text is original and copies no prompts, code, images, music or films from it.
+- The Studio Skills page lists it third, linked to the upstream repository; its cover is an excerpt of the upstream promo film, credited in `docs/readme/ASSETS.md`. Library content only: not registered as an MCP resource. Sample runs: Swiss Style (English launch), Neo-Brutalism (product walkthrough) and Ink Wash (Chinese, Canvas).
+
 ## 2026-11-18: Add the primary OpenMotion Skill
 
 - Add the standalone `openmotion` Skill for installation and first use, followed by the existing specialist workflows through MCP resources. Preserve source-first setup, existing workspaces and the maintained onboarding.

@@ -131,18 +131,16 @@ describe("FxParamRow label tooltip", () => {
     hint: "How long before the echo comes back.",
   };
 
-  it("wraps the full name rather than truncating it, and leaves the hint on the row", () => {
+  it("truncates the name with the complete text available to its tooltip and keeps the row hint", () => {
     const host = document.createElement("div");
     document.body.append(host);
     act(() => {
       createRoot(host).render(<FxParamRow param={LONG} value={250} onChange={vi.fn()} />);
     });
     const label = host.querySelector<HTMLElement>(".hf-fx-label");
-    // The whole name is present and allowed to wrap. No `title`: a tooltip
-    // answers one row on hover, wrapping answers the column at rest.
     expect(label?.textContent).toBe("Gap between repeats");
-    expect(label?.className).toContain("wrap-break-word");
-    expect(label?.className).not.toContain("truncate");
+    expect(label?.className).toContain("truncate");
+    expect(label?.className).not.toContain("wrap-break-word");
     expect(label?.getAttribute("title")).toBeNull();
     // The hint stays where it was: the two are different questions, and the
     // name is not a substitute for the explanation either.

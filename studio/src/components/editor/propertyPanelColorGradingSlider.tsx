@@ -1,3 +1,6 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { OverflowText } from "../ui/OverflowText";
+import { FieldInput } from "../ui/FormField";
 import { useI18n } from "../../i18n/I18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Minus, Plus, RotateCcw, Settings } from "../../icons/SystemIcons";
@@ -149,9 +152,9 @@ export function ColorGradingSliderControl({
   return (
     <div className="grid min-w-0 gap-0.5 rounded-md bg-panel-input/30 px-1.5 py-1">
       <div className="flex min-w-0 items-center gap-1">
-        <span className={`${LABEL} min-w-0 flex-1 truncate`}>{t(label)}</span>
+        <OverflowText text={t(label)} className={`${LABEL} min-w-0 flex-1 truncate`} />
         {settings && (
-          <button
+          <IconButton variant="plain"
             type="button"
             disabled={disabled}
             aria-label={settings.label}
@@ -163,15 +166,14 @@ export function ColorGradingSliderControl({
               settings.active ? "text-accent-ink" : "text-panel-text-5"
             }`}
             title={settings.label}
-          >
-            <Settings size={11} />
+            icon={<><Settings size={11} />
             {settings.active && (
               <span className="absolute right-0.5 top-0.5 h-1 w-1 rounded-full bg-studio-accent" />
-            )}
-          </button>
+            )}</>}
+          />
         )}
         {onReset && (
-          <button
+          <IconButton variant="plain"
             type="button"
             disabled={disabled}
             aria-label={t("Reset {label}", { label: t(label) })}
@@ -182,9 +184,8 @@ export function ColorGradingSliderControl({
             }}
             className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-panel-text-5 transition-colors hover:bg-panel-hover hover:text-panel-text-1 disabled:cursor-not-allowed disabled:opacity-40"
             title={t("Reset {label}", { label: t(label) })}
-          >
-            <RotateCcw size={11} />
-          </button>
+            icon={<RotateCcw size={11} />}
+          />
         )}
       </div>
 
@@ -231,7 +232,7 @@ export function ColorGradingSliderControl({
 
       <div className="flex min-w-0 items-center justify-end gap-1">
         <div className="flex shrink-0 items-center rounded-md bg-panel-input px-1.5 py-px">
-          <input
+          <FieldInput appearance="inline" density="intrinsic"
             type="number"
             value={inputValue}
             min={min / scale}
@@ -264,26 +265,24 @@ export function ColorGradingSliderControl({
           {suffix && <span className="ml-0.5 text-[10px] text-panel-text-5">{suffix}</span>}
         </div>
         <div className="flex shrink-0 overflow-hidden rounded-md bg-panel-input">
-          <button
+          <IconButton variant="plain"
             type="button"
             disabled={disabled}
             aria-label={t("Decrease {label}", { label: t(label) })}
             onClick={() => nudge(-1)}
             className="flex h-5 w-5 items-center justify-center text-panel-text-4 transition-colors hover:bg-panel-hover hover:text-panel-text-1 disabled:cursor-not-allowed disabled:opacity-40"
             title={t("Decrease {label}", { label: t(label) })}
-          >
-            <Minus size={11} />
-          </button>
-          <button
+            icon={<Minus size={11} />}
+          />
+          <IconButton variant="plain"
             type="button"
             disabled={disabled}
             aria-label={t("Increase {label}", { label: t(label) })}
             onClick={() => nudge(1)}
             className="flex h-5 w-5 items-center justify-center border-l border-panel-border text-panel-text-4 transition-colors hover:bg-panel-hover hover:text-panel-text-1 disabled:cursor-not-allowed disabled:opacity-40"
             title={t("Increase {label}", { label: t(label) })}
-          >
-            <Plus size={11} />
-          </button>
+            icon={<Plus size={11} />}
+          />
         </div>
       </div>
     </div>

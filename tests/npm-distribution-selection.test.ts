@@ -1,11 +1,11 @@
 import { onboardingTemplateIds, onboardingSourceFiles, builtinRecommendationIds } from '../shared/onboarding-templates.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { distributionFiles } from '../scripts/distribution.ts';
+import { distributionFiles, isLocalOnlyPath, selectDistributionFiles } from '../scripts/distribution.ts';
 
 test('platform export ships its shared prompt and user guide in both profiles', async () => {
   const expected = ['docs/product/platform-export.md', 'shared/platform-export.ts', 'shared/project-agent-prompt.ts'];
@@ -31,11 +31,39 @@ test('the onboarding distribution keeps the in-turn renderer without the retired
   assert.deepEqual(files.sort(), ['scripts/inline-onboarding.mjs', 'scripts/install-onboarding.mjs']);
 });
 
+test('an installed storyboard renderer can produce a card using only its shipped files', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'om-packaged-storyboard-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const expected = ['mcp-ui/storyboard/inline.css', 'mcp-ui/storyboard/inline.js',
+    'packages/design-system/tokens.css', 'scripts/inline-storyboard.mjs'];
+  const manifest = path.join(directory, 'storyboard.json');
+  await writeFile(path.join(directory, 'still.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==', 'base64'));
+  await writeFile(manifest, JSON.stringify({
+    title: 'Storyboard', openLabel: 'Enlarge', backLabel: 'Back',
+    frames: [{ image: 'still.png', title: 'Opening', time: '00:00', alt: 'Opening frame' }],
+  }));
+  for (const profile of ['phase1', 'legacy']) {
+    const installedRoot = path.join(directory, profile);
+    const files = await distributionFiles(profile, file => expected.includes(file));
+    assert.deepEqual(files, expected);
+    for (const file of files) {
+      const target = path.join(installedRoot, file);
+      await mkdir(path.dirname(target), { recursive: true });
+      await cp(path.join(appRoot, file), target);
+    }
+    const output = path.join(directory, profile + '.html');
+    const result = JSON.parse(await runFile(process.execPath,
+      [path.join(installedRoot, 'scripts/inline-storyboard.mjs'), '--manifest', manifest, '--output', output]));
+    assert.equal(result.frameCount, 1);
+    assert.match(await readFile(output, 'utf8'), /data:image\/png;base64,/);
+  }
+});
+
 test('packaged onboarding prepares and publishes real cards from the allowlist without dependencies', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'om-packaged-onboarding-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const runtimeFiles = new Set(['package.json', 'template-library.ts', 'hyperframes.ts',
-    'shared/export-spec.ts', 'shared/mcp-template-recommendations.ts', 'shared/onboarding-templates.ts', ...onboardingSourceFiles,
+    'shared/export-spec.ts', 'shared/mcp-template-recommendations.ts', 'shared/onboarding-templates.ts', 'shared/tool-input-error.ts', ...onboardingSourceFiles,
     'scripts/inline-onboarding.mjs', 'scripts/runtime-assets.mjs', 'scripts/onboarding-catalog.ts',
     'shared/template-config.ts', 'shared/template-config.json']);
   for (const profile of ['phase1', 'legacy']) {
@@ -92,4 +120,25 @@ test('platform artwork and its licenses ship with both runtime profiles', async 
   const { platformIconFiles } = await import('../packages/design-system/platform-icons.js');
   const required = ['platform-icons.js', ...platformIconFiles, 'platforms/sources.json', 'platforms/NOTICE.md', 'platforms/CC0-LICENSE.txt', 'platforms/remix-icon-LICENSE.txt'].map(file => 'packages/design-system/' + file);
   for (const profile of ['phase1', 'legacy']) assert.deepEqual(await distributionFiles(profile, file => required.includes(file)), [...required].sort());
+});
+
+test('local-only maintainer material is recognised and never selected for distribution', async () => {
+  // The reserved names are root-anchored: a nested document with the same segment still ships.
+  for (const file of ['AGENTS_PR_RULE.md', 'PR_SKILLS.md', 'PRE-PR.md', 'codex-security/notes.md',
+    'superpowers/63976030/skills/brainstorming/SKILL.md', 'humanizer/SKILL.md', 'AUDIT_PR/round1/report.md']) {
+    assert.equal(isLocalOnlyPath(file), true, 'Must be treated as local-only: ' + file);
+  }
+  for (const file of ['AGENTS.md', 'CLAUDE.md', 'docs/superpowers/specs/2026-01-01-plan-design.md',
+    'shared/workflow.ts', 'codex-security.md', 'humanizer.md']) {
+    assert.equal(isLocalOnlyPath(file), false, 'Must remain distributable: ' + file);
+  }
+  // Wiring: a caller that accepts everything still cannot select reserved local-only material.
+  assert.deepEqual(selectDistributionFiles(['AUDIT_PR/round1/report.md', 'superpowers/63976030/skills/x/SKILL.md',
+    'AGENTS_PR_RULE.md', 'AGENTS.md', 'shared/workflow.ts'], () => true), ['AGENTS.md', 'shared/workflow.ts']);
+  // Property: no profile may select a local-only path even when a caller accepts everything.
+  for (const profile of ['phase1', 'legacy']) {
+    const selected = await distributionFiles(profile, file => isLocalOnlyPath(file) || file === 'AGENTS.md');
+    assert.deepEqual(selected, ['AGENTS.md'], profile + ' must still ship the shared agent entry');
+    for (const file of selected) assert.equal(isLocalOnlyPath(file), false, 'Local-only material selected: ' + file);
+  }
 });

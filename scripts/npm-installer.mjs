@@ -33,6 +33,7 @@ Setup options:
   --host HOST        Registration adapters: ${hosts.join(', ')} (default: codex)
                      Any other Agent (for example opencode) gets the same application and Skills;
                      setup returns agentRegistration for that Agent to add to its own MCP configuration
+  --utm-source NAME  Optional installation source; omitted upgrades retain the existing source
   --home DIR         Managed application home; reuse for prepare and upgrades
   --data-dir DIR     Project data outside application/cache directories
   --skills-dir DIR   Skills root for Codex, Claude Code, WorkBuddy or another Agent (default for other Agents: ~/.agents/skills)
@@ -41,7 +42,7 @@ Setup options:
   --dsh FILE         Harness executable (macOS Desktop CLI is detected automatically)
   --profile NAME     Harness profile (default: web); use the selected host profile
   --manifest FILE    Explicit release manifest for controlled local installations
-  --onboarding-output FILE  Optional host-readable HTML path override; Codex welcome/cards are prepared by default
+  --onboarding-output FILE  Optional host-readable HTML path override; welcome/cards are prepared for every host
 
 Setup starts native preparation in the background; editing does not wait for it.
 Use prepare to wait explicitly for every video component or retry failed preparation.
@@ -80,7 +81,6 @@ export async function localManifest(filename) {
 
 export async function setup(options) {
   if (options.onboardingOutput) {
-    assert((options.host || 'codex') === 'codex', 'Inline onboarding is selected by the Codex host only');
     assert(path.isAbsolute(options.onboardingOutput) && options.onboardingOutput.endsWith('.html'), 'Use an absolute .html path readable by the calling host');
     const present = await lstat(options.onboardingOutput).catch(error => { if (error.code !== 'ENOENT') throw error; return null; });
     assert(!present, 'Refusing to overwrite an existing onboarding document');
@@ -139,6 +139,10 @@ export async function setup(options) {
     const installed = await readJSON(path.join(appRoot, '.npm-install.json'));
     assert.equal(installed.applicationSHA256, manifest.application.sha256, 'Installed application identity mismatch');
     assert.equal(JSON.stringify(installed.runtime), JSON.stringify(manifest.runtime), 'Native manifest changed for the same application; rebuild the application release');
+    const attribution = await import(pathToFileURL(path.join(appRoot, 'shared/install-attribution.ts')).href);
+    try {
+      await attribution.recordInstallationStart(dataDirectory, plan.host, options.utmSource);
+    } catch (error) { console.error('OpenMotion: installation attribution unavailable: ' + error.message); }
     const { prepareInstallationFlow, installationInstructions, persistInstallationOnboarding } = await import(pathToFileURL(path.join(appRoot, 'scripts/install-onboarding.mjs')).href);
     await installationInstructions(appRoot);
     const targets = await skillTargets(plan, appRoot), directories = [];
@@ -164,6 +168,8 @@ export async function setup(options) {
         ...(plan.host === 'codex' ? { skillsDirectory: targets[0] } : {}) };
       // The registered MCP launcher must be usable even if Harness starts it synchronously.
       await writeJSON(stateFile, state); wroteState = true;
+      // Before registration, so a host starting the service right away does not run a second npm into the same directory.
+      await prepareAccountConnector(appRoot, dataDirectory);
       await plan.register();
       if (plan.host === 'deepseek' && previous?.hosts?.deepseek?.bundleDirectory) {
         console.error('OpenMotion: previous Harness bundle retained at ' + previous.hosts.deepseek.bundleDirectory + '. Refresh host Tools/Skills; remove this old bundle only after the host has stopped.');
@@ -181,6 +187,9 @@ export async function setup(options) {
           return { status: 'failed', reason: error.message };
         });
       }
+      try {
+        await attribution.recordInstallation(dataDirectory, plan.host, options.utmSource);
+      } catch (error) { console.error('OpenMotion: installation attribution unavailable: ' + error.message); }
       return { ...state, publicSkill, host: plan.host, hostInstallation: plan.metadata, nativeDependencies: 'background-preparation; status and retry available in Studio',
         ...(plan.agentRegistration ? { agentRegistration: { ...plan.agentRegistration, instructions: agentRegistrationInstructions } } : {}), onboarding };
     } catch (error) {
@@ -203,6 +212,21 @@ export async function setup(options) {
     } finally { for (const item of directories) if (item.stage) await rm(item.stage, { recursive: true, force: true }); }
 
   });
+}
+
+/**
+ * Installs the OpenDesign sign-in connector while the terminal's npm and network settings are available. The service
+ * started later by a host may not find npm or reach the registry, so it only installs when this did not.
+ */
+async function prepareAccountConnector(appRoot, dataDirectory) {
+  try {
+    const connector = await import(pathToFileURL(path.join(appRoot, 'gateway/account-connector.ts')).href);
+    console.error('OpenMotion: preparing the OpenDesign sign-in component.');
+    // Bounded so a slow registry cannot hold up setup; the service installs it at first sign-in instead.
+    await connector.installConnector(connector.connectorRuntime(dataDirectory), { timeoutMs: 60_000 });
+  } catch (error) {
+    console.error('OpenMotion: the OpenDesign sign-in component will be prepared at first sign-in. ' + (error.detail || error.message));
+  }
 }
 
 // Hosts without an adapter: the Agent applies its own documented MCP format, so the installer never guesses a config file.
@@ -277,7 +301,7 @@ export async function diagnose(options) {
 
 async function main() {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: {
-    manifest: { type: 'string' }, home: { type: 'string' }, 'data-dir': { type: 'string' }, 'skills-dir': { type: 'string' }, host: { type: 'string' }, codex: { type: 'string' }, claude: { type: 'string' }, dsh: { type: 'string' }, profile: { type: 'string' },
+    manifest: { type: 'string' }, home: { type: 'string' }, 'data-dir': { type: 'string' }, 'skills-dir': { type: 'string' }, host: { type: 'string' }, codex: { type: 'string' }, claude: { type: 'string' }, dsh: { type: 'string' }, profile: { type: 'string' }, 'utm-source': { type: 'string' },
     help: { type: 'boolean', short: 'h' }, version: { type: 'boolean' }, output: { type: 'string' }, 'args-file': { type: 'string' }, 'onboarding-output': { type: 'string' },
   } });
   if (values.help) { console.log(usage); return; }
@@ -286,7 +310,7 @@ async function main() {
   assert(positionals.length === (command === 'call' ? 2 : 1), usage);
   if (command === 'setup') {
     try {
-      console.log(JSON.stringify(await setup({ manifest: values.manifest, home: values.home, dataDirectory: values['data-dir'], skillsDirectory: values['skills-dir'], host: values.host, codex: values.codex, claude: values.claude, dsh: values.dsh, profile: values.profile, onboardingOutput: values['onboarding-output'] }), null, 2));
+      console.log(JSON.stringify(await setup({ manifest: values.manifest, home: values.home, dataDirectory: values['data-dir'], skillsDirectory: values['skills-dir'], host: values.host, codex: values.codex, claude: values.claude, dsh: values.dsh, profile: values.profile, utmSource: values['utm-source'], onboardingOutput: values['onboarding-output'] }), null, 2));
     } catch (error) {
       const environment = (await readJSON(bundledManifest).catch(() => null))?.templateEnvironment;
       await recordDiagnostic(values.home || defaultHome(environment), { kind: 'installation_failed', message: error.message });

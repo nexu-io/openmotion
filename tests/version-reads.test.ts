@@ -81,6 +81,29 @@ test('queries share streaming hash checks and invalidate changed, deleted and re
   await mkdir(path.dirname(moved), { recursive: true }); await writeFile(moved, bytes); await rm(native);
   assert.equal((await scoped.publicVersion(version, history, true)).restorable, true, 'native aside remains readable');
 });
+test('the initial version follows media native history adopts into its baseline after the first read', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'motion-baseline-adopt-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const store = new WorkspaceStore(root), versions = new ProjectVersions(store, pluginRoot);
+  const html = Buffer.from('<div data-composition-id="main"></div>'), media = Buffer.alloc(2 * 1024 * 1024, 61);
+  const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
+  await mkdir(path.join(store.projectDirectory, 'assets'), { recursive: true });
+  await writeFile(path.join(store.projectDirectory, 'index.html'), html);
+  await writeFile(path.join(store.projectDirectory, 'assets/clip.mp4'), media);
+  // Native history copies large files later, so its first baseline omits them.
+  let baseline: Record<string, string> = { 'index.html': sha(html) };
+  const history = { checkpoint: async () => {}, list: () => [], peek: (point: string) => point === 'start' ? baseline : null,
+    pin: async () => {}, readBlob: async () => Buffer.alloc(0) } as unknown as NativeHistory;
+  await assert.rejects(versions.current(history), /VERSION_CONFLICT/);
+  const first = (await versions.index()).versions[0];
+  baseline = { ...baseline, 'assets/clip.mp4': sha(media) };
+  const current = await versions.current(history);
+  assert.equal(current.revision, (await store.get()).revision);
+  assert.equal(current.versionId, first.versionId); assert.equal(current.versionNumber, 1);
+  assert.deepEqual(current.files.map(file => file.path), ['assets/clip.mp4', 'index.html']);
+  assert.equal((await versions.current(history)).versionId, first.versionId);
+  assert.equal((await versions.index()).versions.length, 1);
+});
 test('empty export and model queues do not acquire workspace locks', async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'motion-idle-')); t.after(() => rm(root, { recursive: true, force: true }));
   const store = new WorkspaceStore(root), gateway = new ModelGateway(store); t.after(() => gateway.close());

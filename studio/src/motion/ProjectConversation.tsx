@@ -1,3 +1,5 @@
+import { IconButton } from 'open-design-ui/icon-button';
+import { Button } from 'open-design-ui/button';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { sessionInstruction } from '../../../shared/conversation';
 import type { SessionDetail, SessionArtifact } from '../../../shared/session';
@@ -23,9 +25,9 @@ export function HomeComposer({ template, onClear }: { template?: GalleryTemplate
   const { workspace, switchingDisabled, openConnections } = useWorkspaceChrome();
   const [draft, setDraft] = useDraft('motion.home.draft.v1');
   return <div className="motion-home-composer"><form className="motion-composer" onSubmit={event => { event.preventDefault(); if ((draft.trim() || template) && !switchingDisabled) void workspace.startSession(draft.trim() || undefined, template?.id); }}>
-    {template && <div className="motion-selected-template"><MotionIcon name="film" /><span>{template.title}</span><button type="button" className="motion-icon-button" aria-label={t('Remove template')} title={t('Remove template')} onClick={onClear}><MotionIcon name="close" size={13} /></button></div>}
+    {template && <div className="motion-selected-template"><MotionIcon name="film" /><span>{template.title}</span><IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t('Remove template')} title={t('Remove template')} onClick={onClear} icon={<MotionIcon name="close" size={13} />} /></div>}
     <textarea id="home-creative-request" maxLength={8000} aria-label={t('Creative request')} placeholder={t('Describe your video…')} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={submitShortcut} disabled={workspace.busy} />
-    <div className="motion-composer-tools"><ModePicker /><button type="button" className="motion-button motion-button-quiet" onClick={() => document.getElementById('home-template-title')?.scrollIntoView({ behavior: 'smooth' })}><MotionIcon name="grid" />{t('Templates')}</button><button type="button" className="motion-button motion-button-quiet" onClick={() => openConnections('home_composer')}><MotionIcon name="plug" />{t('Connect Agent')}</button><button className="motion-button motion-button-primary motion-composer-submit" disabled={switchingDisabled || (!draft.trim() && !template)}><MotionIcon name="arrow-up" /><span>{t('Start conversation')}</span></button></div>
+    <div className="motion-composer-tools"><ModePicker /><Button variant="plain" type="button" className="motion-button motion-button-quiet" onClick={() => document.getElementById('home-template-title')?.scrollIntoView({ behavior: 'smooth' })}><MotionIcon name="grid" />{t('Templates')}</Button><Button variant="plain" type="button" className="motion-button motion-button-quiet" onClick={() => openConnections('home_composer')}><MotionIcon name="plug" />{t('Connect Agent')}</Button><Button variant="plain" className="motion-button motion-button-primary motion-composer-submit" disabled={switchingDisabled || (!draft.trim() && !template)}><MotionIcon name="arrow-up" /><span>{t('Start conversation')}</span></Button></div>
   </form></div>;
 }
 
@@ -81,18 +83,18 @@ export function ProjectConversation({ sessionId, onOpenArtifact }: { sessionId: 
     <div className="motion-conversation-scroll" ref={scroll}>
       {conversation?.messages.map(message => <article className="motion-conversation-message" data-role={message.role} key={message.id}>
         <div className="motion-conversation-message-meta"><span>{message.role === 'assistant' ? 'Agent' : t('You')}</span><time>{formatDate(message.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time></div>
-        <p>{message.content}</p>{message.role === 'user' && <button className="motion-button motion-button-quiet" onClick={() => void copy(message.content)}><MotionIcon name="copy" size={13} />{t('Copy for Agent')}</button>}
+        <p>{message.content}</p>{message.role === 'user' && <Button variant="plain" className="motion-button motion-button-quiet" onClick={() => void copy(message.content)}><MotionIcon name="copy" size={13} />{t('Copy for Agent')}</Button>}
       </article>)}
-      {conversation && artifacts.map(artifact => <button className="motion-conversation-project" key={artifact.id} disabled={switchingDisabled} onClick={() => onOpenArtifact(artifact)}><MotionIcon name="film" /><span><strong>{artifact.title}</strong><small>Motion</small></span><MotionIcon name="arrow-up-right" size={14} /></button>)}
-      {conversation && !artifacts.length && <button className="motion-button" disabled={switchingDisabled} onClick={() => void workspace.createArtifact(sessionId)}><MotionIcon name="plus" />{t('Create artifact')}</button>}
+      {conversation && artifacts.map(artifact => <Button variant="plain" className="motion-conversation-project" key={artifact.id} disabled={switchingDisabled} onClick={() => onOpenArtifact(artifact)}><MotionIcon name="film" /><span><strong>{artifact.title}</strong><small>Motion</small></span><MotionIcon name="arrow-up-right" size={14} /></Button>)}
+      {conversation && !artifacts.length && <Button variant="plain" className="motion-button" disabled={switchingDisabled} onClick={() => void workspace.createArtifact(sessionId)}><MotionIcon name="plus" />{t('Create artifact')}</Button>}
       {!conversation && !error && <p className="motion-conversation-status" role="status">{t('Loading conversation…')}</p>}
-      {error && <div className="motion-conversation-status" role="alert">{t(error)}{!conversation && <button className="motion-button" onClick={() => retry(value => value + 1)}>{t('Retry')}</button>}</div>}
+      {error && <div className="motion-conversation-status" role="alert">{t(error)}{!conversation && <Button variant="plain" className="motion-button" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button>}</div>}
       {feedback && <p className="motion-conversation-status" role="status">{feedback}</p>}
       {manualCopy && <textarea className="motion-manual-copy" aria-label={t('Agent instruction')} readOnly value={manualCopy} onFocus={event => event.target.select()} />}
     </div>
     <form className="motion-composer motion-conversation-composer" onSubmit={event => void save(event)}>
       <textarea maxLength={8000} aria-label={t('Creative request')} placeholder={t('Describe a change…')} value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={submitShortcut} disabled={busy} />
-      <div className="motion-composer-tools"><ModePicker /><button type="button" className="motion-button motion-button-quiet" onClick={() => openConnections('project_composer')}><MotionIcon name="plug" />Agent</button><button className="motion-icon-button motion-composer-submit" aria-label={t('Save request')} title={t('Save request')} disabled={busy || switchingDisabled || !conversation || !draft.trim()}><MotionIcon name="arrow-up" /></button></div>
+      <div className="motion-composer-tools"><ModePicker /><Button variant="plain" type="button" className="motion-button motion-button-quiet" onClick={() => openConnections('project_composer')}><MotionIcon name="plug" />Agent</Button><IconButton variant="plain" className="motion-icon-button motion-composer-submit" aria-label={t('Save request')} title={t('Save request')} disabled={busy || switchingDisabled || !conversation || !draft.trim()} icon={<MotionIcon name="arrow-up" />} /></div>
     </form>
   </>;
 }

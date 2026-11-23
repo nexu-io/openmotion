@@ -49,7 +49,7 @@ try {
   page = await browser.newPage(); page.on('pageerror', error => errors.push(error.message));
   await page.setViewport({ width: 1440, height: 1000 });
   await page.evaluateOnNewDocument(() => { localStorage.setItem('motion.studio.locale', 'en'); });
-  await page.goto(origin, { waitUntil: 'domcontentloaded' });
+  await page.goto(new URL('/editor', origin).href, { waitUntil: 'domcontentloaded' });
   const clickText = async (selector, text) => {
     const handle = await page.waitForFunction((selector, text) => [...document.querySelectorAll(selector)].find(node => {
       const label = node.cloneNode(true);
@@ -100,7 +100,7 @@ try {
     assert(await page.$('.om-settings-dialog'));
     await clickText('.om-dialog-actions button', 'Cancel'); await page.waitForSelector('.om-settings-dialog', { hidden: true });
   };
-  await page.waitForSelector('.om-app-rail');
+  await page.waitForSelector('.om-app-header');
   await page.waitForSelector('[data-studio-control="playback"]:not(:disabled)', { visible: true });
   await page.click('[data-studio-control="playback"]');
   await page.waitForFunction(() => document.querySelector('[data-studio-control="playback"]')?.getAttribute('aria-label') === 'Pause');
@@ -152,7 +152,7 @@ try {
   await settings('Default Agent & models'); await shot('default-models-light');
   await page.click('[aria-label="Select model"]'); await page.waitForSelector('.om-model-picker');
   await shot('model-picker-light'); await page.keyboard.press('Escape');
-  await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('.om-app-rail');
+  await page.reload({ waitUntil: 'domcontentloaded' }); await page.waitForSelector('.om-app-header');
   await page.keyboard.down('Control'); await page.keyboard.press(','); await page.keyboard.up('Control');
   // The shortcut replaces the URL-restored section; its old controls can still be mounted until navigation commits.
   await page.waitForSelector('.om-settings-main[aria-label="General"]', { visible: true });
@@ -161,7 +161,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.om-model-row').length === 3);
   assert.equal(await page.$eval('[aria-label="Studio fixture API key"]', node => node.value), '');
   assert(await page.$eval('.om-model-row', node => node.textContent.includes('Default')));
-  await settings('Account'); await clickText('.om-account-summary button', 'Sign in with OpenDesign');
+  await settings('Account'); await clickText('.om-plan-guide button', 'Sign in with OpenDesign');
   await page.waitForSelector('.om-account-code'); assert.equal(await page.$eval('.om-account-code', n => n.textContent), 'TEST-123');
   await shot('account-authorization-light');
   await writeFile(path.join(gateway.account.home, 'authorize'), 'yes');
@@ -198,7 +198,7 @@ try {
   await page.waitForSelector('.om-settings-dialog', { hidden: true });
   await settings('Account'); await shot('account-connected-dark');
   await clickText('.om-account-summary button', 'Sign out');
-  await page.waitForFunction(() => document.querySelector('.om-account-summary')?.textContent.includes('Sign in to OpenDesign'));
+  await page.waitForFunction(() => document.querySelector('.om-plan-guide h2')?.textContent === 'Sign in to start multimodal generation');
   assert.equal((await gateway.account.summary()).state, 'signed-out');
   await settings('About OpenMotion'); await shot('about-dark');
   await page.setViewport({ width: 390, height: 844 });
@@ -209,7 +209,7 @@ try {
   await page.waitForSelector('[aria-label="Studio fixture API key"]', { visible: true });
   await noOverflow(); await shot('provider-detail-mobile-dark');
   await clickText('.om-provider-detail button', 'Remove saved key');
-  await page.waitForFunction(() => document.querySelector('.om-provider-detail .om-settings-tags')?.textContent.includes('Not configured'));
+  await page.waitForFunction(() => document.querySelector('.om-provider-detail .om-provider-status-badge')?.textContent.includes('Not configured'));
   await clickText('.om-provider-detail button', 'Delete provider');
   await noOverflow(); await shot('delete-provider-mobile-dark');
   await clickText('.om-settings-dialog button', 'Delete');
@@ -240,7 +240,7 @@ try {
   await gateway.listModels({ provider: 'opendesign', refresh: true });
   await gateway.setRoute('image', 'opendesign:cloud-image-fixture');
   await page.setViewport({ width: 1440, height: 1000 });
-  const assetsUrl = new URL(origin); assetsUrl.searchParams.set('page', 'assets');
+  const assetsUrl = new URL('/assets', origin);
   await page.goto(assetsUrl.href, { waitUntil: 'domcontentloaded' });
   await clickText('.om-asset-actions button', 'AI Create');
   await page.waitForFunction(() => document.querySelector('.om-asset-composer')?.textContent.includes('Image editing capability is unknown'));

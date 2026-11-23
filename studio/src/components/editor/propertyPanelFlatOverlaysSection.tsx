@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useState } from "react";
 import type { RegistryItem } from "@hyperframes/core/registry";
@@ -54,7 +55,7 @@ export function FlatOverlaysSection({
   return (
     <div data-flat-overlays="true" className={FLAT_PREVIEW_GRID}>
       {overlays.map((overlay) => (
-        <button
+        <Button variant="plain"
           key={overlay.name}
           type="button"
           data-flat-overlay={overlay.name}
@@ -103,7 +104,7 @@ export function FlatOverlaysSection({
           <span className="block truncate px-2 py-1.5 text-[10px] text-panel-text-2">
             {adding === overlay.name ? t("Adding…") : t(overlay.title)}
           </span>
-        </button>
+        </Button>
       ))}
     </div>
   );

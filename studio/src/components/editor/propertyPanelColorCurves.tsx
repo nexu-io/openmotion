@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { useState } from "react";
 import type { HfColorCurvePoint, HfHueCurvePoint } from "@hyperframes/core/color-grading";
@@ -91,7 +93,7 @@ export function ColorCurves({
     <div data-color-curves="true" className="space-y-2">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-panel-hairline">
         {TABS.map((candidate) => (
-          <button
+          <Button variant="plain"
             key={candidate.key}
             type="button"
             data-color-curve-tab={candidate.key}
@@ -109,7 +111,7 @@ export function ColorCurves({
             }`}
           >
             {t(candidate.label)}
-          </button>
+          </Button>
         ))}
       </div>
       <CurveGraph
@@ -157,28 +159,27 @@ export function ColorCurves({
               onSettle={transaction.settle}
               onCancel={transaction.cancel}
             />
-            <button
+            <Button variant="plain"
               type="button"
               disabled={disabled || endpointSelected}
               onClick={deleteSelected}
               className="pb-0.5 text-[9px] text-panel-text-4 hover:text-panel-text-1 disabled:opacity-30"
             >
-              {t("Delete")}</button>
+              {t("Delete")}</Button>
           </>
         ) : (
           <span className="flex-1 text-[9px] text-panel-text-5">
             {t("Click the graph or press Enter to add a point")}</span>
         )}
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Reset {value0} curve", { value0: t(tab.label) })}
           title={t("Reset {value0} curve", { value0: t(tab.label) })}
           disabled={disabled}
           onClick={resetActive}
           className="pb-0.5 text-panel-text-4 hover:text-panel-text-1 disabled:opacity-40"
-        >
-          <RotateCcw size={11} />
-        </button>
+          icon={<RotateCcw size={11} />}
+        />
       </div>
     </div>
   );

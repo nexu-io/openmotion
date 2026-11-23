@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import { useStudioHost } from '../motion/StudioHost';
 import { Component, type ErrorInfo, type ReactNode } from "react";
@@ -45,8 +46,8 @@ function CrashScreen({ error, retry }: { error: Error; retry: () => void }) {
   return (
       <RecoveryScreen fullscreen title={t('Something went wrong')} message={error.message}
         feedback={host?.feedback !== false ? <CrashFeedbackPrompt /> : undefined}>
-        <button className="om-button" data-primary onClick={retry}>{t('Try again')}</button>
-        <button className="om-button" onClick={() => window.location.reload()}>{t('Reload Studio')}</button>
+        <Button variant="ghost" className="om-button h-auto" data-primary onClick={retry}>{t('Try again')}</Button>
+        <Button variant="ghost" className="om-button h-auto" onClick={() => window.location.reload()}>{t('Reload Studio')}</Button>
       </RecoveryScreen>
   );
 }

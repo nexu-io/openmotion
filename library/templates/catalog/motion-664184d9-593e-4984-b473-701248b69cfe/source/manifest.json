@@ -112,14 +112,19 @@
       "sha256": "403581b69dac5cff4079205e01c6b467e56af449ecbd7247693ddb1baafa005b"
     },
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
     },
     {
       "path": "assets/lfs/original-audio.m4a",
-      "bytes": 697488,
-      "sha256": "9331b2ea49c9dbd7949ad6f75d1ce3e0f731a6a07f9698f72295748a20acd35b"
+      "sha256": "9331b2ea49c9dbd7949ad6f75d1ce3e0f731a6a07f9698f72295748a20acd35b",
+      "bytes": 697488
     },
     {
       "path": "assets/media/meal-bowl.jpg",

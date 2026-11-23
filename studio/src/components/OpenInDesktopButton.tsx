@@ -15,7 +15,8 @@ import {
   type Progress,
 } from "./DesktopGuideCard";
 import { FrameyGlyph } from "./FrameyGlyph";
-import { Button, Popover, cn } from "./ui";
+import { Button } from "open-design-ui/button";
+import { Popover, cn } from "./ui";
 
 // "Install the desktop app": the preview server (`/api/open-in-desktop`) says whether to show it, whether the app is
 // here and whether it takes the project. With the app ready a press opens the project in it; otherwise the press

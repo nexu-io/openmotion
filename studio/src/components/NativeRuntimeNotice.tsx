@@ -1,7 +1,8 @@
 import type { NativeComponent } from '../../../shared/native-runtime';
 import type { FfmpegStatus } from './renders/useFfmpegStatus';
 import { useI18n } from '../i18n/I18n';
-import { Button, Popover } from './ui';
+import { Button } from 'open-design-ui/button';
+import { Popover } from './ui';
 import { RemixIcon } from '../icons/RemixIcons';
 
 const names = { browser: 'Rendering component', media: 'Media components', ffmpeg: 'Media processing', ffprobe: 'Media inspection' };

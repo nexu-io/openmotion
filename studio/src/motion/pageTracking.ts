@@ -5,7 +5,7 @@ import { slug } from '../../../tracking/core.ts';
 import { providerSetupEntries, type ProviderSetupEntry } from '../../../tracking/events.ts';
 import type { BrandKit } from '../../../shared/brand-kit';
 import type { MotionSkill, SkillParameters } from './skillCatalog';
-import { embeddedView, newTrackingId, optionId, searchKeyword, send, slugField, type Fields } from './reporting';
+import { embeddedView, newTrackingId, optionId, searchKeyword, send, slugField, type Fields, modelFields } from './reporting';
 
 export { newTrackingId };
 type Click = Fields<'ui_click'>;
@@ -36,8 +36,8 @@ export function reportSkillSearch(searchId: string, query: string, resultCount: 
   send('skill_search_result', { ...skills, area: 'skill_discovery', search_id: searchId, search_keyword: keyword, query_length: query.trim().length,
     result_count: resultCount, outcome: 'success', ...(category ? { skill_category: skillCategoryId(category) } : {}) });
 }
-export function reportSkillCardOpened(skill: MotionSkill, position: number, searchId: string | undefined) {
-  send('ui_click', { ...skills, area: 'skill_card', element: 'open_detail', ...skillFields(skill), position, ...(searchId ? { search_id: searchId } : {}) });
+export function reportSkillCardOpened(skill: MotionSkill, position: number, searchId: string | undefined, placement?: 'black_friday') {
+  send('ui_click', { ...skills, area: 'skill_card', element: 'open_detail', ...skillFields(skill), position, ...(placement ? { placement } : {}), ...(searchId ? { search_id: searchId } : {}) });
 }
 export function reportSkillDetailShown(skill: MotionSkill, detailViewId: string) {
   send('surface_view', { ...skills, area: 'skill_detail', element: 'detail', ...skillFields(skill), detail_view_id: detailViewId });
@@ -157,10 +157,13 @@ export function reportAssetsClick(area: AssetClickArea, element: Click['element'
   const { modality, ...rest } = fields;
   send('ui_click', { ...assetsPage, area, element, ...rest, ...modalityField(modality) });
 }
-export function reportAssetGenerationSubmit(modality: unknown, outcome: 'success' | 'failure', referenceCount: number, newVersion: boolean) {
+/** `studio` is the Design, Cinema or Sound Studio form the generation was submitted from, as catalogue ids. */
+export function reportAssetGenerationSubmit(modality: unknown, outcome: 'success' | 'failure', referenceCount: number, newVersion: boolean,
+  studio?: { studio: string; scene: string; model?: string }) {
   const field = modalityField(modality);
   if (!field.modality) return;
-  send('asset_generation_submit_result', { ...assetsPage, modality: field.modality, outcome, reference_count: referenceCount, new_version: newVersion });
+  send('asset_generation_submit_result', { ...(studio ? { page_name: 'creative_studio' as const, ...slugField('studio_id', studio.studio), ...slugField('scene_id', studio.scene),
+    ...modelFields(studio.model) } : assetsPage), modality: field.modality, outcome, reference_count: referenceCount, new_version: newVersion });
 }
 /** Which change an asset write made: only the kind of change, never the new name. */
 export function assetUpdateAction(changes: Record<string, unknown>): Fields<'asset_update_result'>['action'] {
@@ -231,7 +234,7 @@ export function reportProjectManage(action: Fields<'project_manage_result'>['act
   send('project_manage_result', { ...projectsPage, action, outcome, project_count: projectCount, ...(failedCount ? { failed_count: failedCount } : {}) });
 }
 /** Library uploads reuse the studio import result with library entry points; file names never leave the browser. */
-export function reportLibraryImport(entry: 'library_button' | 'library_drop' | 'library_new_version', requested: number, added: number) {
+export function reportLibraryImport(entry: 'library_button' | 'library_drop' | 'library_new_version' | 'other', requested: number, added: number) {
   const failed = Math.max(0, requested - added);
   send('studio_asset_import_result', { entry_point: entry, outcome: added === 0 ? 'failure' : failed ? 'partial' : 'success',
     requested_count: requested, added_count: added, failed_count: failed });

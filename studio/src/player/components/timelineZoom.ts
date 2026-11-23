@@ -19,10 +19,10 @@ export function getMaxTimelineZoomPercent(fitPixelsPerSecond: number): number {
   return Math.max(100, Math.round((frameLevelPixelsPerSecond / fitPixelsPerSecond) * 100));
 }
 
-export function clampTimelineZoomPercent(percent: number, fitPixelsPerSecond: number): number {
+export function clampTimelineZoomPercent(percent: number, fitPixelsPerSecond: number, round = true): number {
   if (!Number.isFinite(percent)) return 100;
   const maxZoomPercent = getMaxTimelineZoomPercent(fitPixelsPerSecond);
-  return Math.max(MIN_TIMELINE_ZOOM_PERCENT, Math.min(maxZoomPercent, Math.round(percent)));
+  return Math.max(MIN_TIMELINE_ZOOM_PERCENT, Math.min(maxZoomPercent, round ? Math.round(percent) : percent));
 }
 
 export function getTimelineZoomPercent(
@@ -30,7 +30,7 @@ export function getTimelineZoomPercent(
   manualZoomPercent: number,
   fitPixelsPerSecond: number,
 ): number {
-  return zoomMode === "fit" ? 100 : clampTimelineZoomPercent(manualZoomPercent, fitPixelsPerSecond);
+  return zoomMode === "fit" ? 100 : clampTimelineZoomPercent(manualZoomPercent, fitPixelsPerSecond, false);
 }
 
 /**
@@ -61,6 +61,7 @@ export function computePinnedZoomPercent(
   return clampTimelineZoomPercent(
     (currentPixelsPerSecond / fitPixelsPerSecond) * 100,
     fitPixelsPerSecond,
+    false,
   );
 }
 

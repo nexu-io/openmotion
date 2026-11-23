@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { useI18n } from "../i18n/I18n";
@@ -54,15 +56,15 @@ export const BrandKitDetail = memo(function BrandKitDetail({ kit, busy, onAction
             </div>
             <aside className="om-media-detail-info">
               <div className="om-media-detail-nav">
-                <button ref={close} className="om-gallery-round-button" aria-label={t("Close Brand Kit preview")} onClick={onClose}><RemixIcon name="close-line" size={20} /></button>
+                <IconButton variant="plain" ref={close} className="om-gallery-round-button" aria-label={t("Close Brand Kit preview")} onClick={onClose} icon={<RemixIcon name="close-line" size={20} />} />
                 <span className="om-result-count">{position} / {total}</span>
-                <button className="om-gallery-round-button" aria-label={t("Previous Brand Kit")} disabled={busy || total < 2} onClick={() => onNavigate(-1)}><RemixIcon name="arrow-left-line" size={18} /></button>
-                <button className="om-gallery-round-button" aria-label={t("Next Brand Kit")} disabled={busy || total < 2} onClick={() => onNavigate(1)}><RemixIcon name="arrow-right-line" size={18} /></button>
+                <IconButton variant="plain" className="om-gallery-round-button" aria-label={t("Previous Brand Kit")} disabled={busy || total < 2} onClick={() => onNavigate(-1)} icon={<RemixIcon name="arrow-left-line" size={18} />} />
+                <IconButton variant="plain" className="om-gallery-round-button" aria-label={t("Next Brand Kit")} disabled={busy || total < 2} onClick={() => onNavigate(1)} icon={<RemixIcon name="arrow-right-line" size={18} />} />
               </div>
               <div className="om-media-detail-body om-brand-detail-body">
                 <header className="om-brand-heading">
                   <h1 className="om-media-detail-title">{kit.name}</h1>
-                  {!processing && <Menu modal={false} align="end" className="om-selection-panel om-menu-panel" aria-label={t("Brand Kit actions")} trigger={<button className="om-gallery-round-button" disabled={busy} aria-label={t("Brand Kit actions")}><RemixIcon name="more-line" size={18} /></button>}>
+                  {!processing && <Menu modal={false} align="end" className="om-selection-panel om-menu-panel" aria-label={t("Brand Kit actions")} trigger={<IconButton variant="plain" className="om-gallery-round-button" disabled={busy} aria-label={t("Brand Kit actions")} icon={<RemixIcon name="more-line" size={18} />} />}>
                     {ready && <MenuItem onClick={() => setEditing(true)}>{t("Edit brand styles")}</MenuItem>}
                     {ready && !kit.catalogId && <MenuItem onClick={() => void onAction("rescan", { rescan: true }).catch(() => {})}>{t("Scan website again")}</MenuItem>}
                     <MenuItem onClick={() => setDeleting(true)}>{t("Delete Brand Kit")}</MenuItem>
@@ -70,21 +72,21 @@ export const BrandKitDetail = memo(function BrandKitDetail({ kit, busy, onAction
                 </header>
                 <TemplateSourceLink template={template} className="om-media-detail-creator om-media-detail-website" />
                 <div className="om-control-row"><span className="om-badge">{t("Brand Kit")}</span><span className="om-badge">{t("Style only")}</span>{kit.category && <span className="om-badge">{t(kit.category)}</span>}</div>
-                {refreshFailed && <div className="om-card om-card-stack" role="status"><span className="om-muted">{t("Could not refresh Brand Kit status")}</span><button className="om-button" onClick={onRefresh}>{t("Retry")}</button></div>}
+                {refreshFailed && <div className="om-card om-card-stack" role="status"><span className="om-muted">{t("Could not refresh Brand Kit status")}</span><Button variant="ghost" className="om-button h-auto" onClick={onRefresh}>{t("Retry")}</Button></div>}
                 {processing ? <div className="om-card om-card-stack" role="status">
                   <div className="om-control-row"><span className="om-muted">{t(brandStage[kit.state])}</span><RemixIcon name="loader-4-line" className="om-busy-icon" size={16} /></div>
                   <ProgressBar value={kit.progress} label={t(brandStage[kit.state])} />
-                  <button className="om-button" disabled={busy} onClick={() => void onAction("cancel").catch(() => {})}>{t("Cancel extraction")}</button>
-                </div> : !ready ? <div className="om-card om-card-stack" role="status"><h2 className="om-subtitle">{t(brandStage[kit.state])}</h2><p className="om-muted">{t(kit.error || "You can retry this website at any time.")}</p><button className="om-button" disabled={busy} onClick={() => void onAction("retry").catch(() => {})}>{t("Retry extraction")}</button></div> : null}
+                  <Button variant="ghost" className="om-button h-auto" disabled={busy} onClick={() => void onAction("cancel").catch(() => {})}>{t("Cancel extraction")}</Button>
+                </div> : !ready ? <div className="om-card om-card-stack" role="status"><h2 className="om-subtitle">{t(brandStage[kit.state])}</h2><p className="om-muted">{t(kit.error || "You can retry this website at any time.")}</p><Button variant="ghost" className="om-button h-auto" disabled={busy} onClick={() => void onAction("retry").catch(() => {})}>{t("Retry extraction")}</Button></div> : null}
                 <div className="om-media-detail-actions">
-                  <button className="om-button" data-primary disabled={busy || !ready} onClick={onCopy}><RemixIcon name="file-copy-line" size={16} />{t("Copy for Agent")}</button>
-                  <button className="om-button" disabled={busy || !ready} onClick={onDownload}><RemixIcon name="download-2-line" size={16} />{t("Download package")}</button>
+                  <Button variant="ghost" className="om-button h-auto" data-primary disabled={busy || !ready} onClick={onCopy}><RemixIcon name="file-copy-line" size={16} />{t("Copy for Agent")}</Button>
+                  <Button variant="ghost" className="om-button h-auto" disabled={busy || !ready} onClick={onDownload}><RemixIcon name="download-2-line" size={16} />{t("Download package")}</Button>
                 </div>
                 {ready && <>
                   <section className="om-media-detail-prompt" aria-label={t('Brand Kit instruction')}>
-                    <header><h3>{t('Brand Kit instruction')}</h3><button className="om-button" onClick={onCopy}><RemixIcon name="file-copy-line" size={14} />{t('Copy')}</button></header>
+                    <header><h3>{t('Brand Kit instruction')}</h3><Button variant="ghost" className="om-button h-auto" onClick={onCopy}><RemixIcon name="file-copy-line" size={14} />{t('Copy')}</Button></header>
                     <p className="om-media-detail-prompt-text" data-collapsed={!expanded}>{brandKitInstruction(kit)}</p>
-                    <button className="om-text-link om-media-detail-expand" data-quiet aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{t(expanded ? 'Show less' : 'Show instruction')}<RemixIcon name="arrow-down-s-line" size={14} /></button>
+                    <Button variant="plain" className="om-text-link om-media-detail-expand" data-quiet aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{t(expanded ? 'Show less' : 'Show instruction')}<RemixIcon name="arrow-down-s-line" size={14} /></Button>
                   </section>
                   <dl className="om-media-detail-metadata">
                     <div><dt>{t('Duration')}</dt><dd>{t('{value}s', { value: brandKitShowcase.duration })}</dd></div>
@@ -119,21 +121,21 @@ export const BrandKitDetail = memo(function BrandKitDetail({ kit, busy, onAction
                 )}
               </p>
               <div className="om-brand-actions">
-                <button
-                  className="om-button"
+                <Button variant="ghost"
+                  className="om-button h-auto"
                   disabled={busy}
                   onClick={() => setDeleting(false)}
                 >
                   {t("Cancel")}
-                </button>
-                <button
-                  className="om-button"
+                </Button>
+                <Button variant="ghost"
+                  className="om-button h-auto"
                   data-primary
                   disabled={busy}
                   onClick={() => void onAction("delete").catch(() => {})}
                 >
                   {t("Delete")}
-                </button>
+                </Button>
               </div>
             </SettingsDialog>
           )}
@@ -182,7 +184,7 @@ function BrandKitVideo({ kit, poster, onRetry, busy, enabled }: { kit: BrandKit;
       onLoadedData={() => { setReady(true); setWaiting(false); }} onCanPlay={() => setWaiting(false)} onPlaying={() => setWaiting(false)} onWaiting={() => setWaiting(true)} onStalled={() => setWaiting(true)} onPause={() => setWaiting(false)} onError={() => { setFailed(true); setWaiting(false); }} />}
     {kit.preview && waiting && !failed && <div className="om-media-detail-loading" role="status"><span>{t("Loading preview…")}</span><Skeleton className="om-media-detail-progress" /></div>}
     {(!kit.preview || failed) && <div className="om-media-detail-failure" role="status"><span>{t("Preview unavailable. Try again.")}</span>
-      <button disabled={busy} onClick={() => { if (kit.preview) { setReady(false); setFailed(false); setWaiting(true); setAttempt(n => n + 1); } else onRetry(); }}>{t(kit.preview ? "Retry" : "Retry preview")}</button>
+      <Button variant="plain" disabled={busy} onClick={() => { if (kit.preview) { setReady(false); setFailed(false); setWaiting(true); setAttempt(n => n + 1); } else onRetry(); }}>{t(kit.preview ? "Retry" : "Retry preview")}</Button>
     </div>}
   </div>;
 }
@@ -245,17 +247,17 @@ function BrandStyleEditor({
           </label>
         ))}
         <div className="om-brand-actions">
-          <button
+          <Button variant="ghost"
             type="button"
-            className="om-button"
+            className="om-button h-auto"
             disabled={busy}
             onClick={close}
           >
             {t("Cancel")}
-          </button>
-          <button className="om-button" data-primary disabled={busy}>
+          </Button>
+          <Button variant="ghost" className="om-button h-auto" data-primary disabled={busy}>
             {t("Save styles")}
-          </button>
+          </Button>
         </div>
       </form>
     </SettingsDialog>

@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
 import { useCallback } from "react";
@@ -100,12 +102,12 @@ export function PreviewOverlays({
         <div className="pointer-events-auto absolute top-2 left-1/2 -translate-x-1/2 z-60 flex items-center gap-2 rounded-full border border-studio-accent/40 bg-black/70 px-2.5 py-1">
           <span className="h-1.5 w-1.5 rounded-full bg-studio-accent" aria-hidden="true" />
           <span className="text-2xs text-neutral-200">{t("Editing captions")}</span>
-          <button
+          <Button variant="plain"
             type="button"
             onClick={exitCaptionMode}
             className="rounded-sm text-2xs text-neutral-400 underline underline-offset-2 hover:text-neutral-100 focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-studio-accent"
           >
-            {t("Exit")}</button>
+            {t("Exit")}</Button>
         </div>
         {captionSyncError && (
           <div
@@ -113,20 +115,19 @@ export function PreviewOverlays({
             className="pointer-events-auto absolute top-10 left-1/2 -translate-x-1/2 z-60 flex items-center gap-2 rounded-full border border-red-500/50 bg-red-950/90 px-2.5 py-1"
           >
             <span className="text-2xs text-red-200">{captionSyncError}</span>
-            <button
+            <Button variant="plain"
               type="button"
               onClick={() => useCaptionStore.getState().retrySave?.()}
               className="rounded-sm text-2xs text-red-100 underline underline-offset-2 hover:text-white"
             >
-              {t("Retry")}</button>
-            <button
+              {t("Retry")}</Button>
+            <IconButton variant="plain"
               type="button"
               onClick={() => useCaptionStore.getState().setSyncError(null)}
               aria-label={t("Dismiss")}
               className="rounded-sm px-0.5 text-2xs text-red-300/70 hover:text-red-100"
-            >
-              ✕
-            </button>
+              icon="✕"
+            />
           </div>
         )}
       </>
@@ -154,12 +155,12 @@ export function PreviewOverlays({
       )}
       {gestureOverlay}
       {captionModelPresent && captionDismissed && (
-        <button
+        <Button variant="plain"
           type="button"
           onClick={enterCaptionMode}
           className="pointer-events-auto absolute top-2 left-1/2 -translate-x-1/2 z-60 rounded-full border border-neutral-700 bg-black/60 px-2.5 py-1 text-2xs text-neutral-300 transition-colors hover:border-studio-accent/50 hover:text-accent-ink focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-studio-accent"
         >
-          {t("Edit captions")}</button>
+          {t("Edit captions")}</Button>
       )}
     </>
   );

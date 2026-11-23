@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 /**
  * The rows a track header draws BELOW its own line: one per disclosed keyframe
@@ -51,7 +52,7 @@ function PropertyGroupNavigation({
   };
   return (
     <span className="flex shrink-0 items-center gap-0.5">
-      <button
+      <IconButton variant="plain"
         type="button"
         aria-label={t("Previous {label} keyframe", { label: t(label) })}
         disabled={!navigation.prevKeyframe}
@@ -60,11 +61,10 @@ function PropertyGroupNavigation({
           event.stopPropagation();
           seekTo(navigation.prevKeyframe);
         }}
-      >
-        ‹
-      </button>
+        icon="‹"
+      />
       {children}
-      <button
+      <IconButton variant="plain"
         type="button"
         aria-label={t("Next {label} keyframe", { label: t(label) })}
         disabled={!navigation.nextKeyframe}
@@ -73,9 +73,8 @@ function PropertyGroupNavigation({
           event.stopPropagation();
           seekTo(navigation.nextKeyframe);
         }}
-      >
-        ›
-      </button>
+        icon="›"
+      />
     </span>
   );
 }
@@ -151,7 +150,7 @@ export function PropertyGroupHeaderRow({
         expandedElement={expandedElement}
         onSeek={onSeek}
       >
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-pressed={!!navigation.currentKeyframe}
           aria-label={t("{value0} {label} keyframe", { value0: t(navigation.currentKeyframe ? "Remove" : "Add"), label: t(label) })}
@@ -166,9 +165,8 @@ export function PropertyGroupHeaderRow({
               void onTogglePropertyGroupKeyframe?.(expandedElement, toggleTarget);
             }
           }}
-        >
-          {navigation.currentKeyframe ? "◆" : "◇"}
-        </button>
+          icon={navigation.currentKeyframe ? "◆" : "◇"}
+        />
       </PropertyGroupNavigation>
       <span
         className="min-w-0 flex-1 truncate text-right tabular-nums text-text-muted"
@@ -309,7 +307,7 @@ export function AutomationLaneHeaderRow({
           button not working. Switching the carve off in the rack is what
           removes them, all together, which is how they were made. */}
       {onRemove && target !== null && !isCarve && (
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Remove {label} automation", { label: t(label) })}
           title={t("Remove {label} automation", { label: t(label) })}
@@ -322,9 +320,8 @@ export function AutomationLaneHeaderRow({
             event.stopPropagation();
             onRemove(target);
           }}
-        >
-          ×
-        </button>
+          icon="×"
+        />
       )}
     </div>
   );

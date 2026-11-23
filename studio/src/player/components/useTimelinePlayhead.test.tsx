@@ -340,8 +340,8 @@ describe("useTimelinePlayhead wheel zoom", () => {
     vi.useRealTimers();
   });
 
-  /** A wheel step 432px in, previewed for one frame. */
-  const previewWheel = (scroll: HTMLDivElement, init: WheelEventInit) =>
+  /** A wheel step 432px in, optionally advancing to its layout frame. */
+  const previewWheel = (scroll: HTMLDivElement, init: WheelEventInit, advance = true) =>
     act(() => {
       const event = new WheelEvent("wheel", { deltaY: -50, cancelable: true, ...init });
       // happy-dom's WheelEvent drops the MouseEvent fields of its init.
@@ -351,7 +351,7 @@ describe("useTimelinePlayhead wheel zoom", () => {
         metaKey: { value: Boolean(init.metaKey) },
       });
       scroll.dispatchEvent(event);
-      vi.advanceTimersToNextFrame();
+      if (advance) vi.advanceTimersToNextFrame();
     });
 
   /** A wheel step, then the rest at which its zoom is laid out. */
@@ -369,7 +369,7 @@ describe("useTimelinePlayhead wheel zoom", () => {
     expect(usePlayerStore.getState().manualZoomPercent).toBeGreaterThan(100);
   });
 
-  it("keeps previewing a pinch through a scroll, laying it out only at rest", () => {
+  it("lays out a pinch before paint and keeps its scale through a scroll", () => {
     const scroll = scrollBox(0);
     mount({ scroll });
     previewWheel(scroll, { ctrlKey: true });
@@ -377,7 +377,7 @@ describe("useTimelinePlayhead wheel zoom", () => {
       scroll.dispatchEvent(new Event("scroll"));
       vi.advanceTimersToNextFrame();
     });
-    expect(usePlayerStore.getState().timelinePps).toBe(100);
+    expect(usePlayerStore.getState().timelinePps).toBeGreaterThan(100);
     act(() => vi.advanceTimersByTime(200));
     expect(usePlayerStore.getState().timelinePps).toBeGreaterThan(100);
   });
@@ -385,7 +385,7 @@ describe("useTimelinePlayhead wheel zoom", () => {
   it("lays a pending pinch out at once when the timeline is pressed", () => {
     const scroll = scrollBox(0);
     mount({ scroll });
-    previewWheel(scroll, { ctrlKey: true });
+    previewWheel(scroll, { ctrlKey: true }, false);
     expect(usePlayerStore.getState().timelinePps).toBe(100);
     act(() => {
       scroll.dispatchEvent(new Event("pointerdown"));

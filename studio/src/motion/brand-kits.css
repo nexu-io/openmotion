@@ -166,6 +166,32 @@
 .om-brand-detail .om-brand-swatches { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .om-brand-library .om-gallery-header .om-gallery-collection-tabs { flex-shrink: 0; }
+/* Row-major CSS grid with fixed card geometry prevents multi-column rebalancing and jitter while artwork loads or paginates. */
+.om-brand-library .om-gallery-masonry {
+  columns: auto;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--motion-space-12);
+  align-items: start;
+}
+.om-brand-library .om-gallery-masonry > :is(.om-gallery-card, .om-gallery-intro, .om-gallery-skeleton) {
+  margin-bottom: 0;
+}
+.om-brand-library .om-gallery-card {
+  contain: layout style;
+}
+@media (min-width: 1800px) {
+  .om-brand-library .om-gallery-masonry { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+@media (max-width: 1199px) {
+  .om-brand-library .om-gallery-masonry { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 849px) {
+  .om-brand-library .om-gallery-masonry { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 420px) {
+  .om-brand-library .om-gallery-masonry { gap: var(--motion-space-8); }
+}
 @media (min-width: 700px) {
   .om-brand-library .om-gallery-header > .om-gallery-header-actions { flex-basis: 540px; }
 }

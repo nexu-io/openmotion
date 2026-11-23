@@ -1,5 +1,6 @@
 import type { GalleryTemplate } from '../../../shared/catalog';
 import { discoveryIndustries, discoveryPurposes } from './templateDiscoveryTaxonomy';
+import { sourceMessage } from '../i18n/messages';
 
 export type Facet = 'brand' | 'uses' | 'styles' | 'industries' | 'creationModels' | 'colors' | 'ratio' | 'duration';
 export const templateFacets: [Facet, string][] = [
@@ -37,6 +38,28 @@ export function relatedTemplates(template: GalleryTemplate, catalog: GalleryTemp
     + (['styles', 'uses', 'tags'] as const).reduce((sum, key) => sum + (item[key] ?? []).filter(value => template[key]?.includes(value)).length, 0);
   return catalog.filter(item => item.id !== template.id).map(item => ({ item, score: score(item) }))
     .filter(item => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 6).map(({ item }) => item);
+}
+/** Explicit catalogue matches explain recommendations without inferring a personal task. */
+export function relatedTemplateMatches(template: GalleryTemplate, candidate: GalleryTemplate) {
+  const normalize = (value: string) => sourceMessage(value.trim()).toLocaleLowerCase();
+  const shared = (values: string[], other: string[]) => {
+    const matches = new Set(other.map(normalize));
+    return [...new Map(values.filter(value => matches.has(normalize(value))).map(value => [normalize(value), sourceMessage(value.trim())])).values()];
+  };
+  return {
+    purposes: shared(facetValues(template, 'uses'), facetValues(candidate, 'uses')),
+    styles: shared(facetValues(template, 'styles'), facetValues(candidate, 'styles')),
+    tags: shared(template.tags ?? [], candidate.tags ?? []),
+  };
+}
+/** Local review prioritizes the video's purpose, then motion; generic tags only break ties. */
+export function relatedTemplatesByTags(template: GalleryTemplate, catalog: GalleryTemplate[]): GalleryTemplate[] {
+  return catalog.filter(item => item.id !== template.id).map((item, index) => ({ item, index, ...relatedTemplateMatches(template, item) }))
+    .filter(candidate => candidate.purposes.length || candidate.styles.length)
+    .sort((a, b) => Number(b.purposes.length > 0) - Number(a.purposes.length > 0)
+      || b.purposes.length - a.purposes.length || b.styles.length - a.styles.length
+      || b.tags.length - a.tags.length || a.index - b.index)
+    .slice(0, 10).map(({ item }) => item);
 }
 export function randomTemplate(items: GalleryTemplate[], previousId?: string, random = Math.random): GalleryTemplate | undefined {
   const candidates = items.length > 1 ? items.filter(item => item.id !== previousId) : items;

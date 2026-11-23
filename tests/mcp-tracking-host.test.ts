@@ -64,7 +64,11 @@ test('real stdio asset read calls retain action, success/failure and duration th
     assert(started.every(start => finished.some(end => end.call_id === start.call_id && end.action === start.action)));
     assert(finished.every(p => p.tool_name === 'motion_assets' && Number.isInteger(p.duration_ms) && p.duration_ms >= 0));
     assert.equal(new Set(finished.map(p => p.call_id)).size, calls.length);
-    assert.doesNotMatch(JSON.stringify(events), /PRIVATE|base64|sourcePath|assetId|versionId/);
+    assert.equal(finished[2].invalid_field, 'versionId');
+    assert.equal(finished[2].validation_rule, 'missing');
+    assert.doesNotMatch(JSON.stringify(events), /PRIVATE|base64|sourcePath/);
+    assert(!JSON.stringify(events).includes(reference.assetId));
+    assert(!JSON.stringify(events).includes(reference.versionId));
     await saveTrackingPreference(store.directory, false);
     assert((await run())[0].content.some((item: any) => item.type === 'image'), 'Opt-out keeps read functional');
     assert.equal(events.length, 8, 'Opt-out prevents all new action events');
@@ -101,7 +105,7 @@ test('real stdio connections sharing an installation retain independent declared
       try {
         child.stdin.end([
           { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name, version: '1.2.3' } } },
-          { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'openmotion_get_project', arguments: { unrecognized: true } } },
+          { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'openmotion_get_project', arguments: { PRIVATE_KEY: true } } },
           { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'openmotion_media_use', arguments: { unrecognized: true } } },
         ].map(message => JSON.stringify(message) + '\n').join(''));
         await completed;
@@ -114,6 +118,9 @@ test('real stdio connections sharing an installation retain independent declared
     await Promise.all([run('codex-mcp-client'), run('dsh-mcp-client')]);
     assert.equal(events.length, 4);
     assert(events.every(e => e.event === 'mcp_tool_finished' && e.properties.accepted === false));
+    assert(events.filter(e => e.properties.tool_name === 'motion_get_project').every(e =>
+      e.properties.error_code === 'INVALID_ARGUMENT' && e.properties.invalid_field === 'unknown_field'));
+    assert.doesNotMatch(JSON.stringify(events), /PRIVATE_KEY/);
     assert.deepEqual(events.map(e => e.properties.tool_name).sort(), ['motion_get_project', 'motion_get_project', 'motion_media_use', 'motion_media_use']);
     assert.deepEqual(events.map(e => e.properties.host_agent).sort(), ['codex', 'codex', 'deepseek', 'deepseek']);
     assert.deepEqual(events.map(e => e.properties.mcp_client_name).sort(), ['codex-mcp-client', 'codex-mcp-client', 'dsh-mcp-client', 'dsh-mcp-client']);

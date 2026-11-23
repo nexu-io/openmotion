@@ -7,8 +7,11 @@ import { Check, RemixIcon } from "../../icons/RemixIcons";
 import { Select as BaseSelect } from "@base-ui/react/select";
 import { cn } from "./cn";
 import { fieldBase } from "./Input";
+import { FieldTrigger } from "./FormField";
+import { MenuPanel } from "./MenuPanel";
+import { SelectArrow } from "./SelectArrow";
 import { floatingMotion, POPUP_LAYER } from "./Menu";
-import type { PreviewState } from "./Button";
+import type { PreviewState } from "open-design-ui/button";
 import type { ReactNode } from "react";
 
 export interface SelectOption {
@@ -33,6 +36,8 @@ export interface SelectProps {
   onTrack?: () => void;
   disabled?: boolean;
   className?: string;
+  popupClassName?: string;
+  appearance?: "standard" | "boxed";
   "data-preview-state"?: PreviewState;
 }
 
@@ -44,6 +49,8 @@ export function Select({
   onTrack,
   disabled,
   className,
+  popupClassName,
+  appearance = "standard",
   "data-preview-state": previewState,
 }: SelectProps) {
   const rich = options.some(option => option.icon || option.description);
@@ -64,12 +71,13 @@ export function Select({
       }}
     >
       <BaseSelect.Trigger
+        render={appearance === "boxed" ? <FieldTrigger /> : undefined}
         aria-label={label}
         className={cn(
           fieldBase,
           "w-full cursor-pointer justify-between text-left",
           "data-[popup-open]:border-border-strong",
-          rich && "om-select-trigger",
+          appearance === "standard" && rich && "om-select-trigger",
           className,
         )}
         data-preview-state={previewState}
@@ -77,16 +85,19 @@ export function Select({
         {selected?.icon && <span className="om-select-icon" aria-hidden="true">{selected.icon}</span>}
         <BaseSelect.Value className="min-w-0 flex-1 truncate" />
         <BaseSelect.Icon className="shrink-0 text-text-4" aria-hidden="true">
-          <RemixIcon name="arrow-down-s-line" size={14} />
+          {appearance === "boxed" ? <SelectArrow /> : <RemixIcon name="arrow-down-s-line" size={14} />}
         </BaseSelect.Icon>
       </BaseSelect.Trigger>
 
       <BaseSelect.Portal>
         <BaseSelect.Positioner sideOffset={4} alignItemWithTrigger={false} className={POPUP_LAYER}>
           <BaseSelect.Popup
+            render={appearance === "boxed" ? <MenuPanel /> : undefined}
             className={cn(
-              "om-select-popup min-w-[var(--anchor-width)] rounded-md border border-border bg-surface py-1 shadow-menu",
+              appearance === "boxed" ? "om-select-popup motion-positioned-menu" :
+                "om-select-popup min-w-[var(--anchor-width)] rounded-md border border-border bg-surface py-1 shadow-menu",
               floatingMotion("duration-open"),
+              popupClassName,
             )}
           >
             <BaseSelect.List className="om-select-list" data-rich={rich || undefined}>

@@ -41,16 +41,18 @@ function paintWaveformBars(
   context: CanvasRenderingContext2D,
   bars: readonly BarGeometry[],
   height: number,
-  waveformBarRgb: string,
-  waveformBaselineRgb: string,
+  barColor: string,
+  baselineColor: string,
   amplitudes: readonly number[],
 ) {
   bars.forEach((bar, index) => {
     const opacity = loudnessToOpacity(amplitudes[index] ?? 0);
-    context.fillStyle = `rgb(${waveformBaselineRgb})`;
+    context.fillStyle = baselineColor;
+    context.globalAlpha = 1;
     context.fillRect(bar.x, height - 2, bar.width, 2);
+    context.fillStyle = barColor;
     const paint = (alpha: number, top: number, barHeight: number) => {
-      context.fillStyle = `rgba(${waveformBarRgb},${alpha.toFixed(2)})`;
+      context.globalAlpha = Number(alpha.toFixed(2));
       context.fillRect(bar.x, top, bar.width, barHeight);
     };
     const faded = bar.height * bar.gain;
@@ -59,6 +61,7 @@ function paintWaveformBars(
       paint(opacity * FADE_GHOST_OPACITY, height - bar.height, bar.height - faded);
     }
   });
+  context.globalAlpha = 1;
 }
 
 export function drawWaveformCanvas(
@@ -95,11 +98,11 @@ export function drawWaveformCanvas(
     gain: fades ? fadeGain(clipFraction(index) * fades.duration, fades.duration, fades) : 1,
   }));
   const channelToken = muted ? "--timeline-waveform-muted-rgb" : "--timeline-waveform-bar-rgb";
-  const waveformBarRgb = getComputedStyle(canvas).getPropertyValue(channelToken);
-  const waveformBaselineRgb = getComputedStyle(canvas).getPropertyValue(
-    "--timeline-waveform-baseline-rgb",
-  );
-  paintWaveformBars(context, bars, height, waveformBarRgb, waveformBaselineRgb, amplitudes);
+  const style = getComputedStyle(canvas);
+  const audioInk = canvas.closest(".timeline-clip.is-audio") ? style.color : "";
+  const barColor = audioInk || `rgb(${style.getPropertyValue(channelToken)})`;
+  const baselineColor = audioInk || `rgb(${style.getPropertyValue("--timeline-waveform-baseline-rgb")})`;
+  paintWaveformBars(context, bars, height, barColor, baselineColor, amplitudes);
 }
 
 /** Bounded waveform subscriber; cache, cancellation and dedupe live in one scheduler. */
@@ -243,7 +246,8 @@ export const AudioWaveform = memo(function AudioWaveform({
         )}
         <canvas
           ref={canvasRef}
-          className="absolute bottom-0"
+          className="timeline-waveform-canvas absolute bottom-0"
+          data-waveform-muted={muted || undefined}
           style={{
             left: 0,
             width: "100%",

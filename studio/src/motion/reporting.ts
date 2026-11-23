@@ -24,6 +24,15 @@ export const searchKeyword = (query: string) => query.replace(/[\u0000-\u001f\u0
 /** A catalogue id is sent only when it is a bounded slug; anything else is left out, never rewritten. */
 export const slugField = <K extends string>(key: K, value: string | undefined): Partial<Record<K, string>> =>
   value !== undefined && slug.test(value) ? { [key]: value } as Record<K, string> : {};
+/** A catalogue model key `provider:modelId` as two bounded fields. Custom providers (`custom-…`) and ids outside the rules are left out. */
+export function modelFields(key: string | null | undefined): { model_provider?: string; model_id?: string } {
+  if (!key) return {};
+  const split = key.indexOf(':');
+  const provider = split > 0 ? key.slice(0, split) : undefined;
+  const model = split > 0 ? key.slice(split + 1) : key;
+  if (provider?.startsWith('custom-')) return {};
+  return { ...slugField('model_provider', provider), ...(/^[A-Za-z0-9_.-]{1,128}$/.test(model) ? { model_id: model } : {}) };
+}
 /** Whether the application is shown inside a host (same rule as the studio page view). */
 export const embeddedView = () => new URLSearchParams(location.search).get('embed') === '1';
 /** A catalogue option as a stable id. Display text never leaves the browser; an option that cannot be reduced to a slug is left out. */

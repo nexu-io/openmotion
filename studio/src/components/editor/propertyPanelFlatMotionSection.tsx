@@ -1,3 +1,4 @@
+import { OverflowText } from "../ui/OverflowText";
 import { useI18n, translate, type Translate } from "../../i18n/I18n";
 import { scopedElementKey } from "../../hooks/gsapKeyframeCacheHelpers";
 import type { GsapAnimation } from "@hyperframes/core/gsap-parser";
@@ -81,8 +82,8 @@ export function FlatTimingRow({
   };
 
   const cell = (label: string, value: string, onCommit: (next: string) => void) => (
-    <div className="grid gap-px">
-      <span className="text-[9px] text-panel-text-4">{t(label)}</span>
+    <div className="grid min-w-0 gap-px">
+      <OverflowText text={t(label)} className="block min-w-0 truncate text-[9px] text-panel-text-4" />
       <span className="border-b border-panel-border-input/50 font-mono text-[11px] text-panel-text-0 hover:border-panel-border-input">
         <CommitField
           value={value}

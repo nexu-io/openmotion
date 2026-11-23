@@ -352,6 +352,93 @@
   font-size: var(--motion-text-sm);
   margin-bottom: 12px;
 }
+.omd-recommendation-card {
+  container-type: inline-size;
+  display: grid;
+  gap: var(--motion-space-12);
+  padding: var(--motion-space-12);
+  border: 1px solid var(--motion-border);
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-panel);
+}
+.omd-recommendation-welcome { display: grid; gap: var(--motion-space-8); }
+.omd-recommendation-welcome p { margin: 0; }
+.omd-recommendation-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--motion-space-8);
+  max-width: 660px;
+  width: 100%;
+}
+@container (min-width: 360px) {
+  .omd-recommendation-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+.omd-recommendation-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: var(--motion-radius-lg);
+  background: var(--motion-bg);
+}
+.omd-recommendation-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  background: var(--motion-inset);
+  cursor: pointer;
+}
+.omd-recommendation-cover video,
+.omd-recommendation-cover img,
+.omd-recommendation-placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.omd-recommendation-cover:focus-visible {
+  outline: 2px solid var(--motion-selected);
+  outline-offset: -2px;
+}
+.omd-recommendation-preview-label {
+  position: absolute;
+  bottom: var(--motion-space-6);
+  right: var(--motion-space-6);
+  padding: var(--motion-space-2) var(--motion-space-6);
+  border-radius: var(--motion-radius-sm);
+  background: var(--motion-media-action-bg);
+  color: var(--motion-overlay-ink);
+  font-size: var(--motion-text-xs);
+}
+.omd-recommendation-info {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  flex: 1;
+  min-width: 0;
+  gap: var(--motion-space-6);
+  padding: var(--motion-space-10);
+}
+.omd-recommendation-heading { display: flex; align-items: baseline; gap: var(--motion-space-6); min-width: 0; }
+.omd-recommendation-heading strong { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--motion-text-md); font-weight: var(--motion-weight-semibold); }
+.omd-recommendation-heading span { flex-shrink: 0; color: var(--motion-dim); font-size: var(--motion-text-xs); }
+.omd-recommendation-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  min-height: 3em;
+  margin: 0;
+  color: var(--motion-dim);
+  font-size: var(--motion-text-xs);
+  line-height: var(--motion-leading-body);
+}
+.omd-recommendation-clone { width: 100%; min-height: 36px; }
 .omd-list-actions {
   display: flex;
   flex-wrap: wrap;
@@ -416,58 +503,6 @@
   }
 }
 
-/* Pinned DSH 0.2.2 layout adapter. Only a mounted OpenMotion tab opts in.
-   Data-slot selectors keep DSH's hashed CSS classes out of this integration. */
-[data-slot="root"] > div:has(.omd-studio-seat) {
-  grid-template-columns: 0 minmax(0, 1fr) 360px !important;
-}
-[data-slot="root"]
-  > div:has(.omd-studio-seat)
-  > div:has(> [data-slot="sidebar"]),
-[data-slot="root"] > div:has(.omd-studio-seat) > [data-side],
-[data-slot="root"] > div:has(.omd-studio-seat) > [data-shell-leading],
-[data-slot="root"] > div:has(.omd-studio-seat) > [data-sidebar-mask] {
-  display: none;
-}
-[data-slot="root"]
-  > div:has(.omd-studio-seat)
-  > div:has([data-slot="main.conversation"]) {
-  grid-area: 1 / 3;
-  border-left: 1px solid var(--dsw-alias-border-l3);
-}
-[data-slot="root"] > div:has(.omd-studio-seat) > [data-rightbar-col] {
-  grid-area: 1 / 2;
-}
-[data-slot="root"] > div:has(.omd-studio-seat) [data-sidebar-right-panel] {
-  position: relative !important;
-  inset: auto !important;
-  width: 100% !important;
-  height: 100% !important;
-  border: 0;
-}
-/* The tab body carries the workspace controls; retain the strip if another tab
-   is opened, so files and other DSH tools remain reachable. */
-[data-slot="root"]
-  > div:has(.omd-studio-seat)
-  [data-dockkit-content]:has(.omd-studio-seat):not(
-    :has([data-dockkit-tab] ~ [data-dockkit-tab])
-  )
-  > div:has(> [data-dockkit-strip]) {
-  display: none;
-}
-[data-slot="root"] > div:has(.omd-studio-seat) [data-sidebar-right-mode],
-[data-slot="root"] > div:has(.omd-studio-seat) [data-sidebar-right-toggle],
-[data-slot="root"] > div:has(.omd-studio-seat) [data-dockkit-split-control] {
-  display: none;
-}
-[data-slot="root"] > div:has(.omd-studio-seat[data-focused="true"]) {
-  grid-template-columns: 0 minmax(0, 1fr) 0 !important;
-}
-[data-slot="root"]
-  > div:has(.omd-studio-seat[data-focused="true"])
-  > div:has([data-slot="main.conversation"]) {
-  visibility: hidden;
-}
 .omd-studio-seat {
   height: 100%;
   min-height: 0;
@@ -485,109 +520,21 @@
   min-height: 0;
   border: 0;
 }
-.omd-editor-bar {
-  height: 48px;
-  flex: 0 0 48px;
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--motion-border-subtle);
+
+/* A read-only video preview stays inside the plugin; the host shell is untouched. */
+.omd-video-preview {
+  margin: auto;
+  width: min(1000px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: var(--motion-space-12);
+  border: 1px solid var(--motion-border);
+  border-radius: var(--motion-radius-xl);
+  background: var(--motion-panel);
+  color: var(--motion-text);
+  box-shadow: var(--motion-shadow-lg);
 }
-.omd-editor-location,
-.omd-editor-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.omd-editor-location strong {
-  font-size: var(--motion-text-md);
-  font-weight: var(--motion-weight-semibold);
-}
-.omd-editor-divider {
-  height: 16px;
-  border-left: 1px solid var(--motion-border);
-  margin: 0 4px;
-}
-.omd-agent-heading {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-  color: var(--motion-strong);
-  font-family: var(--motion-font-sans);
-}
-.omd-agent-heading strong {
-  font-size: var(--motion-text-md);
-  font-weight: var(--motion-weight-semibold);
-}
-.omd-agent-heading > span {
-  color: var(--motion-dim);
-  font-size: var(--motion-text-xs);
-}
-body:has(.omd-studio-seat) .omd-agent-heading {
-  display: flex;
-}
-.omd-agent-intro {
-  display: none;
-  font-family: var(--motion-font-sans);
-  padding: 24px 4px 16px;
-}
-body:has(.omd-studio-seat) [data-phase="hero"] .omd-agent-intro {
-  display: block;
-}
-.omd-agent-intro h2 {
-  font-size: var(--motion-text-heading);
-  font-weight: var(--motion-weight-semibold);
-  line-height: var(--motion-leading-tight);
-  color: var(--motion-strong);
-  margin: 16px 0 8px;
-}
-.omd-agent-intro p {
-  font-size: var(--motion-text-md);
-  line-height: var(--motion-leading-body);
-  color: var(--motion-muted);
-  margin: 0 0 12px;
-}
-.omd-agent-intro small {
-  display: block;
-  font-size: var(--motion-text-xs);
-  line-height: var(--motion-leading-body);
-  color: var(--motion-dim);
-}
-body:has(.omd-studio-seat)
-  [data-phase="hero"]
-  div:has(> span > [data-slot="conversation.hero.brand.mark"]) {
-  display: none;
-}
-body:has(.omd-studio-seat) [data-composer-seat] {
-  padding-inline: 16px;
-}
-body:has(.omd-studio-seat) [contenteditable="true"] {
-  max-height: 180px;
-  overflow-y: auto;
-}
-body:has(.omd-studio-seat)
-  [data-slot="conversation.input.right"]:has(
-    button[title="Open current OpenMotion project"]
-  ) {
-  display: none !important;
-}
-@media (max-width: 660px) {
-  .omd-editor-bar {
-    padding-inline: 8px;
-  }
-  .omd-editor-location {
-    gap: 4px;
-  }
-}
-body:has(.omd-studio-seat) [data-slot="conversation.header"] > header {
-  min-height: 48px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--dsw-alias-border-l3);
-}
-body:has(.omd-studio-seat) [data-phase="hero"] [data-conversation-scroll] {
-  justify-content: flex-start;
-  padding-top: 24px;
-}
+.omd-video-preview::backdrop { background: var(--motion-overlay); backdrop-filter: var(--motion-media-preview-backdrop); }
+.omd-video-preview header strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.omd-video-preview header button { flex-shrink: 0; }
+.omd-video-preview header { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-12); margin-bottom: var(--motion-space-12); }
+.omd-video-preview video { display: block; width: 100%; max-height: calc(100dvh - 140px); object-fit: contain; background: var(--motion-inset); }

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createHappyDomRootHarness } from "../../player/components/testRootHarness";
 import { usePlayerStore, type TimelineElement } from "../../player/store/playerStore";
 import type { CommitDomAttributeBatch } from "../../hooks/domEditCommitTypes";
@@ -14,6 +14,8 @@ import {
 } from "./linkedSpeedEdits";
 import { useVolumeAutomation } from "./useVolumeAutomation";
 import { useLinkedClipPreferences } from "../../utils/linkedClipPreferences";
+import { parseClipSpeedSource } from "./clipSpeedTiming";
+import { parseTimelineFromDOM } from "../../player/lib/timelineDOM";
 
 const clip = (id: string, tag: string, link?: string): TimelineElement => ({
   id,
@@ -121,6 +123,60 @@ function renderLinked(sel: DomEditSelection, commit: CommitDomAttributeBatch) {
 }
 
 describe("linked speed edits", () => {
+  beforeEach(() => usePlayerStore.setState({ rippleEditEnabled: false, timelineLinkageEnabled: false }));
+  it.each([
+    { rootSource: undefined, rootHasPeers: false },
+    { rootSource: 'index.html', rootHasPeers: false },
+    { rootSource: undefined, rootHasPeers: true },
+    { rootSource: 'index.html', rootHasPeers: true },
+  ])('uses nested peers despite repeated root identities ($rootSource, rootHasPeers=$rootHasPeers)', async ({ rootSource, rootHasPeers }) => {
+    const media = '<video id="v" data-start="0" data-duration="4" data-track-index="0" data-link="pair"></video>';
+    const html = `<section data-composition-id="scene" data-duration="8">${media}<audio id="partner" data-start="0" data-duration="4" data-track-index="-1" data-link="pair"></audio><video id="nested-next" data-start="4" data-duration="4" data-track-index="0"></video></section>`;
+    const rootHtml = rootHasPeers ? html.replace('nested-next', 'root-next')
+      : `<section data-composition-id="scene" data-duration="8">${media}</section>`;
+    const rootElements = parseTimelineFromDOM(parseClipSpeedSource(rootHtml), Infinity)
+      .map(el => ({ ...el, sourceFile: rootSource }));
+    const nestedVideo = parseTimelineFromDOM(parseClipSpeedSource(html), Infinity).find(el => el.domId === 'v')!;
+    expect(nestedVideo.hfId).toBeTruthy();
+    expect(rootElements.find(el => el.domId === 'v')?.hfId).toBe(nestedVideo.hfId);
+    usePlayerStore.setState({ elements: rootElements, rippleEditEnabled: true });
+    useLinkedClipPreferences.setState({ linkedSelection: true });
+    const sel = { ...selection('v'), hfId: nestedVideo.hfId, sourceFile: 'compositions/scene.html', compositionPath: 'compositions/scene.html' };
+    let saved = '';
+    const commit = vi.fn<CommitDomAttributeBatch>(async (target, _ops, options) => {
+      expect(target.sourceFile).toBe('compositions/scene.html');
+      options.validateContent?.(html);
+      saved = options.prepareContent?.(html) ?? '';
+      return true;
+    });
+    const probe = renderLinked(sel, commit);
+    expect(await probe.linked()?.commitRate?.('2')).toBe(true);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(saved).toMatch(/id="v"[^>]*data-duration="2"/);
+    expect(saved).toMatch(/id="partner"[^>]*data-duration="2"/);
+    expect(saved).toMatch(/id="nested-next"[^>]*data-start="2"/);
+    expect(usePlayerStore.getState().elements).toEqual(rootElements);
+  });
+
+  it.each(['video', 'audio'])('retimes a nested %s absent from the flat store with its source peers', async tag => {
+    const html = `<template><section data-composition-id="scene" data-duration="8"><${tag} id="nested" data-start="0" data-duration="4" data-track-index="0" data-link="pair"></${tag}><audio id="partner" data-start="0" data-duration="4" data-track-index="-1" data-link="pair"></audio><${tag} id="next" data-start="4" data-duration="4" data-track-index="0"></${tag}></section></template>`;
+    usePlayerStore.setState({ elements: [{ ...clip('host', 'div'), compositionSrc: 'compositions/scene.html' }], rippleEditEnabled: true });
+    useLinkedClipPreferences.setState({ linkedSelection: true });
+    const sel = { ...selection('nested'), tagName: tag, sourceFile: 'compositions/scene.html', compositionPath: 'compositions/scene.html' };
+    let saved = '';
+    const commit = vi.fn<CommitDomAttributeBatch>(async (_selection, _ops, options) => {
+      options.validateContent?.(html);
+      saved = options.prepareContent?.(html) ?? '';
+      return true;
+    });
+    const probe = renderLinked(sel, commit);
+    expect(await probe.linked()?.commitRate?.('2')).toBe(true);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(saved).toMatch(/id="nested"[^>]*data-duration="2"/);
+    expect(saved).toMatch(/id="partner"[^>]*data-duration="2"/);
+    expect(saved).toMatch(new RegExp(`id="next"[^>]*data-start="${tag === 'video' ? 2 : 4}"`));
+  });
+
   it("fans a playback-rate edit out to the partner in one batch commit", async () => {
     usePlayerStore.getState().setElements(elements);
     const commit = vi.fn<CommitDomAttributeBatch>(async () => true);
@@ -131,9 +187,41 @@ describe("linked speed edits", () => {
     expect(commit).toHaveBeenCalledTimes(1);
     const [, ops, options] = commit.mock.calls[0] ?? [];
     expect(ops).toEqual([{ type: "attribute", property: "playback-rate", value: "2" }]);
-    expect(options?.prepareContent?.(source)).toContain(
-      'id="talk-audio" data-start="0" data-duration="4" data-link="lk-1" data-automation="{&quot;version&quot;:1,&quot;lanes&quot;:[]}" data-playback-rate="2"',
-    );
+    options?.validateContent?.(source);
+    const next = options?.prepareContent?.(source) ?? '';
+    expect(next).toMatch(/id="talk"[^>]*data-duration="2"/);
+    expect(next).toMatch(/id="talk-audio"[^>]*data-duration="2"/);
+  });
+
+  it("pins fit zoom before a speed edit and preserves an existing manual scale", async () => {
+    usePlayerStore.setState({ elements, zoomMode: "fit", timelinePps: 80, timelineFitPps: 80 });
+    const commit = vi.fn<CommitDomAttributeBatch>(async () => {
+      expect(usePlayerStore.getState().zoomMode).toBe("manual");
+      return true;
+    });
+    const probe = renderLinked(selection("talk"), commit);
+    await probe.linked()?.commitRate?.("2");
+    expect(commit.mock.calls[0]?.[2].syncTimingInPlace).toBe(true);
+    const scale = usePlayerStore.getState().manualZoomPercent;
+    usePlayerStore.setState({ timelineFitPps: 120 });
+    await probe.linked()?.commitRate?.("3");
+    expect(usePlayerStore.getState().manualZoomPercent).toBe(scale);
+  });
+
+  it("drops obsolete queued slider values while retaining the final requested speed", async () => {
+    usePlayerStore.getState().setElements(elements);
+    const releases: Array<(ok: boolean) => void> = [];
+    const commit = vi.fn<CommitDomAttributeBatch>(() => new Promise(resolve => releases.push(resolve)));
+    const probe = renderLinked(selection("talk"), commit);
+    const first = probe.linked()!.commitRate!("2");
+    const last = probe.linked()!.commitRate!("4");
+    expect(commit.mock.calls[0]?.[2].shouldSave?.()).toBe(false);
+    expect(commit.mock.calls[1]?.[2].shouldSave?.()).toBe(true);
+    releases[0]!(true);
+    await first;
+    expect(commit.mock.calls[1]?.[2].shouldSave?.()).toBe(true);
+    releases[1]!(true);
+    await last;
   });
 
   it("fans a ramp preset out as one commit carrying each member's rate lane", () => {
@@ -151,14 +239,16 @@ describe("linked speed edits", () => {
     expect(partner).toContain("rate");
   });
 
-  it("leaves an unlinked clip on its usual write path", async () => {
+  it("also commits an unlinked clip's speed and duration atomically", async () => {
     usePlayerStore.getState().setElements(elements);
     const commit = vi.fn<CommitDomAttributeBatch>(async () => true);
     const onSetAttribute = vi.fn();
     const probe = renderLinked(selection("music"), commit);
-    expect(probe.linked()).toBeNull();
     await withLinkedPlaybackRate(onSetAttribute, probe.linked())("playback-rate", "2");
-    expect(onSetAttribute).toHaveBeenCalledWith("playback-rate", "2");
-    expect(commit).not.toHaveBeenCalled();
+    expect(onSetAttribute).not.toHaveBeenCalled();
+    expect(commit).toHaveBeenCalledTimes(1);
+    const options = commit.mock.calls[0]?.[2];
+    options?.validateContent?.(source);
+    expect(options?.prepareContent?.(source)).toMatch(/id="music"[^>]*data-duration="2"/);
   });
 });

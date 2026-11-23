@@ -1,6 +1,7 @@
 import https from 'node:https';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { Readable } from 'node:stream';
 import type { Modality } from '../shared/gateway.ts';
 
 export class ProviderError extends Error {
@@ -114,6 +115,30 @@ export async function publicProviderFetch(raw: Parameters<Fetcher>[0], init: Req
   });
 }
 export const MAX_MEDIA_BYTES = 256 * 1024 * 1024;
+/** Streaming, credential-free transport for resumable media. Validate and pin every redirect's DNS. */
+export async function streamMedia(raw: string, init: RequestInit, redirects = 0): Promise<Response> {
+  const url = new URL(raw); providerOrigin(url.origin);
+  const addresses = await lookup(url.hostname, { all: true });
+  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Generated media points to a non-public address');
+  return new Promise<Response>((resolve, reject) => {
+    const req = https.get(url, { headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
+      lookup: (_host, options, done) => {
+        if ((options as { all?: boolean }).all) (done as Function)(null, addresses);
+        else done(null, addresses[0].address, addresses[0].family);
+      } }, res => {
+      const status = res.statusCode ?? 502;
+      if (status >= 300 && status < 400 && res.headers.location) {
+        res.resume();
+        if (redirects >= 3) { reject(new Error('Too many media redirects')); return; }
+        streamMedia(new URL(res.headers.location, url).href, init, redirects + 1).then(resolve, reject); return;
+      }
+      resolve(new Response([204, 205, 304].includes(status) ? null : Readable.toWeb(res) as ReadableStream<Uint8Array>, { status,
+        headers: Object.fromEntries(Object.entries(res.headers).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) }));
+    });
+    // An idle timeout permits slow downloads that continue making progress.
+    req.setTimeout(60_000, () => req.destroy(new Error('Media download timed out'))); req.on('error', reject);
+  });
+}
 /** JSON responses are far smaller than media, and the cap has to apply before the body is buffered. */
 export const MAX_JSON_BYTES = 16 * 1024 * 1024;
 /** Download without credentials; pin validated DNS answers to prevent rebinding. */
@@ -158,6 +183,8 @@ export function mediaType(bytes: Buffer, modality: Modality) {
     [ascii.slice(4, 8) === 'ftyp', modality === 'audio' ? 'audio/mp4' : 'video/mp4', modality === 'audio' ? 'm4a' : 'mp4'],
     [head.subarray(0, 4).equals(Buffer.from('1a45dfa3', 'hex')), modality === 'audio' ? 'audio/webm' : 'video/webm', 'webm'],
     [ascii.startsWith('RIFF') && ascii.slice(8, 12) === 'WAVE', 'audio/wav', 'wav'],
+    // ADTS AAC shares the MPEG audio sync bits; its layer bits are always 00, which no MP3 frame uses.
+    [head[0] === 255 && (head[1] & 0xf6) === 0xf0, 'audio/aac', 'aac'],
     [ascii.startsWith('ID3') || (head[0] === 255 && (head[1] & 0xe0) === 0xe0), 'audio/mpeg', 'mp3'],
     [ascii.startsWith('OggS'), 'audio/ogg', 'ogg'], [ascii.startsWith('fLaC'), 'audio/flac', 'flac'],
   ] as const;

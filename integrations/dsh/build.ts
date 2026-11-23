@@ -32,7 +32,7 @@ export async function buildPlugin(output: string): Promise<void> {
     format: "esm",
     platform: "node",
     bundle: true,
-    external: ["@deepseek-ai/dsh-mcp-client"],
+    external: ["@deepseek-ai/dsh-mcp-client", "@deepseek-ai/dsh-llm"],
   });
   // The browser receives React from DSH; bundling another copy breaks its hooks.
   await build({

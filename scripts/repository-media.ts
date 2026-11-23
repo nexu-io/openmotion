@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from '../shared/entry.ts';
-import { downloadMedia, mediaDigest, mediaPath, validateMediaManifest } from '../shared/repository-media.ts';
+import { downloadMedia, mediaDigest, mediaPath, skillPreviewMedia, validateMediaManifest } from '../shared/repository-media.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -21,7 +21,9 @@ async function safeDestination(directory: string, name: string): Promise<string>
 export async function pullMedia(directory = root, prefix?: string, fetcher: typeof fetch = fetch) {
   const manifest = validateMediaManifest(JSON.parse(await readFile(path.join(directory, 'repository-media.json'), 'utf8')));
   if (prefix) mediaPath(prefix.replace(/\/$/, ''));
-  const selected = manifest.files.filter(file => !prefix || file.path === prefix || file.path.startsWith(prefix.replace(/\/$/, '') + '/'));
+  const selected = manifest.files.filter(file => prefix
+    ? file.path === prefix || file.path.startsWith(prefix.replace(/\/$/, '') + '/')
+    : !skillPreviewMedia.test(file.path));
   assert(!prefix || selected.length, 'No media matches the selected path');
   for (const file of selected) {
     const destination = await safeDestination(directory, file.path);

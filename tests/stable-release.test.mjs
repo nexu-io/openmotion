@@ -46,7 +46,7 @@ test('publication order reserves the historical 0.6.x line without changing stan
   assert.throws(() => comparePublicationVersions('latest', '0.6.7'));
 });
 
-test('0.0.1 stages before native checks, then replaces historical latest and guide without changing old snapshots', async t => {
+test('0.0.1 stages after native checks, then replaces historical latest and guide without changing old snapshots', async t => {
   const f = await candidateFixture(t, 'main', { version: '0.0.1' }), store = services(f);
   store.setLatest('0.6.7');
   const previous = Buffer.from('# Install OpenMotion 0.6.7\nHistorical guide\n');
@@ -104,18 +104,18 @@ test('stable selection is explicit and rejects prerelease/prod or stable/DEV cha
   }), /Template defaults must match/);
 });
 
-test('stable stage, native acceptance, latest and exact/prod guides use the same immutable bytes', async t => {
+test('stable native acceptance, stage, latest and exact/prod guides use the same immutable bytes', async t => {
   const f = await candidateFixture(t, 'main', { version: '0.6.4' }), store = services(f);
 
-  await publishNpm(f.directory, f.inputs, store);
   assert.equal(store.getLatest(), '0.6.3');
   const native = path.join(f.directory, 'registry-win32-x64.json'), original = await readFile(native, 'utf8');
   for (const patch of [{ status: 'failed' }, { templateEnvironment: 'dev' }, { tgzSHA256: '0'.repeat(64) }, { nativePreparation: 'failed' }, { resources: 'failed' }]) {
     await writeFile(native, JSON.stringify({ ...JSON.parse(original), ...patch }));
-    await assert.rejects(promoteStable(f.directory, f.inputs, store)); assert.equal(store.getLatest(), '0.6.3');
-    assert.equal(store.writes.length, 1, 'Only stage publication has occurred');
+    await assert.rejects(publishNpm(f.directory, f.inputs, store)); assert.equal(store.getLatest(), '0.6.3');
+    assert.equal(store.writes.length, 0, 'Even publishing to stage requires both candidate reports');
   }
   await writeFile(native, original);
+  await publishNpm(f.directory, f.inputs, store);
   assert.equal((await promoteStable(f.directory, f.inputs, store)).status, 'promoted');
   assert.equal(store.getLatest(), '0.6.4');
   await archiveRelease(f.directory, f.inputs, config, store);
@@ -131,7 +131,6 @@ test('stable stage, native acceptance, latest and exact/prod guides use the same
 
 test('stable treats native Tool and Skill counts as informational', async t => {
   const f = await candidateFixture(t, 'main', { version: '0.6.7' }), store = services(f);
-  await publishNpm(f.directory, f.inputs, store);
   for (const platform of ['darwin-arm64', 'win32-x64']) {
     const file = path.join(f.directory, `registry-${platform}.json`);
     const report = JSON.parse(await readFile(file, 'utf8'));
@@ -139,6 +138,7 @@ test('stable treats native Tool and Skill counts as informational', async t => {
     delete report.mcpTools;
     await writeFile(file, JSON.stringify(report));
   }
+  await publishNpm(f.directory, f.inputs, store);
   assert.equal((await promoteStable(f.directory, f.inputs, store)).status, 'promoted');
   await archiveRelease(f.directory, f.inputs, config, store);
 });
@@ -159,19 +159,27 @@ test('stable recovery never publishes, changes tags or touches the moving guide;
   await archiveRelease(f.directory, f.inputs, config, store);
   assert(!store.objects.has('open-motion/install.md')); assert(store.objects.has('open-motion/0.6.4/install.md'));
   await writeFile(path.join(f.directory, 'authorization.json'), JSON.stringify({ ...f.authorization, action: 'archive-only' }));
+  for (const platform of ['darwin-arm64', 'win32-x64']) {
+    const file = path.join(f.directory, `registry-${platform}.json`);
+    const report = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...report, registryColdInstall: 'passed' }));
+  }
   const inputs = { ...f.inputs, action: 'archive-only' }, before = store.writes.length;
   await publishNpm(f.directory, inputs, store); await promoteStable(f.directory, inputs, store);
   await archiveRelease(f.directory, inputs, config, store);
   assert.equal(store.writes.length, before); assert(!store.objects.has('open-motion/install.md')); assert.equal(store.getLatest(), '0.7.0');
 });
 
-test('stable uses the existing trusted publisher filename and native failures block latest, not test delivery', async () => {
+test('both channels verify native installs and registry bytes before moving a tag', async () => {
   const workflow = await readFile(new URL('../.github/workflows/motion-publish-test.yml', import.meta.url), 'utf8');
   assert(workflow.includes('options: [test, stable]')); assert(!workflow.includes('accepted:') && !workflow.includes('environment:'));
   assert(workflow.includes('  promote-stable:') && workflow.includes('  stable-snapshot:'));
-  assert(workflow.includes("continue-on-error: ${{ inputs.channel != 'stable' }}"));
+  const npm = workflow.split('  npm:\n')[1].split('  registry-mac:')[0];
+  assert(npm.includes('needs.registry-mac.result') && npm.includes('needs.registry-windows.result'));
+  assert(npm.includes('needs.prepare-templates.result') && npm.includes("inputs.mode == 'publish'"));
   const stable = workflow.split('  promote-stable:\n')[1].split('  stable-snapshot:')[0];
   assert(stable.includes('needs.registry-mac.result') && stable.includes('needs.registry-windows.result'));
+  assert(stable.includes("needs.registry-readback.result == 'success'"));
   assert(stable.includes('id-token: write') && !stable.includes('secrets.'));
   const snapshot = workflow.split('  stable-snapshot:\n')[1];
   assert(!snapshot.includes('id-token: write') && snapshot.includes('CLOUDFLARE_R2_RELEASES_SK'));

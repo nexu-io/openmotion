@@ -19,6 +19,22 @@ function Trigger() { const gateway = useMediaGateway(); return <button onClick={
 function button(text: string) { const found = Array.from(document.querySelectorAll('button')).find(el => el.textContent === text); if (!found) throw new Error('Missing ' + text); return found; }
 function type(selector: string, value: string) { const el = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(selector)!; Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(el, value); el.dispatchEvent(new Event('input', { bubbles: true })); }
 
+it('reports file picker failures via the shared floating Toast', async () => {
+  usePlayerStore.setState({ timelineProjectId: 'project' });
+  const fileDrop = vi.fn().mockRejectedValue(new Error('This file format is not supported.'));
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  await act(async () => root!.render(<I18nProvider initialLocale="en"><MediaGatewayProvider>
+    <MotionTimelineMedia projectId="project" compositionId="main" disabled={false} onFileDrop={fileDrop} />
+  </MediaGatewayProvider></I18nProvider>));
+  const input = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(input, 'files', { value: [new File(['test'], 'invalid.png', { type: 'image/png' })] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(fileDrop).toHaveBeenCalledOnce();
+  expect(document.querySelector('.hf-toast-viewport [role="alert"]')?.textContent).toBe('This file format is not supported.');
+});
+
 it('hides the empty guide during generation, restores it on close, and removes it after placement until undo', async () => {
   usePlayerStore.setState({ timelineProjectId: 'project', timelineReady: true, duration: 6 });
   const job = { id: 'completed', projectId: 'project', state: 'completed', prompt: 'a forest', model,

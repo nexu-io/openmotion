@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { Check } from "../../icons/RemixIcons";
 import {
@@ -408,14 +409,14 @@ function WindowMenu() {
 
   return (
     <div ref={rootRef} className="relative">
-      <button
+      <Button variant="plain"
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className="h-7 px-2.5 rounded-md text-[11px] font-medium text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
       >
-        {t("Window")}</button>
+        {t("Window")}</Button>
       {open && (
         <div role="menu" className={`${menuClasses.panel} absolute right-0 top-8 z-50 w-44`}>
           {panels.map((id) => (

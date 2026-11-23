@@ -16,7 +16,7 @@ export function resolveLanguage(value?: string): Language {
 }
 type Translation = {
   ui: { waiting: string; unavailable: string; loading: string; failed: string; blocked: string;
-    preview: string; clone: string; back: string; player: string; sending: string; notSent: string;
+    preview: string; clone: string; back: string; close: string; player: string; sending: string; notSent: string;
     manual: string; draftLabel: string; copied: string; copyFailed: string; welcomeLabel: string; listLabel: string };
   welcome: { heading: string; discovery: string; introduction: string; recommendations: string; draft: string; clipboardDraft: string };
   descriptions: Partial<Record<TemplateId, string>>;
@@ -25,7 +25,7 @@ export const translations: Record<Language, Translation> = {
   zh: {
     ui: { copied: "已复制，请粘贴到对话框后补充要求。", copyFailed: "复制失败，请重试。", waiting: '正在准备模板预览…', unavailable: '模板预览暂不可用，请在聊天中选择模板。', loading: '正在加载预览…',
       failed: '视频暂时无法播放，仍可选择此模板。', blocked: '点击放大预览后播放。', preview: '放大预览', clone: '复刻模板',
-      back: '返回模板列表', player: '模板完整预览', sending: '正在填入…', notSent: '未能填入，请重试。',
+      back: '返回模板列表', close: '关闭预览', player: '模板完整预览', sending: '正在填入…', notSent: '未能填入，请重试。',
       manual: '当前客户端暂不支持填入输入框，请复制下方提示词。', draftLabel: '模板创作提示词',
       welcomeLabel: 'OpenMotion 欢迎', listLabel: 'OpenMotion 模板' },
     welcome: { clipboardDraft: "点击下方卡片上的「复刻模板」即可复制提示词，粘贴到对话框，补充要求或附件后发送。", heading: '🎉 OpenMotion 安装好啦，右侧就是模板库！',
@@ -38,7 +38,7 @@ export const translations: Record<Language, Translation> = {
   en: {
     ui: { copied: "Copied. Paste into the chat and add your requirements.", copyFailed: "Copy failed. Please try again.", waiting: 'Preparing template previews…', unavailable: 'Template previews are unavailable. Choose a template in the chat.', loading: 'Loading preview…',
       failed: 'This video cannot play. You can still choose the template.', blocked: 'Open the larger preview to play.', preview: 'Enlarge preview', clone: 'Recreate template',
-      back: 'Back to templates', player: 'Full template preview', sending: 'Adding to composer…', notSent: 'Not added. Please try again.',
+      back: 'Back to templates', close: 'Close preview', player: 'Full template preview', sending: 'Adding to composer…', notSent: 'Not added. Please try again.',
       manual: 'This client cannot fill the composer. Copy the prompt below.', draftLabel: 'Template creation prompt',
       welcomeLabel: 'OpenMotion welcome', listLabel: 'OpenMotion templates' },
     welcome: { clipboardDraft: "Choose Recreate template to copy its prompt, paste it into the chat, add your requirements or attachments, then send.", heading: '🎉 OpenMotion is installed. Your template library is open on the right!',
@@ -51,7 +51,7 @@ export const translations: Record<Language, Translation> = {
   ja: {
     ui: { copied: "コピーしました。チャットに貼り付けて要望を追加してください。", copyFailed: "コピーできませんでした。もう一度お試しください。", waiting: 'テンプレートのプレビューを準備中…', unavailable: 'プレビューを利用できません。チャットでテンプレートを選んでください。', loading: 'プレビューを読み込み中…',
       failed: '動画を再生できませんが、このテンプレートは選択できます。', blocked: '拡大プレビューを開いて再生してください。', preview: 'プレビューを拡大', clone: 'テンプレートを再現',
-      back: 'テンプレート一覧に戻る', player: 'テンプレートの全編プレビュー', sending: '入力欄に追加中…', notSent: '追加できませんでした。もう一度お試しください。',
+      back: 'テンプレート一覧に戻る', close: 'プレビューを閉じる', player: 'テンプレートの全編プレビュー', sending: '入力欄に追加中…', notSent: '追加できませんでした。もう一度お試しください。',
       manual: 'このクライアントでは入力欄に追加できません。下のプロンプトをコピーしてください。', draftLabel: 'テンプレート制作プロンプト',
       welcomeLabel: 'OpenMotion へようこそ', listLabel: 'OpenMotion テンプレート' },
     welcome: { clipboardDraft: "「テンプレートを再現」でプロンプトをコピーし、チャットに貼り付けて要望やファイルを追加してから送信してください。", heading: '🎉 OpenMotion のインストールが完了しました。右側にテンプレートライブラリがあります！',
@@ -64,7 +64,7 @@ export const translations: Record<Language, Translation> = {
   ko: {
     ui: { copied: "복사했습니다. 대화창에 붙여넣고 요구 사항을 추가하세요.", copyFailed: "복사하지 못했습니다. 다시 시도해 주세요.", waiting: '템플릿 미리보기를 준비하는 중…', unavailable: '템플릿 미리보기를 사용할 수 없습니다. 채팅에서 템플릿을 선택해 주세요.', loading: '미리보기를 불러오는 중…',
       failed: '영상을 재생할 수 없지만 이 템플릿을 선택할 수 있습니다.', blocked: '확대 미리보기를 열어 재생해 주세요.', preview: '미리보기 확대', clone: '템플릿 재현',
-      back: '템플릿 목록으로 돌아가기', player: '템플릿 전체 미리보기', sending: '입력창에 추가하는 중…', notSent: '추가하지 못했습니다. 다시 시도해 주세요.',
+      back: '템플릿 목록으로 돌아가기', close: '미리보기 닫기', player: '템플릿 전체 미리보기', sending: '입력창에 추가하는 중…', notSent: '추가하지 못했습니다. 다시 시도해 주세요.',
       manual: '이 클라이언트에서는 입력창에 추가할 수 없습니다. 아래 프롬프트를 복사해 주세요.', draftLabel: '템플릿 제작 프롬프트',
       welcomeLabel: 'OpenMotion에 오신 것을 환영합니다', listLabel: 'OpenMotion 템플릿' },
     welcome: { clipboardDraft: "「템플릿 재현」으로 프롬프트를 복사한 뒤 대화창에 붙여넣고 요구 사항이나 파일을 추가해 전송하세요.", heading: '🎉 OpenMotion 설치가 완료되었습니다. 오른쪽에 템플릿 라이브러리가 있어요!',
@@ -77,7 +77,7 @@ export const translations: Record<Language, Translation> = {
   fr: {
     ui: { copied: "Copié. Collez dans le chat et ajoutez vos besoins.", copyFailed: "Échec de la copie. Réessayez.", waiting: 'Préparation des aperçus…', unavailable: 'Les aperçus sont indisponibles. Choisissez un modèle dans le chat.', loading: 'Chargement de l’aperçu…',
       failed: 'Cette vidéo ne peut pas être lue. Vous pouvez tout de même choisir ce modèle.', blocked: 'Ouvrez l’aperçu agrandi pour lancer la lecture.', preview: 'Agrandir l’aperçu', clone: 'Recréer le modèle',
-      back: 'Retour aux modèles', player: 'Aperçu complet du modèle', sending: 'Ajout dans la zone de saisie…', notSent: 'Échec de l’ajout. Réessayez.',
+      back: 'Retour aux modèles', close: 'Fermer l’aperçu', player: 'Aperçu complet du modèle', sending: 'Ajout dans la zone de saisie…', notSent: 'Échec de l’ajout. Réessayez.',
       manual: 'Ce client ne peut pas remplir la zone de saisie. Copiez la consigne ci-dessous.', draftLabel: 'Consigne de création',
       welcomeLabel: 'Bienvenue dans OpenMotion', listLabel: 'Modèles OpenMotion' },
     welcome: { clipboardDraft: "Choisissez « Recréer le modèle » pour copier la consigne, collez-la dans le chat, ajoutez vos besoins ou fichiers, puis envoyez.", heading: '🎉 OpenMotion est installé. La bibliothèque de modèles est ouverte à droite !',
@@ -90,7 +90,7 @@ export const translations: Record<Language, Translation> = {
   es: {
     ui: { copied: "Copiado. Pega en el chat y añade tus requisitos.", copyFailed: "No se pudo copiar. Inténtalo de nuevo.", waiting: 'Preparando vistas previas…', unavailable: 'Las vistas previas no están disponibles. Elige una plantilla en el chat.', loading: 'Cargando vista previa…',
       failed: 'No se puede reproducir el vídeo, pero aún puedes elegir esta plantilla.', blocked: 'Abre la vista previa ampliada para reproducirlo.', preview: 'Ampliar vista previa', clone: 'Recrear plantilla',
-      back: 'Volver a las plantillas', player: 'Vista previa completa de la plantilla', sending: 'Añadiendo al cuadro de texto…', notSent: 'No se pudo añadir. Inténtalo de nuevo.',
+      back: 'Volver a las plantillas', close: 'Cerrar vista previa', player: 'Vista previa completa de la plantilla', sending: 'Añadiendo al cuadro de texto…', notSent: 'No se pudo añadir. Inténtalo de nuevo.',
       manual: 'Este cliente no puede rellenar el cuadro de texto. Copia la instrucción de abajo.', draftLabel: 'Instrucción de creación',
       welcomeLabel: 'Te damos la bienvenida a OpenMotion', listLabel: 'Plantillas de OpenMotion' },
     welcome: { clipboardDraft: "Elige « Recrear plantilla » para copiar la instrucción, pégala en el chat, añade tus requisitos o archivos y envíala.", heading: '🎉 OpenMotion ya está instalado. ¡La biblioteca de plantillas está abierta a la derecha!',
@@ -103,7 +103,7 @@ export const translations: Record<Language, Translation> = {
   pt: {
     ui: { copied: "Copiado. Cole no chat e adicione seus requisitos.", copyFailed: "Falha ao copiar. Tente novamente.", waiting: 'Preparando prévias dos modelos…', unavailable: 'As prévias estão indisponíveis. Escolha um modelo no chat.', loading: 'Carregando prévia…',
       failed: 'Não é possível reproduzir este vídeo, mas você ainda pode escolher o modelo.', blocked: 'Abra a prévia ampliada para reproduzir.', preview: 'Ampliar prévia', clone: 'Recriar modelo',
-      back: 'Voltar aos modelos', player: 'Prévia completa do modelo', sending: 'Adicionando à caixa de texto…', notSent: 'Não foi possível adicionar. Tente novamente.',
+      back: 'Voltar aos modelos', close: 'Fechar prévia', player: 'Prévia completa do modelo', sending: 'Adicionando à caixa de texto…', notSent: 'Não foi possível adicionar. Tente novamente.',
       manual: 'Este cliente não pode preencher a caixa de texto. Copie a instrução abaixo.', draftLabel: 'Instrução de criação',
       welcomeLabel: 'Boas-vindas ao OpenMotion', listLabel: 'Modelos do OpenMotion' },
     welcome: { clipboardDraft: "Escolha « Recriar modelo » para copiar a instrução, cole no chat, adicione seus requisitos ou arquivos e envie.", heading: '🎉 OpenMotion instalado. A biblioteca de modelos está aberta à direita!',

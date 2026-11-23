@@ -19,7 +19,7 @@ export async function loadCaptionSourceOperations(runtimeRoot: string) {
   // Resolve the native parser's DOM dependency from its own installation.
   const nativeRequire = createRequire(manifest);
   const { parseHTML } = nativeRequire('linkedom') as typeof import('linkedom');
-  return { ...createCaptionSourceOperations(parser), exportCaptionSource: (html: string, format: 'srt' | 'vtt', trackId?: string) => exportCaptionSource(html, format, parseHTML, trackId) };
+  return { parseHTML, ...createCaptionSourceOperations(parser), exportCaptionSource: (html: string, format: 'srt' | 'vtt', trackId?: string) => exportCaptionSource(html, format, parseHTML, trackId) };
 }
 
 export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtmlOpeningTags }: typeof HtmlParser) {
@@ -40,9 +40,10 @@ export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtm
     const found = new Map<string, CaptionTrack>();
     for (const tag of scanHtmlOpeningTags(html)) {
       const id = trackId(tag); if (!id) continue;
+      const empty = value(tag, 'data-timeline-role') === 'caption-empty';
       const previous = found.get(id), settings = settingsFor(tag), locked = tag.attributes.some(a => a.name === 'data-timeline-locked');
-      if (previous) { previous.cueCount++; previous.settings.visible ||= settings.visible; previous.locked ||= locked; }
-      else found.set(id, { id, kind: trackKind(tag), track: Number(value(tag, 'data-track-index') || 0), label: value(tag, 'data-caption-label') || (trackKind(tag) === 'text' ? 'Text' : 'Captions'), cueCount: 1, settings, locked });
+      if (previous) { previous.cueCount += empty ? 0 : 1; previous.settings.visible ||= settings.visible; previous.locked ||= locked; }
+      else found.set(id, { id, kind: trackKind(tag), track: Number(value(tag, 'data-track-index') || 0), label: value(tag, 'data-caption-label') || (trackKind(tag) === 'text' ? 'Text' : 'Captions'), cueCount: empty ? 0 : 1, settings, locked });
     }
     return [...found.values()].sort((a, b) => a.track - b.track);
   }
@@ -90,18 +91,20 @@ export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtm
     }
     const kind = input.textKind || 'caption';
     if (kind !== 'text' && kind !== 'caption') throw new Error('Choose text or caption');
-    return timedTextSource(html, id, kind === 'text' ? 'Text' : 'Captions', segments.map(segment => ({ ...segment, start: segment.start! + offset, end: segment.end! + offset, words: undefined })), { preset: kind === 'text' ? 'clean' : 'bar', position: kind === 'text' ? 'center' : 'bottom', ...input.captionSettings, pacing: 'sentence' }, kind);
+    return timedTextSource(html, id, kind === 'text' ? 'Text' : 'Captions', segments.map(segment => ({ ...segment, start: segment.start! + offset, end: segment.end! + offset, words: undefined })), { ...(kind === 'text' ? { preset: 'clean' as const, position: 'center' as const } : {}), ...input.captionSettings, pacing: 'sentence' }, kind);
   }
 
   function timedTextSource(html: string, id: string, label: string, mapped: TranscriptSegment[], options?: Partial<CaptionSettings>, kind: 'text' | 'caption' = 'caption') {
     const doc = { id };
-    const previous = captionTracks(html).find(track => track.id === doc.id);
+    const existing = captionTracks(html);
+    const previous = existing.find(track => track.id === doc.id) ?? (kind === 'caption' ? existing.find(track => track.kind === 'caption' && track.cueCount === 0 && !track.locked) : undefined);
     if (previous?.locked) throw new Error('Unlock the caption track before changing it');
     const settings = captionSettings({ ...previous?.settings, ...options });
     const begin = `<!-- openmotion-transcript:${doc.id}:start -->`, end = `<!-- openmotion-transcript:${doc.id}:end -->`;
-    const a = html.indexOf(begin), b = html.indexOf(end);
-    if ((a >= 0) !== (b >= 0) || (a >= 0 && (b < a || html.indexOf(begin, a + 1) >= 0 || html.indexOf(end, b + 1) >= 0))) throw new Error('Caption markers changed; restore the caption layer before replacing it');
-    if (a >= 0) html = html.slice(0, a) + html.slice(b + end.length);
+    const previousBegin = `<!-- openmotion-transcript:${previous?.id ?? id}:start -->`, previousEnd = `<!-- openmotion-transcript:${previous?.id ?? id}:end -->`;
+    const a = html.indexOf(previousBegin), b = html.indexOf(previousEnd);
+    if ((a >= 0) !== (b >= 0) || (previous && a < 0) || (a >= 0 && (b < a || html.indexOf(previousBegin, a + 1) >= 0 || html.indexOf(previousEnd, b + 1) >= 0))) throw new Error('Caption markers changed; restore the caption layer before replacing it');
+    if (a >= 0) html = html.slice(0, a) + html.slice(b + previousEnd.length);
     // Overlay tracks sit above existing video and audio. Appending below video
     // would make a title the magnetic main track in the editor's lane topology.
     if (!previous) {
@@ -143,9 +146,11 @@ export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtm
       return words.map((word, i) => ({ ...segment, id: `${segment.id}-word-${i}`, start: i === 0 ? segment.start : word.start, end: words[i + 1]?.start ?? segment.end,
         html: escape(segment.text.slice(0, spans[i].start)) + `<span style="color:var(--caption-highlight)">${escape(segment.text.slice(spans[i].start, spans[i].end))}</span>` + escape(segment.text.slice(spans[i].end)) }));
     });
-    const cues = styled.filter(segment => segment.end > segment.start).map(segment => {
+    // Round both edges, not start and length: adjacent cues must still meet after rounding.
+    const edge = (value: number) => Math.round(value * 1000) / 1000;
+    const cues = styled.map(segment => ({ ...segment, start: edge(segment.start), end: edge(segment.end) })).filter(segment => segment.end > segment.start).map(segment => {
       const start = segment.start, length = segment.end - segment.start;
-      requiredEnd = Math.max(requiredEnd, start + length); count++;
+      requiredEnd = Math.max(requiredEnd, segment.end); count++;
       return `<div id="${kind === 'text' ? 'text' : 'transcript'}-${doc.id}-${segment.id}" data-hf-id="${kind === 'text' ? 'txt' : 'tr'}-${doc.id}-${segment.id}" class="clip" data-label="${escape(segment.text.slice(0, 200))}" data-timeline-role="${kind}" data-caption-track="${doc.id}" data-caption-label="${escape(label)}" ${settingsAttributes(settings)} data-start="${number(start)}" data-duration="${number(length)}" data-track-index="${track}" style="position:absolute;box-sizing:border-box;z-index:${overlayZ};${styleText(captionArtwork(settings, fontSize))}">${segment.html}</div>`;
     });
     if (!count) throw new Error('No transcript cues overlap this source range');
@@ -155,5 +160,19 @@ export function createCaptionSourceOperations({ decodeAuthoredAttribute, scanHtm
     html = html.slice(0, duration.valueStart) + number(requiredEnd) + html.slice(duration.valueEnd);
     return { content: html, count };
   }
-  return { captionTracks, updateCaptionTrackSource, transcriptCaptionSource, manualCaptionSource };
+  /** An invisible native row marker reserves a real editable lane without inventing a subtitle cue. */
+  function toggleCaptionSource(html: string, id: string, visible: boolean) {
+    const tracks = captionTracks(html).filter(track => track.kind === 'caption');
+    if (tracks.some(track => track.locked && track.settings.visible !== visible)) throw new Error('Unlock the caption track before changing it');
+    if (!tracks.length && visible) {
+      const created = timedTextSource(html, id, 'Captions', [{ id: 'empty', text: '', start: 0, end: 0.01 }], { visible });
+      const marker = scanHtmlOpeningTags(created.content).find(tag => value(tag, 'id') === `transcript-${id}-empty`)!;
+      const overlayZ = value(marker, 'style')?.match(/z-index:(\d+)/)?.[1];
+      const opening = created.content.slice(marker.start, marker.end).replace('data-timeline-role="caption"', 'data-timeline-role="caption-empty"').replace('data-label=""', 'data-label="Captions"').replace(/style="[^"]*"/, `style="position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;clip-path:inset(100%);z-index:${overlayZ}"`);
+      return { content: created.content.slice(0, marker.start) + opening + created.content.slice(marker.end), count: 0, trackId: id };
+    }
+    for (const track of tracks) if (track.settings.visible !== visible) html = updateCaptionTrackSource(html, track.id, { visible }).content;
+    return { content: html, count: tracks.reduce((sum, track) => sum + track.cueCount, 0), trackId: tracks[0]?.id };
+  }
+  return { captionTracks, updateCaptionTrackSource, transcriptCaptionSource, manualCaptionSource, toggleCaptionSource };
 }

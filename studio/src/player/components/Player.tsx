@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { forwardRef, useEffect, useRef, useState } from "react";
@@ -544,12 +545,12 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
                 size={56}
               />
               {assetWaitLong && (
-                <button
+                <Button variant="plain"
                   type="button"
                   onClick={handleContinueAnyway}
                   className="px-3 py-1.5 text-[11px] rounded-md border border-neutral-700 text-neutral-300 hover:border-neutral-500 hover:bg-neutral-800 transition-colors"
                 >
-                  {t("Continue anyway")}</button>
+                  {t("Continue anyway")}</Button>
               )}
             </div>
           </div>
@@ -563,12 +564,12 @@ export const Player = forwardRef<HTMLIFrameElement, PlayerProps>(
             <div className="max-w-sm">
               <p className="text-sm font-semibold text-white">{t("Preview failed to load")}</p>
               <p className="mt-1 text-xs text-neutral-400">{previewError}</p>
-              <button
+              <Button variant="plain"
                 type="button"
                 className="mt-4 rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-neutral-200"
                 onClick={() => retryPreviewRef.current?.()}
               >
-                {t("Retry preview")}</button>
+                {t("Retry preview")}</Button>
             </div>
           </div>
         )}

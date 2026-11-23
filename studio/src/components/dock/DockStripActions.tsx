@@ -10,7 +10,7 @@ import { useDockLayoutStore } from "./dockLayoutStore";
 import { PANEL_DEFINITIONS, isPanelId, panelsInZone } from "./panelRegistry";
 import { clickMethod, trackStudioClick } from "../../motion/editorTracking";
 
-/** Panel menu, maximise and close group, drawn on the active group's strip only. */
+/** Preview controls stay mounted. Group actions follow the active group. */
 export function DockStripActions({
   api,
   containerApi,
@@ -76,7 +76,7 @@ export function DockStripActions({
     return () => window.removeEventListener("keydown", restore, true);
   }, [api, mvp, previewGroup, maximized]);
   if (mvp) return previewGroup ? (
-    <div className="flex items-center h-full gap-1 pr-1">
+    <div className="motion-preview-header-actions flex items-center h-full">
       <DockHeaderSlot id="preview" />
       <Tooltip
         label={t(maximized ? "Exit immersive preview" : "Immersive preview")}
@@ -96,11 +96,9 @@ export function DockStripActions({
       </Tooltip>
     </div>
   ) : <DockSideActions group={group} panels={panels} activePanel={activePanel} />;
-  if (!isGroupActive) return null;
-
   const first = panels.find((panel) => isPanelId(panel.id))?.id;
   const menuPanels = isPanelId(first) ? panelsInZone(PANEL_DEFINITIONS[first].zone) : [];
-  return (
+  const groupActions = isGroupActive ? (
     <div className="hf-dock-strip-actions">
       <Menu
         align="end"
@@ -132,5 +130,11 @@ export function DockStripActions({
         onClick={() => api.close()}
       />
     </div>
+  ) : null;
+  return (
+    <>
+      {previewGroup && <DockHeaderSlot id="preview" />}
+      {groupActions}
+    </>
   );
 }

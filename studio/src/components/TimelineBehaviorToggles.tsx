@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../i18n/I18n";
 import { usePlayerStore } from "../player";
 import { RemixIcon, Magnet } from "../icons/RemixIcons";
@@ -20,7 +21,7 @@ export function TimelineBehaviorToggles() {
             side="bottom"
             label={`${t("Snapping ({value0})", { value0: keyHint("timelineSnap", keys) })} · ${t("Hold ⌘ / Ctrl to drag freely")}`}
           >
-            <button
+            <IconButton variant="plain"
               type="button"
               onClick={() => {
                 trackStudioClick("timeline", "snap_toggle", undefined, undefined, timelineSnapEnabled ? "off" : "on");
@@ -29,30 +30,26 @@ export function TimelineBehaviorToggles() {
               aria-label={t("Snapping")}
               aria-pressed={timelineSnapEnabled}
               className={timelineSnapEnabled ? flatActive : flatIdle}
-            >
-              <Magnet size={16} weight="bold" aria-hidden="true" />
-            </button>
+              icon={<Magnet size={16} weight="bold" aria-hidden="true" />}
+            />
           </Tooltip>
 <Tooltip
             label={t("Main track magnet: closes gaps after deletion. Undo ({shortcut}) restores the edit; turn this off to keep gaps.", { shortcut: keyHint("undo", keys) })}
           >
-            <button
+            <IconButton variant="plain"
               type="button"
               onClick={() => setRippleEditEnabled(!rippleEditEnabled)}
               aria-label={t("Main track magnet")}
               aria-pressed={rippleEditEnabled}
               className={rippleEditEnabled ? flatActive : flatIdle}
-            >
-              <RemixIcon name="align-item-left-line" size={16} />
-            </button>
+              icon={<RemixIcon name="align-item-left-line" size={16} />}
+            />
           </Tooltip>
           <Tooltip label={t("Main track linkage")}>
-            <button type="button" aria-label={t("Main track linkage")}
+            <IconButton variant="plain" type="button" aria-label={t("Main track linkage")}
               aria-pressed={timelineLinkageEnabled}
               onClick={() => setTimelineLinkageEnabled(!timelineLinkageEnabled)}
-              className={timelineLinkageEnabled ? flatActive : flatIdle}>
-              <RemixIcon name="link" size={16} />
-            </button>
+              className={timelineLinkageEnabled ? flatActive : flatIdle} icon={<RemixIcon name="link" size={16} />} />
           </Tooltip>
   </>;
 }

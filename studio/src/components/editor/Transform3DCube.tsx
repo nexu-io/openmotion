@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useRef, useState } from "react";
 import { projectAxes, projectCubeFaces, wrapDeg } from "./transform3dProjection";
@@ -291,21 +293,17 @@ export function Transform3DCube({
           ))}
       </svg>
       {onRecenter && (
-        <button
+        <IconButton variant="plain"
           type="button"
           onClick={onRecenter}
           title={t("Reset 3D orientation")}
           aria-label={t("Reset 3D orientation")}
           className="absolute right-1.5 top-1.5 rounded-sm p-0.5 text-neutral-500 hover:bg-neutral-800 hover:text-neutral-200"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <circle cx="12" cy="12" r="9" strokeWidth="2" />
-            <path d="M12 3v18M3 12h18" strokeWidth="1.5" />
-          </svg>
-        </button>
+          icon={<RemixIcon name="focus-3-line" size={13} />}
+        />
       )}
       {onKeyframe && (
-        <button
+        <IconButton variant="plain"
           type="button"
           onClick={onKeyframe}
           title={
@@ -318,17 +316,8 @@ export function Transform3DCube({
           className={`absolute left-1.5 top-1.5 rounded p-0.5 hover:bg-neutral-800 ${
             keyframed ? "text-accent-ink" : "text-neutral-500 hover:text-neutral-200"
           }`}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill={keyframed ? "currentColor" : "none"}
-            stroke="currentColor"
-          >
-            <path d="M6 1.5L10.5 6 6 10.5 1.5 6z" strokeWidth="1.4" strokeLinejoin="round" />
-          </svg>
-        </button>
+          icon={<RemixIcon name={keyframed ? "poker-diamonds-fill" : "poker-diamonds-line"} size={12} />}
+        />
       )}
     </div>
   );

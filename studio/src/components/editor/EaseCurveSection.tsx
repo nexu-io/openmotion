@@ -1,3 +1,5 @@
+import { MenuPanel } from "../ui/MenuPanel";
+import { FieldTrigger } from "../ui/FormField";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { evaluateSpringEase, parseSpringBounce } from "@hyperframes/core/spring-ease";
@@ -123,7 +125,7 @@ function EaseTypeDropdown({
 
   return (
     <div className="relative mb-2">
-      <button
+      <FieldTrigger
         ref={triggerRef}
         type="button"
         data-ease-type-dropdown=""
@@ -144,15 +146,16 @@ function EaseTypeDropdown({
         >
           <path d="M2 3l3 4 3-4z" />
         </svg>
-      </button>
+      </FieldTrigger>
       {open && (
-        <div
+        <MenuPanel
           ref={menuRef}
+          data-menu-layout="custom"
           id={menuId}
           role="menu"
           aria-label={t("{value0} ease presets", { value0: t(MODE_LABELS[kind]) })}
           onKeyDown={handleMenuKeyDown}
-          className="absolute inset-x-0 top-full z-20 mt-1 rounded-md border border-border bg-raised p-2 shadow-xl"
+          className="absolute inset-x-0 top-full z-20 mt-1"
         >
           <EasePresetGrid
             kind={kind}
@@ -163,7 +166,7 @@ function EaseTypeDropdown({
               triggerRef.current?.focus();
             }}
           />
-        </div>
+        </MenuPanel>
       )}
     </div>
   );

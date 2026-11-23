@@ -1,3 +1,4 @@
+import { useTimelineSessionLocks } from "./hooks/useTimelineSessionLocks";
 import { TimelineCaptionActions } from './motion/TimelineCaptionActions';
 import { TimelineCaptionsMenu } from './motion/TimelineCaptionsMenu';
 import { useOwnPreviewIframe, usePreviewIframeStore } from "./player/store/previewIframeStore";
@@ -193,6 +194,15 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     forceReloadSdkSession: sdkHandle.forceReload,
     invalidateGsapCache,
     handleDomZIndexReorderCommitRef,
+  });
+  useTimelineSessionLocks({
+    projectId,
+    activeCompPath,
+    elements: timelineElements,
+    iframe: previewIframe,
+    ready: activeCompPathHydrated && !compositionLoading && !readOnlyPreview
+      && !previewPersistence.domEditSaveQueuePaused && !externalFileChanges.blocked && !renderQueue.isRendering,
+    save: timelineEditing.setElementFxAttribute.setMany,
   });
   const handleTimelineElementsMove = useTimelineMoveEditsHandler(
     timelineEditing.handleTimelineGroupMove,

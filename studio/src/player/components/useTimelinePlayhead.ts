@@ -1,4 +1,6 @@
 import { useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { useLinkedClipPreferences } from "../../utils/linkedClipPreferences";
+import { timelineFrameTime } from "../store/timelineHoverStore";
 import { liveTime, usePlayerStore, type ZoomMode } from "../store/playerStore";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { getPinchTimelineZoomPercent } from "./timelineZoom";
@@ -221,14 +223,14 @@ export function useTimelinePlayhead({
       const el = scrollRef.current;
       if (!el || effectiveDuration <= 0) return;
       const rect = el.getBoundingClientRect();
-      const time = getTimelineScrubTime({
+      const time = timelineFrameTime(getTimelineScrubTime({
         clientX,
         viewportLeft: rect.left,
         scrollLeft: el.scrollLeft,
         contentOrigin,
         pixelsPerSecond: pps,
         duration: effectiveDuration,
-      });
+      }), effectiveDuration, useLinkedClipPreferences.getState().compositionFps);
       liveTime.notify(time);
       onSeek?.(time);
     },

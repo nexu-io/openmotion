@@ -7,7 +7,7 @@ import { projectMediaPath } from './timelineMediaSelection';
 import { useFileManagerContext } from '../contexts/FileManagerContext';
 import { usePlayerStore } from '../player/store/playerStore';
 import { useI18n } from '../i18n/I18n';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Checkbox } from '../components/ui/Checkbox';
 import { Select } from '../components/ui/Select';
 import { Menu, MenuItem } from '../components/ui/Menu';
@@ -17,6 +17,8 @@ import { encodeUrlPath } from '@hyperframes/parsers';
 import { transcriptRequest, downloadTranscript } from './transcriptClient';
 import { gatewayRequest } from './gatewayClient';
 import { useCaptionWorkspace } from './captionWorkspace';
+
+const speechTextClass = 'inline-block h-auto max-w-full select-auto whitespace-normal rounded-sm text-left font-normal';
 
 // Session-only drafts survive switching projects without becoming saved text.
 const drafts = new Map<string, { revision: number; segments: TranscriptSegment[] }>();
@@ -118,9 +120,9 @@ export function TranscriptEditor({ document: doc, busy, setDocument, onDirty, on
     {editing && <p className="text-step-11 leading-relaxed text-text-3">{t('Edit words and timing here. Source footage stays unchanged.')}</p>}
     {mediaFailed && <p role="alert" className="text-step-11 text-text-3">{t('Source playback is unavailable. Check the imported media.')}</p>}
     {!matches.length && <p className="m-auto py-8 text-center text-text-3">{t(segments.length ? 'No matching speech' : 'No speech detected')}</p>}
-    {view === 'paragraph' && !editing ? <div className="leading-relaxed">{matches.map(segment => <Fragment key={segment.id}>{pauseMarker(segment.id)}<button type="button" className="mr-1 rounded-sm text-left text-text-1 hover:bg-hover focus-visible:outline-accent" disabled={!timedSegment(segment)} onClick={() => locate(segment.start!)} aria-label={`${t('Go to speech')} ${timedSegment(segment) ? transcriptTimestamp(segment.start, '.') : ''}`}>{segment.text}</button></Fragment>)}</div> : shown.map(segment => <Fragment key={segment.id}>{pauseMarker(segment.id)}<article className="flex flex-col gap-2 border-b border-border pb-3" aria-label={segment.id}>
+    {view === 'paragraph' && !editing ? <div className="leading-relaxed">{matches.map(segment => <Fragment key={segment.id}>{pauseMarker(segment.id)}<Button type="button" variant="ghost" className={`${speechTextClass} mr-1 px-0 align-baseline text-[length:inherit] leading-[inherit] text-text-1`} disabled={!timedSegment(segment)} onClick={() => locate(segment.start!)} aria-label={`${t('Go to speech')} ${timedSegment(segment) ? transcriptTimestamp(segment.start, '.') : ''}`}>{segment.text}</Button></Fragment>)}</div> : shown.map(segment => <Fragment key={segment.id}>{pauseMarker(segment.id)}<article className="flex flex-col gap-2 border-b border-border pb-3" aria-label={segment.id}>
       <div className="flex flex-wrap items-center gap-2"><Button variant="ghost" size="sm" disabled={!timedSegment(segment)} aria-current={timedSegment(segment) && time >= segment.start && time < segment.end ? 'true' : undefined} onClick={() => locate(segment.start!)}>{timedSegment(segment) ? transcriptTimestamp(segment.start, '.') : t('No timing')}</Button><span className="text-step-11 text-text-3">{segment.speaker || (segment.words?.length ? t('{count} timed words', { count: segment.words.length }) : '')}</span></div>
-      {editing ? <textarea className="om-field w-full resize-y text-step-12" rows={2} aria-label={t('Segment text')} disabled={disabled} value={segment.text} onChange={e => replace(segment.id, { text: e.target.value })} /> : <button type="button" className="rounded-sm px-2 py-1 text-left text-step-12 leading-relaxed hover:bg-hover focus-visible:outline-accent" disabled={!timedSegment(segment)} onClick={() => locate(segment.start!)}>{segment.text}</button>}
+      {editing ? <textarea className="om-field w-full resize-y text-step-12" rows={2} aria-label={t('Segment text')} disabled={disabled} value={segment.text} onChange={e => replace(segment.id, { text: e.target.value })} /> : <Button type="button" variant="ghost" className={`${speechTextClass} px-2 py-1 text-step-12 leading-relaxed text-inherit`} disabled={!timedSegment(segment)} onClick={() => locate(segment.start!)}>{segment.text}</Button>}
       {editing && <details><summary className="cursor-pointer text-step-11 text-text-3">{t('Timing and speaker')}</summary><div className="mt-2 flex flex-col gap-2"><label className="om-field"><input aria-label={t('Speaker')} placeholder={t('Speaker (optional)')} disabled={disabled} maxLength={100} value={segment.speaker ?? ''} onChange={e => replace(segment.id, { speaker: e.target.value })} /></label>
       <div className="grid grid-cols-2 gap-2">{numeric('Start (seconds)', segment.start ?? NaN, start => replace(segment.id, { start }), 0, doc.source.duration)}{numeric('End (seconds)', segment.end ?? NaN, end => replace(segment.id, { end }), 0, doc.source.duration)}</div>
       <Button size="sm" disabled={disabled} onClick={() => setSegments(rows => rows.filter(s => s.id !== segment.id))}>{t('Remove caption segment')}</Button></div></details>}

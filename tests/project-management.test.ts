@@ -12,6 +12,8 @@ import { Phase1Service } from '../phase1.ts';
 import { zip } from '../scripts/zip.mjs';
 import { pluginRoot, nativeProjectConfig } from '../hyperframes.ts';
 import { WorkspaceStore } from '../workspace.ts';
+import { reviewComments } from '../review-comments.ts';
+import { renderNext } from '../server.ts';
 
 const html = '<!doctype html><html><head><meta charset="utf-8"></head><body><div data-composition-id="main" data-start="0" data-duration="1" data-width="320" data-height="180">Editable</div><script>window.__timelines = {};</script></body></html>';
 const bundle = () => zip([
@@ -76,10 +78,13 @@ test('duplicate snapshots editable source and assets independently and deduplica
   await writeFile(path.join(original, '.env'), 'private');
   await mkdir(path.join(original, 'renders')); await writeFile(path.join(original, 'renders/movie.mp4'), 'render');
   const before = await store.forProject(source.projectId).get();
+  await reviewComments(store, { action: 'comments', operation: 'create', projectId: source.projectId,
+    requestId: 'review-original', expectedRevision: before.revision, text: 'Review the original only', anchor: { scope: 'project', compositionPath: 'index.html' } });
   const input = { action: 'duplicate', projectId: source.projectId, title: 'Independent copy', requestId: 'duplicate', expectedRevision: before.revision };
   const [copy, replay] = await Promise.all([service.call('openmotion_manage_project', input), service.call('openmotion_manage_project', input)]);
   assert.equal(copy.projectId, replay.projectId); assert.notEqual(copy.projectId, source.projectId); assert.notEqual(copy.sessionId, source.sessionId);
   assert.equal(copy.sourceRevision, before.revision);
+  assert.deepEqual((await reviewComments(store, { action: 'comments', operation: 'list', projectId: copy.projectId })).comments, []);
   const directory = store.projectDirectoryFor(copy.projectId);
   assert.equal(await readFile(path.join(directory, 'index.html'), 'utf8'), html);
   assert.equal(await readFile(path.join(directory, '.hyperframes/studio-motion.json'), 'utf8'), '{}');
@@ -144,6 +149,8 @@ test('trash, restore and permanent delete keep active fallback and stable receip
   await store.addSessionMessage(imported.projects[0].sessionId, crypto.randomUUID(), 'Project conversation');
   const separateSession = await store.createSession({ mode: 'motion', title: 'Unrelated conversation' });
   await writeFile(path.join(directory, 'delete-me.txt'), 'remove me');
+  const comment = (await reviewComments(store, { action: 'comments', operation: 'create', projectId: id, requestId: 'review-lifecycle',
+    expectedRevision: (await store.forProject(id).get()).revision, text: 'Keep through Trash', anchor: { scope: 'project', compositionPath: 'index.html' } })).comment;
 
   const trashed = await manageProject(store, { action: 'trash', projectId: id, requestId: 'trash-project' });
   assert.equal(trashed.trashed, true);
@@ -153,17 +160,20 @@ test('trash, restore and permanent delete keep active fallback and stable receip
   assert.ok(!(await apiClient.call('openmotion_get_project', {})).projects.some((p: any) => p.id === id));
   assert.equal((await manageProject(store, { action: 'info', projectId: id })).path, directory);
   assert.throws(() => store.forProject(id), /PROJECT_TRASHED/);
+  await assert.rejects(reviewComments(store, { action: 'comments', operation: 'list', projectId: id }), /PROJECT_TRASHED/);
   assert.equal((await manageProject(store, { action: 'trash', projectId: id, requestId: 'trash-project' })).replayed, true);
 
   const restored = await manageProject(store, { action: 'restore', projectId: id, requestId: 'restore-project' });
   assert.equal(restored.trashed, false);
   assert.equal(store.projectCatalog().projects.find(project => project.id === id)?.trashedAt, undefined);
+  assert.deepEqual((await reviewComments(store, { action: 'comments', operation: 'list', projectId: id })).comments, [comment]);
   await manageProject(store, { action: 'trash', projectId: id, requestId: 'trash-before-delete' });
 
   const deleted = await manageProject(store, { action: 'delete', projectId: id, requestId: 'delete-project' });
   assert.equal(deleted.deleted, true);
   assert.equal(deleted.activeProjectId, 'project');
   await assert.rejects(access(directory));
+  await assert.rejects(access(path.join(store.directory, 'review-comments', id + '.json')), /ENOENT/);
   await assert.rejects(access(path.join(store.directory, 'sessions', imported.projects[0].sessionId + '.json')));
   assert.equal((await store.session(separateSession.id)).title, 'Unrelated conversation');
   assert.equal((await importProjects(store, 'lifecycle-import', bundle())).projects[0].projectId, id);
@@ -176,3 +186,39 @@ test('trash, restore and permanent delete keep active fallback and stable receip
   await assert.rejects(manageProject(store, { action: 'delete', projectId: 'project', requestId: 'delete-active' }), /PROJECT_DELETE_REQUIRES_TRASH/);
   await assert.rejects(manageProject(store, { action: 'trash', projectId: 'project', requestId: 'trash-last' }), /PROJECT_DELETE_LAST_ACTIVE/);
 }, false));
+
+test('renderNext cancels queued exports and reconciles interrupted exports after a project is trashed or deleted', () => fixture(async store => {
+  const first = (await importProjects(store, 'export-trash-import', bundle(), pluginRoot)).projects[0].projectId;
+  const firstExport = await store.forProject(first).requestExport((await store.forProject(first).get()).revision);
+  await manageProject(store, { action: 'trash', projectId: first, requestId: 'trash-with-pending-export' });
+
+  await renderNext(store, pluginRoot);
+  assert.equal((await store.job(firstExport.id))?.state, 'cancelled');
+  await assert.rejects(access(store.snapshotDirectory(firstExport.id)), /ENOENT/);
+  // Subsequent worker ticks on the terminal job of a trashed project must not throw.
+  await renderNext(store, pluginRoot);
+
+  // Another active project can immediately queue an export without hitting EXPORT_BUSY.
+  const activeExport = await store.forProject('project').requestExport((await store.forProject('project').get()).revision);
+  assert.equal(activeExport.state, 'pending');
+  await store.saveJob({ ...(await store.job(activeExport.id))!, state: 'cancelled', stage: 'cancelled', observedOutcome: 'cancelled', terminalAt: Date.now() });
+
+  // An interrupted running export for a permanently deleted project must reconcile instead of wedging the queue.
+  const second = (await importProjects(store, 'export-delete-import', bundle(), pluginRoot)).projects[0].projectId;
+  const secondExport = await store.forProject(second).requestExport((await store.forProject(second).get()).revision);
+  const claimed = await store.claimExport();
+  assert.equal(claimed?.id, secondExport.id);
+  await store.saveJob({ ...claimed!, stage: 'rendering', workerPid: undefined });
+  await manageProject(store, { action: 'trash', projectId: second, requestId: 'trash-before-delete-export' });
+  await manageProject(store, { action: 'delete', projectId: second, requestId: 'delete-with-interrupted-export' });
+
+  await renderNext(store, pluginRoot);
+  const reconciled = await store.job(secondExport.id);
+  assert.equal(reconciled?.state, 'failed');
+  assert.equal(reconciled?.failureCode, 'EXPORT_WORKER_INTERRUPTED');
+  // Subsequent worker ticks on the terminal job of a deleted project must not throw.
+  await renderNext(store, pluginRoot);
+
+  const followUp = await store.forProject('project').requestExport((await store.forProject('project').get()).revision);
+  assert.equal(followUp.state, 'pending');
+}));

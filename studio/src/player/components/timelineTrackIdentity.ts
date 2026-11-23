@@ -2,7 +2,7 @@ import { mainVisualTrack } from './timelineLinkage';
 import type { TimelineElement } from '../store/timelineElement';
 export type TrackIdentity = { kind: 'C' | 'A' | 'V' | 'T'; label: string; code: string; isMain?: boolean };
 export function trackKind(elements: readonly TimelineElement[]): TrackIdentity['kind'] {
-  if (elements.length && elements.every(e => e.timelineRole === 'caption' || /^transcript-[a-f0-9-]{36}-/.test(e.domId || e.id))) return 'C';
+  if (elements.length && elements.every(e => (e.timelineRole === 'caption' || e.timelineRole === 'caption-empty') || /^transcript-[a-f0-9-]{36}-/.test(e.domId || e.id))) return 'C';
   if (elements.length && elements.every(e => e.tag === 'audio')) return 'A';
   if (elements.length && elements.every(e => e.timelineRole === 'text' || e.text || /^(h[1-6]|p|span|strong)$/.test(e.tag))) return 'T';
   return 'V';

@@ -107,7 +107,7 @@ Studio 与 MCP 复用 `ModelGateway` 业务层及工作区文件，但不要求�
 4. 核对 job 的 `projectId`，读取该工程的新 revision，再将 `assets[].path` 写入 HTML 的原生 image/video/audio 元素。
 5. 使用现有 lint、预览、导出和验证工具完成影片。
 
-参考图修改使用同一 `openmotion_generate_asset`，增加 `referenceAsset:"assets/original.png"` 并选择 `supportsImageReference:true` 的图片模型。输入只接受发起工程内不超过 20 MB 的 PNG/JPEG/WebP 文件。提交时创建不可变副本并记录路径、SHA-256、字节数；原文件在排队后变动不会改变该任务输入。任务仍只生成新文件，MCP 调用方另行决定是否写入合成。
+参考图修改使用同一 `openmotion_generate_asset`，增加 `referenceAsset:"assets/original.png"` 并选择 `supportsImageReference:true` 的图片模型。输入只接受发起工程内的 PNG/JPEG/WebP 文件：OpenDesign 账号/Cloud 通道限制不超过 2 MiB，其他本地适配器保持 20 MB 上限。提交时创建不可变副本并记录路径、SHA-256、字节数；原文件在排队后变动不会改变该任务输入。任务仍只生成新文件，MCP 调用方另行决定是否写入合成。
 
 ## 数据、并发与限制
 
@@ -141,7 +141,7 @@ Cloud uses a workspace Bearer key and the supplied media API contract: authentic
 
 ## Application settings and account boundary
 
-The `/motion-api/settings/` endpoints expose the provider directory, custom connection CRUD, catalogue synchronization, model enablement and capability defaults. Account endpoints expose summary, login, cancel and logout. They share the existing Host/Origin write checks and never return keys. `connections.json` stores API connection metadata, registered models and language/embedding defaults; media defaults remain in gateway routes. Account runtime, CLI-owned credentials, session identity and cached models live under the data directory’s `account/` folder. The [settings guide](provider-settings.md) describes the exact boundary and connector installation.
+The `/motion-api/settings/` endpoints expose the provider directory, custom connection CRUD, catalogue synchronization, model enablement and capability defaults. Account endpoints expose summary, login, cancel and logout. They share the existing Host/Origin write checks and never return keys. `connections.json` stores API connection metadata, registered models and language/embedding defaults; media defaults remain in gateway routes. Each workspace keeps its connector runtime under the data directory’s `account/runtime/` folder, while CLI-owned credentials, session identity and cached models live in the per-user OpenDesign account directory (or `MOTION_ACCOUNT_DIR`, or the workspace’s own `account/` under the system temporary directory). The [settings guide](provider-settings.md) describes the exact boundary and connector installation.
 
 `tests/provider-settings.test.ts` covers compatible catalogue protocols, key isolation, revision-bound queue execution and subprocess account authorization/media fixtures. `tests/byok-browser.mjs` drives the real editor HTTP server in an isolated Chrome profile. These deterministic checks do not prove live authorization, billing entitlement or paid generation acceptance.
 

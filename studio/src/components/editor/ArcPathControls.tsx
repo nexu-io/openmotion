@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useCallback } from "react";
 import type { ArcPathConfig, ArcPathSegment } from "@hyperframes/core/gsap-parser";
@@ -109,13 +110,13 @@ export const ArcPathControls = memo(function ArcPathControls({
                   {segmentCount === 1 ? t("Curviness") : t("Segment {value0}", { value0: i + 1 })}
                 </span>
                 {seg.cp1 && seg.cp2 && (
-                  <button
+                  <Button variant="plain"
                     type="button"
                     onClick={() => onUpdateSegment(i, { cp1: undefined, cp2: undefined })}
                     className="text-[9px] font-medium text-neutral-500 transition-colors hover:text-neutral-300"
                     title={t("Reset to auto-generated control points")}
                   >
-                    {t("Reset")}</button>
+                    {t("Reset")}</Button>
                 )}
               </div>
               <SliderControl

@@ -52,7 +52,7 @@ export function execute(command: string, args: string[], cwd: string, timeout = 
     child.on('close', code => {
       cleanup();
       if (signal?.aborted) reject(new Error('COMMAND_CANCELLED'));
-      else if (timedOut) reject(new Error('Hyperframes 执行超时：' + stderr.slice(-1000)));
+      else if (timedOut) reject(Object.assign(new Error('Hyperframes 执行超时：' + stderr.slice(-1000)), { code: 'COMMAND_TIMEOUT' }));
       else resolve({ code: code ?? 1, stdout, stderr });
     });
   });

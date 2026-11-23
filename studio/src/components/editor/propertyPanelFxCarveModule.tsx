@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { OverflowText } from "../ui/OverflowText";
 import { useI18n, type Translate } from "../../i18n/I18n";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 /**
@@ -194,7 +196,7 @@ export function FxCarveModule({
       data-carve-enabled={on ? "" : undefined}
     >
       <div className="hf-fx-node-head flex min-h-7 items-center gap-1 px-1.5">
-        <button
+        <Button variant="plain"
           type="button"
           className={`hf-fx-node-name min-w-0 flex-1 truncate text-left text-[13px] uppercase hover:opacity-80 ${FX_FAMILY_TYPE.smart}`}
           // Tracking goes here rather than in a class: the smart family already
@@ -206,14 +208,14 @@ export function FxCarveModule({
           aria-expanded={open}
           onClick={onToggleOpen}
         >
-          {t("Voiceover carve")}</button>
+          {t("Voiceover carve")}</Button>
         <span className="hf-fx-carve-summary shrink-0 font-mono text-[9px] text-panel-text-2">
           {summary}
         </span>
         {/* One switch, not a bypass and a delete. Off drops the effects and the
             envelopes it wrote, and is remembered — otherwise the default would
             re-apply the carve the next time this clip was selected. */}
-        <button
+        <Button variant="plain"
           type="button"
           className="hf-fx-bypass hf-fx-carve-toggle rounded-[3px] border border-panel-border-input px-1.5 py-0.5 font-mono text-[9px] text-panel-text-2 hover:text-panel-text-0 disabled:opacity-40"
           aria-pressed={on}
@@ -225,7 +227,7 @@ export function FxCarveModule({
           }}
         >
           {on ? t("On") : t("Off")}
-        </button>
+        </Button>
       </div>
       {open && on ? (
         <div className="hf-fx-carve-body border-t border-panel-border-input">
@@ -348,10 +350,10 @@ function CarveSourceRow({
   const trackInput = useTrackDesignInput();
   return (
     <div className="hf-fx-row flex min-h-6 items-center gap-2">
-      {/* Wraps like every other name in this column (see FxParamRow) — one
-          truncating row beside wrapping ones reads as a rendering bug. */}
-      <span className="hf-fx-label w-[86px] shrink-0 wrap-break-word text-[10px] leading-tight text-panel-text-2">
-        {t("Listen to")}</span>
+      <OverflowText
+        text={t("Listen to")}
+        className="hf-fx-label w-[86px] shrink-0 truncate text-[10px] leading-tight text-panel-text-2"
+      />
       {soleVoice ? (
         <span
           className="hf-fx-carve-source min-w-0 flex-1 truncate font-mono text-[10px] text-panel-text-1"

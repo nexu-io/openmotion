@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { brandCatalogRoot, readBrandCatalog, catalogEntry, catalogCapture, catalogPoster, catalogShowcase, catalogStyleCover, copyCatalogSource } from '../gateway/brand-catalog.ts';
+import { sameBrandSite } from '../gateway/brand-cover.ts';
 import { BrandKitLibrary } from '../gateway/brand-kits.ts';
 import { inspectPackage } from '../packages/motion-package/index.mjs';
 import { brandKitInstruction } from '../shared/brand-kit.ts';
@@ -15,14 +16,17 @@ test('pinned catalogue preserves all canonical sources, categories and distinct 
   assert.equal(new Set(catalog.entries.map(entry => entry.category)).size, 22);
   assert.equal(new Set(catalog.entries.map(entry => entry.id)).size, 152);
   assert(new Set(catalog.entries.map(entry => JSON.stringify(entry.sample.style))).size > 100);
-  const { websites, coverPages } = JSON.parse(await readFile(path.join(brandCatalogRoot, 'websites.json'), 'utf8'));
+  const { websites, coverPages = {}, coverImages = {} } = JSON.parse(await readFile(path.join(brandCatalogRoot, 'websites.json'), 'utf8'));
   assert.equal(catalog.entries.filter(entry => entry.websiteUrl).length, Object.keys(websites).length);
+  assert.equal(catalog.entries.filter(entry => entry.coverImage).length, Object.keys(coverImages).length);
   await Promise.all(catalog.entries.map(async entry => {
     assert(entry.sourceUrl.includes(catalog.revision));
     assert.equal(entry.websiteUrl, websites[entry.id]);
     assert.equal(entry.coverPage, coverPages[entry.id]);
-    if (entry.coverPage) assert.equal(new URL(entry.coverPage).origin, new URL(entry.websiteUrl!).origin);
+    assert.equal(entry.coverImage, coverImages[entry.id]);
+    if (entry.coverPage) assert(sameBrandSite(entry.websiteUrl!, entry.coverPage), `${entry.id} coverPage must match website site`);
     if (entry.websiteUrl) assert.equal(new URL(entry.websiteUrl).protocol, 'https:');
+    if (entry.coverImage) assert.equal(new URL(entry.coverImage).protocol, 'https:');
     assert.deepEqual(entry.files.map(file => file.path).sort(), ['DESIGN.md', 'manifest.json', 'tokens.css']);
     for (const file of entry.files) {
       const bytes = await readFile(path.join(brandCatalogRoot, 'sources', entry.id, file.path));
@@ -46,14 +50,17 @@ test('catalogue preview changes style but keeps a fixed safe film', async () => 
 });
 
 test('abstract catalogue artwork shows its own name and palette separately from the video poster', async () => {
-  const entry = await catalogEntry('creative');
+  const entry = await catalogEntry('default');
   assert.equal(entry.websiteUrl, undefined);
   const cover = catalogStyleCover(entry);
-  assert.match(cover, />Creative<\/text>/);
+  assert.match(cover, />Neutral Modern<\/text>/);
   assert(cover.includes(entry.sample.style.primary));
   assert.doesNotMatch(cover, /One identity/);
   assert.match(catalogPoster(entry), /One identity/);
   assert(!catalogStyleCover({ ...entry, name: '<script>' }).includes('<script>'));
+  const mapped = await catalogEntry('creative');
+  assert.match(mapped.websiteUrl || '', /^https:\/\/github\.com\/bergside\/awesome-design-skills\//);
+  assert.match(mapped.coverImage || '', /creative-marketing\.png$/);
 });
 
 test('catalogue materialization verifies source, deduplicates, packages and retries without website capture', async t => {

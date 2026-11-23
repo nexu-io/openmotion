@@ -1,3 +1,5 @@
+import { IconButton } from 'open-design-ui/icon-button';
+import { Button } from 'open-design-ui/button';
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip';
 import type { GalleryTemplate } from '../../../shared/catalog';
@@ -70,7 +72,7 @@ export function BrandFilmstrip({ brand, items, selectedId, progress, playing, re
   return <section className={styles.filmstrip} aria-label={t('Brand filmstrip')}>
     <header className={styles.reelHeading}>
       <div><MotionIcon name="film" size={18} /><h2>{t('Work timeline')}</h2><span>{t('{count} works', { count: items.length })}</span></div>
-      <div className={styles.reelControls}><span>{t('Drag to browse · Select to watch')}</span><button className="om-button om-icon-button" aria-label={t('Browse earlier works')} disabled={edges.start} onClick={() => page(-1)}><MotionIcon name="arrow-left" size={16} /></button><button className="om-button om-icon-button" aria-label={t('Browse later works')} disabled={edges.end} onClick={() => page(1)}><MotionIcon name="arrow-right" size={16} /></button></div>
+      <div className={styles.reelControls}><span>{t('Drag to browse · Select to watch')}</span><IconButton variant="ghost" className="om-button om-icon-button" aria-label={t('Browse earlier works')} disabled={edges.start} onClick={() => page(-1)} icon={<MotionIcon name="arrow-left" size={16} />} /><IconButton variant="ghost" className="om-button om-icon-button" aria-label={t('Browse later works')} disabled={edges.end} onClick={() => page(1)} icon={<MotionIcon name="arrow-right" size={16} />} /></div>
     </header>
     <ol ref={rail} className={styles.reelRail} data-dragging={dragging || undefined} onScroll={measure}
       onDragStart={event => event.preventDefault()}
@@ -106,7 +108,7 @@ export function BrandFilmstrip({ brand, items, selectedId, progress, playing, re
             setPeekId(previous => open ? item.id : previous === item.id ? null : previous);
             if (open) recordBrandReview('brand_reel_peek', { brand, templateId: item.id });
           }}>
-          <BaseTooltip.Trigger delay={180} render={<button className={`om-button ${styles.reelFrame}`} aria-label={t('Select work {title}', { title: item.title })} aria-current={selected ? 'true' : undefined} aria-pressed={selected} onClick={event => { setPeekId(null); onSelect(item); reveal(event.currentTarget); }} />}>
+          <BaseTooltip.Trigger delay={180} render={<Button variant="plain" className={`om-button ${styles.reelFrame}`} aria-label={t('Select work {title}', { title: item.title })} aria-current={selected ? 'true' : undefined} aria-pressed={selected} onClick={event => { setPeekId(null); onSelect(item); reveal(event.currentTarget); }} />}>
             <span className={styles.reelDate}><span>{String(index + 1).padStart(2,'0')}</span>{date && <time dateTime={date.value}>{formatBrandWorkDate(date)}</time>}</span>
             <span className={styles.reelImage}><TemplatePoster template={item} />
               {selected ? <span className={styles.reelNow} data-playing={playing || undefined}><i /><i /><i /><span>{t('Now viewing')}</span></span> : <span className={styles.reelPlay}><MotionIcon name="play" size={16} /></span>}

@@ -1,4 +1,4 @@
-import { Button } from "../ui/Button";
+import { Button } from "open-design-ui/button";
 import { MediaDurationBadge } from "./MediaDurationBadge";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { RemixIcon } from "../../icons/RemixIcons";
@@ -438,7 +438,7 @@ function BlockCard({
         {!mvp && (onAdd || onShowPrompt) && <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/60 opacity-0 group-hover/card:opacity-100 group-focus-within/card:opacity-100 transition-opacity">
           {onAdd && (
             <Tooltip label={t("Add")} description={t("Add to composition at current time")}>
-              <button
+              <Button variant="plain"
                 type="button"
                 onClick={handleAdd}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-[10px] font-semibold transition-colors active:scale-[0.97] ${
@@ -455,11 +455,11 @@ function BlockCard({
                     : addState === "failed"
                       ? t("Failed")
                       : t("Add")}
-              </button>
+              </Button>
             </Tooltip>
           )}
           {onShowPrompt && <Tooltip label={t("Ask agent")} description={t("Generate a prompt to paste into your AI agent")}>
-            <button
+            <Button variant="plain"
               type="button"
               onClick={handleShowPrompt}
               className={`flex items-center gap-1.5 px-3 ${onAdd ? "py-1" : "py-1.5"} rounded-md transition-colors active:scale-[0.97] ${
@@ -469,7 +469,7 @@ function BlockCard({
               }`}
             >
               <RemixIcon name="file-copy-line" size={14} />
-              {t("Ask agent")}</button>
+              {t("Ask agent")}</Button>
           </Tooltip>}
         </div>}
 

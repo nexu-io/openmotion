@@ -16,6 +16,16 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 async function render(error?: string) { await act(async () => root.render(<AssetTaskHistory tasks={tasks} loading={false} error={error} onRetry={retry} onSelect={select} trigger={<button>Tasks</button>} />)); }
 const button = (text: string) => [...document.querySelectorAll('button')].find(node => node.textContent === text)!;
 async function click(el: HTMLElement) { await act(async () => { el.click(); }); }
+it('animates queued and running tasks and stops when their state changes', async () => {
+  for (const state of ['queued', 'running', 'completed', 'failed', 'cancelled', 'waiting', 'idle'] as const) {
+    await act(async () => root.render(<AssetTaskHistory tasks={[{ ...tasks[0], state }]} loading={false} onRetry={retry} onSelect={select} trigger={<button>Tasks</button>} />));
+    if (!document.querySelector('.om-task-history')) await click(button('Tasks'));
+    const icon = document.querySelector('.om-task-state svg')!;
+    const spinning = state === 'queued' || state === 'running';
+    expect(icon.classList.contains('animate-spin')).toBe(spinning);
+    expect(icon.classList.contains('motion-reduce:animate-none')).toBe(spinning);
+  }
+});
 it('hides the Agent filter while keeping generation filtering and existing conversations accessible', async () => {
   await render();
   expect(document.querySelector('.om-task-history')).toBeNull();

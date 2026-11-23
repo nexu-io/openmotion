@@ -29,7 +29,7 @@ test('only final video presentation mounts a chat component, never production or
   for (const tool of tools.filter((t: any) => !['openmotion_show_video', 'openmotion_show_template_recommendations'].includes(t.name)))
     assert.equal(tool._meta?.ui?.resourceUri, undefined, tool.name + ' must not mount a chat preview');
   const plain = (await rpc({ jsonrpc: '2.0', id: 'plain', method: 'tools/list' }, store) as any).result.tools;
-  assert.equal(plain.length, 16, 'Non-App clients retain their existing contract');
+  assert.equal(plain.length, 22, 'Non-App clients retain their existing contract');
   await call('initialize', { capabilities: {} });
   assert.ok(!(await call('tools/list')).result.tools.some((tool: any) => tool.name === 'openmotion_show_video'), 'Reinitialization must clear the previous App capability');
 }, false));

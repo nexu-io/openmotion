@@ -19,6 +19,10 @@
 :where([data-motion-ui]) .ui-button--danger:hover:not(:disabled) { background: var(--motion-danger-soft); color: var(--motion-danger); border-color: var(--motion-danger); }
 :where([data-motion-ui]) .ui-button--sm { min-height: var(--motion-control-sm); padding: var(--motion-space-4) var(--motion-space-8); font-size: var(--motion-text-sm); }
 :where([data-motion-ui]) .ui-button--icon { width: var(--motion-icon-button); min-height: var(--motion-icon-button); padding: var(--motion-space-6); }
+/* Quiet resource actions shared by ordinary HTML guides and other portable surfaces. */
+:where([data-motion-ui]) .ui-text-link { display: inline-flex; align-items: center; gap: var(--motion-space-6); min-height: var(--motion-control-sm); padding: 0; border: 0; background: transparent; color: var(--motion-muted); font-size: var(--motion-text-sm); font-weight: var(--motion-weight-regular); line-height: var(--motion-leading-body); text-decoration: none; white-space: nowrap; cursor: pointer; }
+:where([data-motion-ui]) .ui-text-link:hover:not(:disabled):not([aria-disabled="true"]) { text-decoration: underline; }
+:where([data-motion-ui]) .ui-text-link:is(:disabled,[aria-disabled="true"]) { color: var(--motion-control-disabled); cursor: default; }
 :where([data-motion-ui]) .ui-field { display: flex; flex-direction: column; gap: var(--motion-space-8); font-size: var(--motion-text-sm); color: var(--motion-muted); }
 :where([data-motion-ui]) .ui-input {
   width: 100%; min-width: 0; min-height: var(--motion-control);
@@ -28,7 +32,7 @@
   transition: border-color var(--motion-duration-fast);
 }
 :where([data-motion-ui]) .ui-input:hover:not(:disabled) { border-color: var(--motion-border-strong); }
-:where([data-motion-ui]) .ui-input:focus { border-color: var(--motion-selected); }
+:where([data-motion-ui]) .ui-input:focus { border-color: var(--motion-focus); }
 :where([data-motion-ui]) .ui-input::placeholder { color: var(--motion-placeholder); }
 :where([data-motion-ui]) textarea.ui-input { resize: vertical; min-height: 76px; }
 :where([data-motion-ui]) select.ui-input { cursor: pointer; }

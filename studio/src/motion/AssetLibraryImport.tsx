@@ -8,7 +8,7 @@ import { useToast } from '../hooks/useToast';
 import { useMountEffect } from '../hooks/useMountEffect';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { RemixIcon } from '../icons/RemixIcons';
-import { IconButton } from '../components/ui/IconButton';
+import { IconButton } from 'open-design-ui/icon-button';
 import { Menu, MenuItem } from '../components/ui/Menu';
 
 type AssetImportMenuProps = {

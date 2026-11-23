@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../i18n/I18n";
 import { useRef, useState } from "react";
 import { XIcon, WarningIcon, CheckCircleIcon, CaretRightIcon } from "../icons/RemixIcons";
@@ -94,19 +96,18 @@ export function LintModal({
               <p className="text-xs text-neutral-500">{dialogTitle}</p>
             </div>
           </div>
-          <button
+          <IconButton variant="plain"
             onClick={onClose}
             aria-label={t("Close")}
             className="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors active:scale-[0.98]"
-          >
-            <XIcon size={16} />
-          </button>
+            icon={<XIcon size={16} />}
+          />
         </div>
 
         {/* Copy to agent + findings */}
         {hasIssues && (
           <div className="flex items-center justify-end px-5 py-2 border-b border-neutral-800/50">
-            <button
+            <Button variant="plain"
               onClick={handleCopyToAgent}
               className={`px-3 py-1 text-xs font-medium rounded-lg transition-colors active:scale-[0.98] ${
                 copied
@@ -117,7 +118,7 @@ export function LintModal({
               }`}
             >
               {copied ? t("Copied!") : copyFailed ? t("Copy failed. Check permissions") : t("Copy to Agent")}
-            </button>
+            </Button>
           </div>
         )}
         <div className="flex-1 overflow-y-auto px-5 py-3">

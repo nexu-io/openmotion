@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../i18n/I18n";
 import { Menu, MenuCheckboxItem, MenuItem, MenuSeparator } from '../components/ui';
 import { useDockLayoutStore } from '../components/dock/dockLayoutStore';
@@ -9,11 +10,11 @@ export function MotionPreviewButton() {
   const { t } = useI18n();
   const visible = useDockLayoutStore(state => state.visiblePanels.has('preview'));
   const activate = useDockLayoutStore(state => state.activatePanel);
-  return <button type="button" className={`motion-button motion-preview-button${visible ? ' is-active' : ''}`}
+  return <Button variant="plain" type="button" className={`motion-button motion-preview-button${visible ? ' is-active' : ''}`}
     aria-label={visible ? t("Preview") : t("Open preview")} aria-pressed={visible}
     onClick={() => activate('preview')}>
     <MotionIcon name="monitor" size={14} />{visible ? t("Preview") : t("Open preview")}
-  </button>;
+  </Button>;
 }
 
 export function applyMotionLayout(preset: 'edit' | 'code' | 'preview') {
@@ -34,7 +35,7 @@ export function MotionLayoutMenu() {
   const activate = useDockLayoutStore(state => state.activatePanel);
   const close = useDockLayoutStore(state => state.closePanel);
   return <Menu aria-label={t("Panels and layout")} align="end" className="motion-layout-menu"
-    trigger={<button type="button" className="motion-button motion-button-quiet"><MotionIcon name="grid" size={14} />{t("Layout")}</button>}>
+    trigger={<Button variant="plain" type="button" className="motion-button motion-button-quiet"><MotionIcon name="grid" size={14} />{t("Layout")}</Button>}>
     <div className="motion-menu-label">{t("Show panels")}</div>
     {panels.map(id => <MenuCheckboxItem key={id} checked={visiblePanels.has(id)}
       onCheckedChange={checked => checked ? activate(id) : close(id)}>{t(PANEL_DEFINITIONS[id].title)}</MenuCheckboxItem>)}

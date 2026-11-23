@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { useTrackDesignInput } from "../../contexts/DesignPanelInputContext";
 /**
@@ -242,15 +244,15 @@ export function FxNodeOpenBody({
       {/* The DSP name lives on the disclosure, so it is read at the moment
           the author asks what this really is — and never before. */}
       {oneKnob ? (
-        <button
+        <Button variant="plain"
           type="button"
           className="hf-fx-node-details flex w-full items-center gap-1 border-t border-panel-border-input px-1.5 py-1 text-left font-mono text-[9px] uppercase tracking-wide text-panel-text-2 hover:text-panel-text-0"
           aria-expanded={details}
           onClick={onToggleDetails}
         >
-          <span aria-hidden="true">{details ? "▾" : "▸"}</span>
+          <RemixIcon name={details ? "arrow-down-s-fill" : "arrow-right-s-fill"} size={12} />
           {t("Details:")}{" "}{t(registryDef.label)}
-        </button>
+        </Button>
       ) : (
         <p className="hf-fx-node-mechanism border-t border-panel-border-input px-1.5 pt-1 font-mono text-[9px] uppercase tracking-wide text-panel-text-2">
           {t("Details:")}{" "}{t(registryDef.label)}

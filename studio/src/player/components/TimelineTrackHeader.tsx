@@ -53,7 +53,6 @@ interface TimelineTrackHeaderProps {
    *  from the label rather than inventing one (see trackDisplayNumber). */
   trackDisplayNumber: number | null;
   trackLabel: string;
-  mainTrackLabel?: string;
   /** Ids of the canvas-side lane regions the disclosure caret expands, space
    *  separated as `aria-controls` takes them: the active clip's keyframe lanes
    *  and the track's automation lanes are separate elements, one owned by a
@@ -94,7 +93,6 @@ export function TimelineTrackHeader({
   trackNumber,
   trackDisplayNumber,
   trackLabel,
-  mainTrackLabel,
   lanesId,
   contentOrigin,
   keyframeClip,
@@ -303,7 +301,7 @@ export function TimelineTrackHeader({
       {mvp ? (
         <div className="motion-track-controls-row" style={{ height: identity?.isMain && !isExpanded ? MAIN_TRACK_H : TRACK_H }}>
           <TimelineTrackControls identity={identity} elements={trackElements} track={trackNumber} number={trackDisplayNumber}
-            label={trackLabel} mainTrackLabel={mainTrackLabel} hidden={isTrackHidden} audioOnly={isAudioOnly} toggleHidden={onToggleTrackHidden}>
+            label={trackLabel} hidden={isTrackHidden} audioOnly={isAudioOnly} toggleHidden={onToggleTrackHidden}>
             {disclosable && <LaneToggleButton name={laneOwnerName} isExpanded={isExpanded}
               lanesId={lanesId} onToggle={onToggleClipExpanded} />}
           </TimelineTrackControls>
@@ -326,7 +324,7 @@ export function TimelineTrackHeader({
             <PlainTrackHeader
               trackNumber={trackNumber}
               trackDisplayNumber={trackDisplayNumber}
-              trackLabel={mainTrackLabel ? `${mainTrackLabel} · ${trackLabel}` : trackLabel}
+              trackLabel={trackLabel}
               clipCount={clipCount}
               showTrackLabel={showTrackLabel}
               isTrackHidden={isTrackHidden}
@@ -387,7 +385,7 @@ export function TimelineTrackHeader({
       ) : (
         <>
           <LayerDisclosureRow
-            name={mainTrackLabel ? `${mainTrackLabel} · ${laneOwnerName}` : laneOwnerName}
+            name={laneOwnerName}
             clipCount={clipCount}
             isExpanded={isExpanded}
             gutterBackground={gutterFill(theme.gutterBackground, isGroupMember)}

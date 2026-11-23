@@ -9,6 +9,7 @@ import { webAddress, type BrowserInput, type WebPageState } from './shared/brows
 
 /** Plugins resolve browser dependencies from their managed runtime, not the read-only checkout. */
 export async function browserAutomation(runtimeRoot: string) {
+  if (process.platform === 'darwin') await import('./shared/hyperframes-capture-fix.mjs');
   const require = createRequire(path.join(runtimeRoot, 'package.json'));
   return (await import(pathToFileURL(require.resolve('puppeteer-core')).href)).default as typeof import('puppeteer-core').default;
 }

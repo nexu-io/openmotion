@@ -31,5 +31,11 @@
     "collection": "remixicon@4.9.1",
     "icon": "wechat-channels-fill",
     "fill": "#FA9D3B"
+  },
+  "x": {
+    "collection": "simple-icons@16.38.0",
+    "icon": "x",
+    "fill": "#000000",
+    "note": "Identifies posts shared on X (formerly Twitter)."
   }
 }

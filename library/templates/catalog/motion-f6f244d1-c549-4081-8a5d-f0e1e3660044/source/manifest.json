@@ -107,14 +107,19 @@
       "sha256": "031bf147b6c278e54e082f7286bb2b28ea42451eded6059c75174f9d9fe77e25"
     },
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
     },
     {
       "path": "assets/lfs/original-soundtrack.m4a",
-      "bytes": 1023125,
-      "sha256": "35aa305ecacdc259c5417f712743500cf83b8150e1761f4cbbce5a427b57b10c"
+      "sha256": "35aa305ecacdc259c5417f712743500cf83b8150e1761f4cbbce5a427b57b10c",
+      "bytes": 1023125
     },
     {
       "path": "assets/photos/avatar-00.jpg",

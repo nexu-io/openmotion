@@ -1,3 +1,5 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
 import { Tooltip } from "../ui/Tooltip";
 import { PanelEmptyState } from "../ui/PanelEmptyState";
 import { useMvpEditor } from "../../motion/StudioHost";
@@ -431,16 +433,16 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
         onPointerCancel={handleContainerPointerUp}
       >
         {activeGroupElement && (
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => setActiveGroupElement(null)}
             className="mx-1 flex w-[calc(100%-0.5rem)] items-center gap-1.5 rounded-md px-2 py-1 text-left text-[11px] text-panel-text-3 hover:bg-panel-hover/40 hover:text-panel-text-1"
           >
-            <span aria-hidden="true">←</span>
+            <RemixIcon name="arrow-left-line" size={14} />
             <span className="truncate">
               {activeGroupElement.getAttribute("data-hf-group") || t("Group")}
             </span>
-          </button>
+          </Button>
         )}
         {visibleLayers.map((layer, index) => {
           const selected = layer.key === selectedKey;
@@ -483,15 +485,14 @@ export const LayersPanel = memo(function LayersPanel({ host }: { host?: LayersPa
               style={{ paddingLeft: 8 + layer.depth * CHILD_INDENT }}
             >
               {hasChildren ? (
-                <button
+                <IconButton variant="plain"
                   type="button"
                   onClick={(e) => toggleCollapse(layer.key, e)}
                   aria-expanded={!isCollapsed}
                   aria-label={isCollapsed ? t("Expand children") : t("Collapse children")}
                   className="relative flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-neutral-500 hover:text-neutral-300 before:absolute before:-inset-1.5 before:content-['']"
-                >
-                  <RemixIcon name="arrow-right-s-line" size={12} className={`transition-transform ${isCollapsed ? "" : "rotate-90"}`} />
-                </button>
+                  icon={<RemixIcon name="arrow-right-s-line" size={12} className={`transition-transform ${isCollapsed ? "" : "rotate-90"}`} />}
+                />
               ) : null}
               <Tooltip label={hint ? `${t(kindName)} · ${t(hint)}` : t(kindName)} wrap><span
                 data-layer-kind={kind}

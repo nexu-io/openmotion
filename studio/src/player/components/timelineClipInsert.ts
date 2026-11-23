@@ -20,13 +20,30 @@ export function previewClipInsert(
   elements: TimelineElement[], grabbed: TimelineElement, moving: ReadonlySet<string>,
   track: number, rawStart: number, pointerTime: number,
   linkedSelection = true,
-): { start: number; insertion: ReadonlyMap<string, number> } | null {
+  edgeTolerance = 0,
+): { start: number; insertion?: ReadonlyMap<string, number> } | null {
   if (!canMoveTimelineElement(grabbed)) return null;
   const lane = collisionLane(elements, track).filter(el => !moving.has(keyOf(el)));
-  const rightIndex = lane.findIndex((right, index) => index > 0 &&
+  // A clip's leading edge can identify a tight gap even when the pointer is past it.
+  let edgeIndex = -1, edgeDistance = edgeTolerance;
+  for (let index = 1; index < lane.length; index++) {
+    const left = lane[index - 1], right = lane[index];
+    const leftEnd = left.start + left.duration;
+    const slack = right.start - leftEnd - grabbed.duration;
+    if (slack >= edgeTolerance ||
+      (grabbed.track === track && timelineTimesTouch(grabbed.start, leftEnd) &&
+        timelineTimesTouch(right.start, leftEnd + grabbed.duration))) continue;
+    const distance = Math.abs(rawStart - leftEnd);
+    if (distance < edgeDistance) {
+      edgeIndex = index;
+      edgeDistance = distance;
+    }
+  }
+  const rightIndex = edgeIndex !== -1 ? edgeIndex : lane.findIndex((right, index) => index > 0 &&
     pointerTime >= lane[index - 1].start + lane[index - 1].duration / 2 &&
     pointerTime <= right.start + right.duration / 2);
-  if (rightIndex < 1 || !lane.some(el => timelineSpansOverlap(rawStart, rawStart + grabbed.duration, el.start, el.start + el.duration))) return null;
+  if (rightIndex < 1 || (edgeIndex === -1 &&
+    !lane.some(el => timelineSpansOverlap(rawStart, rawStart + grabbed.duration, el.start, el.start + el.duration)))) return null;
   if (lane.some((el, index) =>
     !sameSourceFile(el, grabbed) || classifyZone(el) !== classifyZone(grabbed) ||
     el.expandedHostKey !== grabbed.expandedHostKey || el.timelineLocked ||
@@ -37,7 +54,7 @@ export function previewClipInsert(
   const blockStart = Math.min(...block.map(el => el.start));
   const blockEnd = Math.max(...block.map(el => el.start + el.duration));
   const leftEnd = lane[rightIndex - 1].start + lane[rightIndex - 1].duration;
-  if (lane[rightIndex].start - leftEnd >= blockEnd - blockStart - 0.001) return null;
+  if (edgeIndex === -1 && lane[rightIndex].start - leftEnd >= blockEnd - blockStart - 0.001) return null;
   const boundary = after(grabbed, leftEnd);
   const delta = boundary - blockStart;
   const shift = heldAudioShiftRange(movers, elements, moving);
@@ -53,12 +70,12 @@ export function previewClipInsert(
   const pushes: { peer: TimelineElement; delta: number }[] = [];
   for (let index = rightIndex; index < lane.length; index++) {
     const peer = lane[index];
+    if (end <= peer.start || timelineTimesTouch(end, peer.start)) break;
     const next = after(peer, end);
-    if (next - peer.start <= 0.001) break;
     pushes.push({ peer, delta: next - peer.start });
     end = next + peer.duration;
   }
-  if (pushes.length === 0) return null;
+  if (pushes.length === 0) return edgeIndex !== -1 && movers.length === 1 ? { start } : null;
   const following = pushes.map(({ peer }) => peer);
   // Resolve linkage once, rather than rescanning the whole timeline for every pushed clip.
   const first = keyOf(following[0]);

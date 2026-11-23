@@ -157,8 +157,8 @@ describe("dock tab strips", () => {
     const tabs = tabsOf("design");
     press(tabs[0] as HTMLElement, "End");
     expect(api.getPanel("design")?.group.activePanel?.id).toBe("motionBlur");
-    expect(document.activeElement).toBe(tabs[4]);
-    press(tabs[4] as HTMLElement, "Home");
+    expect(document.activeElement).toBe(tabs.at(-1));
+    press(tabs.at(-1) as HTMLElement, "Home");
     expect(api.getPanel("design")?.group.activePanel?.id).toBe("design");
   });
 });

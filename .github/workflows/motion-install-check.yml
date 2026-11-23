@@ -9,6 +9,9 @@ on:
         type: string
         required: true
         default: '0.6.4-test.7'
+      candidate_run_id:
+        description: 'Optional exact candidate run ID when multiple candidates have this version'
+        type: string
   pull_request:
     branches: [main]
     paths:
@@ -46,12 +49,13 @@ jobs:
         id: download
         env:
           GH_TOKEN: ${{ github.token }}
+          MOTION_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
         run: |
           git fetch origin main:refs/remotes/origin/main
           node --input-type=module <<'JS'
           import { appendFile } from 'node:fs/promises';
           import { downloadCandidate, validateSource } from './.github/scripts/motion-release.mjs';
-          const c = await downloadCandidate(process.env.MOTION_VERSION, process.env.RUNNER_TEMP + '/candidate');
+          const c = await downloadCandidate(process.env.MOTION_VERSION, process.env.RUNNER_TEMP + '/candidate', undefined, fetch, process.env.MOTION_CANDIDATE_RUN_ID);
           await validateSource(process.cwd(), c.sourceCommit, c.version);
           await appendFile(process.env.GITHUB_OUTPUT, `tgz_sha256=${c.tgzSHA256}\n`);
           JS

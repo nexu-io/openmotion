@@ -15,7 +15,7 @@ import { renderPageMetadata } from '../packages/design-system/metadata.js';
 
 export async function designTokens(checkOnly = false) {
   const tokens = JSON.parse(await readFile(new URL('tokens.json', directory), 'utf8'));
-  for (const [file, css] of Object.entries(renderDesignTokens(tokens))) {
+  for (const [file, css] of Object.entries(renderDesignTokens(tokens) as Record<string, string>)) {
     if (checkOnly) {
       if (await readFile(new URL(file, directory), 'utf8') !== css) throw new Error(`${file} is stale. Run npm run design:tokens.`);
     } else await writeFile(new URL(file, directory), css);
@@ -27,6 +27,18 @@ export async function designTokens(checkOnly = false) {
     // The growth-teardown Skill ships these marks for standalone installs.
     ['brand/openmotion-logo.svg', '../../library/skills/openmotion-growth-teardown/assets/brand/openmotion-logo.svg'],
     ['brand/loading-mark.svg', '../../library/skills/openmotion-growth-teardown/assets/brand/loading-mark.svg'],
+    // The design-styles Skill ships the same marks for its opening and end credit.
+    ['brand/openmotion-logo.svg', '../../library/skills/openmotion-design-styles/assets/brand/openmotion-logo.svg'],
+    ['brand/loading-mark.svg', '../../library/skills/openmotion-design-styles/assets/brand/loading-mark.svg'],
+    // The sale-carousel Skill ships the same marks for its end-card sign-off.
+    ['brand/openmotion-logo.svg', '../../library/skills/openmotion-sale-carousel/assets/brand/openmotion-logo.svg'],
+    ['brand/loading-mark.svg', '../../library/skills/openmotion-sale-carousel/assets/brand/loading-mark.svg'],
+    // The sale-countdown Skill ships the same marks for its end-card sign-off.
+    ['brand/openmotion-logo.svg', '../../library/skills/openmotion-sale-countdown/assets/brand/openmotion-logo.svg'],
+    ['brand/loading-mark.svg', '../../library/skills/openmotion-sale-countdown/assets/brand/loading-mark.svg'],
+    // The sale-promo Skill ships the same marks for its end-card sign-off.
+    ['brand/openmotion-logo.svg', '../../library/skills/openmotion-sale-promo/assets/brand/openmotion-logo.svg'],
+    ['brand/loading-mark.svg', '../../library/skills/openmotion-sale-promo/assets/brand/loading-mark.svg'],
     ['fonts/NOTICES.txt', '../../web/design-system/fonts/NOTICES.txt'],
     ['fonts/Albert-Sans-OFL.txt', '../../web/design-system/fonts/Albert-Sans-OFL.txt'],
     ['fonts/IBM-Plex-Mono-OFL.txt', '../../web/design-system/fonts/IBM-Plex-Mono-OFL.txt'],
@@ -42,7 +54,7 @@ export async function designTokens(checkOnly = false) {
     const html = await readFile(url, 'utf8');
     const block = /<!-- openmotion:metadata -->[\s\S]*?<!-- \/openmotion:metadata -->/;
     if (!block.test(html)) throw new Error(`${file} is missing its generated metadata block.`);
-    const theme = surface === 'studio' ? `\n<meta name="theme-color" content="${tokens.themes.light.shell}" data-light="${tokens.themes.light.shell}" data-dark="${tokens.themes.dark.shell}" />` : '';
+    const theme = surface === 'studio' ? `\n<meta name="theme-color" content="${tokens.themes.dark.shell}" data-light="${tokens.themes.light.shell}" data-dark="${tokens.themes.dark.shell}" />` : '';
     const generated = html.replace(block, `<!-- openmotion:metadata -->\n${renderPageMetadata('zh-CN', surface)}${theme}\n<!-- /openmotion:metadata -->`);
     if (checkOnly) {
       if (html !== generated) throw new Error(`${file} metadata is stale. Run npm run design:tokens.`);

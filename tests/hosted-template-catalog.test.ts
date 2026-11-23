@@ -139,7 +139,10 @@ test('published repository files serve the HTTP gallery, public MCP and arbitrar
   assert.equal(detail.motionDocument.content, motion.toString());
   assert.equal(detail.localSource, undefined);
   assert.equal(detail.workflowGuide.workflow, 'template');
-  assert.equal(await (await request(item.motionGuideUrl)).text(), contents['preview.html'].toString());
+  const guide = await (await request(item.motionGuideUrl)).text();
+  assert(guide.includes('/guide-assets/viewer.js'));
+  assert(guide.includes('"id":"' + id + '"'));
+  assert.equal(await (await request(item.motionGuideUrl + '?raw=1')).text(), contents['preview.html'].toString());
   assert.equal(await (await request(`/api/template-source/${id}/style.css`)).text(), contents['style.css'].toString());
   const downloaded = await request(`/api/template-source/${id}/${encodeURIComponent('工程.custom')}`);
   assert.equal(downloaded.status, 200);

@@ -102,6 +102,22 @@ it("supports an explicit body portal opt-out", async () => {
   expect(bubble()?.closest("dialog")).toBeNull();
 });
 
+it("keeps playback tooltips in the fullscreen top layer", async () => {
+  const trigger = mount();
+  const fullscreen = trigger.parentElement!.parentElement!;
+  const original = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
+  try {
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, value: fullscreen });
+    act(() => trigger.focus());
+    await settle();
+    expect(bubble()?.textContent).toBe('Selection tool (V)');
+    expect(fullscreen.contains(bubble())).toBe(true);
+  } finally {
+    if (original) Object.defineProperty(document, 'fullscreenElement', original);
+    else Reflect.deleteProperty(document, 'fullscreenElement');
+  }
+});
+
 it("closes on Escape and drops the description", async () => {
   const trigger = mount();
   act(() => trigger.focus());

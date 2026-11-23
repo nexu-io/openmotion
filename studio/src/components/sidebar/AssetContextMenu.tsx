@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import { ASSET_NAME_ERROR } from '../../../../shared/asset-names';
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
@@ -204,16 +205,16 @@ export function ContextMenu({
             />
             {renameError && <span className="text-[10px] text-danger-ink">{renameError}</span>}
             <div className="flex items-center justify-end gap-1">
-              <button
+              <Button variant="plain"
                 onClick={() => setMode("menu")}
                 className="px-2 py-0.5 text-[10px] rounded-sm text-neutral-400 hover:text-neutral-200 transition-colors"
               >
-                {t("Cancel")}</button>
-              <button
+                {t("Cancel")}</Button>
+              <Button variant="plain"
                 onClick={commitRename}
                 className="px-2 py-0.5 text-[10px] rounded-sm bg-accent hover:bg-accent-hover text-on-accent transition-colors"
               >
-                {t("Rename")}</button>
+                {t("Rename")}</Button>
             </div>
           </div>
         )}
@@ -237,16 +238,16 @@ function DeleteConfirm({
     <div className="px-2 py-1.5 bg-danger/15 border-l-2 border-red-500 flex items-center justify-between gap-2">
       <span className="text-[10px] text-danger-ink truncate">{t("Delete")}{" "}{name}?</span>
       <div className="flex items-center gap-1 shrink-0">
-        <button
+        <Button variant="plain"
           onClick={onConfirm}
           className="px-2 py-0.5 text-[10px] rounded-sm bg-danger text-on-danger hover:brightness-95 active:brightness-90 transition-colors"
         >
-          {t("Delete")}</button>
-        <button
+          {t("Delete")}</Button>
+        <Button variant="plain"
           onClick={onCancel}
           className="px-2 py-0.5 text-[10px] rounded-sm text-neutral-400 hover:text-neutral-200 transition-colors"
         >
-          {t("Cancel")}</button>
+          {t("Cancel")}</Button>
       </div>
     </div>
   );

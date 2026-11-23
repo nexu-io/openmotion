@@ -205,7 +205,7 @@ try {
     await writeFile(path.join(out, 'copied-instruction.txt'), instruction);
     check(`export choices, fixed actions, scrolling and clipboard toast: ${theme}, ${width}px`, { bounds, feedback, scrolled });
     await clickText('Connection help'); await page.waitForSelector('#mcp-title');
-    const card = await page.$('.om-mcp-capability-grid article.om-mcp-feature:last-child');
+    const card = await page.$('.om-mcp-capability-grid article.om-mcp-feature[data-mcp-scenario="platform-export"]');
     assert((await card.evaluate(el => el.textContent)).includes('Prepare a platform version'));
     await card.$eval('button', el => el.scrollIntoView({ block: 'center', behavior: 'instant' }));
     await settle();

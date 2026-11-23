@@ -117,14 +117,19 @@
       "sha256": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345"
     },
     {
+      "path": "assets/GSAP-LICENSE.txt",
+      "bytes": 4538,
+      "sha256": "1c777aec2ecd4eba9d81c00c881aaed3108f2e11a4f7971c09c5191997734e7c"
+    },
+    {
       "path": "assets/gsap.min.js",
       "bytes": 72927,
       "sha256": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb"
     },
     {
       "path": "assets/lfs/original-audio.m4a",
-      "bytes": 390215,
-      "sha256": "49c9b09c5f44acfc3da59759f6da7988a80d2550779fb81fa947a6a50abd39ad"
+      "sha256": "49c9b09c5f44acfc3da59759f6da7988a80d2550779fb81fa947a6a50abd39ad",
+      "bytes": 390215
     },
     {
       "path": "assets/reference-1.webp",

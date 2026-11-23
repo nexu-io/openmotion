@@ -1,3 +1,5 @@
+import { IconButton } from 'open-design-ui/icon-button';
+import { Button } from 'open-design-ui/button';
 import { useEffect, useId, useState } from 'react';
 import { recordBrowserDiagnostic } from '../../motion/diagnostics';
 import { useI18n } from '../../i18n/I18n';
@@ -30,15 +32,15 @@ export function ErrorNotice({ message, context = 'operation', compact = false, a
   return <div className={`motion-error-notice${compact ? ' motion-error-notice-compact' : ''}`}>
     <div className="motion-error-notice-row">
       <p className="motion-error-notice-summary" role="alert">{t(summary)}</p>
-      {onDismiss && <button type="button" className="motion-error-notice-close" aria-label={t('Dismiss error')} onClick={onDismiss}><RemixIcon name="close-line" size={14} /></button>}
+      {onDismiss && <IconButton variant="plain" type="button" className="motion-error-notice-close" aria-label={t('Dismiss error')} onClick={onDismiss} icon={<RemixIcon name="close-line" size={14} />} />}
     </div>
     <div className="motion-error-notice-actions">
-      {action && <button type="button" className="motion-error-notice-action" onClick={action.run} disabled={action.busy}>{t(action.busy ? 'Checking…' : action.label)}</button>}
-      <button type="button" aria-label={t(expanded ? 'Hide error details' : 'Error details')} aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>{t(expanded ? 'Hide error details' : 'Error details')}</button>
+      {action && <Button variant="plain" type="button" className="motion-error-notice-action" onClick={action.run} disabled={action.busy}>{t(action.busy ? 'Checking…' : action.label)}</Button>}
+      <Button variant="plain" type="button" aria-label={t(expanded ? 'Hide error details' : 'Error details')} aria-expanded={expanded} aria-controls={id} onClick={() => setExpanded(value => !value)}>{t(expanded ? 'Hide error details' : 'Error details')}</Button>
     </div>
     {expanded && <div id={id} className="motion-error-notice-details">
       <pre tabIndex={0} aria-label={t('Error details')}>{details}</pre>
-      <button type="button" onClick={() => void copy()}>{t('Copy error information')}</button>
+      <Button variant="plain" type="button" onClick={() => void copy()}>{t('Copy error information')}</Button>
     </div>}
     <StudioToastViewport {...toast} />
   </div>;

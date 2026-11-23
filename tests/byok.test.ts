@@ -439,9 +439,14 @@ test('account media hints distinguish personal tiers, invalid balances and unfet
   }
   for (const balance of [undefined, null, '', '  ', 'NaN', 'Infinity', 'invalid']) {
     const hint = accountMediaState({ ...summary, plan: 'free', balance });
-    assert.equal(hint.mediaEntitlement, 'unknown', String(balance)); assert.equal(hint.hasBalance, undefined);
+    assert.equal(hint.mediaEntitlement, 'not-included', String(balance)); assert.equal(hint.hasBalance, undefined);
   }
-  assert.equal(accountMediaState({ ...summary, plan: 'free', balance: '-0.25' }).mediaEntitlement, 'not-included');
+  // Free and Go entitle text models only; credits (signup grants, Go allowances, top-ups) never unlock media.
+  for (const [plan, balance, hasBalance] of [['free', '-0.25', false], ['free', '5.00', true], [' Go ', '8.00', true], ['go', '0', false]] as const) {
+    const hint = accountMediaState({ ...summary, plan, balance });
+    assert.equal(hint.mediaEntitlement, 'not-included', plan + balance); assert.equal(hint.hasBalance, hasBalance, plan + balance);
+    assert.equal(hint.reason, 'Signed in; multimodal generation requires OpenDesign Plus or above');
+  }
   for (const plan of ['team_plus', 'team_pro', 'team_max', 'future-tier']) {
     assert.equal(accountMediaState({ ...summary, plan, balance: '0' }).mediaEntitlement, 'unknown', plan);
   }

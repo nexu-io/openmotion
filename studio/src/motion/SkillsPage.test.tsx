@@ -3,8 +3,10 @@ import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { SkillsPage, skillSubmissionUrl } from './SkillsPage';
-import { motionSkills, skillPrompt } from './skillCatalog';
+import { SkillMedia } from './SkillMedia';
+import { motionSkills, skillPreviewSnapshot, skillPrompt, skillShortcut, studioSkillDefaults } from './skillCatalog';
 import { readWorkspacePage, workspacePageHref } from './workspacePageRouting';
+import { findTechniqueStudio } from '../../../shared/studio-catalog';
 import { isWorkspaceSettingsPage } from '../../../shared/workspace-url';
 
 vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ locale: 'en', t: (text: string, values?: { count: number }) => text.replace('{count}', String(values?.count)) }) }));
@@ -12,8 +14,11 @@ vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ locale: 'en', t: (text: strin
 vi.mock('./useWorkspace', () => ({ motionApi: vi.fn().mockRejectedValue(new Error('Offline test')) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement;
-beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 404 }));
+});
+afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 function Host() {
   const [skill, setSkill] = useState<string | null>(null);
@@ -24,9 +29,11 @@ const button = (label: string) => [...container.querySelectorAll('button')].find
 it('lists every curated skill with its upstream repository', () => {
   act(() => root.render(<Host />));
   expect(container.querySelectorAll('.om-skill-gallery-card')).toHaveLength(motionSkills.length);
-  expect(motionSkills).toHaveLength(122);
+  expect(motionSkills).toHaveLength(130);
   expect(motionSkills[0].id).toBe('motionmaxxing');
   expect(motionSkills[1].id).toBe('openmotion-growth-teardown');
+  expect(motionSkills[2].id).toBe('openmotion-design-styles');
+  expect(motionSkills.slice(3, 6).map(skill => skill.id)).toEqual(['openmotion-sale-promo', 'openmotion-sale-countdown', 'openmotion-sale-carousel']);
   for (const skill of motionSkills) if (skill.repository) expect(skill.repository).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\/tree\/main\/[\w.-]+)?$/);
   // Skills without an upstream repository are OpenMotion Library Skills (library/skills/<id>).
   for (const skill of motionSkills) if (!skill.repository) expect(skill.id).toMatch(/^openmotion-[a-z0-9-]+$/);
@@ -49,6 +56,18 @@ it('presents the growth teardown as an OpenMotion skill', async () => {
   expect(text).toContain('Make a video with the OpenMotion "Growth Teardown" skill.');
   expect(text).toContain('Source: OpenMotion skill');
   expect(text).toContain('growth-teardown Skill');
+});
+
+it('presents the design style library with its upstream repository', async () => {
+  const write = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: write } });
+  act(() => root.render(<Host />));
+  act(() => button('Design style library').click());
+  expect(container.querySelector<HTMLAnchorElement>('a.om-skill-source')!.href).toBe('https://github.com/guanmo-ai/design-style');
+  await act(async () => button('Copy for Agent').click());
+  const text = write.mock.calls[0][0] as string;
+  expect(text).toContain('design-styles Skill');
+  expect(text).toContain('github.com/guanmo-ai/design-style');
 });
 
 it('filters by category and search', () => {
@@ -86,6 +105,40 @@ it('routes generated media through OpenMotion only for media skills', () => {
   expect(photo).toContain('https://github.com/higgsfield-ai/skills/tree/main/higgsfield-product-photoshoot');
 });
 
+it('reads library skills through MCP and runs a generator skill through its own scripts', () => {
+  const brief = (id: string, locale = 'en', duration = 10, aspect: '16:9' | '9:16' | '1:1' = '1:1') =>
+    skillPrompt(motionSkills.find(skill => skill.id === id)!, { subject: 'x', duration, aspect, style: '' }, locale, 'https://example.test/install.md');
+  for (const locale of ['en', 'zh-CN', 'ja', 'ko', 'ru', 'de', 'fr', 'es', 'pt-BR', 'it', 'tr']) {
+    const growth = brief('openmotion-growth-teardown', locale);
+    expect(growth).toContain('openmotion_get_skill');
+    expect(growth).toContain('openmotion-growth-teardown');
+    expect(growth).not.toContain('install-library-skill');
+    expect(growth).toContain('1:1');
+    const recipe = brief('openmotion-whiteboard-doodle', locale);
+    expect(recipe).toContain('openmotion_get_skill');
+    expect(recipe).toContain('openmotion-whiteboard-doodle');
+    expect(recipe).toContain('HTML/CSS/JS');
+  }
+  expect(brief('openmotion-growth-teardown')).toContain("Make the film with the skill's own generator");
+  expect(brief('openmotion-growth-teardown')).toContain('cannot make the chosen duration or aspect ratio');
+  expect(brief('openmotion-whiteboard-doodle')).not.toContain("own generator");
+  const borrowed = brief('anime-js');
+  expect(borrowed).toContain('Author a native HTML/CSS/JS composition');
+  expect(borrowed).not.toContain('openmotion_get_skill');
+});
+
+it('routes the shortcut command through MCP for library skills and the generator for generator skills', () => {
+  const short = (id: string, locale: string) => skillShortcut(motionSkills.find(skill => skill.id === id)!, { subject: 'x', duration: 10, aspect: '9:16', style: '' }, locale, 'https://example.test/install.md');
+  for (const locale of ['en', 'zh-CN', 'ja', 'ko', 'ru', 'de', 'fr', 'es', 'pt-BR', 'it', 'tr']) {
+    expect(short('openmotion-growth-teardown', locale)).toContain('openmotion_get_skill');
+    expect(short('openmotion-growth-teardown', locale)).toContain('openmotion-growth-teardown');
+    expect(short('openmotion-whiteboard-doodle', locale)).toContain('openmotion-whiteboard-doodle');
+    expect(short('anime-js', locale)).not.toContain('openmotion_get_skill');
+  }
+  expect(short('openmotion-growth-teardown', 'en')).toContain('own generator');
+  expect(short('openmotion-whiteboard-doodle', 'en')).not.toContain('own generator');
+});
+
 it('starts a fresh brief when the selected skill changes from outside, such as history navigation', () => {
   const render = (skillId: string) => act(() => root.render(<SkillsPage skillId={skillId} onSkillChange={() => {}} />));
   render('anime-js');
@@ -103,11 +156,14 @@ it('localizes the instruction and keeps the user brief', () => {
   expect(text).not.toContain('风格');
 });
 
-it('routes the skills page and selected skill through the query', () => {
+it('routes the skills page and selected skill through semantic paths while keeping legacy queries compatible', () => {
   const href = workspacePageHref('http://local/?page=assets', { skills: true, skill: 'manim' });
-  expect(href).toBe('/?page=skills&skill=manim');
+  expect(href).toBe('/skills/manim');
+  expect(readWorkspacePage('', '', href)).toMatchObject({ skills: true, skill: 'manim', assets: false, settings: null });
   expect(readWorkspacePage('?page=skills&skill=manim')).toMatchObject({ skills: true, skill: 'manim', assets: false, settings: null });
-  expect(readWorkspacePage(workspacePageHref('http://local' + href, { assets: true }).slice(1))).toMatchObject({ assets: true, skills: false, skill: null });
+  const assetsHref = workspacePageHref('http://local' + href, { assets: true });
+  expect(assetsHref).toBe('/assets');
+  expect(readWorkspacePage('', '', assetsHref)).toMatchObject({ assets: true, skills: false, skill: null });
   expect(isWorkspaceSettingsPage('?page=skills')).toBe(true);
 });
 
@@ -220,24 +276,71 @@ it('opens the contribution guide section for submitting a skill, like the templa
   expect(section).toContain('draft pull request');
 });
 
-it('bundles the GIF covers as local assets', () => {
-  for (const id of ['anime-js', 'lottie-web']) {
-    const gif = motionSkills.find(skill => skill.id === id)?.cover?.gif;
-    expect(gif, id).toBeDefined();
-    expect(gif, id).not.toMatch(/^https?:/);
+it('ships static WebP posters and waits to fetch archived video until playback starts', async () => {
+  const archived = motionSkills.filter(skill => (skill.cover?.video ?? skill.cover?.gif)?.startsWith(skillPreviewSnapshot));
+  expect(archived.length).toBeGreaterThan(100);
+  for (const skill of archived) expect(skill.cover?.poster, skill.id).toMatch(/\.webp(?:\?|$)/);
+  const skill = motionSkills.find(skill => skill.id === 'motionmaxxing')!;
+  const videoUrl = skill.cover!.video!;
+  const fetcher = vi.mocked(fetch).mockImplementation(async input => String(input) === videoUrl
+    ? new Response('sample', { headers: { 'Content-Type': 'application/octet-stream' } })
+    : new Response(null, { status: 404 }));
+  const videoRequests = () => fetcher.mock.calls.map(([input]) => String(input))
+    .filter(url => url.startsWith(skillPreviewSnapshot) && url.endsWith('.mp4'));
+  const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:skill-preview');
+  act(() => root.render(<SkillMedia skill={skill} />));
+  expect(container.querySelectorAll('img')).toHaveLength(2);
+  expect(videoRequests()).toEqual([]);
+  await act(async () => root.render(<SkillMedia skill={skill} playing />));
+  expect(create).toHaveBeenCalled();
+  expect(videoRequests()).toEqual([videoUrl]);
+  act(() => root.render(<SkillMedia skill={skill} playing={false} />));
+  expect(container.querySelectorAll('video')).toHaveLength(0);
+  expect(container.querySelectorAll('img')).toHaveLength(2);
+});
+
+it('merges same-repository cover credits while retaining external sources and attribution', () => {
+  for (const id of ['openmotion-design-styles', 'motionmaxxing']) {
+    act(() => root.render(<SkillsPage skillId={id} onSkillChange={() => {}} />));
+    expect(container.querySelector('a.om-skill-source')!.getAttribute('href')).toBe(motionSkills.find(skill => skill.id === id)!.repository);
+    expect(container.querySelector('.om-skill-credit')).toBeNull();
+  }
+  for (const id of ['lume', 'three-js', 'openmotion-growth-teardown']) {
+    act(() => root.render(<SkillsPage skillId={id} onSkillChange={() => {}} />));
+    expect(container.querySelector('.om-skill-credit')!.textContent).toContain(motionSkills.find(skill => skill.id === id)!.cover!.source!.replace(/^https?:\/\//, ''));
   }
 });
 
-it('falls back to the poster when a cover video cannot load', () => {
-  act(() => root.render(<Host />));
-  const card = container.querySelector('[data-skill-id="motionmaxxing"]')!;
-  const videos = [...card.querySelectorAll('video')];
-  expect(videos.length).toBeGreaterThan(0);
-  act(() => videos.forEach(node => node.dispatchEvent(new Event('error'))));
-  expect(card.querySelector('.om-skill-cover')).toBeNull();
-  expect(card.querySelectorAll('img').length).toBe(videos.length);
+it('carries the exact reference version into both 3D Agent handoffs', () => {
+  const skill = motionSkills.find(entry => entry.id === 'three-js')!;
+  const brief = { subject: 'Orbit a vase', aspect: '16:9', duration: 10, style: '', reference: { assetId: 'asset-a', versionId: 'version-b', label: 'Vase · V2' } } as const;
+  for (const build of [skillPrompt, skillShortcut]) {
+    const instruction = build(skill, brief, 'en', 'https://example.com/install');
+    expect(instruction).toContain('Orbit a vase');
+    const call = instruction.split('\n').at(-1)!;
+    expect(call).toBe('openmotion_assets_use {"action":"read","assetId":"asset-a","versionId":"version-b"}');
+  }
 });
 
-it('serves no cover video from raw GitHub, which sends it as an undecodable octet-stream', () => {
-  expect(motionSkills.filter(skill => skill.cover?.video?.includes('raw.githubusercontent.com')).map(skill => skill.id)).toEqual([]);
+it.each(['image', 'video', 'audio'] as const)('carries the brief and respects a pinned %s reference when starting a shot', modality => {
+  const studio = findTechniqueStudio('shorts')!;
+  const skill = studio.techniques[0], create = vi.fn();
+  const reference = { assetId: 'source', versionId: 'pinned', label: 'Source · V2', modality };
+  const brief = { ...studioSkillDefaults(studio.id), subject: 'A ceramic vase', style: 'Warm sidelight', reference };
+  act(() => root.render(<SkillsPage studio={studio} briefs={new Map([[skill, brief]])} skillId={skill} onSkillChange={vi.fn()} onCreate={create} />));
+  expect(button('Copy for Agent')).toBeTruthy();
+  const action = button('Create a shot from this brief');
+  if (modality !== 'image') {
+    expect(action).toBeUndefined();
+    expect(container.textContent).toContain('Use the Agent brief to work with this recording');
+    return;
+  }
+  act(() => action.click());
+  const [destination, draft] = create.mock.calls[0];
+  expect(destination.scene.id).toBe('image-to-video');
+  expect(draft.references).toEqual([{ reference: { assetId: 'source', versionId: 'pinned' }, name: 'Source · V2' }]);
+  expect(draft.shotPreferences).toEqual({ aspect: '9:16', duration: brief.duration });
+  expect(draft.prompt).toContain('A ceramic vase');
+  expect(draft.prompt).toContain('Warm sidelight');
+  expect(draft.prompt).not.toContain('openmotion_assets_use');
 });

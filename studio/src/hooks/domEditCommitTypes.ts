@@ -54,6 +54,8 @@ export type PersistDomEditOperations = (
     coalesceKey?: string;
     coalesceMs?: number;
     skipRefresh?: boolean;
+    /** Rebind a timing-only source change in the existing preview; reload only if it cannot converge. */
+    syncTimingInPlace?: boolean;
     deferRender?: boolean;
     importedFont?: ImportedFontAsset;
     /** Inspect the freshly read source inside the file queue, before any mutation. Throw to refuse. */
@@ -67,5 +69,5 @@ export type PersistDomEditOperations = (
 export type CommitDomAttributeBatch = (
   selection: DomEditSelection,
   operations: PatchOperation[],
-  options: { label: string; onError?: (error: unknown) => void; prepareContent?: (html: string) => string; validateContent?: (html: string) => void },
+  options: { label: string; onError?: (error: unknown) => void; prepareContent?: (html: string) => string; validateContent?: (html: string) => void; syncTimingInPlace?: boolean; shouldSave?: () => boolean },
 ) => Promise<boolean>;

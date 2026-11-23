@@ -5,10 +5,11 @@
  * immediately.
  */
 
+import { ColorField } from "../editor/propertyPanelColor";
+import { FieldInput, NativeSelect } from "../ui/FormField";
 import { useState } from "react";
 import type {
   CompositionVariable,
-  ColorVariable,
   EnumVariable,
   NumberVariable,
 } from "@hyperframes/sdk";
@@ -46,7 +47,7 @@ function DraftTextInput({
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   return (
-    <input
+    <FieldInput
       type={type}
       value={draft ?? value}
       maxLength={maxLength}
@@ -75,7 +76,7 @@ function EnumControl({
   onCommit: (value: unknown) => void;
 }) {
   return (
-    <select
+    <NativeSelect
       value={String(current)}
       onChange={(e) => onCommit(e.target.value)}
       className={VARIABLES_INPUT_CLASS}
@@ -85,41 +86,7 @@ function EnumControl({
           {opt.label}
         </option>
       ))}
-    </select>
-  );
-}
-
-function ColorControl({
-  current,
-  onCommit,
-}: {
-  decl: ColorVariable;
-  current: unknown;
-  onCommit: (value: unknown) => void;
-}) {
-  const colorValue = typeof current === "string" ? current : "#000000";
-  // The native picker fires change continuously while dragging the gradient;
-  // draft locally and commit once on close (blur) — each commit reloads the
-  // whole preview iframe.
-  const [draft, setDraft] = useState<string | null>(null);
-  return (
-    <div className="flex items-center gap-2">
-      <input
-        type="color"
-        value={draft ?? (/^#[0-9a-fA-F]{6}$/.test(colorValue) ? colorValue : "#000000")}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          if (draft !== null && draft !== colorValue) onCommit(draft);
-          setDraft(null);
-        }}
-        className="h-6 w-6 cursor-pointer rounded-sm border border-neutral-700 bg-transparent"
-      />
-      <DraftTextInput
-        value={colorValue}
-        onCommit={onCommit}
-        className={`${VARIABLES_INPUT_CLASS} flex-1 font-mono`}
-      />
-    </div>
+    </NativeSelect>
   );
 }
 
@@ -202,7 +169,15 @@ export function PreviewValueControl({
     case "enum":
       return <EnumControl decl={decl} current={current} onCommit={onCommit} />;
     case "color":
-      return <ColorControl decl={decl} current={current} onCommit={onCommit} />;
+      return (
+        <ColorField
+          layout="trigger"
+          label={decl.label}
+          value={typeof current === "string" ? current : "#000000"}
+          allowCssValue
+          onCommit={onCommit}
+        />
+      );
     case "number":
       return <NumberControl decl={decl} current={current} onCommit={onCommit} />;
     default: {

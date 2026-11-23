@@ -9,12 +9,14 @@ import { TranscriptionService, transcriptsFor, closeTranscripts } from '../gatew
 import { transcriptionParameters } from '../gateway/transcription-provider.ts';
 import { exportTranscript, normalizeTranscript, parseTranscriptSubtitles, type TranscriptDocument } from '../shared/transcript.ts';
 import { createCaptionSourceOperations } from '../shared/transcript-captions.ts';
+import { exportCaptionSource } from '../shared/caption-export.ts';
+import { parseHTML } from 'linkedom';
 import * as htmlParser from '@hyperframes/parsers/html-attribute-spans';
 import { Phase1Service } from '../phase1.ts';
 import { validateInput, phase1Tools } from '../shared/phase1-tools.ts';
 import type { Fetcher } from '../gateway/network.ts';
 
-const { transcriptCaptionSource, captionTracks, updateCaptionTrackSource, manualCaptionSource } = createCaptionSourceOperations(htmlParser);
+const { transcriptCaptionSource, captionTracks, updateCaptionTrackSource, manualCaptionSource, toggleCaptionSource } = createCaptionSourceOperations(htmlParser);
 
 const api = (store: any) => new Phase1Service(store, pluginRoot, { origin: () => 'http://127.0.0.1:4173', nativeUrl: () => undefined, openProject: async () => {}, mutation: async task => task(), cancel: async () => {} });
 async function source(store: any, duration = 3, video = false) {
@@ -41,6 +43,8 @@ test('real timestamps, text-only results, diarization and subtitle interchange r
   for (const format of ['srt', 'vtt'] as const) {
     const parsed = parseTranscriptSubtitles(exportTranscript(document(), format).content);
     assert.equal(parsed[0].text, 'Hello world.'); assert.equal(parsed[0].end, 1.5);
+    const markup = 'Q&A: <3 if a < b, "&lt;" stays';
+    assert.equal(parseTranscriptSubtitles(exportTranscript(document([{ id: 'markup', text: markup, start: 0, end: 1 }]), format).content)[0].text, markup);
   }
   assert.throws(() => normalizeTranscript({ segments: [{ text: 'Broken', start: 4, end: 3 }] }), /invalid segment/);
   assert.throws(() => transcriptionParameters('custom', { file: '/private/path' }), /Unsupported/);
@@ -164,6 +168,17 @@ test('ASR model discovery, defaults and custom protocols use the existing provid
 
 test('subtitle parser accepts WebVTT short timestamps but rejects malformed cues instead of dropping them', () => {
   assert.equal(parseTranscriptSubtitles('WEBVTT\n\n00:01.000 --> 00:02.500\nHello')[0].end, 2.5);
+  // Voice, style and karaoke tags from other tools' WebVTT are not spoken text; an escaped "<" still is.
+  assert.equal(parseTranscriptSubtitles('WEBVTT\n\n00:01.000 --> 00:02.500\n<v Alice> Hello <i>there</i>, <00:01.800><c.loud>a &lt; b</c></v>')[0].text, 'Hello there, a < b');
+  assert.equal(parseTranscriptSubtitles('1\n00:00:01,000 --> 00:00:02,500\n<i>Hello</i>')[0].text, '<i>Hello</i>');
+  // A "<" that opens no WebVTT tag is text, and a cue of tags alone is left out without failing the file.
+  assert.equal(parseTranscriptSubtitles('WEBVTT\n\n00:01.000 --> 00:02.500\nprice < 10 and size > 5, <b>ok</b>')[0].text, 'price < 10 and size > 5, ok');
+  assert.deepEqual(parseTranscriptSubtitles('WEBVTT\n\n00:01.000 --> 00:02.000\nHello\n\n00:02.000 --> 00:03.000\n<v Bob></v>\n\n00:03.000 --> 00:04.000\nWorld').map(cue => cue.text), ['Hello', 'World']);
+  // A "<b " that never closes stays text up to the next tag, and a cue full of them is read once, not once per "<b ".
+  assert.equal(parseTranscriptSubtitles('WEBVTT\n\n00:01.000 --> 00:02.500\na <b and <i>so</i> on')[0].text, 'a <b and so on');
+  const started = Date.now();
+  assert.throws(() => parseTranscriptSubtitles(`WEBVTT\n\n00:01.000 --> 00:02.500\n${'<b '.repeat(600_000)}`), /Invalid transcript text/);
+  assert.ok(Date.now() - started < 5000, 'unclosed cue tags must not be rescanned from each one');
   assert.throws(() => parseTranscriptSubtitles('1\n00:99:00,000 --> 01:00:00,000\nBroken'), /Invalid subtitle timestamp/);
   assert.throws(() => parseTranscriptSubtitles('1\n00:00:01,000 --> 00:00:02,000\nGood\n\n2\nbad --> time\nBroken'), /Invalid subtitle cue/);
 });
@@ -208,6 +223,20 @@ test('word highlight uses supplied word clocks, keeps punctuation and refuses mi
   assert.throws(() => transcriptCaptionSource(html, missing, placement, { pacing: 'word' }), /real word timestamps/);
   const mismatch = document(); mismatch.segments[0].text = 'Changed words';
   assert.throws(() => transcriptCaptionSource(html, mismatch, placement, { pacing: 'word' }), /do not match/);
+});
+
+test('word highlight cues still meet after a playback rate moves them off whole milliseconds', () => {
+  const html = '<div data-composition-id="main" data-duration="6"></div>';
+  const starts = [0, 0.32, 0.64, 1.02, 1.5, 2];
+  const words = ['The', 'quick', 'brown', 'fox', 'jumps'].map((text, i) => ({ text, start: starts[i], end: starts[i + 1] }));
+  const spoken = document([{ id: 'segment-1', text: 'The quick brown fox jumps', start: 0, end: 2, words }]);
+  const result = transcriptCaptionSource(html, spoken, { sourceStart: 0, sourceEnd: 3, timelineStart: 0, playbackRate: 1.5 }, { pacing: 'word' });
+  const cues = [...result.content.matchAll(/data-start="([\d.]+)" data-duration="([\d.]+)"/g)].map(match => ({ start: Number(match[1]), length: Number(match[2]) }));
+  assert.equal(cues.length, 5);
+  // 0.64 / 1.5 = 0.42667: the second cue has to end on 0.427 where the third begins, not on 0.213 + 0.213.
+  for (let i = 1; i < cues.length; i++) assert.equal(Math.round((cues[i - 1].start + cues[i - 1].length) * 1000), Math.round(cues[i].start * 1000));
+  const srt = exportCaptionSource(result.content, 'srt', parseHTML);
+  assert.equal(srt.content, '1\n00:00:00,000 --> 00:00:01,333\nThe quick brown fox jumps\n');
 });
 
 test('public caption track controls share revision guards, request replay and reversible native history', () => fixture(async store => {
@@ -273,3 +302,40 @@ test('legacy managed text participates in caption controls without changing its 
   const removed = updateCaptionTrackSource(styled, id, {}, true).content;
   assert.equal(captionTracks(removed).length, 0); assert.match(removed, /Keep custom artwork/);
 });
+
+
+test('caption on/off reserves one empty native lane, fills it, and preserves text and locks', () => {
+  const base = '<div id="main" data-composition-id="main" data-duration="8" data-width="640" data-height="360"><video class="clip" data-start="0" data-duration="8" data-track-index="0"></video></div>';
+  const first = toggleCaptionSource(base, '11111111-1111-4111-8111-111111111111', true);
+  assert.equal(captionTracks(first.content).length, 1); assert.equal(captionTracks(first.content)[0].cueCount, 0);
+  assert.match(first.content, /data-timeline-role="caption-empty"/); assert.match(first.content, /data-track-index="1"/);
+  const off = toggleCaptionSource(first.content, 'unused', false);
+  assert.equal(captionTracks(off.content)[0].settings.visible, false);
+  const on = toggleCaptionSource(off.content, 'unused', true);
+  assert.equal(captionTracks(on.content).length, 1); assert.equal(captionTracks(on.content)[0].id, first.trackId);
+  const styled = updateCaptionTrackSource(on.content, first.trackId!, { preset: 'card', position: 'top' });
+  const filled = manualCaptionSource(styled.content + `<script>const note = '${first.trackId}';</script>`, '22222222-2222-4222-8222-222222222222', { segments: [{ id: 'one', text: 'Confirmed caption', start: 1, end: 3 }] });
+  assert.equal(captionTracks(filled.content).length, 1); assert.equal(captionTracks(filled.content)[0].track, 0);
+  assert.doesNotMatch(filled.content, /caption-empty/); assert.match(filled.content, /data-track-index="1"/);
+  assert.ok(filled.content.includes(`const note = '${first.trackId}'`));
+  assert.equal(captionTracks(filled.content)[0].settings.preset, 'card'); assert.equal(captionTracks(filled.content)[0].settings.position, 'top');
+  const title = manualCaptionSource(filled.content, '33333333-3333-4333-8333-333333333333', { textKind: 'text', segments: [{ id: 'title', text: 'Keep title', start: 0, end: 4 }] });
+  const hidden = toggleCaptionSource(title.content, 'unused', false);
+  assert.equal(captionTracks(hidden.content).find(track => track.kind === 'text')!.settings.visible, true);
+  assert.equal(captionTracks(hidden.content).find(track => track.kind === 'caption')!.settings.visible, false);
+  const locked = first.content.replace('data-timeline-role="caption-empty"', 'data-timeline-role="caption-empty" data-timeline-locked');
+  assert.throws(() => toggleCaptionSource(locked, 'unused', false), /Unlock/);
+});
+
+test('public caption toggle is replay-safe, revision guarded and reversible', () => fixture(async store => {
+  const service = api(store), projectId = store.projectId;
+  const call = (transcript: any) => service.call('openmotion_assets_use', { action: 'transcript', transcript });
+  const before = await service.call('openmotion_get_project', { projectId });
+  const input = { command: 'caption_toggle', projectId, compositionPath: 'index.html', visible: true, requestId: 'enable-captions', expectedRevision: before.revision, expectedVersionId: before.currentVersionId };
+  const enabled = await call(input); assert.equal(enabled.captionCount, 0); assert.equal((await call(input)).replayed, true);
+  assert.equal((await call({ command: 'caption_tracks', projectId, compositionPath: 'index.html' })).tracks.length, 1);
+  await assert.rejects(call({ ...input, visible: false, requestId: 'stale-toggle' }), /VERSION_CONFLICT/);
+  const current = await service.call('openmotion_get_project', { projectId });
+  await service.call('openmotion_restore_version', { projectId, requestId: 'restore-no-captions', versionId: before.currentVersionId, expectedRevision: current.revision, expectedVersionId: current.currentVersionId });
+  assert.equal((await call({ command: 'caption_tracks', projectId, compositionPath: 'index.html' })).tracks.length, 0);
+}));

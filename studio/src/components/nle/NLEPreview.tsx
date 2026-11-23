@@ -62,6 +62,8 @@ interface NLEPreviewProps extends Pick<
   fillBox?: boolean;
   compositionSizeHint?: PreviewCompositionSize;
   zoomControlsTarget?: HTMLElement | null;
+  /** Playback fits the frame without changing the editor's saved zoom or pan. */
+  presentationMode?: boolean;
 }
 
 export function getPreviewPlayerKey({
@@ -97,6 +99,7 @@ export const NLEPreview = memo(function NLEPreview({
   fillBox,
   compositionSizeHint,
   zoomControlsTarget,
+  presentationMode = false,
 }: NLEPreviewProps) {
   const { t } = useI18n();
   const activeKey = getPreviewPlayerKey({ projectId, directUrl });
@@ -120,7 +123,7 @@ export const NLEPreview = memo(function NLEPreview({
   const [compositionSize, setCompositionSize] = useState<PreviewCompositionSize | null>(null);
   const poster = usePreviewPoster(projectId, activeKey, directUrl);
   const mvp = useMvpEditor();
-  const gutterPx = usePreviewGuidesStore((s) => (s.rulerVisible && !mvp ? RULER_GUTTER_PX : 0));
+  const gutterPx = usePreviewGuidesStore((s) => (s.rulerVisible && !mvp && !presentationMode ? RULER_GUTTER_PX : 0));
   const insetPx = fillBox ? 0 : PREVIEW_STAGE_INSET_PX;
   const [stageSize, setStageSize] = useState(() => resolvePreviewStageSize(0, 0, null, portrait));
   const hintWidth = compositionSizeHint?.width;
@@ -210,14 +213,17 @@ export const NLEPreview = memo(function NLEPreview({
     (state: PreviewZoomState) => {
       const stage = stageRef.current;
       if (!stage) return;
+      if (presentationMode) state = DEFAULT_PREVIEW_ZOOM;
       const s = toDomPrecision(state.zoomPercent / 100);
       const px = toDomPrecision(state.panX);
       const py = toDomPrecision(state.panY);
       stage.style.transform = `translate3d(${px}px, ${py}px, 0) scale(${s})`;
       drawNavigator(state);
     },
-    [drawNavigator],
+    [drawNavigator, presentationMode],
   );
+
+  useLayoutEffect(() => { writeTransform(zoomRef.current); }, [writeTransform]);
 
   const zoomProjectRef = useRef(projectId);
   // Before paint, so the next project never shows a frame at the previous one's zoom.
@@ -290,6 +296,7 @@ export const NLEPreview = memo(function NLEPreview({
   );
 
   const applyInitialZoom = useCallback(() => {
+    if (presentationMode) { writeTransform(DEFAULT_PREVIEW_ZOOM); return; }
     const z = zoomRef.current;
     if (!isPreviewAtFit(z)) {
       // A composition reload can bring a different frame size than the pan was made on; clamp first.
@@ -310,7 +317,7 @@ export const NLEPreview = memo(function NLEPreview({
       }
       writeTransform(zoomRef.current);
     }
-  }, [writeTransform]);
+  }, [writeTransform, presentationMode]);
 
   // A promotion does not re-fire Player.onLoad: re-sync the local iframe ref, size and zoom.
   useEffect(() => {
@@ -329,6 +336,7 @@ export const NLEPreview = memo(function NLEPreview({
     if (!viewport) return;
 
     const handleWheel = (event: WheelEvent) => {
+      if (presentationMode) return;
       const rect = viewport.getBoundingClientRect();
       if (
         event.clientX < rect.left ||
@@ -382,7 +390,7 @@ export const NLEPreview = memo(function NLEPreview({
 
     document.addEventListener("wheel", handleWheel, { passive: false, capture: true });
     return () => document.removeEventListener("wheel", handleWheel, { capture: true });
-  }, [applyZoom, applyPan]);
+  }, [applyZoom, applyPan, presentationMode]);
 
   useEffect(() => {
     const isInsideViewport = (clientX: number, clientY: number): DOMRect | null => {
@@ -401,6 +409,7 @@ export const NLEPreview = memo(function NLEPreview({
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      if (presentationMode) return;
       const rect = isInsideViewport(event.clientX, event.clientY);
       if (!rect) return;
       if (!ownsPreviewPanTarget(event.target, stageRef.current)) return;
@@ -459,15 +468,15 @@ export const NLEPreview = memo(function NLEPreview({
       document.removeEventListener("pointercancel", finishDrag, { capture: true });
       document.removeEventListener("auxclick", handleAuxClick, { capture: true });
     };
-  }, [applyPan]);
+  }, [applyPan, presentationMode]);
 
-  const initial = zoomRef.current;
+  const initial = presentationMode ? DEFAULT_PREVIEW_ZOOM : zoomRef.current;
 
   return (
     <div className="flex flex-col h-full min-h-0">
       <div
         ref={viewportRef}
-        style={mvp ? { background: "var(--motion-panel)" } : undefined}
+        style={presentationMode ? { background: 'var(--motion-video-ink)' } : mvp ? { background: "var(--studio-preview-bg, var(--motion-panel))" } : undefined}
         className="relative flex-1 flex items-center justify-center overflow-hidden min-h-0 outline-hidden focus:ring-1 focus:ring-studio-accent/40 bg-[var(--studio-preview-bg,var(--color-neutral-950))]"
         tabIndex={0}
         aria-label={t("Composition preview")}
@@ -552,7 +561,7 @@ export const NLEPreview = memo(function NLEPreview({
             )}
           </div>
         </div>
-        {!zoomControlsTarget && (
+        {!presentationMode && !zoomControlsTarget && (
           <div
             ref={hudRef}
             className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 rounded-lg px-4 py-2 text-sm font-mono tabular-nums text-white/90 bg-black/60 backdrop-blur-xs shadow-lg"
@@ -560,7 +569,7 @@ export const NLEPreview = memo(function NLEPreview({
             aria-live="polite"
           />
         )}
-        <PreviewZoomOverlay
+        {!presentationMode && <PreviewZoomOverlay
           controlsTarget={zoomControlsTarget}
           showNavigator={!mvp}
           onZoomPercent={(zoomPercent) => applyZoom({ ...DEFAULT_PREVIEW_ZOOM, zoomPercent })}
@@ -571,7 +580,7 @@ export const NLEPreview = memo(function NLEPreview({
             viewportRef.current?.focus();
           }}
           navigatorRegionRef={setNavigatorRegion}
-        />
+        />}
       </div>
     </div>
   );

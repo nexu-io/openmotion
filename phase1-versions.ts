@@ -89,6 +89,17 @@ export class ProjectVersions {
   }
   async index() { return jsonFile<VersionIndex>(this.indexFile, { versions: [], ignored: [] }); }
   async capture(history: NativeHistory, point: string, entry: any, index: VersionIndex, options: Partial<ContentVersion> = {}) {
+    const { files, revision } = await this.snapshot(history, point);
+    const previous = index.versions.at(-1);
+    if (previous?.revision === revision) { index.ignored.push(point); return previous; }
+    const version: ContentVersion = { versionId: point === 'start' ? crypto.randomUUID() : point,
+      versionNumber: (previous?.versionNumber ?? 0) + 1, nativePoint: point, createdAt: entry?.endedAt ?? Date.now(),
+      source: entry?.who?.kind ?? 'baseline', summary: entry?.label ?? 'Initial project', revision, files, ...options };
+    index.versions.push(version);
+    if (point !== 'start') await history.pin(point, true);
+    return version;
+  }
+  async snapshot(history: NativeHistory, point: string) {
     const manifest = await history.peek(point);
     if (!manifest) throw new Error('VERSION_NOT_RESTORABLE: 原生历史已不存在');
     const files: VersionFile[] = [];
@@ -115,15 +126,7 @@ export class ProjectVersions {
       files.push(file);
     }
     files.sort((a, b) => a.path.localeCompare(b.path));
-    const revision = this.store.revision(files.map(({ path, size, hash }) => ({ path, size, hash })));
-    const previous = index.versions.at(-1);
-    if (previous?.revision === revision) { index.ignored.push(point); return previous; }
-    const version: ContentVersion = { versionId: point === 'start' ? crypto.randomUUID() : point,
-      versionNumber: (previous?.versionNumber ?? 0) + 1, nativePoint: point, createdAt: entry?.endedAt ?? Date.now(),
-      source: entry?.who?.kind ?? 'baseline', summary: entry?.label ?? 'Initial project', revision, files, ...options };
-    index.versions.push(version);
-    if (point !== 'start') await history.pin(point, true);
-    return version;
+    return { files, revision: this.store.revision(files.map(({ path, size, hash }) => ({ path, size, hash }))) };
   }
   async sync(history: NativeHistory) {
     await history.checkpoint();
@@ -131,6 +134,12 @@ export class ProjectVersions {
     const entries = await history.list();
     const seen = new Set([...index.ignored, ...index.versions.map(item => item.nativePoint)]);
     if (!index.versions.length) await this.capture(history, 'start', undefined, index);
+    else if (index.versions.length === 1 && index.versions[0].nativePoint === 'start') {
+      // Native history adopts large files into its baseline in the background, after
+      // the first open, without adding an entry; keep the initial version in step.
+      const baseline = index.versions[0], latest = await this.snapshot(history, 'start');
+      if (latest.revision !== baseline.revision) Object.assign(baseline, latest);
+    }
     for (const entry of entries) if (!seen.has(entry.id)) await this.capture(history, entry.id, entry, index);
     await atomicJson(this.indexFile, index);
     return index;

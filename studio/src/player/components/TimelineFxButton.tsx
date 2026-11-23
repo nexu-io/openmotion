@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { trackStudioClick } from "../../motion/editorTracking";
 /**
@@ -125,18 +126,18 @@ function GroupNameDialog({
       <p className="mt-2 leading-snug">
         {t("Effects you add to the group apply to")}{" "}{clipCount === 2 ? t("both") : t("all {clipCount}", { clipCount: clipCount })} {t("clips at once, and they share one volume.")}</p>
       <div className="mt-2.5 flex justify-end gap-1.5">
-        <button
+        <Button variant="plain"
           type="button"
           className="rounded-sm border border-[var(--timeline-border-strong)] px-2 py-1 text-[10px] text-[var(--timeline-text-soft)] hover:bg-[var(--timeline-tick-major)]"
           onClick={onCancel}
         >
-          {t("Cancel")}</button>
-        <button
+          {t("Cancel")}</Button>
+        <Button variant="plain"
           type="button"
           className="rounded-sm border border-[var(--timeline-accent)] bg-[var(--timeline-accent-button-bg)] px-2 py-1 text-[10px] font-semibold text-[var(--timeline-accent)] hover:bg-[var(--timeline-accent-hover)]"
           onClick={confirm}
         >
-          {t("Group")}</button>
+          {t("Group")}</Button>
       </div>
     </div>
   );
@@ -209,7 +210,7 @@ export function TimelineFxButton(props: TimelineFxButtonProps) {
   if (props.variant === "group-pointer") {
     return (
       <div className="relative shrink-0">
-        <button
+        <Button variant="plain"
           type="button"
           tabIndex={-1}
           ref={buttonRef}
@@ -224,7 +225,7 @@ export function TimelineFxButton(props: TimelineFxButtonProps) {
           }}
         >
           FX
-        </button>
+        </Button>
         {open &&
           anchorRect &&
           createPortal(
@@ -250,7 +251,7 @@ export function TimelineFxButton(props: TimelineFxButtonProps) {
 
   return (
     <div className="relative shrink-0">
-      <button
+      <Button variant="plain"
         type="button"
         tabIndex={-1}
         ref={buttonRef}
@@ -269,7 +270,7 @@ export function TimelineFxButton(props: TimelineFxButtonProps) {
         }}
       >
         FX{nodeCount > 0 ? ` ${nodeCount}` : ""}
-      </button>
+      </Button>
       {open &&
         anchorRect &&
         createPortal(

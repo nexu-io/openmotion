@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -16,7 +17,7 @@ const PAGE_SIZE = 48;
 const entryValues = (entry: BrandCatalogEntry, key: string) => key === 'category' ? [entry.category] : key === 'appearance' ? [entry.appearance] : entry.colors;
 const card = (entry: BrandCatalogEntry): GalleryTemplate => {
   const { duration, width, height } = brandKitShowcase;
-  return { id: entry.id, title: entry.name, author: entry.name, brand: entry.name, sourceUrl: entry.websiteUrl || entry.sourceUrl, brandLogoUrl: entry.websiteUrl ? brandCatalogFile(entry.id, 'favicon') : undefined, posterUrl: brandCatalogFile(entry.id, 'style-cover.svg'), width, height, duration, subtitle: entry.category, description: entry.description, collection: "reference", kind: "reference", tags: entry.tags };
+  return { id: entry.id, title: entry.name, author: entry.name, brand: entry.name, sourceUrl: entry.websiteUrl || entry.sourceUrl, brandLogoUrl: brandCatalogFile(entry.id, 'favicon'), posterUrl: brandCatalogFile(entry.id, 'style-cover.svg'), width, height, duration, subtitle: entry.category, description: entry.description, collection: "reference", kind: "reference", tags: entry.tags };
 };
 
 export const BrandCatalogGallery = memo(function BrandCatalogGallery({ onImport, onCreate, busy, previewsEnabled, scrollRoot, query, onQueryChange }: { onImport: (id: string, visible: string[], trigger?: HTMLElement) => Promise<void>; onCreate: () => void; busy: boolean; previewsEnabled: boolean; scrollRoot: RefObject<HTMLElement | null>; query: string; onQueryChange: (value: string) => void }) {
@@ -70,19 +71,19 @@ export const BrandCatalogGallery = memo(function BrandCatalogGallery({ onImport,
   const reset = () => { setFilters({}); onQueryChange(''); };
   return <>
     <div className="om-gallery-toolbar">
-      <div className="om-gallery-categories" role="group" aria-label={t('Categories')}><button aria-pressed={!filters.category?.length} onClick={() => setFilters(previous => ({ ...previous, category: [] }))}>{t('All')}</button>{groups[0].values.map(category => <button key={category} aria-pressed={filters.category?.includes(category) || false} onClick={() => setFilters(previous => ({ ...previous, category: [category] }))}>{t(category)}</button>)}</div>
+      <div className="om-gallery-categories" role="group" aria-label={t('Categories')}><Button variant="plain" aria-pressed={!filters.category?.length} onClick={() => setFilters(previous => ({ ...previous, category: [] }))}>{t('All')}</Button>{groups[0].values.map(category => <Button variant="plain" key={category} aria-pressed={filters.category?.includes(category) || false} onClick={() => setFilters(previous => ({ ...previous, category: [category] }))}>{t(category)}</Button>)}</div>
       <div className="om-gallery-controls"><GalleryFilterPopover groups={groups} open={open} onOpenChange={next => { if (next) { setDraft(filters); setFacetQuery(''); } setOpen(next); }} draft={draft} onChange={setDraft} tab={tab} onTabChange={setTab} query={facetQuery} onQueryChange={setFacetQuery} active={hasFilters} countLabel={t('{count} brand kits', { count: draftCount })} hasDraft={hasDraft} onClear={() => setDraft({})} onApply={() => { setFilters(draft); setOpen(false); }} /><GallerySortMenu value={sort} options={sortOptions} onChange={setSort} /></div>
     </div>
-    {(hasFilters || query) && <div className="om-gallery-chips">{query && <button onClick={() => onQueryChange('')} aria-label={t('Remove filter {value}', { value: query })}>{query}<RemixIcon name="close-line" size={14} /></button>}{Object.entries(filters).flatMap(([key, values]) => values?.map(value => <button key={key + value} onClick={() => setFilters(previous => toggleGalleryFilter(previous, key, value))} aria-label={t('Remove filter {value}', { value: t(value) })}>{t(value)}<RemixIcon name="close-line" size={14} /></button>))}<button onClick={reset}>{t('Clear filters')}</button></div>}
+    {(hasFilters || query) && <div className="om-gallery-chips">{query && <Button variant="plain" onClick={() => onQueryChange('')} aria-label={t('Remove filter {value}', { value: query })}>{query}<RemixIcon name="close-line" size={14} /></Button>}{Object.entries(filters).flatMap(([key, values]) => values?.map(value => <Button variant="plain" key={key + value} onClick={() => setFilters(previous => toggleGalleryFilter(previous, key, value))} aria-label={t('Remove filter {value}', { value: t(value) })}>{t(value)}<RemixIcon name="close-line" size={14} /></Button>))}<Button variant="plain" onClick={reset}>{t('Clear filters')}</Button></div>}
     <div className="om-gallery-results">
       <div className="om-gallery-masonry" aria-busy={busy || (!catalog && !error)} aria-label={!catalog && !error ? t('Loading Brand Kits') : undefined}>
         <GalleryIntro eyebrow={t('Official collection')} title={t('Find your next brand.')} count={t('{count} brand kits', { count: visible.length })} disabled={busy || !visible.length} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={templateContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: onCreate }} />
         {!catalog && !error && Array.from({ length: 12 }, (_, key) => <div key={key} className="om-gallery-skeleton" aria-hidden="true"><Skeleton className="om-brand-loading" /></div>)}
-        {catalog && rendered.map(entry => <TemplateGalleryCard key={entry.id} template={cards.get(entry.id)!} resourceKind="brand-kit" coverUrl={entry.websiteUrl ? brandCatalogFile(entry.id, 'cover') : undefined} animatedPreview={brandCatalogFile(entry.id, 'showcase')} active={priority === entry.id && playback.has(entry.id)} onPriority={setCardPriority} onSelect={selectCard} />)}
+        {catalog && rendered.map(entry => <TemplateGalleryCard key={entry.id} template={cards.get(entry.id)!} resourceKind="brand-kit" coverUrl={brandCatalogFile(entry.id, 'cover')} animatedPreview={brandCatalogFile(entry.id, 'showcase')} active={priority === entry.id && playback.has(entry.id)} onPriority={setCardPriority} onSelect={selectCard} />)}
       </div>
       {catalog && rendered.length < visible.length && <div ref={loadMore} className="om-gallery-load-more" aria-hidden="true" />}
-      {error && <div className="om-empty" role="alert"><h2 className="om-subtitle">{t('Could not load the official collection')}</h2><button className="om-button" onClick={() => setRevision(value => value + 1)}>{t('Retry')}</button></div>}
-      {catalog && !error && !visible.length && <div className="om-empty"><p className="om-muted">{t('No matching brand kits')}</p><button className="om-button" onClick={reset}>{t('Clear filters')}</button></div>}
+      {error && <div className="om-empty" role="alert"><h2 className="om-subtitle">{t('Could not load the official collection')}</h2><Button variant="ghost" className="om-button h-auto" onClick={() => setRevision(value => value + 1)}>{t('Retry')}</Button></div>}
+      {catalog && !error && !visible.length && <div className="om-empty"><p className="om-muted">{t('No matching brand kits')}</p><Button variant="ghost" className="om-button h-auto" onClick={reset}>{t('Clear filters')}</Button></div>}
     </div>
   </>;
 });

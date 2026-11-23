@@ -1,3 +1,4 @@
+import { FieldInput, NativeSelect } from "../ui/FormField";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useId, useRef, useState } from "react";
 import { parseSpringBounce } from "@hyperframes/core/spring-ease";
@@ -79,7 +80,7 @@ export function EaseBezierField({
           active
           size={14}
         />
-        <input
+        <FieldInput
           ref={inputRef}
           type="text"
           defaultValue={text}
@@ -145,7 +146,7 @@ function NumericCommitInput({
     onCommit(next);
   };
   return (
-    <input
+    <FieldInput
       type="number"
       aria-label={label}
       min={min}
@@ -216,7 +217,7 @@ export function WiggleField({
       </div>
       <div className="flex items-center gap-1">
         <span aria-hidden="true">{t("Type")}</span>
-        <select
+        <NativeSelect
           aria-label={t("Wiggle type")}
           value={config.type}
           onChange={(event) => {
@@ -231,7 +232,7 @@ export function WiggleField({
               {type}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
       <div className="flex items-center gap-1">
         <span aria-hidden="true">{t("Amplitude")}</span>

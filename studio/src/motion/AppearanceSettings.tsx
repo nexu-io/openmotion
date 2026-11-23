@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { setStudioTheme, studioUsesHostTheme, useStudioThemePreference } from '../utils/studioTheme';
@@ -18,12 +19,12 @@ export function AppearanceSettings() {
     <section className="om-card om-card-stack"><h2 className="om-subtitle">{t('Theme')}</h2>
       <>
         <div className="om-theme-options" role="group" aria-label={t('Theme')}>
-          {(['light', 'dark', 'system'] as const).map(value => <button className="om-theme-choice" key={value} aria-pressed={preference === value} onClick={event => { if (preference !== value) trackStudioClick('settings', 'theme_toggle', undefined, clickMethod(event), clickOption(value)); setStudioTheme(value); }}>
+          {(['light', 'dark', 'system'] as const).map(value => <Button variant="plain" className="om-theme-choice" key={value} aria-pressed={preference === value} onClick={event => { if (preference !== value) trackStudioClick('settings', 'theme_toggle', undefined, clickMethod(event), clickOption(value)); setStudioTheme(value); }}>
             <span className="om-theme-thumbnail" aria-hidden="true">
               {value === 'system' ? <span className="om-theme-split"><ThemeSample theme="light" /><ThemeSample theme="dark" /></span> : <ThemeSample theme={value} />}
             </span>
             <span className="om-theme-label"><RemixIcon name={value === 'light' ? 'sun-line' : value === 'dark' ? 'moon-line' : 'computer-line'} size={15} /><span>{t(value === 'light' ? 'Light' : value === 'dark' ? 'Dark' : 'System')}</span><span className="om-theme-selection" aria-hidden="true">{preference === value && <RemixIcon name="check-line" size={14} />}</span></span>
-          </button>)}
+          </Button>)}
         </div>
         <p className="om-muted">{t(embedded ? 'System follows the app hosting this editor.' : 'System follows your device’s appearance automatically.')}</p>
       </>

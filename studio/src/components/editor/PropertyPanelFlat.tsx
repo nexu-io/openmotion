@@ -346,7 +346,7 @@ export function PropertyPanelFlat({
             onRemoveTextField={onRemoveTextField}
           />
           {mvp && showEditableSections && (
-            <div className="mt-1.5">
+            <div className="mt-2.5 grid min-h-8 content-center">
               <FlatOpacitySlider
                 styles={styles}
                 inlineStyles={element.inlineStyles}
@@ -556,7 +556,7 @@ export function PropertyPanelFlat({
 
   return (
     <DesignPanelInputProvider ui="flat">
-      <div className="@container/inspector flex h-full min-h-0 flex-col overflow-hidden bg-panel-bg text-panel-text-1">
+      <div data-motion-inspector={mvp ? "true" : undefined} className="@container/inspector flex h-full min-h-0 flex-col overflow-hidden bg-panel-bg text-panel-text-1">
         {!mvp && (
           <DesignPanelInputProvider section="header">
             <PropertyPanelFlatHeader

@@ -56,6 +56,15 @@ describe("extractClassCandidates", () => {
     expect(bases(source)).toEqual(["bg-transparent"]);
   });
 
+  it("does not read comparison props or matching data attributes as class lists", () => {
+    const source = `const Foo = ({ layout = "row", size = "compact" }) =>
+      <div data-menu-layout="custom" className={layout === "stacked" ? "grid" : "flex"}>
+        <button className={size === "standard" ? "block" : "inline-block"} />
+      </div>;`;
+
+    expect(bases(source)).toEqual(["block", "flex", "grid", "inline-block"]);
+  });
+
   it("leaves a lookup table alone when nothing uses it as a class", () => {
     const source = `const labels = { md: "Medium size" };
       const Foo = () => <span title={labels.md} />;`;

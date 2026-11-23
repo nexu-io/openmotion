@@ -1,13 +1,14 @@
+import { existsSync } from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { WorkspaceStore } from '../workspace.ts';
-import { getWorkflow, markdownAnchors, workflowLinkAnchors, workflowReferences, workflowRegistry, workflowSections, phase1WorkflowNames } from '../shared/workflow.ts';
+import { getWorkflow, markdownAnchors, readWorkflowResource, resolveGuideFile, workflowLinkAnchors, workflowReferences, workflowRegistry, workflowSections, phase1WorkflowNames } from '../shared/workflow.ts';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const workflows = phase1WorkflowNames;
@@ -104,6 +105,12 @@ test('every workflow document and linked reference is reachable over MCP with ca
     assert.equal(returned.get('skills/openmotion-video-to-template/SKILL.md').status, 'ready');
     assert.equal(returned.get('skills/openmotion-video-to-template/SKILL.md').workflow, 'video-to-template');
     for (const route of workflows) {
+      if (route === 'game') {
+        const refs = returned.get(workflowRegistry.game.sections.start).references;
+        assert.ok(refs.some((reference: { documentId: string }) => reference.documentId === 'skills/openmotion-game/references/game-flow.md'));
+        assert.ok(refs.some((reference: { documentId: string }) => reference.documentId === 'skills/openmotion-game/references/game-stylization.md'));
+        continue;
+      }
       assert.ok(returned.get(workflowRegistry[route as keyof typeof workflowRegistry].sections.start).references.some((reference: { documentId: string }) =>
         reference.documentId === 'skills/openmotion-production/references/edit.md'), `${route} must expose the shared edit workflow`);
       assert.ok(returned.get(workflowRegistry[route as keyof typeof workflowRegistry].sections.start).references.some((reference: { documentId: string }) =>
@@ -239,5 +246,44 @@ test('phase1 resource discovery exposes all five routes and their supporting doc
     const reads = stdio(directory, expected.map((uri, i) => ({ id: i, method: 'resources/read', params: { uri } })));
     for (const [i, entry] of entries.entries()) assert.equal(reads.get(i).structuredContent.documentId, entry.documentId);
     assert.deepEqual(await readdir(directory), []);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('engine resource reads reject every uri outside the pinned guide root', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'motion-engine-uri-'));
+  try {
+    // Grammar rejections are resolved without touching the installed runtime.
+    for (const uri of [42, 'http://example.com/SKILL.md', 'openmotion://engine/package.json',
+      'openmotion://engine/../SKILL.md', 'openmotion://engine/..%2fREADME.md', 'openmotion://engine/',
+      'openmotion://workflow/production', 'openmotion://engine/SKILL.md/extra']) {
+      await assert.rejects(() => readWorkflowResource(uri as unknown as string, directory),
+        /INVALID_RESOURCE_URI/, 'Must reject: ' + String(uri));
+    }
+
+    // The containment rule itself, exercised directly. Going through the URI grammar
+    // would prove only that the pattern rejects `..`, which is a different control.
+    const parent = await mkdtemp(path.join(tmpdir(), 'motion-guide-'));
+    try {
+      // Resolve the root first: on macOS the temporary directory is reached through a
+      // symlinked parent, so an unresolved root would never prefix-match a resolved target.
+      await mkdir(path.join(parent, 'guide'), { recursive: true });
+      const guide = await realpath(path.join(parent, 'guide'));
+      await mkdir(path.join(guide, 'nested'), { recursive: true });
+      await writeFile(path.join(guide, 'nested', 'inside.md'), 'inside');
+      await writeFile(path.join(parent, 'outside.md'), 'outside');
+      assert.ok(await resolveGuideFile(guide, 'nested/inside.md'), 'A file inside the root resolves');
+      await assert.rejects(() => resolveGuideFile(guide, '../outside.md'), /INVALID_RESOURCE_URI/,
+        'An existing file one level above the root must never be readable');
+      await assert.rejects(() => resolveGuideFile(guide, '../../outside.md'), /INVALID_RESOURCE_URI/);
+      await assert.rejects(() => resolveGuideFile(guide, 'absent.md'), /INVALID_RESOURCE_URI/,
+        'A missing target is a rejected file, not a raw filesystem error');
+    } finally { await rm(parent, { recursive: true, force: true }); }
+
+    // Error consistency through the resource reader needs the pinned guide, which only
+    // exists once the locked runtime is installed.
+    const installed = path.join(root, 'node_modules/hyperframes/dist/skills/hyperframes');
+    if (!existsSync(installed)) return;
+    await assert.rejects(() => readWorkflowResource('openmotion://engine/absent-guide.md', directory),
+      /INVALID_RESOURCE_URI/, 'A missing target is a rejected uri, not a raw filesystem error');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

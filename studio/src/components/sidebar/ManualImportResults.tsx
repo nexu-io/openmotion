@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import type { ManualImportBatch } from '../../hooks/manualImportResults';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
-import { Button } from '../ui/Button';
+import { Button } from 'open-design-ui/button';
 
 type Props = {
   batch: ManualImportBatch;

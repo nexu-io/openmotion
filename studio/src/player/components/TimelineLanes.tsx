@@ -36,7 +36,7 @@ import { timelineClipFocusId } from "./timelineNavigationIdentity";
 import { useTimelineKeyboardActor } from "./useTimelineKeyboardActor";
 import { TimelineTransitionOverlays } from "./TimelineTransitionOverlays";
 import { deriveTimelineTransitionSeamsByTrack } from "./timelineTransitionSeams";
-import { linkedOverlayKeys, mainVisualTrack } from "./timelineLinkage";
+import { linkedOverlayKeys } from "./timelineLinkage";
 import { trackIdentities } from './timelineTrackIdentity';
 
 function passengerStyleAt(offsetPx: number): CSSProperties {
@@ -132,7 +132,6 @@ export function TimelineLanes({
   useAutomationSelectionKeyboard({ lanes: automationLanes });
   const rowIndexes = useTimelineLaneRowIndexes(logicalRows, groups);
   const trackClips = useMemo(() => tracks.flatMap(([, clips]) => clips), [tracks]);
-  const mainTrack = useMemo(() => mainVisualTrack(trackClips), [trackClips]);
   const dragging = draggedClip?.started === true;
   const linkedKeys = useMemo(
     () => linkageEnabled && selectedElementId && !dragging
@@ -333,7 +332,6 @@ export function TimelineLanes({
             >
               <TimelineTrackHeader
                 trackNumber={trackNum}
-                mainTrackLabel={trackNum === mainTrack ? t("Main track") : undefined}
                 identity={identities.get(trackNum)}
                 // What gets announced. `trackNum` is a fractional z-order sort
                 // key, so it stays out of every label and in every callback.
@@ -348,7 +346,7 @@ export function TimelineLanes({
                 contentOrigin={contentOrigin}
                 keyframeClip={keyframeClip}
                 trackElements={els}
-                clipCount={els.length}
+                clipCount={els.filter(el => el.timelineRole !== 'caption-empty').length}
                 isExpanded={rowExpanded}
                 animations={keyframeClipKey ? (gsapAnimations.get(keyframeClipKey) ?? []) : []}
                 currentTime={currentTime}
@@ -391,6 +389,7 @@ export function TimelineLanes({
                   onContextMenuLane(e, trackNum, time);
                 }}
               >
+                {els.some(el => el.timelineRole === 'caption-empty') && <div className="px-3 py-4 text-step-11 text-text-3" data-testid="empty-caption-track">{t('Caption track is empty')}</div>}
                 {/* Faint beat lines in every track's background (behind the clips);
                     the active move-snap target is highlighted. */}
                 <BeatBackgroundLines
@@ -413,7 +412,7 @@ export function TimelineLanes({
                 <TimelineTimeLayer pixelsPerSecond={pps}>
                   {
                     // fallow-ignore-next-line complexity
-                    renderElements.map((el) => {
+                    renderElements.filter(el => el.timelineRole !== 'caption-empty').map((el) => {
                       const clipStyle = getTrackStyle(el.tag);
                       const elementKey = getTimelineElementIdentity(el);
                       // Only the track's active keyframe clip shows expanded lanes;

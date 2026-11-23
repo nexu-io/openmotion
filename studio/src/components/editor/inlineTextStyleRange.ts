@@ -80,7 +80,11 @@ const TAG_STYLES: Record<string, Record<string, string>> = {
 const BREAK = "\u0000";
 
 /** Apply `style` to the characters the range covers, then rebuild the element. */
-export function applyInlineStyle(range: Range, style: InlineStyleDelta): void {
+export function applyInlineStyle(
+  range: Range,
+  style: InlineStyleDelta,
+  restoreSelection = true,
+): Range | undefined {
   if (range.collapsed) return;
   // Resolved from where the selection starts, not from where it and its end
   // happen to meet. A selection dragged past the element's edge meets its end
@@ -101,7 +105,13 @@ export function applyInlineStyle(range: Range, style: InlineStyleDelta): void {
   const next = restyle(runs, span.start, span.end, style);
   render(host, next);
   reconcileFillColors(host);
-  selectRange(host, span.start, span.end);
+  const styledRange = rangeAt(host, span.start, span.end);
+  if (styledRange && restoreSelection) {
+    const selection = host.ownerDocument.defaultView?.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(styledRange);
+  }
+  return styledRange;
 }
 
 /**
@@ -543,18 +553,15 @@ function nodeName(node: Node): string {
   return node.nodeType === 1 ? (node as Element).tagName : "";
 }
 
-/** Put the selection back over the characters that were just styled. */
-function selectRange(host: Element, start: number, end: number): void {
-  const doc = host.ownerDocument;
-  const selection = doc.defaultView?.getSelection();
+/** Find the characters that were just styled in the rebuilt nodes. */
+function rangeAt(host: Element, start: number, end: number): Range | undefined {
   const from = positionAt(host, start);
   const to = positionAt(host, end);
-  if (!selection || !from || !to) return;
-  const range = doc.createRange();
+  if (!from || !to) return;
+  const range = host.ownerDocument.createRange();
   range.setStart(from.node, from.offset);
   range.setEnd(to.node, to.offset);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  return range;
 }
 
 /**

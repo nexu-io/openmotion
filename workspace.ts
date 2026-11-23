@@ -1,3 +1,4 @@
+import type { ExportFailure } from './tracking/tool-fields.ts';
 import { validHostContext } from './tracking/host.ts';
 import type { HostContext } from './tracking/host.ts';
 import type { OmTracking } from './shared/tracking.ts';
@@ -39,9 +40,9 @@ export type SavedProject = { id: string; title: string; titleKey?: 'OpenMotion S
 export type ProjectCatalog = { activeId: string; projects: SavedProject[]; sessions?: CreativeSession[]; activeSessionId?: string };
 export type ProjectMutationResult = { projectId: string; title: string; trashed?: boolean; deleted?: boolean; activeProjectId: string; replayed?: boolean };
 type ProjectTrashIntent = { action: 'trash' | 'restore'; projectId: string; requestId: string };
-export type ExportJob = { id: string; projectId?: string; versionId?: string; requestId?: string; workId?: string; phase1?: boolean; compositionPath?: string; stage?: string; verification?: unknown; trackingHost?: HostContext; revision: string; state: 'pending' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed';
+export type ExportJob = Partial<ExportFailure> & { id: string; projectId?: string; versionId?: string; requestId?: string; workId?: string; phase1?: boolean; compositionPath?: string; stage?: string; verification?: unknown; trackingHost?: HostContext; revision: string; state: 'pending' | 'running' | 'cancelling' | 'cancelled' | 'completed' | 'failed';
   createdAt: number; acceptedAt?: number; deadlineAt?: number; terminalAt?: number; observedOutcome?: 'success' | 'failure' | 'unknown' | 'cancelled'; expiresAt: number; token?: string; workerPid?: number; file?: string; outputName?: string; error?: string; expected?: ExportExpectation };
-export class Conflict extends Error { constructor() { super('工程已经被 Studio 或 Agent 更新，请重新读取 revision 后再修改。'); } }
+export class Conflict extends Error { readonly code = 'VERSION_CONFLICT'; constructor() { super('工程已经被 Studio 或 Agent 更新，请重新读取 revision 后再修改。'); } }
 
 // Portable names are rejected on every platform so a Linux-authored project cannot produce an
 // archive that import refuses; case/NFC folding only applies where the filesystem ignores case.
@@ -60,6 +61,17 @@ function alive(pid?: number) { try { if (!pid) return false; process.kill(pid, 0
 export function interruptedExport(job: ExportJob) {
   return ['pending', 'running', 'cancelling'].includes(job.state) && (job.expiresAt < Date.now() || (job.state !== 'pending' && !alive(job.workerPid)));
 }
+const exportStages = { queued: 'queued', checking: 'lint', rendering: 'render', verifying: 'verification', verified: 'finalize' } as const;
+export function trackExportResult(tracking: OmTracking | undefined, job: ExportJob) {
+  if (!tracking || (job.state !== 'completed' && job.state !== 'failed' && job.state !== 'cancelled')) return;
+  const status = (job.verification as { status?: string } | undefined)?.status;
+  tracking.track('export_result', {
+    job_id: job.id, job_state: job.state, duration_ms: Math.min(86_400_000, Math.max(0, Date.now() - job.createdAt)),
+    technical_check: status === 'passed' || status === 'failed' ? status : 'unknown',
+    ...(job.state === 'failed' ? { failure_stage: job.failureStage ?? 'unknown', error_code: job.failureCode ?? 'EXPORT_FAILED' } : {}),
+  }, undefined, 'worker', validHostContext(job.trackingHost) ? job.trackingHost : undefined);
+}
+
 async function atomic(filename: string, content: string | Buffer) {
   await mkdir(path.dirname(filename), { recursive: true });
   const temporary = path.join(path.dirname(filename), '.motion-write-' + crypto.randomUUID());
@@ -356,6 +368,7 @@ export class WorkspaceStore {
       // while the catalog still has the project, and replays after the catalog commit.
       await atomic(receiptPath, JSON.stringify({ fingerprint, result, pending: true }));
       await rm(directory, { recursive: true, force: true });
+      await rm(path.join(this.directory, 'review-comments', id + '.json'), { force: true });
       catalog.projects = catalog.projects.filter(item => item.id !== id);
       const removedSessions: string[] = [];
       catalog.sessions = catalog.sessions!.flatMap(session => {
@@ -608,12 +621,15 @@ export class WorkspaceStore {
     return this.lock(async () => {
       const job = await this.job(seen.id);
       if (!job || !interruptedExport(job)) return { job, reconciled: false };
+      job.failureStage = Object.hasOwn(exportStages, job.stage ?? '') ? exportStages[job.stage as keyof typeof exportStages] : 'unknown';
+      job.failureCode = job.expiresAt < Date.now() ? 'EXPORT_DEADLINE_EXCEEDED' : 'EXPORT_WORKER_INTERRUPTED';
       job.state = 'failed'; job.error = '后台渲染已中断或超时，请重新导出'; job.terminalAt = Date.now(); job.observedOutcome = 'unknown';
       await this.saveJob(job);
       const ledger = await this.reconcileTask(job);
+      trackExportResult(tracking, job);
       // Whichever caller owns this transition states the terminal evidence once, so a read never closes a task silently.
       tracking?.track('task_terminal', { task_id: job.id, task_type: 'export', ...(job.projectId ? { project_id: job.projectId } : {}),
-        ...(job.workId ? { run_id: job.workId } : {}), outcome: 'unknown', applied: 'unknown',
+        ...(job.workId ? { run_id: job.workId } : {}), outcome: 'unknown', applied: 'unknown', error_code: job.failureCode,
         terminal_at: ledger?.terminal_at ?? new Date(job.terminalAt ?? Date.now()).toISOString() }, undefined, 'worker',
         validHostContext(job.trackingHost) ? job.trackingHost : undefined);
       return { job, reconciled: true };
@@ -621,7 +637,7 @@ export class WorkspaceStore {
   }
   // An interrupted export is reconciled here, so its accepted task still gets a terminal outcome.
   private async reconcileTask(job: ExportJob) {
-    try { return await new TaskLedger(this.directory).terminal(job.id, 'unknown', 'unknown'); }
+    try { return await new TaskLedger(this.directory).terminal(job.id, 'unknown', 'unknown', job.failureCode); }
     catch (error) {
       // A degraded acceptance leaves no record to close, which is not an error of its own.
       if (error instanceof Error && error.message === 'TASK_LEDGER_NOT_FOUND') return null;
@@ -640,7 +656,7 @@ export class WorkspaceStore {
       await this.saveJob(job); return job;
     });
   }
-  async finishExport(id: string, token: string, error?: string) {
+  async finishExport(id: string, token: string, error?: string, failure?: ExportFailure) {
     return this.lock(async () => {
       const job = await this.job(id) ?? await this.job();
       if (!job || job.id !== id || job.token !== token || !['running', 'cancelling'].includes(job.state)) throw new Error('无效的导出任务凭据');
@@ -650,7 +666,7 @@ export class WorkspaceStore {
       }
       if (!error && !(await stat(this.exportPath(job))).size) throw new Error('Hyperframes 未生成视频');
       job.state = error ? 'failed' : 'completed'; job.stage = job.state; job.terminalAt = Date.now(); job.observedOutcome = error ? 'failure' : 'success';
-      if (error) job.error = error.slice(-2000); else job.file = path.relative(this.directory, this.exportPath(job)).split(path.sep).join('/');
+      if (error) { job.error = error.slice(-2000); Object.assign(job, failure); } else job.file = path.relative(this.directory, this.exportPath(job)).split(path.sep).join('/');
       delete job.token; delete job.workerPid;
       await this.saveJob(job); return job;
     });

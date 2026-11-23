@@ -32,11 +32,11 @@ Hyperframes 指引只在 [原生引擎边界](native.md#engine-guidance-boundary
 
 | 本次范围 | 必需参考（可复用已读正文） |
 | --- | --- |
-| 需要选择、获取或替换素材，含原创、模板适配、复刻与局部修改 | [素材选择与来源优先级](materials.md)；沿用所选路线的能力和保持项；仅查看、预览或导出既有内容不触发 |
+| 需要选择、获取或替换素材，含原创、模板适配、复刻与局部修改 | [素材选择与来源优先级](materials.md)（含生成时机阶梯、跨镜头一致性与混合模态复刻边界）；沿用所选路线的能力和保持项；仅查看、预览或导出既有内容不触发 |
 | 依据 [生成边界](materials.md#generation-boundary) 确认需要生成素材 | 按需读取 [openmotion-media](../../openmotion-media/SKILL.md) |
 | Selecting/replacing fonts, changing text hierarchy, or diagnosing typography | [Typography](typography.md); preserve the selected route and established identity. Local edits cover affected text only; unchanged preview/export and audio-only work do not trigger selection. |
 | 原创新片／大幅重编 | 所选 director 入口负责自己的创作读集；实际受影响内容应用共享 [审片](review.md)。 |
-| 按既定声音决定执行或工程音轨调整，含画面锁定 | [声音执行与声画锚点](sound.md)、声音相关的 [审片](review.md)；不加载原创声音构思。需要新设计声音叙事时，由所选 director 入口按需读取声音设计参考。 |
+| 按既定声音决定执行或工程音轨调整，含配音字幕协同与画面锁定 | [声音执行与配音字幕协同](sound.md)、声音相关的 [审片](review.md)；不加载原创声音构思。需要新设计声音叙事时，由所选 director 入口按需读取声音设计参考。 |
 | 原样使用模板、不做修改 | Editor-only uses the [editable preview handoff](native.md#editable-preview-handoff). Explicit file delivery applies [delivery scope](production.md#delivery-scope), [source pinning](native.md#pin-source-for-independent-deliverables) and [verification scope](verification.md#verification-scope). The selected entry owns its sequence; no authoring/creative read is required solely to export. An edited project cannot reuse an old preview. |
 | 使用／适配可编辑模板，需要创建、编辑或渲染工程 | ID／来源尚未明确时读取 [模板能力说明](templates.md)；内容修改按影响审片，原样渲染按上面的文件交付范围执行，不因请求渲染而加载创作规范。 |
 | 明确要求视频转可复用模板 | 所选入口负责自己的分阶段读集；按 [参考视频读取与测量](reference-video.md) 检查实际参考视频；按影响应用共享 [制作决策](decisions.md)、[审片](review.md) 与 [可移植工程](portable-project.md)。 |
@@ -60,7 +60,7 @@ Hyperframes 指引只在 [原生引擎边界](native.md#engine-guidance-boundary
 | 原样模板，明确要 HTML／工程文件 | 所选模板入口负责最小文件操作顺序；应用共享 [运行规范](production.md)、[源版本固定](native.md#pin-source-for-independent-deliverables) 与 [验证范围](verification.md#verification-scope)。缺少实际所选模板说明时补读。不编写内容且未发现缺陷时，不要求 MP4 导出／播放任务、原创设计、素材获取、字体选择或引擎编写指南。 |
 | 原样模板，明确要 MP4 | 沿用相同的固定版本文件顺序和 [验证](verification.md)，包括已完成任务的技术检查和实际文件播放。请求渲染本身不触发原创设计、字体选择、素材获取或新分镜。 |
 
-不为少读而删技术或播放检查。发现缺陷或请求变化时，只扩展受影响的方法集合，不重启整片制作。模板配方和首次体验邀请仍由所选模板入口按条件加载。
+不为少读而删技术或播放检查。发现缺陷或请求变化时，只扩展受影响的方法集合，不重启整片制作。模板配方、改编与局部预览和首次体验邀请仍由所选模板入口按条件加载。
 
 ## 读取结果返回后，再决定依赖它的操作
 
@@ -71,6 +71,14 @@ Hyperframes 指引只在 [原生引擎边界](native.md#engine-guidance-boundary
 ## 会话与产物归属
 
 操作工程时用 `openmotion_get_project({projectId})` 核对项目、sessionId 和当前版本；没有 projectId 时先查分页列表。独立新任务通过 `openmotion_create_project` 创建项目，可传已有 OpenMotion sessionId 归属。何时打开可编辑预览见 [Native 工程循环](native.md#project-loop) 第 6 步。宿主聊天 ID 不自动等于 OpenMotion sessionId，未绑定时不能用全局最近项目猜测归属。
+
+## 在聊天中展示静态创作预览
+
+本轮需要让用户比较创作方向或看分镜时，支持聊天内 HTML 的 Codex 可以沿用 onboarding 的可放大卡片。从当前 OpenMotion 运行时执行 `node scripts/inline-storyboard.mjs --manifest /absolute/preview.json --output /absolute/chat-visualization/preview-v1.html`。输出目录须可供当前聊天访问。脚本会创建缺失的目录，同名时另存新文件，保留此前的预览。在回复里原样放入本次返回的 `contentReference`。宿主不支持或渲染失败时，按同一顺序显示单张图片和标签。
+
+- 清单共用本地化的 `title`、`openLabel`、`backLabel`。卡片提供 `title`、`alt` 及清单同目录的 PNG、JPEG 或 WebP 文件名 `image`。文档超过大小预算时，压缩源图重试。
+- 比较方向时用 `previewType: "creative_directions"` 和 `directions` 提供两到三个候选。每项写稳定的 `id` 和说明表现手法的 `note`。展示按返回的 `candidates` 顺序对应 A–C。收到明确回复后再沿用所选候选。
+- 展示分镜时用 `frames` 传按播放顺序排列的截图，每帧加 `time` 和可选的 `note`，最多 12 张。放大用于查看画面。选择和确认仍通过对话表达。需要验证动作、节奏或声画时，用可播放样片覆盖相关区间。
 
 ## 一份上下文
 

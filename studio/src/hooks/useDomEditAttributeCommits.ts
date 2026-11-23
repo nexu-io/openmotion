@@ -240,6 +240,8 @@ export function useDomEditAttributeCommits({
       options: DataAttributeCommitOptions & {
         prepareContent?: (html: string) => string;
         validateContent?: (html: string) => void;
+        syncTimingInPlace?: boolean;
+        shouldSave?: () => boolean;
         syncAutomation?: boolean;
         onError?: (error: unknown) => void;
       },
@@ -270,6 +272,9 @@ export function useDomEditAttributeCommits({
           );
         },
         apply: () => {
+          // The rate and all dependent timing come back together from the saved source.
+          // Painting only the rate first makes the inspector outrun the lane geometry.
+          if (options.syncTimingInPlace) return;
           if (!captured) return;
           for (const entry of entries) {
             setOrRemovePreviewAttribute(captured.element, entry.fullAttr, entry.value);
@@ -282,10 +287,13 @@ export function useDomEditAttributeCommits({
             skipRefresh: options.skipRefresh,
             prepareContent: options.prepareContent,
             validateContent: options.validateContent,
+            syncTimingInPlace: options.syncTimingInPlace,
+            shouldSave: options.shouldSave,
           }),
         shouldRevert: (error) =>
           isLatestCommit() && !(error instanceof DomEditPersistPreparedWriteError),
         revert: () => {
+          if (options.syncTimingInPlace) return;
           if (!captured) return;
           for (const entry of entries) {
             setOrRemovePreviewAttribute(
@@ -354,6 +362,8 @@ export function useDomEditAttributeCommits({
         syncAutomation: true,
         prepareContent: options.prepareContent,
         validateContent: options.validateContent,
+        syncTimingInPlace: options.syncTimingInPlace,
+        shouldSave: options.shouldSave,
       }),
     [commitAttributeOps],
   );

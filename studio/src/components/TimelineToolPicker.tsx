@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { RemixIcon } from "../icons/RemixIcons";
 import { trackStudioClick } from "../motion/editorTracking";
 import { useI18n } from "../i18n/I18n";
@@ -59,8 +60,8 @@ export function TimelineToolPicker({ showSelectAroundPlayhead = true, splitShort
   ];
   if (mvp) {
     return <Tooltip label={`${t("Select")} (${keyHint("selectTool", keys)})`}>
-      <button type="button" aria-label={t("Select")} aria-pressed={true} className={flatActive}
-        onClick={() => store().setActiveTool("select")}><SelectIcon /></button>
+      <IconButton variant="plain" type="button" aria-label={t("Select")} aria-pressed={true} className={flatActive}
+        onClick={() => store().setActiveTool("select")} icon={<SelectIcon />} />
     </Tooltip>;
   }
   if (showSelectAroundPlayhead && !mvp) {
@@ -90,14 +91,13 @@ export function TimelineToolPicker({ showSelectAroundPlayhead = true, splitShort
     <Menu
       aria-label={t("Timeline tools")}
       trigger={
-        <button
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Timeline tool: {value0}", { value0: t(current.label) })}
           className={cn(flatIdle, "motion-timeline-tool-picker gap-0.5")}
-        >
-          {current.icon}
-          <CaretDown size={10} weight="bold" aria-hidden="true" />
-        </button>
+          icon={<>{current.icon}
+          <CaretDown size={10} weight="bold" aria-hidden="true" /></>}
+        />
       }
     >
       {rows.map((row) => (

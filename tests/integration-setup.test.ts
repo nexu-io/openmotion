@@ -31,13 +31,9 @@ test('container setup preserves its workspace without launching container-intern
       assert.match(prompt, /openmotion#quick-start/);
       assert.doesNotMatch(prompt, /blob\/main\/install.md/);
     }
-    if (host === 'codex') {
-      assert.match(setupPrompt(docker, host, 'en'), /same turn.*welcome and video cards.*template library/);
-      assert.match(setupPrompt(docker, host, 'zh-CN'), /在本轮完成引导.*欢迎语和视频卡片.*模板库/);
-    } else {
-      assert.match(setupPrompt(docker, host, 'en'), /Once connected, open the template library/);
-      assert.match(setupPrompt(docker, host, 'zh-CN'), /接入后打开模板库/);
-    }
+    assert.match(setupPrompt(docker, host, 'en'), /same turn.*welcome and video cards.*template library/);
+    assert.match(setupPrompt(docker, host, 'en'), /as text only when card presentation is unsupported or fails/);
+    assert.match(setupPrompt(docker, host, 'zh-CN'), /本轮完成引导.*欢迎语.*视频推荐卡片.*模板库/);
   }
   assert.deepEqual(docker.transport.args, ['exec', '-i', '--workdir', '/private', '--env', 'MOTION_DATA_DIR=/private/project-data', 'openmotion', '/private/node', '/private/mcp.ts']);
   assert.throws(() => containerIntegration(info, '--privileged'), /Invalid MOTION_CONTAINER_NAME/);
@@ -62,16 +58,16 @@ test('setup works before local discovery and never copies machine-local details'
   assert.match(prompt, /Configuration alone does not prove connection/);
   assert.match(prompt, /Wait for my creative brief/);
   assert.match(prompt, /same turn/);
-  assert.match(prompt, /prepare the welcome and video cards first/);
+  assert.match(prompt, /prepare the shared welcome and video cards/);
   assert.match(setupPrompt(null, 'codex', 'zh-CN'), /在本轮完成引导/);
   for (const host of ['claude', 'deepseek', 'mcp'] as const) {
-    assert.doesNotMatch(setupPrompt(null, host, 'en'), /welcome and video cards/);
-    assert.doesNotMatch(setupPrompt(null, host, 'zh-CN'), /视频卡片/);
+    assert.match(setupPrompt(null, host, 'en'), /welcome and video cards/);
+    assert.match(setupPrompt(null, host, 'zh-CN'), /三张视频推荐卡片/);
   }
 });
 
 test('public setup retains repository and published catalog environments', () => {
-  assert.equal(setupGuideUrl(null), 'https://github.com/nexu-io/openmotion/blob/main/install.md');
+  assert.equal(setupGuideUrl(null), 'https://github.com/nexu-io/openmotion/blob/main/docs/install.md');
   assert.equal(setupGuideUrl(info), setupGuideUrl(null));
   const published: IntegrationInfo = { ...info, templateSource: 'cms' };
   assert.equal(setupGuideUrl(published), 'https://releases.open-design.ai/open-motion/install.md');

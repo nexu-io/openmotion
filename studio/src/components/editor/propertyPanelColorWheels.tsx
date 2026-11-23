@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { OverflowText } from "../ui/OverflowText";
 import { useI18n } from "../../i18n/I18n";
 import { useRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
@@ -146,17 +148,16 @@ function TonalWheel({
   return (
     <div data-color-wheel={label.toLowerCase()} className="min-w-[88px] flex-1 space-y-1.5">
       <div className="flex items-center justify-between gap-1">
-        <span className="truncate text-[10px] font-medium text-panel-text-2">{t(label)}</span>
-        <button
+        <OverflowText text={t(label)} className="min-w-0 truncate text-[10px] font-medium text-panel-text-2" />
+        <IconButton variant="plain"
           type="button"
           aria-label={t("Reset {label}", { label: t(label) })}
           title={t("Reset {label}", { label: t(label) })}
           disabled={disabled}
           onClick={onReset}
           className="text-panel-text-4 hover:text-panel-text-1 disabled:opacity-40"
-        >
-          <RotateCcw size={10} />
-        </button>
+          icon={<RotateCcw size={10} />}
+        />
       </div>
       <div
         role="slider"

@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import type { HfAudioFxChain } from "@hyperframes/core/audio-fx";
 import { TRACK_H } from "./timelineLayout";
@@ -120,7 +121,7 @@ export function TimelineGroupHeader({
     >
       {/* One line, like a track header's: caret and name, then every control
           anchored to the right edge. */}
-      <button
+      <IconButton variant="plain"
         type="button"
         tabIndex={-1}
         aria-expanded={isExpanded}
@@ -139,11 +140,10 @@ export function TimelineGroupHeader({
           event.stopPropagation();
           onToggleExpanded();
         }}
-      >
-        {/* Swapped, not rotated: the panel's caret swaps too, and a rotated
+        icon={<>{/* Swapped, not rotated: the panel's caret swaps too, and a rotated
               ▸ sits off-centre in its box because the glyph is not square. */}
-        <span aria-hidden="true">{isExpanded ? "▾" : "▸"}</span>
-      </button>
+        <span aria-hidden="true">{isExpanded ? "▾" : "▸"}</span></>}
+      />
       <GroupNameButton
         label={label}
         memberCount={memberCount}
@@ -169,7 +169,7 @@ export function TimelineGroupHeader({
             the rack or a keyframe — not by opening this, so nothing is
             unreachable while it is hidden. */}
         {laneCount > 0 && (
-          <button
+          <IconButton variant="plain"
             type="button"
             tabIndex={-1}
             aria-expanded={isLaneOpen}
@@ -186,12 +186,11 @@ export function TimelineGroupHeader({
               event.stopPropagation();
               onToggleLanes();
             }}
-          >
-            <span aria-hidden="true">∿</span>
+            icon={<><span aria-hidden="true">∿</span>
             <span className="text-[9px] tabular-nums text-[var(--timeline-handle)]">
               {laneCount}
-            </span>
-          </button>
+            </span></>}
+          />
         )}
       </div>
     </div>

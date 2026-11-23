@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { trackPreviewFeatureUsed } from "../../utils/previewFeatureUsage";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -88,7 +89,7 @@ export const SnapToolbar = memo(function SnapToolbar() {
       onPointerDown={(e) => e.stopPropagation()}
     >
       {motionPathCreateAvailable && (
-        <button
+        <IconButton variant="plain"
           type="button"
           className={`rounded-md p-1.5 transition-colors active:scale-[0.95] ${
             motionPathArmed
@@ -100,9 +101,8 @@ export const SnapToolbar = memo(function SnapToolbar() {
             motionPathArmed ? t("Click the canvas to set the destination") : t("Set motion destination")
           }
           aria-label={t("Set motion destination")}
-        >
-          <Path size={16} weight={motionPathArmed ? "fill" : "regular"} />
-        </button>
+          icon={<Path size={16} weight={motionPathArmed ? "fill" : "regular"} />}
+        />
       )}
       {(
         [
@@ -113,7 +113,7 @@ export const SnapToolbar = memo(function SnapToolbar() {
         const visible = key === "rulerVisible" ? rulerVisible : safeMarginsVisible;
         const toggle = key === "rulerVisible" ? actions.toggleRulers : actions.toggleSafeMargins;
         return (
-          <button
+          <IconButton variant="plain"
             key={key}
             type="button"
             className={`rounded-md p-1.5 transition-colors active:scale-[0.95] ${
@@ -128,12 +128,11 @@ export const SnapToolbar = memo(function SnapToolbar() {
             title={t("{label} {state}", { label: t(label), state: t(visible ? "on" : "off") })}
             aria-label={t("Toggle {value0}", { value0: t(label.toLowerCase()) })}
             aria-pressed={visible}
-          >
-            <Icon size={16} weight={visible ? "fill" : "regular"} />
-          </button>
+            icon={<Icon size={16} weight={visible ? "fill" : "regular"} />}
+          />
         );
       })}
-      <button
+      <IconButton variant="plain"
         type="button"
         className={`rounded-md p-1.5 transition-colors active:scale-[0.95] ${
           prefs.snapEnabled
@@ -147,12 +146,11 @@ export const SnapToolbar = memo(function SnapToolbar() {
             : t("Snap disabled ({value0})", { value0: keyHint("snap", keys) })
         }
         aria-label={t("Toggle snap")}
-      >
-        <MagnetStraight size={16} weight={prefs.snapEnabled ? "fill" : "regular"} />
-      </button>
+        icon={<MagnetStraight size={16} weight={prefs.snapEnabled ? "fill" : "regular"} />}
+      />
 
       <div className="relative">
-        <button
+        <IconButton variant="plain"
           ref={gridButtonRef}
           type="button"
           className={`rounded-md p-1.5 transition-colors active:scale-[0.95] ${
@@ -172,10 +170,9 @@ export const SnapToolbar = memo(function SnapToolbar() {
               : t("Grid hidden ({value0}). Right-click for spacing options", { value0: keyHint("grid", keys) })
           }
           aria-label={t("Toggle grid")}
-        >
-          <GridFour size={16} weight={prefs.gridVisible ? "fill" : "regular"} />
-        </button>
-        <button
+          icon={<GridFour size={16} weight={prefs.gridVisible ? "fill" : "regular"} />}
+        />
+        <IconButton variant="plain"
           type="button"
           className="absolute -right-0.5 -bottom-0.5 rounded-sm p-0.5 text-white/50 hover:text-white/90 bg-black/50"
           onClick={() => {
@@ -185,11 +182,10 @@ export const SnapToolbar = memo(function SnapToolbar() {
           title={t("Grid options")}
           aria-label={t("Grid options")}
           aria-expanded={gridPopoverOpen}
-        >
-          <svg width="7" height="7" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
+          icon={<svg width="7" height="7" viewBox="0 0 8 8" fill="currentColor" aria-hidden="true">
             <path d="M1 2.5l3 3 3-3z" />
-          </svg>
-        </button>
+          </svg>}
+        />
 
         {gridPopoverOpen && (
           <div

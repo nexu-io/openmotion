@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import type {
@@ -184,12 +185,12 @@ function PreviewModeHeader({
         </span>
       </div>
       {hasOverrides && (
-        <button
+        <Button variant="plain"
           type="button"
           onClick={onReset}
           className="h-6 rounded-sm px-2 text-[10px] text-neutral-400 hover:text-neutral-200"
         >
-          {t("Reset")}</button>
+          {t("Reset")}</Button>
       )}
     </div>
   );
@@ -525,12 +526,12 @@ export const VariablesPanel = memo(function VariablesPanel({
             onCancel={() => setAddOpen(false)}
           />
         ) : (
-          <button
+          <Button variant="plain"
             type="button"
             onClick={() => setAddOpen(true)}
             className="h-7 w-full rounded-lg border border-dashed border-neutral-800 text-[10px] font-medium text-neutral-500 transition-colors hover:border-neutral-700 hover:text-neutral-300"
           >
-            {t("+ Add variable")}</button>
+            {t("+ Add variable")}</Button>
         )}
         <VariablesOtherCompositions
           compositionPaths={compositions}

@@ -474,6 +474,30 @@ function buildMissingCompositionEntry(params: {
   return attachCompositionSource(entry, element, compositionSrc);
 }
 
+function isNestedInsideCompositionHost(
+  el: Element,
+  rootComp: Element | null,
+  rootCompId: string | null,
+  existingIds: ReadonlySet<string>,
+): boolean {
+  let cursor = el.parentElement;
+  while (cursor && cursor !== rootComp) {
+    const parentCompId = cursor.getAttribute("data-composition-id");
+    if (
+      parentCompId &&
+      parentCompId !== rootCompId &&
+      (cursor.hasAttribute("data-start") ||
+        existingIds.has(cursor.id) ||
+        existingIds.has(parentCompId) ||
+        existingIds.has(cursor.getAttribute("data-hf-id") ?? ""))
+    ) {
+      return true;
+    }
+    cursor = cursor.parentElement;
+  }
+  return false;
+}
+
 /**
  * Scan the iframe DOM for composition hosts missing from the current
  * timeline elements and add them.  The CDN runtime often fails to resolve
@@ -487,9 +511,14 @@ export function buildMissingCompositionElements(
   currentEls: readonly TimelineElement[],
   rootDuration: number,
 ): { missing: TimelineElement[]; updatedEls: TimelineElement[]; patched: boolean } {
-  const existingIds = new Set(currentEls.map((e) => e.id));
+  const existingIds = new Set<string>();
+  for (const el of currentEls) {
+    existingIds.add(el.id);
+    if (el.domId) existingIds.add(el.domId);
+    if (el.hfId) existingIds.add(el.hfId);
+  }
   const rootComp = doc.querySelector("[data-composition-id]");
-  const rootCompId = rootComp?.getAttribute("data-composition-id");
+  const rootCompId = rootComp?.getAttribute("data-composition-id") ?? null;
   // Use [data-composition-id][data-start] — the composition loader strips
   // data-composition-src after loading, so we can't rely on it.
   const hosts = doc.querySelectorAll("[data-composition-id][data-start]");
@@ -507,6 +536,11 @@ export function buildMissingCompositionElements(
     const compId = el.getAttribute("data-composition-id");
     if (!compId || compId === rootCompId) continue;
     if (existingIds.has(el.id) || existingIds.has(compId)) continue;
+    // Match processTimelineMessage: skip hosts nested inside another
+    // sub-composition clip (only phantom untimed wrappers pass through).
+    // Otherwise parking/unparking a parent scene during playhead scrub causes
+    // nested sub-compositions to pop in and out of the root timeline.
+    if (isNestedInsideCompositionHost(el, rootComp, rootCompId, existingIds)) continue;
     resolveEnd ??= createReferenceEndResolver(createTimedElementLookup(doc), iframeWin);
     const entry = buildMissingCompositionEntry({
       doc,

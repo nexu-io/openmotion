@@ -14,6 +14,7 @@ import { getStudioKeys, keyHint, matchesKey } from "../player/components/studioS
 import { zoomTimelineToSelectedClips } from "../player/components/timelineZoomInput";
 import { openAudioGainDialog } from "../player/components/audioGainDialogStore";
 import type { LinkShortcutCallbacks } from "./linkShortcuts";
+import { togglePreviewFullscreen } from '../player/lib/previewFullscreen';
 
 // Extracted from useAppHotkeys.ts to keep it under the studio 600-line cap,
 // following useTimelineDeleteOps's precedent. Pure functions, no hooks — the
@@ -162,9 +163,7 @@ export function dispatchPlainKey(event: KeyboardEvent, _key: string, cb: HotkeyC
 
   if (matchesKey(event, "fullscreen")) {
     event.preventDefault();
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else
-      document.querySelector<HTMLElement>("[data-studio-fullscreen-target]")?.requestFullscreen();
+    if (!event.repeat) void togglePreviewFullscreen(undefined, cb.showToast);
     return;
   }
 

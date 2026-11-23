@@ -182,7 +182,9 @@ test('cancelled tasks do not import output, malformed media fails, interrupted t
   const job = await gateway.submit({ modality: 'image', prompt: 'cancel' });
   await gateway.tick();
   while (!calls) await new Promise(resolve => setTimeout(resolve, 5));
-  await gateway.cancel(job.id); release(png);
+  await gateway.cancel(job.id);
+  assert((await stat(path.join(gateway.root, 'work', job.id))).isDirectory(), 'the live worker owns cancellation cleanup');
+  release(png);
   await Promise.all([...gateway.active.values()].map(task => task.done));
   assert.equal((await gateway.getJob(job.id)).state, 'cancelled');
   assert.deepEqual((await gateway.getJob(job.id)).assets, []);
@@ -343,6 +345,14 @@ test('JSON reader honors per-request size limits', async () => {
   await assert.rejects(apiJson(source, 'https://example.com', {}, { maxBytes: 512 }), /Provider response exceeds/);
 });
 
+test('ADTS AAC output is identified as AAC, not as the MP3 whose sync bits it shares', () => {
+  const frame = (header: string) => Buffer.concat([Buffer.from(header, 'hex'), Buffer.alloc(32)]);
+  // MPEG-4 AAC-LC with and without CRC, then MPEG-2 AAC.
+  for (const header of ['fff15080', 'fff05080', 'fff95080']) assert.deepEqual(mediaType(frame(header), 'audio'), { mimeType: 'audio/aac', extension: 'aac' });
+  // MPEG-1 Layer III, MPEG-2 Layer III and an ID3v2 tag stay MP3.
+  for (const header of ['fffb9064', 'fff38064', '49443304']) assert.deepEqual(mediaType(frame(header), 'audio'), { mimeType: 'audio/mpeg', extension: 'mp3' });
+});
+
 test('media import rejects non-public URLs, unexpected file signatures and wrong output modalities', async () => {
   for (const url of ['http://example.com/file.png', 'https://127.0.0.1/file.png', 'https://user:pass@example.com/file.png', 'https://[::1]/image']) await assert.rejects(downloadMedia(url, new AbortController().signal));
   assert.throws(() => mediaType(png, 'video'), /valid video/);
@@ -378,4 +388,62 @@ test('HTTP and MCP share settings, routes and job state without exposing keys or
   assert.equal((await request('/motion-api/generations', { method: 'POST', body: '{}' })).status, 503);
   assert.equal((await request('/model-gateway/secrets.json')).status, 404);
   await gateway.close();
+}));
+
+// A partial transfer is durable across manual recovery, not merely an in-memory retry.
+test('account image download resumes verified bytes and refreshes URLs without persisting them', () => fixture(async store => {
+  const { resumableDownload } = await import('../gateway/resumable-download.ts');
+  const directory = path.join(store.directory, 'resume-test'); await mkdir(directory);
+  const bytes = Buffer.alloc(1024 * 1024 + 100, 37), cut = 1024 * 1024;
+  let reads = 0;
+  const asset = async () => ({ assetId: 'original', mime: 'image/png', size: bytes.length, url: `https://media.example/image?secret=${++reads}` });
+  const interrupted = () => {
+    let pulled = false;
+    return new Response(new ReadableStream({ pull(controller) {
+      if (!pulled) { pulled = true; controller.enqueue(bytes.subarray(0, cut)); }
+      else controller.error(new Error('connection reset with signed secret'));
+    } }), { headers: { etag: '"one"', 'content-length': String(bytes.length) } });
+  };
+  const signal = new AbortController().signal, progress: any[] = [];
+  await assert.rejects(resumableDownload(directory, asset, signal, async p => { progress.push(p); }, async () => interrupted(), 1), /original image/);
+  const checkpoint = JSON.parse(await readFile(path.join(directory, 'image-download.json'), 'utf8'));
+  assert.equal(checkpoint.bytes, cut); assert.doesNotMatch(JSON.stringify(checkpoint), /https|secret|url/i);
+  const result = await resumableDownload(directory, asset, signal, async p => { progress.push(p); }, async (_url, init) => {
+    const headers = new Headers(init.headers); assert.equal(headers.get('range'), `bytes=${cut}-`); assert.equal(headers.get('if-range'), '"one"');
+    return new Response(bytes.subarray(cut), { status: 206, headers: { etag: '"one"', 'content-range': `bytes ${cut}-${bytes.length - 1}/${bytes.length}`, 'content-length': String(bytes.length - cut) } });
+  });
+  assert.deepEqual(result, bytes); assert.equal(reads, 2); assert.equal(progress.at(-1).receivedBytes, bytes.length);
+}));
+
+test('account image auto retry verifies Range and never appends changed or corrupted files', () => fixture(async store => {
+  const { resumableDownload } = await import('../gateway/resumable-download.ts');
+  const bytes = Buffer.alloc(80, 17), other = Buffer.alloc(80, 52), signal = new AbortController().signal;
+  for (const mode of ['range', 'changed-etag', 'ignored-range', 'corrupt-file', 'wrong-range', 'range-not-satisfiable', 'no-etag', 'different-asset']) {
+    const directory = path.join(store.directory, mode); await mkdir(directory);
+    let call = 0;
+    const asset = async () => ({ assetId: 'original', mime: 'image/png', size: bytes.length, url: 'https://media.example/original' });
+    const broken = async () => {
+      let read = false;
+      return new Response(new ReadableStream({ pull(controller) { if (read) controller.error(new Error('broken')); else { read = true; controller.enqueue(bytes.subarray(0, 32)); } } }), { headers: mode === 'no-etag' ? {} : { etag: '"old"' } });
+    };
+    if (['corrupt-file', 'different-asset'].includes(mode)) {
+      await assert.rejects(resumableDownload(directory, asset, signal, async () => {}, broken, 1));
+      if (mode === 'corrupt-file') await writeFile(path.join(directory, 'image.partial'), Buffer.alloc(32, 99));
+    }
+    const expected = mode === 'changed-etag' || mode === 'ignored-range' || mode === 'different-asset' ? other : bytes;
+    const result = await resumableDownload(directory, mode === 'different-asset' ? async () => ({ ...await asset(), assetId: 'replacement' }) : asset, signal, async () => {}, async (_url, init) => {
+      call++;
+      const range = new Headers(init.headers).get('range');
+      if (call === 1 && !['corrupt-file', 'different-asset'].includes(mode)) return broken();
+      if (mode === 'no-etag' || mode === 'corrupt-file' || mode === 'different-asset' || call === 3) {
+        assert.equal(range, null, mode); return new Response(expected, { headers: { etag: '"new"' } });
+      }
+      assert.equal(range, 'bytes=32-', mode);
+      if (mode === 'range-not-satisfiable') return new Response(null, { status: 416 });
+      if (mode === 'ignored-range') return new Response(other, { headers: { etag: '"new"' } });
+      return new Response(expected.subarray(32), { status: 206, headers: { etag: mode === 'changed-etag' ? '"new"' : '"old"',
+        'content-range': `bytes ${mode === 'wrong-range' ? 31 : 32}-79/80` } });
+    });
+    assert.deepEqual(result, expected, mode);
+  }
 }));

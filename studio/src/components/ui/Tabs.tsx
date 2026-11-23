@@ -6,7 +6,7 @@
 import { Tabs as BaseTabs } from "@base-ui/react/tabs";
 import type { ComponentPropsWithoutRef, ElementType } from "react";
 import { cn } from "./cn";
-import type { PreviewState } from "./Button";
+import type { PreviewState } from "open-design-ui/button";
 
 /**
  * Base UI lets `className` be a function of the part's state. Studio's parts

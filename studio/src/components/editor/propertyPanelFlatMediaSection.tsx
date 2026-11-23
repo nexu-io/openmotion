@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useEffect, useState } from "react";
@@ -19,7 +20,6 @@ import { AutomationToggle } from "./propertyPanelFxControls";
 import { RATE_RANGE } from "@hyperframes/core/audio-automation";
 import { type SpeedPresetId } from "@hyperframes/core/speed-ramp";
 import { SPEED_PRESET_OPTIONS, type RateBinding } from "./useVolumeAutomation";
-import { fromUnit, toUnit } from "../../player/components/automationLaneGeometry";
 import {
   AUDIO_GAIN_FADER_MAX,
   AUDIO_GAIN_FADER_MIN,
@@ -39,6 +39,32 @@ import { parseGainInput, parseRateInput, parseSecondsInput } from "./audioInspec
 import type { CommitDomAttributeBatch } from "../../hooks/domEditCommitTypes";
 import { commitCutout, commitHasAudioToggle, commitMutedToggle } from "./mediaAudioEdits";
 import { authoredSrcPath } from "../../player/components/thumbnailUtils";
+
+const RATE_SLIDER_INTERVAL = 250;
+const RATE_STOPS = [RATE_RANGE.min, 1, 2, 5, RATE_RANGE.max].map((speed, index) => ({
+  speed,
+  value: index * RATE_SLIDER_INTERVAL,
+  label: `${speed}x`,
+}));
+const RATE_SLIDER_MAX = (RATE_STOPS.length - 1) * RATE_SLIDER_INTERVAL;
+
+function rateSliderPosition(rate: number) {
+  const upperIndex = RATE_STOPS.findIndex(stop => rate <= stop.speed);
+  if (upperIndex === 0) return 0;
+  if (upperIndex < 0) return RATE_SLIDER_MAX;
+  const lower = RATE_STOPS[upperIndex - 1];
+  const upper = RATE_STOPS[upperIndex];
+  const fraction = (rate - lower.speed) / (upper.speed - lower.speed);
+  return lower.value + Math.round(fraction * RATE_SLIDER_INTERVAL);
+}
+
+function rateAtSliderPosition(position: number) {
+  const lowerIndex = Math.min(Math.floor(position / RATE_SLIDER_INTERVAL), RATE_STOPS.length - 2);
+  const lower = RATE_STOPS[lowerIndex];
+  const upper = RATE_STOPS[lowerIndex + 1];
+  const fraction = (position - lower.value) / RATE_SLIDER_INTERVAL;
+  return lower.speed + fraction * (upper.speed - lower.speed);
+}
 
 // fallow-ignore-next-line complexity
 export function FlatMediaSection({
@@ -174,7 +200,7 @@ export function FlatMediaSection({
             {srcAttr}
           </span>
         </span>
-        {!mvp && <button
+        {!mvp && <Button variant="plain"
           type="button"
           data-flat-media-copy="true"
           onClick={() => {
@@ -188,7 +214,7 @@ export function FlatMediaSection({
         >
           {copied ? <Check size={11} /> : <ClipboardList size={11} />}
           {copied ? t("Copied") : t("Copy")}
-        </button>}
+        </Button>}
       </div>}
       {!mvp && isVisualMedia && (
         <div className="ml-px border-l-2 border-panel-border-input py-1 pl-[10px]">
@@ -199,7 +225,7 @@ export function FlatMediaSection({
                 {t("transparent")}{" "}{isVideo ? "WebM" : "PNG"}
               </span>
             </span>
-            <button
+            <Button variant="plain"
               type="button"
               data-flat-media-remove-bg="true"
               disabled={!canRemoveBackground || removeBusy}
@@ -212,7 +238,7 @@ export function FlatMediaSection({
               }
             >
               {removeBusy ? t("Working") : t("Remove BG")}
-            </button>
+            </Button>
           </div>
           <FlatSelectRow
             label={t("Quality")}
@@ -252,7 +278,7 @@ export function FlatMediaSection({
             value={audioGainToFaderPosition(gain)}
             min={AUDIO_GAIN_FADER_MIN}
             max={AUDIO_GAIN_FADER_MAX}
-            tier={gain === 1 ? "default" : "explicitCustom"}
+            tier="explicitCustom"
             displayValue={audioGainToText(gain)}
             centerTick
             onCommit={(next) =>
@@ -276,7 +302,7 @@ export function FlatMediaSection({
                 value={audioGainToFaderPosition(volume)}
                 min={AUDIO_GAIN_FADER_MIN}
                 max={AUDIO_GAIN_FADER_MAX}
-                tier={volume === 1 ? "default" : "explicitCustom"}
+                tier="explicitCustom"
                 displayValue={audioGainToText(volume)}
                 centerTick
                 onCommit={(next) => onCommitVolumeAt?.(audioFaderPositionToGain(next))}
@@ -303,13 +329,16 @@ export function FlatMediaSection({
             <div className="min-w-0 flex-1">
               <FlatSlider
                 label={t("Speed")}
-                value={Math.round(toUnit(RATE_RANGE, playbackRate) * 1000)}
+                value={rateSliderPosition(playbackRate)}
                 min={0}
-                max={1000}
-                tier={playbackRate === 1 ? "default" : "explicitCustom"}
+                max={RATE_SLIDER_MAX}
+                stops={RATE_STOPS}
+                tier="explicitCustom"
                 displayValue={`${formatNumericValue(playbackRate)}x`}
+                readout="input"
+                layout="stacked"
                 onCommit={(next) => {
-                  const speed = fromUnit(RATE_RANGE, next / 1000);
+                  const speed = rateAtSliderPosition(next);
                   if (rate?.automated) {
                     rate.onCommitAt(speed);
                   } else {
@@ -350,8 +379,10 @@ export function FlatMediaSection({
             value={Math.round(mediaStart * 100)}
             min={0}
             max={mediaStartMax * 100}
-            tier={mediaStart === 0 ? "default" : "explicitCustom"}
+            tier="explicitCustom"
             displayValue={formatTimingValue(mediaStart)}
+            readout="input"
+            layout="stacked"
             onCommit={(next) => void onSetAttribute(mediaStartAttr, (next / 100).toFixed(2))}
             onCommitText={(text) => {
               const seconds = parseSecondsInput(text);
@@ -371,17 +402,20 @@ export function FlatMediaSection({
           <FlatToggle
             label={t("Loop")}
             checked={hasLoop}
+            size="standard"
             onChange={(next) => void onSetHtmlAttribute("loop", next ? "true" : null)}
           />
           {!mvp && <FlatToggle
             label={t("Muted")}
             checked={hasMuted}
+            size="standard"
             onChange={(next) => void commitMutedToggle(mediaEdit, next)}
           />}
           {!mvp && isVideo && (
             <FlatToggle
               label={t("Has audio track")}
               checked={hasAudio}
+              size="standard"
               onChange={(next) => void commitHasAudioToggle(mediaEdit, next)}
             />
           )}
@@ -391,7 +425,7 @@ export function FlatMediaSection({
         <>
           <FlatSelectRow
             label={t("Fit")}
-            presentation={mvp ? "menu" : "native"}
+            presentation={mvp ? "select" : "native"}
             value={objectFit}
             options={["contain", "cover", "fill", "none", "scale-down"]}
             tier={objectFit === "contain" ? "default" : "explicitCustom"}
@@ -444,7 +478,7 @@ function MediaFadeSliders({
         value={Math.round(seconds * 100)}
         min={0}
         max={Math.round(edgeMax * 100)}
-        tier={seconds === 0 ? "default" : "explicitCustom"}
+        tier="explicitCustom"
         displayValue={formatTimingValue(seconds)}
         onCommit={(next) => void onSetAttribute(dataKey, fadeText(next / 100))}
         onCommitText={(text) => {

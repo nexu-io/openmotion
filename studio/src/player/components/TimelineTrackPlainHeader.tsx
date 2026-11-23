@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { Tooltip } from "../../components/ui/Tooltip";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { useI18n } from "../../i18n/I18n";
@@ -31,7 +32,7 @@ export function VisibilityButton({
   const suffix = trackDisplaySuffix(trackDisplayNumber);
   const label = t("{value0} track{suffix}", { value0: t(hiddenToggleVerb(asMute, hidden)), suffix: suffix });
   return (
-    <Tooltip label={label} wrap><button
+    <Tooltip label={label} wrap><IconButton variant="plain"
       type="button"
       aria-label={label}
       disabled={disabled}
@@ -48,9 +49,8 @@ export function VisibilityButton({
         // announce the same row this button just did (see `onToggleTrackHidden`).
         void onToggle?.(trackNumber, !hidden, trackDisplayNumber);
       }}
-    >
-      <HiddenToggleIcon asMute={asMute} hidden={hidden} size={14} />
-    </button></Tooltip>
+      icon={<HiddenToggleIcon asMute={asMute} hidden={hidden} size={14} />}
+    /></Tooltip>
   );
 }
 

@@ -15,6 +15,7 @@ type Options = {
   host: string;
   ref?: string;
   homeDirectory?: string;
+  projectDirectory?: string;
   env?: NodeJS.ProcessEnv;
   run?: (command: string, args: string[], options: object) => Promise<unknown>;
 };
@@ -22,23 +23,28 @@ type Options = {
 // Only the official CLI records its own installation event. Do not synthesize
 // telemetry or reinstall an existing entry merely to produce another event.
 export async function installPublicSkill(options: Options) {
-  const { host, ref = 'main', homeDirectory = os.homedir(), env = process.env, run = execute } = options;
+  const { host, ref = 'main', homeDirectory = os.homedir(), env = process.env, run = execute, projectDirectory } = options;
   if (env.OPENMOTION_SKIP_PUBLIC_SKILL === '1') return { status: 'skipped', reason: 'disabled' };
-  if (!Object.hasOwn(agents, host)) return { status: 'skipped', reason: 'no Skills CLI host adapter' };
+  const scopedDsh = host === 'deepseek' && Boolean(projectDirectory);
+  if (!Object.hasOwn(agents, host) && !scopedDsh) return { status: 'skipped', reason: 'no Skills CLI host adapter' };
+  if (projectDirectory && (!scopedDsh || !path.isAbsolute(projectDirectory))) throw new Error('Use an absolute DSH profile Skill scope');
   if (!/^(main|[a-f0-9]{40})$/.test(ref)) throw new Error('Invalid public Skill source ref');
   // Alternate host homes are intentionally outside this global CLI adapter.
   const hostHome = host === 'codex' ? env.CODEX_HOME : env.CLAUDE_CONFIG_DIR;
   const defaultHostHome = path.join(homeDirectory, host === 'codex' ? '.codex' : '.claude');
-  if (hostHome && path.resolve(hostHome) !== defaultHostHome) {
+  if (!scopedDsh && hostHome && path.resolve(hostHome) !== defaultHostHome) {
     return { status: 'skipped', reason: 'custom host home; install the Skill explicitly in that profile' };
   }
-  const canonicalRoot = path.join(homeDirectory, '.agents');
+  const canonicalRoot = path.join(projectDirectory || homeDirectory, '.agents');
   const targets = [path.join(canonicalRoot, 'skills/openmotion')];
   if (host === 'claude') targets.push(path.join(homeDirectory, '.claude/skills/openmotion'));
   let lock: { version?: number; skills?: Record<string, { source?: string }> } | undefined;
-  try { lock = JSON.parse(await readFile(env.XDG_STATE_HOME ? path.join(env.XDG_STATE_HOME, 'skills/.skill-lock.json') : path.join(canonicalRoot, '.skill-lock.json'), 'utf8')); }
+  let lockFile = path.join(canonicalRoot, '.skill-lock.json');
+  if (projectDirectory) lockFile = path.join(projectDirectory, 'skills-lock.json');
+  else if (env.XDG_STATE_HOME) lockFile = path.join(env.XDG_STATE_HOME, 'skills/.skill-lock.json');
+  try { lock = JSON.parse(await readFile(lockFile, 'utf8')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-  const owned = lock?.version === 3 && lock.skills?.openmotion?.source === source;
+  const owned = (projectDirectory ? [1, 2].includes(lock?.version || 0) : lock?.version === 3) && lock?.skills?.openmotion?.source === source;
   let allPresent = true;
   for (const target of targets) {
     const existing = await lstat(target).catch((error: NodeJS.ErrnoException) => {
@@ -62,8 +68,8 @@ export async function installPublicSkill(options: Options) {
   if (allPresent) return { status: 'present', source };
   const npm = env.npm_execpath || path.resolve(path.dirname(process.execPath), process.platform === 'win32' ? 'node_modules/npm/bin/npm-cli.js' : '../lib/node_modules/npm/bin/npm-cli.js');
   await run(process.execPath, [npm, 'exec', '--yes', '--package=skills@' + skillsCliVersion, '--', 'skills', 'add',
-    `https://github.com/${source}/tree/${ref}`, '--skill', 'openmotion', '--global', '--agent', agents[host], '--copy', '--yes'],
-  { env, timeout: 120_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
+    `https://github.com/${source}/tree/${ref}`, '--skill', 'openmotion', ...(projectDirectory ? [] : ['--global']), '--agent', scopedDsh ? 'universal' : agents[host], '--copy', '--yes'],
+  { env, ...(projectDirectory ? { cwd: projectDirectory } : {}), timeout: 120_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true });
   return { status: 'installed', source, ref };
 }
 

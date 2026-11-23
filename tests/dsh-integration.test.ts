@@ -61,7 +61,7 @@ test('packaged DSH host shares MCP data and bounds its read-only proxy', async (
   const origin = `http://127.0.0.1:${(upstream.address() as { port: number }).port}`;
   const routes = new Map<string, (req: unknown, res: unknown) => Promise<void>>();
   const host = createServer((req, res) => {
-    const route = routes.get(req.url!.split('?')[0]) || routes.get('/openmotion-dsh/data');
+    const route = routes.get(req.url!.split('?')[0]) || routes.get(req.url!.startsWith('/openmotion-dsh/design-system/') ? '/openmotion-dsh/design-system' : '/openmotion-dsh/data');
     if (route) void route(req, res); else { res.writeHead(404); res.end(); }
   });
   try {
@@ -79,6 +79,8 @@ test('packaged DSH host shares MCP data and bounds its read-only proxy', async (
     await writeFile(path.join(temporary, 'server.ts'), 'throw new Error("The registered service must be reused, not started again.");');
     const module = path.join(temporary, 'plugin.js');
     await writeFile(path.join(temporary, 'package.json'), manifest);
+    await mkdir(path.join(temporary, 'packages/design-system'), { recursive: true });
+    for (const name of ['index.js', 'provider-icons.js', 'platform-icons.js']) await copyFile(new URL('../packages/design-system/' + name, import.meta.url), path.join(temporary, 'packages/design-system', name));
     // Only the native MCP bridge is replaced. Exercise the actual compiled host,
     // preview entrypoint, HTTP routes and network requests without model calls.
     await build({
@@ -86,18 +88,30 @@ test('packaged DSH host shares MCP data and bounds its read-only proxy', async (
       outfile: module, bundle: true, format: 'esm', platform: 'node',
       plugins: [{ name: 'mcp-fixture', setup(builder) {
         builder.onResolve({ filter: /^@deepseek-ai\/dsh-mcp-client$/ }, () => ({ path: 'bridge', namespace: 'fixture' }));
-        builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({ contents: 'export async function apply(ctx, config) { ctx.bridge = config; }', loader: 'js' }));
+        builder.onLoad({ filter: /^bridge$/, namespace: 'fixture' }, () => ({ contents: 'export async function apply(ctx, config) { ctx.bridge = config; }', loader: 'js' }));
+        builder.onResolve({ filter: /^@deepseek-ai\/dsh-llm$/ }, () => ({ path: 'llm', namespace: 'fixture' }));
+        builder.onLoad({ filter: /^llm$/, namespace: 'fixture' }, () => ({ contents: 'export function createUserMessage(input) { return { id: \"fixture-message\", ...input }; }', loader: 'js' }));
       } }],
     });
     await copyFile(new URL('../integrations/dsh/plugin/src/style.css', import.meta.url), path.join(temporary, 'style.css'));
+    const optionalCards: Array<(context: any) => unknown> = [];
     const ctx = {
       bridge: null as any,
+      get: () => undefined,
+      inject: (keys: string[], register: (context: any) => unknown) => { assert.deepEqual(keys, ["skills", "actionCards"]); optionalCards.push(register); },
       effect: (register: () => unknown) => register(),
       webServer: { register: (route: { path: string; handler: (req: unknown, res: unknown) => Promise<void> }) => { routes.set(route.path, route.handler); return () => routes.delete(route.path); } },
       tools: { definitions: () => [{ name: 'mcp__openmotion__openmotion_get_project' }, { name: 'unrelated' }] },
     };
     const plugin = await import(pathToFileURL(module).href);
     await plugin.apply(ctx, { root: temporary, dataDirectory: data, templateSource: 'hosted' });
+    assert.equal(optionalCards.length, 1, 'Card registration must wait for optional services without blocking MCP');
+    const kinds: any[] = [];
+    optionalCards[0]({ effect: (run: () => unknown) => run(),
+      skills: { registerProvider: () => () => {} },
+      actionCards: { register: (kind: unknown) => { kinds.push(kind); return () => {}; } },
+    });
+    assert.equal(kinds[0].action, 'openmotion_template_recommendation', 'Services loaded after startup still enable cards');
     assert.equal(ctx.bridge.env.MOTION_DATA_DIR, data);
     assert.equal(ctx.bridge.env.MOTION_TEMPLATE_SOURCE, 'hosted');
     assert.equal(ctx.bridge.cwd, temporary);
@@ -115,8 +129,10 @@ test('packaged DSH host shares MCP data and bounds its read-only proxy', async (
     for (const [endpoint, method] of [['/motion-api/projects', 'POST'], ['/api/projects', 'GET'], ['/motion-api/projects/example', 'GET'], ['/api/assets', 'GET'], ['/motion-api/projects/../settings', 'GET']]) {
       assert.equal((await fetch(base + '/data' + endpoint, { method })).status, 404);
     }
+    assert.equal((await fetch(base + '/design-system/fonts/AlbertSans-VariableFont_wght.ttf')).status, 200);
+    assert.equal((await fetch(base + '/design-system/private.txt')).status, 404);
     assert.ok(requests.includes('/api/health'), 'activation must probe the existing service');
-    assert.deepEqual(requests.filter(url => url !== '/api/health'), ['/motion-api/projects', '/api/template-catalog?limit=6']);
+    assert.deepEqual(requests.filter(url => url !== '/api/health'), ['/motion-api/projects', '/api/template-catalog?limit=6', '/design-system/fonts/AlbertSans-VariableFont_wght.ttf']);
     upstream.closeAllConnections();
     await new Promise<void>(resolve => upstream.close(() => resolve()));
     assert.equal((await fetch(base + '/data/motion-api/projects')).status, 503);
@@ -125,4 +141,30 @@ test('packaged DSH host shares MCP data and bounds its read-only proxy', async (
     await Promise.all([new Promise<void>(resolve => host.close(() => resolve())), new Promise<void>(resolve => upstream.close(() => resolve()))]);
     await rm(temporary, { recursive: true, force: true });
   }
+});
+
+test('DSH installation selects only an explicit profile and preserves unrelated YAML and installations', async () => {
+  const { installationPaths, workspacePatch, installationActive } = await import('../integrations/dsh/install.ts');
+  const root = path.resolve('checkout with spaces'), data = path.resolve('workspace data');
+  assert.throws(() => installationPaths({ profile: '', dataDirectory: data }), /profile/);
+  assert.throws(() => installationPaths({ profile: '../web', dataDirectory: data }), /profile/);
+  assert.throws(() => installationPaths({ profile: 'web', dataDirectory: 'relative' }), /absolute/);
+  const paths = installationPaths({ profile: 'trial', dataDirectory: data }, { DSH_HOME: path.resolve('isolated host') });
+  assert.equal(paths.patch, path.resolve('isolated host/profiles/trial/cordis.patch.yml'));
+  const before = '# Keep model configuration\n- id: agent-default-model\n  config:\n    provider: my-provider\n    model: my-model\n';
+  const patch = await workspacePatch(before, root, data, process.execPath);
+  assert(patch.startsWith(before));
+  assert(patch.includes('dist/plugin/lib/index.js'));
+  assert(patch.includes('@deepseek-ai/dsh-action-cards'));
+  assert(patch.includes('@deepseek-ai/dsh-client-ui-action-cards'));
+  const inherited = await workspacePatch(before, root, data, process.execPath, ['@deepseek-ai/dsh-action-cards', '@deepseek-ai/dsh-client-ui-action-cards']);
+  assert(!inherited.includes('id: action-cards'), 'Reuse inherited native card capabilities without duplicate services');
+  assert.equal(await workspacePatch(patch, root, data, process.execPath), patch, 'Repeated installation is idempotent');
+  await assert.rejects(workspacePatch(patch, path.resolve('another checkout'), data, process.execPath), /another OpenMotion/);
+  await assert.rejects(workspacePatch('- insert:\n    - id: mcp-openmotion\n      name: bridge\n', root, data, process.execPath), /existing mcp-openmotion/);
+  await assert.rejects(workspacePatch('invalid: [', root, data, process.execPath), /Invalid existing/);
+  const status = { applicationRoot: root, dataDirectory: data, tools: ['mcp__openmotion__openmotion_get_project', 'mcp__openmotion__openmotion_list_templates'] };
+  assert(installationActive(status, root, data));
+  assert(!installationActive(status, root, path.resolve('another workspace')));
+  assert(!installationActive({ ...status, tools: [] }, root, data));
 });

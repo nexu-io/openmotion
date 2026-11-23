@@ -85,25 +85,26 @@ export async function resolveBrandAddresses(hostname: string, signal: AbortSigna
     throw new Error('Website points to a private network');
   return addresses;
 }
-/** Every browser request is fulfilled through this bounded, DNS-pinned transport. */
-export async function fetchBrandResource(
-  raw: string,
+const defaultUserAgent = "Mozilla/5.0 OpenMotion-BrandKit/1.0";
+const browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+function fetchWithAgent(
+  url: URL,
+  addresses: BrandAddress[],
   signal: AbortSignal,
-  resolveAddresses = resolveBrandAddresses,
+  userAgent: string,
+  limit: number,
 ): Promise<BrandResponse> {
-  const url = new URL(brandWebsite(raw)),
-    hostname = url.hostname.replace(/^\[|\]$/g, "");
-  const addresses = await resolveAddresses(hostname, signal);
-  const limit = 5 * 1024 * 1024;
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
       {
         signal,
         headers: {
-          "User-Agent": "Mozilla/5.0 OpenMotion-BrandKit/1.0",
-          "Accept-Encoding": "identity",
-          Accept: "*/*",
+          "User-Agent": userAgent,
+          "Accept-Encoding": "gzip, deflate, br",
+          "Accept-Language": "en-US,en;q=0.9",
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         },
         lookup: (_host, options, done) => {
           if ((options as { all?: boolean }).all)
@@ -125,12 +126,17 @@ export async function fetchBrandResource(
           try {
             let body = Buffer.concat(chunks);
             const options = { maxOutputLength: limit };
-            if (res.headers["content-encoding"] === "gzip")
-              body = gunzipSync(body, options);
-            else if (res.headers["content-encoding"] === "br")
-              body = brotliDecompressSync(body, options);
-            else if (res.headers["content-encoding"] === "deflate")
-              body = inflateSync(body, options);
+            const encoding = typeof res.headers["content-encoding"] === "string"
+              ? res.headers["content-encoding"].trim().toLowerCase()
+              : "";
+            if (body.length) {
+              if (encoding === "gzip")
+                body = gunzipSync(body, options);
+              else if (encoding === "br")
+                body = brotliDecompressSync(body, options);
+              else if (encoding === "deflate")
+                body = inflateSync(body, options);
+            }
             const headers: Record<string, string> = {};
             for (const key of [
               "content-type",
@@ -151,4 +157,26 @@ export async function fetchBrandResource(
     );
     req.on("error", reject);
   });
+}
+
+/** Every browser request is fulfilled through this bounded, DNS-pinned transport. */
+export async function fetchBrandResource(
+  raw: string,
+  signal: AbortSignal,
+  resolveAddresses = resolveBrandAddresses,
+): Promise<BrandResponse> {
+  const url = new URL(brandWebsite(raw)),
+    hostname = url.hostname.replace(/^\[|\]$/g, "");
+  const addresses = await resolveAddresses(hostname, signal);
+  const limit = 5 * 1024 * 1024;
+  const response = await fetchWithAgent(url, addresses, signal, defaultUserAgent, limit);
+  // Keep the honest default UA first so Akamai/TLS checks don't tarpit,
+  // and retry once with a browser UA only when a host immediately rejects with 403/406.
+  if ((response.status === 403 || response.status === 406) && !signal.aborted) {
+    try {
+      const retry = await fetchWithAgent(url, addresses, signal, browserUserAgent, limit);
+      if (retry.status < 400) return retry;
+    } catch { /* Preserve the original status when retry fails or times out. */ }
+  }
+  return response;
 }

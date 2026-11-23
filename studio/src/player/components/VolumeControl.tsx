@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useMvpEditor } from "../../motion/StudioHost";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
@@ -47,12 +48,12 @@ export const VolumeControl = memo(function VolumeControl({
         if (silent && audioVolume === 0) setAudioVolume(1);
         setAudioMuted(!silent);
       }}
-      data-studio-control="mute" disabled={disabled} aria-label={muteLabel} aria-pressed={silent}
+      data-studio-control="mute" disabled={disabled} aria-pressed={silent}
       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-30 ${
         silent ? "text-accent-ink" : "text-neutral-500 hover:text-neutral-200"
-      }`}>
-      <VolumeIcon muted={audioMuted} volume={audioVolume} />
-    </Popover.Trigger>
+      }`}
+      render={<IconButton variant="plain" aria-label={muteLabel} icon={<VolumeIcon muted={audioMuted} volume={audioVolume} />} />}
+    />
     <Popover.Portal container={typeof document !== "undefined" ? document.fullscreenElement as HTMLElement ?? undefined : undefined}>
       <Popover.Positioner side="top" align="center" sideOffset={6} collisionPadding={8} className="z-150">
         <Popover.Popup initialFocus={false} finalFocus={false} aria-label={t("Preview volume")}

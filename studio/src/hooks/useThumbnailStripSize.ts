@@ -101,7 +101,7 @@ const read = (target: Element, strip: Strip) => {
 const commit = (updates: (readonly [Apply, Partial<StripSize>])[]) =>
   flushSync(() => updates.forEach(([apply, patch]) => apply(patch)));
 
-// A zoom preview scales the strips: reads wait, and each preview's layout re-measures them all.
+// Wait for pending zoom geometry; its committed layout re-measures tiles before paint.
 const remeasureAfterPreview = () => {
   if (isTimelineZoomPreviewing()) return;
   commit(

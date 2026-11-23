@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { TemplateMotionGuide } from './TemplateMotionGuide';
 import { prepareMotionGuide, type GuideAppearance } from './templateMotionGuideDocument';
+import * as guideActions from '../template-guide/actions';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const appearance: GuideAppearance = { theme: 'light', background: '#f5f5f5', text: '#494949', muted: '#5c5c5c', surface: '#fafafa', border: '#dbdbdb' };
@@ -60,6 +61,36 @@ it('falls back to the untouched remote iframe when CORS or the fetch fails', asy
   expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
 });
 
+it('loads the expanded walkthrough eagerly without a blob-navigation dependency', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(source, { headers: { 'content-type': 'text/html' } })));
+  await act(async () => root.render(<TemplateMotionGuide expanded url={url} title="Walkthrough" />));
+  const frame = host.querySelector('iframe')!;
+  expect(frame.getAttribute('srcdoc')).toContain('runtime.js');
+  expect(frame.getAttribute('srcdoc')).toContain(`<base href="${url}">`);
+  expect(frame.getAttribute('loading')).toBe('eager');
+  expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
+  expect(URL.createObjectURL).not.toHaveBeenCalled();
+});
+
+it('returns from the expanded guide only for Escape from its focused sandboxed frame', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(source, { headers: { 'content-type': 'text/html' } })));
+  const onEscape = vi.fn();
+  await act(async () => root.render(<TemplateMotionGuide expanded url={url} title="Walkthrough" onEscape={onEscape} />));
+  const frame = host.querySelector('iframe')!;
+  const guideWindow = frame.contentWindow!;
+  const escape = (sender: Window, origin: string) => window.dispatchEvent(new MessageEvent('message', {
+    source: sender, origin, data: 'openmotion:guide-escape',
+  }));
+  expect(frame.srcdoc).toContain("parent.postMessage('openmotion:guide-escape', '*')");
+  escape(guideWindow, 'null');
+  frame.focus();
+  escape(window, 'null');
+  escape(guideWindow, 'http://localhost:3000');
+  expect(onEscape).not.toHaveBeenCalled();
+  escape(guideWindow, 'null');
+  expect(onEscape).toHaveBeenCalledTimes(1);
+});
+
 it('aborts a stale guide and cannot overwrite a newer selection', async () => {
   let resolveFirst!: (value: Response) => void;
   const fetcher = vi.fn().mockImplementationOnce(() => new Promise<Response>(resolve => { resolveFirst = resolve; })).mockResolvedValue(new Response(source.replace('Guide', 'Second'), { headers: { 'content-type': 'text/html' } }));
@@ -92,4 +123,19 @@ it('revokes prepared guide documents on selection changes and unmount', async ()
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/1');
   await act(async () => root.render(null));
   expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:http://localhost/2');
+});
+
+it('delegates only the current local guide frame and pins its template identity', async () => {
+  const id = 'motion-be2a4af0-0183-4979-ab05-2a68413c0890';
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(source, { headers: { 'content-type': 'text/html' } })));
+  const action = vi.spyOn(guideActions, 'handleGuideAction').mockResolvedValue(null);
+  await act(async () => root.render(<TemplateMotionGuide url={location.origin + '/api/template-source/' + id + '/preview.html'} title="Guide" />));
+  const frame = host.querySelector('iframe')!;
+  const rpc = { type: 'openmotion:guide-action', templateId: id, viewId: crypto.randomUUID(), requestId: 'load-1', action: 'load', locale: 'en' };
+  await act(async () => window.dispatchEvent(new MessageEvent('message', { data: rpc, source: window })));
+  expect(action).not.toHaveBeenCalled();
+  await act(async () => window.dispatchEvent(new MessageEvent('message', { data: { ...rpc, templateId: 'motion-another-template' }, source: frame.contentWindow })));
+  expect(action).not.toHaveBeenCalled();
+  await act(async () => window.dispatchEvent(new MessageEvent('message', { data: rpc, source: frame.contentWindow })));
+  expect(action).toHaveBeenCalledExactlyOnceWith(id, 'load', undefined, expect.any(String));
 });

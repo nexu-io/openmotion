@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { DomEditPersistUnresolvableError, DomEditPersistUnsafeValueError } from "../hooks/domEditPersistFailure";
 import { TimelineMediaActionError } from "../utils/timelineMediaActionError";
 import { useMvpEditor } from "./StudioHost";
@@ -75,5 +76,5 @@ export function MotionTimelineMedia({ projectId, compositionId, disabled, onFile
   }, [bind, projectId, compositionId, t]);
   // Keep the timeline gateway bound for asset imports and placement without an extra MVP toolbar entry.
   if (!gateway || mvp) return null;
-  return <div className="motion-timeline-media-actions"><button disabled={disabled} onClick={event => gateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t('Generate media')}</button><button disabled={disabled || !onFileDrop} onClick={gateway.importFiles}>{t('Import files')}</button></div>;
+  return <div className="motion-timeline-media-actions"><Button variant="plain" disabled={disabled} onClick={event => gateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t('Generate media')}</Button><Button variant="plain" disabled={disabled || !onFileDrop} onClick={gateway.importFiles}>{t('Import files')}</Button></div>;
 }

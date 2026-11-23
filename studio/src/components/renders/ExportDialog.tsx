@@ -2,7 +2,7 @@ import { Popover } from "@base-ui/react/popover";
 import type { RefObject } from "react";
 import { useI18n } from "../../i18n/I18n";
 import { RemixIcon } from "../../icons/RemixIcons";
-import { IconButton } from "../ui/IconButton";
+import { IconButton } from "open-design-ui/icon-button";
 import { RenderQueuePanel } from "./RenderQueuePanel";
 import { Tabs, TabsList, Tab, TabPanel } from "../ui/Tabs";
 import { CaptionExportPanel } from "./CaptionExportPanel";

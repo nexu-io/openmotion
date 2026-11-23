@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import { studioOrigin } from "../../config.ts";
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { registerOpenMotionTemplateCards } from "./templateRecommendationCards.ts";
 
 export type Config = {
   root: string;
@@ -45,6 +47,7 @@ export async function apply(ctx: HostContext, config: Config) {
     { cwd: root, env, timeout: 120_000 },
   );
   const origin = studioOrigin(JSON.parse(stdout).previewUrl);
+  const { resolveDesignSystemFile } = await import(pathToFileURL(path.join(root, "packages/design-system/index.js")).href);
   // Use DSH's maintained MCP adapter, including disposal and credential scrubbing.
   await mcpClient.apply(ctx, {
     serverName: "openmotion",
@@ -61,6 +64,22 @@ export async function apply(ctx: HostContext, config: Config) {
     failOnStartupError: true,
     toolCallTimeoutMs: 180_000,
   });
+  // Register when optional services become available, including after this plugin starts.
+  ctx.inject(["skills", "actionCards"], (inner) => registerOpenMotionTemplateCards(inner));
+  ctx.effect(() =>
+    ctx.webServer.register({
+      kind: "prefix", path: "/openmotion-dsh/design-system",
+      handler: async (req, res) => {
+        const pathname = new URL(req.url || "/", "http://localhost").pathname.slice("/openmotion-dsh".length);
+        if (req.method !== "GET" || !resolveDesignSystemFile(pathname)) { res.writeHead(404); res.end(); return; }
+        try {
+          const response = await fetch(origin + pathname, { signal: AbortSignal.timeout(5000), redirect: "error" });
+          res.writeHead(response.status, { "Content-Type": response.headers.get("content-type") || "application/octet-stream" });
+          res.end(Buffer.from(await response.arrayBuffer()));
+        } catch { res.writeHead(503); res.end(); }
+      },
+    }),
+  );
   ctx.effect(() =>
     ctx.webServer.register({
       kind: "exact",
@@ -79,7 +98,8 @@ export async function apply(ctx: HostContext, config: Config) {
           "Content-Type": "application/json",
           "Cache-Control": "no-store",
         });
-        res.end(JSON.stringify({ studioUrl: origin, tools }));
+        res.end(JSON.stringify({ studioUrl: origin, applicationRoot: root, dataDirectory: data,
+          nativeCardsAvailable: Boolean(ctx.get("actionCards") && ctx.get("skills")), tools }));
       },
     }),
   );

@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useState } from "react";
 import { isVideoAudible } from "../../player/lib/timelineElementHelpers";
@@ -147,7 +148,7 @@ export function MediaSection({
           <div className="min-w-0">
             <div className="flex items-center justify-between gap-2">
               <div className="text-[11px] font-medium text-neutral-500">{t("Source")}</div>
-              <button
+              <Button variant="plain"
                 type="button"
                 onClick={() => {
                   void navigator.clipboard.writeText(absoluteSrc).then(() => {
@@ -159,7 +160,7 @@ export function MediaSection({
               >
                 {copied ? <Check size={11} /> : <ClipboardList size={11} />}
                 <span>{copied ? t("Copied") : t("Copy")}</span>
-              </button>
+              </Button>
             </div>
             <div
               className="mt-1 truncate text-[11px] font-medium text-neutral-300"
@@ -179,7 +180,7 @@ export function MediaSection({
                   {t("Create transparent")}{" "}{isVideo ? t("WebM video") : t("PNG image")}
                 </div>
               </div>
-              <button
+              <Button variant="plain"
                 type="button"
                 disabled={!canRemoveBackground || removeBusy}
                 onClick={(event) => {
@@ -195,7 +196,7 @@ export function MediaSection({
               >
                 <Scissors size={13} />
                 <span>{removeBusy ? t("Working") : t("Remove BG")}</span>
-              </button>
+              </Button>
             </div>
 
             <div className="grid grid-cols-2 gap-2">

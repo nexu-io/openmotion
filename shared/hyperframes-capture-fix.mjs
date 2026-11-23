@@ -1,5 +1,7 @@
 import { registerHooks } from 'node:module';
 
+const chromeLauncher = /\/node_modules\/puppeteer-core\/lib\/puppeteer\/node\/ChromeLauncher\.js$/;
+
 function replace(source, before, after, count = 1) {
   if (source.split(before).length - 1 !== count) {
     throw new Error('Unsupported Hyperframes capture code; review the pinned 0.9.7 compatibility fix');
@@ -9,6 +11,15 @@ function replace(source, before, after, count = 1) {
 
 // shortcut: patch only the pinned engine in memory; remove when upstream handles current canvas APIs and socket-buffer exhaustion.
 export function fixCaptureModule(url, source) {
+  if (process.platform === 'darwin' && chromeLauncher.test(url)) {
+    // Chrome's desktop search can register a menu bar icon even in headless mode.
+    const anchor = '        const disabledFeatures = [';
+    if (source.split(anchor).length !== 2) {
+      process.emitWarning('OpenMotion could not disable Chrome desktop search because the Puppeteer launcher has changed.');
+      return source;
+    }
+    return source.replace(anchor, anchor + "\n            'OmniboxEverywhere',");
+  }
   if (url.endsWith('/node_modules/hyperframes/dist/chunk-IAZ2A7D6.js')) {
     source = replace(source, '      canvas.setAttribute("layoutsubtree", "");',
       `      canvas.setAttribute("layoutsubtree", "");
@@ -60,7 +71,8 @@ export function fixCaptureModule(url, source) {
 registerHooks({
   load(url, context, nextLoad) {
     const loaded = nextLoad(url, context);
-    if (!/\/node_modules\/hyperframes\/dist\/chunk-(?:IAZ2A7D6|Y2R4N6HQ)\.js$/.test(url)) return loaded;
+    if (!/\/node_modules\/hyperframes\/dist\/chunk-(?:IAZ2A7D6|Y2R4N6HQ)\.js$/.test(url) &&
+        !(process.platform === 'darwin' && chromeLauncher.test(url))) return loaded;
     return { ...loaded, source: fixCaptureModule(url, typeof loaded.source === 'string' ? loaded.source : Buffer.from(loaded.source).toString('utf8')) };
   },
 });

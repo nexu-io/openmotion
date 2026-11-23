@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { memo, useState, useCallback, useMemo, useRef } from "react";
 import { Plus, FolderSimplePlus } from "../../icons/RemixIcons";
@@ -241,22 +242,20 @@ export const FileTree = memo(function FileTree({
           <span className="text-[10px] font-semibold tracking-wider text-neutral-600 uppercase">
             {t("Files")}</span>
           <div className="flex items-center gap-0.5">
-            <button
+            <IconButton variant="plain"
               onClick={() => handleNewFile("")}
               className="p-1.5 rounded-sm hover:bg-neutral-800 text-neutral-600 hover:text-neutral-400 active:scale-[0.97] transition-colors"
               title={t("New File")}
               aria-label={t("New File")}
-            >
-              <Plus size={12} weight="bold" />
-            </button>
-            <button
+              icon={<Plus size={12} weight="bold" />}
+            />
+            <IconButton variant="plain"
               onClick={() => handleNewFolder("")}
               className="p-1.5 rounded-sm hover:bg-neutral-800 text-neutral-600 hover:text-neutral-400 active:scale-[0.97] transition-colors"
               title={t("New Folder")}
               aria-label={t("New Folder")}
-            >
-              <FolderSimplePlus size={12} weight="duotone" />
-            </button>
+              icon={<FolderSimplePlus size={12} weight="duotone" />}
+            />
           </div>
         </div>
       )}

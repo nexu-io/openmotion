@@ -1,3 +1,8 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { OverflowText } from "../ui/OverflowText";
+import { ColorField } from "./propertyPanelColor";
+import { FieldInput, NativeSelect } from "../ui/FormField";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { systemMessage } from "../../i18n/systemMessages";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -83,7 +88,7 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
         }
         await fileManager.writeProjectFile(
           compositionPath,
-          content.replace(matcher, nextValue),
+          content.replace(matcher, () => nextValue),
           content,
         );
         appliedRef.current[key] = nextValue;
@@ -143,26 +148,13 @@ export const BlockParamsPanel = memo(function BlockParamsPanel({
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
         <div className="text-[11px] font-semibold text-neutral-200 truncate">{blockTitle}</div>
-        <button
+        <IconButton variant="plain"
           type="button"
           onClick={onClose}
           aria-label={t("Close block parameters")}
           className="p-1.5 -m-1 text-neutral-500 hover:text-neutral-300 active:scale-[0.97] transition-colors"
-        >
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </button>
+          icon={<RemixIcon name="close-line" size={14} />}
+        />
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
@@ -215,30 +207,20 @@ function ParamControl({
   onChange: (value: string) => void;
 }) {
   const { t } = useI18n();
+  if (param.type === "color") {
+    return (
+      <ColorField
+        label={t(param.label)}
+        value={value}
+        disabled={disabled}
+        allowCssValue
+        onCommit={onChange}
+      />
+    );
+  }
   return (
     <div className="space-y-1">
-      <label className="text-[10px] font-medium text-neutral-400">{t(param.label)}</label>
-
-      {param.type === "color" && (
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            value={value}
-            disabled={disabled}
-            aria-label={t("{value0} color", { value0: t(param.label) })}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-7 h-7 rounded-sm border border-neutral-700 bg-transparent cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-          />
-          <input
-            type="text"
-            value={value}
-            disabled={disabled}
-            aria-label={t("{value0} value", { value0: t(param.label) })}
-            onChange={(e) => onChange(e.target.value)}
-            className="flex-1 bg-neutral-900 border border-neutral-800 rounded-sm px-2 py-1 text-[10px] text-neutral-200 font-mono focus:outline-hidden focus:border-neutral-700 disabled:cursor-not-allowed disabled:opacity-50"
-          />
-        </div>
-      )}
+      <OverflowText text={t(param.label)} className="block min-w-0 truncate text-[10px] font-medium text-neutral-400" />
 
       {param.type === "number" && (
         <div className="flex items-center gap-2">
@@ -258,7 +240,7 @@ function ParamControl({
       )}
 
       {param.type === "text" && (
-        <input
+        <FieldInput
           type="text"
           value={value}
           disabled={disabled}
@@ -269,7 +251,7 @@ function ParamControl({
       )}
 
       {param.type === "select" && param.options && (
-        <select
+        <NativeSelect
           value={value}
           disabled={disabled}
           aria-label={t(param.label)}
@@ -281,7 +263,7 @@ function ParamControl({
               {t(opt.label)}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       )}
     </div>
   );

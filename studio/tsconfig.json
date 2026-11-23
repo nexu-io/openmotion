@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "paths": { "open-design-ui/*": ["../packages/open-design-ui/*"] },
     "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
@@ -24,7 +25,8 @@
     "isolatedModules": true
   },
   "include": [
-    "src"
+    "src",
+    "../packages/open-design-ui/site/**/*.tsx"
   ],
   "exclude": [
     "build",

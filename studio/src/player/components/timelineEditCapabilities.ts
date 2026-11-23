@@ -44,8 +44,9 @@ export function getTimelineEditCapabilities(input: {
   playbackStartAttr?: "media-start" | "playback-start";
   sourceDuration?: number;
   timelineLocked?: boolean;
+  timelineRole?: string;
 }): TimelineEditCapabilities {
-  if (input.timelineLocked) {
+  if (input.timelineLocked || input.timelineRole === 'caption-empty') {
     return { canMove: false, canTrimStart: false, canTrimEnd: false };
   }
 

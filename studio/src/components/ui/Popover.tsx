@@ -4,10 +4,11 @@
  */
 
 import { Popover as BasePopover } from "@base-ui/react/popover";
-import type { ComponentPropsWithoutRef, ReactElement, ReactNode } from "react";
+import { useRef, type ComponentPropsWithoutRef, type ReactElement, type ReactNode } from "react";
 import { cn } from "./cn";
 import { Tooltip } from "./Tooltip";
 import {
+  floatingMotion,
   POPUP_LAYER,
   popupSurface,
   useInlinePortal,
@@ -31,6 +32,8 @@ const arrowPlace = cn(
 interface PopoverProps extends Omit<ComponentPropsWithoutRef<typeof BasePopover.Root>, "children"> {
   /** A single element. It becomes the trigger; no wrapper is added around it. */
   trigger: ReactElement;
+  /** An adjacent action that previews the panel on hover and keeps its own click behavior. */
+  primaryAction?: ReactElement;
   /** Standard hover/focus hint for the popover trigger. */
   tooltip?: string;
   /** Also reveal a hoverable help panel; activation still pins it open. */
@@ -57,12 +60,16 @@ interface PopoverProps extends Omit<ComponentPropsWithoutRef<typeof BasePopover.
   initialFocus?: ComponentPropsWithoutRef<typeof BasePopover.Popup>["initialFocus"];
   /** Preserve form choices while closed; Base UI keeps the popup hidden and inert. */
   keepMounted?: boolean;
+  finalFocus?: ComponentPropsWithoutRef<typeof BasePopover.Popup>["finalFocus"];
   className?: string;
+  /** Custom surface for a picker whose text input needs standard Popover focus handling. */
+  renderPanel?: ReactElement;
   "data-preview-state"?: PopupPreviewState;
 }
 
 export function Popover({
   trigger,
+  primaryAction,
   tooltip,
   openOnHover = false,
   children,
@@ -73,22 +80,33 @@ export function Popover({
   collisionAvoidance,
   container,
   className,
+  renderPanel,
   initialFocus,
   keepMounted,
+  finalFocus,
+  modal,
   "aria-label": ariaLabel,
   "aria-describedby": describedBy,
   "data-preview-state": previewState,
   ...root
 }: PopoverProps) {
   const inline = useInlinePortal(container);
+  const primaryRef = useRef<HTMLButtonElement>(null);
+  const menuTrigger = <BasePopover.Trigger render={trigger} openOnHover={openOnHover}
+    delay={primaryAction ? 0 : undefined} aria-describedby={describedBy} />;
   return (
-    <BasePopover.Root {...root}>
-      {tooltip === undefined ? <BasePopover.Trigger render={trigger} openOnHover={openOnHover} aria-describedby={describedBy} /> : (
-        <Tooltip label={tooltip} wrap><BasePopover.Trigger render={trigger} openOnHover={openOnHover} aria-describedby={describedBy} /></Tooltip>
-      )}
+    <BasePopover.Root {...root} modal={modal}>
+      {primaryAction && <BasePopover.Trigger ref={primaryRef} render={primaryAction} openOnHover delay={0}
+        aria-haspopup={undefined} aria-expanded={undefined} aria-controls={undefined}
+        onClick={event => event.preventBaseUIHandler()} />}
+      {tooltip === undefined ? menuTrigger : <Tooltip label={tooltip} wrap>{menuTrigger}</Tooltip>}
       {inline.host}
       <BasePopover.Portal {...inline.portal} keepMounted={keepMounted}>
+        {modal === true && (
+          <BasePopover.Backdrop className={cn("fixed inset-0 data-[closed]:pointer-events-none", POPUP_LAYER)} />
+        )}
         <BasePopover.Positioner
+          anchor={primaryAction ? primaryRef : undefined}
           side={side}
           align={align}
           sideOffset={sideOffset}
@@ -98,10 +116,15 @@ export function Popover({
           className={POPUP_LAYER}
         >
           <BasePopover.Popup
+            render={renderPanel}
             aria-label={ariaLabel}
             initialFocus={initialFocus}
+            finalFocus={finalFocus}
             data-preview-state={previewState}
-            className={cn(popupSurface, "p-3 text-step-11 text-text-1 shadow-popover", className)}
+            className={cn(
+              renderPanel ? floatingMotion("duration-open") : cn(popupSurface, "p-3 text-step-11 text-text-1 shadow-popover"),
+              className,
+            )}
           >
             {arrow && (
               <BasePopover.Arrow className={arrowPlace}>

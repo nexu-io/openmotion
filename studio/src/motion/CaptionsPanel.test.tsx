@@ -19,6 +19,11 @@ vi.mock('./transcriptClient', () => ({ transcriptRequest: vi.fn(async input => {
   if (input.command === 'models') return { models: [] };
   if (input.command === 'list') return { documents: state.documents, jobs: [] };
   if (input.command === 'get') return { document: { revision: 1 } };
+  if (input.command === 'caption_toggle') {
+    if (state.failWrite) throw new Error('Version changed');
+    if (!state.tracks.length && input.visible) state.tracks = [{ id: 'empty', kind: 'caption', track: 0, label: 'Captions', cueCount: 0, settings: { ...DEFAULT_CAPTION_SETTINGS }, locked: false }];
+    state.tracks = state.tracks.map(t => t.kind === 'caption' ? { ...t, settings: { ...t.settings, visible: input.visible } } : t);
+  }
   if (input.command === 'caption_update') {
     if (state.failWrite) throw new Error('Version changed');
     state.tracks = input.remove ? state.tracks.filter(t => t.id !== input.transcriptId) : state.tracks.map(t => t.id === input.transcriptId ? { ...t, settings: { ...t.settings, ...input.captionSettings } } : t);
@@ -107,9 +112,9 @@ it('selecting a native caption clip selects its track without confusing display-
   expect(state.calls.find(c => c.command === 'caption_update').transcriptId).toBe('second');
   expect(button('Edit transcript')).toBeUndefined(); expect(button('Edit text').disabled).toBe(false); expect(button('Word highlight')).toBeUndefined();
 });
-it('the icon-only CC menu and panel share visibility and track removal', async () => {
+it('the CC On/Off label and panel share visibility and track removal', async () => {
   await render(<><CaptionsPanel /><TimelineCaptionsMenu /></>);
-  expect(button('Caption visibility').textContent).toBe(''); expect(button('Caption visibility').getAttribute('aria-pressed')).toBe('true');
+  expect(button('Caption visibility').textContent).toBe('On'); expect(button('Caption visibility').getAttribute('aria-pressed')).toBe('true');
   await act(async () => button('Hide').click()); expect(button('Caption visibility').getAttribute('aria-pressed')).toBe('false');
   await act(async () => button('Caption visibility').click()); await act(async () => button('Show C1 · Speech').click());
   expect(document.querySelector('[aria-label="Show captions in video"]')?.getAttribute('aria-checked')).toBe('true');
@@ -215,4 +220,22 @@ it('a late created-clip refresh does not replace a newer manual-caption draft', 
   expect(document.querySelector('[role=tab][aria-selected=true]')?.textContent).toBe('Add captions');
   expect(document.querySelector<HTMLTextAreaElement>('[aria-label="Caption text"]')?.value).toBe('Keep this draft');
   expect(usePlayerStore.getState().selectedElementId).toBeNull();
+});
+
+
+it('the CC switch enables an empty track once and retains Off after reload', async () => {
+  state.tracks = [];
+  await render(<TimelineCaptionsMenu />); expect(button('Caption visibility').textContent).toBe('Off');
+  await act(async () => button('Caption visibility').click());
+  await act(async () => button('On').click());
+  expect(state.calls.find(c => c.command === 'caption_toggle')).toMatchObject({ visible: true, expectedRevision: 'snapshot', expectedVersionId: 'version', compositionPath: 'index.html' });
+  expect(button('Caption visibility').textContent).toBe('On'); expect(state.tracks).toHaveLength(1);
+  await act(async () => button('Off').click());
+  expect(button('Caption visibility').textContent).toBe('Off'); expect(state.tracks).toHaveLength(1);
+  await render(<TimelineCaptionsMenu />); expect(button('Caption visibility').textContent).toBe('Off');
+});
+it('a rejected global caption toggle leaves the saved state and reports a toast', async () => {
+  await render(<TimelineCaptionsMenu />); state.failWrite = true;
+  await act(async () => button('Caption visibility').click()); await act(async () => button('Off').click());
+  expect(button('Caption visibility').textContent).toBe('On'); expect(state.toast).toHaveBeenCalledWith('Version changed', 'error');
 });

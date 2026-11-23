@@ -1,8 +1,7 @@
 import { useI18n } from "../../i18n/I18n";
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback } from "react";
 import { useCaptionStore } from "../store";
 import type { CaptionStyle } from "../types";
-import { CaptionAnimationPanel } from "./CaptionAnimationPanel";
 import { Section, Row, NumberField } from "./shared";
 
 /** True when the given style key differs across the selected segments. */
@@ -44,8 +43,6 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
   const selectedGroupId = useCaptionStore((s) => s.selectedGroupId);
   const updateSelectedStyle = useCaptionStore((s) => s.updateSelectedStyle);
   const updateGroupStyle = useCaptionStore((s) => s.updateGroupStyle);
-
-  const [activeTab, setActiveTab] = useState<"style" | "animation">("style");
 
   // Resolve effective style for the first selected segment
   const firstSegmentId = selectedSegmentIds.size > 0 ? [...selectedSegmentIds][0] : undefined;
@@ -216,47 +213,12 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
     <div className="flex flex-col h-full min-h-0">
       {/* Header */}
       <div className="px-3 py-2 border-b border-neutral-800 shrink-0">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-2xs text-neutral-500">{countLabel}</span>
-        </div>
-        {/* Tab switcher */}
-        <div className="flex gap-1" role="tablist" aria-label={t("Caption editing tabs")}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "style"}
-            onClick={() => setActiveTab("style")}
-            className={[
-              "flex-1 py-0.5 rounded-sm text-2xs font-medium transition-colors",
-              activeTab === "style"
-                ? "bg-studio-accent/20 text-accent-ink border border-studio-accent/50"
-                : "text-neutral-500 border border-neutral-800 hover:text-neutral-300 hover:border-neutral-600",
-            ].join(" ")}
-          >
-            {t("Style")}</button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "animation"}
-            onClick={() => setActiveTab("animation")}
-            className={[
-              "flex-1 py-0.5 rounded-sm text-2xs font-medium transition-colors",
-              activeTab === "animation"
-                ? "bg-studio-accent/20 text-accent-ink border border-studio-accent/50"
-                : "text-neutral-500 border border-neutral-800 hover:text-neutral-300 hover:border-neutral-600",
-            ].join(" ")}
-          >
-            {t("Animation")}</button>
-        </div>
+        <span className="text-2xs text-neutral-500">{countLabel}</span>
       </div>
 
-      {/* Animation tab */}
-      {activeTab === "animation" && <CaptionAnimationPanel />}
-
-      {/* Style tab — Transform only */}
-      {activeTab === "style" && (
-        <div className="flex-1 overflow-y-auto px-3 py-2">
-          <Section label={t("Position")}>
+      <div className="flex-1 overflow-y-auto px-3 py-2">
+        <Section label={t("Position")}>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
             <Row label="X">
               <NumberField
                 value={x}
@@ -273,9 +235,11 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
                 onCommit={(v) => handleStyleChange({ y: v })}
               />
             </Row>
-          </Section>
+          </div>
+        </Section>
 
-          <Section label={t("Transform")}>
+        <Section label={t("Transform")}>
+          <div className="grid min-w-0 grid-cols-2 gap-2">
             <Row label={t("Scale")}>
               <NumberField
                 value={scaleX}
@@ -293,9 +257,9 @@ export const CaptionPropertyPanel = memo(function CaptionPropertyPanel({
                 onCommit={(v) => handleStyleChange({ rotation: v })}
               />
             </Row>
-          </Section>
-        </div>
-      )}
+          </div>
+        </Section>
+      </div>
     </div>
   );
 });

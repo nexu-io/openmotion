@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 /**
  * "Bind selected element" card for the Variables panel — the promote-a-
@@ -225,13 +226,13 @@ export function VariablesBindElement({
             </p>
           )}
           <div className="flex items-center justify-end gap-2">
-            <button
+            <Button variant="plain"
               type="button"
               onClick={() => setActiveKey(null)}
               className="h-6 rounded-sm px-2 text-[10px] text-neutral-500 hover:text-neutral-300"
             >
-              {t("Cancel")}</button>
-            <button
+              {t("Cancel")}</Button>
+            <Button variant="plain"
               type="button"
               disabled={idIsEmpty}
               onClick={() => {
@@ -241,13 +242,13 @@ export function VariablesBindElement({
               className="h-6 rounded-sm bg-neutral-800 px-2 text-[10px] font-medium text-neutral-200 hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {existingDecl ? t("Bind anyway") : t("Bind")}
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {actions.map((action) => (
-            <button
+            <Button variant="plain"
               key={action.key}
               type="button"
               onClick={() => {
@@ -257,7 +258,7 @@ export function VariablesBindElement({
               className="h-6 rounded-md border border-neutral-800 px-2 text-[10px] font-medium text-neutral-400 transition-colors hover:border-neutral-700 hover:text-neutral-200"
             >
               {t(action.label)} → {t('variable')}
-            </button>
+            </Button>
           ))}
         </div>
       )}

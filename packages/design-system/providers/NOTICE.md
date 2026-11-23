@@ -25,6 +25,11 @@ never fetches provider logos from third-party hosts.
 Brand colors belong to the artwork. The surrounding icon tile, its spacing and
 the application shell use the shared design-system tokens in both themes.
 
-Local Agent artwork additions (Kimi, Cursor, Kiro, Kilo, Hermes, Devin, Antigravity, Amp, CodeBuddy, Qoder, Trae and Cline) come from the MIT-licensed [Lobe Icons static SVG collection](https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons), retrieved 2026-11-15. The existing Lobe Icons license applies. Agents without published artwork use a neutral letter mark rather than a different brand.
+The ByteDance, Alibaba, Google, Nano Banana, FLUX, Suno and ElevenLabs marks
+reuse the glyphs in the repository's model badges. The original paths and
+colors come from Lobe Icons static SVG package 1.102.0 under the included MIT
+license. The corresponding badge for each glyph is listed in `sources.json`.
+
+Local Agent artwork additions (Kimi, Cursor, Kiro, Kilo, Hermes, Devin, Antigravity, Amp, CodeBuddy, Qoder, Trae, Cline and Pi) come from the MIT-licensed [Lobe Icons static SVG collection](https://github.com/lobehub/lobe-icons/tree/master/packages/static-svg/icons), retrieved 2026-11-15. The existing Lobe Icons license applies. Agents without published artwork use a neutral letter mark rather than a different brand.
 
 `aimlapi.svg` is the SVG favicon published on the [official AI/ML API website](https://aimlapi.com/), retrieved 2026-11-18. Its viewBox and geometry are preserved; the light-scheme fill is kept as a path attribute and the color-scheme style is removed, so the mark stays dark on the white brand tile in both themes. This is AI/ML API brand artwork used to identify its API connection, not an MIT-licensed icon. Ownership remains with AI/ML API. Source and content hash of the original file are recorded in `sources.json`.

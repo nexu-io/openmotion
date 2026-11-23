@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import type { BrowserInput, WebPageState } from '../../../shared/browser';
 import { useI18n } from '../i18n/I18n';
@@ -90,6 +91,6 @@ export const WebBrowser = forwardRef<WebBrowserHandle, { sessionId: string; tabI
         }
       }} />
     {!hasFrame && !error && <div className="motion-browser-feedback" role="status">{t('Loading…')}</div>}
-    {error && <div className="motion-browser-feedback" role="alert"><span>{t(error)}</span><button className="motion-button" onClick={() => setAttempt(value => value + 1)}>{t('Retry')}</button></div>}
+    {error && <div className="motion-browser-feedback" role="alert"><span>{t(error)}</span><Button variant="plain" className="motion-button" onClick={() => setAttempt(value => value + 1)}>{t('Retry')}</Button></div>}
   </div>;
 });

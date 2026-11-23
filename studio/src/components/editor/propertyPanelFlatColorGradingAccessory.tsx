@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useRef } from "react";
 import { isHfColorGradingActive } from "@hyperframes/core/color-grading";
@@ -93,7 +94,7 @@ export function FlatColorGradingAccessory({
           {t(runtimeStatus.message)}
         </span>
       </span>
-      <button
+      <IconButton variant="plain" aria-label={t("Reset color grading")}
         type="button"
         data-flat-grade-reset="true"
         title={t("Reset color grading")}
@@ -103,9 +104,8 @@ export function FlatColorGradingAccessory({
           resetGrading();
         }}
         className="shrink-0 text-panel-text-3 hover:text-panel-text-1"
-      >
-        <RotateCcw size={12} />
-      </button>
+        icon={<RotateCcw size={12} />}
+      />
     </span>
   );
 }

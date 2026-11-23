@@ -37,12 +37,65 @@ it("uses the pointer's insertion intent even when a distant edge could snap the 
   }).insertion).toBeUndefined();
 });
 
+it.each([20, 40, 160])("hits the cut from either side at %d pixels per second", (pps) => {
+  const moving = clip("moving", 0, 20, 8.53);
+  const left = clip("left", 1, 0, 10.73), right = clip("right", 1, 10.73, 4);
+  const y = RULER_H + TRACKS_TOP_PAD + TRACK_H / 2;
+  const pickup = 26.5 * pps;
+  const drag = { pointerId: 0, element: moving, originClientX: pickup, originClientY: y,
+    originScrollLeft: 0, originScrollTop: 0, pointerClientX: pickup, pointerClientY: y,
+    pointerOffsetX: 6.5 * pps, pointerOffsetY: 20, previewStart: 20, previewTrack: 0, insertRow: null,
+    snapTime: null, snapType: null, started: true } satisfies DraggedClipState;
+  const context = {
+    scroll: null, pps, duration: 30, trackOrder: [0, 1],
+    elements: [moving, left, right], selectedKeys: new Set<string>(), buildSnapTargets: () => [],
+  };
+  const x = 10.73 * pps + drag.pointerOffsetX;
+  for (const side of [-1, 1]) {
+    const preview = computeDragPreview(drag, x + side * 4.9, y + TRACK_H, context);
+    expect(preview).toMatchObject({ previewTrack: 1, insertRow: null, previewStart: 10.73 });
+    expect(preview.insertion).toEqual(new Map([["moving", 10.73], ["right", 19.26]]));
+    expect(computeDragPreview(preview, x + side * 5.1, y + TRACK_H, context).insertion).toBeUndefined();
+  }
+
+  const gapPreview = computeDragPreview(drag, x, y + TRACK_H, {
+    ...context, elements: [moving, { ...left, duration: 2.73 }, right],
+  });
+  expect(gapPreview.insertion).toBeUndefined();
+  expect(gapPreview.previewStart).toBe(10.73);
+});
+
+it.each([[7, 3], [7.005, 3.003]])("aligns to the start of a tight gap ending at %ss without pushing a fitting neighbour", (rightStart, duration) => {
+  const moving = clip("moving", 0, 20, duration);
+  const left = clip("left", 1, 0, 4), right = clip("right", 1, rightStart, 2);
+  for (const rawStart of [3.9, 4, 4.1]) {
+    const plan = previewClipInsert([moving, left, right], moving, new Set([moving.id]), 1, rawStart, rawStart + 2, true, 0.125);
+    expect(plan).toEqual({ start: 4 });
+  }
+});
+
+it("pushes the right neighbour only to the first saved start that fits the default project's gap", () => {
+  const moving = clip("moving", 0, 19.27, 6.2666666666);
+  const left = clip("left", 1, 10.7333333333, 8.5333333334);
+  const right = clip("right", 1, 25.5333333333, 4.3666666667);
+  const touching = clip("touching", 1, 29.9, 1);
+  const afterSlack = clip("after-slack", 1, 31, 1);
+  const elements = [moving, left, right, touching, afterSlack];
+  const plan = previewClipInsert(elements, moving, new Set([moving.id]), 1, 19.2666666667, 22, true, 0.125);
+  expect(plan).toEqual({
+    start: 19.27,
+    insertion: new Map([["moving", 19.27], ["right", 25.54], ["touching", 29.91]]),
+  });
+  right.timelineLocked = true;
+  expect(previewClipInsert(elements, moving, new Set([moving.id]), 1, 19.2666666667, 22, true, 0.125)).toBeNull();
+});
+
 it.each([0, 0.18, 1])("makes just enough room in a gap of %ss and leaves later free space alone", gap => {
   const moving = clip("moving", 0, 20, 3);
   const left = clip("left", 1, 0, 4), right = clip("right", 1, 4 + gap, 3), later = clip("later", 1, 12, 2);
   const plan = previewClipInsert([moving, left, right, later], moving, new Set([moving.id]), 1, 3.5, 4)!;
   expect(plan.start).toBe(4);
-  expect([...plan.insertion]).toEqual([["moving", 4], ["right", 7]]);
+  expect(plan.insertion).toEqual(new Map([["moving", 4], ["right", 7]]));
   expect(left.start).toBe(0);
   expect(right.start).toBe(4 + gap);
 });
@@ -86,7 +139,7 @@ it("carries linked overlays of pushed clips and previews each clip's own delta",
   const moving = clip("moving", 0, 20, 3), left = clip("left", 1, 0, 4), right = clip("right", 1, 4, 3), title = clip("title", 0, 5, 1);
   const elements = [moving, left, right, title];
   const plan = previewClipInsert(elements, moving, new Set([moving.id]), 1, 3.5, 4)!;
-  expect(plan.insertion.get("title")).toBe(8);
+  expect(plan.insertion?.get("title")).toBe(8);
   const preview = resolveMultiDragPreview({ element: moving, started: true, previewStart: plan.start, insertion: plan.insertion } as DraggedClipState, new Set(), elements)!;
   expect(multiDragPassengerOffsetPx("right", 100, preview)).toBe(300);
   expect(multiDragPassengerOffsetPx("title", 100, preview)).toBe(300);
@@ -100,10 +153,10 @@ it("carries the pushed neighbour's linked media, and refuses a locked partner", 
   const right = { ...clip("right", 1, 4, 3), link: "media" };
   const audio = { ...clip("audio", 2, 4, 3), tag: "audio", link: "media" };
   const elements = [moving, left, right, audio];
-  expect(previewClipInsert(elements, moving, new Set([moving.id]), 1, 3.5, 4)?.insertion.get("audio")).toBe(7);
+  expect(previewClipInsert(elements, moving, new Set([moving.id]), 1, 3.5, 4)?.insertion?.get("audio")).toBe(7);
   audio.timelineLocked = true;
   expect(previewClipInsert(elements, moving, new Set([moving.id]), 1, 3.5, 4)).toBeNull();
-  expect(previewClipInsert(elements, moving, new Set([moving.id]), 1, 3.5, 4, false)?.insertion.has("audio")).toBe(false);
+  expect(previewClipInsert(elements, moving, new Set([moving.id]), 1, 3.5, 4, false)?.insertion?.has("audio")).toBe(false);
 });
 
 it.each(["locked", "foreign", "audio", "room", "free", "overlap"])("keeps ordinary placement for %s boundaries", kind => {
@@ -122,7 +175,7 @@ it("rounds forward in the composition's own clock so the saved insertion cannot 
   const right = { ...clip("right", 1, 4.456, 3), parentCompositionStart: 1.123 };
   const plan = previewClipInsert([moving, left, right], moving, new Set([moving.id]), 1, 4, 4.5)!;
   expect(plan.start).toBeCloseTo(4.463);
-  expect(plan.insertion.get("right")).toBeCloseTo(6.463);
+  expect(plan.insertion?.get("right")).toBeCloseTo(6.463);
 });
 
 it("commits a same-lane insertion and every pushed clip once, with rollback on a rejected save", async () => {

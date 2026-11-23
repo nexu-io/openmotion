@@ -3,9 +3,40 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { buildTemplatePublication, publishTemplateCatalog, releaseCatalogPromotion } from '../.github/scripts/publish-template-catalog.mjs';
+import { buildTemplatePublication, finalizeTemplateSnapshot, publishTemplateCatalog, releaseCatalogPromotion } from '../.github/scripts/publish-template-catalog.mjs';
 
 const commit = 'a'.repeat(40);
+
+test('prepared release snapshot becomes the pointer only after an exact candidate and digest match', async t => {
+  const root = await fixture(t);
+  const objects = new Map(), writes = [];
+  const candidate = { version: '0.1.2', sourceCommit: commit, tgzSHA256: 'b'.repeat(64) };
+  const storage = { endpoint: 'https://abc123.r2.cloudflarestorage.com', bucket: 'open-design-releases',
+    run: async (_, args) => {
+      if (args.includes('list-objects-v2')) return '{}';
+      const key = args[args.indexOf('--key') + 1];
+      writes.push(key);
+      objects.set(key, await readFile(args[args.indexOf('--body') + 1]));
+      return '{}';
+    },
+    fetcher: async url => {
+      const body = objects.get(new URL(url).pathname.slice(1));
+      return body ? new Response(body) : new Response('', { status: 404 });
+    },
+  };
+  const staged = await publishTemplateCatalog(root, { ...storage, mode: 'release', version: candidate.version, commit, promote: false });
+  const pointer = 'open-motion/templates/releases/catalog.json', before = writes.length;
+  assert(!writes.includes(pointer));
+  const receipt = { ...staged, tgzSHA256: candidate.tgzSHA256 };
+  await assert.rejects(finalizeTemplateSnapshot(candidate, { ...receipt, tgzSHA256: '0'.repeat(64) }, { ...storage, promote: true }));
+  await assert.rejects(finalizeTemplateSnapshot(candidate, { ...receipt, catalogSHA256: '0'.repeat(64) }, { ...storage, promote: true }), /bytes differ/);
+  await finalizeTemplateSnapshot(candidate, receipt, { ...storage, promote: false });
+  assert.equal(writes.length, before);
+  const promoted = await finalizeTemplateSnapshot(candidate, receipt, { ...storage, promote: true });
+  assert.equal(promoted.promoted, true);
+  assert.deepEqual(writes.slice(before), [pointer]);
+  assert.deepEqual(objects.get(pointer), objects.get(staged.snapshotKey + '/catalog.json'));
+});
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'openmotion-template-publish-'));

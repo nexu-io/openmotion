@@ -5,7 +5,7 @@
 
 import { Switch } from "@base-ui/react/switch";
 import { cn } from "./cn";
-import type { PreviewState } from "./Button";
+import type { PreviewState } from "open-design-ui/button";
 
 export interface ToggleProps {
   /** Accessible name. */

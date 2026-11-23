@@ -1,3 +1,4 @@
+import { IconButton } from 'open-design-ui/icon-button';
 import { Popover } from '@base-ui/react/popover';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../../i18n/I18n';
@@ -90,14 +91,15 @@ export function TimelineTrackAudioControls({ elements, trackLabel, isAudioOnly, 
       setOpen(nextOpen);
     }}>
       <Popover.Trigger openOnHover delay={150} closeDelay={250}
-        className={buttonClass} aria-label={`${muteLabel} · ${trackLabel}`} aria-pressed={silent} disabled={disabled}
+        className={buttonClass} aria-pressed={silent} disabled={disabled}
         onFocus={() => setOpen(true)}
         onClick={() => void (async () => {
           const saved = await save('muted', silent ? null : 'true', silent ? 'Unmute audio' : 'Mute audio');
           if (saved && silent && isAudioOnly && hidden) onUnhide();
-        })()}>
-        <RemixIcon name={silent ? 'volume-mute-line' : 'volume-up-line'} size={16} />
-      </Popover.Trigger>
+        })()}
+        render={<IconButton variant="plain" aria-label={`${muteLabel} · ${trackLabel}`}
+          icon={<RemixIcon name={silent ? 'volume-mute-line' : 'volume-up-line'} size={16} />} />}
+      />
       <Popover.Portal><Popover.Positioner side="top" align="center" sideOffset={6} collisionPadding={12} className="z-150">
         <Popover.Popup initialFocus={false} finalFocus={false} aria-label={t('Volume')} className="hf-floating-motion flex flex-col items-center gap-2 rounded-lg bg-surface p-3 text-text-1 shadow-menu outline-none">
           <span className="font-mono text-[11px] tabular-nums">{mixed && !dirty && !silent ? t('Mixed') : `${shownVolume}%`}</span>

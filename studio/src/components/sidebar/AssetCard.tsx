@@ -1,3 +1,4 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { MediaDurationBadge } from "./MediaDurationBadge";
 import { AssetQuickAdd } from "./AssetQuickAdd";
 import { useMvpEditor } from "../../motion/StudioHost";
@@ -293,7 +294,7 @@ export function AssetCard({
             </span>
           </Tooltip>}
           <CopyChip feedback={copyFeedback} asset={asset} />
-          <Tooltip label={t("Actions for {value0}", { value0: fullName })} wrap><button type="button" className="motion-asset-menu-button" aria-label={t("Actions for {value0}", { value0: fullName })} aria-haspopup="menu" onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }}><RemixIcon name="more-line" size={16} /></button></Tooltip>
+          <Tooltip label={t("Actions for {value0}", { value0: fullName })} wrap><IconButton variant="plain" type="button" className="motion-asset-menu-button" aria-label={t("Actions for {value0}", { value0: fullName })} aria-haspopup="menu" onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); setContextMenu({ x: rect.left, y: rect.bottom }); }} icon={<RemixIcon name="more-line" size={16} />} /></Tooltip>
         </div>
       </div>
 

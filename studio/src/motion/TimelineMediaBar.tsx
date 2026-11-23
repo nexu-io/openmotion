@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useMvpEditor } from "./StudioHost";
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -124,12 +126,12 @@ function ConnectedTimelineMediaBar() {
   const anchorRect = anchor.getBoundingClientRect();
   return createPortal(ask ? <EditPopover initialPrompt={prompt} selectedElementKey={clipKey} rangeStart={start} rangeEnd={start + duration} anchorX={(anchorRect.left + anchorRect.right) / 2} anchorY={anchorRect.top - 8} onClose={close} /> :
     <aside ref={popover.ref} className="motion-timeline-media-bar motion-media-surface" style={popover.style} aria-label={t('Timeline media actions')} onPointerDown={e => e.stopPropagation()} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') close(); }}>
-      <div className="motion-media-context"><span>{start.toFixed(1)}–{(start + duration).toFixed(1)}s</span><span title={media?.label}>{media?.label ?? t(range ? 'Selected time range' : clip ? 'Selected clip' : 'At playhead')}</span><button className="motion-media-close" aria-label={t('Close timeline media actions')} onClick={close}>×</button></div>
+      <div className="motion-media-context"><span>{start.toFixed(1)}–{(start + duration).toFixed(1)}s</span><span title={media?.label}>{media?.label ?? t(range ? 'Selected time range' : clip ? 'Selected clip' : 'At playhead')}</span><IconButton variant="plain" className="motion-media-close" aria-label={t('Close timeline media actions')} onClick={close} icon="×" /></div>
       <form onSubmit={e => { e.preventDefault(); open(); }}>
         <input aria-label={t('Timeline media prompt')} value={prompt} onChange={e => setPrompt(e.target.value)} placeholder={t(media?.modality === 'image' ? 'Describe a new image or how to change this one…' : 'Describe what goes here…')} />
-        <button type="submit">{t('Generate media')}</button>
-        {media?.modality === 'image' && <button type="button" className="motion-media-primary" onClick={() => open(true)}>{t('Edit image')}</button>}
-        <button type="button" onClick={askAgent}>{t('Ask Agent')}</button>
+        <Button variant="plain" type="submit">{t('Generate media')}</Button>
+        {media?.modality === 'image' && <Button variant="plain" type="button" className="motion-media-primary" onClick={() => open(true)}>{t('Edit image')}</Button>}
+        <Button variant="plain" type="button" onClick={askAgent}>{t('Ask Agent')}</Button>
       </form>
     </aside>, host);
 }

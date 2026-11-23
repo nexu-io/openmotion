@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import { AssetImportMenu } from '../../motion/AssetLibraryImport';
 import { useFileManagerContextOptional } from '../../contexts/FileManagerContext';
 import { ManualImportResults } from './ManualImportResults';
@@ -106,12 +107,12 @@ function EmptyState({
         <p className="text-[11px] text-neutral-500 text-center">
           {t("No assets match “")}{searchQuery}&rdquo;
         </p>
-        <button
+        <Button variant="plain"
           type="button"
           onClick={onClearSearch}
           className="px-2.5 py-1 text-[11px] font-medium rounded-md bg-panel-input text-panel-text-3 hover:text-panel-text-1 active:scale-[0.98] transition-colors"
         >
-          {t("Clear search")}</button>
+          {t("Clear search")}</Button>
       </div>
     );
   }
@@ -277,7 +278,7 @@ export const AssetsTab = memo(function AssetsTab({
           />
           {onImport && <AssetImportMenu projectId={projectId} importing={importing || Boolean(importBatch?.busy)} onUpload={() => fileInputRef.current?.click()} onImported={onLibraryImport ? handleLibraryImport : undefined} />}
         </div>
-        {!mvp && onImport && mediaGateway && <button className="motion-asset-generate" onClick={event => mediaGateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t("Generate media")}</button>}
+        {!mvp && onImport && mediaGateway && <Button variant="plain" className="motion-asset-generate" onClick={event => mediaGateway.openGenerator({ anchor: mediaPopoverAnchor(event.currentTarget) })}>{t("Generate media")}</Button>}
         {onImport && (
           <input
             ref={fileInputRef}
@@ -349,7 +350,7 @@ export const AssetsTab = memo(function AssetsTab({
             <div key={cat} className="mb-1" data-assets-category={cat}>
               {activeFilter === "all" && (
                 <h3>
-                  <button
+                  <Button variant="plain"
                     type="button"
                     className="om-nav-item flex w-full items-center gap-2 px-2 py-1.5 text-left"
                     aria-expanded={!collapsedCategories.has(cat)}
@@ -364,7 +365,7 @@ export const AssetsTab = memo(function AssetsTab({
                     <RemixIcon name={collapsedCategories.has(cat) ? "arrow-right-s-line" : "arrow-down-s-line"} size={14} />
                     <span className="text-[12px] font-semibold text-panel-text-1">{t(CATEGORY_LABELS[cat])}</span>
                     <span className="text-[11px] text-panel-text-5">{categorized[cat].length}</span>
-                  </button>
+                  </Button>
                 </h3>
               )}
               <div id={`${groupId}-${cat}`} hidden={collapsedCategories.has(cat)}>

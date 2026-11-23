@@ -62,20 +62,24 @@ test('unknown bootstrap arguments fail before downloads or host changes', async 
   }
 });
 
-test('repository source setup stays the default and npm has an explicit separate guide', async () => {
-  const source = await readFile(new URL('../install.md', import.meta.url), 'utf8');
+test('one maintained guide serves source setup and npm generation while the old root URL forwards', async () => {
+  const source = await readFile(new URL('../docs/install.md', import.meta.url), 'utf8');
   assert.match(source, /default repository installation route/);
   assert.match(source, /Only use npm installation when the user explicitly selects it/);
-  assert.match(source, /docs\/install\.md/);
-  const npm = await readFile(new URL('../docs/install.md', import.meta.url), 'utf8');
-  assert.match(npm, /https:\/\/releases\.open-design\.ai\/open-motion\/install\.md/);
-  assert.match(npm, /https:\/\/releases\.open-design\.ai\/open-motion\/dev\/install\.md/);
-  assert.match(npm, /Do not guess a package version/);
-  assert.doesNotMatch(npm, /npm application installation is retired|do not resolve or execute/);
+  assert.match(source, /https:\/\/releases\.open-design\.ai\/motion/);
+  assert.match(source, /https:\/\/releases\.open-design\.ai\/open-motion\/dev\/install\.md/);
+  assert.match(source, /Do not guess a package version/);
+  assert.match(source, /install.sh --package EXACT_PACKAGE_SPEC/);
+  assert.match(source, /OPENMOTION_INSTALLER_SHA256/);
+  const oldOnboarding = await readFile(new URL('../docs/install-onboarding.md', import.meta.url), 'utf8');
+  assert.match(oldOnboarding, /id="installation-success-reply"/);
+  const forward = await readFile(new URL('../install.md', import.meta.url), 'utf8');
+  assert.match(forward, /\]\(docs\/install\.md\)/);
+  assert.doesNotMatch(forward, /```|npm|onboarding/i);
   for (const file of ['README.md', 'README.zh-CN.md', 'docs/README.zh-CN.md', 'docs/README.ja.md']) {
     const readme = await readFile(new URL('../' + file, import.meta.url), 'utf8');
-    const sourceEntry = readme.indexOf('https://github.com/nexu-io/openmotion/blob/main/install.md');
-    const npmEntry = readme.indexOf('https://github.com/nexu-io/openmotion/blob/main/docs/install.md');
+    const sourceEntry = readme.indexOf('https://github.com/nexu-io/openmotion/blob/main/docs/install.md');
+    const npmEntry = readme.indexOf('https://releases.open-design.ai/motion');
     assert(sourceEntry >= 0 && npmEntry > sourceEntry, file + ': source prompt precedes optional npm prompt');
   }
 });

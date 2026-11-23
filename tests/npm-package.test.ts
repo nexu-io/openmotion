@@ -11,7 +11,7 @@ import { extractArchive, runFile, sha256 } from '../scripts/runtime-assets.mjs';
 import { protocolClient } from '../scripts/smoke-test-package.mjs';
 import { packagedSkills } from '../shared/workflow.ts';
 import { mcpRegistry } from '../mcp.ts';
-import { stableReports } from '../.github/scripts/motion-release.mjs';
+import { nativeReports } from '../.github/scripts/motion-release.mjs';
 import { onboardingSourceFiles, onboardingTemplateIds } from '../shared/onboarding-templates.ts';
 
 const json = async (file: string) => JSON.parse(await readFile(file, 'utf8'));
@@ -95,11 +95,12 @@ test('shared Agent instructions keep source-default, optional npm and release co
     return text.split('## Candidate and publication controls\n')[1].split('\n## ')[0].trim();
   };
   const shared = await section('AGENTS.md');
-  assert(shared.includes('New repository installations use the source bootstrap in install.md'));
+  assert(shared.includes('New repository installations use the source bootstrap in docs/install.md'));
   assert(shared.includes('Published npm application installation is optional') && shared.includes('explicit user choice'));
   assert(shared.includes('Never silently substitute npm for source or mix installations'));
-  assert(shared.includes('Test publishes under `candidate`') && shared.includes('non-blocking Mac/Windows cold installs'));
-  assert(shared.includes('Stable publishes publicly under `stage`') && shared.includes('requires both exact prod cold installs to pass'));
+  assert(shared.includes('Require both macOS and Windows candidate installs') && shared.includes('before publishing npm'));
+  assert(shared.includes('Test uploads under `candidate` and stable under `stage`'));
+  assert(shared.includes('Verify the public tarball hash before advancing'));
   assert(shared.includes('npm publication and release snapshot recovery require separate manual authorization'));
   assert(shared.includes('Main-branch template synchronization is explicitly authorized to run automatically'));
   assert(shared.includes('scoped in the workflow to the final upload step'));
@@ -268,6 +269,9 @@ test('test npm artifacts contain their application, locked manifest and no bundl
     for (const file of ['rebuild.md', 'reconstruction.md', 'rendering.md', 'verify.md']) assert(entries.includes('skills/openmotion-recreate/references/' + file), 'Missing recreation reference: ' + file);
     assert(entries.includes('skills/openmotion-recreate/assets/reconstruction.js'));
     assert(entries.includes('studio/build/index.html'));
+    assert.doesNotMatch(entries, /studio\/build\/editor-assets\/three-js-.*\.webp/);
+    assert.doesNotMatch(entries, /studio\/build\/.*\.(?:mp4|webm|gif)$/m);
+    assert(entries.includes('studio/skill-cover-attribution.md'));
     assert(entries.includes('scripts/inline-onboarding.mjs'));
     assert(entries.includes('mcp-ui/template-recommendations/inline.fragment.html'));
     assert(entries.includes('shared/editor-launch.pl'), 'macOS shared editor launcher must ship');
@@ -321,7 +325,7 @@ test('stable artifacts stage publication instead of replacing latest and retain 
       registryColdInstall: 'passed', nativePreparation: 'passed', repeatSetup: 'passed', resources: 'passed',
       mcpTools: release.mcp.tools.length, skills: release.skills.length,
     }));
-    assert.equal((await stableReports(path.dirname(built.manifest), identity)).length, 2);
+    assert.equal((await nativeReports(path.dirname(built.manifest), identity, 'registryColdInstall')).length, 2);
     const application = path.join(directory, 'app'); await extractArchive(built.application, application);
     const diagnosticFile = path.join(directory, 'stable-diagnostics.zip');
     await runFile(process.execPath, [path.join(application, 'scripts/diagnostics.mjs'), '--data-dir', path.join(directory, 'missing-data'), '--output', diagnosticFile]);
@@ -370,11 +374,20 @@ test('manual CI passes the selected template environment to both package formats
     const step = workflow.split('      - name: Build immutable standalone artifacts\n')[1].split('      - name:')[0];
     const script = step.split('        run: |\n')[1].replace(/^ {10}/gm, '');
     const calls = path.join(directory, 'calls.txt');
-    await writeFile(path.join(directory, 'node'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$MOTION_PACKAGE_CALLS"\nif [ "$2" = version ]; then echo 0.6.4-test.42.1; fi\n', { mode: 0o755 });
+    const summary = path.join(directory, 'summary.md');
+    const fakeNode = [
+      '#!/bin/sh',
+      'printf "%s\\n" "$*" >> "$MOTION_PACKAGE_CALLS"',
+      'if [ "$2" = version ]; then echo 0.6.4-test.42.1; fi',
+      'if [ "$1" = scripts/package-npm.mjs ]; then mkdir -p "$2"; printf pkg > "$2/openmotion-app-$3.tgz"; fi',
+    ].join('\n');
+    await writeFile(path.join(directory, 'node'), fakeNode + '\n', { mode: 0o755 });
     for (const format of ['npm', 'full']) for (const environment of ['prod', 'dev']) {
       await writeFile(calls, '');
-      await runFile('bash', ['-c', script], { env: { ...process.env,
+      await writeFile(summary, '');
+      await runFile('bash', ['-c', script], { cwd: directory, env: { ...process.env,
         PATH: directory + path.delimiter + process.env.PATH, MOTION_PACKAGE_CALLS: calls,
+        GITHUB_STEP_SUMMARY: summary,
         PACKAGE_FORMAT: format, TEMPLATE_ENVIRONMENT: environment, GITHUB_RUN_NUMBER: '42', GITHUB_RUN_ATTEMPT: '1',
       } });
       const commands = (await readFile(calls, 'utf8')).trim().split('\n');
@@ -384,6 +397,7 @@ test('manual CI passes the selected template environment to both package formats
           `scripts/test-package.mjs prepare ${target}`,
           `scripts/test-package.mjs build ${target} 0.6.4-test.42.1 --template-env=${environment}`,
         ]))]);
+      assert.equal((await readFile(summary, 'utf8')).includes('Compressed size: 3 bytes'), format === 'npm');
     }
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

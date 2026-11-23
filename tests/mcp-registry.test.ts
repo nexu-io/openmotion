@@ -7,7 +7,7 @@ import { createToolRegistry } from '../shared/mcp-registry.ts';
 import { tools, publicTools, rpc, mcpRegistry } from '../mcp.ts';
 import { fixture } from './fixtures.ts';
 import { workflowEntryGuide, packagedSkills } from '../shared/workflow.ts';
-import { templateDiscoveryGuide } from '../shared/workflow-entry.js';
+import { templateDiscoveryGuide, skillDiscoveryGuide } from '../shared/workflow-entry.js';
 
 const phase1 = JSON.parse(readFileSync(new URL('../shared/mcp-profiles.json', import.meta.url), 'utf8')).phase1;
 const target: string[] = phase1.tools;
@@ -50,7 +50,7 @@ test('one registry governs discovery and rejects hidden calls before the existin
   assert.deepEqual(await store.get(), initial);
   assert.equal(existsSync(path.join(store.projectDirectory, 'notes.md')), false);
   const initialized: any = await rpc({ jsonrpc: '2.0', id: 3, method: 'initialize' }, store, registry);
-  assert.equal(initialized.result.instructions, workflowEntryGuide + ' ' + templateDiscoveryGuide + ' ' + phase1.instructions);
+  assert.equal(initialized.result.instructions, workflowEntryGuide + ' ' + templateDiscoveryGuide + ' ' + skillDiscoveryGuide + ' ' + phase1.instructions);
   assert.ok(!initialized.result.instructions.includes('openmotion_get_workflow'));
 }));
 
@@ -65,7 +65,14 @@ test('packaged Skills reference only publicly callable Tool names', () => {
     for (const filename of readdirSync(root, { recursive: true }) as string[]) {
       if (!filename.endsWith('.md')) continue;
       const document = readFileSync(new URL(filename, root), 'utf8');
-      for (const match of document.matchAll(/\b(?:openmotion|motion|design)_[a-z_]+\b/g)) assert.ok([...target, 'openmotion_show_video'].includes(match[0]), `${skill}/${filename} calls hidden ${match[0]}`);
+      for (const match of document.matchAll(/\b(?:openmotion|motion|design)_[a-z_]+\b/g)) {
+        // Game media generation is optional and explicitly gated on host discovery.
+        // The named generator is an actual legacy tool, not part of phase-one discovery.
+        if (skill === 'openmotion-game' && match[0] === 'openmotion_generate_asset') {
+          assert.ok(tools.some(tool => tool.name === match[0]));
+          assert.match(document, /discover|available|capabilit/i);
+        } else assert.ok([...target, 'openmotion_show_video'].includes(match[0]), `${skill}/${filename} calls hidden ${match[0]}`);
+      }
     }
   }
 });

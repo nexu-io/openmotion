@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, createElement } from "react";
+import { usePlayerStore } from "../player/store/playerStore";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DomEditSelection } from "../components/editor/domEditing";
@@ -146,6 +147,41 @@ describe("useDomEditPersist", () => {
     expect(allow).toHaveBeenCalledTimes(1);
     expect(patchPosts(fetchMock)).toHaveLength(1);
     expect(params.editHistory.recordEdit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ label: "Replace image", files: { "index.html": { before: SOURCE, after: PATCHED } } }));
+  });
+
+  it("updates rate, duration and following clip together without replacing the preview", async () => {
+    const before = '<html><body><div id="main" data-composition-id="main" data-duration="8"><video id="v" data-start="0" data-duration="4" data-track-index="0"></video><video id="next" data-start="4" data-duration="4" data-track-index="0"></video></div></body></html>';
+    const patched = before.replace('id="v"', 'id="v" data-playback-rate="2"');
+    const after = patched.replace('data-duration="8"', 'data-duration="6"').replace('data-duration="4"', 'data-duration="2"').replace('data-start="4"', 'data-start="2"');
+    const doc = new DOMParser().parseFromString(before, "text/html");
+    const node = doc.getElementById("v");
+    const seek = vi.fn();
+    const iframe = { contentDocument: doc, contentWindow: { __player: { seek } } } as unknown as HTMLIFrameElement;
+    usePlayerStore.setState({ currentTime: 1, duration: 8, elements: [
+      { id: "v", key: "index.html#v", sourceFile: "index.html", domId: "v", tag: "video", start: 0, duration: 4, track: 0 },
+      { id: "next", key: "index.html#next", sourceFile: "index.html", domId: "next", tag: "video", start: 4, duration: 4, track: 0 },
+    ] });
+    stubServer({ ...CHANGED, content: patched }, before);
+    const { persist, params } = renderPersist({ previewIframeRef: { current: iframe } });
+    await persist({ id: "v", sourceFile: "index.html" } as DomEditSelection,
+      [{ type: "attribute", property: "playback-rate", value: "2" }],
+      { syncTimingInPlace: true, prepareContent: () => after });
+    expect(params.reloadPreview).not.toHaveBeenCalled();
+    expect(doc.getElementById("v")).toBe(node);
+    expect(node?.getAttribute("data-duration")).toBe("2");
+    expect(node?.getAttribute("data-playback-rate")).toBe("2");
+    expect(doc.getElementById("next")?.getAttribute("data-start")).toBe("2");
+    expect(usePlayerStore.getState().elements.map(el => [el.start, el.duration])).toEqual([[0, 2], [2, 4]]);
+    expect(usePlayerStore.getState().duration).toBe(6);
+    expect(seek).toHaveBeenCalledWith(1);
+    expect(params.editHistory.recordEdit).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ files: { "index.html": { before, after } } }));
+  });
+
+  it("falls back to a reload when the preview is unavailable for a timing update", async () => {
+    stubServer(CHANGED);
+    const { persist, params } = renderPersist();
+    await persist(selection, OPERATIONS, { syncTimingInPlace: true, prepareContent: html => html });
+    expect(params.reloadPreview).toHaveBeenCalledTimes(1);
   });
 
   it("with skipRefresh reseeks the preview instead of reloading it", async () => {

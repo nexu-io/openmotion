@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Popover } from '../components/ui/Popover';
-import { IconButton } from '../components/ui/IconButton';
+import { IconButton } from 'open-design-ui/icon-button';
 import { Tooltip } from '../components/ui/Tooltip';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
@@ -74,7 +74,7 @@ function RecordingActions({ onAddToTimeline }: { onAddToTimeline: (path: string)
     } catch (e) { if (alive.current) error(e instanceof Error ? e.message : 'Recording failed'); }
     finally { locked.current = false; if (alive.current) setBusy(false); }
   }
-  return <div className="flex shrink-0 items-center gap-1 border-l border-border pl-2 ml-1">
+  return <div className="motion-timeline-caption-actions flex shrink-0 items-center gap-1 border-l border-transparent pl-2 ml-1">
     <input ref={musicInput} type="file" accept="audio/*" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (!file || locked.current || disabled) return;
       locked.current = true; setBusy(true); const composition = shell.activeCompPath;
       void (async () => { try {

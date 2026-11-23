@@ -12,7 +12,7 @@ const source = process.argv[2];
 if (!source) throw new Error('Usage: node scripts/sync-brand-catalog.ts /path/to/reviewed/open-design-checkout');
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = path.join(root, 'library/brand-kits');
-const { websites, coverPages = {} } = JSON.parse(await readFile(path.join(output, 'websites.json'), 'utf8')) as { websites: Record<string, string>; coverPages?: Record<string, string> };
+const { websites, coverPages = {}, coverImages = {} } = JSON.parse(await readFile(path.join(output, 'websites.json'), 'utf8')) as { websites: Record<string, string>; coverPages?: Record<string, string>; coverImages?: Record<string, string> };
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: source, encoding: 'utf8' }).trim();
 if (!/^[a-f0-9]{40}$/.test(revision)) throw new Error('A pinned Git snapshot is required');
 const puppeteer = await browserAutomation(root);
@@ -72,7 +72,7 @@ try {
       await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, data);
       files.push({ path: filename, sha256: createHash('sha256').update(data).digest('hex') });
     }
-    entries.push({ id, name: manifest.name, category: manifest.category, description: manifest.description, appearance: bytes[0] * .2126 + bytes[1] * .7152 + bytes[2] * .0722 < 128 ? 'Dark' : 'Light', colors: [colorFamily], tags: ['brand-kit', 'style-only', 'OpenDesign', manifest.category], sourceUrl, websiteUrl: websites[id], coverPage: coverPages[id], sample, files });
+    entries.push({ id, name: manifest.name, category: manifest.category, description: manifest.description, appearance: bytes[0] * .2126 + bytes[1] * .7152 + bytes[2] * .0722 < 128 ? 'Dark' : 'Light', colors: [colorFamily], tags: ['brand-kit', 'style-only', 'OpenDesign', manifest.category], sourceUrl, websiteUrl: websites[id], coverPage: coverPages[id], coverImage: coverImages[id], sample, files });
   }
 } finally { await browser.close(); }
 await mkdir(path.join(output, 'assets'), { recursive: true });

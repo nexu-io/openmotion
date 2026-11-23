@@ -43,7 +43,7 @@ describe("AudibleVideoClipContent", () => {
     const host = await renderStrip(<span>wave</span>);
     const strip = host.querySelector<HTMLElement>('[data-testid="audible-video-wave"]');
     expect(strip?.textContent).toBe("wave");
-    expect(strip?.style.backgroundColor).toBe("var(--timeline-clip-audio-bg)");
+    expect(strip?.style.backgroundColor).toBe("var(--timeline-video-wave-bg)");
     expect(strip?.style.height).toBe("50%");
     expect(strip?.previousElementSibling?.getAttribute("style")).toContain("bottom: 50%");
   });

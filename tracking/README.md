@@ -1,5 +1,7 @@
 # OpenMotion tracking
 
+Catalog guide pages emit `template_guide_interaction` through the existing Studio transport and privacy preference. `template_id` always identifies the page being used, with a fresh `view_id`; actions are `shown`, `edit`, `chapter`, `reference`, `reset`, `copy`, `open_editor`, `download`, `document` and `source`. Document toggles include `expanded`; source links record intent. Download results distinguish `browser_save_requested` from `fetch_failed`, and never confirm disk persistence. Editor entry reports intent separately from its result. `shown` requires at least half of the preview visible for one continuous foreground second. Edits report only `title` or `accent`, never their values. Copy and editor actions report success, failure or manual fallback separately. The embedding parent pins the template identity and validates the closed event fields. This measures interaction and handoff, not user acceptance, export or reference-recreation completion. Local tests do not establish production collection.
+
 An explicit-event package shared by the standalone MCP runtime and Motion Studio.
 It has no runtime dependencies. The application consumes its TypeScript sources;
 `npm run build:tracking` emits JavaScript and declarations for a local `npm pack`
@@ -127,14 +129,37 @@ so account counts can deduplicate across installations and join AMR account fact
 Failures and cancellations omit that ID. The existing collection controls apply;
 `distinct_id` remains the installation ID, without identify/alias or person merging.
 Email, names, activation URLs, authorization codes and credentials are omitted.
+A `connector_unavailable` failure adds `connector_problem`: `npm_missing` (no npm
+was found to install the connector), `install_failed` (npm could not install it)
+or `start_failed` (the installed connector did not run). npm output stays local.
 These fields describe the local OM result; AMR handoff attribution is separate.
 
-The account and subscription settings' **Manage subscription** link carries
-`od_origin=openmotion`, `od_entry_source=openmotion_manage_subscription`, and a
-fresh `od_entry_id` / UTC `od_entry_at` for each primary or middle click. The link
+The account and subscription settings' **Manage subscription** action, and the Free / Go
+plan card's **Upgrade to Plus** action, carry `od_origin=openmotion`,
+`od_entry_source=openmotion_manage_subscription`, and a fresh `od_entry_id` / UTC
+`od_entry_at` for each click. The local service builds that page address and opens it in the
+system browser through a one-time account intent (`/login?intentId=…`) when it can. The two actions share that registered entry
+source; their `ui_click` elements (`manage_subscription` and `view_plans`) tell them apart.
+A dedicated upgrade source needs AMR to register it first. The page address
 retains `billing=plan` and contains no account, installation or credential data.
 AMR must accept the OpenMotion origin and entry source in its attribution
 validation before these parameters can reach its subscription/payment events.
+
+The Black Friday banner above the application header and the header **Pricing** entry link to the
+website Pricing page (`open-design.ai/[zh/]pricing/`) with `od_origin=openmotion`,
+`od_entry_source=openmotion_manage_subscription` (the OpenMotion source AMR already accepts; an unregistered
+source would drop the whole attribution), a fresh `od_entry_id` / UTC `od_entry_at` per
+click, and `utm_source=openmotion`, `utm_medium=banner|header`, `utm_campaign=black_friday_2026`. The
+Pricing page keeps an inbound `od_entry_id` / `od_entry_source` as the first touch through checkout.
+OpenMotion reports `surface_view` (`area=campaign_banner`, `element=banner`) once per page load while the
+banner is shown, and `ui_click` for `claim_offer` and `close_banner` (`area=campaign_banner`) and
+`open_pricing` (`area=header`), each with `campaign_id=black_friday_2026`. The two link clicks also send
+`entry_id`, equal to that click's `od_entry_id`, so a click joins the Pricing visit and payment. `utm_medium`
+and the click's `element` tell the banner and the header entry apart; dedicated entry sources need AMR to register
+them first.
+The campaign shows from 2026-11-21 18:00 until 2026-12-05 00:00 Beijing time. Outside that window the banner is hidden,
+the Pricing entry has no badge, links omit `utm_campaign` and clicks omit `campaign_id`. A dismissed banner stays
+hidden for the rest of the visitor's local day and returns the next day.
 
 One random `installation_id` UUID is persisted atomically in `tracking/identity.json`
 under each owned data directory, outside projects and versioned application caches.
@@ -176,9 +201,11 @@ This measures OS-device identities, not people or immutable physical hardware. S
 machines count once, a person on two machines counts twice, cloned OS identifiers can
 collide, and an OS reinstall can change Windows/Linux identifiers. Device context contains
 no account identity, MAC address, raw platform identifier or probabilistic fingerprint. The package can
-initialize an identity with a validated source label; existing identities retain
-their first source. Landing-page attribution and installer `--source` plumbing are
-a separate change. Unknown source remains null.
+initialize an identity with a validated source label. The npm installer accepts
+`--utm-source NAME`: an explicit install updates the saved source, while an
+upgrade without the flag preserves the existing source. The installation ID
+remains unchanged across both operations, and an omitted source remains null for
+a new installation.
 
 Common fields include schema/product/app version, environment, entrypoint/runtime,
 platform/architecture, OS/version, runtime locale, device IANA timezone and UTC offset
@@ -316,8 +343,15 @@ backend/data directory. Deterministic coverage lives in
 ## Implemented signals and limits
 
 - All registered phase-one stdio tools: accepted start and observed finish, including
-  early-return catalog tools, input rejection, partial import and idempotent replay.
-- All nineteen page WebMCP tools: `webmcp_tool_started` and
+  early-return catalog tools, the two negotiated presentation tools, input rejection,
+  partial import and idempotent replay.
+- Installer acquisition boundaries: `installation_started` is emitted when setup
+  begins and `installation_result` only after registration, onboarding persistence
+  and Skill installation complete. Both events carry the selected `host_product`;
+  the result carries `outcome=success`. A rolled-back setup does not emit a success
+  result. The installer accepts `--utm-source`; explicit installs update the saved
+  source, untagged upgrades preserve it, and the installation ID stays stable.
+- All twenty-three page WebMCP tools: `webmcp_tool_started` and
   `webmcp_tool_finished`, correlated by a fresh `call_id` per invocation, with
   the public `tool_name`, `transport=webmcp`, observed `outcome` and bounded
   `duration_ms`. These are browser-call measurements, separate from stdio MCP
@@ -328,15 +362,14 @@ backend/data directory. Deterministic coverage lives in
   reply into a cancelled operation. Arguments, results, handles, paths and raw errors are
   excluded. Host Agent fields retain their existing page-handoff meaning; the
   transport marker does not identify the calling browser agent.
-- Asset call action: `mcp_tool_started/finished` and
-  `webmcp_tool_started/finished` include an optional closed `action` category for
-  asset tools: `list`, `get`, `import`, `update`, `generate`, `jobs`, `status`,
-  `cancel`, `import_to_project`, `read`. The shared extractor ignores other tools,
-  missing/malformed actions and unknown values; no raw arguments or media are sent.
-  The action is captured once at invocation start and retained on finish, including
-  failure and input rejection. Stdio keeps `tool_name=motion_assets` for both public
-  asset names; WebMCP keeps their public names. Historical events without action
-  remain valid and cannot be backfilled. Registration has no action.
+- Tool dimensions: `mcp_tool_started/finished` and `webmcp_tool_started/finished`
+  carry allowlisted actions for assets, media discovery, preview, export request,
+  archive and project management. Preview also has `target`. Missing actions mean
+  `open` for preview and `request` for export; invalid values are omitted.
+  A failed call can carry `error_code` and schema-declared `invalid_field` and
+  `validation_rule`, with array indices collapsed and unknown keys bucketed.
+  Both stdio asset names still use `tool_name=motion_assets`; WebMCP uses the
+  original public name. Older events may omit these dimensions.
   To measure `read`, filter `product=openmotion`, exclude `env=test`, select the
   appropriate `*_tool_finished` event and `action=read`: count distinct `call_id`
   for observed calls, divide successful calls (`outcome=success`) by all observed
@@ -347,6 +380,15 @@ backend/data directory. Deterministic coverage lives in
   Browser and stdio are separate transports; do not sum starts and finishes or add
   domain-result events to call counts. This measures observed call outcomes, not
   paid generation completion, human media acceptance or guaranteed billing usage.
+- For MCP exports, use `export_request_result` to measure submission and join its
+  `job_id` to `export_result` for the one terminal worker record. A failed terminal
+  job has a bounded `failure_stage` and `error_code`, including interrupted or
+  expired jobs. Polling success means the read worked. Studio UI exports use their
+  existing separate pipeline.
+- `asset_import_result` includes requested, added, reused and failed item counts when
+  a batch result is available. `asset_import_item_failure` reports one count per
+  allowlisted failure category per committed request. Sum its `failed_count` to
+  break down item failures, keeping it separate from call-level outcomes.
 - WebMCP registration: `webmcp_registration_result` records one result per
   attempted tool registration (`success`, `failure` or `cancelled`), including
   validation/duplicate refusals and teardown cancellation. Use this event for
@@ -383,6 +425,29 @@ backend/data directory. Deterministic coverage lives in
   at load the timeline and file tree have usually not arrived, so the load values
   are mostly `unknown` and the export request is the reliable reading. No raw
   duration, count or file size is sent.
+- Explore, the top creative navigation and the creative Studios (`studio/src/motion/exploreTracking.ts`):
+  one `page_view` per arrival on Explore (`page_name=explore`, with `explore_community` and `medium`), the
+  Motion, Design and Cinema Studio template landings and the Design image, Cinema and Sound forms (`page_name=creative_studio`, with `studio_id`,
+  `scene_id` and `landing`) and a model overview (`model_overview`). Filter and tab
+  changes inside Explore are clicks, not further views. Clicks use areas `creative_nav` (reported with the page
+  the navigation is shown on), `explore_tabs`, `explore_spotlight`, `explore_featured`, `explore_feed`,
+  `explore_collection`, `capability_index`, `studio_bar` and `model_overview`. A generation submitted from a
+  Studio form reports `asset_generation_submit_result` with `page_name=creative_studio` and the Studio, scene
+  and model (`model_provider` + `model_id` split from the catalogue key; custom providers send neither). Other destinations are catalogue ids accepted only as `slug`s;
+  prompts, example copy and model labels are never fields. The Design Studio template landing reports
+  `studio_id=design, landing=true`. Category changes report `studio_bar/scene_tab` with `scene_id` and template
+  opens report `studio_bar/open_template` with both `scene_id` and `template_id`.
+  The Motion Studio banner's editor button reports `studio_bar/open_editor` with `studio_id=motion`.
+  The Motion Studio template shelf reuses `studio_bar/category_select`, `load_more`, `view_all_templates`
+  and `open_template`. Explore Design template cards and their Try buttons report `explore_collection/open_template`
+  with their Design scenario and template IDs.
+  The Explore banner's editor button retains `explore_spotlight/slide_action` for the first Motion slide.
+  A Cinema template card uses `studio_bar/try_prompt` with its `template_id`, `scene_id` and zero-based `position`.
+  Opening a template prepares a draft. Generation submission is counted separately.
+- Model hubs (`page=model-hub`): one `page_view` with `page_name=model_hub`, `hub_id` and `signed_in` once the
+  sign-in state is known; clicks in areas `hub_header`, `hub_hero`, `hub_videos`, `hub_video_detail` and
+  `hub_availability` carry `hub_id`, `hub_video_id` (catalogue id), `signed_in` and, for scene filters, a
+  `filter_value` slug. Video titles, creators, post links and search text are never fields.
 - The template gallery shared with the website (`web/template-gallery.ts`, shown in the
   connection dialog):
   copy click and the actual copy result, preview open, use, category change and
@@ -450,11 +515,37 @@ backend/data directory. Deterministic coverage lives in
   exposure waits until at least 1% of its text enters the viewport in a visible tab, once per
   detail view. Recreate and Recreate-and-submit carry the same `copy_attempt_id`
   on their `start_use` click and copy result; Open-and-edit has no copy attempt.
+  `library_view_id` identifies an opening, `discovery_id` groups search and
+  recovery activity (reset on reopening or after 30 minutes of inactivity),
+  and `result_set_id` names the results for the current search, filter and sort
+  context. A search can also settle when submitted or used, but not during IME
+  composition. Recovery exposure requires the expanded panel to intersect a
+  visible viewport. `template_search_handoff_result` tracks an instruction
+  copy attempt with a fixed source kind and status. A manual-copy fallback
+  remains distinct from `clipboard_written`. In the library, the reference entry
+  emits `surface_view` with `element=reference` once per result set when at least
+  half of the button is visible for one second, or when clicked sooner. Count
+  distinct `result_set_id` on this view and the corresponding reference click
+  for entry click-through. Reference source changes, opening the local file
+  picker and copy attempts use `ui_click` with the fixed `source_kind`.
+  A selected file produces one `studio_asset_import_result` with
+  `entry_point=template_reference` and `outcome=success|failure|unknown`.
+  Cancelling the picker produces no import result. Unknown uploads do not count
+  as failures. Events from the home entry carry `reference_entry=library_home`;
+  search recovery keeps its existing attribution. Using the home action does
+  not emit a search. File names, paths, asset and version IDs, reference links,
+  descriptions and contact details are excluded from these events. Copying a
+  request does not confirm Agent execution. Template request intake is not exposed.
+    The enhanced handoff detail reuses the same click/copy-result events rather than
+  skipping them because its layout flag is active. Clipboard failure reports
+  `manual_fallback_shown`, and editable-project preparation reports `open_edit`.
+  The isolated local review entry disables collection without removing those
+  instrumentation calls. Project/source continuation remains a separate gap.
 
 The adapter preserves fixed actions, counts, booleans and safe catalog/control
 identifiers. It drops messages/stacks, file paths, selectors, composition/block
 names, free-text feedback, breadcrumb text and arbitrary error names. Feedback
-retains `has_comment`, rating and fixed question/answer categories; resolver
+retains `has_comment`, rating, an opaque browser-minted identifier for the prompt and fixed question/answer categories; resolver
 mismatches become per-kind counts, and attempt rollups retain total attempts and
 distinct-operation counts without raw JSON keys. Audio parameter numbers are
 bounded; string parameters retain only a fixed engine-catalog `value_category` and
@@ -507,3 +598,43 @@ A local save retry can update the terminal result for the same job. Use the late
 Generation uses the existing telemetry preference and installation identity.
 
 Studio recovery keeps request acknowledgement separate from execution outcome. An uncertain export receipt reports `studio_export_request_result.outcome=unknown`; a later identity-matched lookup can report one terminal result with the same browser `export_id`. Progress loss, cancelling and an inactive unknown record never produce a failed or cancelled terminal event. `studio_asset_import_result` retains its entry-point categories and reports confirmed failure, unknown and pending counts separately; unknown/pending items are not counted as failed. The manual `reload_editor` recovery action records only an unknown handoff outcome, not confirmed recovery.
+
+## Template detail handoff coverage
+
+The approved detail is enabled from the normal template-library entry. The legacy
+`templateHandoffPreview=0` compatibility switch can restore the previous detail
+for a session; no query parameter is needed for the new flow.
+
+| Question | Event and trigger | Join and deduplication |
+| --- | --- | --- |
+| Did someone inspect related options? | `surface_view` for `template_related/related` after its first eligible card impression; `template_card/card` for each related card | At least 50% visible for one uninterrupted second in a visible tab; once per source detail and card. Related cards and clicks include `source_template_id`, target `template_id`, source `detail_view_id` and displayed `position`. |
+| Was guidance or help used? | `ui_click`: `view_guide`, `back_to_template`, `view_full_page`, `handoff_help`, `copy_color`, `close_detail`; `surface_view` `template_guide/guide` when the same-dialog guide opens | The current template and detail-view UUID; a help opening counts once per opening, not per pointer move. Color clicks never carry a color value. |
+| Did editable handoff resolve and open? | `ui_click/start_use` for `open_edit`, followed by `template_project_result` on observed `create`, `reconcile` or `open` completion | The click and results share the stable `operation_id` for the guarded request; fresh `handoff_attempt_id` per operation attempt; captured initiating detail; confirmed project UUID only. |
+
+Studio no longer emits `back_to_project` after removing the button. The event
+registry still accepts it from older Studio versions.
+
+Create-stage success means the preparation call resolved to an exact project,
+including recovery of the same request; it is not a count of newly created projects.
+An interrupted response is `unknown`; an authoritative empty lookup is
+`not_found`; a failed lookup remains `unknown`. Opening is successful only when
+the project-opening callback confirms it. Retrying an existing project never emits
+another create result. `retry_template_project`, `check_template_project` and
+`open_prepared_project` distinguish explicit recovery intents.
+An opening callback is not evidence that a particular content version became
+visible or that the user approved it; those downstream outcomes remain separate.
+Editor save-guard rejection occurs before creation and reports a confirmed failure,
+not an uncertain server result. An authoritative empty reconciliation enables
+retry with the same request ID. Pending request identities are retained in bounded
+session storage so reopening the library checks that request before creating;
+completed requests are removed from the pending list. Unavailable storage cannot
+guarantee retention after a reload.
+
+Existing copy semantics remain: `clipboard_written` is the only successful copy,
+and manual fallback is not success. No event claims that an external Agent received
+the copied instruction, created a film, or exported it. Exact copy-to-Agent-to-work
+provenance is not added by this change; do not infer adoption or output rates from
+copying. No titles, material names, instructions, color values, URLs or raw errors
+are admitted. Existing consent, browser admission and product=openmotion filtering
+remain in force. UI tests use fake senders; live readback requires env=test and an
+isolated test-run UUID.

@@ -1,10 +1,12 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { mkdir, open, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildPlugin } from "./build.ts";
 import { integrationConfig, integrationPatch } from "./config.ts";
+import { profileModules } from "./install.ts";
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const config = integrationConfig(path.resolve(directory, "../.."));
@@ -31,9 +33,10 @@ try {
     DSH_HOME: config.dshHome,
   };
   await buildPlugin(config.plugin);
+  const { stdout } = await promisify(execFile)(process.execPath, [path.join(directory, "node_modules/@deepseek-ai/dsh/lib/bin.js"), "--profile", "web", "--dump-config"], { env, cwd: directory });
   await writeFile(
     config.patch,
-    integrationPatch(config, process.execPath, env),
+    integrationPatch(config, process.execPath, env, await profileModules(stdout)),
     { mode: 0o600 },
   );
   console.log(

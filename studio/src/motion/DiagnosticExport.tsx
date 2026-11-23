@@ -1,3 +1,4 @@
+import { Button } from 'open-design-ui/button';
 import * as tracking from './pageTracking';
 import { useRef, useState } from 'react';
 import { useI18n } from '../i18n/I18n';
@@ -42,7 +43,7 @@ export function DiagnosticExport() {
     finally { pending.current = false; setBusy(false); }
   }
   return <div className="om-card-stack">
-    <button className="om-button" type="button" onClick={() => { tracking.reportSettingsClick('diagnostics', 'export_diagnostics'); void download(); }} disabled={busy}><RemixIcon name="download-2-line" size={15} />{t(busy ? 'Preparing diagnostics…' : 'Export diagnostic ZIP')}</button>
+    <Button variant="ghost" className="om-button h-auto" type="button" onClick={() => { tracking.reportSettingsClick('diagnostics', 'export_diagnostics'); void download(); }} disabled={busy}><RemixIcon name="download-2-line" size={15} />{t(busy ? 'Preparing diagnostics…' : 'Export diagnostic ZIP')}</Button>
     <p className="om-muted">{t('Saves logs on your device with sensitive values redacted. No upload. Review the ZIP before sharing.')}</p>
     <StudioToastViewport {...toast} />
   </div>;

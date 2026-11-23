@@ -1,5 +1,6 @@
+import { IconButton } from "open-design-ui/icon-button";
 import { useI18n } from "../i18n/I18n";
-import { RemixIcon } from "../icons/RemixIcons";
+import { MotionIcon } from "../motion/icons";
 import { usePlayerStore } from "../player";
 import type { TimelineEditCallbacks } from "../player/components/timelineCallbacks";
 import { applyClipStartTrimDelta, clipStartTrimDeltaBounds, resolveTimelineMinDuration } from "../player/components/timelineGroupEditing";
@@ -18,7 +19,7 @@ export function TimelineTrimButtons({ onResize }: { onResize?: TimelineEditCallb
   return <>{(["start", "end"] as const).map(edge => {
     const label = t(edge === "start" ? "Trim left to playhead" : "Trim right to playhead");
     const valid = enabled && (edge === "start" ? element.start + element.duration - time : time - element.start) >= minimum;
-    return <Tooltip key={edge} label={label}><button type="button" aria-label={label} disabled={!valid}
+    return <Tooltip key={edge} label={label}><IconButton variant="plain" type="button" aria-label={label} disabled={!valid}
       className={valid ? flatIdle : flatDisabled} onClick={() => {
         if (!valid || !element) return;
         if (edge === "end") void onResize?.(element, { start: element.start, duration: time - element.start });
@@ -27,6 +28,6 @@ export function TimelineTrimButtons({ onResize }: { onResize?: TimelineEditCallb
           const delta = Math.min(bounds.maxDelta, Math.max(bounds.minDelta, time - element.start));
           void onResize?.(element, applyClipStartTrimDelta(element, delta));
         }
-      }}><RemixIcon name={edge === "start" ? "skip-left-line" : "skip-right-line"} size={16} /></button></Tooltip>;
+      }} icon={<MotionIcon name={edge === "start" ? "timeline-trim-left" : "timeline-trim-right"} size={16} />} /></Tooltip>;
   })}</>;
 }

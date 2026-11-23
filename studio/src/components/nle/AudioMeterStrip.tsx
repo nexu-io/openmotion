@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import {
   memo,
@@ -248,7 +249,7 @@ function useMeterLoop(
 function ClipLight({ clip }: { clip: RefObject<ClipLatch> }) {
   const { t } = useI18n();
   return (
-    <button
+    <Button variant="plain"
       type="button"
       data-testid="meter-clip-light"
       data-lit="false"
@@ -263,7 +264,7 @@ function ClipLight({ clip }: { clip: RefObject<ClipLatch> }) {
       }}
       className="rounded-[2px] px-1 font-mono text-[9px] leading-[14px] font-bold tracking-wide"
     >
-      {t("CLIP")}</button>
+      {t("CLIP")}</Button>
   );
 }
 

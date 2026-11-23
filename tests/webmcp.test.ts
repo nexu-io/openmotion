@@ -16,6 +16,8 @@ const inputs: Record<string, object> = {
   openmotion_media_use: { action: 'inspect' },
   openmotion_list_templates: {},
   openmotion_get_template: { templateId: 'decision-tree' },
+  openmotion_list_skills: {},
+  openmotion_get_skill: { skillId: 'openmotion-design-remix' },
   openmotion_create_project: { requestId: 'create', projectType: 'natural_language', title: 'WebMCP', requirements: 'Silent test' },
   openmotion_open_preview: { projectId },
   openmotion_import_assets: { projectId, requestId: 'import', items: [{ itemId: 'one', sourcePath: '/tmp/asset.png' }] },
@@ -25,19 +27,26 @@ const inputs: Record<string, object> = {
   openmotion_list_versions: { projectId },
   openmotion_restore_version: { projectId, requestId: 'restore', versionId: 'v1', expectedRevision: revision, expectedVersionId: 'v2' },
   openmotion_export_cancel: { projectId, requestId: 'cancel', jobId: 'job' },
+  openmotion_design_catalog: { action: 'list_scenarios' },
+  openmotion_design_project: { action: 'list' },
+  openmotion_design_edit: { action: 'list_versions', projectId },
+  openmotion_design_comments: { action: 'list', projectId },
 };
 
-test('all sixteen registered domain names reuse public schemas and forward unchanged inputs and results', async () => {
+test('all twenty-two registered domain names reuse public schemas and forward unchanged inputs and results', async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
   const result = { projectId, previewHandoff: { state: 'pending' }, nested: { value: 42 } };
   const tools = buildOpenMotionWebMcpTools(async (url, init) => { calls.push({ url, init }); return Response.json(result); });
-  assert.equal(tools.length, 16);
+  assert.equal(tools.length, 22);
   assert.deepEqual(tools.map(tool => tool.name).sort(), Object.keys(inputs).sort());
+  // Game tools are external-Agent-only and deliberately excluded from WebMCP.
+  const browserTools = phase1Tools.filter(tool => !tool.name.startsWith('openmotion_game_'));
+  assert.deepEqual(tools.map(tool => tool.name), browserTools.map(tool => tool.name));
   for (const [i, tool] of tools.entries()) {
-    assert.equal(tool.inputSchema, phase1Tools[i].inputSchema);
-    assert.equal(tool.title, phase1Tools[i].title);
-    assert.ok(tool.description.startsWith(phase1Tools[i].description));
-    assert.equal(tool.annotations.readOnlyHint, phase1Tools[i].annotations.readOnlyHint);
+    assert.equal(tool.inputSchema, browserTools[i].inputSchema);
+    assert.equal(tool.title, browserTools[i].title);
+    assert.ok(tool.description.startsWith(browserTools[i].description));
+    assert.equal(tool.annotations.readOnlyHint, browserTools[i].annotations.readOnlyHint);
     const controller = new AbortController();
     assert.deepEqual(await tool.execute(inputs[tool.name], { signal: controller.signal }), result);
     assert.equal(calls[i].url, '/motion-api/phase1/call');

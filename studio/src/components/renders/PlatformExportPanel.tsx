@@ -8,7 +8,7 @@ import { useWorkspaceChrome } from '../../motion/WorkspaceChromeContext';
 import { useIntegrationInfo } from '../../motion/useIntegrationInfo';
 import { Skeleton } from '../ui/Skeleton';
 import { StudioToastViewport } from '../StudioToastViewport';
-import { Button } from '../ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Select } from '../ui/Select';
 import { ChoiceTiles } from '../ui/ChoiceTiles';
 import { PlatformIcon } from '../../../../packages/design-system/react/PlatformIcon';

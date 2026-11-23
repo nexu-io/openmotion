@@ -5,7 +5,7 @@ import { useEffect, useRef, type RefObject } from 'react';
  * One observer per card kind serves the gallery. `resultKey` names the current search, filter and sort combination: when it
  * changes, cards still on screen are timed again. `onSeen` returns false to be asked again after another second.
  */
-export function useTemplateImpressions(root: RefObject<HTMLElement | null>, catalogKey: string, enabled: boolean, resultKey: string, onSeen: (id: string) => boolean, attribute: 'data-template-id' | 'data-series-id' = 'data-template-id') {
+export function useTemplateImpressions(root: RefObject<HTMLElement | null>, catalogKey: string, enabled: boolean, resultKey: string, onSeen: (id: string) => boolean, attribute: 'data-template-id' | 'data-series-id' | 'data-reference-entry' = 'data-template-id') {
   const seen = useRef(onSeen); seen.current = onSeen;
   const restart = useRef<() => void>(() => {});
   useEffect(() => {

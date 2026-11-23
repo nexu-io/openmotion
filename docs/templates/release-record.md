@@ -39,12 +39,12 @@ Use PASS / FAIL / NOT RUN and link retained evidence. CI success alone cannot fi
 - Approved exact version and TGZ SHA256:
 - Reviewer / date / explicit release authorization:
 - Internal retained record revision / filename (keep this private):
-- The release operator selects the matching test/stable channel and this exact version in Motion npm publication. No acceptance checkbox or independent approval environment is enabled; the operator remains responsible for completing required stable checks before dispatch. Record failures and unrun checks honestly.
+- In **Motion package and release**, select `main`, `mode=publish` and the matching `test` or `stable` channel. Enter this exact version and the accepted build's `candidate_run_id` from its Actions summary to reuse this package. The default `prepublish` mode only builds and validates a candidate. Complete the required stable acceptance checks before dispatch. Record failures and unrun checks honestly.
 
 ## Publication follow-up
 
 - Publication run / npm exact version / registry hash and integrity:
-- Native registry cold-install report per platform, including embedded/installed template environment:
+- Pre-publication candidate cold-install report for macOS and Windows, including embedded and installed template environments:
 - Verified npm test/latest promotion / prior channel version / promotion run:
 - Immutable R2 version / release-record / guide URL and verified hash:
 - Default entry / previous entry / final publication phase:

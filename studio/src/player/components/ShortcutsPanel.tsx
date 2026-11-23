@@ -1,3 +1,5 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { useState, useCallback, useRef, memo } from "react";
 import { formatTime, frameToSeconds } from "../lib/time";
@@ -75,12 +77,11 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
         initialFocus={panelBodyRef}
         className="flex max-h-[min(280px,var(--available-height))] min-w-[220px] flex-col border-border bg-raised p-0"
         trigger={
-          <button
+          <IconButton variant="plain"
             type="button"
             className={`${showShortcuts ? flatActive : flatIdle} shrink-0`}
             aria-label={t("Shortcuts and tools")}
-          >
-            <svg
+            icon={<svg
               width="11"
               height="11"
               viewBox="0 0 24 24"
@@ -93,8 +94,8 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
             >
               <rect x="2" y="4" width="20" height="16" rx="2" />
               <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8" />
-            </svg>
-          </button>
+            </svg>}
+          />
         }
       >
         <div ref={panelBodyRef} tabIndex={-1} className="min-h-0 overflow-y-auto outline-hidden">
@@ -115,12 +116,12 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
                 onBlur={commitJumpFrame}
               />
               <Tooltip label={t("Jump to frame")}>
-                <button
+                <Button variant="plain"
                   type="submit"
                   disabled={disabled}
                   className="h-6 px-2 rounded-sm border border-neutral-700 text-[10px] text-neutral-300 transition-colors hover:border-neutral-500 hover:bg-neutral-800 disabled:opacity-40"
                 >
-                  {t("Go")}</button>
+                  {t("Go")}</Button>
               </Tooltip>
             </form>
           </div>
@@ -143,13 +144,12 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
                         {formatTime(inPoint)}
                       </span>
                       <Tooltip label={t("Clear in-point")}>
-                        <button
+                        <IconButton variant="plain"
                           type="button"
                           onClick={() => setInPoint(null)}
                           className="w-4 h-4 flex items-center justify-center rounded-sm text-neutral-500 hover:text-neutral-200 transition-colors"
                           aria-label={t("Clear in-point")}
-                        >
-                          <svg
+                          icon={<svg
                             width="8"
                             height="8"
                             viewBox="0 0 24 24"
@@ -158,8 +158,8 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
                             strokeWidth="2.5"
                           >
                             <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
+                          </svg>}
+                        />
                       </Tooltip>
                     </>
                   ) : (
@@ -181,13 +181,12 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
                         {formatTime(outPoint)}
                       </span>
                       <Tooltip label={t("Clear out-point")}>
-                        <button
+                        <IconButton variant="plain"
                           type="button"
                           onClick={() => setOutPoint(null)}
                           className="w-4 h-4 flex items-center justify-center rounded-sm text-neutral-500 hover:text-neutral-200 transition-colors"
                           aria-label={t("Clear out-point")}
-                        >
-                          <svg
+                          icon={<svg
                             width="8"
                             height="8"
                             viewBox="0 0 24 24"
@@ -196,8 +195,8 @@ export const ShortcutsPanel = memo(function ShortcutsPanel({
                             strokeWidth="2.5"
                           >
                             <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
+                          </svg>}
+                        />
                       </Tooltip>
                     </>
                   ) : (

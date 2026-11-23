@@ -106,3 +106,19 @@ it('checks an eligible original Cloud task once and shows reconnection without n
   expect(container.textContent).toContain('Reconnecting…');
   expect(cancel).not.toHaveBeenCalled();
 });
+
+it('continues the original account image download with progress and guards duplicate clicks', async () => {
+  let finish!: () => void;
+  const resume = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const job: GenerationJob = { ...initial, prompt: 'original prompt', model: { ...initial.model, provider: 'account' }, modality: 'image', state: 'failed', remoteId: 'original-task',
+    download: { assetId: 'original-image', receivedBytes: 1048576, totalBytes: 4194304 } };
+  await act(async () => root.render(<AssetGenerationCard job={job} onCancel={cancel} onView={view} onResume={resume} />));
+  expect(container.textContent).toContain('original prompt'); expect(container.textContent).toContain('1.0 / 4.0 MB');
+  expect(container.textContent).toContain('Draft changes apply only to your next generation.');
+  const button = [...container.querySelectorAll('button')].find(node => node.textContent === 'Continue download')!;
+  await act(async () => { button.click(); button.click(); });
+  expect(resume).toHaveBeenCalledExactlyOnceWith(job); expect(button.disabled).toBe(true);
+  await act(async () => finish()); expect(button.disabled).toBe(false);
+  await act(async () => root.render(<AssetGenerationCard job={{ ...job, remoteTerminal: true }} onCancel={cancel} onView={view} onResume={resume} />));
+  expect(container.textContent).not.toContain('Continue download');
+});

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 
 export const MAX_TEMPLATE_PLAYERS = 8;
 /** One observer and a bounded decoder budget for the whole gallery. No offscreen video sources. */
-export function useTemplatePlayback(root: RefObject<HTMLElement | null>, catalogKey: string, enabled: boolean, autoplay: boolean, priority: string | null, priorityOnly = false) {
+export function useTemplatePlayback(root: RefObject<HTMLElement | null>, catalogKey: string, enabled: boolean, autoplay: boolean, priority: string | null, priorityOnly = false, playerBudget = MAX_TEMPLATE_PLAYERS) {
   const [active, setActive] = useState<Set<string>>(new Set());
   const controls = useRef({ autoplay, priority });
   const refresh = useRef<() => void>(() => {});
@@ -22,19 +22,20 @@ export function useTemplatePlayback(root: RefObject<HTMLElement | null>, catalog
       // user is actively hovering/focusing instead of starting several iframe
       // runtimes as soon as the masonry enters the viewport.
       const scoped = priorityOnly ? (priority ? candidates.filter(([id]) => id === priority) : []) : candidates;
-      const ids = allowed ? scoped.filter(([id]) => !connection?.saveData || id === priority).slice(0, compact.matches ? 4 : MAX_TEMPLATE_PLAYERS).map(([id]) => id) : [];
+      const ids = allowed ? scoped.filter(([id]) => !connection?.saveData || id === priority).slice(0, Math.min(playerBudget, compact.matches ? 4 : MAX_TEMPLATE_PLAYERS)).map(([id]) => id) : [];
       setActive(previous => previous.size === ids.length && ids.every(id => previous.has(id)) ? previous : new Set(ids));
     };
     refresh.current = update;
     const observer = new IntersectionObserver(entries => {
       for (const entry of entries) {
-        const id = (entry.target as HTMLElement).dataset.templateId!;
+        const { playbackId, templateId } = (entry.target as HTMLElement).dataset;
+        const id = playbackId ?? templateId!;
         if (entry.isIntersecting && entry.intersectionRatio >= 0.2) visible.set(id, entry.intersectionRatio);
         else visible.delete(id);
       }
       update();
     }, { root: container, threshold: [0, 0.2, 0.5, 1] });
-    container.querySelectorAll('[data-template-id][data-has-video="true"]').forEach(element => observer.observe(element));
+    container.querySelectorAll('[data-template-id][data-has-video="true"], [data-playback-id]').forEach(element => observer.observe(element));
     document.addEventListener('visibilitychange', update);
     media.addEventListener('change', update); compact.addEventListener('change', update);
     connection?.addEventListener('change', update);
@@ -44,6 +45,6 @@ export function useTemplatePlayback(root: RefObject<HTMLElement | null>, catalog
       observer.disconnect(); document.removeEventListener('visibilitychange', update);
       media.removeEventListener('change', update); compact.removeEventListener('change', update); connection?.removeEventListener('change', update);
     };
-  }, [root, catalogKey, enabled]);
+  }, [root, catalogKey, enabled, priorityOnly, playerBudget]);
   return active;
 }

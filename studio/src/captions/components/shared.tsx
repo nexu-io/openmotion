@@ -1,3 +1,5 @@
+import { FieldInput } from "../../components/ui/FormField";
+import { OverflowText } from "../../components/ui/OverflowText";
 import { useI18n } from "../../i18n/I18n";
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
@@ -20,10 +22,10 @@ export function Section({ label, children }: { label: string; children: React.Re
 
 export function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-2xs text-neutral-600 w-14 text-right shrink-0">{label}</span>
+    <label className="flex min-w-0 items-center gap-2">
+      <OverflowText text={label} className="min-w-0 max-w-[45%] shrink-0 truncate text-2xs text-neutral-600" />
       <div className="flex-1 min-w-0">{children}</div>
-    </div>
+    </label>
   );
 }
 
@@ -80,7 +82,7 @@ export function NumberField({
   };
 
   return (
-    <input
+    <FieldInput
       type="number"
       className={inputCls}
       value={display}

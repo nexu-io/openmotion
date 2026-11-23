@@ -1,9 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
-import type { TimelineTimeRange } from "../lib/timelineClipIndex";
 import { usePlayerStore } from "../store/playerStore";
-import { markTimelineMotion, TIMELINE_REST_MS } from "./timelineMotion";
-import { getTimelineRenderTimeRange } from "./timelineViewportGeometry";
+import { markTimelineMotion } from "./timelineMotion";
 import {
   clampTimelineZoomPercent,
   getNextTimelineZoomPercent,
@@ -31,35 +29,19 @@ export interface TimelineZoomViewport {
 /** How an eased zoom ended: it reached its range, or a person's zoom or the caller stopped it. */
 export type TimelineZoomResult = "done" | "cancelled";
 
-/**
- * A zoom drawn by scaling what is already laid out, on the compositor, until it is committed.
- * `shift` is the scrollLeft minus the scrollLeft the zoom will have: the translate that places it.
- */
+/** Latest requested geometry, coalesced until the next animation frame. */
 interface ZoomPreview {
   percent: number;
   pps: number;
   shift: number;
   basePps: number;
-  /** The times laid out (clips mounted, ruler drawn) when it began; past them it shows gaps. */
-  drawn: TimelineTimeRange;
   byPerson: boolean;
 }
 
 const SMOOTH_ZOOM_MS = 220;
-/** Past this the scaled-up preview turns soft. */
-const MAX_PREVIEW_SCALE = 4;
-/** Rounding at a drawn edge (whole-pixel content width, the fit track's 2px) is not a gap. */
-const EDGE_SLACK_PX = 2;
-const SCALED = "[data-timeline-zoom-scale]";
-const RULER_MARKS = "[data-timeline-ruler-time]";
-const PREVIEW_NODES = `${SCALED}, ${RULER_MARKS}`;
-
 let viewport: TimelineZoomViewport | null = null;
-/** While a preview shows, scales rows and strips React mounts into the timeline before they paint. */
-let mounts: MutationObserver | null = null;
 let preview: ZoomPreview | null = null;
 let frame = 0;
-let restTimer: ReturnType<typeof setTimeout> | null = null;
 let anchorForCommit: TimelineZoomAnchor | null = null;
 let animation = 0;
 let resolveEase: ((result: TimelineZoomResult) => void) | null = null;
@@ -91,7 +73,7 @@ export function timelineZoomMapping(pps: number, contentOrigin: number) {
     : { pps, contentOrigin };
 }
 
-/** Whether a zoom is drawn scaled right now, so boxes read off the page are scaled too. */
+/** Whether zoom input is waiting for its next layout frame. */
 export const isTimelineZoomPreviewing = (): boolean => preview !== null;
 
 /** Called each frame a zoom preview moves, and once when it is laid out or dropped. */
@@ -130,91 +112,22 @@ function writeZoom(percent: number, anchor: TimelineZoomAnchor | null, byPerson:
 
 const emitPreview = () => previewListeners.forEach((listener) => listener());
 
-/** Stops the pending preview frame, rest timer and mount watch. */
+/** Stops the pending layout frame. */
 function cancelPending() {
-  mounts?.disconnect();
-  mounts = null;
-  if (restTimer) clearTimeout(restTimer);
-  restTimer = null;
   cancelAnimationFrame(frame);
   frame = 0;
 }
 
-function clearScaled(scroll: HTMLElement) {
-  scroll.querySelectorAll<HTMLElement>(SCALED).forEach((el) => {
-    el.style.transform = "";
-    el.style.transformOrigin = "";
-    el.style.willChange = "";
-  });
-  scroll.querySelectorAll<HTMLElement>(RULER_MARKS).forEach((el) => {
-    el.style.transform = "";
-    el.style.removeProperty("--timeline-ruler-scale");
-  });
-}
-
-/** Whether the preview shows time outside what was mounted, or is scaled up too far. */
-function previewNeedsLayout(p: ZoomPreview, scroll: HTMLDivElement, contentOrigin: number) {
-  if (p.pps / p.basePps > MAX_PREVIEW_SCALE) return true;
-  const left = scroll.scrollLeft - p.shift;
-  const start = left / p.pps;
-  const end = (left + scroll.clientWidth - contentOrigin) / p.pps;
-  const slack = EDGE_SLACK_PX / p.pps;
-  return start < p.drawn.start - slack || end > p.drawn.end + slack;
-}
-
-/** The times laid out now: the render window clips, ruler ticks and beat lines are drawn in. */
-function drawnRange(scroll: HTMLDivElement, pps: number, contentOrigin: number): TimelineTimeRange {
-  const contentEnd = (scroll.scrollWidth - contentOrigin) / pps;
-  return getTimelineRenderTimeRange(scroll, pps, contentOrigin, contentEnd);
-}
-
-function scalePreview(scroll: HTMLElement) {
-  if (!preview) return;
-  const transform = `translateX(${preview.shift}px) scaleX(${preview.pps / preview.basePps})`;
-  scroll.querySelectorAll<HTMLElement>(SCALED).forEach((el) => {
-    // The attribute's value is where time zero sits in the element, when not at its left edge.
-    el.style.transformOrigin = `${el.dataset.timelineZoomScale || 0}px 0`;
-    el.style.willChange = "transform";
-    el.style.transform = transform;
-  });
-  // Translate each tick instead of rasterizing text inside a scaled parent.
-  // Inverse child scaling can preserve DOM bounds while glyphs still stretch during compositing.
-  const deltaPps = preview.pps - preview.basePps;
-  const shift = preview.shift;
-  const scale = String(preview.pps / preview.basePps);
-  scroll.querySelectorAll<HTMLElement>(RULER_MARKS).forEach((el) => {
-    const time = Number(el.dataset.timelineRulerTime);
-    el.style.transform = `translateX(${time * deltaPps + shift}px)`;
-    el.style.setProperty("--timeline-ruler-scale", scale);
-  });
-}
-
-const holdsScaled = (node: Node) =>
-  node instanceof Element && (node.matches(PREVIEW_NODES) || node.querySelector(PREVIEW_NODES) !== null);
-
-function watchMounts(scroll: HTMLElement): MutationObserver {
-  const observer = new MutationObserver((records) => {
-    if (records.some((record) => [...record.addedNodes].some(holdsScaled))) scalePreview(scroll);
-  });
-  observer.observe(scroll, { childList: true, subtree: true });
-  return observer;
-}
-
+/**
+ * Recompute clip widths, thumbnail tiles and ruler ticks at the requested scale before paint.
+ * Scaling an existing row stretches its rasterized images and glyphs until the gesture rests.
+ * Coalescing input once per frame keeps wheel/slider bursts bounded without that distortion.
+ */
 function drawPreview() {
-  cancelAnimationFrame(frame);
-  frame = 0;
-  const view = viewport;
-  if (!preview || !view) return;
-  if (previewNeedsLayout(preview, view.scroll, view.contentOrigin)) {
-    commitPreview();
-    return;
-  }
-  scalePreview(view.scroll);
-  mounts ??= watchMounts(view.scroll);
-  emitPreview();
+  commitPreview();
 }
 
-/** Lays the previewed zoom out for real and drops the scaling in the same frame. */
+/** Commits the requested scale and its scroll anchor together before paint. */
 function commitPreview() {
   cancelPending();
   const view = viewport;
@@ -232,7 +145,6 @@ function commitPreview() {
     view.scroll.scrollLeft = left;
     flushSync(() => view.publishScroll(view.scroll));
   }
-  clearScaled(view.scroll);
   emitPreview();
 }
 
@@ -264,7 +176,6 @@ function request(percent: number, anchor: TimelineZoomAnchor | null, byPerson: b
     pps,
     shift: 0,
     basePps: now.pps,
-    drawn: drawnRange(scroll, now.pps, contentOrigin),
     byPerson,
   };
   // The content's width at this scale: the fit track (getTimelineFitPps), never narrower.
@@ -277,13 +188,10 @@ function request(percent: number, anchor: TimelineZoomAnchor | null, byPerson: b
   preview.shift = scroll.scrollLeft - left;
   preview.byPerson ||= byPerson;
   if (!frame) frame = requestAnimationFrame(drawPreview);
-  if (restTimer) clearTimeout(restTimer);
-  restTimer = setTimeout(commitPreview, TIMELINE_REST_MS);
-  // After the commit timer of the same delay, so the zoom is laid out before the timeline rests.
   markTimelineMotion();
 }
 
-/** A person's zoom input: previewed each frame, laid out once it rests. */
+/** A person's zoom input: coalesced and laid out on the next frame. */
 export function requestTimelineZoom(percent: number, anchor: TimelineZoomAnchor | null = null) {
   stopEase();
   request(percent, anchor, true);
@@ -294,7 +202,7 @@ export function settleTimelineZoom(): void {
   if (preview) commitPreview();
 }
 
-/** After a scroll: scales what it mounted, or lays the zoom out if it shows past what is drawn. */
+/** After a scroll, commit any pending zoom geometry before the next paint. */
 export function redrawTimelineZoomPreview(): void {
   if (preview && !frame) frame = requestAnimationFrame(drawPreview);
 }
@@ -308,7 +216,6 @@ export function cancelTimelineZoom(): void {
 function dropPreview() {
   cancelPending();
   if (!preview) return;
-  if (viewport) clearScaled(viewport.scroll);
   preview = null;
   emitPreview();
 }
@@ -417,7 +324,6 @@ function easeZoom(
   const from = shown(view.scroll);
   const toPps = getTimelinePixelsPerSecond(fitPps, "manual", toPercent);
   const fromStart = timelineTimeAtX(x)!;
-  const old = currentTimelineRange()!;
   // The one point both views put at the same place on screen; zooming about it, in log space,
   // moves every frame straight from the old view to the new. Equal scales are a plain scroll.
   const shift = from.pps === toPps ? null : (start - fromStart) / (1 / from.pps - 1 / toPps);
@@ -425,22 +331,12 @@ function easeZoom(
     shift === null
       ? { time: fromStart + (start - fromStart) * k, x }
       : { time: fromStart + shift / from.pps, x: x + shift };
-  // Zooming out to a view that holds the old one: lay the target out once, in the first frame,
-  // and ease by scaling it down from the old view, instead of laying out again partway.
-  const holdsOld =
-    old.start >= start && old.end <= start + (old.end - old.start) * (from.pps / toPps);
-  let layoutFirst = toPps < from.pps && from.pps / toPps <= MAX_PREVIEW_SCALE && holdsOld;
   const began = performance.now();
   const step = (now: number) => {
-    if (layoutFirst) {
-      layoutFirst = false;
-      request(toPercent, to, false);
-      commitPreview();
-    }
     const t = Math.min(1, Math.max(0, (now - began) / SMOOTH_ZOOM_MS));
     const k = 1 - (1 - t) ** 3;
     request(fromPercent * (toPercent / fromPercent) ** k, anchorAt(k), false);
-    // Drawn in this frame, not the next: the first one would otherwise paint a laid-out zoom-out bare.
+    // Commit this eased step before paint, using the same layout path as wheel and slider input.
     drawPreview();
     if (t < 1) animation = requestAnimationFrame(step);
     else finish();

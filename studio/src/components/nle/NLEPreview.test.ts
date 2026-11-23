@@ -104,7 +104,7 @@ function renderPreview(
   document.body.append(host);
   const root = createRoot(host);
   const iframeRef = createRef<HTMLIFrameElement>();
-  const render = (directUrl?: string, projectId = "timeline-edit-playground") =>
+  const render = (directUrl?: string, projectId = "timeline-edit-playground", presentationMode = false) =>
     act(() => {
       root.render(
         React.createElement(StudioHostContext.Provider, { value: { mvpEditor: mvp } }, React.createElement(NLEPreview, {
@@ -119,6 +119,7 @@ function renderPreview(
           setShadowIframeNode: () => {},
           resetPreviewSlots: () => {},
           fillBox,
+          presentationMode,
           zoomControlsTarget,
           compositionSizeHint,
         })),
@@ -462,6 +463,17 @@ describe("NLEPreview", () => {
       view.openProject("another-project");
       expect(view.stage.style.transform).toContain("scale(1)");
       expect(chip(view)).toBeNull();
+      view.cleanup();
+    });
+
+    it('fits fullscreen playback without remounting the player or losing editor zoom', () => {
+      const view = renderPreview(); pinchIn(view, 10);
+      const transform = view.stage.style.transform, player = view.host.querySelector('[data-testid="mock-player"]');
+      view.render(undefined, undefined, true);
+      expect(view.stage.style.transform).toContain('scale(1)'); expect(chip(view)).toBeNull();
+      pinchIn(view, 5); expect(view.stage.style.transform).toContain('scale(1)');
+      view.render(); expect(view.stage.style.transform).toBe(transform);
+      expect(view.host.querySelector('[data-testid="mock-player"]')).toBe(player);
       view.cleanup();
     });
   });

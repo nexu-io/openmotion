@@ -19,7 +19,7 @@ html, body, #root { margin: 0; width: 100%; height: 100%; }
   display: block;
   width: var(--motion-space-40);
   height: var(--motion-space-40);
-  background: currentColor;
+  background: var(--motion-accent);
   -webkit-mask: url('./brand/loading-mark.svg') center / contain no-repeat;
   mask: url('./brand/loading-mark.svg') center / contain no-repeat;
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { DEFAULT_CAPTION_SETTINGS, type CaptionSettings } from '../../../shared/caption-style';
 import type { TranscriptDocument } from '../../../shared/transcript';
-import { Button } from '../components/ui/Button';
+import { Button } from 'open-design-ui/button';
 import { Select } from '../components/ui/Select';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Checkbox } from '../components/ui/Checkbox';

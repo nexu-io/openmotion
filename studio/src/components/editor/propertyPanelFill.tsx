@@ -1,3 +1,7 @@
+import { Button } from "open-design-ui/button";
+import { IconButton } from "open-design-ui/icon-button";
+import { NativeSelect } from "../ui/FormField";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { useMemo, useRef, useState } from "react";
@@ -9,7 +13,6 @@ import {
   serializeGradient,
   type GradientModel,
 } from "./gradientValue";
-import { ReverseGradientIcon } from "../icons/ReverseGradientIcon";
 import { IMAGE_EXT } from "../../utils/mediaTypes";
 import type { DomEditSelection } from "./domEditing";
 import { FIELD, LABEL, RESPONSIVE_GRID } from "./propertyPanelHelpers";
@@ -148,7 +151,7 @@ export function ImageFillField({
       <div className="grid min-w-0 gap-1.5">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <span className={LABEL}>{t("Project asset")}</span>
-          <button
+          <Button variant="plain"
             type="button"
             disabled={disabled || uploading}
             onClick={() => fileInputRef.current?.click()}
@@ -160,7 +163,7 @@ export function ImageFillField({
           >
             <Plus size={12} className="shrink-0" />
             <span className="truncate">{uploading ? t("Uploading…") : t("Upload image")}</span>
-          </button>
+          </Button>
           <input
             ref={fileInputRef}
             type="file"
@@ -190,8 +193,8 @@ export function ImageFillField({
                 />
               </div>
             )}
-            <div className={FIELD}>
-              <select
+            <div className={FIELD} data-form-field="intrinsic">
+              <NativeSelect appearance="embedded"
                 value={selectedAsset ?? ""}
                 disabled={disabled}
                 onChange={(e) => {
@@ -212,7 +215,7 @@ export function ImageFillField({
                     {asset}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
           </div>
         ) : (
@@ -368,7 +371,7 @@ export function GradientField({
               className="h-4 w-4 rounded-sm border-neutral-700 bg-neutral-950 text-accent-ink focus:ring-panel-accent"
             />
             {t("Repeat")}</label>
-          <button
+          <Button variant="plain"
             type="button"
             disabled={disabled}
             onClick={() => {
@@ -383,8 +386,8 @@ export function GradientField({
             }}
             className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-neutral-600 hover:text-text-0 disabled:cursor-not-allowed disabled:text-neutral-600"
           >
-            <ReverseGradientIcon size={16} />
-            {t("Reverse")}</button>
+            <RemixIcon name="exchange-2-line" size={16} />
+            {t("Reverse")}</Button>
         </div>
       </div>
 
@@ -460,7 +463,7 @@ export function GradientField({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <span className={LABEL}>{t("Stops")}</span>
-          <button
+          <Button variant="plain"
             type="button"
             disabled={disabled || parsed.stops.length >= 6}
             onClick={() => addStop()}
@@ -468,39 +471,41 @@ export function GradientField({
             className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-neutral-700 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-neutral-600 hover:text-text-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:text-neutral-600"
           >
             <Plus size={12} />
-            {t("Add stop")}</button>
+            {t("Add stop")}</Button>
         </div>
         <div className="space-y-3">
           {parsed.stops.map((stop, index) => (
             <div
               key={`stop-editor-${index}`}
-              className="grid min-w-0 grid-cols-[minmax(0,1fr)_68px_28px] gap-2"
+              className="flex min-w-0 flex-wrap items-end gap-2"
             >
               <ColorField
+                layout="stacked"
                 label={t("Stop {value0}", { value0: index + 1 })}
                 value={stop.color}
                 disabled={disabled}
                 onCommit={(next) => updateStop(index, { color: next })}
               />
-              <DetailField
-                label={t("Pos")}
-                value={`${Math.round(stop.position)}%`}
-                disabled={disabled}
-                onCommit={(next) =>
-                  updateStop(index, {
-                    position: Number.parseFloat(next.replace("%", "")) || 0,
-                  })
-                }
-              />
-              <button
+              <div className="w-[68px]">
+                <DetailField
+                  label={t("Pos")}
+                  value={`${Math.round(stop.position)}%`}
+                  disabled={disabled}
+                  onCommit={(next) =>
+                    updateStop(index, {
+                      position: Number.parseFloat(next.replace("%", "")) || 0,
+                    })
+                  }
+                />
+              </div>
+              <IconButton variant="plain"
                 type="button"
                 disabled={disabled || parsed.stops.length <= 2}
                 onClick={() => removeStop(index)}
                 className="mt-[22px] flex h-10 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-950 text-neutral-400 transition-colors hover:border-neutral-600 hover:text-text-0 disabled:cursor-not-allowed disabled:text-text-off"
                 aria-label={t("Remove stop {value0}", { value0: index + 1 })}
-              >
-                <X size={12} />
-              </button>
+                icon={<X size={12} />}
+              />
             </div>
           ))}
         </div>

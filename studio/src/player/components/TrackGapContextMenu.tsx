@@ -1,3 +1,4 @@
+import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { memo } from "react";
 import { createPortal } from "react-dom";
@@ -78,7 +79,7 @@ export const TrackGapContextMenu = memo(function TrackGapContextMenu({
       style={{ left: adjustedX, top: adjustedY }}
       onPointerLeave={() => onHoverAction(null)}
     >
-      <button
+      <Button variant="plain"
         type="button"
         className={itemClass(canCloseGap)}
         disabled={!canCloseGap}
@@ -94,8 +95,8 @@ export const TrackGapContextMenu = memo(function TrackGapContextMenu({
         {gapWidth != null && (
           <span className="text-neutral-500 text-[10px] ml-3">{gapWidth.toFixed(2)}s</span>
         )}
-      </button>
-      <button
+      </Button>
+      <Button variant="plain"
         type="button"
         className={itemClass(canCloseAllGaps)}
         disabled={!canCloseAllGaps}
@@ -108,7 +109,7 @@ export const TrackGapContextMenu = memo(function TrackGapContextMenu({
         }}
       >
         <span>{t("Close all gaps")}</span>
-      </button>
+      </Button>
     </div>,
     document.body,
   );

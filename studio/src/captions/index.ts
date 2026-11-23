@@ -4,7 +4,6 @@ export type { TranscriptWord } from "./parser";
 export { generateCaptionHtml } from "./generator";
 export { CaptionOverlay } from "./components/CaptionOverlay";
 export { CaptionPropertyPanel } from "./components/CaptionPropertyPanel";
-export { CaptionAnimationPanel } from "./components/CaptionAnimationPanel";
 export { CaptionTimeline } from "./components/CaptionTimeline";
 export { useCaptionSync } from "./hooks/useCaptionSync";
 export type * from "./types";

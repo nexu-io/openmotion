@@ -208,7 +208,11 @@ const moveOf = ref => { const [lid, idx] = ref.split(':'); return lanes.find(l =
 // ---------- shared scene pieces ----------
 const FONT = zh ? `'Outfit','PingFang SC','Noto Sans SC','Noto Sans JP',sans-serif` : `'Outfit','Inter',sans-serif`;
 const MONO = `'JetBrains Mono','IBM Plex Mono',monospace`;
+// CJK system fonts have no downloadable file; declare them with local() so the OpenMotion font check passes.
+const CJK_FACES = zh ? ['PingFang SC', 'Noto Sans SC', 'Noto Sans JP']
+  .map(name => `@font-face{font-family:'${name}';src:local('${name}');font-display:block}`).join('\n  ') : '';
 const baseCss = id => `
+  ${CJK_FACES}
   #root{position:absolute;inset:0;overflow:hidden;background:${C.bg};font-family:${FONT};color:${C.ink}}
   #${id}-bg{position:absolute;inset:-10%;background:
     radial-gradient(40% 45% at 12% 8%, rgba(147,197,253,.30), transparent 70%),
@@ -585,6 +589,7 @@ await writeFile(path.join(out, 'index.html'), `<!doctype html>
 <html lang="${zh ? 'zh' : 'en'}">
 <head>
   <meta charset="utf-8">
+  <meta name="generator" content="openmotion-growth-teardown">
   <title>${esc(company)} · growth teardown</title>
   <script src="assets/gsap.min.js"></script>
   <style>body{margin:0;background:${C.bg}}#main{position:relative;width:${W}px;height:${H}px;overflow:hidden}</style>

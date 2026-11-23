@@ -24,20 +24,20 @@ const GHOST_MID = getTimelineRowTop(3) + TRACK_H / 2;
 const ROW1_MID = getTimelineRowTop(1) + TRACK_H / 2;
 
 describe("Timeline ghost lane", () => {
-  it("draws one empty track below the last with a drop hint", async () => {
+  it("draws one empty track below the last without a persistent hint", async () => {
     const { root, ghost } = await mountThreeTracks({ onAssetDrop: vi.fn() });
-    expect(ghost()?.textContent).toBe("Drop media here");
+    expect(ghost()?.textContent).toBe("");
     expect(ghost()?.getAttribute("aria-hidden")).toBe("true");
     expect(ghost()?.style.top).toBe(`${getTimelineRowTop(3) + CLIP_Y}px`);
     expect(ghost()?.dataset.active).toBeUndefined();
     act(() => root.unmount());
   });
 
-  it("localizes the drop hint in the product language", async () => {
+  it("keeps the lane text-free in other product languages", async () => {
     const onAssetDrop = vi.fn();
     const { root, ghost } = await mountThreeTracks({ onAssetDrop });
     act(() => root.render(<I18nProvider initialLocale="de"><Timeline onAssetDrop={onAssetDrop} /></I18nProvider>));
-    expect(ghost()?.textContent).toBe("Medien hier ablegen");
+    expect(ghost()?.textContent).toBe("");
     act(() => root.unmount());
   });
 

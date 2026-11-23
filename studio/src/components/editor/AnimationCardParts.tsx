@@ -1,3 +1,7 @@
+import { IconButton } from "open-design-ui/icon-button";
+import { Button } from "open-design-ui/button";
+import { FieldInput, NativeSelect } from "../ui/FormField";
+import { RemixIcon } from "../../icons/RemixIcons";
 import { useI18n } from "../../i18n/I18n";
 import { MetricField } from "./propertyPanelPrimitives";
 import {
@@ -44,24 +48,14 @@ function adjustedValue(prop: string, raw: string): string {
 
 function RemoveButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
-    <button
+    <IconButton variant="plain"
       type="button"
       onClick={onClick}
       className="relative shrink-0 rounded-sm p-1.5 text-neutral-600 transition-colors hover:bg-neutral-800 hover:text-danger-ink active:scale-[0.95]"
       title={title}
       aria-label={title}
-    >
-      <svg
-        width="12"
-        height="12"
-        viewBox="0 0 12 12"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-      >
-        <path d="M3 3l6 6M9 3l-6 6" />
-      </svg>
-    </button>
+      icon={<RemixIcon name="close-line" size={12} />}
+    />
   );
 }
 
@@ -122,7 +116,7 @@ export function PropertyRow({
             <span className="shrink-0 text-[11px] font-medium text-neutral-500">
               {t(PROP_LABELS[prop] ?? prop)}
             </span>
-            <input
+            <FieldInput
               type="text"
               defaultValue={String(val)}
               className="flex-1 bg-transparent text-[11px] text-neutral-200 outline-hidden"
@@ -137,14 +131,14 @@ export function PropertyRow({
         {presets.length > 0 && (
           <div className="flex gap-1 pl-1">
             {presets.map((p) => (
-              <button
+              <Button variant="plain"
                 key={p.value}
                 type="button"
                 onClick={() => onCommit(p.value)}
                 className="px-1.5 py-0.5 rounded-sm text-[9px] font-medium text-neutral-500 bg-neutral-800/50 hover:bg-neutral-800 hover:text-neutral-300 transition-colors"
               >
                 {t(p.label)}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -191,7 +185,7 @@ export function AddPropertyTrigger({
   const { t } = useI18n();
   if (adding && available.length > 0) {
     return (
-      <select
+      <NativeSelect
         autoFocus
         className="min-w-0 rounded-lg border border-neutral-700 bg-neutral-900 px-2 py-1 text-[11px] text-neutral-100 outline-hidden"
         defaultValue=""
@@ -208,14 +202,14 @@ export function AddPropertyTrigger({
             {PROP_LABELS[p] ?? p}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     );
   }
   if (available.length === 0) return null;
   return (
-    <button type="button" onClick={onOpen} className={buttonClassName} title={addTitle}>
+    <Button variant="plain" type="button" onClick={onOpen} className={buttonClassName} title={addTitle}>
       {addLabel}
-    </button>
+    </Button>
   );
 }
 
