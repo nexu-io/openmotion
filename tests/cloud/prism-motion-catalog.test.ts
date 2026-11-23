@@ -90,6 +90,7 @@ test('rejects reserved or duplicated template IDs and conflicting, incomplete, o
     d => { d.content.en.templates.push(d.content.en.templates[0]); },
     d => { d.content['zh-CN'].templates[0].files.push(d.content['zh-CN'].templates[0].files[0]); },
     d => { d.content['zh-CN'].templates[0].files[0].path = '../index.html'; },
+    d => { d.content['zh-CN'].templates[0].files.push({ path: 'dist/gsap.min.js', sha256: sha, bytes: 23, url }); },
     d => { d.content['zh-CN'].templates[0].files[0].url = url.replace('open-design.ai','other.test'); },
     d => { d.content['zh-CN'].templates[0].files[0].url = guide; },
     d => { d.content['zh-CN'].templates[0].files[0].bytes = 60 * 1024 * 1024; },
@@ -101,6 +102,13 @@ test('rejects reserved or duplicated template IDs and conflicting, incomplete, o
     change(data);
     assert.throws(() => parsePrismMotionPublication(data, 'dev'));
   }
+
+  const withVendorDist = fixture();
+  withVendorDist.content['zh-CN'].templates[0].files.push({
+    path: 'vendor/gsap-3.14.2/dist/gsap.min.js', sha256: sha, bytes: 23, url,
+  });
+  const parsed = parsePrismMotionPublication(withVendorDist, 'dev');
+  assert.ok(parsed[0].files.some(file => file.path === 'vendor/gsap-3.14.2/dist/gsap.min.js'));
 });
 
 test('rejects a failed download and cancels a streamed publication that exceeds the bound', async () => {

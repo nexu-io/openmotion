@@ -1424,6 +1424,45 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(stale.headers.get('cache-control'), 'no-store');
   });
 
+  it('serves bundled vendor dist scripts on preview and file routes while still rejecting top-level dist paths', async () => {
+    const env = createStudioTestEnv();
+    const gsapContent = '/* bundled gsap */ window.gsap = {};'.repeat(1024);
+    const { projectId } = await env.workspace.createProject(env.auth, {
+      title: 'Vendor Dist Project',
+      initialFiles: [
+        {
+          path: 'index.html',
+          content: '<!doctype html><html><head><script src="./vendor/gsap-3.14.2/dist/gsap.min.js"></script></head><body><div data-composition-id="main" data-width="1920" data-height="1080" data-duration="5" data-fps="30"></div></body></html>',
+        },
+        { path: 'vendor/gsap-3.14.2/dist/gsap.min.js', content: gsapContent },
+      ],
+    });
+
+    const previewHtml = await env.studioApp.request(`/api/projects/${projectId}/preview`);
+    assert.equal(previewHtml.status, 200);
+    const expectedQuery = `vendor/gsap-3.14.2/dist/gsap.min.js?om-script=${sha256Hex(gsapContent)}`;
+    assert.ok((await previewHtml.text()).includes(expectedQuery));
+
+    const previewScript = await env.studioApp.request(`/api/projects/${projectId}/preview/${expectedQuery}`);
+    assert.equal(previewScript.status, 200);
+    assert.equal(await previewScript.text(), gsapContent);
+    assert.equal(previewScript.headers.get('cache-control'), 'private, max-age=300, immutable');
+
+    const rawFile = await env.studioApp.request(`/api/projects/${projectId}/files/vendor/gsap-3.14.2/dist/gsap.min.js`);
+    assert.equal(rawFile.status, 200);
+    const fileBody = (await rawFile.json()) as { path?: string; content?: string };
+    assert.equal(fileBody.path, 'vendor/gsap-3.14.2/dist/gsap.min.js');
+    assert.equal(fileBody.content, gsapContent);
+
+    const topLevelDistPreview = await env.studioApp.request(`/api/projects/${projectId}/preview/dist/gsap.min.js`);
+    assert.equal(topLevelDistPreview.status, 400);
+    assert.equal(((await topLevelDistPreview.json()) as { code?: string }).code, 'INVALID_PATH');
+
+    const topLevelDistFile = await env.studioApp.request(`/api/projects/${projectId}/files/dist/gsap.min.js`);
+    assert.equal(topLevelDistFile.status, 400);
+    assert.equal(((await topLevelDistFile.json()) as { code?: string }).code, 'INVALID_PATH');
+  });
+
   it('shares preview builds, validates ETags before loading files, and isolates document variants and edits', async t => {
     const env = createStudioTestEnv();
     const { projectId } = await env.workspace.createProject(env.auth, { title: 'Preview cache' });

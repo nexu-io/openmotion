@@ -30,7 +30,7 @@ const original = z.object({
   durationSeconds: z.string().optional(), sourceUrl: z.union([sourceLink, z.literal('')]).optional(),
 });
 const file = z.object({
-  path: z.string().transform(path => projectPath(path)),
+  path: z.string().transform(path => projectPath(path, true)),
   sha256: z.string().refine(isSha256Hex),
   url: cmsFile,
   bytes: z.number().int().nonnegative().max(maxLfsAssetBytes),

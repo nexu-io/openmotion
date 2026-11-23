@@ -575,7 +575,7 @@ export class ProjectArchiveService {
       }
       for (const [filePath, buf] of proj.files) {
         try {
-          const checked = projectPath(filePath);
+          const checked = projectPath(filePath, true);
           assertWritableProjectPath(checked);
         } catch (error) {
           throw new CloudError(

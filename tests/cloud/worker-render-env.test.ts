@@ -789,4 +789,57 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
       await rm(tmpBase, { recursive: true, force: true });
     }
   });
+
+  it('hydrates bundled vendor dist dependencies for built-in templates while rejecting top-level dist paths', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-render-vendor-dist-'));
+    try {
+      const storage = new MemoryStorage();
+      const html = Buffer.from(
+        '<!doctype html><html><head><script src="./vendor/gsap-3.14.2/dist/gsap.min.js"></script></head><body><div data-composition-id="main"></div></body></html>',
+        'utf8',
+      );
+      const gsap = Buffer.from('/* bundled gsap 3.14.2 */', 'utf8');
+      const sha = (buf: Buffer) => createHash('sha256').update(buf).digest('hex');
+
+      await storage.putObject(catalogBlobKey(sha(html)), html, 'text/html');
+      await storage.putObject(catalogBlobKey(sha(gsap)), gsap, 'text/javascript');
+
+      const projectDir = path.join(tmpBase, 'project');
+      const hydrated = await hydrateSnapshotFilesToDir({
+        storage,
+        workspaceId: WID_A,
+        projectDir,
+        compositionPath: 'index.html',
+        files: [
+          { path: 'index.html', blobScope: 'catalog', sha256: sha(html), sizeBytes: html.byteLength, mimeType: 'text/html' },
+          { path: 'vendor/gsap-3.14.2/dist/gsap.min.js', blobScope: 'catalog', sha256: sha(gsap), sizeBytes: gsap.byteLength, mimeType: 'text/javascript' },
+        ],
+        onlyReferencedMedia: true,
+      });
+
+      assert.equal(hydrated.fileCount, 2);
+      assert.equal(
+        await readFile(path.join(projectDir, 'vendor/gsap-3.14.2/dist/gsap.min.js'), 'utf8'),
+        gsap.toString('utf8'),
+      );
+
+      await assert.rejects(
+        () =>
+          hydrateSnapshotFilesToDir({
+            storage,
+            workspaceId: WID_A,
+            projectDir: path.join(tmpBase, 'bad-project'),
+            compositionPath: 'index.html',
+            files: [
+              { path: 'index.html', blobScope: 'catalog', sha256: sha(html), sizeBytes: html.byteLength, mimeType: 'text/html' },
+              { path: 'dist/gsap.min.js', blobScope: 'catalog', sha256: sha(gsap), sizeBytes: gsap.byteLength, mimeType: 'text/javascript' },
+            ],
+            onlyReferencedMedia: true,
+          }),
+        /工程文件路径无效/,
+      );
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
 });

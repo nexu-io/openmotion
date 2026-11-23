@@ -16,7 +16,7 @@ import type {
 import type { Database } from '../../src/db/client.ts';
 import * as schema from '../../src/db/schema/index.ts';
 import { AssetNamesService } from '../../src/services/asset-names-service.ts';
-import { ProjectArchiveService } from '../../src/services/project-archive-service.ts';
+import { buildProjectZip, ProjectArchiveService } from '../../src/services/project-archive-service.ts';
 import {
   ProjectFilesService,
   type HotTextCachePort,
@@ -1362,6 +1362,50 @@ describe('Cloud Optimistic Locking, Idempotency & CAS Refcounts', () => {
     assert.equal(imported.imported[0].title, 'Archive Demo');
     const importedHtml = await h.files.readTextFile(h.authB, imported.imported[0].projectId, 'index.html');
     assert.ok(importedHtml?.content.includes('Archive Demo'));
+  });
+
+  it('preserves bundled vendor dist dependencies across duplicate and ZIP archive export/import while rejecting top-level dist', async () => {
+    const h = createHarness();
+    const vendorPath = 'vendor/gsap-3.14.2/dist/gsap.min.js';
+    const vendorCode = 'window.gsap = { version: "3.14.2" };';
+    const proj = await h.workspace.createProject(h.authA, {
+      title: 'Vendor Dist Archive',
+      initialFiles: [
+        {
+          path: 'index.html',
+          content: '<!doctype html><html><head><script src="./vendor/gsap-3.14.2/dist/gsap.min.js"></script></head><body><div data-composition-id="main" data-width="1920" data-height="1080" data-duration="5" data-fps="30"></div></body></html>',
+        },
+        { path: vendorPath, content: vendorCode },
+      ],
+    });
+
+    const duplicated = await h.archives.duplicateProject(h.authA, proj.projectId, {
+      requestId: 'dup-vendor-dist-1',
+    });
+    const dupVendor = await h.files.readTextFile(h.authA, duplicated.projectId, vendorPath);
+    assert.equal(dupVendor?.content, vendorCode);
+
+    const exported = await h.archives.exportProjects(h.authA, {
+      requestId: 'exp-vendor-dist-1',
+      projectIds: [proj.projectId],
+    });
+    const zipBytes = await h.storage.getObjectBuffer(`workspaces/${h.authA.workspaceId}/archives/${exported.archiveId}.zip`);
+    const imported = await h.archives.importProjects(h.authB, {
+      requestId: 'imp-vendor-dist-1',
+      zipBytes,
+    });
+    assert.equal(imported.imported.length, 1);
+    const impVendor = await h.files.readTextFile(h.authB, imported.imported[0].projectId, vendorPath);
+    assert.equal(impVendor?.content, vendorCode);
+
+    const badZip = buildProjectZip(new Map([
+      ['index.html', Buffer.from('<!doctype html><html><body><div data-composition-id="main"></div></body></html>')],
+      ['dist/bundle.js', Buffer.from('window.bad = true;')],
+    ]));
+    await assert.rejects(
+      () => h.archives.importProjects(h.authB, { requestId: 'imp-top-dist-1', zipBytes: badZip }),
+      (err: unknown) => isCloudError(err) && err.code === 'INVALID_PATH',
+    );
   });
 
   it('coalesces 5 rapid Studio edits within 4s into 1 project_versions row with delta project_version_files and exact CAS refcounts, and splits on export-ref / pin / MCP / >4s (c2)', async () => {

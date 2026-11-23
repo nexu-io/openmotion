@@ -114,7 +114,7 @@ const DYNAMIC_MEDIA_INTERPOLATION_REGEX =
   /\$\{[^}]+\}[^`'"\n]{0,32}\.(mp4|mov|webm|m4v|qt|mp3|wav|m4a|aac|flac|ogg|png|jpe?g|webp|gif|avif)\b/i;
 
 function isAlwaysHydratedSnapshotFile(file: HydratedSnapshotFile): boolean {
-  const safePath = projectPath(file.path);
+  const safePath = projectPath(file.path, true);
   if (safePath.startsWith('.hyperframes/')) return true;
   if (file.sizeBytes <= LAZY_MEDIA_MIN_BYTES) return true;
   const ext = path.posix.extname(safePath).toLowerCase();
@@ -151,7 +151,7 @@ export function selectReferencedMediaCandidates(
   }
 
   return candidates.filter((file) => {
-    const safePath = projectPath(file.path);
+    const safePath = projectPath(file.path, true);
     const base = path.posix.basename(safePath);
     const encodedPath = safePath
       .split('/')
@@ -353,7 +353,7 @@ export async function hydrateSnapshotFilesToDir(params: {
         const file = batch[idx];
 
         // Strict path normalization & directory containment check (zero path traversal).
-        const safeRelPath = projectPath(file.path);
+        const safeRelPath = projectPath(file.path, true);
         const destPath = path.resolve(resolvedRoot, safeRelPath);
         if (destPath !== resolvedRoot && !destPath.startsWith(`${resolvedRoot}${path.sep}`)) {
           throw new CloudError('INVALID_PATH', `Snapshot path escapes hydration directory: ${file.path}`, {
@@ -426,7 +426,7 @@ export async function hydrateSnapshotFilesToDir(params: {
     if (lazyCandidates.length > 0) {
       const textSources: string[] = [];
       for (const file of alwaysFiles) {
-        const safeRelPath = projectPath(file.path);
+        const safeRelPath = projectPath(file.path, true);
         const ext = path.posix.extname(safeRelPath).toLowerCase();
         if (!REFERENCE_SCAN_EXTENSIONS.has(ext) || file.sizeBytes > MAX_SCAN_FILE_BYTES) continue;
         const text = await readFile(path.resolve(resolvedRoot, safeRelPath), 'utf8').catch(() => '');

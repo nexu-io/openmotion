@@ -200,7 +200,7 @@ export function assertValidUuid(value: string, label: string): string {
 export function normalizeSafeProjectPath(rawPath: string, writable = false): string {
   const cleaned = normalizeVirtualPath(rawPath);
   try {
-    const validated = projectPath(cleaned);
+    const validated = projectPath(cleaned, true);
     if (writable) assertWritableProjectPath(validated);
     return validated;
   } catch (error) {
