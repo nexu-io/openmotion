@@ -1,0 +1,13 @@
+# Protect CI/CD workflows, container build/deploy definitions, release tooling,
+# and dependency/runtime lockfiles that control automated releases.
+/.github/ @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/deploy/ @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/.dockerignore @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/package.json @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/package-lock.json @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/scripts/runtime-lock.json @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/scripts/runtime-*.mjs @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/scripts/release-version.mjs @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/scripts/install-guide.mjs @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/scripts/package-npm.mjs @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
+/integrations/dsh/ @mrcfps @lefarcen @nettee @pftom @heggria @PerishCode @alchemistklk
