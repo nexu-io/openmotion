@@ -6,6 +6,7 @@ import {
   isValidDesktopLoopbackRedirectUri,
   type DesktopHandoffExchangeRequest,
   type DesktopHandoffExchangeResponse,
+  type DesktopHandoffPlanTier,
 } from '../../shared/desktop-auth-handoff.ts';
 import { isCloudError } from '../contracts/errors.ts';
 import type { AuthEnv, AuthMiddlewareDeps } from './middleware.ts';
@@ -37,8 +38,10 @@ const FALLBACK_PRUNE_THRESHOLD = 128;
 export interface DesktopHandoffRecord {
   userId: string;
   workspaceId: string;
+  appUserId?: string | null;
   codeChallenge: string;
   redirectUri: string;
+  interactiveLogin: boolean;
   expiresAt: number;
 }
 
@@ -123,8 +126,10 @@ class DesktopHandoffCodeStore {
             record = {
               userId: parsed.userId,
               workspaceId: parsed.workspaceId,
+              appUserId: typeof parsed.appUserId === 'string' ? parsed.appUserId : null,
               codeChallenge: parsed.codeChallenge,
               redirectUri: parsed.redirectUri,
+              interactiveLogin: parsed.interactiveLogin === true,
               expiresAt: parsed.expiresAt,
             };
           }
@@ -267,13 +272,17 @@ export function mountDesktopHandoffRoutes(
     }
 
     const switchAccount = c.req.query('switch') === '1';
+    const interactiveLogin =
+      c.req.query('interactive') === '1' || c.req.query('one_tap') === '1';
 
     // Build a clean returnTo URL with validated params only (and without switch=1 to prevent redirect loops).
+    // Mark interactive=1 so exchange knows the browser went through interactive login rather than reusing a session.
     const returnParams = new URLSearchParams({
       code_challenge: validated.codeChallenge,
       code_challenge_method: 'S256',
       redirect_uri: validated.redirectUri,
       state: validated.state,
+      interactive: '1',
     });
     const safeReturnTo = assertSafeReturnTo(`${DESKTOP_HANDOFF_START_PATH}?${returnParams.toString()}`);
 
@@ -285,6 +294,7 @@ export function mountDesktopHandoffRoutes(
     const rawSession = cookies[SESSION_COOKIE_NAME];
     let userId: string | null = null;
     let workspaceId: string | null = null;
+    let appUserId: string | null = null;
 
     if (rawSession) {
       try {
@@ -299,6 +309,7 @@ export function mountDesktopHandoffRoutes(
               : resolved.auth;
           userId = auth.userId;
           workspaceId = auth.workspaceId;
+          appUserId = auth.appUserId ?? null;
         }
       } catch (error) {
         if (isCloudError(error) && error.status === 503) {
@@ -307,6 +318,7 @@ export function mountDesktopHandoffRoutes(
         // Inactive or revoked account -> require fresh browser login.
         userId = null;
         workspaceId = null;
+        appUserId = null;
       }
     }
 
@@ -317,6 +329,7 @@ export function mountDesktopHandoffRoutes(
       });
       userId = dev.user.id;
       workspaceId = dev.workspace.id;
+      appUserId = dev.user.appUserId ?? null;
     }
 
     if (!userId || !workspaceId) {
@@ -328,8 +341,10 @@ export function mountDesktopHandoffRoutes(
     await codeStore.save(codeHash, {
       userId,
       workspaceId,
+      appUserId,
       codeChallenge: validated.codeChallenge,
       redirectUri: validated.redirectUri,
+      interactiveLogin,
     });
 
     const redirectTarget = new URL(validated.redirectUri);
@@ -396,6 +411,14 @@ export function mountDesktopHandoffRoutes(
       ttlSec: DEFAULT_SESSION_TTL_SEC,
     });
 
+    let planTier: DesktopHandoffPlanTier = 'unknown';
+    if (deps.config.AUTH_MODE === 'oidc' && deps.amrIdentity) {
+      const resolvedAppUserId = record.appUserId ?? membership.user.appUserId ?? null;
+      if (resolvedAppUserId) {
+        planTier = await deps.amrIdentity.lookupBillingPlanTier(resolvedAppUserId);
+      }
+    }
+
     const cookieHeader = serializeCookie(SESSION_COOKIE_NAME, session.token, {
       httpOnly: true,
       secure: secureCookie,
@@ -413,6 +436,8 @@ export function mountDesktopHandoffRoutes(
         name: membership.user.displayName,
       },
       workspaceId: membership.workspace.id,
+      planTier,
+      interactiveLogin: record.interactiveLogin,
     };
     return c.json(responseBody, 200);
   });

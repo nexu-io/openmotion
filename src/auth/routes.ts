@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { isCloudError } from '../contracts/errors.ts';
+import type { AppConfig } from '../infra/config.ts';
 import { isUuid } from '../../shared/project-validation.ts';
+import { isAmrOneTapError, type AmrOneTapAttribution } from './amr-identity.ts';
 import { mountDesktopHandoffRoutes } from './desktop-handoff.ts';
 import { createAuthMiddleware, getAuthContext, type AuthEnv, type AuthMiddlewareDeps } from './middleware.ts';
 import {
@@ -20,6 +23,8 @@ import { createPat, listPats, revokePat } from './pat.ts';
 import {
   DEFAULT_SESSION_TTL_SEC,
   OIDC_TX_COOKIE_NAME,
+  ONETAP_CTX_COOKIE_NAME,
+  ONETAP_CTX_TTL_SEC,
   SESSION_COOKIE_NAME,
   clearCookie,
   createBrowserSession,
@@ -33,6 +38,148 @@ import {
 import { assertSafeReturnTo, randomBase64Url, sha256Hex, timingSafeStringEqual } from './store.ts';
 
 const OAUTH_CONSENT_TTL_SEC = 600;
+const ONETAP_CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+const UPGRADE_ALLOWED_TARGET_PREFIXES = [
+  '/pricing',
+  '/plans',
+  '/zh/pricing',
+  '/cloud/pricing',
+  '/cloud/dashboard',
+  '/dashboard',
+] as const;
+const UPGRADE_ATTRIBUTION_QUERY_KEYS = [
+  'billing',
+  'od_origin',
+  'od_entry_source',
+  'od_entry_id',
+  'od_entry_at',
+  'utm_source',
+  'utm_medium',
+  'utm_campaign',
+  'utm_content',
+  'utm_term',
+] as const;
+
+function sanitizeOptionalShortString(raw: unknown, maxLength = 256): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > maxLength || ONETAP_CONTROL_CHAR_RE.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function sanitizeOneTapAttribution(raw: unknown): AmrOneTapAttribution | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of ['utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm', 'landingPath'] as const) {
+    const val = sanitizeOptionalShortString(obj[key], 256);
+    if (val) out[key] = val;
+  }
+  if (obj.odEntry && typeof obj.odEntry === 'object' && !Array.isArray(obj.odEntry)) {
+    out.odEntry = obj.odEntry;
+  }
+  return Object.keys(out).length > 0 ? (out as AmrOneTapAttribution) : undefined;
+}
+
+function extractUpgradeAttributionParams(reqUrl: string): URLSearchParams {
+  const params = new URLSearchParams();
+  try {
+    const parsed = new URL(reqUrl);
+    for (const key of UPGRADE_ATTRIBUTION_QUERY_KEYS) {
+      const value = sanitizeOptionalShortString(parsed.searchParams.get(key), 256);
+      if (value) params.set(key, value);
+    }
+  } catch {
+    // Ignore unparseable request URL.
+  }
+  return params;
+}
+
+function resolveSafeUpgradeTargetPath(
+  rawTargetPath: string | undefined,
+  attributionParams: URLSearchParams,
+): string {
+  let pathname = '/pricing';
+  const merged = new URLSearchParams();
+
+  if (
+    rawTargetPath &&
+    rawTargetPath.startsWith('/') &&
+    !rawTargetPath.startsWith('//') &&
+    !rawTargetPath.includes('\\') &&
+    !ONETAP_CONTROL_CHAR_RE.test(rawTargetPath)
+  ) {
+    try {
+      const parsed = new URL(rawTargetPath, 'https://example.invalid');
+      const normalized = parsed.pathname.replace(/\/+$/, '') || '/';
+      const allowed = UPGRADE_ALLOWED_TARGET_PREFIXES.some(
+        (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
+      );
+      if (allowed) {
+        pathname = parsed.pathname;
+        for (const [key, value] of parsed.searchParams.entries()) {
+          if (
+            (UPGRADE_ATTRIBUTION_QUERY_KEYS as readonly string[]).includes(key) &&
+            sanitizeOptionalShortString(value, 256)
+          ) {
+            merged.set(key, value.trim());
+          }
+        }
+      }
+    } catch {
+      // Fall back to /pricing.
+    }
+  }
+
+  for (const [key, value] of attributionParams.entries()) {
+    merged.set(key, value);
+  }
+  const qs = merged.toString();
+  return qs ? `${pathname}?${qs}` : pathname;
+}
+
+function resolveUpgradeFallbackPricingUrl(config: AppConfig, attributionParams: URLSearchParams): string {
+  const baseUrl = config.OPENDESIGN_PRICING_URL ?? new URL('/pricing', config.OPENDESIGN_CONSOLE_URL).toString();
+  const target = new URL(baseUrl);
+  for (const [key, value] of attributionParams.entries()) {
+    if (!target.searchParams.has(key)) {
+      target.searchParams.set(key, value);
+    }
+  }
+  return target.toString();
+}
+
+function isSafeUpgradeHandoffUrl(rawUrl: string, config: AppConfig): boolean {
+  if (!rawUrl || ONETAP_CONTROL_CHAR_RE.test(rawUrl)) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.username || parsed.password) return false;
+    const allowedOrigins = new Set<string>();
+    const configuredUrls = [
+      config.OPENDESIGN_API_URL,
+      config.OPENDESIGN_CONSOLE_URL,
+      config.OPENDESIGN_PRICING_URL,
+    ].filter((u): u is string => Boolean(u));
+    let allowHttp = false;
+    for (const candidate of configuredUrls) {
+      try {
+        const u = new URL(candidate);
+        allowedOrigins.add(u.origin);
+        if (u.protocol === 'http:') allowHttp = true;
+      } catch {
+        // Ignore invalid configured URL.
+      }
+    }
+    if (parsed.protocol !== 'https:' && !(allowHttp && parsed.protocol === 'http:')) {
+      return false;
+    }
+    return allowedOrigins.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
 
 function parseBasicClientAuth(header: string | undefined): { clientId: string; clientSecret: string } | null {
   if (!header || !header.startsWith('Basic ')) return null;
@@ -223,6 +370,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       authMethod: auth.authMethod,
       user: {
         id: auth.userId,
+        appUserId: auth.appUserId ?? null,
         email: auth.email ?? null,
         displayName: auth.displayName ?? 'User',
       },
@@ -232,6 +380,289 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       workspaces,
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Same-Origin Google One Tap & Upgrade Handoff (OIDC + AMR Identity only)
+  // -------------------------------------------------------------------------
+
+  if (deps.config.AUTH_MODE === 'oidc' && deps.amrIdentity) {
+    const amrIdentity = deps.amrIdentity;
+    const expectedOrigin = new URL(deps.config.APP_PUBLIC_ORIGIN).origin;
+
+    app.post('/auth/one-tap/challenge', async (c) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('Pragma', 'no-cache');
+
+      if (!verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)) {
+        return c.json(
+          {
+            code: 'ORIGIN_NOT_ALLOWED',
+            error: 'Origin check failed for One Tap challenge',
+            message: 'Origin check failed for One Tap challenge',
+          },
+          403,
+        );
+      }
+
+      let rawBody: Record<string, unknown> = {};
+      const contentType = c.req.header('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        try {
+          const parsed = await c.req.json();
+          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            return c.json(
+              { code: 'INVALID_ARGUMENT', error: 'Invalid JSON body', message: 'Invalid JSON body' },
+              400,
+            );
+          }
+          rawBody = parsed as Record<string, unknown>;
+        } catch {
+          return c.json(
+            { code: 'INVALID_ARGUMENT', error: 'Invalid JSON body', message: 'Invalid JSON body' },
+            400,
+          );
+        }
+      }
+
+      let attemptId: string;
+      if (rawBody.attemptId === undefined) {
+        attemptId = randomUUID();
+      } else {
+        const sanitized = sanitizeOptionalShortString(rawBody.attemptId, 128);
+        if (!sanitized) {
+          return c.json(
+            {
+              code: 'INVALID_ARGUMENT',
+              error: 'attemptId must be a non-empty string up to 128 characters',
+              message: 'attemptId must be a non-empty string up to 128 characters',
+            },
+            400,
+          );
+        }
+        attemptId = sanitized;
+      }
+
+      const ctxToken = randomBase64Url(32);
+      const browserBindingHash = sha256Hex(ctxToken);
+
+      try {
+        const challenge = await amrIdentity.requestOneTapChallenge({
+          expectedOrigin,
+          surface: 'motion_web',
+          attemptId,
+          browserBindingHash,
+        });
+
+        const headers = new Headers({
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          pragma: 'no-cache',
+        });
+        headers.append(
+          'Set-Cookie',
+          serializeCookie(ONETAP_CTX_COOKIE_NAME, ctxToken, {
+            httpOnly: true,
+            secure: secureCookie,
+            sameSite: 'Lax',
+            path: '/auth/one-tap',
+            maxAgeSec: ONETAP_CTX_TTL_SEC,
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            challengeId: challenge.challengeId,
+            nonce: challenge.nonce,
+            clientId: challenge.clientId,
+            expiresAt: challenge.expiresAt,
+          }),
+          { status: 200, headers },
+        );
+      } catch (error) {
+        if (isAmrOneTapError(error)) {
+          return c.json(error.toJSON(), error.status);
+        }
+        if (isCloudError(error)) {
+          return c.json(error.toJSON(), error.status as 400 | 401 | 403 | 409 | 500 | 503);
+        }
+        throw error;
+      }
+    });
+
+    app.post('/auth/one-tap', async (c) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('Pragma', 'no-cache');
+
+      if (!verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)) {
+        return c.json(
+          {
+            code: 'ORIGIN_NOT_ALLOWED',
+            error: 'Origin check failed for One Tap login',
+            message: 'Origin check failed for One Tap login',
+          },
+          403,
+        );
+      }
+
+      let rawBody: Record<string, unknown>;
+      try {
+        const parsed = await c.req.json();
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          return c.json(
+            { code: 'INVALID_ARGUMENT', error: 'Invalid JSON body', message: 'Invalid JSON body' },
+            400,
+          );
+        }
+        rawBody = parsed as Record<string, unknown>;
+      } catch {
+        return c.json(
+          { code: 'INVALID_ARGUMENT', error: 'Invalid JSON body', message: 'Invalid JSON body' },
+          400,
+        );
+      }
+
+      const challengeId = sanitizeOptionalShortString(rawBody.challengeId, 256);
+      const idToken = sanitizeOptionalShortString(rawBody.idToken, 16_384);
+      if (!challengeId || !idToken) {
+        return c.json(
+          {
+            code: 'INVALID_ARGUMENT',
+            error: 'challengeId and idToken are required',
+            message: 'challengeId and idToken are required',
+          },
+          400,
+        );
+      }
+
+      const cookies = parseCookies(c.req.header('cookie'));
+      const ctxToken = cookies[ONETAP_CTX_COOKIE_NAME];
+      if (!ctxToken || !ctxToken.trim()) {
+        c.header('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'));
+        return c.json(
+          {
+            code: 'CHALLENGE_INVALID',
+            error: 'Missing One Tap browser challenge binding cookie',
+            message: 'Missing One Tap browser challenge binding cookie',
+          },
+          400,
+        );
+      }
+
+      const browserBindingHash = sha256Hex(ctxToken);
+      const attribution = sanitizeOneTapAttribution(rawBody.attribution);
+      const referralCode = sanitizeOptionalShortString(rawBody.referralCode, 128);
+
+      try {
+        const exchanged = await amrIdentity.exchangeOneTapCredential({
+          challengeId,
+          idToken,
+          expectedOrigin,
+          surface: 'motion_web',
+          browserBindingHash,
+          ...(attribution ? { attribution } : {}),
+          ...(referralCode ? { referralCode } : {}),
+        });
+
+        const { membership } = await amrIdentity.resolveAndProjectLogin(deps.store, {
+          authUserId: exchanged.authUserId,
+          email: exchanged.email,
+          displayName: exchanged.name || exchanged.email || 'User',
+          avatarUrl: exchanged.image,
+        });
+
+        const session = await createBrowserSession(deps.store, {
+          userId: membership.user.id,
+          workspaceId: membership.workspace.id,
+          ttlSec: DEFAULT_SESSION_TTL_SEC,
+        });
+
+        const headers = new Headers({
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+          pragma: 'no-cache',
+        });
+        headers.append(
+          'Set-Cookie',
+          serializeCookie(SESSION_COOKIE_NAME, session.token, {
+            httpOnly: true,
+            secure: secureCookie,
+            sameSite: 'Lax',
+            path: '/',
+            maxAgeSec: DEFAULT_SESSION_TTL_SEC,
+          }),
+        );
+        headers.append(
+          'Set-Cookie',
+          clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'),
+        );
+
+        return new Response(
+          JSON.stringify({
+            authenticated: true,
+            user: {
+              id: membership.user.id,
+              appUserId: exchanged.appUserId,
+              email: membership.user.email,
+              displayName: membership.user.displayName,
+            },
+            activeWorkspaceId: membership.workspace.id,
+            isNewUser: exchanged.isNewUser,
+            planTier: exchanged.planTier,
+          }),
+          { status: 200, headers },
+        );
+      } catch (error) {
+        if (isAmrOneTapError(error)) {
+          if (error.status === 400 || error.status === 403 || error.status === 409) {
+            c.header('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'));
+          }
+          return c.json(error.toJSON(), error.status);
+        }
+        if (isCloudError(error)) {
+          return c.json(error.toJSON(), error.status as 400 | 401 | 403 | 409 | 500 | 503);
+        }
+        throw error;
+      }
+    });
+
+    app.get('/auth/upgrade-handoff', authMiddleware, async (c) => {
+      c.header('Cache-Control', 'no-store');
+      c.header('Pragma', 'no-cache');
+
+      const auth = getAuthContext(c);
+      if (auth.authMethod !== 'session_cookie') {
+        return c.json(
+          {
+            code: 'FORBIDDEN',
+            error: 'Upgrade handoff requires an interactive browser cookie session.',
+          },
+          403,
+        );
+      }
+
+      const attributionParams = extractUpgradeAttributionParams(c.req.url);
+      const fallbackUrl = resolveUpgradeFallbackPricingUrl(deps.config, attributionParams);
+      const targetPath = resolveSafeUpgradeTargetPath(c.req.query('targetPath'), attributionParams);
+
+      if (!auth.authUserId || !auth.appUserId) {
+        return c.redirect(fallbackUrl, 302);
+      }
+
+      try {
+        const ticket = await amrIdentity.createOneTapHandoffTicket({
+          authUserId: auth.authUserId,
+          appUserId: auth.appUserId,
+          targetPath,
+        });
+        if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
+          return c.redirect(ticket.handoffUrl, 302);
+        }
+      } catch {
+        // Safely degrade to configured Pricing URL when AMR handoff-ticket is unavailable.
+      }
+
+      return c.redirect(fallbackUrl, 302);
+    });
+  }
 
   mountDesktopHandoffRoutes(app, deps);
 

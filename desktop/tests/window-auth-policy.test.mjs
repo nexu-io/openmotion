@@ -541,7 +541,9 @@ test('K3 DesktopAuthHandoffManager handles cancellation, timeout, and exchange f
     cb.searchParams.set('code', 'expired_handoff_code');
     cb.searchParams.set('state', started.state);
     const cbRes = await fetch(cb);
-    assert.equal(cbRes.status, 200);
+    assert.equal(cbRes.status, 502);
+    const cbHtml = await cbRes.text();
+    assert.match(cbHtml, /Sign-in verification failed/);
     const finalState = await started.completion;
     assert.equal(finalState.status, 'error');
     assert.equal(finalState.errorCode, 'EXCHANGE_FAILED');

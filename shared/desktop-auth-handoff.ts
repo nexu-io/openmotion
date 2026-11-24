@@ -21,6 +21,24 @@ export type DesktopHandoffExchangeRequest = {
   redirectUri: string;
 };
 
+export const DESKTOP_HANDOFF_PLAN_TIERS = ['free', 'go', 'plus', 'pro', 'max', 'unknown'] as const;
+export type DesktopHandoffPlanTier = (typeof DESKTOP_HANDOFF_PLAN_TIERS)[number];
+
+export function normalizeDesktopHandoffPlanTier(raw: unknown): DesktopHandoffPlanTier {
+  if (typeof raw !== 'string') return 'unknown';
+  const normalized = raw.trim().toLowerCase();
+  if (
+    normalized === 'free' ||
+    normalized === 'go' ||
+    normalized === 'plus' ||
+    normalized === 'pro' ||
+    normalized === 'max'
+  ) {
+    return normalized;
+  }
+  return 'unknown';
+}
+
 export type DesktopHandoffExchangeResponse = {
   ok: true;
   user: {
@@ -29,6 +47,8 @@ export type DesktopHandoffExchangeResponse = {
     name?: string | null;
   };
   workspaceId: string;
+  planTier?: DesktopHandoffPlanTier;
+  interactiveLogin?: boolean;
 };
 
 /**

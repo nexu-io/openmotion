@@ -49,6 +49,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
         consoleUrl,
         user: {
           id: auth.userId,
+          appUserId: user?.appUserId ?? auth.appUserId ?? null,
           email: user?.email ?? auth.email ?? null,
           displayName: user?.displayName ?? auth.displayName ?? 'User',
           avatarUrl: user?.avatarUrl ?? null,

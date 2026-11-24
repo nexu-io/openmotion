@@ -448,6 +448,7 @@ const HANDOFF_PROBE_CACHE_TTL_MS = 30_000;
 
 const authHandoff = new DesktopAuthHandoffManager({
   getStudioOrigin: () => resolveStudioOrigin(),
+  getPricingUrl: () => (!app.isPackaged ? process.env.OPENDESIGN_PRICING_URL?.trim() || undefined : undefined),
   openExternal: async url => {
     await shell.openExternal(url);
   },
@@ -464,6 +465,17 @@ const authHandoff = new DesktopAuthHandoffManager({
       await win.webContents.session.cookies.flushStore().catch(() => {});
     }
     return response;
+  },
+  verifySessionDelivered: async ({ studioOrigin }) => {
+    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+    if (!win) return false;
+    await win.webContents.session.cookies.flushStore().catch(() => {});
+    if (win.isDestroyed()) return false;
+    const cookies = await win.webContents.session.cookies.get({
+      url: studioOrigin,
+      name: 'om_session',
+    });
+    return !win.isDestroyed() && cookies.some(cookie => Boolean(cookie.value));
   },
   onFocusMainWindow: () => {
     inWindowAuthFallbackActive = false;
@@ -1976,6 +1988,9 @@ function createMainWindow(): BrowserWindow {
     if (mainWindow === win) {
       mainWindow = null;
       injectedChromeCssKey = null;
+      if (!switchingMainWindow) {
+        authHandoff.cancelLogin();
+      }
     }
   });
   win.on('app-command', (_event, cmd) => {

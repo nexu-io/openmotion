@@ -2,9 +2,12 @@ import { createBrowserTracking } from '../../../tracking/browser.ts';
 import { studioEvents } from '../../../tracking/events.ts';
 import type { StudioEvent } from '../../../tracking/events.ts';
 import type { EventFields } from '../../../tracking/core.ts';
+import { getMotionTrackingUserId, setMotionTrackingUserId } from './trackingIdentity';
+
+export { getMotionTrackingUserId, setMotionTrackingUserId };
 
 const tracking = createBrowserTracking({ registry: studioEvents, endpoint: '/motion-api/tracking', enabled: false,
-  isEnabled: () => navigator.doNotTrack !== '1' });
+  isEnabled: () => navigator.doNotTrack !== '1', getAppUserId: getMotionTrackingUserId });
 let initialization: Promise<void> | undefined;
 let configuration: 'uninitialized' | 'loading' | 'ready' | 'disabled' | 'unavailable' = 'uninitialized';
 let controller: AbortController | undefined;

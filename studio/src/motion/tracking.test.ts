@@ -159,3 +159,21 @@ it('exposes safe queue and delivery statuses while rejecting private or non-Stud
   expect(await tracking.flushMotionTracking()).toBe('disabled');
   expect(tracking.getMotionTrackingStatus().pending).toBe(0);
 });
+
+it('attaches app_user_id when signed in via setMotionTrackingUserId and omits it when cleared', async () => {
+  const bodies: Array<{ events: Array<{ app_user_id?: string }> }> = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url, init?: RequestInit) => {
+    if (init?.body) bodies.push(JSON.parse(String(init.body)));
+    return Response.json({ enabled: true });
+  }));
+  const tracking = await import('./tracking');
+  tracking.setMotionTrackingUserId('usr_app_42');
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  await tracking.flushMotionTracking();
+  expect(bodies[0].events[0].app_user_id).toBe('usr_app_42');
+
+  tracking.setMotionTrackingUserId(null);
+  expect(await tracking.trackMotion('ui_click', click)).toBe('queued');
+  await tracking.flushMotionTracking();
+  expect('app_user_id' in bodies[1].events[0]).toBe(false);
+});

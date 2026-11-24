@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
+  normalizeDesktopHandoffPlanTier,
+  type DesktopHandoffPlanTier,
+} from '../../shared/desktop-auth-handoff.ts';
+import {
   type AmrWorkspaceRole,
   type AuthContext,
   type EffectiveWriteAccess,
@@ -18,6 +22,89 @@ import {
 } from './store.ts';
 
 export const MAX_AMR_IDENTITY_CACHE_TTL_SEC = 60;
+
+export type OneTapPlanTier = DesktopHandoffPlanTier;
+
+export interface AmrOneTapChallengeRequest {
+  readonly expectedOrigin: string;
+  readonly surface: 'motion_web';
+  readonly attemptId: string;
+  readonly browserBindingHash: string;
+}
+
+export interface AmrOneTapChallengeResponse {
+  readonly challengeId: string;
+  readonly nonce: string;
+  readonly clientId: string;
+  readonly expiresAt: string;
+}
+
+export interface AmrOneTapAttribution {
+  readonly utmSource?: string;
+  readonly utmMedium?: string;
+  readonly utmCampaign?: string;
+  readonly utmContent?: string;
+  readonly utmTerm?: string;
+  readonly landingPath?: string;
+  readonly odEntry?: Record<string, unknown>;
+}
+
+export interface AmrOneTapExchangeRequest {
+  readonly challengeId: string;
+  readonly idToken: string;
+  readonly expectedOrigin: string;
+  readonly surface: 'motion_web';
+  readonly browserBindingHash: string;
+  readonly attribution?: AmrOneTapAttribution;
+  readonly referralCode?: string;
+}
+
+export interface AmrOneTapExchangeResponse {
+  readonly ok: true;
+  readonly authUserId: string;
+  readonly appUserId: string;
+  readonly email: string | null;
+  readonly name: string | null;
+  readonly image: string | null;
+  readonly isNewUser: boolean;
+  readonly planTier: OneTapPlanTier;
+}
+
+export interface AmrOneTapHandoffTicketRequest {
+  readonly authUserId: string;
+  readonly appUserId: string;
+  readonly targetPath?: string;
+}
+
+export interface AmrOneTapHandoffTicketResponse {
+  readonly ticket: string;
+  readonly handoffUrl: string;
+  readonly expiresAt: string;
+}
+
+export class AmrOneTapError extends Error {
+  readonly status: 400 | 403 | 409 | 503;
+  readonly code: string;
+
+  constructor(status: 400 | 403 | 409 | 503, code: string, message: string, cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+    this.name = 'AmrOneTapError';
+    this.status = status;
+    this.code = code;
+  }
+
+  toJSON(): { code: string; error: string; message: string } {
+    return {
+      code: this.code,
+      error: this.message,
+      message: this.message,
+    };
+  }
+}
+
+export function isAmrOneTapError(error: unknown): error is AmrOneTapError {
+  return error instanceof AmrOneTapError;
+}
 
 type LookupFailureReason = 'timeout' | 'transport' | 'upstream_http' | 'invalid_response' | 'missing_workspace';
 
@@ -399,5 +486,198 @@ export class AmrIdentityClient {
       displayName: lookup.data.name ?? localAuth.displayName,
       avatarUrl: lookup.data.image ?? localAuth.avatarUrl ?? null,
     };
+  }
+
+  private async postOneTapJson(
+    path: string,
+    payload: unknown,
+    actionLabel: string,
+  ): Promise<Record<string, unknown>> {
+    const url = `${this.apiUrl}${path}`;
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetcher(url, {
+        method: 'POST',
+        headers: {
+          'x-internal-token': this.internalToken,
+          'content-type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal,
+      });
+    } catch (cause) {
+      const diagnosticId = randomUUID();
+      this.logger.warn(`AMR ${actionLabel} unavailable`, {
+        diagnosticId,
+        reason: signal.aborted ? 'timeout' : 'transport',
+      });
+      throw new AmrOneTapError(
+        503,
+        'AUTH_UNAVAILABLE',
+        'Temporarily unable to reach OpenDesign authentication service.',
+        cause,
+      );
+    }
+
+    const rawBody = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const rawCode = typeof rawBody?.code === 'string' && rawBody.code.trim() ? rawBody.code.trim() : null;
+    const rawMessage =
+      (typeof rawBody?.message === 'string' && rawBody.message.trim()
+        ? rawBody.message.trim()
+        : typeof rawBody?.error === 'string' && rawBody.error.trim()
+          ? rawBody.error.trim()
+          : null) ?? `OpenDesign authentication service failed with HTTP ${response.status}.`;
+
+    if (response.status === 400 || response.status === 403 || response.status === 409) {
+      const fallbackCode =
+        response.status === 400
+          ? 'INVALID_ID_TOKEN'
+          : response.status === 403
+            ? 'FORBIDDEN'
+            : 'LINK_CONFIRM_REQUIRED';
+      throw new AmrOneTapError(response.status, rawCode ?? fallbackCode, rawMessage);
+    }
+
+    if (response.status === 503) {
+      const code = rawCode === 'ONE_TAP_UNAVAILABLE' ? 'ONE_TAP_UNAVAILABLE' : 'AUTH_UNAVAILABLE';
+      throw new AmrOneTapError(503, code, rawMessage);
+    }
+
+    if (!response.ok || !rawBody) {
+      const diagnosticId = randomUUID();
+      this.logger.warn(`AMR ${actionLabel} failed`, {
+        diagnosticId,
+        upstreamStatus: response.status,
+      });
+      throw new AmrOneTapError(503, 'AUTH_UNAVAILABLE', rawMessage);
+    }
+
+    return rawBody;
+  }
+
+  async requestOneTapChallenge(input: AmrOneTapChallengeRequest): Promise<AmrOneTapChallengeResponse> {
+    const raw = await this.postOneTapJson(
+      '/api/internal/auth/one-tap/challenge',
+      {
+        expectedOrigin: input.expectedOrigin,
+        surface: input.surface,
+        attemptId: input.attemptId,
+        browserBindingHash: input.browserBindingHash,
+      },
+      'one-tap challenge',
+    );
+
+    const challengeId = typeof raw.challengeId === 'string' ? raw.challengeId.trim() : '';
+    const nonce = typeof raw.nonce === 'string' ? raw.nonce.trim() : '';
+    const clientId = typeof raw.clientId === 'string' ? raw.clientId.trim() : '';
+    const expiresAt = typeof raw.expiresAt === 'string' ? raw.expiresAt.trim() : '';
+    if (!challengeId || !nonce || !clientId || !expiresAt) {
+      throw new AmrOneTapError(
+        503,
+        'ONE_TAP_UNAVAILABLE',
+        'Invalid challenge response from OpenDesign authentication service.',
+      );
+    }
+    return { challengeId, nonce, clientId, expiresAt };
+  }
+
+  async exchangeOneTapCredential(input: AmrOneTapExchangeRequest): Promise<AmrOneTapExchangeResponse> {
+    const raw = await this.postOneTapJson(
+      '/api/internal/auth/one-tap/exchange',
+      {
+        challengeId: input.challengeId,
+        idToken: input.idToken,
+        expectedOrigin: input.expectedOrigin,
+        surface: input.surface,
+        browserBindingHash: input.browserBindingHash,
+        ...(input.attribution ? { attribution: input.attribution } : {}),
+        ...(input.referralCode ? { referralCode: input.referralCode } : {}),
+      },
+      'one-tap exchange',
+    );
+
+    const authUserId = typeof raw.authUserId === 'string' ? raw.authUserId.trim() : '';
+    const appUserId = typeof raw.appUserId === 'string' ? raw.appUserId.trim() : '';
+    if (raw.ok === false || !authUserId || !appUserId) {
+      throw new AmrOneTapError(
+        503,
+        'AUTH_UNAVAILABLE',
+        'Invalid credential exchange response from OpenDesign authentication service.',
+      );
+    }
+
+    return {
+      ok: true,
+      authUserId,
+      appUserId,
+      email: typeof raw.email === 'string' ? raw.email : null,
+      name: typeof raw.name === 'string' ? raw.name : null,
+      image: typeof raw.image === 'string' ? raw.image : null,
+      isNewUser: Boolean(raw.isNewUser),
+      planTier: normalizeDesktopHandoffPlanTier(raw.planTier),
+    };
+  }
+
+  async createOneTapHandoffTicket(
+    input: AmrOneTapHandoffTicketRequest,
+  ): Promise<AmrOneTapHandoffTicketResponse> {
+    const raw = await this.postOneTapJson(
+      '/api/internal/auth/one-tap/handoff-ticket',
+      {
+        authUserId: input.authUserId,
+        appUserId: input.appUserId,
+        ...(input.targetPath ? { targetPath: input.targetPath } : {}),
+      },
+      'one-tap handoff ticket',
+    );
+
+    const ticket = typeof raw.ticket === 'string' ? raw.ticket.trim() : '';
+    const handoffUrl = typeof raw.handoffUrl === 'string' ? raw.handoffUrl.trim() : '';
+    const expiresAt = typeof raw.expiresAt === 'string' ? raw.expiresAt.trim() : '';
+    if (!ticket || !handoffUrl || !expiresAt) {
+      throw new AmrOneTapError(
+        503,
+        'AUTH_UNAVAILABLE',
+        'Invalid handoff ticket response from OpenDesign authentication service.',
+      );
+    }
+    return { ticket, handoffUrl, expiresAt };
+  }
+
+  async lookupBillingPlanTier(appUserId: string): Promise<OneTapPlanTier> {
+    const trimmed = appUserId.trim();
+    if (!trimmed) return 'unknown';
+
+    const url = `${this.apiUrl}/api/internal/billing/summary/${encodeURIComponent(trimmed)}`;
+    const signal = AbortSignal.timeout(this.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetcher(url, {
+        method: 'GET',
+        headers: {
+          'x-internal-token': this.internalToken,
+          Accept: 'application/json',
+        },
+        signal,
+      });
+    } catch {
+      this.logger.warn('AMR billing plan tier lookup failed', {
+        reason: signal.aborted ? 'timeout' : 'transport',
+      });
+      return 'unknown';
+    }
+
+    if (!response.ok) {
+      this.logger.warn('AMR billing plan tier lookup returned non-2xx', {
+        upstreamStatus: response.status,
+      });
+      return 'unknown';
+    }
+
+    const rawBody = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!rawBody) return 'unknown';
+    return normalizeDesktopHandoffPlanTier(rawBody.membershipTier ?? rawBody.planTier ?? rawBody.plan);
   }
 }

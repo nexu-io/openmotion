@@ -38,6 +38,8 @@ import { GITHUB_REPOSITORY } from './githubRepository';
 import { setObservabilityContext } from '@openmotion/observability/browser';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
+import { useAccountSummary } from './AccountSettings';
+import { MotionGoogleOneTap } from './googleOneTap';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
@@ -548,6 +550,11 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openTemplate: openTemplateFromOverlay,
   };
   return <WorkspaceChromeContext.Provider value={value}>
+    <WorkspaceGoogleOneTap
+      bfBannerVisible={bfBannerVisible}
+      hostChrome={hostChrome}
+      onError={errorMessage => navigationToast.showToast(errorMessage, 'error', 'feedback')}
+    />
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
     {archives.manager}
@@ -641,6 +648,28 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     </Dialog.Root>
     <OverlayLayer {...overlaySharedProps} placement="portal" />
   </WorkspaceChromeContext.Provider>;
+}
+
+function WorkspaceGoogleOneTap({
+  bfBannerVisible,
+  hostChrome,
+  onError,
+}: {
+  bfBannerVisible: boolean;
+  hostChrome: boolean;
+  onError: (message: string) => void;
+}) {
+  const { account, error, refresh } = useAccountSummary();
+  return (
+    <MotionGoogleOneTap
+      account={account}
+      accountError={error}
+      bfBannerVisible={bfBannerVisible}
+      hostChrome={hostChrome}
+      refreshAccount={() => refresh(false)}
+      onError={onError}
+    />
+  );
 }
 
 function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery, onNavigate, openSettings, openTemplates }: {

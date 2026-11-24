@@ -9,6 +9,7 @@ import {
 } from '../../shared/desktop-auth-handoff.ts';
 import { createDesktopHandoffRoutes } from '../../src/auth/desktop-handoff.ts';
 import {
+  AmrIdentityClient,
   InMemoryAuthCache,
   InMemoryAuthStore,
   SESSION_COOKIE_NAME,
@@ -243,6 +244,7 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.equal(parsedReturn.searchParams.get('code_challenge_method'), 'S256');
       assert.equal(parsedReturn.searchParams.get('redirect_uri'), redirectUri);
       assert.equal(parsedReturn.searchParams.get('state'), state);
+      assert.equal(parsedReturn.searchParams.get('interactive'), '1');
     });
 
     it('forwards switch=1 to /auth/login?switch=1 and strips switch=1 from returnTo to prevent loops', async () => {
@@ -358,6 +360,8 @@ describe('Desktop System-Browser Session Handoff API', () => {
           name: 'Alice Desktop',
         },
         workspaceId: seeded.workspace.id,
+        planTier: 'unknown',
+        interactiveLogin: false,
       });
 
       // Step 3: Desktop cookie works on /auth/me and stays valid even if browser session is revoked
@@ -715,6 +719,147 @@ describe('Desktop System-Browser Session Handoff API', () => {
         body: JSON.stringify({ code, codeVerifier, redirectUri }),
       });
       assert.equal(retryRes.status, 401);
+    });
+  });
+
+  describe('Authoritative planTier and interactiveLogin propagation', () => {
+    it('returns interactiveLogin: true when returning from /auth/login (interactive=1) and false when reusing existing om_session', async () => {
+      const config = makeConfig({
+        OPENDESIGN_API_URL: 'https://amr-api.example.test',
+        OPENDESIGN_INTERNAL_API_TOKEN: 's2s-token',
+      });
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+
+      const projected = await store.projectAmrUserAndWorkspace({
+        oidcSub: 'ba_usr_desktop',
+        appUserId: 'usr_app_desktop',
+        email: 'desktop@example.test',
+        displayName: 'Desktop User',
+        avatarUrl: null,
+        externalWorkspaceId: 'ws_amr_desktop',
+        workspaceName: 'Desktop Workspace',
+        role: 'owner',
+      });
+      const browserSession = await createBrowserSession(store, {
+        userId: projected.user.id,
+        workspaceId: projected.workspace.id,
+      });
+
+      let billingPlanResponse: { status: number; body: Record<string, unknown> } = {
+        status: 200,
+        body: { membershipTier: 'free' },
+      };
+
+      const amrIdentity = new AmrIdentityClient({
+        apiUrl: 'https://amr-api.example.test',
+        internalToken: 's2s-token',
+        cache,
+        fetcher: (async (input: string | URL | Request) => {
+          const url = String(input);
+          if (url.startsWith('https://amr-api.example.test/api/internal/identity/ba_usr_desktop')) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'ba_usr_desktop',
+              appUserId: 'usr_app_desktop',
+              email: 'desktop@example.test',
+              name: 'Desktop User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_amr_desktop',
+                workspaceName: 'Desktop Workspace',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_desktop',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          if (url === 'https://amr-api.example.test/api/internal/billing/summary/usr_app_desktop') {
+            return Response.json(billingPlanResponse.body, { status: billingPlanResponse.status });
+          }
+          return new Response('Not Found', { status: 404 });
+        }) as typeof fetch,
+      });
+
+      const app = new Hono<AuthEnv>();
+      app.route('/', createAuthRoutes({ config, store, cache, amrIdentity }));
+
+      const redirectUri = 'http://127.0.0.1:45200/callback';
+
+      // Case 1: Existing browser session fast-path (no interactive=1) -> interactiveLogin: false, planTier: 'free'
+      const pair1 = generatePkcePair();
+      const startFast = await app.request(
+        buildStartUrl({
+          code_challenge: pair1.codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'fast-path',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+      );
+      assert.equal(startFast.status, 302);
+      const code1 = new URL(startFast.headers.get('location')!).searchParams.get('code')!;
+      const exchangeFast = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code1, codeVerifier: pair1.codeVerifier, redirectUri }),
+      });
+      assert.equal(exchangeFast.status, 200);
+      const fastBody = (await exchangeFast.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(fastBody.interactiveLogin, false);
+      assert.equal(fastBody.planTier, 'free');
+
+      // Case 2: Interactive login (interactive=1 propagated via returnTo) + planTier 'go'
+      billingPlanResponse = { status: 200, body: { membershipTier: 'go' } };
+      const pair2 = generatePkcePair();
+      const startInteractive = await app.request(
+        buildStartUrl({
+          code_challenge: pair2.codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'interactive-path',
+          interactive: '1',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+      );
+      assert.equal(startInteractive.status, 302);
+      const code2 = new URL(startInteractive.headers.get('location')!).searchParams.get('code')!;
+      const exchangeInteractive = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code2, codeVerifier: pair2.codeVerifier, redirectUri }),
+      });
+      assert.equal(exchangeInteractive.status, 200);
+      const interactiveBody = (await exchangeInteractive.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(interactiveBody.interactiveLogin, true);
+      assert.equal(interactiveBody.planTier, 'go');
+
+      // Case 3: Billing lookup fails -> falls back to 'unknown' (never hardcoded 'free')
+      billingPlanResponse = { status: 503, body: { error: 'billing_down' } };
+      const pair3 = generatePkcePair();
+      const startUnknown = await app.request(
+        buildStartUrl({
+          code_challenge: pair3.codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'unknown-plan',
+          interactive: '1',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+      );
+      const code3 = new URL(startUnknown.headers.get('location')!).searchParams.get('code')!;
+      const exchangeUnknown = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code3, codeVerifier: pair3.codeVerifier, redirectUri }),
+      });
+      assert.equal(exchangeUnknown.status, 200);
+      const unknownBody = (await exchangeUnknown.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(unknownBody.interactiveLogin, true);
+      assert.equal(unknownBody.planTier, 'unknown');
     });
   });
 });
