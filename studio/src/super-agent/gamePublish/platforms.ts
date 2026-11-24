@@ -62,8 +62,8 @@ export interface GamePublishPlatform {
   resultHref?: string;
 }
 
-/** Platforms shown in the first version. The others stay in the code and come back later. */
-export const ENABLED_PUBLISH_PLATFORMS: readonly GamePublishPlatformId[] = ['wechat'];
+/** Platforms shown in the platform tiles, in order. */
+export const ENABLED_PUBLISH_PLATFORMS: readonly GamePublishPlatformId[] = ['wechat', 'douyin-minigame', 'qq', 'xiaohongshu', 'douyin', 'itch', 'telegram', 'playable-ad'];
 
 const WECHAT_CONSOLE = { label: 'Open WeChat console', href: 'https://mp.weixin.qq.com/' };
 const DOUYIN_CONSOLE = { label: 'Open Douyin developer console', href: 'https://developer.open-douyin.com/console' };
@@ -94,6 +94,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     effort: '3 steps in Douyin tools · not automated yet',
     badge: '抖',
     color: '#fe2c55',
+    icon: 'douyin',
     devTool: 'douyin-devtools',
     steps: [
       {
@@ -132,6 +133,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     effort: '3 steps in QQ tools · not automated yet',
     badge: 'Q',
     color: '#12b7f5',
+    icon: 'qq',
     devTool: 'qq-devtools',
     steps: [
       {
@@ -170,6 +172,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     effort: 'Download the package · upload in Builder Hub',
     badge: '书',
     color: '#ff2442',
+    icon: 'xiaohongshu',
     steps: [
       {
         kind: 'package',
@@ -204,6 +207,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     effort: 'Invite code · download the package · upload yourself',
     badge: '抖',
     color: '#161823',
+    icon: 'douyin',
     steps: [
       {
         kind: 'package',
@@ -271,6 +275,7 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
     effort: 'Uses the OpenDesign link · set up in BotFather',
     badge: 'TG',
     color: '#2aabee',
+    icon: 'telegram',
     steps: [
       {
         kind: 'link',
