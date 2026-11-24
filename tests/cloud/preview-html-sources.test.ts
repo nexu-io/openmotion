@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { it } from 'node:test';
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from '../../shared/preview-timing.ts';
 import { parseHTMLContent } from '@hyperframes/core/compiler';
 import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { staticPreviewHtmlSources } from '../../src/studio/engine/preview-html-sources.ts';
@@ -31,8 +30,8 @@ it('keeps placement on assembled CSS-only scenes and preserves script and unreso
   const child = (extra = '') => scene('<h1 id="title">Move</h1><aside><ul><li><strong>Rich text</strong><br>works</li></ul></aside><style>@keyframes spin { to { transform: rotate(20deg) } }</style>' + extra, 'child');
   const cssOnly = await previewConfig({ 'index.html': entry, 'child.html': child(), 'unused.html': child() });
   assert.deepEqual(cssOnly.smallMountedSources, ['child.html']);
-  const large = await previewConfig({ 'index.html': entry, 'child.html': child('x'.repeat(MAX_PEER_PREVIEW_SOURCE_LENGTH)) });
-  assert.deepEqual(large.smallMountedSources, []);
+  const large = await previewConfig({ 'index.html': entry, 'child.html': child('x'.repeat(150 * 1024)) });
+  assert.deepEqual(large.smallMountedSources, ['child.html']);
   assert.deepEqual(cssOnly.liveEdits, { position: true });
   assert.ok(!cssOnly.canRebindTiming);
   const digest = createHash('sha256').update(JSON.stringify('mediaTiming')).digest('hex');

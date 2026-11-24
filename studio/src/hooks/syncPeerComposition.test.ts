@@ -5,6 +5,7 @@ import { knownCompositionSource, rememberCompositionPosterSource } from "../play
 import { usePlayerStore } from "../player/store/playerStore";
 import { rememberPeerTimingDocument } from "../player/peerTimingPreview";
 import { rememberSource, forgetSource } from "../utils/confirmedTextSources";
+import { rememberPreviewHtmlSources } from "../player/lib/previewHtmlSources";
 import { syncPeerComposition } from "./syncPeerComposition";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -69,6 +70,33 @@ it("recovers the exact mounted child revision only after a cold peer observes an
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]?.[0]).toBe("/api/projects/p/history/blob/" + hash);
   } finally {
+    state.reset();
+  }
+});
+
+it("accepts multiple source versions together, reading only the warm affected scene and recovering each failed path once", async () => {
+  const state = usePlayerStore.getState();
+  state.beginTimelineSession("multi");
+  const frame = document.body.appendChild(document.createElement("iframe"));
+  Object.defineProperty(frame, "contentDocument", { value: null });
+  rememberPeerTimingDocument(frame, "token", "document");
+  rememberPreviewHtmlSources(frame, "multi", ["index.html", "open.html", "cold.html"]);
+  rememberSource("multi", "open.html", { content: "<p>Hi</p>", version: "v1" });
+  const release = Promise.withResolvers<{ content: string; version: string }>();
+  const read = vi.fn(() => release.promise);
+  const refresh = vi.fn();
+  try {
+    const versions = { "open.html": "v2", "cold.html": "v3", "unused.html": "v4" };
+    expect(await syncPeerComposition("multi", "index.html", Object.keys(versions), read, { current: frame }, null,
+      undefined, { versions, treeChanged: false, refresh })).toBe(true);
+    await vi.waitFor(() => expect(read).toHaveBeenCalledExactlyOnceWith("multi", "open.html"));
+    expect(refresh).not.toHaveBeenCalled();
+    release.resolve({ content: "<p>Edited</p>", version: "v2" });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledExactlyOnceWith(["open.html", "cold.html"]));
+    expect(read).toHaveBeenCalledTimes(1);
+  } finally {
+    frame.remove();
+    forgetSource("multi", "open.html");
     state.reset();
   }
 });

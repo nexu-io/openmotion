@@ -1,4 +1,3 @@
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from '../../../shared/preview-timing.ts';
 import { formatFileVersion } from '../etag.ts';
 import { isPassivePreviewTag, staticPreviewHtmlSources } from './preview-html-sources.ts';
 import { verifiedPreviewLiveEdits } from './preview-live-edits.ts';
@@ -755,7 +754,7 @@ export async function bundlePreviewInMemory(
       if (!resolved) return null;
       htmlSources?.add(resolved);
       const html = project.readText(resolved);
-      if (options.bridgeOrigin && !options.capture && html !== null && html.length <= MAX_PEER_PREVIEW_SOURCE_LENGTH) smallMountedSources.add(resolved);
+      if (options.bridgeOrigin && !options.capture && html !== null) smallMountedSources.add(resolved);
       return html === null ? null : scopeNestedSources(project, resolved, sourceDir, ensureHfIds(html));
     },
     parseHtml: html => {

@@ -1,6 +1,5 @@
 import { usePlayerStore } from "../store/playerStore";
 import { thumbnailRevisionOf } from "../store/thumbnailSlice";
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from "../../../../shared/preview-timing";
 import { confirmedSource, rememberSource } from "../../utils/confirmedTextSources";
 import { optionalProjectSourceUrl } from "../../utils/projectRouting";
 import { studioApiFetch } from "../../utils/studioApiFetch";
@@ -24,6 +23,8 @@ interface PosterFiles {
 // The store replaces this object when content changes. Old responses stay with the old generation.
 const filesByGeneration = new WeakMap<Revisions, PosterFiles>();
 const MAX_RECENT_FILES = 4;
+// Background poster reads may warm small sources; an explicit edit can work on any file size.
+const MAX_BACKGROUND_SOURCE_LENGTH = 128 * 1024;
 
 function filesFor(revisions: Revisions): PosterFiles {
   let files = filesByGeneration.get(revisions);
@@ -55,7 +56,7 @@ export async function readPosterFile(projectId: string, epoch: number, path: str
     signal.throwIfAborted();
     const content = source.content;
     const version = source.version ?? response.headers.get("etag");
-    if (typeof content === "string" && content.length <= MAX_PEER_PREVIEW_SOURCE_LENGTH &&
+    if (typeof content === "string" && content.length <= MAX_BACKGROUND_SOURCE_LENGTH &&
         typeof version === "string" && response.headers.get("X-OpenMotion-Text-Edits") === "1" &&
         isCurrent() && !confirmedSource(projectId, path)) {
       rememberSource(projectId, path, { content, version });

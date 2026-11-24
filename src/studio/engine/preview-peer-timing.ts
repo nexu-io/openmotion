@@ -97,9 +97,9 @@ export const PREVIEW_PEER_TIMING = `
     const base = ownDrag ? pending.confirmedVersion || pending.sha256 : sourceVersions[m.path];
     const measured = ownDrag && pending.ordered && Array.isArray(m.changes) && m.changes.length === 1 && mediaBox(m.changes[0]);
     const position = measured || settings.liveEdits?.position === true && m.type === 'peer-presentation' &&
-      Array.isArray(m.changes) && m.changes.length <= 32 && (isPositionEdit(m.changes) || m.changes.every(paintOnly));
+      Array.isArray(m.changes) && (isPositionEdit(m.changes) || m.changes.every(paintOnly));
     const media = settings.liveEdits?.mediaTiming === true && m.type === 'peer-timing' &&
-      Array.isArray(m.changes) && m.changes.length <= 32 && isMediaMove(m.changes);
+      Array.isArray(m.changes) && isMediaMove(m.changes);
     const target = temporary || position || media ? styleDocumentId : timingDocumentId;
     if (!target || m.documentId !== target || (temporary ? !!timingDocumentId : !position && m.path !== compositionPath) ||
         !before || !after || before !== base ||
@@ -107,7 +107,7 @@ export const PREVIEW_PEER_TIMING = `
         (!ownDrag && !paintDuringDrag && (drag || pendingDrags.size)) ||
         (inlineText && !(local && inlineText.id === m.gestureId && inlineText.after !== undefined)) || !p || typeof p.seek !== 'function' ||
         typeof p.getTime !== 'function' || typeof window.__hfForceTimelineRebind !== 'function' ||
-        !Array.isArray(m.changes) || m.changes.length > 32) return false;
+        !Array.isArray(m.changes)) return false;
     const sameContent = !m.changes.length && m.sameContent === true && m.type === 'peer-timing' && !!timingDocumentId;
     if (!m.changes.length && !sameContent) return false;
     const drafting = typeof m.structureDraftId === 'string';
@@ -130,6 +130,20 @@ export const PREVIEW_PEER_TIMING = `
     }
     const edits = [], effects = [], placements = [];
     let structureChanged = false;
+    // Bulk edits resolve IDs in one traversal, including duplicate IDs across source files.
+    const targets = new Map();
+    const bulk = m.changes.length > 8;
+    if (bulk) {
+      for (const node of document.querySelectorAll('[data-hf-id], [id], [data-composition-id]')) {
+        if (sourceFileForElement(node) !== m.path) continue;
+        for (const attr of ['data-hf-id', 'id', 'data-composition-id']) {
+          const value = node.getAttribute(attr);
+          if (!value) continue;
+          const key = node.localName + ':' + attr + ':' + value;
+          targets.set(key, targets.has(key) ? null : node);
+        }
+      }
+    }
     for (const change of m.changes) {
       if (!change || (!change.hfId && !change.id && !change.compositionId) || !Array.isArray(change.attributes) ||
           (!change.attributes.length && !change.styles && !change.text && !change.removeFromComposition && !change.insert && !change.group) || change.attributes.length > previewAttributes.size) return false;
@@ -152,10 +166,16 @@ export const PREVIEW_PEER_TIMING = `
       if ((temporary || ownDrag) && (!change.styles || change.text || change.attributes.length)) return false;
       const selector = change.hfId ? '[data-hf-id="'+CSS.escape(change.hfId)+'"]' :
         change.id ? '#'+CSS.escape(change.id) : '[data-composition-id="'+CSS.escape(change.compositionId)+'"]';
-      const matches = Array.from(document.querySelectorAll(selector)).filter(node =>
-        node.localName === change.tag && sourceFileForElement(node) === m.path);
-      if (matches.length !== 1 || matches[0].closest('[data-hf-parked-scene]')) return false;
-      const node = matches[0];
+      let node;
+      if (bulk) {
+        const key = change.hfId ? 'data-hf-id:' + change.hfId : change.id ? 'id:' + change.id : 'data-composition-id:' + change.compositionId;
+        node = targets.get(change.tag + ':' + key);
+      } else {
+        const matches = Array.from(document.querySelectorAll(selector)).filter(candidate =>
+          candidate.localName === change.tag && sourceFileForElement(candidate) === m.path);
+        if (matches.length === 1) node = matches[0];
+      }
+      if (!node || node.closest('[data-hf-parked-scene]')) return false;
       if (measured && node !== pending.element) return false;
       if (change.removeFromComposition) {
         const parent = node.parentElement, next = node.nextSibling;

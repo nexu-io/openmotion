@@ -1,5 +1,4 @@
 import type { GroupChange } from "./preview-group.ts";
-export const MAX_PEER_PREVIEW_SOURCE_LENGTH = 128 * 1024;
 export type PreviewLiveEdits = { position?: true; mediaTiming?: true };
 export const PREVIEW_ATTRIBUTES = [
   "data-start", "data-end", "data-duration", "data-track-index", "data-playback-start", "data-media-start",

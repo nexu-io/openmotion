@@ -405,3 +405,23 @@ it('displays the latest control while earlier file versions settle, preserving p
   project(true, true); // A receipt alone cannot start a gesture in a replacement document.
   assert.equal(title.hasAttribute('data-hidden'), false);
 });
+
+it('paints an entire verified bulk edit on the existing nodes or leaves them all unchanged', () => {
+  const { send, document } = preview();
+  const owner = document.querySelector('main')!;
+  const nodes = Array.from({length: 100}, (_, i) => {
+    const node = document.createElement('div');
+    node.id = 'bulk-' + i;
+    node.textContent = 'old';
+    owner.appendChild(node);
+    return node;
+  });
+  const changes = nodes.map(node => ({ id: node.id, tag: 'div', attributes: [], text: ['old', 'new'] }));
+  const duplicate = nodes.at(-1)!.cloneNode(true);
+  owner.appendChild(duplicate);
+  assert.equal(send({ type: 'peer-presentation', changes }), false);
+  assert.ok(nodes.every(node => node.textContent === 'old'));
+  owner.removeChild(duplicate);
+  assert.equal(send({ type: 'peer-presentation', changes }), true);
+  assert.ok(nodes.every(node => document.getElementById(node.id) === node && node.textContent === 'new'));
+});

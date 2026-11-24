@@ -6,7 +6,7 @@ import { createPreviewAdapter } from "./lib/previewAdapter";
 import { capturePresentedTimelineChanges } from "./lib/isolatedTimelineEdits";
 import { setPreviewMediaMuted } from "./lib/timelineIframeHelpers";
 import { usePlayerStore } from "./store/playerStore";
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isPaintOnlyChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isPaintOnlyChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
 
 type FileSnapshot = { content: string; version: string };
 
@@ -53,7 +53,7 @@ export function acceptsTimingManifest(frame: HTMLIFrameElement, path: unknown, v
   return !expected || path !== expected.path || version === expected.version;
 }
 
-/** Only the small child files actually compiled into this document have a pinned baseline. */
+/** Only child files compiled into this document have a pinned baseline. */
 export function mountedPeerFileVersion(frame: HTMLIFrameElement, path: string) {
   return documents.get(frame)?.mountedVersions.get(path);
 }
@@ -99,8 +99,7 @@ function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["st
 
 /** Strip only supported changes, then compare the entire remaining document before touching the player. */
 export function diffPreviewChanges(previous: string, current: string, measured = false): PreviewChange[] | null {
-  // This optional fast path runs on the UI thread; large source rewrites use the regular loader.
-  if (previous === current || Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
+  if (previous === current) return null;
   const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
   const before = parse(previous);
   const after = parse(current);
@@ -169,13 +168,12 @@ export function diffPreviewChanges(previous: string, current: string, measured =
         !(change.tag === "canvas" && isLivePositionEdit([change]))) return null;
     changes.push(change);
   }
-  if (!changes.length || changes.length > 32 || before.documentElement.outerHTML !== after.documentElement.outerHTML) return null;
+  if (!changes.length || before.documentElement.outerHTML !== after.documentElement.outerHTML) return null;
   return changes;
 }
 
 /** The first visual edit can persist the exact IDs already mounted by the compiler. */
 export async function diffMountedPreview(previous: string, current: string, measured = false) {
-  if (Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
   const changes = diffPreviewChanges(previous, current, measured);
   if (changes || current.split("data-hf-id=").length <= previous.split("data-hf-id=").length) return changes;
   const { ensureHfIds } = await import("@hyperframes/parsers/hf-ids");

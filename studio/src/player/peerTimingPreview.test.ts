@@ -176,3 +176,11 @@ it("accepts a peer paint and a measured local media box together without changin
   expect(diffPreviewChanges(before, after, true)).toMatchObject([{id:"picture", tag:"canvas"}]);
   expect(diffPreviewChanges(before, after.replace('width="1200"', 'width="1600"'), true)).toBeNull();
 });
+
+it("derives every changed element in a large source without changing the rest of the document", () => {
+  const titles = Array.from({ length: 80 }, (_, i) => '<p id="title-' + i + '" style="color: red">hello</p>');
+  const original = '<main>' + ' '.repeat(150 * 1024) + titles.join('') + '</main>';
+  const next = original.replaceAll('color: red', 'color: blue');
+  expect(diffPreviewChanges(original, next)).toHaveLength(titles.length);
+  expect(diffPreviewChanges(original, next + '<script>boot()</script>')).toBeNull();
+});

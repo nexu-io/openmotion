@@ -163,7 +163,7 @@ describe("external file change coordinator", () => {
     expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("intro.html");
   });
 
-  it("covers both pending files with one fallback when one update rejects", async () => {
+  it("keeps a pending scene independent when another scene needs recovery", async () => {
     let failIntro!: (error: Error) => void;
     let finishOutro!: (applied: boolean) => void;
     const { options } = await mountCoordinator({
@@ -174,8 +174,9 @@ describe("external file change coordinator", () => {
     await act(async () => handler?.({ path: "intro.html" }));
     await act(async () => handler?.({ path: "outro.html" }));
     await act(async () => failIntro(new Error("source read failed")));
+    expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith("intro.html");
     await act(async () => finishOutro(false));
-    expect(options.reloadPreview).toHaveBeenCalledExactlyOnceWith(["intro.html", "outro.html"]);
+    expect(vi.mocked(options.reloadPreview).mock.calls).toEqual([["intro.html"], ["outro.html"]]);
   });
 
   it("ignores an unsettled preview update after switching projects", async () => {

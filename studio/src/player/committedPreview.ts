@@ -11,11 +11,15 @@ export interface CommittedPreviewChange {
   path: string;
   previous?: ConfirmedSource;
   current?: ConfirmedSource;
+  /** Remote receipts carry an exact version even if its source is not open in this tab. */
+  version?: string;
+  read?: () => Promise<ConfirmedSource | undefined>;
+  readPrevious?: () => Promise<ConfirmedSource | undefined>;
 }
 
 type Refresh = (paths: readonly string[]) => void;
 type Options = { gestureId?: string };
-type Change = CommittedPreviewChange & { options?: Options };
+type Change = CommittedPreviewChange & { options?: Options; observedVersion?: string };
 type Session = {
   src: string;
   project: string;
@@ -26,14 +30,26 @@ type Session = {
 const sessions = new WeakMap<HTMLIFrameElement, Session>();
 
 async function applyChange(frame: HTMLIFrameElement, change: Change, isCurrent: () => boolean) {
-  const {path, previous, current, options} = change;
-  if (!current || !isCurrent()) return false;
-  if (mountedPeerFileVersion(frame, path) === current.version) return true;
-  if (previous && (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
-    const edit = {path, previous, current};
-    if (options ? await tryApplyPeerChanges(frame, edit, isCurrent, options) : await tryApplyPeerChanges(frame, edit, isCurrent)) return true;
+  const { path, options } = change;
+  const target = change.current?.version ?? change.version;
+  if (!target || !isCurrent()) return false;
+  if (mountedPeerFileVersion(frame, path) === target) return true;
+  const refreshParked = () => path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, target, isCurrent);
+  // A parked scene can adopt the new version without downloading its source into Studio.
+  if (!change.previous && await refreshParked()) return true;
+  if ((change.previous || change.readPrevious) &&
+      (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
+    const [previous, current] = await Promise.all([
+      change.previous ?? change.readPrevious?.(), change.current ?? change.read?.(),
+    ]);
+    if (previous && current?.version === target && isCurrent()) {
+      const edit = { path, previous, current };
+      const applied = options ? await tryApplyPeerChanges(frame, edit, isCurrent, options)
+        : await tryApplyPeerChanges(frame, edit, isCurrent);
+      if (applied) return true;
+    }
   }
-  return path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, current.version, isCurrent);
+  return !!change.previous && refreshParked();
 }
 
 // Isolated canvas drags and inline text hold the iframe from pointer-down through commit handoff.
@@ -49,8 +65,12 @@ async function present(frame: HTMLIFrameElement, session: Session) {
   for (const change of [...session.pending.values()]) {
     const owns = () => mounted() && session.pending.get(change.path) === change;
     if (!mounted() || busy(frame)) break;
-    const latest = () => confirmedSource(session.project, change.path);
-    const current = () => owns() && !busy(frame) && !isPreviewChanging() && latest()?.version === change.current?.version;
+    const current = () => {
+      if (!owns() || busy(frame) || isPreviewChanging()) return false;
+      const version = confirmedSource(session.project, change.path)?.version;
+      if (change.version) return !version || version === change.version || version === change.observedVersion;
+      return version === change.current?.version;
+    };
     const done = await applyChange(frame, change, current).catch(() => false);
     // A later input/receipt owns the same pixels, even if this bridge response was successful.
     if (!owns() || busy(frame)) continue;
@@ -101,8 +121,14 @@ export function scheduleCommittedPreview(
   for (const change of changes) {
     const prior = session.pending.get(change.path);
     // Preserve a verified chain all the way from the mounted document. A missing link needs scene recovery.
-    const joins = prior?.current?.version === change.previous?.version || prior?.previous?.version === change.previous?.version;
-    session.pending.set(change.path, { ...change, previous: prior ? joins ? prior.previous : undefined : change.previous, options });
+    let previous = change.previous;
+    if (prior) {
+      const priorTarget = prior.current?.version ?? prior.version;
+      const joins = previous && (previous.version === priorTarget || previous.version === prior.previous?.version);
+      previous = joins ? prior.previous : undefined;
+    }
+    const observedVersion = change.version ? confirmedSource(project, change.path)?.version : undefined;
+    session.pending.set(change.path, { ...change, previous, observedVersion, options });
   }
   schedule(frame, session);
 }

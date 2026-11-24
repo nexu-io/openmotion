@@ -1,4 +1,3 @@
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH } from "../../../../shared/preview-timing";
 import { isolatedSourceVersion, type IsolatedSourceTarget } from "./isolatedSourceTarget";
 
 type Watch = { target: IsolatedSourceTarget; removed(): void };
@@ -35,7 +34,7 @@ function sourceIds(content: string) {
 export async function cancelRemovedCanvasTargets(
   frame: HTMLIFrameElement, watches: Watch[], content: string, readBase: (version: string) => Promise<string | undefined>,
 ) {
-  if (!watches.length || content.length > MAX_PEER_PREVIEW_SOURCE_LENGTH) return;
+  if (!watches.length) return;
   const current = sourceIds(content);
   const bases = new Map<string, Set<string>>();
   for (const watch of watches) {
@@ -46,7 +45,7 @@ export async function cancelRemovedCanvasTargets(
     let base = bases.get(version);
     if (!base) {
       const original = await readBase(version);
-      if (original === undefined || original.length > MAX_PEER_PREVIEW_SOURCE_LENGTH) continue;
+      if (original === undefined) continue;
       base = sourceIds(original);
       bases.set(version, base);
     }
