@@ -542,19 +542,31 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
     assert.equal(okZhPricing.headers.get('location'), `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_valid_123`);
     assert.match(String(capturedTicketBodies.at(-1)?.targetPath), /^\/zh\/pricing\?.*utm_medium=header/);
 
-    // 4. AMR handoff-ticket unavailable -> 503 retryable HTML (never redirects to unbound Pricing!)
+    // 4. AMR handoff-ticket unavailable -> same-origin 303 to session-bound 503 retryable HTML (never unbound Pricing!)
     ticketMode = 'unavailable';
-    const fallbackRes = await app.request(
+    const fallbackInitRes = await app.request(
       '/auth/upgrade-handoff?od_origin=openmotion&od_entry_source=openmotion_manage_subscription',
       { headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` } },
     );
+    assert.equal(fallbackInitRes.status, 303);
+    const boundUnavailableLoc = fallbackInitRes.headers.get('location')!;
+    assert.match(boundUnavailableLoc, /^\/auth\/upgrade-handoff\?.*requireAuth=1.*expectedSession=.*unavailable=1/);
+    const fallbackRes = await app.request(boundUnavailableLoc, {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
     assert.equal(fallbackRes.status, 503);
     assert.equal(fallbackRes.headers.get('location'), null);
     assert.match(await fallbackRes.text(), /Unable to verify billing handoff/);
 
-    // 5. Untrusted handoffUrl -> rejected with 503 retryable HTML
+    // 5. Untrusted handoffUrl -> same-origin 303 to session-bound 503 retryable HTML
     ticketMode = 'untrusted';
-    const untrustedRes = await app.request('/auth/upgrade-handoff', {
+    const untrustedInitRes = await app.request('/auth/upgrade-handoff', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(untrustedInitRes.status, 303);
+    const untrustedBoundLoc = untrustedInitRes.headers.get('location')!;
+    assert.match(untrustedBoundLoc, /^\/auth\/upgrade-handoff\?.*expectedSession=/);
+    const untrustedRes = await app.request(untrustedBoundLoc, {
       headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
     });
     assert.equal(untrustedRes.status, 503);
@@ -1500,6 +1512,13 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
               planTier: 'free',
             });
           }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+            return Response.json({
+              ticket: 'ht_r11_recovered',
+              handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_r11_recovered`,
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            });
+          }
           if (url.startsWith(`${AMR_API_URL}/api/internal/identity/auth_r3_u`)) {
             return Response.json({
               active: true,
@@ -1682,6 +1701,13 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
               sessionProof: 'otsp_r4_proof_race',
             });
           }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
+            return Response.json({
+              ticket: 'ht_r11_recovered',
+              handoffUrl: `${AMR_API_URL}/api/auth/one-tap/handoff?ticket=ht_r11_recovered`,
+              expiresAt: '2099-01-01T00:00:00.000Z',
+            });
+          }
           if (url.startsWith(`${AMR_API_URL}/api/internal/identity/auth_r3_u`)) {
             return Response.json({
               active: true,
@@ -1772,10 +1798,16 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       store.findActiveSessionByTokenHash = async () => {
         throw new Error('simulated postgres connection error');
       };
-      const dbErrRes = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+      const dbErrInitRes = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=some_valid_length_session_token_0123456789` },
       });
       store.findActiveSessionByTokenHash = originalFindSession;
+      assert.equal(dbErrInitRes.status, 303);
+      const dbErrBoundUrl = dbErrInitRes.headers.get('location')!;
+      assert.match(dbErrBoundUrl, /^\/auth\/upgrade-handoff\?.*requireAuth=1.*expectedSession=.*unavailable=1/);
+      const dbErrRes = await appProofRace.request(dbErrBoundUrl, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=some_valid_length_session_token_0123456789` },
+      });
       assert.equal(dbErrRes.status, 503);
       assert.equal(dbErrRes.headers.get('location'), null);
 
@@ -1906,20 +1938,17 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       });
       assert.equal(afterRecoveryMe.status, 401);
 
-      // 9. Extract BOTH the REAL Retry href AND the om_upgrade_retry_bind cookie from the pre-enrichment 503 response:
-      //    - browser F5 reload of the original bare URL after logout (no om_session) -> 401 (NO guest Pricing)
-      //    - browser F5 reload of the original bare URL after switching to another session -> 409 ACCOUNT_MISMATCH
+      // 9. Browser F5 reload of the post-303 bound 503 URL (with ZERO retry cookies!):
+      //    - after logout (no om_session) -> 401 (NO guest Pricing)
+      //    - after switching to another session -> 409 ACCOUNT_MISMATCH
       //    - Retry link without cookie -> 401, Retry link with different session -> 409
-      const retryBindVal = extractCookieValue(dbErrRes.headers.getSetCookie(), 'om_upgrade_retry_bind');
-      assert.ok(retryBindVal, '503 response must set om_upgrade_retry_bind cookie to bind browser F5 reloads');
-      const reloadAfterLogout = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
-        headers: { Cookie: `om_upgrade_retry_bind=${retryBindVal}` },
-      });
+      //    - Original valid session following its own post-303 Retry link once recovered -> 302 AMR handoff ticket
+      const reloadAfterLogout = await appProofRace.request(dbErrBoundUrl);
       assert.equal(reloadAfterLogout.status, 401);
       assert.equal(reloadAfterLogout.headers.get('location'), null);
 
-      const reloadAfterSwitch = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
-        headers: { Cookie: `om_upgrade_retry_bind=${retryBindVal}; ${SESSION_COOKIE_NAME}=${activeTok}` },
+      const reloadAfterSwitch = await appProofRace.request(dbErrBoundUrl, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
       });
       assert.equal(reloadAfterSwitch.status, 409);
       assert.equal(reloadAfterSwitch.headers.get('location'), null);
@@ -1930,6 +1959,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       const generatedRetryUrl = hrefMatch[1].replaceAll('&amp;', '&');
       assert.match(generatedRetryUrl, /requireAuth=1/);
       assert.match(generatedRetryUrl, /expectedSession=/);
+      assert.doesNotMatch(generatedRetryUrl, /unavailable=1/);
 
       const missingCookieRetry = await appProofRace.request(generatedRetryUrl);
       assert.equal(missingCookieRetry.status, 401);
@@ -1940,6 +1970,27 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       });
       assert.equal(switchedSessionRetry.status, 409);
       assert.equal(switchedSessionRetry.headers.get('location'), null);
+
+      // Verify a real valid session gets 303 -> 503 on outage, and then succeeds on its own Retry link after recovery
+      const origVerifyForRecovery = amrWithProof.verifyAndEnrichAuthContext.bind(amrWithProof);
+      amrWithProof.verifyAndEnrichAuthContext = async () => {
+        throw new Error('transient amr outage');
+      };
+      const activeOutageInit = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      amrWithProof.verifyAndEnrichAuthContext = origVerifyForRecovery;
+      assert.equal(activeOutageInit.status, 303);
+      const activeOutage503 = await appProofRace.request(activeOutageInit.headers.get('location')!, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(activeOutage503.status, 503);
+      const activeRetryHref = (await activeOutage503.text()).match(/href="([^"]+)"/)![1].replaceAll('&amp;', '&');
+      const activeRecoveredRes = await appProofRace.request(activeRetryHref, {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(activeRecoveredRes.status, 302);
+      assert.match(activeRecoveredRes.headers.get('location')!, /\/api\/auth\/one-tap\/handoff\?ticket=/);
 
       const switchedAccountRetry = await appProofRace.request(
         '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&expectedAppUserId=usr_other_b',

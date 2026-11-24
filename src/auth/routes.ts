@@ -1100,22 +1100,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         Boolean(expectedAppUserIdParam) ||
         Boolean(expectedSessionParam);
 
-      const UPGRADE_RETRY_BIND_COOKIE = 'om_upgrade_retry_bind';
       const cookies = parseCookies(c.req.header('cookie'));
       const rawSession = cookies[SESSION_COOKIE_NAME];
-      const retryBindCookie = cookies[UPGRADE_RETRY_BIND_COOKIE]?.trim() || null;
-      const effectiveExpectedSessionParam = expectedSessionParam || retryBindCookie;
-      const effectiveRequireAuth = requireAuth || Boolean(retryBindCookie);
+      const isUnavailableView = c.req.query('unavailable') === '1';
       const signUpgradeSessionBinding = (sessionToken: string): string =>
         createHmac('sha256', trackingAttestationSecret)
           .update(`upgrade-retry:${sha256Hex(sessionToken)}`)
           .digest('base64url')
           .slice(0, 32);
-      const buildBoundRetryPath = (boundAppUserId?: string | null): string => {
+      const buildBoundRetryPath = (
+        boundAppUserId?: string | null,
+        options?: { unavailable?: boolean },
+      ): string => {
         const retryUrl = new URL(parsedReqUrl.toString());
         retryUrl.searchParams.set('requireAuth', '1');
         const effectiveSessionSig =
-          effectiveExpectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
+          expectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
         if (effectiveSessionSig) {
           retryUrl.searchParams.set('expectedSession', effectiveSessionSig);
         }
@@ -1123,41 +1123,38 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         if (effectiveExpected) {
           retryUrl.searchParams.set('expectedAppUserId', effectiveExpected);
         }
+        if (options?.unavailable) {
+          retryUrl.searchParams.set('unavailable', '1');
+        } else {
+          retryUrl.searchParams.delete('unavailable');
+        }
         return `${retryUrl.pathname}${retryUrl.search}`;
       };
       const unavailableResponse = (boundAppUserId?: string | null) => {
-        const boundRetryPath = buildBoundRetryPath(boundAppUserId);
-        const headers = new Headers({
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': 'no-store',
-          pragma: 'no-cache',
-          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
-          'x-content-type-options': 'nosniff',
-        });
-        const sessionSigForCookie =
-          effectiveExpectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
-        if (sessionSigForCookie) {
-          headers.append(
-            'Set-Cookie',
-            serializeCookie(UPGRADE_RETRY_BIND_COOKIE, sessionSigForCookie, {
-              httpOnly: true,
-              secure: secureCookie,
-              sameSite: 'Lax',
-              path: '/auth/upgrade-handoff',
-              maxAgeSec: 600,
-            }),
-          );
+        // Before displaying a 503 page on an unbound URL, navigate the browser via same-origin
+        // 303 to the session-bound URL so reloading the 503 page FOREVER preserves requireAuth +
+        // expectedSession in the URL itself (never relying on an expiring cookie).
+        if (!expectedSessionParam && rawSession) {
+          const boundUnavailablePath = buildBoundRetryPath(boundAppUserId, { unavailable: true });
+          return c.redirect(boundUnavailablePath, 303);
         }
+        const boundRetryPath = buildBoundRetryPath(boundAppUserId, { unavailable: false });
         return new Response(renderUpgradeHandoffUnavailableHtml(boundRetryPath), {
           status: 503,
-          headers,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+            pragma: 'no-cache',
+            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+            'x-content-type-options': 'nosniff',
+          },
         });
       };
 
       if (!rawSession) {
-        // Bound retries (requireAuth=1, expectedSession, om_upgrade_retry_bind cookie, or expectedAppUserId)
-        // MUST NEVER fall back to unbound guest Pricing when the session cookie disappears before reload/retry.
-        if (effectiveRequireAuth) {
+        // Bound retries/reloads (requireAuth=1, expectedSession, or expectedAppUserId)
+        // MUST NEVER fall back to unbound guest Pricing when the session cookie disappears.
+        if (requireAuth) {
           return c.json(
             {
               code: 'UNAUTHORIZED',
@@ -1184,8 +1181,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       // Enforce cryptographic binding to the originating session BEFORE touching DB/AMR so a
       // pre-enrichment 503 reload or retry can NEVER switch billing to a different Motion account.
       if (
-        effectiveExpectedSessionParam &&
-        !timingSafeStringEqual(effectiveExpectedSessionParam, signUpgradeSessionBinding(rawSession))
+        expectedSessionParam &&
+        !timingSafeStringEqual(expectedSessionParam, signUpgradeSessionBinding(rawSession))
       ) {
         return c.json(
           {
@@ -1194,6 +1191,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           },
           409,
         );
+      }
+
+      // Render the bound 503 page directly on the post-303 URL without re-hitting a down DB/AMR;
+      // clicking Retry strips unavailable=1 while keeping requireAuth + expectedSession.
+      if (isUnavailableView && expectedSessionParam) {
+        return unavailableResponse(expectedAppUserIdParam);
       }
 
       let authUserId: string | null = null;
@@ -1254,9 +1257,6 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
               targetPath,
             });
             if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
-              if (retryBindCookie) {
-                c.header('Set-Cookie', clearCookie(UPGRADE_RETRY_BIND_COOKIE, secureCookie, '/auth/upgrade-handoff'));
-              }
               return c.redirect(ticket.handoffUrl, 302);
             }
           }
