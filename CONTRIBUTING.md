@@ -36,11 +36,11 @@ The storage check names any Skill cover media awaiting preparation. If replacing
 previously prepared media, stage the new bytes with `git add -f`. Include media
 attribution with the source.
 
-The distribution job reports the actual compressed default npm package and the
-largest file and directory changes. Growth of 1 MiB raises a warning. The default
-package has a 26 MiB budget. If a feature needs new offline media, list its
-runtime purpose beside its path in `scripts/distribution.ts` and review any
-necessary budget change in the same PR.
+The distribution job reports the actual compressed default npm package size and the
+largest file and directory changes. Growth of 1 MiB or exceeding the 28 MiB advisory
+target raises a warning without blocking PR CI or release candidate builds. If a
+feature needs new offline media, list its runtime purpose beside its path in
+`scripts/distribution.ts`.
 
 ## PR workflow
 

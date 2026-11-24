@@ -51,8 +51,8 @@ jobs:
     steps:
       - name: Require Motion integration branch
         run: |
-          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
-            echo '::error::Select main in Run workflow for Motion operations.'
+          if [ "$GITHUB_REF" != 'refs/heads/main' ] && [ "$GITHUB_REF" != 'refs/heads/next' ]; then
+            echo '::error::Select main or next in Run workflow for Motion operations.'
             exit 1
           fi
       - uses: actions/checkout@v6.0.2
@@ -67,7 +67,8 @@ jobs:
       - name: Resolve and freeze the integrated source
         id: source
         run: |
-          git -C control fetch origin main:refs/remotes/origin/main
+          branch="${GITHUB_REF#refs/heads/}"
+          git -C control fetch origin "${branch}:refs/remotes/origin/${branch}"
           node control/.github/scripts/motion-release.mjs source control
       - uses: actions/checkout@v6.0.2
         with:

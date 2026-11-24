@@ -23,7 +23,7 @@ on:
         type: string
         required: false
       source_sha:
-        description: 'Optional source commit already integrated into main when building a new candidate.'
+        description: 'Optional source commit already integrated into main or next when building a new candidate.'
         type: string
         required: false
   workflow_call:
@@ -81,8 +81,8 @@ jobs:
     steps:
       - name: Require Motion integration branch
         run: |
-          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
-            echo '::error::Select main in Run workflow for Motion operations.'
+          if [ "$GITHUB_REF" != 'refs/heads/main' ] && [ "$GITHUB_REF" != 'refs/heads/next' ]; then
+            echo '::error::Select main or next in Run workflow for Motion operations.'
             exit 1
           fi
       - uses: actions/checkout@v6.0.2
@@ -118,6 +118,7 @@ jobs:
           MOTION_EXPECTED_SHA256: ${{ steps.download.outputs.tgz_sha256 }}
         run: |
           git fetch origin main:refs/remotes/origin/main
+          git fetch origin next:refs/remotes/origin/next || true
           node .github/scripts/motion-scan.mjs install "$RUNNER_TEMP/scanner"
           node .github/scripts/motion-release.mjs rescan "$RUNNER_TEMP/candidate" "$PWD" "$RUNNER_TEMP/scanner/gitleaks"
       - uses: actions/upload-artifact@v7.0.2

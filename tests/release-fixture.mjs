@@ -9,7 +9,7 @@ import { downloadOrigin, downloadPrefix } from '../integrations/dsh/download.ts'
 export async function candidateFixture(t, branch = 'main', options = {}) {
   const work = await mkdtemp(path.join(os.tmpdir(), 'motion-release-test-'));
   t.after(() => rm(work, { recursive: true, force: true }));
-  const root = fileURLToPath(new URL('../', import.meta.url)), build = path.join(work, 'build'), directory = path.join(work, 'candidate');
+  const root = options.root || fileURLToPath(new URL('../', import.meta.url)), build = path.join(work, 'build'), directory = path.join(work, 'candidate');
   const commit = (await runFile('git', ['rev-parse', 'HEAD'], { cwd: root })).trim(), version = options.version || '0.6.4-test.99';
   const channel = version.includes('-test.') ? 'test' : 'stable', templateEnvironment = channel === 'test' ? 'dev' : 'prod';
   const app = path.join(work, 'app'), pkg = path.join(work, 'package');
@@ -49,8 +49,9 @@ export async function candidateFixture(t, branch = 'main', options = {}) {
   const provenance = { head_branch: branch, head_sha: env.GITHUB_SHA, runId: 123, attempt: 1 };
   await writeJSON(path.join(directory, 'provenance.json'), provenance);
   const inputs = { action: 'publish-' + channel, channel, version, expectedSHA256: candidate.tgzSHA256 };
-  const publicationEnv = { GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
-    GITHUB_RUN_ID: '800', GITHUB_SHA: env.GITHUB_SHA, GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@refs/heads/main`,
+  const publicationRef = `refs/heads/${branch}`;
+  const publicationEnv = { GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: publicationRef,
+    GITHUB_RUN_ID: '800', GITHUB_SHA: env.GITHUB_SHA, GITHUB_WORKFLOW_REF: `${repository}/${publicationWorkflow}@${publicationRef}`,
     MOTION_VERSION: version, MOTION_RELEASE_CHANNEL: channel, MOTION_RELEASE_ACTION: inputs.action, MOTION_EXPECTED_SHA256: candidate.tgzSHA256 };
   const authorization = authorizationReceipt(candidate, { id: 800, run_attempt: 1, actor: { login: 'operator' } }, inputs.action);
   await writeJSON(path.join(directory, 'authorization.json'), authorization);

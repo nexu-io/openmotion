@@ -5,7 +5,7 @@ name: Motion standalone checks
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, next]
   workflow_dispatch:
     inputs:
       format:
@@ -492,7 +492,7 @@ jobs:
               node scripts/test-package.mjs build "$target" "$version" --template-env="$TEMPLATE_ENVIRONMENT"
             done
           fi
-      - name: Report default npm package size and enforce its budget
+      - name: Report default npm package size
         if: steps.scope.outputs.full == 'true' && (inputs.format || 'npm') == 'npm'
         env:
           TEMPLATE_ENVIRONMENT: ${{ inputs.template_environment || 'dev' }}

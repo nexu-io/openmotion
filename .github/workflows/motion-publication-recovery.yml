@@ -27,8 +27,8 @@ jobs:
     steps:
       - name: Require Motion integration branch
         run: |
-          if [ "$GITHUB_REF" != 'refs/heads/main' ]; then
-            echo '::error::Select main in Run workflow for Motion operations.'
+          if [ "$GITHUB_REF" != 'refs/heads/main' ] && [ "$GITHUB_REF" != 'refs/heads/next' ]; then
+            echo '::error::Select main or next in Run workflow for Motion operations.'
             exit 1
           fi
   recover:

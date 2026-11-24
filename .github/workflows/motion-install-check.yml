@@ -13,7 +13,7 @@ on:
         description: 'Optional exact candidate run ID when multiple candidates have this version'
         type: string
   pull_request:
-    branches: [main]
+    branches: [main, next]
     paths:
       - '.github/workflows/motion-install-check.yml'
       - '.github/scripts/motion-registry*.mjs'
@@ -52,11 +52,12 @@ jobs:
           MOTION_CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
         run: |
           git fetch origin main:refs/remotes/origin/main
+          git fetch origin next:refs/remotes/origin/next || true
           node --input-type=module <<'JS'
           import { appendFile } from 'node:fs/promises';
-          import { downloadCandidate, validateSource } from './.github/scripts/motion-release.mjs';
+          import { candidateSourceRef, downloadCandidate, validateSource } from './.github/scripts/motion-release.mjs';
           const c = await downloadCandidate(process.env.MOTION_VERSION, process.env.RUNNER_TEMP + '/candidate', undefined, fetch, process.env.MOTION_CANDIDATE_RUN_ID);
-          await validateSource(process.cwd(), c.sourceCommit, c.version);
+          await validateSource(process.cwd(), c.sourceCommit, c.version, undefined, undefined, candidateSourceRef(c));
           await appendFile(process.env.GITHUB_OUTPUT, `tgz_sha256=${c.tgzSHA256}\n`);
           JS
       - uses: actions/upload-artifact@v7.0.2
