@@ -802,7 +802,8 @@ test("supersession check preserves publication across excluded-path commits (inc
 	assert.equal(skippedAfterRuntime.skipped, true);
 	assert.equal(skippedAfterRuntime.reason, "superseded");
 
-	// Reverting shaC back to shaA's exact tree still touched src/app.ts in (shaA, shaD], so shaD supersedes shaA.
+	// GitHub evaluates push path filters via two-dot diff(sourceSha, remoteSha): reverting shaC back to shaA's
+	// runtime tree plus README-only changes leaves zero net runtime diff, so shaD does not supersede shaA.
 	const shaD = await commitAndPush("src/app.ts", "v1\n", "revert runtime v2");
 	assert.equal(
 		isSupersededByRemoteHead({
@@ -811,6 +812,6 @@ test("supersession check preserves publication across excluded-path commits (inc
 			remoteSha: shaD,
 			cwd: shallowDir,
 		}),
-		true,
+		false,
 	);
 });

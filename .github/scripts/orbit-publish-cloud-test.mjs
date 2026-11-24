@@ -228,13 +228,11 @@ export function isSupersededByRemoteHead({
 		[
 			"-c",
 			"core.quotePath=false",
-			"log",
-			"-m",
-			"--first-parent",
-			"--format=",
+			"diff",
 			"--name-only",
 			"-z",
-			`${sourceSha}..${remoteSha}`,
+			sourceSha,
+			remoteSha,
 		],
 		{ cwd, encoding: "utf8" },
 	);
