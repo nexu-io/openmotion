@@ -30,6 +30,7 @@ import {
   LazyModelHub,
   LazyModelOverview,
   LazyMotionStudioPage,
+  LazyNotFoundPage,
   LazyScenarioHub,
   LazyScenarioWorkspace,
   LazySettingsCenter,
@@ -218,6 +219,14 @@ export function RouteViewport({
           />
         </RouteSurface>
       </KeepAliveSlot>
+
+      {page.notFound && !templatesPage && !settings && (
+        <div className="om-explore-host">
+          <RouteSurface>
+            <LazyNotFoundPage onExplore={openHome} />
+          </RouteSurface>
+        </div>
+      )}
 
       {workflowsEnabled && page.scenarioHub && !templatesPage && !settings && (
         <div className="om-explore-host">

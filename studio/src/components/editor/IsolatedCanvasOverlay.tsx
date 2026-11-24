@@ -13,11 +13,17 @@ import { onPreviewPromoted } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
+import { beginStudioManualEditGesture, endStudioManualEditGesture } from "./manualEditsDom";
+import { supportsOrderedTextEdits } from "../../utils/confirmedTextSources";
+import { watchCanvasTarget } from "./remoteCanvasTargets";
 import { saveCanvasDrag } from "./saveCanvasDrag";
 
 interface Drag {
   pointer: number;
   gestureId: string;
+  ordered: boolean;
+  hold?: string;
+  unwatch?: () => void;
   adapter: PreviewAdapter;
   startX: number;
   startY: number;
@@ -44,7 +50,7 @@ interface DragResult extends IsolatedSourceTarget {
   height?: number;
 }
 
-interface Pick { geometry: LayerBounds; viewport: { width: number; height: number } }
+interface Pick { target?: IsolatedSourceTarget; geometry: LayerBounds; viewport: { width: number; height: number } }
 
 function validResult(result: DragResult | null): result is DragResult {
   return isIsolatedSourceTarget(result) && Number.isFinite(result.left) && Number.isFinite(result.top);
@@ -60,7 +66,7 @@ function positionPatch(result: DragResult) {
 /** Input and persistence stay in Studio. The scoped frame only measures and previews layout. */
 export function IsolatedCanvasOverlay() {
   const { t } = useI18n();
-  const { commitDomEditPatchBatches } = useDomEditActionsContext();
+  const { commitDomEditPatchBatches, clearDomSelection } = useDomEditActionsContext();
   const { previewIframeRef, projectId, showToast, writeBlockedReason } = useStudioShellContext();
   const select = usePlayerStore(state => state.activeTool === "select");
   const text = useIsolatedInlineText(previewIframeRef, projectId, select && !writeBlockedReason);
@@ -82,7 +88,9 @@ export function IsolatedCanvasOverlay() {
   const observedFrame = useRef<HTMLIFrameElement | null>(null);
   const cancel = useCallback(() => {
     const active = drag.current;
+    active?.unwatch?.();
     active?.adapter.send("canvas-drag", { phase: "cancel", gestureId: active.gestureId });
+    if (active?.hold) endStudioManualEditGesture(active.adapter.iframe, active.hold);
     drag.current = null;
     setMenu(null);
     lastPick.current = null;
@@ -153,6 +161,7 @@ export function IsolatedCanvasOverlay() {
       corner,
       pointer: event.pointerId,
       gestureId: crypto.randomUUID(),
+      ordered: !!projectId && supportsOrderedTextEdits(projectId),
       adapter,
       frame,
       startX,
@@ -160,15 +169,33 @@ export function IsolatedCanvasOverlay() {
       pickSettled: false,
       finishSettled: false,
     };
+    if (active.ordered) active.hold = beginStudioManualEditGesture(iframe, corner ? "resize" : "move");
     drag.current = lastPick.current = active;
     // Keep the last visible bounds until the new hit has been measured.
     event.currentTarget.setPointerCapture(event.pointerId);
     const target = corner && domEditSelection?.isolatedTarget;
-    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner,
+    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, ...(active.ordered && { ordered: true }),
       ...(target && { target: { sourceFile: target.sourceFile, elementId: target.elementId, hfId: target.hfId } }) })
       .then(pick => {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
+        if (active.ordered && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
+          active.unwatch = watchCanvasTarget(iframe, pick.target, () => {
+            active.unwatch?.();
+            if (previewIframeRef.current !== iframe) return;
+            const wasDragging = drag.current === active;
+            active.adapter.send("canvas-drag", { phase: "removed", gestureId: active.gestureId });
+            if (active.hold) endStudioManualEditGesture(iframe, active.hold);
+            if (wasDragging) drag.current = null;
+            if (lastPick.current === active) {
+              lastPick.current = null;
+              setDraft(null);
+              clearDomSelection();
+              // An already-submitted gesture receives its conflict message from the save coordinator.
+              if (wasDragging) showToast(t("The project changed elsewhere. Changes were not saved."), "error");
+            }
+          });
+        }
         const bounds = relativeLayerBounds(pick);
         if (!bounds) return;
         active.bounds = bounds;
@@ -196,10 +223,12 @@ export function IsolatedCanvasOverlay() {
       return;
     }
     if (phase === "cancel" || !active.offset) {
+      active.unwatch?.();
       active.finishSettled = true;
       if (phase === "cancel") { setDraft(null); lastPick.current = null; }
       else if (active.pickSettled && lastPick.current === active) { lastPick.current = null; }
       active.adapter.send("canvas-drag", { ...payload, phase: "cancel" });
+      if (active.hold) endStudioManualEditGesture(active.adapter.iframe, active.hold);
       drag.current = null;
       return;
     }
@@ -223,21 +252,25 @@ export function IsolatedCanvasOverlay() {
         return;
       }
       const frame = active.adapter.iframe;
-      const saved = await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, async version => {
+      const write = (version?: string) => {
         const patch = positionPatch(result);
         // The authenticated measurement is complete. A preview swap while a prior
         // write settles cannot invalidate its target and conditional source version.
         if (gestureSession !== session.current) return;
         if (version) patch.ifMatch = version;
         return commitDomEditPatchBatches([patch], { label: active.corner ? "Resize layer" : "Move layer", coalesceKey: active.gestureId });
-      });
+      };
+      const saved = active.ordered ? await write()
+        : await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, async version => write(version));
       if (!saved && gestureSession === session.current) reportUnapplied();
       committed = saved?.durable === true;
       changed = saved?.changed === true;
     }, () => { if (gestureSession === session.current) showToast(t("Preview unavailable"), "error"); }).catch(() => {
       // The shared save queue reports the error and reloads the authoritative preview.
     }).finally(() => {
+      active.unwatch?.();
       active.finishSettled = true;
+      if (active.hold) endStudioManualEditGesture(active.adapter.iframe, active.hold);
       active.adapter.send("canvas-drag", { phase: committed ? "commit" : "cancel", changed, gestureId: active.gestureId });
       if (drag.current === active) drag.current = null;
       if (lastPick.current === active) {
@@ -249,6 +282,23 @@ export function IsolatedCanvasOverlay() {
         }
       }
     });
+  }
+
+  function lostCapture(event: PointerEvent<HTMLDivElement>) {
+    const active = drag.current;
+    if (!active || active.pointer !== event.pointerId) return;
+    const { currentTarget, clientX, clientY } = event;
+    // Chromium may drop capture on the first move with the primary button still down.
+    // Continue this gesture only while the pointer is still over its own overlay.
+    if ((event.buttons & 1) && currentTarget.contains(document.elementFromPoint(clientX, clientY))) {
+      try {
+        currentTarget.setPointerCapture(event.pointerId);
+        return;
+      } catch {
+        // The pointer was already released or the overlay detached.
+      }
+    }
+    update(event, "cancel");
   }
 
   if (!select) return null;
@@ -266,7 +316,7 @@ export function IsolatedCanvasOverlay() {
     }}
     onPointerDown={begin} onPointerMove={event => update(event, "move")}
     onPointerUp={event => update(event, "finish")} onPointerCancel={event => update(event, "cancel")}
-    onLostPointerCapture={event => update(event, "cancel")}>
+    onLostPointerCapture={lostCapture}>
     {menu && <IsolatedCanvasContextMenu pick={menu} close={() => setMenu(null)} />}
     {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div className="absolute pointer-events-none border border-studio-accent"
       style={{ left: compositionRect.left + box.x * compositionRect.width,

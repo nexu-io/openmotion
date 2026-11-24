@@ -195,6 +195,7 @@ export function useTimelineEditing({
 
   const linkEditing = useTimelineLinkEditing({
     projectIdRef,
+    previewIframeRef,
     activeCompPath,
     editQueueRef,
     pendingTimelineEditPathRef,

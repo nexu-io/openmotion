@@ -177,6 +177,11 @@ interface PrismMotionCatalogOptions {
   ttlMs?: number;
   retryMs?: number;
   onRefreshError?: (error: unknown) => void;
+  /** Invoked asynchronously when a newly validated publication replaces the previous snapshot. */
+  onPublicationChanged?: (
+    templates: readonly PreparedCatalogTemplate[],
+    catalogVersion: string,
+  ) => unknown;
 }
 
 const emptyCatalog: readonly PreparedCatalogTemplate[] = [];
@@ -190,6 +195,10 @@ export class PrismMotionCatalog {
   private readonly ttlMs: number;
   private readonly retryMs: number;
   private readonly onRefreshError?: (error: unknown) => void;
+  private readonly onPublicationChanged?: (
+    templates: readonly PreparedCatalogTemplate[],
+    catalogVersion: string,
+  ) => unknown;
   private cached?: readonly PreparedCatalogTemplate[];
   private pending?: Promise<void>;
   private checkAfter = 0;
@@ -208,6 +217,7 @@ export class PrismMotionCatalog {
     this.ttlMs = options.ttlMs ?? 5 * 60_000;
     this.retryMs = options.retryMs ?? 30_000;
     this.onRefreshError = options.onRefreshError;
+    this.onPublicationChanged = options.onPublicationChanged;
   }
 
   async getTemplates({ requirePublication = false } = {}): Promise<readonly PreparedCatalogTemplate[]> {
@@ -222,8 +232,16 @@ export class PrismMotionCatalog {
 
   private async refresh(): Promise<void> {
     try {
-      this.cached = await readPublication(this.environment, this.origin, this.fetchImpl, this.cached);
+      const prev = this.cached;
+      const next = await readPublication(this.environment, this.origin, this.fetchImpl, prev);
+      this.cached = next;
       this.checkAfter = this.now() + this.ttlMs;
+      if (next !== prev && next.length > 0 && this.onPublicationChanged) {
+        const catalogVersion = next[0]?.catalogVersion ?? `prism:${this.environment}`;
+        void Promise.resolve(this.onPublicationChanged(next, catalogVersion)).catch((error) => {
+          this.onRefreshError?.(error);
+        });
+      }
     } catch (error) {
       this.checkAfter = this.now() + this.retryMs;
       this.onRefreshError?.(error);

@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import * as sources from "../../utils/confirmedTextSources";
 import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
 import { PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
 import { liveTime, usePlayerStore } from "../../player/store/playerStore";
@@ -64,9 +65,9 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function pointer(type: string, x: number) {
+function pointer(type: string, x: number, buttons = 0) {
   act(() => canvas.dispatchEvent(new PointerEvent(type, {
-    bubbles: true, pointerId: 1, isPrimary: true, button: 0, clientX: x, clientY: 60,
+    bubbles: true, pointerId: 1, isPrimary: true, button: 0, buttons, clientX: x, clientY: 60,
   })));
 }
 
@@ -119,6 +120,19 @@ it("captures a scaled drag, commits once on release and uses the shown file vers
   expect(messages.at(-1)).toMatchObject({ phase: "commit", gestureId: messages[0]?.gestureId, changed: true });
 });
 
+it("keeps the first move when capture drops over the canvas with the button still held", async () => {
+  vi.spyOn(document, "elementFromPoint").mockReturnValue(canvas);
+  pointer("pointerdown", 60, 1);
+  pointer("lostpointercapture", 90, 1);
+  pointer("pointermove", 90, 1);
+  pointer("pointerup", 90);
+  expect(messages.map(message => message.phase)).toEqual(["start", "move", "finish"]);
+  expect(canvas.setPointerCapture).toHaveBeenCalledTimes(2);
+  await reply("start", null);
+  await reply("finish", result);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+});
+
 it.each(["pointercancel", "lostpointercapture"])("cancels before release on %s", async type => {
   pointer("pointerdown", 60);
   pointer("pointermove", 90);
@@ -152,6 +166,22 @@ it("accepts a second pointerdown before the first measurement returns", async ()
   await reply("finish", { ...result, predecessor: first, left: 88 }, second);
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
   expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: '"patch:next"', box: { left: 88 } }]);
+});
+
+it("hands consecutive ordered gestures to the project transport before any save acknowledgement", async () => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(true);
+  const first = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [120, 150, 180]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(message => message.phase === "start");
+    expect(starts.at(-1)).toMatchObject({ ordered: true });
+    await reply("finish", { ...result, left, predecessor: starts.at(-2)?.gestureId }, starts.at(-1)!.gestureId);
+  }
+  expect(state.commitDomEditPatchBatches.mock.calls.map(call => call[0][0].box.left)).toEqual([120, 150, 180]);
+  expect(state.showToast).not.toHaveBeenCalled();
+  await act(async () => first.resolve({ durable: true, changed: true }));
 });
 
 it("rejects a measurement returned after a same-URL document load", async () => {

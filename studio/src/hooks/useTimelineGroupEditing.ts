@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { holdIsolatedTimelineChanges } from "../player/lib/isolatedTimelineEdits";
 import { previewTimelinePaint } from "./timelinePaintPreview";
 import { saveCloudTimeline, timelineTimingEdits, type TimelinePaintPlan } from "../utils/cloudTimelineEdit";
@@ -143,7 +144,7 @@ export function useTimelineGroupEditing({
       }
       const projectId = projectIdRef.current;
       if (!projectId) return Promise.reject(new Error(`${label}: no active project`));
-      const run = editQueueRef.current.then(() => operation(projectId));
+      const run = supportsOrderedTextEdits(projectId) ? operation(projectId) : editQueueRef.current.then(() => operation(projectId));
       // Keep the shared edit queue from wedging on a rejection, but return the raw
       // (rejecting) promise so the gesture owner can roll back on a real failure.
       editQueueRef.current = run.then(

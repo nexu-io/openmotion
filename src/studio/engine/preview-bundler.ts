@@ -584,16 +584,16 @@ async function applyStudioPreviewAugmentations(
 
   // The document owns the project data. The same bridge code can be reused
   // across revisions, token renewals, nested compositions and other projects.
+  const versions = () => Object.fromEntries(project.listFiles().filter(file => /\.html?$/i.test(file.path))
+    .map(file => [file.path, file.blobScope === 'patch' ? formatFileVersion(file.blobScope, file.sha256) : file.sha256]));
   if (options.bridgeOrigin) {
-    const versions = Object.fromEntries(project.listFiles().filter(file => /\.html?$/i.test(file.path))
-      .map(file => [file.path, file.blobScope === 'patch' ? formatFileVersion(file.blobScope, file.sha256) : file.sha256]));
     let liveEdits;
     if (!options.capture && !options.canRebindTiming && !Object.keys(options.variables ?? {}).length &&
         !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)) {
       const reviewed = await verifiedPreviewLiveEdits(project);
       liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const } : reviewed;
     }
-    const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions, {
+    const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions(), {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
       smallMountedSources: liveEdits?.position ? options.smallMountedSources : undefined,
     });
@@ -602,6 +602,10 @@ async function applyStudioPreviewAugmentations(
       : '';
     out = injectTagsAtHeadStart(out, `${tags.preload}${snapdomPreload}`);
     bridgeScript = tags.script;
+  } else if (!options.capture) {
+    // Pin same-origin edits to the source that was actually used to construct this document.
+    const data = JSON.stringify({ projectId: project.projectId, sourceVersions: versions() }).replace(/</g, '\\u003c');
+    out = injectTagsAtHeadStart(out, `<script type="application/json" data-openmotion-source-versions>${data}</script>`);
   }
 
   // 3. GSAP base URL meta + project signature meta + CDN fallback

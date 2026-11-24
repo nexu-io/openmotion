@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { mountHost, cleanupMounted } from '../../components/ui/mountHost.testHelpers';
 import { TimelineEditProvider } from '../../contexts/TimelineEditContext';
 import { TimelineTrackAudioControls } from './TimelineTrackAudioControls';
+import { usePlayerStore } from '../store/playerStore';
 import type { TimelineElement } from '../store/timelineElement';
 
 const probe = vi.hoisted(() => vi.fn());
@@ -147,4 +148,16 @@ it('retains unknown video controls if audio probing is unavailable', async () =>
   let host!: HTMLElement;
   await act(async () => { host = render([clip('unknown', 'video', { src: '/unavailable.mp4' })]); });
   expect(host.querySelector('[aria-label="Mute audio · Track"]')).not.toBeNull();
+});
+
+it('skips probing bare relative video paths until timelineProjectId is set', async () => {
+  usePlayerStore.setState({ timelineProjectId: null });
+  await act(async () => { render([clip('rel', 'video', { src: 'assets/clip.mp4', muted: true })]); });
+  expect(probe).not.toHaveBeenCalled();
+
+  await act(async () => {
+    usePlayerStore.getState().beginTimelineSession('proj-1');
+  });
+  expect(probe).toHaveBeenCalledWith('/api/projects/proj-1/preview/assets/clip.mp4');
+  usePlayerStore.setState({ timelineProjectId: null });
 });

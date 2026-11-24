@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 import { decodeAuthoredAttribute, scanHtmlOpeningTags } from '@hyperframes/parsers';
 import { decodedUrlPath } from '@hyperframes/parsers/asset-paths';
+import { extractIndexHeadMarkup } from '../../../shared/preview-impact.ts';
 import { resolveVirtualPath, virtualDirname } from '../virtual-project-store.ts';
+
+export { extractIndexHeadMarkup };
 
 export const COMPOSITION_FILMSTRIP_VERSION = 1 as const;
 export const MAX_FILMSTRIP_FRAMES = 8;
@@ -31,11 +34,6 @@ export interface FilmstripDependencyFile {
 
 export function isHtmlCompositionPath(filePath: string): boolean {
   return /\.html?$/i.test(filePath);
-}
-
-export function extractIndexHeadMarkup(indexHtml: string | null | undefined): string {
-  if (!indexHtml) return '';
-  return /<head[^>]*>([\s\S]*?)<\/head>/i.exec(indexHtml)?.[1] ?? '';
 }
 
 function resolveNestedCompRef(

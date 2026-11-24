@@ -1,3 +1,6 @@
+import { confirmedSource, rememberSource, supportsOrderedTextEdits } from "./confirmedTextSources";
+import { acknowledgeFileEdit } from "./isolatedEditVersions";
+import { runOrderedProjectBarrier } from "./orderedProjectEdits";
 import { createStudioSaveHttpError } from "./studioSaveDiagnostics";
 import { serializeStudioFileMutation } from "./studioFileMutationCoordinator";
 import { cloudHistoryForWrite, type RecordEditInput, type StudioWriteHistory } from "./studioFileHistory";
@@ -54,7 +57,15 @@ async function insertTimelineComposition(input: {
   if (!response.ok) {
     throw await createStudioSaveHttpError(response, "Failed to add composition to timeline");
   }
-  return (await response.json()) as TimelineCompositionInsertionResult;
+  const result = (await response.json()) as TimelineCompositionInsertionResult;
+  if (supportsOrderedTextEdits(input.projectId)) {
+    const current = confirmedSource(input.projectId, input.targetPath);
+    if (!current || current.version === snapshot.version || current.version === result.version) {
+      rememberSource(input.projectId, input.targetPath, { version: result.version, content: result.after });
+      acknowledgeFileEdit(input.projectId, input.targetPath, snapshot.version, result.version);
+    }
+  }
+  return result;
 }
 
 export async function commitTimelineCompositionInsertion(input: {
@@ -72,10 +83,11 @@ export async function commitTimelineCompositionInsertion(input: {
   refresh: () => void;
   isActive?: () => boolean;
 }): Promise<TimelineElement | undefined> {
-  return serializeStudioFileMutation(input.writeFile, input.targetPath, async () => {
-    if (input.isActive?.() === false) return;
-    const label = "Add composition to timeline";
-    const result = await insertTimelineComposition(input, cloudHistoryForWrite(input.writeFile, { label }));
+  const label = "Add composition to timeline";
+  const insert = async () => input.isActive?.() === false
+    ? undefined : insertTimelineComposition(input, cloudHistoryForWrite(input.writeFile, { label }));
+  const finish = async (result?: TimelineCompositionInsertionResult) => {
+    if (!result) return;
     input.observeVersion?.(input.targetPath, result.version);
     try {
       await input.recordEdit({
@@ -105,5 +117,10 @@ export async function commitTimelineCompositionInsertion(input: {
       console.error("[Studio] Composition insertion committed but refresh failed", error);
     }
     return element;
-  });
+  };
+  // Only the read and atomic insertion hold the project queue. A compensating write can enqueue separately.
+  if (supportsOrderedTextEdits(input.projectId)) {
+    return finish(await runOrderedProjectBarrier(input.projectId, insert));
+  }
+  return serializeStudioFileMutation(input.writeFile, input.targetPath, async () => finish(await insert()));
 }

@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { saveCloudTimeline } from "../utils/cloudTimelineEdit";
 import { projectPendingStructure } from "../player/lib/peerTimeline";
@@ -117,6 +118,7 @@ export function useTimelineDeleteOps({
         const removing = cloudDelete ? selection : sameFile;
         let rollbackDuration = () => {};
         let previewScheduled = false;
+        let projected = false;
         try {
           if (cloudDelete) {
             const groups = new Map<string, typeof selection>();
@@ -144,7 +146,13 @@ export function useTimelineDeleteOps({
               if (!frame || targetPath !== (activeCompPath ?? "index.html")) return;
               scheduleCommittedTimelinePreview(frame, pid, targetPath, files, previous, reloadPreview);
               previewScheduled = true;
-            }, { projectPending: files => projectPendingStructure(pid, activeCompPath ?? "index.html", previewIframeRef.current, files) });
+            }, { projectPending: files => {
+              const deleted = new Set(removing.map(clip => clip.key ?? clip.id));
+              const selected = [...usePlayerStore.getState().selectedElementIds].filter(key => !deleted.has(key));
+              const undo = projectPendingStructure(pid, activeCompPath ?? "index.html", previewIframeRef.current, files, selected);
+              projected = Boolean(undo) && supportsOrderedTextEdits(pid);
+              return undo;
+            } });
           } else await saveServerRewriteWithHistory({
             projectId: pid,
             path: targetPath,
@@ -198,7 +206,9 @@ export function useTimelineDeleteOps({
           throw error;
         }
 
-        removeIframeTimelineElements(previewIframeRef.current, removing, activeCompPath);
+        // edit-core already projected the deletion and its ripple into the current timeline.
+        // A delayed receipt must never reinstall the pre-gesture array or clear a new selection.
+        if (!projected) removeIframeTimelineElements(previewIframeRef.current, removing, activeCompPath);
         const deletedKeys = new Set(removing.map((te) => te.key ?? te.id));
         const survivors = timelineElements.filter((te) => !deletedKeys.has(te.key ?? te.id));
 
@@ -213,7 +223,7 @@ export function useTimelineDeleteOps({
         );
         const rippleChanges = rippleShifts ? resolveShiftedElements(survivors, rippleShifts) : null;
         // The timeline follows the delete's write at once, as the owner of the ripple's optimistic update.
-        usePlayerStore.getState().setElements(applyRippleShifts(survivors, rippleChanges));
+        if (!projected) usePlayerStore.getState().setElements(applyRippleShifts(survivors, rippleChanges));
         let rippleFailed = false;
         if (rippleChanges && !cloudDelete) {
           try {
@@ -238,10 +248,12 @@ export function useTimelineDeleteOps({
           }
         }
 
-        usePlayerStore.getState().setSelectedElementId(null);
-        usePlayerStore.getState().setSelectedElementIds(new Set());
-        forceReloadSdkSession?.();
-        if (!previewScheduled) reloadPreview();
+        if (!projected) {
+          usePlayerStore.getState().setSelectedElementId(null);
+          usePlayerStore.getState().setSelectedElementIds(new Set());
+          forceReloadSdkSession?.();
+          if (!previewScheduled) reloadPreview();
+        }
         // A failed ripple already showed its own toast above; the user did one
         // thing (delete), so they get one message, not this generic follow-up too.
         if (!rippleFailed) {

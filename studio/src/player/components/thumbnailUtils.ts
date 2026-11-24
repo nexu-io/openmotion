@@ -147,9 +147,14 @@ export function resolveMediaPreviewUrl(
     if (parsed.pathname.startsWith(previewPath)) return src;
     if (parsed.pathname.startsWith("/api/")) return src;
     try {
-      relativePath = parsed.pathname
-        .replace(/^\/+/, "")
-        .replace(/^editor\//, "")
+      const rawPath = parsed.pathname.replace(/^\/+/, "");
+      const encodedProjectId = encodeURIComponent(projectId);
+      const strippedEditorPath = rawPath.startsWith(`editor/${encodedProjectId}/`)
+        ? rawPath.slice(`editor/${encodedProjectId}/`.length)
+        : rawPath.startsWith("editor/")
+          ? rawPath.slice("editor/".length)
+          : rawPath;
+      relativePath = strippedEditorPath
         .split("/")
         .map(decodeURIComponent)
         .join("/");
@@ -163,4 +168,22 @@ export function resolveMediaPreviewUrl(
     projectId,
     `/preview/${encodePreviewPath(relativePath.replace(/^\/+/, ""))}${suffix}`,
   );
+}
+
+/**
+ * Resolve a timeline media src when `projectId` may still be unset.
+ * Bare project-relative paths (e.g. "assets/soundtrack.m4a") cannot be fetched
+ * safely without a project context — on `/editor/<id>` routes the browser would
+ * resolve them to `/editor/...` (404) — so return null until a project is active.
+ */
+export function resolveProjectMediaUrl(
+  src: string | undefined,
+  projectId: string | null,
+  studioOrigin?: string,
+): string | null {
+  if (!src) return null;
+  if (projectId) {
+    return resolveMediaPreviewUrl(authoredSrcPath(src), projectId, studioOrigin);
+  }
+  return /^(?:https?:|data:|blob:|\/)/i.test(src) ? src : null;
 }

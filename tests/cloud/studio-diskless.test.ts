@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { runInNewContext } from 'node:vm';
+import { projectChannel } from '../../src/infra/redis.ts';
 import { PreviewBuildBusy, PreviewDocumentCache } from '../../src/studio/engine/preview-document-cache.ts';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
@@ -963,6 +964,40 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     } finally {
       proceed.resolve();
       await reader.cancel();
+    }
+  });
+
+  it('shares immutable root digest reads across older subscribers without holding up current tabs', async t => {
+    const env = createStudioTestEnv();
+    const { projectId } = await env.workspace.createProject(env.auth);
+    const channel = projectChannel(env.auth.workspaceId, projectId);
+    const version = '"patch:' + '1'.repeat(64) + '"';
+    const baseUrl = '/api/events?projectId=' + projectId;
+    const connect = async (flags = '') => {
+      const reader = (await env.studioApp.request(baseUrl + flags)).body!.getReader();
+      assert.match(new TextDecoder().decode((await reader.read()).value), /event: connected/);
+      return reader;
+    };
+    const [modern, older, oldest] = await Promise.all([connect('&orderedEdits=1'), connect(), connect()]);
+    const source = Promise.withResolvers<string>();
+    const read = t.mock.method(env.files, 'readTextBlob', () => source.promise);
+    const get = async (reader: typeof modern) => new TextDecoder().decode((await reader.read()).value);
+    try {
+      const event = { type: 'files-changed', projectId, paths: ['index.html'], fileVersions: { 'index.html': version } };
+      await env.eventBus.publish(channel, event);
+      await env.eventBus.publish(channel, { type: 'history-changed', projectId });
+      assert.doesNotMatch(await get(modern), /indexHeadHash/);
+      assert.match(await get(modern), /history-changed/);
+      assert.equal(read.mock.callCount(), 1);
+      assert.deepEqual(read.mock.calls[0].arguments, [env.auth.workspaceId, 'patch', '1'.repeat(64)]);
+      source.resolve('<html><head>shared style</head><body></body></html>');
+      for (const client of [older, oldest]) {
+        assert.match(await get(client), new RegExp(sha256Hex('shared style').slice(0, 12)));
+        assert.match(await get(client), /history-changed/);
+      }
+    } finally {
+      source.resolve('');
+      await Promise.all([modern.cancel(), older.cancel(), oldest.cancel()]);
     }
   });
 
@@ -2587,5 +2622,57 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(svgMetaBody.metadata, null);
     assert.equal(svgMetaBody.mimeType, 'image/svg+xml');
     assert.equal(env.enqueued.length, 0);
+  });
+
+  it('returns 503 instead of endless 202 pending on /waveform/* when media queues are missing or fail to enqueue', async () => {
+    const env = createStudioTestEnv();
+    const created = await env.workspace.createProject(env.auth, { title: 'Waveform Queue Fallback Test' });
+    await env.files.commitChanges(env.auth, {
+      projectId: created.projectId,
+      ops: [{ op: 'upsert_binary', path: 'assets/soundtrack.m4a', data: Buffer.from('fake-m4a'), mimeType: 'audio/mp4' }],
+      source: 'studio',
+      summary: 'Add soundtrack',
+    });
+
+    const db = drizzle({ client: env.pgClient as never, schema }) as unknown as Database;
+    const noQueueStudio = createDisklessStudioApp({
+      db,
+      storage: env.storage,
+      hotTextCache: env.hotTextCache,
+      eventBus: env.eventBus,
+      workspace: env.workspace,
+      files: env.files,
+      history: env.history,
+      assetNames: new AssetNamesService({ db, files: env.files }),
+      resolveAuth: () => env.auth,
+      skipDeterministicFonts: true,
+    });
+    const noQueueRes = await noQueueStudio.request(
+      `/api/projects/${created.projectId}/waveform/assets/soundtrack.m4a`,
+    );
+    assert.equal(noQueueRes.status, 503);
+
+    const brokenQueueStudio = createDisklessStudioApp({
+      db,
+      storage: env.storage,
+      hotTextCache: env.hotTextCache,
+      eventBus: env.eventBus,
+      queues: {
+        enqueueMediaIngest: async () => {
+          throw new Error('redis offline');
+        },
+        enqueueRenderExport: async () => ({}),
+      },
+      workspace: env.workspace,
+      files: env.files,
+      history: env.history,
+      assetNames: new AssetNamesService({ db, files: env.files }),
+      resolveAuth: () => env.auth,
+      skipDeterministicFonts: true,
+    });
+    const brokenQueueRes = await brokenQueueStudio.request(
+      `/api/projects/${created.projectId}/waveform/assets/soundtrack.m4a`,
+    );
+    assert.equal(brokenQueueRes.status, 503);
   });
 });

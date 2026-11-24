@@ -3,7 +3,7 @@ import { useI18n } from '../i18n/I18n';
 import { confirmedRoute, projectHref, requestedProject, sessionHref, type OpenedPreview, type WorkspaceRoute } from './workspaceRouting';
 import { availableSession, type CreativeSession, type CreationMode } from '../../../shared/session';
 import { preservePresentation } from '../../../shared/workspace-url';
-import { isStandaloneSpaPath } from '../../../shared/spa-routes';
+import { isNotFoundSpaPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { activeWorkspaceInterval, subscribeProjectActivity, watchWorkspaceRead } from './workspaceRefresh';
 import { getStudioSaveSnapshot, subscribeStudioSaves } from '../utils/studioSaveState';
 import { diagnosticFetch } from './diagnosticRequests';
@@ -174,7 +174,9 @@ export function useWorkspace(
       const catalog = await motionApi<ProjectCatalog>('/projects', { signal: controller.signal });
       if (controller.signal.aborted) return Infinity;
       updateCatalog(catalog);
-      const awaitingArtifact = sessionWithoutProject && !isStandaloneSpaPath(location.pathname, location.search, location.hash);
+      const awaitingArtifact = sessionWithoutProject
+        && !isStandaloneSpaPath(location.pathname, location.search, location.hash)
+        && !isNotFoundSpaPath(location.pathname, location.search, location.hash);
       if (awaitingArtifact) {
         const saved = catalog.sessions?.find(item => item.id === sessionWithoutProject);
         const session = saved && availableSession(saved, new Set(catalog.projects.filter(project => project.trashedAt).map(project => project.id)));

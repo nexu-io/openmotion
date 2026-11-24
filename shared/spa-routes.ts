@@ -47,6 +47,7 @@ export const SPA_ROUTE_PREFIXES = [
   '/mcp-setup',
   '/templates',
   '/editor',
+  '/404',
 ] as const;
 
 /**
@@ -100,6 +101,9 @@ export function isStandaloneSpaPath(pathname: string, search = '', hash = ''): b
   if (matchesPrefix(normalized, '/editor')) return false;
   if (!STANDALONE_SPA_PREFIXES.some(prefix => matchesPrefix(normalized, prefix))) return false;
   if (normalized === '/templates') return true;
+  if (normalized.startsWith('/templates/')) return false;
+  if (normalized === '/404') return true;
+  if (normalized.startsWith('/404/')) return false;
   return isWorkspaceSettingsPage(spaPathnameToSearch(normalized, search), hash);
 }
 
@@ -109,6 +113,39 @@ export function editorProjectIdFromPath(pathname: string): string | null {
   const match = normalized.match(/^\/editor\/([^/]+)$/);
   if (!match) return null;
   return decodeSegment(match[1]);
+}
+
+/**
+ * True only for routes that explicitly target the Motion project editor (or
+ * legacy root `/` editor and template-overlay URLs). Unrecognized paths return
+ * false so they resolve to the 404 page instead of opening a default project.
+ */
+export function isEditorSpaPath(pathname: string, search = '', hash = ''): boolean {
+  const normalized = normalizePathname(pathname);
+  if (normalized === '/editor' || editorProjectIdFromPath(normalized) !== null) return true;
+  if (normalized !== '/') return false;
+  const query = new URLSearchParams(search);
+  const page = query.get('page');
+  if (page === 'editor') return true;
+  if (page !== null && page !== 'api') return false;
+  return (
+    query.has('project') ||
+    query.has('session') ||
+    hash.startsWith('#project/') ||
+    query.get('templates') === '1' ||
+    query.get('hostChrome') === '1'
+  );
+}
+
+/**
+ * True for `/404`, `/?page=404`, and any unrecognized or incomplete SPA route
+ * that is neither a valid standalone page nor an explicit editor URL.
+ */
+export function isNotFoundSpaPath(pathname: string, search = '', hash = ''): boolean {
+  const normalized = normalizePathname(pathname);
+  if (normalized === '/404') return true;
+  if (normalized === '/' && new URLSearchParams(search).get('page') === '404') return true;
+  return !isStandaloneSpaPath(pathname, search, hash) && !isEditorSpaPath(pathname, search, hash);
 }
 
 /**
@@ -187,6 +224,8 @@ export function spaPathnameToSearch(pathname: string, search = ''): string {
         } else if (second) {
           query.set('page', 'model');
           if (!query.has('model')) query.set('model', parts.slice(1).join('/'));
+        } else {
+          query.set('page', 'model');
         }
         break;
       case 'model-hub':
@@ -210,11 +249,14 @@ export function spaPathnameToSearch(pathname: string, search = ''): string {
         if (second && !query.has('host')) query.set('host', second);
         break;
       case 'templates':
-        if (!query.has('templates')) query.set('templates', '1');
+        if (!second && !query.has('templates')) query.set('templates', '1');
         break;
       case 'editor':
         query.set('page', 'editor');
         if (second && !query.has('project')) query.set('project', second);
+        break;
+      case '404':
+        query.set('page', '404');
         break;
     }
   }

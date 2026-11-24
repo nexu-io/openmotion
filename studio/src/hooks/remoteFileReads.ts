@@ -1,3 +1,4 @@
+import { readOrderedFile } from './orderedFileChanges';
 import { changedFilePaths, changedFileVersion } from "../components/editor/manualEditsParsing";
 import { readProjectFileContentWithVersion } from "./useProjectFileWriter";
 
@@ -31,7 +32,9 @@ export function createRemoteFileReader(read = readProjectFileContentWithVersion)
       if (project !== projectId || (paths && !paths.includes(path))) return;
       let result = results.get(path);
       if (!result) {
-        result = latest(project, path, changedFileVersion(payload, path));
+        // An older GET could still write the confirmed cache. Let its trailing read win in that case.
+        const warm = !active.has(project + "\0" + path) && readOrderedFile(project, path, payload);
+        result = warm ? Promise.resolve({ ...warm, missing: false }) : latest(project, path, changedFileVersion(payload, path));
         results.set(path, result);
       }
       return result;

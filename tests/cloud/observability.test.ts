@@ -413,7 +413,7 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
       SENTRY_TRACES_SAMPLE_RATE: '0.2',
       PREVIEW_PUBLIC_ORIGIN: 'https://preview.openmotion.example.com',
     });
-    const injectedRes = await enabledApi.app.request('/projects/test-route');
+    const injectedRes = await enabledApi.app.request('/editor/test-route');
     assert.equal(injectedRes.status, 200);
     const injectedHtml = await injectedRes.text();
     assert.ok(injectedHtml.includes(`window.${RUNTIME_CONFIG_GLOBAL_KEY}=Object.freeze(`));
@@ -421,6 +421,10 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     assert.ok(injectedHtml.includes('"environment":"staging"'));
     assert.ok(injectedHtml.includes('"release":"openmotion@test-rel"'));
     assert.ok(injectedHtml.includes('"previewOrigin":"https://preview.openmotion.example.com"'));
+
+    const unknownInjectedRes = await enabledApi.app.request('/projects/test-route');
+    assert.equal(unknownInjectedRes.status, 404);
+    assert.ok((await unknownInjectedRes.text()).includes(`window.${RUNTIME_CONFIG_GLOBAL_KEY}=Object.freeze(`));
 
     const headRes = await enabledApi.app.request('/', { method: 'HEAD' });
     assert.equal(headRes.status, 200);

@@ -84,6 +84,20 @@ export function projectLocalTimelineEdit(
   };
 }
 
+/** All pending local gestures on this file have settled after a failure. Restore the confirmed
+ * authored rows and keep runtime-only or other-composition rows in place. */
+export function restoreConfirmedTimeline(projectId: string, path: string, content: string) {
+  const scope = timelineFor(projectId, path);
+  if (!scope) return;
+  const duration = usePlayerStore.getState().duration;
+  const previous = scope.baseline;
+  const before = previous?.rows ?? (previous?.content ? parseAuthoredTimeline(previous.content, path, projectId, duration) : null);
+  const after = parseAuthoredTimeline(content, path, projectId, duration);
+  if (!after) return;
+  applyAuthoredTimeline(before, after, true);
+  scope.baseline = { rows: after, generation: ++scope.generation, writeRevision: studioFileRevision() };
+}
+
 /** Project a local structural edit without publishing it to other windows or advancing its confirmed source. */
 export function projectPendingStructure(projectId: string, path: string, frame: HTMLIFrameElement | null,
   files: Record<string, { before: string; after: string }>, selection?: readonly string[]) {
@@ -94,7 +108,7 @@ export function projectPendingStructure(projectId: string, path: string, frame: 
   const previous = confirmedSource(projectId, path);
   const revertPreview = frame && previous?.content === file.before && Object.keys(files).length === 1
     ? stageStructurePreview(frame, path, previous, file.after) : undefined;
-  if (revertTimeline && selection?.length) usePlayerStore.getState().setSelection(selection);
+  if (revertTimeline && selection) usePlayerStore.getState().setSelection(selection);
   const drawnSelection = usePlayerStore.getState().selectedElementIds;
   return () => {
     const restoreSelection = revertTimeline && timelineFor(projectId, path) && drawnSelection !== selectedElementIds &&

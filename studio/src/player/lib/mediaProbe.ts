@@ -1,4 +1,4 @@
-import { authoredSrcPath, resolveMediaPreviewUrl } from "../components/thumbnailUtils";
+import { resolveProjectMediaUrl } from "../components/thumbnailUtils";
 import { TIMELINE_VIEWPORT_BUDGETS } from "./timelineViewportBudgets";
 import { mediaUrlSourceOptions, reportMediaFetchFailure } from "./mediaFetch";
 
@@ -89,13 +89,7 @@ function getCachedProbe(url: string): MediaProbeResult | undefined {
 }
 
 function resolveProbeSource(src: string, projectId: string | null): string | null {
-  if (projectId) {
-    return resolveMediaPreviewUrl(authoredSrcPath(src), projectId, window.location.origin);
-  }
-  // Never probe bare project-relative paths (e.g. "assets/soundtrack.m4a") without a
-  // projectId; on /editor/<id> semantic routes the browser resolves them to /editor/... (404).
-  if (!/^(?:https?:|data:|blob:|\/)/i.test(src)) return null;
-  return src;
+  return resolveProjectMediaUrl(src, projectId, window.location.origin);
 }
 
 function evictMetadataOverflow(): void {

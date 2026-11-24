@@ -6,7 +6,8 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { getHyperframeRuntimeScript } from '@hyperframes/core/runtime-script';
 import { CloudError, featureDeferredP2 } from '../../contracts/errors.ts';
-import type { SelectionEvent } from '../../contracts/events.ts';
+import type { AuthContext } from '../../contracts/auth.ts';
+import type { ProjectEvent, SelectionEvent } from '../../contracts/events.ts';
 import { projectChannel, selectionChannel, workspaceCatalogChannel } from '../../infra/redis.ts';
 import { isUuid } from '../../../shared/project-validation.ts';
 import {
@@ -18,7 +19,7 @@ import {
 import { infoInMemory, timelineInMemory } from '../engine/inspect.ts';
 import { lintProjectInMemory } from '../engine/lint-project.ts';
 import { installMotionComponent, motionComponentCards } from '../../services/motion-component-registry.ts';
-import { createWriteToken, fileContentVersion, getMimeType } from '../etag.ts';
+import { createWriteToken, fileContentVersion, getMimeType, hashIndexHeadMarkup } from '../etag.ts';
 import type { VirtualFileRecord } from '../virtual-project-store.ts';
 
 const SAFE_VENDOR_PATH_RE = /^[a-zA-Z0-9._/@-]{1,200}$/;
@@ -101,6 +102,26 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
       lintCache.delete(oldestKey);
     }
   };
+
+  // During a rolling update, old tabs need an explicit shared thumbnail digest. Read
+  // only for those subscribers and share the immutable version's result across tabs.
+  const legacyHeadDigests = new Map<string, Promise<string | undefined>>();
+  function legacyHeadDigest(auth: AuthContext, projectId: string, version: string) {
+    const key = [auth.workspaceId, projectId, version].join(':');
+    const cached = legacyHeadDigests.get(key);
+    if (cached) return cached;
+    const patch = /^"patch:([a-f0-9]{64})"$/.exec(version);
+    const source = patch
+      ? deps.files.readTextBlob(auth.workspaceId, 'patch', patch[1])
+      : deps.files.readTextFile(auth, projectId, 'index.html').then(file => file?.version === version ? file.content : undefined);
+    const digest = source.then(text => text === undefined ? undefined : hashIndexHeadMarkup(text)).catch(() => {
+      if (legacyHeadDigests.get(key) === digest) legacyHeadDigests.delete(key);
+      return undefined;
+    });
+    legacyHeadDigests.set(key, digest);
+    if (legacyHeadDigests.size > 64) legacyHeadDigests.delete(legacyHeadDigests.keys().next().value!);
+    return digest;
+  }
 
   let cachedRuntimeJs: string | null = null;
   const vendorCache = new Map<string, { content: Buffer; mimeType: string }>();
@@ -328,13 +349,16 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
       stream.onAbort(disconnect);
       const unsubscribe: Array<() => Promise<void>> = [];
       let keepalive: ReturnType<typeof setInterval> | undefined;
+      const ordered = c.req.query('orderedEdits') === '1';
+      let projectDelivery = Promise.resolve();
 
       try {
         unsubscribe.push(await deps.eventBus.subscribe(
           projectChannel(auth.workspaceId, projectId),
           (payload) => {
             if (stream.aborted) return;
-            const evt = payload as { type?: string; path?: string; paths?: string[] };
+            const evt = payload as ProjectEvent;
+            if (ordered && evt?.type === 'history-changed' && evt.includedInOrderedEdit) return;
             const eventName =
               evt?.type === 'history-changed'
                 ? 'history-changed'
@@ -346,16 +370,27 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
                       ? 'render-updated'
                       : 'file-change';
             // Tabs opened before a rolling update may only understand the single-path wire format.
-            const files = evt?.paths;
-            const data = !evt?.path && files?.length && (evt.type === 'file-change' || evt.type === 'files-changed')
-              ? { ...evt, path: files.length === 1 ? files[0] : '.' }
-              : payload;
-            void stream
-              .writeSSE({
-                event: eventName,
-                data: JSON.stringify(data),
-              })
-              .catch(() => {});
+            const fileEvent = evt?.type === 'file-change' || evt?.type === 'files-changed' ? evt : undefined;
+            const files = fileEvent?.paths;
+            const data = fileEvent && files?.length && !('path' in fileEvent)
+              ? { ...fileEvent, path: files.length === 1 ? files[0] : '.' }
+              : evt;
+            const send = (data: unknown) => stream.writeSSE({ event: eventName, data: JSON.stringify(data) });
+            if (ordered) {
+              void send(data).catch(() => {});
+              return;
+            }
+            // A legacy digest may be asynchronous; preserve event ordering on that stream.
+            projectDelivery = projectDelivery.then(async () => {
+              if (stream.aborted) return;
+              const root = fileEvent?.fileVersions?.['index.html'];
+              if (root && !fileEvent?.indexHeadHash) {
+                const indexHeadHash = await legacyHeadDigest(auth, projectId, root);
+                if (stream.aborted) return;
+                return send({ ...data, indexHeadHash });
+              }
+              return send(data);
+            }).catch(() => {});
           },
         ));
 

@@ -13,7 +13,7 @@ import { buildProjectApiPath } from "../utils/projectRouting";
 import { confirmedSource } from "../utils/confirmedTextSources";
 
 /** A cold observer can compare a mounted child without prefetching every scene on open. */
-async function readMountedSource(projectId: string, version: string) {
+export async function readMountedSource(projectId: string, version: string) {
   const digest = /^"(?:sha256|patch):([a-f0-9]{64})"$/.exec(version)?.[1];
   if (!digest) return null;
   const response = await studioApiFetch(buildProjectApiPath(projectId, "/history/blob/" + digest));
@@ -68,6 +68,7 @@ function syncMountedComposition(
       if (changedFile && liveChild) {
         return changedFile.then(async ({ content, version }) => {
           if (typeof content !== "string" || content.length > MAX_PEER_PREVIEW_SOURCE_LENGTH || !version || !isCurrent() || isPreviewChanging()) return false;
+          if (mountedPeerFileVersion(frame, changedPath) === version) return true;
           const previous = base ?? (pinned && pinned !== version ? await readMountedSource(projectId, pinned) : null);
           if (!previous || !isCurrent() || isPreviewChanging()) return false;
           const applied = await tryApplyPeerChanges(frame, { path: changedPath, previous, current: { content, version } }, isCurrent, "keep-visible");

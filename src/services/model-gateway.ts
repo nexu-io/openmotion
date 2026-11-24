@@ -277,6 +277,13 @@ export function buildGatewayStatus(
     if (cap.selectedModelId) routes[cap.modality] = cap.selectedModelId;
   }
 
+  const reason =
+    models.length > 0
+      ? 'Unified OpenDesign platform gateway'
+      : billing?.mediaEntitlement === 'not-included'
+        ? 'Your current OpenDesign plan does not include multimodal media models. Upgrade to Plus or higher.'
+        : 'No media models are currently available for this OpenDesign workspace. Upgrade your plan or sync models.';
+
   return {
     providers: [
       {
@@ -287,11 +294,11 @@ export function buildGatewayStatus(
         available: models.length > 0,
         credentialSource: 'environment',
         verification: 'verified',
-        reason: 'Unified OpenDesign platform gateway',
+        reason,
         ...(billing
           ? {
               mediaEntitlement: billing.mediaEntitlement,
-              plan: billing.plan,
+              ...(!billing.unavailable && billing.plan ? { plan: billing.plan } : {}),
               ...(billing.hasBalance !== undefined ? { hasBalance: billing.hasBalance } : {}),
             }
           : { mediaEntitlement: 'unknown' as const }),

@@ -1,4 +1,10 @@
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
+import {
+  CatalogFilmstripAutoBakeDispatcher,
+  InMemoryCatalogFilmstripBakeState,
+  RedisCatalogFilmstripBakeState,
+  type CatalogFilmstripBakeStatePort,
+} from '../services/catalog-filmstrip-autobake.ts';
 import { PrismMotionCatalog } from '../services/prism-motion-catalog.ts';
 import { commitCaptionCommand } from '../mcp/caption-mutations.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -38,6 +44,7 @@ import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
+import { isNotFoundSpaPath } from '../../shared/spa-routes.ts';
 import {
   providerSettingsPreview,
   sessionPath,
@@ -260,6 +267,7 @@ export interface CreateApiAppDeps {
   readonly queues: ApiQueuesPort;
   readonly eventBus: ApiEventBusPort;
   readonly hotTextCache?: HotTextCachePort;
+  readonly catalogFilmstripBakeState?: CatalogFilmstripBakeStatePort;
   readonly rateLimiter?: RateLimiter;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
@@ -1866,9 +1874,23 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       opendesign: { cache: authCache },
     });
 
+  const catalogFilmstripAutoBake =
+    config.PRISM_CONTENT_ENV && config.CATALOG_FILMSTRIP_AUTO_BAKE
+      ? new CatalogFilmstripAutoBakeDispatcher({
+          queues,
+          state: deps.catalogFilmstripBakeState ?? new InMemoryCatalogFilmstripBakeState(),
+          logger,
+        })
+      : undefined;
+
   const catalog = new CatalogService({
     prismCatalog: config.PRISM_CONTENT_ENV ? new PrismMotionCatalog(config.PRISM_CONTENT_ENV, {
-      publicOrigin: config.PRISM_PUBLIC_ORIGIN, onRefreshError: error => logger.warn('Prism catalog refresh failed', { error }),
+      publicOrigin: config.PRISM_PUBLIC_ORIGIN,
+      onRefreshError: error => logger.warn('Prism catalog refresh failed', { error }),
+      onPublicationChanged: catalogFilmstripAutoBake
+        ? (templates, catalogVersion) =>
+            catalogFilmstripAutoBake.scheduleForPublication(templates, catalogVersion)
+        : undefined,
     }) : undefined,
     db,
     storage,
@@ -2607,7 +2629,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.route('/', createArchivesRouter({ archives }));
   app.route('/motion-api/assets', createAssetRoutes({ assetService: assets }));
   app.route('/motion-api', createExportRoutes({ exportService: exportsService }));
-  app.route('/motion-api/models', createModelRoutes({ gateway, authStore, mediaJobs }));
+  app.route(
+    '/motion-api/models',
+    createModelRoutes({ gateway, authStore, mediaJobs, consoleUrl: config.OPENDESIGN_CONSOLE_URL }),
+  );
   app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
 
   // -------------------------------------------------------------------------
@@ -2853,7 +2878,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     pathname === '/__hyperframes_config';
 
   app.get('*', async (c) => {
-    const pathname = new URL(c.req.url).pathname;
+    const requestUrl = new URL(c.req.url);
+    const pathname = requestUrl.pathname;
     if (isReservedApiPrefix(pathname)) {
       return c.json({ code: 'NOT_FOUND', error: `Route not found: ${pathname}` }, 404);
     }
@@ -2877,7 +2903,11 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       return c.notFound();
     }
 
+    const notFoundRoute = isNotFoundSpaPath(pathname, requestUrl.search);
+
     // SPA index.html fallback for client-side routes, with runtime observability config injected when enabled.
+    // Unknown routes still serve the Studio shell so the browser renders the dedicated 404 page,
+    // while returning an authentic HTTP 404 status code.
     try {
       const rawHtml = await readFile(path.join(studioBuildDir, 'index.html'), 'utf8');
       const renderedHtml = injectRuntimeConfigIntoHtml(rawHtml, browserObservabilityConfig);
@@ -2897,7 +2927,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled
         ? { 'Origin-Agent-Cluster': '?1' }
         : {};
-      if (c.req.header('if-none-match')?.trim() === etag) {
+      if (!notFoundRoute && c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
@@ -2909,18 +2939,24 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         });
       }
       return new Response(headOnly ? null : bytes, {
-        status: 200,
+        status: notFoundRoute ? 404 : 200,
         headers: {
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
-          ETag: etag,
-          'Cache-Control': 'no-cache',
+          ...(notFoundRoute ? { 'Cache-Control': 'no-store' } : { ETag: etag, 'Cache-Control': 'no-cache' }),
           'X-Content-Type-Options': 'nosniff',
           ...originAgentClusterHeaders,
         },
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    if (notFoundRoute) {
+      return new Response('Page not found.', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
     }
 
     return new Response('OpenMotion Studio has not been built yet. Run npm run build:studio.', {
@@ -2996,6 +3032,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   shutdown.register('bullmq-queues', () => queues.close());
 
   const hotTextCache = new HotTextCache(redisCache, config.REDIS_CACHE_TTL_SEC);
+  const catalogFilmstripBakeState = new RedisCatalogFilmstripBakeState(redisCmd);
   const rateLimiter = new RateLimiter(redisCmd);
   const authStore = createPgAuthStore(dbHandle.db);
   const authCache = createRedisAuthCache(redisCmd);
@@ -3008,6 +3045,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     queues,
     eventBus,
     hotTextCache,
+    catalogFilmstripBakeState,
     rateLimiter,
     authStore,
     authCache,

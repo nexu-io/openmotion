@@ -1369,7 +1369,7 @@ describe('Cloud API Entrypoint — Models, Account, Catalog, Integration & P2 Ro
     // Regression: createApiApp wires authCache into OpenDesignModelGateway when MODEL_GATEWAY_MODE=opendesign
     const cachedAuthCache = new InMemoryAuthCache();
     await cachedAuthCache.set(
-      'om:gateway:models:global',
+      'om:gateway:models:global:anon',
       JSON.stringify([
         {
           id: 'opendesign:cached-image-1',
@@ -1507,8 +1507,8 @@ describe('Cloud API Entrypoint — Static Assets, Read-Only GSAP & API 404 vs SP
       assert.equal(body.code, 'NOT_FOUND');
     }
 
-    // SPA client-side route serves studio/build/index.html (200) or clean 503 if unbuilt
-    const spaRes = await app.request('/projects/client-route');
+    // Valid SPA client-side route serves studio/build/index.html (200) or clean 503 if unbuilt
+    const spaRes = await app.request('/editor/client-route');
     const studioBuilt = existsSync(path.join(REPO_ROOT, 'studio/build/index.html'));
     assert.equal(spaRes.status, studioBuilt ? 200 : 503);
     if (studioBuilt) {
@@ -1516,11 +1516,23 @@ describe('Cloud API Entrypoint — Static Assets, Read-Only GSAP & API 404 vs SP
       assert.match(spaHtml, /<link rel="preconnect" href="https:\/\/r\.open-design\.ai" crossorigin>/);
       const spaEtag = spaRes.headers.get('etag') ?? '';
       assert.match(spaEtag, /^"sha256:[a-f0-9]{64}"$/);
-      const spaNotModified = await app.request('/projects/client-route', {
+      const spaNotModified = await app.request('/editor/client-route', {
         headers: { 'If-None-Match': spaEtag },
       });
       assert.equal(spaNotModified.status, 304);
       assert.equal(spaNotModified.headers.get('etag'), spaEtag);
+
+      // Unknown SPA paths and /404 return HTTP 404 with the Studio HTML shell (never 200 or 304)
+      for (const unknownPath of ['/brand-kits', '/projects/client-route', '/404']) {
+        const missingRes = await app.request(unknownPath, {
+          headers: { 'If-None-Match': spaEtag },
+        });
+        assert.equal(missingRes.status, 404, `expected 404 for ${unknownPath}`);
+        assert.match(missingRes.headers.get('content-type') ?? '', /^text\/html/);
+        assert.equal(missingRes.headers.get('cache-control'), 'no-store');
+        const missingHtml = await missingRes.text();
+        assert.match(missingHtml, /<meta name="openmotion-runtime" content="cloud-diskless"/);
+      }
 
       const isolated = createApiFixture({
         config: {
