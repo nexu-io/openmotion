@@ -220,6 +220,12 @@ describe("authoredSrcPath", () => {
     expect(authoredSrcPath("https://cdn.example/a%20b.mp4")).toBe("https://cdn.example/a%20b.mp4");
     expect(authoredSrcPath("//cdn.example/a%20b.mp4")).toBe("//cdn.example/a%20b.mp4");
   });
+
+  it("strips /editor/ prefix when resolving same-origin URLs from semantic editor routes", () => {
+    expect(
+      resolveMediaPreviewUrl("https://studio.example/editor/assets/soundtrack.m4a", "proj-1", "https://studio.example"),
+    ).toBe("/api/projects/proj-1/preview/assets/soundtrack.m4a");
+  });
 });
 
 describe("semantic /editor route media URL resolution", () => {

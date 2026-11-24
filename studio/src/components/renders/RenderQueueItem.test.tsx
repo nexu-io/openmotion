@@ -140,7 +140,7 @@ describe('export task recovery', () => {
     render({ status: 'cancelled' });
     expect(host.textContent).toContain('Cancelled');
     expect(host.querySelector('[aria-label="Delete j1.gif"]')).not.toBeNull();
-    expect(download().disabled).toBe(true);
+    expect(host.querySelector('[aria-label="Download j1.gif"]')).toBeNull();
   });
 
   it('copies only allowlisted, redacted diagnostics for the original task without inventing an export failure', async () => {

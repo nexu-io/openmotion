@@ -556,7 +556,7 @@ export function ExploreStudios(props: ExploreProps) {
   const root = useRef<HTMLElement>(null);
   const [firstPages] = useState(() => new Map<string, TemplatePage>());
   const community = exploreCommunities.find(item => item.id === props.filters.community);
-  return <main ref={root} className="om-explore">
+  return <main ref={root} className="om-explore" hidden={!props.active} role={props.active ? undefined : 'none'}>
     <div className="om-discovery-page">
       <header className="om-discovery-heading">
         <h1 className="om-explore-title">{t(!community && props.filters.medium ? mediaLabels[props.filters.medium] : 'Explore')}</h1>

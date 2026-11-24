@@ -7,8 +7,8 @@ import { useI18n } from "../../i18n/I18n";
 import { useMvpEditor } from "../../motion/StudioHost";
 import type { LayerKind } from "./layerKind";
 
-const [CARET, ICON, GAP] = [16, 20, 6];
-const CHILD_INDENT = CARET + GAP + ICON + GAP;
+const CHILD_INDENT = 16;
+const MAX_INDENT_DEPTH = 6;
 
 const KIND_ICON = {
   image: ImageIcon,
@@ -69,7 +69,7 @@ export function LayerRow({ index, label, depth, childCount, kind, isCompHost, is
             ? mvp ? "bg-panel-hover text-panel-text-1" : "bg-panel-accent/14 text-accent-ink"
             : "text-panel-text-2 hover:bg-panel-hover/40 hover:text-panel-text-1"
       } ${dragging ? "cursor-grabbing" : "cursor-pointer"}`}
-      style={{ paddingLeft: 8 + depth * CHILD_INDENT }}
+      style={{ paddingLeft: 8 + Math.min(depth, MAX_INDENT_DEPTH) * CHILD_INDENT }}
     >
       {hasChildren ? (
         <IconButton variant="plain"

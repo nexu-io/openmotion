@@ -230,7 +230,16 @@ function FormatExportButton({
   const [format, setFormat] = useState<"mp4" | "webm" | "mov" | "gif">(persisted.format);
   const [quality, setQuality] = useState<"draft" | "standard" | "high">(persisted.quality);
   const [resolution, setResolution] = useState<RenderScale>("auto");
-  const effectiveResolution = scaleApplies(resolution, compositionDimensions) ? resolution : "auto";
+  const autoDims = resolvedDimensions("auto", compositionDimensions);
+  const scaleOptions = SCALE_OPTION_ORDER.filter((value) => {
+    if (value === "auto" || !autoDims) return true;
+    const dims = resolvedDimensions(value, compositionDimensions);
+    return !dims || dims.width !== autoDims.width || dims.height !== autoDims.height;
+  });
+  const effectiveResolution =
+    scaleOptions.includes(resolution) && scaleApplies(resolution, compositionDimensions)
+      ? resolution
+      : "auto";
   const [requestedFps, setFps] = useState<24 | 30 | 60>(persisted.fps);
   const fps = resolveRenderFps(format, requestedFps);
   const [gpu, setGpu] = useState(persisted.gpu);
@@ -296,7 +305,7 @@ function FormatExportButton({
           <Select
             label={t("Resolution")}
             value={effectiveResolution}
-            options={SCALE_OPTION_ORDER.map((value) => ({
+            options={scaleOptions.map((value) => ({
               value,
               label: scaleOptionLabel(value, compositionDimensions, t, mvp),
               disabled: !scaleApplies(value, compositionDimensions),

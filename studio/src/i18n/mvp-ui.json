@@ -318,7 +318,13 @@
     "Use your own API key to generate images, video and audio.": "自分の API キーで画像・動画・音声を生成します。",
     "Split ({value0})": "分割 ({value0})",
     "Snapping ({value0})": "スナップ ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "このエディターでは、サブコンポジション内のクリップの分割はサポートされていません。"
+    "Splitting clips inside a sub-composition is not supported in this editor.": "このエディターでは、サブコンポジション内のクリップの分割はサポートされていません。",
+    "Browser export": "ブラウザ高速書き出し",
+    "Edit layer properties": "レイヤープロパティを編集",
+    "Split timeline clips": "タイムラインクリップを分割",
+    "Processing...": "処理中…",
+    "Color format": "カラー形式",
+    "Timed out waiting for media commit confirmation": "メディア確定の確認がタイムアウトしました"
   },
   "ko": {
     "Main track": "메인 트랙",
@@ -639,7 +645,13 @@
     "Use your own API key to generate images, video and audio.": "본인의 API 키로 이미지, 동영상, 오디오를 생성하세요.",
     "Split ({value0})": "분할 ({value0})",
     "Snapping ({value0})": "스냅 ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "이 편집기에서는 하위 컴포지션 내부의 클립 분할을 지원하지 않습니다."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "이 편집기에서는 하위 컴포지션 내부의 클립 분할을 지원하지 않습니다.",
+    "Browser export": "브라우저 빠른 내보내기",
+    "Edit layer properties": "레이어 속성 편집",
+    "Split timeline clips": "타임라인 클립 분할",
+    "Processing...": "처리 중…",
+    "Color format": "색상 형식",
+    "Timed out waiting for media commit confirmation": "미디어 커밋 확인 대기 시간이 초과되었습니다"
   },
   "de": {
     "Main track": "Hauptspur",
@@ -960,7 +972,13 @@
     "Use your own API key to generate images, video and audio.": "Mit deinem eigenen API-Schlüssel Bilder, Videos und Audio generieren.",
     "Split ({value0})": "Teilen ({value0})",
     "Snapping ({value0})": "Einrasten ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "Das Teilen von Clips innerhalb einer Unterkomposition wird in diesem Editor nicht unterstützt."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "Das Teilen von Clips innerhalb einer Unterkomposition wird in diesem Editor nicht unterstützt.",
+    "Browser export": "Schneller Browser-Export",
+    "Edit layer properties": "Ebeneneigenschaften bearbeiten",
+    "Split timeline clips": "Zeitleisten-Clips teilen",
+    "Processing...": "Wird verarbeitet…",
+    "Color format": "Farbformat",
+    "Timed out waiting for media commit confirmation": "Zeitüberschreitung beim Warten auf die Bestätigung der Medienübernahme"
   },
   "fr": {
     "Main track": "Piste principale",
@@ -1281,7 +1299,13 @@
     "Use your own API key to generate images, video and audio.": "Utilisez votre propre clé API pour générer des images, des vidéos et du son.",
     "Split ({value0})": "Scinder ({value0})",
     "Snapping ({value0})": "Magnétisme ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "Cet éditeur ne permet pas de scinder les clips à l’intérieur d’une sous-composition."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "Cet éditeur ne permet pas de scinder les clips à l’intérieur d’une sous-composition.",
+    "Browser export": "Export rapide du navigateur",
+    "Edit layer properties": "Modifier les propriétés du calque",
+    "Split timeline clips": "Diviser les clips de la timeline",
+    "Processing...": "Traitement…",
+    "Color format": "Format de couleur",
+    "Timed out waiting for media commit confirmation": "Délai dépassé en attendant la confirmation d’enregistrement des médias"
   },
   "ru": {
     "Main track": "Основная дорожка",
@@ -1602,7 +1626,13 @@
     "Use your own API key to generate images, video and audio.": "Используйте свой API-ключ для генерации изображений, видео и аудио.",
     "Split ({value0})": "Разделить ({value0})",
     "Snapping ({value0})": "Привязка ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "В этом редакторе нельзя разделять клипы внутри подкомпозиции."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "В этом редакторе нельзя разделять клипы внутри подкомпозиции.",
+    "Browser export": "Быстрый экспорт в браузере",
+    "Edit layer properties": "Изменить свойства слоя",
+    "Split timeline clips": "Разделить клипы на таймлайне",
+    "Processing...": "Обработка…",
+    "Color format": "Формат цвета",
+    "Timed out waiting for media commit confirmation": "Превышено время ожидания подтверждения сохранения медиа"
   },
   "es": {
     "Main track": "Pista principal",
@@ -1923,7 +1953,13 @@
     "Use your own API key to generate images, video and audio.": "Usa tu propia clave API para generar imágenes, vídeo y audio.",
     "Split ({value0})": "Dividir ({value0})",
     "Snapping ({value0})": "Ajuste magnético ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "Este editor no permite dividir clips dentro de una subcomposición."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "Este editor no permite dividir clips dentro de una subcomposición.",
+    "Browser export": "Exportación rápida del navegador",
+    "Edit layer properties": "Editar propiedades de capa",
+    "Split timeline clips": "Dividir clips de la línea de tiempo",
+    "Processing...": "Procesando…",
+    "Color format": "Formato de color",
+    "Timed out waiting for media commit confirmation": "Se agotó el tiempo de espera para confirmar la carga de medios"
   },
   "pt-BR": {
     "Main track": "Faixa principal",
@@ -2244,7 +2280,13 @@
     "Use your own API key to generate images, video and audio.": "Use sua própria chave de API para gerar imagens, vídeos e áudio.",
     "Split ({value0})": "Dividir ({value0})",
     "Snapping ({value0})": "Encaixe ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "Este editor não permite dividir clipes dentro de uma subcomposição."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "Este editor não permite dividir clipes dentro de uma subcomposição.",
+    "Browser export": "Exportação rápida no navegador",
+    "Edit layer properties": "Editar propriedades da camada",
+    "Split timeline clips": "Dividir clipes da linha do tempo",
+    "Processing...": "Processando…",
+    "Color format": "Formato de cor",
+    "Timed out waiting for media commit confirmation": "Tempo esgotado aguardando confirmação de envio de mídia"
   },
   "it": {
     "Main track": "Traccia principale",
@@ -2565,7 +2607,13 @@
     "Use your own API key to generate images, video and audio.": "Usa la tua chiave API per generare immagini, video e audio.",
     "Split ({value0})": "Dividi ({value0})",
     "Snapping ({value0})": "Aggancio ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "Questo editor non supporta la divisione di clip all’interno di una sottocomposizione."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "Questo editor non supporta la divisione di clip all’interno di una sottocomposizione.",
+    "Browser export": "Esportazione rapida del browser",
+    "Edit layer properties": "Modifica proprietà livello",
+    "Split timeline clips": "Dividi clip della timeline",
+    "Processing...": "Elaborazione…",
+    "Color format": "Formato colore",
+    "Timed out waiting for media commit confirmation": "Tempo scaduto in attesa della conferma del salvataggio dei media"
   },
   "tr": {
     "Main track": "Ana parça",
@@ -2886,6 +2934,12 @@
     "Use your own API key to generate images, video and audio.": "Kendi API anahtarınızla görsel, video ve ses oluşturun.",
     "Split ({value0})": "Böl ({value0})",
     "Snapping ({value0})": "Yapışma ({value0})",
-    "Splitting clips inside a sub-composition is not supported in this editor.": "Bu düzenleyicide alt kompozisyon içindeki klipleri bölme desteklenmiyor."
+    "Splitting clips inside a sub-composition is not supported in this editor.": "Bu düzenleyicide alt kompozisyon içindeki klipleri bölme desteklenmiyor.",
+    "Browser export": "Hızlı tarayıcı dışa aktarımı",
+    "Edit layer properties": "Katman özelliklerini düzenle",
+    "Split timeline clips": "Zaman çizelgesi kliplerini böl",
+    "Processing...": "İşleniyor…",
+    "Color format": "Renk formatı",
+    "Timed out waiting for media commit confirmation": "Medya kaydı onayı beklenirken zaman aşımına uğradı"
   }
 }

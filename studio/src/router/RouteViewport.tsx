@@ -153,8 +153,8 @@ export function RouteViewport({
   const { settings, assets: assetsOpen, skills: skillsOpen } = page;
   const activeRoute = resolveActiveWorkspaceRoute(page, { templatesPage, standaloneMcp });
   const keepAliveVisited = useKeepAliveVisited(activeRoute.id, [
-    ...(page.explore ? (['explore'] as const) : []),
-    ...(assetsOpen ? (['assets'] as const) : []),
+    ...(page.explore && !templatesPage ? (['explore'] as const) : []),
+    ...(assetsOpen && !settings && !templatesPage ? (['assets'] as const) : []),
   ]);
   const mcpPage = settings === 'mcp' && (
     <LazyMcpConnectionPage

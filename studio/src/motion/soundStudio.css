@@ -13,6 +13,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--motion-space-8);
+  padding-inline-end: var(--motion-space-16);
   flex-shrink: 0;
 }
 .om-sound-tabs-group {

@@ -1822,5 +1822,7 @@
   "Moves with the selected main track clip": "選択したメイントラックのクリップと一緒に移動",
   "Trim left to playhead": "再生ヘッドまで左をトリム",
   "Trim right to playhead": "再生ヘッドまで右をトリム",
-  "Screen too small to expand this panel": "画面が小さすぎるため、パネルを展開できません"
+  "Screen too small to expand this panel": "画面が小さすぎるため、パネルを展開できません",
+  "{label} picker": "{label}ピッカー",
+  "Pick {value0}": "{value0}を選択"
 }

@@ -8,7 +8,7 @@
     <div class="canvas">
       <!-- Logo Container -->
       <div class="logo-container">
-        <svg viewBox="0 0 160 240" width="160" height="240">
+        <svg viewBox="0 0 160 240" width="160" height="240" overflow="visible" style="overflow: visible">
           <!-- Figma Logo Pieces -->
           <!-- Top-left: Red (F24E1E) -->
           <path
@@ -104,15 +104,15 @@
         const ring = '[data-composition-id="scene1-logo-intro"] .ring';
         const logoContainer = '[data-composition-id="scene1-logo-intro"] .logo-container';
 
-        // Initial positions: Corners of the screen
+        // Initial positions: Visible inset corners inside the 1920x1080 frame
         // Viewport is 1920x1080. Center is 960, 540.
         // logo-container is at 880, 420.
 
-        tl.set(pieces.tl, { x: -960, y: -540 });
-        tl.set(pieces.tr, { x: 960, y: -540 });
-        tl.set(pieces.ml, { x: -960, y: 0 });
-        tl.set(pieces.mr, { x: 960, y: 0 });
-        tl.set(pieces.bl, { x: -960, y: 540 });
+        tl.set(pieces.tl, { x: -520, y: -260 });
+        tl.set(pieces.tr, { x: 520, y: -260 });
+        tl.set(pieces.ml, { x: -560, y: 0 });
+        tl.set(pieces.mr, { x: 560, y: 0 });
+        tl.set(pieces.bl, { x: -520, y: 260 });
 
         // 1. Converge to center with 3-frame stagger (approx 0.05s at 60fps)
         // 2. Collide with slight bounce (overshoot 1.1x)
@@ -137,6 +137,7 @@
         // 3. On collision (approx at 0.6 + 4*0.05 = 0.8s), white ring expands
         const collisionTime = convergeDuration + (pieceArray.length - 1) * stagger;
 
+        tl.set(ring, { scale: 0.2, opacity: 0 }, 0);
         tl.fromTo(
           ring,
           { scale: 0.2, opacity: 1 },
@@ -145,6 +146,7 @@
             opacity: 0,
             duration: 0.4,
             ease: "power2.out",
+            immediateRender: false,
           },
           collisionTime,
         );

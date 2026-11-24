@@ -1858,5 +1858,7 @@
   "Moves with the selected main track clip": "Wird mit dem ausgewählten Hauptspurclip verschoben",
   "Trim left to playhead": "Links bis zum Abspielkopf kürzen",
   "Trim right to playhead": "Rechts bis zum Abspielkopf kürzen",
-  "Screen too small to expand this panel": "Der Bildschirm ist zu klein, um dieses Panel zu öffnen"
+  "Screen too small to expand this panel": "Der Bildschirm ist zu klein, um dieses Panel zu öffnen",
+  "{label} picker": "{label}-Auswahl",
+  "Pick {value0}": "{value0} auswählen"
 }

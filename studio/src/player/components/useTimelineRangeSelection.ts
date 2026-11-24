@@ -273,6 +273,7 @@ export function useTimelineRangeSelection({
   // Shift-press → start a time-range selection anchored at the pressed x.
   const beginRangeSelection = useCallback(
     (e: React.PointerEvent) => {
+      e.preventDefault?.();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       activePointerIdRef.current = e.pointerId;
       gestureEpochRef.current = sessionEpochRef.current;
@@ -321,6 +322,7 @@ export function useTimelineRangeSelection({
         return;
       }
       if ((e.target as HTMLElement).closest("[data-clip]")) return;
+      e.preventDefault?.();
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       activePointerIdRef.current = e.pointerId;
       gestureEpochRef.current = sessionEpochRef.current;

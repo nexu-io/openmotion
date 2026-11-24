@@ -1,5 +1,6 @@
 import { useEmptyPreview } from "../nle/useEmptyPreview";
 import { useMvpEditor } from "../../motion/StudioHost";
+import { useOptionalWorkspaceChrome } from "../../motion/WorkspaceChromeContext";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CanvasResolution } from "@hyperframes/parsers";
@@ -105,6 +106,15 @@ function writeHiddenIds(projectId: string, ids: Set<string>): void {
 }
 
 
+function sanitizeExportFilename(title: string | null | undefined): string {
+  if (!title) return "";
+  return title
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.-]+|[\s.-]+$/g, "")
+    .slice(0, 80);
+}
+
 export function useRenderQueue(
   projectId: string | null,
   // A ref, not the value: the render target has to be read at click time, and
@@ -113,6 +123,12 @@ export function useRenderQueue(
   activeCompPathRef: { current: string | null },
 ) {
   const mvp = useMvpEditor();
+  const workspaceChrome = useOptionalWorkspaceChrome();
+  const projectTitleRef = useRef<string | undefined>(undefined);
+  projectTitleRef.current =
+    workspaceChrome?.workspace.projects.find((item) => item.id === projectId)?.title ||
+    workspaceChrome?.workspace.status?.projectTitle ||
+    undefined;
   const emptyComposition = useEmptyPreview(projectId ?? "", mvp);
   const currentProject = useRef(projectId);
   currentProject.current = projectId;
@@ -405,7 +421,8 @@ export function useRenderQueue(
         const controller = new AbortController();
         browserExportsRef.current.set(jobId, controller);
         requestResult("accepted");
-        const filename = `OpenMotion-${jobId.slice(0, 8)}.${format}`;
+        const baseName = sanitizeExportFilename(projectTitleRef.current);
+        const filename = `${baseName || `OpenMotion-${jobId.slice(0, 8)}`}.${format}`;
         addSessionJob(
           {
             id: jobId,

@@ -234,7 +234,7 @@ describe("FlatStyleSection — Stroke and Radius", () => {
     });
     const trigger = Array.from(
       host.querySelectorAll<HTMLButtonElement>('[data-flat-color-trigger="true"]'),
-    ).find((btn) => btn.getAttribute("aria-label") === "Pick stroke color color");
+    ).find((btn) => btn.getAttribute("aria-label") === "Pick stroke color");
     if (!trigger) throw new Error("expected the stroke color trigger");
     act(() => trigger.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const dialog = document.querySelector('.motion-color-picker[role="dialog"]')!;
@@ -641,7 +641,8 @@ it("MVP exposes only solid color and opacity for layers without text", () => {
 
 describe("MVP solid fill", () => {
   function openColorInput(host: HTMLElement, label = "fill color") {
-    act(() => host.querySelector<HTMLButtonElement>(`[aria-label="Pick ${label} color"]`)!.click());
+    const aria = /color/i.test(label) ? `Pick ${label}` : `Pick ${label} color`;
+    act(() => host.querySelector<HTMLButtonElement>(`[aria-label="${aria}"]`)!.click());
     const dialog = document.querySelector('.motion-color-picker[role="dialog"]')!;
     const format = dialog.querySelector<HTMLButtonElement>('[role="combobox"]')!;
     act(() => format.click());

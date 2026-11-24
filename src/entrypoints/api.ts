@@ -480,10 +480,21 @@ function createCloudMediaJobsPort(deps: {
             : 'text-to-image';
     const modelId = typeof input.modelId === 'string' ? input.modelId : 'unknown';
     const fullModelId = modelId.startsWith('opendesign:') ? modelId : `opendesign:${modelId}`;
+    const resultLibraryAssets = Array.isArray(result.libraryAssets)
+      ? result.libraryAssets.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') return [];
+          const item = entry as Record<string, unknown>;
+          return typeof item.assetId === 'string' && typeof item.versionId === 'string'
+            ? [{ assetId: item.assetId, versionId: item.versionId }]
+            : [];
+        })
+      : [];
     const libraryAssets =
-      typeof result.assetId === 'string' && typeof result.versionId === 'string'
-        ? [{ assetId: result.assetId, versionId: result.versionId }]
-        : [];
+      resultLibraryAssets.length > 0
+        ? resultLibraryAssets
+        : typeof result.assetId === 'string' && typeof result.versionId === 'string'
+          ? [{ assetId: result.assetId, versionId: result.versionId }]
+          : [];
     return {
       id: row.id,
       jobId: row.id,

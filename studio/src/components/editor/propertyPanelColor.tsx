@@ -335,7 +335,7 @@ export function ColorField({
       align="start"
       initialFocus={false}
       finalFocus={onPickerOpenChange ? false : undefined}
-      aria-label={t("{label} color picker", { label })}
+      aria-label={/color|颜色/i.test(label) ? t("{label} picker", { label }) : t("{label} color picker", { label })}
       className="motion-color-picker motion-positioned-menu"
       renderPanel={<MenuPanel ref={pickerRef} data-menu-layout="custom" />}
       onOpenChange={(nextOpen, details) => {
@@ -485,7 +485,7 @@ export function ColorField({
       data-flat-color-trigger="true"
       data-color-field-layout={layout}
       disabled={disabled}
-      aria-label={t("Pick {value0} color", { value0: label.toLowerCase() })}
+      aria-label={/color|颜色/i.test(label) ? t("Pick {value0}", { value0: label.toLowerCase() }) : t("Pick {value0} color", { value0: label.toLowerCase() })}
       className="flex h-8 min-w-0 shrink-0 items-center px-2 text-xs"
     >
       <span aria-hidden="true" className="motion-color-checkerboard relative size-3.5 shrink-0 overflow-hidden rounded-[3px] border border-panel-hairline">

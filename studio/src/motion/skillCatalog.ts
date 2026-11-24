@@ -405,8 +405,8 @@ export function skillShotPrompt(skill: MotionSkill, parameters: SkillParameters,
   ].filter(Boolean).join('\n');
 }
 
-export function localizedSkillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, t: (key: string) => string) {
-  return skillPrompt({ ...skill, output: t(skill.output), example: t(skill.example), technique: t(skill.technique) }, parameters, locale, installUrl);
+export function localizedSkillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, t: (key: string) => string, cloud = false) {
+  return skillPrompt({ ...skill, output: t(skill.output), example: t(skill.example), technique: t(skill.technique) }, parameters, locale, installUrl, cloud);
 }
 
 function referenceInstruction(reference?: BriefReference) {
@@ -415,25 +415,33 @@ function referenceInstruction(reference?: BriefReference) {
 }
 
 /** installUrl comes from the running installation (setupGuideUrl), matching template instructions. */
-export function skillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string) {
+export function skillPrompt(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, cloud = false) {
   const say = promptText(locale), style = parameters.style.trim();
   const values = { installUrl, id: skill.id, name: skill.name, repository: skill.repository ?? '', license: skill.license, output: skill.output,
     subject: parameters.subject.trim() || skill.example, duration: parameters.duration, aspect: parameters.aspect, style, technique: skill.technique };
   return [
-    say('intro', values),
+    say(cloud ? 'introCloud' : 'intro', values),
     say(skill.repository ? 'borrow' : 'own', values),
     say(skill.repository ? 'reference' : 'ownSource', values),
     '',
     say('brief'), say('deliverable', values), say('content', values), say('format', values), ...(style ? [say('style', values)] : []), say('technique', values),
     '',
-    say('steps'), say('step1'), say('step2'), ...(skill.media ? [say('media')] : []), ...(isLibrarySkill(skill) ? [say('libraryStep3', values), say(skill.generator ? 'generatorStep4' : 'libraryStep4')] : [say('step3'), say('step4')]), say('step5'),
+    say('steps'), say('step1'), say('step2'), ...(skill.media ? [say('media')] : []), ...(isLibrarySkill(skill) ? [say(cloud ? 'libraryStep3Cloud' : 'libraryStep3', values), say(skill.generator ? 'generatorStep4' : 'libraryStep4')] : [say('step3'), say('step4')]), say('step5'),
   ].join('\n') + referenceInstruction(parameters.reference);
 }
 
 /** A short command for any Agent chat, like a share code: names the skill, the brief and how to install OpenMotion. */
-export function skillShortcut(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string) {
+export function skillShortcut(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, cloud = false) {
   const say = promptText(locale), style = parameters.style.trim();
-  return say('shortcut', { title: skill.title, duration: parameters.duration, aspect: parameters.aspect, subject: parameters.subject.trim() || skill.example,
-    style: style ? say('shortcutStyle', { style }) : '', repository: skill.repository ?? 'OpenMotion', installUrl })
+  const base = say(cloud ? 'shortcutCloud' : 'shortcut', {
+    title: skill.title,
+    duration: parameters.duration,
+    aspect: parameters.aspect,
+    subject: parameters.subject.trim() || skill.example,
+    style: style ? say('shortcutStyle', { style }) : '',
+    repository: skill.repository ?? 'OpenMotion',
+    installUrl,
+  });
+  return base
     + (isLibrarySkill(skill) ? say('shortcutLibrary', { id: skill.id }) : '') + (skill.generator ? say('shortcutGenerator') : '') + referenceInstruction(parameters.reference);
 }

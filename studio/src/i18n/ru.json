@@ -1882,5 +1882,7 @@
   "Moves with the selected main track clip": "Перемещается с выбранным клипом главной дорожки",
   "Trim left to playhead": "Обрезать слева до курсора",
   "Trim right to playhead": "Обрезать справа до курсора",
-  "Screen too small to expand this panel": "Экран слишком мал, чтобы развернуть панель"
+  "Screen too small to expand this panel": "Экран слишком мал, чтобы развернуть панель",
+  "{label} picker": "Выбор: {label}",
+  "Pick {value0}": "Выбрать {value0}"
 }

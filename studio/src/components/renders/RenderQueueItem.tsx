@@ -291,20 +291,19 @@ export const RenderQueueItem = memo(function RenderQueueItem({
             </>
           ) : (
             <>
-              {/* The tooltip explains the control whether or not it is
-                  reachable; `disabled:` on the shared Button keeps pointer
-                  events alive precisely so a disabled one can still say why. */}
-              <Tooltip label={isComplete ? t(canAccessFile ? 'Download' : checkingFile ? 'Checking file…' : 'Recheck the file before downloading') : t("Available when the render finishes")}>
-                <IconButton
-                  size="sm"
-                  onClick={(event) => void handleDownload(event)}
-                  disabled={!canAccessFile}
-                  aria-label={t("Download {value0}", { value0: job.filename })}
-                  icon={
-                    <RemixIcon name="download-2-line" size={14} />
-                  }
-                />
-              </Tooltip>
+              {isComplete && (
+                <Tooltip label={t(canAccessFile ? 'Download' : checkingFile ? 'Checking file…' : 'Recheck the file before downloading')}>
+                  <IconButton
+                    size="sm"
+                    onClick={(event) => void handleDownload(event)}
+                    disabled={!canAccessFile}
+                    aria-label={t("Download {value0}", { value0: job.filename })}
+                    icon={
+                      <RemixIcon name="download-2-line" size={14} />
+                    }
+                  />
+                </Tooltip>
+              )}
               <Tooltip label={t("Delete")}>
                 <IconButton
                   size="sm"

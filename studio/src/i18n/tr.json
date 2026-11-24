@@ -1822,5 +1822,7 @@
   "Moves with the selected main track clip": "Seçili ana parça klibiyle birlikte taşınır",
   "Trim left to playhead": "Oynatma kafasına kadar solu kırp",
   "Trim right to playhead": "Oynatma kafasına kadar sağı kırp",
-  "Screen too small to expand this panel": "Ekran bu paneli açmak için çok küçük"
+  "Screen too small to expand this panel": "Ekran bu paneli açmak için çok küçük",
+  "{label} picker": "{label} seçici",
+  "Pick {value0}": "{value0} seç"
 }
