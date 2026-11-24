@@ -301,6 +301,7 @@ it('routes upgrade links through /auth/upgrade-handoff with attribution in OIDC 
     const [upgrade, manage] = page.querySelectorAll<HTMLAnchorElement>('[data-guide="upgrade"] a');
     const upgradeUrl = new URL(upgrade.href);
     expect(upgradeUrl.pathname).toBe('/auth/upgrade-handoff');
+    expect(upgradeUrl.searchParams.get('targetPath')).toBe('/dashboard');
     expect(upgradeUrl.searchParams.get('billing')).toBe('plan');
     expect(upgradeUrl.searchParams.get('od_origin')).toBe('openmotion');
     expect(upgradeUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
@@ -309,6 +310,7 @@ it('routes upgrade links through /auth/upgrade-handoff with attribution in OIDC 
 
     const manageUrl = new URL(manage.href);
     expect(manageUrl.pathname).toBe('/auth/upgrade-handoff');
+    expect(manageUrl.searchParams.get('targetPath')).toBe('/dashboard');
     expect(manageUrl.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
 
     // Failed logout does NOT write suppression flag

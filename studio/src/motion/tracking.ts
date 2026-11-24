@@ -2,7 +2,11 @@ import { createBrowserTracking } from '../../../tracking/browser.ts';
 import { studioEvents } from '../../../tracking/events.ts';
 import type { StudioEvent } from '../../../tracking/events.ts';
 import type { EventFields } from '../../../tracking/core.ts';
-import { getMotionTrackingUserId, setMotionTrackingUserId } from './trackingIdentity';
+import {
+  getMotionTrackingUserId,
+  setMotionTrackingConsented,
+  setMotionTrackingUserId,
+} from './trackingIdentity';
 
 export { getMotionTrackingUserId, setMotionTrackingUserId };
 
@@ -37,6 +41,7 @@ export function initializeTracking() {
         if (!config || typeof config !== 'object' || !('enabled' in config) || typeof config.enabled !== 'boolean') throw new Error('INVALID_CONFIG');
         if (request.signal.aborted) return;
         tracking.setEnabled(config.enabled);
+        setMotionTrackingConsented(config.enabled);
         configuration = config.enabled ? 'ready' : 'disabled'; retryAt = 0;
         return;
       } catch {
@@ -59,7 +64,9 @@ export function getMotionTrackingStatus() {
 export function flushMotionTracking() { return tracking.flush(); }
 export function setMotionTrackingEnabled(enabled: boolean) {
   controller?.abort(); retryAt = 0;
-  tracking.setEnabled(enabled); configuration = enabled ? 'ready' : 'disabled';
+  tracking.setEnabled(enabled);
+  setMotionTrackingConsented(enabled);
+  configuration = enabled ? 'ready' : 'disabled';
 }
 
 window.addEventListener('pagehide', () => { void tracking.flush(); });

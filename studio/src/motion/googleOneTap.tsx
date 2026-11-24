@@ -1,15 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isDesktopApp } from '../utils/platformHost';
 import type { CloudAccountSummary } from './AccountSettings';
 import { clearPrivateSwrCache } from './swrCache';
 import { trackMotion } from './tracking';
-import { setMotionTrackingUserId } from './trackingIdentity';
+import { isMotionTrackingConsented, setMotionTrackingUserId } from './trackingIdentity';
 
 export const GOOGLE_GIS_SCRIPT_URL = 'https://accounts.google.com/gsi/client' as const;
 export const GOOGLE_GIS_LOAD_TIMEOUT_MS = 5000;
 export const MOTION_ONETAP_DELAY_MS = 2500;
+export const ONETAP_EXCHANGE_TIMEOUT_MS = 15_000;
 export const ONETAP_SUPPRESSED_ONCE_KEY = 'od_onetap_suppressed_once' as const;
 export const ONETAP_SUPPRESS_QUERY_PARAM = 'od_onetap_suppress' as const;
+export const ONETAP_SYNC_STORAGE_KEY = 'om_onetap_logout_sync' as const;
+export const ONETAP_SYNC_CHANNEL_NAME = 'om_onetap_sync' as const;
+export const ONETAP_ATTRIBUTION_STORAGE_KEY = 'om_onetap_attribution_v1' as const;
+export const ONETAP_RETRY_EVENT = 'motion:onetap-retry' as const;
 export const ONETAP_ANCHOR_ID = 'od-onetap-anchor' as const;
 export const ONETAP_DESKTOP_MIN_WIDTH = 768;
 export const ONETAP_ANCHOR_TOP_WITH_BANNER_PX = 112;
@@ -87,6 +92,19 @@ declare global {
   }
 }
 
+type StoredAttribution = {
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+  utmTerm?: string;
+  referralCode?: string;
+  landingPath?: string;
+  odEntryId?: string;
+  odEntrySource?: string;
+  odDeviceId?: string;
+};
+
 let oneTapGeneration = 0;
 const activeCancelHooks = new Set<() => void>();
 
@@ -121,16 +139,16 @@ function normalizeLoginErrorCode(raw: unknown): RegisteredLoginErrorCode {
   return 'UNKNOWN';
 }
 
+function createFetchSignal(parentSignal: AbortSignal, timeoutMs: number): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return AbortSignal.any([parentSignal, timeoutSignal]);
+}
+
 export function getOneTapGeneration(): number {
   return oneTapGeneration;
 }
 
-/**
- * Called ONLY after `/auth/logout` returns `response.ok`.
- * Suppresses One Tap on the next render, disables GIS auto-select, cancels any
- * queued prompt timer, and invalidates any late GIS credential callback.
- */
-export function suppressOneTapAfterConfirmedLogout(): void {
+function cancelLocalOneTapRuntime(): void {
   oneTapGeneration += 1;
   for (const cancel of [...activeCancelHooks]) {
     try {
@@ -140,12 +158,6 @@ export function suppressOneTapAfterConfirmedLogout(): void {
     }
   }
   activeCancelHooks.clear();
-
-  try {
-    window.sessionStorage.setItem(ONETAP_SUPPRESSED_ONCE_KEY, '1');
-  } catch {
-    // Ignore storage unavailability (private browsing, etc.).
-  }
 
   try {
     window.google?.accounts?.id?.disableAutoSelect?.();
@@ -160,6 +172,48 @@ export function suppressOneTapAfterConfirmedLogout(): void {
   }
 
   removeOneTapAnchor();
+}
+
+/**
+ * Called ONLY after `/auth/logout` returns `response.ok`.
+ * Suppresses One Tap on the next render, disables GIS auto-select, cancels any
+ * queued prompt timer, invalidates any late GIS credential callback, and syncs
+ * cancellation across sibling browser tabs.
+ */
+export function suppressOneTapAfterConfirmedLogout(): void {
+  cancelLocalOneTapRuntime();
+
+  try {
+    window.sessionStorage.setItem(ONETAP_SUPPRESSED_ONCE_KEY, '1');
+  } catch {
+    // Ignore storage unavailability (private browsing, etc.).
+  }
+
+  // Notify sibling tabs on the same origin so queued prompts and late callbacks are discarded there too.
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(ONETAP_SYNC_CHANNEL_NAME);
+      channel.postMessage({ type: 'logout', at: Date.now() });
+      channel.close();
+    }
+  } catch {
+    // Ignore BroadcastChannel errors.
+  }
+
+  try {
+    window.localStorage.setItem(ONETAP_SYNC_STORAGE_KEY, String(Date.now()));
+  } catch {
+    // Ignore localStorage unavailability.
+  }
+}
+
+/**
+ * Triggers a fresh in-place One Tap attempt (acquiring a new anti-replay challenge)
+ * without reloading the page or losing local drafts/filters.
+ */
+export function retryMotionOneTap(): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(ONETAP_RETRY_EVENT));
 }
 
 /**
@@ -281,7 +335,6 @@ export function loadGoogleGisScript(timeoutMs = GOOGLE_GIS_LOAD_TIMEOUT_MS): Pro
     } else {
       scriptEl.addEventListener('load', onLoad);
       scriptEl.addEventListener('error', onError);
-      // Script may already have finished loading before listener attached.
       if (window.google?.accounts?.id) {
         onLoad();
       }
@@ -289,15 +342,156 @@ export function loadGoogleGisScript(timeoutMs = GOOGLE_GIS_LOAD_TIMEOUT_MS): Pro
   });
 }
 
-function collectOneTapAttribution() {
+function readCleanString(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 && trimmed.length <= 256 ? trimmed : undefined;
+}
+
+function parseStoredAttribution(raw: string | null): StoredAttribution {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return {
+      utmSource: readCleanString(parsed.utmSource ?? parsed.utm_source),
+      utmMedium: readCleanString(parsed.utmMedium ?? parsed.utm_medium),
+      utmCampaign: readCleanString(parsed.utmCampaign ?? parsed.utm_campaign),
+      utmContent: readCleanString(parsed.utmContent ?? parsed.utm_content),
+      utmTerm: readCleanString(parsed.utmTerm ?? parsed.utm_term),
+      referralCode: readCleanString(parsed.referralCode ?? parsed.ref),
+      landingPath: readCleanString(parsed.landingPath ?? parsed.landing_path),
+      odEntryId: readCleanString(parsed.odEntryId ?? parsed.od_entry_id),
+      odEntrySource: readCleanString(parsed.odEntrySource ?? parsed.od_entry_source),
+      odDeviceId: readCleanString(parsed.odDeviceId ?? parsed.od_device_id),
+    };
+  } catch {
+    return {};
+  }
+}
+
+function readOdAttrCookie(): StoredAttribution {
+  if (typeof document === 'undefined' || !document.cookie) return {};
+  for (const part of document.cookie.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const name = part.slice(0, idx).trim();
+    if (name !== 'od_attr') continue;
+    const value = part.slice(idx + 1).trim();
+    try {
+      return parseStoredAttribution(decodeURIComponent(value));
+    } catch {
+      return parseStoredAttribution(value);
+    }
+  }
+  return {};
+}
+
+function readUrlAttribution(): StoredAttribution {
+  if (typeof window === 'undefined') return {};
   const params = new URLSearchParams(window.location.search);
-  const utmSource = params.get('utm_source')?.trim() || undefined;
-  const utmMedium = params.get('utm_medium')?.trim() || undefined;
-  const utmCampaign = params.get('utm_campaign')?.trim() || undefined;
-  const utmContent = params.get('utm_content')?.trim() || undefined;
-  const utmTerm = params.get('utm_term')?.trim() || undefined;
-  const referralCode = params.get('ref')?.trim() || undefined;
-  const landingPath = window.location.pathname || '/';
+  const utmSource = readCleanString(params.get('utm_source'));
+  const utmMedium = readCleanString(params.get('utm_medium'));
+  const utmCampaign = readCleanString(params.get('utm_campaign'));
+  const utmContent = readCleanString(params.get('utm_content'));
+  const utmTerm = readCleanString(params.get('utm_term'));
+  const referralCode = readCleanString(params.get('ref'));
+  const odEntryId = readCleanString(params.get('od_entry_id'));
+  const odEntrySource = readCleanString(params.get('od_entry_source'));
+  const odDeviceId = readCleanString(params.get('od_device_id'));
+  const hasAny = Boolean(
+    utmSource ||
+      utmMedium ||
+      utmCampaign ||
+      utmContent ||
+      utmTerm ||
+      referralCode ||
+      odEntryId ||
+      odEntrySource ||
+      odDeviceId,
+  );
+  return {
+    ...(utmSource ? { utmSource } : {}),
+    ...(utmMedium ? { utmMedium } : {}),
+    ...(utmCampaign ? { utmCampaign } : {}),
+    ...(utmContent ? { utmContent } : {}),
+    ...(utmTerm ? { utmTerm } : {}),
+    ...(referralCode ? { referralCode } : {}),
+    ...(odEntryId ? { odEntryId } : {}),
+    ...(odEntrySource ? { odEntrySource } : {}),
+    ...(odDeviceId ? { odDeviceId } : {}),
+    ...(hasAny ? { landingPath: window.location.pathname || '/' } : {}),
+  };
+}
+
+/**
+ * Captures UTM / `ref` / `od_*` params from the current URL into localStorage so
+ * subsequent in-app navigation before One Tap fires does not lose landing attribution.
+ */
+export function persistOneTapLandingAttribution(): void {
+  if (typeof window === 'undefined') return;
+  const fromUrl = readUrlAttribution();
+  if (Object.keys(fromUrl).length === 0) return;
+  try {
+    const existing = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY));
+    const merged: StoredAttribution = {
+      ...existing,
+      ...fromUrl,
+    };
+    window.localStorage.setItem(ONETAP_ATTRIBUTION_STORAGE_KEY, JSON.stringify(merged));
+  } catch {
+    // Ignore storage unavailability.
+  }
+}
+
+/**
+ * Resolves attribution using strict priority:
+ * 1. Current URL query parameters
+ * 2. Persisted localStorage (`om_onetap_attribution_v1` / `od_attr`)
+ * 3. `od_attr` cookie
+ * `odDeviceId` is included ONLY when analytics consent is active.
+ */
+export function collectOneTapAttribution() {
+  const fromUrl = readUrlAttribution();
+  let fromStorage: StoredAttribution = {};
+  let fromOdAttrStorage: StoredAttribution = {};
+  try {
+    fromStorage = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY));
+    fromOdAttrStorage = parseStoredAttribution(window.localStorage.getItem('od_attr'));
+  } catch {
+    // Ignore storage unavailability.
+  }
+  const fromOdAttrCookie = readOdAttrCookie();
+
+  const pick = <K extends keyof StoredAttribution>(key: K): string | undefined =>
+    fromUrl[key] ?? fromStorage[key] ?? fromOdAttrStorage[key] ?? fromOdAttrCookie[key];
+
+  const utmSource = pick('utmSource');
+  const utmMedium = pick('utmMedium');
+  const utmCampaign = pick('utmCampaign');
+  const utmContent = pick('utmContent');
+  const utmTerm = pick('utmTerm');
+  const referralCode = pick('referralCode');
+  const landingPath =
+    fromUrl.landingPath ??
+    fromStorage.landingPath ??
+    fromOdAttrStorage.landingPath ??
+    fromOdAttrCookie.landingPath ??
+    (typeof window !== 'undefined' ? window.location.pathname || '/' : '/');
+
+  const entryId = pick('odEntryId');
+  const sourceDetail = pick('odEntrySource');
+  const consented = isMotionTrackingConsented();
+  const odDeviceId = consented ? pick('odDeviceId') : undefined;
+
+  const odEntry =
+    entryId || sourceDetail || odDeviceId
+      ? {
+          ...(entryId ? { entryId } : {}),
+          ...(sourceDetail ? { sourceDetail } : {}),
+          ...(odDeviceId ? { odDeviceId, odDeviceIdConsent: true } : {}),
+        }
+      : undefined;
 
   const attribution = {
     ...(utmSource ? { utmSource } : {}),
@@ -306,6 +500,7 @@ function collectOneTapAttribution() {
     ...(utmContent ? { utmContent } : {}),
     ...(utmTerm ? { utmTerm } : {}),
     landingPath,
+    ...(odEntry ? { odEntry } : {}),
   };
 
   return { attribution, referralCode, utmSource, utmMedium, utmCampaign, utmContent, utmTerm };
@@ -320,6 +515,7 @@ export interface UseMotionGoogleOneTapOptions {
   onError?: (message: string) => void;
   delayMs?: number;
   loadTimeoutMs?: number;
+  exchangeTimeoutMs?: number;
 }
 
 export function useMotionGoogleOneTap({
@@ -331,6 +527,7 @@ export function useMotionGoogleOneTap({
   onError,
   delayMs = MOTION_ONETAP_DELAY_MS,
   loadTimeoutMs = GOOGLE_GIS_LOAD_TIMEOUT_MS,
+  exchangeTimeoutMs = ONETAP_EXCHANGE_TIMEOUT_MS,
 }: UseMotionGoogleOneTapOptions): void {
   const bfBannerRef = useRef(bfBannerVisible);
   bfBannerRef.current = bfBannerVisible;
@@ -338,6 +535,47 @@ export function useMotionGoogleOneTap({
   refreshRef.current = refreshAccount;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const [retrySeq, setRetrySeq] = useState(0);
+
+  // Capture landing attribution on initial mount before user navigates within Studio.
+  useEffect(() => {
+    persistOneTapLandingAttribution();
+  }, []);
+
+  // Listen for cross-tab logout broadcasts and in-place retry requests.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel(ONETAP_SYNC_CHANNEL_NAME);
+        channel.addEventListener('message', event => {
+          if (event.data && typeof event.data === 'object' && (event.data as { type?: string }).type === 'logout') {
+            cancelLocalOneTapRuntime();
+          }
+        });
+      }
+    } catch {
+      channel = null;
+    }
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === ONETAP_SYNC_STORAGE_KEY && event.newValue) {
+        cancelLocalOneTapRuntime();
+      }
+    };
+    const onRetry = () => {
+      setRetrySeq(prev => prev + 1);
+    };
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener(ONETAP_RETRY_EVENT, onRetry);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener(ONETAP_RETRY_EVENT, onRetry);
+      channel?.close();
+    };
+  }, []);
 
   const eligible =
     !hostChrome &&
@@ -373,11 +611,12 @@ export function useMotionGoogleOneTap({
   useEffect(() => {
     if (!eligible) return;
 
+    const isExplicitRetry = retrySeq > 0;
     const attemptId = crypto.randomUUID();
     const deviceType: 'desktop' | 'mobile' =
       window.innerWidth >= ONETAP_DESKTOP_MIN_WIDTH ? 'desktop' : 'mobile';
 
-    if (consumeOneTapLogoutSuppression()) {
+    if (!isExplicitRetry && consumeOneTapLogoutSuppression()) {
       void trackMotion('onetap_prompt_attempt', {
         surface: 'motion_web',
         attempt_id: attemptId,
@@ -409,6 +648,7 @@ export function useMotionGoogleOneTap({
     activeCancelHooks.add(cancelRun);
 
     const isStale = () => disposed || generationAtStart !== oneTapGeneration;
+    const effectiveDelay = isExplicitRetry ? 0 : delayMs;
 
     timerId = window.setTimeout(() => {
       timerId = null;
@@ -423,9 +663,23 @@ export function useMotionGoogleOneTap({
             credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ attemptId }),
-            signal: abortController.signal,
+            signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
           });
-          if (!challengeRes.ok) return;
+          if (!challengeRes.ok) {
+            if (isExplicitRetry && !isStale()) {
+              const errData = (await challengeRes.json().catch(() => null)) as {
+                code?: string;
+                message?: string;
+              } | null;
+              void trackMotion('onetap_login_failed', {
+                surface: 'motion_web',
+                attempt_id: attemptId,
+                error_code: normalizeLoginErrorCode(errData?.code ?? 'AUTH_UNAVAILABLE'),
+              });
+              onErrorRef.current?.(errData?.message || 'Could not start Google One Tap right now.');
+            }
+            return;
+          }
           const payload = (await challengeRes.json()) as Partial<typeof challenge>;
           if (!payload.challengeId || !payload.nonce || !payload.clientId) return;
           challenge = {
@@ -434,7 +688,17 @@ export function useMotionGoogleOneTap({
             clientId: payload.clientId,
             expiresAt: payload.expiresAt ?? '',
           };
-        } catch {
+        } catch (err) {
+          if (isExplicitRetry && !isStale()) {
+            const isTimeout =
+              err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+            void trackMotion('onetap_login_failed', {
+              surface: 'motion_web',
+              attempt_id: attemptId,
+              error_code: isTimeout ? 'NETWORK_TIMEOUT' : 'AUTH_UNAVAILABLE',
+            });
+            onErrorRef.current?.('Could not start Google One Tap right now. Please try again.');
+          }
           return;
         }
 
@@ -515,11 +779,12 @@ export function useMotionGoogleOneTap({
                     attribution,
                     ...(referralCode ? { referralCode } : {}),
                   }),
-                  signal: abortController.signal,
+                  signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
                 });
               } catch (err) {
                 if (isStale()) return;
-                const isTimeout = err instanceof Error && err.name === 'AbortError';
+                const isTimeout =
+                  err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
                 void trackMotion('onetap_login_failed', {
                   surface: 'motion_web',
                   attempt_id: attemptId,
@@ -613,13 +878,13 @@ export function useMotionGoogleOneTap({
           }
         });
       })();
-    }, delayMs);
+    }, effectiveDelay);
 
     return () => {
       activeCancelHooks.delete(cancelRun);
       cancelRun();
     };
-  }, [eligible, delayMs, loadTimeoutMs]);
+  }, [eligible, delayMs, loadTimeoutMs, exchangeTimeoutMs, retrySeq]);
 }
 
 export function MotionGoogleOneTap(props: UseMotionGoogleOneTapOptions) {

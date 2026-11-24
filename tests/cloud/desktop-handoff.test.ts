@@ -10,6 +10,7 @@ import {
 import { createDesktopHandoffRoutes } from '../../src/auth/desktop-handoff.ts';
 import {
   AmrIdentityClient,
+  DESKTOP_OIDC_CTX_COOKIE_NAME,
   InMemoryAuthCache,
   InMemoryAuthStore,
   SESSION_COOKIE_NAME,
@@ -780,6 +781,13 @@ describe('Desktop System-Browser Session Handoff API', () => {
           if (url === 'https://amr-api.example.test/api/internal/billing/summary/usr_app_desktop') {
             return Response.json(billingPlanResponse.body, { status: billingPlanResponse.status });
           }
+          if (url === 'https://amr-api.example.test/api/internal/auth/one-tap/handoff-ticket') {
+            return Response.json({
+              ticket: 'ht_desktop_1',
+              handoffUrl: 'https://amr-api.example.test/api/auth/one-tap/handoff?ticket=ht_desktop_1',
+              expiresAt: '2026-11-24T12:01:00.000Z',
+            });
+          }
           return new Response('Not Found', { status: 404 });
         }) as typeof fetch,
       });
@@ -812,8 +820,8 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.equal(fastBody.interactiveLogin, false);
       assert.equal(fastBody.planTier, 'free');
 
-      // Case 2: Interactive login (interactive=1 propagated via returnTo) + planTier 'go'
-      billingPlanResponse = { status: 200, body: { membershipTier: 'go' } };
+      // Case 2: Interactive One Tap login (om_desktop_oidc_ctx verified=1) + membershipTier: null -> free + pricingHandoffUrl
+      billingPlanResponse = { status: 200, body: { membershipTier: null } };
       const pair2 = generatePkcePair();
       const startInteractive = await app.request(
         buildStartUrl({
@@ -823,7 +831,11 @@ describe('Desktop System-Browser Session Handoff API', () => {
           state: 'interactive-path',
           interactive: '1',
         }),
-        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
+        {
+          headers: {
+            Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${projected.user.id}:1`,
+          },
+        },
       );
       assert.equal(startInteractive.status, 302);
       const code2 = new URL(startInteractive.headers.get('location')!).searchParams.get('code')!;
@@ -835,7 +847,40 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.equal(exchangeInteractive.status, 200);
       const interactiveBody = (await exchangeInteractive.json()) as DesktopHandoffExchangeResponse;
       assert.equal(interactiveBody.interactiveLogin, true);
-      assert.equal(interactiveBody.planTier, 'go');
+      assert.equal(interactiveBody.oneTapVerified, true);
+      assert.equal(interactiveBody.planTier, 'free');
+      assert.equal(
+        interactiveBody.pricingHandoffUrl,
+        'https://amr-api.example.test/api/auth/one-tap/handoff?ticket=ht_desktop_1',
+      );
+
+      // Case 2b: Ordinary OIDC / silent AMR session reuse (om_desktop_oidc_ctx verified=0) -> interactiveLogin: false, no pricingHandoffUrl
+      const pair2b = generatePkcePair();
+      const startOrdinaryOidc = await app.request(
+        buildStartUrl({
+          code_challenge: pair2b.codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'ordinary-oidc-path',
+          interactive: '1',
+        }),
+        {
+          headers: {
+            Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${projected.user.id}:0`,
+          },
+        },
+      );
+      assert.equal(startOrdinaryOidc.status, 302);
+      const code2b = new URL(startOrdinaryOidc.headers.get('location')!).searchParams.get('code')!;
+      const exchangeOrdinaryOidc = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code2b, codeVerifier: pair2b.codeVerifier, redirectUri }),
+      });
+      assert.equal(exchangeOrdinaryOidc.status, 200);
+      const ordinaryOidcBody = (await exchangeOrdinaryOidc.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(ordinaryOidcBody.interactiveLogin, false);
+      assert.equal(ordinaryOidcBody.pricingHandoffUrl, undefined);
 
       // Case 3: Billing lookup fails -> falls back to 'unknown' (never hardcoded 'free')
       billingPlanResponse = { status: 503, body: { error: 'billing_down' } };

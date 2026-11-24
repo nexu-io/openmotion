@@ -59,23 +59,29 @@ export function createPosthogSender(options: {
     const device = options.device ? await options.device() : unknownDevice;
     if (signal.aborted) return 'drop';
     const source = options.source?.() ?? options.identity.utm_source;
-    const batch = events.map(event => ({ event: event.event, uuid: event.event_id, timestamp: event.occurred_at,
-      properties: { ...event.properties, event_schema_version: 1, schema_version: 1, product: 'openmotion',
-        ...(event.host_context ?? unknownHost),
-        app_version: options.appVersion, env: options.env, channel: 'standalone',
-        ...(options.testRunId ? { test_run_id: options.testRunId } : {}),
-        event_id: event.event_id, $insert_id: event.event_id, occurred_at: event.occurred_at,
-        installation_id: options.identity.installation_id, ...device,
-        distinct_id: options.identity.installation_id,
-        utm_source: source, od_utm_source: source,
-        entrypoint: event.entrypoint, runtime: event.entrypoint === 'studio' ? 'browser' : 'node',
-        capture_source: 'explicit', client_type: event.entrypoint === 'studio' ? 'web' : 'local',
-        platform: os.platform(), arch: os.arch(), $os: os.type(), $os_version: os.release(),
-        locale: Intl.DateTimeFormat().resolvedOptions().locale,
-        device_timezone: event.device_timezone, utc_offset_minutes: event.utc_offset_minutes,
-        // GeoIP requires an ingress that discards IP after enrichment; custom collectors default to zero-IP mode.
-        ...(options.geoip ? { location_source: 'geoip', $geoip_disable: false }
-          : { location_source: 'unknown', $geoip_disable: true, $ip: '0.0.0.0' }), $process_person_profile: false } }));
+    const batch = events.map(event => {
+      const hasAppUserId = typeof event.app_user_id === 'string' && event.app_user_id.length > 0;
+      const distinctId = hasAppUserId ? event.app_user_id! : options.identity.installation_id;
+      return { event: event.event, uuid: event.event_id, timestamp: event.occurred_at,
+        properties: { ...event.properties, event_schema_version: 1, schema_version: 1, product: 'openmotion',
+          ...(event.host_context ?? unknownHost),
+          app_version: options.appVersion, env: options.env, channel: 'standalone',
+          ...(options.testRunId ? { test_run_id: options.testRunId } : {}),
+          event_id: event.event_id, $insert_id: event.event_id, occurred_at: event.occurred_at,
+          installation_id: options.identity.installation_id, ...device,
+          distinct_id: distinctId,
+          ...(hasAppUserId ? { app_user_id: event.app_user_id } : {}),
+          utm_source: source, od_utm_source: source,
+          entrypoint: event.entrypoint, runtime: event.entrypoint === 'studio' ? 'browser' : 'node',
+          capture_source: 'explicit', client_type: event.entrypoint === 'studio' ? 'web' : 'local',
+          platform: os.platform(), arch: os.arch(), $os: os.type(), $os_version: os.release(),
+          locale: Intl.DateTimeFormat().resolvedOptions().locale,
+          device_timezone: event.device_timezone, utc_offset_minutes: event.utc_offset_minutes,
+          // GeoIP requires an ingress that discards IP after enrichment; custom collectors default to zero-IP mode.
+          ...(options.geoip ? { location_source: 'geoip', $geoip_disable: false }
+            : { location_source: 'unknown', $geoip_disable: true, $ip: '0.0.0.0' }),
+          $process_person_profile: hasAppUserId } };
+    });
     const body = JSON.stringify({ api_key: options.token, batch });
     if (Buffer.byteLength(body) > 64 * 1024) return 'drop';
     try {

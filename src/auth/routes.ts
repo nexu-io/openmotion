@@ -22,6 +22,7 @@ import {
 import { createPat, listPats, revokePat } from './pat.ts';
 import {
   DEFAULT_SESSION_TTL_SEC,
+  DESKTOP_OIDC_CTX_COOKIE_NAME,
   OIDC_TX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_NAME,
   ONETAP_CTX_TTL_SEC,
@@ -39,13 +40,14 @@ import { assertSafeReturnTo, randomBase64Url, sha256Hex, timingSafeStringEqual }
 
 const OAUTH_CONSENT_TTL_SEC = 600;
 const ONETAP_CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
+const ONETAP_CTX_TOKEN_RE = /^[A-Za-z0-9_-]{32,256}$/;
 const UPGRADE_ALLOWED_TARGET_PREFIXES = [
+  '/dashboard',
+  '/cloud/dashboard',
   '/pricing',
   '/plans',
   '/zh/pricing',
   '/cloud/pricing',
-  '/cloud/dashboard',
-  '/dashboard',
 ] as const;
 const UPGRADE_ATTRIBUTION_QUERY_KEYS = [
   'billing',
@@ -78,7 +80,20 @@ function sanitizeOneTapAttribution(raw: unknown): AmrOneTapAttribution | undefin
     if (val) out[key] = val;
   }
   if (obj.odEntry && typeof obj.odEntry === 'object' && !Array.isArray(obj.odEntry)) {
-    out.odEntry = obj.odEntry;
+    const rawEntry = obj.odEntry as Record<string, unknown>;
+    const sanitizedEntry: Record<string, string> = {};
+    const entryId = sanitizeOptionalShortString(rawEntry.entryId, 128);
+    const sourceDetail = sanitizeOptionalShortString(rawEntry.sourceDetail, 128);
+    const odDeviceId =
+      rawEntry.odDeviceIdConsent === true
+        ? sanitizeOptionalShortString(rawEntry.odDeviceId, 128)
+        : undefined;
+    if (entryId) sanitizedEntry.entryId = entryId;
+    if (sourceDetail) sanitizedEntry.sourceDetail = sourceDetail;
+    if (odDeviceId) sanitizedEntry.odDeviceId = odDeviceId;
+    if (Object.keys(sanitizedEntry).length > 0) {
+      out.odEntry = sanitizedEntry;
+    }
   }
   return Object.keys(out).length > 0 ? (out as AmrOneTapAttribution) : undefined;
 }
@@ -101,7 +116,7 @@ function resolveSafeUpgradeTargetPath(
   rawTargetPath: string | undefined,
   attributionParams: URLSearchParams,
 ): string {
-  let pathname = '/pricing';
+  let pathname = '/dashboard';
   const merged = new URLSearchParams();
 
   if (
@@ -129,7 +144,7 @@ function resolveSafeUpgradeTargetPath(
         }
       }
     } catch {
-      // Fall back to /pricing.
+      // Fall back to /dashboard.
     }
   }
 
@@ -140,15 +155,43 @@ function resolveSafeUpgradeTargetPath(
   return qs ? `${pathname}?${qs}` : pathname;
 }
 
-function resolveUpgradeFallbackPricingUrl(config: AppConfig, attributionParams: URLSearchParams): string {
-  const baseUrl = config.OPENDESIGN_PRICING_URL ?? new URL('/pricing', config.OPENDESIGN_CONSOLE_URL).toString();
-  const target = new URL(baseUrl);
-  for (const [key, value] of attributionParams.entries()) {
-    if (!target.searchParams.has(key)) {
-      target.searchParams.set(key, value);
+function renderUpgradeHandoffUnavailableHtml(retryPath: string): string {
+  const safeRetryHref = retryPath.replace(/"/g, '&quot;');
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenDesign Account Verification Required</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 24px; background: #191a1b; color: #f7f8f5; }
+      main { max-width: 440px; padding: 28px 32px; border-radius: 12px; background: #202123; border: 1px solid #484b4d; text-align: center; }
+      h1 { margin: 0 0 10px; font-size: 18px; }
+      p { margin: 0 0 18px; font-size: 14px; line-height: 1.5; color: #c0c4bd; }
+      a { display: inline-block; padding: 8px 16px; border-radius: 8px; background: #f7f8f5; color: #191a1b; text-decoration: none; font-weight: 600; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Unable to verify billing handoff</h1>
+      <p>We could not bind your current OpenDesign account for checkout. To avoid billing the wrong account, please retry in a moment.</p>
+      <a href="${safeRetryHref}">Retry</a>
+    </main>
+  </body>
+</html>`;
+}
+
+function appendOneTapSuppressHint(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      parsed.searchParams.set('od_onetap_suppress', '1');
+      return parsed.toString();
     }
+  } catch {
+    // Return original URL if unparseable.
   }
-  return target.toString();
+  return rawUrl;
 }
 
 function isSafeUpgradeHandoffUrl(rawUrl: string, config: AppConfig): boolean {
@@ -198,6 +241,13 @@ function parseBasicClientAuth(header: string | undefined): { clientId: string; c
 
 export interface AuthRoutesDeps extends AuthMiddlewareDeps {
   oauth21?: OAuth21Config;
+  onOneTapTelemetry?: (event: {
+    event: 'onetap_login_success' | 'onetap_login_failed';
+    appUserId?: string;
+    isNewUser?: boolean;
+    planTier?: string;
+    errorCode?: string;
+  }) => void;
 }
 
 /**
@@ -299,7 +349,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const txCookieValue = cookies[OIDC_TX_COOKIE_NAME] ?? null;
 
     try {
-      const { membership, returnTo } = await deps.oidc.completeCallback(deps.store, {
+      const { membership, returnTo, oneTapVerified } = await deps.oidc.completeCallback(deps.store, {
         code,
         state,
         txCookieValue,
@@ -326,6 +376,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           maxAgeSec: DEFAULT_SESSION_TTL_SEC,
         }),
       );
+      if (returnTo.startsWith('/auth/desktop/start')) {
+        headers.append(
+          'Set-Cookie',
+          serializeCookie(
+            DESKTOP_OIDC_CTX_COOKIE_NAME,
+            `${membership.user.id}:${oneTapVerified ? '1' : '0'}`,
+            {
+              httpOnly: true,
+              secure: secureCookie,
+              sameSite: 'Lax',
+              path: '/auth/desktop',
+              maxAgeSec: 120,
+            },
+          ),
+        );
+      }
       headers.set('Location', returnTo);
       return new Response(null, { status: 302, headers });
     } catch (error) {
@@ -348,17 +414,27 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       await revokeBrowserSession(deps.store, { rawToken: rawSession }, deps.cache);
     }
 
-    c.header('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie, '/'));
+    const headers = new Headers({
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    headers.append('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie, '/'));
+    headers.append('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'));
     let endSessionUrl: string | undefined;
     if (deps.config.AUTH_MODE === 'oidc' && deps.oidc) {
       try {
         const doc = await deps.oidc.discover();
-        endSessionUrl = doc.end_session_endpoint;
+        endSessionUrl = doc.end_session_endpoint
+          ? appendOneTapSuppressHint(doc.end_session_endpoint)
+          : undefined;
       } catch {
         // Optional end_session_endpoint discovery failure must not block local logout.
       }
     }
-    return c.json({ ok: true, ...(endSessionUrl ? { endSessionUrl } : {}) }, 200);
+    return new Response(
+      JSON.stringify({ ok: true, ...(endSessionUrl ? { endSessionUrl } : {}) }),
+      { status: 200, headers },
+    );
   });
 
   app.get('/auth/me', authMiddleware, async (c) => {
@@ -442,7 +518,11 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         attemptId = sanitized;
       }
 
-      const ctxToken = randomBase64Url(32);
+      // Reuse an existing valid browser binding cookie so parallel tabs do not clobber each other's challenges.
+      const existingCookies = parseCookies(c.req.header('cookie'));
+      const existingCtx = existingCookies[ONETAP_CTX_COOKIE_NAME];
+      const ctxToken =
+        existingCtx && ONETAP_CTX_TOKEN_RE.test(existingCtx) ? existingCtx : randomBase64Url(32);
       const browserBindingHash = sha256Hex(ctxToken);
 
       try {
@@ -595,6 +675,13 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'),
         );
 
+        deps.onOneTapTelemetry?.({
+          event: 'onetap_login_success',
+          appUserId: exchanged.appUserId,
+          isNewUser: exchanged.isNewUser,
+          planTier: exchanged.planTier,
+        });
+
         return new Response(
           JSON.stringify({
             authenticated: true,
@@ -612,12 +699,17 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       } catch (error) {
         if (isAmrOneTapError(error)) {
-          if (error.status === 400 || error.status === 403 || error.status === 409) {
-            c.header('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'));
-          }
+          deps.onOneTapTelemetry?.({
+            event: 'onetap_login_failed',
+            errorCode: error.code,
+          });
           return c.json(error.toJSON(), error.status);
         }
         if (isCloudError(error)) {
+          deps.onOneTapTelemetry?.({
+            event: 'onetap_login_failed',
+            errorCode: error.code,
+          });
           return c.json(error.toJSON(), error.status as 400 | 401 | 403 | 409 | 500 | 503);
         }
         throw error;
@@ -640,27 +732,35 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       }
 
       const attributionParams = extractUpgradeAttributionParams(c.req.url);
-      const fallbackUrl = resolveUpgradeFallbackPricingUrl(deps.config, attributionParams);
       const targetPath = resolveSafeUpgradeTargetPath(c.req.query('targetPath'), attributionParams);
+      const parsedReqUrl = new URL(c.req.url);
+      const retryPath = `${parsedReqUrl.pathname}${parsedReqUrl.search}`;
 
-      if (!auth.authUserId || !auth.appUserId) {
-        return c.redirect(fallbackUrl, 302);
-      }
-
-      try {
-        const ticket = await amrIdentity.createOneTapHandoffTicket({
-          authUserId: auth.authUserId,
-          appUserId: auth.appUserId,
-          targetPath,
-        });
-        if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
-          return c.redirect(ticket.handoffUrl, 302);
+      if (auth.authUserId && auth.appUserId) {
+        try {
+          const ticket = await amrIdentity.createOneTapHandoffTicket({
+            authUserId: auth.authUserId,
+            appUserId: auth.appUserId,
+            targetPath,
+          });
+          if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
+            return c.redirect(ticket.handoffUrl, 302);
+          }
+        } catch {
+          // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
         }
-      } catch {
-        // Safely degrade to configured Pricing URL when AMR handoff-ticket is unavailable.
       }
 
-      return c.redirect(fallbackUrl, 302);
+      return new Response(renderUpgradeHandoffUnavailableHtml(retryPath), {
+        status: 503,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          pragma: 'no-cache',
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+          'x-content-type-options': 'nosniff',
+        },
+      });
     });
   }
 

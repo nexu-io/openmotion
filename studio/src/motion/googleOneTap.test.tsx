@@ -5,18 +5,24 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { validPending, validProperties } from '../../../tracking/core.ts';
 import { studioEvents } from '../../../tracking/events.ts';
 import {
+  collectOneTapAttribution,
   GOOGLE_GIS_LOAD_TIMEOUT_MS,
   GOOGLE_GIS_SCRIPT_URL,
   MOTION_ONETAP_DELAY_MS,
   MotionGoogleOneTap,
   ONETAP_ANCHOR_ID,
+  ONETAP_ATTRIBUTION_STORAGE_KEY,
   ONETAP_SUPPRESSED_ONCE_KEY,
+  ONETAP_SYNC_STORAGE_KEY,
+  persistOneTapLandingAttribution,
   resetOneTapStateForTests,
+  retryMotionOneTap,
   suppressOneTapAfterConfirmedLogout,
   type GoogleAccountsIdInitializeConfig,
   type GooglePromptMomentNotification,
 } from './googleOneTap';
 import { getMotionTrackingUserId, setMotionTrackingUserId } from './tracking';
+import { setMotionTrackingConsented } from './trackingIdentity';
 
 const tracked: Array<{ event: string; properties: Record<string, unknown> }> = [];
 vi.mock('./tracking', async importOriginal => {
@@ -43,7 +49,10 @@ beforeEach(() => {
   tracked.length = 0;
   resetOneTapStateForTests();
   setMotionTrackingUserId(null);
+  setMotionTrackingConsented(false);
   sessionStorage.clear();
+  localStorage.clear();
+  document.cookie = 'od_attr=; max-age=0; path=/';
   document.head.innerHTML = '';
   document.body.innerHTML = '';
   delete window.google;
@@ -448,4 +457,136 @@ it('reports onetap_login_failed and invokes onError without clearing drafts when
     error_code: 'ACCOUNT_BANNED',
   });
   expect(validProperties(studioEvents, 'onetap_login_failed', failed!.properties)).toBe(true);
+});
+
+it('resolves attribution by URL -> localStorage -> od_attr priority and enforces consent gate on odDeviceId', () => {
+  localStorage.setItem(
+    'od_attr',
+    JSON.stringify({ utm_source: 'cookie_src', utm_medium: 'od_attr_med', od_entry_id: 'entry_attr' }),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?utm_source=url_src&od_entry_source=openmotion_banner&od_device_id=dev_123',
+  );
+  persistOneTapLandingAttribution();
+
+  // Navigate to clean page with no query params -> persisted localStorage + od_attr fallback still resolves
+  history.replaceState(null, '', '/templates');
+  setMotionTrackingConsented(false);
+  const unconsented = collectOneTapAttribution();
+  expect(unconsented.attribution).toMatchObject({
+    utmSource: 'url_src',
+    utmMedium: 'od_attr_med',
+    landingPath: '/explore',
+    odEntry: {
+      entryId: 'entry_attr',
+      sourceDetail: 'openmotion_banner',
+    },
+  });
+  expect(unconsented.attribution.odEntry).not.toHaveProperty('odDeviceId');
+  expect(localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY)).toBeTruthy();
+
+  // With explicit tracking consent -> odDeviceId is transmitted with consent flag
+  setMotionTrackingConsented(true);
+  const consented = collectOneTapAttribution();
+  expect(consented.attribution.odEntry).toMatchObject({
+    entryId: 'entry_attr',
+    sourceDetail: 'openmotion_banner',
+    odDeviceId: 'dev_123',
+    odDeviceIdConsent: true,
+  });
+});
+
+it('supports cross-tab logout cancellation and in-place retry with a fresh challenge', async () => {
+  let challengeSeq = 0;
+  let capturedInit: GoogleAccountsIdInitializeConfig | null = null;
+  const disableAutoSelect = vi.fn();
+  window.google = {
+    accounts: {
+      id: {
+        initialize: vi.fn(cfg => {
+          capturedInit = cfg;
+        }),
+        prompt: vi.fn(),
+        disableAutoSelect,
+        cancel: vi.fn(),
+      },
+    },
+  };
+
+  let failFirstExchange = true;
+  const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/auth/one-tap/challenge') {
+      challengeSeq += 1;
+      return Response.json({
+        challengeId: `otc_retry_${challengeSeq}`,
+        nonce: `nonce_retry_${challengeSeq}`,
+        clientId: 'gid-retry',
+        expiresAt: '2026-11-24T12:00:00.000Z',
+      });
+    }
+    if (url === '/auth/one-tap') {
+      const body = JSON.parse(String(init?.body)) as { challengeId: string };
+      if (failFirstExchange) {
+        failFirstExchange = false;
+        return Response.json({ code: 'AUTH_UNAVAILABLE', message: 'Temporary outage' }, { status: 503 });
+      }
+      expect(body.challengeId).toBe('otc_retry_2');
+      return Response.json({
+        authenticated: true,
+        user: { id: 'om_u2', appUserId: 'usr_app_retry', email: 'retry@example.com', displayName: 'Retry' },
+        activeWorkspaceId: 'ws_2',
+        isNewUser: false,
+        planTier: 'plus',
+      });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchSpy);
+
+  const onError = vi.fn();
+  const refreshAccount = vi.fn(async () => {});
+  mountOneTap({ onError, refreshAccount });
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  // First attempt fails transiently with 503
+  await act(async () => {
+    capturedInit!.callback({ credential: 'jwt_1', select_by: 'user' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(onError).toHaveBeenCalledWith('Temporary outage');
+
+  // Trigger in-place retry -> fetches a fresh challenge (otc_retry_2) and succeeds
+  act(() => {
+    retryMotionOneTap();
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(0);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(challengeSeq).toBe(2);
+
+  await act(async () => {
+    capturedInit!.callback({ credential: 'jwt_2', select_by: 'user' });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(refreshAccount).toHaveBeenCalledTimes(1);
+  expect(getMotionTrackingUserId()).toBe('usr_app_retry');
+
+  // Cross-tab logout storage event cancels local runtime and disables auto-select
+  window.dispatchEvent(
+    new StorageEvent('storage', { key: ONETAP_SYNC_STORAGE_KEY, newValue: String(Date.now()) }),
+  );
+  expect(disableAutoSelect).toHaveBeenCalled();
 });

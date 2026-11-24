@@ -13,6 +13,7 @@ export const SESSION_COOKIE_NAME = 'om_session';
 export const OIDC_TX_COOKIE_NAME = 'om_oidc_tx';
 export const ONETAP_CTX_COOKIE_NAME = 'om_onetap_ctx';
 export const ONETAP_CTX_TTL_SEC = 300;
+export const DESKTOP_OIDC_CTX_COOKIE_NAME = 'om_desktop_oidc_ctx';
 export const DEFAULT_SESSION_TTL_SEC = 7 * 24 * 60 * 60; // 7 days
 const SESSION_CACHE_TTL_SEC = 60;
 

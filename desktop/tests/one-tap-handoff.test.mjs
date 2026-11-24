@@ -142,6 +142,30 @@ test('P0-5 returns 302 for interactive Go (with test pricing domain) and 200 HTM
       expectedLocation: null,
     },
     {
+      label: 'interactive Free with account-bound pricingHandoffUrl -> 302 to handoffUrl',
+      studioOrigin: 'https://motion.open-design.ai',
+      pricingUrl: undefined,
+      payload: {
+        planTier: 'free',
+        interactiveLogin: true,
+        pricingHandoffUrl: 'https://amr-api.open-design.ai/api/auth/one-tap/handoff?ticket=ht_b_1',
+      },
+      expectedStatus: 302,
+      expectedLocation: 'https://amr-api.open-design.ai/api/auth/one-tap/handoff?ticket=ht_b_1',
+    },
+    {
+      label: 'interactive Free with failed ticket mint (pricingHandoffUrl: null) -> 200 success HTML (never unbound Pricing)',
+      studioOrigin: 'https://motion.open-design.ai',
+      pricingUrl: undefined,
+      payload: {
+        planTier: 'free',
+        interactiveLogin: true,
+        pricingHandoffUrl: null,
+      },
+      expectedStatus: 200,
+      expectedLocation: null,
+    },
+    {
       label: 'untrusted pricingUrl override -> rejected and falls back to 200 success HTML',
       studioOrigin: 'https://motion.open-design.ai',
       pricingUrl: 'https://evil.example.com/pricing',

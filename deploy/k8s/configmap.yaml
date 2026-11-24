@@ -55,6 +55,8 @@ data:
   OPENDESIGN_API_URL: "https://amr-api.open-design.ai"
   OPENDESIGN_LINK_URL: "https://amr-link.open-design.ai"
   OPENDESIGN_CONSOLE_URL: "https://open-design.ai/cloud"
+  OPENDESIGN_PRICING_URL: "https://open-design.ai/pricing"
+  OPENDESIGN_ONE_TAP_INTERNAL_URL: ""
   OPENDESIGN_ASR_URL: ""
   OPENDESIGN_BILLING_SYNC_ENABLED: "false"
   ALLOW_DOH_FAKEIP_FALLBACK: "false"

@@ -12,7 +12,9 @@ import { isCloudError } from '../contracts/errors.ts';
 import type { AuthEnv, AuthMiddlewareDeps } from './middleware.ts';
 import {
   DEFAULT_SESSION_TTL_SEC,
+  DESKTOP_OIDC_CTX_COOKIE_NAME,
   SESSION_COOKIE_NAME,
+  clearCookie,
   createBrowserSession,
   isHttpsOrigin,
   parseCookies,
@@ -38,10 +40,12 @@ const FALLBACK_PRUNE_THRESHOLD = 128;
 export interface DesktopHandoffRecord {
   userId: string;
   workspaceId: string;
+  authUserId?: string | null;
   appUserId?: string | null;
   codeChallenge: string;
   redirectUri: string;
   interactiveLogin: boolean;
+  oneTapVerified: boolean;
   expiresAt: number;
 }
 
@@ -126,10 +130,12 @@ class DesktopHandoffCodeStore {
             record = {
               userId: parsed.userId,
               workspaceId: parsed.workspaceId,
+              authUserId: typeof parsed.authUserId === 'string' ? parsed.authUserId : null,
               appUserId: typeof parsed.appUserId === 'string' ? parsed.appUserId : null,
               codeChallenge: parsed.codeChallenge,
               redirectUri: parsed.redirectUri,
               interactiveLogin: parsed.interactiveLogin === true,
+              oneTapVerified: parsed.oneTapVerified === true,
               expiresAt: parsed.expiresAt,
             };
           }
@@ -244,6 +250,39 @@ function parseExchangeBody(raw: unknown):
   };
 }
 
+function isSafeDesktopPricingHandoffUrl(
+  rawUrl: string,
+  config: AuthMiddlewareDeps['config'],
+): boolean {
+  if (!rawUrl || CONTROL_CHAR_RE.test(rawUrl)) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.username || parsed.password) return false;
+    const allowedOrigins = new Set<string>();
+    const configured = [
+      config.OPENDESIGN_API_URL,
+      config.OPENDESIGN_CONSOLE_URL,
+      config.OPENDESIGN_PRICING_URL,
+    ].filter((u): u is string => Boolean(u));
+    let allowHttp = false;
+    for (const candidate of configured) {
+      try {
+        const u = new URL(candidate);
+        allowedOrigins.add(u.origin);
+        if (u.protocol === 'http:') allowHttp = true;
+      } catch {
+        // Ignore unparseable configured URL.
+      }
+    }
+    if (parsed.protocol !== 'https:' && !(allowHttp && parsed.protocol === 'http:')) {
+      return false;
+    }
+    return allowedOrigins.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Mounts the Desktop System-Browser Session Handoff endpoints:
  * - `GET /auth/desktop/start`
@@ -272,11 +311,10 @@ export function mountDesktopHandoffRoutes(
     }
 
     const switchAccount = c.req.query('switch') === '1';
-    const interactiveLogin =
-      c.req.query('interactive') === '1' || c.req.query('one_tap') === '1';
+    const queryOneTap = c.req.query('one_tap') === '1';
+    const queryInteractive = c.req.query('interactive') === '1';
 
     // Build a clean returnTo URL with validated params only (and without switch=1 to prevent redirect loops).
-    // Mark interactive=1 so exchange knows the browser went through interactive login rather than reusing a session.
     const returnParams = new URLSearchParams({
       code_challenge: validated.codeChallenge,
       code_challenge_method: 'S256',
@@ -292,8 +330,10 @@ export function mountDesktopHandoffRoutes(
 
     const cookies = parseCookies(c.req.header('cookie'));
     const rawSession = cookies[SESSION_COOKIE_NAME];
+    const rawDesktopOidcCtx = cookies[DESKTOP_OIDC_CTX_COOKIE_NAME];
     let userId: string | null = null;
     let workspaceId: string | null = null;
+    let authUserId: string | null = null;
     let appUserId: string | null = null;
 
     if (rawSession) {
@@ -309,6 +349,7 @@ export function mountDesktopHandoffRoutes(
               : resolved.auth;
           userId = auth.userId;
           workspaceId = auth.workspaceId;
+          authUserId = auth.authUserId ?? null;
           appUserId = auth.appUserId ?? null;
         }
       } catch (error) {
@@ -318,6 +359,7 @@ export function mountDesktopHandoffRoutes(
         // Inactive or revoked account -> require fresh browser login.
         userId = null;
         workspaceId = null;
+        authUserId = null;
         appUserId = null;
       }
     }
@@ -329,6 +371,7 @@ export function mountDesktopHandoffRoutes(
       });
       userId = dev.user.id;
       workspaceId = dev.workspace.id;
+      authUserId = dev.user.oidcSub;
       appUserId = dev.user.appUserId ?? null;
     }
 
@@ -336,20 +379,50 @@ export function mountDesktopHandoffRoutes(
       return c.redirect(`/auth/login?returnTo=${encodeURIComponent(safeReturnTo)}`, 302);
     }
 
+    // Bind AMR-verified One Tap provenance from `/auth/callback` when present so ordinary OIDC
+    // or silent AMR session reuse does not falsely trigger One Tap Pricing redirects.
+    let oneTapVerified = queryOneTap;
+    let interactiveLogin = queryOneTap || queryInteractive;
+    let shouldClearOidcCtx = false;
+    if (rawDesktopOidcCtx) {
+      shouldClearOidcCtx = true;
+      const sep = rawDesktopOidcCtx.lastIndexOf(':');
+      if (sep > 0) {
+        const ctxUserId = rawDesktopOidcCtx.slice(0, sep);
+        const ctxFlag = rawDesktopOidcCtx.slice(sep + 1);
+        if (timingSafeStringEqual(ctxUserId, userId)) {
+          oneTapVerified = ctxFlag === '1';
+          interactiveLogin = oneTapVerified;
+        }
+      }
+    }
+
     const code = randomBase64Url(32);
     const codeHash = sha256Hex(code);
     await codeStore.save(codeHash, {
       userId,
       workspaceId,
+      authUserId,
       appUserId,
       codeChallenge: validated.codeChallenge,
       redirectUri: validated.redirectUri,
       interactiveLogin,
+      oneTapVerified,
     });
 
     const redirectTarget = new URL(validated.redirectUri);
     redirectTarget.searchParams.set('code', code);
     redirectTarget.searchParams.set('state', validated.state);
+
+    if (shouldClearOidcCtx) {
+      const headers = new Headers({
+        Location: redirectTarget.toString(),
+        'Cache-Control': 'no-store',
+        Pragma: 'no-cache',
+      });
+      headers.append('Set-Cookie', clearCookie(DESKTOP_OIDC_CTX_COOKIE_NAME, secureCookie, '/auth/desktop'));
+      return new Response(null, { status: 302, headers });
+    }
 
     return c.redirect(redirectTarget.toString(), 302);
   });
@@ -412,10 +485,29 @@ export function mountDesktopHandoffRoutes(
     });
 
     let planTier: DesktopHandoffPlanTier = 'unknown';
+    let pricingHandoffUrl: string | null | undefined;
     if (deps.config.AUTH_MODE === 'oidc' && deps.amrIdentity) {
       const resolvedAppUserId = record.appUserId ?? membership.user.appUserId ?? null;
+      const resolvedAuthUserId = record.authUserId ?? membership.user.oidcSub ?? null;
       if (resolvedAppUserId) {
         planTier = await deps.amrIdentity.lookupBillingPlanTier(resolvedAppUserId);
+      }
+      if (record.interactiveLogin && (planTier === 'free' || planTier === 'go')) {
+        pricingHandoffUrl = null;
+        if (resolvedAuthUserId && resolvedAppUserId) {
+          try {
+            const ticket = await deps.amrIdentity.createOneTapHandoffTicket({
+              authUserId: resolvedAuthUserId,
+              appUserId: resolvedAppUserId,
+              targetPath: '/pricing',
+            });
+            if (isSafeDesktopPricingHandoffUrl(ticket.handoffUrl, deps.config)) {
+              pricingHandoffUrl = ticket.handoffUrl;
+            }
+          } catch {
+            pricingHandoffUrl = null;
+          }
+        }
       }
     }
 
@@ -438,6 +530,8 @@ export function mountDesktopHandoffRoutes(
       workspaceId: membership.workspace.id,
       planTier,
       interactiveLogin: record.interactiveLogin,
+      ...(record.oneTapVerified ? { oneTapVerified: true } : {}),
+      ...(pricingHandoffUrl !== undefined ? { pricingHandoffUrl } : {}),
     };
     return c.json(responseBody, 200);
   });

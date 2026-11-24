@@ -466,7 +466,7 @@ const authHandoff = new DesktopAuthHandoffManager({
     }
     return response;
   },
-  verifySessionDelivered: async ({ studioOrigin }) => {
+  verifySessionDelivered: async ({ studioOrigin, user, workspaceId }) => {
     const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
     if (!win) return false;
     await win.webContents.session.cookies.flushStore().catch(() => {});
@@ -475,7 +475,28 @@ const authHandoff = new DesktopAuthHandoffManager({
       url: studioOrigin,
       name: 'om_session',
     });
-    return !win.isDestroyed() && cookies.some(cookie => Boolean(cookie.value));
+    if (win.isDestroyed() || !cookies.some(cookie => Boolean(cookie.value))) {
+      return false;
+    }
+    const meUrl = new URL('/auth/me', studioOrigin).toString();
+    const meRes = await win.webContents.session.fetch(meUrl, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    if (win.isDestroyed() || !meRes.ok) {
+      return false;
+    }
+    const meBody = (await meRes.json().catch(() => null)) as {
+      authenticated?: unknown;
+      user?: { id?: unknown };
+      activeWorkspaceId?: unknown;
+    } | null;
+    return (
+      !win.isDestroyed() &&
+      meBody?.authenticated === true &&
+      meBody.user?.id === user.id &&
+      meBody.activeWorkspaceId === workspaceId
+    );
   },
   onFocusMainWindow: () => {
     inWindowAuthFallbackActive = false;

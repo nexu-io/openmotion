@@ -49,6 +49,8 @@ export type DesktopHandoffExchangeResponse = {
   workspaceId: string;
   planTier?: DesktopHandoffPlanTier;
   interactiveLogin?: boolean;
+  oneTapVerified?: boolean;
+  pricingHandoffUrl?: string | null;
 };
 
 /**

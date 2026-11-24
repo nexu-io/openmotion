@@ -164,6 +164,10 @@ export function amrIdentityCacheKey(authUserId: string, externalWorkspaceId?: st
 export interface AmrIdentityClientOptions {
   apiUrl: string;
   internalToken: string;
+  /** Dedicated internal-only AMR base URL for One Tap S2S endpoints (defaults to apiUrl). */
+  oneTapApiUrl?: string;
+  /** Dedicated internal service token for One Tap S2S endpoints (defaults to internalToken). */
+  oneTapInternalToken?: string;
   cache?: AuthKeyValueCache;
   cacheTtlSec?: number;
   timeoutMs?: number;
@@ -174,7 +178,12 @@ export interface AmrIdentityClientOptions {
 export function amrIdentityClientFromAppConfig(
   config: Pick<
     AppConfig,
-    'OPENDESIGN_API_URL' | 'OPENDESIGN_INTERNAL_API_TOKEN' | 'OPENDESIGN_S2S_API_KEY' | 'AMR_IDENTITY_CACHE_TTL_SEC'
+    | 'OPENDESIGN_API_URL'
+    | 'OPENDESIGN_INTERNAL_API_TOKEN'
+    | 'OPENDESIGN_S2S_API_KEY'
+    | 'OPENDESIGN_ONE_TAP_INTERNAL_URL'
+    | 'OPENDESIGN_ONE_TAP_INTERNAL_TOKEN'
+    | 'AMR_IDENTITY_CACHE_TTL_SEC'
   >,
   cache?: AuthKeyValueCache,
   logger?: Pick<Logger, 'warn'>,
@@ -184,6 +193,8 @@ export function amrIdentityClientFromAppConfig(
   return new AmrIdentityClient({
     apiUrl: config.OPENDESIGN_API_URL,
     internalToken: token,
+    oneTapApiUrl: config.OPENDESIGN_ONE_TAP_INTERNAL_URL,
+    oneTapInternalToken: config.OPENDESIGN_ONE_TAP_INTERNAL_TOKEN,
     cache,
     logger,
     cacheTtlSec: config.AMR_IDENTITY_CACHE_TTL_SEC,
@@ -201,6 +212,8 @@ export function amrIdentityClientFromAppConfig(
 export class AmrIdentityClient {
   private readonly apiUrl: string;
   private readonly internalToken: string;
+  private readonly oneTapApiUrl: string;
+  private readonly oneTapInternalToken: string;
   private readonly cache?: AuthKeyValueCache;
   private readonly cacheTtlSec: number;
   private readonly timeoutMs: number;
@@ -210,6 +223,8 @@ export class AmrIdentityClient {
   constructor(options: AmrIdentityClientOptions) {
     this.apiUrl = options.apiUrl.replace(/\/$/, '');
     this.internalToken = options.internalToken;
+    this.oneTapApiUrl = (options.oneTapApiUrl ?? options.apiUrl).replace(/\/$/, '');
+    this.oneTapInternalToken = options.oneTapInternalToken ?? options.internalToken;
     this.cache = options.cache;
     this.cacheTtlSec = Math.min(
       MAX_AMR_IDENTITY_CACHE_TTL_SEC,
@@ -493,14 +508,14 @@ export class AmrIdentityClient {
     payload: unknown,
     actionLabel: string,
   ): Promise<Record<string, unknown>> {
-    const url = `${this.apiUrl}${path}`;
+    const url = `${this.oneTapApiUrl}${path}`;
     const signal = AbortSignal.timeout(this.timeoutMs);
     let response: Response;
     try {
       response = await this.fetcher(url, {
         method: 'POST',
         headers: {
-          'x-internal-token': this.internalToken,
+          'x-internal-token': this.oneTapInternalToken,
           'content-type': 'application/json',
           Accept: 'application/json',
         },
@@ -678,6 +693,16 @@ export class AmrIdentityClient {
 
     const rawBody = (await response.json().catch(() => null)) as Record<string, unknown> | null;
     if (!rawBody) return 'unknown';
-    return normalizeDesktopHandoffPlanTier(rawBody.membershipTier ?? rawBody.planTier ?? rawBody.plan);
+
+    // Authoritative AMR billing summary uses `membershipTier: null` when a user has no paid subscription (Free tier).
+    const rawTier = rawBody.membershipTier ?? rawBody.planTier ?? rawBody.plan;
+    if (
+      rawTier === undefined &&
+      Object.hasOwn(rawBody, 'membershipTier') &&
+      rawBody.membershipTier === null
+    ) {
+      return 'free';
+    }
+    return normalizeDesktopHandoffPlanTier(rawTier);
   }
 }

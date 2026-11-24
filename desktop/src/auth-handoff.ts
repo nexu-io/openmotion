@@ -39,6 +39,7 @@ export const DEFAULT_DESKTOP_PRICING_URL_TEST = 'https://open-design.powerformer
 const ALLOWED_DESKTOP_PRICING_HOSTS = [
   'open-design.ai',
   'open-design.powerformer.net',
+  'vela-api.powerformer.net',
 ] as const;
 
 const ALLOWED_DESKTOP_PRICING_PATH_PREFIXES = [
@@ -46,6 +47,7 @@ const ALLOWED_DESKTOP_PRICING_PATH_PREFIXES = [
   '/plans',
   '/zh/pricing',
   '/cloud/pricing',
+  '/api/auth/one-tap/handoff',
 ] as const;
 
 /**
@@ -1039,9 +1041,14 @@ export class DesktopAuthHandoffManager {
       const interactiveLogin = parsedBody.interactiveLogin === true;
       const shouldRedirectPricing =
         interactiveLogin && (planTier === 'free' || planTier === 'go');
-      const safePricingUrl = shouldRedirectPricing
-        ? resolveSafeDesktopPricingUrl(this.resolveCurrentPricingUrl(), attempt.studioOrigin)
-        : null;
+      const rawRedirectCandidate =
+        parsedBody.pricingHandoffUrl !== undefined
+          ? parsedBody.pricingHandoffUrl
+          : this.resolveCurrentPricingUrl();
+      const safePricingUrl =
+        shouldRedirectPricing && rawRedirectCandidate !== null
+          ? resolveSafeDesktopPricingUrl(rawRedirectCandidate, attempt.studioOrigin)
+          : null;
 
       if (safePricingUrl) {
         this.respondOnceAndClose(attempt, (res, onDone) => {

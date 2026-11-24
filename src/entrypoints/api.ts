@@ -43,10 +43,13 @@ import {
   sessionPath,
   templateLibraryPreview,
 } from '../../shared/workspace-url.ts';
+import { validPending, type PendingEvent } from '../../tracking/core.ts';
+import { studioEvents } from '../../tracking/events.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
   OidcService,
+  SESSION_COOKIE_NAME,
   amrIdentityClientFromAppConfig,
   buildOAuth21Config,
   createAuthMiddleware,
@@ -56,6 +59,9 @@ import {
   createRedisAuthCache,
   getAuthContext,
   oidcConfigFromAppConfig,
+  parseCookies,
+  resolveBrowserSession,
+  verifyCsrfOrigin,
   type AuthEnv,
   type AuthKeyValueCache,
   type AuthMiddlewareDeps,
@@ -258,6 +264,7 @@ export interface CreateApiAppDeps {
   readonly eventBus: ApiEventBusPort;
   readonly hotTextCache?: HotTextCachePort;
   readonly rateLimiter?: RateLimiter;
+  readonly onTrackingEvents?: (events: readonly PendingEvent[]) => void | Promise<void>;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
   readonly oidc?: OidcService;
@@ -2456,11 +2463,90 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
-  app.get('/motion-api/tracking', authMiddleware, (c) => {
-    return c.json({ enabled: false, locked: true, reason: 'cloud' });
+  const GUEST_ALLOWED_TRACKING_EVENTS = new Set([
+    'onetap_prompt_attempt',
+    'onetap_prompt_observed',
+    'onetap_credential_received',
+    'onetap_login_success',
+    'onetap_login_failed',
+  ]);
+
+  app.get('/motion-api/tracking', (c) => {
+    return c.json({ enabled: true, locked: false, mode: 'cloud' });
   });
-  app.post('/motion-api/tracking', authMiddleware, (c) => {
-    return c.json({ ok: true, accepted: false }, 202);
+  app.post('/motion-api/tracking', async (c) => {
+    const cookies = parseCookies(c.req.header('cookie'));
+    const rawSession = cookies[SESSION_COOKIE_NAME];
+    const hasOriginHeader = c.req.header('origin') !== undefined;
+    if ((rawSession || hasOriginHeader) && !verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
+      return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
+    }
+
+    let rawBody: { events?: unknown };
+    try {
+      const parsed = await c.req.json();
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid tracking payload' }, 400);
+      }
+      rawBody = parsed as { events?: unknown };
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+
+    if (!Array.isArray(rawBody.events) || rawBody.events.length === 0 || rawBody.events.length > 32) {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'events must be a non-empty array of up to 32 items' }, 400);
+    }
+
+    let resolvedAppUserId: string | null = null;
+    let isAuthenticated = false;
+    if (rawSession) {
+      try {
+        const resolved = await resolveBrowserSession(authDeps.store, rawSession, {
+          authMode: config.AUTH_MODE,
+          cache: authDeps.cache,
+        });
+        if (resolved) {
+          isAuthenticated = true;
+          const auth =
+            config.AUTH_MODE === 'oidc' && authDeps.amrIdentity
+              ? await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth)
+              : resolved.auth;
+          resolvedAppUserId = auth.appUserId ?? null;
+        }
+      } catch {
+        // Treat invalid/expired session cookie as guest for One Tap telemetry.
+      }
+    } else if (config.AUTH_MODE === 'dev') {
+      isAuthenticated = true;
+    }
+
+    const acceptedEvents: PendingEvent[] = [];
+    for (const candidate of rawBody.events) {
+      if (!validPending(studioEvents, candidate)) continue;
+      if (!isAuthenticated && !GUEST_ALLOWED_TRACKING_EVENTS.has(candidate.event)) {
+        continue;
+      }
+      // Stamp server-confirmed appUserId for authenticated sessions and never trust spoofed guest app_user_id.
+      const normalized: PendingEvent = { ...candidate };
+      if (isAuthenticated && resolvedAppUserId) {
+        normalized.app_user_id = resolvedAppUserId;
+      } else {
+        delete normalized.app_user_id;
+      }
+      acceptedEvents.push(normalized);
+    }
+
+    if (acceptedEvents.length > 0) {
+      logger.info('Cloud studio telemetry ingested', {
+        count: acceptedEvents.length,
+        authenticated: isAuthenticated,
+        hasAppUserId: Boolean(resolvedAppUserId),
+        events: acceptedEvents.map((item) => item.event),
+      });
+      await deps.onTrackingEvents?.(acceptedEvents);
+    }
+
+    return c.json({ ok: true, accepted: acceptedEvents.length > 0, enabled: true, count: acceptedEvents.length }, 202);
   });
   const trackingPreferencesPayload = {
     enabled: false,

@@ -118,7 +118,7 @@ const DEFAULT_PAT_SCOPES = [
 function subscriptionUrl(
   consoleUrl: string,
   entrySource = 'openmotion_manage_subscription',
-  options?: { useUpgradeHandoff?: boolean },
+  options?: { useUpgradeHandoff?: boolean; targetPath?: string },
 ) {
   const params = new URLSearchParams({
     billing: 'plan',
@@ -133,7 +133,12 @@ function subscriptionUrl(
         ? window.location.origin
         : DEFAULT_CONSOLE_URL;
     const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
-    handoff.search = params.toString();
+    if (options.targetPath) {
+      handoff.searchParams.set('targetPath', options.targetPath);
+    }
+    for (const [key, value] of params.entries()) {
+      handoff.searchParams.set(key, value);
+    }
     return handoff.href;
   }
   const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
@@ -302,7 +307,11 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl;
     const useUpgradeHandoff = Boolean(signedIn && account?.authMode === 'oidc' && !isDesktopApp());
-    const buildUrl = () => subscriptionUrl(consoleUrl, source, { useUpgradeHandoff });
+    const buildUrl = () =>
+      subscriptionUrl(consoleUrl, source, {
+        useUpgradeHandoff,
+        targetPath: '/dashboard',
+      });
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
       const targetUrl = buildUrl();
       if (event.detail === 0 && event.button === 0) event.currentTarget.href = targetUrl;
