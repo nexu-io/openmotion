@@ -38,8 +38,9 @@ export async function commitOrderedTextEdits(
   body: unknown, commit: (operation: ResolvedOperation, id: string) => Promise<CommitProjectFilesResult>,
 ): Promise<OrderedTextEditResult> {
   const receipts = new Map<string, OrderedTextEditReceipt>();
-  function resolve(path: string, base: OrderedTextEditBase) {
-    if (typeof base === 'string' || base === null) return base;
+  function resolve(path: string, base: OrderedTextEditBase): string | null {
+    if (base === null) return null;
+    if (typeof base === 'string') return base;
     const versions = receipts.get(base.after)?.versions;
     if (!versions || !Object.hasOwn(versions, path)) throw new Error('Missing output version for an accepted edit');
     return versions[path]!;
@@ -63,7 +64,7 @@ export async function commitOrderedTextEdits(
       return { committed: [...receipts.values()], failed: {
         id, status: error.status, code: error.code, message: error.message,
         ...(typeof path === 'string' && {path}),
-        ...(typeof currentVersion === 'string' || currentVersion === null ? {currentVersion} : {}),
+        ...(typeof currentVersion === 'string' ? { currentVersion } : currentVersion === null ? { currentVersion: null } : {}),
       } };
     }
   }
