@@ -157,8 +157,7 @@ export function applyContentCommand(
   }
   if (command.kind === 'insertComposition') {
     const childSource = files?.get(command.sourcePath);
-    if (!childSource || compositionPath === command.sourcePath)
-      throw new Error('Choose another saved composition.');
+    if (!childSource) throw new Error('Composition source was not found.');
     const result = insertCompositionInMemory({
       parentSource: source,
       childSource,

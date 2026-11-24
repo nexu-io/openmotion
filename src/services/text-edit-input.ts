@@ -22,6 +22,7 @@ function textEditFields<V extends z.ZodType>(base: V) {
 
 export const textEditSchema = z.strictObject({
   ...textEditFields(version),
+  beatAssets: z.array(z.string().min(1)).min(1).max(256).optional(),
   installComponent: z.string().min(1).max(200).optional(),
 });
 

@@ -1,7 +1,6 @@
 import { applyCanvasCommand, patchCanvasElement } from '../../../packages/edit-core/canvas-commands.ts';
 import { groupCanvasElements } from '../../../packages/edit-core/canvas-source.ts';
 import type { CanvasBox, MeasuredCanvasPosition } from '../../../packages/edit-core/canvas-box.ts';
-import { readCompositionDependencies } from '../engine/composition-dependencies.ts';
 import { randomUUID } from 'node:crypto';
 import { stampHfIdsInPlace } from '@hyperframes/parsers/hf-ids';
 import { and, eq } from 'drizzle-orm';
@@ -841,12 +840,13 @@ export function createStudioFileMutationsRoutes(
     if (at !== undefined && (!at || !Number.isFinite(at.left) || !Number.isFinite(at.top))) {
       return c.json({ error: 'Invalid canvas position' }, 400);
     }
-    const graph = await readCompositionDependencies(filePath, childPath, path => deps.files.readTextFile(auth, projectId, path));
+    const child = childPath === filePath ? parentFile : await deps.files.readTextFile(auth, projectId, childPath);
+    if (!child) return c.json({ error: 'Child composition not found' }, 404);
     const inserted = insertCompositionInMemory({
       targetPath: filePath,
       canvasPosition: at,
       parentSource: parentFile.content,
-      childSource: graph.file.content,
+      childSource: child.content,
       sourcePath: childPath,
       start: typeof body.start === 'number' ? body.start : 0,
       desiredTrack: typeof body.track === 'number' ? body.track : 0,
@@ -860,7 +860,7 @@ export function createStudioFileMutationsRoutes(
     const committed = await deps.files.commitChanges(auth, {
       projectId,
       ops: [{ op: 'upsert_text', path: filePath, content: after }],
-      filePreconditions: [{ path: filePath, ifMatch: parentFile.version }, ...graph.preconditions],
+      filePreconditions: [{ path: filePath, ifMatch: parentFile.version }, ...(childPath === filePath ? [] : [{ path: childPath, ifMatch: child.version }])],
       source: 'studio',
       ...studioWriteHistory(c.req.raw.headers, `Inserted composition ${childPath}`),
       writeToken,

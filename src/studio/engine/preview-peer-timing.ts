@@ -2,7 +2,7 @@ import { indexGroupMembers, stageGroupChange } from "../../../shared/preview-gro
 import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
-import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, isAuthoredPresentation, isLivePositionEdit, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, isGradeOnlyChange, isAuthoredPresentation, isLivePositionEdit, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
 
 // Runs inside the token-scoped iframe. Each change targets a verified live node and file revision.
 export const PREVIEW_PEER_TIMING = `
@@ -12,6 +12,7 @@ export const PREVIEW_PEER_TIMING = `
   const stageGroup = ${stageGroupChange.toString()};
   const mediaBox = ${isMediaBoxChange.toString()};
   const pixelBox = ${isPixelBoxChange.toString()};
+  const gradeOnly = ${isGradeOnlyChange.toString()};
   const paintOnly = ${isPaintOnlyChange.toString()};
   const presentationTags = new Set(${JSON.stringify(PRESENTATION_TAGS)});
   const presentationStyles = new Set(${JSON.stringify(PRESENTATION_STYLES)});
@@ -108,7 +109,9 @@ export const PREVIEW_PEER_TIMING = `
     // Only this mounted file may update its verified live text/style, preserving the
     // already-executed handlers. Nested scenes also need their remount cache updated.
     const authored = m.type === 'peer-presentation' && m.path === compositionPath && isAuthoredPresentation(m.changes);
-    const target = temporary || position || media || authored ? styleDocumentId : timingDocumentId;
+    const grade = m.type === 'peer-timing' && m.path === compositionPath && Array.isArray(m.changes) &&
+      m.changes.length > 0 && m.changes.every(gradeOnly);
+    const target = temporary || position || media || authored || grade ? styleDocumentId : timingDocumentId;
     if (!target || m.documentId !== target || (temporary ? !!timingDocumentId : !position && m.path !== compositionPath) ||
         !before || !after || before !== base ||
         !Number.isFinite(m.expiresAt) || Date.now() >= m.expiresAt ||
@@ -220,7 +223,7 @@ export const PREVIEW_PEER_TIMING = `
       }
       for (const effect of effects) effect(key === 'to');
       // Lock is an editor flag. Studio reapplies the local monitor preference on mute.
-      if (!structureChanged && !edits.some(edit => edit.attr !== 'data-timeline-locked' && edit.attr !== 'muted')) return;
+      if (!structureChanged && !edits.some(edit => edit.attr !== 'data-timeline-locked' && edit.attr !== 'muted' && edit.attr !== 'data-color-grading')) return;
       p.seek(at);
       window.__hfForceTimelineRebind();
       window.__hfStudioManualEditsApply?.();

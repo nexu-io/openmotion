@@ -1,5 +1,8 @@
 import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
-import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
+import { saveTimelineFiles } from "../utils/orderedTimelineEdits";
+import { supportsProjectTextEdits, supportsOrderedTextEdits, confirmedSource } from "../utils/confirmedTextSources";
+import { scheduleCommittedTimelinePreview } from "../player/committedTimelinePreview";
+import { projectColorGrade } from "./studioColorGradingPreview";
 import { patchMediaColorGradingInHtml } from "./editor/colorGradingScopePatch";
 import { hasRelativeLutSource } from "./studioMediaJobs";
 
@@ -25,6 +28,8 @@ interface ApplyColorGradingScopeOptions {
   selectedSourceFile: string;
   compositionPaths: string[];
   projectId: string;
+  frame?: HTMLIFrameElement | null;
+  activePath?: string;
   waitForPendingDomEditSaves: () => Promise<void>;
   readProjectFile: ProjectFileReader;
   writeProjectFile: ProjectFileWriter;
@@ -48,6 +53,8 @@ export async function applyColorGradingScopeUpdate({
   selectedSourceFile,
   compositionPaths,
   projectId,
+  frame,
+  activePath = "index.html",
   waitForPendingDomEditSaves,
   readProjectFile,
   writeProjectFile,
@@ -55,7 +62,6 @@ export async function applyColorGradingScopeUpdate({
   reloadPreview,
   showToast,
 }: ApplyColorGradingScopeOptions): Promise<ColorGradingScopeResult> {
-  await waitForPendingDomEditSaves();
   if (scope === "project" && hasRelativeLutSource(value)) {
     showToast(
       "Project-wide color grading cannot copy relative LUT paths. Apply to this file or use a URL/data LUT.",
@@ -64,27 +70,41 @@ export async function applyColorGradingScopeUpdate({
     return EMPTY_COLOR_GRADING_SCOPE_RESULT;
   }
 
-  let changedElements = 0;
-  const patchGrading = (before: string) => {
+  const counts = new Map<string, number>();
+  const patchGrading = (path: string) => (before: string) => {
     const result = patchMediaColorGradingInHtml(before, value);
-    changedElements += result.count;
+    counts.set(path, result.count);
     return result.html;
   };
   const paths = colorGradingScopePaths(scope, selectedSourceFile, compositionPaths);
-  const changedPaths = await saveProjectFilesWithHistory({
-    ...(getCachedCloudDisklessMode() && { commandForWrite: () => ({ kind: 'gradeMedia' as const, value }) }),
+  const local = supportsProjectTextEdits(projectId);
+  const ordered = supportsOrderedTextEdits(projectId);
+  if (!ordered) await waitForPendingDomEditSaves();
+  let projection: ReturnType<typeof projectColorGrade> | undefined;
+  const changedPaths = await saveTimelineFiles({
+    ...(!local && getCachedCloudDisklessMode() && { commandForWrite: () => ({ kind: 'gradeMedia' as const, value }) }),
     projectId,
     label: value ? "Apply color grading" : "Clear color grading",
-    files: Object.fromEntries(paths.map((path) => [path, patchGrading])),
-    readFile: readProjectFile,
+    files: Object.fromEntries(paths.map((path) => [path, patchGrading(path)])),
+    readFile: async path => (local ? confirmedSource(projectId, path)?.content : undefined) ?? readProjectFile(path),
+    projectPending: frame && ordered ? files => {
+      projection = projectColorGrade(frame, activePath, files);
+      return () => projection?.settle(false);
+    } : undefined,
+    onSaved: async (files, previous, bases) => {
+      projection?.settle(true);
+      if (frame?.isConnected && ordered && !frame.contentDocument) {
+        scheduleCommittedTimelinePreview(frame, projectId, activePath, files, previous, reloadPreview, bases);
+      } else if (!projection?.complete || !frame?.isConnected) reloadPreview();
+    },
     writeFile: writeProjectFile,
     recordEdit,
-  });
+  }, local);
   if (changedPaths.length === 0) {
     showToast("No color grading changed", "info");
     return EMPTY_COLOR_GRADING_SCOPE_RESULT;
   }
-  reloadPreview();
+  const changedElements = Array.from(counts.values()).reduce((sum, n) => sum + n, 0);
   showToast(
     `${value ? "Applied" : "Cleared"} color grading on ${changedElements} media item${changedElements === 1 ? "" : "s"}`,
     "info",

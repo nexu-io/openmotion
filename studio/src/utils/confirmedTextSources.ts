@@ -25,6 +25,19 @@ export function pendingSourceRead(projectId: string, path: string) {
   return pendingReads.get(key(projectId, path));
 }
 
+type AssetSummary = {version?: string; mimeType?: string};
+const assetListings = new Map<string, Readonly<Record<string, AssetSummary>>>();
+
+/** Reuse the file tree response. Binary inputs need their identity, never their bytes. */
+export function observeEditAssets(project: string, assets?: Readonly<Record<string, AssetSummary>>) {
+  assetListings.delete(project);
+  if (assets) assetListings.set(project, assets);
+  if (assetListings.size > 16) assetListings.delete(assetListings.keys().next().value!);
+}
+export function observedEditAsset(project: string, path: string) {
+  return assetListings.get(project)?.[path];
+}
+
 export function confirmedSource(projectId: string, path: string) {
   return sources.get(key(projectId, path));
 }

@@ -2,11 +2,12 @@ import type { GroupChange } from "./preview-group.ts";
 export type PreviewLiveEdits = { position?: true; mediaTiming?: true; presentation?: true; cssLayoutOffset?: true };
 export const PREVIEW_ATTRIBUTES = [
   "data-start", "data-end", "data-duration", "data-track-index", "data-playback-start", "data-media-start",
-  "data-timeline-locked", "data-hidden", "muted", "data-volume", "loop", "data-playback-rate",
+  "data-timeline-locked", "data-hidden", "muted", "data-volume", "loop", "data-playback-rate", "data-color-grading",
 ] as const;
 
 /** Only values the player can reproduce from the mounted declarative document. */
 export function canPatchPreviewAttribute(name: string, value: unknown, tag: string): boolean {
+  if (name === "data-color-grading") return (tag === "img" || tag === "video") && (value === null || typeof value === "string");
   if (["muted", "data-volume", "loop", "data-playback-rate"].includes(name) && tag !== "audio" && tag !== "video") return false;
   if (value === null) return true;
   if (typeof value !== "string") return false;
@@ -52,6 +53,12 @@ export interface PreviewChange {
   insert?: VisualClipInsert;
   group?: GroupChange;
   attributes: [typeof PREVIEW_ATTRIBUTES[number], string | null, string | null][];
+}
+
+export function isGradeOnlyChange(change: PreviewChange): boolean {
+  return (change?.tag === 'img' || change?.tag === 'video') && !change.styles && !change.text &&
+    !change.group && !change.insert && !change.removeFromComposition &&
+    Array.isArray(change.attributes) && change.attributes.length === 1 && change.attributes[0]?.[0] === 'data-color-grading';
 }
 
 /** Source-verified text and inline styles can paint without restarting or rebinding arbitrary scripts. */

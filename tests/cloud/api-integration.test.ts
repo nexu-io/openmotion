@@ -1931,6 +1931,92 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     assert.deepEqual((await read()).beats, changed);
   });
 
+  it('commits locally prepared MCP edits with Agent attribution and guarded, atomic history', {
+    skip: !process.env.OPENMOTION_TEST_DATABASE_URL,
+  }, async () => {
+    const { createDbHandle } = await import('../../src/db/client.ts');
+    const { runMigrations } = await import('../../src/db/migrate.ts');
+    const connectionString = process.env.OPENMOTION_TEST_DATABASE_URL!;
+    await runMigrations({ connectionString });
+    const handle = createDbHandle({ connectionString });
+    const userId = randomUUID(), workspaceId = randomUUID();
+    try {
+      await handle.pool.query('INSERT INTO users(id,oidc_sub,display_name) VALUES ($1,$2,$2)', [userId, userId]);
+      await handle.pool.query('INSERT INTO workspaces(id,slug,name,owner_user_id) VALUES ($1,$2,$2,$3)', [workspaceId, workspaceId, userId]);
+      const storage = new InMemoryStorage();
+      const { TextRevisionStorage } = await import('../../src/infra/text-revisions.ts');
+      const revisions = new TextRevisionStorage(handle.db, storage);
+      const readPhysical = storage.getObjectBuffer.bind(storage);
+      storage.getObjectBuffer = key => key.startsWith('workspaces/' + workspaceId + '/text-revisions/')
+        ? revisions.read(workspaceId, key.split('/').at(-1)!) : readPhysical(key);
+      const { app, config, services } = createApiFixture({ deps: { db: handle.db, storage }, config: {
+        DEV_WORKSPACE_ID: workspaceId, DEV_USER_ID: userId, TEXT_PATCH_WRITES: 'true',
+      } });
+      const post = (url: string, body: unknown, headers: Record<string, string> = {}) => app.request(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+      });
+      const { projectId } = await (await post('/motion-api/projects', { title: 'CLI edits' })).json();
+      const base = '/api/projects/' + projectId;
+      const headers: Record<string,string> = {Authorization: 'Bearer ' + config.DEV_PAT, Accept: 'application/json, text/event-stream'};
+      const rpc = (method: string, params: unknown) => post('/mcp', {jsonrpc:'2.0', id:1, method, params}, headers);
+      headers['Mcp-Session-Id'] = (await rpc('initialize', {protocolVersion:'2025-06-18', capabilities:{}, clientInfo:{name:'edit-cli',version:'1'}})).headers.get('mcp-session-id')!;
+      const tool = async (name: string, args: unknown) => (await (await rpc('tools/call', {name, arguments:args})).json()).result;
+      const asset = 'media/music.mp3', grid = 'beats/' + asset + '.json';
+      const upload = new FormData();
+      upload.set('file', new File([new Uint8Array([73,68,51,0])], 'music.mp3', {type:'audio/mpeg'}));
+      upload.set('path', asset);
+      assert.equal((await app.request(base + '/upload', { method:'POST', body:upload })).status, 201);
+      const path = 'graded.html';
+      const seed = '<main data-hf-id="stage"><img data-hf-id="photo" src="pic.png"></main>';
+      assert.equal((await app.request(base + '/files/' + path,{method:'PUT',headers:{'If-None-Match':'*'},body:seed})).status, 200);
+      const inventory = (await tool('openmotion_get_project', {projectId})).structuredContent;
+      if (existsSync(new URL('../../studio/build/edit-core-sha256', import.meta.url))) {
+        const response = await app.request(new URL(inventory.localEditCli.url).pathname);
+        assert.equal(response.status, 200);
+        assert.equal(createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex'), inventory.localEditCli.sha256);
+      }
+      const audio = inventory.files.find((f: {path:string}) => f.path === asset);
+      const source = (await tool('openmotion_get_project', {projectId, file:{path, atProjectVersion:inventory.currentVersionId}})).structuredContent.file;
+      const { prepareFileEdits } = await import('../../packages/edit-core/prepare-file-edits.ts');
+      const textEdits = await prepareFileEdits({kind:'batch', commands:[
+        {kind:'gradeMedia', compositionPath:path, value:'warm'},
+        {kind:'setBeatGrid', assetPath:asset, beats:[{time:0.5,strength:1}]},
+      ]}, [source, audio, {path:grid, fileVersion:null}]);
+      assert.ok(textEdits.files.some(f => 'patch' in f), 'small grade changes travel as a patch');
+      const args = {projectId, requestId:'prepared-grade-and-grid', expectedRevision:inventory.revision, expectedVersionId:inventory.currentVersionId, textEdits};
+      await app.request(base + '/files/unrelated.txt',{method:'PUT',headers:{'If-None-Match':'*'},body:'peer edit'});
+      const count = async () => Number((await handle.pool.query('SELECT count(*) FROM project_history_entries WHERE project_id=$1',[projectId])).rows[0].count);
+      const initial = await count();
+      const semantic = services.files.readEditInputs;
+      services.files.readEditInputs = () => { throw Error('Prepared edits must not run a server command'); };
+      const saved = await tool('openmotion_edit_project', args);
+      assert.equal(saved.isError, undefined, JSON.stringify(saved));
+      assert.deepEqual(new Set(saved.structuredContent.changedFiles), new Set([path,grid]));
+      const replay = await tool('openmotion_edit_project', args);
+      assert.equal(replay.structuredContent.replayed, true);
+      assert.deepEqual(replay.structuredContent.version, saved.structuredContent.version);
+      assert.equal((await tool('openmotion_edit_project', {...args, requestId:'stale-grid'})).isError, true);
+      assert.equal(await count(), initial + 1);
+      const entry = await handle.pool.query('SELECT actor_kind FROM project_history_entries WHERE project_id=$1 ORDER BY seq DESC LIMIT 1',[projectId]);
+      assert.equal(entry.rows[0].actor_kind,'agent');
+      const read = async (p: string) => (await (await app.request(base + '/files/' + encodeURIComponent(p))).json()).content;
+      assert.match(await read(path), /data-color-grading="warm"/);
+      assert.equal(JSON.parse(await read(grid)).beats[0].time, 0.5);
+      assert.equal(await read('unrelated.txt'), 'peer edit');
+      assert.equal((await post(base + '/history/step', {direction:'back'})).status, 200);
+      assert.equal(await read(path), source.content);
+      assert.equal((await app.request(base + '/files/' + encodeURIComponent(grid))).status, 404);
+      assert.equal(await read('unrelated.txt'), 'peer edit');
+      assert.equal((await post(base + '/history/step', {direction:'forward'})).status, 200);
+      assert.equal(JSON.parse(await read(grid)).beats[0].time, 0.5);
+      services.files.readEditInputs = semantic;
+    } finally {
+      await handle.pool.query('DELETE FROM workspaces WHERE id=$1', [workspaceId]);
+      await handle.pool.query('DELETE FROM users WHERE id=$1', [userId]);
+      await handle.close();
+    }
+  });
+
   it('commits canvas properties and timeline edits as one undoable gesture through Studio or remote MCP', async () => {
     const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>

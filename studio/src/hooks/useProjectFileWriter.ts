@@ -63,8 +63,10 @@ export function useProjectFileWriter({ projectId, onSavedContent }: UseProjectFi
   );
 
   const readOptionalProjectFile = useCallback(
-    async (path: string): Promise<string> => {
-      const { content, version } = await readProjectFileContentWithVersion(projectId, path, "?optional=1");
+    async (path: string, observe?: (base: { content: string; version: string | null }) => void): Promise<string> => {
+      const { content, version, missing } = await readProjectFileContentWithVersion(projectId, path, "?optional=1");
+      if (missing === true) observe?.({ content: "", version: null });
+      else if (typeof content === "string" && version) observe?.({ content, version });
       fileVersions.set(path, version);
       return typeof content === "string" ? content : "";
     },

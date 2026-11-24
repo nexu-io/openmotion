@@ -746,6 +746,16 @@ export async function bundlePreviewInMemory(
   const hostIdentityMap = assignBundledRuntimeCompositionIds(trackedHosts);
   const subCompHosts = trackedHosts.filter((host) => host.hasAttribute('data-composition-src'));
 
+  // Nested mounts already use paths relative to the preview entry. Use the same
+  // spelling at the top level so aliases such as "./scene.html" share an ancestry key.
+  for (const host of subCompHosts) {
+    const path = host.getAttribute('data-composition-src')!;
+    if (!isRelativeUrl(path)) continue;
+    const resolved = resolveVirtualPath(sourceDir, decodedUrlPath(path));
+    if (resolved) host.setAttribute('data-composition-src', encodeUrlPath(posix.relative('/' + sourceDir, '/' + resolved)));
+  }
+  const circularSources = new Set<string>();
+  const rootSource = entryHtml === rawEntry ? entryFile : 'index.html';
   let allCompositionsResolved = true;
   const smallMountedSources = new Set<string>();
   const subCompResult = inlineSubCompositions(document, subCompHosts, {
@@ -753,6 +763,10 @@ export async function bundlePreviewInMemory(
       if (!isRelativeUrl(srcPath)) return null;
       const resolved = resolveVirtualPath(sourceDir, decodedUrlPath(srcPath));
       if (!resolved) return null;
+      if (resolved === rootSource) {
+        circularSources.add(srcPath);
+        return null;
+      }
       htmlSources?.add(resolved);
       const html = project.readText(resolved);
       if (options.bridgeOrigin && !options.capture && html !== null) smallMountedSources.add(resolved);
@@ -780,8 +794,23 @@ export async function bundlePreviewInMemory(
     parseHostVariables: parseHostVariableValues,
     buildScopeSelector: (compId) => cssAttributeSelector('data-composition-id', compId),
     scriptErrorLabel: '[HyperFrames] composition script error:',
-    onMissingComposition: () => { allCompositionsResolved = false; htmlSources?.markUnknown(); },
+    onMissingComposition: (path, reason) => {
+      allCompositionsResolved = false;
+      htmlSources?.markUnknown();
+      if (reason === 'circular composition reference') circularSources.add(path);
+    },
   });
+
+  // The compiler leaves skipped hosts in place. Only disable a repeated mount in this
+  // preview copy; sibling instances and the editable project source stay intact.
+  if (circularSources.size) {
+    for (const host of document.querySelectorAll('[data-composition-src]')) {
+      const path = host.getAttribute('data-composition-src')!;
+      if (!circularSources.has(path)) continue;
+      const repeatsRoot = resolveVirtualPath(sourceDir, decodedUrlPath(path)) === rootSource;
+      if (repeatsRoot || host.parentElement?.closest(cssAttributeSelector('data-composition-file', path))) host.removeAttribute('data-composition-src');
+    }
+  }
 
   // Inline local classic <script src="..."> scripts from VirtualProjectReader.
   for (const el of [...document.querySelectorAll('script[src]')]) {

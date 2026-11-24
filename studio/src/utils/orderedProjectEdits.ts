@@ -10,7 +10,7 @@ import { trackStudioProjectSave } from './studioSaveState';
 
 type Output = { versions: Record<string, string>; changedPaths: string[] };
 export type EditFile = { path: string; before: string; after: string; version: string };
-type Prepare = (drafts: ReadonlyMap<string, ConfirmedSource>) => Promise<{ edits: EditFile[]; label: string; undoGroup?: string }>;
+type Prepare = (drafts: ReadonlyMap<string, ConfirmedSource>) => Promise<{ edits: EditFile[]; label: string; undoGroup?: string; dependencies?: Record<string, string> }>;
 type Intent = { at: number; prepare: Prepare; allowReplay: boolean; resolve(value: Output): void; reject(reason: unknown): void };
 type Step = { intent: Intent; edits: EditFile[]; payload: OrderedTextEditOperation };
 type Barrier = { at: number; run(): Promise<void>; reject(reason: unknown): void };
@@ -107,7 +107,7 @@ async function prepareSteps(queue: Queue, steps: Step[]) {
     }
     const id = createStudioWriteToken();
     const files: OrderedTextEditOperation['files'] = [];
-    const dependencies: NonNullable<OrderedTextEditOperation['dependencies']> = {};
+    const dependencies: NonNullable<OrderedTextEditOperation['dependencies']> = { ...plan.dependencies };
     for (const edit of plan.edits) {
       const prior = producers.get(edit.path);
       const baseVersion = prior ? { after: prior } : edit.version;

@@ -1,7 +1,8 @@
+import { hasRelativeLutSource } from '../../../packages/edit-core/color-grading';
 import type { CompositionEdit } from '../../../packages/edit-core/commands';
 import { enqueueProjectEdit, runOrderedProjectBarrier } from './orderedProjectEdits';
 import { contentDependencies, isContentCommand } from '../../../packages/edit-core/content-schema';
-import { confirmedSource, forgetSource, observeSourceRead, pendingSourceRead, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits, type ConfirmedSource } from './confirmedTextSources';
+import { confirmedSource, observedEditAsset, forgetSource, observeSourceRead, pendingSourceRead, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits, type ConfirmedSource } from './confirmedTextSources';
 import { acknowledgeFileEdit, isolatedEditVersion } from './isolatedEditVersions';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import type { StudioWriteHistory } from './studioFileHistory';
@@ -13,11 +14,26 @@ import { trackStudioProjectSave } from './studioSaveState';
 export type TextEditSource = { path: string; before: string; after: string };
 type Prepared = TextEditSource & { version: string };
 
-// Commands which read external assets, nested compositions or beat sidecars still require the
-// semantic endpoint until the browser can attest all of the corresponding input revisions.
-export const isLocalProjectEdit = (command: CompositionEdit) => isContentCommand(command)
-  ? contentDependencies(command).length === 0
-  : command.kind !== 'setBeatGrid' && command.kind !== 'gradeMedia';
+function localDependencies(project: string, commands: readonly CompositionEdit[]) {
+  const texts = new Map<string, ConfirmedSource>();
+  const assets: Record<string, string> = Object.create(null);
+  for (const command of commands) {
+    if (command.kind === 'setBeatGrid') return; // Uses its observed optional sidecar.
+    if (!isContentCommand(command)) continue;
+    for (const input of contentDependencies(command)) {
+      if (input.type === 'text') {
+        const source = confirmedSource(project, input.path);
+        if (!source) return;
+        texts.set(input.path, source);
+      } else {
+        const version = observedEditAsset(project, input.path)?.version;
+        if (!version) return;
+        assets[input.path] = version;
+      }
+    }
+  }
+  return { texts, assets };
+}
 
 /** Resolve the exact bytes used to prepare an edit. A changed base is never substituted. */
 export async function resolveEditSource(project: string, path: string, matches: (source: ConfirmedSource) => boolean,
@@ -69,13 +85,19 @@ export async function tryStudioTextEdit(project: string, sources: readonly TextE
     return { ...result, divergent: [] };
   }
   const plan = await prepare();
-  if (plan) return commitTextEdits(project, plan.edits, history);
+  if (plan) return commitTextEdits(project, plan.edits, { history });
 }
 
 export async function tryStudioCommandPatches(project: string, commands: CompositionEdit[], versions: Record<string, string>,
   history?: StudioWriteHistory, predicted?: (path: string) => string | undefined) {
-  if (!commands.length || !commands.every(isLocalProjectEdit)) return;
+  if (!commands.length) return;
   if (!supportsProjectTextEdits(project) && !Object.values(versions).some(version => version.startsWith('"patch:'))) return;
+  const dependencies = localDependencies(project, commands);
+  if (!dependencies) return;
+  const targets = new Set(commands.map(command => command.compositionPath));
+  if (targets.size > 1 && commands.some(command => command.kind === 'gradeMedia' && hasRelativeLutSource(command.value))) {
+    throw new Error('Use an absolute LUT source when grading multiple compositions');
+  }
   const ordered = supportsOrderedTextEdits(project);
   const canvasGesture = !predicted && commands.every(c => c.kind === 'moveCanvasElement' || c.kind === 'setCanvasBox');
   const captured = new Map<string, ConfirmedSource>();
@@ -86,7 +108,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
   }
   const prepare = async (drafts?: ReadonlyMap<string, ConfirmedSource>) => {
     const files = new Map<string, Prepared>();
-    for (const path of new Set(commands.map(command => command.compositionPath))) {
+    for (const path of targets) {
       const expected = predicted ? versions[path] : isolatedEditVersion(project, path, versions[path]);
       const projected = drafts?.get(path);
       const source = projected ?? await resolveEditSource(project, path,
@@ -105,12 +127,17 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
       }
       files.set(path, { path, before: source.content, after: source.content, version: source.version });
     }
+    for (const [path, observed] of dependencies.texts) {
+      if (files.has(path)) continue;
+      const base = drafts?.get(path) ?? observed;
+      files.set(path, { path, before: base.content, after: base.content, version: base.version });
+    }
     const label = await applyCommands(commands, files).catch(error => {
       // Only the in-memory transformation is covered. Reads, submissions and receipts keep their save errors.
       if (canvasGesture) throw new RejectedCanvasGesture(error);
       throw error;
     });
-    return { edits: [...files.values()], label: history?.label ?? label, undoGroup: history?.continuous ? history.windowId : undefined };
+    return { edits: [...files.values()], dependencies: dependencies.assets, label: history?.label ?? label, undoGroup: history?.continuous ? history.windowId : undefined };
   };
   let edits: Prepared[] = [];
   let saved;
@@ -125,7 +152,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
     const plan = await prepare();
     if (!plan) return;
     edits = plan.edits;
-    saved = await commitTextEdits(project, edits, history, plan.label);
+    saved = await commitTextEdits(project, edits, { history, label: plan.label, dependencies: plan.dependencies });
   }
   const divergent = [];
   for (const file of edits) {
@@ -144,12 +171,13 @@ function staleSource(path: string, source: ConfirmedSource, attemptedContent: st
 async function applyCommands(commands: CompositionEdit[], files: Map<string, Prepared>) {
   const { applyProjectEdit } = await import('../../../packages/edit-core/commands');
   const labels = new Set<string>();
-  const inputs = new Map<string, string>();
+  const inputs = new Map(Array.from(files, ([path, file]) => [path, file.after]));
   for (const command of commands) {
     const file = files.get(command.compositionPath)!;
     const edited = await applyProjectEdit(file.after, command, inputs);
     if (edited.content !== file.after) labels.add(edited.label);
     file.after = edited.content;
+    inputs.set(file.path, edited.content);
   }
   return labels.size === 1 ? [...labels][0] : 'Edit project';
 }
@@ -167,23 +195,32 @@ export async function placeCatalogComponent(project: string, path: string, name:
       observeSourceRead(project, path, response, data);
       source = { content: data.content, version: data.version };
     }
-    return commitTextEdits(project, [{ path, before: source.content, version: source.version, after: insertHost(source.content) }], undefined, label, name);
+    return commitTextEdits(project, [{ path, before: source.content, version: source.version, after: insertHost(source.content) }], { label, installComponent: name });
   });
 }
 
-async function commitTextEdits(project: string, edits: Prepared[], history?: StudioWriteHistory, label = 'Edit file', installComponent?: string) {
+interface TextEditOptions {
+  label?: string;
+  history?: StudioWriteHistory;
+  installComponent?: string;
+  dependencies?: Record<string, string>;
+  beatAssets?: string[];
+}
+
+export async function commitTextEdits(project: string, edits: (TextEditSource & { version: string | null })[],
+  { label = 'Edit file', history, installComponent, dependencies: readVersions, beatAssets }: TextEditOptions = {}) {
   const { createTextPatch } = await import('../../../shared/create-text-patch');
   const { stampHfIdsInPlace } = await import('@hyperframes/parsers/hf-ids');
-  const versions = Object.fromEntries(edits.map(file => [file.path, file.version]));
+  const versions: Record<string, string> = Object.fromEntries(edits.flatMap(file => file.version === null ? [] : [[file.path, file.version]]));
   const changed = edits.filter(file => file.after !== file.before);
   const files = changed.map(file => {
     if (/\.html?$/i.test(file.path)) file.after = stampHfIdsInPlace(file.after);
-    const patch = installComponent && !supportsProjectTextEdits(project) ? null : createTextPatch(file.before, file.after);
+    const patch = file.version === null || (installComponent && !supportsProjectTextEdits(project)) ? null : createTextPatch(file.before, file.after);
     return { path: file.path, baseVersion: file.version, ...(patch === null ? { content: file.after } : { patch }) };
   });
   if (!files.length) return { versions, changedPaths: [], divergent: [] };
-  const dependencies = Object.fromEntries(edits.filter(file => file.before === file.after).map(file => [file.path, file.version]));
-  const body = JSON.stringify({ files, ...(Object.keys(dependencies).length && { dependencies }), label: history?.label ?? label,
+  const dependencies = { ...readVersions, ...Object.fromEntries(edits.filter(file => file.before === file.after).map(file => [file.path, file.version])) };
+  const body = JSON.stringify({ files, ...(beatAssets && { beatAssets }), ...(Object.keys(dependencies).length && { dependencies }), label: history?.label ?? label,
     ...(installComponent && { installComponent }), ...(history?.continuous && { undoGroup: history.windowId }) });
   const requestId = createStudioWriteToken();
   const headers = { 'Content-Type': 'application/json', 'Idempotency-Key': requestId, ...studioWriteHeaders(history, requestId) };
@@ -211,6 +248,8 @@ async function commitTextEdits(project: string, edits: Prepared[], history?: Stu
   }));
   for (const file of changed) {
     const version = commit.versions[file.path];
+    const known = confirmedSource(project, file.path);
+    if (known && known.version !== file.version && known.version !== version) continue;
     if (installComponent && !supportsProjectTextEdits(project)) forgetSource(project, file.path);
     else rememberSource(project, file.path, { content: file.after, version });
     acknowledgeFileEdit(project, file.path, file.version, version);

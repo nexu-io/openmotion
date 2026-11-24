@@ -1,4 +1,4 @@
-import { confirmedSource, rememberSource, supportsOrderedTextEdits } from "./confirmedTextSources";
+import { confirmedSource, rememberSource, supportsProjectTextEdits, supportsOrderedTextEdits } from "./confirmedTextSources";
 import { acknowledgeFileEdit } from "./isolatedEditVersions";
 import { runOrderedProjectBarrier } from "./orderedProjectEdits";
 import { createStudioSaveHttpError } from "./studioSaveDiagnostics";
@@ -28,6 +28,20 @@ async function insertTimelineComposition(input: {
   track: number;
   canvasPosition?: { left: number; top: number };
 }, history?: StudioWriteHistory): Promise<TimelineCompositionInsertionResult> {
+  const parent = confirmedSource(input.projectId, input.targetPath);
+  const child = confirmedSource(input.projectId, input.sourcePath);
+  if (parent && child && supportsProjectTextEdits(input.projectId)) {
+    const { insertCompositionInMemory } = await import('../../../packages/edit-core/insert-composition');
+    const result = insertCompositionInMemory({ ...input, desiredTrack: input.track, parentSource: parent.content, childSource: child.content });
+    if (!result.ok) throw new Error(result.error);
+    const { commitTextEdits } = await import('./studioTextEdits');
+    const path = input.targetPath;
+    const edit = { path, version: parent.version, before: parent.content, after: result.html };
+    const saved = await commitTextEdits(input.projectId, [edit], { history, label: 'Add composition to timeline',
+      dependencies: { [input.sourcePath]: child.version } });
+    return { path, before: parent.content, after: edit.after, version: saved.versions[path]!, hostId: result.hostId,
+      track: result.track, duration: result.duration };
+  }
   const current = await studioApiFetch(
     buildProjectApiPath(input.projectId, `/files/${encodeURIComponent(input.targetPath)}`),
   );

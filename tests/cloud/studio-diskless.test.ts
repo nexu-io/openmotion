@@ -1279,7 +1279,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(result.files[0]!.splitCount, 1);
   });
 
-  it('inserts at the canvas drop point with durable history bytes and rejects cyclic or stale edits', async () => {
+  it('inserts at the canvas drop point with durable history and rejects stale edits without walking nested files', async (t) => {
     const env = createStudioTestEnv();
     const { projectId } = await env.workspace.createProject(env.auth);
     const scene = (id: string, children = '') => `<template><main data-composition-id="${id}" data-duration="4" data-width="200" data-height="100">${children}</main></template>`;
@@ -1294,11 +1294,6 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
       { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sourcePath: source, expectedVersion: version, start: 2, track: 0, canvasPosition: { left: 160, top: 85 } }) });
     const before = files[parent], initialVersion = fileContentVersion(before);
-    for (const cyclic of [parent, indirect]) {
-      const refused = await insert(parent, cyclic, initialVersion);
-      assert.equal(refused.status, 400);
-      assert.match(await refused.text(), /cycle/);
-    }
     const saved = await insert(parent, child, initialVersion);
     assert.equal(saved.status, 200);
     const result = await saved.json();
@@ -1310,8 +1305,13 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.match(result.after, /data-composition-src="\.\.\/b\/child\.html"/);
     assert.match(result.after, /data-duration="6"/);
     assert.equal((await insert(parent, child, initialVersion)).status, 409);
-    // The newly mounted child cannot concurrently acquire its own ancestor.
-    assert.equal((await insert(child, parent, fileContentVersion(files[child]))).status, 400);
+    // A repeating branch is skipped by the preview compiler. Saving needs only the two direct inputs.
+    const reads = t.mock.method(env.files, 'readTextFile');
+    assert.equal((await insert(child, parent, fileContentVersion(files[child]))).status, 200);
+    assert.deepEqual(reads.mock.calls.map(call => call.arguments[2]), [child, parent]);
+    reads.mock.resetCalls();
+    assert.equal((await insert(indirect, indirect, fileContentVersion(files[indirect]))).status, 200);
+    assert.deepEqual(reads.mock.calls.map(call => call.arguments[2]), [indirect]);
   });
 
   it('applies Studio split targets atomically at the requested file version and returns stored history bytes', async () => {

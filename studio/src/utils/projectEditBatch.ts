@@ -1,6 +1,6 @@
 import { observedSourceVersion } from "./confirmedTextSources";
 import { runOrderedProjectBarrier } from "./orderedProjectEdits";
-import { isLocalProjectEdit, tryStudioCommandPatches } from "./studioTextEdits";
+import { tryStudioCommandPatches } from "./studioTextEdits";
 import type { CompositionEdit, ProjectEditCommand } from "../../../packages/edit-core/commands";
 import type { StudioWriteHistory } from "./studioFileHistory";
 import { acceptFileEditReceipt } from "./rebasedFileEdit";
@@ -30,10 +30,8 @@ export async function commitStudioEditBatch(projectId: string, edits: readonly B
 export async function submitStudioCommands(projectId: string, commands: CompositionEdit[],
   versions: Record<string, string>, history?: StudioWriteHistory, attempted?: (path: string) => string | undefined) {
   if (!commands.length) throw new Error("No editing commands supplied.");
-  if (commands.every(isLocalProjectEdit)) {
-    const patched = await tryStudioCommandPatches(projectId, commands, versions, history, attempted);
-    if (patched) return patched;
-  }
+  const patched = await tryStudioCommandPatches(projectId, commands, versions, history, attempted);
+  if (patched) return patched;
   return runOrderedProjectBarrier(projectId, () => submitSemanticCommands(projectId, commands, versions, history, attempted));
 }
 

@@ -1,3 +1,4 @@
+import { isBeatMedia } from '../../shared/asset-names.ts';
 import type { OrderedEditEvents } from './ordered-edit-events.ts';
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
@@ -30,6 +31,7 @@ export interface PendingTextRevision {
 }
 export interface TextEditIdentity {
   events?: OrderedEditEvents;
+  observedProject?: { expectedRevision: string; expectedVersionId: string };
   requestId: string; writeToken?: string; source: 'studio'|'agent';
   // Semantic MCP requests retain their original identity before generating bytes.
   command?: {scope: string; hash: string; result: Record<string, unknown>};
@@ -79,7 +81,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   for (const path of guards.keys()) if (path !== normalizeSafeProjectPath(path)) throw invalid('Invalid dependency path');
 
   const scope = identity.command?.scope ?? `project:${projectId}:${identity.source}:text-edits`;
-  const hash = identity.command?.hash ?? canonicalInputHash(input);
+  const hash = identity.command?.hash ?? canonicalInputHash(identity.observedProject ? [input, identity.observedProject] : input);
   await loadProjectOrThrow(db, ctx.workspaceId, projectId, {auth: ctx, allowTrashed: false});
   const item = input.installComponent ? getMotionComponent(input.installComponent) : undefined;
   const catalogPaths = item?.files.map(file => file.target) ?? [];
@@ -90,6 +92,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
     eq(projectFiles.projectId, projectId), inArray(projectFiles.path, [...guards.keys(), ...catalogPaths])));
   const replay = await readCommitReceipt(db, ctx.workspaceId, scope, identity.requestId, hash);
   if (replay) return replay;
+  if (identity.observedProject) await files.checkObservedFiles(ctx, projectId, identity.observedProject, guards);
   const rows = new Map(observed.map(row => [row.path, row]));
   for (const [path, expected] of guards) {
     const row = rows.get(path);
@@ -97,6 +100,11 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
     if (expected !== currentVersion) throw new CloudError('VERSION_CONFLICT', 'File changed before this edit', {
       status: 409, applied: false, details: {path, currentVersion, code: 'VERSION_MISMATCH'},
     });
+  }
+  for (const asset of input.beatAssets ?? []) {
+    if (!guards.get(asset) || !targets.has('beats/' + asset + '.json') || !isBeatMedia(asset, rows.get(asset))) {
+      throw invalid('Beat edits require a versioned project audio or video asset');
+    }
   }
   const revisions: PendingTextRevision[] = [];
   const ops: ProjectFileOp[] = [];
@@ -150,6 +158,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   return files.commitChanges(ctx, {
     projectId, requestId: identity.requestId, idempotencyScope: scope, source: identity.source,
     orderedEvents: identity.events,
+    ...(identity.source === 'agent' && { actorKind: 'agent' }),
     commandReceipt: {inputHash: hash, result: identity.command?.result ?? {}},
     summary: input.label, writeToken: identity.writeToken, ops, textRevisions: revisions,
     undoGroup: input.undoGroup && `${ctx.userId}:${input.undoGroup}`,

@@ -247,6 +247,8 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     const assetMetadata: Record<
       string,
       {
+        version?: string;
+        mimeType?: string;
         duration?: number;
         width?: number;
         height?: number;
@@ -260,11 +262,12 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
       }
     > = {};
     for (const file of fileList) {
-      const meta = file.metadata;
-      if (!meta) continue;
+      const binaryInput = deps.files.textPatchWrites && !file.isText;
+      if (!file.metadata && !binaryInput) continue;
+      const meta = file.metadata ?? {};
       const previewProxy = (meta as { previewProxy?: { status?: 'ready' | 'failed' } }).previewProxy;
       let optimizationStatus: 'optimizing' | 'ready' | undefined;
-      if (file.blobScope === 'workspace') {
+      if (file.metadata && file.blobScope === 'workspace') {
         const mime = (meta.mimeType ?? file.mimeType ?? '').toLowerCase();
         const proxyTarget = classifyPreviewProxyTarget({
           mimeType: mime,
@@ -286,6 +289,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
         }
       }
       const entry: (typeof assetMetadata)[string] = {
+        ...(binaryInput && { version: formatFileVersion(file.blobScope, file.sha256), mimeType: file.mimeType }),
         ...(typeof meta.durationSec === 'number' && Number.isFinite(meta.durationSec)
           ? { duration: meta.durationSec }
           : {}),

@@ -40,6 +40,10 @@ A small patch creates an immutable file revision in PostgreSQL. When a second St
 
 Remote agents can use `openmotion_get_project` with `file.path`. The default mode reads text. Use `download` for a signed URL or `sync` with a previously observed file version for incremental updates. Pin the returned version when continuing a paged read or renewing a URL.
 
+For a host with Node, the cloud inventory advertises a versioned edit-core CLI. The host runs the same commands on versioned project inputs, then submits the resulting changes through remote MCP with its own identity. See [local edit preparation](../mcp-phase1-tools.md#openmotion_edit_project).
+
+Composition insertion depends on the edited parent and the inserted child. Saving checks those file versions. During preview compilation a reference back to a composition already being expanded on that branch is skipped silently. A sibling branch can mount the same composition normally.
+
 ## Extending and verifying an edit
 
 Start with an existing command when the intent and affected files match. Add a command for a distinct editing rule, such as split or trim. Keep transport-specific checks in the service and each transformation in one place. Start with the [command dispatcher](../../packages/edit-core/commands.ts), [wire schema](../../packages/edit-core/schema.ts) and [cloud executor](../../src/services/project-edit.ts).
