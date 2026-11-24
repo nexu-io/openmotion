@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { projectPendingStructure } from "../player/lib/peerTimeline";
 import { isolatedStructureRefresh } from "./timelineTimingSync";
 import { applyPasteCommand, type PasteCommand } from "../../../packages/edit-core/content-commands";
@@ -13,7 +14,9 @@ import {
   type ClipboardPayload,
   type TimelineClipboardClip,
 } from "../utils/clipboardPayload";
-import { saveProjectFilesWithHistory, type ProjectFileWriter } from "../utils/studioFileHistory";
+import { contentDependencies } from "../../../packages/edit-core/content-schema";
+import { projectedTimelineText, saveTimelineFiles } from "../utils/orderedTimelineEdits";
+import { type ProjectFileWriter } from "../utils/studioFileHistory";
 import { findElementForSelection } from "../components/editor/domEditingElement";
 import { findTimelineElementInIframe, readFileContent } from "./timelineEditingHelpers";
 import { buildTimelineElementKey } from "../player/lib/timelineElementHelpers";
@@ -156,6 +159,8 @@ export function useClipboard({
     async (path: string): Promise<string> => {
       const pid = projectIdRef.current;
       if (!pid) throw new Error("No project is open.");
+      const projected = projectedTimelineText(pid, path);
+      if (projected) return projected;
       // Only the order matters here; a failed save already shows its own banner.
       await waitForPendingDomEditSaves().catch(() => {});
       return serializeStudioFileMutations(writeProjectFile, [path], () =>
@@ -300,7 +305,7 @@ export function useClipboard({
           ? isolatedStructureRefresh(previewIframeRef.current, targetPath, pid, reloadPreview) : undefined;
 
         const projection = clipboardProjection(pid, targetPath, previewIframeRef.current, () => pastedIds);
-        await saveProjectFilesWithHistory({
+        await saveTimelineFiles({
           projectId: pid,
           label,
           files: { [targetPath]: paste },
@@ -308,9 +313,9 @@ export function useClipboard({
           writeFile: writeProjectFile,
           commandForWrite: () => getCachedCloudDisklessMode() ? command : undefined,
           recordEdit,
-          projectPending: onSaved && projection.projectPending,
+          projectPending: (onSaved || supportsOrderedTextEdits(pid)) ? projection.projectPending : undefined,
           onSaved,
-        });
+        }, contentDependencies(command).length === 0);
 
         // CapCut: the pasted clip(s) become the selection; the playhead does not
         // move. reloadPreview is a bare refresh-key bump with no selection
@@ -362,7 +367,7 @@ export function useClipboard({
           ? isolatedStructureRefresh(previewIframeRef.current, activeCompPath ?? "index.html", pid, reloadPreview) : undefined;
 
         const projection = clipboardProjection(pid, targetPath, previewIframeRef.current, () => ids);
-        await saveProjectFilesWithHistory({
+        await saveTimelineFiles({
           projectId: pid,
           label: clipLabel("Duplicate", clips.length),
           files: { [targetPath]: duplicate },
@@ -370,9 +375,9 @@ export function useClipboard({
           writeFile: writeProjectFile,
           commandForWrite: () => getCachedCloudDisklessMode() ? command : undefined,
           recordEdit,
-          projectPending: onSaved && projection.projectPending,
+          projectPending: (onSaved || supportsOrderedTextEdits(pid)) ? projection.projectPending : undefined,
           onSaved,
-        });
+        }, contentDependencies(command).length === 0);
 
         // The duplicate becomes the selection, mirroring CapCut's own paste
         // convention — there is no CapCut Duplicate to match directly (Cmd+D is

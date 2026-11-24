@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { type TimelineFileEdit, saveCloudTimeline } from "../utils/cloudTimelineEdit";
 import { useCallback, type MutableRefObject } from "react";
@@ -89,7 +90,7 @@ export function useTimelineLinkEditing({
           case "move-into-sync": case "slip-into-sync": return {kind:edit.kind === "move-into-sync" ? "moveIntoSync" : "slipIntoSync",hfId:resolve(edit.element)};
         }
       } : undefined;
-      const queued = editQueueRef.current.then(() =>
+      const persist = () =>
         command ? saveCloudTimeline(pid, [{ path, command }], writeProjectFile, recordEdit, plan.label)
           : saveProjectFilesWithHistory({
           projectId: pid,
@@ -106,8 +107,8 @@ export function useTimelineLinkEditing({
           readFile: (filePath) => readFileContent(pid, filePath),
           writeFile: writeProjectFile,
           recordEdit,
-        }),
-      );
+        });
+      const queued = command && supportsOrderedTextEdits(pid) ? persist() : editQueueRef.current.then(persist);
       editQueueRef.current = queued.then(
         () => undefined,
         () => undefined,
