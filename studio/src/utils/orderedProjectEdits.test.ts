@@ -13,6 +13,15 @@ function observe(project: string, path: string, content: string, version: string
 function receipt(id: string, path: string, version: string) {
   return { id, versions: { [path]: version }, changedPaths: [path], writeToken: id, revision: version, versionId: version };
 }
+function recordAcceptedBatches(path: string) {
+  const batches: string[][] = [];
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    const operations: OrderedTextEditOperation[] = JSON.parse(String(init.body)).operations;
+    batches.push(operations.map(op => op.label));
+    return Response.json({ committed: operations.map(op => receipt(op.id, path, op.id)) });
+  });
+  return batches;
+}
 afterEach(() => vi.unstubAllGlobals());
 
 it('sends 100 completed edits in order and ties each patch to its predecessor', async () => {
@@ -93,4 +102,42 @@ it('preserves order across server-side edits with external dependencies', async 
   const last = tryStudioTextEdit(project, [{path, before:'1', after:'2'}]);
   await Promise.all([first, middle, last]);
   expect(sequence).toEqual(['patch','semantic','patch']);
+});
+
+it('sends the prefix picked at the deadline even when more edits arrive during preparation', async () => {
+  const { enqueueProjectEdit } = await import('./orderedProjectEdits');
+  const project = 'ordered-prepare-deadline', path = 'style.css';
+  const started = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const batches = recordAcceptedBatches(path);
+  function enqueue(i: number) {
+    return enqueueProjectEdit(project, path, async () => {
+      if (i === 0) { started.resolve(); await release.promise; }
+      return { edits: [{ path, before: String(i), after: String(i + 1), version: 'base' }], label: String(i) };
+    });
+  }
+  const first = enqueue(0);
+  await started.promise;
+  const tail = Array.from({ length: 40 }, (_, i) => enqueue(i + 1));
+  release.resolve();
+  await Promise.all([first, ...tail]);
+  expect(batches).toEqual([['0'], tail.map((_, i) => String(i + 1))]);
+});
+
+it('starts the first batch by its deadline when continuous input precedes timer callbacks', async () => {
+  const project = 'busy-input-loop', path = 'style.css';
+  observe(project, path, '0', 'base');
+  const batches = recordAcceptedBatches(path);
+  const start = Date.now() - 2000;
+  const now = vi.spyOn(Date, 'now');
+  let saves;
+  try {
+    saves = Array.from({ length: 25 }, (_, i) => {
+      now.mockReturnValue(start + i * 50);
+      return tryStudioTextEdit(project, [{ path, before: String(i), after: String(i + 1) }]);
+    });
+  } finally {
+    now.mockRestore();
+  }
+  await Promise.all(saves);
+  expect(batches.map(batch => batch.length)).toEqual([21, 4]);
 });

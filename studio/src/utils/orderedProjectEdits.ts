@@ -50,15 +50,25 @@ export function runOrderedProjectBarrier<T>(project: string, task: () => Promise
 
 function schedule(queue: Queue) {
   if (queue.running) return;
-  clearTimeout(queue.timer);
   const first = queue.waiting[0];
   if (!first) {
     queues.delete(queue.project);
     return;
   }
   const last = queue.waiting.at(-1)!;
-  const due = queue.waiting.length >= MAX_ORDERED_TEXT_EDITS || queue.waiting.some(item => 'run' in item) ? 0 : Math.min(first.at + 1000, last.at + 100);
-  queue.timer = setTimeout(() => void flush(queue), Math.max(0, due - Date.now()));
+  const urgent = queue.waiting.length >= MAX_ORDERED_TEXT_EDITS || queue.waiting.some(item => 'run' in item);
+  const delay = Math.min(first.at + 1000, last.at + 100) - Date.now();
+  if (urgent || delay <= 0) {
+    clearTimeout(queue.timer);
+    queue.timer = undefined;
+    void flush(queue);
+  } else if (!queue.timer) {
+    // New input can extend the idle window, but cannot displace an overdue flush.
+    queue.timer = setTimeout(() => {
+      queue.timer = undefined;
+      schedule(queue);
+    }, delay);
+  }
 }
 
 async function send(project: string, operations: OrderedTextEditOperation[]) {
@@ -76,13 +86,15 @@ async function send(project: string, operations: OrderedTextEditOperation[]) {
 }
 
 async function prepareSteps(queue: Queue, steps: Step[]) {
+  // Input received during compilation belongs to the next delivery.
+  const count = Math.min(queue.waiting.length, MAX_ORDERED_TEXT_EDITS);
   const { createTextPatch } = await import('../../../shared/create-text-patch');
   const { stampHfIdsInPlace } = await import('@hyperframes/parsers/hf-ids');
   const drafts = new Map<string, ConfirmedSource>();
   const producers = new Map<string, string>();
   let retainedChars = 0;
   // Bound transient source copies. A single large edit always makes progress.
-  while (queue.waiting.length && steps.length < MAX_ORDERED_TEXT_EDITS && retainedChars < 4 * 1024 * 1024) {
+  for (let i = 0; i < count && retainedChars < 4 * 1024 * 1024; i++) {
     const intent = queue.waiting[0]!;
     if ('run' in intent) break;
     let plan;
