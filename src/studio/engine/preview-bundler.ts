@@ -591,7 +591,7 @@ async function applyStudioPreviewAugmentations(
       !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH);
     if (authoredLayout && !options.canRebindTiming) {
       const reviewed = await verifiedPreviewLiveEdits(project);
-      liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const } : reviewed;
+      liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const, cssLayoutOffset: true as const } : reviewed;
     }
     const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions(), {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,

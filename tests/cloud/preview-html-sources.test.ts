@@ -32,7 +32,7 @@ it('keeps placement on assembled CSS-only scenes and preserves script and unreso
   assert.deepEqual(cssOnly.smallMountedSources, ['child.html']);
   const large = await previewConfig({ 'index.html': entry, 'child.html': child('x'.repeat(150 * 1024)) });
   assert.deepEqual(large.smallMountedSources, ['child.html']);
-  assert.deepEqual(cssOnly.liveEdits, { position: true });
+  assert.deepEqual(cssOnly.liveEdits, { position: true, cssLayoutOffset: true });
   assert.ok(!cssOnly.canRebindTiming);
   const scripted = await previewConfig({ 'index.html': entry, 'child.html': child('<script>observe()</script>') });
   assert.deepEqual(scripted.smallMountedSources, ['child.html']);
@@ -45,7 +45,7 @@ it('keeps placement on assembled CSS-only scenes and preserves script and unreso
   const digest = createHash('sha256').update(JSON.stringify('mediaTiming')).digest('hex');
   const declared = entry.replace('<head>', `<head><meta name="openmotion-live-edits" content="mediaTiming" data-scripts-sha256="${digest}">`);
   const withMedia = await previewConfig({ 'index.html': declared, 'child.html': child() });
-  assert.deepEqual(withMedia.liveEdits, { position: true, mediaTiming: true });
+  assert.deepEqual(withMedia.liveEdits, { position: true, mediaTiming: true, cssLayoutOffset: true });
   for (const extra of ['<script>window.place=document.body.offsetLeft</script>', '<img onload="layout()">',
     '<iframe src="extra.html"></iframe>', mount('missing.html', 'missing')]) {
     assert.equal((await previewConfig({ 'index.html': entry, 'child.html': child(extra) })).liveEdits, undefined, extra);
