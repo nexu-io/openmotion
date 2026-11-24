@@ -26,7 +26,7 @@ import { Dialog } from '@base-ui/react/dialog';
 import { StudioConnectionToast } from '../components/StudioConnectionToast';
 import { ErrorNotice } from '../components/ui/ErrorNotice';
 import { isConnectionFailure } from '../components/ui/errorNoticeMessage';
-import { preservePresentation, workspacePresentation } from '../../../shared/workspace-url';
+import { preservePresentation, workspacePresentation, type ProviderSetupEntry } from '../../../shared/workspace-url';
 import type { DesktopMenuAction } from '../../../shared/platform-host';
 import { exportDesktopDiagnosticBundle, getDesktopBridge, openExternalUrl } from '../utils/platformHost';
 import { discord, feishu } from './CommunityLink';
@@ -38,7 +38,7 @@ import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } f
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
 import { Skeleton } from '../components/ui/Skeleton';
-import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, unresolvedCreateSceneId, workspacePageHref, type SettingsSection, type SuperAgentRouteMode, type WorkspacePage } from './workspacePageRouting';
+import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, unresolvedCreateSceneId, workspacePageHref, type SettingsSection, type SuperAgentRouteMode, type WorkspacePage, type WorkspacePagePatch } from './workspacePageRouting';
 import { peekCachedGateway } from './gatewayClient';
 import { useMediaCatalog } from './useMediaCatalog';
 import type { SoundTabId } from './soundTabs';
@@ -146,7 +146,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     const capabilities = routeCapabilitiesRef.current ?? peekCachedGateway()?.capabilities;
     if (isLegacyWorkspaceHref(location.search, page, location.pathname)) writeWorkspaceHistory(workspacePageHref(location.href, { studio: page.studio }, capabilities), true);
   }, [page]);
-  const navigatePage = useCallback((patch: Partial<WorkspacePage>, replace = false, mode?: 'from-page' | 'keep') => {
+  const navigatePage = useCallback((patch: WorkspacePagePatch, replace = false, mode?: 'from-page' | 'keep') => {
     const current = new URL(location.href);
     const capabilities = routeCapabilitiesRef.current ?? peekCachedGateway()?.capabilities;
     const target = new URL(workspacePageHref(current.href, patch, capabilities), current);
@@ -353,7 +353,11 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       navigatePage({ settings: 'mcp', templates: false }, false, 'from-page');
     },
     openModelSettings: () => openSettings('providers'),
-    openProviderSettings: provider => navigatePage({ settings: 'providers', provider, assets: false, skills: false, templates: false }),
+    openProviderSettings: (provider?: string, entryFrom?: ProviderSetupEntry) => navigatePage(
+      { settings: 'providers', provider: provider ?? null, ...(entryFrom ? { entryFrom } : {}), assets: false, skills: false, templates: false },
+      false,
+      entryFrom ? 'from-page' : undefined,
+    ),
     openAccountSettings: () => openSettings('account'),
     openSubscriptionSettings: () => openSettings('subscription'),
     openHome, openAssets, openInSuperAgent, preloadSurface: preloadWorkspaceSurface, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,

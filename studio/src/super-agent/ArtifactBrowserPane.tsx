@@ -2777,7 +2777,7 @@ export function ArtifactBrowserPane({
                     filePath={activeArtifact.entry}
                     title={activeArtifact.title}
                     triggerClassName="om-sa-share-trigger"
-                    autoOpen={activeArtifact.kind === 'game-project' && pendingDeployArtifactId === activeArtifact.id}
+                    autoOpen={pendingDeployArtifactId === activeArtifact.id}
                     onAutoOpenConsumed={onConsumeDeployRequest}
                     revisionKey={activeArtifact.revision ?? String(activeArtifact.updatedAt)}
                     onOpenAccount={onOpenAccountSettings}

@@ -5,7 +5,7 @@ import { blackFridaySkillIds } from '../../../shared/black-friday-collection';
 import { isDesignScenario, type DesignScenarioId } from '../../../shared/design-project';
 import { isSuperAgentDesignModule, type SuperAgentDesignModuleId } from '../../../shared/super-agent';
 import { editorProjectIdFromPath, isSpaRoutePath, spaPathnameToSearch } from '../../../shared/spa-routes';
-import { workspacePageName } from '../../../shared/workspace-url';
+import { workspacePageName, type ProviderSetupEntry } from '../../../shared/workspace-url';
 import { isValidProjectId, parseProjectIdFromHash } from '../utils/projectRouting';
 import { mcpClients, type McpClient } from './mcpClients';
 import { exploreCommunities, findLandingScene, findMediaStudio, findTechniqueStudio, type ExploreCommunity, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
@@ -116,9 +116,13 @@ export function readWorkspacePage(search: string, hash = '', pathname = '', capa
     template: query.get('template') || null };
 }
 
+export type WorkspacePagePatch = Partial<WorkspacePage> & {
+  entryFrom?: ProviderSetupEntry | null;
+};
+
 export function workspacePageHref(
   href: string,
-  patch: Partial<WorkspacePage>,
+  patch: WorkspacePagePatch,
   capabilities?: readonly CapabilityDefinition[],
 ): string {
   const url = new URL(href), current = readWorkspacePage(url.search, url.hash, url.pathname, capabilities), page = { ...current, ...patch };
@@ -193,7 +197,12 @@ export function workspacePageHref(
   }
   if (current.specialty?.id === 'game' || page.specialty?.id === 'game') url.searchParams.delete('game');
   const inSettings = Boolean(page.settings) && page.settings !== 'brand-kit' && (page.settings !== 'mcp' || page.mcpInSettings);
-  if (!inSettings) url.searchParams.delete('entry_from');
+  if (!inSettings) {
+    url.searchParams.delete('entry_from');
+  } else if ('entryFrom' in patch) {
+    if (patch.entryFrom) url.searchParams.set('entry_from', patch.entryFrom);
+    else url.searchParams.delete('entry_from');
+  }
   if (page.explore) {
     url.pathname = '/explore';
   } else if (page.motion) {

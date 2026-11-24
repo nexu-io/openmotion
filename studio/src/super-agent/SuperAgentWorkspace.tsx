@@ -8,11 +8,13 @@ import { assetMediaUrl } from '../../../shared/asset-library';
 import type { SuperAgentHandoffPayload } from '../../../shared/capability-hub';
 import { designRoutes } from '../../../shared/design-project';
 import type { GameCard } from '../../../shared/game-contract';
+import type { ProviderSetupEntry } from '../../../shared/workspace-url';
 import {
   NEW_VIEWER_TAB_ID,
   SUPER_AGENT_API,
   safeBrowserTabId,
   summarizeSuperAgentChat,
+  type SuperAgentActionCard,
   type SuperAgentArtifact,
   type SuperAgentChat,
   type SuperAgentDesignModuleId,
@@ -34,6 +36,7 @@ import { RouteSurfaceFallback } from '../motion/RouteSurfaceFallback';
 import { consumeSuperAgentHandoff, queueSuperAgentHandoff, subscribeSuperAgentHandoff } from '../motion/superAgentHandoff';
 import { readSuperAgentPromptLink, withoutSuperAgentPromptLink } from './superAgentPromptLink';
 import { bundledGames, communityGames, gameApi } from '../motion/game/gameCatalog';
+import { designClient } from '../design/designClient';
 import { isMultiplayerGameArtifact, localizedGameTitle, toGameArtifact, toGameResourceAttachment } from '../motion/game/gameSuperAgent';
 import { gatewayRequest } from '../motion/gatewayClient';
 import { openAgentRuntimesSettings, useAgentRuntimes } from '../motion/useAgentRuntimes';
@@ -281,6 +284,7 @@ export function SuperAgentWorkspace({
   onOpenBrandKit,
   onOpenAgentSettings,
   onOpenModelSettings,
+  onOpenProviderSettings,
   onOpenAccountSettings,
   onOpenMcp,
 }: {
@@ -299,6 +303,7 @@ export function SuperAgentWorkspace({
   onOpenBrandKit: (kitId?: string) => void;
   onOpenAgentSettings: () => void;
   onOpenModelSettings?: () => void;
+  onOpenProviderSettings?: (provider?: string, entryFrom?: ProviderSetupEntry) => void;
   onOpenAccountSettings?: () => void;
   onOpenMcp: () => void;
 }) {
@@ -339,6 +344,8 @@ export function SuperAgentWorkspace({
   const hasLoadedListRef = useRef(Boolean(initialCachedConversations));
   const lastActivationRefreshRef = useRef(0);
   const [activeChat, setActiveChat] = useState<SuperAgentChat | null>(initialCachedChat);
+  const activeChatIdRef = useRef<string | null>(initialCachedChat?.id ?? null);
+  activeChatIdRef.current = activeChat?.id ?? null;
   const [loadingChat, setLoadingChat] = useState(() => Boolean(active && chatId && !initialCachedChat));
   const [loadFailed, setLoadFailed] = useState(false);
   const [chatRetry, setChatRetry] = useState(0);
@@ -1424,6 +1431,106 @@ export function SuperAgentWorkspace({
     }
   }, [handlePlayGame]);
 
+  const handleTriggerActionCard = useCallback(async (card: SuperAgentActionCard) => {
+    const originChatId = activeChat?.id ?? null;
+    if (card.kind === 'web_publish_sign_in') {
+      if (card.targetKind === 'game' && card.targetId) {
+        const artifactId = `game:${card.targetId}`;
+        if (viewerArtifacts.some(item => item.id === artifactId)) {
+          setOpenTabIds(prev => (prev.includes(artifactId) ? prev : [...prev, artifactId]));
+          setActiveTabId(artifactId);
+          setViewerOpen(true);
+          setPendingDeployArtifactId(artifactId);
+          return;
+        }
+        try {
+          const catalog = await gameApi.catalog();
+          if (activeChatIdRef.current !== originChatId) return;
+          const matched = catalog.games?.find(item => item.id === card.targetId);
+          if (matched) {
+            await handleDeployGame(matched);
+            return;
+          }
+        } catch {
+          if (activeChatIdRef.current !== originChatId) return;
+          /* fall back to account settings below */
+        }
+      } else if (card.targetKind === 'design' && card.targetId) {
+        const artifactId = `design:${card.targetId}`;
+        if (viewerArtifacts.some(item => item.id === artifactId)) {
+          setOpenTabIds(prev => (prev.includes(artifactId) ? prev : [...prev, artifactId]));
+          setActiveTabId(artifactId);
+          setViewerOpen(true);
+          setPendingDeployArtifactId(artifactId);
+          return;
+        }
+        try {
+          const { project } = await designClient.getProject(card.targetId);
+          if (activeChatIdRef.current !== originChatId) return;
+          if (project?.id) {
+            const entry = project.entry || 'index.html';
+            const now = Date.now();
+            const fullArtifact: SuperAgentArtifact = {
+              id: artifactId,
+              kind: 'design-project',
+              title: project.title || project.id,
+              subtitle: project.scenario || 'Design Studio',
+              projectId: project.id,
+              scenario: project.scenario,
+              entry,
+              revision: project.revision,
+              url: designRoutes.raw(project.id, entry),
+              createdAt: now,
+              updatedAt: now,
+            };
+            if (activeChat && activeChat.id === originChatId) {
+              try {
+                const res = await updateSuperAgentChat(activeChat.id, { addArtifact: fullArtifact });
+                if (activeChatIdRef.current !== originChatId) return;
+                applyChatSnapshot(res.conversation, false);
+              } catch {
+                if (activeChatIdRef.current !== originChatId) return;
+                /* fall back to local preview artifact state */
+              }
+            }
+            setPreviewArtifacts(prev => [...prev.filter(item => item.id !== artifactId), fullArtifact]);
+            setOpenTabIds(prev => (prev.includes(artifactId) ? prev : [...prev, artifactId]));
+            setActiveTabId(artifactId);
+            setViewerOpen(true);
+            setPendingDeployArtifactId(artifactId);
+            return;
+          }
+        } catch {
+          if (activeChatIdRef.current !== originChatId) return;
+          /* fall back to account settings below */
+        }
+      }
+      if (onOpenProviderSettings) {
+        onOpenProviderSettings('account', card.entry);
+      } else {
+        onOpenAccountSettings?.();
+      }
+      return;
+    }
+
+    if (card.kind === 'configure_key') {
+      if (onOpenProviderSettings) {
+        onOpenProviderSettings(card.provider, card.entry);
+      } else {
+        onOpenModelSettings?.();
+      }
+      return;
+    }
+
+    if (onOpenProviderSettings) {
+      onOpenProviderSettings(card.provider ?? 'account', card.entry);
+    } else if (onOpenAccountSettings) {
+      onOpenAccountSettings();
+    } else {
+      onOpenModelSettings?.();
+    }
+  }, [activeChat, applyChatSnapshot, handleDeployGame, onOpenAccountSettings, onOpenModelSettings, onOpenProviderSettings, viewerArtifacts]);
+
   const handleUseGameInAgent = useCallback(async (artifact: SuperAgentArtifact) => {
     if (isMultiplayerGameArtifact(artifact)) return;
     const gameId = artifact.projectId || (artifact.id.startsWith('game:') ? artifact.id.slice('game:'.length) : '');
@@ -1971,6 +2078,7 @@ export function SuperAgentWorkspace({
             onNotify={(msg, tone) => showToast(msg, tone === 'error' ? 'error' : 'info', 'feedback')}
             onRunCommand={handleComposerCommand}
             onOpenAccountSettings={onOpenAccountSettings}
+            onTriggerActionCard={card => void handleTriggerActionCard(card)}
             onOpenInDesignStudio={onOpenDesignProject}
             onOpenInMotionStudio={onOpenMotionProject}
             onOpenInAssets={onOpenAsset}

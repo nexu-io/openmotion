@@ -492,9 +492,10 @@ function GameProject({ game, offline, onClose, onRemix, onChange, onOpenMcp, onC
   // Games are published to this computer only. The link is copied for local use and labelled as such.
   const share = async () => {
     reportGameClick('game_detail', 'copy_game_link', game);
-    if (!url || url.startsWith('blob:')) { reportGameAction('copy_link', 'unavailable', game); notify(t('This game has no shareable link yet. Publishing to the web is not available.'), 'info'); return; }
+    if (!url || url.startsWith('blob:')) { reportGameAction('copy_link', 'unavailable', game); notify(t('This game has no shareable link yet.'), 'info'); return; }
     const link = new URL(url, location.href).href;
-    try { await navigator.clipboard.writeText(link); reportGameAction('copy_link', 'success', game); notify(isLocalOnly(link) ? t('Link copied. It only opens on this computer; publishing to the web is not available yet.') : t('Game link copied.'), 'info'); }
+    const canShareOnline = playable && !game.external && !offline;
+    try { await navigator.clipboard.writeText(link); reportGameAction('copy_link', 'success', game); notify(isLocalOnly(link) ? t(canShareOnline ? 'Local link copied. It only opens on this computer — use Share to publish online.' : 'Local link copied. It only opens on this computer.') : t('Game link copied.'), 'info'); }
     catch { reportGameAction('copy_link', 'failure', game); notify(t('Could not copy the link.'), 'error'); }
   };
   const popout = () => { if (url) reportGameClick('game_detail', 'open_external', game); if (url) window.open(url.startsWith('blob:') ? url : new URL(url, location.href).href, '_blank', 'noopener'); };

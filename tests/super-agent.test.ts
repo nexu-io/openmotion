@@ -2997,3 +2997,156 @@ test('Codex subagent notifications do not prematurely abort or pollute root turn
     await service.close();
   }
 }));
+
+test('extractActionCardFromTool maps provider handoffs, low-balance failures, and web-publish auth errors', async () => {
+  const { extractActionCardFromTool } = await import('../gateway/super-agent.ts');
+  const { resolveMediaSetupEntry } = await import('../gateway/media-use.ts');
+
+  assert.deepEqual(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_signed_out' }, { previewUrl: 'http://localhost/settings/providers?provider=account' }, true),
+    {
+      id: 'action:sign_in:agent_media_signed_out',
+      kind: 'sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      previewUrl: 'http://localhost/settings/providers?provider=account',
+    },
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_free' }, {}, true)?.kind,
+    'upgrade_free',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_go' }, {}, true)?.kind,
+    'upgrade_go',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_balance_low' }, {}, true)?.kind,
+    'top_up',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_key_rejected' }, {}, true)?.kind,
+    'configure_key',
+  );
+  // Generic provider preview without an actionable onboarding entry should not show a setup card
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers' }, {}, true),
+    undefined,
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'templates' }, {}, true),
+    undefined,
+  );
+
+  // Reactive Plus low-balance failure from failed OpenDesign account generation job (direct AND MCP structuredContent envelope)
+  assert.deepEqual(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'status' }, { job: { state: 'failed', model: { provider: 'account' }, error: 'Your OpenDesign balance is too low for this request. Top up, then try again.' } }, true),
+    {
+      id: 'action:top_up:agent_media_balance_low',
+      kind: 'top_up',
+      entry: 'agent_media_balance_low',
+      provider: 'account',
+    },
+  );
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'status', jobId: 'job-1' },
+      {
+        isError: false,
+        structuredContent: {
+          job: { state: 'failed', model: { provider: 'account' }, error: 'Your OpenDesign balance is too low for this request. Top up, then try again.' },
+        },
+        content: [{ type: 'text', text: '{"job":{"state":"failed"}}' }],
+      },
+      true,
+    ),
+    {
+      id: 'action:top_up:agent_media_balance_low',
+      kind: 'top_up',
+      entry: 'agent_media_balance_low',
+      provider: 'account',
+    },
+  );
+  // Negative case: BYOK provider insufficient_credits must NOT trigger an OpenDesign top-up card
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'fal:flux-pro' }, { error: 'insufficient_credits on fal account' }, false),
+    undefined,
+  );
+
+  // Plan restriction uses actual account context (Go -> upgrade_go, Free -> upgrade_free, Plus -> undefined)
+  const planErr = { isError: true, structuredContent: { error: { code: 'tier_model_not_entitled', message: 'Your OpenDesign plan does not include this model. Choose another model or upgrade your plan.' } } };
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:seedance' }, planErr, false, { accountPlan: 'go', accountMediaEntitlement: 'not-included' })?.kind,
+    'upgrade_go',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:seedance' }, planErr, false, { accountPlan: 'free', accountMediaEntitlement: 'not-included' })?.kind,
+    'upgrade_free',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:pro-only' }, planErr, false, { accountPlan: 'plus', accountMediaEntitlement: 'included' }),
+    undefined,
+  );
+
+  // Structured MCP content[] envelope for web_publish auth failure (publish only, not status)
+  const mcpAuthErr = {
+    isError: true,
+    content: [{ type: 'text', text: JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: 'OPENDESIGN_SIGN_IN_REQUIRED: Sign in with OpenDesign to publish' } }) }],
+  };
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'web_publish', webPublish: { command: 'publish', targetKind: 'game', targetId: 'game-abc' } },
+      mcpAuthErr,
+      false,
+    ),
+    {
+      id: 'action:web_publish_sign_in:game:game-abc',
+      kind: 'web_publish_sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      targetKind: 'game',
+      targetId: 'game-abc',
+    },
+  );
+  assert.equal(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'web_publish', webPublish: { command: 'status', targetKind: 'game', targetId: 'game-abc' } },
+      mcpAuthErr,
+      false,
+    ),
+    undefined,
+  );
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_design_project',
+      { action: 'deploy', projectId: 'design-xyz' },
+      mcpAuthErr,
+      false,
+    ),
+    {
+      id: 'action:web_publish_sign_in:design:design-xyz',
+      kind: 'web_publish_sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      targetKind: 'design',
+      targetId: 'design-xyz',
+    },
+  );
+
+  // Modality-scoped media setup resolution: Codex image-only does not suppress audio/video upgrade entry
+  const providers = [
+    { id: 'codex', available: true, configured: true, verification: 'unverified' as const },
+    { id: 'account', available: true, configured: true, verification: 'unverified' as const, mediaEntitlement: 'not-included' as const, plan: 'go' as const },
+  ];
+  const capabilities = [
+    { modality: 'image' as const, available: true, modelIds: ['codex:image-generation'] },
+    { modality: 'video' as const, available: false, modelIds: [] },
+    { modality: 'audio' as const, available: false, modelIds: [] },
+  ];
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'image', capabilities }), undefined);
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'audio', capabilities }), 'agent_media_upgrade_go');
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'video', capabilities }), 'agent_media_upgrade_go');
+});

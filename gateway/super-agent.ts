@@ -25,6 +25,7 @@ import {
   type AgentToolCallResponse,
 } from '../shared/agent-runtimes.ts';
 import { phase1Tools, validateInput } from '../shared/phase1-tools.ts';
+import type { Modality } from '../shared/gateway.ts';
 import {
   artifactToSuperAgentIntent,
   classifySuperAgentTool,
@@ -40,6 +41,7 @@ import {
   modeToSuperAgentIntent,
   normalizeSuperAgentTitle,
   summarizeSuperAgentChat,
+  type SuperAgentActionCard,
   type SuperAgentApproval,
   type SuperAgentArtifact,
   type SuperAgentChat,
@@ -61,8 +63,10 @@ import {
   type SuperAgentTurnInput,
   type SuperAgentUsage,
 } from '../shared/super-agent.ts';
+import { resolveProviderSetupEntry } from '../shared/workspace-url.ts';
 import { getWorkflow, workflowNames, workflowSections } from '../shared/workflow.ts';
 import type { WorkspaceStore } from '../workspace.ts';
+import { accountMediaState } from './account-media.ts';
 import { agentRuntimesFor, isLocalDirectEnabled } from './agent-runtimes.ts';
 import { executeRemoteServiceRun } from './agent-service-adapter.ts';
 import { AssetAgentRpc, isForeignCodexNotification } from './asset-chat.ts';
@@ -70,6 +74,7 @@ import { AssetLibrary, assetHash, atomicAssetJson } from './asset-library.ts';
 import { readBrandCatalog } from './brand-catalog.ts';
 import { brandKitsFor } from './brand-kits.ts';
 import { resolveLocalAgent } from './local-agents.ts';
+import { buildMediaSettingsHandoff, resolveMediaSetupEntry } from './media-use.ts';
 import { gatewayFor } from './service.ts';
 import {
   AcpBootstrapError,
@@ -158,15 +163,16 @@ You have access to every capability across OpenMotion:
    - Proceed directly when the single-player brief already provides the game idea and relevant options.
    - Set status to building via openmotion_game_set_status(id=..., status="building"), implement/edit game files with openmotion_game_write_files, update metadata via openmotion_game_update_meta, capture a cover via openmotion_game_capture_cover, validate with openmotion_game_validate, simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and call openmotion_present_artifact(kind="game-project", projectId=...) so the playable game opens and reloads live inside the Browser Artifact Viewer.
    - For playable ads, follow the playable-ad recipe and keep game assets inline in index.html. For other games, ${gameAssetInstructions}
-   - Only when the user explicitly asks to deploy or share an HTML game or design project online (and their OpenDesign account is signed in), call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects).
+   - Only when the user explicitly asks to deploy or share an HTML game or design project online, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects). If it fails because OpenDesign is signed out (OPENDESIGN_SIGN_IN_REQUIRED), do not retry — tell the user to sign in using the inline action card and reply to resume.
    - For lightweight interactive Canvas/WebGL demos requested outside Game Studio, you can also use openmotion_design_project(scenario="prototype"|"webgl").
 3. Editable Motion Videos (HyperFrames / Motion Studio — embedded live in Super Agent's right-hand Artifact Viewer):
    - Read workflow guides via openmotion_read_workflow (workflow="production"|"director"|"template"|"recreate"|"design"|"game", section="start"|...) and browse templates/skills via openmotion_list_templates / openmotion_list_skills / openmotion_get_skill.
    - When a Motion project ("motion-project") is already attached or open in this conversation, edit/trim/refine that existing project in place via openmotion_edit_project instead of creating a duplicate project. Otherwise create editable film projects with openmotion_create_project, edit HTML/CSS/GSAP timelines with openmotion_edit_project, manage versions with openmotion_list_versions / openmotion_restore_version, organize projects via openmotion_manage_project / openmotion_project_archive, and optionally queue MP4 exports with openmotion_export_request.
    - Call openmotion_present_artifact(kind="motion-project", projectId=...) (or openmotion_open_preview) to display the live Motion Editor in the Artifact Viewer.
 4. Images, Cinema Videos, Music, Sound Effects & Voiceovers (Media Models & Assets):
-   - Discover configured models and provider availability with openmotion_asset_models or openmotion_media_use(action="inspect").
-   - Check provider availability and mediaEntitlement before generating. Generate reusable assets with openmotion_assets_use(action="generate"). Each openmotion_assets_use(action="status", jobId=...) call waits up to ~55s automatically; call action="status" again in sequence until job.state is "completed" or "failed". NEVER call schedule, timers, or shell sleep, and NEVER end your turn while a generation job is still queued or running. Inspect with action="read", import external files with openmotion_import_assets, or adopt into compositions with openmotion_assets_use(action="import_to_project"), and present with openmotion_present_artifact(kind="asset", assetId=..., versionId=...).
+   - Discover configured models and provider availability with openmotion_asset_models(modality=...) or openmotion_media_use(action="inspect", modality=...). Pass modality ("image", "video", or "audio") when checking setup for a specific asset type so an image-only provider does not hide a missing audio/video handoff.
+   - Check provider availability and mediaEntitlement before generating. When no fitting provider is usable for the requested modality (signed out, Free/Go mediaEntitlement "not-included", or rejected key), call openmotion_open_preview with the returned modality-scoped settingsHandoff (target="providers", entry=...) so Studio renders an inline setup/upgrade action card directly in the chat, explain concisely, and ask the user to reply once done (then re-check with refreshAccount=true). Do not pre-block Plus+ accounts on cached hasBalance; if a generation fails with low balance ("balance is too low" / insufficient_balance), stop without retrying, call openmotion_open_preview(target="providers", entry="agent_media_balance_low"), and ask the user to top up and reply to resume.
+   - Generate reusable assets with openmotion_assets_use(action="generate") (Studio's built-in tool approval gate handles spend confirmation in on-request mode, so skip redundant text spend-consent prompts when the asset plan is already clear). Each openmotion_assets_use(action="status", jobId=...) call waits up to ~55s automatically; call action="status" again in sequence until job.state is "completed" or "failed". NEVER call schedule, timers, or shell sleep, and NEVER end your turn while a generation job is still queued or running. Inspect with action="read", import external files with openmotion_import_assets, or adopt into compositions with openmotion_assets_use(action="import_to_project"), and present with openmotion_present_artifact(kind="asset", assetId=..., versionId=...).
    - Never invent completed assets from queued jobs and never automatically resubmit failed paid generations.
 5. Multi-Step Workflows, Batch Content Optimization, Triggers & Captions:
    - Run and inspect multi-step campaign/role workflows with openmotion_assets_use(action="scenario", scenario={command:"catalog"|"list"|"create"|"get"|...}).
@@ -196,14 +202,15 @@ Use the registered OpenMotion MCP tools (mcp__openmotion__*) and injected <openm
    - Publish any HTML-expressed deliverable (Design page, Game, Motion HTML bundle, or standalone HTML file/folder) to a live Open Design Cloud share link via openmotion_assets_use(action="web_publish", webPublish={command:"publish"|"status"|"unpublish"|"list", targetKind:"design"|"game"|"html"|"motion", ...}) or openmotion_design_project(action="deploy", projectId=...) (requires OpenDesign sign-in).
 2. Playable Single-Player Games (Game Studio):
    - For Game Studio projects, call openmotion_read_workflow(workflow="game", section="start") and inspect with openmotion_game_get(id=...). Create and remix single-player games only. When the user explicitly requests multiplayer, explain that game generation currently supports single-player and ask before adapting the brief. Existing multiplayer projects may be inspected, playtested or opened for local play.
-   - When the single-player brief already specifies the game concept or options, proceed directly: call openmotion_game_set_status(id, "building"), write files via openmotion_game_write_files, update metadata (openmotion_game_update_meta), capture cover (openmotion_game_capture_cover), validate (openmotion_game_validate), simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and open via openmotion_present_artifact(kind="game-project", projectId=...). Only when the user explicitly requests online cloud deployment/sharing (and OpenDesign account is signed in), call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects).
+   - When the single-player brief already specifies the game concept or options, proceed directly: call openmotion_game_set_status(id, "building"), write files via openmotion_game_write_files, update metadata (openmotion_game_update_meta), capture cover (openmotion_game_capture_cover), validate (openmotion_game_validate), simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and open via openmotion_present_artifact(kind="game-project", projectId=...). Only when the user explicitly requests online cloud deployment/sharing, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects); if it fails with OPENDESIGN_SIGN_IN_REQUIRED, do not retry and direct the user to sign in via the inline action card.
    - For playable ads, follow the playable-ad recipe and keep game assets inline in index.html. For other games, ${gameAssetInstructions}
 3. Editable Motion Videos (HyperFrames / Motion Studio — embedded live in Super Agent's Artifact Viewer):
    - Read workflow guides via MCP resources (openmotion://workflow/production/start or specialist guides) and browse templates/skills via openmotion_list_templates / openmotion_list_skills / openmotion_get_skill.
    - When a Motion project ("motion-project") is already attached or open in the conversation, edit/trim/refine it in place with openmotion_edit_project instead of creating a duplicate project. Otherwise create editable film projects with openmotion_create_project, edit HTML/CSS/GSAP timelines with openmotion_edit_project, open preview with openmotion_open_preview, manage versions/archives, and optionally queue MP4 exports with openmotion_export_request.
 4. Images, Cinema Videos, Music, Sound Effects & Voiceovers:
-   - Inspect configured models and provider availability with openmotion_media_use(action="inspect").
-   - Check provider availability and mediaEntitlement before generating, generate reusable assets with openmotion_assets_use(action="generate"). Each openmotion_assets_use(action="status", jobId=...) call waits up to ~55s automatically; call action="status" again in sequence until job.state is "completed" or "failed" (NEVER call schedule, timers, or shell sleep, and NEVER end your turn while queued or running). Inspect with action="read" and present with openmotion_present_artifact(kind="asset", assetId=..., versionId=...).
+   - Inspect configured models and provider availability with openmotion_media_use(action="inspect", modality=...) or openmotion_asset_models(modality=...). Pass modality ("image", "video", or "audio") when checking setup for a specific asset type so an image-only provider does not hide a missing audio/video handoff.
+   - Check provider availability and mediaEntitlement before generating. When no fitting provider is usable for the requested modality (signed out, Free/Go mediaEntitlement "not-included", or rejected key), call openmotion_open_preview with the returned modality-scoped settingsHandoff (target="providers", entry=...) so Studio renders an inline setup/upgrade action card in the chat, explain concisely, and ask the user to reply once done (then re-check with refreshAccount=true). Do not pre-block Plus+ accounts on cached hasBalance; if a generation fails with low balance ("balance is too low" / insufficient_balance), stop without retrying, call openmotion_open_preview(target="providers", entry="agent_media_balance_low"), and ask the user to top up and reply to resume.
+   - Generate reusable assets with openmotion_assets_use(action="generate") (skip redundant text spend-consent prompts when Studio's built-in tool approval gate handles confirmation). Each openmotion_assets_use(action="status", jobId=...) call waits up to ~55s automatically; call action="status" again in sequence until job.state is "completed" or "failed" (NEVER call schedule, timers, or shell sleep, and NEVER end your turn while queued or running). Inspect with action="read" and present with openmotion_present_artifact(kind="asset", assetId=..., versionId=...).
    - Never invent completed assets from queued jobs and never automatically resubmit failed paid generations.
 5. Workflows, Batch Content Optimization, Triggers, Captions & Brand Kits:
    - Run multi-step workflows via openmotion_assets_use(action="scenario"), optimize multiple items in parallel via openmotion_assets_use(action="batch"), manage webhooks/schedules via openmotion_assets_use(action="trigger"), transcribe/caption media via openmotion_assets_use(action="transcript"), and reuse Brand Kits via openmotion_assets_use(action="brand_kit") or openmotion_design_catalog(action="get_design_system").
@@ -226,6 +233,241 @@ Rules:
 - Do not invoke OpenMotion Design/Motion/Game/Media Studio tools unless the user explicitly asks to create a Studio deliverable.
 - Decline requests to generate a multiplayer game. Explain that new games in OpenMotion use the single-player workflow and ask before adapting such a brief.
 - Never fabricate command outputs, file paths, or test results. When you complete edits or coding tasks, end with a clean structured summary in the user's language covering: (1) outcome overview, (2) **Key changes / 主要改动** listing modified/created files and the core edits, and (3) **Verification / 验证结果** listing exact commands, tests, or checks executed and their pass/fail results (or explicitly noting anything not run).`;
+
+const ACTION_CARD_ERROR_MAX = 600;
+const PLAN_ENTITLEMENT_ERROR_RE = /requires OpenDesign Plus|plan does not include|upgrade to (?:OpenDesign )?Plus|tier_model_not_entitled|tier_request_kind_not_entitled|model_access_denied/i;
+
+function collectErrorFragments(value: unknown, out: string[], depth = 0): void {
+  if (depth > 4 || value === null || value === undefined || out.length >= 8) return;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && depth < 3) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object') {
+          collectErrorFragments(parsed, out, depth + 1);
+          return;
+        }
+      } catch {
+        /* plain string */
+      }
+    }
+    out.push(trimmed);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 6)) {
+      if (item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string') {
+        collectErrorFragments((item as { text: string }).text, out, depth + 1);
+      } else {
+        collectErrorFragments(item, out, depth + 1);
+      }
+    }
+    return;
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['error', 'message', 'code', 'errorCode']) {
+      if (record[key] !== undefined) collectErrorFragments(record[key], out, depth + 1);
+    }
+    if (record.structuredContent !== undefined) collectErrorFragments(record.structuredContent, out, depth + 1);
+    if (record.job !== undefined) collectErrorFragments((record.job as Record<string, unknown>)?.error, out, depth + 1);
+    if (Array.isArray(record.content)) collectErrorFragments(record.content, out, depth + 1);
+  }
+}
+
+function extractActionCardErrorText(value: unknown): string {
+  const fragments: string[] = [];
+  collectErrorFragments(value, fragments);
+  if (fragments.length > 0) {
+    return fragments.join(' ').slice(0, ACTION_CARD_ERROR_MAX);
+  }
+  if (value && typeof value === 'object') {
+    try {
+      return JSON.stringify(value).slice(0, ACTION_CARD_ERROR_MAX);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function isWebPublishTargetKind(value: unknown): value is NonNullable<SuperAgentActionCard['targetKind']> {
+  return value === 'design' || value === 'game' || value === 'html' || value === 'motion';
+}
+
+function unwrapToolPayload(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.structuredContent && typeof record.structuredContent === 'object' && !Array.isArray(record.structuredContent)) {
+    return record.structuredContent as Record<string, unknown>;
+  }
+  if (!('job' in record) && !('previewUrl' in record) && Array.isArray(record.content)) {
+    for (const item of record.content) {
+      if (item && typeof item === 'object' && typeof (item as { text?: unknown }).text === 'string') {
+        const text = (item as { text: string }).text.trim();
+        if (text.startsWith('{')) {
+          try {
+            const parsed: unknown = JSON.parse(text);
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              return parsed as Record<string, unknown>;
+            }
+          } catch {
+            /* ignore non-JSON content */
+          }
+        }
+      }
+    }
+  }
+  return record;
+}
+
+function isOpenDesignAccountMediaCall(args: Record<string, unknown>, payload: Record<string, unknown> | null, errorText: string): boolean {
+  if (args.provider === 'account') return true;
+  if (typeof args.model === 'string' && args.model.startsWith('account:')) return true;
+  const jobProvider = ((payload?.job as Record<string, unknown> | undefined)?.model as Record<string, unknown> | undefined)?.provider;
+  if (jobProvider === 'account') return true;
+  if (typeof args.provider === 'string' && args.provider !== 'account') return false;
+  if (typeof args.model === 'string' && args.model.includes(':') && !args.model.startsWith('account:')) return false;
+  if (typeof jobProvider === 'string' && jobProvider !== 'account') return false;
+  return /OpenDesign/i.test(errorText);
+}
+
+export type ActionCardAccountContext = {
+  accountPlan?: string;
+  accountMediaEntitlement?: 'included' | 'not-included' | 'unknown';
+};
+
+export function extractActionCardFromTool(
+  toolName: string,
+  args: Record<string, unknown>,
+  value: unknown,
+  ok: boolean,
+  context?: ActionCardAccountContext,
+): SuperAgentActionCard | undefined {
+  const name = normalizeOpenMotionToolName(toolName);
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const payload = unwrapToolPayload(value) ?? record;
+
+  if (ok && name === 'openmotion_open_preview' && args.target === 'providers') {
+    const entry = resolveProviderSetupEntry(typeof args.entry === 'string' ? args.entry : undefined);
+    const previewUrl = typeof payload?.previewUrl === 'string'
+      ? payload.previewUrl
+      : typeof record?.previewUrl === 'string'
+        ? record.previewUrl
+        : undefined;
+    if (entry === 'agent_media_signed_out') {
+      return { id: `action:sign_in:${entry}`, kind: 'sign_in', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+    }
+    if (entry === 'agent_media_upgrade_free') {
+      return { id: `action:upgrade_free:${entry}`, kind: 'upgrade_free', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+    }
+    if (entry === 'agent_media_upgrade_go') {
+      return { id: `action:upgrade_go:${entry}`, kind: 'upgrade_go', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+    }
+    if (entry === 'agent_media_balance_low') {
+      return { id: `action:top_up:${entry}`, kind: 'top_up', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+    }
+    if (entry === 'agent_media_key_rejected') {
+      return { id: `action:configure_key:${entry}`, kind: 'configure_key', entry, ...(previewUrl ? { previewUrl } : {}) };
+    }
+    return undefined;
+  }
+
+  const webPublish = args.webPublish && typeof args.webPublish === 'object'
+    ? args.webPublish as Record<string, unknown>
+    : null;
+  const isWebPublishTool =
+    ((name === 'openmotion_assets_use' || name === 'openmotion_assets') && args.action === 'web_publish')
+    || (name === 'openmotion_design_project' && args.action === 'deploy');
+  const isErrorResult = !ok || record?.isError === true;
+  if (isWebPublishTool) {
+    const isPublishAction = name === 'openmotion_design_project' || webPublish?.command === 'publish';
+    if (!isErrorResult || !isPublishAction) return undefined;
+    const errorText = extractActionCardErrorText(value);
+    if (/OPENDESIGN_SIGN_IN_REQUIRED|AUTH_REQUIRED|Sign in with OpenDesign/i.test(errorText)) {
+      const targetKind = name === 'openmotion_design_project'
+        ? 'design'
+        : isWebPublishTargetKind(webPublish?.targetKind)
+          ? webPublish.targetKind
+          : undefined;
+      const rawTargetId = name === 'openmotion_design_project'
+        ? args.projectId
+        : webPublish?.targetId;
+      const targetId = typeof rawTargetId === 'string' && rawTargetId.trim() ? rawTargetId.trim() : undefined;
+      return {
+        id: `action:web_publish_sign_in:${targetKind ?? 'web'}:${targetId ?? 'default'}`,
+        kind: 'web_publish_sign_in',
+        entry: 'agent_media_signed_out',
+        provider: 'account',
+        ...(targetKind ? { targetKind } : {}),
+        ...(targetId ? { targetId } : {}),
+      };
+    }
+    return undefined;
+  }
+
+  const isMediaTool =
+    name === 'openmotion_assets_use'
+    || name === 'openmotion_assets'
+    || name === 'openmotion_media_use'
+    || name === 'openmotion_capability_run'
+    || name === 'openmotion_job_manage';
+  const jobFailed = (payload?.job as Record<string, unknown> | undefined)?.state === 'failed';
+  if (isMediaTool && (isErrorResult || jobFailed)) {
+    const errorText = extractActionCardErrorText(value);
+    if (!errorText) return undefined;
+    if (
+      /balance is too low|insufficient[_ ]balance|insufficient[_ ]credits|out of credits/i.test(errorText)
+      && isOpenDesignAccountMediaCall(args, payload, errorText)
+    ) {
+      return {
+        id: 'action:top_up:agent_media_balance_low',
+        kind: 'top_up',
+        entry: 'agent_media_balance_low',
+        provider: 'account',
+      };
+    }
+    if (PLAN_ENTITLEMENT_ERROR_RE.test(errorText) && isOpenDesignAccountMediaCall(args, payload, errorText)) {
+      if (context?.accountMediaEntitlement === 'included') return undefined;
+      if (context?.accountPlan === 'go') {
+        return {
+          id: 'action:upgrade_go:agent_media_upgrade_go',
+          kind: 'upgrade_go',
+          entry: 'agent_media_upgrade_go',
+          provider: 'account',
+        };
+      }
+      if (context?.accountPlan === 'free') {
+        return {
+          id: 'action:upgrade_free:agent_media_upgrade_free',
+          kind: 'upgrade_free',
+          entry: 'agent_media_upgrade_free',
+          provider: 'account',
+        };
+      }
+      return undefined;
+    }
+    if (/OPENDESIGN_SIGN_IN_REQUIRED|sign-in is no longer accepted|Sign in with OpenDesign/i.test(errorText)) {
+      return {
+        id: 'action:sign_in:agent_media_signed_out',
+        kind: 'sign_in',
+        entry: 'agent_media_signed_out',
+        provider: 'account',
+      };
+    }
+    if (/Credentials or permissions rejected|API key.*(?:rejected|invalid)/i.test(errorText)) {
+      return {
+        id: 'action:configure_key:agent_media_key_rejected',
+        kind: 'configure_key',
+        entry: 'agent_media_key_rejected',
+      };
+    }
+  }
+
+  return undefined;
+}
 
 const ALLOWED_ARTIFACT_KINDS = new Set<SuperAgentArtifact['kind']>([
   'design-project',
@@ -2119,12 +2361,15 @@ export class SuperAgentConversations {
           ? await this.maybeAutoPresentDevServer(active, rawText, runtime.origin).catch(() => undefined)
           : undefined;
         const artifactId = artifact?.id ?? devArtifactId ?? ev.artifactId ?? existing?.toolEvent?.artifactId;
+        const actionCard = await this.resolveActionCardFromTool(ev.tool, toolArgs ?? {}, rawResult ?? ev.outputPreview, ok)
+          ?? existing?.toolEvent?.actionCard;
         const summary = ev.summary ?? summarizeToolResult(ev.tool, rawResult, ok);
         const merged: SuperAgentToolEvent = {
           ...(existing?.toolEvent ?? ev),
           ...ev,
           ...(summary ? { summary } : {}),
           ...(artifactId ? { artifactId } : {}),
+          ...(actionCard ? { actionCard } : {}),
         };
         this.pushMessage(active, {
           id: msgId,
@@ -2464,6 +2709,7 @@ export class SuperAgentConversations {
           ? await this.extractArtifactFromTool(active, ev.tool, toolArgs, ev.output, runtime.origin).catch(() => undefined)
           : undefined;
         const prevEvent = existingMsg?.toolEvent;
+        const actionCard = await this.resolveActionCardFromTool(ev.tool, toolArgs, ev.output, ev.ok) ?? prevEvent?.actionCard;
         const classified = classifySuperAgentTool(ev.tool, toolArgs, { title: ev.title });
         const label = ev.title ?? prevEvent?.label ?? classified.label;
         const summary = ev.summary ?? summarizeToolResult(ev.tool, ev.output, ev.ok) ?? prevEvent?.summary ?? classified.summary;
@@ -2493,6 +2739,7 @@ export class SuperAgentConversations {
             outputPreview: previewJson(ev.output, 2400),
             validationPassed: gameValidationPassed(ev.tool, ev.output),
             ...(artifact ? { artifactId: artifact.id } : prevEvent?.artifactId ? { artifactId: prevEvent.artifactId } : {}),
+            ...(actionCard ? { actionCard } : {}),
             startedAt,
             finishedAt,
             durationMs: ev.durationMs ?? Math.max(0, finishedAt - startedAt),
@@ -2647,6 +2894,7 @@ export class SuperAgentConversations {
       }
 
       const finishedAt = Date.now();
+      const actionCard = await this.resolveActionCardFromTool(toolName, toolArgs, storedValue, success);
       const toolEvent: SuperAgentToolEvent = {
         callId,
         tool: toolName,
@@ -2661,6 +2909,7 @@ export class SuperAgentConversations {
         outputPreview: previewJson(storedValue, 2400),
         validationPassed: gameValidationPassed(toolName, storedValue),
         ...(artifact ? { artifactId: artifact.id } : {}),
+        ...(actionCard ? { actionCard } : {}),
         startedAt,
         finishedAt,
         durationMs: Math.max(0, finishedAt - startedAt),
@@ -3134,6 +3383,7 @@ export class SuperAgentConversations {
               const artifactId = artifact?.id ?? devArtifactId;
               const existingMsg = active.chat.messages.find(m => m.id === `tool:${block.tool_use_id}`);
               const prevEvent = existingMsg?.toolEvent;
+              const actionCard = await this.resolveActionCardFromTool(toolName, toolArgs, parsed, ok) ?? prevEvent?.actionCard;
               const classified = classifySuperAgentTool(toolName, toolArgs);
               const startedAt = prevEvent?.startedAt ?? recorded?.startedAt ?? Date.now();
               const finishedAt = Date.now();
@@ -3151,6 +3401,7 @@ export class SuperAgentConversations {
                 outputPreview: previewJson(parsed, 2400),
                 validationPassed: gameValidationPassed(toolName, parsed),
                 ...(artifactId ? { artifactId } : {}),
+                ...(actionCard ? { actionCard } : {}),
                 startedAt,
                 finishedAt,
                 durationMs: Math.max(0, finishedAt - startedAt),
@@ -3422,7 +3673,15 @@ export class SuperAgentConversations {
         const finishedAt = Date.now();
         const ok = item.status !== 'failed' && !item.error;
         const toolName = item.type === 'mcpToolCall' && item.tool ? String(item.tool) : item.type;
-        const classified = classifySuperAgentTool(toolName, item.type === 'webSearch' ? { query: item.query } : (item.arguments ?? {}));
+        const toolArgs = item.type === 'webSearch'
+          ? { query: item.query }
+          : (item.arguments && typeof item.arguments === 'object' ? item.arguments as Record<string, unknown> : {});
+        const classified = classifySuperAgentTool(toolName, toolArgs);
+        const rawOutput = item.result ?? item.error;
+        // Keep Codex notification handling strictly synchronous so turn/completed cannot overtake pushMessage.
+        const actionCard = item.type === 'mcpToolCall'
+          ? extractActionCardFromTool(toolName, toolArgs, rawOutput, ok) ?? prev?.event.actionCard
+          : undefined;
         const ev: SuperAgentToolEvent = {
           callId: itemId,
           tool: toolName,
@@ -3431,19 +3690,31 @@ export class SuperAgentConversations {
           category: prev?.event.category ?? classified.category,
           summary: ok ? classified.summary : String(item.error?.message || item.error || 'Tool failed'),
           inputPreview: prev?.event.inputPreview,
-          ...(item.result || item.error ? { outputPreview: previewJson(item.result ?? item.error, 2400) } : {}),
+          ...(rawOutput ? { outputPreview: previewJson(rawOutput, 2400) } : {}),
           validationPassed: gameValidationPassed(toolName, item.result),
+          ...(actionCard ? { actionCard } : {}),
           startedAt,
           finishedAt,
           durationMs: typeof item.durationMs === 'number' ? item.durationMs : Math.max(0, finishedAt - startedAt),
         };
+        const msgId = `tool:${itemId}`;
         this.pushMessage(active, {
-          id: `tool:${itemId}`,
+          id: msgId,
           role: 'tool',
           text: `${toolName}: ${ev.summary || ev.label}`,
           createdAt: startedAt,
           toolEvent: ev,
         }, true);
+        if (item.type === 'mcpToolCall' && !actionCard && PLAN_ENTITLEMENT_ERROR_RE.test(extractActionCardErrorText(rawOutput))) {
+          void this.resolveActionCardFromTool(toolName, toolArgs, rawOutput, ok).then(resolved => {
+            if (!resolved || active.deleted) return;
+            const targetMsg = active.chat.messages.find(m => m.id === msgId);
+            if (!targetMsg?.toolEvent || targetMsg.toolEvent.actionCard) return;
+            targetMsg.toolEvent = { ...targetMsg.toolEvent, actionCard: resolved };
+            active.chat.updatedAt = Date.now();
+            void this.persist(active, true);
+          }).catch(() => {});
+        }
       }
     } else if (method === 'turn/plan/updated' && Array.isArray(p.plan)) {
       const plan: SuperAgentPlanEntry[] = p.plan
@@ -3503,6 +3774,10 @@ export class SuperAgentConversations {
       const { modality, query, offset, limit, refreshAccount } = rawArgs;
       const gateway = gatewayFor(this.store);
       const status = await gateway.status(false, { refreshAccount: refreshAccount === true });
+      const scopedModality = typeof modality === 'string' && ['image', 'video', 'audio'].includes(modality)
+        ? modality as Modality
+        : undefined;
+      const entry = resolveMediaSetupEntry(status.providers, scopedModality ? { modality: scopedModality, capabilities: status.capabilities } : undefined);
       return {
         ...await gateway.listModels({ modality, query, offset, limit }),
         providers: status.providers.map(({ id, available, reason, mediaEntitlement, plan, hasBalance }) => ({
@@ -3513,6 +3788,7 @@ export class SuperAgentConversations {
           ...(plan !== undefined ? { plan } : {}),
           ...(hasBalance !== undefined ? { hasBalance } : {}),
         })),
+        settingsHandoff: buildMediaSettingsHandoff(entry),
       };
     }
 
@@ -3742,6 +4018,28 @@ export class SuperAgentConversations {
     }
 
     throw new Error('Unsupported artifact kind');
+  }
+
+  private async resolveActionCardFromTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    value: unknown,
+    ok: boolean,
+  ): Promise<SuperAgentActionCard | undefined> {
+    const direct = extractActionCardFromTool(toolName, args, value, ok);
+    if (direct) return direct;
+    const errorText = extractActionCardErrorText(value);
+    if (!errorText || !PLAN_ENTITLEMENT_ERROR_RE.test(errorText)) return undefined;
+    try {
+      const account = await gatewayFor(this.store).account.summary(false);
+      const media = accountMediaState(account);
+      return extractActionCardFromTool(toolName, args, value, ok, {
+        accountPlan: media.plan,
+        accountMediaEntitlement: media.mediaEntitlement,
+      });
+    } catch {
+      return undefined;
+    }
   }
 
   private async extractArtifactFromTool(

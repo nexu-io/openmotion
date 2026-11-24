@@ -1,11 +1,45 @@
 import { ToolInputError } from '../shared/tool-input-error.ts';
 import type { OmTracking } from '../shared/tracking.ts';
 import type { WorkspaceStore } from '../workspace.ts';
-import type { GenerateInput } from '../shared/gateway.ts';
+import type { GenerateInput, GatewayStatus, Modality, ProviderState } from '../shared/gateway.ts';
 import type { ProviderSetupEntry } from '../shared/workspace-url.ts';
 import { isMediaProvider, registeredProvider } from '../shared/provider-registry.ts';
 import { gatewayFor } from './service.ts';
 import { getWorkflow } from '../shared/workflow.ts';
+
+type MediaProviderLike = Pick<ProviderState, 'id' | 'available'> & Partial<Pick<ProviderState, 'mediaEntitlement'>>;
+type SetupProviderLike = Pick<ProviderState, 'id' | 'available' | 'configured' | 'verification'>
+  & Partial<Pick<ProviderState, 'mediaEntitlement' | 'plan'>>;
+
+export function isMediaProviderUsable(provider: MediaProviderLike): boolean {
+  return Boolean(provider.available && !(provider.id === 'account' && provider.mediaEntitlement === 'not-included'));
+}
+
+export function resolveMediaSetupEntry(
+  providers: readonly SetupProviderLike[],
+  options?: {
+    modality?: Modality;
+    capabilities?: GatewayStatus['capabilities'];
+  },
+): ProviderSetupEntry | undefined {
+  const hasUsableForScope = options?.modality && options.capabilities
+    ? options.capabilities.some(cap => cap.modality === options.modality && cap.available)
+    : providers.some(isMediaProviderUsable);
+  if (hasUsableForScope) return undefined;
+  const account = providers.find(p => p.id === 'account');
+  if (account?.mediaEntitlement === 'not-included' && account.plan === 'go') return 'agent_media_upgrade_go';
+  if (account?.mediaEntitlement === 'not-included' && account.plan === 'free') return 'agent_media_upgrade_free';
+  if (providers.some(p => p.id !== 'account' && p.configured && p.verification === 'rejected')) return 'agent_media_key_rejected';
+  if (!account?.configured) return 'agent_media_signed_out';
+  return undefined;
+}
+
+export function buildMediaSettingsHandoff(entry?: ProviderSetupEntry) {
+  return {
+    tool: 'openmotion_open_preview' as const,
+    arguments: { target: 'providers' as const, ...(entry ? { entry } : {}) },
+  };
+}
 
 export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTracking) {
   const gateway = gatewayFor(store, tracking);
@@ -17,18 +51,14 @@ export async function mediaUse(store: WorkspaceStore, args: any, tracking?: OmTr
   if (args.action === 'inspect') {
     const status = await gateway.status(false, { refreshAccount: true });
     const providers = status.providers.filter(p => supported(p.id) && (isMediaProvider(p.id) || p.configured || p.id === 'account'));
-    const account = providers.find(p => p.id === 'account');
-    let entry: ProviderSetupEntry | undefined;
-    if (!providers.some(p => p.available && !(p.id === 'account' && p.mediaEntitlement === 'not-included'))) {
-      if (account?.mediaEntitlement === 'not-included' && account.plan === 'go') entry = 'agent_media_upgrade_go';
-      else if (account?.mediaEntitlement === 'not-included' && account.plan === 'free') entry = 'agent_media_upgrade_free';
-      else if (providers.some(p => p.id !== 'account' && p.configured && p.verification === 'rejected')) entry = 'agent_media_key_rejected';
-      else if (!account?.configured) entry = 'agent_media_signed_out';
-    }
+    const modality = typeof args.modality === 'string' && ['image', 'video', 'audio'].includes(args.modality)
+      ? args.modality as Modality
+      : undefined;
+    const entry = resolveMediaSetupEntry(providers, modality ? { modality, capabilities: status.capabilities } : undefined);
     return { providers,
       defaults: status.routes,
       settings: 'Open Settings > Model providers > OpenDesign to sign in or upgrade to Plus in place. Save or replace API keys in Model providers.',
-      settingsHandoff: { tool: 'openmotion_open_preview', arguments: { target: 'providers', ...(entry ? { entry } : {}) } },
+      settingsHandoff: buildMediaSettingsHandoff(entry),
       references: status.providers.filter(p => supported(p.id)).map(p => ({ provider: p.id, uri: `openmotion://workflow/media/${referenceSection(p.id)}` })),
       credentials: 'Read by the local service; keys are never returned to the Agent.' };
   }

@@ -15,7 +15,8 @@ import type { SoundTabId } from '../motion/soundTabs';
 import { reportBlackFridayEntry } from '../motion/templateLibraryTracking';
 import { WorkspaceBreadcrumb } from '../motion/WorkspaceBreadcrumb';
 import type { WorkspaceChrome } from '../motion/WorkspaceChromeContext';
-import type { ExploreFilters, SettingsSection, WorkspacePage } from '../motion/workspacePageRouting';
+import type { ExploreFilters, SettingsSection, WorkspacePage, WorkspacePagePatch } from '../motion/workspacePageRouting';
+import type { ProviderSetupEntry } from '../../../shared/workspace-url';
 import type { WorkspaceSource } from '../utils/workspaceHistory';
 import {
   LazyAssetsPage,
@@ -72,8 +73,8 @@ export type RouteViewportProps = {
   libraryTrigger: RefObject<HTMLElement | null>;
   openLibrary: WorkspaceChrome['openLibrary'];
   openModelSettings: () => void;
-  openProviderSettings?: (provider: string) => void;
-  navigatePage: (patch: Partial<WorkspacePage>, replace?: boolean, mode?: 'from-page' | 'keep') => void;
+  openProviderSettings?: (provider?: string, entryFrom?: ProviderSetupEntry) => void;
+  navigatePage: (patch: WorkspacePagePatch, replace?: boolean, mode?: 'from-page' | 'keep') => void;
   openHome: () => void;
   openSettings: (section: SettingsSection, entry?: McpEntry) => void;
   closeSettings: () => void;
@@ -518,6 +519,7 @@ export function RouteViewport({
             onOpenBrandKit={kitId => navigatePage({ settings: 'brand-kit', brandKit: kitId && !kitId.startsWith('catalog:') ? kitId : null, templates: false })}
             onOpenAgentSettings={() => openSettings('local')}
             onOpenModelSettings={() => openSettings('models')}
+            onOpenProviderSettings={openProviderSettings}
             onOpenAccountSettings={() => openSettings('account')}
             onOpenMcp={() => openMcp(undefined, undefined, true)}
           />

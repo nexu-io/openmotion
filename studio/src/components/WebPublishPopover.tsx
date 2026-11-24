@@ -120,11 +120,13 @@ export function WebPublishPopover({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [prepublishEnabled, setPrepublishEnabled] = useState(true);
-  const deployAfterSignInRef = useRef(false);
+  const currentTargetKey = `${targetKind}:${targetId}:${filePath ?? ''}`;
+  const deployAfterSignInTargetRef = useRef<string | null>(null);
   const prevAccountStateRef = useRef<AccountSummary['state'] | undefined>(undefined);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    deployAfterSignInTargetRef.current = null;
     setOpen(false);
     setStatus(null);
     setError(null);
@@ -243,7 +245,7 @@ export function WebPublishPopover({
     }
   }, [activeOp, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
 
-  // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes.
+  // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes for this exact target.
   useEffect(() => {
     const nextState = account?.state;
     const prevState = prevAccountStateRef.current;
@@ -251,19 +253,20 @@ export function WebPublishPopover({
     if (nextState === 'signed-in' && prevState && prevState !== 'signed-in') {
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (deployAfterSignInRef.current) {
-        deployAfterSignInRef.current = false;
+      if (deployAfterSignInTargetRef.current === currentTargetKey) {
+        deployAfterSignInTargetRef.current = null;
         void runMutation('publish', true);
       } else if (open) {
         void refreshStatus(false);
       }
     }
-  }, [account?.state, open, refreshStatus, runMutation]);
+  }, [account?.state, currentTargetKey, open, refreshStatus, runMutation]);
 
   const handleAccountAction = async (action: 'login' | 'cancel') => {
     setAuthBusy(true);
     setError(null);
-    deployAfterSignInRef.current = action === 'login';
+    const targetAtSignIn = currentTargetKey;
+    deployAfterSignInTargetRef.current = action === 'login' ? targetAtSignIn : null;
     const entryId = action === 'login' ? newTrackingId() : undefined;
     if (action === 'login' && entryId) {
       send('ui_click', { page_name: 'creative_studio', area: 'web_publish', element: 'sign_in', publish_target: targetKind, hook_id: publishHookId, entry_id: entryId });
@@ -276,12 +279,12 @@ export function WebPublishPopover({
       setAccount(next);
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (action === 'login' && next.state === 'signed-in') {
-        deployAfterSignInRef.current = false;
+      if (action === 'login' && next.state === 'signed-in' && deployAfterSignInTargetRef.current === targetAtSignIn) {
+        deployAfterSignInTargetRef.current = null;
         void runMutation('publish', true);
       }
     } catch (err) {
-      deployAfterSignInRef.current = false;
+      if (deployAfterSignInTargetRef.current === targetAtSignIn) deployAfterSignInTargetRef.current = null;
       if (action === 'login') reportPublish('sign_in', 'failure', { error_kind: 'other', ...(entryId ? { hook_id: publishHookId, entry_id: entryId } : {}) });
       setError(err instanceof Error ? err.message : t('Could not connect OpenDesign account'));
     } finally {
