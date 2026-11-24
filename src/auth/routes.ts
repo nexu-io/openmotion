@@ -1100,8 +1100,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         Boolean(expectedAppUserIdParam) ||
         Boolean(expectedSessionParam);
 
+      const UPGRADE_RETRY_BIND_COOKIE = 'om_upgrade_retry_bind';
       const cookies = parseCookies(c.req.header('cookie'));
       const rawSession = cookies[SESSION_COOKIE_NAME];
+      const retryBindCookie = cookies[UPGRADE_RETRY_BIND_COOKIE]?.trim() || null;
+      const effectiveExpectedSessionParam = expectedSessionParam || retryBindCookie;
+      const effectiveRequireAuth = requireAuth || Boolean(retryBindCookie);
       const signUpgradeSessionBinding = (sessionToken: string): string =>
         createHmac('sha256', trackingAttestationSecret)
           .update(`upgrade-retry:${sha256Hex(sessionToken)}`)
@@ -1110,7 +1114,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const buildBoundRetryPath = (boundAppUserId?: string | null): string => {
         const retryUrl = new URL(parsedReqUrl.toString());
         retryUrl.searchParams.set('requireAuth', '1');
-        const effectiveSessionSig = expectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
+        const effectiveSessionSig =
+          effectiveExpectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
         if (effectiveSessionSig) {
           retryUrl.searchParams.set('expectedSession', effectiveSessionSig);
         }
@@ -1122,22 +1127,37 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       };
       const unavailableResponse = (boundAppUserId?: string | null) => {
         const boundRetryPath = buildBoundRetryPath(boundAppUserId);
+        const headers = new Headers({
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          pragma: 'no-cache',
+          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+          'x-content-type-options': 'nosniff',
+        });
+        const sessionSigForCookie =
+          effectiveExpectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
+        if (sessionSigForCookie) {
+          headers.append(
+            'Set-Cookie',
+            serializeCookie(UPGRADE_RETRY_BIND_COOKIE, sessionSigForCookie, {
+              httpOnly: true,
+              secure: secureCookie,
+              sameSite: 'Lax',
+              path: '/auth/upgrade-handoff',
+              maxAgeSec: 600,
+            }),
+          );
+        }
         return new Response(renderUpgradeHandoffUnavailableHtml(boundRetryPath), {
           status: 503,
-          headers: {
-            'content-type': 'text/html; charset=utf-8',
-            'cache-control': 'no-store',
-            pragma: 'no-cache',
-            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
-            'x-content-type-options': 'nosniff',
-          },
+          headers,
         });
       };
 
       if (!rawSession) {
-        // Bound retries (requireAuth=1, expectedSession, or expectedAppUserId) MUST NEVER fall back to
-        // unbound guest Pricing when the session cookie disappears before retry.
-        if (requireAuth) {
+        // Bound retries (requireAuth=1, expectedSession, om_upgrade_retry_bind cookie, or expectedAppUserId)
+        // MUST NEVER fall back to unbound guest Pricing when the session cookie disappears before reload/retry.
+        if (effectiveRequireAuth) {
           return c.json(
             {
               code: 'UNAUTHORIZED',
@@ -1162,8 +1182,11 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       }
 
       // Enforce cryptographic binding to the originating session BEFORE touching DB/AMR so a
-      // pre-enrichment 503 retry can NEVER switch billing to a different Motion account.
-      if (expectedSessionParam && !timingSafeStringEqual(expectedSessionParam, signUpgradeSessionBinding(rawSession))) {
+      // pre-enrichment 503 reload or retry can NEVER switch billing to a different Motion account.
+      if (
+        effectiveExpectedSessionParam &&
+        !timingSafeStringEqual(effectiveExpectedSessionParam, signUpgradeSessionBinding(rawSession))
+      ) {
         return c.json(
           {
             code: 'ACCOUNT_MISMATCH',
@@ -1221,9 +1244,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       }
 
       if (authUserId && appUserId && rawSession) {
-        const sessionProof = await readSessionProof(sha256Hex(rawSession));
-        if (sessionProof) {
-          try {
+        try {
+          const sessionProof = await readSessionProof(sha256Hex(rawSession));
+          if (sessionProof) {
             const ticket = await amrIdentity.createOneTapHandoffTicket({
               authUserId,
               appUserId,
@@ -1231,11 +1254,14 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
               targetPath,
             });
             if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
+              if (retryBindCookie) {
+                c.header('Set-Cookie', clearCookie(UPGRADE_RETRY_BIND_COOKIE, secureCookie, '/auth/upgrade-handoff'));
+              }
               return c.redirect(ticket.handoffUrl, 302);
             }
-          } catch {
-            // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
           }
+        } catch {
+          // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
         }
       }
 

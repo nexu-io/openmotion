@@ -1906,10 +1906,24 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       });
       assert.equal(afterRecoveryMe.status, 401);
 
-      // 9. Extract the REAL Retry href from the pre-enrichment 503 HTML (before appUserId was resolved):
-      //    - missing cookie -> 401 (NO Location to guest Pricing)
-      //    - different session cookie -> 409 ACCOUNT_MISMATCH (cryptographic expectedSession mismatch)
-      //    - original session cookie -> succeeds once DB recovers
+      // 9. Extract BOTH the REAL Retry href AND the om_upgrade_retry_bind cookie from the pre-enrichment 503 response:
+      //    - browser F5 reload of the original bare URL after logout (no om_session) -> 401 (NO guest Pricing)
+      //    - browser F5 reload of the original bare URL after switching to another session -> 409 ACCOUNT_MISMATCH
+      //    - Retry link without cookie -> 401, Retry link with different session -> 409
+      const retryBindVal = extractCookieValue(dbErrRes.headers.getSetCookie(), 'om_upgrade_retry_bind');
+      assert.ok(retryBindVal, '503 response must set om_upgrade_retry_bind cookie to bind browser F5 reloads');
+      const reloadAfterLogout = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `om_upgrade_retry_bind=${retryBindVal}` },
+      });
+      assert.equal(reloadAfterLogout.status, 401);
+      assert.equal(reloadAfterLogout.headers.get('location'), null);
+
+      const reloadAfterSwitch = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `om_upgrade_retry_bind=${retryBindVal}; ${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      assert.equal(reloadAfterSwitch.status, 409);
+      assert.equal(reloadAfterSwitch.headers.get('location'), null);
+
       const retryHtml = await dbErrRes.text();
       const hrefMatch = retryHtml.match(/href="([^"]+)"/);
       assert.ok(hrefMatch?.[1], '503 page must render a bound Retry link');

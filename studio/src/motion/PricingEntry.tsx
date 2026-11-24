@@ -7,7 +7,12 @@ import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
 import styles from './PricingEntry.module.css';
 
-function resolvePricingHref(locale: string, entryId: string, useUpgradeHandoff: boolean): string {
+function resolvePricingHref(
+  locale: string,
+  entryId: string,
+  useUpgradeHandoff: boolean,
+  signedInBinding?: { requireAuth: boolean; expectedAppUserId?: string | null },
+): string {
   const direct = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
   if (!useUpgradeHandoff) return direct;
   const parsedDirect = new URL(direct);
@@ -17,6 +22,12 @@ function resolvePricingHref(locale: string, entryId: string, useUpgradeHandoff: 
       : 'https://motion.open-design.ai';
   const handoff = new URL('/auth/upgrade-handoff', baseOrigin);
   handoff.searchParams.set('targetPath', locale.startsWith('zh') ? '/zh/pricing' : '/pricing');
+  if (signedInBinding?.requireAuth) {
+    handoff.searchParams.set('requireAuth', '1');
+    if (signedInBinding.expectedAppUserId) {
+      handoff.searchParams.set('expectedAppUserId', signedInBinding.expectedAppUserId);
+    }
+  }
   for (const [key, value] of parsedDirect.searchParams.entries()) {
     handoff.searchParams.set(key, value);
   }
@@ -34,7 +45,11 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
   // time (avoiding stale guest-probe bypasses if another tab signed in) and safely redirects true
   // guests to public Pricing.
   const useUpgradeHandoff = !isDesktopApp() && account?.authMode !== 'dev';
-  const href = resolvePricingHref(locale, entryId, useUpgradeHandoff);
+  const signedInBinding =
+    account?.state === 'signed-in'
+      ? { requireAuth: true, expectedAppUserId: account.appUserId ?? null }
+      : undefined;
+  const href = resolvePricingHref(locale, entryId, useUpgradeHandoff, signedInBinding);
   // Outside the campaign window the entry stays as plain Pricing: no badge, campaign label or campaign fields.
   const campaign = useBlackFridayActive();
   const aria = campaign ? t('Pricing · Black Friday up to 50% off') : 'Pricing';
@@ -43,7 +58,7 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
     void trackMotion('ui_click', { page_name: trackingPage, area: 'header', element: 'open_pricing', ...(campaign ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}), entry_id: entryId,
       interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
     // Stamp the click time on the address the browser is about to open, then replace the id for the next click.
-    const targetUrl = resolvePricingHref(locale, entryId, useUpgradeHandoff);
+    const targetUrl = resolvePricingHref(locale, entryId, useUpgradeHandoff, signedInBinding);
     event.currentTarget.href = targetUrl;
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
     if (isDesktopApp() && (event.button === 0 || event.button === 1)) {

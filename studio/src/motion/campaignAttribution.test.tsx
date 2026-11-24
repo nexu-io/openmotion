@@ -132,6 +132,8 @@ it('always routes browser cloud OIDC Pricing clicks through /auth/upgrade-handof
   url = new URL(link.href);
   expect(url.pathname).toBe('/auth/upgrade-handoff');
   expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
+  expect(url.searchParams.get('requireAuth')).toBe('1');
+  expect(url.searchParams.get('expectedAppUserId')).toBe('usr_app_b');
   expect(url.searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
   expect(url.searchParams.get('utm_medium')).toBe('header');
 });
