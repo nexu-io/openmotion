@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, expect, it, vi } from "vitest";
+import { PREVIEW_INSPECTOR } from "../../../../src/studio/engine/preview-inspector";
 import { PREVIEW_SOURCE_IDENTITY } from "../../../../src/studio/engine/preview-bridge";
 import { PREVIEW_CANVAS_DRAG } from "../../../../src/studio/engine/preview-canvas-drag";
 
@@ -18,12 +19,12 @@ function createScene(declarative = false, position = false, tag = "div") {
   vi.spyOn(document, "elementFromPoint").mockImplementation(x => elements[x < 50 ? 0 : 1]!);
   // Execute the exact child-frame script with deterministic layout measurements.
   const dispatch = new Function("document", "getComputedStyle", "HTMLElement", "sourceVersions", "describe",
-    "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "notifyInspectorSourceReady",
-    PREVIEW_SOURCE_IDENTITY + PREVIEW_CANVAS_DRAG + "\nreturn canvasDrag;")(
+    "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "sourceFileForElement",
+    PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + PREVIEW_CANVAS_DRAG + "\nreturn canvasDrag;")(
     document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: el.style.display || "block" }),
     HTMLElement, { "one.html": originalHash, "two.html": originalHash },
     (el: HTMLElement) => ({ sourceFile: el.id + ".html", elementId: el.id, geometry: el.getBoundingClientRect(),
-      viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position}}, vi.fn(),
+      viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position}}, (el: HTMLElement) => el.id + ".html",
   );
   return { one: elements[0]!, two: elements[1]!,
     gesture: (phase: string, gestureId: string, fields: Record<string, unknown> = {}) =>
@@ -167,4 +168,44 @@ it("measures ordered moves and resizes against the displayed box before any rece
   gesture("commit", "move", { changed: true });
   expect(one.style.width).toBe("45px");
   expect(one.style.left).toBe("25px");
+});
+
+it("starts a move or resize from the overhanging part of the selected live layer", () => {
+  const { one, gesture } = createScene();
+  one.style.position = "absolute";
+  one.style.left = "-12px";
+  const target = { sourceFile: "one.html", elementId: "one" };
+  const start = (x: number, y: number, corner?: string, selected = target) => gesture("start", "outside", {x, y, corner, target: selected});
+
+  expect(gesture("start", "background", { x: -0.08, y: 0.06 })).toBeNull();
+  expect(start(-0.15, 0.06)).toBeNull();
+  expect(start(-0.08, 0.18)).toBeNull();
+  expect(start(-0.12, 0, "sw")).toBeNull();
+  expect(start(-0.12, 0, "nw", { ...target, sourceFile: "other.html" })).toBeNull();
+  expect(start(-0.08, 0.06)).toMatchObject({ target: { elementId: "one" }});
+  expect(gesture("finish", "outside", { dx: 0.06, dy: 0 })).toMatchObject({ left: -6 });
+  gesture("cancel", "outside");
+
+  expect(start(-0.12, 0.1, "sw")).toMatchObject({ target: { elementId: "one" }});
+  expect(gesture("finish", "outside", { dx: -0.05, dy: 0.05 })).toMatchObject({ left: -17, width: 25, height: 15 });
+  gesture("cancel", "outside");
+  expect(one.style.left).toBe("-12px");
+});
+
+it("checks the selected identity, lock and live box before an outside gesture", () => {
+  const { one, two, gesture } = createScene();
+  one.style.left = two.style.left = "95px";
+  const start = (id: string, x = 1.05) => gesture("start", "move", { x, y: 0.05, target: { sourceFile: id + ".html", elementId: id }});
+  expect(start("two")).toBeNull();
+  expect(start("one", Infinity)).toBeNull();
+  one.setAttribute("data-timeline-locked", "");
+  expect(start("one")).toBeNull();
+  one.removeAttribute("data-timeline-locked");
+  one.style.visibility = "hidden";
+  expect(start("one")).toBeNull();
+  one.style.visibility = "visible";
+  one.setAttribute("data-hf-parked-scene", "");
+  expect(start("one")).toBeNull();
+  one.remove();
+  expect(start("one")).toBeNull();
 });

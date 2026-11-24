@@ -76,11 +76,36 @@ export const PREVIEW_CANVAS_DRAG = `
     return rect.width > 0 && rect.height > 0;
   }
 
+  function canvasPointHit(x, y) {
+    if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return document.elementFromPoint(x * innerWidth, y * innerHeight)?.closest('[id],[data-hf-id]');
+  }
+
+  function canvasGestureTarget(message, corner) {
+    const { x, y, target } = message;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const insideFrame = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+    if (insideFrame && !target) return corner ? picked : canvasPointHit(x, y);
+    if (!target?.sourceFile) return null;
+    const node = inspectorElement(target);
+    if (!node || node.closest('[data-hf-parked-scene]')) return null;
+    if (insideFrame && corner) return node;
+    if (picked?.isConnected && node !== picked) return null;
+
+    // The selected box can extend beyond the clipped iframe. Validate the actual live
+    // bounds instead of redirecting the pointer to a different layer at the frame edge.
+    const rect = node.getBoundingClientRect();
+    const px = x * innerWidth, py = y * innerHeight;
+    if (!corner) return px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom ? node : null;
+    const cx = corner.endsWith('w') ? rect.left : rect.right;
+    const cy = corner.startsWith('n') ? rect.top : rect.bottom;
+    return Math.abs(px - cx) <= 4 && Math.abs(py - cy) <= 4 ? node : null;
+  }
+
   function startDrag(message) {
     if (drag) return null;
-    const hit = document.elementFromPoint(message.x * innerWidth, message.y * innerHeight);
     const corner = ['nw','ne','sw','se'].includes(message.corner) ? message.corner : null;
-    const element = corner ? (message.target ? inspectorElement(message.target) : picked) : hit?.closest('[id],[data-hf-id]');
+    const element = canvasGestureTarget(message, corner);
     if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement ||
         element.matches('[data-composition-id],[data-composition-src],[data-hf-scene]') ||
         element.closest('[data-timeline-locked]')) return null;
