@@ -1,7 +1,7 @@
 import type { OrderedEditEvents } from './ordered-edit-events.ts';
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { z } from 'zod';
+import { textEditSchema } from './text-edit-input.ts';
 import { componentOverlaySource } from '../../shared/registry-material-compat.ts';
 import type { TextPatch } from '../../shared/text-patch.ts';
 import type { AuthContext } from '../contracts/auth.ts';
@@ -21,21 +21,6 @@ import { validateTextPatch } from './text-patch-boundaries.ts';
 
 // Existing callers may use the patch form even for very short files.
 const SMALL_TEXT_PATCH_BYTES = 64 * 1024;
-const version = z.string().regex(/^"(?:sha256|patch):[a-f0-9]{64}"$/);
-const splice = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.string()])
-  .transform(([offset, removed, insert]) => [offset, removed, insert] as const);
-const file = {path: z.string(), baseVersion: version.nullable()};
-const batchSchema = z.strictObject({
-  files: z.array(z.union([
-    z.strictObject({...file, baseVersion: version, patch: z.array(splice).max(4096)}),
-    z.strictObject({...file, content: z.string()}),
-  ])).min(1).max(256),
-  dependencies: z.record(z.string(), version.nullable()).optional(),
-  label: z.string().trim().min(1).max(256).optional(),
-  undoGroup: z.uuid().optional(),
-  installComponent: z.string().min(1).max(200).optional(),
-});
-
 function invalid(message: string) {
   return new CloudError('INVALID_ARGUMENT', message, {status: 400, applied: false});
 }
@@ -74,7 +59,7 @@ function canPatchBeSmaller(patch: TextPatch, baseBytes: number): boolean {
 
 export async function commitTextEdits(files: ProjectFilesService, db: Database, storage: StoragePort,
   ctx: AuthContext, projectId: string, body: unknown, identity: TextEditIdentity): Promise<CommitProjectFilesResult> {
-  const parsed = batchSchema.safeParse(body);
+  const parsed = textEditSchema.safeParse(body);
   if (!parsed.success || !identity.requestId || identity.requestId.length > 100) throw invalid('Supply a valid text edit and request ID');
   const input = parsed.data;
   if (input.installComponent && (input.files.length !== 1 || input.files[0].baseVersion === null ||

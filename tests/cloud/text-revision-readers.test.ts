@@ -908,3 +908,70 @@ it('rolls back a mixed CAS batch on a GC claim or underflow and preserves per-ob
     assert.deepEqual([a.ref_count, a.metadata, b.ref_count, Number(b.size_bytes), b.mime_type], [2, { width: 40, height: 20 }, 3, 19, 'text/html']);
   } finally { await cleanup(); }
 });
+
+it('keeps a hundred ordered Studio edits, their undo points and replay receipts across HTTP batches', { skip: !connectionString }, async () => {
+  const { auth, db, storage, workspace, files, history, events, cleanup } = await fixture();
+  try {
+    const path = 'scene.txt';
+    const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path, content: '0' }] });
+    const app = createStudioFilesRoutes({ db, storage, files, workspace, history,
+      assetNames: new AssetNamesService({db, files}), resolveAuth: () => auth });
+    app.onError((error, c) => isCloudError(error) ? c.json(error.toJSON(), error.status as 400) : c.json({}, 500));
+
+    const url = '/api/projects/' + projectId;
+    const send = (operations: object[]) => app.request(url + '/text-edits/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({operations}),
+    });
+    const start = await app.request(url + '/files/' + path);
+    assert.equal(start.headers.get('X-OpenMotion-Ordered-Edits'), '1');
+    const initial = (await start.json()).version as string;
+    const ids = Array.from({length: 100}, () => randomUUID());
+    const operations = ids.map((id, i) => ({ id, files: [{ path,
+      baseVersion: i ? {after: ids[i - 1]} : initial, patch: [[0, String(i).length, String(i + 1)]],
+    }] }));
+
+    // A malformed dependency graph must not leave an accepted prefix.
+    assert.equal((await send([operations[0], operations[0]])).status, 400);
+    assert.equal((await send([operations[0], operations[3]])).status, 400);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.version, initial);
+
+    events.length = 0;
+    const response = await send(operations);
+    assert.equal(response.status, 200);
+    const { committed, failed } = await response.json();
+    assert.equal(failed, undefined);
+    assert.deepEqual(events.map(event => event.type), ['files-changed', 'history-changed']);
+    const forwarded = events[0];
+    assert.ok(forwarded.type === 'files-changed');
+    assert.deepEqual(forwarded.ordered?.steps.map(step => step.id), ids);
+    assert.ok(forwarded.ordered?.steps.every(step => step.patches?.length === 1));
+    events.length = 0;
+    assert.deepEqual(committed.map((r: { id: string }) => r.id), ids);
+    assert.equal(new Set(committed.map((r: { versionId: string }) => r.versionId)).size, 100);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, '100');
+    const historyBeforeReplay = await history.listHistory(auth, projectId);
+    assert.deepEqual((await (await send(operations)).json()).committed, committed);
+    assert.equal((await history.listHistory(auth, projectId)).currentSeq, historyBeforeReplay.currentSeq);
+    assert.equal(events.length, 0);
+
+    // A retry with a changed operation must stop at that step. The suffix was never executed.
+    const different = {...operations[1], label: 'Changed intent'};
+    const badId = await (await send([operations[0], different])).json();
+    assert.deepEqual(badId.committed, [committed[0]]);
+    assert.equal(badId.failed.code, 'REQUEST_ID_CONFLICT');
+    const tail = { id: randomUUID(), files: [{ path, baseVersion: committed[99].versions[path], content: 'tail' }] };
+    const stale = { id: randomUUID(), files: [{ path, baseVersion: initial, content: 'stale' }] };
+    const prefix = await (await send([tail, stale, {id: randomUUID(), files: [{path, baseVersion: {after: tail.id}, content: 'wrong'}]}])).json();
+    assert.equal(prefix.committed.length, 1);
+    const partial = events.find(event => event.type === 'files-changed');
+    assert.ok(partial?.type === 'files-changed');
+    assert.deepEqual(partial.ordered?.steps.map(step => step.id), [tail.id]);
+    assert.deepEqual([prefix.failed.id, prefix.failed.status, prefix.failed.path, prefix.failed.currentVersion],
+      [stale.id, 409, path, prefix.committed[0].versions[path]]);
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, 'tail');
+    await history.step(auth, projectId, 'back');
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, '100');
+    await history.step(auth, projectId, 'back');
+    assert.equal((await files.readTextFile(auth, projectId, path))!.content, '99');
+  } finally { await cleanup(); }
+});
