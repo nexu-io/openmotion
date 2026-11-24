@@ -205,6 +205,27 @@ it("restores the visible release when the incoming host mounts without another p
   expect(await first).toMatchObject({left:25});
 });
 
+it("retries a release after the incoming layer finishes its initial layout", async () => {
+  const {one, two, swap, gesture, makeElement} = createScene();
+  one.style.position = "absolute";
+  const { promise, resolve } = Promise.withResolvers<void>();
+  swap("one.html", "b".repeat(64), promise);
+  gesture("start", "first", {ordered:true});
+  const first = gesture("finish", "first");
+  one.remove();
+  const next = makeElement("one");
+  next.style.position = "absolute";
+  next.style.visibility = "hidden";
+  vi.mocked(document.elementFromPoint).mockReturnValue(two);
+  gesture("start", "other", {ordered:true});
+  gesture("cancel", "other");
+  expect(next.style.left).toBe("");
+  next.style.visibility = "visible";
+  resolve();
+  expect(await first).toMatchObject({elementId:"one", left:25, sha256:"b".repeat(64)});
+  expect(next.style.left).toBe("25px");
+});
+
 it.each(["moved", "cancelled", "expired"])("cleans up a %s release spanning the two hosts", async reason => {
   const {one, swap, gesture, makeElement} = createScene();
   one.style.position = "absolute";

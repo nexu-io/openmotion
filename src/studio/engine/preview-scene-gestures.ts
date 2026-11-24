@@ -32,8 +32,10 @@ export const PREVIEW_SCENE_GESTURES = `
     for (const step of releasedSceneGestures.values()) {
       if (!step.ordered || step.element.isConnected || 'sceneResult' in step) continue;
       const node = inspectorElement(step.selection);
-      if (node && !step.sceneUpdate.targets.get(step.selection.sourceFile).host.contains(node))
-        step.sceneResult = replaySceneRelease(step, node);
+      if (!node || step.sceneUpdate.targets.get(step.selection.sourceFile).host.contains(node)) continue;
+      const result = replaySceneRelease(step, node);
+      // A newly mounted child can still be hidden until its scripts finish.
+      if (result) step.sceneResult = result;
     }
   }
 
