@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { studioEvents } from '../../../tracking/events.ts';
 import { validProperties } from '../../../tracking/core.ts';
-import { BlackFridayTopBanner, resetBlackFridayImpression } from './BlackFridayTopBanner';
+import { BlackFridayTopBanner, readBlackFridayCountdown, resetBlackFridayImpression } from './BlackFridayTopBanner';
 import campaignUi from '../i18n/campaign-ui.json';
 import { BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_STARTS_AT, bannerDismissedToday, blackFridayActive, campaignPricingUrl, dismissBannerToday, resetBannerDismissal } from './campaignAttribution';
 import { PricingEntry } from './PricingEntry';
@@ -161,4 +161,49 @@ it('keeps the Pricing entry with localized Free credits badge before the campaig
     act(() => root.render(<I18nProvider key={locale} initialLocale={locale}><PricingEntry trackingPage="studio" /></I18nProvider>));
     expect(container.textContent).toContain(campaignUi[locale]['Free credits']);
   }
+});
+
+it('repeats a 12-hour countdown anchored at 2026-11-21 18:00 +08:00 and expires after 2026-12-04 23:59:59 +08:00', async () => {
+  expect(readBlackFridayCountdown(Date.parse('2026-11-21T18:00:00+08:00'))).toEqual({
+    hours: '12', minutes: '00', seconds: '00', datetime: 'PT12H00M00S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-11-21T18:00:01+08:00'))).toEqual({
+    hours: '11', minutes: '59', seconds: '59', datetime: 'PT11H59M59S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-11-22T00:00:00+08:00'))).toEqual({
+    hours: '06', minutes: '00', seconds: '00', datetime: 'PT06H00M00S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-11-22T05:59:59+08:00'))).toEqual({
+    hours: '00', minutes: '00', seconds: '01', datetime: 'PT00H00M01S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-11-22T06:00:00+08:00'))).toEqual({
+    hours: '12', minutes: '00', seconds: '00', datetime: 'PT12H00M00S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-11-22T18:00:00+08:00'))).toEqual({
+    hours: '12', minutes: '00', seconds: '00', datetime: 'PT12H00M00S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-12-04T18:00:00+08:00'))).toEqual({
+    hours: '06', minutes: '00', seconds: '00', datetime: 'PT06H00M00S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-12-04T23:59:59+08:00'))).toEqual({
+    hours: '00', minutes: '00', seconds: '01', datetime: 'PT00H00M01S',
+  });
+  expect(readBlackFridayCountdown(Date.parse('2026-12-05T00:00:00+08:00'))).toEqual({
+    hours: '00', minutes: '00', seconds: '00', datetime: 'PT00H00M00S',
+  });
+
+  vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] });
+  vi.setSystemTime(Date.parse('2026-12-04T23:59:58+08:00'));
+  const onExpire = vi.fn();
+  render(<BlackFridayTopBanner trackingPage="explore" onClose={() => {}} onExpire={onExpire} />);
+  const timeEl = container.querySelector('time')!;
+  expect(timeEl.getAttribute('datetime')).toBe('PT00H00M02S');
+  expect(timeEl.textContent).toBe('00:00:02');
+
+  await act(async () => { vi.advanceTimersByTime(1000); });
+  expect(timeEl.textContent).toBe('00:00:01');
+  expect(onExpire).not.toHaveBeenCalled();
+
+  await act(async () => { vi.advanceTimersByTime(1000); });
+  expect(onExpire).toHaveBeenCalledOnce();
 });

@@ -3,27 +3,11 @@ import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import flameArtUrl from './bf-dusk-flame.jpg';
 import styles from './BlackFridayTopBanner.module.css';
-import { BLACK_FRIDAY_CAMPAIGN, BLACK_FRIDAY_ENDS_AT, blackFridayActive, campaignPricingUrl, newCampaignEntryId } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, COUNTDOWN_CYCLE_SECONDS, blackFridayActive, campaignPricingUrl, newCampaignEntryId, readBlackFridayCountdown } from './campaignAttribution';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
 
-const COUNTDOWN_CYCLE_SECONDS = 259200; // 72h rolling cycle
-
-function readCountdown(now = Date.now()) {
-  const diffSec = Math.max(0, Math.floor((BLACK_FRIDAY_ENDS_AT - now) / 1000));
-  const remaining = diffSec > 0 ? (diffSec % COUNTDOWN_CYCLE_SECONDS || COUNTDOWN_CYCLE_SECONDS) : 0;
-  const days = Math.floor(remaining / 86400);
-  const hours = Math.floor((remaining % 86400) / 3600);
-  const minutes = Math.floor((remaining % 3600) / 60);
-  const seconds = remaining % 60;
-  return {
-    days,
-    hours: String(hours).padStart(2, '0'),
-    minutes: String(minutes).padStart(2, '0'),
-    seconds: String(seconds).padStart(2, '0'),
-    datetime: `P${days}DT${hours}H${minutes}M${seconds}S`,
-  };
-}
+export { COUNTDOWN_CYCLE_SECONDS, readBlackFridayCountdown };
 
 // One impression per page load: the banner remounts when the workspace frame does, which is not a new view.
 let impressionReported = false;
@@ -33,7 +17,7 @@ export function resetBlackFridayImpression() { impressionReported = false; }
 /** `onClose` is the visitor's dismissal; `onExpire` hides the banner when the campaign window ends while the page is open. */
 export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onClose: () => void; onExpire?: () => void; trackingPage: CreativePage }) {
   const { locale, t } = useI18n();
-  const [time, setTime] = useState(() => readCountdown());
+  const [time, setTime] = useState(() => readBlackFridayCountdown());
 
   // The link's entry id is reported with the click and replaced afterwards, so each click is its own Pricing entry.
   const [entryId, setEntryId] = useState(newCampaignEntryId);
@@ -61,7 +45,7 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
         onExpire?.();
         return;
       }
-      setTime(readCountdown());
+      setTime(readBlackFridayCountdown());
       if (timer === undefined) {
         timer = window.setInterval(tick, 1000);
       }
@@ -95,8 +79,6 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
   const copy = {
     aria: t('Black Friday campaign banner'),
     timerLabel: t('Ends in'),
-    // English keeps the short unit; other languages translate a descriptive key, never a one-letter message.
-    dayUnit: locale === 'en' ? 'd' : t('Countdown day unit'),
     offerBefore: t("Black Friday lowest of the year! DeepSeek V4.1 Flash Eco, DeepSeek V4.1 Flash & more "),
     offerHighlight: t('7-day unlimited'),
     offerAfter: t(', up to 50% off annual'),
@@ -110,12 +92,6 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
         <div className={styles.countdown} role="timer" aria-live="off">
           <span className={styles.timerLabel}>{copy.timerLabel}</span>
           <time className={styles.timer} dateTime={time.datetime}>
-            {time.days > 0 && (
-              <span className={`${styles.timerSeg} ${styles.timerSegDay}`}>
-                <b>{time.days}</b>
-                <i>{copy.dayUnit}</i>
-              </span>
-            )}
             <span className={styles.timerSeg}>{time.hours}</span>
             <span className={styles.timerSep} aria-hidden="true">:</span>
             <span className={styles.timerSeg}>{time.minutes}</span>

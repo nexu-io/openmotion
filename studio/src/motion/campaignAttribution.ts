@@ -20,6 +20,31 @@ export function blackFridayActive(now = Date.now()) {
   return now >= BLACK_FRIDAY_STARTS_AT && now < BLACK_FRIDAY_ENDS_AT;
 }
 
+/** 12-hour rolling countdown cycle anchored at `BLACK_FRIDAY_STARTS_AT` (`2026-11-21 18:00 +08:00`). */
+export const COUNTDOWN_CYCLE_SECONDS = 12 * 60 * 60;
+
+export function readBlackFridayCountdown(now = Date.now()) {
+  const totalLeft = Math.max(0, Math.ceil((BLACK_FRIDAY_ENDS_AT - now) / 1000));
+  let remaining = 0;
+  if (totalLeft > 0) {
+    const elapsed = Math.max(0, Math.floor((now - BLACK_FRIDAY_STARTS_AT) / 1000));
+    const pos = elapsed % COUNTDOWN_CYCLE_SECONDS;
+    remaining = Math.min(totalLeft, COUNTDOWN_CYCLE_SECONDS - pos);
+  }
+  const hours = Math.floor(remaining / 3600);
+  const minutes = Math.floor((remaining % 3600) / 60);
+  const seconds = remaining % 60;
+  const hh = String(hours).padStart(2, '0');
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+  return {
+    hours: hh,
+    minutes: mm,
+    seconds: ss,
+    datetime: `PT${hh}H${mm}M${ss}S`,
+  };
+}
+
 // A dismissed banner stays hidden for the rest of that local calendar day and returns the next day.
 const DISMISSED_ON_KEY = 'openmotion.black-friday-banner.dismissed-on';
 function localDay(now: Date) {
