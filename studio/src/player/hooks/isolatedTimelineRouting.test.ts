@@ -9,6 +9,23 @@ import { PREVIEW_BRIDGE_SOURCE, PREVIEW_BRIDGE_VERSION } from "../lib/previewAda
 import { buildTimelineElementsFromClips } from "./timelineSyncHydration";
 import { createPreviewMessageHandler, type ClipManifestMessage } from "./previewMessageRouter";
 
+it("keeps live resize bounds out of timeline refreshes", () => {
+  const frame = document.createElement("iframe");
+  const origin = "https://preview.test";
+  frame.src = origin + "/api/projects/p/preview?pt=active";
+  Object.defineProperty(frame, "contentWindow", { value: { postMessage: vi.fn() } });
+  const enrich = vi.fn();
+  const route = createPreviewMessageHandler({ iframeRef: { current: frame },
+    processTimelineMessageRef: { current: vi.fn() }, enrichMissingCompositionsRef: { current: enrich },
+    lastTimelineMessageRef: { current: 0 }, getAdapter: () => null, syncTimelineElements: vi.fn() });
+  const send = (type: string) => route(new MessageEvent("message", { source: frame.contentWindow, origin,
+    data: { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token: "active", type, phase: "bounds" } }));
+  send("canvas-drag");
+  expect(enrich).not.toHaveBeenCalled();
+  send("timeline-state");
+  expect(enrich).toHaveBeenCalledOnce();
+});
+
 it("keeps authored identity across runtime notifications and only accepts it from the current frame", () => {
   const origin = "https://preview.test";
   const child = { postMessage: vi.fn() };

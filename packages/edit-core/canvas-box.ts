@@ -8,6 +8,8 @@ export interface CanvasBox {
   top: number;
   makeRelative: boolean;
   corner?: 'nw' | 'ne' | 'sw' | 'se';
+  /** Additional CSS offsets needed to keep the opposite corner of a transformed box fixed. */
+  extraAxes?: 'x' | 'y' | 'xy';
   width?: number;
   height?: number;
 }
@@ -28,12 +30,14 @@ export function canvasBoxOperations(result: CanvasBox) {
     throw new Error('Invalid canvas dimensions.');
   const operations: Array<{ type: 'inline-style'; property: string; value: string }> = [];
   const { corner } = result;
-  if (result.makeRelative === true && (!corner || corner !== 'se')) {
+  const writeLeft = !corner || corner.endsWith('w') || result.extraAxes?.includes('x');
+  const writeTop = !corner || corner.startsWith('n') || result.extraAxes?.includes('y');
+  if (result.makeRelative === true && (writeLeft || writeTop)) {
     operations.push({ type: 'inline-style', property: 'position', value: 'relative' });
   }
-  if (!corner || corner.endsWith('w'))
+  if (writeLeft)
     operations.push({ type: 'inline-style', property: 'left', value: result.left + 'px' });
-  if (!corner || corner.startsWith('n'))
+  if (writeTop)
     operations.push({ type: 'inline-style', property: 'top', value: result.top + 'px' });
   if (corner) {
     operations.push(

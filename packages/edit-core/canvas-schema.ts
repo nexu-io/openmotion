@@ -114,6 +114,7 @@ const box = obj(
     top: number,
     makeRelative: { type: "boolean" },
     corner: { enum: ["nw", "ne", "sw", "se"] },
+    extraAxes: { enum: ["x", "y", "xy"] },
     width: number,
     height: number,
   },

@@ -327,9 +327,17 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-drag'){
         var result=canvasDrag(message);
+        if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
+          const active=drag;
+          active.boundsScheduled=true;
+          requestAnimationFrame(function(){
+            active.boundsScheduled=false;
+            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...resizeFrameBounds(active.element)});
+          });
+        }
         if(message.phase==='start'){
           const started=drag?.id===message.gestureId ? drag : null;
-          const hit=started?.element || (!message.corner && document.elementFromPoint(message.x * innerWidth,message.y * innerHeight)?.closest('[data-hf-id],[id]'));
+          const hit=started?.element || (!message.corner && !message.target && canvasPointHit(message.x, message.y));
           if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, started?.selection || describe(hit), message.additive);
         }
         if(message.phase==='start' || message.phase==='finish') respond(requestId,result);

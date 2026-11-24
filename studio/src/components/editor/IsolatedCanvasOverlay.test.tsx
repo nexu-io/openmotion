@@ -354,6 +354,56 @@ it("resizes the selected source target after a replacement frame has forgotten i
   expect(messages[0]).toMatchObject({ type:"canvas-drag", phase:"start", corner:"ne", target });
 });
 
+it("starts at an exposed selection or handle outside the frame and preserves in-frame picking", () => {
+  const target = { sourceFile: "compositions/gallery.html", elementId: "gallery-wall" };
+  state.domEditSelection = { isolatedTarget: target, isolatedBounds: { x: -.25, y: .1, width: 1.5, height: .6 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const selected = canvas.querySelector<HTMLElement>("[data-isolated-selection]")!;
+  function press(node: HTMLElement, clientX: number, clientY: number) {
+    act(() => node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX, clientY })));
+  }
+  press(canvas, -50, 60);
+  expect(messages).toHaveLength(0);
+  press(selected, -10, 60);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", x: -.1, y: .5, target });
+  pointer("pointercancel", -10);
+  press(selected.querySelector<HTMLElement>('[data-resize-corner="se"]')!, 261, 82);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", corner: "se", x: 1.25, y: .7, target });
+  pointer("pointermove", 271);
+  expect(messages.at(-1)).toMatchObject({ phase: "move", dx: .05 });
+  pointer("pointercancel", 271);
+  press(selected, 60, 60);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", x: .25, y: .5 });
+  expect(messages.at(-1)).not.toHaveProperty("target");
+});
+
+it("outlines the rendered size during a constrained resize and ignores late geometry", async () => {
+  state.domEditSelection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="se"]')!;
+  act(() => handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX: 110, clientY: 60 })));
+  const start = messages[0]!;
+  const viewport = { width: 200, height: 100 };
+  const geometry = { x: 20, y: 10, width: 80, height: 40 };
+  await reply("start", { geometry, viewport, liveResizeBounds: true });
+  pointer("pointermove", 145);
+  function bounds(width: number, gestureId = start.gestureId) {
+    act(() => window.dispatchEvent(new MessageEvent("message", { origin, source: frame.contentWindow, data: {
+      ...start, source: PREVIEW_BRIDGE_SOURCE, phase: "bounds", gestureId, geometry: { ...geometry, width }, viewport,
+    } })));
+  }
+  const outline = canvas.querySelector<HTMLElement>("[data-isolated-selection]")!;
+  bounds(98, "an-older-gesture");
+  expect(outline.style.width).toBe("80px");
+  bounds(97);
+  expect(outline.style.width).toBe("97px");
+  pointer("pointerup", 145);
+  await reply("finish", { ...result, corner: "se", width: 120, height: 70, geometry: { ...geometry, width: 99 }, viewport });
+  bounds(92);
+  expect(outline.style.width).toBe("99px");
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+});
+
 it("shows the released bounds even when the initial pick arrives after pointerup", async () => {
   pointer("pointerdown", 60);
   pointer("pointermove", 72);
