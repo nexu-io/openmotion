@@ -6,9 +6,9 @@ import { PREVIEW_CANVAS_DRAG } from "../../../../src/studio/engine/preview-canva
 
 const originalHash = "a".repeat(64);
 
-function createScene(declarative = false, position = false) {
+function createScene(declarative = false, position = false, tag = "div") {
   const elements = ["one", "two"].map(id => {
-    const element = document.createElement("div");
+    const element = document.createElement(tag);
     element.id = id;
     document.body.append(element);
     vi.spyOn(element, "getBoundingClientRect").mockImplementation(() =>
@@ -20,7 +20,7 @@ function createScene(declarative = false, position = false) {
   const dispatch = new Function("document", "getComputedStyle", "HTMLElement", "sourceVersions", "describe",
     "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "notifyInspectorSourceReady",
     PREVIEW_SOURCE_IDENTITY + PREVIEW_CANVAS_DRAG + "\nreturn canvasDrag;")(
-    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: "block" }),
+    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: el.style.display || "block" }),
     HTMLElement, { "one.html": originalHash, "two.html": originalHash },
     (el: HTMLElement) => ({ sourceFile: el.id + ".html", elementId: el.id, geometry: el.getBoundingClientRect(),
       viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position}}, vi.fn(),
@@ -143,4 +143,16 @@ it("cannot resize an invisible target from a stale handle, including a target hi
   one.style.visibility = "hidden";
   expect(gesture("finish", "moving")).toBeNull();
   expect(one.style.width).toBe("");
+});
+
+it.each(["canvas", "img", "video", "span"])("respects intrinsic sizing for inline %s elements", tag => {
+  const {one, gesture} = createScene(true, false, tag);
+  one.style.display = "inline";
+  const start = gesture("start", "corner", {corner:"se"});
+  if (tag === "span") {
+    expect(start).toBeNull();
+    return;
+  }
+  expect(start).toBeTruthy();
+  expect(gesture("finish", "corner")).toMatchObject({corner:"se", width:45, height:60});
 });

@@ -110,6 +110,7 @@ import { createAssetRoutes } from '../routes/assets.ts';
 import { createCatalogRoutes } from '../routes/catalog.ts';
 import { createExportRoutes } from '../routes/exports.ts';
 import { createModelRoutes, type MediaJobPort } from '../routes/models.ts';
+import { createOnboardingRoutes } from '../routes/onboarding.ts';
 import { createProjectsRouter } from '../routes/projects.ts';
 import { createSessionsRouter } from '../routes/sessions.ts';
 import { AssetLibraryService } from '../services/asset-library-service.ts';
@@ -2353,6 +2354,9 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.get('/web/inline-video-notices.txt', handleStaticPath);
   app.get('/web/final-video-component.js', handleStaticPath);
   app.get('/mcp-ui/template-recommendations/*', handleStaticPath);
+
+  // Public cloud install guide (`/install.md`) and stateless onboarding endpoints (`/api/onboarding/*`).
+  app.route('/', createOnboardingRoutes({ config, runtimeRoot }));
 
   // -------------------------------------------------------------------------
   // 5. Template Catalog Routes (Mounted at BOTH `/api` and `/motion-api`)

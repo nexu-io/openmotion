@@ -28,7 +28,7 @@ export const translations: Record<Language, Translation> = {
       back: '返回模板列表', close: '关闭预览', player: '模板完整预览', sending: '正在填入…', notSent: '未能填入，请重试。',
       manual: '当前客户端暂不支持填入输入框，请复制下方提示词。', draftLabel: '模板创作提示词',
       welcomeLabel: 'OpenMotion 欢迎', listLabel: 'OpenMotion 模板' },
-    welcome: { clipboardDraft: "点击下方卡片上的「复刻模板」即可复制提示词，粘贴到对话框，补充要求或附件后发送。", heading: '🎉 OpenMotion 安装好啦，右侧就是模板库！',
+    welcome: { clipboardDraft: "点击下方卡片上的「复刻模板」即可复制提示词，粘贴到对话框，补充要求或附件后发送。", heading: '🎉 OpenMotion 连接好啦，右侧就是模板库！',
       introduction: '我是你的开源视频创作搭档，我有丰富的高水准视频模板，也支持从参考视频或一个灵感出发，和你一起创作精彩的视频。',
       discovery: '模板库支持搜索，也可以随意浏览，找到喜欢的点击「复刻模板」就能开始你的创作！',
       recommendations: '不想自己找？先看看我挑的这 3 个 👇',
@@ -41,7 +41,7 @@ export const translations: Record<Language, Translation> = {
       back: 'Back to templates', close: 'Close preview', player: 'Full template preview', sending: 'Adding to composer…', notSent: 'Not added. Please try again.',
       manual: 'This client cannot fill the composer. Copy the prompt below.', draftLabel: 'Template creation prompt',
       welcomeLabel: 'OpenMotion welcome', listLabel: 'OpenMotion templates' },
-    welcome: { clipboardDraft: "Choose Recreate template to copy its prompt, paste it into the chat, add your requirements or attachments, then send.", heading: '🎉 OpenMotion is installed. Your template library is open on the right!',
+    welcome: { clipboardDraft: "Choose Recreate template to copy its prompt, paste it into the chat, add your requirements or attachments, then send.", heading: '🎉 OpenMotion is connected. Your template library is open on the right!',
       introduction: 'I am your open-source video creation partner. I have a rich collection of high-quality video templates, and I can also help you create a video from a reference or an idea.',
       discovery: 'Search or browse the template library. When you find one you like, choose Recreate template to start creating!',
       recommendations: 'Want a starting point? Try one of these three 👇',
@@ -54,7 +54,7 @@ export const translations: Record<Language, Translation> = {
       back: 'テンプレート一覧に戻る', close: 'プレビューを閉じる', player: 'テンプレートの全編プレビュー', sending: '入力欄に追加中…', notSent: '追加できませんでした。もう一度お試しください。',
       manual: 'このクライアントでは入力欄に追加できません。下のプロンプトをコピーしてください。', draftLabel: 'テンプレート制作プロンプト',
       welcomeLabel: 'OpenMotion へようこそ', listLabel: 'OpenMotion テンプレート' },
-    welcome: { clipboardDraft: "「テンプレートを再現」でプロンプトをコピーし、チャットに貼り付けて要望やファイルを追加してから送信してください。", heading: '🎉 OpenMotion のインストールが完了しました。右側にテンプレートライブラリがあります！',
+    welcome: { clipboardDraft: "「テンプレートを再現」でプロンプトをコピーし、チャットに貼り付けて要望やファイルを追加してから送信してください。", heading: '🎉 OpenMotion の接続が完了しました。右側にテンプレートライブラリがあります！',
       introduction: '私は、オープンソースの動画制作パートナーです。高品質な動画テンプレートを豊富に用意しています。参考動画やアイデアからも、一緒に動画を制作できます。',
       discovery: 'テンプレートライブラリは検索も自由な閲覧もできます。気に入ったものが見つかったら「テンプレートを再現」をクリックして制作を始めましょう！',
       recommendations: 'どれにするか迷ったら、まずはこの3つをどうぞ 👇',
@@ -67,7 +67,7 @@ export const translations: Record<Language, Translation> = {
       back: '템플릿 목록으로 돌아가기', close: '미리보기 닫기', player: '템플릿 전체 미리보기', sending: '입력창에 추가하는 중…', notSent: '추가하지 못했습니다. 다시 시도해 주세요.',
       manual: '이 클라이언트에서는 입력창에 추가할 수 없습니다. 아래 프롬프트를 복사해 주세요.', draftLabel: '템플릿 제작 프롬프트',
       welcomeLabel: 'OpenMotion에 오신 것을 환영합니다', listLabel: 'OpenMotion 템플릿' },
-    welcome: { clipboardDraft: "「템플릿 재현」으로 프롬프트를 복사한 뒤 대화창에 붙여넣고 요구 사항이나 파일을 추가해 전송하세요.", heading: '🎉 OpenMotion 설치가 완료되었습니다. 오른쪽에 템플릿 라이브러리가 있어요!',
+    welcome: { clipboardDraft: "「템플릿 재현」으로 프롬프트를 복사한 뒤 대화창에 붙여넣고 요구 사항이나 파일을 추가해 전송하세요.", heading: '🎉 OpenMotion 연결이 완료되었습니다. 오른쪽에 템플릿 라이브러리가 있어요!',
       introduction: '저는 여러분의 오픈 소스 영상 제작 파트너입니다. 다양한 고품질 영상 템플릿을 갖추고 있으며, 참고 영상이나 아이디어를 바탕으로 함께 영상을 만들 수도 있어요.',
       discovery: '템플릿 라이브러리에서 검색하거나 자유롭게 둘러보세요. 마음에 드는 템플릿의 「템플릿 재현」을 누르면 제작을 시작할 수 있어요!',
       recommendations: '고르기 어렵다면 제가 추천하는 이 3가지를 먼저 살펴보세요 👇',
@@ -80,7 +80,7 @@ export const translations: Record<Language, Translation> = {
       back: 'Retour aux modèles', close: 'Fermer l’aperçu', player: 'Aperçu complet du modèle', sending: 'Ajout dans la zone de saisie…', notSent: 'Échec de l’ajout. Réessayez.',
       manual: 'Ce client ne peut pas remplir la zone de saisie. Copiez la consigne ci-dessous.', draftLabel: 'Consigne de création',
       welcomeLabel: 'Bienvenue dans OpenMotion', listLabel: 'Modèles OpenMotion' },
-    welcome: { clipboardDraft: "Choisissez « Recréer le modèle » pour copier la consigne, collez-la dans le chat, ajoutez vos besoins ou fichiers, puis envoyez.", heading: '🎉 OpenMotion est installé. La bibliothèque de modèles est ouverte à droite !',
+    welcome: { clipboardDraft: "Choisissez « Recréer le modèle » pour copier la consigne, collez-la dans le chat, ajoutez vos besoins ou fichiers, puis envoyez.", heading: '🎉 OpenMotion est connecté. La bibliothèque de modèles est ouverte à droite !',
       introduction: 'Je suis votre partenaire de création vidéo open source. Je propose de nombreux modèles vidéo de qualité et peux aussi créer avec vous à partir d’une vidéo de référence ou d’une idée.',
       discovery: 'Recherchez un modèle ou parcourez librement la bibliothèque. Cliquez sur « Recréer le modèle » pour commencer votre création !',
       recommendations: 'Besoin d’inspiration ? Découvrez ces 3 modèles que j’ai choisis 👇',
@@ -93,7 +93,7 @@ export const translations: Record<Language, Translation> = {
       back: 'Volver a las plantillas', close: 'Cerrar vista previa', player: 'Vista previa completa de la plantilla', sending: 'Añadiendo al cuadro de texto…', notSent: 'No se pudo añadir. Inténtalo de nuevo.',
       manual: 'Este cliente no puede rellenar el cuadro de texto. Copia la instrucción de abajo.', draftLabel: 'Instrucción de creación',
       welcomeLabel: 'Te damos la bienvenida a OpenMotion', listLabel: 'Plantillas de OpenMotion' },
-    welcome: { clipboardDraft: "Elige « Recrear plantilla » para copiar la instrucción, pégala en el chat, añade tus requisitos o archivos y envíala.", heading: '🎉 OpenMotion ya está instalado. ¡La biblioteca de plantillas está abierta a la derecha!',
+    welcome: { clipboardDraft: "Elige « Recrear plantilla » para copiar la instrucción, pégala en el chat, añade tus requisitos o archivos y envíala.", heading: '🎉 OpenMotion ya está conectado. ¡La biblioteca de plantillas está abierta a la derecha!',
       introduction: 'Soy tu compañero de creación de vídeos de código abierto. Tengo una amplia colección de plantillas de alta calidad y también puedo crear contigo a partir de un vídeo de referencia o una idea.',
       discovery: 'Busca una plantilla o explora la biblioteca a tu ritmo. ¡Haz clic en « Recrear plantilla » para empezar tu creación!',
       recommendations: '¿Necesitas inspiración? Mira estas 3 plantillas que he elegido 👇',
@@ -106,7 +106,7 @@ export const translations: Record<Language, Translation> = {
       back: 'Voltar aos modelos', close: 'Fechar prévia', player: 'Prévia completa do modelo', sending: 'Adicionando à caixa de texto…', notSent: 'Não foi possível adicionar. Tente novamente.',
       manual: 'Este cliente não pode preencher a caixa de texto. Copie a instrução abaixo.', draftLabel: 'Instrução de criação',
       welcomeLabel: 'Boas-vindas ao OpenMotion', listLabel: 'Modelos do OpenMotion' },
-    welcome: { clipboardDraft: "Escolha « Recriar modelo » para copiar a instrução, cole no chat, adicione seus requisitos ou arquivos e envie.", heading: '🎉 OpenMotion instalado. A biblioteca de modelos está aberta à direita!',
+    welcome: { clipboardDraft: "Escolha « Recriar modelo » para copiar a instrução, cole no chat, adicione seus requisitos ou arquivos e envie.", heading: '🎉 OpenMotion conectado. A biblioteca de modelos está aberta à direita!',
       introduction: 'Sou seu parceiro de criação de vídeos de código aberto. Tenho uma ampla coleção de modelos de alta qualidade e também posso criar com você a partir de um vídeo de referência ou de uma ideia.',
       discovery: 'Pesquise um modelo ou explore a biblioteca à vontade. Clique em « Recriar modelo » para começar sua criação!',
       recommendations: 'Precisa de inspiração? Veja estes 3 modelos que escolhi 👇',
@@ -115,12 +115,36 @@ export const translations: Record<Language, Translation> = {
   },
 };
 
+const noSidebarHeadings: Record<Language, string> = {
+  zh: '🎉 OpenMotion 连接好啦！模板库：',
+  en: '🎉 OpenMotion is connected! Template library: ',
+  ja: '🎉 OpenMotion の接続が完了しました！テンプレートライブラリ：',
+  ko: '🎉 OpenMotion 연결이 완료되었습니다! 템플릿 라이브러리: ',
+  fr: '🎉 OpenMotion est connecté ! Bibliothèque de modèles : ',
+  es: '🎉 OpenMotion ya está conectado. Biblioteca de plantillas: ',
+  pt: '🎉 OpenMotion conectado! Biblioteca de modelos: ',
+};
+
 /** Plain reply text, kept outside the card document so the host can stream it. */
 export function welcomeMarkdown(language: Language, cardsPosition: 'before' | 'after' = 'after'): string {
   const text = translations[language].welcome;
   const recommendations = cardsPosition === 'before' ? text.recommendations.replace('👇', '👆') : text.recommendations;
   const draft = cardsPosition === 'before' ? text.clipboardDraft.replace('下方', '上方') : text.clipboardDraft;
   return [`**${text.heading}**`, text.introduction, text.discovery, `**${recommendations}**`, draft].join("\n\n");
+}
+
+/** Welcome copy for hosts without a right-hand browser pane (or when opening failed). */
+export function noSidebarWelcomeMarkdown(
+  language: Language,
+  libraryUrl: string,
+  options: { includeCardIntro?: boolean } = {},
+): string {
+  const text = translations[language].welcome;
+  const heading = `**${noSidebarHeadings[language]}${libraryUrl}**`;
+  if (options.includeCardIntro === false) {
+    return [heading, text.introduction, text.discovery].join('\n\n');
+  }
+  return [heading, text.introduction, text.discovery, `**${text.recommendations}**`, text.clipboardDraft].join('\n\n');
 }
 
 /** A plain reply remains available even when the host cannot mount native cards. */

@@ -62,25 +62,25 @@ Install the main Skill with the [Skills CLI](https://github.com/vercel-labs/skil
 npx skills add nexu-io/openmotion --skill openmotion
 ```
 
-Then ask your agent: **Use OpenMotion to install and connect the local Studio and MCP, then help me make a video.** The Skill completes the source setup below when needed and reuses an existing workspace. Installing the Skill alone copies instructions; it does not yet install Studio or connect MCP.
+Then ask your agent: **Use OpenMotion to connect Cloud MCP, then help me make a video.** The Skill connects directly to the hosted Streamable HTTP `/mcp` endpoint via OAuth 2.1 without installing a local runtime, and reuses an existing working connection. Installing the Skill alone copies instructions; it does not yet connect MCP.
 
-Copy this instruction into your local agent to set up OpenMotion from source:
+Copy this instruction into your agent to connect OpenMotion Cloud MCP:
 
 ```text
-Read https://github.com/nexu-io/openmotion/blob/main/docs/install.md and follow the instructions to install and connect OpenMotion in the current agent.
+Read https://github.com/nexu-io/openmotion/blob/main/docs/install.md and follow the instructions to connect OpenMotion in the current agent.
 ```
 
-After setup, the agent opens the local template library and shows the welcome followed by three project-preview cards in a self-contained HTML document. Each installation samples three distinct entries from the curated pool of four. The complete silent previews and posters are bundled, so this display does not wait for native MCP reload or fetch remote reference films. Native original-reference playback remains available separately and requires internet access. The library opens once using the opening tool's result, with no extra page or playback audit. An opening failure is reported with a usable link and does not invalidate installation. Automatic current-chat MCP activation is assessed independently. Preview a card, choose **Recreate template**, then send your brief to start creating. [Source installation guide](docs/install.md) · [Onboarding selection](docs/install.md#maintained-recommendation-selection)
+After OAuth authorization, the agent opens the cloud template library and shows the localized welcome followed by three curated project-preview cards via a native MCP App, self-contained HTML document, DSH card, or text fallback. Each onboarding samples three distinct entries from the curated pool of four without waiting for native MCP tool reload or fetching remote reference films for inline previews. Preview a card, choose **Recreate template**, then send your brief to start creating. [Cloud MCP connection guide](docs/install.md) · [Onboarding reply rules](docs/install.md#installation-success-reply)
 
-### Install the published npm app (optional)
+### Legacy local source & npm installation (optional)
 
-Source setup above remains the default for repository installation. To explicitly choose the published application with prebuilt Studio and its configured online catalog, copy this instruction into your local agent:
+Cloud MCP setup above is the default Agent connection path. For self-hosted deployments see [deploy/README.md](deploy/README.md). Legacy local source/stdio setup and published npm application recipes remain archived for explicit local use:
 
 ```text
 Read https://releases.open-design.ai/motion and follow the instructions to install and connect the published npm application in the current agent.
 ```
 
-[Published application installation and channel selection](docs/install.md). Published versions can lag behind this checkout.
+[Archived legacy local source & npm guide](docs/templates/legacy-npm-install.md) · [npm installation and diagnostics](docs/npm-installation.md). Published npm versions can lag behind this checkout.
 
 ### Run the repository locally
 
@@ -459,7 +459,7 @@ When choosing or replacing media, creation workflows share a [material sourcing 
 
 For agent-led installation, use the [installation instruction above](#quick-start). To run from source, follow the steps below.
 
-After a successful Agent-led installation, open the editor's template library in the current conversation, without creating a project. Browse and preview first; choose **Open and edit** to create an independent editable copy. Setup provides a direct library link even before the chat reloads MCP. See the [installation reply rules](docs/install.md#installation-success-reply).
+After a successful Agent connection or setup, open the template library in the current conversation without creating a project. Browse and preview first; choose **Recreate template** or **Open and edit** to create an independent editable copy. See the [cloud onboarding reply rules](docs/install.md#installation-success-reply) and [archived local source/npm guide](docs/templates/legacy-npm-install.md).
 
 During video creation and editing, the chat stays free of preview areas. OpenMotion presents the editable Studio when the final video is ready to preview, then shows [one final-video preview](docs/inline-video.md) after MP4 export and verification. Host-native playback takes priority; Codex embeds the video in the final reply. The optional MCP App player is used only when the host cannot preview the video, never alongside another preview of the same export. Native-host acceptance of an installed build remains separate.
 

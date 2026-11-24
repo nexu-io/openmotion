@@ -11,8 +11,8 @@ import { defaultDataDirectory, prepareCodexHostHandoff } from './codex-host-hand
 import { onboardingTemplateIds, recommendationTemplateIds, selectOnboardingTemplateIds } from '../shared/onboarding-templates.ts';
 import { installationFallbackWelcome, isLanguage } from '../mcp-ui/template-recommendations/i18n.ts';
 
-export async function installationInstructions(appRoot) {
-  const guide = await readFile(path.join(appRoot, 'docs/install.md'), 'utf8');
+export async function installationInstructions(appRoot, guideRelativePath = 'docs/templates/legacy-npm-install.md') {
+  const guide = await readFile(path.join(appRoot, guideRelativePath), 'utf8');
   const sections = [...guide.matchAll(/<!-- installation-onboarding:start -->([\s\S]*?)<!-- installation-onboarding:end -->/g)];
   assert.equal(sections.length, 1, 'Installation guide must contain one onboarding contract');
   assert(sections[0][1].trim(), 'Installation onboarding contract is empty');

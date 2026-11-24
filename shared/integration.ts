@@ -219,10 +219,10 @@ export function integrationConfig(info: IntegrationInfo, host: IntegrationHost) 
       return {
         filename: 'openmotion-codex.toml',
         contentType: 'text/plain; charset=utf-8',
-        text: `[mcp_servers.openmotion]\nurl = ${JSON.stringify(url)}\n${auth.pat ? 'bearer_token_env_var = "OPENMOTION_TOKEN"\n' : ''}`,
+        text: `[mcp_servers.openmotion]\nurl = ${JSON.stringify(url)}\n${!auth.oauth2 && auth.pat ? 'bearer_token_env_var = "OPENMOTION_TOKEN"\n' : ''}`,
       };
     }
-    const headers = auth.pat ? { Authorization: 'Bearer ${OPENMOTION_TOKEN}' } : undefined;
+    const headers = !auth.oauth2 && auth.pat ? { Authorization: 'Bearer ${OPENMOTION_TOKEN}' } : undefined;
     return {
       filename: 'openmotion.mcp.json',
       contentType: 'application/json; charset=utf-8',
@@ -269,9 +269,13 @@ export function manualConnection(info: IntegrationInfo, host: IntegrationHost, l
         : `当前 MCP 地址：${url}\nChatGPT 云端需要公开 HTTPS Streamable HTTP 端点与 OAuth 2.1 授权。\n当前本地 HTTP 环境可先使用 Codex、Claude Code、Cursor 或 DeepSeek Harness。`;
     }
     if (host === 'codex') {
-      return `codex mcp add openmotion --url ${shellQuote(url)}\ncodex mcp get openmotion`;
+      return auth.oauth2
+        ? `codex mcp add openmotion --url ${shellQuote(url)}\ncodex mcp login openmotion\ncodex mcp get openmotion`
+        : `codex mcp add openmotion --url ${shellQuote(url)}\ncodex mcp get openmotion`;
     }
-    return `claude mcp add --transport http openmotion ${shellQuote(url)}\nclaude mcp get openmotion`;
+    return auth.oauth2
+      ? `claude mcp add --transport http openmotion ${shellQuote(url)} --scope user\nclaude mcp login openmotion\nclaude mcp get openmotion`
+      : `claude mcp add --transport http openmotion ${shellQuote(url)} --scope user\nclaude mcp get openmotion`;
   }
 
   if (host === 'deepseek') return deepseekConfig(info);
@@ -295,7 +299,10 @@ export function guideUrl(info: Pick<IntegrationInfo, 'previewUrl'>, host: Integr
 export const setupSkillUrl = 'https://github.com/nexu-io/openmotion/blob/main/skills/openmotion/SKILL.md';
 export const setupReadmeUrl = 'https://github.com/nexu-io/openmotion#quick-start';
 export function setupGuideUrl(info: IntegrationInfo | null) {
-  if (info?.deployment?.type === 'docker' || info?.deployment?.type === 'cloud' || isStreamableHttpTransport(info?.transport)) {
+  if (info && isStreamableHttpTransport(info.transport)) {
+    return `${info.previewUrl.replace(/\/+$/, '')}/install.md`;
+  }
+  if (info?.deployment?.type === 'docker') {
     return 'https://github.com/nexu-io/openmotion/blob/main/deploy/README.md';
   }
   if (!info || info.templateSource === 'repository') return 'https://github.com/nexu-io/openmotion/blob/main/docs/install.md';
@@ -315,24 +322,20 @@ export function setupPrompt(
 ) {
   if (info && isStreamableHttpTransport(info.transport)) {
     const mcpUrl = info.transport.url;
+    const guide = setupGuideUrl(info);
     if (host === 'chatgpt' && !supportsChatgptCloud(info)) {
       return locale === 'en'
         ? `ChatGPT Cloud requires a public HTTPS Streamable HTTP MCP endpoint with OAuth 2.1. Current endpoint: ${mcpUrl}.`
         : `ChatGPT 云端需要公开 HTTPS Streamable HTTP MCP 端点与 OAuth 2.1 授权。当前端点：${mcpUrl}。`;
     }
     if (locale === 'zh-CN') {
-      return `将 ${hostNames[host]} 连接到远程 OpenMotion Streamable HTTP MCP 服务：${mcpUrl}
-先阅读并在宿主安装主 Skill：${setupSkillUrl}
-使用 OAuth 2.1（自动发现）或 Workspace Personal Access Token (Authorization: Bearer <PAT>) 完成授权。
-不要安装本地运行时或使用 docker exec。
-连接后调用 openmotion_get_project 核对当前工作区（${info.dataDirectory}），并按需通过 openmotion_import_assets 的 upload_ticket / url / library_asset 导入素材。
+      return `请阅读 ${guide}，帮我将 ${hostNames[host]} 接入 OpenMotion 云端 MCP（${mcpUrl}）。
+不要安装 npm 包、克隆仓库、启动本地运行时或使用 docker exec。
+导入素材时使用 openmotion_import_assets 的 upload_ticket / url / library_asset 模式。
 等我给出创作要求后再创建或修改工程。`;
     }
-    return `Connect ${hostNames[host]} to this OpenMotion Streamable HTTP MCP server: ${mcpUrl}
-Read the primary OpenMotion Skill: ${setupSkillUrl}
-Authenticate via OAuth 2.1 discovery or a workspace Personal Access Token (Authorization: Bearer <PAT>).
-Do not install a separate local runtime or wrap commands with docker exec.
-Discover OpenMotion tools and call openmotion_get_project to verify workspace (${info.dataDirectory}).
+    return `Follow ${guide} to connect ${hostNames[host]} to OpenMotion Cloud MCP (${mcpUrl}).
+Do not install an npm package, clone the repository, start a local runtime, or wrap commands with docker exec.
 Import media using openmotion_import_assets cloud modes (upload_ticket, public HTTPS url, or workspace library_asset).
 Wait for my creative brief before creating or modifying a project.`;
   }

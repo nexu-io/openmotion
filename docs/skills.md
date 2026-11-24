@@ -46,7 +46,7 @@ Before material grouping, the recreation guidance distinguishes object motion, i
 
 ## Primary installation Skill
 
-[openmotion](https://github.com/nexu-io/openmotion/blob/main/skills/openmotion/SKILL.md) is the standalone GitHub/Skills CLI entry for setup and first use. It reuses a connected workspace or follows the maintained source installation guide, then reads the matching specialist through installed files or MCP resources. It does not introduce a sixth creative workflow or require already-selected specialists to return through a router. The bootstrap Skill is discoverable in the source plugin and on GitHub; runtime distributions retain their existing specialist list. It is installed separately through the official Skills CLI rather than copied into npm-owned workflow directories.
+[openmotion](https://github.com/nexu-io/openmotion/blob/main/skills/openmotion/SKILL.md) is the standalone GitHub/Skills CLI entry for setup and first use. It reuses a connected workspace or follows the maintained [Cloud MCP connection guide](install.md), then reads the matching specialist through installed files or MCP resources. It does not introduce a sixth creative workflow or require already-selected specialists to return through a router. The bootstrap Skill is discoverable in the source plugin and on GitHub; runtime distributions retain their existing specialist list. It is installed separately through the official Skills CLI rather than copied into npm-owned workflow directories.
 
 ## 职责与入口
 

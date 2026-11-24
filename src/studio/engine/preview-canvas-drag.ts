@@ -11,7 +11,7 @@ export const PREVIEW_CANVAS_DRAG = `
   function canvasBase(path, gesture) {
     if (sourceVersions[path]) return sourceVersions[path];
     const steps = pendingForSource(path);
-    const plainMove = step => !step.corner && !step.makeRelative;
+    const plainMove = step => !step.corner && (!step.makeRelative || step.element.childElementCount === 0);
     const canChain = (timingDocumentId && path === compositionPath) ||
       (settings.liveEdits?.position === true && plainMove(gesture) && steps.every(plainMove));
     const latest = canChain && steps.at(-1);
@@ -103,13 +103,15 @@ export const PREVIEW_CANVAS_DRAG = `
     const style = getComputedStyle(element);
     if (!canvasTargetVisible(element, style)) return null;
     const makeRelative = style.position === 'static';
-    if (!canvasBase(selection.sourceFile, {corner, makeRelative})) return { waitingForSource: true };
+    if (!canvasBase(selection.sourceFile, {corner, makeRelative, element})) return { waitingForSource: true };
     // A CSS animation owns its layout properties. Move its path using the independent translate instead.
     const translate = !corner && animatedLayoutOffset(element, style);
     const properties = translate ? ['translate'] : makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
     const width = parseFloat(style.width), height = parseFloat(style.height);
     if (corner) {
-      if (!(width > 0 && height > 0) || style.display === 'inline' || style.transform !== 'none') return null;
+      // Inline replaced media honor CSS width and height, unlike an inline text span.
+      if (!(width > 0 && height > 0) || (style.display === 'inline' && !element.matches('canvas,img,video')) ||
+          style.transform !== 'none') return null;
       properties.push('width','height');
     }
     const original = Object.fromEntries(properties.map(property => [property, {

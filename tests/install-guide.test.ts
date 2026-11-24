@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, stat, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { generateInstallGuide, validateGuideSpec, validateGuideIdentity } from '../scripts/install-guide.mjs';
 import { movingGuide, publishGuide, storagePlan } from '../.github/scripts/publish-install-guide.mjs';
-import { installationInstructions } from '../scripts/install-onboarding.mjs';
+import { installationInstructions, prepareInstallationOnboarding } from '../scripts/install-onboarding.mjs';
 import { fileURLToPath } from 'node:url';
 import { runFile } from '../scripts/runtime-assets.mjs';
 
@@ -219,4 +219,40 @@ test('moving guides use channel tags while immutable guides and current version 
   assert(movingGuide(exact, { ...record, channel: 'stable' }).includes('@openmotion/app@latest'));
   const count = store.writes.length;
   await publishGuide(directory, config, store); assert.equal(store.writes.length, count);
+});
+
+test('local/DSH onboarding defaults to the archived local contract and keeps relative doc links valid', async t => {
+  const root = fileURLToPath(new URL('../', import.meta.url));
+  const localContract = await installationInstructions(root);
+  assert(localContract.includes('scripts/inline-onboarding.mjs --publish-from'));
+  assert(!localContract.includes('/api/onboarding/prepare'), 'Local/DSH contract must not instruct local installers to call cloud /api/onboarding/prepare');
+
+  const cloudContract = await installationInstructions(root, 'docs/install.md');
+  assert(cloudContract.includes('/api/onboarding/prepare'));
+
+  const tempData = await mkdtemp(path.join(os.tmpdir(), 'motion-local-onboarding-'));
+  t.after(() => rm(tempData, { recursive: true, force: true }));
+  const prepared = await prepareInstallationOnboarding({
+    appRoot: root,
+    dataDirectory: tempData,
+    host: 'deepseek',
+    language: 'zh',
+  });
+  assert.equal(prepared.instructions, localContract);
+  assert(!prepared.instructions.includes('/api/onboarding/prepare'));
+  assert.equal(prepared.cardPresentation.tool, 'propose_action');
+  assert.equal(prepared.cardPresentation.skill, 'openmotion-template-recommendations');
+  assert.ok(
+    prepared.inlinePresentation && ['prepared', 'unavailable'].includes(prepared.inlinePresentation.status),
+    'Inline onboarding either prepares built assets or degrades cleanly when build outputs are absent',
+  );
+
+  const legacyPath = path.join(root, 'docs/templates/legacy-npm-install.md');
+  const legacyText = await readFile(legacyPath, 'utf8');
+  for (const match of legacyText.matchAll(/\]\(([^)]+)\)/g)) {
+    const href = match[1];
+    if (/^(?:https?:|#|mailto:|\{\{)/.test(href)) continue;
+    const target = path.resolve(path.dirname(legacyPath), href.split('#')[0]);
+    await stat(target);
+  }
 });

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { readFile, lstat, mkdir, writeFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { runFile } from './runtime-assets.mjs';
 import { selectOnboardingTemplateIds } from '../shared/onboarding-templates.ts';
+import {
+  normalizeOnboardingLanguage,
+  renderInlineOnboardingDocument,
+} from '../shared/inline-onboarding-renderer.ts';
 
 // A current host can render this read-only production view without loading a
 // new MCP tool. Domain work continues through the installation's existing CLI.
@@ -26,69 +30,40 @@ export async function prepareInlineOnboarding({ appRoot, output, language = 'en'
 
 export async function renderInlineOnboarding({ appRoot, output, language = 'en', templateIds = selectOnboardingTemplateIds(), previewSource = 'project' }) {
   assert(['project', 'reference'].includes(previewSource), 'Unknown preview source');
-  language = typeof language === 'string' ? language.trim().toLowerCase().split(/[-_]/)[0] : 'en';
-  if (!['zh', 'en', 'ja', 'ko', 'fr', 'es', 'pt'].includes(language)) language = 'en';
+  language = normalizeOnboardingLanguage(language);
   const { loadTemplatePresentation, loadInlineProjectPreviews, showTemplateRecommendations } = await import('../shared/mcp-template-recommendations.ts');
   const { welcomeMarkdown, inlineDescriptionPrefixes } = await import('../mcp-ui/template-recommendations/i18n.ts');
   const directory = path.join(appRoot, 'mcp-ui/template-recommendations');
   const presentation = loadTemplatePresentation({ applicationRoot: appRoot, directory });
-  const match = presentation.content.text.match(/window\.__OPENMOTION_TEMPLATE_CARDS__=(.*?);<\/script>/s);
-  assert(match, 'Verified production bootstrap is missing');
-  const bootstrap = JSON.parse(match[1]);
   const recommendation = showTemplateRecommendations(presentation, {
     templateIds, language, ...(templateIds.some(id => id.startsWith('motion-')) ? { onboarding: true } : {}),
   });
-  // Only the selected three enter the document budget. Native recommendations
-  // retain the original reference films; this adapter embeds local project renders.
-  bootstrap.templates = bootstrap.templates.filter(template => templateIds.includes(template.id));
-  const references = bootstrap.templates.filter(template => template.kind === 'reference');
-  if (references.length && previewSource === 'project') {
-    const previews = loadInlineProjectPreviews(references.map(item => item.id), { applicationRoot: appRoot, directory });
-    for (const template of references) {
-      const preview = previews.find(item => item.id === template.id);
-      delete template.videoUrl; delete template.posterUrl;
-      Object.assign(template, preview);
-      template.description = inlineDescriptionPrefixes[language] + template.description;
-      for (const locale of Object.keys(template.descriptions)) template.descriptions[locale] = inlineDescriptionPrefixes[locale] + template.descriptions[locale];
-      const card = recommendation.cards.find(item => item.templateId === template.id);
-      card.durationSeconds = preview.durationSeconds;
-      card.description = template.description;
-    }
-  }
-  // Native MCP Apps carry ui.csp.resourceDomains; a visualization fragment
-  // cannot inherit it. Never mark remote-reference fragments as displayable.
-  if (bootstrap.templates.some(template => templateIds.includes(template.id) && (template.posterUrl || template.videoUrl))) {
-    return { status: 'native_required', mode: 'native-mcp-app', reason: 'INLINE_EXTERNAL_MEDIA_BLOCKED',
-      resourceVersion: presentation.resourceVersion, resourceUri: presentation.uri,
-      templateIds: recommendation.cards.map(card => card.templateId), language,
-      welcomeMarkdown: welcomeMarkdown(language),
+  const rendered = await renderInlineOnboardingDocument({
+    directory,
+    language,
+    templateIds,
+    previewSource,
+    presentation,
+    recommendation,
+    inlineDescriptionPrefixes,
+    loadProjectPreviews: referenceIds => loadInlineProjectPreviews(referenceIds, { applicationRoot: appRoot, directory }),
+  });
+  if (rendered.status === 'native_required') {
+    return { status: 'native_required', mode: 'native-mcp-app', reason: rendered.reason,
+      resourceVersion: rendered.resourceVersion, resourceUri: rendered.resourceUri,
+      templateIds: [...rendered.templateIds], language: rendered.language,
+      welcomeMarkdown: welcomeMarkdown(rendered.language),
       publicationRequired: false, nativeMcpSessionVerified: false,
-      presentation: { tool: 'openmotion_show_template_recommendations', arguments: { templateIds, language, onboarding: true } },
+      presentation: { tool: 'openmotion_show_template_recommendations', arguments: { templateIds, language: rendered.language, onboarding: true } },
       instructions: onboardingPresentationInstructions('native_required') };
   }
-  let fragment = await readFile(path.join(directory, 'inline.fragment.html'), 'utf8');
-  const json = value => JSON.stringify(value).replaceAll('<', '\\u003c');
-  const parts = {
-    '__OPENMOTION_INLINE_ROOT__': 'openmotion-onboarding-' + randomUUID(),
-    '/*__OPENMOTION_INLINE_STYLE__*/': (await readFile(path.join(directory, 'build/app.css'), 'utf8')).replace(/<\/style/gi, '<\\/style'),
-    '/*__OPENMOTION_INLINE_APP__*/': (await readFile(path.join(directory, 'build/inline.js'), 'utf8')).replace(/<\/script/gi, '<\\/script'),
-    '/*__OPENMOTION_INLINE_BOOTSTRAP__*/': json(bootstrap),
-    '/*__OPENMOTION_INLINE_RECOMMENDATION__*/': json({ ...recommendation, onboarding: false }),
-  };
-  for (const [marker, value] of Object.entries(parts)) {
-    assert(fragment.includes(marker), 'Inline template marker is missing: ' + marker);
-    fragment = fragment.replaceAll(marker, () => value);
-  }
-  assert(!fragment.includes('__OPENMOTION_INLINE_'), 'Inline template contains unresolved markers');
-  const bytes = Buffer.byteLength(fragment);
-  assert(bytes < 1_000_000, 'Inline onboarding exceeds the host document budget');
   await mkdir(path.dirname(output), { recursive: true });
-  await writeFile(output, fragment, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
-  return { status: 'prepared', mode: 'inline-document', path: output, bytes,
-    previewSource: references.length ? 'project' : 'builtin',
-    sha256: createHash('sha256').update(fragment).digest('hex'), resourceVersion: presentation.resourceVersion,
-    templateIds: recommendation.cards.map(card => card.templateId), language,
-    welcomeMarkdown: welcomeMarkdown(language),
+  await writeFile(output, rendered.html, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  return { status: 'prepared', mode: 'inline-document', path: output, bytes: rendered.bytes,
+    previewSource: rendered.previewSource,
+    sha256: rendered.sha256, resourceVersion: rendered.resourceVersion,
+    templateIds: [...rendered.templateIds], language: rendered.language,
+    welcomeMarkdown: welcomeMarkdown(rendered.language),
     publicationRequired: true,
     draftBehavior: 'clipboard-copy; no task submission', nativeMcpSessionVerified: false,
     instructions: onboardingPresentationInstructions('prepared') };

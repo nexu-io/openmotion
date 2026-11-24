@@ -54,25 +54,25 @@ OpenMotion 是一个**由 AI Agent 驱动的全栈视频创作工作台**，也�
 
 <a id="start-in-codex"></a>
 
-### 在 Agent 中安装
+### 在 Agent 中接入（推荐：云端 MCP）
 
-复制下面的指令，发给你的本地 Agent，即可从源码安装 OpenMotion：
+复制下面的指令，发给你的 Agent，通过 Streamable HTTP MCP + OAuth 2.1 直接连接 OpenMotion 云端服务（无需本地安装运行时）：
 
 ```text
-阅读 https://github.com/nexu-io/openmotion/blob/main/docs/install.md，按照指南在当前 Agent 中安装并连接 OpenMotion。
+阅读 https://github.com/nexu-io/openmotion/blob/main/docs/install.md，按照指南在当前 Agent 中连接 OpenMotion。
 ```
 
-安装完成后，Agent 会打开本地模板库并推荐一个模板，确认选择后再创建工程。[源码安装指南](install.md)
+完成 OAuth 授权后，Agent 会打开云端模板库并展示多语言欢迎语和 3 张精选模板预览卡片，确认选择后再开始创作。[云端 MCP 接入指南](install.md)
 
-### 安装已发布的 npm 应用（可选）
+### 旧版源码与已发布 npm 安装（可选）
 
-上方源码安装仍是仓库安装的默认方式。如需明确选择包含预构建 Studio 及已配置在线模板库的已发布应用，请复制下面的指令，发给你的本地 Agent：
+上方云端 MCP 为当前默认接入方式；自托管部署见 [deploy/README.md](../deploy/README.md)。如需显式使用旧版预构建 npm 应用，请复制下面的指令发给你的本地 Agent：
 
 ```text
 阅读 https://releases.open-design.ai/motion，按照指南在当前的 Agent 中安装并连接已发布的 npm 应用。
 ```
 
-[已发布应用的安装与版本通道选择](install.md)。已发布的版本可能落后于当前检出的源码。
+[旧版源码与 npm 安装模板（已归档）](templates/legacy-npm-install.md) · [npm 安装与诊断](npm-installation.md)。已发布的 npm 版本可能落后于当前检出的源码。
 
 ### 克隆仓库并在本地启动
 

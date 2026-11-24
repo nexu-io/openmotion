@@ -124,7 +124,10 @@ describe("peer timing classification", () => {
     const before = '<template><canvas id="reel" width="1920" height="1080"></canvas><script>draw();</script></template>';
     const after = before.replace('id="reel"', 'id="reel" style="left: 45px; top: 12px"');
     expect(diffPreviewChanges(before, after)?.[0]?.styles).toEqual([["left", "", "45px"], ["top", "", "12px"]]);
-    for (const changed of [after.replace('width="1920"', 'width="1280"'), after.replace('45px;', '45px; width: 50px;'), after.replace('draw();', 'drawNext();')]) {
+    const firstMove = after.replace("left: 45px", "position: relative; left: 45px");
+    expect(diffPreviewChanges(before, firstMove)?.[0]?.styles).toEqual([["position", "", "relative"], ["left", "", "45px"], ["top", "", "12px"]]);
+    expect(diffPreviewChanges(firstMove, before)?.[0]?.styles).toContainEqual(["position", "relative", ""]);
+    for (const changed of [firstMove.replace("relative", "absolute"), after.replace('width="1920"', 'width="1280"'), after.replace('45px;', '45px; width: 50px;'), after.replace('draw();', 'drawNext();')]) {
       expect(diffPreviewChanges(before, changed)).toBeNull();
     }
   });

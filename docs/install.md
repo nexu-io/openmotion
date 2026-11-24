@@ -1,153 +1,140 @@
-# Install OpenMotion
+# Connect OpenMotion (Cloud MCP)
 
-<!-- source-only:start -->
-For an Agent asked to install OpenMotion from this repository, use the source installation below. Commands run from the checkout root even though this guide lives under docs/. This is the default repository installation route. Only use npm installation when the user explicitly selects it; follow the [published application guide](#published-npm-application) instead of mixing source and package setup. npm remains required to install this checkout's locked dependencies and build Studio.
-<!-- source-only:end -->
+OpenMotion runs as a hosted **Streamable HTTP MCP** service with **OAuth 2.1** authentication. Do **not** install an npm package, clone this repository, or start a local Studio, Docker container, Chromium, or FFmpeg process.
 
-## Install the main OpenMotion Skill
+- **MCP Endpoint (Streamable HTTP)**: `https://motion.open-design.ai/mcp`
+- **Authentication**: OAuth 2.1 (auto-discovered via `https://motion.open-design.ai/.well-known/oauth-protected-resource/mcp`; Personal Access Token `om_pat_*` fallback only for non-OAuth clients)
+- **Cloud Template Library**: `https://motion.open-design.ai/?templates=1`
 
-Install the main `openmotion` Skill once through the official Skills CLI as part of setup:
+> **Environment override**: Always use the origin embedded in the guide you fetched (`<ORIGIN>/install.md`). If the user explicitly asks to connect to a staging, test, or self-hosted origin, substitute that exact origin for `https://motion.open-design.ai` everywhere below. Never guess a host URL or silently switch environments.
 
-```sh
-npx --yes skills@1.9.0 add nexu-io/openmotion --skill openmotion --global --agent AGENT --copy --yes
-```
+## Agent rules
 
-Use `codex` for Codex and `claude-code` for Claude Code. For DSH, use `universal`: install this extra entry even when DSH reads its production Skills from its own plugin bundle. Other hosts use their supported Skills CLI target, or `universal` if none exists. Select only the intended host; custom/isolated profiles use an explicitly selected project/profile scope instead of the daily global profile.
+1. **Derive `LANG` first** from the user's latest message (supported: `zh`, `en`, `ja`, `ko`, `fr`, `es`, `pt`; normalize `zh-CN` → `zh`, default `en`).
+2. **Reuse an existing working connection**: if `openmotion_get_project` is already available in this session for this target origin, skip Steps 1–2 and jump straight to [Step 3: Verify & Onboarding](#installation-success-reply) (or continue the user's creative brief).
+3. **Never install a local runtime**: do not run `git clone`, `npm install`, `npx @openmotion/app`, `docker compose`, or local stdio `mcp.ts`.
+4. **Configure only the current host**: preserve unrelated MCP servers, Skills, and settings. Never mention setup steps for unrelated clients in user-facing replies.
+5. **Never narrate internal onboarding mechanics**: never tell the user you are running "onboarding / 引导 / 中文模板引导", opening the template library, fetching three templates, or using a visualization skill to build preview cards—neither while waiting for authorization nor in progress updates before the final reply. Execute those steps silently and deliver only the final welcome and cards cleanly.
 
-<!-- source-only:start -->
-For the DSH source-workspace route below, the one-command installer performs this official CLI step in the selected profile's scope. Do not run the global command separately before it.
-<!-- source-only:end -->
+## Step 1: Add the Cloud MCP server
 
-Reuse an existing official installation. Preserve unrelated Skills, a foreign same-name entry and the CLI's telemetry opt-outs. `OPENMOTION_SKIP_PUBLIC_SKILL=1` skips this optional step. A CLI failure does not block Studio/MCP setup or onboarding; report it and continue. An owned legacy bundle must migrate through setup before the main Skill can occupy its path. Do not reinstall merely to generate another install event.
+Use **only** the row matching the current host (skip if `openmotion` already points to `https://motion.open-design.ai/mcp`):
 
-Derive `OPENMOTION_ONBOARDING_LANGUAGE` from the latest user request before running any onboarding preparation: `zh`, `en`, `ja`, `ko`, `fr`, `es` or `pt` (otherwise `en`). Do this for every host, independently of the OS language.
+| Host | Add MCP server | Auth method |
+| --- | --- | --- |
+| **Codex** | `codex mcp add openmotion --url 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (`codex mcp login openmotion` or host OAuth RPC) |
+| **Claude Code** | `claude mcp add --transport http --scope user openmotion 'https://motion.open-design.ai/mcp'` | OAuth 2.1 (`claude mcp login openmotion`) |
+| **ChatGPT** | Settings → **Connectors** → **Add MCP Server** → `https://motion.open-design.ai/mcp` | OAuth 2.1 |
+| **Claude.ai / Claude Desktop** | Settings → **Connectors** → **Add custom connector** → `https://motion.open-design.ai/mcp` | OAuth 2.1 |
+| **Cursor / Other MCP clients** | Add `{"mcpServers":{"openmotion":{"type":"http","url":"https://motion.open-design.ai/mcp"}}}` to MCP settings | OAuth 2.1 (or PAT fallback below) |
+| **Non-OAuth / Headless (e.g. DSH, CI)** | Streamable HTTP URL `https://motion.open-design.ai/mcp` with header `Authorization: Bearer ${OPENMOTION_TOKEN}` | Personal Access Token (`om_pat_*`) from `https://motion.open-design.ai` → **Settings → Account → Personal Access Tokens** (never commit or echo raw tokens) |
 
-Skills CLI installs instructions only. Continue the chosen runtime setup below in this conversation, reusing an existing installation. Do not wait for the new Skill to hot-load or register a second MCP connection.
+- **Optional entry Skill (non-blocking)**: you may install the lightweight `openmotion` Skill once via `npx --yes skills@1.9.0 add nexu-io/openmotion --skill openmotion --global --agent <codex|claude-code|universal> --copy --yes` (skip if already installed, `OPENMOTION_SKIP_PUBLIC_SKILL=1`, or if network/permissions fail). Detailed workflows are served dynamically from the cloud MCP via `resources/read` (`openmotion://workflow/*`).
 
-<!-- source-only:start -->
-## DSH: workspace plugin
+## Step 2: Authorize via OAuth 2.1
 
-When the current host is DSH and the user wants the integrated workspace, use the single source-checkout installer below. Do not apply the Codex or generic MCP route, register a second adapter, start another DSH instance or restart this conversation.
+1. **Skip login if already authorized**:
+   - In **Codex**, if `openmotion_get_project` already works or `codex mcp list --json` already reports `"auth_status": "o_auth"` for `openmotion` (pointing to `https://motion.open-design.ai/mcp`), skip login and go straight to Step 3.
+   - In **Claude Code**, run `claude mcp get openmotion` — if status is already **`Connected`**, skip login and go straight to Step 3.
+2. **Run login and wait automatically (no manual "authorized" reply required)**:
+   - **Codex (Desktop / CLI)**: run `codex mcp login openmotion` directly in the shell with a generous timeout (`180–300s`). It automatically opens the user's browser and listens for the OAuth callback:
+     - Exit `0`: authorization succeeded — proceed immediately to Step 3 without asking the user to confirm.
+     - Non-zero exit (e.g., user clicked **Deny / 拒绝** or canceled): report briefly that authorization was not completed and stop.
+   - **Claude Code**: run `claude mcp login openmotion` directly with a generous timeout (`180–300s`). If the shell reports stdin is not a terminal, launch it inside a PTY and poll the log until authentication completes (if the browser did not open, share the printed authorization URL):
+     - macOS: `script -qF /tmp/openmotion-login.log claude mcp login openmotion < /dev/null > /dev/null 2>&1 &`
+     - Linux: `script -qfc "claude mcp login openmotion" /tmp/openmotion-login.log > /dev/null 2>&1 &`
+     - Once authenticated (`Authenticated with` / exit `0`), proceed immediately to Step 3. If denied/failed, report briefly and stop.
+3. **Fallback ONLY when shell cannot open a browser or bind localhost (sandboxed / remote / headless)**:
+   - If the host exposes a non-blocking OAuth RPC (e.g. Codex Desktop `config/mcpServer/reload` + `mcpServer/oauth/login` with `{ "name": "openmotion", "timeoutSecs": 300 }`), call it to get `authorizationUrl`, send only the clickable link with a brief note to sign in / click **Allow / 同意授权** and reply when done (never mention onboarding, templates, or internal verification), and end your turn to wait.
+   - Otherwise, **stop** and tell the user in plain language (`LANG`) using **only** their host's single action:
+     1. Run `claude mcp login openmotion` / `codex mcp login openmotion` in their local terminal (add `--no-browser` over SSH; in Claude Code they can also use `/mcp` → `openmotion` → **Authenticate**; in GUI clients, click **Connect / Log in**).
+     2. Sign in to their OpenDesign account (skipped if already signed in) and click **Allow / 同意授权**.
+     3. Ask them to reply once authorized to continue (e.g., "授权完成后告诉我一声即可。" / "Let me know once you've authorized."). **Never** mention verification details, onboarding, template library, or recommended templates in this waiting message.
 
-Collect the existing checkout, current profile, `DSH_HOME`, workspace data directory and request language once from the host context. Reuse an intended checkout after checking its remote and local changes; do not inspect installer internals, rescan processes or repeatedly read the same guides. For a new source installation, shallow-clone the selected branch once with optional LFS downloads disabled as shown under [Other local hosts](#other-local-hosts-source-and-mcp). Run this from that checkout using Node.js 26.11.1 and the actual existing profile:
+> **HARD GATE — Never run Onboarding while login is still pending:**
+> If the user still needs to sign in or approve access in the browser, **end your turn after sending the short login guidance** and wait for their reply. Do **NOT** call `/api/onboarding/prepare`, do **NOT** claim OpenMotion is connected (`🎉 OpenMotion 连接好啦`), and do **NOT** mention or print the welcome message or template recommendations in the same reply as a pending login prompt.
 
-```sh
-node integrations/dsh/install.ts --profile PROFILE --data-dir /absolute/workspace/data --language zh
-```
+## Step 3: Verify connection & Onboarding
 
-Replace the profile/data arguments with this host's actual values and derive the language from the latest request. Pass `--dsh-home /absolute/dsh/home` when the current profile uses a custom home not already in `DSH_HOME`; `--url` accepts the actual local `DSH_WEB_URL`. The installer preserves model settings and unrelated profile entries, reuses matching locked dependencies and Studio build fingerprints, builds the local plugin directly without a tarball/profile package-install round trip, enables the workspace and the two native card components when absent and prepares the shared welcome/cards once. Reruns preserve the same selected IDs. An existing prepared receipt can be retained with `--resume /absolute/onboarding-receipt.json`. Official `npx skills add` installs the main Skill with `--agent universal` in this selected profile's project scope; do not separately reinstall it globally for an isolated DSH trial. A Skill CLI failure is reported without blocking the workspace.
+Run this section **only after authorization is complete** (already `"o_auth"` / `Connected`, `mcp login` exited `0`, or the user confirmed authorization). **Run verification, `/api/onboarding/prepare`, template-library opening, and card preparation silently**—do not send progress commentary announcing "I will open the template library", "I will show three onboarding templates", or "I will use a visualization skill to make preview cards".
 
-**Finish presentation in this same turn.** Follow the compact result's `nextActions`. The profile is watched: probe activation rather than assuming a host restart is needed. If the browser still shows the old DSH interface, refresh that page once through the host's supported browser surface; otherwise report this one manual refresh as pending. Never kill DSH, invent a restart command or silently declare completion. Load `cardPresentation.skill`, then invoke **`propose_action`** with exactly `cardPresentation.arguments`. The native recommendation card opens the template library on the right of the current conversation and shows the shared localized welcome above the same three IDs. Do not open the default sample project instead, or call `openmotion_show_template_recommendations` when that separate MCP App tool is unavailable. Do not replace the welcome with a technical installation report. `onboardingComplete:false` and `awaiting_host_delivery` explicitly mean the visible welcome/cards are still pending; a healthy status route or a prepared file is not completion. When card presentation is unavailable or fails, show the same welcome and three names, summaries and preview links as text, and state the display limitation.
-
-Published tarballs remain available through [OpenMotion for DSH](../integrations/dsh/README.md#download-and-install-the-plugin) and [DSH plugin downloads](https://releases.open-design.ai/open-motion/integrations/dsh/stable/latest.json). This is the separate pinned-release route; preserve its source commit and checksum. Do not probe stable/test/main manifests or switch releases during the existing-checkout route. Stable becomes available after the first coordinated publication containing DSH; earlier explicit development installs can select `--channel=main`. Installation does not authorize creating or exporting a video.
-
-## Codex: automatic source installation
-
-Collect OS/CPU, Git, Node.js/npm and the current host once. Source validation uses Node.js 26.11.1. Codex must support `codex plugin add`. Preserve projects, credentials, unrelated plugins and MCP configuration. Configure only the current host.
-
-Before running the installer, including setup from an existing checkout, export `OPENMOTION_ONBOARDING_LANGUAGE` in the same shell. Derive it from the latest user request's language, not the OS or host UI language. Supported codes are `zh`, `en`, `ja`, `ko`, `fr`, `es` and `pt`; normalize locale tags to their lowercase primary code and use `en` for unsupported languages. For a Chinese request, run `export OPENMOTION_ONBOARDING_LANGUAGE=zh` before the commands below so the welcome/cards are prepared in Chinese.
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/nexu-io/openmotion/main/install.sh -o /tmp/openmotion-source-install.sh
-bash /tmp/openmotion-source-install.sh
-```
-
-`OPENMOTION_INSTALL_DIR` selects a persistent empty absolute destination. The script downloads one shallow snapshot, installs locked dependencies, builds Studio, registers the local plugin, probes MCP and prepares the template library. Do not separately run npm start, install dependencies again or inspect unrelated repositories.
-
-If the intended checkout already exists, inspect its remote, version and local changes first, then run `bash scripts/install-motion.command` from that checkout. Preserve an active or foreign source; never overwrite it or silently switch installations. Preserve an existing `MOTION_DATA_DIR` and use the same workspace for Studio and MCP. Source reinstallation checks content fingerprints for the build inputs and generated outputs, rather than only the presence of index.html. Matching builds are reused; source-only changes rebuild without reinstalling matching dependencies, while a changed lockfile or missing installation reruns npm ci. A checkout without a prior fingerprint needs one initial rebuild. Prebuilt ZIPs retain their sealed editor. Keep projects and credentials outside the checkout. Read the checkout's AGENTS.md before repository changes.
-
-Command-local Git LFS overrides keep optional media as pointers even when global LFS configuration is stale. No global Git configuration is changed. A read-only source check runs before dependency work; unknown inventory or installed-source conflicts stop with a concrete recovery instruction. See [clone size and optional media](repository-storage.md).
-
-The installer saves phase timings and an immutable onboarding receipt under `.artifacts/install/`. Complete onboarding in the same turn: open the real library once, publish the prepared HTML into the current chat's permitted visualization directory, then emit the publication result's complete `finalReplyMarkdown` verbatim (maintained welcome followed by the card reference). Do not summarize the welcome or replace it with a status report; keep connection diagnostics in progress updates. If recovery confirms the welcome was actually delivered earlier, publish with `--welcome-delivered` to return cards only. Only the three frozen selections are embedded, with complete silent project previews and posters. Open the library once and use that call's result or initial page state; do not add visibility, screenshot, inventory or playback audits. If opening fails or is unconfirmed, replace the library-visible heading with the actual result and usable link; installation remains installed. A queued host refresh uses the saved recovery command without reinstalling or resampling. Presentation and automatic current-chat MCP activation are independent: missing host control does not block the HTML cards, and visible cards do not prove automatic activation. Never enqueue internal instructions as another user message. Download time depends on the network.
-
-## Other local hosts: source and MCP
-
-Use Git, npm and Node.js 26.11.1:
-
-```sh
-git -c filter.lfs.process= -c filter.lfs.smudge= -c filter.lfs.required=false clone --depth 1 --single-branch --branch main https://github.com/nexu-io/openmotion.git
-cd openmotion
-npm ci
-npm run build:studio
-npm start
-```
-
-Open the actual studioUrl or previewUrl printed at startup. Follow [manual MCP configuration](../README.md#manual-mcp) and the [host adapter guide](agent-adapters.md) to connect this checkout's mcp.ts and the same data directory. Source preview/export also need working Chrome/Chromium and FFmpeg/ffprobe; see [runtime setup](usage.md). Merely starting Studio does not register an Agent connection. Once connected, run `node scripts/install-onboarding.mjs --host HOST` from the checkout using this connection's `MOTION_DATA_DIR`, replacing `HOST` with the actual host name such as `claude`. Then follow the shared onboarding below using the returned three IDs and presentation arguments.
-
-After source setup, follow [Installation-success reply](#installation-success-reply) below. Do not run the npm setup as well.
-
-## Published npm application
-
-Use this alternative only when the user selects npm. Read the [stable guide](https://releases.open-design.ai/motion) or the explicitly selected [test guide](https://releases.open-design.ai/open-motion/dev/install.md). Do not guess a package version or execute unresolved placeholders below. The release generator fills this section and the shared onboarding contract from this same file. Generated npm guides also pin the public Skill source to the application's release commit; source readers use main. Do not fetch main's Skill as an extra step for a pinned release.
-
-Codex can also use a pinned bootstrap: run `bash install.sh --package EXACT_PACKAGE_SPEC` from the checkout, using the exact published `@openmotion/app@VERSION`. A reviewed HTTPS candidate or an absolute local `.tgz` requires `OPENMOTION_INSTALLER_SHA256` from its matching manifest before this command. With no arguments `install.sh` still uses source; other hosts use the published guide's `openmotion setup --host` command.
-<!-- source-only:end -->
-
-This guide pins the complete npm application `{{PACKAGE_SPEC}}` on the **{{CHANNEL}}** software channel. It includes MCP, the built Studio and production Skills. The default template environment is **{{TEMPLATE_ENVIRONMENT}}**: new test versions embed DEV defaults, stable versions embed prod, and previously published versions keep their original environment.
-
-If you are reading this file in the source repository and see `{{...}}`, it is a template, not a published installation instruction. Do not guess a package name or version.
-
-## Instructions for the Agent
-
-1. Collect OS/CPU, Node.js/npm versions and the current Agent identity together, using the host's supplied context where available. Node.js 22.18+ with npm and the Agent must already be installed. Supported native targets: {{TARGETS}}. If a macOS target has no declared minimum version, proceed with setup and native executable checks; do not infer a minimum from the build/test machine's OS version. Do not claim support for another target from package-download success.
-2. Select the current host explicitly: `codex` (Codex), `claude` (Claude Code), `deepseek` (DeepSeek Harness) or `workbuddy` (WorkBuddy) have registration adapters. Any other local Agent, such as OpenCode, Cursor Agent or Gemini CLI, passes its own lowercase name (for example `opencode`); setup installs the same application and Skills, leaves that host's configuration unchanged and returns `agentRegistration` for the Agent to add to its own MCP configuration. Never borrow another host's adapter. An explicit user selection takes precedence. Do not infer the current host from which CLIs happen to be installed. Ask only when the current host or required profile cannot be established. Configure only that host; preserve projects, credentials and unrelated MCP/Skills settings.
-3. For a test candidate, use a separate host profile, application home, project data and Skills directory. Keep those paths and reuse them for prepare and future reconnects. The [platform installation recipes]({{DETAILS_URL}}) describe the actual supported options. Do not run a test candidate into the user's daily profile by default.
-4. Choose exactly one setup command below, applying the test isolation paths first when required. Setup starts checked video-component downloads in the background. Do not wait for prepare to connect MCP, create/edit projects or open ordinary preview. Studio shows preparation status and retry; media import, automated capture and export require their respective components. Compatible phase-one updates can keep existing connections; reconnect closed or incompatible transports. Verify the selected installation/workspace with one actual `openmotion_get_project` call, reusing setup's successful same-chat read when available. Complete Tool/Skill inventory comparison belongs to development/release acceptance, not ordinary installation. If this chat has not loaded them or still points at another installation, use `onboarding.directAccess` below; registration alone does not prove native loading. Do not postpone the installation reply or template library opening until a new chat or the first MCP call.
-5. On successful setup, follow the installation-success reply below in this same conversation. Open the template library without creating a project. Installation does not authorize downloading template project source, rendering or calling a paid model. Report a failed installation honestly; do not claim success until it is fixed.
-
-For npm network failures, automatically try `https://registry.npmjs.org` then `https://registry.npmmirror.com`, at most once per registry, counting the initial failed attempt. Respect an explicitly selected registry and host policy. Set `npm_config_registry` and `npm_config_fetch_retries=0` only for that attempt, including setup's npm child process. Keep the exact version; verify any mirrored tgz against the matching immutable guide's SHA256 before executing it. If both fail, follow [npm download recovery]({{DETAILS_URL}}#npm-download-failures) for network checks and a terminal handoff. Permission or checksum failures stop immediately. A local tgz still needs npm access for setup's production dependencies.
+1. **If `openmotion_get_project` is already available in this session**:
+   - Call `openmotion_get_project({})` once to verify workspace access (`projects: []` is normal for a newly authorized OAuth client — projects created by the Agent are accessible immediately, and older web projects can be granted per-project in Studio **Project → Agent access**).
+   - Proceed directly to [Installation-success reply](#installation-success-reply) in this conversation.
+2. **If registration and authorization succeeded, but this installation session has not loaded `openmotion_*` tools yet**:
+   - Confirm registration/auth (`codex mcp list --json` showing `"auth_status": "o_auth"`, or `claude mcp get openmotion`). Do **not** reinstall or restart the host.
+   - **Auto-handoff to a ready session when the host supports creating and switching conversations (e.g. Codex Desktop)** — skip this if the current conversation was already started as a handoff:
+     1. Discover host thread tools via `tool_search` (or scan visible tools) for `create_thread`, `send_message_to_thread`, `navigate_to_codex_page`, `set_thread_title`, and `list_projects`.
+     2. Preserve the current workspace/project container (use the same project/workspace target if this chat is project-scoped; stay projectless if projectless).
+     3. Create a new conversation (optional title: `OpenMotion`) and send **one short natural handoff message** in `LANG` so the new session loads all `openmotion_*` tools and runs verification + onboarding automatically (make sure the new thread actually contains this message—if `create_thread` does not take an initial message, call `send_message_to_thread` immediately):
+        - `zh`: `OpenMotion 已连接完成，请按 https://motion.open-design.ai/install.md 验证连接并开始创作。`
+        - `en` (or localize to `LANG`): `OpenMotion is connected. Follow https://motion.open-design.ai/install.md to verify the connection and get started.`
+     4. Call `navigate_to_codex_page` (or the host's switch tool) to move the user straight into the new conversation.
+     5. In this installation conversation, reply with one brief confirmation (e.g., `OpenMotion 已完成连接并授权，已为你切换到新的创作对话。`) and stop—do **not** duplicate onboarding cards here.
+   - **Fallback (when the host has no conversation-creation/switch tool, e.g. `codex_app` disabled or Claude Code CLI, or if thread creation fails)**:
+     - Proceed directly to [Installation-success reply](#installation-success-reply) in this conversation using the cloud onboarding API below.
+     - **Do NOT append any technical caveat** about tools not being loaded yet or telling the user to open a new conversation during the onboarding reply.
 
 <!-- installation-onboarding:start -->
 ## Installation-success reply
 
-Accept presentation and automatic MCP activation independently.
+Run this section **only after authorization is complete** (never combine it with a pending login request). Once authorized, accept onboarding presentation and current-chat MCP tool hot-reload independently.
 
-### Presentation acceptance
+> **Output purity rule**: Emit the exact maintained welcome copy returned by `/api/onboarding/prepare` **verbatim**—do **NOT** rewrite or summarize it, do **NOT** prepend technical status reports (such as "OAuth 授权成功 / 已验证可以读取工作区 / 当前可见项目为 0 个"), and do **NOT** append a disclaimer telling the user that tools are not loaded yet or asking them to open a new conversation.
 
-1. Open the actual local template library once, without creating a project. Detailed library inspection is unnecessary.
-2. On every Agent, deliver the maintained localized welcome and exactly three full-duration project-preview cards. Choose a supported native MCP App, DSH action-card component, or host HTML surface; host identity alone is not a reason to use text. On Codex, publish the self-contained HTML fragment and place its returned content reference directly after the welcome in the final reply. Native MCP Apps remain an alternative for original reference films when native tools are available. Claude and other hosts use their supported card surface; DSH uses its action cards. If no card surface is supported or a real presentation attempt fails, show the same three template names, summaries and preview links as text in the same order. Retain the shared welcome/introduction and explain the card limitation briefly; do not claim that a card was displayed. A general DSH workspace gallery is not a substitute for the three installation recommendations.
-3. Preserve the three IDs/order sampled without replacement from the four-entry pool in `shared/onboarding-templates.ts` (the catalog IDs referenced by PR #472). Use the presentation tool's result or the host's normal rendering; do not start an additional visibility audit. Publication or a queued operation alone is not confirmed display. Image decoding, advancing video playback and enlarged-preview checks belong to development/release acceptance; do not run or wait for them during installation. Record media failures separately without invalidating installation, connection or confirmed card visibility. Human audiovisual review remains separate.
+### 1. Prepare frozen 3-of-4 recommendations from the cloud API
 
-`onboardingStatus` and `onboardingComplete` describe presentation only. Setup and connection recovery leave it `awaiting_host_delivery` and incomplete until visible delivery is confirmed; library preparation failure remains `preview_unavailable`. `hostHandoff.automaticActivation`, its reason and `hostSessionVerified` report the independent connection check. A working native connection can present the component even when the installer's control socket is unavailable. Visible cards do not prove that installation loaded MCP automatically, and activation failure does not invalidate an otherwise verified presentation.
+Call the stateless cloud onboarding endpoint **once** with `LANG`:
 
-### Self-contained project previews (default)
+```sh
+curl -fsSL "https://motion.open-design.ai/api/onboarding/prepare?lang=${LANG}"
+```
 
-Default preparation freezes three IDs/order once across `catalog`, `inlinePresentation`, `hostHandoff` and recovery. It returns `prepared` with an integrity-locked HTML path, SHA256 and the selected IDs. The fragment embeds only those three projects' prebuilt WebM (VP9)/JPEG bytes. Complete silent videos retain 12 fps, with widths up to 512 px and two-pass VP9 encoding at 28–48 kbit/s per template. A CRF 16 intermediate avoids compounding compression loss; JPEG posters come directly from that intermediate. The builder reserves a media budget for the longest three-film combination, and regression tests render all four three-of-four combinations in every supported language. The renderer enforces the complete document's 1,000,000-byte limit; changing codecs does not guarantee fine-text or full-screen fidelity. Explicit builtin examples retain their existing MP4 previews. It needs neither external media origins nor current-chat MCP activation. Publish it with `scripts/inline-onboarding.mjs --publish-from PATH --sha256 SHA256 --host-directory DIRECTORY` using the current chat's explicitly permitted visualization directory. Publication reads the frozen language from the hash-verified document and returns `finalReplyMarkdown`, containing the complete maintained welcome followed by `contentReference`. After successful library opening, emit that complete field verbatim as normal final reply text (use the truthful heading exception below otherwise); do not summarize it or replace the introduction with an installation-status report. Report connection diagnostics separately in progress updates. If the welcome was actually delivered earlier, publish with `--welcome-delivered` to return only the card reference. The document itself contains cards only. A prepared/published file does not establish visible delivery.
+It returns:
+- `templateIds`: three distinct curated IDs sampled without replacement from `shared/onboarding-templates.ts` (keep this exact order across every surface and retry; pass `&templates=id1,id2,id3` on retry so the selection never redraws).
+- `libraryUrl`: `https://motion.open-design.ai/?templates=1`.
+- `welcomeMarkdown`, `fallbackWelcomeMarkdown`, `noSidebarWelcomeMarkdown`, and `noSidebarTextWelcomeMarkdown`: localized maintained welcome copy in `LANG`.
+- `inlineHtmlUrl`, `inlineHtmlSha256`, and `inlineHtmlBytes`: self-contained `< 1,000,000`-byte HTML card fragment with embedded silent VP9 WebM previews and JPEG posters.
+- `cardPresentation`: exact arguments for `openmotion_show_template_recommendations`.
+- `dshCardPresentation`: exact `propose_action` arguments formatted for DSH's `detailsSchema` (`id`, `title`, `description`, video `previewUrl`, `posterUrl`, `duration`).
+- `templates`: ordered metadata (`position`, `templateId`, `title`, `summary`, `durationSeconds`, `previewUrl`, `posterUrl`, `videoUrl`) for text fallback.
 
-These are **silent renders of the repository's editable projects**, not original reference films or a claim of verified recreation fidelity. All four previews are prebuilt by maintainers with `node scripts/build-onboarding-previews.mjs`; installation does no rendering or media download. The builder uses pinned Hyperframes, Chrome and FFmpeg, strips audio only in scratch copies, preserves complete project duration, and records source/media hashes. `--hydrate-fonts` may retrieve hash-verified project fonts missing from a source checkout. Original reference videos are never downloaded for embedding. No source project is changed by the build. HTML project-card descriptions use a localized introduction label followed by the localized summary: `简介：` (zh), `Summary: ` (en), `概要：` (ja), `소개: ` (ko), `Présentation : ` (fr), `Resumen: ` (es) and `Resumo: ` (pt). The typed `inlineDescriptionPrefixes` dictionary in `mcp-ui/template-recommendations/i18n.ts` covers every supported language; rendered-card regression checks enforce the labels in all seven languages. Media provenance is documented here rather than repeated in card descriptions. Always pass the user request language explicitly when preparing installation HTML; the renderer default is English.
+Never substitute built-in examples (`product-promo`, `nyt-graph`, `decision-tree`) for the curated onboarding pool unless the user explicitly asks for them.
 
-### Native original reference cards (alternative)
+### 2. Open the cloud template library once (without creating a project)
 
-Native MCP Apps retain the original reference films and their declared media origin. For hosts using a supported native MCP App route and a working native connection, call `openmotion_show_template_recommendations` with the exact prepared IDs/order, request language and `onboarding:true`. After successful library opening this displays the maintained welcome above the three cards; do not duplicate it in the final reply. If library opening failed or is unconfirmed, use `onboarding:false` and a truthful reply as described below. Use `onboarding:false` after a welcome already delivered. Explicit `renderInlineOnboarding({previewSource:'reference', ...})` returns `native_required`, since the document renderer cannot inherit native App media policy. Preserve the selection; do not substitute builtins or alter host security. A shell presentation call does not mount a native component. Original reference playback requires network access.
+- If native MCP tools are active, call `openmotion_open_preview({ "target": "templates", "action": "open" })` to obtain `previewUrl`; otherwise use `prepare.libraryUrl` (`https://motion.open-design.ai/?templates=1`).
+- On hosts with a right-hand browser pane (such as Codex Desktop `open_in_codex` with `placement: "right"`, CUA `cua.createBrowserTab('iab', url, { visible: true })`, or DSH workspace view), open or reuse that tab **once**. Do not run extra snapshots, screenshots, inventory, layout, or playback audits.
+- On CLI hosts without a right-hand browser pane (such as Claude Code terminal), do **not** claim a right-hand library opened—provide the clickable `libraryUrl` using `noSidebarWelcomeMarkdown` / `noSidebarTextWelcomeMarkdown`.
+- Never create a placeholder project during onboarding.
 
-### DSH conversation cards
+### 3. Deliver the localized welcome and three template preview cards
 
-For the integrated DSH workspace, load `openmotion-template-recommendations` before calling `propose_action` with action `openmotion_template_recommendation`. On installation, use `details.onboarding=true`, the request language, `libraryOpened` only after confirmed opening, and exactly the three prepared IDs/order. Read each selected template to fill truthful title, summary and preview/poster links; do not infer editable source from the card's provenance. Do not resample. Use the maintained welcome in the card, or stream it once above the card without duplicating it. Card preview and selection never create a project; continue only after the user's creation brief. If this host lacks action-card support, try another supported card surface, otherwise give the same three text recommendations.
+Choose the best supported card surface for the current host (host identity alone is not a reason to downgrade to text):
 
-### Automatic current-chat activation
+1. **Native MCP App (when `openmotion_show_template_recommendations` is natively discovered)**:
+   - Call `openmotion_show_template_recommendations` with `prepare.cardPresentation.arguments` (`{ templateIds, language, onboarding: true }`) when the right-hand library opened (the component renders the welcome above the three interactive cards—do not duplicate it in text).
+   - If the host has no right-hand pane or library opening failed/is unconfirmed, pass `prepare.cardPresentation.cardsOnlyArguments` (`onboarding: false`) and emit `prepare.noSidebarWelcomeMarkdown` in reply text.
+2. **Self-contained HTML visualization cards (Codex default — works even before current-chat MCP tools hot-reload)**:
+   - Download into the current chat's explicitly permitted visualization directory:
+     ```sh
+     curl -fsSL "<prepare.inlineHtmlUrl>" -o "<HOST_VISUALIZATION_DIR>/openmotion-welcome.html"
+     ```
+   - Verify SHA-256 matches `prepare.inlineHtmlSha256` and size is `< 1,000,000` bytes.
+   - Emit `prepare.welcomeMarkdown` verbatim (when the right-hand library opened) or `prepare.noSidebarWelcomeMarkdown` (otherwise), followed immediately by:
+     `visualize{"path":"<HOST_VISUALIZATION_DIR>/openmotion-welcome.html"}`
+   - Do not summarize the welcome or replace it with a technical status report.
+3. **DSH conversation cards**:
+   - Load `prepare.dshCardPresentation.skill` (`openmotion-template-recommendations`) and call `propose_action` with `prepare.dshCardPresentation.arguments` (setting `details.libraryOpened: true` only after confirmed library opening). Do **not** pass raw `prepare.templates` directly: DSH expects `id`, `description`, `duration`, and video-stream `previewUrl` (`videoUrl`), which `prepare.dshCardPresentation.arguments.details.templates` already supplies.
+4. **Text fallback (CLI / hosts without card UI, or when card rendering fails)**:
+   - Emit `prepare.fallbackWelcomeMarkdown` (if a right-hand library opened) or `prepare.noSidebarTextWelcomeMarkdown` (otherwise), then list the exact three items from `prepare.templates` in order with **title**, **summary**, and clickable **`previewUrl`**, and briefly note that this client does not render interactive preview cards.
 
-Reuse setup’s successful same-chat workspace read; do not repeat it in the Agent. This is a separate acceptance track: installation must automatically load the native tools and verify the installed workspace in the installing chat. Registration, an independent handshake, a queued refresh or a later connected chat does not establish that result. Record the installation/chat identities and actual host recovery path; do not infer automatic activation from presentation acceptance.
+### Welcome copy reference
 
-Source and npm setup use `prepareInstallationFlow`. After registration, an existing supported Codex control connection checks `thread/loaded/list` for the calling `CODEX_THREAD_ID`. A healthy native connection is reused. Missing/stale tool discovery, an outdated application version or a mismatching immutable card resource requests one `config/mcpServer/reload`. The refresh is queued for a host tool boundary; an immediate status read is not its completion.
-
-After that tool step finishes, execute the returned `recovery.command`/`recovery.args` in this same turn. The private immutable receipt preserves the chat, application, workspace, language, three IDs/order and library URL. Recovery performs verification only: no reinstall, library startup, resampling or additional reload. Native discovery and `openmotion_get_project` must verify the expected workspace through the calling thread before `hostSessionVerified` is true. They do not prove visible welcome/cards.
-
-Use `OPENMOTION_CODEX_SOCKET` for an explicitly known existing control entry, otherwise use the current profile's default entry. Resolve that entry with `realpath`; current-user-owned symlinks are supported when the resolved target is a current-user-owned socket in a current-user-owned directory that is not group- or world-writable. Pass the verified canonical path to the CLI proxy, then verify that the existing host has this chat loaded before any reload. Resolving this known entry is supported discovery, not endpoint guessing. Missing, dangling, cyclic, foreign-owned and unsafe targets remain blocked.
-
-Do not scan unrelated paths for endpoints, start another app-server to simulate this chat, alter host listeners/security, inject instructions through `codex queue` or automatically restart Codex. If the user explicitly chooses to reconnect, record it as manual recovery; it does not establish automatic activation in the original installing chat. A private-stdio host with no supported reload capability blocks automatic-activation acceptance. Retain that reason independently in diagnostics and the receipt. Use already working native tools directly to deliver the welcome/cards; do not withhold presentation because the script control socket is missing.
-
-Codex plugin setup reaches this contract through `extensions.com.openai.onboardingSkill`. Its directory must also be in the plugin's `skills` roots. CLI registration alone does not invoke the desktop install callback or create a current-chat refresh capability. Installed files, current-chat connection and visible native delivery are separate outcomes.
-
-### Open the library
-
-Use `openmotion_open_preview({target:"templates"})` when loaded, otherwise setup's exact `preview.previewUrl`. Open it using the current Agent's supported browser surface (Codex's right-hand browser or DSH's workspace template view), preserving embedding parameters and reusing its tab. With CUA, create it using `cua.createBrowserTab('iab', previewUrl, {visible:true})`, mark it as a deliverable and complete mandatory browser bookkeeping. Otherwise use the supported `open_in_codex` browser target with `placement:"right"` and no other thread ID. Use only the opening call's result or initial page state; do not add hidden-tab/reveal choreography, snapshots, screenshots, inventory, layout or media checks. If the call fails, is only queued or cannot confirm opening, report the actual result and a usable URL without claiming visibility. Library-opening failure does not invalidate installation or block the welcome/cards; change the library-visible heading as described below. Never create a placeholder project or submit project display receipts for the library.
-
-### Welcome copy and blocked delivery
-
-The native component uses the shared localized welcome dictionary. The Chinese welcome begins:
+When the right-hand library opened, the maintained Chinese welcome is:
 
 ```text
-🎉 OpenMotion 安装好啦，右侧就是模板库！
+🎉 OpenMotion 连接好啦，右侧就是模板库！
 
 我是你的开源视频创作搭档，我有丰富的高水准视频模板，也支持从参考视频或一个灵感出发，和你一起创作精彩的视频。
 
@@ -156,73 +143,18 @@ The native component uses the shared localized welcome dictionary. The Chinese w
 不想自己找？先看看我挑的这 3 个 👇
 ```
 
-If no supported card route can be displayed and the library opening succeeded, use these three maintained paragraphs for Chinese requests, then list the same three prepared template names, summaries and preview links as text:
+When there is no right-hand browser pane (or opening failed/is unconfirmed), replace only the first line with a truthful heading plus the clickable library link (e.g. `🎉 OpenMotion 连接好啦！模板库：https://motion.open-design.ai/?templates=1`), keeping the rest unchanged.
 
-```text
-🎉 OpenMotion 安装好啦，右侧就是模板库！
+### Completion boundary and next turn
 
-我是你的开源视频创作搭档，我有丰富的高水准视频模板，也支持从参考视频或一个灵感出发，和你一起创作精彩的视频。
-
-模板库支持搜索，也可以随意浏览，找到喜欢的点击「复刻模板」就能开始你的创作！
-```
-
-Use the same localized introduction/discovery wording across Codex, Claude, DSH and other Agents; adapt only the location of the library and whether recommendations are cards or text. Never claim a right-hand library opened in a host without one. The top-level `welcomeMarkdown` supplies these paragraphs in the request language. After a successful library opening, use the maintained copy without an extra status report. If the opening failed, was only queued or cannot be confirmed, replace its library-visible heading with a concise statement of the actual result and the usable library URL when available. Retain the introduction; deliver prepared cards when possible. This exception also applies to the library-visible heading in published `finalReplyMarkdown` and native welcome copy: do not emit it as a success claim after a failed opening. If native copy cannot be adapted, use the cards-only native arguments (`onboarding:false`) and provide the truthful welcome as reply text.
-
-Keep installation, presentation and automatic activation separate. A card/library failure does not invalidate an installed application. Record unresolved results in diagnostics and the receipt, and report a relevant failure briefly rather than hiding it behind success copy. Do not run page/media audits, repeat installation or wait indefinitely for presentation. For recovery after an actually delivered welcome, use `--welcome-delivered` so it is not repeated.
-
-### Explicit builtin compatibility
-
-Explicit builtin examples can still use the same prepared document route. They never replace the four-entry pool's selected projects. Automatic MCP activation is assessed separately for either route.
-
-### Accepted template selection
-
-After a user submits the brief, retrieve the accepted ID with `openmotion_get_template` and read its instructions and motion document. When `hasHtmlProject` is true, use `openmotion-template-to-video` to reuse the editable source; preserve unchanged content when no customization was requested. Use `openmotion-recreate` only when the source has no editable project. Presentation provenance and preview rendering do not determine source capability or authorize creation.
-
-Use the exact accepted ID and scope through [accepted template selection](../skills/openmotion-production/references/templates.md#accepted-template-selection). A named choice retains that recommendation; a generic agreement to several equal choices still needs a selection. Recreate only fills an unsent editable brief through a negotiated composer bridge, or copies it to the clipboard with a floating Toast. Browsing, playback and copying do not authorize creation/export; the user-sent brief does. Preserve customized requirements and any existing GUI-created project, and never create a duplicate during recovery.
+- **Do not create or export a video unasked.** Stop after onboarding and wait for the user's choice or creative brief.
+- **If the user later submits a brief in the same installation conversation and native `openmotion_*` tools are still not exposed**: do not fall back to authoring local HTML without OpenMotion MCP—only then briefly ask the user to paste their brief into a new conversation where the OpenMotion tools are loaded.
+- **Accepted template selection**: when the user chooses a card and submits a brief, call `openmotion_get_template` with that exact `templateId`. Reuse the editable project (`openmotion://workflow/template/start`) when `hasHtmlProject` is `true`; use `openmotion://workflow/recreate/start` only when it has no editable project. Never silently swap templates.
+- **Cloud media import**: local host paths (`sourcePath`) are unsupported in cloud mode—use `openmotion_import_assets` (`prepare_upload` → presigned PUT → `upload_ticket`, public HTTPS `url`, or workspace `library_asset`).
 <!-- installation-onboarding:end -->
 
-## Maintained recommendation selection
+## Troubleshooting
 
-`shared/onboarding-templates.ts` owns a curated pool of four references: **Bolt Skills｜团队能力展示**, **Glean Agents 发布**, **Dia 开放给 Arc 会员**, and **免费语音输入**. Each onboarding preparation samples three distinct entries without replacement. Inline cards, native handoff and the fallback catalog share that exact selection and order. The prepared document keeps its selection while playing, returning from detail or changing host context; only a new preparation draws again. Independent preparations may overlap.
-
-Use the three prepared IDs returned in `inlinePresentation.templateIds`, the ordered `catalog.templates`, or the native handoff arguments. Do not draw a separate set for another surface. Cards reuse the same localized creation brief as the template library through `shared/template-prompts.ts`, including the exact title and ID. Their `reference` presentation kind does not assert that editable source is unavailable; resolve source capabilities only after the user submits the brief.
-
-Default inline cards embed prebuilt project previews from `mcp-ui/template-recommendations/project-previews`, with the same playback controls, visibility pauses and error fallback as native cards. The separate native adapter retains original reference films at their immutable public `r.open-design.ai` URLs. Installation preparation performs no media download or generation. The three previous builtin examples remain available for explicit recommendations and never replace the current default selection. Existing chats retain their frozen presentation; source changes do not update an installed host or previously prepared onboarding document.
-
-Cards show the selected reference's localized `original.promotionalUseCases` value in a persistent top-left media badge, without a field-name prefix. This purpose category stays visible while the video plays and at narrow widths; the bottom-right preview action remains separate. Empty/missing values are omitted. The category does not use the separate `visualPresentation` field or infer a value from the title. The shared design-system media-label recipe supplies its translucent surface and typography.
-
-<!-- openmotion-utm-source-supported -->
-
-## Choose the selected host's setup command
-
-The commands below show normal installations. For test candidates, apply the separate configuration/profile, home, data and Skills paths from the [platform recipes]({{DETAILS_URL}}) first. Run only the selected row.
-
-| Current Agent | Setup command | Host-specific selection |
-| --- | --- | --- |
-| Codex | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host codex` | Preserve the selected `CODEX_HOME` and Skills root. |
-| Claude Code | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host claude` | Preserve the selected `CLAUDE_CONFIG_DIR` and Skills root. |
-| DeepSeek Harness | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host deepseek --profile PROFILE` | Replace `PROFILE` with the actual selected profile from the host context; do not guess `web` or `desktop`. The standard macOS Desktop CLI is detected even when `dsh` is absent from PATH; use `--dsh` for another executable location. |
-| WorkBuddy | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host workbuddy` | Preserve the selected `WORKBUDDY_CONFIG_DIR` and Skills root. |
-| Any other local Agent | `npx --yes --package "{{PACKAGE_SPEC}}" openmotion setup --host AGENT` | Replace `AGENT` with the current Agent's lowercase name, such as `opencode`. Skills default to `~/.agents/skills`; use `--skills-dir` if this Agent reads another root. Add `agentRegistration.transport.command` and `args` exactly as returned to this Agent's documented local stdio MCP configuration, refresh MCP, then call `openmotion_get_project`. Until the native tools load, use `onboarding.directAccess`. [Other local Agents]({{DETAILS_URL}}#other-local-agents) |
-
-Optional: explicitly wait for all video components or retry preparation for the same installation:
-
-```sh
-npx --yes --package "{{PACKAGE_SPEC}}" openmotion prepare
-```
-
-Repeat an explicit `--home` from setup on prepare. Setup installs the selected host's MCP and Skills; a second installer or application/manifest download is unnecessary. Use `openmotion --help`, `setup --help` or `prepare --help` from this exact package for supported options. Inspect installer source or host internals only to investigate a concrete failure; a missing CLI on PATH alone is not a reason to create a wrapper.
-
-## Runtime and environment
-
-Setup copies the checked application into a managed writable directory and installs its locked production npm dependencies. The application and user projects do not run from the temporary npx cache. Setup starts a detached preparation worker for the platform's independent native archives concurrently: browser/FFmpeg/ffprobe separately on macOS, browser/combined media on Windows. The local backend and Studio start without waiting. Studio displays per-component download/verification/extraction/checking status and retries failed components. Installers, MCP and Studio join shared cache locks rather than downloading again. An explicit prepare waits for all components and reports failure; successful checked components remain reusable. No export starts automatically after preparation. This is not an offline package.
-
-There is no persisted switch-environment command in this version. Test versions embed DEV defaults and use an environment-specific installation; stable versions embed prod. DEV access still requires the service network/authentication. A public npm package does not grant access or bundle private catalog contents. When changing environment, use a separate home/data/profile; merely setting an environment variable while running setup does not configure a later desktop Agent. Do not silently fall back from one environment to another.
-
-## Upgrade, recovery and feedback
-
-Pin this exact version when reproducing an issue. Before an upgrade, back up project data and preserve the same installation/data paths. Compatible phase-one updates retain existing connections and active exports. For an incompatible protocol, finish active exports before updating only this installation's connection and idle backend together; reconnect after setup/prepare. Refresh host discovery for new Tools or Skills, and preserve unrelated settings. Older applications may not read newer data formats: compatible reinstall or backup restoration requires separate verification. Moving a server-side default does not downgrade installed clients.
-
-Include the exact version, OS/CPU, Node/Agent versions, template environment, project/revision, reproduction and redacted logs in a report. Installation, real Agent creation, technical MP4 export and human audiovisual acceptance are separate results.
-
-Release identity: source `{{COMMIT}}`; npm tgz SHA256 `{{TGZ_SHA256}}`. [Source and installation details]({{DETAILS_URL}}).
+- **OAuth callback timeout (`ERR_CONNECTION_REFUSED`)**: the local login command timed out before you clicked **Allow / 同意授权**. Re-run the login command and approve promptly.
+- **`401 Unauthorized` on `/mcp`**: token expired or revoked—re-run OAuth login (or create a fresh PAT in **Settings → Account → Personal Access Tokens**).
+- **Missing older web projects**: open the project in `https://motion.open-design.ai` → **Agent access** and grant your connected client access (projects created by the Agent are granted automatically).

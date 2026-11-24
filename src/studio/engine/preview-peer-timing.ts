@@ -144,6 +144,12 @@ export const PREVIEW_PEER_TIMING = `
         effects.push(forward => forward ? node.remove() : parent.insertBefore(node, next));
       }
       if (media && change.tag !== 'audio' && node !== document.querySelector('[data-composition-id]')) return false;
+      if (position && change.styles.some(([name]) => name === 'position')) {
+        if (node.childElementCount) return false;
+        // Inline declarations alone cannot tell whether stylesheet positioning is static.
+        const livePosition = getComputedStyle(node).position;
+        if (livePosition !== 'static' && livePosition !== 'relative') return false;
+      }
       if (!stagePresentation(node, change, effects, local, pending)) return false;
       if (position && !temporary) placements.push([node, selector, change]);
       for (const [name, from, to] of change.attributes) {

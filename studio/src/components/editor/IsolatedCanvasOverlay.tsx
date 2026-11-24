@@ -22,7 +22,6 @@ interface Drag {
   startX: number;
   startY: number;
   frame: DOMRect;
-  finishing: boolean;
   pickSettled: boolean;
   finishSettled: boolean;
   waitingForSource?: boolean;
@@ -83,6 +82,7 @@ export function IsolatedCanvasOverlay() {
   }, [domEditSelection]);
 
   const session = useRef(0);
+  const frameLoad = useRef(0);
   const reportUnapplied = useCallback(() => showToast(t("This canvas edit was not saved. Try again when the preview is ready."), "error"), [showToast, t]);
   const observedFrame = useRef<HTMLIFrameElement | null>(null);
   const cancel = useCallback(() => {
@@ -97,6 +97,7 @@ export function IsolatedCanvasOverlay() {
   const notifyUnapplied = useRef(reportUnapplied);
   notifyUnapplied.current = reportUnapplied;
   const handleFrameLoad = useCallback(() => {
+    frameLoad.current++;
     if (drag.current?.offset) notifyUnapplied.current();
     cancel();
   }, [cancel]);
@@ -161,7 +162,6 @@ export function IsolatedCanvasOverlay() {
       frame,
       startX,
       startY,
-      finishing: false,
       pickSettled: false,
       finishSettled: false,
     };
@@ -189,7 +189,7 @@ export function IsolatedCanvasOverlay() {
 
   function update(event: PointerEvent<HTMLDivElement>, phase: "move" | "finish" | "cancel") {
     const active = drag.current;
-    if (!active || active.pointer !== event.pointerId || active.finishing) return;
+    if (!active || active.pointer !== event.pointerId) return;
     const dx = event.clientX - active.startX, dy = event.clientY - active.startY;
     const payload = { phase, dx: dx / active.frame.width, dy: dy / active.frame.height, gestureId: active.gestureId };
     if (phase !== "cancel" && (active.offset || Math.hypot(dx, dy) >= 3)) {
@@ -208,14 +208,17 @@ export function IsolatedCanvasOverlay() {
       drag.current = null;
       return;
     }
-    active.finishing = true;
+    // postMessage preserves finish/start ordering. Free the pointer here even
+    // when the previous frame measurement or its source write is still in flight.
+    drag.current = null;
     let committed = false;
     let changed = false;
     const gestureSession = session.current;
+    const issuedAtLoad = frameLoad.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
     void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }).then(async result => {
-      if (drag.current !== active) return;
-      if (previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
+      if (gestureSession !== session.current) return;
+      if (frameLoad.current !== issuedAtLoad || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();
         return;
       }
@@ -224,8 +227,6 @@ export function IsolatedCanvasOverlay() {
         if (active.waitingForSource || active.bounds || result) reportUnapplied();
         return;
       }
-      // Pointer capture is free while this gesture waits for its own save.
-      drag.current = null;
       const frame = active.adapter.iframe;
       const saved = await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, async version => {
         const patch = positionPatch(result);
@@ -238,7 +239,7 @@ export function IsolatedCanvasOverlay() {
       if (!saved && gestureSession === session.current) reportUnapplied();
       committed = saved?.durable === true;
       changed = saved?.changed === true;
-    }, () => { if (drag.current === active) showToast(t("Preview unavailable"), "error"); }).catch(() => {
+    }, () => { if (gestureSession === session.current) showToast(t("Preview unavailable"), "error"); }).catch(() => {
       // The shared save queue reports the error and reloads the authoritative preview.
     }).finally(() => {
       active.finishSettled = true;

@@ -83,8 +83,8 @@ it("allows inspecting another layer while a write conflict blocks dragging and r
   expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
 });
 
-async function reply(phase: string, result: unknown) {
-  const request = messages.findLast(message => message.phase === phase)!;
+async function reply(phase: string, result: unknown, gestureId?: unknown) {
+  const request = messages.findLast(message => message.phase === phase && (!gestureId || message.gestureId === gestureId))!;
   expect(request).toBeDefined();
   await act(async () => {
     const event = new MessageEvent("message", { origin, source: frame.contentWindow,
@@ -150,6 +150,30 @@ it.each(["replacement", "navigation"])("ignores a late finish after frame %s", a
   await reply("start", null);
   await reply("finish", result);
   expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
+});
+
+it("accepts a second pointerdown before the first measurement returns", async () => {
+  state.commitDomEditPatchBatches.mockResolvedValue({ durable: true, changed: true, savedCanvasVersion: '"patch:next"' });
+  pointer("pointerdown", 60);
+  pointer("pointerup", 80);
+  pointer("pointerdown", 80);
+  pointer("pointerup", 100);
+  expect(messages.map(m => m.phase)).toEqual(["start", "finish", "start", "finish"]);
+  const first = messages[0]!.gestureId;
+  const second = messages[2]!.gestureId;
+  await reply("finish", result, first);
+  await reply("finish", { ...result, predecessor: first, left: 88 }, second);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
+  expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: '"patch:next"', box: { left: 88 } }]);
+});
+
+it("rejects a measurement returned after a same-URL document load", async () => {
+  pointer("pointerdown", 60);
+  pointer("pointerup", 90);
+  act(() => frame.dispatchEvent(new Event("load")));
+  await reply("finish", result);
+  expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
+  expect(state.showToast).toHaveBeenCalledOnce();
 });
 
 it("saves a completed second drag against its stored predecessor after a preview replacement", async () => {

@@ -53,9 +53,20 @@ export interface PreviewChange {
 
 /** Used by Studio and the isolated bridge to validate the complete set of changes. */
 export function isLivePositionEdit(changes: PreviewChange[]): boolean {
-  return Array.isArray(changes) && changes.length > 0 && changes.every(change =>
-    !change?.text && Array.isArray(change?.attributes) && change.attributes.length === 0 &&
-    Array.isArray(change.styles) && change.styles.length > 0 && change.styles.every(style =>
-      Array.isArray(style) && style.length === 3 && (style[0] === "left" || style[0] === "top") &&
-      style.slice(1).every(value => typeof value === "string" && (value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value)))));
+  return Array.isArray(changes) && changes.length > 0 && changes.every(change => {
+    if (change?.text || !Array.isArray(change?.attributes) || change.attributes.length ||
+        !Array.isArray(change.styles) || !change.styles.length) return false;
+    let hasOffset = false;
+    for (const style of change.styles) {
+      if (!Array.isArray(style) || style.length !== 3) return false;
+      const [name, from, to] = style;
+      // A first drag promotes a static leaf to relative positioning so its offsets take effect.
+      if (name === "position" && ((from === "" || from === "static") && to === "relative" ||
+          from === "relative" && (to === "" || to === "static"))) continue;
+      if ((name !== "left" && name !== "top") || ![from, to].every(value =>
+        typeof value === "string" && (value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value)))) return false;
+      hasOffset = true;
+    }
+    return hasOffset;
+  });
 }
