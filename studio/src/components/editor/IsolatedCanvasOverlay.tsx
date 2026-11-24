@@ -262,6 +262,23 @@ export function IsolatedCanvasOverlay() {
     });
   }
 
+  function lostCapture(event: PointerEvent<HTMLDivElement>) {
+    const active = drag.current;
+    if (!active || active.pointer !== event.pointerId) return;
+    const { currentTarget, clientX, clientY } = event;
+    // Chromium may drop capture on the first move with the primary button still down.
+    // Continue this gesture only while the pointer is still over its own overlay.
+    if ((event.buttons & 1) && currentTarget.contains(document.elementFromPoint(clientX, clientY))) {
+      try {
+        currentTarget.setPointerCapture(event.pointerId);
+        return;
+      } catch {
+        // The pointer was already released or the overlay detached.
+      }
+    }
+    update(event, "cancel");
+  }
+
   if (!select) return null;
   return <div className="absolute inset-0 z-10 touch-none pointer-events-auto" aria-label={t("Composition canvas")}
     style={text.editing ? { pointerEvents: "none" } : undefined} onDoubleClick={text.open}
@@ -277,7 +294,7 @@ export function IsolatedCanvasOverlay() {
     }}
     onPointerDown={begin} onPointerMove={event => update(event, "move")}
     onPointerUp={event => update(event, "finish")} onPointerCancel={event => update(event, "cancel")}
-    onLostPointerCapture={event => update(event, "cancel")}>
+    onLostPointerCapture={lostCapture}>
     {menu && <IsolatedCanvasContextMenu pick={menu} close={() => setMenu(null)} />}
     {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div className="absolute pointer-events-none border border-studio-accent"
       style={{ left: compositionRect.left + box.x * compositionRect.width,

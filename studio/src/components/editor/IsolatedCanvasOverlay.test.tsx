@@ -65,9 +65,9 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function pointer(type: string, x: number) {
+function pointer(type: string, x: number, buttons = 0) {
   act(() => canvas.dispatchEvent(new PointerEvent(type, {
-    bubbles: true, pointerId: 1, isPrimary: true, button: 0, clientX: x, clientY: 60,
+    bubbles: true, pointerId: 1, isPrimary: true, button: 0, buttons, clientX: x, clientY: 60,
   })));
 }
 
@@ -118,6 +118,19 @@ it("captures a scaled drag, commits once on release and uses the shown file vers
     ] }],
   }], { label: "Move layer", coalesceKey: messages[0]?.gestureId });
   expect(messages.at(-1)).toMatchObject({ phase: "commit", gestureId: messages[0]?.gestureId, changed: true });
+});
+
+it("keeps the first move when capture drops over the canvas with the button still held", async () => {
+  vi.spyOn(document, "elementFromPoint").mockReturnValue(canvas);
+  pointer("pointerdown", 60, 1);
+  pointer("lostpointercapture", 90, 1);
+  pointer("pointermove", 90, 1);
+  pointer("pointerup", 90);
+  expect(messages.map(message => message.phase)).toEqual(["start", "move", "finish"]);
+  expect(canvas.setPointerCapture).toHaveBeenCalledTimes(2);
+  await reply("start", null);
+  await reply("finish", result);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
 });
 
 it.each(["pointercancel", "lostpointercapture"])("cancels before release on %s", async type => {
