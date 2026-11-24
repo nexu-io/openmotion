@@ -10,6 +10,7 @@ import { renderBridgeInstallPowerShellScript, renderBridgeInstallShellScript, re
 import { mcpHttpFor } from './gateway/mcp-http.ts';
 import { contentBatchesFor } from './gateway/content-batch.ts';
 import { triggersFor } from './gateway/triggers.ts';
+import { wechatMinigameFor } from './gateway/wechat-minigame.ts';
 import { closeWebPublishFor, webPublishFor } from './gateway/web-publish.ts';
 import { closeDesignDeployFor } from './gateway/design-deploy.ts';
 import { AdaptivePoller } from './shared/lifecycle.ts';
@@ -442,6 +443,7 @@ function ensurePhase1(store: WorkspaceStore, context: Service, origin: string) {
 // captured brand covers), so they follow the same caller rule as the mutating verbs below.
 // /api/models forwards refresh=true into provider discovery, which reads stored keys and rewrites caches.
 const sideEffectingGet = [/^\/api\/settings\/account$/, /^\/api\/models$/, /^\/api\/models\/capabilities$/, /^\/api\/project\/status$/,
+  /^\/api\/publish\/wechat\/(?:state|preview-image)\//,
   /^\/api\/brand-kits\/(?:catalog\/)?[^/]+\/(?:cover|favicon)$/];
 
 export async function handler(req: IncomingMessage, res: ServerResponse, store = sharedStore, context = service) {
@@ -741,6 +743,15 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         }
       }
       return json(res, 404, { error: 'Trigger endpoint not found' });
+    }
+    if (motionRequest && (url.pathname === '/api/publish/wechat' || url.pathname.startsWith('/api/publish/wechat/'))) {
+      const service = wechatMinigameFor((store.workspaceStore ?? store).directory);
+      const result = await service.handle(req.method || 'GET', url.pathname, () => input(req, 16 * 1024));
+      if (result.contentType === 'image/png' && Buffer.isBuffer(result.data)) {
+        res.writeHead(result.status, { 'Content-Type': 'image/png', 'Cache-Control': 'no-store' });
+        return res.end(result.data);
+      }
+      return json(res, result.status, result.data);
     }
     if (motionRequest && (url.pathname === '/api/web-publish' || url.pathname.startsWith('/api/web-publish/'))) {
       const rootStore = store.workspaceStore ?? store;

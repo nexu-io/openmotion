@@ -32,6 +32,12 @@
     "icon": "wechat-channels-fill",
     "fill": "#FA9D3B"
   },
+  "wechat-minigame": {
+    "collection": "remixicon@4.9.1",
+    "icon": "mini-program-fill",
+    "fill": "#07C160",
+    "note": "WeChat Mini Program mark, for publishing a WeChat Mini Game."
+  },
   "x": {
     "collection": "simple-icons@16.38.0",
     "icon": "x",

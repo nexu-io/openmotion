@@ -2784,7 +2784,14 @@ export function ArtifactBrowserPane({
                     className="om-sa-share-trigger om-sa-publish-trigger"
                     data-active={publishPanelOpen || undefined}
                     aria-pressed={publishPanelOpen}
-                    onClick={() => gamePublishActions.toggle({ artifactId: activeArtifact.id, chatId, gameId: publishGameId, gameTitle: activeArtifact.title })}
+                    onClick={() => gamePublishActions.toggle({
+                      artifactId: activeArtifact.id,
+                      chatId,
+                      gameId: publishGameId,
+                      gameTitle: activeArtifact.title,
+                      // Same share target as the toolbar Share button; missing when the game cannot be shared.
+                      link: canCloudShare ? { targetId: gamePublishId, filePath: activeArtifact.entry, embedUrl: gameEmbedUrl, title: activeArtifact.title } : undefined,
+                    })}
                   >
                     <RemixIcon name="upload-2-line" size={14} />
                     <span>{t('Publish')}</span>

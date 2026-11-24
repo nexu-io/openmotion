@@ -1,45 +1,45 @@
 /**
  * Publish targets for the game "Publish" wizard.
  *
- * Each target lists only the steps the user must do personally (`steps`). Everything else is
- * Agent work: `prepare` runs as soon as the target is chosen, `after` runs once the user
- * finishes a step. The facts behind each step (who may submit for review, what needs a web
- * console, which platforms forbid third-party submission) follow the platform API audit in
- * outputs/2026-11-23/publish-button/research-platform-apis.md.
+ * Each target is the list of steps the user goes through. A step is one of:
+ *  - guide (default): the user does it in the platform's official console, then says it is done;
+ *  - pick / fields: the user chooses or types something the next step uses;
+ *  - package: OpenDesign builds a real package in the browser and the user downloads it;
+ *  - link: the real OpenDesign game link (published with the toolbar Share capability).
+ * Nothing here claims a platform result the wizard cannot see: result copy records what the
+ * user said they did. What needs a local service or backend is listed in gamePublishAdapter.ts.
  *
  * All copy is an English source key translated through `t()` (game-publish-ui.json).
  */
+import type { GamePackageTarget } from './gamePackage';
+import type { GamePublishDevToolId } from './devTools';
 import { PLAYABLE_NETWORKS } from './playableNetworks';
+import type { WechatStepKey } from './wechatClient';
+import type { platformIcons } from '../../../../packages/design-system/platform-icons.js';
 
-export type GamePublishPlatformId = 'wechat' | 'xiaohongshu' | 'douyin' | 'itch' | 'telegram' | 'playable-ad';
+export type GamePublishPlatformId = 'wechat' | 'douyin-minigame' | 'qq' | 'xiaohongshu' | 'douyin' | 'itch' | 'telegram' | 'playable-ad';
 
 export interface GamePublishField {
   label: string;
   placeholder?: string;
-  /** Value the Agent fills in for the user; shown read-only with a "Filled in for you" tag. */
-  prefilled?: string;
-  link?: { label: string; href: string };
 }
 
 export interface GamePublishStep {
-  /** Special step bodies: Agent check results, or download + upload guidance. */
-  kind?: 'checks' | 'download';
-  /** Short name shown in the step bar. */
+  kind?: 'guide' | 'package' | 'link';
+  /** Short name of the step. */
   short: string;
   title: string;
-  /** Why the user has to do this personally. */
+  /** Why the user does this step (or what the package is for). */
   why: string;
   /** Numbered sub-steps, also shown in the chat card. */
   todo: string[];
   fields?: GamePublishField[];
-  /** Options the platform requires the user to choose personally (never preselected). */
+  /** Options the user chooses personally (never preselected). */
   pick?: string[];
-  qr?: boolean;
+  /** Package built for a `package` step. */
+  packageTarget?: GamePackageTarget;
   links?: Array<{ label: string; href: string }>;
   cta: string;
-  /** Title of the Agent work that runs after this step. */
-  working: string;
-  after: string[];
 }
 
 export interface GamePublishPlatform {
@@ -50,213 +50,263 @@ export interface GamePublishPlatform {
   effort: string;
   badge: string;
   color: string;
-  prepare: string[];
+  /** Platform artwork from the design system (packages/design-system/platform-icons.js); otherwise the badge is shown. */
+  icon?: keyof typeof platformIcons;
+  /** Local developer tool the user confirms before the steps (see devTools.ts). */
+  devTool?: GamePublishDevToolId;
   steps: GamePublishStep[];
+  /** What the user did, in their words. */
   resultTitle: string;
   resultDetail: string;
-  /** Main button on the result card; omitted when there is nothing useful to open yet. */
   resultAction?: string;
-  /** Where the result button goes. Without it the button is a mock download. */
   resultHref?: string;
 }
+
+/** Platforms shown in the first version. The others stay in the code and come back later. */
+export const ENABLED_PUBLISH_PLATFORMS: readonly GamePublishPlatformId[] = ['wechat'];
+
+const WECHAT_CONSOLE = { label: 'Open WeChat console', href: 'https://mp.weixin.qq.com/' };
+const DOUYIN_CONSOLE = { label: 'Open Douyin developer console', href: 'https://developer.open-douyin.com/console' };
+const QQ_CONSOLE = { label: 'Open QQ console', href: 'https://q.qq.com/' };
 
 export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
   {
     id: 'wechat',
     group: 'China',
     name: 'WeChat Mini Game',
-    effort: 'You do 2 steps · review needs you',
+    effort: 'The Agent guides you step by step · port, preview and upload here',
     badge: '微',
     color: '#07c160',
-    prepare: [
-      'Checked the game runs as a Mini Game',
-      'Switched page rendering to Canvas',
-      'Added the Mini Game adapter (touch, storage, audio)',
-      'Moved the score clear of the WeChat capsule button',
-      'Package is 2.6 MB, under the 4 MB main package limit',
-    ],
+    icon: 'wechat-minigame',
+    devTool: 'wechat-devtools',
+    // Guided by the Agent in the conversation (skills/openmotion-game/references/wechat-minigame-port.md);
+    // the panel shows WECHAT_STEPS from the local service's progress record.
+    steps: [],
+    resultTitle: 'Released on WeChat',
+    resultDetail: 'Every WeChat user can find and play it.',
+    resultAction: 'Open WeChat console',
+    resultHref: WECHAT_CONSOLE.href,
+  },
+  {
+    id: 'douyin-minigame',
+    group: 'China',
+    name: 'Douyin Mini Game',
+    effort: '3 steps in Douyin tools · not automated yet',
+    badge: '抖',
+    color: '#fe2c55',
+    devTool: 'douyin-devtools',
     steps: [
       {
         short: 'Account',
-        title: 'Enter the AppID and upload key',
-        why: 'Only your Mini Game account can get the AppID and upload key.',
-        todo: [
-          'Open the WeChat console; register a Mini Game account if you do not have one',
-          'Copy the AppID from Development settings',
-          'Generate a code upload key',
-          'Add the IP address below to the allowlist',
-        ],
-        fields: [
-          { label: 'AppID', placeholder: 'Starts with wx, 18 characters', link: { label: 'Open WeChat console', href: 'https://mp.weixin.qq.com/' } },
-          { label: 'Code upload key', placeholder: 'Paste the key' },
-          { label: 'IP allowlist', prefilled: '203.0.113.24' },
-        ],
-        cta: 'I filled it in',
-        working: 'Uploading the trial version and preparing review materials',
-        after: ['Uploaded trial version 1.0.0', 'Created the trial QR code', 'Captured 11 device screenshots', 'Wrote the description, how to play and privacy notes'],
+        title: 'Get a Mini Game AppID',
+        why: 'Only your Douyin developer account can get an AppID.',
+        todo: ['Sign in to the Douyin developer console; register a Mini Game if you do not have one', 'Copy the AppID'],
+        links: [DOUYIN_CONSOLE],
+        cta: 'Done',
+      },
+      {
+        short: 'Upload',
+        title: 'Create the project in Douyin DevTools and upload',
+        why: 'OpenDesign cannot turn the game into a Mini Game project or upload it yet, so this is done in Douyin DevTools.',
+        todo: ['Sign in to Douyin DevTools and create a Mini Game project with your AppID', 'Port the game into the project and run it in the simulator', 'Upload a test version'],
+        cta: 'I uploaded it',
       },
       {
         short: 'Review',
         title: 'Try it, then submit for review',
-        why: 'WeChat only lets you submit for review yourself.',
-        todo: [
-          'Scan the code with WeChat and play the trial version',
-          'Download the review materials',
-          'Submit in the WeChat console under Version management; complete ICP filing first if needed (13–37 working days)',
-        ],
-        qr: true,
-        links: [
-          { label: 'Download review materials', href: '#' },
-          { label: 'Open WeChat console', href: 'https://mp.weixin.qq.com/' },
-        ],
+        why: 'Douyin only lets you submit for review yourself.',
+        todo: ['Scan the test code with Douyin and play the test version', 'Submit it in the Douyin developer console under Version management'],
+        links: [DOUYIN_CONSOLE],
         cta: 'I submitted it',
-        working: 'Recording the submission',
-        after: ['I will tell you here when WeChat finishes the review'],
       },
     ],
-    resultTitle: 'Sent to WeChat for review',
-    resultDetail: 'Trial version 1.0.0 uploaded',
-    resultAction: 'Open WeChat console',
-    resultHref: 'https://mp.weixin.qq.com/',
+    resultTitle: 'You submitted it to Douyin',
+    resultDetail: 'The review result shows in the Douyin developer console',
+    resultAction: 'Open Douyin developer console',
+    resultHref: DOUYIN_CONSOLE.href,
+  },
+  {
+    id: 'qq',
+    group: 'China',
+    name: 'QQ Mini Game',
+    effort: '3 steps in QQ tools · not automated yet',
+    badge: 'Q',
+    color: '#12b7f5',
+    devTool: 'qq-devtools',
+    steps: [
+      {
+        short: 'Account',
+        title: 'Get a Mini Game AppID',
+        why: 'Only your QQ Mini Program account can get an AppID.',
+        todo: ['Sign in to the QQ Mini Program console and create a Mini Game', 'Copy the AppID'],
+        links: [QQ_CONSOLE],
+        cta: 'Done',
+      },
+      {
+        short: 'Upload',
+        title: 'Create the project in QQ DevTools and upload',
+        why: 'OpenDesign cannot turn the game into a Mini Game project or upload it yet, so this is done in QQ DevTools.',
+        todo: ['Sign in to QQ Mini Program DevTools and create a Mini Game project with your AppID', 'Port the game into the project and run it in the simulator', 'Upload a test version'],
+        cta: 'I uploaded it',
+      },
+      {
+        short: 'Review',
+        title: 'Try it, then submit for review',
+        why: 'QQ only lets you submit for review yourself.',
+        todo: ['Play the test version in QQ', 'Submit it in the QQ Mini Program console'],
+        links: [QQ_CONSOLE],
+        cta: 'I submitted it',
+      },
+    ],
+    resultTitle: 'You submitted it to QQ',
+    resultDetail: 'The review result shows in the QQ Mini Program console',
+    resultAction: 'Open QQ console',
+    resultHref: QQ_CONSOLE.href,
   },
   {
     id: 'xiaohongshu',
     group: 'China',
     name: 'Xiaohongshu Mini Tool',
-    effort: 'Scan once · review takes minutes',
+    effort: 'Download the package · upload in Builder Hub',
     badge: '书',
     color: '#ff2442',
-    prepare: ['Moved inline scripts into files', 'Converted the code to ES2017', 'Offline run check passed'],
     steps: [
       {
-        short: 'Authorize',
-        title: 'Scan with the Xiaohongshu app',
-        why: 'Only you can approve the authorization.',
-        todo: ['Scan the code below with the Xiaohongshu app', 'Allow OpenDesign to upload Mini Tools for you'],
-        qr: true,
-        cta: 'I scanned it',
-        working: 'Uploading and submitting for review',
-        after: ['Authorized', 'Uploaded the Mini Tool package', 'Submitted for review'],
+        kind: 'package',
+        packageTarget: 'xiaohongshu',
+        short: 'Package',
+        title: 'Download the offline package',
+        why: 'Xiaohongshu does not allow inline scripts, so the scripts are moved into files.',
+        todo: ['Download the zip'],
+        cta: 'Downloaded',
+      },
+      {
+        short: 'Upload',
+        title: 'Upload in Builder Hub and submit',
+        why: 'Uploading needs your Xiaohongshu account.',
+        todo: ['Open the Xiaohongshu creator platform, then Builder Hub, then Mini Tools', 'Create a Mini Tool and upload the zip', 'Fix anything its check reports, then submit for review'],
+        links: [
+          { label: 'Open Builder Hub', href: 'https://creator.xiaohongshu.com/new/red-app' },
+          { label: 'Mini Tool docs', href: 'https://miniapp-sandbox.xiaohongshu.com/minitool/doc' },
+        ],
+        cta: 'I submitted it',
       },
     ],
-    resultTitle: 'Submitted to Xiaohongshu',
-    resultDetail: 'Usually reviewed within minutes; then you can attach it to a note',
+    resultTitle: 'You submitted it to Xiaohongshu',
+    resultDetail: 'The review result shows in Builder Hub',
+    resultAction: 'Open Builder Hub',
+    resultHref: 'https://creator.xiaohongshu.com/new/red-app',
   },
   {
     id: 'douyin',
     group: 'China',
     name: 'Douyin Interactive Space',
-    effort: 'Invite code · review in 1 working day',
+    effort: 'Invite code · download the package · upload yourself',
     badge: '抖',
     color: '#161823',
-    prepare: ['Packaged with index.html entry: 2.4 MB (limit 8 MB)'],
     steps: [
       {
-        short: 'Authorize',
-        title: 'Enter the invite code and scan',
-        why: 'Interactive Space opens by invite code, and only you can approve the authorization.',
-        todo: ['Enter your invite code', 'Scan with the Douyin app to authorize'],
-        fields: [{ label: 'Invite code', placeholder: 'DY-XXXX' }],
-        qr: true,
-        cta: 'I scanned it',
-        working: 'Uploading and submitting for review',
-        after: ['Invite code accepted', 'Authorized', 'Uploaded through the official channel', 'Submitted for review'],
+        kind: 'package',
+        packageTarget: 'douyin',
+        short: 'Package',
+        title: 'Download the package',
+        why: 'Interactive Space takes a zip with index.html at the root, up to 8 MB.',
+        todo: ['Download the zip'],
+        cta: 'Downloaded',
+      },
+      {
+        short: 'Upload',
+        title: 'Create the work, upload and publish',
+        why: 'Interactive Space opens by invite code, and only your Douyin account can upload.',
+        todo: [
+          'Sign in to the Douyin creator platform; enter an invite code if Interactive Space is not open yet',
+          'Create a work, fill in the title and icon, and upload the zip',
+          'Scan the test code with the Douyin app and play it',
+          'Click Publish to submit for review',
+        ],
+        links: [{ label: 'Open Douyin creator platform', href: 'https://vcreate.douyin.com/' }],
+        cta: 'I submitted it',
       },
     ],
-    resultTitle: 'Submitted to Douyin',
-    resultDetail: 'Result within 1 working day',
+    resultTitle: 'You submitted it to Douyin',
+    resultDetail: 'Douyin sends the review result as an in-app message',
+    resultAction: 'Open Douyin creator platform',
+    resultHref: 'https://vcreate.douyin.com/',
   },
   {
     id: 'itch',
     group: 'Global',
     name: 'itch.io',
-    effort: 'First time 2 steps · then one-click updates',
+    effort: 'Download the zip · upload on itch.io',
     badge: 'it',
     color: '#fa5c5c',
-    prepare: ['Packaged an HTML5 zip with index.html'],
     steps: [
       {
-        short: 'Connect',
-        title: 'Create the game page and add an API key',
-        why: 'itch.io has no API for creating pages, so the first page is made on the website. You only do this once.',
-        todo: ['Create a new project and paste its address here', 'Generate an API key in Settings and paste it here'],
-        fields: [
-          { label: 'Game page address', placeholder: 'https://you.itch.io/your-game', link: { label: 'Create project', href: 'https://itch.io/game/new' } },
-          { label: 'API key', placeholder: 'Paste the key', link: { label: 'Get API key', href: 'https://itch.io/user/settings/api-keys' } },
-        ],
-        cta: 'I filled it in',
-        working: 'Uploading to itch.io',
-        after: ['Saved the API key securely', 'Uploaded with the official butler tool'],
+        kind: 'package',
+        packageTarget: 'itch',
+        short: 'Package',
+        title: 'Download the HTML5 zip',
+        why: 'itch.io plays HTML5 games from a zip with index.html at the root.',
+        todo: ['Download the zip'],
+        cta: 'Downloaded',
       },
       {
-        short: 'Playable',
-        title: 'Make the page playable in the browser',
-        why: 'This setting can only be changed on the website. Later updates are one click.',
-        todo: ['Open the page editor', 'Set the kind to HTML and tick "Playable in browser"', 'Save'],
-        links: [{ label: 'Open page editor', href: 'https://itch.io/dashboard' }],
-        cta: 'Saved',
-        working: 'Checking the page',
-        after: ['The page plays in the browser', 'Live'],
+        short: 'Upload',
+        title: 'Create the page and upload',
+        why: 'Creating the page needs your itch.io account.',
+        todo: ['Create a new project', 'Set Kind of project to HTML and upload the zip', 'Tick "This file will be played in the browser"', 'Save, then set the page to Public'],
+        links: [{ label: 'Create project', href: 'https://itch.io/game/new' }],
+        cta: 'I published it',
       },
     ],
-    resultTitle: 'Live on itch.io',
-    resultDetail: 'you.itch.io/your-game',
-    resultAction: 'Open game page',
+    resultTitle: 'You published it on itch.io',
+    resultDetail: 'Your page is on your itch.io dashboard',
+    resultAction: 'Open itch.io dashboard',
     resultHref: 'https://itch.io/dashboard',
   },
   {
     id: 'telegram',
     group: 'Global',
     name: 'Telegram Mini App',
-    effort: 'Confirm once · needs technical check',
+    effort: 'Uses the OpenDesign link · set up in BotFather',
     badge: 'TG',
     color: '#2aabee',
-    prepare: ['Added the Telegram Mini App script'],
     steps: [
       {
-        short: 'Confirm',
-        title: 'Confirm in Telegram',
-        why: 'Only you can confirm creating the bot in Telegram.',
-        todo: ['Open Telegram with the button below', 'Confirm creating the bot'],
-        links: [{ label: 'Open in Telegram', href: 'https://t.me/' }],
-        cta: 'I confirmed',
-        working: 'Creating the bot and attaching the game',
-        after: ['Created the bot', 'Set the game as the menu button', 'Opens in Telegram'],
+        kind: 'link',
+        short: 'Link',
+        title: 'Get the game link',
+        why: 'A Telegram Mini App opens a web address. The OpenDesign game link is used for it.',
+        todo: ['Publish the OpenDesign link'],
+        cta: 'Next step',
+      },
+      {
+        short: 'Bot',
+        title: 'Attach the game to a bot',
+        why: 'Only you can create bots with BotFather.',
+        todo: ['Open BotFather and send /newbot to create a bot', 'Send /mybots, choose your bot, then Bot Settings, then Menu Button, and paste the game link'],
+        links: [{ label: 'Open BotFather', href: 'https://t.me/BotFather' }],
+        cta: 'Done',
       },
     ],
-    resultTitle: 'Live on Telegram',
-    resultDetail: 'Opens from the bot menu button',
-    resultAction: 'Open in Telegram',
-    resultHref: 'https://t.me/',
+    resultTitle: 'You attached it to your Telegram bot',
+    resultDetail: 'It opens from the bot menu button',
   },
   {
     id: 'playable-ad',
     group: 'Ads',
     name: 'Playable ad export',
-    effort: 'No account needed · export and upload yourself',
+    effort: 'No account needed · download and upload yourself',
     badge: 'Ad',
     color: '#a26bff',
-    prepare: [],
     steps: [
       {
         short: 'Network',
         title: 'Which ad network?',
-        why: 'You decide where to advertise; the Agent packages to that network\'s rules.',
+        why: 'You decide where to advertise; the package follows that network\'s rules.',
         todo: ['Choose one ad network'],
         pick: PLAYABLE_NETWORKS.map(network => network.name),
-        cta: 'Check the package',
-        working: 'Checking against the network rules',
-        after: ['Read the network rules', 'Inlined external resources into one file', 'Rewrote the store button for this network', 'Measured the package size'],
-      },
-      {
-        short: 'Check',
-        kind: 'checks',
-        title: 'Size and rule check',
-        why: 'Review what the Agent changed for this network before you add store links.',
-        todo: ['Review the check results'],
-        cta: 'Looks good',
-        working: 'Saving the check results',
-        after: ['Check results saved'],
+        cta: 'Next step',
       },
       {
         short: 'Store links',
@@ -268,28 +318,49 @@ export const GAME_PUBLISH_PLATFORMS: readonly GamePublishPlatform[] = [
           { label: 'Google Play link', placeholder: 'https://play.google.com/store/apps/details?id=…' },
         ],
         cta: 'Build package',
-        working: 'Building the playable ad package',
-        after: ['Wrote the store links into the store button', 'Packaged to the network format', 'Created the export package'],
       },
       {
+        kind: 'package',
+        packageTarget: 'playable',
         short: 'Download',
-        kind: 'download',
-        title: 'Download, then upload in your ad console',
-        why: 'Networks do not accept uploads from app builders, so you upload the package in your own ad account.',
+        title: 'Check and download',
+        why: 'Checked against the network rules on the file you download. Upload it in your ad account and preview it there.',
         todo: ['Download the package', 'Upload it in your ad network console and preview it there'],
         cta: 'I downloaded it',
-        working: 'Finishing up',
-        after: ['Export recorded'],
       },
     ],
-    resultTitle: 'Playable ad exported',
-    resultDetail: 'Upload the package in your ad account',
-    resultAction: 'Download package',
+    resultTitle: 'You downloaded the playable ad package',
+    resultDetail: 'Upload it in your ad account and preview it there',
   },
 ];
-
-export const LINK_PUBLISH_STEPS = ['Packaged the game (2.6 MB)', 'Created the share card and cover', 'Published the link'];
 
 export function gamePublishPlatform(id: GamePublishPlatformId | undefined): GamePublishPlatform | undefined {
   return GAME_PUBLISH_PLATFORMS.find(platform => platform.id === id);
 }
+
+/** Store links must be https URLs; at least one is needed. */
+export function storeLinkProblem(inputs: Record<string, string>): string | undefined {
+  const ios = inputs['iOS App Store link']?.trim();
+  const android = inputs['Google Play link']?.trim();
+  if (!ios && !android) return 'Add at least one store link.';
+  for (const value of [ios, android]) {
+    if (value && !/^https:\/\/\S+$/i.test(value)) return 'Store links must start with https://';
+  }
+  return undefined;
+}
+
+/** WeChat progress shown in the panel, in order. Names match the steps the Agent guides (one message each). */
+export const WECHAT_STEPS: ReadonlyArray<{ key: WechatStepKey; name: string; later?: boolean; byUser?: boolean }> = [
+  { key: 'account', name: 'Mini Game account', byUser: true },
+  { key: 'appid', name: 'AppID' },
+  { key: 'key', name: 'Upload key' },
+  { key: 'ip', name: 'IP allowlist' },
+  { key: 'port', name: 'Port to Mini Game' },
+  { key: 'preview', name: 'Preview code' },
+  { key: 'upload', name: 'Upload' },
+  { key: 'testers', name: 'Trial version and testers', byUser: true },
+  { key: 'category', name: 'Service category', later: true, byUser: true },
+  { key: 'review', name: 'Review', later: true, byUser: true },
+  { key: 'filing', name: 'Filing (owner only)', later: true, byUser: true },
+  { key: 'release', name: 'Release', later: true, byUser: true },
+];

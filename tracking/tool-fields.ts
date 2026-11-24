@@ -6,6 +6,7 @@ const actionSets = {
   openmotion_job_manage: ['list', 'status', 'cancel', 'retry_save', 'resume'],
   openmotion_asset_manage: ['list', 'get', 'read', 'import', 'update', 'import_to_project', 'brand_kit'],
   openmotion_game_trailer: ['start', 'status'],
+  openmotion_game_wechat: ['status', 'set_appid', 'confirm', 'confirm_upload', 'ip_check', 'preview', 'upload'],
   openmotion_assets_use: assetActions,
   openmotion_assets: legacyAssetActions,
   openmotion_media_use: ['inspect', 'reference', 'models', 'generate', 'status', 'cancel', 'retry_save', 'resume'],

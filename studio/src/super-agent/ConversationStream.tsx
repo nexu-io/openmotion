@@ -95,7 +95,7 @@ import {
   type ModeComposerOptions,
 } from './ModeComposerControls';
 import { GamePublishThread } from './gamePublish/GamePublishThread';
-import { gamePublishActions } from './gamePublish/gamePublishStore';
+import { gamePublishActions, useGamePublishThread } from './gamePublish/gamePublishStore';
 
 export function resolveCreationModeEntry(
   mode: SuperAgentCreationModeId | null,
@@ -396,6 +396,8 @@ export function ConversationStream({
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
+  // Publish activity counts as conversation: show it instead of the welcome page.
+  const publishEntries = useGamePublishThread(chat?.id);
   const [text, setText] = useState('');
   const [segments, setSegments] = useState<SuperAgentPromptSegment[]>([]);
   const [inlineMentions, setInlineMentions] = useState<SuperAgentResourceAttachment[]>([]);
@@ -1658,7 +1660,7 @@ export function ConversationStream({
           })();
           return (
           <div key={displayChat?.id ?? (activeMode?.id ?? 'welcome')} className="om-sa-stream-transition">
-            {!displayChat?.messages.length ? (
+            {!displayChat?.messages.length && !publishEntries.length ? (
               activeMode ? (
             <ModeResourceShowcase
               active={active}
@@ -1765,6 +1767,7 @@ export function ConversationStream({
           )
         ) : (
           <>
+          {displayChat && (
           <ExecutionTimeline
             chat={displayChat}
             busy={busy || Boolean(pendingSubmission)}
@@ -1787,6 +1790,7 @@ export function ConversationStream({
             onApprove={onApprove}
             onContinue={() => void onSend(t('Continue from where you stopped and finish the task.'))}
           />
+          )}
           <GamePublishThread
             chatId={chat?.id}
             onOpenPanel={artifactId => {

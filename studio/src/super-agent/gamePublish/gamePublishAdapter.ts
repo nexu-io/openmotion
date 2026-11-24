@@ -1,62 +1,45 @@
 /**
- * Calls the publish wizard makes. Every call is a front-end mock: it resolves after a short
- * delay with fixed progress lines so the wizard can be reviewed end to end.
+ * Real calls the publish wizard makes.
  *
- * TODO(backend): replace each mock with the real capability. Needed from the backend team:
- *  - publishGameLink: publish the game to a public link. The existing cloud publishing in
- *    `components/webPublishClient.ts` (targetKind 'game') already does this and can be reused.
- *  - prepareForPlatform: Agent adaptation and packaging per platform (WeChat Canvas adapter,
- *    Xiaohongshu offline package, Douyin ≤8 MB zip, itch.io HTML5 zip, Telegram script).
- *  - completeUserStep: upload/authorize after the user's step — WeChat miniprogram-ci upload with
- *    the user's upload key and IP allowlist, Xiaohongshu / Douyin Agent channels, itch.io butler
- *    push with the user's API key (stored encrypted), Telegram managed-bot creation, playable-ad
- *    export per network. Credentials must stay server-side; the UI never stores them.
- *  - review status callbacks so the conversation can report WeChat / Xiaohongshu / Douyin results.
- * Button-driven publishing must not call the language model; only adaptation work needs the Agent.
+ * - publishGameLink: the same OpenDesign Cloud publish the toolbar "Share" button uses
+ *   (webPublishClient, targetKind 'game'). Returns the real public URL or throws.
+ * - Packages are built in the browser (gamePackage.ts).
+ *
+ * Not connected (needs a local service or backend, so the wizard sends the user to the official
+ * console instead and records only what the user says they did):
+ *  - detecting WeChat / Douyin / QQ developer tools on the machine (see devTools.ts);
+ *  - converting the game into a WeChat / Douyin / QQ Mini Game project and uploading it
+ *    (miniprogram-ci `ci.upload`, `cli upload`, tt-minigame-ide-cli `tmg upload`);
+ *  - itch.io `butler push`, Telegram bot creation, review-status callbacks.
  */
-import type { GamePublishPlatformId } from './platforms';
+import { WebPublishApiError, webPublishClient } from '../../components/webPublishClient';
 
-export interface GamePublishProgress {
-  /** Called once per progress line, in order. */
-  onLine: (line: string) => void;
+export interface GamePublishLinkTarget {
+  /** Game ID used by the toolbar Share button. */
+  targetId: string;
+  filePath?: string;
+  embedUrl?: string;
+  title?: string;
 }
 
-const MOCK_LINE_DELAY_MS = 650;
+export interface GamePublishLinkError {
+  message: string;
+  /** The user must sign in to OpenDesign first. */
+  authRequired: boolean;
+}
 
-function playLines(lines: readonly string[], progress: GamePublishProgress, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let index = 0;
-    const tick = () => {
-      if (signal?.aborted) { reject(new DOMException('Aborted', 'AbortError')); return; }
-      if (index >= lines.length) { resolve(); return; }
-      progress.onLine(lines[index]);
-      index += 1;
-      setTimeout(tick, MOCK_LINE_DELAY_MS);
-    };
-    tick();
+export async function publishGameLink(target: GamePublishLinkTarget): Promise<{ url: string; updated: boolean }> {
+  const published = await webPublishClient.publish('game', target.targetId, {
+    filePath: target.filePath,
+    embedUrl: target.embedUrl,
+    deployMode: 'publish',
+    name: target.title,
   });
+  if (!published.url) throw new Error('Published, but no link came back');
+  return { url: published.url, updated: published.updated };
 }
 
-/** Mock. TODO(backend): publish via webPublishClient and return the real public URL. */
-export async function publishGameLink(gameId: string, lines: readonly string[], progress: GamePublishProgress, signal?: AbortSignal): Promise<{ url: string }> {
-  await playLines(lines, progress, signal);
-  return { url: `opendesign.games/${gameId.slice(0, 8)}` };
-}
-
-/** Mock. TODO(backend): Agent adaptation and packaging for the platform. */
-export async function prepareForPlatform(_gameId: string, _platform: GamePublishPlatformId, lines: readonly string[], progress: GamePublishProgress, signal?: AbortSignal): Promise<void> {
-  await playLines(lines, progress, signal);
-}
-
-/** Mock. TODO(backend): upload / authorize / submit after the user's step, using the values the user entered. */
-export async function completeUserStep(
-  _gameId: string,
-  _platform: GamePublishPlatformId,
-  _stepIndex: number,
-  _inputs: Record<string, string>,
-  lines: readonly string[],
-  progress: GamePublishProgress,
-  signal?: AbortSignal,
-): Promise<void> {
-  await playLines(lines, progress, signal);
+export function describeLinkError(error: unknown): GamePublishLinkError {
+  const authRequired = error instanceof WebPublishApiError && (error.status === 401 || error.code === 'AUTH_REQUIRED');
+  return { message: error instanceof Error ? error.message : String(error), authRequired };
 }

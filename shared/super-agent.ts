@@ -396,6 +396,8 @@ export type SuperAgentChat = {
   reasoning?: string;
   permissionMode: SuperAgentPermissionMode;
   threadId?: string;
+  /** Names of the tools the Agent thread was started with; a thread cannot pick up tools added later. */
+  threadTools?: string;
   compactedSummary?: string;
   compactedAt?: number;
   feedback?: SuperAgentFeedbackEntry[];
@@ -602,6 +604,10 @@ export function formatSuperAgentToolLabel(tool: string, args?: Record<string, un
       return 'Validated game build';
     case 'openmotion_game_set_status':
       return 'Updated game status';
+    case 'openmotion_game_wechat':
+      return ({ status: 'Checked WeChat publishing', set_appid: 'Saved WeChat AppID', confirm: 'Confirmed WeChat publishing step',
+        confirm_upload: 'Confirmed WeChat upload result', ip_check: 'Checked WeChat IP allowlist', preview: 'Created WeChat preview',
+        upload: 'Checked WeChat upload' } as Record<string, string>)[String(args?.action)] ?? 'Checked WeChat publishing';
     case 'openmotion_game_publish':
       return 'Published playable game';
     case 'openmotion_create_project':

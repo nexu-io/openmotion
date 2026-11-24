@@ -2,21 +2,28 @@ import { Button } from 'open-design-ui/button';
 import type { ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
-import { copyGamePublishLink, gamePublishActions, useGamePublishSession, type GamePublishSession } from './gamePublishStore';
+import { gamePublishDevTool } from './devTools';
+import { downloadPackage, formatBytes, type GamePackageCheck } from './gamePackage';
+import { copyGamePublishLink, gamePublishActions, stepBlocked, useGamePublishSession, type GamePublishSession } from './gamePublishStore';
 import { GamePublishResultAction } from './GamePublishThread';
-import { MOCK_PLAYABLE_SIZE_MB, playableNetwork } from './playableNetworks';
-import { GAME_PUBLISH_PLATFORMS, gamePublishPlatform, type GamePublishPlatform } from './platforms';
+import { playableNetwork } from './playableNetworks';
+import { ENABLED_PUBLISH_PLATFORMS, GAME_PUBLISH_PLATFORMS, gamePublishPlatform, type GamePublishPlatform, type GamePublishPlatformId } from './platforms';
+import { ChoiceTiles } from '../../components/ui/ChoiceTiles';
+import { PlatformIcon } from '../../../../packages/design-system/react/PlatformIcon';
+import { LinkQr, WechatProgress } from './WechatProgress';
 import './gamePublish.css';
+
+type Notify = (message: string, tone?: 'info' | 'error') => void;
 
 /**
  * Right-hand publish panel, docked inside the Artifact viewer next to the game preview.
- * Fixed position and height; Agent progress scrolls in the conversation, the panel only keeps
- * one status line. Platform calls are mocks (see gamePublishAdapter.ts).
+ * Fixed position and height; one step at a time. Real work (OpenDesign link, packages) reports
+ * its real result; console steps record what the user says they did.
  */
 export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
   artifactId: string;
   coverUrl?: string;
-  onNotify?: (message: string, tone?: 'info' | 'error') => void;
+  onNotify?: Notify;
 }) {
   const { t } = useI18n();
   const session = useGamePublishSession(artifactId);
@@ -27,7 +34,7 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
   const statusLine = (
     <div className="om-gp-status" data-tone={session.status.tone} role="status">
       <span className="om-gp-status-dot" aria-hidden="true" />
-      <span className="om-gp-status-text">{t(session.status.key, session.status.line ? { line: t(session.status.line) } : undefined)}</span>
+      <span className="om-gp-status-text">{t(session.status.key, session.status.vars)}</span>
       {session.chatId && <span className="om-gp-status-hint">{t('Details in the conversation')}</span>}
     </div>
   );
@@ -41,40 +48,56 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
         </Button>
       )}
       <h2 className="om-gp-title">{title}</h2>
-      <span className="om-gp-mock" title={t('Platform connections are not live yet; steps and results are sample data.')}>{t('Mock')}</span>
       <Button variant="plain" type="button" className="om-gp-close" aria-label={t('Close')} onClick={close}>
         <RemixIcon name="close-line" size={16} />
       </Button>
     </header>
   );
 
+  // Same tiles as the video export panel: one square per destination with its mark. The OpenDesign link is a
+  // destination like the others (a play link anyone can open), not a setting attached to them.
+  const OPENDESIGN = 'opendesign' as const;
   const tiles = (list: readonly GamePublishPlatform[]) => (
-    <div className="om-gp-tiles">
-      {list.map(item => {
-        const done = session.published.includes(item.id);
-        return (
-          <Button key={item.id} variant="plain" type="button" className="om-gp-tile" onClick={() => gamePublishActions.choose(artifactId, item.id)}>
-            <span className="om-gp-badge" style={{ background: item.color, color: '#fff' /* third-party brand badge */ }} aria-hidden="true">{item.badge}</span>
-            <span className="om-gp-tile-text">
-              <strong>{t(item.name)}</strong>
-              <small data-done={done || undefined}>{done ? t('Published') : t(item.effort)}</small>
-            </span>
-            <RemixIcon name="arrow-right-s-line" size={15} className="om-gp-tile-caret" />
-          </Button>
-        );
-      })}
-    </div>
+    <ChoiceTiles<GamePublishPlatformId | typeof OPENDESIGN | ''>
+      label={t('Choose a platform')}
+      value={session.linkUrl ? OPENDESIGN : ''}
+      className="om-gp-platforms"
+      options={[
+        { value: OPENDESIGN, label: t('OpenDesign link'), icon: <span className="om-platform-icon om-gp-od-icon" aria-hidden="true"><RemixIcon name="global-line" size={18} /></span> },
+        ...list.map(item => ({
+          value: item.id,
+          label: t(item.name),
+          icon: item.icon
+            ? <PlatformIcon platform={item.icon} />
+            : <span className="om-platform-icon om-gp-badge" style={{ background: item.color, color: '#fff' /* third-party brand badge */ }} aria-hidden="true">{item.badge}</span>,
+        })),
+      ]}
+      onChange={id => {
+        if (id === OPENDESIGN) void gamePublishActions.publishLink(artifactId);
+        else if (id) gamePublishActions.choose(artifactId, id);
+      }}
+    />
   );
 
-  const groups = (['China', 'Global', 'Ads'] as const).map(group => ({ group, list: GAME_PUBLISH_PLATFORMS.filter(item => item.group === group) }));
-  const groupLabel = { China: 'China', Global: 'Global', Ads: 'Export package (no account needed)' } as const;
+  const enabled = GAME_PUBLISH_PLATFORMS.filter(item => ENABLED_PUBLISH_PLATFORMS.includes(item.id));
 
   let body: ReactNode;
   let foot: ReactNode;
   let head: ReactNode;
   let showStatus = true;
 
-  if (session.view === 'list') {
+  if (platform?.id === 'wechat' && session.view !== 'list') {
+    // WeChat is guided by the Agent in the conversation; the panel only shows where things stand.
+    head = header(t(platform.name), { label: t('Platforms'), onClick: () => gamePublishActions.showList(artifactId) });
+    body = <WechatProgress session={session} />;
+    foot = (
+      <>
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={close}>{t('Hide for now')}</Button>
+        <span className="om-gp-spacer" />
+      </>
+    );
+    showStatus = false;
+  } else if (session.view === 'list' || !platform) {
     head = header(t('Choose a platform'));
     body = (
       <>
@@ -82,115 +105,89 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
           {coverUrl ? <img src={coverUrl} alt="" onError={event => { event.currentTarget.style.visibility = 'hidden'; }} /> : <span className="om-gp-hero-placeholder"><RemixIcon name="gamepad-line" size={22} /></span>}
           <div>
             <strong>{session.gameTitle}</strong>
-            <p>{t('Pick one to start. Steps only you can do are shown one at a time; the Agent does the rest.')}</p>
+            <p>{t('Pick one to start. Steps are shown one at a time.')}</p>
           </div>
         </div>
+        {tiles(enabled)}
         <OpenDesignLinkOption session={session} onNotify={onNotify} />
-        {groups.map(({ group, list }) => (
-          <section key={group}>
-            <h3 className="om-gp-group">{t(groupLabel[group])}</h3>
-            {tiles(list)}
-          </section>
-        ))}
       </>
     );
     showStatus = false;
-  } else if (platform) {
-    head = header(t(platform.name), session.view === 'step' ? { label: t('Platforms'), onClick: () => gamePublishActions.showList(artifactId) } : undefined);
-    const bar = <StepBar session={session} platform={platform} />;
-    if (session.view === 'step') {
-      const step = platform.steps[session.stepIndex];
-      body = (
-        <>
-          {bar}
-          <h3 className="om-gp-h3">{t(step.title)}</h3>
-          <p className="om-gp-muted">{t(step.why)}</p>
-          {step.fields?.map(field => (
-            <label key={field.label} className="om-gp-field">
-              <span className="om-gp-field-label">
-                {t(field.label)}
-                {field.prefilled && <span className="om-gp-prefilled">{t('Filled in for you')}</span>}
-                {field.link && <a href={field.link.href} target="_blank" rel="noopener noreferrer">{t(field.link.label)} <RemixIcon name="external-link-line" size={12} /></a>}
-              </span>
-              <input
-                className="om-gp-input"
-                value={field.prefilled ?? session.inputs[field.label] ?? ''}
-                readOnly={Boolean(field.prefilled)}
-                placeholder={field.placeholder ? t(field.placeholder) : undefined}
-                onChange={event => gamePublishActions.setInput(artifactId, field.label, event.target.value)}
-              />
-            </label>
-          ))}
-          {step.pick && (
-            <>
-              <div className="om-gp-chips" role="radiogroup" aria-label={t(step.title)}>
-                {step.pick.map(option => (
-                  <Button key={option} variant="plain" type="button" role="radio" aria-checked={session.picked === option} className="om-gp-chip" data-selected={session.picked === option || undefined} onClick={() => gamePublishActions.pick(artifactId, option)}>
-                    {option}
-                  </Button>
-                ))}
-              </div>
-              {!session.picked && <p className="om-gp-need">{t('Networks have different rules, so you choose.')}</p>}
-            </>
-          )}
-          {step.kind === 'checks' && <PlayableChecks networkName={session.picked} />}
-          {step.kind === 'download' && <PlayableDownload networkName={session.picked} onNotify={onNotify} />}
-          {(step.qr || step.links) && (
-            <div className="om-gp-actions-row">
-              {step.qr && <span className="om-gp-qr" role="img" aria-label={t('QR code (sample)')} />}
-              <div className="om-gp-links">
-                {step.links?.map(link => (
-                  <a key={link.label} className="om-gp-secondary" href={link.href} target="_blank" rel="noopener noreferrer">{t(link.label)}</a>
-                ))}
-                {step.qr && <small className="om-gp-muted">{t('QR code (sample)')}</small>}
-              </div>
-            </div>
-          )}
-        </>
-      );
-      foot = (
-        <>
-          <Button variant="plain" type="button" className="om-gp-secondary" onClick={close}>{t('Hide for now')}</Button>
-          <span className="om-gp-spacer" />
-          <Button variant="plain" type="button" className="om-gp-primary" disabled={Boolean(step.pick && !session.picked)} onClick={() => void gamePublishActions.completeStep(artifactId)}>
-            {t(step.cta)}
-          </Button>
-        </>
-      );
-    } else if (session.view === 'working') {
-      const step = platform.steps[Math.min(session.stepIndex, platform.steps.length - 1)];
-      body = (
-        <>
-          {bar}
-          <div className="om-gp-wait">
-            <RemixIcon name="loader-4-line" size={28} className="om-gp-spin" />
-            <strong>{t(step.working)}</strong>
-            <span className="om-gp-muted">{t('You can hide this panel. Progress stays in the conversation.')}</span>
+  } else if (session.view === 'step') {
+    head = header(t(platform.name), { label: t('Platforms'), onClick: () => gamePublishActions.showList(artifactId) });
+    const step = platform.steps[session.stepIndex];
+    const blocked = stepBlocked(session, step);
+    body = (
+      <>
+        <StepBar session={session} platform={platform} />
+        <h3 className="om-gp-h3">{t(step.title)}</h3>
+        <p className="om-gp-muted">{t(step.why)}</p>
+        {step.kind !== 'package' && step.kind !== 'link' && step.todo.length > 0 && !step.pick && !step.fields && (
+          <ol className="om-gp-todo">{step.todo.map(item => <li key={item}>{t(item)}</li>)}</ol>
+        )}
+        {step.fields?.map(field => (
+          <label key={field.label} className="om-gp-field">
+            <span className="om-gp-field-label">{t(field.label)}</span>
+            <input
+              className="om-gp-input"
+              inputMode="url"
+              value={session.inputs[field.label] ?? ''}
+              placeholder={field.placeholder ? t(field.placeholder) : undefined}
+              onChange={event => gamePublishActions.setInput(artifactId, field.label, event.target.value)}
+            />
+          </label>
+        ))}
+        {step.pick && (
+          <div className="om-gp-chips" role="radiogroup" aria-label={t(step.title)}>
+            {step.pick.map(option => (
+              <Button key={option} variant="plain" type="button" role="radio" aria-checked={session.picked === option} className="om-gp-chip" data-selected={session.picked === option || undefined} onClick={() => gamePublishActions.pick(artifactId, option)}>
+                {option}
+              </Button>
+            ))}
           </div>
-        </>
-      );
-      foot = <><Button variant="plain" type="button" className="om-gp-secondary" onClick={close}>{t('Hide panel')}</Button><span className="om-gp-spacer" /></>;
-    } else {
-      body = (
-        <>
-          {bar}
-          <div className="om-gp-result">
-            <RemixIcon name="checkbox-circle-fill" size={30} className="om-gp-result-icon" />
-            <strong>{t(platform.resultTitle)}</strong>
-            <span className="om-gp-muted">{t(platform.resultDetail)}</span>
-            {session.linkUrl && <span className="om-gp-muted">{t('Live on OpenDesign')} · {session.linkUrl}</span>}
-            <GamePublishResultAction action={platform.resultAction} href={platform.resultHref} onNotify={onNotify} />
+        )}
+        {step.kind === 'package' && <PackageStep session={session} />}
+        {step.kind === 'link' && <LinkStep session={session} onNotify={onNotify} />}
+        {step.links && (
+          <div className="om-gp-links">
+            {step.links.map(link => (
+              <a key={link.label} className="om-gp-link" href={link.href} target="_blank" rel="noopener noreferrer">{t(link.label)} <RemixIcon name="external-link-line" size={12} /></a>
+            ))}
           </div>
-        </>
-      );
-      foot = (
-        <>
-          <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => gamePublishActions.showList(artifactId)}>{t('Publish to another platform')}</Button>
-          <span className="om-gp-spacer" />
-          <Button variant="plain" type="button" className="om-gp-secondary" onClick={close}>{t('Close')}</Button>
-        </>
-      );
-    }
+        )}
+        {session.stepProblem && <p className="om-gp-need">{t(session.stepProblem)}</p>}
+      </>
+    );
+    foot = (
+      <>
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={close}>{t('Hide for now')}</Button>
+        <span className="om-gp-spacer" />
+        <Button variant="plain" type="button" className="om-gp-primary" disabled={blocked} onClick={() => gamePublishActions.completeStep(artifactId)}>
+          {t(step.cta)}
+        </Button>
+      </>
+    );
+  } else {
+    head = header(t(platform.name));
+    body = (
+      <>
+        <StepBar session={session} platform={platform} />
+        <div className="om-gp-result">
+          <RemixIcon name="checkbox-circle-fill" size={30} className="om-gp-result-icon" />
+          <strong>{t(platform.resultTitle)}</strong>
+          <span className="om-gp-muted">{t(platform.resultDetail)}</span>
+          {session.linkUrl && <span className="om-gp-muted">{t('Live on OpenDesign')} · {session.linkUrl}</span>}
+          <GamePublishResultAction action={platform.resultAction} href={platform.resultHref} />
+        </div>
+      </>
+    );
+    foot = (
+      <>
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => gamePublishActions.showList(artifactId)}>{t('Publish to another platform')}</Button>
+        <span className="om-gp-spacer" />
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={close}>{t('Close')}</Button>
+      </>
+    );
   }
 
   return (
@@ -199,84 +196,116 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
       <div className="om-gp-body">{body}</div>
       {showStatus && statusLine}
       {foot && <footer className="om-gp-foot">{foot}</footer>}
+      {session.view === 'step' && session.toolCheck?.state === 'missing' && <DevToolDialog session={session} />}
     </aside>
   );
 }
 
+/** Step n of N with a short bar, for platforms guided by the panel. */
 function StepBar({ session, platform }: { session: GamePublishSession; platform: GamePublishPlatform }) {
   const { t } = useI18n();
-  const names = [...platform.steps.map(step => step.short), 'Done'];
+  const total = platform.steps.length;
+  const current = Math.min(session.stepIndex + 1, total);
   return (
-    <ol className="om-gp-steps" aria-label={t('Steps')}>
-      {names.map((name, index) => {
-        const state = index < session.stepIndex ? 'done' : index === session.stepIndex ? 'current' : 'todo';
-        return (
-          <li key={name} data-state={state} aria-current={state === 'current' ? 'step' : undefined}>
-            <span className="om-gp-step-num">{state === 'done' ? <RemixIcon name="check-line" size={11} /> : index + 1}</span>
-            {t(name)}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-/** Check results for the chosen playable-ad network. Mock values; see playableNetworks.ts. */
-function PlayableChecks({ networkName }: { networkName?: string }) {
-  const { t } = useI18n();
-  const network = playableNetwork(networkName);
-  if (!network) return null;
-  const sizeOk = MOCK_PLAYABLE_SIZE_MB <= network.limitMb;
-  const rows: Array<{ label: string; value: string; tone: 'ok' | 'warn' }> = [
-    { label: t('Package'), value: t(network.format), tone: 'ok' },
-    { label: t('Package size'), value: t('{size} MB of {limit} MB', { size: MOCK_PLAYABLE_SIZE_MB, limit: network.limitMb }), tone: sizeOk ? 'ok' : 'warn' },
-    { label: t('External resources'), value: t('Inlined, no network requests'), tone: 'ok' },
-    { label: t('Store button'), value: `window.open → ${network.cta}`, tone: 'ok' },
-    { label: 'mraid.js', value: t(network.mraid), tone: 'ok' },
-    ...(network.extra ? [{ label: t('Extra assets'), value: t('{asset} (upload it in the ad console)', { asset: t(network.extra) }), tone: 'warn' as const }] : []),
-  ];
-  return (
-    <div className="om-gp-checks">
-      <div className="om-gp-checks-head">
-        <strong>{network.name}</strong>
-        <span className="om-gp-mock">{t('Mock results')}</span>
-      </div>
-      {rows.map(row => (
-        <div key={row.label} className="om-gp-check" data-tone={row.tone}>
-          <RemixIcon name={row.tone === 'ok' ? 'checkbox-circle-fill' : 'error-warning-line'} size={14} />
-          <span className="om-gp-check-label">{row.label}</span>
-          <span className="om-gp-check-value">{row.value}</span>
-        </div>
-      ))}
+    <div className="om-gp-progress" aria-label={t('Publish steps')}>
+      <span className="om-gp-progress-label">{session.view === 'result' ? t('All {total} steps done', { total }) : t('Step {current} of {total}', { current, total })}</span>
+      <ol className="om-gp-progress-bar">
+        {platform.steps.map((step, index) => (
+          <li key={step.short} title={t(step.short)} data-state={index < session.stepIndex || session.view === 'result' ? 'done' : index === session.stepIndex ? 'current' : 'todo'} />
+        ))}
+      </ol>
     </div>
   );
 }
 
-/** Download the package, then upload it in the network's own console. */
-function PlayableDownload({ networkName, onNotify }: { networkName?: string; onNotify?: (message: string, tone?: 'info' | 'error') => void }) {
+function CheckRow({ check }: { check: GamePackageCheck }) {
   const { t } = useI18n();
-  const network = playableNetwork(networkName);
-  if (!network) return null;
+  const icon = check.tone === 'ok' ? 'checkbox-circle-fill' : check.tone === 'warn' ? 'error-warning-line' : 'alert-fill';
   return (
-    <div className="om-gp-download">
-      <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => onNotify?.(t('Download is not connected yet in this preview (mock).'))}>
-        <RemixIcon name="download-2-line" size={14} />
-        <span>{t('Download {file}', { file: network.format.startsWith('Zip') ? 'playable.zip' : 'index.html' })}</span>
+    <div className="om-gp-check" data-tone={check.tone}>
+      <RemixIcon name={icon} size={14} />
+      <span className="om-gp-check-label">{t(check.label)}</span>
+      <span className="om-gp-check-value">{t(check.value, check.vars)}</span>
+    </div>
+  );
+}
+
+/** Real package: built from the game's files, checked, downloaded by the browser. */
+function PackageStep({ session }: { session: GamePublishSession }) {
+  const { t } = useI18n();
+  const pkg = session.package;
+  const network = pkg?.target === 'playable' ? playableNetwork(session.picked) : undefined;
+  if (!pkg || pkg.state === 'building') {
+    return (
+      <div className="om-gp-wait">
+        <RemixIcon name="loader-4-line" size={24} className="om-gp-spin" />
+        <span className="om-gp-muted">{t('Building the package')}</span>
+      </div>
+    );
+  }
+  if (pkg.state === 'failed' || !pkg.result) {
+    return (
+      <div className="om-gp-checks">
+        <p className="om-gp-error">{t('Could not build the package: {message}', { message: pkg.error ?? '' })}</p>
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void gamePublishActions.buildPackage(session.artifactId)}>{t('Try again')}</Button>
+      </div>
+    );
+  }
+  const { result } = pkg;
+  return (
+    <>
+      <div className="om-gp-checks">
+        <div className="om-gp-checks-head">
+          <strong>{network?.name ?? result.fileName}</strong>
+          <span className="om-gp-checks-meta">{formatBytes(result.bytes)}</span>
+        </div>
+        {result.checks.map(check => <CheckRow key={`${check.label}:${check.value}`} check={check} />)}
+      </div>
+      <div className="om-gp-download">
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => downloadPackage(result)}>
+          <RemixIcon name="download-2-line" size={14} />
+          <span>{t('Download {file}', { file: result.fileName })}</span>
+        </Button>
+        {network && (
+          <p className="om-gp-muted">{t('Upload it in {console} and preview it there before the ad goes live.', { console: t(network.console.label) })}</p>
+        )}
+        {network?.console.href && (
+          <a className="om-gp-link" href={network.console.href} target="_blank" rel="noopener noreferrer">
+            {t('Open {console}', { console: t(network.console.label) })} <RemixIcon name="external-link-line" size={12} />
+          </a>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** Step that needs the real OpenDesign link (Telegram). */
+function LinkStep({ session, onNotify }: { session: GamePublishSession; onNotify?: Notify }) {
+  const { t } = useI18n();
+  if (session.linkUrl) {
+    return (
+      <div className="om-gp-checks">
+        <div className="om-gp-check" data-tone="ok">
+          <RemixIcon name="checkbox-circle-fill" size={14} />
+          <span className="om-gp-check-label">{t('Live on OpenDesign')}</span>
+          <span className="om-gp-check-value">{session.linkUrl}</span>
+        </div>
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="om-gp-checks">
+      {session.linkError && <p className="om-gp-error">{t('Publishing failed: {message}', { message: session.linkError.message })}</p>}
+      <Button variant="plain" type="button" className="om-gp-secondary" disabled={session.linkPublishing} onClick={() => void gamePublishActions.publishLink(session.artifactId)}>
+        {session.linkPublishing ? t('Publishing on OpenDesign…') : session.linkError ? t('Try again') : t('Publish on OpenDesign')}
       </Button>
-      <p className="om-gp-muted">
-        {t('Upload it in {console} and preview it there before the ad goes live.', { console: t(network.console.label) })}
-      </p>
-      {network.console.href && (
-        <a className="om-gp-link" href={network.console.href} target="_blank" rel="noopener noreferrer">
-          {t('Open {console}', { console: t(network.console.label) })} <RemixIcon name="external-link-line" size={12} />
-        </a>
-      )}
     </div>
   );
 }
 
 /** Default-on option: publishing to any platform also publishes the game on OpenDesign. */
-function OpenDesignLinkOption({ session, onNotify }: { session: GamePublishSession; onNotify?: (message: string, tone?: 'info' | 'error') => void }) {
+function OpenDesignLinkOption({ session, onNotify }: { session: GamePublishSession; onNotify?: Notify }) {
   const { t } = useI18n();
   if (session.linkUrl) {
     return (
@@ -287,21 +316,60 @@ function OpenDesignLinkOption({ session, onNotify }: { session: GamePublishSessi
           <small>{session.linkUrl}</small>
         </span>
         <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
+        <LinkQr url={session.linkUrl} />
       </div>
     );
   }
+  if (session.linkError) {
+    return (
+      <div className="om-gp-option" data-failed>
+        <RemixIcon name="alert-fill" size={16} className="om-gp-result-icon" />
+        <span className="om-gp-option-text">
+          <strong>{t('Publishing on OpenDesign failed')}</strong>
+          <small>{session.linkError.authRequired ? t('Sign in to OpenDesign first, then try again.') : session.linkError.message}</small>
+        </span>
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void gamePublishActions.publishLink(session.artifactId)}>{t('Try again')}</Button>
+      </div>
+    );
+  }
+  if (session.linkPublishing) {
+    return (
+      <div className="om-gp-option">
+        <RemixIcon name="loader-4-line" size={16} className="om-gp-spin" />
+        <span className="om-gp-option-text"><strong>{t('Publishing on OpenDesign…')}</strong></span>
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * Shown when the chosen platform needs a local developer tool. OpenDesign cannot check the
+ * machine yet, so it links to the official download and continues when the user says it is installed.
+ */
+function DevToolDialog({ session }: { session: GamePublishSession }) {
+  const { t } = useI18n();
+  const tool = gamePublishDevTool(session.toolCheck?.toolId);
+  if (!tool) return null;
   return (
-    <label className="om-gp-option">
-      <input
-        type="checkbox"
-        checked={session.alsoPublishLink}
-        disabled={session.linkPublishing}
-        onChange={event => gamePublishActions.setAlsoPublishLink(session.artifactId, event.target.checked)}
-      />
-      <span className="om-gp-option-text">
-        <strong>{session.linkPublishing ? t('Publishing on OpenDesign…') : t('Also publish on OpenDesign')}</strong>
-        <small>{t('Creates a game link anyone can play')}</small>
-      </span>
-    </label>
+    <div className="om-gp-dialog-scrim">
+      <div className="om-gp-dialog" role="dialog" aria-modal="true" aria-labelledby="om-gp-dialog-title">
+        <div className="om-gp-dialog-icon"><RemixIcon name="download-2-line" size={20} /></div>
+        <h3 id="om-gp-dialog-title" className="om-gp-h3">{t('This platform needs {tool}', { tool: t(tool.name) })}</h3>
+        <p className="om-gp-muted">{t(tool.why)}</p>
+        {tool.alternative && <p className="om-gp-muted">{t(tool.alternative)}</p>}
+        <div className="om-gp-dialog-actions">
+          <a className="om-gp-primary" href={tool.downloadHref} target="_blank" rel="noopener noreferrer">
+            <RemixIcon name="download-2-line" size={14} /> {t('Download')}
+          </a>
+          <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => gamePublishActions.confirmDevTool(session.artifactId)}>
+            {t('I installed it, continue')}
+          </Button>
+          <Button variant="plain" type="button" className="om-gp-text-button" onClick={() => gamePublishActions.skipDevTool(session.artifactId)}>
+            {t('Later')}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
