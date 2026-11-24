@@ -1,8 +1,9 @@
 import { mountedCanvasVersion, isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
-import { supportsOrderedTextEdits, observedSourceVersion } from "../utils/confirmedTextSources";
+import { confirmedSource, supportsOrderedTextEdits, observedSourceVersion } from "../utils/confirmedTextSources";
 import { isolatedEditVersion } from "../utils/isolatedEditVersions";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import { submitStudioCommands } from "../utils/projectEditBatch";
+import { tryApplyPeerChanges } from "../player/peerTimingPreview";
 import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { useCallback, useRef } from "react";
@@ -183,6 +184,7 @@ export function useDomEditPersist({
         }
         return completePersistence({ sourceFile: targetPath, version: result.versions[targetPath], changed }, changed);
       }
+      const originalVersion = selection.isolatedTarget && isolatedEditVersion(pid, targetPath, isolatedSourceVersion(selection.isolatedTarget));
       const writeEdit = writeHistory
         ? (path: string, content: string, expected?: string, command?: ProjectEditCommand) => writeProjectFile(path, content, expected, command, writeHistory)
         : writeProjectFile;
@@ -291,7 +293,16 @@ export function useDomEditPersist({
       forceReloadSdkSession?.();
 
       if (selection.isolatedTarget) {
-        reloadPreview(targetPath);
+        const frame = previewIframeRef.current;
+        const current = confirmedSource(pid, targetPath);
+        const isCurrent = () => projectIdRef.current === pid && previewIframeRef.current === frame &&
+          confirmedSource(pid, targetPath)?.version === current?.version;
+        const applied = options?.syncTimingInPlace && originalVersion && current?.content === finalContent &&
+          await tryApplyPeerChanges(frame, {
+            path: targetPath, previous: { content: originalContent, version: originalVersion },
+            current,
+          }, isCurrent);
+        if (!applied && isCurrent()) reloadPreview(targetPath);
       } else if (options?.syncTimingInPlace) {
         // Reuse the same attribute-only diff and runtime rebind as soft undo.
         // Keep the iframe, media decoder, thumbnails and ruler alive during a slider drag.
