@@ -912,7 +912,7 @@ it('rolls back a mixed CAS batch on a GC claim or underflow and preserves per-ob
 it('keeps a hundred ordered Studio edits, their undo points and replay receipts across HTTP batches', { skip: !connectionString }, async () => {
   const { auth, db, storage, workspace, files, history, events, cleanup } = await fixture();
   try {
-    const path = 'scene.txt';
+    const path = 'index.html';
     const { projectId } = await workspace.createProject(auth, { initialFiles: [{ path, content: '0' }] });
     const app = createStudioFilesRoutes({ db, storage, files, workspace, history,
       assetNames: new AssetNamesService({db, files}), resolveAuth: () => auth });
@@ -936,13 +936,16 @@ it('keeps a hundred ordered Studio edits, their undo points and replay receipts 
     assert.equal((await files.readTextFile(auth, projectId, path))!.version, initial);
 
     events.length = 0;
+    storage.reads = storage.writes = 0;
     const response = await send(operations);
+    assert.deepEqual([storage.reads, storage.writes], [0, 0]);
     assert.equal(response.status, 200);
     const { committed, failed } = await response.json();
     assert.equal(failed, undefined);
     assert.deepEqual(events.map(event => event.type), ['files-changed', 'history-changed']);
     const forwarded = events[0];
     assert.ok(forwarded.type === 'files-changed');
+    assert.equal(forwarded.indexHeadHash, undefined);
     assert.deepEqual(forwarded.ordered?.steps.map(step => step.id), ids);
     assert.ok(forwarded.ordered?.steps.every(step => step.patches?.length === 1));
     events.length = 0;
@@ -965,6 +968,7 @@ it('keeps a hundred ordered Studio edits, their undo points and replay receipts 
     assert.equal(prefix.committed.length, 1);
     const partial = events.find(event => event.type === 'files-changed');
     assert.ok(partial?.type === 'files-changed');
+    assert.equal(partial.indexHeadHash, sha256Hex('').slice(0, 12));
     assert.deepEqual(partial.ordered?.steps.map(step => step.id), [tail.id]);
     assert.deepEqual([prefix.failed.id, prefix.failed.status, prefix.failed.path, prefix.failed.currentVersion],
       [stale.id, 409, path, prefix.committed[0].versions[path]]);

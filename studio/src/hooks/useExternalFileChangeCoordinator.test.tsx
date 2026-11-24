@@ -5,6 +5,7 @@ import { mediaThumbnailRevisionOf } from "../player/store/thumbnailSlice";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { rememberSource, forgetSource } from "../utils/confirmedTextSources";
 import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import { acceptFileEditReceipt } from "../utils/rebasedFileEdit";
 import { markStudioWriteToken, resetStudioWriteTokens, studioFileContentVersion } from "../utils/studioFileVersion";
@@ -1394,6 +1395,42 @@ describe("external file change coordinator", () => {
       );
 
       expect(reloadPreview).toHaveBeenCalledOnce();
+    });
+
+    it("derives shared thumbnail keys from an ordered root patch and invalidates conservatively when its base is absent", async () => {
+      const project = "project-a", path = "index.html", scene = "compositions/intro.html";
+      const content = "<html><head>style1</head><body>aaa</body></html>";
+      const digest = async (head: string) => (await studioFileContentVersion(head)).slice(8, 20);
+      const oldHead = await digest("style1");
+      const newHead = await digest("style2");
+      const sceneKey = (hash: string) => 'scene-v1|shared:' + hash + ':assets';
+      const base = '"patch:base"';
+      setCachedProjectRevision(project, "revision", {
+        [path]: base + '|shared:' + oldHead + ':assets', [scene]: sceneKey(oldHead),
+      });
+      await mountCoordinator();
+      const deliver = async (where: string, insert: string, version: string) => {
+        const id = 'token-' + version;
+        markStudioWriteToken(id);
+        await act(async () => handler?.({
+          projectId: project, fileVersions: { [path]: version }, paths: [path], writeToken: id,
+          ordered: { fromRevision: "r1", historySeq: 1, steps: [{id, patches: [
+            {path, from: base, to: version, patch: [[content.indexOf(where), where.length, insert]]},
+          ]}] },
+        }));
+      };
+      rememberSource(project, path, { content, version: base });
+      try {
+        await deliver("aaa", "bbb", "body-version");
+        expect(getCompositionCacheRevision(project, scene)).toBe(sceneKey(oldHead));
+        await deliver("style1", "style2", "head-version");
+        await vi.waitFor(() => expect(getCompositionCacheRevision(project, scene)).toBe(sceneKey(newHead)));
+        forgetSource(project, path);
+        await deliver("aaa", "ccc", "unknown-version");
+        expect(getCompositionCacheRevision(project, scene)).not.toBe(sceneKey(newHead));
+      } finally {
+        forgetSource(project, path);
+      }
     });
 
     it("propagates persisted HTML fileVersions, indexHeadHash, and shared CSS/asset invalidation from SSE into clientCompositionCapture", async () => {

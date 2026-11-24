@@ -1,4 +1,5 @@
-import { orderedFileChange } from './orderedFileChanges';
+import { extractIndexHeadMarkup } from '../../../shared/preview-impact';
+import { orderedFileChange, projectOrderedFile } from './orderedFileChanges';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import {
   changedFilePaths,
@@ -17,7 +18,7 @@ import { StudioFileConflictError } from "../utils/studioSaveDiagnostics";
 import type { ExternalConflictSnapshot } from "../utils/externalConflictStorage";
 import { isSelfWriteEcho } from "./sdkSelfWriteRegistry";
 import { onRebasedFileEdit } from "../utils/rebasedFileEdit";
-import { consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
+import { studioContentHash, consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
 import { useCloudDisklessMode } from "../utils/cloudRuntime";
 import { logReload } from "../utils/reloadDebug";
 import { ExternalPreviewUpdates } from "./externalPreviewUpdates";
@@ -347,16 +348,38 @@ export function useExternalFileChangeCoordinator({
     };
   }, [loadConflictSnapshot, projectId, recoveryFilePath, setBlocked]);
 
+  const rootThumbnailEvent = useRef(0);
+  const updateThumbnails = useCallback((project: string, payload: unknown) => {
+    const versions = changedFileVersions(payload);
+    const changedPaths = readFileChangeAffectsPreview(payload) ? changedFilePaths(payload) ?? undefined : undefined;
+    const indexHeadHash = readFileChangeIndexHeadHash(payload);
+    if (!versions && !changedPaths?.length && !indexHeadHash) return;
+    if (indexHeadHash || (versions && 'index.html' in versions)) rootThumbnailEvent.current++;
+    const missingHead = !indexHeadHash && versions?.['index.html'];
+    const source = missingHead ? projectOrderedFile(project, 'index.html', payload) : undefined;
+    updateCachedCompositionRevisions(project, versions, {
+      changedPaths, indexHeadHash, indexHeadChanged: Boolean(missingHead && !source),
+    });
+    if (source) {
+      // Only the head goes through SHA-256. Receipt and preview processing can proceed
+      // immediately; an older digest must never replace a newer thumbnail dependency.
+      const event = rootThumbnailEvent.current;
+      const apply = (options: {indexHeadHash?: string; indexHeadChanged?: boolean}) => {
+        if (rootThumbnailEvent.current === event) updateCachedCompositionRevisions(project, null, options);
+      };
+      void studioContentHash(extractIndexHeadMarkup(source.content)).then(
+        digest => apply({ indexHeadHash: digest.slice(0, 12) }),
+        () => apply({ indexHeadChanged: true }),
+      );
+    }
+  }, []);
+
   // What a settled change owes: thumbnails (unless its own write's echo brings them), then reloads.
   const deliverOwed = useCallback(
     (owed: unknown, accept = true) => {
       const path = readStudioFileChangePath(owed) ?? ".";
-      const versions = changedFileVersions(owed);
       const changedPaths = readFileChangeAffectsPreview(owed) ? changedFilePaths(owed) ?? undefined : undefined;
-      const indexHeadHash = readFileChangeIndexHeadHash(owed);
-      if (projectId && (versions || changedPaths?.length || indexHeadHash)) {
-        updateCachedCompositionRevisions(projectId, versions, { changedPaths, indexHeadHash });
-      }
+      if (projectId) updateThumbnails(projectId, owed);
       const inPlace = refreshFileViews(owed, unaffectedPreview => {
         const compositions = readFileChangeAffectedCompositions(owed);
         if (accept) onAcceptedPersistedFileChange(path, unaffectedPreview && compositions
@@ -375,7 +398,7 @@ export function useExternalFileChangeCoordinator({
       // a watcher event the SSE never delivered).
       if (readFileTreeChanged(owed)) void refreshFileTree?.();
     },
-    [projectId, onAcceptedPersistedFileChange, previewUpdates, reloadPreview, refreshFileViews, refreshFileTree],
+    [projectId, onAcceptedPersistedFileChange, previewUpdates, reloadPreview, refreshFileViews, refreshFileTree, updateThumbnails],
   );
 
   const persistSnapshotInOrder = useCallback(async (write: () => Promise<void>) => {
@@ -562,12 +585,7 @@ export function useExternalFileChangeCoordinator({
       const ownContentEcho = content != null && isSelfWriteEcho(path, content);
       if (!ownWriteToken) invalidateLatestSourceWrite();
       if (ownWriteToken || ownContentEcho) {
-        const versions = changedFileVersions(payload);
-        const changedPaths = readFileChangeAffectsPreview(payload) ? changedFilePaths(payload) ?? undefined : undefined;
-        const indexHeadHash = readFileChangeIndexHeadHash(payload);
-        if (versions || changedPaths?.length || indexHeadHash) {
-          updateCachedCompositionRevisions(projectId, versions, { changedPaths, indexHeadHash });
-        }
+        updateThumbnails(projectId, payload);
         const version = changedFileVersion(payload, path);
         const ownWrite = ownWriteToken && token && version && isLatestSourceWrite(token) ? { token, version } : undefined;
         onAcceptedPersistedFileChange(path, readFileChangeAffectedCompositions(payload), ownWrite);
@@ -585,7 +603,7 @@ export function useExternalFileChangeCoordinator({
       };
       void startDrainLoop();
     },
-    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange, presentPendingPeerChange],
+    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange, presentPendingPeerChange, updateThumbnails],
   );
 
   const processChangeRef = useRef(processChange);

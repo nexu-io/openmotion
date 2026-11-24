@@ -19,7 +19,7 @@ function delta(n: number, inserted = 'a'): PendingTextRevision {
 
 async function deliveries(collector: OrderedEditEvents) {
   const seen: ProjectEvent[] = [];
-  await collector.publish(async item => { seen.push(item); }, async () => undefined);
+  await collector.publish(async item => { seen.push(item); });
   return seen;
 }
 

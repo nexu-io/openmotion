@@ -15,12 +15,13 @@ export function orderedFileChange(payload: unknown): OrderedEditEvent | undefine
 }
 
 /** Cheap warm read from already committed bytes. Any missing link takes the usual authoritative GET. */
-export function readOrderedFile(project: string, path: string, payload: unknown) {
+export function projectOrderedFile(project: string, path: string, payload: unknown) {
   const ordered = orderedFileChange(payload);
   const target = changedFileVersion(payload, path);
   const source = confirmedSource(project, path);
-  if (!ordered || !target || !source) return;
+  if (!target || !source) return;
   if (source.version === target) return source;
+  if (!ordered) return;
   let version = source.version;
   let copied = 0;
   let bytes: Uint8Array | undefined;
@@ -36,10 +37,15 @@ export function readOrderedFile(project: string, path: string, payload: unknown)
       }
     }
     if (!bytes || version !== target) return;
-    const updated = { content: new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes), version };
-    rememberSource(project, path, updated);
-    return updated;
+    return { content: new TextDecoder('utf-8', {fatal: true, ignoreBOM: true}).decode(bytes), version };
   } catch {
     return;
   }
+}
+
+export function readOrderedFile(project: string, path: string, payload: unknown) {
+  if (!orderedFileChange(payload)) return;
+  const source = projectOrderedFile(project, path, payload);
+  if (source && source !== confirmedSource(project, path)) rememberSource(project, path, source);
+  return source;
 }

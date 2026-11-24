@@ -5,7 +5,7 @@ import type { PendingTextRevision } from './project-text-edits.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 
 const INLINE_PATCH_BYTES = 64 * 1024;
-type Entry = { commit: CommitProjectFilesResult; patches?: CommittedFilePatch[] };
+type Entry = { commit: CommitProjectFilesResult; patches?: CommittedFilePatch[]; indexHeadHash?: string };
 type Publish = (event: ProjectEvent) => Promise<unknown>;
 
 /** Request scoped. A concurrent writer splits our steps into separate revision ranges. */
@@ -21,30 +21,33 @@ export class OrderedEditEvents {
     this.projectId = projectId;
   }
 
-  record(commit: CommitProjectFilesResult, revisions: readonly PendingTextRevision[]) {
+  record(commit: CommitProjectFilesResult, revisions: readonly PendingTextRevision[], indexHeadHash?: string) {
     if (commit.replayed || !commit.changedPaths.length) return;
     const patches = revisions.map(row => ({
       path: row.path, from: formatFileVersion(row.parentScope, row.parentId),
       to: commit.versionsByPath[row.path], patch: row.patch,
     }));
     if (this.bytes <= INLINE_PATCH_BYTES) this.bytes += Buffer.byteLength(JSON.stringify(patches));
-    this.entries.push({ commit, patches: this.bytes <= INLINE_PATCH_BYTES ? patches : undefined });
+    this.entries.push({ commit, indexHeadHash, patches: this.bytes <= INLINE_PATCH_BYTES ? patches : undefined });
   }
 
-  async publish(publish: Publish, readHeadHash: (version: string) => Promise<string | undefined>) {
+  async publish(publish: Publish) {
     for (let start = 0; start < this.entries.length;) {
       let end = start + 1;
       while (end < this.entries.length && this.entries[end].commit.previousRevision === this.entries[end - 1].commit.revision) end++;
-      await this.publishRange(this.entries.slice(start, end), publish, readHeadHash);
+      await this.publishRange(this.entries.slice(start, end), publish);
       start = end;
     }
   }
 
-  private async publishRange(entries: Entry[], publish: Publish, readHeadHash: (version: string) => Promise<string | undefined>) {
+  private async publishRange(entries: Entry[], publish: Publish) {
     const last = entries[entries.length - 1].commit;
     const versions = new Map<string, string>();
     const compositions = new Set<string>();
-    for (const {commit} of entries) {
+    let indexHeadHash: string | undefined;
+    for (const entry of entries) {
+      const { commit } = entry;
+      if (commit.changedPaths.includes('index.html')) indexHeadHash = entry.indexHeadHash;
       for (const path of commit.changedPaths) versions.set(path, commit.versionsByPath[path]);
       for (const path of commit.affectedCompositions) compositions.add(path);
     }
@@ -56,8 +59,6 @@ export class OrderedEditEvents {
       })),
       historySeq: last.historySeq,
     };
-    const indexVersion = versions.get('index.html');
-    const indexHeadHash = indexVersion && await readHeadHash(indexVersion);
     const base = { workspaceId: this.workspaceId, projectId: this.projectId, revision: last.revision,
       versionId: last.versionId ?? undefined, ts: Date.now(), writeToken: last.writeToken };
     await publish({ ...base, type: 'files-changed', paths: [...versions.keys()],

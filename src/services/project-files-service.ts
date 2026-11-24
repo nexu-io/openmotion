@@ -834,10 +834,7 @@ export class ProjectFilesService {
     } finally {
       const bus = this.eventBus;
       if (bus) {
-        await events.publish(event => bus.publish(projectChannel(ctx.workspaceId, projectId), event), async version => {
-          const source = await this.readTextFile(ctx, projectId, 'index.html').catch(() => null);
-          return source?.version === version ? hashIndexHeadMarkup(source.content) : undefined;
-        }).catch(() => {});
+        await events.publish(event => bus.publish(projectChannel(ctx.workspaceId, projectId), event)).catch(() => {});
       }
     }
   }
@@ -902,28 +899,21 @@ export class ProjectFilesService {
       if (this.eventBus && input.projectUpdates?.title !== undefined) {
         void this.eventBus.publish(workspaceCatalogChannel(ctx.workspaceId), { type: 'catalog-changed' }).catch(() => {});
       }
+      const eventPaths = [...new Set([...result.changedPaths, ...result.deletedPaths])];
+      // Patch commits have no source bytes here. Computing thumbnail metadata must never
+      // materialize a file or make saving depend on object storage.
+      let indexHeadHash: string | undefined;
+      if (this.eventBus && eventPaths.includes('index.html')) {
+        const indexOp = preparedOps.find(op => op.path === 'index.html');
+        const text = indexOp?.op === 'upsert' ? uploads.get(indexOp.sha256)?.textContent : undefined;
+        if (text !== undefined) indexHeadHash = hashIndexHeadMarkup(text);
+        else if (result.deletedPaths.includes('index.html')) indexHeadHash = hashIndexHeadMarkup('');
+      }
       if (input.orderedEvents) {
-        input.orderedEvents.record(result, input.textRevisions ?? []);
+        input.orderedEvents.record(result, input.textRevisions ?? [], indexHeadHash);
         return result;
       }
-      const eventPaths = [...new Set([...result.changedPaths, ...result.deletedPaths])];
       if (this.eventBus && eventPaths.length > 0) {
-        let indexHeadHash: string | undefined;
-        if (eventPaths.includes('index.html')) {
-          const indexOp = preparedOps.find(
-            (op): op is Extract<(typeof preparedOps)[number], { op: 'upsert' }> =>
-              op.op === 'upsert' && op.path === 'index.html',
-          );
-          const uploadedText = indexOp ? uploads.get(indexOp.sha256)?.textContent : undefined;
-          if (uploadedText !== undefined) {
-            indexHeadHash = hashIndexHeadMarkup(uploadedText);
-          } else if (result.deletedPaths.includes('index.html')) {
-            indexHeadHash = hashIndexHeadMarkup('');
-          } else {
-            const read = await this.readTextFile(ctx, input.projectId, 'index.html').catch(() => null);
-            if (read) indexHeadHash = hashIndexHeadMarkup(read.content);
-          }
-        }
         const event: ProjectEvent = {
           type: 'file-change',
           workspaceId: ctx.workspaceId,

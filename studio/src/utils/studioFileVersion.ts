@@ -47,14 +47,17 @@ export function resetStudioWriteTokens(): void {
   invalidateLatestSourceWrite();
 }
 
-/** Browser-safe SHA-256 version matching studio-server's strong ETag format. */
-export async function studioFileContentVersion(content: string): Promise<string> {
+export async function studioContentHash(content: string): Promise<string> {
   const bytes = new TextEncoder().encode(content);
   const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
     "",
   );
-  return `"sha256:${hex}"`;
+}
+
+/** Browser-safe SHA-256 version matching studio-server's strong ETag format. */
+export async function studioFileContentVersion(content: string): Promise<string> {
+  return `"sha256:${await studioContentHash(content)}"`;
 }
 
 /** Prefer an explicit content precondition, then the version observed during the read. */
