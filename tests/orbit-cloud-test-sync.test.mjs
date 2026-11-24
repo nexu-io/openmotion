@@ -553,6 +553,18 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 		"utf8",
 	);
 	assert.match(releaseWorkflow, /branches:\s*\[main\]/);
+	for (const expectedPath of [
+		"deploy/Dockerfile",
+		"src/**",
+		".github/workflows/container-images.yml",
+		".github/workflows/deploy-cloud-test.yml",
+		".github/scripts/orbit-publish-cloud-test.mjs",
+	]) {
+		assert.match(
+			releaseWorkflow,
+			new RegExp(`^      - ${expectedPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "m"),
+		);
+	}
 	for (const jobName of ["checks", "images", "promote"]) {
 		assert.match(
 			extractJobBlock(releaseWorkflow, jobName),

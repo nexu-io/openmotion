@@ -3,6 +3,34 @@ name: Release default cloud test environment
 on:
   push:
     branches: [main]
+    paths:
+      - .dockerignore
+      - deploy/Dockerfile
+      - package.json
+      - package-lock.json
+      - src/**
+      - shared/**
+      - gateway/**
+      - tracking/**
+      - studio/**
+      - skills/**
+      - packages/**
+      - templates/**
+      - web/**
+      - mcp-ui/**
+      - library/**
+      - template-library/**
+      - scripts/**
+      - docs/transcripts.md
+      - hyperframes.ts
+      - server.ts
+      - template-library.ts
+      - LICENSE
+      - .github/workflows/ci.yml
+      - .github/workflows/container-images.yml
+      - .github/workflows/deploy-cloud-test.yml
+      - .github/scripts/orbit-publish-cloud-test.mjs
+      - .github/scripts/promote-cloud-test.sh
   workflow_dispatch: {}
 
 permissions: {}
