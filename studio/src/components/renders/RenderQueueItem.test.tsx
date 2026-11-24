@@ -80,7 +80,7 @@ describe('export task recovery', () => {
     expect(click.mock.instances[0].getAttribute('href')).toBe('/api/projects/demo/renders/file/j1.gif?download=1');
   });
 
-  it('keeps an unknown result, last confirmed information and an action that only rechecks the original task', () => {
+  it('keeps an unknown result, last confirmed information, recheck, and explicit cancel when a native task exists', () => {
     const recheck = vi.fn();
     render({ status: 'unknown', progress: 46, stage: 'Encoding frame 46/100', lastCheckedAt: job.createdAt + 1000, error: 'Progress connection interrupted' }, { onRecheck: recheck });
     expect(host.textContent).toContain('Result needs checking');
@@ -90,23 +90,27 @@ describe('export task recovery', () => {
     expect(host.querySelector('[role=progressbar]')).toBeNull();
     expect(host.querySelector('[aria-label="Download j1.gif"]')).toBeNull();
     expect(host.querySelector('[aria-label="Delete j1.gif"]')).toBeNull();
-    expect(button('Cancel')).toBeUndefined();
     act(() => button('Recheck').click());
     expect(recheck).toHaveBeenCalledOnce();
     expect(onDelete).not.toHaveBeenCalled();
+    act(() => button('Cancel').click());
+    expect(onCancel).toHaveBeenCalledOnce();
+    render({ status: 'unknown', nativeJobId: undefined }, { onRecheck: recheck });
+    expect(button('Cancel')).toBeUndefined();
     render({ status: 'unknown' }, { onRecheck: recheck, checking: true });
     expect(button('Checking…').disabled).toBe(true);
     act(() => button('Checking…').click());
     expect(recheck).toHaveBeenCalledOnce();
   });
 
-  it('keeps a confirmed inactive worker result unknown with no download or deletion', () => {
+  it('keeps a confirmed inactive worker result unknown with recheck and cancel but no download', () => {
     const recheck = vi.fn();
     render({ status: 'unknown', workerActive: false }, { onRecheck: recheck });
     expect(host.textContent).toContain('No active worker is attached. A new export keeps this unknown record.');
     expect(host.textContent).toContain('Result needs checking');
     expect(button('Copy diagnostics')).not.toBeUndefined();
     expect(button('Recheck')).not.toBeUndefined();
+    expect(button('Cancel')).not.toBeUndefined();
     expect(button('Reload editor')).toBeUndefined();
     expect(host.querySelector('[aria-label="Download j1.gif"]')).toBeNull();
     expect(host.querySelector('[aria-label="Delete j1.gif"]')).toBeNull();
@@ -114,19 +118,24 @@ describe('export task recovery', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it('reloads only on user request when an unconfirmed request has no matching native task', () => {
+  it('offers reload guidance for missing client-only receipts and remove for missing native tasks', () => {
     const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {});
     render({ status: 'unknown', nativeJobId: undefined, requestNotFound: true });
     expect(host.textContent).toContain('No matching task was found. Copy diagnostics, then reload the editor before exporting again.');
     expect(reload).not.toHaveBeenCalled();
     expect(io.begin).not.toHaveBeenCalled();
     expect(button('Copy diagnostics')).not.toBeUndefined();
+    expect(button('Remove')).not.toBeUndefined();
     act(() => button('Reload editor').click());
     expect(reload).toHaveBeenCalledOnce();
     expect(io.begin).toHaveBeenCalledExactlyOnceWith('reload_editor');
     expect(io.finish).toHaveBeenCalledExactlyOnceWith({ outcome: 'unknown' });
     render({ status: 'unknown', nativeJobId: 'native-1', requestNotFound: true });
     expect(button('Reload editor')).toBeUndefined();
+    expect(button('Cancel')).toBeUndefined();
+    expect(host.textContent).toContain('No matching task was found. Copy diagnostics, remove this record, or start a new export.');
+    act(() => button('Remove').click());
+    expect(onDelete).toHaveBeenCalledOnce();
   });
 
   it('does not expose a targetless recheck or terminal actions while cancellation is unconfirmed', () => {

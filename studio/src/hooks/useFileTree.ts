@@ -323,19 +323,23 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     return subscribeMediaIngestStatus(applyIngestEvent);
   }, [projectId]);
 
-  // Periodically prune expired waiting_upload tickets so abandoned MCP tickets don't linger.
+  // Periodically prune expired waiting_upload tickets and stale processing entries.
   useEffect(() => {
     if (!current?.pendingImports?.length) return;
+    const staleProcessingMs = 15 * 60_000;
     const timer = window.setInterval(() => {
       const now = Date.now();
       setFetched((prev) => {
         if (!prev?.pendingImports?.length) return prev;
-        const filtered = prev.pendingImports.filter(
-          (item) =>
-            item.state !== "waiting_upload" ||
-            !item.expiresAt ||
-            Date.parse(item.expiresAt) > now,
-        );
+        const filtered = prev.pendingImports.filter((item) => {
+          if (item.state === "waiting_upload") {
+            return !item.expiresAt || Date.parse(item.expiresAt) > now;
+          }
+          if (item.state === "processing") {
+            return !Number.isFinite(item.updatedAt) || now - item.updatedAt < staleProcessingMs;
+          }
+          return true;
+        });
         return filtered.length === prev.pendingImports.length
           ? prev
           : { ...prev, pendingImports: filtered };

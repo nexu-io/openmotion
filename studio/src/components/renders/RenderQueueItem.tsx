@@ -263,9 +263,36 @@ export const RenderQueueItem = memo(function RenderQueueItem({
             >
               {t("Cancel")}</Button>
           ) : awaitingResult ? (
-            onRecheck && <Button size="sm" variant="secondary" disabled={checking} onClick={onRecheck}>
-              {t(checking ? 'Checking…' : 'Recheck')}
-            </Button>
+            <>
+              {onRecheck && <Button size="sm" variant="secondary" disabled={checking} onClick={onRecheck}>
+                {t(checking ? 'Checking…' : 'Recheck')}
+              </Button>}
+              {job.status === 'unknown' && job.nativeJobId && !job.requestNotFound && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    trackStudioClick("export_panel", "cancel_render", projectId, clickMethod(e));
+                    onCancel();
+                  }}
+                >
+                  {t("Cancel")}
+                </Button>
+              )}
+              {job.status === 'unknown' && job.requestNotFound && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete();
+                  }}
+                >
+                  {t("Remove")}
+                </Button>
+              )}
+            </>
           ) : confirmingDelete ? (
             <>
               <Button
@@ -323,8 +350,10 @@ export const RenderQueueItem = memo(function RenderQueueItem({
         </div>
       </div>
       {job.status === 'unknown' && <div className="mt-2">
-        <p className="text-step-11 text-text-4">{t(job.requestNotFound && !job.nativeJobId
-          ? 'No matching task was found. Copy diagnostics, then reload the editor before exporting again.'
+        <p className="text-step-11 text-text-4">{t(job.requestNotFound
+          ? (!job.nativeJobId
+            ? 'No matching task was found. Copy diagnostics, then reload the editor before exporting again.'
+            : 'No matching task was found. Copy diagnostics, remove this record, or start a new export.')
           : job.workerActive === false
             ? 'No active worker is attached. A new export keeps this unknown record.'
             : 'The export result is not confirmed. Recheck the original task.')}</p>

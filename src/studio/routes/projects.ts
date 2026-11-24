@@ -327,6 +327,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     }> = [];
     try {
       const now = new Date();
+      const freshIngestCutoff = new Date(now.getTime() - 15 * 60_000);
       const [activeTickets, activeJobs] = await Promise.all([
         deps.db
           .select()
@@ -350,6 +351,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
               eq(jobs.projectId, projectId),
               eq(jobs.kind, 'media_ingest'),
               inArray(jobs.state, ['queued', 'running']),
+              gt(jobs.updatedAt, freshIngestCutoff),
             ),
           )
           .orderBy(desc(jobs.createdAt))
@@ -390,6 +392,15 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
         if (seenJobIds.has(job.id)) continue;
         const payload = (job.inputPayload ?? {}) as Record<string, unknown>;
         const kind = typeof payload.kind === 'string' ? payload.kind : typeof payload.operation === 'string' ? payload.operation : '';
+        const explicitSource = payload.source;
+        const source: 'mcp_upload' | 'mcp_url' | 'web_upload' =
+          explicitSource === 'mcp_upload' || explicitSource === 'mcp_url' || explicitSource === 'web_upload'
+            ? explicitSource
+            : kind === 'url' || kind === 'url_fetch'
+              ? 'mcp_url'
+              : kind === 'upload_commit'
+                ? 'web_upload'
+                : 'mcp_upload';
         const filename =
           (typeof payload.name === 'string' && payload.name) ||
           (typeof payload.targetPath === 'string' && payload.targetPath.split('/').pop()) ||
@@ -399,7 +410,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
           jobId: job.id,
           filename,
           ...(typeof payload.targetPath === 'string' ? { targetPath: payload.targetPath } : {}),
-          source: kind === 'url' || kind === 'url_fetch' ? 'mcp_url' : 'mcp_upload',
+          source,
           state: 'processing',
           ...(job.stage ? { stage: job.stage } : {}),
           progress: Number(job.progress ?? 0),

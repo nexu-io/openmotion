@@ -3,7 +3,7 @@ import { FileListError, FileListLoading } from "./FileListLoading";
 import { AssetImportMenu } from '../../motion/AssetLibraryImport';
 import { useFileManagerContextOptional } from '../../contexts/FileManagerContext';
 import { ManualImportResults } from './ManualImportResults';
-import { PendingExternalImports } from './PendingExternalImports';
+import { filterPendingExternalImports, PendingExternalImports } from './PendingExternalImports';
 import { RemixIcon } from "../../icons/RemixIcons";
 import { clickOption, searchStarted, trackStudioClick } from "../../motion/editorTracking";
 import { useMvpEditor } from "../../motion/StudioHost";
@@ -339,9 +339,7 @@ export const AssetsTab = memo(function AssetsTab({
       >
         {fileManager && fileManager.pendingImports.length > 0 && (
           <PendingExternalImports
-            items={fileManager.pendingImports.filter(
-              (item) => !(importBatch?.busy && item.source === "web_upload"),
-            )}
+            items={filterPendingExternalImports(fileManager.pendingImports, importBatch)}
             onDismiss={fileManager.dismissPendingImport}
           />
         )}

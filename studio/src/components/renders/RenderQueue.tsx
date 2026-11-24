@@ -451,7 +451,7 @@ export const RenderQueue = memo(function RenderQueue({
           canBrowserExport={canBrowserExport}
           onStartRender={onStartRender}
           isRendering={isRendering}
-          separateExport={!isRendering && jobs.some(job => job.status === "unknown" && job.workerActive === false)}
+          separateExport={!isRendering && jobs.some(job => job.status === "unknown")}
           compositionDimensions={compositionDimensions}
           lastRenderDurationMs={lastRenderDurationMs}
           ffmpeg={ffmpeg}

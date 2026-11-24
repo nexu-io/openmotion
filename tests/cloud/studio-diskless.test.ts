@@ -91,6 +91,7 @@ class StudioTestPgClient {
       'catalog_templates',
       'catalog_template_files',
       'jobs',
+      'upload_tickets',
       'idempotency_receipts',
     ]) {
       this.tables.set(t, []);
@@ -478,9 +479,9 @@ function evalW(row: Row, raw: string, params: unknown[]): boolean {
   if ((m = /^([\s\S]+?)\s+in\s*\(([\s\S]+)\)$/i.exec(term))) {
     return splitTop(m[2], ',').map((v) => evalSc(v, params)).includes(row[colName(m[1])]);
   }
-  if ((m = /^([\s\S]+?)\s*>=\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) >= Number(evalSc(m[2], params));
-  if ((m = /^([\s\S]+?)\s*>\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) > Number(evalSc(m[2], params));
-  if ((m = /^([\s\S]+?)\s*<\s*([\s\S]+)$/.exec(term))) return Number(row[colName(m[1])]) < Number(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*>=\s*([\s\S]+)$/.exec(term))) return cmpVal(row[colName(m[1])]) >= cmpVal(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*>\s*([\s\S]+)$/.exec(term))) return cmpVal(row[colName(m[1])]) > cmpVal(evalSc(m[2], params));
+  if ((m = /^([\s\S]+?)\s*<\s*([\s\S]+)$/.exec(term))) return cmpVal(row[colName(m[1])]) < cmpVal(evalSc(m[2], params));
   if ((m = /^([\s\S]+?)\s*=\s*([\s\S]+)$/.exec(term))) return row[colName(m[1])] === evalSc(m[2], params);
   throw new Error(`Unsupported WHERE: ${term}`);
 }
@@ -504,6 +505,11 @@ function applySet(row: Row, setC: string, params: unknown[]): void {
       row[col] = evalSc(rhs, params);
     }
   }
+}
+function cmpVal(v: unknown): number {
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) return Date.parse(v);
+  return Number(v);
 }
 function sortVal(v: unknown): string | number {
   if (typeof v === 'number') return v;
@@ -2587,5 +2593,163 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(svgMetaBody.metadata, null);
     assert.equal(svgMetaBody.mimeType, 'image/svg+xml');
     assert.equal(env.enqueued.length, 0);
+  });
+
+  it('reports render workerActive liveness, cancels orphaned renders immediately, and reconciles stale dead-worker jobs on re-export', async () => {
+    const env = createStudioTestEnv();
+    const created = await env.workspace.createProject(env.auth, {
+      title: 'Export Recovery Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
+    });
+
+    // 1. Live worker: queued/running job reports workerActive: true and status: 'rendering'.
+    const liveJobId = randomUUID();
+    env.pgClient.seed('jobs', {
+      id: liveJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'export_render',
+      state: 'running',
+      stage: 'rendering',
+      progress: 42,
+      worker_id: 'render-1',
+      input_payload: { outputName: 'live-render.mp4' },
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const liveListRes = await env.studioApp.request(`/api/projects/${created.projectId}/renders`);
+    assert.equal(liveListRes.status, 200);
+    const liveList = (await liveListRes.json()) as {
+      renders: Array<{ id: string; status: string; workerActive?: boolean }>;
+    };
+    assert.equal(liveList.renders[0]?.id, liveJobId);
+    assert.equal(liveList.renders[0]?.status, 'rendering');
+    assert.equal(liveList.renders[0]?.workerActive, true);
+
+    // 2. Claiming worker goes offline: /renders and /progress report status: 'unknown', workerActive: false.
+    env.workerHealth.length = 0;
+    const offlineListRes = await env.studioApp.request(`/api/projects/${created.projectId}/renders`);
+    assert.equal(offlineListRes.status, 200);
+    const offlineList = (await offlineListRes.json()) as {
+      renders: Array<{ id: string; status: string; workerActive?: boolean }>;
+    };
+    assert.equal(offlineList.renders[0]?.status, 'unknown');
+    assert.equal(offlineList.renders[0]?.workerActive, false);
+
+    const offlineProgressRes = await env.studioApp.request(`/api/render/${liveJobId}/progress`);
+    assert.equal(offlineProgressRes.status, 200);
+    const offlineProgressBody = await offlineProgressRes.text();
+    assert.ok(offlineProgressBody.includes('"status":"unknown"'));
+    assert.ok(offlineProgressBody.includes('"workerActive":false'));
+
+    // 3. Cancelling an orphaned running render converges directly to 'cancelled' and unblocks new exports.
+    const cancelOrphanRes = await env.studioApp.request(`/api/render/${liveJobId}/cancel`, { method: 'POST' });
+    assert.equal(cancelOrphanRes.status, 200);
+    const cancelOrphanBody = (await cancelOrphanRes.json()) as { status: string; state: string; workerActive: boolean };
+    assert.equal(cancelOrphanBody.status, 'cancelled');
+    assert.equal(cancelOrphanBody.state, 'cancelled');
+    assert.equal(cancelOrphanBody.workerActive, false);
+
+    // 4. A stale dead-worker running job (> 60s old) is automatically reconciled when starting a new export.
+    const staleJobId = randomUUID();
+    const staleIso = new Date(Date.now() - 120_000).toISOString();
+    env.pgClient.seed('jobs', {
+      id: staleJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'export_render',
+      state: 'running',
+      stage: 'rendering',
+      progress: 50,
+      worker_id: 'dead-worker-9',
+      input_payload: { outputName: 'stale-render.mp4' },
+      deleted_at: null,
+      created_at: staleIso,
+      updated_at: staleIso,
+    });
+    env.workerHealth.push({
+      workerId: 'render-2',
+      ffmpeg: true,
+      ffprobe: true,
+      chromium: true,
+      concurrency: 1,
+      activeJobs: 0,
+      updatedAt: Date.now(),
+    });
+
+    const newExportRes = await env.studioApp.request(`/api/projects/${created.projectId}/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'mp4', fps: 30, quality: 'standard' }),
+    });
+    assert.equal(newExportRes.status, 200);
+    const newExport = (await newExportRes.json()) as { jobId: string; status: string };
+    assert.ok(newExport.jobId);
+    assert.equal(newExport.status, 'rendering');
+
+    const afterReconcile = (await (await env.studioApp.request(`/api/projects/${created.projectId}/renders`)).json()) as {
+      renders: Array<{ id: string; status: string; workerActive?: boolean }>;
+    };
+    assert.equal(afterReconcile.renders.find((r) => r.id === staleJobId)?.status, 'failed');
+    assert.equal(afterReconcile.renders.find((r) => r.id === staleJobId)?.workerActive, false);
+  });
+
+  it('preserves web_upload source and filters stale media_ingest jobs from pendingImports', async () => {
+    const env = createStudioTestEnv();
+    const created = await env.workspace.createProject(env.auth, {
+      title: 'Pending Imports Hygiene Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
+    });
+
+    const freshWebJobId = randomUUID();
+    const staleWebJobId = randomUUID();
+    env.pgClient.seed('jobs', {
+      id: freshWebJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'media_ingest',
+      state: 'running',
+      stage: 'probing',
+      progress: 35,
+      input_payload: {
+        operation: 'upload_commit',
+        source: 'web_upload',
+        name: 'fresh.mp4',
+        targetPath: 'assets/fresh.mp4',
+      },
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    const staleIso = new Date(Date.now() - 20 * 60_000).toISOString();
+    env.pgClient.seed('jobs', {
+      id: staleWebJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'media_ingest',
+      state: 'running',
+      stage: 'probing',
+      progress: 10,
+      input_payload: {
+        operation: 'upload_commit',
+        source: 'web_upload',
+        name: 'abandoned.mp4',
+        targetPath: 'assets/abandoned.mp4',
+      },
+      deleted_at: null,
+      created_at: staleIso,
+      updated_at: staleIso,
+    });
+
+    const projRes = await env.studioApp.request(`/api/projects/${created.projectId}`);
+    assert.equal(projRes.status, 200);
+    const projBody = (await projRes.json()) as {
+      pendingImports?: Array<{ id: string; source: string; filename: string }>;
+    };
+    const pending = projBody.pendingImports ?? [];
+    assert.equal(pending.find((item) => item.id === freshWebJobId)?.source, 'web_upload');
+    assert.equal(pending.find((item) => item.id === staleWebJobId), undefined);
   });
 });

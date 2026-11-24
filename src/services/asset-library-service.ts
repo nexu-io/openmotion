@@ -1254,6 +1254,9 @@ export class AssetLibraryService {
 
       const jobId = randomUUID();
       const now = new Date();
+      const existingTicketPayload = (current.resultPayload ?? {}) as Record<string, unknown>;
+      const ingestSource: 'mcp_upload' | 'web_upload' =
+        existingTicketPayload.source === 'mcp_upload' ? 'mcp_upload' : 'web_upload';
       await tx.insert(jobs).values(
         asInsert(jobs, {
           id: jobId,
@@ -1266,6 +1269,7 @@ export class AssetLibraryService {
           requestId: effectiveRequestId ?? null,
           inputPayload: {
             operation: 'upload_commit',
+            source: ingestSource,
             uploadId: current.id,
             purpose: current.purpose,
             name: effectiveName,
@@ -1283,7 +1287,7 @@ export class AssetLibraryService {
         .set(
           asUpdate(uploadTickets, {
             state: 'uploaded',
-            resultPayload: { jobId },
+            resultPayload: { ...existingTicketPayload, jobId },
             updatedAt: now,
           }),
         )
