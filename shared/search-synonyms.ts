@@ -90,8 +90,8 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
     terms: [
       '电商', '带货', '电商带货', '商品展示', '好物推荐', '种草', '促销', '大促',
       '折扣', '黑五', '黑色星期五', '双十一', '双11', '618', '卖货',
-      '网店', '商城', '电商海报', '主图视频',
-      'ecommerce', 'e-commerce', 'discount', 'black friday',
+      '网店', '商城', '购物', '电商海报', '主图视频',
+      'ecommerce', 'e-commerce', 'shopping', 'discount', 'black friday',
       'ショッピング', '通販', 'セール', '割引', '쇼핑', '이커머스', '커머스', '할인', '세일',
       'onlineshop', 'rabatt', 'soldes', 'réduction',
       'интернет-магазин', 'скидка', 'распродажа',
