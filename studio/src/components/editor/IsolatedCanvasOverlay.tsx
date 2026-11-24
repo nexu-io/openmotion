@@ -33,6 +33,7 @@ interface Drag {
   finishSettled: boolean;
   waitingForSource?: boolean;
   corner?: Corner;
+  liveResizeBounds?: boolean;
   bounds?: LayerBounds;
   offset?: { x: number; y: number };
 }
@@ -50,9 +51,11 @@ interface DragResult extends IsolatedSourceTarget {
   width?: number;
   height?: number;
   extraAxes?: CanvasBox["extraAxes"];
+  geometry?: LayerBounds;
+  viewport?: { width: number; height: number };
 }
 
-interface Pick { target?: IsolatedSourceTarget; geometry: LayerBounds; viewport: { width: number; height: number } }
+interface Pick { target?: IsolatedSourceTarget; geometry: LayerBounds; viewport: { width: number; height: number }; liveResizeBounds?: boolean }
 
 function validResult(result: DragResult | null): result is DragResult {
   return isIsolatedSourceTarget(result) && Number.isFinite(result.left) && Number.isFinite(result.top);
@@ -80,6 +83,17 @@ export function IsolatedCanvasOverlay() {
   const [draft, setDraft] = useState<{ frame: HTMLIFrameElement; bounds: LayerBounds } | null>(null);
   const box = draft && draft.frame === previewIframeRef.current ? draft.bounds : domEditSelection?.isolatedBounds;
   const { state: { compositionRect } } = usePreviewOverlayContext();
+  useEffect(() => {
+    function resizeBounds(event: MessageEvent) {
+      const active = drag.current;
+      if (!active?.corner || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
+          event.data.gestureId !== active.gestureId || !active.adapter.accepts(event)) return;
+      const bounds = relativeLayerBounds(event.data);
+      if (bounds) setDraft({ frame: active.adapter.iframe, bounds });
+    }
+    window.addEventListener("message", resizeBounds);
+    return () => window.removeEventListener("message", resizeBounds);
+  }, []);
   useEffect(() => {
     if (!lastPick.current) setDraft(null);
   }, [domEditSelection]);
@@ -210,7 +224,8 @@ export function IsolatedCanvasOverlay() {
         const bounds = relativeLayerBounds(pick);
         if (!bounds) return;
         active.bounds = bounds;
-        showBounds(active);
+        active.liveResizeBounds = pick.liveResizeBounds;
+        if (!active.liveResizeBounds) showBounds(active);
       }).catch(() => { if (drag.current === active) setDraft(null); })
       .finally(() => {
         active.pickSettled = true;
@@ -227,7 +242,7 @@ export function IsolatedCanvasOverlay() {
     const payload = { phase, dx: dx / active.frame.width, dy: dy / active.frame.height, gestureId: active.gestureId };
     if (phase !== "cancel" && (active.offset || Math.hypot(dx, dy) >= 3)) {
       active.offset = { x: dx, y: dy };
-      showBounds(active);
+      if (!active.liveResizeBounds) showBounds(active);
     }
     if (phase === "move") {
       if (active.offset) active.adapter.send("canvas-drag", payload);
@@ -263,6 +278,8 @@ export function IsolatedCanvasOverlay() {
         return;
       }
       const frame = active.adapter.iframe;
+      const finalBounds = active.corner && relativeLayerBounds(result);
+      if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds });
       const write = async (version?: string) => {
         const patch = positionPatch(result);
         // The authenticated measurement is complete. A preview swap while a prior

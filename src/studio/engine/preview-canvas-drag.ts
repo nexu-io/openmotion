@@ -143,7 +143,7 @@ export const PREVIEW_CANVAS_DRAG = `
     const pos = axis => parseFloat(window.gsap?.getProperty?.(element, axis)) || 0;
     const startPosition = {time,x:pos('x'),y:pos('y')};
     drag = { ordered: message.ordered === true, startPosition, id: message.gestureId, element, original, left, top, makeRelative, axes, resize, selection, width, height, corner };
-    return { geometry: selection.geometry, viewport: selection.viewport, target: { sourceFile: selection.sourceFile, hfId: selection.hfId, elementId: selection.elementId, ...sourceIdentity(canvasBase(selection.sourceFile, drag)) } };
+    return { geometry: selection.geometry, viewport: selection.viewport, ...(corner && { liveResizeBounds: true }), target: { sourceFile: selection.sourceFile, hfId: selection.hfId, elementId: selection.elementId, ...sourceIdentity(canvasBase(selection.sourceFile, drag)) } };
   }
 
   function canvasDrag(message) {
@@ -225,11 +225,12 @@ export const PREVIEW_CANVAS_DRAG = `
       : { time:startPosition.time, x:round(startPosition.x + offsetX), y:round(startPosition.y + offsetY) };
     const sha256 = canvasBase(sourceFile, drag);
     const predecessor = pendingForSource(sourceFile).at(-1)?.id;
+    const finalBounds = corner && resizeFrameBounds(drag.element);
     // Keep general inspectors pinned to the last fully settled document.
     if (!drag.ordered) delete sourceVersions[sourceFile];
     pendingDrags.set(drag.id, { ...drag, sha256 });
     drag = null;
     const extraAxes = (writeLeft && !corner?.endsWith('w') ? 'x' : '') + (writeTop && !corner?.startsWith('n') ? 'y' : '');
-    return { sourceFile, elementId, hfId, ...sourceIdentity(sha256), ...(predecessor && {predecessor}), left, top, makeRelative, ...(!corner && {position}), ...(corner && {corner,width,height,...(extraAxes && {extraAxes})}) };
+    return { sourceFile, elementId, hfId, ...sourceIdentity(sha256), ...(predecessor && {predecessor}), left, top, makeRelative, ...(!corner && {position}), ...(corner && {corner,width,height,...(extraAxes && {extraAxes}),...finalBounds}) };
   }
 `;

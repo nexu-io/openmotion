@@ -327,6 +327,14 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-drag'){
         var result=canvasDrag(message);
+        if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
+          const active=drag;
+          active.boundsScheduled=true;
+          requestAnimationFrame(function(){
+            active.boundsScheduled=false;
+            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...resizeFrameBounds(active.element)});
+          });
+        }
         if(message.phase==='start'){
           const started=drag?.id===message.gestureId ? drag : null;
           const hit=started?.element || (!message.corner && !message.target && canvasPointHit(message.x, message.y));

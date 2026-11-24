@@ -158,6 +158,21 @@ it("keeps the opposite corner of a transformed layer fixed while dragging and af
   expect(one.getBoundingClientRect().toJSON()).toEqual(during.toJSON());
 });
 
+it.each([44.9, 45, 45.1])("keeps a small drag bounded at a %s degree rotation", angle => {
+  const { one, gesture } = createScene();
+  const cos = Math.cos(angle * Math.PI / 180), sin = Math.sin(angle * Math.PI / 180);
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const w = parseFloat(one.style.width) || 20, h = parseFloat(one.style.height) || 10;
+    return new DOMRect(parseFloat(one.style.left) || 0, parseFloat(one.style.top) || 0, cos*w+sin*h, sin*w+cos*h);
+  });
+  const before = one.getBoundingClientRect();
+  expect(gesture("start", "diagonal", {corner:"se"})).toBeTruthy();
+  const result = gesture("finish", "diagonal", {dx:.14,dy:.09});
+  expect(result.width / 20).toBeCloseTo(result.height / 10, 3);
+  expect(result.geometry.width - before.width).toBeCloseTo(11.5, 1);
+  expect(result.geometry.height - before.height).toBeCloseTo(11.5, 1);
+});
+
 it("cannot resize an invisible target from a stale handle, including a target hidden mid-gesture", () => {
   const { one, gesture } = createScene(true);
   const corner = { corner: "se" };
