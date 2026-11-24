@@ -41,6 +41,33 @@ const Harness = forwardRef<Handle, { projectId: string }>(function Harness({ pro
   return null;
 });
 
+it.each([false, true])("renders the directory before font inspection and reuses matching details (legacy response %s)", async (legacy) => {
+  let finish!: (response: Response) => void;
+  const details = new Promise<Response>(resolve => { finish = resolve; });
+  const urls: string[] = [];
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    urls.push(url);
+    return url.endsWith("?view=asset-details") ? details : Response.json({
+      files: ["index.html", "assets/font.woff"], compositions: ["index.html"], assetDetailsKey: "font-v1", revision: "r1",
+    });
+  });
+  try {
+    const handle = await renderHarness("font-project");
+    expect(handle.current?.compositions).toEqual(["index.html"]);
+    expect(handle.current?.fonts).toEqual([]);
+    await act(async () => finish(Response.json({
+      ...(legacy ? { revision: "r1" } : { assetDetailsKey: "font-v1" }), fonts: [{ path: "assets/font.woff", family: "The Real Family" }],
+    })));
+    expect(handle.current?.fonts[0]?.family).toBe("The Real Family");
+    await act(async () => { await handle.current?.refresh(); });
+    expect(handle.current?.fonts[0]?.family).toBe("The Real Family");
+    expect(urls.filter(url => url.endsWith("?view=asset-details"))).toHaveLength(1);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
 it("keeps the server's real family and weight instead of deriving them from the asset filename", async () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
     files: ["assets/fonts/misleading.ttf"], compositions: [],
@@ -367,7 +394,7 @@ it('serves previously loaded project trees immediately via stale-while-revalidat
   let deferReturnA: ((res: Response) => void) | null = null;
   let callsA = 0;
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
-    const id = String(url).split('/').pop()!;
+    const id = new URL(String(url), 'http://studio.test').pathname.split('/').pop()!;
     if (id === 'proj-swr-a') {
       callsA += 1;
       if (callsA === 2) {

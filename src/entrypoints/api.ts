@@ -44,7 +44,7 @@ import { phase1McpCapabilities, phase1Tools } from '../../shared/phase1-tools.ts
 import { isUuid, validateStableRequestId } from '../../shared/project-validation.ts';
 import { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
 import { VERSION } from '../../shared/version.ts';
-import { isNotFoundSpaPath } from '../../shared/spa-routes.ts';
+import { editorProjectIdFromPath, isEditorSpaPath, isNotFoundSpaPath } from '../../shared/spa-routes.ts';
 import {
   providerSettingsPreview,
   sessionPath,
@@ -2920,8 +2920,16 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const previewOriginMeta = previewHostIsolationEnabled && previewOriginUrl
         ? `<meta name="openmotion-preview-origin" content="${previewOriginUrl.origin}">`
         : '';
+      // Only a direct, explicit project open needs the editor inventory and root source.
+      // The normal authenticated GETs consume these navigation-scoped browser preloads.
+      const projectId = editorProjectIdFromPath(pathname) ?? requestUrl.searchParams.get('project');
+      const sessionId = requestUrl.searchParams.get('session');
+      const projectHints = isEditorSpaPath(pathname, requestUrl.search) && isUuid(projectId)
+        && (!sessionId || isUuid(sessionId)) && requestUrl.searchParams.get('templates') !== '1'
+        ? `<link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}?view=editor" fetchpriority="high"><link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}/files/index.html">`
+        : '';
       const studioHtml = renderedHtml.replace('</head>',
-        `${preconnectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
+        `${preconnectHints}${projectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
       const bytes = Buffer.from(studioHtml, 'utf8');
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled

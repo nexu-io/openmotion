@@ -1,3 +1,4 @@
+import { readEditorOpeningTree } from "../utils/editorOpeningValidation";
 import { buildProjectApiPath } from "../utils/projectRouting";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { FONT_EXT } from "../utils/mediaTypes";
@@ -58,7 +59,9 @@ export interface FileTreeRefreshOptions {
 interface FetchedFileTree {
   projectId: string;
   loaded: boolean;
+  revision?: string;
   error?: boolean;
+  assetDetailsKey?: string;
   fileTree: string[];
   compositionPaths: string[];
   projectDir: string | null;
@@ -74,6 +77,8 @@ const EMPTY_FILE_LIST: string[] = [];
 const EMPTY_PENDING_IMPORTS: PendingExternalImport[] = [];
 
 type TreeListing = {
+  entryVersion?: string | null;
+  assetDetailsKey?: string;
   revision?: string;
   compositionRevisions?: Record<string, string>;
   assetNames?: Record<string, string>;
@@ -85,8 +90,18 @@ type TreeListing = {
   fonts?: Array<Omit<ImportedFontAsset, "url">>;
 };
 
-async function readTreeListing(projectId: string, signal: AbortSignal): Promise<TreeListing> {
-  const res = await studioApiFetch(buildProjectApiPath(projectId), { signal });
+function assetDetailsFromListing(data: TreeListing, previous?: FetchedFileTree | null) {
+  const key = data.assetDetailsKey;
+  if (key && previous?.assetDetailsKey !== key) return { assetDetailsKey: key, fonts: undefined, assetNames: undefined };
+  return {
+    assetDetailsKey: key,
+    fonts: data.fonts ?? previous?.fonts,
+    assetNames: data.assetNames ?? previous?.assetNames,
+  };
+}
+
+async function readTreeListing(projectId: string, signal?: AbortSignal): Promise<TreeListing> {
+  const res = await studioApiFetch(buildProjectApiPath(projectId) + "?view=editor", { signal });
   if (!res.ok) throw new Error(`tree fetch failed: ${res.status}`);
   return res.json();
 }
@@ -143,15 +158,7 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
     } else {
       setFetched({ projectId, loaded: false, fileTree: [], compositionPaths: [], projectDir: null });
     }
-    studioApiFetch(buildProjectApiPath(projectId))
-      // An unresolvable project answers 404 with a JSON body, so without this
-      // the error path parsed cleanly and the success branch below recorded an
-      // empty tree — and an empty provenance snapshot — for a project that was
-      // never read. Throwing hands it to the catch instead.
-      .then((r) => {
-        if (!r.ok) throw new Error(`tree fetch failed: ${r.status}`);
-        return r.json();
-      })
+    readEditorOpeningTree(projectId, () => readTreeListing(projectId))
       .then((data: TreeListing) => {
         if (cancelled || requestId < appliedRequestRef.current) return;
         appliedRequestRef.current = requestId;
@@ -164,12 +171,12 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         const nextEntry: FetchedFileTree = {
           projectId,
           loaded: true,
+          revision: data.revision,
           error: false,
           fileTree: data.files ?? [],
           compositionPaths: data.compositions ?? [],
           projectDir: typeof data.dir === "string" ? data.dir : null,
-          fonts: data.fonts,
-          assetNames: data.assetNames,
+          ...assetDetailsFromListing(data, cacheByProjectRef.current.get(projectId)),
           assetMetadata: data.assetMetadata,
           pendingImports: Array.isArray(data.pendingImports) ? data.pendingImports : undefined,
         };
@@ -248,14 +255,14 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
         const nextEntry: FetchedFileTree = {
           ...prev,
           loaded: true,
+          revision: data.revision,
           error: false,
           projectDir: typeof data.dir === "string" ? data.dir : prev.projectDir,
           fileTree: data.files ?? prev.fileTree,
           // A response that omits `compositions` must not wipe out a
           // known-good list — only replace it when the field is present.
           compositionPaths: data.compositions ?? prev.compositionPaths,
-          fonts: data.fonts ?? prev.fonts,
-          assetNames: data.assetNames ?? prev.assetNames,
+          ...assetDetailsFromListing(data, prev),
           assetMetadata: data.assetMetadata ?? prev.assetMetadata,
           pendingImports: Array.isArray(data.pendingImports)
             ? data.pendingImports
@@ -268,6 +275,34 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
       });
     }
   }, [projectIdRef, rememberProjectTree]);
+
+  const pendingDetails = current?.fonts === undefined ? current?.assetDetailsKey : undefined;
+  useEffect(() => {
+    if (!projectId || !pendingDetails) return;
+    const controller = new AbortController();
+    void studioApiFetch(buildProjectApiPath(projectId) + "?view=asset-details", { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error(`asset details fetch failed: ${response.status}`);
+        const details: TreeListing = await response.json();
+        if (controller.signal.aborted) return;
+        // During a rolling upgrade an older API can answer this query with its full listing.
+        const matches = details.assetDetailsKey
+          ? details.assetDetailsKey === pendingDetails
+          : !!details.revision && details.revision === cacheByProjectRef.current.get(projectId)?.revision;
+        if (!matches) {
+          await refreshFileTree();
+          return;
+        }
+        setFetched(prev => {
+          if (prev?.projectId !== projectId || prev.assetDetailsKey !== pendingDetails) return prev;
+          const next = { ...prev, fonts: details.fonts ?? [], assetNames: details.assetNames };
+          rememberProjectTree(next);
+          return next;
+        });
+      })
+      .catch(error => { if (!controller.signal.aborted) reportRefreshFailure(error); });
+    return () => controller.abort();
+  }, [projectId, pendingDetails, refreshFileTree, rememberProjectTree]);
 
   const dismissPendingImport = useCallback((id: string) => {
     setFetched((prev) =>
@@ -382,14 +417,14 @@ export function useFileTree({ projectId, projectIdRef }: UseFileTreeOptions) {
 
   const fontAssets = useMemo<ImportedFontAsset[]>(
     () =>
-      current?.fonts?.map(font => ({ ...font, url: buildProjectApiPath(projectId!, `/preview/${encodeUrlPath(font.path)}`) })) ?? (projectId ? assets : [])
+      current?.fonts?.map(font => ({ ...font, url: buildProjectApiPath(projectId!, `/preview/${encodeUrlPath(font.path)}`) })) ?? (projectId && !pendingDetails ? assets : [])
         .filter((asset) => FONT_EXT.test(asset))
         .map((asset) => ({
           family: fontFamilyFromAssetPath(asset),
           path: asset,
           url: projectId ? buildProjectApiPath(projectId, `/preview/${encodeUrlPath(asset)}`) : "",
         })),
-    [assets, projectId, current?.fonts],
+    [assets, projectId, current?.fonts, pendingDetails],
   );
 
   return {

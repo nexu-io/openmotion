@@ -2,6 +2,7 @@ import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { Check } from "../../icons/RemixIcons";
 import {
+  Suspense,
   createContext,
   useCallback,
   useContext,
@@ -386,7 +387,13 @@ function Panel({ id, title, children }: { id: PanelId; title?: string; children:
   }, [controller, id, label, open]);
   const definition: PanelDefinition = PANEL_DEFINITIONS[id];
   const shown = visible || definition.keepMounted;
-  return element && shown ? createPortal(children, element) : null;
+  if (!element || !shown) return null;
+  return createPortal(
+    <Suspense fallback={<div role="status" className="p-2 text-panel-text-3">{t("Loading…")}</div>}>
+      {children}
+    </Suspense>,
+    element,
+  );
 }
 
 function WindowMenu() {

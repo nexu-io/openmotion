@@ -1,30 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ensureLocaleLoaded, isLocale, isLocaleLoaded, languages, translate, type Locale, type MessageValues } from './messages';
+import { ensureLocaleLoaded, isLocale, isLocaleLoaded, translate, type Locale, type MessageValues } from './messages';
+import { browserLocale, LOCALE_STORAGE_KEY, readLocale } from './localePreference';
+export { LOCALE_STORAGE_KEY, readLocale } from './localePreference';
 import { pageMetadata } from '../../../packages/design-system/metadata.js';
 export { languages, isLocale, isLocaleLoaded, ensureLocaleLoaded, translate, sourceMessage } from './messages';
 export type { Locale, MessageValues, Translate } from './messages';
-export const LOCALE_STORAGE_KEY = 'motion.studio.locale';
-
-function browserLocale(): Locale | undefined {
-  if (typeof navigator === 'undefined') return undefined;
-  const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
-  for (const value of preferred) {
-    if (!value) continue;
-    const normalized = value.replaceAll('_', '-').toLowerCase();
-    const exact = languages.find(language => language.locale.toLowerCase() === normalized);
-    if (exact) return exact.locale;
-    const primary = normalized.split('-')[0];
-    const match = languages.find(language => language.locale.toLowerCase().split('-')[0] === primary);
-    if (match) return match.locale;
-  }
-  return undefined;
-}
-
-export function readLocale(): Locale {
-  try { const saved = localStorage.getItem(LOCALE_STORAGE_KEY); if (isLocale(saved)) return saved; } catch { /* Private browsing can deny storage. */ }
-  return browserLocale() ?? 'zh-CN';
-}
-
 function languageTools(locale: Locale) {
   return {
     locale,

@@ -422,6 +422,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     setRightCollapsed: panelLayout.setRightCollapsed,
   });
   const renderClipContent = useRenderClipContent({
+    fileTreeLoaded: fileManager.fileTreeLoaded,
     projectIdRef: fileManager.projectIdRef,
     compIdToSrc,
     activePreviewUrl:

@@ -40,6 +40,12 @@ it("keeps the current project's timeline controls and empty drop zone inert unti
     const tracks = host.querySelector("[data-tracks]")!;
     expect(tracks.closest("[inert]")).not.toBeNull();
     expect(host.querySelector('[role="status"]')).not.toBeNull();
+    act(() => usePlayerStore.setState({ authoredTimelinePath: "compositions/outro.html" }));
+    expect(tracks.closest("[inert]")).not.toBeNull();
+    act(() => usePlayerStore.setState({ authoredTimelinePath: "index.html" }));
+    expect(tracks.closest("[inert]")).toBeNull();
+    expect(usePlayerStore.getState().timelineReady).toBe(false);
+    act(() => usePlayerStore.setState({ authoredTimelinePath: null }));
     act(() => store.setTimelineReady(true));
     expect(controls.closest("[inert]")).toBeNull();
     expect(tracks.closest("[inert]")).toBeNull();

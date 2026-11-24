@@ -7,6 +7,7 @@ import { FONT_EXT } from '../../../shared/asset-names.ts';
 import { extractIndexHeadMarkup, NON_PREVIEW_FILES } from '../../../shared/preview-impact.ts';
 import { uploadTickets } from '../../db/schema/blobs-assets.ts';
 import { jobs } from '../../db/schema/jobs.ts';
+import type { AuthContext } from '../../contracts/auth.ts';
 import type { FontMetadataEntry } from '../../services/asset-names-service.ts';
 import {
   getAuthContext,
@@ -16,6 +17,7 @@ import {
 import { infoInMemory } from '../engine/inspect.ts';
 import { formatFileVersion, hashIndexHeadMarkup } from '../etag.ts';
 import {
+  type VirtualFileRecord,
   listVirtualCompositions,
   resolveVirtualPath,
   virtualDirname,
@@ -183,6 +185,43 @@ export function computeCompositionRevisions(
   return revisions;
 }
 
+// Captions depend on paths, the two naming manifests and font contents. Other
+// content edits leave these details unchanged when an editor refreshes its tree.
+function assetDetailsKey(files: readonly VirtualFileRecord[], language: string | null): string {
+  const hash = createHash('sha256').update(JSON.stringify(language));
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    const includeContent = FONT_EXT.test(file.path) || file.path === 'motion-assets.json' || file.path === 'motion-project.json';
+    hash.update(JSON.stringify([file.path, includeContent ? file.sha256 : null]));
+  }
+  return hash.digest('hex');
+}
+
+async function readAssetDetails(
+  deps: DisklessStudioDeps, auth: AuthContext, projectId: string, fileList: readonly VirtualFileRecord[],
+) {
+  const projectFonts: Array<FontMetadataEntry & { postscriptName?: string }> = [];
+  if (deps.fontCatalog) {
+    for (const file of fileList) {
+      if (!FONT_EXT.test(file.path)) continue;
+      try {
+        const bytes = await deps.files.readBinaryBlob(auth.workspaceId, file.blobScope, file.sha256);
+        const meta = deps.fontCatalog.inspectBuffer(bytes);
+        if (meta) {
+          projectFonts.push({ ...meta, path: file.path });
+        }
+      } catch {
+        // Invalid font assets remain listed in files but are skipped from selectable fonts.
+      }
+    }
+  }
+
+  const assetNameInfo = await deps.assetNames.readAssetNames(auth, projectId, {
+    paths: fileList.map(file => file.path),
+    fonts: projectFonts,
+  });
+  return { fonts: projectFonts, assetNames: assetNameInfo.assetNames, namingLanguage: assetNameInfo.namingLanguage };
+}
+
 export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
 
@@ -209,40 +248,30 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
     const projectId = c.req.param('id');
     const detail = await deps.workspace.getProject(auth, projectId, { allowTrashed: true });
-    const virtual = await deps.files.loadVirtualProject(auth, projectId);
+    const view = c.req.query('view');
+    if (view === 'asset-details') {
+      const files = await deps.files.listFiles(auth, projectId);
+      return c.json({ assetDetailsKey: assetDetailsKey(files, detail.namingLanguage), ...await readAssetDetails(deps, auth, projectId, files) });
+    }
+    const editor = view === 'editor';
+    const virtual = await deps.files.loadVirtualProject(auth, projectId, editor ? path => /\.html?$/i.test(path) : undefined);
     const fileList = virtual.listFiles();
     const filePaths = fileList.map((f) => f.path);
     const compositions = listVirtualCompositions(fileList);
+    const revision = editor ? virtual.revision : detail.revision;
     const compositionRevisions = computeCompositionRevisions(
       fileList,
       compositions,
       virtual.readText('index.html'),
-      detail.revision,
+      revision,
       (filePath) => virtual.readText(filePath),
     );
-    const info = infoInMemory(virtual);
+    const info = editor ? null : infoInMemory(virtual);
 
-    const projectFonts: Array<FontMetadataEntry & { postscriptName?: string }> = [];
-    if (deps.fontCatalog) {
-      for (const file of fileList) {
-        if (!FONT_EXT.test(file.path)) continue;
-        try {
-          const bin = await deps.files.readBinaryFile(auth, projectId, file.path);
-          if (!bin) continue;
-          const meta = deps.fontCatalog.inspectBuffer(bin.buffer);
-          if (meta) {
-            projectFonts.push({ ...meta, path: file.path });
-          }
-        } catch {
-          // Invalid font assets remain listed in files but are skipped from selectable fonts.
-        }
-      }
-    }
-
-    const assetNameInfo = await deps.assetNames.readAssetNames(auth, projectId, {
-      paths: filePaths,
-      fonts: projectFonts,
-    });
+    const deferredDetails = editor && deps.fontCatalog && fileList.some(file => FONT_EXT.test(file.path));
+    const assetDetails = deferredDetails
+      ? { assetDetailsKey: assetDetailsKey(fileList, detail.namingLanguage) }
+      : await readAssetDetails(deps, auth, projectId, fileList);
 
     const assetMetadata: Record<
       string,
@@ -426,23 +455,18 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
       name: detail.title,
       title: detail.title,
       dir: `/virtual/${detail.id}`,
-      revision: detail.revision,
+      revision,
+      ...(editor ? { entryVersion: virtual.getFileVersion('index.html') } : {}),
       compositionRevisions,
       versionId: detail.currentVersionId,
       versionNumber: detail.currentVersionNumber,
       historySeq: detail.currentHistorySeq,
       files: filePaths,
       compositions,
-      fonts: projectFonts,
-      assetNames: assetNameInfo.assetNames,
+      ...assetDetails,
       assetMetadata,
       pendingImports,
-      namingLanguage: assetNameInfo.namingLanguage,
-      width: info.width,
-      height: info.height,
-      fps: info.fps,
-      duration: info.duration,
-      resolution: info.resolution,
+      ...(info ? { width: info.width, height: info.height, fps: info.fps, duration: info.duration, resolution: info.resolution } : {}),
     });
   });
 

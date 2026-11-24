@@ -8,7 +8,8 @@ import { FileTree } from "./editor/FileTree";
 import { FileListError } from "./sidebar/FileListLoading";
 import { MediaPreview } from "./MediaPreview";
 import { AssetsTab } from "./sidebar/AssetsTab";
-import { BlocksTab, type BlockPreviewInfo } from "./sidebar/BlocksTab";
+import type { BlockPreviewInfo } from "./sidebar/BlocksTab";
+import { lazyWithChunkReload } from "../utils/chunkReload";
 import { CompositionsPanel } from "./sidebar/CompositionsPanel";
 import { SidebarLintButton } from "./sidebar/SidebarLintButton";
 import { Dock } from "./dock/Dock";
@@ -19,6 +20,7 @@ import { useFileManagerContext } from "../contexts/FileManagerContext";
 import { getPersistedRenderSettings } from "./renders/renderSettings";
 import { useCloudFeatureEnabled } from "../utils/cloudFeatures";
 
+const BlocksTab = lazyWithChunkReload(() => import("./sidebar/BlocksTab").then(m => ({ default: m.BlocksTab })));
 const SourceEditor = lazy(() => import('./editor/SourceEditor').then(module => ({ default: module.SourceEditor })));
 
 interface StudioLeftPanelsProps {

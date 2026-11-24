@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { forgetProjectSources, rememberSource } from "../../utils/confirmedTextSources";
 import { markStudioWriteToken } from "../../utils/studioFileVersion";
 import { trackStudioPendingEdit } from "../../utils/studioPendingEdits";
 import { announcePreviewDocumentLoaded, previewContentGeneration, previewSourceRevision, sceneSwapFor } from "../sceneSwap";
@@ -27,7 +28,31 @@ beforeEach(() => {
   document.body.append(frame);
   close = openTimelineSource("p", path);
 });
-afterEach(() => { close(); frame.remove(); usePlayerStore.getState().reset(); });
+afterEach(() => { forgetProjectSources("p"); close(); frame.remove(); usePlayerStore.getState().reset(); });
+
+it("installs confirmed rows before preview startup without enabling transport", () => {
+  usePlayerStore.setState({ elements: [], duration: 0, timelineReady: false });
+  rememberSource("p", path, { content: original, version: "v2" });
+  beginTimelineSourceRead("p", path)(original, { version: "v1" });
+  expect(usePlayerStore.getState().elements).toEqual([]);
+  beginTimelineSourceRead("p", path)(original, { version: "v2" });
+  expect(usePlayerStore.getState()).toMatchObject({ authoredTimelinePath: path, duration: 20, timelineReady: false,
+    elements: [{ domId: "a", start: 0, duration: 10 }] });
+});
+
+it("does not publish late opening rows into a different file or project", () => {
+  usePlayerStore.setState({ elements: [], timelineReady: false });
+  rememberSource("p", path, { content: original, version: "v1" });
+  const late = beginTimelineSourceRead("p", path);
+  const leaveClip = openTimelineSource("p", "compositions/next.html");
+  late(original, { version: "v1" });
+  expect(usePlayerStore.getState().elements).toEqual([]);
+  leaveClip();
+  usePlayerStore.getState().beginTimelineSession("different");
+  late(original, { version: "v1" });
+  expect(usePlayerStore.getState().authoredTimelinePath).toBeNull();
+  expect(usePlayerStore.getState().elements).toEqual([]);
+});
 
 it.each([
   ["trim head", audio("a", 2, 8, 2, 0), { start: 2, duration: 8, playbackStart: 2 }],
@@ -164,7 +189,7 @@ it("keeps a confirmed projection as the baseline when an SDK read finishes late"
 
 it("reuses root startup rows and parses each following version exactly once", () => {
   const initial = parseAuthoredTimeline(original, path, "p")!;
-  beginTimelineSourceRead("p", path)(original, initial);
+  beginTimelineSourceRead("p", path)(original, { rows: initial });
   const parse = vi.spyOn(DOMParser.prototype, "parseFromString");
   try {
     const next = page(audio("a", 2, 8, 2, 0));

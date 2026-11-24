@@ -115,8 +115,14 @@ export function useCompositionStack({
       label: "Master",
       previewUrl: buildProjectApiPath(projectId, `/preview`),
     };
-    if (activeCompositionPath === "index.html") {
+    // Route hydration can repeat the source already on screen (including null → index.html).
+    // Only discard rows when the owning project or composition actually changes.
+    const current = stackRef.current;
+    const destination = !activeCompositionPath || activeCompositionPath === "index.html" ? "master" : activeCompositionPath;
+    if (current[0]?.previewUrl !== master.previewUrl || current.at(-1)?.id !== destination) {
       usePlayerStore.getState().setElements([]);
+    }
+    if (activeCompositionPath === "index.html") {
       updateCompositionStack([master]);
     } else if (activeCompositionPath) {
       // Any composition file that isn't the root, wherever it lives. Gating
@@ -130,13 +136,11 @@ export function useCompositionStack({
         projectId,
         `/preview/comp/${encodePreviewPath(activeCompositionPath)}`,
       );
-      usePlayerStore.getState().setElements([]);
       updateCompositionStack((prev) => {
         if (prev[prev.length - 1]?.id === activeCompositionPath) return prev;
         return [master, { id: activeCompositionPath, label, previewUrl }];
       });
     } else {
-      usePlayerStore.getState().setElements([]);
       updateCompositionStack([master]);
     }
   }, [activeCompositionPath, projectId, updateCompositionStack]);

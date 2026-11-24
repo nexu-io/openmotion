@@ -50,7 +50,7 @@ beforeEach(() => {
     if (init?.method === 'POST') return upload(url, init);
     if (url.endsWith('manifest.jsonl')) return new Response('', { status: 404 });
     if (treeFailed) throw new TypeError('listing offline');
-    const project = decodeURIComponent(url.split('/')[3]);
+    const project = decodeURIComponent(new URL(url, 'http://studio.test').pathname.split('/')[3]);
     return Response.json({ files: files[project], compositions: [] });
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -138,7 +138,7 @@ it('does not move a delayed import result or recovery action to another project'
   await act(async () => { resolve(Response.json({ files: ['assets/good.png'] })); await pending; });
   expect(host.querySelector('[aria-label="This upload"]')).toBeNull();
   expect(host.querySelector('[data-assets-list]')?.textContent).toContain('project-b.png');
-  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/projects/b')).toHaveLength(1);
+  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/projects/b?view=editor')).toHaveLength(1);
   expect(uploadCalls()[0][0]).toContain('/projects/a/upload');
 });
 
@@ -287,7 +287,7 @@ it('preserves the entry point and unknown counts for uploads outside the manual 
 it('does not show a duplicate Processing pending-import card alongside Result unknown after an upload timeout', async () => {
   const realFetch = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (init?.method !== 'POST' && url === '/api/projects/a') {
+    if (init?.method !== 'POST' && url === '/api/projects/a?view=editor') {
       return Response.json({
         files: files.a,
         compositions: [],

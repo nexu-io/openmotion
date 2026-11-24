@@ -1,3 +1,4 @@
+import { readEditorOpeningSource } from "./editorOpeningValidation";
 import { confirmedSource, observeSourceRead } from "./confirmedTextSources";
 import { readVersionedSource, type SourceVersion } from "./readVersionedSource";
 
@@ -15,7 +16,7 @@ export function invalidatePendingSourceReads(project: string, paths: readonly st
 }
 
 export async function readCurrentProjectSource(
-  project: string, path: string, url = `/api/projects/${encodeURIComponent(project)}/files/${encodeURIComponent(path)}`, base?: SourceVersion,
+  project: string, path: string, url = `/api/projects/${encodeURIComponent(project)}/files/${encodeURIComponent(path)}`, base?: SourceVersion, signal?: AbortSignal,
 ): Promise<{ response: Response; data?: FileBody }> {
   const read: Pending = { project, path };
   pending.add(read);
@@ -23,11 +24,14 @@ export async function readCurrentProjectSource(
     for (;;) {
       const started = read.changed;
       const cached = confirmedSource(project, path);
-      const response = await readVersionedSource(url, cached ?? base);
-      let data: FileBody | undefined;
-      if (response.ok) {
-        try { data = await response.json(); } catch { /* Caller reports invalid source JSON. */ }
-      }
+      const { response, data } = await readEditorOpeningSource(project, url, async preloadBase => {
+        const response = await readVersionedSource(url, preloadBase ?? cached ?? base, signal);
+        let data: FileBody | undefined;
+        if (response.ok) {
+          try { data = await response.json(); } catch { /* Caller reports invalid source JSON. */ }
+        }
+        return { response, data };
+      });
       const latest = confirmedSource(project, path);
       const version = data?.version ?? response.headers?.get("etag");
       if (started !== read.changed && (!version || version !== read.changed?.version)) {

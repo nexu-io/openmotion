@@ -14,9 +14,10 @@ function sourceResponse(source: SourceVersion, received: Headers): Response {
 
 // A delta is meaningful only to a reader holding exactly the revision it names.
 // Preserve the ordinary Response for status handling and old hosts' full reads.
-export async function readVersionedSource(url: string, base?: SourceVersion): Promise<Response> {
-  if (!base) return studioApiFetch(url);
-  const response = await studioApiFetch(url, { headers: {
+export async function readVersionedSource(url: string, base?: SourceVersion, signal?: AbortSignal): Promise<Response> {
+  const readFull = () => studioApiFetch(url, signal ? { signal } : undefined);
+  if (!base) return readFull();
+  const response = await studioApiFetch(url, { signal, headers: {
     'If-None-Match': base.version,
     [TEXT_PATCH_BASE_HEADER]: base.version,
   } });
@@ -24,7 +25,7 @@ export async function readVersionedSource(url: string, base?: SourceVersion): Pr
   // Compare the opaque read tag; keep the authoritative source version for subsequent writes.
   const readTag = response.headers.get('etag')?.replace(/^W\//, '');
   if (response.status === 304) {
-    return readTag === base.version ? sourceResponse(base, response.headers) : studioApiFetch(url);
+    return readTag === base.version ? sourceResponse(base, response.headers) : readFull();
   }
   if (!response.ok || response.headers.get('X-OpenMotion-Representation') !== 'text-patch') return response;
   try {
@@ -36,5 +37,5 @@ export async function readVersionedSource(url: string, base?: SourceVersion): Pr
   } catch {
     // A bad or truncated delta is recoverable with an ordinary full-source read.
   }
-  return studioApiFetch(url);
+  return readFull();
 }

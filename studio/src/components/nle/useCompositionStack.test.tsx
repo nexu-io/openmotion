@@ -13,6 +13,23 @@ describe("useCompositionStack — drilling into a composition file", () => {
     document.body.innerHTML = "";
   });
 
+  it("preserves source rows when route hydration repeats the same master", async () => {
+    const root = createRoot(document.createElement("div"));
+    function Harness({ path }: { path?: string }) {
+      useCompositionStack({ projectId: "p", activeCompositionPath: path });
+      return null;
+    }
+    const elements = [{ id: "a", tag: "div", start: 0, duration: 4, track: 0 }];
+    try {
+      await act(async () => root.render(<Harness />));
+      usePlayerStore.getState().setElements(elements);
+      await act(async () => root.render(<Harness path="index.html" />));
+      expect(usePlayerStore.getState().elements).toEqual(elements);
+      await act(async () => root.render(<Harness path="intro.html" />));
+      expect(usePlayerStore.getState().elements).toEqual([]);
+    } finally { act(() => root.unmount()); }
+  });
+
   for (const compositionSrc of [
     "sections/compositions/x.html",
     "http://localhost:5190/api/projects/p/preview/sections/compositions/x.html",

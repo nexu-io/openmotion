@@ -108,7 +108,7 @@ export interface BundlePreviewOptions {
   /** Origin serving Studio's static bridge, only for a token-enabled document. */
   readonly bridgeOrigin?: string;
   readonly studioOrigin?: string;
-  /** Interactive previews can reuse large classic scripts through their authorized asset base. */
+  /** Serve large project scripts through the authorized, versioned asset base. */
   readonly cacheProjectScripts?: boolean;
   readonly runtimeUrl?: string;
   readonly baseHref?: string;
@@ -432,6 +432,17 @@ function injectPreviewVariables(html: string, values: Record<string, unknown>): 
     }
   }
   return tag + html;
+}
+
+/** Pin project-local blocking scripts to their authorized immutable asset response. */
+function versionLargeScript(el: Element, project: VirtualProjectReader, jsPath: string, baseHref: string): boolean {
+  const src = el.getAttribute('src') ?? '';
+  if (!isJavaScriptType(el) || !/\.(?:js|cjs)$/i.test(jsPath) || /[?#]/.test(src) ||
+      el.hasAttribute('async') || el.hasAttribute('defer') || el.getAttribute('integrity')?.trim()) return false;
+  const file = project.getFile(jsPath);
+  if (!file?.isText || file.sizeBytes < 32 * 1024) return false;
+  el.setAttribute('src', `${baseHref}${encodeUrlPath(jsPath)}?om-script=${file.sha256}`);
+  return true;
 }
 
 function htmlHasGsapCore(html: string): boolean {
@@ -792,13 +803,7 @@ export async function bundlePreviewInMemory(
     if (el.getAttribute('integrity')?.trim()) continue;
     const jsPath = resolveVirtualPath(sourceDir, decodedUrlPath(src));
     if (!jsPath) continue;
-    const file = project.getFile(jsPath);
-    if (options.cacheProjectScripts && isJavaScriptType(el) && file?.isText && file.sizeBytes >= 32 * 1024
-      && /\.(?:js|cjs)$/i.test(jsPath) && !el.hasAttribute('async') && !el.hasAttribute('defer')
-      && !src.includes('?') && !src.includes('#')) {
-      el.setAttribute('src', `${baseHref}${encodeUrlPath(jsPath)}?om-script=${file.sha256}`);
-      continue;
-    }
+    if (options.cacheProjectScripts && versionLargeScript(el, project, jsPath, baseHref)) continue;
     const js = project.readText(jsPath);
     if (js === null) continue;
     el.removeAttribute('src');
@@ -1009,6 +1014,17 @@ export async function buildSubCompositionHtmlInMemory(
   const htmlSources = options.bridgeOrigin && !options.capture && !Object.keys(options.variables ?? {}).length &&
     !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)
     ? await standaloneHtmlSources(project, compPath, scriptsDoc) : undefined;
+  if (options.cacheProjectScripts) {
+    // The inherited head and the rebased clip body now use project-root paths.
+    let headChanged = false;
+    for (const el of scriptsDoc.querySelectorAll('script[src]')) {
+      const src = el.getAttribute('src');
+      if (!src || !isRelativeUrl(src)) continue;
+      const jsPath = resolveVirtualPath('', decodedUrlPath(src));
+      if (jsPath && versionLargeScript(el, project, jsPath, baseHref) && scriptsDoc.head.contains(el)) headChanged = true;
+    }
+    if (headChanged) headContent = scriptsDoc.head.innerHTML;
+  }
   deferScriptsUntilFonts(scriptsDoc);
   ensurePreviewMediaCrossOrigin(scriptsDoc.body, Boolean(options.capture));
   const rootComp = scriptsDoc.body.querySelector('[data-composition-id]');

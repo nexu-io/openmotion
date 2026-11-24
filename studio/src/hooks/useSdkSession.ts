@@ -206,7 +206,7 @@ async function readProjectFileOptional(
   function publishRead(file: ProjectFileBody) {
     const result = classifyProjectFileBody(file);
     if (result.ok) {
-      rememberSource(result.content);
+      rememberSource(result.content, { version: result.version });
       rememberCompositionPosterSource(previewState, projectId, path, result.content, result.version);
     }
     return result;

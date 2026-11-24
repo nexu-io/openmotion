@@ -120,7 +120,7 @@ function syncMountedComposition(
   if (!file) return;
   shareCompositionPosterRead(usePlayerStore.getState(), projectId, path, file);
   const timeline = file.then(result => {
-    if (!result.missing && typeof result.content === "string") apply(result.content, frameRef.current);
+    if (!result.missing && typeof result.content === "string") apply(result.content, frameRef.current, result.version);
     return result;
   });
   if (timelineOnly || !frame || !liveRoot || paths?.length !== 1 || !previous || isPreviewChanging()) {

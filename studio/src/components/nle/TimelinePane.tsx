@@ -12,8 +12,6 @@ import { MotionTimelineMedia } from "../../motion/MotionTimelineMedia";
 import { isCurrentIsolatedManifest } from "../../player/lib/isolatedTimelineManifest";
 import { TimelineCompositionNavigation } from "./TimelineCompositionNavigation";
 
-const EMPTY_INITIAL_ELEMENTS: TimelineElement[] = [];
-
 export interface TimelinePaneProps {
   /** Slot rendered above the timeline tracks (toolbar with split, delete, zoom) */
   timelineToolbar?: ReactNode;
@@ -91,7 +89,6 @@ export function TimelinePane({
     updateCompositionStack,
     timelineDisabled: compositionLoading,
     timelineSessionEpoch,
-    initialTimelineElements,
   } = useNLEContext();
 
   const isCurrentProject = usePlayerStore(state => state.timelineProjectId === projectId);
@@ -105,7 +102,9 @@ export function TimelinePane({
       isCurrentIsolatedManifest(frame, state.clipManifest) &&
       new URL(frame.src).pathname === new URL(previewUrl, window.location.href).pathname;
   });
-  const timelineDisabled = !timelineReady || (compositionLoading && !currentManifestReady);
+  const activeSource = compositionStack.length > 1 ? compositionStack.at(-1)!.id : "index.html";
+  const authoredReady = usePlayerStore(state => state.timelineProjectId === projectId && state.authoredTimelinePath === activeSource);
+  const timelineDisabled = !authoredReady && (!timelineReady || (compositionLoading && !currentManifestReady));
 
   // Move/resize/split come from the timeline edit context, not props.
   const { onMoveElement, onMoveElements, onResizeElement, onResizeElements, onSplitElement } =
@@ -116,7 +115,7 @@ export function TimelinePane({
       className="relative flex h-full flex-col"
       data-studio-timeline="true"
       aria-disabled={timelineDisabled || undefined}
-      aria-busy={!timelineReady || undefined}
+      aria-busy={timelineDisabled || undefined}
       onDragOver={timelineDisabled ? event => event.preventDefault() : undefined}
       onDrop={timelineDisabled ? event => event.preventDefault() : undefined}
     >
@@ -138,7 +137,6 @@ export function TimelinePane({
         <div className="flex min-h-0 flex-1">
           <div className="min-w-0 flex-1">
             {isCurrentProject && <Timeline
-              initialElements={initialTimelineElements ?? EMPTY_INITIAL_ELEMENTS}
               readOnly={timelineDisabled}
               onContentHeightChange={sizing.onContentHeightChange}
               sessionEpoch={timelineSessionEpoch}

@@ -1325,11 +1325,10 @@ describe("useDomEditCommits style persist handling", () => {
 
     try {
       const firstCommit = rendered.hook.handleDomStyleCommit("color", "blue");
-      await flushAsyncWork();
-      expect(patchCount).toBe(1);
+      await vi.waitFor(() => expect(patchCount).toBe(1));
 
       const secondCommit = rendered.hook.handleDomStyleCommit("color", "green");
-      await flushAsyncWork();
+      expect(element.style.getPropertyValue("color")).toBe("green");
       // The newer commit waits for the older one in the file's queue.
       expect(patchCount).toBe(1);
 
@@ -1337,8 +1336,7 @@ describe("useDomEditCommits style persist handling", () => {
       await firstCommit;
       expect(element.style.getPropertyValue("color")).toBe("green");
 
-      await flushAsyncWork();
-      expect(patchCount).toBe(2);
+      await vi.waitFor(() => expect(patchCount).toBe(2));
       secondPatch.resolve(
         jsonResponse({
           ok: true,

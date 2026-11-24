@@ -87,7 +87,11 @@ Deploy the database migration and revision-aware API, media and render workers b
 
 Studio can group successive edits into one HTTP request. Each completed edit retains its file preconditions and undo semantics. Peers receive committed changes in order over SSE and can update the mounted preview from the included file patches. Remote MCP commands use the same versioned project storage. See [ordered Studio writes](edit-core.md#ordered-studio-writes).
 
-Studio opens the project workspace as soon as the file list is ready. Media loads in the preview while timeline edits use the file's verified version. When switching between isolated clip previews, Studio can keep the last painted player paused. Project events update resident file sources and the parked player. An unopened clip is read at its current version on first use.
+On a direct editor link, the cloud page starts the project file list and entry HTML as soon as the browser reads the page header. The Studio scripts and selected language load alongside those requests. The editor checks the preloaded file list against the project revision received when it subscribes to changes. It checks the entry HTML against the file version in that list. This covers edits made by another client while Studio was starting.
+
+The file list provides paths and composition versions. Studio can show the clips and enable timeline edits from verified source while the preview loads its scripts, fonts and media. It requests font and asset details separately. On a switch between projects, the workspace keeps its existing project list and reads the status for the selected project.
+
+When switching between isolated clip previews, Studio can keep the last painted player paused. Project events update resident file sources and the parked player. An unopened clip is read at its current version on first use.
 
 For a standalone clip, the compiler can report the HTML files on which its preview depends. Studio keeps that player mounted when a peer edits another file outside the list. A template with startup scripts can declare reviewed dependencies, as shown in the [Welcome template](../../template-library/openmotion-welcome/TEMPLATE.md#standalone-previews).
 

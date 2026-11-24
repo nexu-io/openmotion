@@ -6,6 +6,7 @@ import { holdHistoryTimelineUntilPreviewReplaced } from "../timelineRestorePendi
 import { parseAuthoredTimeline } from "./authoredTimeline";
 import { stageStructurePreview } from "../peerTimingPreview";
 import { confirmedSource } from "../../utils/confirmedTextSources";
+import { displayAuthoredTimelineLanes } from "../components/timelineZones";
 import { applyAuthoredTimeline } from "./timelineHistoryRestore";
 
 type Projection = NonNullable<ReturnType<typeof parseAuthoredTimeline>>;
@@ -29,7 +30,7 @@ let active: ActiveTimeline | null = null;
 export function openTimelineSource(projectId: string, path: string): () => void {
   const scope = { projectId, path, generation: 0, readOrder: 0 };
   active = scope;
-  if (usePlayerStore.getState().timelineSourceProjected) usePlayerStore.setState({ timelineSourceProjected: false });
+  if (usePlayerStore.getState().timelineSourceProjected) usePlayerStore.setState({ timelineSourceProjected: false, authoredTimelinePath: null });
   return () => {
     if (active === scope) active = null;
   };
@@ -40,21 +41,36 @@ function timelineFor(projectId: string, path: string) {
     usePlayerStore.getState().timelineProjectId === projectId ? active : null;
 }
 
+/** Only a current, versioned source can unlock editing before the preview has a timeline.
+ * A late read must never overwrite rows discovered by the runtime or a pending local edit. */
+function projectOpeningSource(projectId: string, path: string, content: string, version?: string | null, parsed?: Projection) {
+  const state = usePlayerStore.getState();
+  if (!version || state.timelineReady || state.clipManifest || state.elements.length || isStudioEditSaving()) return;
+  const confirmed = confirmedSource(projectId, path);
+  if (confirmed?.version !== version || confirmed.content !== content) return;
+  const rows = parsed ?? parseAuthoredTimeline(content, path, projectId);
+  if (!rows?.elements.length || rows.duration <= 0) return;
+  usePlayerStore.setState({ elements: displayAuthoredTimelineLanes(rows.elements), duration: rows.duration,
+    authoredTimelinePath: path, timelineSourceProjected: true });
+  return rows;
+}
+
 /** Reuse a read already being made by the editor. A late initial read cannot replace a peer update. */
 export function beginTimelineSourceRead(
   projectId: string, path: string,
-): (content: string, rows?: Projection) => void {
+): (content: string, source?: { rows?: Projection; version?: string | null }) => void {
   const scope = timelineFor(projectId, path);
   if (!scope) return () => {};
   const generation = scope.generation;
   const read = ++scope.readOrder;
   const revision = studioFileRevision();
-  return (content: string, rows?: Projection) => {
+  return (content, source) => {
     if (scope !== active || scope.generation !== generation || scope.readOrder !== read ||
         studioFileRevision() !== revision) return;
     // The SDK often reads the same version immediately after NLE projects it.
     const baseline = scope.baseline;
     if (baseline?.rows && baseline.writeRevision === revision && baseline.generation === generation) return;
+    const rows = source?.rows ?? projectOpeningSource(projectId, path, content, source?.version);
     scope.baseline = { ...(rows ? { rows } : { content }), writeRevision: revision, generation };
   };
 }
@@ -136,7 +152,7 @@ export function beginPeerTimelineUpdate(projectId: string, path: string, oldFram
   const wasSaving = isStudioEditSaving();
   const contentGeneration = oldFrame ? previewContentGeneration(oldFrame) : null;
   const document = oldFrame?.contentDocument;
-  return (content: string, frame: HTMLIFrameElement | null) => {
+  return (content: string, frame: HTMLIFrameElement | null, version?: string | null) => {
     if (timelineFor(projectId, path) !== scope || scope.generation !== generation ||
         wasSaving || isStudioEditSaving() || studioFileRevision() !== revision) return false;
     const duration = usePlayerStore.getState().duration;
@@ -148,7 +164,8 @@ export function beginPeerTimelineUpdate(projectId: string, path: string, oldFram
     // Discard SDK/source reads that started before this confirmed version landed.
     scope.readOrder++;
     scope.baseline = { rows: after, writeRevision: revision, generation };
-    const changed = applyAuthoredTimeline(before, after, !before || staleBaseline);
+    const opening = projectOpeningSource(projectId, path, content, version, after);
+    const changed = !!opening || applyAuthoredTimeline(before, after, !before || staleBaseline);
     if (frame && frame === oldFrame && frame.contentDocument === document &&
         contentGeneration === previewContentGeneration(frame)) holdHistoryTimelineUntilPreviewReplaced(frame);
     return changed;

@@ -76,6 +76,24 @@ describe("preview lease", () => {
     expect(navigate).toHaveBeenCalledTimes(2);
   });
 
+  it("reauthorizes a returning project while keeping only its own live asset URLs", async () => {
+    fetch.mockImplementation(async (input) => {
+      const project = String(input).includes("/projects/p/") ? "p" : "q";
+      return grant(project, "grant-" + fetch.mock.calls.length);
+    });
+    async function open(project: string, requestedOrigin = origin) {
+      const visit = preparePreviewLease(project, requestedOrigin, new AbortController().signal);
+      return (await visit.takeInitial())?.grant?.token;
+    }
+    expect(await open("p")).toBe("grant-1");
+    expect(await open("q")).toBe("grant-2");
+    expect(await open("p")).toBe("grant-3");
+    await open("q", "https://different-preview.test");
+    vi.setSystemTime(Date.now() + 25_000);
+    await open("p");
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(init!.body as string).assetLease)).toEqual([true, true, "p", true, true]);
+  });
+
   it("keeps asset URLs stable when the editor replaces a preview frame", async () => {
     fetch.mockResolvedValueOnce(grant("A", "first")).mockResolvedValueOnce(grant("A", "next"));
     const prepared = preparePreviewLease("p", origin, new AbortController().signal);

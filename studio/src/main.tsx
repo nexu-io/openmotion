@@ -6,6 +6,7 @@ import {
   initBrowserObservability,
 } from "@openmotion/observability/browser";
 import { MotionApp } from "./motion/MotionApp";
+import { preloadMotionProjectEditor } from './motion/MotionProjectEditor';
 import { ShowThemeToggle } from "./components/ThemeToggle";
 import { readIconTokens } from "./styles/iconTokens";
 import { trackStudioEvent } from "./utils/studioTelemetry";
@@ -28,7 +29,7 @@ import { StudioRouterProvider } from "./router/createAppRouter";
 import { initializeDiagnostics, recordBrowserDiagnostic } from './motion/diagnostics';
 import { bindEmbeddedStudioTheme } from './utils/studioTheme';
 import { warmCloudDisklessMode } from './utils/cloudRuntime';
-import { bindVitePreloadErrorReload, lazyWithChunkReload } from './utils/chunkReload';
+import { lazyWithChunkReload } from './utils/chunkReload';
 import { ensureLocaleLoaded, isLocaleLoaded, readLocale } from './i18n/I18n';
 
 warmCloudDisklessMode();
@@ -38,9 +39,6 @@ initBrowserObservability();
 const ComponentInspector = new URLSearchParams(location.search).get('debug') === 'ui'
   ? lazyWithChunkReload(() => import('./components/ComponentInspector'))
   : null;
-
-const unbindPreloadErrorReload = bindVitePreloadErrorReload();
-import.meta.hot?.dispose(unbindPreloadErrorReload);
 
 const unbindHostTheme = bindEmbeddedStudioTheme();
 import.meta.hot?.dispose(unbindHostTheme);
@@ -160,6 +158,8 @@ function mountStudio() {
     </StrictMode>,
   );
 }
+
+if (document.head.querySelector('link[data-editor-bootstrap]')) preloadMotionProjectEditor();
 
 const initialLocale = readLocale();
 if (isLocaleLoaded(initialLocale)) {
