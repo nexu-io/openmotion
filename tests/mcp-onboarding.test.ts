@@ -279,3 +279,9 @@ test('Workflows capability, Black Friday recipe and design asset embedding stay 
     }
   }
 });
+
+test('library handbook capability documents single maxEdge and batch contact-sheet read modes', () => {
+  const library = mcpCapabilities.find(item => item.id === 'library')!;
+  assert.match(library.prompt, /action=read.*maxEdge 128–1024/);
+  assert.match(library.prompt, /contact sheet.*action=read items=/);
+});

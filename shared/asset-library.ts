@@ -46,8 +46,14 @@ export const assetDownloadUrl = (assetId: string, versionId: string, title: stri
   `${assetMediaUrl(assetId, versionId)}?${new URLSearchParams({ download: '', title })}`;
 
 export type AssetReadContent = { type: 'text'; text: string } | { type: 'image' | 'audio'; mimeType: string; data: string };
+export type AssetReadBatchItem = {
+  index: number; assetId: string; versionId: string; name: string; modality: 'image';
+  width?: number; height?: number; mimeType: string; bytes: number;
+};
 export type AssetReadResult = {
-  assetId: string; versionId: string; modality: Modality; version: AssetVersion;
+  assetId?: string; versionId?: string; modality: Modality; version?: AssetVersion;
+  items?: AssetReadBatchItem[];
+  grid?: { cols: number; rows: number; cellSize: number };
   previews: { mimeType: string; bytes: number; width?: number; height?: number; timestamp?: number; start?: number; duration?: number }[];
   content: AssetReadContent[];
 };

@@ -151,3 +151,54 @@ export function searchHighlightPattern(query: string): RegExp | null {
   if (!highlightTerms.length) return null;
   return new RegExp('(' + highlightTerms.map(escapeRegex).join('|') + ')', 'iu');
 }
+
+/** Picks the initial global-search scope tab based on the active workspace page. */
+export function defaultScopeForLocation(
+  pathname: string,
+  search = '',
+  hasStudioDestination = false,
+): SearchScope {
+  const path = pathname.toLowerCase();
+  const params = new URLSearchParams(search);
+  if (path.startsWith('/templates') || params.get('templates') === '1' || params.has('template')) {
+    return 'templates';
+  }
+  if (
+    path.startsWith('/skills')
+    || path.startsWith('/workflows')
+    || path.startsWith('/scenarios')
+    || path.startsWith('/models')
+    || path.startsWith('/model-hub')
+    || params.get('page') === 'skills'
+    || params.get('page') === 'model-hub'
+  ) {
+    return 'tools';
+  }
+  if (path.startsWith('/agent') || params.get('page') === 'agent') {
+    return 'chats';
+  }
+  if (
+    path.startsWith('/projects')
+    || path.startsWith('/assets')
+    || path.startsWith('/brand-kit')
+    || params.get('page') === 'projects'
+    || params.get('page') === 'assets'
+    || params.get('page') === 'brand-kit'
+  ) {
+    return 'files';
+  }
+  if (
+    hasStudioDestination
+    || path.startsWith('/design')
+    || path.startsWith('/cinema')
+    || path.startsWith('/sound')
+    || path.startsWith('/game')
+    || path.startsWith('/studio')
+    || path.startsWith('/video')
+    || path.startsWith('/image')
+    || path.startsWith('/audio')
+  ) {
+    return 'studios';
+  }
+  return 'all';
+}

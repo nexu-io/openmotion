@@ -29,16 +29,21 @@ export const assetLibraryTool = {
 
 export const assetUseTool = {
   ...assetLibraryTool, name: 'openmotion_assets_use', title: 'OpenMotion · Assets Use',
-  description: 'Preferred Agent route for new media: discover providers and full model IDs through openmotion_media_use inspect/reference/models, then generate, track the original job, inspect fixed versions and import only selected versions into a film project. No carrier project is needed. ' + assetLibraryTool.description + ' action=read requires assetId and versionId and returns bounded image previews, timestamped video frames or a mono 16 kHz WAV audio clip. get remains metadata-only. Read does not generate, create a project or change asset versions; retained trash is readable. Media interpretation/playback depends on the host.',
+  description: 'Preferred Agent route for new media: discover providers and full model IDs through openmotion_media_use inspect/reference/models, then generate, track the original job, inspect fixed versions and import only selected versions into a film project. No carrier project is needed. ' + assetLibraryTool.description + ' action=read accepts either assetId+versionId (single image preview, timestamped video frames, or mono 16 kHz WAV audio clip) or items (1–12 pinned image versions composited into one labeled contact sheet PNG to inspect whole sets without bloating context), with optional maxEdge (128–1024). get remains metadata-only. Read does not generate, create a project or change asset versions; retained trash is readable. Media interpretation/playback depends on the host.',
   inputSchema: { ...assetLibraryTool.inputSchema, properties: { ...assetLibraryTool.inputSchema.properties,
     action: { enum: [...assetLibraryTool.inputSchema.properties.action.enum, 'read'] },
+    items: { type: 'array', minItems: 1, maxItems: 12, items: reference, description: 'read batch contact sheet (images only): 1–12 pinned assetId+versionId references composited into one grid PNG.' },
+    maxEdge: { type: 'integer', minimum: 128, maximum: 1024, description: 'read image/video/contact-sheet only: maximum preview edge in pixels (128–1024, default 1024; use 512 for lightweight single checks).' },
     timestamps: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'number', minimum: 0 }, description: 'read video only: at most four frame times in seconds. Defaults to the first frame.' },
     start: { type: 'number', minimum: 0, description: 'read audio only: clip start in seconds, default 0.' },
     duration: { type: 'number', minimum: 0.1, maximum: 15, description: 'read audio only: clip length in seconds, default 10 (clipped to available audio), maximum 15.' },
-  }, oneOf: Object.entries({ list: [], get: ['assetId'], import: ['requestId', 'sourcePath'], update: ['assetId', 'changes'],
-    generate: ['requestId', 'model', 'modality', 'prompt'], jobs: [], status: ['jobId'], cancel: ['jobId'], retry_save: ['jobId', 'requestId'], resume: ['jobId', 'requestId'],
-    import_to_project: ['projectId', 'requestId', 'assetId', 'versionId'], read: ['assetId', 'versionId'] })
-    .map(([action, required]) => ({ type: 'object', properties: { action: { enum: [action] } }, required, additionalProperties: true })),
+  }, oneOf: [
+    ...Object.entries({ list: [], get: ['assetId'], import: ['requestId', 'sourcePath'], update: ['assetId', 'changes'],
+      generate: ['requestId', 'model', 'modality', 'prompt'], jobs: [], status: ['jobId'], cancel: ['jobId'], retry_save: ['jobId', 'requestId'], resume: ['jobId', 'requestId'],
+      import_to_project: ['projectId', 'requestId', 'assetId', 'versionId'], read: ['assetId', 'versionId'] })
+      .map(([action, required]) => ({ type: 'object', properties: { action: { enum: [action] } }, required, additionalProperties: true })),
+    { type: 'object', properties: { action: { enum: ['read'] } }, required: ['items'], additionalProperties: true },
+  ],
   },
 };
 export const workspaceAssetUseTool = {

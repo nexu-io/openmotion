@@ -3,11 +3,13 @@ import { collectionNames, templateCategoryLabel } from '../../../shared/catalog'
 import {
   parseSearchQuery,
   prepareSearchDocument,
+  rankSearchResults,
   scoreSearchDocument,
   type ParsedSearchQuery,
   type PreparedSearchDocument,
 } from '../../../shared/fuzzy-search';
 import type { Translate } from '../i18n/messages';
+import { motionSkills, type MotionSkill } from './skillCatalog';
 import { facetValues, templateFacets } from './templateDiscovery';
 
 export const normalizedTemplateQuery = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
@@ -127,6 +129,29 @@ export function scoreTemplateSearch(item: GalleryTemplate, query: string, t: Tra
 /** Task aliases describe verified resource metadata, never every brand campaign. */
 export function matchesTemplateSearch(item: GalleryTemplate, query: string, t: Translate) {
   return scoreTemplateSearch(item, query, t) > 0;
+}
+
+/** Matches Skills for template zero-result fallback using the shared multilingual fuzzy engine. */
+export function matchingSkillsForQuery(query: string, t: Translate, limit = 3): MotionSkill[] {
+  const trimmed = query.trim();
+  if (!trimmed || limit <= 0) return [];
+  return rankSearchResults(motionSkills, trimmed, skill => ({
+    id: skill.id,
+    title: t(skill.title),
+    subtitle: t(skill.category),
+    description: t(skill.useWhen),
+    tags: [skill.category, skill.technique, skill.name],
+    aliases: [
+      skill.title,
+      skill.tagline,
+      t(skill.tagline),
+      t(skill.output),
+      skill.example ? t(skill.example) : '',
+      skill.repository ?? 'OpenMotion',
+    ],
+  }))
+    .slice(0, limit)
+    .map(result => result.item);
 }
 
 export function validReferenceLink(value: string) {

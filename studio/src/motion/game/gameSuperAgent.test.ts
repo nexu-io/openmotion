@@ -30,8 +30,13 @@ describe('playable ads in Super Agent', () => {
   });
 
   it('tells the Super Agent turn to follow the playable-ad recipe only for ad drafts', () => {
-    expect(buildDirectGamePrompt(game({ playableAd: true }), 'Build it')).toContain('format=playable ad');
-    expect(buildDirectGamePrompt(game(), 'Build it')).not.toContain('playable ad');
+    const adPrompt = buildDirectGamePrompt(game({ playableAd: true }), 'Build it');
+    const normalPrompt = buildDirectGamePrompt(game(), 'Build it');
+    expect(adPrompt).toContain('format=playable ad');
+    expect(adPrompt).not.toContain('openmotion_media_use');
+    expect(adPrompt).not.toContain('spend-consent');
+    expect(normalPrompt).not.toContain('playable ad');
+    expect(normalPrompt).toContain('openmotion_media_use');
     expect(toGameArtifact(game({ playableAd: true }), 'Coin Cascade').subtitle).toContain('Playable ad');
     expect(toGameArtifact(game({ playableAd: true }), 'Coin Cascade').playableAd).toBe(true);
     expect(isPlayableAdArtifact({ kind: 'game-project', subtitle: 'casual · Playable ad' })).toBe(true);

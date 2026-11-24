@@ -852,3 +852,153 @@ test('concurrent script requestId reservation, capability dryRun parameter valid
       gateway.submit = origSubmit;
     }
   }, false));
+
+test('capability discovery falls back by provider priority and model tier when recommendedModel is retired, and exposes routing metadata on compatibleModels', () =>
+  fixture(async store => {
+    const gateway = gatewayFor(store);
+    const origStatus = gateway.status.bind(gateway);
+    const origModels = gateway.models.bind(gateway);
+    try {
+      (gateway as any).status = async () => ({
+        agents: [],
+        providers: [
+          { id: 'account', label: 'OpenDesign', enabled: true, configured: true, available: true, credentialSource: 'account', verification: 'verified', mediaEntitlement: 'included', plan: 'pro', reason: 'Signed in' },
+          { id: 'opendesign', label: 'OpenDesign Cloud', enabled: true, configured: true, available: true, credentialSource: 'saved', verification: 'verified', reason: 'Configured' },
+          { id: 'fal', label: 'fal.ai', enabled: true, configured: true, available: true, credentialSource: 'saved', verification: 'verified', reason: 'Configured' },
+        ],
+        routes: {},
+      });
+      const transparentOpt = {
+        delivery: 'provider' as const,
+        fields: [{ key: 'background', label: 'Background', kind: 'choice' as const, choices: [{ value: 'transparent', label: 'Transparent' }] }],
+      };
+      // Historical recommendedModel (gpt-image-2.6-sunburst) is retired/absent; newer models exist across tiers and providers.
+      (gateway as any).models = async () => [
+        {
+          id: 'fal:a-flagship-cutout',
+          provider: 'fal',
+          modelId: 'a-flagship-cutout',
+          label: 'Fal Flagship Cutout',
+          modality: 'image',
+          source: 'live',
+          mode: 'text-to-image',
+          supportsImageReference: true,
+          maxInputImages: 4,
+          tier: 'flagship',
+          bestFor: ['transparent-cutout'],
+          generationOptions: transparentOpt,
+        },
+        {
+          id: 'account:aaa-untiered-cutout',
+          provider: 'account',
+          modelId: 'aaa-untiered-cutout',
+          label: 'Account Untiered Cutout',
+          modality: 'image',
+          source: 'live',
+          mode: 'text-to-image',
+          supportsImageReference: true,
+          maxInputImages: 4,
+          generationOptions: transparentOpt,
+        },
+        {
+          id: 'account:alpha-fast-cutout',
+          provider: 'account',
+          modelId: 'alpha-fast-cutout',
+          label: 'Account Fast Cutout',
+          modality: 'image',
+          source: 'live',
+          mode: 'text-to-image',
+          supportsImageReference: true,
+          maxInputImages: 8,
+          tier: 'fast',
+          bestFor: ['batch-sprites', 'transparent-cutout'],
+          description: 'Fast transparent cutout model.',
+          generationOptions: transparentOpt,
+        },
+        {
+          id: 'account:mid-balanced-cutout',
+          provider: 'account',
+          modelId: 'mid-balanced-cutout',
+          label: 'Account Balanced Cutout',
+          modality: 'image',
+          source: 'live',
+          mode: 'text-to-image',
+          supportsImageReference: true,
+          maxInputImages: 8,
+          tier: 'balanced',
+          generationOptions: transparentOpt,
+        },
+        {
+          id: 'account:zeta-pro-cutout',
+          provider: 'account',
+          modelId: 'zeta-pro-cutout',
+          label: 'Account Flagship Cutout',
+          modality: 'image',
+          source: 'live',
+          mode: 'text-to-image',
+          supportsImageReference: true,
+          maxInputImages: 16,
+          tier: 'flagship',
+          bestFor: ['hero-art', 'transparent-cutout'],
+          description: 'Flagship transparent cutout model.',
+          generationOptions: transparentOpt,
+        },
+        {
+          id: 'opendesign:aaa-cloud-flagship',
+          provider: 'opendesign',
+          modelId: 'aaa-cloud-flagship',
+          label: 'Cloud Flagship Cutout',
+          modality: 'image',
+          source: 'live',
+          mode: 'text-to-image',
+          supportsImageReference: true,
+          maxInputImages: 16,
+          tier: 'flagship',
+          generationOptions: transparentOpt,
+        },
+      ];
+
+      const api = service(store);
+      const described = await api.call('openmotion_capability_discover', {
+        action: 'describe',
+        capabilityId: 'remove-background',
+      });
+      assert.equal(described.capability.available, true);
+      assert.equal(described.capability.recommendedModel, 'account:zeta-pro-cutout');
+      assert.deepEqual(
+        described.capability.compatibleModels.map((m: { id: string }) => m.id),
+        [
+          'account:zeta-pro-cutout',
+          'account:mid-balanced-cutout',
+          'account:alpha-fast-cutout',
+          'account:aaa-untiered-cutout',
+          'opendesign:aaa-cloud-flagship',
+        ],
+      );
+      assert.equal(described.capability.compatibleModels[0].tier, 'flagship');
+      assert.deepEqual(described.capability.compatibleModels[0].bestFor, ['hero-art', 'transparent-cutout']);
+      assert.equal(described.capability.compatibleModels[0].description, 'Flagship transparent cutout model.');
+      assert.equal(described.capability.compatibleModels[0].supportsImageReference, true);
+      assert.equal(described.capability.compatibleModels[0].maxInputImages, 16);
+
+      // Multi-provider capabilities also keep account -> opendesign -> other providers while ranking by tier within each provider.
+      const t2i = await api.call('openmotion_capability_discover', {
+        action: 'describe',
+        capabilityId: 'text-to-image',
+      });
+      assert.deepEqual(
+        t2i.capability.compatibleModels.map((m: { id: string }) => m.id),
+        [
+          'account:zeta-pro-cutout',
+          'account:mid-balanced-cutout',
+          'account:alpha-fast-cutout',
+          'account:aaa-untiered-cutout',
+          'opendesign:aaa-cloud-flagship',
+          'fal:a-flagship-cutout',
+        ],
+      );
+    } finally {
+      (gateway as any).status = origStatus;
+      (gateway as any).models = origModels;
+    }
+  }, false));

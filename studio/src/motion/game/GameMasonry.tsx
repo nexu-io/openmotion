@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { GameCard } from '../../../../shared/game-contract';
 
-/** Spreads portrait games through the list (one after every two landscape games) so the waterfall mixes both shapes. */
+/** Spreads portrait games through the list (one after every two landscape games) so both orientations show up together. */
 export function interleavePortrait(list: GameCard[]): GameCard[] {
   const portrait = list.filter(game => game.orientation === 'portrait');
   const others = list.filter(game => game.orientation !== 'portrait');
@@ -15,7 +15,7 @@ export function interleavePortrait(list: GameCard[]): GameCard[] {
 }
 
 /**
- * Waterfall layout: landscape (16:9) and portrait (9:16) cards keep their shapes;
+ * Waterfall layout: every card is 16:9 (portrait covers are letterboxed inside it);
  * each card goes to the shortest column, in list order.
  */
 export function GameMasonry({
@@ -63,7 +63,7 @@ export function GameMasonry({
     for (const game of games) {
       const shortest = heights.indexOf(Math.min(...heights));
       lists[shortest].push(game);
-      heights[shortest] += column * (game.orientation === 'portrait' ? 16 / 9 : 9 / 16) + metaHeight + gap;
+      heights[shortest] += column * 9 / 16 + metaHeight + gap;
     }
     return lists;
   }, [games, count, width, minColumn, gap, metaHeight]);

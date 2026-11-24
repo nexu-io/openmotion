@@ -62,15 +62,28 @@ test('fuzzy search enforces short-token boundaries, identifier coordination, and
   assert.ok(extractHighlightTerms('Seedance 2.0').includes('2.0'));
 });
 
-test('all six PostHog zero-result queries return hits across the real template catalog in both zh-CN and en', () =>
+test('tightened hot queries return relevant catalog hits without noisy false positives in both zh-CN and en', () =>
   fixture(async store => {
-    const hotQueries = ['口播', '科普', '电商', '讲解', 'vlog', 'logo'];
+    const coveredQueries = ['科普', '电商', '讲解', 'logo'];
     for (const locale of ['zh-CN', 'en'] as const) {
       const catalog = new TemplateCatalog(store.directory, { locale });
-      for (const query of hotQueries) {
+      for (const query of coveredQueries) {
         const page = await catalog.page({ category: 'all', query, limit: 20 });
         assert.ok(page.total > 0, `Expected hits for "${query}" in locale ${locale}, got 0`);
         assert.ok(page.items.length > 0);
+      }
+      // Precision check: "科普" must stay tight instead of pulling in 30+ SaaS demos/earnings.
+      const sciencePage = await catalog.page({ category: 'all', query: '科普', limit: 20 });
+      assert.ok(sciencePage.total <= 10, `Expected tightened "科普" results (<=10) in ${locale}, got ${sciencePage.total}`);
+      // Exact catalog vocabulary ("字幕" / "实拍剪辑") still matches directly, while "口播" / "vlog"
+      // intentionally avoid pulling in unrelated brand films or vertical SaaS promos (handled by Skill fallback).
+      if (locale === 'zh-CN') {
+        const subtitlePage = await catalog.page({ category: 'all', query: '字幕', limit: 20 });
+        assert.ok(subtitlePage.total > 0, 'Expected exact catalog vocabulary "字幕" to match');
+        const liveActionPage = await catalog.page({ category: 'all', query: '实拍剪辑', limit: 20 });
+        assert.ok(liveActionPage.total > 0, 'Expected exact catalog vocabulary "实拍剪辑" to match');
+        const talkingHeadPage = await catalog.page({ category: 'all', query: '口播', limit: 20 });
+        assert.equal(talkingHeadPage.total, 0, 'Expected "口播" not to falsely match unrelated brand/SaaS templates');
       }
       // Cross-locale English typo search also finds matches even in zh-CN via searchAliases.
       const typoPage = await catalog.page({ category: 'all', query: 'animaton', limit: 20 });
@@ -91,9 +104,9 @@ test('designCatalog supports Chinese, alias, and fuzzy search queries', () => {
 test('collectWorkspaceResources returns full motion templates without hitting page limit<=60 and matches bilingual queries', () =>
   fixture(async store => {
     clearWorkspaceResourceCache();
-    const res = await collectWorkspaceResources(store, { kind: 'motion-template', query: '口播', limit: 20, locale: 'zh-CN' });
+    const res = await collectWorkspaceResources(store, { kind: 'motion-template', query: '电商', limit: 20, locale: 'zh-CN' });
     assert.ok(res.counts.motionTemplates > 60, `Expected >60 motion templates, got ${res.counts.motionTemplates}`);
-    assert.ok(res.items.length > 0, 'Expected motion-template matches for 口播');
+    assert.ok(res.items.length > 0, 'Expected motion-template matches for 电商');
 
     const enLogo = await collectWorkspaceResources(store, { kind: 'motion-template', query: 'logo', limit: 20, locale: 'zh-CN' });
     assert.ok(enLogo.items.length > 0, 'Expected motion-template matches for logo in zh-CN');

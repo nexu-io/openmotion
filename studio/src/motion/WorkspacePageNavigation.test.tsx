@@ -608,6 +608,24 @@ it('tracks active and expanded state on the sidebar All projects action while th
   expect(allProjects.getAttribute('data-active')).toBeNull();
 });
 
+// Template shelves load their next batch when a scroll sentinel intersects; tests fire that sentinel directly.
+function stubShelfScrolling() {
+  const sentinels: { target: Element; fire: () => void }[] = [];
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) {
+      if (target.classList.contains('om-shelf-sentinel')) sentinels.push({ target, fire: () => this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }]) });
+    }
+    unobserve() {}
+    disconnect() {}
+  });
+  return async () => {
+    const live = sentinels.filter(entry => entry.target.isConnected).at(-1);
+    expect(live).toBeDefined();
+    await act(async () => live!.fire());
+  };
+}
+
 it('browses the complete Motion catalog in batches and filters by its existing tags', async () => {
   const fallback = fetcher.getMockImplementation()!;
   const entries = Array.from({ length: 19 }, (_, index) => ({
@@ -622,6 +640,7 @@ it('browses the complete Motion catalog in batches and filters by its existing t
     const firstPage = url.searchParams.get('offset') === '0';
     return Promise.resolve(Response.json({ items: firstPage ? entries.slice(0, 9) : entries.slice(9), next: firstPage ? 9 : null, catalogVersion: 'test' }));
   });
+  const scrollToShelfEnd = stubShelfScrolling();
   await mount();
   await click('Motion Studio');
   const shelf = container.querySelector('[aria-label="Motion templates"] .om-explore-shelf')!;
@@ -629,15 +648,17 @@ it('browses the complete Motion catalog in batches and filters by its existing t
   expect(shelf.querySelector('[role="status"]')?.textContent).toBe('19 templates');
   expect(cards()).toHaveLength(16);
   expect(cards()[0].querySelector('.om-motion-template-tags')?.textContent).toBe('Product launch filmsUI motion');
-  await click('More templates');
-  expect(cards()).toHaveLength(19);
   expect(button('More templates')).toBeUndefined();
+  await scrollToShelfEnd();
+  expect(cards()).toHaveLength(19);
+  expect(shelf.querySelector('.om-shelf-sentinel')).toBeNull();
   await click('By industry');
   const industry = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent === 'Business software')!;
   await act(async () => industry.click());
   expect(shelf.querySelector('[role="status"]')?.textContent).toBe('18 templates');
   expect(cards().slice(0, 2).map(card => card.getAttribute('data-template-id'))).toEqual(['motion-fixture-0', 'motion-fixture-2']);
-  await click('More templates');
+  expect(cards()).toHaveLength(16);
+  await scrollToShelfEnd();
   expect(cards().at(-1)?.getAttribute('data-template-id')).toBe('motion-fixture-1');
   await click('Product demos & explainers');
   expect(cards().map(card => card.getAttribute('data-template-id'))).toEqual(['motion-fixture-18']);
@@ -1428,10 +1449,10 @@ it('lists each primary destination once in order, with the Image mega menu and t
   await mount();
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['Explore', 'Workflows', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
+  expect(destinations).toEqual(['Explore', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Workflows', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node =>
     [node.getAttribute('aria-label'), document.getElementById(node.getAttribute('aria-describedby')!)?.textContent]);
-  expect(badges).toEqual([['Workflows', 'New'], ['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
+  expect(badges).toEqual([['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
   await click('Image · Scenes');
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
@@ -1514,12 +1535,12 @@ it('localizes every top navigation Studio label in Chinese while keeping English
   await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['探索', '工作流', '图片', '视频', '音频', 'MCP', 'Super Agent', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
+  expect(destinations).toEqual(['探索', '图片', '视频', '音频', 'MCP', 'Super Agent', '工作流', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node => {
     const badge = document.getElementById(node.getAttribute('aria-describedby')!);
     return [node.getAttribute('aria-label'), badge?.textContent, badge?.getAttribute('lang')];
   });
-  expect(badges).toEqual([['工作流', 'New', 'en'], ['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
+  expect(badges).toEqual([['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
 });
 
 it.each([
@@ -1838,15 +1859,17 @@ it('shows only templates tagged as 3D animation on the 3D studio shelf, eight at
     ], next: null, catalogVersion: 'test' });
   });
   history.replaceState(null, '', '/?page=3d');
+  const scrollToShelfEnd = stubShelfScrolling();
   await mount();
   const shelf = container.querySelector<HTMLElement>('.om-studio-template-shelf')!;
   expect(requests.at(-1)?.get('query')).toBe('3D animation');
   const ids = () => [...shelf.querySelectorAll('[data-template-id]')].map(node => node.getAttribute('data-template-id'));
   expect(ids()).toHaveLength(8);
   expect(ids()).not.toContain('uuid-3d0a-interface');
-  await act(async () => [...shelf.querySelectorAll('button')].find(node => node.textContent === 'More templates')!.click());
-  expect(ids()).toHaveLength(10);
   expect([...shelf.querySelectorAll('button')].some(node => node.textContent === 'More templates')).toBe(false);
+  await scrollToShelfEnd();
+  expect(ids()).toHaveLength(10);
+  expect(shelf.querySelector('.om-shelf-sentinel')).toBeNull();
 });
 
 it.each(['three-js', 'babylon-js', 'lume', 'blender', 'openmotion-surreal-3d-poster', 'openmotion-isometric-card-flight'])('keeps %s usable through an Agent without offering 3D generation', async skill => {

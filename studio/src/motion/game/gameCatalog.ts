@@ -23,14 +23,9 @@ export function composeBrief({ prompt, genre, style, setting, multiplayer }: Gam
 
 // Bundled templates keep Explore usable while the local service is starting or older than this Studio.
 const bundledMeta = import.meta.glob('../../../../templates/games/*/game.json', { eager: true, import: 'default' }) as Record<string, Omit<GameCard, 'playUrl' | 'cover' | 'reaction' | 'favorite' | 'source' | 'remixOf'> & { cover: string }>;
-const bundledCovers = import.meta.glob('../../../../templates/games/*/cover.{png,webp}', { eager: true, query: '?url', import: 'default' }) as Record<string, string>;
 const bundledPages = import.meta.glob('../../../../templates/games/*/index.html', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
 const folder = (path: string) => path.split('/').slice(-2, -1)[0];
 
-export const bundledGames: GameCard[] = Object.entries(bundledMeta).map(([path, meta]): GameCard => {
-  const id = folder(path);
-  return { ...meta, id, cover: bundledCovers[path.replace('game.json', meta.cover || 'cover.png')] ?? null, playUrl: `bundled:${id}`, reaction: 0, favorite: false, source: 'template', remixOf: null };
-}).sort((a, b) => b.plays - a.plays);
 
 // Original browser games shared publicly by their creators. They open on the creator's page and are not
 // copied into OpenMotion; covers are frames from the creators' own posts, credited on each card.
@@ -106,13 +101,25 @@ export const genreCovers = Object.fromEntries(gameGenres.map(genre => [genre, ar
 export const styleCovers = Object.fromEntries(gameStyles.map(style => [style, art('style-' + style)])) as Record<GameStyle, string | null>;
 export const settingCovers = Object.fromEntries(gameSettings.map(setting => [setting, art('setting-' + setting)])) as Record<GameSetting, string | null>;
 
+// Template covers and assets stay in the template folder and are served by the local game service, so they
+// are not bundled twice. Without the service (the only time this list is shown), a card uses its genre artwork.
+export const bundledGames: GameCard[] = Object.entries(bundledMeta).map(([path, meta]): GameCard => {
+  const id = folder(path);
+  return { ...meta, id, cover: genreCovers[meta.genre] ?? null, playUrl: `bundled:${id}`, reaction: 0, favorite: false, source: 'template', remixOf: null };
+}).sort((a, b) => b.plays - a.plays);
+
+/** A bundled page that loads sibling files (./assets/...) cannot run from a blob URL. */
+export const needsGameService = (html: string) => /["'(]\.?\/?assets\//.test(html);
+
 /** Resolve a playable URL. Service URLs go through the Studio proxy; bundled pages become blob URLs. */
 export async function playableUrl(game: GameCard) {
   if (game.external) return game.external.url;
   if (game.playUrl.startsWith('bundled:')) {
     const load = Object.entries(bundledPages).find(([path]) => folder(path) === game.id)?.[1];
     if (!load) throw new Error('Game file is missing.');
-    return URL.createObjectURL(new Blob([await load()], { type: 'text/html' }));
+    const html = await load();
+    if (needsGameService(html)) throw new Error('Start the local game service to play this template.');
+    return URL.createObjectURL(new Blob([html], { type: 'text/html' }));
   }
   return game.playUrl.replace(/^\/api\//, '/motion-api/');
 }

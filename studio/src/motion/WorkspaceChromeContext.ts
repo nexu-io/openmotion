@@ -4,6 +4,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import type { useWorkspace } from './useWorkspace';
 import type { GalleryTemplate } from '../../../shared/catalog';
 import type { SuperAgentHandoffPayload } from '../../../shared/capability-hub';
+import type { ProviderSetupEntry } from '../../../shared/workspace-url';
 import type { McpEntry } from './pageTracking';
 
 export type WorkspaceSurfaceKey =
@@ -29,12 +30,14 @@ export type WorkspaceChrome = {
   /** Opens the MCP connection page; `entry` records which control opened it. */
   openConnections: (entry: McpEntry) => void;
   openModelSettings: () => void;
-  openProviderSettings?: (provider: string) => void;
+  openProviderSettings?: (provider?: string, entryFrom?: ProviderSetupEntry) => void;
   openAccountSettings?: () => void;
   openSubscriptionSettings?: () => void;
   openHome: () => void;
   openAssets: () => void;
   openInSuperAgent?: (payload: SuperAgentHandoffPayload) => void;
+  /** Opens one existing Super Agent conversation. */
+  openSuperAgentChat?: (chatId: string) => void;
   preloadSurface?: (surface: WorkspaceSurfaceKey) => void;
   assetsOpen: boolean;
   openSkills: (category?: SkillCategory | null, trigger?: HTMLElement) => void;

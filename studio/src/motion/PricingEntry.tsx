@@ -1,6 +1,7 @@
 import { useId, useState, type MouseEvent } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
+import { useCheckoutReturnRefresh } from './entitlementAttribution';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
 import styles from './PricingEntry.module.css';
@@ -10,16 +11,19 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
   const gradientId = useId();
   // Each click is its own Pricing entry: its id is on the link and on the click event, then replaced.
   const [entryId, setEntryId] = useState(newCampaignEntryId);
+  const markCheckoutReturn = useCheckoutReturnRefresh(trackingPage, 'header_pricing');
   const href = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
   // Outside the campaign window the entry stays as plain Pricing: no badge, campaign label or campaign fields.
   const campaign = useBlackFridayActive();
   const aria = campaign ? t('Pricing · Black Friday up to 50% off') : 'Pricing';
 
   function open(event: MouseEvent<HTMLAnchorElement>) {
-    void trackMotion('ui_click', { page_name: trackingPage, area: 'header', element: 'open_pricing', ...(campaign ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}), entry_id: entryId,
+    const clickedEntryId = entryId;
+    markCheckoutReturn(clickedEntryId);
+    void trackMotion('ui_click', { page_name: trackingPage, area: 'header', element: 'open_pricing', ...(campaign ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}), hook_id: 'header_pricing', entry_id: clickedEntryId,
       interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
     // Stamp the click time on the address the browser is about to open, then replace the id for the next click.
-    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
+    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_header_pricing', clickedEntryId);
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
   }
 

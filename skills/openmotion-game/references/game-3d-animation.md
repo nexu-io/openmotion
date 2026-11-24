@@ -7,14 +7,21 @@
 > building the scene around them. Style: concept, texture and skybox images
 > follow `game-stylization.md` §8 and its formula.
 
-## Capability boundary (state it honestly)
+## Capability boundary & reserved 3D gateway slot (state it honestly)
 
 OpenMotion media discovery listed **no 3D generation, image-to-3D, rigging
-or animation-preset model** at review; the OpenDesign catalogue covers
-image, video, speech and music. Image or video generation never produces a
-rigged GLB, and no local Blender or Python helper ships with this Skill. The
-shipped tool is `node scripts/game-glb-inspect.mjs <file.glb>` (meshes,
-skins, unique bones, clip names/durations, triangles); it does not check
+or animation-preset model** at review; the OpenDesign catalogue currently
+covers image, video, speech and music. **Reserved 3D gateway slot:** always
+check live `openmotion_media_use` discovery first — once 3D mesh or
+auto-rigging models appear in the signed-in OpenDesign API or configured
+providers, plan them in `design/assets.csv`, obtain spend approval, generate
+via `openmotion_assets_use`, inspect returned `.glb` binaries with
+`node scripts/game-glb-inspect.mjs <file.glb>`, and wire them directly.
+While no 3D model is live yet, record the reserved slot cleanly in
+`design/assets.csv` and use the available paths below. Image or video
+generation never produces a rigged GLB, and no local Blender or Python
+helper ships with this Skill. The shipped inspector reports meshes, skins,
+unique bones, clip names/durations and triangles; it does not check
 root-scale channels or merge rigs.
 
 What is available and should be used well:

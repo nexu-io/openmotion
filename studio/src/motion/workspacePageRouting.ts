@@ -5,7 +5,7 @@ import { blackFridaySkillIds } from '../../../shared/black-friday-collection';
 import { isDesignScenario, type DesignScenarioId } from '../../../shared/design-project';
 import { isSuperAgentDesignModule, type SuperAgentDesignModuleId } from '../../../shared/super-agent';
 import { editorProjectIdFromPath, isSpaRoutePath, spaPathnameToSearch } from '../../../shared/spa-routes';
-import { workspacePageName } from '../../../shared/workspace-url';
+import { workspacePageName, type ProviderSetupEntry } from '../../../shared/workspace-url';
 import { isValidProjectId, parseProjectIdFromHash } from '../utils/projectRouting';
 import { mcpClients, type McpClient } from './mcpClients';
 import { exploreCommunities, findLandingScene, findMediaStudio, findTechniqueStudio, type ExploreCommunity, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
@@ -29,7 +29,7 @@ export type ExploreFilters = { community: ExploreCommunity['id'] | null; medium:
 export { findTemplateCollection, type TemplateCollection } from './templateCollections';
 export const defaultDesignScene = 'prototype';
 export type DesignSceneTarget = DesignScenarioId | 'projects';
-export type ScenarioWorkspaceMode = 'manual' | 'agent';
+export type ScenarioWorkspaceMode = 'studio' | 'manual' | 'agent';
 const superAgentModes = ['game', 'design', 'research', 'visualization', 'coding', 'image', 'motion', 'audio', 'media', 'deck', 'document', 'website'] as const;
 export type SuperAgentRouteMode = typeof superAgentModes[number];
 export type WorkspacePage = ExploreFilters & { motion: boolean; superAgent: boolean; superAgentChat: string | null; superAgentMode?: SuperAgentRouteMode | null; superAgentDesignModule?: SuperAgentDesignModuleId | null; cinemaLanding?: true; cinemaTemplate?: string | null; designScene?: DesignSceneTarget | null; designProject?: string | null; soundTab?: SoundTabId | null; specialty: TechniqueStudio | null; gameId?: string | null; assetId: string | null; assetVersion: string | null; explore: boolean; scenarioHub: boolean; scenarioCategory: ScenarioCategory | null; scenario: ScenarioId | null; scenarioRun: string | null; scenarioStep: string | null; scenarioMode: ScenarioWorkspaceMode | null; studio: StudioDestination | null; settings: SettingsSection | null; assets: boolean; skills: boolean; skillCategory: SkillCategory | null; skill: string | null; templates: boolean; templateCollection: TemplateCollection | null; modelOverview: string | null; modelHub: string | null; creators: boolean; creator: string | null; mcpInSettings: boolean; mcpExample?: string | null; client: McpClient; setup: 'agent' | 'manual'; provider: string | null; template: string | null; brandKit: string | null };
@@ -68,7 +68,7 @@ export function readWorkspacePage(search: string, hash = '', pathname = '', capa
   const scenarioStep = matchedScenario ? findScenarioStep(matchedScenario, query.get('step'))?.id ?? null : null;
   const rawMode = matchedScenario ? query.get('mode') : null;
   const scenarioMode: ScenarioWorkspaceMode | null =
-    rawMode === 'agent' || rawMode === 'manual' ? rawMode : null;
+    rawMode === 'agent' || rawMode === 'manual' || rawMode === 'studio' ? rawMode : null;
   const cinemaLanding = page === 'cinema' && !sceneId && !model;
   const template = page === 'cinema' || page === 'create' ? findCinemaTemplate(query.get('cinemaTemplate')) : undefined;
   const cinemaTemplate = template && template.scene === sceneId ? template.id : undefined;
@@ -116,9 +116,13 @@ export function readWorkspacePage(search: string, hash = '', pathname = '', capa
     template: query.get('template') || null };
 }
 
+export type WorkspacePagePatch = Partial<WorkspacePage> & {
+  entryFrom?: ProviderSetupEntry | null;
+};
+
 export function workspacePageHref(
   href: string,
-  patch: Partial<WorkspacePage>,
+  patch: WorkspacePagePatch,
   capabilities?: readonly CapabilityDefinition[],
 ): string {
   const url = new URL(href), current = readWorkspacePage(url.search, url.hash, url.pathname, capabilities), page = { ...current, ...patch };
@@ -193,7 +197,12 @@ export function workspacePageHref(
   }
   if (current.specialty?.id === 'game' || page.specialty?.id === 'game') url.searchParams.delete('game');
   const inSettings = Boolean(page.settings) && page.settings !== 'brand-kit' && (page.settings !== 'mcp' || page.mcpInSettings);
-  if (!inSettings) url.searchParams.delete('entry_from');
+  if (!inSettings) {
+    url.searchParams.delete('entry_from');
+  } else if ('entryFrom' in patch) {
+    if (patch.entryFrom) url.searchParams.set('entry_from', patch.entryFrom);
+    else url.searchParams.delete('entry_from');
+  }
   if (page.explore) {
     url.pathname = '/explore';
   } else if (page.motion) {
@@ -227,7 +236,8 @@ export function workspacePageHref(
       url.pathname = `/scenarios/${encodeURIComponent(matched.id)}`;
       if (page.scenarioRun && scenarioRunUuidPattern.test(page.scenarioRun)) url.searchParams.set('run', page.scenarioRun);
       if (page.scenarioStep && findScenarioStep(matched, page.scenarioStep)) url.searchParams.set('step', page.scenarioStep);
-      if (page.scenarioMode === 'agent') url.searchParams.set('mode', 'agent');
+      // The visual studio is the default view; Step by step and Agent mode are named in the URL.
+      if (page.scenarioMode === 'agent' || page.scenarioMode === 'manual') url.searchParams.set('mode', page.scenarioMode);
     } else {
       url.pathname = '/scenarios';
     }

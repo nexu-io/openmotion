@@ -11,7 +11,9 @@ import { useAccountSummary } from './AccountSettings';
 import { mediaLabels } from './creativeStudios';
 import { findModelHub } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
+import { setPendingAttribution } from './entitlementAttribution';
 import { reportHubClick, reportHubPageView } from './exploreTracking';
+import { newTrackingId } from './pageTracking';
 import { BackToExploreButton } from './BackToExploreButton';
 
 /** Aggregates one model family: what it is, what to make with it, and whether this installation can use it. */
@@ -71,7 +73,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
               <Button variant="plain" className="om-button om-model-hub-connected" onClick={() => { track('hub_hero', 'manage_connection'); onProvider('account'); }} title={t('Manage connection')}><RemixIcon name="checkbox-circle-fill" size={16} />{t('Connected to {provider}', { provider: 'OpenDesign' })}</Button>
             </>
             : <>
-              <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={() => { track('hub_hero', 'sign_in'); onSettings('account'); }}>{t('Sign in to use {model} now', { model: hub.latestModel })}<RemixIcon name="arrow-right-line" size={16} /></Button>
+              <Button variant="ghost" className="om-button h-auto" data-primary="media" onClick={() => { const entryId = newTrackingId(); setPendingAttribution('sign_in', 'model_hub_signin', entryId); track('hub_hero', 'sign_in', { hookId: 'model_hub_signin', entryId }); onSettings('account'); }}>{t('Sign in to use {model} now', { model: hub.latestModel })}<RemixIcon name="arrow-right-line" size={16} /></Button>
               {provider?.available
                 ? <Button variant="plain" className="om-button om-model-hub-connected" onClick={() => { track('hub_hero', 'manage_connection'); onProvider(hub.provider); }} title={t('Manage connection')}><RemixIcon name="checkbox-circle-fill" size={16} />{t('Connected to {provider}', { provider: provider.label })}</Button>
                 : <Button variant="ghost" className="om-button h-auto" onClick={() => { track('hub_hero', 'connect_key'); onProvider(hub.provider); }}><RemixIcon name="plug-line" size={16} />{t('Connect your own API key')}</Button>}
@@ -104,7 +106,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
               {/* Signed-in people are never asked to sign in again; they see what their plan needs instead. */}
               <strong><RemixIcon name="account-circle-line" size={16} />{t(signedIn ? 'Use it with your OpenDesign plan' : 'Sign in and subscribe')}</strong>
               <p>{t(signedIn ? '{model} appears here as soon as OpenDesign serves it on your plan. No API key needed.' : 'Sign in to OpenDesign with a paid plan and use {model} right away. No API key needed.', { model: hub.modelName })}</p>
-              <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => { track('hub_availability', signedIn ? 'view_plans' : 'sign_in'); onSettings(signedIn ? 'subscription' : 'account'); }}>{t(signedIn ? 'View plans' : 'Sign in')}<RemixIcon name="arrow-right-line" size={16} /></Button>
+              <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => { const entryId = newTrackingId(); const hookId = signedIn ? 'model_hub_upgrade' as const : 'model_hub_signin' as const; setPendingAttribution(signedIn ? 'subscription' : 'sign_in', hookId, entryId); track('hub_availability', signedIn ? 'view_plans' : 'sign_in', { hookId, entryId }); onSettings(signedIn ? 'subscription' : 'account'); }}>{t(signedIn ? 'View plans' : 'Sign in')}<RemixIcon name="arrow-right-line" size={16} /></Button>
             </div>
             <div className="om-model-hub-path">
               <strong><RemixIcon name="plug-line" size={16} />{t('Connect your own API key')}</strong>

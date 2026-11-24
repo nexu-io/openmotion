@@ -124,7 +124,7 @@ export const assetManageTool = {
   name: 'openmotion_asset_manage',
   title: 'OpenMotion · Asset Manage',
   description:
-    'Pure Workspace Asset, immutable version, capability provenance and Brand Kit manager, decoupled from generation and job polling. list/get inspect assets, versions, capabilityId/capabilityOptions and parent/reference provenance; read returns bounded image previews, video frames or 16 kHz audio clips for a pinned assetId+versionId; import copies a real local file (max 500 MB); update renames, trashes/restores or switches currentVersionId while retaining history; import_to_project copies a pinned version into a target project without altering its timeline; brand_kit manages style-only Brand Kits.',
+    'Pure Workspace Asset, immutable version, capability provenance and Brand Kit manager, decoupled from generation and job polling. list/get inspect assets, versions, capabilityId/capabilityOptions and parent/reference provenance; read returns bounded image previews, video frames or 16 kHz audio clips for a pinned assetId+versionId, or composites 1–12 pinned image items into one contact sheet PNG (optional maxEdge 128–1024); import copies a real local file (max 500 MB); update renames, trashes/restores or switches currentVersionId while retaining history; import_to_project copies a pinned version into a target project without altering its timeline; brand_kit manages style-only Brand Kits.',
   inputSchema: {
     ...object(
       {
@@ -132,6 +132,8 @@ export const assetManageTool = {
         requestId,
         assetId: uuid,
         versionId: uuid,
+        items: { type: 'array', minItems: 1, maxItems: 12, items: object({ assetId: uuid, versionId: uuid }, ['assetId', 'versionId']) },
+        maxEdge: { type: 'integer', minimum: 128, maximum: 1024 },
         parentVersionId: uuid,
         projectId,
         name: { type: 'string', minLength: 1, maxLength: 200 },
@@ -151,20 +153,28 @@ export const assetManageTool = {
       },
       ['action'],
     ),
-    oneOf: Object.entries({
-      list: [],
-      get: ['assetId'],
-      read: ['assetId', 'versionId'],
-      import: ['requestId', 'sourcePath'],
-      update: ['assetId', 'changes'],
-      import_to_project: ['projectId', 'requestId', 'assetId', 'versionId'],
-      brand_kit: ['brandKit'],
-    }).map(([action, required]) => ({
-      type: 'object',
-      properties: { action: { enum: [action] } },
-      required,
-      additionalProperties: true,
-    })),
+    oneOf: [
+      ...Object.entries({
+        list: [],
+        get: ['assetId'],
+        read: ['assetId', 'versionId'],
+        import: ['requestId', 'sourcePath'],
+        update: ['assetId', 'changes'],
+        import_to_project: ['projectId', 'requestId', 'assetId', 'versionId'],
+        brand_kit: ['brandKit'],
+      }).map(([action, required]) => ({
+        type: 'object',
+        properties: { action: { enum: [action] } },
+        required,
+        additionalProperties: true,
+      })),
+      {
+        type: 'object',
+        properties: { action: { enum: ['read'] } },
+        required: ['items'],
+        additionalProperties: true,
+      },
+    ],
   },
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
 };

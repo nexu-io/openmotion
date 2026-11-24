@@ -1402,3 +1402,55 @@ test('a failed legacy migration keeps the workspace sign-in and leaves no shared
   assert.equal(await recoveredAgain.identity(), second.identity);
   await assert.rejects(stat(path.join(second.directory, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
 }));
+
+test('account model discovery parses server routing metadata, hydrates fallbacks on read without caching them, and leaves unseen models unfabricated', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store);
+  gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, {
+    binary,
+    run: async args => args[0] === 'model'
+      ? JSON.stringify({ source: 'remote', data: [{ id: 'claude-sonnet', label: 'Claude Sonnet', enabled: true }] })
+      : JSON.stringify({
+          models: [
+            // Known model with no server metadata -> hydrated on read only.
+            { model: 'gpt-image-2.6-flare', kind: 'image', capabilities: { edits: true } },
+            // Known model with server override -> server fields win.
+            { model: 'wan-2.7', kind: 'video', tier: 'fast', best_for: ['live-loop'], description: 'Server override for Wan.' },
+            // New unseen model with server metadata -> preserved.
+            { model: 'veo-next', kind: 'video', capabilities: { tier: 'flagship', best_for: ['cinematic-4k'], description: 'Server Veo Next.' } },
+            // New unseen model without server metadata -> remains undefined.
+            { model: 'unseen-audio-x', kind: 'audio_music' },
+          ],
+        }),
+  });
+  t.after(() => gateway.close());
+  await signIn(account);
+  const refreshed = await account.models(true);
+  const byId = new Map(refreshed.map(m => [m.modelId, m]));
+
+  // Text models stay untouched; known media models are hydrated; server overrides win.
+  assert.equal(byId.get('claude-sonnet')?.tier, undefined);
+  assert.equal(byId.get('gpt-image-2.6-flare')?.tier, 'fast');
+  assert(byId.get('gpt-image-2.6-flare')?.bestFor?.includes('batch-sprites'));
+  assert.equal(byId.get('wan-2.7')?.tier, 'fast');
+  assert.deepEqual(byId.get('wan-2.7')?.bestFor, ['live-loop']);
+  assert.equal(byId.get('wan-2.7')?.description, 'Server override for Wan.');
+  assert.equal(byId.get('veo-next')?.tier, 'flagship');
+  assert.deepEqual(byId.get('veo-next')?.bestFor, ['cinematic-4k']);
+  assert.equal(byId.get('unseen-audio-x')?.tier, undefined);
+  assert.equal(byId.get('unseen-audio-x')?.bestFor, undefined);
+
+  // Built-in audio fallback models also carry hydrated routing metadata via providerDirectory and listModels.
+  const directory = await providerDirectory(gateway);
+  assert.equal(directory.models.find(m => m.id === 'account:byteplus-tts-2')?.tier, 'flagship');
+  assert(directory.models.find(m => m.id === 'account:byteplus-tts-2')?.bestFor?.includes('zh-speech'));
+  const listed = await gateway.listModels({ provider: 'account', query: 'cinematic-4k' });
+  assert.equal(listed.models[0]?.modelId, 'veo-next');
+
+  // Persisted models.json keeps only raw server rows so future server updates are never shadowed by cached fallbacks.
+  const persisted = JSON.parse(await readFile(path.join(account.root, 'models.json'), 'utf8')) as Array<{ modelId: string; tier?: string; bestFor?: string[] }>;
+  const cachedFlare = persisted.find(m => m.modelId === 'gpt-image-2.6-flare');
+  assert.equal(cachedFlare?.tier, undefined);
+  assert.equal(cachedFlare?.bestFor, undefined);
+}));

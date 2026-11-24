@@ -192,7 +192,7 @@ button.om-game-chip:hover, .om-game-chip[aria-expanded="true"] { background: var
 .om-game-trailer-error { margin: 0; color: var(--motion-danger); font-size: var(--motion-text-xs); }
 .om-game-trailer-video { width: 100%; height: 100%; background: var(--motion-canvas); }
 
-/* Waterfall: columns of cards that keep their own shape (16:9 landscape, 9:16 portrait). */
+/* Waterfall: columns of 16:9 cards (portrait covers are letterboxed inside the same card). */
 .om-game-masonry { display: flex; align-items: flex-start; gap: var(--motion-space-12); }
 .om-game-masonry-column { display: flex; flex: 1 1 0; min-width: 0; flex-direction: column; gap: var(--motion-space-12); }
 /* Like a video-inspiration wall: the title and creator sit on the cover's lower edge instead of a row underneath. */
@@ -200,7 +200,10 @@ button.om-game-chip:hover, .om-game-chip[aria-expanded="true"] { background: var
 .om-game-masonry .om-game-tile-meta { position: absolute; inset-inline: 0; bottom: 0; padding: var(--motion-space-32) var(--motion-space-12) var(--motion-space-10); border-radius: 0 0 var(--motion-radius-lg) var(--motion-radius-lg); background: linear-gradient(to top, var(--motion-overlay-ink), transparent); color: var(--motion-video-ink); pointer-events: none; }
 .om-game-masonry .om-game-tile-meta a, .om-game-masonry .om-game-tile-meta button { pointer-events: auto; }
 .om-game-masonry .om-game-tile-meta .om-muted { color: var(--motion-video-ink); opacity: .8; }
-.om-game-tile[data-orientation="portrait"] .om-game-tile-cover { aspect-ratio: 9 / 16; }
+/* Portrait games keep the 16:9 card so both shapes line up in one grid; the 9:16 cover is shown whole over a blurred fill. */
+.om-game-tile-cover .om-game-tile-backdrop { position: absolute; inset: 0; filter: blur(18px) brightness(.55); transform: scale(1.2); }
+.om-game-tile-cover:hover:not(:disabled) .om-game-tile-backdrop { transform: scale(1.2); }
+.om-game-tile[data-orientation="portrait"] .om-game-tile-cover img:not(.om-game-tile-backdrop) { position: relative; object-fit: contain; }
 
 /* Side list of the user's games, matching the Motion editor's project list. */
 .om-game-sidebar { display: flex; flex: 0 0 224px; flex-direction: column; gap: var(--motion-space-8); width: 224px; transition: width .2s ease, flex-basis .2s ease; min-height: 0; padding: var(--motion-space-16) var(--motion-space-12); border-inline-end: 1px solid var(--motion-border-subtle); background: var(--motion-bg); }

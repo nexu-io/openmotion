@@ -61,14 +61,14 @@ it('explains a missing sign-in component, offers Retry and a copyable command th
   await act(async () => button(page, '复制口令')!.click());
   expect(writeText).toHaveBeenCalledWith(command);
   await act(async () => button(page, '重试')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', {});
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'settings_signin', entryId: expect.any(String) });
 });
 
 it('offers a retry after a connection failure, and sign-in again with a feedback link after rejected credentials', async () => {
   let page = await open({ state: 'signed-out', errorCode: 'setup_failed', error: "Can't connect to OpenDesign right now. Check your network and try again." });
   expect(actions(page)).toEqual(['Retry']); expect(page.querySelector('[role=alert]')?.textContent).toContain("Can't connect to OpenDesign");
   await act(async () => button(page, 'Retry')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', {});
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'settings_signin', entryId: expect.any(String) });
   act(() => root!.unmount()); document.body.innerHTML = '';
   page = await open({ state: 'signed-out', errorCode: 'credentials_rejected', error: 'Account credentials could not be verified. Sign in again, and contact us if this keeps happening.' });
   expect(actions(page)).toEqual(['Sign in again', 'Report an issue']);
@@ -98,7 +98,7 @@ it('refreshes Go on checkout return and updates providers only after the plan ch
   await act(async () => window.dispatchEvent(new Event('focus')));
   expect(hooks.request).not.toHaveBeenCalled();
   await act(async () => button(page, 'Upgrade to Plus')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', {});
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'settings_subscription', entryId: expect.any(String) });
   hooks.account = { ...original as AccountSummary, plan: 'plus', balance: '4.00' };
   await act(async () => {
     window.dispatchEvent(new Event('focus'));
@@ -107,7 +107,7 @@ it('refreshes Go on checkout return and updates providers only after the plan ch
   const billingReads = () => hooks.request.mock.calls.filter(([route]) => route === 'settings/account?refresh=true').length;
   expect(billingReads()).toBe(1);
   expect(page.querySelector('[data-guide="upgrade"]')).toBeNull();
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('plus');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('Plus');
   expect(notifyProvidersChanged).toHaveBeenCalledTimes(1);
   await act(async () => window.dispatchEvent(new Event('focus')));
   expect(billingReads()).toBe(1);
@@ -120,14 +120,16 @@ it('explains that account models still work when the plan and balance cannot be 
 
 it('asks the local service to open the subscription page in the system browser, and opens it itself only as a fallback', async () => {
   const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
-  const manage = page.querySelector<HTMLButtonElement>('.om-settings-section button.om-button')!;
-  expect(manage.textContent).toBe('Manage subscription');
+  const manage = page.querySelector<HTMLButtonElement>('.om-plan-usage button.om-plan-usage-console')!;
+  expect(manage.textContent).toBe('Go to console');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('Plus');
+  expect(page.querySelector('.om-plan-usage [data-quota="balance"]')?.textContent).toContain('$12.00');
   expect(page.querySelector('.om-settings-section a')).toBeNull();
   const popup = vi.spyOn(window, 'open').mockReturnValue(null);
   const handoff = 'https://open-design.ai/cloud/login?intentId=intent-1';
   hooks.request.mockImplementation(async (route: string) => route === 'settings/account/subscription' ? { url: handoff, opened: true } : hooks.account);
   await act(async () => manage.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', {});
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'settings_subscription', entryId: expect.any(String) });
   expect(popup).not.toHaveBeenCalled();
   const fallback = { opener: window as Window | null };
   popup.mockReturnValue(fallback as unknown as Window);
@@ -147,6 +149,13 @@ it('asks the local service to open the subscription page in the system browser, 
   popup.mockRestore();
 });
 
+it('shows an unknown plan, not Free or an Upgrade, until the first billing read arrives', async () => {
+  const page = await open({ state: 'signed-in', user: { email: 'ada@example.test' } }, 'en', 'subscription');
+  expect(page.querySelector('.om-plan-usage h2')?.textContent).toBe('—');
+  expect(page.querySelector('.om-plan-usage [data-quota="balance"]')?.textContent).toContain('—');
+  expect([...page.querySelectorAll('.om-plan-usage button')].map(item => item.textContent)).toEqual(['Go to console', 'Top up']);
+});
+
 it('replaces missing billing metrics with a dashboard link on 403 and restores them on retry', async () => {
   const page = await open({ state: 'signed-in', billingUnavailable: true, billingError: { status: 403 } }, 'zh-CN', 'subscription');
   expect(page.textContent).toContain('账单服务拒绝了本次查询');
@@ -154,7 +163,7 @@ it('replaces missing billing metrics with a dashboard link on 403 and restores t
   expect([...page.querySelectorAll('.om-settings-section button.om-button')].some(item => item.textContent === '管理订阅')).toBe(true);
   hooks.account = { state: 'signed-in', plan: 'pro', balance: '0.00', consoleUrl: 'https://open-design.ai/cloud' };
   await act(async () => page.querySelector<HTMLButtonElement>('button[aria-busy]')!.click());
-  expect(page.querySelector('.om-account-metrics')?.textContent).toContain('$0.00');
+  expect(page.querySelector('.om-plan-usage')?.textContent).toContain('$0.00');
   expect(page.textContent).not.toContain('账单服务拒绝了本次查询');
 });
 
@@ -163,7 +172,7 @@ it('keeps the account page focused on sign-in and account management', async () 
   expect(actions(page)).toEqual(['Sign in with OpenDesign']);
   expect(page.querySelector('.om-account-metrics, [data-guide="upgrade"]')).toBeNull();
   await act(async () => button(page, 'Sign in with OpenDesign')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', {});
+  expect(hooks.request).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'settings_signin', entryId: expect.any(String) });
 
   hooks.account = { state: 'signed-in', plan: 'go', balance: '12.00' };
   await act(async () => window.dispatchEvent(new Event('motion:account-changed')));
@@ -191,7 +200,8 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
     expect(page.querySelector('.om-plan-name')?.textContent).toBe(plan === 'free' ? 'Free plan' : 'Go');
     expect(upgrade.textContent).toContain('Upgrade to Plus'); expect(upgrade.hasAttribute('data-primary')).toBe(true);
     expect(manage.textContent).toContain('Manage subscription');
-    expect(page.querySelector('.om-settings-section .om-button')).toBeNull();
+    // The plan card skips its own Upgrade while the guide above offers one.
+    expect([...page.querySelectorAll('.om-plan-usage button')].map(item => item.textContent)).toEqual(['Go to console', 'Top up']);
     expect(page.querySelector('.om-account-summary')).toBeNull();
   }
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');

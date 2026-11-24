@@ -366,7 +366,7 @@
 }
 .om-studio-new-project-button strong { font-size: var(--motion-text-body); font-weight: var(--motion-weight-semibold); }
 .om-studio-new-project-button small { font-size: var(--motion-text-sm); color: var(--motion-muted); }
-.om-shelf-more { justify-self: center; }
+.om-shelf-sentinel { height: 1px; }
 .om-studio-techniques-title { margin-block: var(--motion-space-24) var(--motion-space-16); }
 @container (max-width: 900px) { .om-studio-template-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: 420px) { .om-studio-template-grid { grid-template-columns: minmax(0, 1fr); } }

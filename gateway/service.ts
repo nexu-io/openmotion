@@ -18,6 +18,7 @@ import { accountMediaState } from './account-media.ts';
 import { AssetLibrary } from './asset-library.ts';
 import { requireLibraryMediaRuntime } from './asset-probe.ts';
 import { generationOptions, resolveGenerationParameters, validateGenerationOptions } from '../shared/generation-options.ts';
+import { hydrateOpenDesignModelMetadata } from '../shared/opendesign-models.ts';
 import { loadRegistry, toOpenMotionGenerationOptions } from '../packages/multimodal-models/src/query.ts';
 import { audioAssetTitle, classifyAudioKind } from '../shared/audio-kind.ts';
 import { MAX_ASSET_BYTES } from '../shared/asset-limits.ts';
@@ -26,7 +27,12 @@ import { rankSearchResults } from '../shared/fuzzy-search.ts';
 /** Queued input-image snapshot; the first keeps its historical name for older jobs. */
 const referenceFile = (index: number, mimeType: string) => (index ? `reference-${index}.` : 'reference.') + (mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1]);
 
-type Options = { tracking?: OmTracking; fetcher?: Fetcher; detect?: () => Promise<Agent[]>; codex?: typeof generateCodexImage; download?: typeof downloadMedia; pollMs?: number };
+type Options = { tracking?: OmTracking; fetcher?: Fetcher; detect?: () => Promise<Agent[]>; codex?: typeof generateCodexImage; download?: typeof downloadMedia; pollMs?: number; maxConcurrentJobs?: number };
+// 4 keeps OpenDesign Cloud/account batches 2x faster than the previous cap of 2 while staying below Cloud's 5-concurrent per-tier limit.
+// Other providers (local Codex CLI and BYOK APIs without verified higher concurrency limits) remain capped at 2.
+const DEFAULT_MAX_CONCURRENT_JOBS = 4;
+const DEFAULT_MAX_CONCURRENT_OTHER_JOBS = 2;
+const isOpenDesignConcurrencyProvider = (provider: string) => provider === 'opendesign' || provider === 'account';
 type SavedOutput = { path: string; mimeType: string; bytes: number; sha256: string };
 const saveUnavailable = 'SAVE_NOT_AVAILABLE: retained outputs are missing, changed or unreadable; no model request was made';
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
@@ -147,11 +153,23 @@ export class ModelGateway {
     const cloud = await this.cachedCloudModels();
     return [...new Map([...builtinModels, ...cached.filter(model => model.provider !== 'opendesign'), ...cloud, ...custom, ...compatible, ...account].map(model => [model.id, model])).values()].map(model => {
       const live = cloud.find(row => row.id === model.id);
-      const merged = { ...model, ...overrides[model.id], ...(live ? { supportsImageReference: live.supportsImageReference, maxInputImages: live.maxInputImages, nativeOptions: live.nativeOptions } : {}) };
+      const merged = {
+        ...model,
+        ...overrides[model.id],
+        ...(live ? {
+          supportsImageReference: live.supportsImageReference,
+          maxInputImages: live.maxInputImages,
+          nativeOptions: live.nativeOptions,
+          ...(live.description !== undefined ? { description: live.description } : {}),
+          ...(live.tier !== undefined ? { tier: live.tier } : {}),
+          ...(live.bestFor !== undefined ? { bestFor: live.bestFor } : {}),
+        } : {}),
+      };
       const normalized = ['opendesign', 'account'].includes(merged.provider) && merged.modality === 'image' && merged.supportsImageReference
         ? { ...merged, maxInputImages: modelReferenceLimit(merged) }
         : merged;
-      return { ...normalized, generationOptions: resolveRegistryGenerationOptions(normalized) };
+      const hydrated = hydrateOpenDesignModelMetadata(normalized);
+      return { ...hydrated, generationOptions: resolveRegistryGenerationOptions(hydrated) };
     });
   }
   async listModels(input: { provider?: unknown; modality?: unknown; query?: unknown; refresh?: unknown; offset?: unknown; limit?: unknown } = {}) {
@@ -189,7 +207,7 @@ export class ModelGateway {
           title: model.label,
           subtitle: model.provider,
           description: model.description,
-          tags: [model.modality, model.mode, model.provider],
+          tags: [model.modality, model.mode, model.provider, ...(model.tier ? [model.tier] : []), ...(model.bestFor ?? [])],
           aliases: [model.id],
         })).map(result => result.item)
       : scoped;
@@ -473,8 +491,20 @@ export class ModelGateway {
           job.state = 'failed'; job.phase = job.savePending ? 'save_failed' : 'interrupted'; job.error = job.savePending ? 'Saving was interrupted. Local outputs are retained; retry_save saves them without another model request.' : 'Worker stopped; request was not automatically resubmitted. Check provider history before retrying.'; if (resumableJob(job) && job.model.provider === 'opendesign') job.error += ' Check the original Cloud task with action=resume without paying again.'; job.updatedAt = Date.now(); await this.saveResult(job);
           if (!job.savePending && !(job.model.provider === 'account' && resumableJob(job))) await rm(path.join(this.root, 'work', job.id), { recursive: true, force: true });
         }
-        const capacity = Math.max(0, 2 - jobs.filter(j => j.state === 'running').length);
-        const next = jobs.filter(j => j.state === 'queued' && !this.active.has(j.id)).reverse().slice(0, capacity);
+        const running = jobs.filter(j => j.state === 'running');
+        const maxTotal = Math.max(1, Math.min(20, this.options.maxConcurrentJobs ?? DEFAULT_MAX_CONCURRENT_JOBS));
+        const maxOther = Math.min(maxTotal, DEFAULT_MAX_CONCURRENT_OTHER_JOBS);
+        let totalSlots = Math.max(0, maxTotal - running.length);
+        let otherSlots = Math.max(0, maxOther - running.filter(j => !isOpenDesignConcurrencyProvider(j.model.provider)).length);
+        const next: GenerationJob[] = [];
+        for (const job of jobs.filter(j => j.state === 'queued' && !this.active.has(j.id)).reverse()) {
+          if (totalSlots <= 0) break;
+          const isOpenDesign = isOpenDesignConcurrencyProvider(job.model.provider);
+          if (!isOpenDesign && otherSlots <= 0) continue;
+          next.push(job);
+          totalSlots--;
+          if (!isOpenDesign) otherSlots--;
+        }
         for (const job of next) { job.state = 'running'; job.phase = 'starting'; job.startedAt = Date.now(); job.updatedAt = Date.now(); job.workerPid = process.pid; await this.saveJob(job); }
         return next;
       });

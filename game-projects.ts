@@ -29,6 +29,7 @@ const LIMIT = 8 * 1024 * 1024;
 const gameCdnHosts = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com'];
 const gameCdnOrigins = gameCdnHosts.map(host => `https://${host}`).join(' ');
 const adStoreHosts = ['apps.apple.com', 'itunes.apple.com', 'play.google.com'];
+const xmlNamespaces = new Set(['http://www.w3.org/1999/xhtml','http://www.w3.org/2000/svg','http://www.w3.org/1999/xlink','http://www.w3.org/1998/Math/MathML','http://www.w3.org/XML/1998/namespace','http://www.w3.org/2000/xmlns/']);
 const textExtensions = /\.(html|htm|css|js|mjs|cjs|json|map|txt|md|svg|csv|yaml|yml|glsl|vert|frag)$/i;
 const mime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm', '.wasm': 'application/wasm', '.htm': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.cjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.avif': 'image/avif', '.ttf': 'font/ttf', '.otf': 'font/otf', '.m4a': 'audio/mp4', '.map': 'application/json', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json' };
 export class GameError extends Error {
@@ -717,8 +718,10 @@ export class GameProjects {
       }
       if(game.multiplayer)for(const message of gameRoomEntryErrors(source))diagnostics.push({path:relative,message});
       for (const match of source.matchAll(/(?:[a-z][a-z0-9+.-]*:\/\/|(?<=["'`(=])\/\/)[^\s"'<>`\\)]+/gi)) {
-        if ((match[0] === 'http://www.w3.org/2000/svg' || match[0] === 'http://www.w3.org/1999/xlink')
-          && /(?:\sxmlns(?::xlink)?\s*=\s*["']|\bcreate(?:Element|Attribute)NS\s*\(\s*["'])$/.test(source.slice(0, match.index))) continue;
+        // XML namespace URIs are identifiers, never requested: allow them only where markup declares one or code passes one
+        // to a namespace-aware DOM call (bundled libraries such as Three.js create XHTML elements this way).
+        if (xmlNamespaces.has(match[0])
+          && /(?:\sxmlns(?::[a-z]+)?\s*=\s*["']|\b(?:create(?:Element|Attribute)NS|(?:get|set|has|remove)AttributeNS)\s*\(\s*["'])$/i.test(source.slice(0, match.index))) continue;
         const host = new URL(match[0].startsWith('//') ? 'https:' + match[0] : match[0]).hostname;
         if (!allowedHosts.includes(host)) diagnostics.push({ path: relative, message: `External network host is not allowed: ${host}` });
       }
@@ -1237,7 +1240,7 @@ export async function gameHttp(req: IncomingMessage, res: ServerResponse, url: U
       const playOrigins = `${origin.origin}/api/games/${encodedId}/play/ ${origin.origin}/motion-api/games/${encodedId}/play/`;
       const sockets = ['/api/games', '/motion-api/games'].map(prefix => `${origin.protocol === 'https:' ? 'wss:' : 'ws:'}//${origin.host}${prefix}/${id}/rooms/`).join(' ');
       const executable = /^(?:text\/html|image\/svg\+xml)/.test(file.mime);
-      const csp = `sandbox allow-scripts allow-pointer-lock allow-popups allow-modals; default-src 'self' data: blob: ${playOrigins} ${assetOrigins}; connect-src 'self' blob: data: ${playOrigins} ${assetOrigins} ${sockets} ${gameCdnOrigins}; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${playOrigins} ${gameCdnOrigins}; style-src 'self' 'unsafe-inline' ${playOrigins}; worker-src 'none'`;
+      const csp = `sandbox allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals; default-src 'self' data: blob: ${playOrigins} ${assetOrigins}; connect-src 'self' blob: data: ${playOrigins} ${assetOrigins} ${sockets} ${gameCdnOrigins}; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${playOrigins} ${gameCdnOrigins}; style-src 'self' 'unsafe-inline' ${playOrigins}; form-action 'none'; worker-src 'none'`;
       res.writeHead(200, { 'Access-Control-Allow-Origin':'*', 'Content-Type':file.mime, 'Content-Length':payload.length, 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff', ...(executable ? { 'Content-Security-Policy': csp } : {}) }); res.end(payload); return true;
     }
     if (parts.length === 2 && req.method === 'POST') {

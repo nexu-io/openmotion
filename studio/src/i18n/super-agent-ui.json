@@ -965,7 +965,19 @@
     "Bookmark models to switch across Agents in one click.": "收藏常用模型，跨 Agent 一键切换。",
     "Low": "低",
     "Extra": "超高",
-    "Max": "最大"
+    "Max": "最大",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "登录后即可生成 AI 美术、音乐与配音素材，完成后在此回复即可继续。",
+    "Upgrade to OpenDesign Plus": "升级到 OpenDesign Plus",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Free 套餐不包含 AI 媒体生成。升级到 Plus 或配置自带 API 密钥后，在此回复即可继续。",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Go 套餐不包含 AI 媒体生成。升级到 Plus 或配置自带 API 密钥后，在此回复即可继续。",
+    "Top up OpenDesign balance": "充值 OpenDesign 余额",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "当前 OpenDesign 余额不足以完成此次生成。充值额度后在此回复即可继续。",
+    "Manage billing": "管理账单",
+    "Configure media provider": "配置媒体模型供应商",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "打开模型供应商设置以登录账号或更新 API 密钥，完成后在此回复即可继续。",
+    "Sign in to publish online": "登录以发布到线上",
+    "Sign in with OpenDesign to publish a shareable web link.": "登录 OpenDesign 账号即可发布可分享的线上网页链接。",
+    "Sign in & publish": "登录并发布"
   },
   "ja": {
     "Chat · {model}": "対話 · {model}",
@@ -1933,7 +1945,19 @@
     "Bookmark models to switch across Agents in one click.": "よく使うモデルをブックマークして、エージェント間でワンクリック切り替え。",
     "Low": "低",
     "Extra": "特高",
-    "Max": "最大"
+    "Max": "最大",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "サインインして AI アート・音楽・音声アセットを生成し、完了後にここで返信して続行してください。",
+    "Upgrade to OpenDesign Plus": "OpenDesign Plus にアップグレード",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Free プランには AI メディア生成が含まれていません。Plus にアップグレードするか API キーを追加して、ここで返信してください。",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Go プランには AI メディア生成が含まれていません。Plus にアップグレードするか API キーを追加して、ここで返信してください。",
+    "Top up OpenDesign balance": "OpenDesign 残高をチャージ",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "この生成には OpenDesign の残高が不足しています。クレジットをチャージして、ここで返信して再開してください。",
+    "Manage billing": "請求を管理",
+    "Configure media provider": "メディアプロバイダーを設定",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "モデルプロバイダーを開いてサインインまたは API キーを更新し、ここで返信して続行してください。",
+    "Sign in to publish online": "サインインしてオンライン公開",
+    "Sign in with OpenDesign to publish a shareable web link.": "OpenDesign にサインインして共有可能な Web リンクを公開します。",
+    "Sign in & publish": "サインインして公開"
   },
   "ko": {
     "Chat · {model}": "대화 · {model}",
@@ -2901,7 +2925,19 @@
     "Bookmark models to switch across Agents in one click.": "자주 쓰는 모델을 북마크해 에이전트 간 원클릭으로 전환하세요.",
     "Low": "낮음",
     "Extra": "매우 높음",
-    "Max": "최대"
+    "Max": "최대",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "로그인하여 AI 아트, 음악, 음성 에셋을 생성하고 완료 후 여기에 답장해 계속하세요.",
+    "Upgrade to OpenDesign Plus": "OpenDesign Plus로 업그레이드",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Free 플랜에는 AI 미디어 생성이 포함되지 않습니다. Plus로 업그레이드하거나 API 키를 추가한 뒤 여기에 답장해 계속하세요.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Go 플랜에는 AI 미디어 생성이 포함되지 않습니다. Plus로 업그레이드하거나 API 키를 추가한 뒤 여기에 답장해 계속하세요.",
+    "Top up OpenDesign balance": "OpenDesign 잔액 충전",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "이번 생성에 OpenDesign 잔액이 부족합니다. 크레딧을 충전한 뒤 여기에 답장해 재개하세요.",
+    "Manage billing": "결제 관리",
+    "Configure media provider": "미디어 공급자 설정",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "모델 공급자를 열어 로그인하거나 API 키를 업데이트한 뒤 여기에 답장해 계속하세요.",
+    "Sign in to publish online": "로그인하여 온라인 게시",
+    "Sign in with OpenDesign to publish a shareable web link.": "OpenDesign에 로그인하여 공유 가능한 웹 링크를 게시하세요.",
+    "Sign in & publish": "로그인 및 게시"
   },
   "de": {
     "Chat · {model}": "Chat · {model}",
@@ -3872,7 +3908,19 @@
     "Bookmark models to switch across Agents in one click.": "Markiere Modelle, um mit einem Klick zwischen Agents zu wechseln.",
     "Low": "Niedrig",
     "Extra": "Extra",
-    "Max": "Maximal"
+    "Max": "Maximal",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Melde dich an, um KI-Grafiken, Musik und Sprache zu erzeugen, und antworte dann hier, um fortzufahren.",
+    "Upgrade to OpenDesign Plus": "Auf OpenDesign Plus upgraden",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Der Free-Tarif enthält keine KI-Medienerzeugung. Upgrade auf Plus oder hinterlege deinen eigenen API-Schlüssel und antworte dann hier.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Der Go-Tarif enthält keine KI-Medienerzeugung. Upgrade auf Plus oder hinterlege deinen eigenen API-Schlüssel und antworte dann hier.",
+    "Top up OpenDesign balance": "OpenDesign-Guthaben aufladen",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Dein OpenDesign-Guthaben reicht für diese Generierung nicht aus. Lade Credits auf und antworte hier zum Fortfahren.",
+    "Manage billing": "Abrechnung verwalten",
+    "Configure media provider": "Medienanbieter konfigurieren",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Öffne Modellanbieter, um dich anzumelden oder deinen API-Schlüssel zu aktualisieren, und antworte dann hier.",
+    "Sign in to publish online": "Zum Online-Veröffentlichen anmelden",
+    "Sign in with OpenDesign to publish a shareable web link.": "Melde dich bei OpenDesign an, um einen teilbaren Weblink zu veröffentlichen.",
+    "Sign in & publish": "Anmelden & veröffentlichen"
   },
   "fr": {
     "Chat · {model}": "Chat · {model}",
@@ -4843,7 +4891,19 @@
     "Bookmark models to switch across Agents in one click.": "Ajoutez vos modèles en favoris pour basculer entre Agents en un clic.",
     "Low": "Faible",
     "Extra": "Extra",
-    "Max": "Max"
+    "Max": "Max",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Connectez-vous pour générer des visuels, musiques et voix IA, puis répondez ici pour continuer.",
+    "Upgrade to OpenDesign Plus": "Passer à OpenDesign Plus",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "L’offre Free n’inclut pas la génération média IA. Passez à Plus ou ajoutez votre clé API, puis répondez ici pour continuer.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "L’offre Go n’inclut pas la génération média IA. Passez à Plus ou ajoutez votre clé API, puis répondez ici pour continuer.",
+    "Top up OpenDesign balance": "Recharger le solde OpenDesign",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Votre solde OpenDesign était insuffisant pour cette génération. Rechargez vos crédits puis répondez ici pour reprendre.",
+    "Manage billing": "Gérer la facturation",
+    "Configure media provider": "Configurer le fournisseur média",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Ouvrez Fournisseurs de modèles pour vous connecter ou mettre à jour votre clé API, puis répondez ici.",
+    "Sign in to publish online": "Se connecter pour publier en ligne",
+    "Sign in with OpenDesign to publish a shareable web link.": "Connectez-vous à OpenDesign pour publier un lien web partageable.",
+    "Sign in & publish": "Se connecter et publier"
   },
   "ru": {
     "Chat · {model}": "Чат · {model}",
@@ -5816,7 +5876,19 @@
     "Bookmark models to switch across Agents in one click.": "Добавьте модели в избранное для переключения между агентами в один клик.",
     "Low": "Низкий",
     "Extra": "Сверхвысокий",
-    "Max": "Макс."
+    "Max": "Макс.",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Войдите, чтобы генерировать ИИ-графику, музыку и озвучку, затем ответьте здесь для продолжения.",
+    "Upgrade to OpenDesign Plus": "Перейти на OpenDesign Plus",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Тариф Free не включает генерацию ИИ-медиа. Перейдите на Plus или добавьте свой API-ключ, затем ответьте здесь.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Тариф Go не включает генерацию ИИ-медиа. Перейдите на Plus или добавьте свой API-ключ, затем ответьте здесь.",
+    "Top up OpenDesign balance": "Пополнить баланс OpenDesign",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Баланса OpenDesign недостаточно для этой генерации. Пополните счёт и ответьте здесь, чтобы продолжить.",
+    "Manage billing": "Управление оплатой",
+    "Configure media provider": "Настроить провайдера медиа",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Откройте «Провайдеры моделей», чтобы войти или обновить API-ключ, затем ответьте здесь.",
+    "Sign in to publish online": "Войдите для публикации онлайн",
+    "Sign in with OpenDesign to publish a shareable web link.": "Войдите в OpenDesign, чтобы опубликовать общую веб-ссылку.",
+    "Sign in & publish": "Войти и опубликовать"
   },
   "es": {
     "Chat · {model}": "Chat · {model}",
@@ -6787,7 +6859,19 @@
     "Bookmark models to switch across Agents in one click.": "Guarda modelos favoritos para cambiar entre Agents con un clic.",
     "Low": "Bajo",
     "Extra": "Extra",
-    "Max": "Máximo"
+    "Max": "Máximo",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Inicia sesión para generar arte, música y voces con IA y responde aquí para continuar.",
+    "Upgrade to OpenDesign Plus": "Mejorar a OpenDesign Plus",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "El plan Free no incluye generación multimedia con IA. Mejora a Plus o añade tu clave API y responde aquí para continuar.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "El plan Go no incluye generación multimedia con IA. Mejora a Plus o añade tu clave API y responde aquí para continuar.",
+    "Top up OpenDesign balance": "Recargar saldo de OpenDesign",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Tu saldo de OpenDesign era insuficiente para esta generación. Recarga créditos y responde aquí para reanudar.",
+    "Manage billing": "Gestionar facturación",
+    "Configure media provider": "Configurar proveedor multimedia",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Abre Proveedores de modelos para iniciar sesión o actualizar tu clave API y responde aquí para continuar.",
+    "Sign in to publish online": "Inicia sesión para publicar en línea",
+    "Sign in with OpenDesign to publish a shareable web link.": "Inicia sesión en OpenDesign para publicar un enlace web compartible.",
+    "Sign in & publish": "Iniciar sesión y publicar"
   },
   "pt-BR": {
     "Chat · {model}": "Chat · {model}",
@@ -7758,7 +7842,19 @@
     "Bookmark models to switch across Agents in one click.": "Salve modelos favoritos para alternar entre Agents com um clique.",
     "Low": "Baixo",
     "Extra": "Extra",
-    "Max": "Máximo"
+    "Max": "Máximo",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Entre para gerar arte, música e voz com IA e responda aqui para continuar.",
+    "Upgrade to OpenDesign Plus": "Fazer upgrade para o OpenDesign Plus",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "O plano Free não inclui geração de mídia por IA. Faça upgrade para o Plus ou adicione sua chave de API e responda aqui.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "O plano Go não inclui geração de mídia por IA. Faça upgrade para o Plus ou adicione sua chave de API e responda aqui.",
+    "Top up OpenDesign balance": "Recarregar saldo do OpenDesign",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Seu saldo no OpenDesign era insuficiente para esta geração. Recarregue seus créditos e responda aqui para retomar.",
+    "Manage billing": "Gerenciar cobrança",
+    "Configure media provider": "Configurar provedor de mídia",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Abra Provedores de modelos para entrar ou atualizar sua chave de API e responda aqui para continuar.",
+    "Sign in to publish online": "Entre para publicar online",
+    "Sign in with OpenDesign to publish a shareable web link.": "Entre no OpenDesign para publicar um link compartilhável na web.",
+    "Sign in & publish": "Entrar e publicar"
   },
   "it": {
     "Chat · {model}": "Chat · {model}",
@@ -8729,7 +8825,19 @@
     "Bookmark models to switch across Agents in one click.": "Salva i modelli preferiti per passare tra gli Agent con un clic.",
     "Low": "Basso",
     "Extra": "Extra",
-    "Max": "Massimo"
+    "Max": "Massimo",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Accedi per generare grafica, musica e voci AI, poi rispondi qui per continuare.",
+    "Upgrade to OpenDesign Plus": "Passa a OpenDesign Plus",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Il piano Free non include la generazione media AI. Passa a Plus o aggiungi la tua chiave API, poi rispondi qui.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Il piano Go non include la generazione media AI. Passa a Plus o aggiungi la tua chiave API, poi rispondi qui.",
+    "Top up OpenDesign balance": "Ricarica il saldo OpenDesign",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Il saldo OpenDesign era insufficiente per questa generazione. Ricarica i crediti e rispondi qui per riprendere.",
+    "Manage billing": "Gestisci fatturazione",
+    "Configure media provider": "Configura provider media",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Apri Provider di modelli per accedere o aggiornare la chiave API, poi rispondi qui per continuare.",
+    "Sign in to publish online": "Accedi per pubblicare online",
+    "Sign in with OpenDesign to publish a shareable web link.": "Accedi a OpenDesign per pubblicare un link web condivisibile.",
+    "Sign in & publish": "Accedi e pubblica"
   },
   "tr": {
     "Chat · {model}": "Sohbet · {model}",
@@ -9697,6 +9805,18 @@
     "Bookmark models to switch across Agents in one click.": "Agentlar arasında tek tıkla geçmek için modelleri favorilere ekleyin.",
     "Low": "Düşük",
     "Extra": "Ekstra",
-    "Max": "Maks."
+    "Max": "Maks.",
+    "Sign in to generate AI art, music, and voice assets, then reply here to continue.": "Yapay zeka görsel, müzik ve ses varlıkları üretmek için giriş yapın, ardından devam etmek için buraya yanıt verin.",
+    "Upgrade to OpenDesign Plus": "OpenDesign Plus’a yükselt",
+    "Free plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Free planı yapay zeka medya üretimini içermez. Plus’a yükseltin veya kendi API anahtarınızı ekleyin, ardından buraya yanıt verin.",
+    "Go plan does not include AI media generation. Upgrade to Plus or add your own API key, then reply to continue.": "Go planı yapay zeka medya üretimini içermez. Plus’a yükseltin veya kendi API anahtarınızı ekleyin, ardından buraya yanıt verin.",
+    "Top up OpenDesign balance": "OpenDesign bakiyesi yükle",
+    "Your OpenDesign balance was too low for this generation. Top up your credits, then reply here to resume.": "Bu üretim için OpenDesign bakiyeniz yetersizdi. Kredi yükleyip devam etmek için buraya yanıt verin.",
+    "Manage billing": "Faturalandırmayı yönet",
+    "Configure media provider": "Medya sağlayıcısını yapılandır",
+    "Open Model providers to sign in or update your API key, then reply here to continue.": "Giriş yapmak veya API anahtarınızı güncellemek için Model sağlayıcıları açın, ardından buraya yanıt verin.",
+    "Sign in to publish online": "Çevrimiçi yayınlamak için giriş yap",
+    "Sign in with OpenDesign to publish a shareable web link.": "Paylaşılabilir bir web bağlantısı yayınlamak için OpenDesign ile giriş yapın.",
+    "Sign in & publish": "Giriş yap ve yayınla"
   }
 }

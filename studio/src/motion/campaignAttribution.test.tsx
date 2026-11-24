@@ -9,6 +9,7 @@ import { BlackFridayTopBanner, resetBlackFridayImpression } from './BlackFridayT
 import campaignUi from '../i18n/campaign-ui.json';
 import { BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_STARTS_AT, bannerDismissedToday, blackFridayActive, campaignPricingUrl, dismissBannerToday, resetBannerDismissal } from './campaignAttribution';
 import { PricingEntry } from './PricingEntry';
+import { loadReportingTransport } from './reporting';
 import { trackMotion } from './tracking';
 
 vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
@@ -48,7 +49,7 @@ it('reports one banner impression per page load and joins each claim click to it
   render(<BlackFridayTopBanner trackingPage="explore" onClose={onClose} />);
   render(<BlackFridayTopBanner trackingPage="explore" onClose={onClose} />);
   expect(tracked().filter(row => row.event === 'surface_view')).toEqual([
-    { event: 'surface_view', properties: { page_name: 'explore', area: 'campaign_banner', element: 'banner', campaign_id: 'black_friday_2026' } },
+    { event: 'surface_view', properties: { page_name: 'explore', area: 'campaign_banner', element: 'banner', campaign_id: 'black_friday_2026', hook_id: 'bf_banner' } },
   ]);
 
   const cta = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;
@@ -160,5 +161,42 @@ it('keeps the Pricing entry with localized Free credits badge before the campaig
   for (const locale of ['zh-CN', 'ja', 'ko', 'de', 'fr', 'ru', 'es', 'pt-BR', 'it', 'tr'] as const) {
     act(() => root.render(<I18nProvider key={locale} initialLocale={locale}><PricingEntry trackingPage="studio" /></I18nProvider>));
     expect(container.textContent).toContain(campaignUi[locale]['Free credits']);
+  }
+});
+
+it('reports checkout-return plan upgrades and billing failures for PricingEntry and BlackFridayTopBanner', async () => {
+  await loadReportingTransport();
+  const responses: Record<string, unknown>[] = [
+    { state: 'signed-in', plan: 'free' },
+    { state: 'signed-in', plan: 'plus' },
+    { state: 'signed-in', plan: 'free' },
+    { state: 'signed-in', billingUnavailable: true },
+  ];
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+    new Response(JSON.stringify(responses.shift() ?? { state: 'signed-out' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+  try {
+    render(<PricingEntry trackingPage="studio" />);
+    const link = container.querySelector<HTMLAnchorElement>('a')!;
+    link.addEventListener('click', event => event.preventDefault());
+    const pricingEntryId = params(link.href).get('od_entry_id');
+    await act(async () => { link.click(); });
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(tracked().filter(row => row.event === 'entitlement_refresh_result')).toEqual([
+      { event: 'entitlement_refresh_result', properties: { page_name: 'studio', hook_id: 'header_pricing', entry_id: pricingEntryId, outcome: 'success', plan_changed: true } },
+    ]);
+
+    vi.mocked(trackMotion).mockClear();
+    render(<BlackFridayTopBanner trackingPage="explore" onClose={() => {}} />);
+    const bannerLink = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;
+    bannerLink.addEventListener('click', event => event.preventDefault());
+    const bannerEntryId = params(bannerLink.href).get('od_entry_id');
+    await act(async () => { bannerLink.click(); });
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(tracked().filter(row => row.event === 'entitlement_refresh_result')).toEqual([
+      { event: 'entitlement_refresh_result', properties: { page_name: 'explore', hook_id: 'bf_banner', entry_id: bannerEntryId, outcome: 'failure', plan_changed: false } },
+    ]);
+  } finally {
+    fetchSpy.mockRestore();
   }
 });

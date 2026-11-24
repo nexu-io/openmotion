@@ -128,6 +128,19 @@
   --motion-radius-editor-control: 8px;
   --motion-duration-control: 100ms;
   --motion-dark-card-bg: #242424;
+  --motion-console-plan-ink: #151515;
+  --motion-console-plan-muted: #66746a;
+  --motion-console-plan-veil: #ffffff45;
+  --motion-console-plan-secondary-bg: #ffffff8c;
+  --motion-console-plan-secondary-hover: #ffffffcc;
+  --motion-console-plan-secondary-border: #ffffffb3;
+  --motion-console-plan-secondary-ink: #163d1d;
+  --motion-console-plan-upgrade: #71f58a;
+  --motion-console-plan-upgrade-hover: #5fe57a;
+  --motion-console-plan-upgrade-ink: #163d1d;
+  --motion-console-plan-action: #202020;
+  --motion-console-plan-action-hover: #383838;
+  --motion-console-plan-action-ink: #ffffff;
 }
 :where([data-motion-ui]) {
   color-scheme: light;

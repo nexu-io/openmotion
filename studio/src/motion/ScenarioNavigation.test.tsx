@@ -114,23 +114,22 @@ it('opens Super Agent creation modes and launches game creation from the navigat
   expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
-it('places Workflows with a New badge directly after Explore, opens a 3-column mega menu with all 5 scenarios and recent runs', async () => {
+it('places Workflows right after Super Agent without a badge, opens scene tabs over all 5 workflow cards and recent runs', async () => {
   const props = await renderNav();
   const slots = [...container.querySelectorAll<HTMLElement>('.om-creative-strip > [data-nav-slot]')];
   const labels = slots.map(slot => {
     const btn = slot.querySelector<HTMLButtonElement>('button:not([aria-expanded])');
     return btn?.getAttribute('aria-label') ?? btn?.textContent?.trim();
   });
-  expect(labels[0]).toBe('Explore');
-  expect(labels[1]).toBe('Workflows');
-  expect(labels[2]).toBe('Image');
+  expect(labels.slice(0, 7)).toEqual(['Explore', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Workflows']);
+  const workflowsSlot = slots[labels.indexOf('Workflows')];
 
-  const workflowsBtn = slots[1].querySelector<HTMLButtonElement>('button[aria-label="Workflows"]')!;
-  expect(workflowsBtn.querySelector('[data-nav-badge="New"]')?.textContent).toBe('New');
+  const workflowsBtn = workflowsSlot.querySelector<HTMLButtonElement>('button[aria-label="Workflows"]')!;
+  expect(workflowsBtn.querySelector('[data-nav-badge]')).toBeNull();
   expect(workflowsBtn.getAttribute('aria-current')).toBeNull();
 
   // Open mega menu via trigger button.
-  const trigger = slots[1].querySelector<HTMLButtonElement>('button[aria-label="Workflows · Topics, campaigns and roles"]')!;
+  const trigger = workflowsSlot.querySelector<HTMLButtonElement>('button[aria-label="Workflows · Topics, campaigns and roles"]')!;
   await act(async () => {
     trigger.click();
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -138,14 +137,17 @@ it('places Workflows with a New badge directly after Explore, opens a 3-column m
 
   const menu = document.querySelector<HTMLElement>('.om-creative-menu-workflows')!;
   expect(menu).not.toBeNull();
-  const columns = [...menu.querySelectorAll<HTMLElement>('.om-scenario-mega-column')];
-  expect(columns).toHaveLength(3);
-  expect(columns.map(col => col.dataset.scenarioCategory)).toEqual(scenarioCategories.map(c => c.id));
-  expect(columns.map(col => col.querySelector('h2')?.textContent)).toEqual(['Topics', 'Campaigns', 'Roles']);
-
+  // Scene tabs over one card per workflow, each with its cover, studio name and what it hands back.
+  const sceneTabs = [...menu.querySelectorAll<HTMLButtonElement>('[data-studio-scene-tab]')];
+  expect(sceneTabs.map(tab => tab.textContent)).toEqual(['All scenes', 'E-commerce', 'Marketing', 'Social', 'Film']);
   const tiles = [...menu.querySelectorAll<HTMLButtonElement>('[data-scenario-tile]')];
   expect(tiles).toHaveLength(scenarioDefinitions.length);
   expect(tiles.map(tile => tile.dataset.scenarioTile)).toEqual(scenarioDefinitions.map(s => s.id));
+  expect(tiles.find(tile => tile.dataset.scenarioTile === 'black-friday')?.textContent).toContain('Promo Kit Studio');
+  await act(async () => sceneTabs[1].click());
+  expect([...menu.querySelectorAll<HTMLButtonElement>('[data-scenario-tile]')].map(tile => tile.dataset.scenarioTile))
+    .toEqual(['design-full-chain', 'black-friday']);
+  await act(async () => sceneTabs[0].click());
 
   // Lazy recent run appears in footer and opens with runId.
   const runBtn = menu.querySelector<HTMLButtonElement>('.om-scenario-mega-run')!;

@@ -206,6 +206,43 @@
 .om-account-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: var(--motion-space-16); }
 .om-account-metrics > .om-card { display: grid; gap: var(--motion-space-8); }
 .om-account-metrics p { margin-bottom: 0; }
+.om-plan-usage { display: grid; gap: 0; overflow: hidden; }
+.om-plan-usage-identity { min-width: 0; }
+.om-plan-usage-identity h2 { margin: 0; }
+.om-plan-usage-identity p { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0; }
+.om-plan-usage-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.om-plan-usage-quota { display: grid; align-content: start; min-width: 0; }
+.om-plan-usage-quota .om-subtitle { margin: 0; }
+.om-plan-usage-quota > .om-settings-row { gap: var(--motion-space-8); }
+.om-plan-usage-figure { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--motion-space-8); }
+.om-plan-usage-figure strong { font-variant-numeric: tabular-nums; }
+/* Light: the OpenDesign console plan card (AMR seats overview). */
+[data-motion-studio] .om-plan-usage[data-look="console"] { padding: 12px 12px 0; }
+.om-plan-usage[data-look="console"] .om-plan-usage-head { gap: 24px; min-height: 112px; padding: 25px 24px; border-radius: 8px; background-image: linear-gradient(var(--motion-console-plan-veil), var(--motion-console-plan-veil)), var(--om-plan-art); background-position: center; background-repeat: no-repeat; background-size: cover; }
+.om-plan-usage[data-look="console"] .om-plan-usage-identity h2 { font-size: 24px; font-weight: 600; line-height: 32px; letter-spacing: -.4px; color: var(--motion-console-plan-ink); }
+.om-plan-usage[data-look="console"] .om-plan-usage-identity p { margin-top: 8px; color: var(--motion-console-plan-muted); font-size: 13px; line-height: 22px; }
+.om-plan-usage[data-look="console"] .om-plan-usage-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-console { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; padding: 8px 16px; border: 1px solid var(--motion-console-plan-secondary-border); border-radius: 10px; background: var(--motion-console-plan-secondary-bg); color: var(--motion-console-plan-secondary-ink); font-size: 14px; font-weight: 500; line-height: 20px; }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-console:hover { background: var(--motion-console-plan-secondary-hover); }
+[data-motion-studio] .om-plan-usage[data-look="console"] :is(.om-plan-usage-upgrade, .om-plan-usage-recharge) { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 36px; min-width: 84px; padding: 8px 16px; border-radius: 10px; font-size: 14px; font-weight: 500; line-height: 20px; }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-upgrade { background: var(--motion-console-plan-upgrade); color: var(--motion-console-plan-upgrade-ink); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-upgrade:hover { background: var(--motion-console-plan-upgrade-hover); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-recharge { background: var(--motion-console-plan-action); color: var(--motion-console-plan-action-ink); }
+[data-motion-studio] .om-plan-usage[data-look="console"] .om-plan-usage-recharge:hover { background: var(--motion-console-plan-action-hover); }
+.om-plan-usage[data-look="console"] .om-plan-usage-quotas { display: grid; padding: 28px 24px; }
+.om-plan-usage[data-look="console"] .om-plan-usage-quota { gap: var(--motion-space-12); }
+.om-plan-usage[data-look="console"] .om-plan-usage-figure strong { font-size: 32px; font-weight: 600; line-height: 40px; }
+/* Dark: the Studio plan card. */
+[data-motion-studio] .om-plan-usage[data-look="studio"] { padding: 0; }
+.om-plan-usage[data-look="studio"] .om-plan-usage-head { gap: var(--motion-space-16); margin: var(--motion-space-8); padding: var(--motion-space-20) var(--motion-space-24); border-radius: var(--motion-radius-lg); background: linear-gradient(110deg, color-mix(in srgb, var(--motion-accent) 10%, var(--motion-panel)), color-mix(in srgb, var(--motion-accent) 22%, var(--motion-panel)) 55%, color-mix(in srgb, var(--motion-brand) 26%, var(--motion-panel))); border: 1px solid var(--motion-border-subtle); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-identity { display: grid; gap: var(--motion-space-6); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-identity h2 { font-size: var(--motion-text-display-sm); font-weight: 600; }
+.om-plan-usage[data-look="studio"] .om-plan-usage-identity p { color: var(--motion-muted); }
+[data-motion-studio] .om-plan-usage[data-look="studio"] .om-plan-usage-console { border-color: color-mix(in srgb, var(--motion-text) 28%, var(--motion-panel)); background: color-mix(in srgb, var(--motion-text) 12%, var(--motion-panel)); color: var(--motion-text); }
+[data-motion-studio] .om-plan-usage[data-look="studio"] .om-plan-usage-console:hover { background: color-mix(in srgb, var(--motion-text) 20%, var(--motion-panel)); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-quotas { display: grid; padding: var(--motion-space-20) var(--motion-space-24); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-quota { gap: var(--motion-space-8); }
+.om-plan-usage[data-look="studio"] .om-plan-usage-figure strong { font-size: var(--motion-text-display-sm); line-height: 1.1; }
 .om-account-code { display: block; margin-top: var(--motion-space-12); font-family: var(--motion-font-mono); font-size: var(--motion-text-heading); }
 .om-preference-row { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-24); padding-block: var(--motion-space-20); }
 .om-preference-row + .om-preference-row { border-top: 1px solid var(--motion-border-subtle); }
@@ -255,7 +292,7 @@
   .om-settings-page .om-card { padding: var(--motion-space-16); }
   .om-settings-row { flex-wrap: wrap; }
   .om-account-metrics { grid-template-columns: 1fr; }
-  .om-account-callout { flex-wrap: wrap; align-items: flex-start; gap: var(--motion-space-12); }
+    .om-account-callout { flex-wrap: wrap; align-items: flex-start; gap: var(--motion-space-12); }
   .om-account-callout-action { width: 100%; }
   .om-preference-row { flex-direction: column; align-items: flex-start; gap: var(--motion-space-12); }
   .om-model-row { gap: var(--motion-space-6); flex-wrap: wrap; }

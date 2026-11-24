@@ -112,7 +112,8 @@ export function normalizeSearchText(input: string): string {
     .replace(COMBINING_LATIN_RE, '')
     .normalize('NFC')
     .normalize('NFKC')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/\u0131/g, 'i');
   const simplified = foldTraditional(foldedLatin);
   return simplified.replace(SEPARATOR_RE, ' ').replace(/\s+/g, ' ').trim();
 }

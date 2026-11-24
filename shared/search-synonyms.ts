@@ -38,7 +38,7 @@ export const ZH_FILLER_PHRASES: readonly string[] = [
   '我想找一个', '我要做一个', '帮我找一个', '帮我推荐一个', '有没有适合做',
   '请问有没有', '给我推荐', '帮我找', '帮我做', '我想找', '我想要', '我想做',
   '我要找', '我要做', '请推荐', '能不能', '有没有', '可以用来', '适合用来',
-  '相关的', '有关的', '风格的', '类型的', '类的', '一个', '一些', '一款', '一种',
+  '相关的', '有关的', '风格的', '类型的', '类的', '的视频', '的模板', '的模版', '一个', '一些', '一款', '一种',
 ];
 
 export const SEARCH_STOPWORDS_ZH: ReadonlySet<string> = new Set([
@@ -64,72 +64,71 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
     id: 'talking-head',
     terms: [
       '口播', '口播视频', '真人口播', '出镜', '出镜口播', '播讲', '主播', '自媒体口播',
-      'a-roll', 'aroll', 'talking head', 'talking-head', 'live-action editing',
-      'live action', '实拍剪辑', '实拍', '字幕', '花字', '旁白', '配音',
-      'caption', 'captions', 'subtitle', 'subtitles', 'voiceover', 'narration',
+      'a-roll', 'aroll', 'talking head', 'talking-head',
+      'トーク', '語り', '토크', '말하기', 'sprecher',
     ],
-    related: ['文字动效', 'text animation', 'kinetic typography'],
   },
   // 2. Hot zero-result query: 科普
   {
     id: 'science-explainer',
     terms: [
-      '科普', '知识科普', '科普视频', '知识分享', '知识讲解', '知识', '干货', '百科',
-      '科学', '科技', '教育', '教学', '数据叙事', '数据可视化', '信息图', '图表',
-      '流程动画', '数据', '统计', 'explainer', 'educational', 'science', 'knowledge',
-      'infographic', 'data storytelling', 'data visualization', 'diagram',
-      'flowchart', 'chart', 'charts', 'analytics', 'データ', '데이터', 'ciencia',
+      '科普', '知识科普', '科普视频', '知识讲解', '知识分享', '干货',
+      '科学', 'science', 'science explainer', 'educational', 'infographic',
+      '解説', 'インフォグラフィック', '과학', '인포그래픽',
+      'wissenschaft', 'erklärvideo', 'infografik',
+      'vidéo explicative', 'infographie',
+      'наука', 'инфографика',
+      'ciencia', 'explicativo', 'infografía',
+      'ciência', 'infográfico',
+      'scienza', 'esplicativo', 'infografica',
+      'bilim', 'açıklayıcı',
     ],
-    related: ['产品演示', 'product demo', '图形动效', 'graphic animation', '教程', 'tutorial'],
   },
   // 3. Hot zero-result query: 电商
   {
     id: 'ecommerce',
     terms: [
       '电商', '带货', '电商带货', '商品展示', '好物推荐', '种草', '促销', '大促',
-      '折扣', '优惠', '黑五', '黑色星期五', '双十一', '双11', '618', '卖货',
-      '网店', '商城', '活动推广', '商品', '卖点', '电商海报', '主图视频',
-      'ecommerce', 'e-commerce', 'shopping', 'shop', 'store', 'retail',
-      'sale', 'discount', 'black friday', 'event promotion', 'commercial',
-      'ショッピング', '쇼핑', 'tienda', 'boutique',
+      '折扣', '黑五', '黑色星期五', '双十一', '双11', '618', '卖货',
+      '网店', '商城', '购物', '电商海报', '主图视频',
+      'ecommerce', 'e-commerce', 'shopping', 'discount', 'black friday',
+      'ショッピング', '通販', 'セール', '割引', '쇼핑', '이커머스', '커머스', '할인', '세일',
+      'onlineshop', 'rabatt', 'soldes', 'réduction',
+      'интернет-магазин', 'скидка', 'распродажа',
+      'comercio electrónico', 'descuento',
+      'desconto', 'promoção', 'sconto',
+      'e-ticaret', 'eticaret', 'ticaret', 'indirim', 'kampanya',
     ],
-    related: ['产品发布', 'product launch', 'product promo', '产品宣传'],
   },
   // 4. Hot zero-result query: 讲解
   {
     id: 'walkthrough-explain',
     terms: [
-      '讲解', '解说', '产品讲解', '功能讲解', '教程', '教学', '教学视频', '操作演示',
-      '使用指南', '步骤', '指南', '说明书', '新手引导', '课程', '产品演示',
-      '流程动画', '演示', 'product demo', 'explainer', 'tutorial', 'walkthrough',
-      'guide', 'how-to', 'howto', 'lesson', 'course', 'onboarding',
-      'チュートリアル', 'ガイド', '튜토리얼', '가이드',
+      '讲解', '解说', '产品讲解', '功能讲解', '教程', '教学视频', '操作演示',
+      '使用指南', '说明书', '新手引导',
+      'tutorial', 'walkthrough', 'how-to', 'howto', 'onboarding',
+      'チュートリアル', '使い方', '튜토리얼', '사용법',
+      'anleitung', 'tutoriel', 'инструкция', 'руководство', 'nasıl yapılır',
     ],
-    related: ['界面动效', 'interface animation', '数据叙事', '科普'],
   },
   // 5. Hot zero-result query: vlog
   {
     id: 'vlog-shortform',
     terms: [
-      'vlog', 'vlog日常', '日常', '生活记录', '旅行', '旅拍', '探店', '打卡',
-      '记录', '随拍', '短视频', '竖屏', '竖版', '实拍剪辑', '实拍', '剪辑',
-      '抖音', '小红书', 'b站', '哔哩哔哩', '快手', '视频号',
-      'short-form', 'short form', 'shorts', 'reels', 'tiktok', 'bilibili',
-      'youtube shorts', 'live-action editing', 'live action', 'lifestyle',
-      'travel', 'daily', 'diary', 'montage',
+      'vlog', 'vlog日常', '生活记录', '旅拍', '探店', '打卡', '随拍',
+      'tiktok', 'youtube shorts', 'diary',
+      '브이로그', 'влог',
     ],
-    related: ['活动推广', 'event promotion', '里程碑与业绩', 'milestones and results'],
   },
   // 6. Hot zero-result query: logo
   {
     id: 'logo-intro',
     terms: [
       'logo', 'logo演绎', 'logo动画', 'logo reveal', 'logo animation',
-      '标志', '双标志', '徽标', '图标', '商标', '品牌标志', '纹章', '片头', '开场',
-      'emblem', 'monogram', 'wordmark', 'brand mark', 'crest', 'intro', 'opener', 'stinger',
-      'ロゴ', '로고',
+      '标志', '双标志', '徽标', '商标', '品牌标志', '纹章',
+      'emblem', 'monogram', 'wordmark', 'brand mark', 'crest', 'stinger',
+      'ロゴ', '로고', 'логотип',
     ],
-    related: ['品牌宣传', 'brand promotion', '品牌形象', 'brand identity', '品牌片'],
   },
   // 7. Disjoint: Product demo
   {
@@ -137,6 +136,9 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
     terms: [
       '产品演示', '功能演示', '软件演示', '应用演示', '界面演示', '产品demo',
       'product demo', 'product demos', 'feature demo', 'app demo', 'saas demo', 'ui demo',
+      '製品デモ', '機能デモ', '제품 데모', '기능 데모',
+      'produktdemo', 'démo produit', 'демо продукта',
+      'demo de producto', 'demo de produto', 'demo prodotto', 'ürün demosu',
     ],
   },
   // 8. Disjoint: Product launch / product promo
@@ -147,6 +149,9 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
       'product promo', 'product promotion', 'product launch', 'product launches',
       'launch film', 'launch video', 'product reveal', 'release video',
       'announcement film', 'keynote',
+      '新製品', '製品発表', 'ローンチ', '신제품', '제품 출시', '런칭',
+      'produkteinführung', 'lancement', 'запуск продукта',
+      'lanzamiento', 'lançamento', 'lancio', 'ürün lansmanı',
     ],
   },
   // 9. Disjoint: Brand promotion (strictly no product-demo / product-promo overlap)
@@ -156,7 +161,10 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
       '品牌宣传', '品牌片', '品牌故事', '品牌形象', '企业宣传', '公司介绍', '形象片',
       'brand promotion', 'brand promo', 'brand film', 'brand story',
       'brand identity', 'branding', 'corporate film', 'company intro',
-      'ブランド', '브랜드', 'marca', 'marque', 'marke',
+      'ブランド', 'ブランディング', '企業紹介', '브랜드', '브랜딩', '기업 소개',
+      'marke', 'markenfilm', 'imagefilm', 'marque', 'film de marque',
+      'бренд', 'корпоративный ролик', 'marca', 'video de marca', 'vídeo de marca',
+      'video aziendale', 'marka filmi', 'kurumsal',
     ],
   },
   // 10. UI & SaaS Interface animation
@@ -166,6 +174,8 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
       '界面动效', 'ui动效', '交互', '交互动效', '软件', '应用', '网页展示', '后台',
       '仪表盘', '看板', '工作台', 'interface animation', 'ui animation', 'saas',
       'software', 'dashboard', 'webapp', 'mockup', 'browser', 'desktop', 'mobile app',
+      'UIアニメーション', 'ダッシュボード', 'UI 애니메이션', '대시보드',
+      'benutzeroberfläche', 'interface', 'интерфейс', 'interfaz', 'interfaccia', 'arayüz',
     ],
   },
   // 11. Text / Kinetic Typography
@@ -175,6 +185,8 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
       '文字动效', '字体动效', '动态排版', '标题动画', '排版', '大字', '快闪', '文字快闪',
       'text animation', 'kinetic typography', 'typography', 'title card', 'headlines',
       'captions', 'kinetic',
+      'タイポグラフィ', 'テキストアニメーション', '타이포그래피', '텍스트 애니메이션',
+      'typografie', 'typographie', 'типографика', 'tipografía', 'tipografia', 'tipografi',
     ],
   },
   // 12. 3D motion
@@ -201,6 +213,9 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
       '里程碑与业绩', '里程碑', '业绩', '战报', '年报', '年度总结', '复盘', '增长',
       '数据报告', '趋势', '指标', 'milestones and results', 'milestones', 'metrics',
       'kpi', 'growth', 'annual report', 'recap', 'wrapped', 'summary', 'revenue',
+      '年間レポート', '実績', '연간 리포트', '성과', 'jahresbericht', 'meilenstein',
+      'bilan', 'jalon', 'годовой отчёт', 'результаты', 'informe anual', 'hitos',
+      'relatório anual', 'marcos', 'report annuale', 'yıllık rapor', 'kilometre taşı',
     ],
   },
   // 15. Partnership announcement
@@ -219,6 +234,9 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
       '活动推广', '活动', '大会', '峰会', '黑客松', '直播预告', '邀约', '邀请函',
       '节日', '周年庆', 'event promotion', 'event', 'conference', 'summit',
       'hackathon', 'webinar', 'invitation', 'campaign', 'festival', 'holiday',
+      'イベント', 'カンファレンス', '이벤트', '컨퍼런스', 'veranstaltung', 'konferenz',
+      'événement', 'conférence', 'мероприятие', 'конференция', 'evento', 'conferencia',
+      'conferência', 'conferenza', 'etkinlik', 'konferans',
     ],
   },
   // 17. Audio / Music / SFX / Voice (kept distinct between music/bgm and sfx/sound-effects)
@@ -295,7 +313,8 @@ export const SYNONYM_CLUSTERS: readonly SynonymCluster[] = [
   {
     id: 'design-templates-i18n',
     terms: [
-      'デザイン', '디자인', 'diseño', '模板', 'template', 'plantilla', 'modèle', 'vorlage',
+      'デザイン', 'テンプレート', '디자인', '템플릿', 'diseño', '模板', 'template',
+      'plantilla', 'modèle', 'vorlage', 'шаблон', 'modelo', 'modello', 'şablon',
     ],
   },
 ];

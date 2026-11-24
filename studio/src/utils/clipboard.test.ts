@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Window } from "happy-dom";
-import { copyTextToClipboard } from "./clipboard";
+import { copyTextToClipboard, copyTextWithMethod } from "./clipboard";
 
 function installDocument(execCommand: (command: string) => boolean): void {
   const window = new Window();
@@ -111,5 +111,18 @@ describe("copyTextToClipboard", () => {
 
     expect(mountedParents[0]).toBe(dialog);
     expect(document.querySelector("textarea")).toBeNull();
+  });
+
+  it("reports which clipboard method succeeded via copyTextWithMethod", async () => {
+    const execCommand = vi.fn((command: string) => command === "copy");
+    const writeText = vi.fn((_text: string) => Promise.resolve());
+
+    installDocument(execCommand);
+    installNavigator(writeText);
+    await expect(copyTextWithMethod("api copy")).resolves.toBe("clipboard_api");
+
+    const failingWrite = vi.fn((_text: string) => Promise.reject(new Error("blocked")));
+    installNavigator(failingWrite);
+    await expect(copyTextWithMethod("fallback copy")).resolves.toBe("exec_command");
   });
 });

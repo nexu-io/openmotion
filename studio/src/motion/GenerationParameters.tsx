@@ -399,7 +399,7 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
         trigger={<Button variant="plain" className="om-nav-item"><RemixIcon name="stack-line" size={16} />×{label(count)}</Button>}>
         <label className="om-label">{t('Output count')}
           <div className="om-field" data-form-field={boxed ? 'regular' : undefined}>
-            <input data-form-control={boxed ? 'embedded' : undefined} aria-label={t('Output count')} type="number" min={1} step={1}
+            <input data-form-control={boxed ? 'embedded' : undefined} aria-label={t('Output count')} type="number" min={1} max={count.max} step={1}
               value={Number(value(count) ?? 1)} onChange={e => set(count, e.target.value === '' ? undefined : Number(e.target.value))} />
           </div>
         </label>

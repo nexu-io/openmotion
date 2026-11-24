@@ -9,6 +9,7 @@ import { Skeleton } from '../../components/ui/Skeleton';
 import { initializeWorkspaceHistory, workspaceHistoryIndex, writeWorkspaceHistory } from '../../utils/workspaceHistory';
 import { workspacePageHref } from '../workspacePageRouting';
 import { coverUrl, gameApi, genreCovers, genreLabels, settingLabels, styleLabels } from './gameCatalog';
+import { reportGameAssetClick } from './gameTracking';
 
 /**
  * Games the user made in Game Studio, shown in Assets. They are read from the game catalogue and merged into the
@@ -66,7 +67,7 @@ function GameAssetTile({ game }: { game: GameCard }) {
   const title = useGameTitle()(game);
   const cover = coverUrl(game) ?? genreCovers[game.genre];
   return <div className="om-asset-tile om-card">
-    <Button variant="plain" className="om-nav-item om-asset-open" aria-label={t('Open {title} in Game Studio', { title })} onClick={() => openGameStudio(game.id)}>
+    <Button variant="plain" className="om-nav-item om-asset-open" aria-label={t('Open {title} in Game Studio', { title })} onClick={() => { reportGameAssetClick('open_game', game); openGameStudio(game.id); }}>
       <span className="om-asset-preview om-media-surface" data-kind="game">
         {cover ? <img src={cover} alt="" loading="lazy" decoding="async" /> : <RemixIcon name="gamepad-line" size={32} />}
         <span className="om-asset-game-status" data-tone={game.status}>{game.status === 'building' && <RemixIcon name="loader-4-line" size={13} />}{t(statusLabels[game.status])}</span>
@@ -99,7 +100,7 @@ export function GameAssetsGrid({ data, query }: { data: MyGames; query: string }
   if (!data.games) return <div className="om-asset-grid">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="om-asset-loading-card" />)}</div>;
   if (!data.games.length) return <div className="om-empty om-asset-empty"><RemixIcon name="gamepad-line" size={40} /><h2 className="om-subtitle">{t('No games yet')}</h2>
     <p className="om-muted">{t('Games you make in Game Studio appear here, including drafts your Agent is still building.')}</p>
-    <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => openGameStudio()}><RemixIcon name="gamepad-line" size={16} />{t('Go to Game Studio')}</Button></div>;
+    <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => { reportGameAssetClick('open_game_studio'); openGameStudio(); }}><RemixIcon name="gamepad-line" size={16} />{t('Go to Game Studio')}</Button></div>;
   if (!shown.length) return <div className="om-empty om-asset-empty"><RemixIcon name="search-line" size={40} /><h2 className="om-subtitle">{t('No matching games')}</h2></div>;
   return <div className="om-asset-grid">{shown.map(game => <GameAssetTile key={game.id} game={game} />)}</div>;
 }
@@ -125,7 +126,7 @@ export function GameAssetsRow({ data, onViewAll }: { data: MyGames; onViewAll: (
   if (!data.games?.length) return null;
   return <section className="om-asset-games" aria-label={t('Games')}>
     <header className="om-asset-games-heading"><h2 className="om-subtitle">{t('Games')}</h2>
-      <Button variant="plain" className="om-nav-item" data-compact onClick={onViewAll}>{t('View all')}<RemixIcon name="arrow-right-s-line" size={14} /></Button></header>
+      <Button variant="plain" className="om-nav-item" data-compact onClick={() => { reportGameAssetClick('view_all_games'); onViewAll(); }}>{t('View all')}<RemixIcon name="arrow-right-s-line" size={14} /></Button></header>
     <div ref={row} className="om-asset-grid">{data.games.slice(0, columns).map(game => <GameAssetTile key={game.id} game={game} />)}</div>
   </section>;
 }

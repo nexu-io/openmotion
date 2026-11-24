@@ -34,9 +34,9 @@ export class AssetLibrary {
     try { return JSON.parse(await readFile(await this.file(`records/${id}.json`), 'utf8')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('ASSET_NOT_FOUND'); throw error; }
   }
-  async list(input: AssetListInput = {}) {
+  async list(input: AssetListInput = {}, { maxPageSize = 100 } = {}) {
     const { offset = 0, limit = 60 } = input;
-    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid asset pagination');
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > maxPageSize) throw new Error('Invalid asset pagination');
     if (input.modality && !['image', 'video', 'audio'].includes(input.modality)
       || input.audioKind && !AUDIO_KINDS.includes(input.audioKind)
       || input.source && !['upload', 'generated'].includes(input.source)

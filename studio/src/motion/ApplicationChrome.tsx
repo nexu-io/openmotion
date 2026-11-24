@@ -15,7 +15,7 @@ import {
   useDesktopChrome,
 } from '../utils/platformHost';
 import { useWorkspaceChrome } from './WorkspaceFrame';
-import { useAccountSummary } from './AccountSettings';
+import { openOpenDesignConsole, useAccountSummary } from './AccountSettings';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -176,6 +176,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   return <Menu tooltip={t('Account menu')} modal={false} side="bottom" align="end" aria-label={t('Account menu')} className="om-account-menu om-selection-panel om-menu-panel" trigger={<Button variant="plain" type="button" className="om-nav-item om-account-trigger" aria-current={settings === 'account' || settings === 'subscription' ? 'page' : undefined} aria-label={t('Account menu')} onPointerEnter={() => preloadWorkspacePage('settings')} onFocus={() => preloadWorkspacePage('settings')}><span className="om-avatar" aria-hidden="true">{account?.state === 'signed-in' ? avatarInitial : <><RemixIcon className="om-default-avatar-icon om-default-avatar-icon-outline" name="user-3-line" size={14} /><svg className="om-default-avatar-icon om-default-avatar-icon-solid" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 22H4V20C4 17.2386 6.23858 15 9 15H15C17.7614 15 20 17.2386 20 20V22ZM12 13C8.68629 13 6 10.3137 6 7C6 3.68629 8.68629 1 12 1C15.3137 1 18 3.68629 18 7C18 10.3137 15.3137 13 12 13Z" /></svg></>}</span></Button>}>
       <MenuItem onClick={() => openSettings('account')}><span className="om-menu-label"><RemixIcon name="user-3-line" size={16} /><strong>{userName}</strong></span></MenuItem><MenuSeparator />
       <MenuItem onClick={() => openSettings('subscription')}><span className="om-menu-label"><RemixIcon name="bank-card-line" size={16} />{t('Subscription & usage')}</span></MenuItem>
+      {account?.state === 'signed-in' && <MenuItem onClick={() => { trackStudioClick('settings', 'open_console'); void openOpenDesignConsole().then(opened => { if (!opened) openSettings('subscription'); }); }}><span className="om-menu-label"><RemixIcon name="layout-2-line" size={16} />{t('Console')}<RemixIcon className="om-menu-external" name="external-link-line" size={14} /></span></MenuItem>}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('general')}><span className="om-menu-label"><RemixIcon name="settings-3-line" size={16} />{t('Settings')}</span></MenuItem>
       <MenuSubmenu aria-label={t('Appearance')} className="om-selection-panel om-menu-panel" label={<span className="om-menu-label"><RemixIcon name="sun-line" size={16} />{t('Appearance')}</span>} detail={t(themeLabels[theme])}>

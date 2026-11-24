@@ -1,6 +1,7 @@
 import type { LibraryGeneration } from './asset-library.ts';
 import type { GenerationOptions } from './generation-options.ts';
-import { openDesignImageReferenceCap } from './opendesign-models.ts';
+import { modelRoutingTiers, openDesignImageReferenceCap, type ModelRoutingTier } from './opendesign-models.ts';
+export { modelRoutingTiers, type ModelRoutingTier };
 /** Public contract shared by the model gateway, MCP and Studio. Never contains credentials. */
 export const modalities = ['image', 'video', 'audio'] as const;
 export type Modality = typeof modalities[number];
@@ -11,6 +12,10 @@ export type Model = {
   id: string; provider: ProviderId; modelId: string; label: string; modality: Modality;
   source: 'builtin' | 'live' | 'custom'; mode: string;
   defaults?: Record<string, unknown>; description?: string;
+  /** Optional speed/quality tier for capability-driven routing (server-published first, local fallback otherwise). */
+  tier?: ModelRoutingTier;
+  /** Optional concise capability/use-case tags (server-published first, local fallback otherwise). */
+  bestFor?: string[];
   /** Cloud: true/false is explicit provider evidence; absent means editing capability is unknown. */
   supportsImageReference?: boolean;
   /** Most input images the provider accepts: edit references for images, a first frame for video. */

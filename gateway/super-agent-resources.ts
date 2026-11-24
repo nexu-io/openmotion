@@ -34,6 +34,7 @@ let designTemplatesCache: TimedEntry<ReturnType<ReturnType<typeof designCatalog>
 let designSkillsCache: TimedEntry<ReturnType<ReturnType<typeof designCatalog>['skills']>> | null = null;
 const motionTemplatesCache = new Map<string, TimedEntry<Awaited<ReturnType<ReturnType<typeof templateCatalogFor>['allTemplates']>>>>();
 const dynamicCountCache = new Map<string, TimedEntry<Partial<SuperAgentResourceCounts>>>();
+let translatedSearchTitles: Promise<ReadonlyMap<string, string>> | undefined;
 
 export function clearWorkspaceResourceCache(): void {
   brandCatalogCache = null;
@@ -100,6 +101,20 @@ async function cachedMotionTemplates(cacheKey: string, rootStore: WorkspaceStore
   return items;
 }
 
+function loadTranslatedSearchTitles() {
+  translatedSearchTitles ??= readFile(new URL('../studio/build/super-agent-search-titles.zh-CN.json', import.meta.url), 'utf8')
+    .then(contents => new Map<string, string>(Object.entries(JSON.parse(contents))))
+    .catch(() => {
+      translatedSearchTitles = undefined;
+      return new Map<string, string>();
+    });
+  return translatedSearchTitles;
+}
+
+function hasTranslatedSearchTitle(kind: string): boolean {
+  return kind === 'skill' || kind === 'design-skill' || kind === 'workflow';
+}
+
 function requestedKinds(kind: string): Set<string> {
   if (!kind || kind === 'all') {
     return new Set([
@@ -143,7 +158,8 @@ export async function collectWorkspaceResources(
   const query = typeof options.query === 'string' ? options.query.trim().slice(0, 200) : '';
   const kind = typeof options.kind === 'string' ? options.kind.trim() : 'all';
   const rawLimit = Number(options.limit);
-  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(1000, Math.floor(rawLimit))) : 60;
+  const maxResourceResults = 1000;
+  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(maxResourceResults, Math.floor(rawLimit))) : 60;
 
   const wanted = requestedKinds(kind);
   const cachedCounts = kind !== 'all' ? readTimed(dynamicCountCache.get(dirKey)) : undefined;
@@ -163,9 +179,11 @@ export async function collectWorkspaceResources(
     modelsRes,
     gamesRes,
   ] = await Promise.allSettled([
-    wanted.has('asset') || needAllCounts
-      ? new AssetLibrary(rootStore).list({ limit: wanted.has('asset') ? 200 : 1 })
-      : Promise.resolve(null),
+    kind === 'asset'
+      ? new AssetLibrary(rootStore).list({ limit: query ? maxResourceResults : limit }, { maxPageSize: maxResourceResults })
+      : wanted.has('asset') || needAllCounts
+        ? new AssetLibrary(rootStore).list({ limit: wanted.has('asset') ? 100 : 1 })
+        : Promise.resolve(null),
     wanted.has('brand-kit') || needAllCounts
       ? brandKitsFor(rootStore.directory).list()
       : Promise.resolve(null),
@@ -201,6 +219,7 @@ export async function collectWorkspaceResources(
       : Promise.resolve(null),
   ]);
 
+  if (kind === 'asset' && assetsRes.status === 'rejected') throw assetsRes.reason;
   const assets = assetsRes.status === 'fulfilled' && assetsRes.value ? assetsRes.value : null;
   const savedKits = savedKitsRes.status === 'fulfilled' && savedKitsRes.value ? savedKitsRes.value : null;
   const brandCatalogEntries = brandCatalogRes.status === 'fulfilled' ? brandCatalogRes.value : [];
@@ -376,16 +395,20 @@ export async function collectWorkspaceResources(
   ];
 
   const byKind = allItems.filter(item => matchesKindFilter(item, kind));
+  const translations = /[\p{Script=Han}]/u.test(query) && [...wanted].some(hasTranslatedSearchTitle)
+    ? await loadTranslatedSearchTitles()
+    : undefined;
   const ranked = query
     ? rankSearchResults(byKind, query, item => {
         const meta = searchExtra.get(item);
+        const translatedTitle = hasTranslatedSearchTitle(item.kind) ? translations?.get(item.title) : undefined;
         return {
           id: item.id,
           title: item.title,
           subtitle: item.subtitle,
           description: meta?.description,
           tags: item.tags,
-          aliases: meta?.aliases,
+          aliases: translatedTitle ? [...(meta?.aliases ?? []), translatedTitle] : meta?.aliases,
           extra: [item.scenario ?? '', item.modality ?? '', item.kind],
         };
       }).map(result => result.item)

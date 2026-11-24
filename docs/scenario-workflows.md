@@ -1,6 +1,6 @@
 # Scenario Workflows
 
-**Workflows** (backed by OpenMotion's scenario workflow contract) guide end-to-end production from a single creative idea through web pages, visual assets, video and motion films, audio, multi-platform social copy, and one downloadable ZIP package. Each workflow supports two modes in one workspace — **Step by step** (`manual`) for hands-on iterative creation and **Agent mode** (`agent`, `?mode=agent`) for concise prompt + Skills delegation to an external MCP Agent — backed by shared versioned runs and a unified **Assets** collection.
+**Workflows** (backed by OpenMotion's scenario workflow contract) guide end-to-end production from a single creative idea through web pages, visual assets, video and motion films, audio, multi-platform social copy, and one downloadable ZIP package. Each workflow supports three modes in one workspace — **One-click mode** (`studio`, the default) where people give one brief and get the whole kit, **Step by step** (`manual`, `?mode=manual`) for hands-on iterative creation, and **Agent mode** (`agent`, `?mode=agent`) for concise prompt + Skills delegation to an external MCP Agent — backed by shared versioned runs and a unified **Assets** collection.
 
 ## Workflow taxonomy
 
@@ -16,9 +16,11 @@ Workflows are organized into three categories under **Workflows** in the top nav
 
 Every step carries curated `ScenarioSkillRef` bindings (`step.skills[]`) identifying either a curated Studio library Skill (`source: 'library'`, loaded via `openmotion_get_skill(skillId)`) or a workflow resource guide (`source: 'workflow'`, loaded via MCP `resources/read` on `resourceUri` such as `openmotion://workflow/*`). Existing Studio destinations (Motion Studio, Design Studio, Cinema Studio, Model Hub, Black Friday collection, Template library, Skills) remain directly reachable from navigation and context links inside each workflow.
 
-## Dual workspace modes and Assets
+## Workspace modes and Assets
 
-Opening any workflow navigates to `?page=scenario&scenario=<id>[&run=<uuid>][&mode=agent][&step=<stepId>]` (defaults to **Step by step** unless `mode=agent` is requested).
+Opening any workflow navigates to `/scenarios/<id>[?run=<uuid>][&mode=manual|agent][&step=<stepId>]` and defaults to **One-click mode** unless another mode is requested.
+
+- **One-click mode (`studio`, default, `ScenarioStudioView.tsx`):** the left column holds the brief (one idea, optional product and reference images, a single example preset) and **Outputs this time** checkboxes; the right column shows **Your kit** as one tab per deliverable with the chosen output shown in full below (pages and videos inline, images in a larger preview, audio with a cover built from the run's first image, social posts as platform cards with overseas platforms first). Unticked deliverables are saved on the run as `skipped`, and `scenarioConcisePrompt` lists them as `skip: <stepIds>` so Agents do not produce them. **Make the full kit** saves the brief, then — when Super Agent is available — starts a Super Agent chat in the background with the same local Agent the Super Agent page would pick (the Settings default when installed, otherwise the most recently verified installed Agent), keeps people on the workflow page, shows not-yet-started outputs as **In the making**, refreshes the run every 4 seconds and offers **See the process** to open the chat. Without a runnable local Agent it opens Super Agent to set one up; without Super Agent it copies the prompt for an external Agent.
 
 - **Run header:** displays the workflow cover, **All workflows** breadcrumb, workflow title and category badge, **Workflow mode** segmented switch (**Step by step** vs **Agent mode**), run switcher (create, rename or archive drafts), contextual **Copy for Agent** (header action in Step-by-step mode), desktop toggle to collapse/reopen **Assets**, and **Export all** (builds and downloads a full ZIP bundle directly).
 - **Agent mode (`?mode=agent`, `ScenarioAgentModeView.tsx`):** renders a clean two-column workspace:

@@ -18,7 +18,7 @@ import {
   type SuperAgentResourceCatalog,
 } from '../../../shared/super-agent';
 import { Skeleton } from '../components/ui/Skeleton';
-import { useI18n } from '../i18n/I18n';
+import { ensureLocaleLoaded, translate, useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import {
   ResourceThumbImage,
@@ -166,10 +166,11 @@ function artifactToMentionItem(artifact: SuperAgentArtifact): SuperAgentResource
   return null;
 }
 
-function matchesSearchTerms(item: SuperAgentResourceAttachment, terms: string[]): boolean {
+function matchesSearchTerms(item: SuperAgentResourceAttachment, terms: string[], translatedTitle?: string): boolean {
   if (!terms.length) return true;
   const hay = [
     item.title,
+    translatedTitle,
     item.subtitle,
     item.filePath,
     item.id,
@@ -352,13 +353,17 @@ export const ComposerMentionMenu = forwardRef<
         : category === 'brand-kit' || category === 'asset' || category === 'projects' || category === 'model'
           ? category
           : 'all';
+    const searchQuery = query.trim();
     const run = () => {
-      fetchWorkspaceResources({
-        kind: apiKind,
-        query: query.trim() || undefined,
-        limit: category === 'all' ? 160 : 120,
-      })
-        .then(next => {
+      void Promise.all([
+        fetchWorkspaceResources({
+          kind: apiKind,
+          query: searchQuery || undefined,
+          limit: category === 'all' ? 160 : 120,
+        }),
+        /\p{Script=Han}/u.test(searchQuery) ? ensureLocaleLoaded('zh-CN').catch(() => {}) : undefined,
+      ])
+        .then(([next]) => {
           if (!cancelled) setCatalog(next);
         })
         .catch(() => {
@@ -523,7 +528,10 @@ export const ComposerMentionMenu = forwardRef<
       if (chatSec) built.push(chatSec);
     }
 
-    const catalogItems = (catalog?.items ?? []).filter(item => matchesSearchTerms(item, terms));
+    const matchChineseTitles = /\p{Script=Han}/u.test(queryLower);
+    const catalogItems = (catalog?.items ?? []).filter(item => matchesSearchTerms(
+      item, terms, matchChineseTitles ? resourceDisplayTitle(item, title => translate('zh-CN', title)) : undefined,
+    ));
 
     if (category === 'all' || category === 'skills') {
       const skills = catalogItems.filter(item => item.kind === 'skill' || item.kind === 'design-skill' || item.kind === 'workflow');

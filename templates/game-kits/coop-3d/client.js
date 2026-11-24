@@ -1,3 +1,4 @@
+// Neutral graybox 3D co-op chassis — replace scene palette, lighting, arena geometry, props, and skill labels to match design/style.md.
 import * as THREE from './vendor/three.module.min.js';
 import { GLTFLoader } from './vendor/GLTFLoader.js';
 import { clone } from './vendor/SkeletonUtils.js';
@@ -8,26 +9,26 @@ let renderer;
 try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); }
 catch { $('status').textContent = 'WebGL unavailable. Enable hardware acceleration and reload.'; throw Error('WebGL unavailable'); }
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
-const scene = new THREE.Scene(); scene.background = new THREE.Color(0x132033); scene.fog = new THREE.Fog(0x132033, 25, 52);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2a2e35); scene.fog = new THREE.Fog(0x2a2e35, 25, 52);
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100); camera.position.set(0, 19, 18); camera.lookAt(0, 0, 0);
-scene.add(new THREE.HemisphereLight(0xd9edff, 0x34354d, 2));
-const sun = new THREE.DirectionalLight(0xffdfb0, 2); sun.position.set(5, 15, 8); scene.add(sun);
-const rim = new THREE.DirectionalLight(0x71bbff, 3); rim.position.set(-8, 8, -12); scene.add(rim);
-const floor = new THREE.Mesh(new THREE.BoxGeometry(29, .3, 29), new THREE.MeshStandardMaterial({ color: 0x344e60 })); floor.position.y = -.2; scene.add(floor);
-const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(1.2), new THREE.MeshStandardMaterial({ color: 0x55e6be, emissive: 0x125f53 })); crystal.position.y = 1.3; scene.add(crystal);
+scene.add(new THREE.HemisphereLight(0xf2f4f7, 0x454a52, 2));
+const sun = new THREE.DirectionalLight(0xffffff, 1.8); sun.position.set(5, 15, 8); scene.add(sun);
+const rim = new THREE.DirectionalLight(0xd0d6de, 1.4); rim.position.set(-8, 8, -12); scene.add(rim);
+const floor = new THREE.Mesh(new THREE.BoxGeometry(29, .3, 29), new THREE.MeshStandardMaterial({ color: 0x6b727d, roughness: .9 })); floor.position.y = -.2; scene.add(floor);
+const crystal = new THREE.Mesh(new THREE.CylinderGeometry(.85, 1, 2, 8), new THREE.MeshStandardMaterial({ color: 0xd0d6de, emissive: 0x3a404a, roughness: .6 })); crystal.position.y = 1.0; scene.add(crystal);
 const blocks = [];
 for (const x of [-15, 15]) for (const z of [-15, 15]) blocks.push(new THREE.BoxGeometry(1, 3, 1).translate(x, 1.5, z));
-const pillars = new THREE.Mesh(mergeGeometries(blocks), new THREE.MeshStandardMaterial({ color: 0x7b8697 })); scene.add(pillars); blocks.forEach(g => g.dispose());
-// Offline stylised crystal skeletons: one merged body draw plus one emissive eye draw.
+const pillars = new THREE.Mesh(mergeGeometries(blocks), new THREE.MeshStandardMaterial({ color: 0x8c939e, roughness: .85 })); scene.add(pillars); blocks.forEach(g => g.dispose());
+// Neutral placeholder enemy geometry: one merged body draw plus one accent draw (replace for your game).
 const enemyParts = [new THREE.IcosahedronGeometry(.6, 0).scale(.85,1.1,.65).translate(0,.7,0),new THREE.OctahedronGeometry(.43).translate(0,1.5,0),new THREE.BoxGeometry(.12,.7,.12).rotateZ(.5).translate(-.6,.9,0),new THREE.BoxGeometry(.12,.7,.12).rotateZ(-.5).translate(.6,.9,0)];
 const enemies = new THREE.InstancedMesh(mergeGeometries(enemyParts.map(g=>g.index?g.toNonIndexed():g)),new THREE.MeshStandardMaterial({color:0xffffff,roughness:.8}),64); enemyParts.forEach(g=>g.dispose());enemies.count=0;scene.add(enemies);
 const eyeParts=[new THREE.BoxGeometry(.1,.12,.08).translate(-.16,1.55,.36),new THREE.BoxGeometry(.1,.12,.08).translate(.16,1.55,.36)];
-const enemyEyes=new THREE.InstancedMesh(mergeGeometries(eyeParts),new THREE.MeshBasicMaterial({color:0xffcc66}),64);eyeParts.forEach(g=>g.dispose());enemyEyes.count=0;scene.add(enemyEyes);
-const decalMaterial=new THREE.MeshBasicMaterial({color:0x527b82,side:THREE.DoubleSide});
+const enemyEyes=new THREE.InstancedMesh(mergeGeometries(eyeParts),new THREE.MeshBasicMaterial({color:0xf2f4f7}),64);eyeParts.forEach(g=>g.dispose());enemyEyes.count=0;scene.add(enemyEyes);
+const decalMaterial=new THREE.MeshBasicMaterial({color:0x9aa3ae,side:THREE.DoubleSide});
 for(const [x,z,r] of [[0,0,2],[-3,3,.9],[3,3,.9],[-3,-3,.9],[3,-3,.9]]){const decal=new THREE.Mesh(new THREE.RingGeometry(r-.08,r,48),decalMaterial);decal.rotation.x=-Math.PI/2;decal.position.set(x,.01,z);scene.add(decal);}
-const particles=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.1),new THREE.MeshBasicMaterial({color:0xffb26e}),256);particles.count=0;scene.add(particles);
+const particles=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.1),new THREE.MeshBasicMaterial({color:0xe5e9ef}),256);particles.count=0;scene.add(particles);
 const sparks=Array.from({length:256},()=>({life:0,x:0,y:0,z:0,vx:0,vy:0,vz:0}));let sparkIndex=0;
-const rings=Array.from({length:8},()=>{const mesh=new THREE.Mesh(new THREE.RingGeometry(.85,1,48),new THREE.MeshBasicMaterial({color:0x78daff,side:THREE.DoubleSide,transparent:true}));mesh.rotation.x=-Math.PI/2;mesh.visible=false;scene.add(mesh);return {mesh,life:0,radius:1};});let ringIndex=0;
+const rings=Array.from({length:8},()=>{const mesh=new THREE.Mesh(new THREE.RingGeometry(.85,1,48),new THREE.MeshBasicMaterial({color:0xcbd5e1,side:THREE.DoubleSide,transparent:true}));mesh.rotation.x=-Math.PI/2;mesh.visible=false;scene.add(mesh);return {mesh,life:0,radius:1};});let ringIndex=0;
 const seenEvents=new Set();let shake=0,previousResult=null,previousWave=0;
 function effect(e){
   if(['death','down','revive','hurt'].includes(e.type))for(let i=0;i<(e.type==='death'?14:6);i++){const p=sparks[sparkIndex++%sparks.length],angle=i*2.399+e.id;p.life=.65;p.x=e.x;p.z=e.z;p.y=.7;p.vx=Math.cos(angle)*3;p.vz=Math.sin(angle)*3;p.vy=2+(i%3);}
@@ -37,16 +38,16 @@ function effect(e){
 }
 function updateHUD(){
   const p=view.players[playerId];
-  $('status').textContent=`Crystal ${view.objective}/${view.rules.objectiveHP} · Wave ${view.wave}/${view.totalWaves} · ${view.enemies.length} enemies${view.result?' · '+(view.result==='win'?'Victory!':'Crystal lost')+' · Restart votes '+view.votes.length:''}`;
+  $('status').textContent=`Objective ${view.objective}/${view.rules.objectiveHP} · Wave ${view.wave}/${view.totalWaves} · ${view.enemies.length} enemies${view.result?' · '+(view.result==='win'?'Victory!':'Objective lost')+' · Restart votes '+view.votes.length:''}`;
   $('hp').max=p?.maxHP??view.rules.playerHP;$('hp').value=p?.hp??0;
   $('team').textContent=p?.downed?`Downed · ${Object.values(view.players).filter(p=>p.connected).length===1?'Respawn in '+Math.max(0,Math.ceil((view.rules.soloRespawnTicks-(view.tick-p.downTick))/view.tickRate))+'s':'Ally revive '+Math.round(p.reviveProgress/view.rules.reviveTicks*100)+'%'}`:'Stand near a downed ally to revive';
-  for(const [skill,key] of [['dash','Space'],['nova','E']]){const left=Math.max(0,((p?.[skill+'Ready']??0)-view.tick)/view.tickRate);$(skill).textContent=`${skill==='dash'?'Dash':'Nova'} · ${left>0?left.toFixed(1)+'s':key}`;$(skill).disabled=!p||p.downed||!!view.result||left>0;}
+  for(const [skill,key] of [['dash','Space'],['nova','E']]){const left=Math.max(0,((p?.[skill+'Ready']??0)-view.tick)/view.tickRate);$(skill).textContent=`${skill==='dash'?'Skill 1':'Skill 2'} · ${left>0?left.toFixed(1)+'s':key}`;$(skill).disabled=!p||p.downed||!!view.result||left>0;}
   const countdown=Math.max(0,Math.ceil((view.nextWave-view.tick)/view.tickRate));
-  $('wave-banner').textContent=view.result?(view.result==='win'?'ARENA CLEARED':'CRYSTAL FALLEN'):view.phase==='breather'?(view.wave===view.totalWaves?'Victory in ':'Next wave in ')+countdown+'s':view.events.some(e=>e.type==='wave'&&view.tick-e.tick<16)?`WAVE ${view.wave} · DEFEND THE CRYSTAL`:'';
+  $('wave-banner').textContent=view.result?(view.result==='win'?'STAGE CLEARED':'OBJECTIVE LOST'):view.phase==='breather'?(view.wave===view.totalWaves?'Victory in ':'Next wave in ')+countdown+'s':view.events.some(e=>e.type==='wave'&&view.tick-e.tick<16)?`WAVE ${view.wave}`:'';
 }
-const beams = new THREE.InstancedMesh(new THREE.BoxGeometry(.08, .08, 18), new THREE.MeshBasicMaterial({ color: 0xffeb99 }), 32); beams.count = 0; scene.add(beams);
+const beams = new THREE.InstancedMesh(new THREE.BoxGeometry(.08, .08, 18), new THREE.MeshBasicMaterial({ color: 0xf1f5f9 }), 32); beams.count = 0; scene.add(beams);
 const enemyTint=new THREE.Color();
-const muzzles=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.22),new THREE.MeshBasicMaterial({color:0xffeeb4}),32);muzzles.count=0;scene.add(muzzles);
+const muzzles=new THREE.InstancedMesh(new THREE.OctahedronGeometry(.22),new THREE.MeshBasicMaterial({color:0xe2e8f0}),32);muzzles.count=0;scene.add(muzzles);
 const dummy = new THREE.Object3D(), actors = new Map(), clock = new THREE.Clock();
 let model, clips, view, playerId, socket, reconnectTimer, stopped = false, muted = false, audio, lastShot = -1;
 // Public game test hooks return snapshots of server views; inputs still use the room protocol.

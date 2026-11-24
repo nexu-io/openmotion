@@ -14,6 +14,32 @@ it('merges advanced JSON and explicit typed controls, preserving native booleans
   expect(() => requestParameters({ advanced: '[]', values: {} })).toThrow();
   expect(() => requestParameters({ advanced: '{', values: {} })).toThrow();
 });
+
+it('uses the FLUX Schnell bounds in the quick output count', async () => {
+  const flux: Model = {
+    id: 'fal:fal-ai/flux/schnell', provider: 'fal', modelId: 'fal-ai/flux/schnell',
+    label: 'FLUX Schnell', modality: 'image', mode: 'text-to-image', source: 'builtin',
+  };
+  const model = { ...flux, generationOptions: generationOptions(flux) };
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <GenerationParameters model={model} draft={emptyParameters} onChange={vi.fn()} />,
+    ));
+    const trigger = [...container.querySelectorAll('button')].find(button => button.textContent === '×1')!;
+    await act(async () => trigger.click());
+    const count = document.querySelector<HTMLInputElement>('input[aria-label="Output count"]');
+    expect(count?.min).toBe('1');
+    expect(count?.max).toBe('4');
+    expect(count?.step).toBe('1');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
 const firstFrameModel: Model = { id: 'opendesign:wan-2.7', provider: 'opendesign', modelId: 'wan-2.7', label: 'Wan', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1, defaults: { ratio: '16:9' } };
 it('preserves inactive quick values but rejects explicit JSON ratio even if a quick override would hide it', () => {
   const draft = { advanced: '{"seed":7}', values: { ratio: '9:16' } };

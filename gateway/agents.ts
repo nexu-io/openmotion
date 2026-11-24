@@ -1,11 +1,14 @@
 import { execFile, spawn } from 'node:child_process';
-import { access, open, readdir } from 'node:fs/promises';
+import { access, open, readdir, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Agent } from '../shared/gateway.ts';
+import { BoundedLruCache } from '../shared/lifecycle.ts';
+import { localAgents } from '../shared/local-agents.ts';
+import { agentInvocation, probeAgent } from './agent-discovery.ts';
 
-export async function resolveAgent(bin: string): Promise<string | null> {
+async function findPathAgent(bin: string): Promise<string | null> {
   const override = process.env[`${bin.toUpperCase()}_BIN`];
   const dirs = [...(process.env.PATH || '').split(path.delimiter), path.join(os.homedir(), '.local/bin'), '/opt/homebrew/bin', '/usr/local/bin'];
   const candidates = [override, ...dirs.filter(Boolean).map(dir => path.join(dir, bin + (process.platform === 'win32' ? '.exe' : '')))];
@@ -15,8 +18,115 @@ export async function resolveAgent(bin: string): Promise<string | null> {
   }
   return null;
 }
-function probe(bin: string, args: string[]): Promise<{ ok: boolean; text: string }> {
-  return new Promise(resolve => execFile(bin, args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr })));
+
+const BIN_ALIASES: Record<string, string[]> = Object.fromEntries(
+  localAgents.filter(agent => agent.binAliases?.length).map(agent => [agent.bin, [agent.bin, ...agent.binAliases!]]),
+);
+
+const RESOLVE_CACHE_TTL_MS = 30_000;
+const resolveCache = new BoundedLruCache<string, { resolved: string | null; expiresAt: number }>({
+  maxEntries: 64,
+});
+
+export function clearLocalAgentResolveCache(): void {
+  resolveCache.clear();
+}
+
+async function findLocalAgent(bin: string): Promise<string | null> {
+  const names = BIN_ALIASES[bin] ?? [bin];
+  for (const name of names) {
+    const found = await findPathAgent(name);
+    if (found) return found;
+  }
+  const home = os.homedir();
+  const dirs = [
+    ...(process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)),
+    path.join(home, '.local/bin'),
+    path.join(home, '.bun/bin'),
+    path.join(home, '.cargo/bin'),
+    path.join(home, '.npm-global/bin'),
+    path.join(home, '.opencode/bin'),
+    path.join(home, '.cursor/bin'),
+    path.join(home, '.antigravity/bin'),
+    path.join(home, '.claude/local'),
+    path.join(home, '.kiro/bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    ...(process.platform === 'win32' && process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm')] : []),
+  ];
+  for (const dir of dirs) for (const name of names) for (const suffix of process.platform === 'win32' ? ['.exe', '.cmd'] : ['']) {
+    const file = path.join(dir, name + suffix);
+    try {
+      await access(file, constants.X_OK);
+      return file;
+    } catch { /* next */ }
+  }
+  return null;
+}
+
+async function bundledCodex(hostBin: string | undefined): Promise<string | null> {
+  const candidates = [hostBin];
+  if (process.platform === 'darwin') {
+    const bundle = 'ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex';
+    candidates.push(path.join(os.homedir(), 'Applications', bundle), path.join('/Applications', bundle));
+  }
+  for (const candidate of candidates) {
+    if (!candidate || !path.isAbsolute(candidate)) continue;
+    try {
+      if (!(await stat(candidate)).isFile()) continue;
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch { /* next */ }
+  }
+  return null;
+}
+
+async function codexReleaseVersion(bin: string): Promise<string | undefined> {
+  const { ok, text } = await probeAgent(bin, ['--version']);
+  return ok ? /^codex-cli (\d+\.\d+\.\d+)(?:\+[\w.-]+)?$/m.exec(text.trim())?.[1] : undefined;
+}
+
+async function preferNewerCodex(standalone: string | null, hostBin: string | undefined): Promise<string | null> {
+  const bundled = await bundledCodex(hostBin);
+  if (!standalone || !bundled || standalone === bundled) return standalone ?? bundled;
+
+  const [standaloneVersion, bundledVersion] = await Promise.all([
+    codexReleaseVersion(standalone),
+    codexReleaseVersion(bundled),
+  ]);
+  if (standaloneVersion && bundledVersion && bundledVersion.localeCompare(standaloneVersion, 'en', { numeric: true }) > 0) {
+    return bundled;
+  }
+  return standalone;
+}
+
+export async function resolveLocalAgent(bin: string): Promise<string | null> {
+  const hostCodex = bin === 'codex' ? process.env.CODEX_APP_RUNTIME_CLI_PATH : undefined;
+  const override = process.env[`${bin.toUpperCase()}_BIN`];
+  const pathKey = `${bin}\0${process.env.PATH || ''}\0${override ?? ''}\0${hostCodex ?? ''}`;
+  const now = Date.now();
+  const hit = resolveCache.get(pathKey);
+  if (hit && hit.expiresAt > now) return hit.resolved;
+
+  const installed = await findLocalAgent(bin);
+  const resolved = bin === 'codex' && installed !== override
+    ? await preferNewerCodex(installed, hostCodex)
+    : installed;
+  resolveCache.set(pathKey, { resolved, expiresAt: now + RESOLVE_CACHE_TTL_MS });
+  return resolved;
+}
+
+export function resolveAgent(bin: string): Promise<string | null> {
+  return bin === 'codex' ? resolveLocalAgent(bin) : findPathAgent(bin);
+}
+
+async function probe(bin: string, args: string[]): Promise<{ ok: boolean; text: string }> {
+  try {
+    const command = await agentInvocation(bin, args);
+    return await new Promise(resolve => execFile(command.bin, command.args, { timeout: 5000, maxBuffer: 256 * 1024, windowsHide: true }, (error, stdout, stderr) => resolve({ ok: !error, text: stdout + stderr })));
+  } catch {
+    return { ok: false, text: '' };
+  }
 }
 export async function detectAgents(): Promise<Agent[]> {
   return Promise.all([['codex', 'Codex'], ['claude', 'Claude Code'], ['gemini', 'Gemini CLI']].map(async ([id, label]) => {
@@ -48,9 +158,11 @@ export async function generateCodexImage(prompt: string, directory: string, sign
     } catch { /* Ignore non-JSON output and unrelated tool events. */ }
   };
   const args = ['exec', '--ephemeral', '--json', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-c', 'approval_policy="never"', '-C', directory, ...(referenceImage ? ['--image', referenceImage] : []), '-'];
+  const command = await agentInvocation(bin, args);
+  signal.throwIfAborted();
   let timedOut = false;
   const exitCode = await new Promise<number | null>((resolve, reject) => {
-    const child = spawn(bin, args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(command.bin, command.args, { cwd: directory, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       for (const part of chunk.split(/(?<=\n)/)) {

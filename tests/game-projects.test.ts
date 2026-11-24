@@ -145,6 +145,10 @@ test('multiplayer validation, determinism, contract errors, CDN rules and public
   for(const host of ['wss://evil.example/room','https://evil.example/track','//evil.example/track','https://cdn.jsdelivr.net.evil.example/a.js']) {
     await service.write(game.id,[{path:'index.html',content:`<script src="${host}"></script>`}]); assert.equal((await service.validate(game.id)).passed,false);
   }
+  // XML namespace identifiers are not network requests; a script loaded from the same host still is.
+  await service.write(game.id,[{path:'index.html',content:'<script>document.createElementNS("http://www.w3.org/1999/xhtml","canvas");document.createElementNS("http://www.w3.org/2000/svg","svg")</script>'}]);
+  assert.equal((await service.validate(game.id)).passed,true);
+  await service.write(game.id,[{path:'index.html',content:'<script src="http://www.w3.org/1999/xhtml/evil.js"></script>'}]); assert.equal((await service.validate(game.id)).passed,false);
   await service.write(game.id,[{path:'index.html',content:'<script>\n//rendering comment\n</script>'},{path:'logic.js',content:starterLogic.replace('maxPlayers: 4','maxPlayers: 2')}]);
   assert.equal((await service.validate(game.id)).passed,true); assert.equal((await service.publish(game.id)).game.maxPlayers,2);
   const a=new GameRuntime(starterLogic,'same'),b=new GameRuntime(starterLogic,'same');
@@ -1220,7 +1224,8 @@ test('HTML and SVG have one opaque-origin sandbox CSP with local asset and room 
     let headers:Record<string,any>={};
     await gameHttp({method:'GET',headers:{host:'localhost:4321'}} as any,{writeHead(status:number,h:Record<string,any>){assert.equal(status,200);headers=h;},end(){}} as any,new URL(`${prefix}/${game.id}/play/${file}`,'http://localhost'),workspace,async()=>({}));
     const csp=headers['Content-Security-Policy'];assert.equal(typeof csp,'string');
-    assert.match(csp,/(?:^|;)\s*sandbox allow-scripts allow-pointer-lock allow-popups allow-modals(?:;|$)/);
+    assert.match(csp,/(?:^|;)\s*sandbox allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals(?:;|$)/);
+    assert.match(csp,/(?:^|;)\s*form-action 'none'(?:;|$)/);
     assert.doesNotMatch(csp,/allow-same-origin/);assert.equal(csp.match(/sandbox/g).length,1);
     assert.match(csp,/blob: data:|data: blob:/);assert(csp.includes(`ws://localhost:4321${prefix}/${game.id}/rooms/`));
     assert.equal(headers['Access-Control-Allow-Origin'],'*');
@@ -1409,4 +1414,34 @@ test('headless playtest loads workspace asset versions via GET, HEAD, Range and 
   assert.equal(client.authoritative?.state.rangeStatus,206);
   assert.equal(client.authoritative?.state.rangeBytes,4);
   assert.equal(client.authoritative?.state.missingStatus,404);
+}));
+
+test('headless playtest lets native dialog form close modals while form-action none blocks network submits',async t=>fixture(async(service)=>{
+  if(!await browserExecutable().catch(()=>undefined)){t.skip('Local Chrome is unavailable');return;}
+  const {game}=await service.create(brief);
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="640" height="360"></canvas>
+    <dialog id="rules"><form method="dialog"><button id="close-btn">×</button></form></dialog>
+    <script>
+      const d = document.getElementById('rules');
+      d.showModal();
+      const opened = d.open;
+      document.getElementById('close-btn').click();
+      window.__omGame = { getState: () => ({ running: true, opened, closed: !d.open }) };
+    </script>`}]);
+  const {clients:[dialogClient]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.deepEqual(dialogClient.consoleErrors,[]);
+  assert.deepEqual(dialogClient.authoritative?.state,{running:true,opened:true,closed:true});
+
+  // Network form submission remains blocked by form-action 'none'.
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="640" height="360"></canvas>
+    <form id="ext" action="https://example.com/collect" method="post"><button id="send">Send</button></form>
+    <script>
+      let blockedDirective = null;
+      document.addEventListener('securitypolicyviolation', e => { blockedDirective = e.effectiveDirective; });
+      document.getElementById('send').click();
+      window.__omGame = { getState: () => ({ running: true, blockedDirective, href: location.href }) };
+    </script>`}]);
+  const {clients:[extClient]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.equal(extClient.authoritative?.state.blockedDirective,'form-action');
+  assert.match(String(extClient.authoritative?.state.href),/\/api\/games\/.*\/play\/index\.html/);
 }));
