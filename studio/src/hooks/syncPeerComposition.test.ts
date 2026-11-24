@@ -100,3 +100,27 @@ it("accepts multiple source versions together, reading only the warm affected sc
     state.reset();
   }
 });
+
+it("reads a pinned root revision when a concurrent GET has already advanced Studio's cache", async () => {
+  const p = "root-read-race", path = "index.html", hash = "a".repeat(64), base = '"patch:' + hash + '"';
+  const state = usePlayerStore.getState();
+  state.beginTimelineSession(p);
+  const frame = document.body.appendChild(document.createElement("iframe"));
+  Object.defineProperty(frame, "contentDocument", { value: null });
+  rememberPeerTimingDocument(frame, "token", undefined, "document", { presentation: true }, false, { [path]: base });
+  const latest = { content: '<p id="title">New</p>', version: "v2" };
+  rememberSource(p, path, latest);
+  const fetch = vi.fn(async () => new Response('<p id="title">Old</p>', { headers: { ETag: base } }));
+  vi.stubGlobal("fetch", fetch);
+  const refresh = vi.fn();
+  try {
+    await syncPeerComposition(p, path, [path], async () => latest, { current: frame }, latest, latest.version,
+      { versions: { [path]: latest.version }, treeChanged: false, refresh });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(fetch.mock.calls[0]).toContain("/api/projects/" + p + "/history/blob/" + hash);
+  } finally {
+    frame.remove();
+    forgetSource(p, path);
+    state.reset();
+  }
+});

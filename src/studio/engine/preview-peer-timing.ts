@@ -2,7 +2,7 @@ import { stageGroupChange } from "../../../shared/preview-group.ts";
 import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
-import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, isLivePositionEdit, isPaintOnlyChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, isAuthoredPresentation, isLivePositionEdit, isPaintOnlyChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
 
 // Runs inside the token-scoped iframe. Each change targets a verified live node and file revision.
 export const PREVIEW_PEER_TIMING = `
@@ -22,10 +22,10 @@ export const PREVIEW_PEER_TIMING = `
     const match = /^"(sha256|patch):([a-f0-9]{64})"$/.exec(tag);
     return match ? (match[1] === 'patch' ? tag : match[2]) : null;
   }
-  function stagePresentation(node, change, effects, local, pending) {
+  function stagePresentation(node, change, effects, local, pending, authored) {
     if (change.captureOriginalTranslate !== undefined) {
       const move = Array.isArray(change.styles) && change.styles.find(style => Array.isArray(style) && style[0] === 'translate');
-      if (typeof change.captureOriginalTranslate !== 'boolean' || !timingDocumentId || !move) return false;
+      if (typeof change.captureOriginalTranslate !== 'boolean' || !(timingDocumentId || authored) || !move) return false;
       const from = change.captureOriginalTranslate ? null : move[2];
       const to = change.captureOriginalTranslate ? move[1] : null;
       const actual = node.getAttribute(originalTranslateAttribute);
@@ -69,6 +69,7 @@ export const PREVIEW_PEER_TIMING = `
     }
     return true;
   }
+  const isAuthoredPresentation = ${isAuthoredPresentation.toString()};
   const isPositionEdit = ${isLivePositionEdit.toString()};
   const isMediaMove = ${isLiveMediaMove.toString()};
   const stageClipInsert = ${stageVisualClipInsert.toString()};
@@ -100,7 +101,10 @@ export const PREVIEW_PEER_TIMING = `
       Array.isArray(m.changes) && (isPositionEdit(m.changes) || m.changes.every(paintOnly));
     const media = settings.liveEdits?.mediaTiming === true && m.type === 'peer-timing' &&
       Array.isArray(m.changes) && isMediaMove(m.changes);
-    const target = temporary || position || media ? styleDocumentId : timingDocumentId;
+    // Only this mounted file may update its verified live text/style, preserving the
+    // already-executed handlers. Nested scenes also need their remount cache updated.
+    const authored = m.type === 'peer-presentation' && m.path === compositionPath && isAuthoredPresentation(m.changes);
+    const target = temporary || position || media || authored ? styleDocumentId : timingDocumentId;
     if (!target || m.documentId !== target || (temporary ? !!timingDocumentId : !position && m.path !== compositionPath) ||
         !before || !after || before !== base ||
         !Number.isFinite(m.expiresAt) || Date.now() >= m.expiresAt ||
@@ -192,7 +196,7 @@ export const PREVIEW_PEER_TIMING = `
         const livePosition = getComputedStyle(node).position;
         if (livePosition !== 'static' && livePosition !== 'relative') return false;
       }
-      if (!stagePresentation(node, change, effects, local, pending)) return false;
+      if (!stagePresentation(node, change, effects, local, pending, authored)) return false;
       if (position && !temporary) placements.push([node, selector, change]);
       for (const [name, from, to] of change.attributes) {
         if (!previewAttributes.has(name) || [from, to].some(value => !canPatchPreviewAttribute(name, value, node.localName))) return false;

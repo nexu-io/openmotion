@@ -44,7 +44,7 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
   // A parked scene can adopt the new version without downloading its source into Studio.
   if (!base && await refreshParked()) return true;
   if ((base || change.readPrevious) &&
-      (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
+      (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "presentation") || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
     const [previous, current] = await Promise.all([
       base ?? change.readPrevious?.(), change.current ?? change.read?.(),
     ]);

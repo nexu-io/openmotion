@@ -1,5 +1,5 @@
 import type { GroupChange } from "./preview-group.ts";
-export type PreviewLiveEdits = { position?: true; mediaTiming?: true };
+export type PreviewLiveEdits = { position?: true; mediaTiming?: true; presentation?: true };
 export const PREVIEW_ATTRIBUTES = [
   "data-start", "data-end", "data-duration", "data-track-index", "data-playback-start", "data-media-start",
   "data-timeline-locked", "data-hidden", "muted", "data-volume", "loop", "data-playback-rate",
@@ -52,6 +52,13 @@ export interface PreviewChange {
   insert?: VisualClipInsert;
   group?: GroupChange;
   attributes: [typeof PREVIEW_ATTRIBUTES[number], string | null, string | null][];
+}
+
+/** Source-verified text and inline styles can paint without restarting or rebinding arbitrary scripts. */
+export function isAuthoredPresentation(changes: PreviewChange[]): boolean {
+  return Array.isArray(changes) && changes.length > 0 && changes.every(change =>
+    !!change && !change.group && !change.insert && !change.removeFromComposition &&
+    Array.isArray(change.attributes) && !change.attributes.length && !!(change.styles?.length || change.text));
 }
 
 /** Used by Studio and the isolated bridge to validate the complete set of changes. */

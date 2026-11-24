@@ -199,8 +199,9 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     else parentWindow.postMessage(message,targetOrigin);
   }
   function ready(){
-    var mountedVersions=settings.smallMountedSources&&Object.fromEntries(settings.smallMountedSources.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}));
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    var paths=[compositionPath].concat(settings.smallMountedSources||[]);
+    var mountedVersions=Object.fromEntries(paths.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}).filter(function(entry){return typeof entry[1]==='string';}));
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;

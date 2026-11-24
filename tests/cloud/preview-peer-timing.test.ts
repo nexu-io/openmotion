@@ -210,7 +210,7 @@ it('applies a solid fill without installing a new image URL through the live bri
   assert.equal(tile.style.getPropertyValue('background-image'), 'none');
 });
 
-it('updates a font and a pixel translation with text only on a declarative document', () => {
+it('updates font, verified pixel translation and text in the active file of a live document', () => {
   const message = (offset: string) => ({ type: 'peer-presentation', changes: [{ id: 'title', tag: 'div', attributes: [],
     text: ['Hello', 'Changed'], styles: [['font-family', '', 'Sample'], ['translate', '', offset]], captureOriginalTranslate: true }] });
   const { document, send, hooks } = preview();
@@ -223,7 +223,7 @@ it('updates a font and a pixel translation with text only on a declarative docum
     attributes: [], styles: [['translate', '30px 12px', '']], captureOriginalTranslate: false }] }), true);
   assert.equal(document.getElementById('title')!.getAttribute('data-hf-studio-original-inline-translate'), null);
   assert.deepEqual(hooks, []);
-  assert.equal(preview(false, { position: true }).send(message('30px 12px')), false);
+  assert.equal(preview(false, { position: true }).send(message('30px 12px')), true);
 });
 
 it('shows a confirmed nested style on the old scripted document while keeping its loaded revision for rebuild', () => {
@@ -431,4 +431,28 @@ it('paints an entire verified bulk edit on the existing nodes or leaves them all
   owner.removeChild(duplicate);
   assert.equal(send({ type: 'peer-presentation', changes }), true);
   assert.ok(nodes.every(node => document.getElementById(node.id) === node && node.textContent === 'new'));
+});
+
+it('keeps unrelated live handlers and reports the real root baseline in a scripted document', () => {
+  const { send, document, replies, hooks } = preview(false);
+  send({type: 'handshake'});
+  const ready = replies.find(message => message.type === 'preview-ready') as
+    {mountedVersions: Record<string, string>; liveEdits: PreviewLiveEdits} | undefined;
+  assert.equal(ready?.mountedVersions['index.html'], etag(1));
+  assert.equal(ready?.liveEdits.presentation, true);
+  const title = document.getElementById('title')!;
+  let events = 0;
+  title.addEventListener('edit-check', () => events++);
+  const message = { type: 'peer-presentation', changes: [{id: 'title', tag: 'div', attributes: [], text: ['Hello', 'Hi']}] };
+  assert.equal(send(message), true);
+  assert.equal(document.getElementById('title'), title);
+  title.dispatchEvent(new document.defaultView!.Event('edit-check'));
+  assert.equal(events, 1);
+  assert.equal(title.textContent, 'Hi');
+  assert.deepEqual(hooks, []);
+  title.textContent = 'Owned by a script';
+  const next = {...message, before: etag(2), after: etag(3), changes: [{...message.changes[0]!, text: ['Hi', 'Next']}]};
+  assert.equal(send(next), false);
+  assert.equal(title.textContent, 'Owned by a script');
+  assert.equal(send({...next, changes:[root]}), false);
 });
