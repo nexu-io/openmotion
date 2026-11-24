@@ -24,10 +24,8 @@ import {
 } from "./thumbnailScheduler";
 
 export const MAX_CLIENT_COMPOSITION_FRAMES = 8;
-/** Cap how many uncached composition clips can block initial editor unlock. */
-export const MAX_INITIAL_TIMELINE_PREVIEW_GATE = 4;
-/** Maximum extra wait after primary assets settle before releasing to background capture. */
-export const TIMELINE_PREVIEW_GATE_TIMEOUT_MS = 4_500;
+/** Prioritize a bounded set of compositions nearest the playhead. */
+const MAX_PRIORITY_COMPOSITIONS = 4;
 
 const CAPTURE_TARGET_WIDTH = 160;
 const CAPTURE_MAX_HEIGHT = 480;
@@ -315,10 +313,9 @@ function normalizeCompositionPathForGate(raw: string): string {
 
 /**
  * Pick at most `maxCount` unique visible composition paths closest to `currentTime`
- * to participate in the initial unified loading gate. Remaining clips capture
- * progressively in the background so long projects (20–30+ scenes) never stall.
+ * for prioritized capture. Remaining clips generate progressively in the background.
  */
-export function selectInitialGateCompositionPaths(
+export function selectPriorityCompositionPaths(
   elements: ReadonlyArray<{
     compositionSrc?: string;
     hidden?: boolean;
@@ -326,7 +323,7 @@ export function selectInitialGateCompositionPaths(
     duration: number;
   }>,
   currentTime: number,
-  maxCount: number = MAX_INITIAL_TIMELINE_PREVIEW_GATE,
+  maxCount: number = MAX_PRIORITY_COMPOSITIONS,
 ): string[] {
   if (maxCount <= 0) return [];
   const safeTime = Number.isFinite(currentTime) ? currentTime : 0;
@@ -2227,20 +2224,6 @@ export function seedClientCompositionCaptureForTest(
     contentRevision: meta.contentRevision,
   });
   return putMemoryStripCache(idbKey, baseCoverKey, compPathKey, meta, blobs, aspect, width, height).value;
-}
-
-/** True when any frame count for this composition is already cached in RAM (no blocking gate needed). */
-export function hasAnyCachedCompositionCapture(
-  projectId: string,
-  compPath: string,
-  contentRevision = 0,
-): boolean {
-  const { rev: compRev, hasFileVersion } = resolveCompositionRevision(projectId, compPath);
-  const target = compPathCacheTag(projectId, compPath, compRev, hasFileVersion ? 0 : contentRevision);
-  for (const entry of memoryStripCache.values()) {
-    if (!entry.fallbackOnly && entry.compPathKey === target) return true;
-  }
-  return false;
 }
 
 /** Subscribe to mid-capture progressive frame updates for a composition strip. */

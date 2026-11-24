@@ -47,6 +47,12 @@ export function forgetSource(projectId: string, path: string) {
   forget(key(projectId, path));
 }
 
+export function forgetProjectSources(projectId: string) {
+  for (const id of sources.keys()) {
+    if (JSON.parse(id)[0] === projectId) forget(id);
+  }
+}
+
 function forget(id: string) {
   const previous = sources.get(id);
   if (previous) codeUnits -= previous.content.length;

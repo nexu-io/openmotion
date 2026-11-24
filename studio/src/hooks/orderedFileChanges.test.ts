@@ -1,3 +1,5 @@
+import { advanceCachedFile } from "./orderedFileChanges";
+
 import { expect, it, vi } from 'vitest';
 import { confirmedSource, rememberSource } from '../utils/confirmedTextSources';
 import { createRemoteFileReader } from './remoteFileReads';
@@ -27,4 +29,16 @@ it('falls back to one authoritative read on a gap and preserves the newer cache'
   await Promise.all([view('gap',path),view('gap',path)]);
   expect(read).toHaveBeenCalledTimes(1);
   expect(confirmedSource('gap',path)?.version).toBe('v101');
+});
+
+it('advances an unopened warm file, leaves a cold file absent and invalidates an unbridgeable version', () => {
+  const base = {content:'x',version:'v0'};
+  rememberSource('away', path, base);
+  expect(advanceCachedFile('away', path, payload, base)?.version).toBe('v100');
+  expect(confirmedSource('away', path)?.content).toBe('x'+'a'.repeat(100));
+  expect(advanceCachedFile('cold', path, payload)).toBeUndefined();
+  expect(confirmedSource('cold', path)).toBeUndefined();
+  const stale = confirmedSource('away', path);
+  advanceCachedFile('away', path, {path, fileVersions:{[path]: null}}, stale);
+  expect(confirmedSource('away', path)).toBeUndefined();
 });

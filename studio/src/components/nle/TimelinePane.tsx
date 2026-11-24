@@ -9,6 +9,7 @@ import { useTimelineEditContext } from "../../contexts/TimelineEditContext";
 import { useNLEContext } from "./NLEContext";
 import { useTimelineDockSizing } from "./useTimelineDockSizing";
 import { MotionTimelineMedia } from "../../motion/MotionTimelineMedia";
+import { isCurrentIsolatedManifest } from "../../player/lib/isolatedTimelineManifest";
 import { TimelineCompositionNavigation } from "./TimelineCompositionNavigation";
 
 const EMPTY_INITIAL_ELEMENTS: TimelineElement[] = [];
@@ -83,6 +84,7 @@ export function TimelinePane({
   const {
     projectId,
     seek,
+    iframeRef,
     handleDrillDown,
     compositionStack,
     handleNavigateComposition,
@@ -94,7 +96,16 @@ export function TimelinePane({
 
   const isCurrentProject = usePlayerStore(state => state.timelineProjectId === projectId);
   const timelineReady = usePlayerStore(state => state.timelineProjectId === projectId && state.timelineReady);
-  const timelineDisabled = compositionLoading || !timelineReady;
+  // A verified clip list can be edited while this scene's first visual frame is buffering.
+  // During navigation the outgoing frame may still own the store's manifest.
+  const previewUrl = compositionStack.at(-1)?.previewUrl;
+  const currentManifestReady = usePlayerStore(state => {
+    const frame = iframeRef?.current;
+    return compositionLoading && !!frame?.src && !!previewUrl &&
+      isCurrentIsolatedManifest(frame, state.clipManifest) &&
+      new URL(frame.src).pathname === new URL(previewUrl, window.location.href).pathname;
+  });
+  const timelineDisabled = !timelineReady || (compositionLoading && !currentManifestReady);
 
   // Move/resize/split come from the timeline edit context, not props.
   const { onMoveElement, onMoveElements, onResizeElement, onResizeElements, onSplitElement } =

@@ -584,7 +584,6 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
   const editorReadiness = useEditorAssetReadiness({
     projectId,
     fileTreeLoaded: fileManager.fileTreeLoaded,
-    compositionLoading,
     unreachableProject: Boolean(sdkHandle.unreachableProject),
     compositionMissing: Boolean(sdkHandle.compositionMissing && activeCompPath),
     showToast,

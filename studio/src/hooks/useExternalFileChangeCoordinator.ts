@@ -21,6 +21,7 @@ import { onRebasedFileEdit } from "../utils/rebasedFileEdit";
 import { studioContentHash, consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
 import { useCloudDisklessMode } from "../utils/cloudRuntime";
 import { logReload } from "../utils/reloadDebug";
+import { invalidatePendingSourceReads } from "../utils/readCurrentProjectSource";
 import { ExternalPreviewUpdates } from "./externalPreviewUpdates";
 import { notifyProjectActivity } from "../motion/workspaceRefresh";
 import {
@@ -576,6 +577,7 @@ export function useExternalFileChangeCoordinator({
         return;
       }
       lastEventIdentityRef.current = identity;
+      invalidatePendingSourceReads(projectId, changedFilePaths(payload), changedFileVersions(payload));
 
       // All steps in an ordered delivery came from one sender. Retire every echo token.
       for (const step of orderedFileChange(payload)?.steps ?? []) {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { it } from 'node:test';
 import { parseHTMLContent } from '@hyperframes/core/compiler';
-import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
+import { buildSubCompositionHtmlInMemory, bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { staticPreviewHtmlSources } from '../../src/studio/engine/preview-html-sources.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 
@@ -10,13 +10,14 @@ const scene = (body: string, id = 'main') =>
   `<html><head></head><body><main data-composition-id="${id}" data-duration="3">${body}</main></body></html>`;
 const mount = (path: string, id: string) => `<div data-composition-id="${id}" data-composition-src="${path}"></div>`;
 
-async function previewConfig(files: Record<string, string>, variables?: Record<string, unknown>) {
+async function previewConfig(files: Record<string, string>, { clip, variables }: { clip?: string; variables?: Record<string, unknown> } = {}) {
   const project = new InMemoryVirtualProject({
     projectId: 'probe', projectName: 'Probe', revision: 'a'.repeat(64), textContents: files,
     files: Object.entries(files).map(([path, content]) => ({ path, blobScope: 'workspace', sha256: 'a'.repeat(64),
       sizeBytes: Buffer.byteLength(content), mimeType: 'text/html', isText: true, updatedAt: new Date() })),
   });
-  const html = await bundlePreviewInMemory(project, { bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true, variables });
+  const options = { bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true, variables };
+  const html = clip ? await buildSubCompositionHtmlInMemory(project, clip, options) : await bundlePreviewInMemory(project, options);
   const config = parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!.getAttribute('data-openmotion-preview');
   return JSON.parse(config!);
 }
@@ -38,7 +39,7 @@ it('keeps placement on assembled CSS-only scenes and preserves script and unreso
   assert.deepEqual(scripted.smallMountedSources, ['child.html']);
   assert.equal(scripted.liveEdits?.position, undefined);
   const authored = { 'index.html': entry, 'child.html': child('<script>observe()</script>') };
-  assert.equal((await previewConfig(authored, { title: 'overridden' })).smallMountedSources, undefined);
+  assert.equal((await previewConfig(authored, { variables: { title: 'overridden' } })).smallMountedSources, undefined);
   for (const manifest of ['.hyperframes/studio-motion.json', '.hyperframes/studio-manual-edits.json']) {
     assert.equal((await previewConfig({ ...authored, [manifest]: '{}' })).smallMountedSources, undefined);
   }
@@ -90,4 +91,16 @@ it('keeps full refresh for mixed and unrecognized CSS even when it also contains
     const nested = parseHTMLContent(scene(`<template><span></span><style>.a{background:${value}}</style></template>`));
     assert.equal(staticPreviewHtmlSources('index.html', nested, '/runtime.js').paths(), undefined, value);
   }
+});
+
+it('scopes a standalone clip to its own markup and inherited head only if all HTML inputs are known', async () => {
+  const path = 'compositions/a.html';
+  const clip = (body = '<p>A</p>', head = '') => previewConfig({
+    'index.html': scene(mount('compositions/b.html', 'b')).replace('<head>', '<head>' + head),
+    [path]: scene(body, 'a'),
+  }, { clip: path });
+  assert.deepEqual((await clip()).htmlSources, [path, 'index.html']);
+  assert.equal((await clip(mount('nested.html', 'child'))).htmlSources, undefined);
+  assert.equal((await clip('<script>fetch("c.html")</script>')).htmlSources, undefined);
+  assert.equal((await clip('<p>A</p>', '<script>fetch("more.html")</script>')).htmlSources, undefined);
 });

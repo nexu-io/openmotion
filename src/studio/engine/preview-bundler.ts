@@ -1,5 +1,5 @@
 import { formatFileVersion } from '../etag.ts';
-import { isPassivePreviewTag, isPreviewDataScript, staticPreviewHtmlSources } from './preview-html-sources.ts';
+import { hasUnknownStaticHtmlInputs, isPassivePreviewTag, isPreviewDataScript, staticPreviewHtmlSources } from './preview-html-sources.ts';
 import { verifiedPreviewLiveEdits } from './preview-live-edits.ts';
 import { bridgeDocumentTags, previewBuildBusyScript } from './preview-bridge.ts';
 import { posix } from 'node:path';
@@ -995,8 +995,20 @@ export async function buildSubCompositionHtmlInMemory(
     rewrittenContent = fragDoc.body.innerHTML || stamped;
   }
 
+  const indexHtml = project.readText('index.html') ?? '';
+  let headContent = indexHtml.match(/<head[^>]*>([\s\S]*?)<\/head>/i)?.[1] ?? '';
+  if (compHeadContent) headContent += `\n${compHeadContent}`;
+  headContent = stripEmbeddedRuntimeScripts(headContent);
+  const htmlOpen = htmlAttrs ? `<html ${htmlAttrs}>` : '<html>';
+  const bodyOpen = bodyAttrs ? `<body ${bodyAttrs}>` : '<body>';
   rewrittenContent = stripEmbeddedRuntimeScripts(rewrittenContent);
-  const scriptsDoc = parseHTMLContent(`<!DOCTYPE html><html><head></head><body>${rewrittenContent}</body></html>`);
+  const scriptsDoc = parseHTMLContent(`<!DOCTYPE html>${htmlOpen}<head>${headContent}</head>${bodyOpen}${rewrittenContent}</body></html>`);
+  // A standalone clip inherits index.html's head. Certify the authored markup before
+  // adding player scripts. Nested compositions and dynamic inputs stay unscoped.
+  const htmlSources = options.bridgeOrigin && !options.capture && !Object.keys(options.variables ?? {}).length &&
+    !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH) &&
+    !scriptsDoc.querySelector('template, [data-composition-src]') && !hasUnknownStaticHtmlInputs(scriptsDoc)
+    ? [compPath, 'index.html'] : undefined;
   deferScriptsUntilFonts(scriptsDoc);
   ensurePreviewMediaCrossOrigin(scriptsDoc.body, Boolean(options.capture));
   const rootComp = scriptsDoc.body.querySelector('[data-composition-id]');
@@ -1005,17 +1017,11 @@ export async function buildSubCompositionHtmlInMemory(
   }
   rewrittenContent = scriptsDoc.body.innerHTML;
 
-  const indexHtml = project.readText('index.html') ?? '';
-  let headContent = indexHtml.match(/<head[^>]*>([\s\S]*?)<\/head>/i)?.[1] ?? '';
-  if (compHeadContent) headContent += `\n${compHeadContent}`;
-  headContent = stripEmbeddedRuntimeScripts(headContent);
   headContent += `\n<script ${RUNTIME_BOOTSTRAP_ATTR}="1" src="${runtimeUrl}"></script>`;
   if (!htmlHasGsapCore(headContent)) {
     headContent += `\n${gsapScriptTag('gsap.min.js', gsapBaseUrl)}`;
   }
 
-  const htmlOpen = htmlAttrs ? `<html ${htmlAttrs}>` : '<html>';
-  const bodyOpen = bodyAttrs ? `<body ${bodyAttrs}>` : '<body>';
   let html = `<!DOCTYPE html>\n${htmlOpen}\n<head>\n${headContent}\n</head>\n${bodyOpen}\n<script>window.__timelines=window.__timelines||{};</script>\n${rewrittenContent}\n</body>\n</html>`;
 
   html = withPreviewBase(html, baseHref);
@@ -1027,6 +1033,7 @@ export async function buildSubCompositionHtmlInMemory(
     variables: options.variables,
     bridgeOrigin: options.bridgeOrigin,
     studioOrigin: options.studioOrigin,
+    htmlSources,
   });
   return html;
 }

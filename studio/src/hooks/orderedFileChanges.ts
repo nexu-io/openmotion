@@ -1,6 +1,6 @@
 import type { OrderedEditEvent } from '../../../shared/ordered-edit-event';
 import { applyTextPatchBytes } from '../../../shared/text-patch';
-import { confirmedSource, rememberSource } from '../utils/confirmedTextSources';
+import { confirmedSource, forgetSource, rememberSource, type ConfirmedSource } from '../utils/confirmedTextSources';
 import { changedFileVersion } from '../components/editor/manualEditsParsing';
 
 // Replaying many byte splices on a multi-megabyte file can block the UI longer
@@ -48,4 +48,15 @@ export function readOrderedFile(project: string, path: string, payload: unknown)
   const source = projectOrderedFile(project, path, payload);
   if (source && source !== confirmedSource(project, path)) rememberSource(project, path, source);
   return source;
+}
+
+/** The project stream also advances resident files with no current SDK or timeline reader. */
+export function advanceCachedFile(project: string, path: string, payload: unknown, previous?: ConfirmedSource) {
+  if (!previous) return;
+  const target = changedFileVersion(payload, path);
+  const cached = confirmedSource(project, path);
+  if (cached && cached.version === target) return cached;
+  const current = readOrderedFile(project, path, payload);
+  if (!current) forgetSource(project, path);
+  return current;
 }

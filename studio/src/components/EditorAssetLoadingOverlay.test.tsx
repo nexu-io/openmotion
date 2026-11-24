@@ -15,7 +15,6 @@ import {
 import { usePlayerStore } from "../player/store/playerStore";
 import { registerRetryFailedAssetsHandler } from "../player/store/readinessSlice";
 import { thumbnailScheduler } from "../player/lib/thumbnailScheduler";
-import { TIMELINE_PREVIEW_GATE_TIMEOUT_MS } from "../player/lib/clientCompositionCapture";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -49,14 +48,14 @@ describe("EditorAssetLoadingOverlay", () => {
     const overlay = host!.querySelector('[data-testid="editor-asset-loading-overlay"]');
     expect(overlay).not.toBeNull();
     expect(overlay?.getAttribute("data-visible")).toBe("true");
-    expect(overlay?.textContent).toContain("Preparing project assets");
+    expect(overlay?.textContent).toContain("Opening project…");
     expect(host!.querySelector('[data-testid="editor-asset-loading-skip"]')).toBeNull();
 
     // After 4s, the escape button appears cleanly and invokes onSkip when clicked.
     act(() => {
       vi.advanceTimersByTime(EDITOR_ASSET_ESCAPE_HATCH_MS + 20);
     });
-    expect(overlay?.textContent).toContain("Still loading media…");
+    expect(overlay?.textContent).toContain("Opening project…");
     const skipBtn = host!.querySelector<HTMLButtonElement>('[data-testid="editor-asset-loading-skip"]');
     expect(skipBtn).not.toBeNull();
     expect(skipBtn?.textContent).toContain("Enter editor now");
@@ -146,7 +145,7 @@ describe("EditorAssetProgressBar", () => {
 });
 
 describe("useEditorAssetReadiness", () => {
-  it("blocks until files, preview first frame, and all assets settle; then never re-blocks on retry and cascades thumbnail retry", async () => {
+  it("unlocks when the file tree arrives with the preview and media pending, and retries failures in the background", async () => {
     const showToast = vi.fn(() => 1);
     const onReloadPreview = vi.fn();
     const retryThumbSpy = vi.spyOn(thumbnailScheduler, "retryFailed");
@@ -172,12 +171,10 @@ describe("useEditorAssetReadiness", () => {
     expect(latest.backgroundLoading).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(true);
 
-    // File tree ready + preview booted, but assets still loading -> cover stays up.
-    act(() => {
-      usePlayerStore.getState().markPreviewBooted();
-      root!.render(<Harness fileTreeLoaded={true} />);
-    });
-    expect(latest.blocking).toBe(true);
+    act(() => root!.render(<Harness fileTreeLoaded />));
+    expect(latest.blocking).toBe(false);
+    expect(latest.backgroundLoading).toBe(true);
+    expect(usePlayerStore.getState().editorInputLocked).toBe(false);
 
     const retrySpy = vi.fn(async () => {
       usePlayerStore.getState().updateAssetReadiness(
@@ -188,7 +185,7 @@ describe("useEditorAssetReadiness", () => {
     });
     registerRetryFailedAssetsHandler(gen, retrySpy);
 
-    // All assets settle (with 1 failure) -> cover releases, input unlocks, failure Toast appears.
+    // Media finishes independently, reporting its failure in the open editor.
     act(() => {
       usePlayerStore.getState().updateAssetReadiness(
         {
@@ -233,7 +230,7 @@ describe("useEditorAssetReadiness", () => {
     function Harness() {
       latest = useEditorAssetReadiness({
         projectId: "proj-skip",
-        fileTreeLoaded: true,
+        fileTreeLoaded: false,
         unreachableProject: false,
         compositionMissing: false,
         showToast,
@@ -302,7 +299,7 @@ describe("useEditorAssetReadiness", () => {
     function Harness() {
       latest = useEditorAssetReadiness({
         projectId: "proj-err",
-        fileTreeLoaded: true,
+        fileTreeLoaded: false,
         unreachableProject: false,
         compositionMissing: false,
         showToast,
@@ -322,78 +319,4 @@ describe("useEditorAssetReadiness", () => {
     expect(usePlayerStore.getState().editorInputLocked).toBe(false);
   });
 
-  it("holds the initial cover until registered composition and video filmstrip tasks settle", () => {
-    const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadiness>;
-
-    function Harness() {
-      latest = useEditorAssetReadiness({
-        projectId: "proj-strips",
-        fileTreeLoaded: true,
-        compositionLoading: false,
-        unreachableProject: false,
-        compositionMissing: false,
-        showToast,
-      });
-      return null;
-    }
-
-    usePlayerStore.getState().beginTimelineSession("proj-strips");
-    usePlayerStore.getState().markPreviewBooted();
-    const gen = usePlayerStore.getState().beginAssetReadinessLoad();
-    usePlayerStore.getState().registerTimelinePreviewTask("comp:proj-strips:intro", gen);
-    usePlayerStore.getState().registerTimelinePreviewTask("video:proj-strips:hero.mp4", gen);
-    usePlayerStore.getState().updateAssetReadiness(
-      { status: "ready", completed: 3, total: 3, failed: [] },
-      gen,
-    );
-
-    act(() => root!.render(<Harness />));
-    // Core assets are ready, but 2 clip filmstrips are still pending -> cover stays up.
-    expect(latest.blocking).toBe(true);
-
-    act(() => {
-      usePlayerStore.getState().settleTimelinePreviewTask("comp:proj-strips:intro", gen);
-    });
-    expect(latest.blocking).toBe(true);
-
-    act(() => {
-      usePlayerStore.getState().settleTimelinePreviewTask("video:proj-strips:hero.mp4", gen);
-    });
-    expect(latest.blocking).toBe(false);
-  });
-
-  it("releases the cover after TIMELINE_PREVIEW_GATE_TIMEOUT_MS if a clip filmstrip stalls", () => {
-    const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadiness>;
-
-    function Harness() {
-      latest = useEditorAssetReadiness({
-        projectId: "proj-stall",
-        fileTreeLoaded: true,
-        compositionLoading: false,
-        unreachableProject: false,
-        compositionMissing: false,
-        showToast,
-      });
-      return null;
-    }
-
-    usePlayerStore.getState().beginTimelineSession("proj-stall");
-    usePlayerStore.getState().markPreviewBooted();
-    const gen = usePlayerStore.getState().beginAssetReadinessLoad();
-    usePlayerStore.getState().registerTimelinePreviewTask("comp:proj-stall:slow", gen);
-    usePlayerStore.getState().updateAssetReadiness(
-      { status: "ready", completed: 2, total: 2, failed: [] },
-      gen,
-    );
-
-    act(() => root!.render(<Harness />));
-    expect(latest.blocking).toBe(true);
-
-    act(() => {
-      vi.advanceTimersByTime(TIMELINE_PREVIEW_GATE_TIMEOUT_MS + 50);
-    });
-    expect(latest.blocking).toBe(false);
-  });
 });

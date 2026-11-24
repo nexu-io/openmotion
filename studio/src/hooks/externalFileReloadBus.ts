@@ -1,6 +1,15 @@
+import type { ConfirmedSource } from "../utils/confirmedTextSources";
 import type { RemoteFileRead } from "./remoteFileReads";
 
-type ExternalFileReloadListener = (path: string, read?: RemoteFileRead) => void;
+export interface ExternalFileChange {
+  projectId: string;
+  paths: readonly string[] | null;
+  treeChanged: boolean;
+  previous?: ConfirmedSource;
+  current?: ConfirmedSource;
+}
+
+type ExternalFileReloadListener = (path: string, read?: RemoteFileRead, change?: ExternalFileChange) => void;
 
 const listeners = new Set<ExternalFileReloadListener>();
 

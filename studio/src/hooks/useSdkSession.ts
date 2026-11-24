@@ -1,6 +1,5 @@
-import { confirmedSource as savedSource, observePendingSourceRead, observeSourceRead } from "../utils/confirmedTextSources";
+import { confirmedSource as savedSource, observePendingSourceRead } from "../utils/confirmedTextSources";
 import type { RemoteFileRead } from "./remoteFileReads";
-import { optionalProjectSourceUrl } from "../utils/projectRouting";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { openComposition } from "@hyperframes/sdk";
 import type { Composition } from "@hyperframes/sdk";
@@ -11,7 +10,9 @@ import { addExternalFileReloadListener } from "./externalFileReloadBus";
 import { beginTimelineSourceRead } from "../player/lib/peerTimeline";
 import { rememberCompositionPosterSource } from "../player/lib/compositionPosterSource";
 import { usePlayerStore, whenPreviewBooted } from "../player/store/playerStore";
-import { readVersionedSource, type SourceVersion } from "../utils/readVersionedSource";
+import type { SourceVersion } from "../utils/readVersionedSource";
+import { optionalProjectSourceUrl } from "../utils/projectRouting";
+import { readCurrentProjectSource } from "../utils/readCurrentProjectSource";
 
 /**
  * Why an optional project-file read produced no usable content. `stage: "read"`
@@ -219,9 +220,10 @@ async function readProjectFileOptional(
     }
   }
   let res: Response;
+  let data: ProjectFileBody | undefined;
   const fetchStarted = performance.now();
   try {
-    res = await readVersionedSource(optionalProjectSourceUrl(projectId, path), base);
+    ({ response: res, data } = await readCurrentProjectSource(projectId, path, optionalProjectSourceUrl(projectId, path), base));
   } catch {
     return networkReadFailure(fetchStarted);
   }
@@ -233,17 +235,13 @@ async function readProjectFileOptional(
   // field: it means something other than this route answered — an SPA fallback
   // or a proxy. Left unguarded, it rejected out of this function entirely and
   // the effect's outer catch blamed the composition. See the type's comment.
-  let data: ProjectFileBody;
-  try {
-    data = (await res.json()) as ProjectFileBody;
-  } catch {
+  if (!data) {
     return {
       ok: false,
       reason: "invalid_json",
       contentType: res.headers.get("content-type") ?? "",
     };
   }
-  observeSourceRead(projectId, path, res, data);
   return publishRead({ ...data, version: data.version ?? res.headers?.get("etag") });
 }
 

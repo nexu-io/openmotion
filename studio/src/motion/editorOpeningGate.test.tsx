@@ -81,7 +81,7 @@ describe("EditorOpeningGateHost unified opening cover", () => {
     const phase1Overlay = container.querySelector('[data-testid="editor-asset-loading-overlay"]');
     expect(phase1Overlay).not.toBeNull();
     expect(phase1Overlay?.getAttribute("data-visible")).toBe("true");
-    expect(phase1Overlay?.textContent).toContain("Preparing project assets");
+    expect(phase1Overlay?.textContent).toContain("Opening project…");
     expect(container.querySelectorAll(".motion-loading")).toHaveLength(1);
 
     // Phase 2: route resolved, lazy editor chunk suspends -> exact same DOM node remains mounted.
@@ -115,7 +115,7 @@ describe("EditorOpeningGateHost unified opening cover", () => {
     });
     const skipBtn = container.querySelector<HTMLButtonElement>('[data-testid="editor-asset-loading-skip"]');
     expect(skipBtn).not.toBeNull();
-    expect(phase3Overlay?.textContent).toContain("Still loading media…");
+    expect(phase3Overlay?.textContent).toContain("Opening project…");
     act(() => skipBtn!.click());
     expect(onSkip).toHaveBeenCalledTimes(1);
 

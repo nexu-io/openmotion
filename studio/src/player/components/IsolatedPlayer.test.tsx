@@ -33,7 +33,8 @@ function mountPlayer(showInitialLoading = true) {
   const root = createRoot(host);
   const ready = vi.fn();
   const error = vi.fn();
-  act(() => root.render(<IsolatedPlayer projectId="p" origin={origin} onLoad={ready} onPreviewError={error} showInitialLoading={showInitialLoading} />));
+  const render = (parked = false) => act(() => root.render(<IsolatedPlayer parked={parked} projectId="p" origin={origin} onLoad={ready} onPreviewError={error} showInitialLoading={showInitialLoading} />));
+  render();
   const frame = host.querySelector("iframe")!;
   Object.defineProperty(frame, "contentWindow", { value: window });
   const notify = (type: string, token = "grant-" + grant, firstFrame?: string) => act(() => {
@@ -41,10 +42,33 @@ function mountPlayer(showInitialLoading = true) {
       data: { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token,
         type, firstFrame, duration: 5, retryAfterMs: 1000 } }));
   });
-  return { retry, ready, error, notify, host, unmount: () => act(() => root.unmount()) };
+  return { retry, ready, error, notify, host, render, unmount: () => act(() => root.unmount()) };
 }
 
 const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+it("reattaches the same painted document without renewing or letting parked events update Studio", () => {
+  const player = mountPlayer();
+  try {
+    player.notify("timeline-state", "grant-1", "ready");
+    advance(30);
+    const frame = player.host.querySelector("iframe")!;
+    expect(frame.dataset.clipPainted).toBe("true");
+    const binds = vi.mocked(bindPreviewLease).mock.calls.length;
+    const send = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    player.render(true);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ action: "pause" }), "https://preview.test");
+    player.notify("timeline-state", "grant-1", "loading");
+    player.notify("preview-build-busy");
+    advance(5000);
+    expect(player.ready).toHaveBeenCalledTimes(1);
+    player.render(false);
+    expect(player.host.querySelector("iframe")).toBe(frame);
+    expect(bindPreviewLease).toHaveBeenCalledTimes(binds);
+    expect(player.ready).toHaveBeenCalledTimes(2);
+    expect(player.host.querySelector('[data-testid="composition-loading-overlay"]')).toBeNull();
+  } finally { player.unmount(); }
+});
 
 it("retries only authenticated busy documents and stops retrying when ready", () => {
   const player = mountPlayer();

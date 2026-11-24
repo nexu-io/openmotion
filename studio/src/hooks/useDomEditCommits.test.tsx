@@ -1242,7 +1242,9 @@ describe("useDomEditCommits style persist handling", () => {
 
     try {
       const first = rendered.hook.handleDomStyleCommit("color", "blue");
-      await flushAsyncWork();
+      await vi.waitFor(() => expect(fetchMock.mock.calls.some(([input]) =>
+        requestUrl(input).includes("/p1/file-mutations/patch-element/"),
+      )).toBe(true));
       const second = rendered.hook.handleDomStyleCommit("color", "green");
       projectIdRef.current = "p2";
       firstPatch.resolve(

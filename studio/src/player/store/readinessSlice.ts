@@ -12,7 +12,7 @@ export interface PlaybackReadinessSlice {
   /** Latched when the project's first preview shows its first frame (or fails), kept through edit
    *  reloads, so work that must not compete with the boot waits for it once. */
   previewBooted: boolean;
-  /** Active composition asset readiness for initial cover gate, background preloading & failure recovery. */
+  /** Active composition asset readiness for background progress and failure recovery. */
   assetReadinessPhase: "loading" | "ready";
   assetReadinessCompleted: number;
   assetReadinessTotal: number;
@@ -22,10 +22,6 @@ export interface PlaybackReadinessSlice {
   assetReadinessSkipped: boolean;
   /** True while the full-cover initial opening gate is actively blocking editor input. */
   editorInputLocked: boolean;
-  /** Initial visible timeline clip filmstrip (composition & video) gate progress. */
-  timelinePreviewCompleted: number;
-  timelinePreviewTotal: number;
-  timelinePreviewSettledInitial: boolean;
   /** True while the user explicitly triggered an in-place retry of failed preview assets. */
   assetReadinessRetrying: boolean;
   /** True when the live preview reported a fatal boot/load error and shows its own retry UI. */
@@ -37,9 +33,6 @@ export interface PlaybackReadinessSlice {
   beginAssetReadinessLoad: () => number;
   updateAssetReadiness: (progress: PreviewAssetProgress, generation?: number) => void;
   skipAssetReadiness: () => void;
-  registerTimelinePreviewTask: (taskId: string, generation: number) => void;
-  settleTimelinePreviewTask: (taskId: string, generation: number) => void;
-  markInitialTimelinePreviewGateSettled: (generation: number) => void;
   setEditorInputLocked: (locked: boolean) => void;
   setAssetReadinessRetrying: (retrying: boolean) => void;
   setPreviewLoadError: (hasError: boolean) => void;
@@ -57,21 +50,12 @@ export interface PlaybackReadinessSlice {
 
 let timelineReadyGeneration = 0;
 let assetReadinessGenerationCounter = 0;
-let timelinePreviewGeneration = 0;
-const timelinePreviewRegistered = new Set<string>();
-const timelinePreviewSettled = new Set<string>();
 let retryFailedAssetsEntry: {
   generation: number;
   handler: () => Promise<PreviewAssetFailure[]>;
 } | null = null;
 const loadStepDocs = new WeakSet<Document>();
 let awaitingLoadStep: { doc: Document; generation: number } | null = null;
-
-function resetTimelinePreviewTracking(generation: number): void {
-  timelinePreviewGeneration = generation;
-  timelinePreviewRegistered.clear();
-  timelinePreviewSettled.clear();
-}
 
 export function registerRetryFailedAssetsHandler(
   generation: number,
@@ -109,16 +93,12 @@ export function resetPlaybackReadinessState(): Pick<
   | "assetReadinessGeneration"
   | "assetReadinessSkipped"
   | "editorInputLocked"
-  | "timelinePreviewCompleted"
-  | "timelinePreviewTotal"
-  | "timelinePreviewSettledInitial"
   | "assetReadinessRetrying"
   | "previewLoadError"
   | "mediaBuffering"
 > {
   timelineReadyGeneration++;
   assetReadinessGenerationCounter++;
-  resetTimelinePreviewTracking(assetReadinessGenerationCounter);
   retryFailedAssetsEntry = null;
   return {
     timelineReady: false,
@@ -130,9 +110,6 @@ export function resetPlaybackReadinessState(): Pick<
     assetReadinessGeneration: assetReadinessGenerationCounter,
     assetReadinessSkipped: false,
     editorInputLocked: false,
-    timelinePreviewCompleted: 0,
-    timelinePreviewTotal: 0,
-    timelinePreviewSettledInitial: false,
     assetReadinessRetrying: false,
     previewLoadError: false,
     mediaBuffering: false,
@@ -156,16 +133,12 @@ export function createPlaybackReadinessSlice(
     assetReadinessGeneration: 0,
     assetReadinessSkipped: false,
     editorInputLocked: false,
-    timelinePreviewCompleted: 0,
-    timelinePreviewTotal: 0,
-    timelinePreviewSettledInitial: false,
     assetReadinessRetrying: false,
     previewLoadError: false,
     mediaBuffering: false,
     markPreviewBooted: () => set({ previewBooted: true }),
     beginAssetReadinessLoad: () => {
       const generation = ++assetReadinessGenerationCounter;
-      resetTimelinePreviewTracking(generation);
       retryFailedAssetsEntry = null;
       set({
         assetReadinessPhase: "loading",
@@ -174,9 +147,6 @@ export function createPlaybackReadinessSlice(
         assetReadinessFailed: [],
         assetReadinessGeneration: generation,
         assetReadinessSkipped: false,
-        timelinePreviewCompleted: 0,
-        timelinePreviewTotal: 0,
-        timelinePreviewSettledInitial: false,
         assetReadinessRetrying: false,
         previewLoadError: false,
         mediaBuffering: false,
@@ -198,49 +168,7 @@ export function createPlaybackReadinessSlice(
     skipAssetReadiness: () =>
       set({
         assetReadinessSkipped: true,
-        timelinePreviewSettledInitial: true,
         editorInputLocked: false,
-      }),
-    registerTimelinePreviewTask: (taskId, generation) =>
-      set((state) => {
-        if (
-          !taskId ||
-          generation !== state.assetReadinessGeneration ||
-          generation !== timelinePreviewGeneration ||
-          state.timelinePreviewSettledInitial
-        ) {
-          return state;
-        }
-        if (timelinePreviewRegistered.has(taskId)) return state;
-        timelinePreviewRegistered.add(taskId);
-        return {
-          timelinePreviewTotal: timelinePreviewRegistered.size,
-          timelinePreviewCompleted: timelinePreviewSettled.size,
-        };
-      }),
-    settleTimelinePreviewTask: (taskId, generation) =>
-      set((state) => {
-        if (
-          !taskId ||
-          generation !== state.assetReadinessGeneration ||
-          generation !== timelinePreviewGeneration ||
-          !timelinePreviewRegistered.has(taskId) ||
-          timelinePreviewSettled.has(taskId)
-        ) {
-          return state;
-        }
-        timelinePreviewSettled.add(taskId);
-        return {
-          timelinePreviewCompleted: timelinePreviewSettled.size,
-          timelinePreviewTotal: timelinePreviewRegistered.size,
-        };
-      }),
-    markInitialTimelinePreviewGateSettled: (generation) =>
-      set((state) => {
-        if (generation !== state.assetReadinessGeneration || state.timelinePreviewSettledInitial) {
-          return state;
-        }
-        return { timelinePreviewSettledInitial: true };
       }),
     setEditorInputLocked: (locked) =>
       set((state) => (state.editorInputLocked === locked ? state : { editorInputLocked: locked })),

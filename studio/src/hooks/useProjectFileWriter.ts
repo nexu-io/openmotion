@@ -1,5 +1,5 @@
-import { readVersionedSource } from "../utils/readVersionedSource";
-import { confirmedSource, observeSourceRead, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
+import { readCurrentProjectSource } from "../utils/readCurrentProjectSource";
+import { confirmedSource, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { runOrderedProjectBarrier } from "../utils/orderedProjectEdits";
 import { tryStudioTextEdit, tryStudioCommandPatches, resolveEditSource } from "../utils/studioTextEdits";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
@@ -25,13 +25,10 @@ export interface UseProjectFileWriterOptions {
 
 export async function readProjectFileContentWithVersion(projectId: string | null, path: string, query: string) {
   if (!projectId) throw new Error("No active project");
-  const response = await readVersionedSource(
-    `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(path)}${query}`,
-    confirmedSource(projectId, path),
-  );
+  const { response, data } = await readCurrentProjectSource(projectId, path,
+    `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(path)}${query}`);
   if (!response.ok) throw new Error(`Failed to read ${path}`);
-  const data = (await response.json()) as { content?: string; version?: string; missing?: boolean };
-  observeSourceRead(projectId, path, response, data);
+  if (!data) throw new Error(`Invalid source response for ${path}`);
   return { content: data.content, version: data.version ?? response.headers.get("etag"), missing: data.missing };
 }
 

@@ -87,6 +87,9 @@ Deploy the database migration and revision-aware API, media and render workers b
 
 Studio can group successive edits into one HTTP request. Each completed edit retains its file preconditions and undo semantics. Peers receive committed changes in order over SSE and can update the mounted preview from the included file patches. Remote MCP commands use the same versioned project storage. See [ordered Studio writes](edit-core.md#ordered-studio-writes).
 
+Studio opens the project workspace as soon as the file list is ready. Media loads in the preview while timeline edits use the file's verified version. When switching between isolated clip previews, Studio can keep the last painted player paused. Project events update resident file sources and the parked player. An unopened clip is read at its current version on first use.
+
+
 Environments already using patch writes upgrade in two releases with the existing `TEXT_PATCH_WRITES` setting. First apply migration 0005 and roll out the compatible readers and garbage collectors to every API, media worker and render worker. This release still produces complete baselines at the previous intervals. After that rollout is healthy, deploy the asynchronous writer and media worker. During either rollout every running process can read the versions being written. Once asynchronous writes have started, the compatible first release is the rollback floor for readers and garbage collectors.
 
 - Immutable media blobs, project source files, version snapshots, derived preview proxies (`workspaces/{wid}/derived/{sha256}/proxy.{mp4,webp,m4a}`), and rendered MP4 artifacts are stored under content-addressed keys (`workspaces/{wid}/blobs/{sha256}` and `catalog/blobs/{sha256}` in `src/infra/storage.ts`, plus staging prefixes for presigned uploads and export artifacts).

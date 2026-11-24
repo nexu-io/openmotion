@@ -60,7 +60,7 @@ export interface UnifiedEditorOpeningCoverProps {
 
 /**
  * Single seamless solid full-cover opening screen shared across shell project
- * resolution, lazy editor chunk loading, and editor asset/filmstrip readiness.
+ * resolution, lazy editor chunk loading, and the project file tree.
  */
 export function UnifiedEditorOpeningCover({
   visible,
@@ -135,7 +135,7 @@ export function UnifiedEditorOpeningCover({
       <div className="motion-editor-cover-inner">
         <span className="motion-editor-cover-mark motion-loading-mark" aria-hidden="true" />
         <p className="motion-editor-cover-label motion-loading-label">
-          {t(escapeReady ? "Still loading media…" : "Preparing project assets")}
+          {t("Opening project…")}
         </p>
         {visible && escapeReady && onSkip && (
           <div className="motion-editor-cover-escape">

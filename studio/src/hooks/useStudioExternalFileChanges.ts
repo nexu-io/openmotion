@@ -9,7 +9,8 @@ import { evictStaleCompositionCaptures } from "../player/lib/clientCompositionCa
 import { expectPosterFileVersion } from "../player/lib/posterFileRead";
 import { usePlayerStore } from "../player/store/playerStore";
 import { clearStudioSaveFailures } from "../utils/studioSaveState";
-import { confirmedSource } from "../utils/confirmedTextSources";
+import { advanceCachedFile } from "./orderedFileChanges";
+import { confirmedSource, forgetProjectSources } from "../utils/confirmedTextSources";
 import {
   deleteExternalConflictSnapshot,
   loadExternalConflictSnapshot,
@@ -95,22 +96,29 @@ export function useStudioExternalFileChanges({
       : null;
     // Capture the displayed source first. All readers below belong to the new thumbnail revision.
     const paths = changedFilePaths(payload);
+    const treeChanged = readFileTreeChanged(payload);
     const affectsPreview = readFileChangeAffectsPreview(payload);
     const unrelated = affectsPreview && isUnrelatedPreviewHtmlChange(
-      previewIframeRef.current, projectId, activePath, paths, readFileTreeChanged(payload),
+      previewIframeRef.current, projectId, activePath, paths, treeChanged,
     );
     acceptChange(unrelated ? activePath ?? undefined : undefined);
     if (!projectId) return;
+    const previousSources = new Map(paths?.map(path => [path, confirmedSource(projectId, path)]));
     const read = filesForChange(projectId, payload);
     const changedPath = paths?.length === 1 ? paths[0] : undefined;
     const version = changedPath && changedFileVersion(payload, changedPath);
     const preview = unrelated ? "unaffected" as const : affectsPreview
       ? syncPeerComposition(projectId, activePath, paths, read, previewIframeRef, previous, version, {
-        versions: changedFileVersions(payload), treeChanged: readFileTreeChanged(payload), refresh: reloadPreview,
+        versions: changedFileVersions(payload), treeChanged, refresh: reloadPreview,
       })
       : undefined;
+    if (!paths) forgetProjectSources(projectId);
     for (const path of paths ?? ["."]) {
-      notifyExternalFileReload(path, read);
+      // Mounted consumers captured their previous source above. Advance any other warm
+      // file too, but never download an unvisited file merely to keep it resident.
+      const previous = previousSources.get(path);
+      const current = advanceCachedFile(projectId, path, payload, previous);
+      notifyExternalFileReload(path, read, { projectId, paths, treeChanged, previous, current });
       fileManager.refreshOpenSource(path, read);
     }
     return preview;

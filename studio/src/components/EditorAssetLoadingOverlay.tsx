@@ -12,20 +12,10 @@ import {
   retryFailedPreviewAssets,
 } from "../player/store/readinessSlice";
 import { thumbnailScheduler } from "../player/lib/thumbnailScheduler";
-import { thumbnailRevisionOf } from "../player/store/thumbnailSlice";
-import {
-  canCaptureCompositionInBrowser,
-  hasAnyCachedCompositionCapture,
-  MAX_INITIAL_TIMELINE_PREVIEW_GATE,
-  selectInitialGateCompositionPaths,
-  TIMELINE_PREVIEW_GATE_TIMEOUT_MS,
-} from "../player/lib/clientCompositionCapture";
-import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import type { PreviewAssetFailure } from "../player/lib/previewAssetReadiness";
 import type { AppToast } from "../utils/studioHelpers";
 
 export { EDITOR_ASSET_AUTO_RELEASE_MS, EDITOR_ASSET_ESCAPE_HATCH_MS };
-const TIMELINE_PREVIEW_REGISTER_GRACE_MS = 400;
 export const EDITOR_ASSET_PROGRESS_DEBOUNCE_MS = 120;
 export const EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS = 300;
 const EXIT_FADE_MS = 200;
@@ -227,24 +217,17 @@ export async function triggerEditorAssetRetry(): Promise<void> {
   }
 }
 
-/**
- * Coordinates the seamless initial full-cover opening gate (waiting for project files,
- * preview first frame, all composition assets, and initial visible timeline clip filmstrips
- * with 4s skip / 4.5s filmstrip cap / 12s global auto-release), post-entry non-blocking
- * top progress bar, partial-failure Toast with in-place Retry, and shared retry runner.
- */
+/** Keep the project cover until its file tree arrives; report media progress and failures independently. */
 export function useEditorAssetReadiness({
   projectId,
-  fileTreeLoaded = true,
-  compositionLoading = false,
+  fileTreeLoaded,
   unreachableProject,
   compositionMissing,
   showToast,
   onReloadPreview,
 }: {
   projectId: string | null;
-  fileTreeLoaded?: boolean;
-  compositionLoading?: boolean;
+  fileTreeLoaded: boolean;
   unreachableProject: boolean;
   compositionMissing: boolean;
   showToast: ShowToastFn;
@@ -258,94 +241,11 @@ export function useEditorAssetReadiness({
   const skipped = usePlayerStore((s) => s.assetReadinessSkipped);
   const retrying = usePlayerStore((s) => s.assetReadinessRetrying);
   const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
-  const timelineProjectId = usePlayerStore((s) => s.timelineProjectId);
-  const previewBooted = usePlayerStore((s) => s.previewBooted);
   const previewLoadError = usePlayerStore((s) => s.previewLoadError);
-  const timelinePreviewCompleted = usePlayerStore((s) => s.timelinePreviewCompleted);
-  const timelinePreviewTotal = usePlayerStore((s) => s.timelinePreviewTotal);
-  const timelinePreviewSettledInitial = usePlayerStore((s) => s.timelinePreviewSettledInitial);
-  const expectedTimelinePreviewCount = usePlayerStore((s) => {
-    if (!projectId || s.thumbnailMode === "hidden") {
-      return 0;
-    }
-    let expected = 0;
-    if (getCachedCloudDisklessMode() && canCaptureCompositionInBrowser()) {
-      const gatePaths = selectInitialGateCompositionPaths(s.elements, s.currentTime);
-      for (const compPath of gatePaths) {
-        const rev = thumbnailRevisionOf(s.thumbnailRevisions, compPath);
-        if (!hasAnyCachedCompositionCapture(projectId, compPath, rev)) {
-          expected += 1;
-        }
-      }
-    }
-    let videoCount = 0;
-    for (const el of s.elements) {
-      if (el.tag === "video" && el.src && !el.hidden) {
-        videoCount += 1;
-        if (videoCount >= MAX_INITIAL_TIMELINE_PREVIEW_GATE) break;
-      }
-    }
-    return expected + videoCount;
-  });
-
-  const [settledProjectId, setSettledProjectId] = useState<string | null>(null);
-  const [graceElapsedGen, setGraceElapsedGen] = useState<number>(-1);
-
   const suppress = !projectId || previewLoadError || unreachableProject || compositionMissing;
-  const previewMatchesProject = timelineProjectId === null || timelineProjectId === projectId;
-  const coreReady =
-    fileTreeLoaded && previewMatchesProject && previewBooted && !compositionLoading && assetPhase === "ready";
-  const hasPendingTimelinePreviewGate = expectedTimelinePreviewCount > 0 || timelinePreviewTotal > 0;
-  const awaitingTimelinePreviews =
-    !suppress &&
-    !skipped &&
-    settledProjectId !== projectId &&
-    hasPendingTimelinePreviewGate &&
-    !timelinePreviewSettledInitial &&
-    coreReady;
-
-  useEffect(() => {
-    if (!awaitingTimelinePreviews || timelinePreviewTotal > 0) return;
-    const timer = setTimeout(
-      () => setGraceElapsedGen(loadGeneration),
-      TIMELINE_PREVIEW_REGISTER_GRACE_MS,
-    );
-    return () => clearTimeout(timer);
-  }, [awaitingTimelinePreviews, loadGeneration, timelinePreviewTotal]);
-
-  useEffect(() => {
-    if (!awaitingTimelinePreviews) return;
-    const timer = setTimeout(() => {
-      usePlayerStore.getState().markInitialTimelinePreviewGateSettled(loadGeneration);
-    }, TIMELINE_PREVIEW_GATE_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [awaitingTimelinePreviews, loadGeneration]);
-
-  const timelinePreviewsReady =
-    !hasPendingTimelinePreviewGate ||
-    timelinePreviewSettledInitial ||
-    (timelinePreviewTotal > 0
-      ? timelinePreviewCompleted >= timelinePreviewTotal
-      : graceElapsedGen === loadGeneration);
-
-  const allInitialReady = coreReady && timelinePreviewsReady;
-  const blocking =
-    !suppress &&
-    !skipped &&
-    settledProjectId !== projectId &&
-    !allInitialReady;
+  // The file tree belongs to this project. Each panel owns readiness of its own contents.
+  const blocking = !suppress && !skipped && !fileTreeLoaded;
   const backgroundLoading = !suppress && !blocking && (assetPhase === "loading" || retrying);
-
-  useEffect(() => {
-    if (!projectId) {
-      setSettledProjectId(null);
-      return;
-    }
-    if (suppress || skipped || allInitialReady) {
-      usePlayerStore.getState().markInitialTimelinePreviewGateSettled(loadGeneration);
-      setSettledProjectId(projectId);
-    }
-  }, [allInitialReady, loadGeneration, projectId, skipped, suppress]);
 
   useEffect(() => {
     usePlayerStore.getState().setEditorInputLocked(blocking);

@@ -181,18 +181,31 @@ export function preparePreviewLease(projectId: string, origin: string, route?: A
     })
     .catch(() => undefined);
   signal?.addEventListener("abort", () => { pending = undefined; }, { once: true });
-  return {
+  const scope = {
     project, origin,
     assetLease: undefined as string | undefined,
-    takeInitial() {
+    takeInitial(): Promise<GrantResponse | undefined> | undefined {
       const response = pending;
       pending = undefined;
+      // A newly mounted clip can navigate with this open project's live grant.
+      // Match the asset lease as well as the origin so another visit cannot supply its credentials.
+      if (!response && !signal?.aborted && scope.assetLease) {
+        const cached = sharedGrantsByProject.get(project);
+        if (cached?.origin === origin && cached.assetLease === scope.assetLease &&
+            cached.expiresAt - Date.now() > SHARED_GRANT_MIN_TTL_MS) {
+          return Promise.resolve({ status: 200, grant: {
+            previewOrigin: origin, token: cached.token, assetLease: cached.assetLease,
+            expiresAt: new Date(cached.expiresAt).toISOString(),
+          } });
+        }
+      }
       return response?.then(result => {
         if (signal?.aborted || !result?.grant || !(Date.parse(result.grant.expiresAt ?? "") > Date.now())) return;
         return result;
       });
     },
   };
+  return scope;
 }
 export type PreparedPreviewLease = ReturnType<typeof preparePreviewLease>;
 
