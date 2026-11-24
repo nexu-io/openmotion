@@ -5,10 +5,10 @@ import { beginStudioPendingEdit } from "../utils/studioPendingEdits";
 import { rememberSource } from "../utils/confirmedTextSources";
 import { usePlayerStore } from "./store/playerStore";
 import { scheduleCommittedTimelinePreview } from "./committedTimelinePreview";
-import { hasPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import { hasPeerTimingDocument, mountedPeerFileVersion, tryApplyPeerChanges } from "./peerTimingPreview";
 
 vi.mock("./peerTimingPreview", () => ({
-  mountedPeerFileVersion: () => undefined, tryRefreshParkedPeerScene: () => false,
+  mountedPeerFileVersion: vi.fn(() => undefined), tryRefreshParkedPeerScene: () => false,
   hasPeerTimingDocument: vi.fn(() => true), hasPeerLiveEdit: () => false,
   tryApplyPeerChanges: vi.fn(async () => true),
 }));
@@ -31,6 +31,7 @@ function setup() {
 }
 afterEach(() => {
   document.body.replaceChildren();
+  vi.mocked(mountedPeerFileVersion).mockReturnValue(undefined);
   vi.clearAllMocks();
 });
 
@@ -132,5 +133,20 @@ it("does not reconcile over a second pointer drag before it starts its save", as
   endStudioManualEditGesture(frame, gesture);
   await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
   expect(update.mock.calls[0]![1]).toEqual({path, previous: source("v1"), current: source("v3")});
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it("resumes at an intermediate version actually painted before a late ACK", async () => {
+  const { accepted, reload } = setup();
+  const old = Promise.withResolvers<boolean>();
+  update.mockImplementationOnce(() => old.promise);
+  accepted("v1", "v2");
+  await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+  accepted("v2", "v3");
+  accepted("v3", "v4");
+  vi.mocked(mountedPeerFileVersion).mockReturnValue("v2");
+  old.resolve(false);
+  await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+  expect(update.mock.calls[1]![1]).toEqual({ path, previous: source("v2"), current: source("v4") });
   expect(reload).not.toHaveBeenCalled();
 });

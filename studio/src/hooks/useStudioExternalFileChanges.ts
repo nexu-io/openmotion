@@ -82,9 +82,11 @@ export function useStudioExternalFileChanges({
   const filesForChange = useMemo(() => createRemoteFileReader(), []);
   const presentPendingPeerChange = useCallback((payload: unknown) => {
     const paths = changedFilePaths(payload);
-    if (!projectId || paths?.length !== 1) return;
-    void presentPendingCanvasChange(projectId, paths[0]!, previewIframeRef, () =>
-      filesForChange(projectId, payload)(projectId, paths[0]!)).catch(() => {});
+    if (!projectId || !paths?.length) return;
+    const read = filesForChange(projectId, payload);
+    for (const file of paths) {
+      void presentPendingCanvasChange(projectId, file, previewIframeRef, () => read(projectId, file)).catch(() => {});
+    }
   }, [projectId, previewIframeRef, filesForChange]);
   const refreshFileViews = useCallback((payload: unknown, acceptChange: (unaffectedPreview?: string) => void) => {
     const activePath = activeCompPath ?? masterCompPath;

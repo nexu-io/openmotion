@@ -24,32 +24,39 @@ type Session = {
   src: string;
   project: string;
   pending: Map<string, Change>;
+  sent: Map<string, ConfirmedSource>;
   running: boolean;
   refresh: Refresh;
 };
 const sessions = new WeakMap<HTMLIFrameElement, Session>();
 
-async function applyChange(frame: HTMLIFrameElement, change: Change, isCurrent: () => boolean) {
+async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Session["sent"], isCurrent: () => boolean) {
   const { path, options } = change;
   const target = change.current?.version ?? change.version;
   if (!target || !isCurrent()) return false;
-  if (mountedPeerFileVersion(frame, path) === target) return true;
+  const mounted = mountedPeerFileVersion(frame, path);
+  if (mounted === target) return true;
+  // An older receipt can arrive after its successor was queued. Reuse that intermediate
+  // source only when the iframe confirms it is what the user is actually seeing.
+  const last = sent.get(path);
+  const base = last && last.version === mounted ? last : change.previous;
   const refreshParked = () => path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, target, isCurrent);
   // A parked scene can adopt the new version without downloading its source into Studio.
-  if (!change.previous && await refreshParked()) return true;
-  if ((change.previous || change.readPrevious) &&
+  if (!base && await refreshParked()) return true;
+  if ((base || change.readPrevious) &&
       (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
     const [previous, current] = await Promise.all([
-      change.previous ?? change.readPrevious?.(), change.current ?? change.read?.(),
+      base ?? change.readPrevious?.(), change.current ?? change.read?.(),
     ]);
     if (previous && current?.version === target && isCurrent()) {
       const edit = { path, previous, current };
+      sent.set(path, current);
       const applied = options ? await tryApplyPeerChanges(frame, edit, isCurrent, options)
         : await tryApplyPeerChanges(frame, edit, isCurrent);
       if (applied) return true;
     }
   }
-  return !!change.previous && refreshParked();
+  return !!base && refreshParked();
 }
 
 // Isolated canvas drags and inline text hold the iframe from pointer-down through commit handoff.
@@ -71,7 +78,7 @@ async function present(frame: HTMLIFrameElement, session: Session) {
       if (change.version) return !version || version === change.version || version === change.observedVersion;
       return version === change.current?.version;
     };
-    const done = await applyChange(frame, change, current).catch(() => false);
+    const done = await applyChange(frame, change, session.sent, current).catch(() => false);
     // A later input/receipt owns the same pixels, even if this bridge response was successful.
     if (!owns() || busy(frame)) continue;
     if (done && current()) applied.push(change);
@@ -83,10 +90,16 @@ async function present(frame: HTMLIFrameElement, session: Session) {
   }
   if (!busy(frame)) {
     const settled = applied.filter(change => session.pending.get(change.path) === change);
-    for (const change of settled) session.pending.delete(change.path);
+    for (const change of settled) {
+      session.pending.delete(change.path);
+      session.sent.delete(change.path);
+    }
     if (settled.length) announcePreviewScenesSwapped(frame);
     const paths = retry.filter(change => session.pending.get(change.path) === change).map(change => change.path);
-    for (const path of paths) session.pending.delete(path);
+    for (const path of paths) {
+      session.pending.delete(path);
+      session.sent.delete(path);
+    }
     if (paths.length) session.refresh(paths);
   }
   session.running = false;
@@ -114,7 +127,7 @@ export function scheduleCommittedPreview(
   if (!changes.length) return;
   let session = sessions.get(frame);
   if (!session || session.project !== project || session.src !== frame.src) {
-    session = { project, src: frame.src, pending: new Map(), running: false, refresh };
+    session = { project, src: frame.src, pending: new Map(), sent: new Map(), running: false, refresh };
     sessions.set(frame, session);
   }
   session.refresh = refresh;
