@@ -225,6 +225,12 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     if(!message || message.source!==PARENT || message.version!==VERSION || message.projectId!==projectId || message.token!==token) return;
     var requestId=message.requestId;
     try {
+      if(message.type==='mounted-file-version'){
+        if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
+        const mounted = styleDocumentId && message.documentId === styleDocumentId && typeof message.path === 'string' &&
+          Object.hasOwn(sourceVersions, message.path) && sourceIdentity(sourceVersions[message.path]).fileVersion;
+        respond(requestId,mounted || null); return;
+      }
       if(message.type==='peer-timing' || message.type==='peer-presentation'){
         if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
         respond(requestId,applyPeerTiming(message)); return;

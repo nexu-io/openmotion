@@ -234,7 +234,14 @@ export async function tryApplyPeerChanges(
       void paint.catch(() => {});
       return false;
     }
-    if (await paint !== true || documents.get(frame) !== document || !isCurrent()) return false;
+    // A busy player can apply an edit before Studio receives its reply. Verify the
+    // mounted revision without performing the mutation a second time.
+    const applied = await paint.catch(async () => {
+      if (temporary || draftId || previous.version === current.version || documents.get(frame) !== document || !isCurrent()) return false;
+      const version = await adapter.request<string | null>("mounted-file-version", { documentId: document.id, path: update.path });
+      return version === current.version;
+    });
+    if (applied !== true || documents.get(frame) !== document || !isCurrent()) return false;
     if (draftId) {
       const group = changes[0]?.group;
       if (group && typeof options === "object" && "structureDraftId" in options) options.onGroup?.(group);

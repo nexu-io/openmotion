@@ -1,10 +1,10 @@
 // The player owns the markup and scripts from which a parked scene will mount.
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
-  function parkedHost(path) {
+  function uniqueSceneHost(path) {
     const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
-    return hosts.length === 1 && hosts[0].hasAttribute('data-hf-parked-scene') ? hosts[0] : null;
+    return hosts.length === 1 ? hosts[0] : null;
   }
 
   // The runtime keeps the compiled HTML in a private cache and replaces the scene host
@@ -83,10 +83,10 @@ export const PREVIEW_PARKED_SCENE = `
     if (compositionPath !== 'index.html' || message.documentId !== styleDocumentId ||
         typeof path !== 'string' || !Object.hasOwn(sourceVersions, path) || typeof version !== 'string' ||
         !Number.isFinite(expiresAt) || expiresAt <= Date.now() || typeof window.__hfSwapScenes !== 'function') return false;
-    const host = parkedHost(path), base = sourceVersions[path];
+    const host = uniqueSceneHost(path), base = sourceVersions[path];
     if (!host || !base) return false;
     const scene = host.getAttribute('data-hf-scene');
-    const current = () => parkedHost(path) === host && sourceVersions[path] === base &&
+    const current = () => uniqueSceneHost(path) === host && sourceVersions[path] === base &&
       !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt;
     if (!current()) return false;
 

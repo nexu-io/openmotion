@@ -68,6 +68,27 @@ it("rejects a delayed clip list from before a confirmed rebind of the same docum
   expect(process).toHaveBeenCalledTimes(2);
 });
 
+it.each(["new", "old"])("checks the mounted file after losing the paint reply (%s)", async (mounted) => {
+  const frame = document.createElement("iframe");
+  const origin = "https://preview.test";
+  frame.src = origin + "/api/projects/p/preview?pt=active";
+  const messages: string[] = [];
+  const envelope = { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token: "active" };
+  Object.defineProperty(frame, "contentWindow", { value: { postMessage({ type, requestId }: { type: string; requestId: string }) {
+    messages.push(type);
+    if (type === "mounted-file-version") {
+      window.dispatchEvent(new MessageEvent("message", { source: frame.contentWindow, origin,
+        data: { ...envelope, type: "response", requestId, result: mounted } }));
+    }
+  } } });
+  rememberPeerTimingDocument(frame, "active", "doc");
+  const content = '<audio id="sound" data-start="0"></audio>';
+  const applied = await tryApplyPeerChanges(frame, { path: "index.html", previous: { content, version: "old" },
+    current: { content: content.replace('"0"', '"2"'), version: "new" } }, () => true);
+  expect(applied).toBe(mounted === "new");
+  expect(messages).toEqual(["peer-timing", "mounted-file-version"]);
+});
+
 it("patches an anonymous legacy clip using exactly the same hf-id as its preview", () => {
   const source = '<html><body><img data-start="0" data-duration="4"></body></html>';
   const hfId = ensureHfIds(source).match(/<img[^>]*data-hf-id="([^"]+)"/)?.[1];

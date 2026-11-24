@@ -68,11 +68,17 @@ it('updates the parked template through the runtime only after validating the fr
   assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
 });
 
-it('leaves mounted, missing, repeated and remounting targets to normal preview recovery', async () => {
-  for (const state of ['mounted', 'missing', 'duplicate', 'remounting']) {
+it('updates an active child through the same runtime lifecycle as a parked child', async () => {
+  const f = fixture();
+  f.document.querySelector('section')!.removeAttribute('data-hf-parked-scene');
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
+});
+
+it('leaves missing, repeated and remounting targets to normal preview recovery', async () => {
+  for (const state of ['missing', 'duplicate', 'remounting']) {
     const f = fixture();
     const host = f.document.querySelector('section')!;
-    if (state === 'mounted') host.removeAttribute('data-hf-parked-scene');
     if (state === 'missing') host.remove();
     if (state === 'duplicate') host.after(host.cloneNode(true));
     if (state === 'remounting') f.onRead(() => host.replaceWith(host.cloneNode(true)));
