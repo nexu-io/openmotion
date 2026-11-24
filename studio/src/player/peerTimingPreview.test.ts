@@ -96,6 +96,19 @@ describe("peer timing classification", () => {
     expect(diffPreviewChanges('<div id="clip"></div>', '<div id="clip" muted></div>')).toBeNull();
   });
 
+  it("identifies a media speed change together with its shorter clip and following clip", () => {
+    const before = '<main data-composition-id="film" data-duration="8"><video id="shot" data-start="0" data-duration="4"></video><div id="end" data-start="4"></div></main>';
+    const after = before.replace('data-duration="8"', 'data-duration="6"')
+      .replace('data-duration="4"', 'data-duration="2" data-playback-rate="2"')
+      .replace('data-start="4"', 'data-start="2"');
+    expect(diffPreviewChanges(before, after)).toMatchObject([
+      { compositionId: "film", attributes: [["data-duration", "8", "6"]] },
+      { id: "shot", attributes: [["data-duration", "4", "2"], ["data-playback-rate", null, "2"]] },
+      { id: "end", attributes: [["data-start", "4", "2"]] },
+    ]);
+    expect(diffPreviewChanges(before, after.replace('rate="2"', 'rate="0"'))).toBeNull();
+  });
+
   it("clears a fill image in place while loading a new image through the asset pipeline", () => {
     const before = '<div id="tile" style="background-color:red"></div>';
     const filled = '<div id="tile" style="background-color:blue;background-image:none"></div>';
