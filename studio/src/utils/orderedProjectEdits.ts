@@ -49,13 +49,14 @@ function schedule(queue: Queue) {
 async function send(project: string, operations: OrderedTextEditOperation[]) {
   const body = JSON.stringify({ operations });
   return retryStudioSave(async () => {
-    let response;
+    let response: Response;
     try {
       response = await studioApiFetch('/api/projects/' + encodeURIComponent(project) + '/text-edits/batch',
         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
     } catch (cause) { throw new StudioSaveNetworkError('Could not send project edits', { cause }); }
     if (!response.ok) throw await createStudioSaveHttpError(response, 'Could not save project edits');
-    return await response.json() as OrderedTextEditResult;
+    try { return await response.json() as OrderedTextEditResult; }
+    catch (cause) { throw new StudioSaveNetworkError('Incomplete ordered edit receipt', { cause }); }
   });
 }
 

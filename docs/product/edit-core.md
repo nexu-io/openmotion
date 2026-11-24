@@ -59,3 +59,11 @@ The author records the digest from `previewBehaviorDigest` for the assembled pro
 ### Placing a catalog component
 
 A Studio drop submits the host composition edit and its catalog component name in one request. Missing dependencies and the host share a project version and undo entry. A stale host or failed download leaves the project unchanged. An existing dependency retains the user's edits. Remote callers can supply an edited `hostFile` to `openmotion_assets_use.install_component` for the same transaction. Omitting it deliberately installs the component for later use.
+
+### Ordered Studio writes
+
+A file read advertising `X-OpenMotion-Ordered-Edits: 1` enables ordered text edits. Studio queues completed edits for a project in invocation order. Pointer samples paint locally. Each completed gesture retains its operation ID and file preconditions. The browser sends after 100 ms of inactivity, at capacity, or one second after the first waiting edit when the transport is available. A following batch waits for its predecessor's result. A request may contain several independent undo steps.
+
+`POST /api/projects/:id/text-edits/batch` takes an ordered `operations` array. Each file patch needs its observed version, or `{"after":"earlier-operation-id"}` for the same file inside the batch. A compound operation affecting multiple files still commits atomically. The response identifies the successful prefix and any first rejected operation. A transport retry keeps the same payload and operation IDs. A version mismatch requires fresh validation before preparing another patch. A safe canvas replay requires the same target and evidence that the intervening change preserves its measured layout. The server never applies stale byte offsets.
+
+The server publishes each contiguous range of confirmed revisions when the request completes. A capable peer applies small included patches against matching file versions and refreshes the affected view once. Missing bases and oversized payloads use the normal versioned read for each affected file. MCP's semantic editing entry point keeps its transaction and history behavior and remains usable with Studio closed.
