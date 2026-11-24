@@ -1,3 +1,4 @@
+import { stageGroupChange } from "../../../shared/preview-group.ts";
 import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
@@ -7,6 +8,7 @@ import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESEN
 export const PREVIEW_PEER_TIMING = `
   const canPatchPreviewAttribute = ${canPatchPreviewAttribute.toString()};
   const previewAttributes = new Set(${JSON.stringify(PREVIEW_ATTRIBUTES)});
+  const stageGroup = ${stageGroupChange.toString()};
   const mediaBox = ${isMediaBoxChange.toString()};
   const paintOnly = ${isPaintOnlyChange.toString()};
   const presentationTags = new Set(${JSON.stringify(PRESENTATION_TAGS)});
@@ -110,7 +112,7 @@ export const PREVIEW_PEER_TIMING = `
     if (!m.changes.length && !sameContent) return false;
     const drafting = typeof m.structureDraftId === 'string';
     if (drafting && (!timingDocumentId || m.type !== 'peer-timing' || before !== after ||
-        !m.structureDraftId.length || m.structureDraftId.length > 64 || !m.changes.some(c => c?.removeFromComposition || c?.insert))) return false;
+        !m.structureDraftId.length || m.structureDraftId.length > 64 || !m.changes.some(c => c?.removeFromComposition || c?.insert || c?.group))) return false;
     if (structureDraft) {
       if (drafting) return false;
       const draft = structureDraft;
@@ -130,7 +132,15 @@ export const PREVIEW_PEER_TIMING = `
     let structureChanged = false;
     for (const change of m.changes) {
       if (!change || (!change.hfId && !change.id && !change.compositionId) || !Array.isArray(change.attributes) ||
-          (!change.attributes.length && !change.styles && !change.text && !change.removeFromComposition && !change.insert) || change.attributes.length > previewAttributes.size) return false;
+          (!change.attributes.length && !change.styles && !change.text && !change.removeFromComposition && !change.insert && !change.group) || change.attributes.length > previewAttributes.size) return false;
+      if (change.group) {
+        if (m.changes.length !== 1 || !timingDocumentId || m.type !== 'peer-timing') return false;
+        const applyGroup = stageGroup(document, change.group, presentationTags);
+        if (!applyGroup) return false;
+        structureChanged = true;
+        effects.push(applyGroup);
+        continue;
+      }
       if (change.insert) {
         if (structureChanged || !timingDocumentId || m.type !== 'peer-timing') return false;
         const insert = stageClipInsert(document, change, presentationTags);

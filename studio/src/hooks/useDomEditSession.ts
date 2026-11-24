@@ -1,3 +1,5 @@
+import { projectPreviewAdapter } from "../player/lib/projectPreviewAdapter";
+import { inspectIsolatedElement } from "../components/editor/isolatedInspector";
 import { useCloudGroupMove } from "./cloudGroupMove";
 import { useCallback } from "react";
 import { trackStudioEvent } from "../utils/studioTelemetry";
@@ -294,6 +296,20 @@ export function useDomEditSession({
 
   // ── Element groups (wrap selected elements in a data-hf-group div) ──
   const { groupSelection, ungroupSelection } = useGroupCommits({
+    previewIframeRef,
+    async selectGroupResult(path, group) {
+      const frame = previewIframeRef.current;
+      const adapter = projectPreviewAdapter(frame, projectId);
+      if (!adapter) return;
+      const selected = domEditSelectionRef.current;
+      const old = group.wrap ? group.members : [group.wrapper];
+      if (!selected || !old.some(id => id.id === selected.id || (id.hfId && id.hfId === selected.hfId))) return;
+      const targets = group.wrap ? [group.wrapper] : group.members;
+      const result = await Promise.all(targets.map(t => inspectIsolatedElement(adapter, {sourceFile:path, elementId:t.id, hfId:t.hfId}, isMasterView)));
+      if (frame === previewIframeRef.current && selected === domEditSelectionRef.current && result.every(s => s != null)) {
+        applyMarqueeSelection(result, false);
+      }
+    },
     activeCompPath,
     showToast,
     writeProjectFile,

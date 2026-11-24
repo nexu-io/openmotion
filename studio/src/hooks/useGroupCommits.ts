@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, type RefObject } from "react";
 import {
   readProjectFileContent,
   saveProjectFilesWithHistory,
@@ -9,6 +9,10 @@ import {
   readHfId,
   type DomEditSelection,
 } from "../components/editor/domEditing";
+import { scheduleCommittedPreview } from "../player/committedPreview";
+import { stageStructurePreview } from "../player/peerTimingPreview";
+import { projectLocalTimelineEdit } from "../player/lib/peerTimeline";
+import type { GroupChange } from "../../../shared/preview-group";
 import { confirmedSource } from "../utils/confirmedTextSources";
 import {
   findMatchingTimelineElementId,
@@ -21,6 +25,8 @@ interface UseGroupCommitsParams extends DomEditCommitBaseParams {
   /** Refresh the SDK after the document hierarchy changes. */
   forceReloadSdkSession?: () => void;
   timelineElements: TimelineElement[];
+  previewIframeRef?: RefObject<HTMLIFrameElement | null>;
+  selectGroupResult?: (path: string, group: GroupChange) => Promise<void>;
 }
 
 interface PatchTarget {
@@ -120,12 +126,30 @@ async function saveGroupEdit(
     label,
     files: { [path]: transform },
     readFile: async (file) => confirmedSource(projectId, file)?.content ?? readProjectFileContent(projectId, file),
+    projectPending(files) {
+      const frame = deps.previewIframeRef?.current;
+      const base = confirmedSource(projectId, path);
+      const file = files[path];
+      if (!frame || !file || base?.content !== file.before) return;
+      const undoTimeline = projectLocalTimelineEdit(projectId, path, file, frame);
+      const undoPreview = stageStructurePreview(frame, path, base, file.after, group => {
+        void deps.selectGroupResult?.(path, group);
+      });
+      return () => { undoPreview?.(); undoTimeline?.(); };
+    },
+    onSaved: async (_files, previous) => {
+      const frame = deps.previewIframeRef?.current;
+      if (!frame || deps.projectIdRef.current !== projectId) return;
+      scheduleCommittedPreview(frame, projectId, [{path, previous, current: confirmedSource(projectId, path)}], deps.reloadPreview);
+    },
     writeFile: deps.writeProjectFile,
     recordEdit: deps.editHistory.recordEdit,
   });
-  deps.clearDomSelection();
+  if (!deps.previewIframeRef?.current) {
+    deps.clearDomSelection();
+    deps.reloadPreview();
+  }
   deps.forceReloadSdkSession?.();
-  deps.reloadPreview();
 }
 
 export function useGroupCommits(params: UseGroupCommitsParams) {

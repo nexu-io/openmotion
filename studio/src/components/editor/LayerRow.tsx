@@ -32,7 +32,7 @@ interface Props {
   isDragged?: boolean;
   dragging?: boolean;
   hint?: string;
-  onSelect: () => void;
+  onSelect: (additive?: boolean) => void;
   onToggle: () => void;
   onDoubleClick?: () => void;
   onPointerDown?: PointerEventHandler<HTMLDivElement>;
@@ -52,14 +52,14 @@ export function LayerRow({ index, label, depth, childCount, kind, isCompHost, is
       role="button"
       aria-pressed={selected}
       tabIndex={0}
-      onClick={onSelect}
+      onClick={e => onSelect(e.shiftKey)}
       onDoubleClick={onDoubleClick}
       onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onSelect();
+          onSelect(e.shiftKey);
         }
       }}
       className={`group mx-1 flex items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors ${

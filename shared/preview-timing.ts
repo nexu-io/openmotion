@@ -1,3 +1,4 @@
+import type { GroupChange } from "./preview-group.ts";
 export const MAX_PEER_PREVIEW_SOURCE_LENGTH = 128 * 1024;
 export type PreviewLiveEdits = { position?: true; mediaTiming?: true };
 export const PREVIEW_ATTRIBUTES = [
@@ -50,6 +51,7 @@ export interface PreviewChange {
   /** Remove the verified visual leaf directly owned by this composition. */
   removeFromComposition?: string;
   insert?: VisualClipInsert;
+  group?: GroupChange;
   attributes: [typeof PREVIEW_ATTRIBUTES[number], string | null, string | null][];
 }
 

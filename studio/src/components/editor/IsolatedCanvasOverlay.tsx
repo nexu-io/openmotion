@@ -174,7 +174,7 @@ export function IsolatedCanvasOverlay() {
     // Keep the last visible bounds until the new hit has been measured.
     event.currentTarget.setPointerCapture(event.pointerId);
     const target = corner && domEditSelection?.isolatedTarget;
-    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, ...(active.ordered && { ordered: true }),
+    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, ...(event.shiftKey && { additive: true }), ...(active.ordered && { ordered: true }),
       ...(target && { target: { sourceFile: target.sourceFile, elementId: target.elementId, hfId: target.hfId } }) })
       .then(pick => {
         if (lastPick.current !== active || !pick) return;

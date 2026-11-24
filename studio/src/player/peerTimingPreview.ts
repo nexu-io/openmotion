@@ -1,3 +1,4 @@
+import { diffGroupChange } from "./visualGroupChange";
 import { isLiveMediaMove } from "../../../shared/preview-live-media";
 import { takeInsertedClip, takeRemovedClip } from "./visualClipStructure";
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from "../../../packages/edit-core/canvas-position";
@@ -111,7 +112,11 @@ export function diffPreviewChanges(previous: string, current: string, measured =
   if (a.length !== b.length) {
     const structural = a.length === b.length + 1 ? takeRemovedClip(before, after, a, presentationTags)
       : b.length === a.length + 1 && takeInsertedClip(before, after, b, presentationTags);
-    if (!structural) return null;
+    if (!structural) {
+      if (Math.abs(a.length - b.length) !== 1) return null;
+      const group = diffGroupChange(before, after, b.length > a.length, presentationTags);
+      return group ? [group] : null;
+    }
     changes.push(structural);
   }
   for (let i = 0; i < a.length; i++) {
@@ -190,7 +195,7 @@ export async function tryApplyPeerChanges(
   frame: HTMLIFrameElement | null,
   update: PeerTimingUpdate,
   isCurrent: () => boolean,
-  options?: "paint-only" | "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string },
+  options?: "paint-only" | "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string; onGroup?: (group: import("../../../shared/preview-group").GroupChange) => void },
 ): Promise<boolean> {
   if (!frame || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
@@ -210,7 +215,7 @@ export async function tryApplyPeerChanges(
   if (temporary && (document.canRebind || !onlyStyles(changes))) return false;
   if (!temporary && !canAdvance) return false;
   const draftId = typeof options === "object" && "structureDraftId" in options ? options.structureDraftId : undefined;
-  if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert))) return false;
+  if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert || change.group))) return false;
   const localSave = typeof options === "object" && !("structureDraftId" in options) ? options : undefined;
   const presentation = changes.some(c => c.styles || c.text);
   const mediaControl = !presentation && !!document.canRebind && changes.length > 0 && changes.every(c =>
@@ -230,14 +235,18 @@ export async function tryApplyPeerChanges(
       return false;
     }
     if (await paint !== true || documents.get(frame) !== document || !isCurrent()) return false;
-    if (draftId) return true;
+    if (draftId) {
+      const group = changes[0]?.group;
+      if (group && typeof options === "object" && "structureDraftId" in options) options.onGroup?.(group);
+      return true;
+    }
     if (!temporary && document.mountedVersions.has(update.path)) document.mountedVersions.set(update.path, current.version);
     // The HTML attribute changes defaultMuted. The runtime combines per-clip mute
     // with this window's independent monitor preference on a set-muted message.
     if (changes.some(change => change.attributes.some(([name]) => name === "muted"))) {
       setPreviewMediaMuted(frame, usePlayerStore.getState().audioMuted);
     }
-    if (!temporary && changes.some(change => change.attributes.length || change.removeFromComposition || change.insert)) releasePresented?.();
+    if (!temporary && changes.some(change => change.attributes.length || change.removeFromComposition || change.insert || change.group)) releasePresented?.();
     if (!temporary && (!presentation || document.timingFile?.path === update.path)) {
       document.timingFile = { path: update.path, version: current.version };
     }
@@ -246,7 +255,7 @@ export async function tryApplyPeerChanges(
 }
 
 /** Paint the same structural delta that its receipt will confirm. The draft never advances the file version. */
-export function stageStructurePreview(frame: HTMLIFrameElement, path: string, previous: FileSnapshot, content: string) {
+export function stageStructurePreview(frame: HTMLIFrameElement, path: string, previous: FileSnapshot, content: string, onGroup?: (group: import("../../../shared/preview-group").GroupChange) => void) {
   const doc = documents.get(frame);
   if (!doc?.canRebind) return;
   const adapter = createPreviewAdapter({ iframe: frame });
@@ -254,7 +263,7 @@ export function stageStructurePreview(frame: HTMLIFrameElement, path: string, pr
   let active = true;
   const current = () => active && frame.isConnected && documents.get(frame) === doc;
   void tryApplyPeerChanges(frame, { path, previous, current: { content, version: previous.version } }, current,
-    { structureDraftId: id }).catch(() => {});
+    { structureDraftId: id, onGroup }).catch(() => {});
   return () => {
     active = false;
     if (frame.isConnected && documents.get(frame) === doc) {
