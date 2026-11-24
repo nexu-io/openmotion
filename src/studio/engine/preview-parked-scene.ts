@@ -2,8 +2,8 @@
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
   let applyingSceneUpdate = null;
-  function uniqueSceneHost(path) {
-    const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
+  function uniqueSceneHost(path, root = document) {
+    const hosts = Array.from(root.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
     return hosts.length === 1 ? hosts[0] : null;
   }
@@ -80,51 +80,102 @@ export const PREVIEW_PARKED_SCENE = `
       Object.keys(before).every(key => Object.hasOwn(after, key) && (changed.has(key) || before[key] === after[key]));
   }
 
-  async function refreshParkedScene(message) {
+  async function readSceneSnapshot(file, signal) {
+    const url = new URL(location.href);
+    url.searchParams.delete('sceneFile');
+    if (file) url.searchParams.set('sceneFile', file);
+    const response = await fetch(url.href, {cache:'no-cache', redirect:'error', signal});
+    if (!response.ok) return null;
+    const html = await response.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const bridges = doc.querySelectorAll('script[data-openmotion-preview]');
+    if (bridges.length !== 1) return null;
+    const config = bridges[0].getAttribute('data-openmotion-preview');
+    return { html, doc, config, settings: JSON.parse(config), parts: sceneParts(doc) };
+  }
+
+  // A separate receipt can arrive while its sibling's swap still owns the player.
+  let sceneTail = Promise.resolve();
+  const appliedSceneVersions = new Map();
+  function refreshParkedScene(message) {
+    const result = sceneTail.then(() => applySceneReceipt(message));
+    sceneTail = result.catch(() => false);
+    return result;
+  }
+
+  async function applySceneReceipt(message) {
     const {expiresAt} = message;
     if (compositionPath !== 'index.html' || !styleDocumentId || message.documentId !== styleDocumentId ||
         !Number.isFinite(expiresAt) || expiresAt <= Date.now() || typeof window.__hfSwapScenes !== 'function') return false;
     const files = message.files ?? [[message.path, message.fileVersion]];
     if (!Array.isArray(files) || !files.length) return false;
     const targets = new Map(), scenes = new Set();
-    for (const entry of files) {
-      if (!Array.isArray(entry) || entry.length !== 2) return false;
-      const [path, version] = entry;
+    function addTarget(path, version) {
       if (typeof path !== 'string' || typeof version !== 'string' || targets.has(path) ||
           !Object.hasOwn(sourceVersions, path) || !sourceVersions[path]) return false;
       const host = uniqueSceneHost(path), scene = host?.getAttribute('data-hf-scene');
       if (!scene || scenes.has(scene) || (message.parkedOnly && !host.hasAttribute('data-hf-parked-scene'))) return false;
-      targets.set(path, {base:sourceVersions[path], host, version});
+      targets.set(path, {base:sourceVersions[path], host, version, scene});
       scenes.add(scene);
+      return true;
+    }
+    for (const entry of files) {
+      if (!Array.isArray(entry) || entry.length !== 2 || !addTarget(entry[0], entry[1])) return false;
     }
     const current = () => !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt &&
       Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base && uniqueSceneHost(path) === target.host);
     if (!current()) return false;
+    if (files.every(([path, version]) => appliedSceneVersions.get(path) === sourceVersions[path] &&
+        sourceIdentity(sourceVersions[path]).fileVersion === version)) return true;
     const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
-    const url = new URL(location.href);
-    // One file needs just its fragment. A batch must compare and mount scenes from the same compilation.
-    if (files.length === 1) url.searchParams.set('sceneFile', files[0][0]);
-    const response = await fetch(url.href, { cache: 'no-cache', redirect: 'error', signal });
-    if (!response.ok) return false;
-    const html = await response.text();
-    const next = new DOMParser().parseFromString(html, 'text/html');
-    const bridges = next.querySelectorAll('script[data-openmotion-preview]');
-    if (bridges.length !== 1) return false;
-    const incoming = JSON.parse(bridges[0].getAttribute('data-openmotion-preview'));
-    const versions = incoming?.sourceVersions;
+    const compact = files.length === 1;
+    const snapshot = await readSceneSnapshot(compact ? files[0][0] : null, signal);
+    const incoming = snapshot?.settings, versions = incoming?.sourceVersions;
     if (incoming?.projectId !== projectId || incoming.compositionPath !== compositionPath ||
         incoming.canRebindTiming !== settings.canRebindTiming || JSON.stringify(incoming.liveEdits) !== JSON.stringify(settings.liveEdits) ||
-        JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) ||
-        !sameOtherEntries(sourceVersions, versions, targets) ||
+        JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) || !versions ||
         !files.every(([path, version]) => sourceIdentity(versions[path]).fileVersion === version)) return false;
-    const oldParts = sceneParts(document), newParts = sceneParts(next);
-    if (!oldParts || !newParts || oldParts.shared !== newParts.shared ||
-        !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
-        !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key)) || !current()) return false;
-    if (applyingSceneUpdate) return false;
+    const oldParts = sceneParts(document), newParts = snapshot.parts;
+    if (!oldParts || !newParts || oldParts.shared !== newParts.shared || !current()) return false;
+
+    // A newer independent scene may already be in this compilation before its own SSE arrives.
+    const siblings = Object.keys(versions).filter(path => !targets.has(path) && sourceVersions[path] !== versions[path]);
+    for (const path of siblings) {
+      if (path === compositionPath || typeof versions[path] !== 'string' ||
+          !addTarget(path, sourceIdentity(versions[path]).fileVersion)) return false;
+    }
+    if (!sameOtherEntries(sourceVersions, versions, targets) || !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
+        !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key))) return false;
+    let html = snapshot.html;
+    if (siblings.length) {
+      // A nested scene cannot be swapped independently of its parent.
+      if (Array.from(targets.values()).some(t => t.host.parentElement?.closest('[data-hf-scene]'))) return false;
+      let complete = snapshot.doc;
+      if (compact) {
+        const sibling = siblings.length === 1 ? siblings[0] : null;
+        const extra = await readSceneSnapshot(sibling, signal);
+        // Never combine scene bodies from different revisions or compilations.
+        if (!extra || extra.config !== snapshot.config || JSON.stringify(extra.parts) !== JSON.stringify(newParts)) return false;
+        if (sibling) {
+          for (const el of Array.from(extra.doc.body.children)) {
+            if (el.getAttribute('data-hf-scene') === targets.get(sibling).scene) complete.body.append(complete.importNode(el, true));
+          }
+          html = '<!doctype html>' + complete.documentElement.outerHTML;
+        } else {
+          complete = extra.doc;
+          html = extra.html;
+        }
+      }
+      for (const [path, target] of targets) {
+        const host = uniqueSceneHost(path, complete);
+        if (host?.getAttribute('data-hf-scene') !== target.scene || host.parentElement?.closest('[data-hf-scene]')) return false;
+      }
+    }
+    if (!current()) return false;
     const confirm = () => {
       if (!Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base)) return false;
-      for (const [path] of files) {
+      for (const path of targets.keys()) {
+        appliedSceneVersions.set(path, versions[path]);
         forgetScenePlacement(path);
         confirmCanvasVersion(path, versions[path]);
       }
