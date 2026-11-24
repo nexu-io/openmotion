@@ -1140,7 +1140,7 @@ function GameProjectArtifactView({
       sandbox={
         isExternalGame
           ? 'allow-scripts allow-same-origin allow-pointer-lock allow-popups'
-          : 'allow-scripts allow-pointer-lock allow-popups allow-modals'
+          : 'allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals'
       }
       allow="fullscreen; gamepad; autoplay; clipboard-write"
       mode={effectiveMode}
