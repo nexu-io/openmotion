@@ -120,6 +120,25 @@ it("captures a scaled drag, commits once on release and uses the shown file vers
   expect(messages.at(-1)).toMatchObject({ phase: "commit", gestureId: messages[0]?.gestureId, changed: true });
 });
 
+it.each(["finish", "pick"])("accepts a delayed %s reply while the child scene settles", async phase => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    if (phase === "finish") {
+      pointer("pointerdown", 60);
+      await reply("start", null);
+      pointer("pointerup", 90);
+    } else {
+      act(() => canvas.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 60, clientY: 60 })));
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+    await reply(phase, result);
+    expect(messages.at(-1)?.phase).toBe(phase === "finish" ? "commit" : "open");
+    expect(state.showToast).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("keeps the first move when capture drops over the canvas with the button still held", async () => {
   vi.spyOn(document, "elementFromPoint").mockReturnValue(canvas);
   pointer("pointerdown", 60, 1);

@@ -9,7 +9,7 @@ import { useStudioShellContext } from "../../contexts/StudioContext";
 import { useI18n } from "../../i18n/I18n";
 import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/previewAdapter";
 import { projectPreviewAdapter } from "../../player/lib/projectPreviewAdapter";
-import { onPreviewPromoted } from "../../player/sceneSwap";
+import { onPreviewPromoted, SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type CanvasBox, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
@@ -266,7 +266,7 @@ export function IsolatedCanvasOverlay() {
     const gestureSession = session.current;
     const issuedAtLoad = frameLoad.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
-    void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }).then(async result => {
+    void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
       if (gestureSession !== session.current) return;
       if (frameLoad.current !== issuedAtLoad || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();

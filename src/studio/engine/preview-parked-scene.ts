@@ -1,6 +1,7 @@
 // The player owns the markup and scripts from which a parked scene will mount.
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
+  let applyingSceneUpdate = null;
   function uniqueSceneHost(path) {
     const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
@@ -120,11 +121,28 @@ export const PREVIEW_PARKED_SCENE = `
     if (!oldParts || !newParts || oldParts.shared !== newParts.shared ||
         !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
         !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key)) || !current()) return false;
-    if (Array.from(scenes).some(key => newParts.scenes[key] !== oldParts.scenes[key])) await window.__hfSwapScenes(html, signal);
-    for (const [path] of files) {
-      forgetScenePlacement(path);
-      confirmCanvasVersion(path, versions[path]);
+    if (applyingSceneUpdate) return false;
+    const confirm = () => {
+      if (!Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base)) return false;
+      for (const [path] of files) {
+        forgetScenePlacement(path);
+        confirmCanvasVersion(path, versions[path]);
+      }
+      return true;
+    };
+    if (!Array.from(scenes).some(key => newParts.scenes[key] !== oldParts.scenes[key])) return confirm();
+    const update = {targets, versions, ready: null};
+    applyingSceneUpdate = update;
+    let expire;
+    const expired = new Promise(resolve => { expire = () => resolve(false); });
+    signal.addEventListener('abort', expire, { once: true });
+    try {
+      const swapped = Promise.resolve(window.__hfSwapScenes(html, signal)).then(() => !signal.aborted && confirm());
+      update.ready = Promise.race([swapped, expired]).catch(() => false);
+      return await update.ready;
+    } finally {
+      signal.removeEventListener('abort', expire);
+      applyingSceneUpdate = null;
     }
-    return true;
   }
 `;

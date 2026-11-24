@@ -109,10 +109,10 @@ export const PREVIEW_CANVAS_DRAG = `
     return Math.abs(px - cx) <= 4 && Math.abs(py - cy) <= 4 ? node : null;
   }
 
-  function startDrag(message) {
+  function startDrag(message, knownTarget) {
     if (drag) return null;
     const corner = ['nw','ne','sw','se'].includes(message.corner) ? message.corner : null;
-    const element = canvasGestureTarget(message, corner);
+    const element = knownTarget || canvasGestureTarget(message, corner);
     if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement ||
         element.matches('[data-composition-id],[data-composition-src],[data-hf-scene]') ||
         element.closest('[data-timeline-locked]')) return null;
