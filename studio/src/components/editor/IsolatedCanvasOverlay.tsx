@@ -179,17 +179,20 @@ export function IsolatedCanvasOverlay() {
       .then(pick => {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
-        if (active.ordered && pick.target && isIsolatedSourceTarget(pick.target)) {
+        if (active.ordered && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
           active.unwatch = watchCanvasTarget(iframe, pick.target, () => {
             active.unwatch?.();
+            if (previewIframeRef.current !== iframe) return;
+            const wasDragging = drag.current === active;
             active.adapter.send("canvas-drag", { phase: "removed", gestureId: active.gestureId });
             if (active.hold) endStudioManualEditGesture(iframe, active.hold);
-            if (drag.current === active) drag.current = null;
+            if (wasDragging) drag.current = null;
             if (lastPick.current === active) {
               lastPick.current = null;
               setDraft(null);
               clearDomSelection();
-              showToast(t("The project changed elsewhere. Changes were not saved."), "error");
+              // An already-submitted gesture receives its conflict message from the save coordinator.
+              if (wasDragging) showToast(t("The project changed elsewhere. Changes were not saved."), "error");
             }
           });
         }
