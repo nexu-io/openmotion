@@ -15,6 +15,30 @@ import { agentInvocation } from './agent-discovery.ts';
 
 const codexAppServerArgs = ['app-server', '--listen', 'stdio://'];
 
+/**
+ * Codex app-server multiplexes subagent notifications on the same JSON-RPC stream,
+ * tagged with the subagent's `threadId` / `turnId`. Ignore foreign-thread notifications
+ * (and mismatched-turn terminal notifications) so a subagent finishing never aborts or
+ * corrupts the root turn, while still answering JSON-RPC requests (`id !== undefined`).
+ */
+export function isForeignCodexNotification(
+  params: Record<string, unknown>,
+  rootThreadId?: string,
+  rootTurnId?: string,
+  method?: string,
+): boolean {
+  const eventThreadId = typeof params.threadId === 'string' && params.threadId ? params.threadId : undefined;
+  if (eventThreadId && rootThreadId && eventThreadId !== rootThreadId) return true;
+  if (method === 'turn/completed' || method === 'error') {
+    const turnObj = params.turn && typeof params.turn === 'object' ? (params.turn as Record<string, unknown>) : undefined;
+    const eventTurnId = (typeof turnObj?.id === 'string' && turnObj.id)
+      || (typeof params.turnId === 'string' && params.turnId)
+      || undefined;
+    if (eventTurnId && rootTurnId && eventTurnId !== rootTurnId) return true;
+  }
+  return false;
+}
+
 /** Line-delimited app-server JSON-RPC; stderr is deliberately never returned to the browser. */
 export class AssetAgentRpc {
   private sequence = 0;
@@ -252,6 +276,10 @@ export class AssetConversations {
       rpc.send({ id, result: { decision: accepted ? 'accept' : 'decline' } });
     } else if (id !== undefined) {
       rpc.send({ id, error: { code: -32601, message: 'Ask the user in the conversation; this host does not support this request' } });
+    } else if (isForeignCodexNotification(p, active.chat.threadId, active.turnId, method)) {
+      return;
+    } else if (method === 'turn/started') {
+      if (!active.turnId && typeof p.turn?.id === 'string' && p.turn.id) active.turnId = p.turn.id;
     } else if (method === 'item/agentMessage/delta') {
       const current = active.chat.messages.find(m => m.id === p.itemId)?.text ?? '';
       this.message(active, 'assistant', current + (p.delta ?? ''), p.itemId);

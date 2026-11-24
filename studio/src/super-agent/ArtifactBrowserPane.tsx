@@ -883,6 +883,7 @@ function useIframePreviewBridge({
 function GameProjectArtifactView({
   artifact,
   chatId,
+  chatRunning = true,
   mode,
   viewport,
   reloadKey,
@@ -899,6 +900,7 @@ function GameProjectArtifactView({
 }: {
   artifact: SuperAgentArtifact;
   chatId: string | null;
+  chatRunning?: boolean;
   mode: 'preview' | 'code' | 'trailer';
   viewport: DesignViewportId;
   reloadKey: number;
@@ -931,13 +933,20 @@ function GameProjectArtifactView({
   const [bundledBlobUrl, setBundledBlobUrl] = useState<string | null>(null);
   const [handoffText, setHandoffText] = useState<string | null>(() => (projectId ? storedInstruction(projectId) : null));
   const [copiedHandoff, setCopiedHandoff] = useState(false);
+  const loadedProjectIdRef = useRef<string>(projectId);
 
   useEffect(() => {
-    setGameMeta(null);
-    setBundledBlobUrl(null);
-    setCopiedHandoff(false);
-    setHandoffText(projectId ? storedInstruction(projectId) : null);
+    const switchedProject = loadedProjectIdRef.current !== projectId;
+    loadedProjectIdRef.current = projectId;
+    if (switchedProject) {
+      setGameMeta(null);
+      setBundledBlobUrl(null);
+      setCopiedHandoff(false);
+      setHandoffText(projectId ? storedInstruction(projectId) : null);
+    }
     if (!projectId) {
+      setGameMeta(null);
+      setBundledBlobUrl(null);
       onGameMeta?.({ trailerUrl: null, source: communityMatch ? 'community' : null, multiplayer: communityMatch?.multiplayer === true });
       return;
     }
@@ -975,14 +984,19 @@ function GameProjectArtifactView({
       cancelled = true;
       if (revoked) URL.revokeObjectURL(revoked);
     };
-  }, [projectId, revisionKey, bundledMatch]);
+  }, [projectId, revisionKey, bundledMatch, chatRunning]);
 
   const isDraftOrFailed = Boolean(
     projectId
     && gameMeta?.source === 'mine'
     && (gameMeta.status === 'draft' || gameMeta.status === 'failed'),
   );
-  const isBuilding = Boolean(projectId && gameMeta?.source === 'mine' && gameMeta.status === 'building');
+  const isBuilding = Boolean(
+    projectId
+    && gameMeta?.source === 'mine'
+    && gameMeta.status === 'building'
+    && chatRunning,
+  );
   const isMultiplayer = gameMeta?.multiplayer === true || isMultiplayerGameArtifact(artifact);
 
   useEffect(() => {
@@ -1641,6 +1655,7 @@ export function ArtifactBrowserPane({
   active = true,
   chatId,
   workingDir,
+  chatRunning = true,
   artifacts,
   openTabIds,
   activeTabId,
@@ -1673,6 +1688,7 @@ export function ArtifactBrowserPane({
   active?: boolean;
   chatId: string | null;
   workingDir?: string;
+  chatRunning?: boolean;
   artifacts: SuperAgentArtifact[];
   openTabIds: string[];
   activeTabId: string;
@@ -3359,6 +3375,7 @@ export function ArtifactBrowserPane({
           <GameProjectArtifactView
             artifact={activeArtifact}
             chatId={chatId}
+            chatRunning={chatRunning}
             mode={viewMode}
             viewport={viewport}
             reloadKey={reloadKey}

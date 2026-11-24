@@ -2778,3 +2778,222 @@ test('extractArtifactFromTool auto-presents created design and motion projects s
   assert.equal(typeof motionArt.presentedAt, 'number');
   await service.close();
 }));
+
+test('Codex subagent notifications do not prematurely abort or pollute root turns, and stop() reconciles building game status', () => fixture(async store => {
+  for (const prompt of [SUPER_AGENT_INSTRUCTIONS, CLAUDE_SUPER_AGENT_INSTRUCTIONS]) {
+    assert.ok(prompt.includes('openmotion_read_workflow'), 'Super Agent prompt must direct workflow reads through openmotion_read_workflow');
+  }
+  const phase1 = new Phase1Service(store, pluginRoot, {
+    origin: () => 'http://127.0.0.1:4173',
+    nativeUrl: () => undefined,
+    openProject: async () => {},
+    mutation: async fn => fn(),
+    cancel: async () => ({ id: 'x', state: 'cancelled' } as any),
+  });
+  const created = await gameProjectsFor(store.directory).create({
+    prompt: 'Bund night cruiser',
+    genre: 'casual',
+    orientation: 'landscape',
+    multiplayer: false,
+  });
+  const gameId = created.game.id;
+  const toolReplies: Array<{ id: number; success: boolean }> = [];
+  let rootCompleted = false;
+
+  class SubagentCodexRpc {
+    onNotification: (msg: any) => void;
+    closed = false;
+    constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) {
+      this.onNotification = onNotification;
+    }
+    async request(method: string) {
+      if (method === 'initialize') return {};
+      if (method === 'thread/start') return { thread: { id: 'root-thread-1' } };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          this.onNotification({
+            method: 'turn/started',
+            params: { threadId: 'root-thread-1', turn: { id: 'root-turn-1' } },
+          });
+          this.onNotification({
+            id: 601,
+            method: 'item/tool/call',
+            params: {
+              threadId: 'root-thread-1',
+              turnId: 'root-turn-1',
+              callId: 'c-building',
+              tool: 'openmotion_game_set_status',
+              arguments: { id: gameId, status: 'building' },
+            },
+          });
+        });
+        return { turn: { id: 'root-turn-1' } };
+      }
+      return {};
+    }
+    send(payload: any) {
+      if (payload.id !== undefined) {
+        toolReplies.push({ id: payload.id, success: Boolean(payload.result?.success) });
+      }
+      if (payload.id === 601) {
+        queueMicrotask(() => {
+          this.onNotification({
+            id: 602,
+            method: 'item/tool/call',
+            params: {
+              threadId: 'subagent-thread-city',
+              turnId: 'subagent-turn-1',
+              callId: 'c-sub-write',
+              tool: 'openmotion_game_write_files',
+              arguments: {
+                id: gameId,
+                files: [
+                  { path: 'index.html', content: '<!doctype html><canvas id="game"></canvas><script>window.__ok=1;</script>' },
+                  { path: 'client.js', content: 'console.log("bundled");' },
+                ],
+              },
+            },
+          });
+        });
+      } else if (payload.id === 602) {
+        queueMicrotask(() => {
+          this.onNotification({
+            method: 'item/agentMessage/delta',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', itemId: 'sub-msg', delta: 'Subagent chatter' },
+          });
+          this.onNotification({
+            method: 'item/completed',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', item: { id: 'sub-msg', type: 'agentMessage', text: 'Subagent chatter' } },
+          });
+          this.onNotification({
+            method: 'thread/tokenUsage/updated',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', tokenUsage: { total: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } } },
+          });
+          this.onNotification({
+            method: 'error',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', willRetry: false, error: { message: 'subagent transient error' } },
+          });
+          this.onNotification({
+            method: 'turn/completed',
+            params: { threadId: 'subagent-thread-city', turn: { id: 'subagent-turn-1', status: 'completed' } },
+          });
+          this.onNotification({
+            method: 'turn/completed',
+            params: { turn: { id: 'stale-turn-999', status: 'completed' } },
+          });
+          setTimeout(() => {
+            if (this.closed) return;
+            rootCompleted = true;
+            this.onNotification({
+              method: 'thread/tokenUsage/updated',
+              params: { threadId: 'root-thread-1', turnId: 'root-turn-1', tokenUsage: { total: { inputTokens: 500, outputTokens: 200, totalTokens: 700 } } },
+            });
+            this.onNotification({
+              method: 'item/completed',
+              params: { threadId: 'root-thread-1', turnId: 'root-turn-1', item: { id: 'root-msg', type: 'agentMessage', text: 'Bund build finished.' } },
+            });
+            this.onNotification({
+              method: 'turn/completed',
+              params: { threadId: 'root-thread-1', turn: { id: 'root-turn-1', status: 'completed' } },
+            });
+          }, 30);
+        });
+      }
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const service = new SuperAgentConversations(store, {
+    resolve: async () => '/usr/local/bin/codex',
+    rpc: SubagentCodexRpc as unknown as typeof AssetAgentRpc,
+  });
+
+  try {
+    const chat = await service.create({ engine: 'codex', intent: 'game', permissionMode: 'auto' });
+    await service.start(chat.id, {
+      requestId: 'req-subagent-1',
+      mode: 'game',
+      text: `Build game ${gameId}`,
+    }, {
+      origin: 'http://127.0.0.1:4173',
+      phase1: () => phase1,
+    });
+    const done = await service.waitForChat(chat.id);
+    assert.equal(rootCompleted, true, 'root turn must survive subagent turn/completed and error notifications');
+    assert.equal(done.state, 'idle');
+    assert.deepEqual(toolReplies, [{ id: 601, success: true }, { id: 602, success: true }]);
+    assert.equal(done.messages.some(m => m.text.includes('Subagent chatter')), false, 'subagent assistant text must not pollute root stream');
+    assert.equal(done.messages.some(m => m.text === 'Bund build finished.'), true);
+    assert.equal(done.lastTurnUsage?.totalTokens, 700);
+    const gameAfter = await gameProjectsFor(store.directory).get(gameId);
+    assert.equal(gameAfter.status, 'ready', 'valid written game must be promoted from building to ready on clean turn end');
+    assert.equal(done.activeArtifactId, `game:${gameId}`);
+
+    const created2 = await gameProjectsFor(store.directory).create({
+      prompt: 'Interrupted prototype',
+      genre: 'casual',
+      orientation: 'landscape',
+      multiplayer: false,
+    });
+    const gameId2 = created2.game.id;
+    let resolveStarted!: () => void;
+    const startedPromise = new Promise<void>(r => { resolveStarted = r; });
+
+    class HangingBuildingRpc {
+      onNotification: (msg: any) => void;
+      constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) {
+        this.onNotification = onNotification;
+      }
+      async request(method: string) {
+        if (method === 'initialize') return {};
+        if (method === 'thread/start') return { thread: { id: 'root-thread-2' } };
+        if (method === 'turn/start') {
+          queueMicrotask(() => {
+            this.onNotification({
+              id: 701,
+              method: 'item/tool/call',
+              params: {
+                threadId: 'root-thread-2',
+                callId: 'c-hang-build',
+                tool: 'openmotion_game_set_status',
+                arguments: { id: gameId2, status: 'building' },
+              },
+            });
+          });
+          return { turn: { id: 'root-turn-2' } };
+        }
+        return {};
+      }
+      send(payload: any) {
+        if (payload.id === 701) resolveStarted();
+      }
+      close() {}
+    }
+
+    const service2 = new SuperAgentConversations(store, {
+      resolve: async () => '/usr/local/bin/codex',
+      rpc: HangingBuildingRpc as unknown as typeof AssetAgentRpc,
+    });
+    try {
+      const chat2 = await service2.create({ engine: 'codex', intent: 'game', permissionMode: 'auto' });
+      await service2.start(chat2.id, {
+        requestId: 'req-subagent-cancel',
+        mode: 'game',
+        text: `Build game ${gameId2}`,
+      }, {
+        origin: 'http://127.0.0.1:4173',
+        phase1: () => phase1,
+      });
+      await startedPromise;
+      await service2.stop(chat2.id, undefined, 'cancelled');
+      const cancelledGame = await gameProjectsFor(store.directory).get(gameId2);
+      assert.equal(cancelledGame.status, 'failed', 'cancelled turn must demote building game to failed');
+    } finally {
+      await service2.close();
+    }
+  } finally {
+    await service.close();
+  }
+}));

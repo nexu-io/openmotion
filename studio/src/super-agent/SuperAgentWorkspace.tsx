@@ -2025,6 +2025,7 @@ export function SuperAgentWorkspace({
               active={active}
               chatId={activeChat?.id ?? null}
               workingDir={activeChat?.workingDir}
+              chatRunning={activeChat?.state === 'running' || activeChat?.state === 'waiting'}
               artifacts={viewerArtifacts}
               openTabIds={openTabIds}
               activeTabId={activeTabId}
