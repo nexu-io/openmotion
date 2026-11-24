@@ -6,7 +6,7 @@ import { I18nProvider } from '../../i18n/I18n';
 import { CaptionExportPanel } from './CaptionExportPanel';
 const state = vi.hoisted(() => ({ projectId: 'p', activeCompPath: 'index.html', fail: false, empty: false, save: vi.fn<() => Promise<void>>(), request: vi.fn(), download: vi.fn() }));
 vi.mock('../../contexts/StudioContext', () => ({ useStudioShellContext: () => ({ projectId: state.projectId, activeCompPath: state.activeCompPath, waitForPendingDomEditSaves: state.save, writeBlockedReason: null }) }));
-vi.mock('../../contexts/FileManagerContext', () => ({ useFileManagerContextOptional: () => ({ compositions: ['index.html', 'scenes/outro.html'] }) }));
+vi.mock('../../contexts/FileManagerContext', () => ({ useFileManagerContextOptional: () => ({ compositions: ['index.html', 'scenes/outro.html', 'chapter-a/intro.html', 'chapter-b/intro.html'] }) }));
 vi.mock('../../motion/transcriptClient', () => ({ transcriptRequest: state.request, downloadTranscript: state.download }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root;
@@ -38,6 +38,14 @@ it('exports the chosen scene and VTT without changing the editor composition', a
   await act(async () => button('Download VTT').click());
   expect(state.request).toHaveBeenLastCalledWith({ command: 'caption_export', projectId: 'p', compositionPath: 'scenes/outro.html', format: 'vtt' });
   expect(state.activeCompPath).toBe('index.html');
+});
+it('distinguishes identically named scenes when choosing a subtitle export', async () => {
+  await act(async () => button('Export scene').click());
+  const options = [...document.querySelectorAll<HTMLElement>('[role=option]')];
+  expect(options.map(option => option.textContent)).toEqual(expect.arrayContaining(['chapter-a/intro.html', 'chapter-b/intro.html']));
+  await act(async () => options.find(option => option.textContent === 'chapter-b/intro.html')!.click());
+  await act(async () => button('Download SRT').click());
+  expect(state.request).toHaveBeenLastCalledWith({ command: 'caption_export', projectId: 'p', compositionPath: 'chapter-b/intro.html', format: 'srt' });
 });
 it('does not download after switching projects during a save', async () => {
   let finish!: () => void; state.save.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));

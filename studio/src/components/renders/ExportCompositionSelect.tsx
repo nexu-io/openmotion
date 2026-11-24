@@ -14,8 +14,20 @@ export function ExportCompositionSelect({ value, onChange, disabled }: { value: 
   const files = useFileManagerContextOptional(), { t } = useI18n();
   const compositions = [...new Set([value, ...(files?.compositions || [])])];
   if (compositions.length < 2) return null;
+  const labels = compositions.map(path => path === 'index.html' ? t('Full video') : formatCompositionLabel(path));
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const label of labels) {
+    if (seen.has(label)) duplicates.add(label);
+    seen.add(label);
+  }
+  const options = compositions.map((path, index) => ({
+    value: path,
+    label: path !== 'index.html' && duplicates.has(labels[index]) ? path : labels[index],
+    icon: <RemixIcon name="film-line" size={14} />,
+  }));
   return <div className="flex flex-col gap-1 px-3 pb-3">
     <span className="text-step-11 text-text-3">{t('Export scene')}</span>
-    <Select label={t('Export scene')} value={value} disabled={disabled} options={compositions.map(path => ({ value: path, label: path === 'index.html' ? t('Full video') : formatCompositionLabel(path), icon: <RemixIcon name="film-line" size={14} /> }))} onCommit={onChange} />
+    <Select label={t('Export scene')} value={value} disabled={disabled} options={options} onCommit={onChange} />
   </div>;
 }
