@@ -2588,4 +2588,56 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(svgMetaBody.mimeType, 'image/svg+xml');
     assert.equal(env.enqueued.length, 0);
   });
+
+  it('returns 503 instead of endless 202 pending on /waveform/* when media queues are missing or fail to enqueue', async () => {
+    const env = createStudioTestEnv();
+    const created = await env.workspace.createProject(env.auth, { title: 'Waveform Queue Fallback Test' });
+    await env.files.commitChanges(env.auth, {
+      projectId: created.projectId,
+      ops: [{ op: 'upsert_binary', path: 'assets/soundtrack.m4a', data: Buffer.from('fake-m4a'), mimeType: 'audio/mp4' }],
+      source: 'studio',
+      summary: 'Add soundtrack',
+    });
+
+    const db = drizzle({ client: env.pgClient as never, schema }) as unknown as Database;
+    const noQueueStudio = createDisklessStudioApp({
+      db,
+      storage: env.storage,
+      hotTextCache: env.hotTextCache,
+      eventBus: env.eventBus,
+      workspace: env.workspace,
+      files: env.files,
+      history: env.history,
+      assetNames: new AssetNamesService({ db, files: env.files }),
+      resolveAuth: () => env.auth,
+      skipDeterministicFonts: true,
+    });
+    const noQueueRes = await noQueueStudio.request(
+      `/api/projects/${created.projectId}/waveform/assets/soundtrack.m4a`,
+    );
+    assert.equal(noQueueRes.status, 503);
+
+    const brokenQueueStudio = createDisklessStudioApp({
+      db,
+      storage: env.storage,
+      hotTextCache: env.hotTextCache,
+      eventBus: env.eventBus,
+      queues: {
+        enqueueMediaIngest: async () => {
+          throw new Error('redis offline');
+        },
+        enqueueRenderExport: async () => ({}),
+      },
+      workspace: env.workspace,
+      files: env.files,
+      history: env.history,
+      assetNames: new AssetNamesService({ db, files: env.files }),
+      resolveAuth: () => env.auth,
+      skipDeterministicFonts: true,
+    });
+    const brokenQueueRes = await brokenQueueStudio.request(
+      `/api/projects/${created.projectId}/waveform/assets/soundtrack.m4a`,
+    );
+    assert.equal(brokenQueueRes.status, 503);
+  });
 });
