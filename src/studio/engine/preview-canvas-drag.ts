@@ -202,7 +202,8 @@ export const PREVIEW_CANVAS_DRAG = `
     const dx = message.dx * innerWidth, dy = message.dy * innerHeight;
     const round = n => Math.round(n * 1000) / 1000;
     const { corner } = drag;
-    const size = corner && resizedBox(drag, dx, dy);
+    let size = corner && resizedBox(drag, dx, dy);
+    if (drag.resize?.projection) size = projectedResize(drag, dx, dy, size);
     const { x: offsetX, y: offsetY } = size || localOffset(drag.axes, dx, dy);
     const left = round(drag.left + offsetX), top = round(drag.top + offsetY);
     const width = size && round(size.width), height = size && round(size.height);

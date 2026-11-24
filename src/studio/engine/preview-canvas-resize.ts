@@ -5,6 +5,23 @@ export const PREVIEW_CANVAS_RESIZE = `
     return { geometry: { x, y, width, height }, viewport: { width: innerWidth, height: innerHeight } };
   }
 
+  // An ordinary 2D transform, including a tilted plane without perspective, is affine.
+  // Only a projection whose depth varies across the element needs live corrections.
+  function hasResizePerspective(element) {
+    let tilted = false;
+    for (let node = element; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (tilted && style.perspective && style.perspective !== 'none') return true;
+      const rotate = style.rotate;
+      if (rotate?.includes(' ') && !rotate.startsWith('z ')) tilted = true;
+      if (!style.transform?.startsWith('matrix3d(')) continue;
+      const matrix = new DOMMatrixReadOnly(style.transform);
+      if (matrix.m14 || matrix.m24 || (tilted && matrix.m34)) return true;
+      tilted ||= !!(matrix.m13 || matrix.m23);
+    }
+    return false;
+  }
+
   function measureResize(element, width, height, corner, original, axes) {
     const before = element.getBoundingClientRect();
     const anchorX = corner.endsWith('w') ? 'right' : 'left';
@@ -23,7 +40,8 @@ export const PREVIEW_CANVAS_RESIZE = `
     const shiftW = localOffset(axes, w.x, w.y), shiftH = localOffset(axes, h.x, h.y);
     const writeLeft = corner.endsWith('w') || Math.abs(shiftW.x) + Math.abs(shiftH.x) > 0.0001;
     const writeTop = corner.startsWith('n') || Math.abs(shiftW.y) + Math.abs(shiftH.y) > 0.0001;
-    return { width: w, height: h, writeLeft, writeTop };
+    const projection = hasResizePerspective(element) ? { before, anchorX, anchorY } : null;
+    return { width: w, height: h, writeLeft: writeLeft || !!projection, writeTop: writeTop || !!projection, projection };
   }
 
   function resizedBox(step, dx, dy) {
@@ -58,5 +76,43 @@ export const PREVIEW_CANVAS_RESIZE = `
     // Size changes can move the opposite corner when transforms rotate about their origin.
     const correction = localOffset(step.axes, -w.x * widthDelta - h.x * heightDelta, -w.y * widthDelta - h.y * heightDelta);
     return { width: step.width + widthDelta, height: step.height + heightDelta, ...correction };
+  }
+
+  // The initial size-to-screen mapping is only tangent to a perspective projection.
+  // Refine against the real bounds, stopping as soon as it fits or improvement stalls.
+  function projectedResize(step, dx, dy, first) {
+    const { before, anchorX, anchorY } = step.resize.projection;
+    const signX = step.corner.endsWith('w') ? -1 : 1;
+    const signY = step.corner.startsWith('n') ? -1 : 1;
+    const style = step.element.style;
+    if (step.makeRelative) style.position = 'relative';
+    let best = { width: step.width, height: step.height, x: 0, y: 0 };
+    let bestError = Math.hypot(dx, dy);
+    let inputX = dx, inputY = dy, biasX = 0, biasY = 0;
+    for (let i = 0; i < 4; i++) {
+      const candidate = i === 0 ? first : resizedBox(step, inputX, inputY);
+      candidate.x += biasX;
+      candidate.y += biasY;
+      style.width = candidate.width + 'px';
+      style.height = candidate.height + 'px';
+      style.left = (step.left + candidate.x) + 'px';
+      style.top = (step.top + candidate.y) + 'px';
+      const rect = step.element.getBoundingClientRect();
+      const widthError = dx - signX * (rect.width - before.width);
+      const heightError = dy - signY * (rect.height - before.height);
+      const anchorErrorX = before[anchorX] - rect[anchorX];
+      const anchorErrorY = before[anchorY] - rect[anchorY];
+      const error = Math.hypot(widthError, heightError, anchorErrorX, anchorErrorY);
+      if (!(error < bestError)) break;
+      best = candidate;
+      bestError = error;
+      if (error < 0.1) break;
+      inputX += widthError;
+      inputY += heightError;
+      const shift = localOffset(step.axes, anchorErrorX, anchorErrorY);
+      biasX += shift.x;
+      biasY += shift.y;
+    }
+    return best;
   }
 `;

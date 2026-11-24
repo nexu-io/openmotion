@@ -22,7 +22,7 @@ function createScene(declarative = false, position = false, tag = "div") {
   const dispatch = new Function("document", "getComputedStyle", "HTMLElement", "sourceVersions", "describe",
     "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "sourceFileForElement",
     PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + PREVIEW_CANVAS_DRAG + "\nreturn canvasDrag;")(
-    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: "none", display: el.style.display || "block" }),
+    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: el.style.transform || "none", display: el.style.display || "block" }),
     HTMLElement, { "one.html": originalHash, "two.html": originalHash },
     (el: HTMLElement) => ({ sourceFile: el.id + ".html", elementId: el.id, geometry: el.getBoundingClientRect(),
       viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position}}, (el: HTMLElement) => el.id + ".html",
@@ -145,7 +145,9 @@ it("keeps the opposite corner of a transformed layer fixed while dragging and af
   });
   const before = one.getBoundingClientRect();
   expect(gesture("start", "resize", { corner: "se" })).toBeTruthy();
+  vi.mocked(one.getBoundingClientRect).mockClear();
   gesture("move", "resize", { dx: .2, dy: .12 });
+  expect(one.getBoundingClientRect).not.toHaveBeenCalled();
   const during = one.getBoundingClientRect();
   expect(during.left).toBeCloseTo(before.left, 2);
   expect(during.top).toBeCloseTo(before.top, 2);
@@ -156,6 +158,35 @@ it("keeps the opposite corner of a transformed layer fixed while dragging and af
   one.removeAttribute("style");
   for (const op of canvasBoxOperations(result)) one.style.setProperty(op.property, op.value);
   expect(one.getBoundingClientRect().toJSON()).toEqual(during.toJSON());
+});
+
+it("keeps a projected corner under the pointer and persists the opposite corner correction", () => {
+  const { one, gesture } = createScene();
+  one.style.transform = "matrix3d(1,0,0,.002,0,1,0,0,0,0,1,0,0,0,0,1)";
+  const layout = vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const width = parseFloat(one.style.width) || 20, height = parseFloat(one.style.height) || 10;
+    const depth = 1 + width * .002;
+    // Projected corners have different depths as the plane grows around its center.
+    return new DOMRect((parseFloat(one.style.left) || 0) + (width - width / depth) / 2,
+      (parseFloat(one.style.top) || 0) + (height - height / depth) / 2, width / depth, height / depth);
+  });
+  const before = layout();
+  expect(gesture("start", "projected", {corner: "se"})).toBeTruthy();
+  layout.mockClear();
+  gesture("move", "projected", {dx: .62, dy: .37});
+  expect(layout.mock.calls.length).toBeLessThanOrEqual(4);
+  const during = layout();
+  expect(Math.abs(during.left - before.left)).toBeLessThan(.2);
+  expect(Math.abs(during.top - before.top)).toBeLessThan(.2);
+  expect(Math.abs(during.right - before.right - 62)).toBeLessThan(.2);
+  expect(Math.abs(during.bottom - before.bottom - 37)).toBeLessThan(.2);
+
+  const result = gesture("finish", "projected", {dx: .62, dy: .37});
+  expect(result.extraAxes).toBe("xy");
+  gesture("cancel", "projected");
+  expect(layout().toJSON()).toEqual(before.toJSON());
+  for (const op of canvasBoxOperations(result)) one.style.setProperty(op.property, op.value);
+  expect(layout().toJSON()).toEqual(during.toJSON());
 });
 
 it.each([44.9, 45, 45.1])("keeps a small drag bounded at a %s degree rotation", angle => {
