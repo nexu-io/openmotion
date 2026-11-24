@@ -10,13 +10,13 @@ const scene = (body: string, id = 'main') =>
   `<html><head></head><body><main data-composition-id="${id}" data-duration="3">${body}</main></body></html>`;
 const mount = (path: string, id: string) => `<div data-composition-id="${id}" data-composition-src="${path}"></div>`;
 
-async function previewConfig(files: Record<string, string>) {
+async function previewConfig(files: Record<string, string>, variables?: Record<string, unknown>) {
   const project = new InMemoryVirtualProject({
     projectId: 'probe', projectName: 'Probe', revision: 'a'.repeat(64), textContents: files,
     files: Object.entries(files).map(([path, content]) => ({ path, blobScope: 'workspace', sha256: 'a'.repeat(64),
       sizeBytes: Buffer.byteLength(content), mimeType: 'text/html', isText: true, updatedAt: new Date() })),
   });
-  const html = await bundlePreviewInMemory(project, { bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true });
+  const html = await bundlePreviewInMemory(project, { bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true, variables });
   const config = parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!.getAttribute('data-openmotion-preview');
   return JSON.parse(config!);
 }
@@ -37,6 +37,11 @@ it('keeps placement on assembled CSS-only scenes and preserves script and unreso
   const scripted = await previewConfig({ 'index.html': entry, 'child.html': child('<script>observe()</script>') });
   assert.deepEqual(scripted.smallMountedSources, ['child.html']);
   assert.equal(scripted.liveEdits?.position, undefined);
+  const authored = { 'index.html': entry, 'child.html': child('<script>observe()</script>') };
+  assert.equal((await previewConfig(authored, { title: 'overridden' })).smallMountedSources, undefined);
+  for (const manifest of ['.hyperframes/studio-motion.json', '.hyperframes/studio-manual-edits.json']) {
+    assert.equal((await previewConfig({ ...authored, [manifest]: '{}' })).smallMountedSources, undefined);
+  }
   const digest = createHash('sha256').update(JSON.stringify('mediaTiming')).digest('hex');
   const declared = entry.replace('<head>', `<head><meta name="openmotion-live-edits" content="mediaTiming" data-scripts-sha256="${digest}">`);
   const withMedia = await previewConfig({ 'index.html': declared, 'child.html': child() });

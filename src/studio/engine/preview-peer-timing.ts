@@ -99,7 +99,7 @@ export const PREVIEW_PEER_TIMING = `
       (!drag || drag.ordered) && pendingForSource(m.path).every(step => step.ordered);
     const base = ownDrag ? pending.confirmedVersion || pending.sha256 : sourceVersions[m.path];
     const measured = ownDrag && pending.ordered && Array.isArray(m.changes) && m.changes.length === 1 && mediaBox(m.changes[0]);
-    const nestedBox = m.type === 'peer-presentation' && m.path !== compositionPath &&
+    const nestedBox = m.type === 'peer-presentation' && settings.smallMountedSources?.includes(m.path) &&
       Array.isArray(m.changes) && m.changes.length > 0 && m.changes.every(change => pixelBox(change) && presentationTags.has(change.tag));
     const position = measured || nestedBox || settings.liveEdits?.position === true && m.type === 'peer-presentation' &&
       Array.isArray(m.changes) && (isPositionEdit(m.changes) || m.changes.every(paintOnly));

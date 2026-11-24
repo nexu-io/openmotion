@@ -586,14 +586,16 @@ async function applyStudioPreviewAugmentations(
     .map(file => [file.path, file.blobScope === 'patch' ? formatFileVersion(file.blobScope, file.sha256) : file.sha256]));
   if (options.bridgeOrigin) {
     let liveEdits;
-    if (!options.capture && !options.canRebindTiming && !Object.keys(options.variables ?? {}).length &&
-        !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)) {
+    // Runtime overrides can own the same properties as an authored pixel box.
+    const authoredLayout = !options.capture && !Object.keys(options.variables ?? {}).length &&
+      !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH);
+    if (authoredLayout && !options.canRebindTiming) {
       const reviewed = await verifiedPreviewLiveEdits(project);
       liveEdits = options.declarativePlacement ? { ...reviewed, position: true as const } : reviewed;
     }
     const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions(), {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
-      smallMountedSources: options.smallMountedSources,
+      smallMountedSources: authoredLayout ? options.smallMountedSources : undefined,
     });
     const snapdomPreload = options.capture
       ? `<link rel="preload" as="script" href="${new URL('/api/vendor/snapdom.js', options.bridgeOrigin).href}">`

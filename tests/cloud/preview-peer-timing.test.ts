@@ -10,11 +10,11 @@ const etag = (n: number) => '"sha256:' + sha(n) + '"';
 const root = { compositionId: 'root', tag: 'main', attributes: [['data-duration', '15', '14']] };
 const clip = { id: 'clip', tag: 'audio', attributes: [['data-start', '2', '3'], ['data-media-start', null, '1']] };
 
-function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits) {
+function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits, smallMountedSources?: string[]) {
   const document = parseHTMLContent('<html><body><main data-composition-id="root" data-hf-authored-duration="15"><audio id="clip" data-start="2"></audio><div id="title" style="left:10px">Hello</div></main></body></html>');
   const script = document.createElement('script');
   script.setAttribute('data-openmotion-preview', JSON.stringify({
-    projectId: 'p', compositionPath: 'index.html', sourceVersions: { 'index.html': sha(1), 'scenes/intro.html': sha(3) }, studioOrigin: 'https://studio.test', canRebindTiming, liveEdits,
+    projectId: 'p', compositionPath: 'index.html', sourceVersions: { 'index.html': sha(1), 'scenes/intro.html': sha(3) }, studioOrigin: 'https://studio.test', canRebindTiming, liveEdits, smallMountedSources,
   }));
   Object.defineProperty(document, 'currentScript', { value: script });
   const replies: { result?: unknown; type?: string; timelineVersion?: string }[] = [];
@@ -268,8 +268,8 @@ it('only moves the existing canvas box when the project certifies a placement ch
 });
 
 it('keeps a mounted scripted child and its runtime descendants through verified pixel moves and resizes', () => {
-  const { send, document, hooks } = preview(false);
   const path = 'scenes/intro.html';
+  const { send, document, hooks } = preview(false, undefined, [path]);
   const host = document.querySelector('main')!;
   host.setAttribute('data-composition-file', path);
   const node = document.getElementById('title')!;
@@ -277,6 +277,9 @@ it('keeps a mounted scripted child and its runtime descendants through verified 
   node.replaceChildren(glyph);
   const change = { id: 'title', tag: 'div', attributes: [], styles: [['left', '10px', '20px'], ['width', '', '84px']] };
   const message = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes: [change] };
+  const overridden = preview(false);
+  overridden.document.querySelector('main')!.setAttribute('data-composition-file', path);
+  assert.equal(overridden.send(message), false);
   const duplicate = node.cloneNode(true);
   host.appendChild(duplicate);
   assert.equal(send(message), false);
