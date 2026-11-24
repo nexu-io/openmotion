@@ -184,14 +184,20 @@ export function useGroupCommits(params: UseGroupCommitsParams) {
       try {
         const { bbox, targets, rebases } = computeGroupGeometry(members, timelineElements);
         const { groupCanvasElements } = await import("../../../packages/edit-core/canvas-source");
-        let wrapperId = groupId;
+        const { findTargetElement, parseSourceDocument } = await import("@hyperframes/studio-server/source-mutation");
+        let label = groupId;
         await saveGroupEdit(pid, targetPath, "Group elements", (source) => {
           const result = groupCanvasElements(source, targets, groupId, bbox, rebases);
           if (!result.matched) throw new Error(result.error || "Cannot group the selected elements.");
-          wrapperId = result.groupId ?? groupId;
-          return {html:result.html, selection:{wrap:true, wrapper:{id:wrapperId}, members:targets}};
+          label = result.groupId ?? groupId;
+          // The upstream groupId is a display label. The emitted DOM id accounts
+          // for collisions in the file, so get it from an actual wrapped member.
+          const first = targets[0];
+          const parent = first && findTargetElement(parseSourceDocument(result.html).document, first)?.parentElement;
+          const id = parent?.getAttribute("data-hf-group") === label ? parent.id : undefined;
+          return { html: result.html, selection: { wrap: true, wrapper: { id }, members: targets } };
         }, params);
-        return wrapperId;
+        return label;
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Failed to group elements", "error");
         return null;
