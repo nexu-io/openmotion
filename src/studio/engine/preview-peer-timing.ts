@@ -95,7 +95,7 @@ export const PREVIEW_PEER_TIMING = `
     const base = ownDrag ? pending.confirmedVersion || pending.sha256 : sourceVersions[m.path];
     const measured = ownDrag && pending.ordered && Array.isArray(m.changes) && m.changes.length === 1 && mediaBox(m.changes[0]);
     const position = measured || settings.liveEdits?.position === true && m.type === 'peer-presentation' &&
-      Array.isArray(m.changes) && m.changes.length <= 32 && isPositionEdit(m.changes);
+      Array.isArray(m.changes) && m.changes.length <= 32 && (isPositionEdit(m.changes) || m.changes.every(paintOnly));
     const media = settings.liveEdits?.mediaTiming === true && m.type === 'peer-timing' &&
       Array.isArray(m.changes) && m.changes.length <= 32 && isMediaMove(m.changes);
     const target = temporary || position || media ? styleDocumentId : timingDocumentId;

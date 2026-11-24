@@ -204,7 +204,7 @@ export async function tryApplyPeerChanges(
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
     await diffMountedPreview(previous.content, current.content, measured);
   if (!changes || !isCurrent()) return false;
-  const canAdvance = document.canRebind || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && isLivePositionEdit(changes)) ||
+  const canAdvance = document.canRebind || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
   if (temporary && (document.canRebind || !onlyStyles(changes))) return false;

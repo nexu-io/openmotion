@@ -87,6 +87,7 @@ export function isMediaBoxChange(change: PreviewChange): boolean {
     change.styles.every(style => {
       if (!Array.isArray(style)) return false;
       const [name, from, to] = style;
+      if (["color", "background-color", "opacity"].includes(name)) return true;
       if (name === "position") return (!from || from === "static") && to === "relative";
       return ["left", "top", "width", "height"].includes(name) &&
         [from, to].every(value => value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value));

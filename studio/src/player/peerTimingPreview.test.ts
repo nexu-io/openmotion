@@ -156,3 +156,10 @@ it("keeps an unverified font change visible while the certified project's script
   expect(result).toBe(false);
   expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "peer-presentation", temporary: true }), "https://preview.test");
 });
+
+it("accepts a peer paint and a measured local media box together without changing the canvas buffer", () => {
+  const before = '<canvas id="picture" width="1200"></canvas>';
+  const after = before.replace('id="picture"', 'id="picture" style="position:relative;left:16px;opacity:.52"');
+  expect(diffPreviewChanges(before, after, true)).toMatchObject([{id:"picture", tag:"canvas"}]);
+  expect(diffPreviewChanges(before, after.replace('width="1200"', 'width="1600"'), true)).toBeNull();
+});

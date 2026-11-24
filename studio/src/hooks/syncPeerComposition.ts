@@ -68,6 +68,7 @@ function syncMountedComposition(
       if (changedFile && liveChild) {
         return changedFile.then(async ({ content, version }) => {
           if (typeof content !== "string" || content.length > MAX_PEER_PREVIEW_SOURCE_LENGTH || !version || !isCurrent() || isPreviewChanging()) return false;
+          if (mountedPeerFileVersion(frame, changedPath) === version) return true;
           const previous = base ?? (pinned && pinned !== version ? await readMountedSource(projectId, pinned) : null);
           if (!previous || !isCurrent() || isPreviewChanging()) return false;
           const applied = await tryApplyPeerChanges(frame, { path: changedPath, previous, current: { content, version } }, isCurrent, "keep-visible");
