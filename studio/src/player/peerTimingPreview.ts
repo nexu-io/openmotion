@@ -5,7 +5,7 @@ import { createPreviewAdapter } from "./lib/previewAdapter";
 import { capturePresentedTimelineChanges } from "./lib/isolatedTimelineEdits";
 import { setPreviewMediaMuted } from "./lib/timelineIframeHelpers";
 import { usePlayerStore } from "./store/playerStore";
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
+import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isPaintOnlyChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
 
 type FileSnapshot = { content: string; version: string };
 
@@ -97,7 +97,7 @@ function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["st
 }
 
 /** Strip only supported changes, then compare the entire remaining document before touching the player. */
-export function diffPreviewChanges(previous: string, current: string): PreviewChange[] | null {
+export function diffPreviewChanges(previous: string, current: string, measured = false): PreviewChange[] | null {
   // This optional fast path runs on the UI thread; large source rewrites use the regular loader.
   if (previous === current || Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
   const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
@@ -131,7 +131,7 @@ export function diffPreviewChanges(previous: string, current: string): PreviewCh
     let styles: PreviewChange["styles"];
     let text: PreviewChange["text"];
     let captureOriginalTranslate: boolean | undefined;
-    if ((presentationTags.has(left.localName) || left.localName === "canvas") && left instanceof HTMLElement && right instanceof HTMLElement) {
+    if ((presentationTags.has(left.localName) || ["canvas", "img", "video"].includes(left.localName)) && left instanceof HTMLElement && right instanceof HTMLElement) {
       if (left.getAttribute("style") !== right.getAttribute("style")) {
         styles = changedStyles(left, right) ?? undefined;
         if (!styles) return null;
@@ -160,7 +160,8 @@ export function diffPreviewChanges(previous: string, current: string): PreviewCh
     if (!hfId && !left.id && !compositionId) return null;
     const change = { hfId, id: left.id, compositionId, tag: left.localName, attributes, styles, text, captureOriginalTranslate };
     // Moving the canvas DOM box preserves its drawing buffer. Its content and dimensions are owned by the renderer.
-    if (change.tag === "canvas" && (styles || text) && !isLivePositionEdit([change])) return null;
+    if (!presentationTags.has(change.tag) && (styles || text) && !isPaintOnlyChange(change) && !(measured && isMediaBoxChange(change)) &&
+        !(change.tag === "canvas" && isLivePositionEdit([change]))) return null;
     changes.push(change);
   }
   if (!changes.length || changes.length > 32 || before.documentElement.outerHTML !== after.documentElement.outerHTML) return null;
@@ -168,12 +169,12 @@ export function diffPreviewChanges(previous: string, current: string): PreviewCh
 }
 
 /** The first visual edit can persist the exact IDs already mounted by the compiler. */
-async function diffMountedPreview(previous: string, current: string) {
+async function diffMountedPreview(previous: string, current: string, measured = false) {
   if (Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
-  const changes = diffPreviewChanges(previous, current);
+  const changes = diffPreviewChanges(previous, current, measured);
   if (changes || current.split("data-hf-id=").length <= previous.split("data-hf-id=").length) return changes;
   const { ensureHfIds } = await import("@hyperframes/parsers/hf-ids");
-  return diffPreviewChanges(ensureHfIds(previous), current);
+  return diffPreviewChanges(ensureHfIds(previous), current, measured);
 }
 
 function onlyStyles(changes: PreviewChange[]) {
@@ -199,10 +200,11 @@ export async function tryApplyPeerChanges(
   const releasePresented = capturePresentedTimelineChanges(frame, update.path);
   // Several accepted toggles can bring the file back to the exact source already on screen.
   const sameContent = !options && document.canRebind && previous.content === current.content;
+  const measured = typeof options === "object" && "gestureId" in options && !!options.gestureId;
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
-    await diffMountedPreview(previous.content, current.content);
+    await diffMountedPreview(previous.content, current.content, measured);
   if (!changes || !isCurrent()) return false;
-  const canAdvance = document.canRebind || (document.liveEdits.position && isLivePositionEdit(changes)) ||
+  const canAdvance = document.canRebind || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && isLivePositionEdit(changes)) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
   if (temporary && (document.canRebind || !onlyStyles(changes))) return false;

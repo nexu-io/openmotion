@@ -70,3 +70,22 @@ export function isLivePositionEdit(changes: PreviewChange[]): boolean {
     return hasOffset;
   });
 }
+
+/** These inline style changes leave the measured box, hierarchy and source coordinates intact. */
+export function isPaintOnlyChange(change: PreviewChange): boolean {
+  return !!change && !change.text && !change.insert && !change.removeFromComposition && Array.isArray(change.attributes) && !change.attributes.length &&
+    Array.isArray(change.styles) && change.styles.length > 0 && change.styles.every(style => Array.isArray(style) && ["opacity", "color", "background-color"].includes(style[0]));
+}
+
+/** A media element's measured CSS box can be updated without replacing its drawing buffer or decoder. */
+export function isMediaBoxChange(change: PreviewChange): boolean {
+  return !!change && ["canvas", "img", "video"].includes(change.tag) && Array.isArray(change.attributes) && !change.attributes.length &&
+    !change.text && !change.insert && !change.removeFromComposition && Array.isArray(change.styles) && change.styles.length > 0 &&
+    change.styles.every(style => {
+      if (!Array.isArray(style)) return false;
+      const [name, from, to] = style;
+      if (name === "position") return (!from || from === "static") && to === "relative";
+      return ["left", "top", "width", "height"].includes(name) &&
+        [from, to].every(value => value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value));
+    });
+}

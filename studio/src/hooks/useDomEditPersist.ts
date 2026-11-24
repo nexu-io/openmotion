@@ -1,11 +1,13 @@
-import { isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
-import { observedSourceVersion } from "../utils/confirmedTextSources";
+import { mountedCanvasVersion, isolatedSourceVersion } from "../components/editor/isolatedSourceTarget";
+import { supportsOrderedTextEdits, observedSourceVersion } from "../utils/confirmedTextSources";
 import { isolatedEditVersion } from "../utils/isolatedEditVersions";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
+import { submitStudioCommands } from "../utils/projectEditBatch";
 import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { useCallback, useRef } from "react";
 import { findUnsafeDomPatchValues } from "@hyperframes/core/studio-api/finite-mutation";
+import { trackStudioPendingEdit } from "../utils/studioPendingEdits";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { buildDomEditPatchTarget, type DomEditSelection } from "../components/editor/domEditing";
 import type { PersistDomEditOperations } from "./domEditCommitTypes";
@@ -156,22 +158,30 @@ export function useDomEditPersist({
         coalesceMs: options?.coalesceMs,
       };
       const writeHistory = getCachedCloudDisklessMode() ? studioHistoryForWrite(writeProjectFile, history.label, history.coalesceKey, history.coalesceMs, options?.continuous) : undefined;
-      if (cloudCommand && selection.isolatedTarget && !options?.prepareContent && !options?.validateContent) {
+      const ordered = supportsOrderedTextEdits(pid);
+      const shown = selection.isolatedTarget ? isolatedSourceVersion(selection.isolatedTarget)
+        : ordered && mountedCanvasVersion(selection.element.ownerDocument, pid, targetPath);
+      if (cloudCommand && shown && !options?.prepareContent && !options?.validateContent) {
         const command = { ...cloudCommand, compositionPath: targetPath };
-        const versions = { [targetPath]: isolatedSourceVersion(selection.isolatedTarget) };
-        const result = await serializeStudioFileMutations(writeProjectFile, [targetPath], async () => {
+        const versions = { [targetPath]: shown };
+        const submit = async () => {
           if (projectIdRef.current !== expectedProjectId) throw new Error("Active project changed before the edit could be saved");
           if (options?.shouldSave && !options.shouldSave()) return null;
+          if (!selection.isolatedTarget) {
+            const result = await submitStudioCommands(pid, [command], versions, writeHistory);
+            return { ...result, previewApplied: options?.skipRefresh === true, deferPresentation: false, presentChanged: result.changedPaths.length > 0 };
+          }
           return submitIsolatedCanvasEdit(pid, [command], versions, writeHistory, previewIframeRef, options?.coalesceKey);
-        });
+        };
+        const result = ordered ? await submit() : await serializeStudioFileMutations(writeProjectFile, [targetPath], submit);
         if (!result) return;
         const changed = result.changedPaths.includes(targetPath);
         if (changed) await editHistory.recordEdit({ ...history, files: {} });
-        if (changed && !result.divergent.length) {
+        if (result.presentChanged && !result.divergent.length && !result.deferPresentation) {
           forceReloadSdkSession?.({ projectId: pid, versions: result.versions });
           if (!result.previewApplied) reloadPreview(targetPath);
         }
-        return { sourceFile: targetPath, version: result.versions[targetPath], changed };
+        return completePersistence({ sourceFile: targetPath, version: result.versions[targetPath], changed }, changed);
       }
       const writeEdit = writeHistory
         ? (path: string, content: string, expected?: string, command?: ProjectEditCommand) => writeProjectFile(path, content, expected, command, writeHistory)
@@ -323,13 +333,18 @@ export function useDomEditPersist({
       const expectedProjectId = projectIdRef.current;
       if (!expectedProjectId) return Promise.reject(new Error("No active project"));
       // Counted, so a preview reload requested before this save settles is not shown over it.
-      const save = () =>
-        queueDomEditSave(() =>
-          performPersistDomEditOperations(selection, operations, options, expectedProjectId),
-        );
+      const perform = () => performPersistDomEditOperations(selection, operations, options, expectedProjectId);
+      const ordered = supportsOrderedTextEdits(expectedProjectId) && !options?.prepareContent && !options?.validateContent &&
+        (selection.isolatedTarget || mountedCanvasVersion(selection.element.ownerDocument, expectedProjectId, selection.sourceFile || activeCompPath || "index.html"));
+      const save = () => {
+        if (!ordered) return queueDomEditSave(perform);
+        const result = perform();
+        trackStudioPendingEdit(result);
+        return result;
+      };
       return selection.element ? countStudioManualEditSave(selection.element, save) : save();
     },
-    [performPersistDomEditOperations, projectIdRef, queueDomEditSave],
+    [activeCompPath, performPersistDomEditOperations, projectIdRef, queueDomEditSave],
   );
 
   return persistDomEditOperations;

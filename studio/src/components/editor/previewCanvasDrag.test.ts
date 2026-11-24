@@ -156,3 +156,15 @@ it.each(["canvas", "img", "video", "span"])("respects intrinsic sizing for inlin
   expect(start).toBeTruthy();
   expect(gesture("finish", "corner")).toMatchObject({corner:"se", width:45, height:60});
 });
+
+it("measures ordered moves and resizes against the displayed box before any receipt", () => {
+  const { one, gesture } = createScene(false, false, "canvas");
+  one.style.position = "absolute";
+  gesture("start", "move", { ordered: true });
+  expect(gesture("finish", "move")).toMatchObject({ left: 25, sha256: originalHash });
+  gesture("start", "size", { ordered: true, corner: "se" });
+  expect(gesture("finish", "size")).toMatchObject({ width: 45, left: 25, sha256: originalHash });
+  gesture("commit", "move", { changed: true });
+  expect(one.style.width).toBe("45px");
+  expect(one.style.left).toBe("25px");
+});

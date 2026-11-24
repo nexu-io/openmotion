@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import * as sources from "../../utils/confirmedTextSources";
 import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
 import { PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
 import { liveTime, usePlayerStore } from "../../player/store/playerStore";
@@ -152,6 +153,22 @@ it("accepts a second pointerdown before the first measurement returns", async ()
   await reply("finish", { ...result, predecessor: first, left: 88 }, second);
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
   expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: '"patch:next"', box: { left: 88 } }]);
+});
+
+it("hands consecutive ordered gestures to the project transport before any save acknowledgement", async () => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(true);
+  const first = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [120, 150, 180]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(message => message.phase === "start");
+    expect(starts.at(-1)).toMatchObject({ ordered: true });
+    await reply("finish", { ...result, left, predecessor: starts.at(-2)?.gestureId }, starts.at(-1)!.gestureId);
+  }
+  expect(state.commitDomEditPatchBatches.mock.calls.map(call => call[0][0].box.left)).toEqual([120, 150, 180]);
+  expect(state.showToast).not.toHaveBeenCalled();
+  await act(async () => first.resolve({ durable: true, changed: true }));
 });
 
 it("rejects a measurement returned after a same-URL document load", async () => {
