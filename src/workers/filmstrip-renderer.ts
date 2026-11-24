@@ -185,10 +185,13 @@ export async function startVirtualTemplatePreviewServer(
           found = await input.resolveAsset(rel);
         } catch (assetError) {
           input.onAssetLoadError?.(rel, assetError);
-          res.writeHead(502, { 'Cache-Control': 'no-store' });
-          res.end(assetError instanceof Error ? assetError.message : 'Asset load failed');
+          if (!res.writableEnded && !res.destroyed) {
+            res.writeHead(502, { 'Cache-Control': 'no-store' });
+            res.end(assetError instanceof Error ? assetError.message : 'Asset load failed');
+          }
           return;
         }
+        if (res.writableEnded || res.destroyed) return;
         if (!found) {
           res.writeHead(404, { 'Cache-Control': 'no-store' });
           res.end('Asset not found');
@@ -198,11 +201,15 @@ export async function startVirtualTemplatePreviewServer(
         res.end(found.bytes);
         return;
       }
-      res.writeHead(404, { 'Cache-Control': 'no-store' });
-      res.end('Not found');
+      if (!res.writableEnded && !res.destroyed) {
+        res.writeHead(404, { 'Cache-Control': 'no-store' });
+        res.end('Not found');
+      }
     } catch (error) {
-      res.writeHead(500, { 'Cache-Control': 'no-store' });
-      res.end(error instanceof Error ? error.message : 'Server error');
+      if (!res.writableEnded && !res.destroyed) {
+        res.writeHead(500, { 'Cache-Control': 'no-store' });
+        res.end(error instanceof Error ? error.message : 'Server error');
+      }
     }
   });
 
@@ -468,11 +475,19 @@ export async function bakeVirtualCompositionsWithChromium(input: {
   let activeCompAssetErrors: string[] | null = null;
   const preview = await startVirtualTemplatePreviewServer({
     ...input.server,
-    onAssetLoadError: (relPath, error) => {
-      input.server.onAssetLoadError?.(relPath, error);
-      if (activeCompAssetErrors) {
-        const message = error instanceof Error ? error.message : String(error);
-        activeCompAssetErrors.push(`${relPath}: ${message}`);
+    resolveAsset: async (relPath) => {
+      // Bind request ownership to the active composition synchronously at request arrival
+      // so a slow asset download that rejects after navigation timeout/abort can never be
+      // misattributed to a subsequent healthy sibling composition.
+      const ownerErrors = activeCompAssetErrors;
+      try {
+        return await input.server.resolveAsset(relPath);
+      } catch (error) {
+        if (ownerErrors) {
+          const message = error instanceof Error ? error.message : String(error);
+          ownerErrors.push(`${relPath}: ${message}`);
+        }
+        throw error;
       }
     },
   });

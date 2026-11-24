@@ -929,6 +929,105 @@ describe('Prism catalog filmstrip auto-bake', () => {
       assert.equal(res2.bakedCount, 2);
       assert.equal(storage.objects.size, 3);
       assert.equal(await recoveredState.getState(1, payload.templateBakeHash), 'baked');
+
+      // Delayed asset failure after a browser-side timeout/abort MUST stay bound to the
+      // timed-out composition and NEVER poison the next healthy sibling composition!
+      const delayedStorage = new MemoryStorage();
+      const delayedState = new InMemoryCatalogFilmstripBakeState();
+      let rejectSlowAsset!: (reason?: unknown) => void;
+      let slowFetchStarted!: () => void;
+      const slowFetchStartedPromise = new Promise<void>((resolve) => {
+        slowFetchStarted = resolve;
+      });
+      const delayedFetch: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url === fBrokenImg.remoteUrl) {
+          slowFetchStarted();
+          return new Promise<Response>((_resolve, reject) => {
+            rejectSlowAsset = reject;
+          });
+        }
+        const body = contents.get(url);
+        return body ? new Response(new Uint8Array(body), { status: 200 }) : new Response('404', { status: 404 });
+      };
+
+      const delayedPayloadFiles = [fIndex, fBroken, fOk, fOkImg, fBrokenImg].map((f) => ({
+        path: f.path,
+        sha256: f.sha256,
+        sizeBytes: f.sizeBytes,
+        mimeType: f.mimeType,
+        remoteUrl: f.remoteUrl!,
+      }));
+      const delayedPayload: RenderExportPayloadMap['bake_catalog_filmstrips'] = {
+        templateId: 'motion-delayed-abort',
+        catalogVersion: 'prism:prod:pub-delayed',
+        templateBakeHash: computeTemplateBakeHash(delayedPayloadFiles, 1),
+        formatVersion: 1,
+        files: delayedPayloadFiles,
+      };
+
+      const resDelayed = await processBakeCatalogFilmstripsJob(
+        {
+          storage: delayedStorage,
+          logger,
+          bakeState: delayedState,
+          fetchImpl: delayedFetch,
+          renderCompositionsFn: ({ server, targetCompositions, shouldYield }) =>
+            bakeVirtualCompositionsWithChromium({
+              server,
+              targetCompositions: ['compositions/broken.html', 'compositions/ok.html'].filter((c) =>
+                targetCompositions.includes(c),
+              ),
+              shouldYield,
+              executablePath: '/fake/chromium',
+              tmpBaseDir: tmpBase,
+              launchFn: (async () => ({
+                newPage: async () => ({
+                  setViewport: async () => {},
+                  goto: async (targetUrl: string) => {
+                    if (targetUrl === 'about:blank') return;
+                    const origin = new URL(targetUrl).origin;
+                    if (targetUrl.includes('broken.html')) {
+                      // Start slow asset request then abort client-side (simulating 30s nav timeout
+                      // while the 60s server-side fetch is still in flight).
+                      const abort = new AbortController();
+                      const reqPromise = fetch(`${origin}/preview/assets/broken.png`, {
+                        signal: abort.signal,
+                      }).catch(() => {});
+                      await slowFetchStartedPromise;
+                      abort.abort();
+                      await reqPromise;
+                      throw new Error('Navigation timeout of 30000 ms exceeded');
+                    }
+                    // Now rendering healthy sibling compositions/ok.html: reject the old slow asset
+                    // RIGHT IN THE MIDDLE of rendering ok.html!
+                    rejectSlowAsset(new Error('Upstream CDN 503 after 45s'));
+                    await new Promise((r) => setTimeout(r, 15));
+                    const okAssetRes = await fetch(`${origin}/preview/assets/ok.png`);
+                    assert.equal(okAssetRes.status, 200);
+                    await okAssetRes.arrayBuffer();
+                  },
+                  waitForFunction: async () => {},
+                  evaluate: async (_fn: unknown, timeSec?: number) => {
+                    if (typeof timeSec === 'number') return undefined;
+                    return { width: 1920, height: 1080, duration: 4 };
+                  },
+                  $: async () => null,
+                  screenshot: async () => sampleFramePng,
+                  close: async () => {},
+                }),
+                close: async () => {},
+              })) as unknown as Parameters<typeof bakeVirtualCompositionsWithChromium>[0]['launchFn'],
+            }),
+        },
+        delayedPayload,
+      );
+
+      assert.equal(resDelayed.status, 'partial_failure');
+      assert.equal(resDelayed.bakedCount, 1, 'healthy sibling ok.html MUST succeed despite delayed rejection from broken.html');
+      assert.equal(resDelayed.failedCompositions.includes('compositions/ok.html'), false);
+      assert.equal(resDelayed.failedCompositions.includes('compositions/broken.html'), true);
+      assert.equal(delayedStorage.objects.size, 1);
     } finally {
       await rm(tmpBase, { recursive: true, force: true });
     }
