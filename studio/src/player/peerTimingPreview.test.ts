@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
-import { diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import { diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, refreshPeerScenes, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
@@ -185,17 +185,18 @@ it("derives every changed element in a large source without changing the rest of
   expect(diffPreviewChanges(original, next + '<script>boot()</script>')).toBeNull();
 });
 
-it("records a superseded paint's confirmed version without letting a late ACK replace newer frame evidence", async () => {
+it.each(["patch", "scene swap"])("records a superseded %s without letting a late reply overwrite the mounted version", async kind => {
   const frame = document.createElement("iframe");
   frame.src = "https://preview.test/api/projects/p/preview?pt=active";
   const child = { postMessage: vi.fn() };
   Object.defineProperty(frame, "contentWindow", { value: child });
-  rememberPeerTimingDocument(frame, "active", "document");
+  const path = kind === "scene swap" ? "scene.html" : "index.html";
+  rememberPeerTimingDocument(frame, "active", "document", undefined, {}, true, { [path]: "v1" });
   const file = (version: string) => ({ content: '<p id="t">' + version + '</p>', version });
   let current = true;
-  const send = (from: string, to: string) => tryApplyPeerChanges(frame, {
-    path: "index.html", previous: file(from), current: file(to),
-  }, () => current);
+  const send = (from: string, to: string) => kind === "scene swap"
+    ? refreshPeerScenes(frame, [[path, to]], () => current)
+    : tryApplyPeerChanges(frame, { path, previous: file(from), current: file(to) }, () => current);
   const ack = (index: number) => {
     const sent = child.postMessage.mock.calls[index]![0];
     window.dispatchEvent(new MessageEvent("message", {source: child as unknown as Window,
@@ -206,7 +207,7 @@ it("records a superseded paint's confirmed version without letting a late ACK re
   current = false;
   ack(0);
   expect(await first).toBe(false);
-  expect(mountedPeerFileVersion(frame, "index.html")).toBe("v2");
+  expect(mountedPeerFileVersion(frame, path)).toBe("v2");
   current = true;
   const second = send("v2", "v3"), third = send("v3", "v4");
   await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(3));
@@ -214,5 +215,5 @@ it("records a superseded paint's confirmed version without letting a late ACK re
   expect(await third).toBe(true);
   ack(1);
   await second;
-  expect(mountedPeerFileVersion(frame, "index.html")).toBe("v4");
+  expect(mountedPeerFileVersion(frame, path)).toBe("v4");
 });

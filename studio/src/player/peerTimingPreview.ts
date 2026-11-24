@@ -32,14 +32,19 @@ export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string
   if (!doc?.canRefreshParked || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
   if (adapter.token !== doc.token) return false;
+  const bases = files.map(([path]) => doc.mountedVersions.get(path));
   const timeout = 5000;
   const applied = await adapter.request<boolean>("refresh-parked-scene", {
     ...(files.length === 1 ? {path: files[0]![0], fileVersion: files[0]![1]} : {files}),
     documentId: doc.id, expiresAt: Date.now() + timeout, ...(parkedOnly && { parkedOnly }),
   }, timeout).catch(() => false);
-  if (applied !== true || documents.get(frame) !== doc || !isCurrent()) return false;
-  for (const [path, version] of files) doc.mountedVersions.set(path, version);
-  return true;
+  if (applied !== true || documents.get(frame) !== doc) return false;
+  // A gesture may supersede the UI callback while the player is mounting this scene.
+  // Keep the version it accepted, unless newer evidence already replaced that base.
+  files.forEach(([path, version], index) => {
+    if (doc.mountedVersions.get(path) === bases[index]) doc.mountedVersions.set(path, version);
+  });
+  return isCurrent();
 }
 
 /** A scripted or older document can start rebuilding in parallel with the source read. */
