@@ -6,8 +6,8 @@ import { findModelHub } from './modelHubs';
 import { motionStudioCover } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
-import seedanceHeroPoster from './corridor-covers/cover-26.avif?no-inline';
-import gptImageHeroPoster from './scene-art/studio-glass-sculpture.avif';
+import seedanceHeroPoster from './model-hubs/seedance-2-5/hero.webp?no-inline';
+import gptImageHeroPoster from './model-hubs/gpt-image-2-6/hero.webp?no-inline';
 import blackFridayHeroPoster from './scene-art/black-friday-spotlight.webp?no-inline';
 
 const track = (element: Parameters<typeof reportCreativeClick>[2], target: Parameters<typeof reportCreativeClick>[3]) => reportCreativeClick('explore', 'explore_spotlight', element, target);
@@ -54,7 +54,7 @@ const slides: FeaturedSlide[] = [{
   badge: '50% Off Annual',
 
   badgeTone: 'top',
-  tagline: 'Cinema multi-shot video with Plus+ · 24 1-click templates',
+  tagline: 'Cinema multi-shot video with Plus+ · 70 1-click templates',
 
   icon: 'film-line',
   poster: seedanceHeroPoster,

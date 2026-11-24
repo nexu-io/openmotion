@@ -880,6 +880,8 @@
   inset: 0;
   width: 100%;
   height: 100%;
+  border: 0;
+  color-scheme: normal;
   object-fit: cover;
   display: block;
   pointer-events: none;
@@ -1044,11 +1046,15 @@ body:has(.om-hub-lightbox-backdrop) .om-explore { overflow: hidden; }
   width: auto;
   height: min(680px, calc(100dvh - 132px));
 }
-.om-hub-lightbox-media :is(img, video) {
+.om-hub-lightbox-media :is(img, video, iframe) {
   display: block;
   width: 100%;
   height: 100%;
+  border: 0;
   object-fit: cover;
+}
+.om-hub-lightbox-video {
+  color-scheme: normal;
 }
 .om-hub-lightbox-nav {
   flex: none;
@@ -1136,7 +1142,7 @@ body:has(.om-hub-lightbox-backdrop) .om-explore { overflow: hidden; }
   align-items: center;
   gap: 6px;
 }
-.om-hub-lightbox-chips span {
+.om-hub-lightbox-chips > span {
   padding: 4px 10px;
   border-radius: var(--motion-radius-full);
   background: var(--motion-panel);
@@ -1144,6 +1150,24 @@ body:has(.om-hub-lightbox-backdrop) .om-explore { overflow: hidden; }
   font-size: 11px;
   font-weight: var(--motion-weight-medium);
   letter-spacing: 0.02em;
+}
+.om-hub-lightbox-credit {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px;
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-panel);
+  color: var(--motion-text);
+  font-size: 11px;
+  font-weight: var(--motion-weight-medium);
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: background 160ms ease, color 160ms ease;
+}
+.om-hub-lightbox-credit:hover {
+  background: var(--motion-hover);
+  color: var(--motion-text);
 }
 .om-hub-lightbox-prompt-box {
   display: grid;
@@ -1230,12 +1254,16 @@ body:has(.om-hub-lightbox-backdrop) .om-explore { overflow: hidden; }
     min-height: 0;
     padding: 16px 16px 12px;
   }
-  .om-hub-lightbox-media,
-  .om-hub-lightbox-media[data-portrait="true"] {
-    width: auto;
+  .om-hub-lightbox-media {
+    width: 100%;
     height: auto;
     max-width: 100%;
     max-height: min(46dvh, 360px);
+  }
+  .om-hub-lightbox-media[data-portrait="true"] {
+    width: auto;
+    height: min(46dvh, 360px);
+    max-width: 100%;
   }
   .om-hub-lightbox-panel {
     gap: 14px;
