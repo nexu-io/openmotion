@@ -12,6 +12,7 @@ import type { Database } from '../../src/db/client.ts';
 import { jobs } from '../../src/db/schema/jobs.ts';
 import { createLogger } from '../../src/infra/logger.ts';
 import { cancelChannel, jobChannel } from '../../src/infra/redis.ts';
+import { ShutdownCoordinator } from '../../src/infra/shutdown.ts';
 import {
   catalogBlobKey,
   compThumbnailKey,
@@ -39,6 +40,7 @@ import {
   launchFilmstripBrowser,
   type LaunchFilmstripBrowserOptions,
 } from '../../src/workers/filmstrip-renderer.ts';
+import { registerRenderWorkerShutdownHooks } from '../../src/workers/worker.ts';
 
 const WID_A = '11111111-1111-4111-8111-111111111111';
 const PID_A = '22222222-2222-4222-8222-222222222222';
@@ -826,6 +828,79 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
     } finally {
       await rm(tmpBase, { recursive: true, force: true });
     }
+  });
+
+  it('keeps render health heartbeat pulsing with draining=true until renderWorker.close() finishes', async () => {
+    const eventBus = new MemoryEventBus();
+    const shutdown = new ShutdownCoordinator({ logger: SILENT_LOGGER, timeoutMs: 5_000 });
+    const heartbeat = startRenderHealthHeartbeat({
+      eventBus,
+      logger: SILENT_LOGGER,
+      workerId: 'render-drain-1',
+      concurrency: 1,
+      intervalMs: 25,
+    });
+    heartbeat.setActiveJobs(1);
+
+    const lifecycle: string[] = [];
+    let resolveDrain!: () => void;
+    const drainPromise = new Promise<void>((resolve) => {
+      resolveDrain = resolve;
+    });
+    const origStop = heartbeat.stop.bind(heartbeat);
+    heartbeat.stop = () => {
+      lifecycle.push('heartbeat-stop');
+      origStop();
+    };
+
+    registerRenderWorkerShutdownHooks({
+      shutdown,
+      heartbeat,
+      renderWorker: {
+        close: async () => {
+          lifecycle.push('worker-close-start');
+          await drainPromise;
+          lifecycle.push('worker-close-end');
+        },
+      },
+      closeConnections: async () => {
+        lifecycle.push('connections-quit');
+      },
+    });
+
+    const shutdownDone = shutdown.shutdown('SIGTERM');
+
+    // Wait for at least two draining pulses while renderWorker.close() is still in flight.
+    const deadline = Date.now() + 2_000;
+    while (
+      eventBus.healthPulses.filter((p) => p.workerId === 'render-drain-1' && p.draining === true && p.activeJobs === 1)
+        .length < 2
+    ) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Timed out waiting for draining heartbeat pulses (observed ${JSON.stringify(eventBus.healthPulses)})`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+
+    // Heartbeat must remain alive and connections open until renderWorker.close() resolves.
+    assert.deepEqual(lifecycle, ['worker-close-start']);
+
+    heartbeat.setActiveJobs(0);
+    resolveDrain();
+    assert.equal(await shutdownDone, true);
+
+    assert.deepEqual(lifecycle, [
+      'worker-close-start',
+      'worker-close-end',
+      'heartbeat-stop',
+      'connections-quit',
+    ]);
+
+    const pulsesAtStop = eventBus.healthPulses.length;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(eventBus.healthPulses.length, pulsesAtStop);
   });
 
   it('skips unreferenced large media blobs during referenced-only hydration while keeping referenced & encoded-path media and dynamic template fallbacks', async () => {

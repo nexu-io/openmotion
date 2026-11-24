@@ -219,6 +219,7 @@ export interface RenderHealthHeartbeatHandle {
   pulse: () => Promise<void>;
   stop: () => void;
   setActiveJobs: (count: number) => void;
+  setDraining: (draining: boolean) => void;
 }
 
 async function checkBinaryExecutable(binaryPath: string | undefined): Promise<boolean> {
@@ -249,6 +250,7 @@ export function startRenderHealthHeartbeat(options: {
   const intervalMs = options.intervalMs ?? DEFAULT_HEALTH_INTERVAL_MS;
   const sourceEnv = options.sourceEnv ?? process.env;
   let activeJobs = 0;
+  let draining = false;
   let stopped = false;
 
   const pulse = async () => {
@@ -259,6 +261,7 @@ export function startRenderHealthHeartbeat(options: {
       checkBinaryExecutable(sourceEnv.HYPERFRAMES_FFPROBE_PATH ?? bins.ffprobe),
       checkBinaryExecutable(sourceEnv.HYPERFRAMES_BROWSER_PATH ?? sourceEnv.PRODUCER_HEADLESS_SHELL_PATH),
     ]);
+    if (stopped) return;
     const health: RenderWorkerHealth = {
       workerId: options.workerId,
       ffmpeg,
@@ -266,6 +269,7 @@ export function startRenderHealthHeartbeat(options: {
       chromium,
       concurrency: options.concurrency,
       activeJobs,
+      ...(draining ? { draining: true } : {}),
       updatedAt: Date.now(),
     };
     await options.eventBus.publishRenderWorkerHealth(health, Math.ceil((intervalMs * 3) / 1000));
@@ -292,6 +296,9 @@ export function startRenderHealthHeartbeat(options: {
     pulse,
     setActiveJobs(count: number) {
       activeJobs = Math.max(0, count);
+    },
+    setDraining(next: boolean) {
+      draining = next;
     },
     stop() {
       stopped = true;

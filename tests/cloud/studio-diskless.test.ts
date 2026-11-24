@@ -561,7 +561,7 @@ class MockStorage implements StoragePort {
   async ensureBucketAndCors(): Promise<void> {}
 }
 
-function createStudioTestEnv() {
+function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number }) {
   const pgClient = new StudioTestPgClient();
   const db = drizzle({ client: pgClient as never, schema }) as unknown as Database;
   const storage = new MockStorage();
@@ -644,6 +644,9 @@ function createStudioTestEnv() {
     workRounds,
     resolveAuth: () => auth,
     skipDeterministicFonts: true,
+    ...(options?.renderProgressKeepaliveMs !== undefined
+      ? { renderProgressKeepaliveMs: options.renderProgressKeepaliveMs }
+      : {}),
   });
 
   const projectsApp = createProjectsRouter({
@@ -2746,6 +2749,192 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     };
     assert.equal(afterReconcile.renders.find((r) => r.id === staleJobId)?.status, 'failed');
     assert.equal(afterReconcile.renders.find((r) => r.id === staleJobId)?.workerActive, false);
+  });
+
+  it('keeps a running export active across /renders, /render, and /cancel while its owning worker is draining', async () => {
+    const env = createStudioTestEnv();
+    const created = await env.workspace.createProject(env.auth, {
+      title: 'Draining Worker Export Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
+    });
+
+    const drainingJobId = randomUUID();
+    const oldIso = new Date(Date.now() - 120_000).toISOString();
+    env.pgClient.seed('jobs', {
+      id: drainingJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'export_render',
+      state: 'running',
+      stage: 'rendering',
+      progress: 65,
+      worker_id: 'render-1',
+      input_payload: { outputName: 'draining-render.mp4' },
+      deleted_at: null,
+      created_at: oldIso,
+      updated_at: oldIso,
+    });
+    env.workerHealth[0] = {
+      ...env.workerHealth[0],
+      activeJobs: 1,
+      draining: true,
+      updatedAt: Date.now(),
+    };
+
+    // 1. /renders keeps reporting rendering + workerActive: true while the draining worker still pulses.
+    const listRes = await env.studioApp.request(`/api/projects/${created.projectId}/renders`);
+    assert.equal(listRes.status, 200);
+    const listBody = (await listRes.json()) as {
+      renders: Array<{ id: string; status: string; workerActive?: boolean }>;
+    };
+    assert.equal(listBody.renders[0]?.id, drainingJobId);
+    assert.equal(listBody.renders[0]?.status, 'rendering');
+    assert.equal(listBody.renders[0]?.workerActive, true);
+
+    // 2. Starting a duplicate export is still blocked (409 EXPORT_BUSY) even after >60s because the worker is alive.
+    const dupRes = await env.studioApp.request(`/api/projects/${created.projectId}/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'mp4', fps: 30, quality: 'standard' }),
+    });
+    assert.equal(dupRes.status, 409);
+
+    // 3. Cancel stays cooperative ('cancelling') instead of finalizing prematurely while the draining worker is live.
+    const cancelRes = await env.studioApp.request(`/api/render/${drainingJobId}/cancel`, { method: 'POST' });
+    assert.equal(cancelRes.status, 200);
+    const cancelBody = (await cancelRes.json()) as { status: string; state: string; workerActive?: boolean };
+    assert.equal(cancelBody.state, 'cancelling');
+    assert.equal(cancelBody.status, 'cancelling');
+    assert.equal(cancelBody.workerActive, true);
+
+    // 4. A queued job requires at least one non-draining worker to be considered active.
+    const queuedProject = await env.workspace.createProject(env.auth, {
+      title: 'Queued While Only Draining Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
+    });
+    const queuedJobId = randomUUID();
+    env.pgClient.seed('jobs', {
+      id: queuedJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: queuedProject.projectId,
+      kind: 'export_render',
+      state: 'queued',
+      stage: 'queued',
+      progress: 0,
+      worker_id: null,
+      input_payload: { outputName: 'queued.mp4' },
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    const onlyDrainingList = (await (
+      await env.studioApp.request(`/api/projects/${queuedProject.projectId}/renders`)
+    ).json()) as { renders: Array<{ id: string; status: string; workerActive?: boolean }> };
+    assert.equal(onlyDrainingList.renders[0]?.status, 'unknown');
+    assert.equal(onlyDrainingList.renders[0]?.workerActive, false);
+
+    env.workerHealth.push({
+      workerId: 'render-2',
+      ffmpeg: true,
+      ffprobe: true,
+      chromium: true,
+      concurrency: 1,
+      activeJobs: 0,
+      updatedAt: Date.now(),
+    });
+    const withFreshWorkerList = (await (
+      await env.studioApp.request(`/api/projects/${queuedProject.projectId}/renders`)
+    ).json()) as { renders: Array<{ id: string; status: string; workerActive?: boolean }> };
+    assert.equal(withFreshWorkerList.renders[0]?.status, 'rendering');
+    assert.equal(withFreshWorkerList.renders[0]?.workerActive, true);
+  });
+
+  it('re-evaluates worker liveness on an open /progress SSE stream and closes with status: unknown when the worker disappears', async () => {
+    const env = createStudioTestEnv({ renderProgressKeepaliveMs: 25 });
+    const created = await env.workspace.createProject(env.auth, {
+      title: 'Open Progress Stream Liveness Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
+    });
+
+    const jobId = randomUUID();
+    env.pgClient.seed('jobs', {
+      id: jobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'export_render',
+      state: 'running',
+      stage: 'rendering',
+      progress: 33,
+      worker_id: 'render-1',
+      input_payload: { outputName: 'live-stream.mp4' },
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+
+    const res = await env.studioApp.request(`/api/render/${jobId}/progress`);
+    assert.equal(res.status, 200);
+    assert.ok(res.body);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const readChunkWithTimeout = async (timeoutMs = 3_000) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Timed out waiting for SSE chunk')), timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    try {
+      // 1. Initial replay reports active rendering.
+      let received = '';
+      while (!received.includes('"status":"rendering"')) {
+        const chunk = await readChunkWithTimeout();
+        assert.equal(chunk.done, false, 'SSE stream closed prematurely before initial progress event');
+        received += decoder.decode(chunk.value, { stream: true });
+      }
+      assert.ok(received.includes('"workerActive":true'));
+
+      // 2. While the owning worker is draining, keepalive ticks keep the stream open.
+      env.workerHealth[0] = {
+        ...env.workerHealth[0],
+        activeJobs: 1,
+        draining: true,
+        updatedAt: Date.now(),
+      };
+      while (!received.includes(': keepalive')) {
+        const chunk = await readChunkWithTimeout();
+        assert.equal(chunk.done, false, 'SSE stream closed unexpectedly while draining worker was still alive');
+        received += decoder.decode(chunk.value, { stream: true });
+      }
+      assert.equal(received.includes('"status":"unknown"'), false);
+
+      // 3. Owning worker disappears (OOM kill / hard crash) without publishing any job event or updating PG.
+      env.workerHealth.length = 0;
+      let closed = false;
+      const deadline = Date.now() + 3_000;
+      while (!closed) {
+        const remaining = deadline - Date.now();
+        assert.ok(remaining > 0, `SSE stream did not close after worker disappeared (received: ${received})`);
+        const chunk = await readChunkWithTimeout(remaining);
+        if (chunk.value) {
+          received += decoder.decode(chunk.value, { stream: true });
+        }
+        closed = chunk.done;
+      }
+      received += decoder.decode();
+      assert.ok(received.includes('"status":"unknown"'), `Expected unknown event before close, got: ${received}`);
+      assert.ok(received.includes('"workerActive":false'), `Expected workerActive:false before close, got: ${received}`);
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
   });
 
   it('preserves web_upload source and filters stale media_ingest jobs from pendingImports', async () => {

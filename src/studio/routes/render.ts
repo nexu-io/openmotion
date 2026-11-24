@@ -34,6 +34,7 @@ type RenderFormat = 'mp4' | 'mov' | 'webm' | 'gif';
 const ACTIVE_JOB_STATES: readonly JobState[] = ['queued', 'running', 'cancelling'];
 const RENDER_WORKER_HEALTH_WINDOW_MS = 60_000;
 const STALE_ORPHAN_RENDER_MS = 60_000;
+const DEFAULT_RENDER_PROGRESS_KEEPALIVE_MS = 20_000;
 
 function mapJobStateToStudioStatus(state: JobState): string {
   switch (state) {
@@ -73,7 +74,7 @@ function resolveRenderWorkerActive(
   if (isTerminalState(row.state)) return false;
   if (aliveWorkers === null) return undefined;
   if (row.state === 'queued') {
-    return aliveWorkers.length > 0;
+    return aliveWorkers.some((worker) => worker.draining !== true);
   }
   if (row.workerId) {
     return aliveWorkers.some((worker) => worker.workerId === row.workerId);
@@ -482,6 +483,13 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       };
 
       const initialInput = (job.inputPayload ?? {}) as Record<string, unknown>;
+      const keepaliveMs =
+        typeof deps.renderProgressKeepaliveMs === 'number' &&
+        Number.isFinite(deps.renderProgressKeepaliveMs) &&
+        deps.renderProgressKeepaliveMs > 0
+          ? deps.renderProgressKeepaliveMs
+          : DEFAULT_RENDER_PROGRESS_KEEPALIVE_MS;
+
       const unsubscribe = await deps.eventBus.subscribe(jobChannel(jobId), (payload) => {
         if (done || stream.aborted) return;
         const evt = payload as Partial<JobProgressEvent>;
@@ -508,48 +516,92 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           ...(durationMs !== undefined ? { durationMs } : {}),
           ...(typeof result.sha256 === 'string' ? { sha256: result.sha256 } : {}),
         };
-        void stream.writeSSE({ event: 'progress', data: JSON.stringify(mapped) }).catch(() => {});
+        const writePromise = stream.writeSSE({ event: 'progress', data: JSON.stringify(mapped) }).catch(() => {});
         if (evt.state && isTerminalState(evt.state)) {
-          finishStream();
+          done = true;
+          void writePromise.finally(() => {
+            resolveDone?.();
+          });
         }
       });
 
-      const keepalive = setInterval(() => {
-        if (done || stream.aborted) return;
-        void stream.write(': keepalive\n\n').catch(() => {});
-      }, 20_000);
+      const recheckJobLiveness = async (): Promise<boolean> => {
+        if (done || stream.aborted) return true;
+        const latestRows = await deps.db
+          .select()
+          .from(jobs)
+          .where(
+            and(
+              eq(jobs.workspaceId, auth.workspaceId),
+              eq(jobs.id, jobId),
+              isNull(jobs.deletedAt),
+            ),
+          );
+        if (done || stream.aborted) return true;
+        const latestJob = latestRows[0];
+        if (!latestJob) {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify({
+              ...formatRenderAttempt(job, []),
+              status: 'unknown',
+              workerActive: false,
+            }),
+          });
+          finishStream();
+          return true;
+        }
+        if (isTerminalState(latestJob.state)) {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify(formatRenderAttempt(latestJob, null)),
+          });
+          finishStream();
+          return true;
+        }
+        const latestAliveWorkers = await readAliveRenderWorkers(deps);
+        if (done || stream.aborted) return true;
+        if (resolveRenderWorkerActive(latestJob, latestAliveWorkers) === false) {
+          await stream.writeSSE({
+            event: 'progress',
+            data: JSON.stringify(formatRenderAttempt(latestJob, latestAliveWorkers)),
+          });
+          finishStream();
+          return true;
+        }
+        return false;
+      };
 
       stream.onAbort(() => {
         finishStream();
       });
 
+      let keepalive: ReturnType<typeof setInterval> | undefined;
+      let checkingLiveness = false;
       try {
-        // Re-check PG after subscribing so a terminal transition during subscribe never leaves SSE hanging.
-        if (!done && !stream.aborted) {
-          const latestRows = await deps.db
-            .select()
-            .from(jobs)
-            .where(
-              and(
-                eq(jobs.workspaceId, auth.workspaceId),
-                eq(jobs.id, jobId),
-                isNull(jobs.deletedAt),
-              ),
-            );
-          const latestJob = latestRows[0];
-          if (!latestJob || isTerminalState(latestJob.state)) {
-            if (latestJob && !done && !stream.aborted) {
-              await stream.writeSSE({
-                event: 'progress',
-                data: JSON.stringify(formatRenderAttempt(latestJob, aliveWorkers)),
-              });
-            }
-            finishStream();
-          }
+        // Re-check PG + worker liveness right after subscribing so a terminal transition or
+        // worker loss during subscribe never leaves SSE hanging.
+        if (!(await recheckJobLiveness()) && !done && !stream.aborted) {
+          keepalive = setInterval(() => {
+            if (done || stream.aborted || checkingLiveness) return;
+            checkingLiveness = true;
+            void (async () => {
+              try {
+                const closed = await recheckJobLiveness();
+                if (!closed && !done && !stream.aborted) {
+                  await stream.write(': keepalive\n\n');
+                }
+              } catch {
+                // Transient keepalive/liveness check error; retry on the next interval tick.
+              } finally {
+                checkingLiveness = false;
+              }
+            })();
+          }, keepaliveMs);
+          await donePromise;
         }
-        await donePromise;
       } finally {
-        clearInterval(keepalive);
+        if (keepalive) clearInterval(keepalive);
         await unsubscribe().catch(() => {});
       }
     });

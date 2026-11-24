@@ -110,5 +110,6 @@ export interface RenderWorkerHealth {
   chromium: boolean;
   concurrency: number;
   activeJobs: number;
+  draining?: boolean;
   updatedAt: number;
 }

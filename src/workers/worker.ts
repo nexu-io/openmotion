@@ -289,6 +289,29 @@ function isYieldedCatalogBakeResult(value: unknown): boolean {
   );
 }
 
+export function registerRenderWorkerShutdownHooks(params: {
+  shutdown: ShutdownCoordinator;
+  heartbeat: RenderHealthHeartbeatHandle;
+  renderWorker: Pick<Worker, 'close'>;
+  closeConnections: () => Promise<void>;
+}): void {
+  const { shutdown, heartbeat, renderWorker, closeConnections } = params;
+  // Register LIFO drain hooks:
+  // 1) Mark heartbeat draining and drain active renders cleanly via renderWorker.close()
+  //    while keeping RenderWorkerHealth pulsing for the entire drain window.
+  // 2) Stop heartbeat only after renderWorker.close() resolves.
+  // 3) Quit BullMQ / bake-state Redis connections.
+  shutdown.register('bullmq-render-connection', closeConnections);
+  shutdown.register('render-health-heartbeat', () => {
+    heartbeat.stop();
+  });
+  shutdown.register('bullmq-render-worker', async () => {
+    heartbeat.setDraining(true);
+    void heartbeat.pulse().catch(() => {});
+    await renderWorker.close();
+  });
+}
+
 /**
  * Start BullMQ consumer for `WORKER_ROLE=render`:
  * - Sweeps stale `/tmp/om-render-*`, `/tmp/om-thumb-*`, and `/tmp/om-filmstrip-*` directories left by prior crashes.
@@ -378,16 +401,13 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
     logger.error('Render worker runtime error', { queue: QUEUE_NAMES.renderExport, error });
   });
 
-  // Register LIFO drain hooks:
-  // 1) Stop heartbeat -> 2) Drain active render cleanly via renderWorker.close() -> 3) Quit Redis.
-  shutdown.register('bullmq-render-connection', async () => {
-    await Promise.allSettled([renderConn.quit(), bakeStateConn.quit()]);
-  });
-  shutdown.register('bullmq-render-worker', async () => {
-    await renderWorker.close();
-  });
-  shutdown.register('render-health-heartbeat', () => {
-    heartbeat.stop();
+  registerRenderWorkerShutdownHooks({
+    shutdown,
+    heartbeat,
+    renderWorker,
+    closeConnections: async () => {
+      await Promise.allSettled([renderConn.quit(), bakeStateConn.quit()]);
+    },
   });
 
   logger.info('worker-render started', {
