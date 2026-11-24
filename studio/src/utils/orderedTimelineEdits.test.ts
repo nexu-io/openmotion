@@ -32,9 +32,11 @@ it('projects a split and deletion while an earlier move waits for its receipt, a
   vi.stubGlobal('fetch', fetch);
   const writer = vi.fn(async () => {});
   const history = vi.fn(async () => {});
+  const initial = stored;
+  const refresh = vi.fn(async () => {});
   const visible: string[] = [];
   const save = (label: string, command: TimelineFileEdit['command']) =>
-    saveCloudTimeline(project, [{path, command}], writer, history, label, undefined, {
+    saveCloudTimeline(project, [{path, command}], writer, history, label, refresh, {
       projectPending(files) {
         visible.push(label);
         return projectPendingStructure(project, path, null, files);
@@ -56,6 +58,7 @@ it('projects a split and deletion while an earlier move waits for its receipt, a
     expect(packs).toEqual([['move'],['trim','split','delete']]);
     expect(confirmedSource(project,path)?.content).toBe(stored);
     expect(history).toHaveBeenCalledTimes(4);
+    expect(refresh).toHaveBeenCalledExactlyOnceWith({ [path]: { before: initial, after: stored } }, { content: initial, version: "base" });
     expect(writer).not.toHaveBeenCalled();
   } finally {
     release.resolve(); close(); usePlayerStore.getState().reset(); vi.unstubAllGlobals();

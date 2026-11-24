@@ -124,7 +124,7 @@ function clipboardProjection(pid: string, path: string, frame: HTMLIFrameElement
   return {
     projectPending(files: Record<string, { before: string; after: string }>) {
       const keys = getIds().map(id => elementKey(id, path));
-      const rollback = projectPendingStructure(pid, path, frame, files, keys);
+      const rollback = projectPendingStructure(pid, path, frame, files, keys.length ? keys : undefined);
       selected = keys.length > 0 && keys.every(key => usePlayerStore.getState().selectedElementIds.has(key));
       return rollback;
     },

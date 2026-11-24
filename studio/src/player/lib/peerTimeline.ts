@@ -94,7 +94,7 @@ export function projectPendingStructure(projectId: string, path: string, frame: 
   const previous = confirmedSource(projectId, path);
   const revertPreview = frame && previous?.content === file.before && Object.keys(files).length === 1
     ? stageStructurePreview(frame, path, previous, file.after) : undefined;
-  if (revertTimeline && selection?.length) usePlayerStore.getState().setSelection(selection);
+  if (revertTimeline && selection) usePlayerStore.getState().setSelection(selection);
   const drawnSelection = usePlayerStore.getState().selectedElementIds;
   return () => {
     const restoreSelection = revertTimeline && timelineFor(projectId, path) && drawnSelection !== selectedElementIds &&

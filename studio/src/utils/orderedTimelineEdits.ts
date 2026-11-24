@@ -18,11 +18,12 @@ type Options = {
 
 // A structural edit needs the rows produced by the preceding gesture even while its receipt is in flight.
 // Keep only the newest local computation per file; the transport owns persistence and confirmed sources.
-const displayed = new Map<string, Promise<EditFile>>();
+type DisplayedFile = { edit: Promise<EditFile>; baseline: Promise<ConfirmedSource> };
+const displayed = new Map<string, DisplayedFile>();
 const key = (project: string, path: string) => JSON.stringify([project, path]);
 
 export function projectedTimelineText(project: string, path: string) {
-  return displayed.get(key(project, path))?.then(edit => edit.after);
+  return displayed.get(key(project, path))?.edit.then(edit => edit.after);
 }
 
 async function readBase(project: string, path: string) {
@@ -46,13 +47,14 @@ export async function saveOrderedTimeline(
     const id = key(project, path);
     const previous = displayed.get(id);
     const captured = previous
-      ? previous.then(prior => ({ content: prior.after, version: prior.version }))
+      ? previous.edit.then(prior => ({ content: prior.after, version: prior.version }))
       : readBase(project, path);
     const projected = captured.then(async ({content, version}) => ({path, before: content, after: await apply(content), version}));
-    displayed.set(id, projected);
-    return projected;
+    const next = { edit: projected, baseline: previous?.baseline ?? captured };
+    displayed.set(id, next);
+    return next;
   });
-  const view = Promise.all(projections);
+  const view = Promise.all(projections.map(projected => projected.edit));
   const shown = view.then(edits => projectPending?.(snapshots(edits)));
   // Surface preparation failures through the gesture's save promise, even if it is waiting for an earlier packet.
   void shown.catch(() => {});
@@ -82,8 +84,10 @@ export async function saveOrderedTimeline(
     const current = accepted.every((edit, i) => displayed.get(key(project, edit.path)) === projections[i] &&
       confirmedSource(project, edit.path)?.version === saved.versions[edit.path]);
     if (current && onSaved) {
+      // The mounted preview can still be at the start of this burst. Paint its entire accepted delta once.
+      const previous = accepted.length === 1 ? await projections[0]!.baseline : undefined;
       const first = accepted[0]!;
-      await onSaved(files, accepted.length === 1 ? {content: first.before, version: first.version} : undefined);
+      await onSaved(previous ? { [first.path]: { before: previous.content, after: first.after } } : files, previous);
     }
     return saved.changedPaths;
   } catch (error) {
@@ -102,6 +106,7 @@ export function saveTimelineFiles(
   input: Parameters<typeof saveProjectFilesWithHistory>[0], localInputs: boolean,
 ) {
   if (!localInputs || !supportsOrderedTextEdits(input.projectId)) return saveProjectFilesWithHistory(input);
+  const history = cloudHistoryForWrite(input.writeFile, input);
   return saveOrderedTimeline(input.projectId, Object.entries(input.files).map(([path, apply]) => ({path, apply})),
-    input.label, { ...input, undoGroup: cloudHistoryForWrite(input.writeFile, input)?.windowId });
+    input.label, { ...input, undoGroup: history?.continuous ? history.windowId : undefined });
 }
