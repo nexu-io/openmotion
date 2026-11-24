@@ -94,13 +94,35 @@ describe("external file-change subscription ownership", () => {
       const stop = sseFileChangeChannel(onDelivery, vi.fn());
       const event = new MessageEvent("file-change", { data: JSON.stringify({ path: "a.html" }) });
       listeners.get("file-change")?.(event);
-      expect(opened).toEqual(["/api/events"]);
+      expect(opened).toEqual(["/api/events?orderedEdits=1"]);
       expect(onDelivery).toHaveBeenCalledWith(event);
       stop();
       expect(close).toHaveBeenCalledTimes(1);
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("applies a contiguous batch once, refreshes history once, and reconciles a gap", () => {
+    const stream = new EventTarget();
+    vi.stubGlobal("EventSource", class {
+      addEventListener = stream.addEventListener.bind(stream);
+      close() {}
+    });
+    const onChange = vi.fn(), catchUp = vi.fn(), onHistory = vi.fn();
+    const send = (event: string, data: object) => stream.dispatchEvent(new MessageEvent(event, {data: JSON.stringify(data)}));
+    const batch = { revision: "v2", ordered: { fromRevision: "v0", historySeq: 2, steps: [{id:"a"}, {id:"b"}] } };
+    const stop = sseFileChangeChannel(onChange, catchUp, onHistory);
+    try {
+      send("file-change", batch);
+      send("history-changed", { includedInOrderedEdit:true });
+      send("file-change", batch);
+      expect(onChange).toHaveBeenCalledOnce();
+      expect(onHistory).toHaveBeenCalledOnce();
+      send("file-change", {...batch, revision:"v5", ordered:{...batch.ordered, fromRevision:"v4"}});
+      expect(catchUp).toHaveBeenCalledOnce();
+      expect(onChange).toHaveBeenCalledOnce();
+    } finally { stop(); vi.unstubAllGlobals(); }
   });
 
   it("delivers project history and render invalidations through the shared EventSource", () => {

@@ -334,7 +334,8 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
           projectChannel(auth.workspaceId, projectId),
           (payload) => {
             if (stream.aborted) return;
-            const evt = payload as { type?: string; path?: string; paths?: string[] };
+            const evt = payload as { type?: string; path?: string; paths?: string[]; includedInOrderedEdit?: boolean };
+            if (evt?.includedInOrderedEdit && c.req.query('orderedEdits') === '1') return;
             const eventName =
               evt?.type === 'history-changed'
                 ? 'history-changed'

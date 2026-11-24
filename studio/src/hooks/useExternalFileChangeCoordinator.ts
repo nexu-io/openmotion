@@ -1,3 +1,4 @@
+import { orderedFileChange } from './orderedFileChanges';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import {
   changedFilePaths,
@@ -152,9 +153,26 @@ export function sseFileChangeChannel(
 ): () => void {
   let needsCatchUp = false;
   function connect() {
-    const eventSource = new EventSource(studioProjectUrl('/api/events'));
-    eventSource.addEventListener("file-change", onDelivery);
-    eventSource.addEventListener("history-changed", onHistoryChanged);
+    let revision: string | null = null;
+    const eventSource = new EventSource(studioProjectUrl('/api/events?orderedEdits=1'));
+    eventSource.addEventListener("file-change", delivery => {
+      const payload = decodeFileChange(delivery);
+      const ordered = orderedFileChange(payload);
+      const next = readFileChangeField(payload, 'revision');
+      if (ordered && revision && revision !== ordered.fromRevision) {
+        // Concurrent commits can publish in reverse order. The HTTP readers know the current head.
+        if (revision !== next) { revision = next; onReconnect(); }
+        return;
+      }
+      revision = next;
+      onDelivery(delivery);
+      if (ordered) onHistoryChanged(delivery);
+    });
+    eventSource.addEventListener("history-changed", delivery => {
+      // An older SSE gateway may relay the legacy notification over a negotiated stream.
+      if ((decodeFileChange(delivery) as {includedInOrderedEdit?: boolean} | null)?.includedInOrderedEdit) return;
+      onHistoryChanged(delivery);
+    });
     eventSource.addEventListener("connected", event => {
       const projectId = readFileChangeField(decodeFileChange(event), "projectId");
       if (projectId) notifyProjectActivity(projectId, "connected");
@@ -182,7 +200,7 @@ export function sseFileChangeChannel(
         emitMediaIngestStatus(decoded);
       }
     });
-    eventSource.addEventListener("error", () => { needsCatchUp = true; });
+    eventSource.addEventListener("error", () => { needsCatchUp = true; revision = null; });
     eventSource.addEventListener("open", () => {
       if (needsCatchUp) onReconnect();
       needsCatchUp = true;
@@ -534,6 +552,10 @@ export function useExternalFileChangeCoordinator({
       }
       lastEventIdentityRef.current = identity;
 
+      // All steps in an ordered delivery came from one sender. Retire every echo token.
+      for (const step of orderedFileChange(payload)?.steps ?? []) {
+        if (step.id !== token) consumeStudioWriteToken(step.id);
+      }
       const ownWriteToken = consumeStudioWriteToken(token);
       const ownContentEcho = content != null && isSelfWriteEcho(path, content);
       if (!ownWriteToken) invalidateLatestSourceWrite();

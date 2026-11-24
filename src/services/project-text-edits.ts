@@ -1,3 +1,4 @@
+import type { OrderedEditEvents } from './ordered-edit-events.ts';
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -43,6 +44,7 @@ export interface PendingTextRevision {
   mimeType: string; depth: number; chainPatchBytes: number; checkpointDue: boolean; patch: TextPatch;
 }
 export interface TextEditIdentity {
+  events?: OrderedEditEvents;
   requestId: string; writeToken?: string; source: 'studio'|'agent';
   // Semantic MCP requests retain their original identity before generating bytes.
   command?: {scope: string; hash: string; result: Record<string, unknown>};
@@ -162,6 +164,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   }
   return files.commitChanges(ctx, {
     projectId, requestId: identity.requestId, idempotencyScope: scope, source: identity.source,
+    orderedEvents: identity.events,
     commandReceipt: {inputHash: hash, result: identity.command?.result ?? {}},
     summary: input.label, writeToken: identity.writeToken, ops, textRevisions: revisions,
     undoGroup: input.undoGroup && `${ctx.userId}:${input.undoGroup}`,
