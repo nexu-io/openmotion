@@ -15,29 +15,38 @@ export GITHUB_STEP_SUMMARY="$tmp/summary"
 release=refs/heads/deploy/openmotion-test
 release_head() { git --git-dir="$tmp/origin.git" rev-parse "$release"; }
 merge_source() {
-  git commit --quiet --allow-empty -m "$1"
+  local message=$1
+  local relpath=${2:-src/app.ts}
+  mkdir -p "$(dirname "$relpath")"
+  printf '%s\n' "$message" >> "$relpath"
+  git add "$relpath"
+  git commit --quiet -m "$message"
   GITHUB_SHA=$(git rev-parse HEAD)
   export GITHUB_SHA
   git push --quiet origin "HEAD:$GITHUB_REF"
 }
 promote() { bash "$publisher" "$tmp/digests"; }
 
-merge_source first
+merge_source first src/app.ts
 first=$GITHUB_SHA
+git clone --quiet --depth=1 --branch main "file://$tmp/origin.git" "$tmp/shallow"
 mkdir "$tmp/digests"
 for target in api worker-media worker-render catalog-sync; do
   printf '%s' "$target" | shasum -a 256 | awk '{print "sha256:"$1}' > "$tmp/digests/$target"
 done
-promote
+
+# Excluded-path commit landing ahead of a running deployment must not supersede first.
+merge_source docs1 README.md
+(cd "$tmp/shallow" && GITHUB_SHA=$first promote)
 published=$(release_head)
-git show "$published:release.json" | jq -e --arg revision "$first" \
+git --git-dir="$tmp/origin.git" show "$published:release.json" | jq -e --arg revision "$first" \
   '.revision == $revision and (.images | keys == ["api","catalog-sync","worker-media","worker-render"])' >/dev/null
-promote
+(cd "$tmp/shallow" && GITHUB_SHA=$first promote)
 [[ "$(release_head)" == "$published" ]]
 
-merge_source second
+merge_source second src/app.ts
 second=$GITHUB_SHA
-GITHUB_SHA=$first promote
+(cd "$tmp/shallow" && GITHUB_SHA=$first promote)
 [[ "$(release_head)" == "$published" ]]
 echo invalid > "$tmp/digests/api"
 if promote; then exit 1; fi
@@ -48,7 +57,10 @@ if promote; then exit 1; fi
 cp "$tmp/digests/worker-media" "$tmp/digests/api"
 promote
 next=$(release_head)
-[[ "$(git rev-parse "$next^")" == "$published" ]]
-[[ "$(git show "$next:release.json" | jq -r .revision)" == "$second" ]]
+[[ "$(git --git-dir="$tmp/origin.git" rev-parse "$next^")" == "$published" ]]
+[[ "$(git --git-dir="$tmp/origin.git" show "$next:release.json" | jq -r .revision)" == "$second" ]]
+merge_source docs2 docs/guide.md
+GITHUB_SHA=$second promote
+[[ "$(release_head)" == "$next" ]]
 GITHUB_SHA=$first promote
 [[ "$(release_head)" == "$next" ]]

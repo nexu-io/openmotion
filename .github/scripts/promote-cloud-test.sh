@@ -9,13 +9,18 @@ digests=$1
 refs=$(git ls-remote --heads origin "$source_ref" "$release_ref")
 remote_sha() { awk -v ref="$1" '$2 == ref {print $1}' <<< "$refs"; }
 
-if [[ -z "$(remote_sha "$source_ref")" ]]; then
+remote_head=$(remote_sha "$source_ref")
+if [[ -z "$remote_head" ]]; then
   echo "The cloud source branch is missing." >&2
   exit 1
 fi
-if [[ "$(remote_sha "$source_ref")" != "$GITHUB_SHA" ]]; then
-  echo "A newer merge superseded $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
-  exit 0
+if [[ "$remote_head" != "$GITHUB_SHA" ]]; then
+  superseded=$(node "$(dirname "$0")/orbit-publish-cloud-test.mjs" --check-superseded "$source_ref" "$GITHUB_SHA" "$remote_head")
+  if [[ "$superseded" == "true" ]]; then
+    echo "A newer deployment-eligible merge ($remote_head) superseded $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+    exit 0
+  fi
+  echo "Remote head $remote_head has no deployment-eligible changes after $GITHUB_SHA; continuing promotion."
 fi
 
 # Keep the first complete set for each source SHA, including on a partial CI rerun.

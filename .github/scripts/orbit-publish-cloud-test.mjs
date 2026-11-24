@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_SOURCE_REF = "refs/heads/main";
+const DEFAULT_DEPLOY_WORKFLOW_PATH = new URL(
+	"../workflows/deploy-cloud-test.yml",
+	import.meta.url,
+);
 const ORBIT_APP = "openmotion";
 const ORBIT_ENVIRONMENT = "test";
 const RELEASE_ID_PATTERN = /^rel_[A-Za-z0-9_-]{1,80}$/;
@@ -95,6 +100,153 @@ export function resolveRemoteHead(sourceRef) {
 		.map((line) => line.trim())
 		.find(Boolean);
 	return firstLine ? firstLine.split(/\s+/)[0] : "";
+}
+
+export function parseDeployPushPaths(workflowYaml) {
+	const normalized = workflowYaml.replace(/\r\n/g, "\n");
+	const pathsMatch = /\n  push:\n[\s\S]*?\n    paths:\n/.exec(normalized);
+	if (!pathsMatch) {
+		throw new Error("deploy-cloud-test.yml must define on.push.paths");
+	}
+	const rest = normalized.slice(pathsMatch.index + pathsMatch[0].length);
+	const patterns = [];
+	for (const line of rest.split("\n")) {
+		if (!line.trim() || /^\s*#/.test(line)) continue;
+		const itemMatch = /^      -\s+(.+?)\s*$/.exec(line);
+		if (!itemMatch) break;
+		let value = itemMatch[1].trim();
+		if (
+			(value.startsWith('"') && value.endsWith('"')) ||
+			(value.startsWith("'") && value.endsWith("'"))
+		) {
+			value = value.slice(1, -1);
+		} else {
+			value = value.replace(/\s+#.*$/, "").trim();
+		}
+		if (value) patterns.push(value);
+	}
+	if (patterns.length === 0) {
+		throw new Error("deploy-cloud-test.yml on.push.paths must not be empty");
+	}
+	return patterns;
+}
+
+function globToRegExp(pattern) {
+	let regex = "^";
+	for (let i = 0; i < pattern.length; i += 1) {
+		const ch = pattern[i];
+		if (ch === "*") {
+			if (pattern[i + 1] === "*") {
+				if (pattern[i + 2] === "/") {
+					regex += "(?:.*/)?";
+					i += 2;
+				} else {
+					regex += ".*";
+					i += 1;
+				}
+			} else {
+				regex += "[^/]*";
+			}
+		} else if (ch === "?") {
+			regex += "[^/]";
+		} else if ("\\^$.|+()[]{}".includes(ch)) {
+			regex += `\\${ch}`;
+		} else {
+			regex += ch;
+		}
+	}
+	regex += "$";
+	return new RegExp(regex);
+}
+
+export function matchesWorkflowPath(pattern, filePath) {
+	const normalizedFile = filePath.replace(/^\.\//, "").replace(/^\/+/, "");
+	const normalizedPattern = pattern.replace(/^\.\//, "").replace(/^\/+/, "");
+	if (!normalizedFile || !normalizedPattern) return false;
+	if (normalizedPattern.endsWith("/**")) {
+		const dirPrefix = normalizedPattern.slice(0, -3);
+		if (!dirPrefix.includes("*") && !dirPrefix.includes("?")) {
+			return normalizedFile.startsWith(`${dirPrefix}/`);
+		}
+	}
+	return globToRegExp(normalizedPattern).test(normalizedFile);
+}
+
+function gitCommitExists(cwd, sha) {
+	try {
+		execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], {
+			cwd,
+			stdio: "ignore",
+		});
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function gitIsAncestor(cwd, ancestorSha, descendantSha) {
+	try {
+		execFileSync(
+			"git",
+			["merge-base", "--is-ancestor", ancestorSha, descendantSha],
+			{ cwd, stdio: "ignore" },
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function isSupersededByRemoteHead({
+	sourceRef,
+	sourceSha,
+	remoteSha,
+	cwd = process.cwd(),
+	workflowPath = DEFAULT_DEPLOY_WORKFLOW_PATH,
+}) {
+	if (!remoteSha) {
+		throw new Error(`Missing remote branch ${sourceRef}`);
+	}
+	if (remoteSha === sourceSha) {
+		return false;
+	}
+	if (!gitCommitExists(cwd, remoteSha)) {
+		execFileSync("git", ["fetch", "--no-tags", "--quiet", "origin", sourceRef], {
+			cwd,
+			stdio: "ignore",
+		});
+	}
+	if (
+		!gitCommitExists(cwd, sourceSha) ||
+		!gitCommitExists(cwd, remoteSha) ||
+		!gitIsAncestor(cwd, sourceSha, remoteSha)
+	) {
+		return true;
+	}
+	const raw = execFileSync(
+		"git",
+		[
+			"-c",
+			"core.quotePath=false",
+			"log",
+			"-m",
+			"--first-parent",
+			"--format=",
+			"--name-only",
+			"-z",
+			`${sourceSha}..${remoteSha}`,
+		],
+		{ cwd, encoding: "utf8" },
+	);
+	const changedFiles = raw
+		.split("\0")
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+	const workflowYaml = readFileSync(workflowPath, "utf8");
+	const paths = parseDeployPushPaths(workflowYaml);
+	return changedFiles.some((file) =>
+		paths.some((pattern) => matchesWorkflowPath(pattern, file)),
+	);
 }
 
 export async function readComponentArtifacts(digestsDir, registryOwner) {
@@ -192,6 +344,9 @@ export async function publishCloudTestToOrbit({
 	env = process.env,
 	fetchImpl = globalThis.fetch,
 	getRemoteHead = resolveRemoteHead,
+	isSuperseded = getRemoteHead === resolveRemoteHead
+		? isSupersededByRemoteHead
+		: ({ sourceSha, remoteSha }) => remoteSha !== sourceSha,
 	maxAttempts = DEFAULT_MAX_ATTEMPTS,
 	retryDelayMs = DEFAULT_RETRY_DELAY_MS,
 	sleep = defaultSleep,
@@ -232,11 +387,23 @@ export async function publishCloudTestToOrbit({
 		if (!remoteSha) {
 			throw new Error(`Missing remote branch ${allowedRef}`);
 		}
-		if (remoteSha !== payload.sourceSha) {
-			const message = `A newer merge (${remoteSha}) superseded ${payload.sourceSha}; skipped Orbit publication.`;
+		if (
+			remoteSha !== payload.sourceSha &&
+			isSuperseded({
+				sourceRef: allowedRef,
+				sourceSha: payload.sourceSha,
+				remoteSha,
+			})
+		) {
+			const message = `A newer deployment-eligible merge (${remoteSha}) superseded ${payload.sourceSha}; skipped Orbit publication.`;
 			log(message);
 			await writeSummary(message);
 			return { skipped: true, reason: "superseded", remoteSha };
+		}
+		if (remoteSha !== payload.sourceSha) {
+			log(
+				`Remote head ${remoteSha} has no deployment-eligible changes after ${payload.sourceSha}; continuing Orbit publication.`,
+			);
 		}
 
 		let response;
@@ -375,7 +542,17 @@ if (
 	import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
 	try {
-		await publishCloudTestToOrbit({ digestsDir: process.argv[2] });
+		if (process.argv[2] === "--check-superseded") {
+			const [, , , sourceRef, sourceSha, remoteSha] = process.argv;
+			const superseded = isSupersededByRemoteHead({
+				sourceRef: requireNonEmpty(sourceRef, "sourceRef"),
+				sourceSha: requireNonEmpty(sourceSha, "sourceSha"),
+				remoteSha: requireNonEmpty(remoteSha, "remoteSha"),
+			});
+			process.stdout.write(`${superseded ? "true" : "false"}\n`);
+		} else {
+			await publishCloudTestToOrbit({ digestsDir: process.argv[2] });
+		}
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : String(error));
 		process.exitCode = 1;
