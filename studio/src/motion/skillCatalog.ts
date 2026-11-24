@@ -419,36 +419,29 @@ export function skillPrompt(skill: MotionSkill, parameters: SkillParameters, loc
   const say = promptText(locale), style = parameters.style.trim();
   const values = { installUrl, id: skill.id, name: skill.name, repository: skill.repository ?? '', license: skill.license, output: skill.output,
     subject: parameters.subject.trim() || skill.example, duration: parameters.duration, aspect: parameters.aspect, style, technique: skill.technique };
-  const introLine = cloud
-    ? (locale === 'zh-CN'
-      ? `使用说明：请使用 OpenMotion 云端 MCP。如未接入，请按 ${installUrl} 接入云端 MCP 后继续（不要按本地 GitHub 仓库部署）。`
-      : `Instructions: Use OpenMotion Cloud MCP. If not connected yet, follow ${installUrl} to connect Cloud MCP, then continue (do not install locally from GitHub).`)
-    : say('intro', values);
-  const libraryStep3Line = cloud
-    ? (locale === 'zh-CN'
-      ? `3. 用 openmotion_get_skill（skillId 填 ${skill.id}）读取这个 Skill，按返回的 SKILL.md 操作；它用到的脚本和参考文件，按 objects 里的地址下载并核对 SHA-256。`
-      : `3. Read this skill with openmotion_get_skill (skillId ${skill.id}) and follow the SKILL.md it returns. Download any script or reference files it lists from the objects URLs and check their SHA-256.`)
-    : say('libraryStep3', values);
   return [
-    introLine,
+    say(cloud ? 'introCloud' : 'intro', values),
     say(skill.repository ? 'borrow' : 'own', values),
     say(skill.repository ? 'reference' : 'ownSource', values),
     '',
     say('brief'), say('deliverable', values), say('content', values), say('format', values), ...(style ? [say('style', values)] : []), say('technique', values),
     '',
-    say('steps'), say('step1'), say('step2'), ...(skill.media ? [say('media')] : []), ...(isLibrarySkill(skill) ? [libraryStep3Line, say(skill.generator ? 'generatorStep4' : 'libraryStep4')] : [say('step3'), say('step4')]), say('step5'),
+    say('steps'), say('step1'), say('step2'), ...(skill.media ? [say('media')] : []), ...(isLibrarySkill(skill) ? [say(cloud ? 'libraryStep3Cloud' : 'libraryStep3', values), say(skill.generator ? 'generatorStep4' : 'libraryStep4')] : [say('step3'), say('step4')]), say('step5'),
   ].join('\n') + referenceInstruction(parameters.reference);
 }
 
 /** A short command for any Agent chat, like a share code: names the skill, the brief and how to install OpenMotion. */
 export function skillShortcut(skill: MotionSkill, parameters: SkillParameters, locale: string, installUrl: string, cloud = false) {
   const say = promptText(locale), style = parameters.style.trim();
-  const base = cloud
-    ? (locale === 'zh-CN'
-      ? `用 OpenMotion 的「${skill.title}」Skill 做一支 ${parameters.duration} 秒、${parameters.aspect} 的视频：${parameters.subject.trim() || skill.example}${style ? say('shortcutStyle', { style }) : ''}。做法参考 ${skill.repository ?? 'OpenMotion'}。如果还没接入 OpenMotion 云端 MCP，请先按 ${installUrl} 接入。`
-      : `Use the OpenMotion "${skill.title}" skill to make a ${parameters.duration}s ${parameters.aspect} video: ${parameters.subject.trim() || skill.example}${style ? say('shortcutStyle', { style }) : ''}. Technique reference: ${skill.repository ?? 'OpenMotion'}. If OpenMotion Cloud MCP is not connected yet, follow ${installUrl} to connect first.`)
-    : say('shortcut', { title: skill.title, duration: parameters.duration, aspect: parameters.aspect, subject: parameters.subject.trim() || skill.example,
-      style: style ? say('shortcutStyle', { style }) : '', repository: skill.repository ?? 'OpenMotion', installUrl });
+  const base = say(cloud ? 'shortcutCloud' : 'shortcut', {
+    title: skill.title,
+    duration: parameters.duration,
+    aspect: parameters.aspect,
+    subject: parameters.subject.trim() || skill.example,
+    style: style ? say('shortcutStyle', { style }) : '',
+    repository: skill.repository ?? 'OpenMotion',
+    installUrl,
+  });
   return base
     + (isLibrarySkill(skill) ? say('shortcutLibrary', { id: skill.id }) : '') + (skill.generator ? say('shortcutGenerator') : '') + referenceInstruction(parameters.reference);
 }

@@ -179,7 +179,9 @@ export function McpDeveloperDrawer({
                       {t(
                         tool.name === 'openmotion_assets'
                           ? 'Compatibility name for the original nine asset actions. Use openmotion_assets_use to read media content.'
-                          : tool.description,
+                          : visibleExamples.find(item => (item.tools as readonly string[]).includes(tool.name) && item.tools.length === 1)?.description
+                            || tool.description.split(/(?<=[.!?])\s+|\n/)[0]
+                            || tool.description,
                       )}
                     </span>
                   </div>

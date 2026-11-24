@@ -36,7 +36,7 @@ export const PreviewSeekBar = memo(function PreviewSeekBar({
   }, [duration]);
 
   return (
-    <div className="mt-1 flex h-3 items-center overflow-hidden px-3">
+    <div className="mt-1 flex h-7 items-center px-3">
       <input
         ref={inputRef}
         type="range"
@@ -50,7 +50,7 @@ export const PreviewSeekBar = memo(function PreviewSeekBar({
         onChange={(event) => onSeek(event.currentTarget.valueAsNumber)}
         // One seek per press on the bar, not one per position it passes through.
         onPointerUp={() => trackStudioClick("preview", "seek", undefined, "pointer")}
-        className="h-3 w-full cursor-pointer accent-neutral-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-ink disabled:cursor-default disabled:opacity-30"
+        className="h-6 w-full cursor-pointer accent-neutral-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-ink disabled:cursor-default disabled:opacity-30"
       />
     </div>
   );

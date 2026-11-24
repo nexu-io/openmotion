@@ -31,21 +31,21 @@
       "frameHeight": 90,
       "aspect": 1.7778
     },
-    "6a83e906a1681589f6266acdb1d8e265f9063b2672dac433ae5e0c45c9d99f1a": {
-      "templateId": "openmotion-welcome",
-      "path": "compositions/gallery.html",
-      "file": "openmotion-welcome/gallery.jpg",
-      "depsSha256": "3c6c8a0ffe82f530b2a275e0275ca4138c02baba0656c53a48511ca48a25290a",
+    "6704b461f86c28755a07a3c86a9f25138f66647d514e9312328ab2f340dbc723": {
+      "templateId": "product-promo",
+      "path": "compositions/scene1-logo-intro.html",
+      "file": "product-promo/scene1-logo-intro.jpg",
+      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
       "frameCount": 8,
       "frameWidth": 160,
       "frameHeight": 90,
       "aspect": 1.7778
     },
-    "97b1f3666da7e4be658b4bc3978c5a0ceb2f3da449804f37c171d38f64b86bdf": {
-      "templateId": "product-promo",
-      "path": "compositions/scene1-logo-intro.html",
-      "file": "product-promo/scene1-logo-intro.jpg",
-      "depsSha256": "882230b7c088b6658d94aab6da2afc6d08a98bc49a782b4e5fbd0995a7619019",
+    "6a83e906a1681589f6266acdb1d8e265f9063b2672dac433ae5e0c45c9d99f1a": {
+      "templateId": "openmotion-welcome",
+      "path": "compositions/gallery.html",
+      "file": "openmotion-welcome/gallery.jpg",
+      "depsSha256": "3c6c8a0ffe82f530b2a275e0275ca4138c02baba0656c53a48511ca48a25290a",
       "frameCount": 8,
       "frameWidth": 160,
       "frameHeight": 90,

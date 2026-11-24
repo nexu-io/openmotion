@@ -8,7 +8,7 @@
     <div class="canvas">
       <!-- Logo Container -->
       <div class="logo-container">
-        <svg viewBox="0 0 160 240" width="160" height="240">
+        <svg viewBox="0 0 160 240" width="160" height="240" overflow="visible" style="overflow: visible">
           <!-- Figma Logo Pieces -->
           <!-- Top-left: Red (F24E1E) -->
           <path
@@ -104,7 +104,7 @@
         const ring = '[data-composition-id="scene1-logo-intro"] .ring';
         const logoContainer = '[data-composition-id="scene1-logo-intro"] .logo-container';
 
-        // Initial positions: Corners of the screen
+        // Initial positions: Visible inset corners inside the 1920x1080 frame
         // Viewport is 1920x1080. Center is 960, 540.
         // logo-container is at 880, 420.
 
