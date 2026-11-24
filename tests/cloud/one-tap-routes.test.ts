@@ -1905,6 +1905,21 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
       });
       assert.equal(afterRecoveryMe.status, 401);
+
+      // 9. Bound 503 retry link from /auth/upgrade-handoff MUST NOT fall back to guest Pricing if cookie
+      //    disappears, MUST return 409 if account changes, and MUST NOT lose revocation binding if cache del fails
+      const retryHtml = await dbErrRes.text();
+      assert.match(retryHtml, /requireAuth=1/);
+      const missingCookieRetry = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1');
+      assert.equal(missingCookieRetry.status, 401);
+      assert.equal(missingCookieRetry.headers.get('location'), null);
+
+      const switchedAccountRetry = await appProofRace.request(
+        '/auth/upgrade-handoff?targetPath=%2Fpricing&requireAuth=1&expectedAppUserId=usr_other_b',
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` } },
+      );
+      assert.equal(switchedAccountRetry.status, 409);
+      assert.equal(switchedAccountRetry.headers.get('location'), null);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

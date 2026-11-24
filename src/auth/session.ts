@@ -201,12 +201,11 @@ export async function resolveBrowserSession(
           oneTapRevokedBindingCacheKey(bindingHash),
         );
         if (revokedMarker) {
-          // Revoke DB session first without swallowing errors; only clear the
-          // binding key after DB revocation succeeds so transient DB errors
-          // never drop the revocation barrier.
+          // Revoke DB session and evict session cache without swallowing errors.
+          // Retain oneTapSessionBindingCacheKey until its full 7-day session TTL
+          // expires so a cached or retried session can NEVER resurrect after logout.
           await store.revokeSessionByTokenHash(tokenHash);
-          await options.cache.del(cacheKey).catch(() => {});
-          await options.cache.del(oneTapSessionBindingCacheKey(tokenHash)).catch(() => {});
+          await options.cache.del(cacheKey);
           await options.cache.del(`om:amr:session-proof:${tokenHash}`).catch(() => {});
           return null;
         }

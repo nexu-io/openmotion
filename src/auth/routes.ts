@@ -1093,12 +1093,23 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const attributionParams = extractUpgradeAttributionParams(c.req.url);
       const targetPath = resolveSafeUpgradeTargetPath(c.req.query('targetPath'), attributionParams);
       const parsedReqUrl = new URL(c.req.url);
-      const retryPath = `${parsedReqUrl.pathname}${parsedReqUrl.search}`;
+      const expectedAppUserIdParam = c.req.query('expectedAppUserId')?.trim() || null;
+      const requireAuth = c.req.query('requireAuth') === '1' || Boolean(expectedAppUserIdParam);
 
       const cookies = parseCookies(c.req.header('cookie'));
       const rawSession = cookies[SESSION_COOKIE_NAME];
-      const unavailableResponse = () =>
-        new Response(renderUpgradeHandoffUnavailableHtml(retryPath), {
+      const buildBoundRetryPath = (boundAppUserId?: string | null): string => {
+        const retryUrl = new URL(parsedReqUrl.toString());
+        retryUrl.searchParams.set('requireAuth', '1');
+        const effectiveExpected = boundAppUserId?.trim() || expectedAppUserIdParam;
+        if (effectiveExpected) {
+          retryUrl.searchParams.set('expectedAppUserId', effectiveExpected);
+        }
+        return `${retryUrl.pathname}${retryUrl.search}`;
+      };
+      const unavailableResponse = (boundAppUserId?: string | null) => {
+        const boundRetryPath = buildBoundRetryPath(boundAppUserId);
+        return new Response(renderUpgradeHandoffUnavailableHtml(boundRetryPath), {
           status: 503,
           headers: {
             'content-type': 'text/html; charset=utf-8',
@@ -1108,10 +1119,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             'x-content-type-options': 'nosniff',
           },
         });
+      };
 
       if (!rawSession) {
-        // Only genuine guests (no om_session cookie) requesting public Pricing paths via
-        // same-origin /auth/upgrade-handoff are safely forwarded to the public Pricing page.
+        // Bound retries (requireAuth=1 or expectedAppUserId set) MUST NEVER fall back to
+        // unbound guest Pricing when the session cookie disappears before retry.
+        if (requireAuth) {
+          return c.json(
+            {
+              code: 'UNAUTHORIZED',
+              error: 'Your session is no longer present. Please sign in again before upgrading.',
+            },
+            401,
+          );
+        }
+        // Only genuine guests (no om_session cookie and not a bound retry) requesting public
+        // Pricing paths via same-origin /auth/upgrade-handoff are safely forwarded to Pricing.
         const guestPricingUrl = resolveGuestPricingRedirectUrl(targetPath, deps.config);
         if (guestPricingUrl) {
           return c.redirect(guestPricingUrl, 302);
@@ -1148,6 +1171,15 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         const enriched = await amrIdentity.verifyAndEnrichAuthContext(deps.store, resolved.auth);
         authUserId = enriched.authUserId ?? null;
         appUserId = enriched.appUserId ?? null;
+        if (expectedAppUserIdParam && appUserId !== expectedAppUserIdParam) {
+          return c.json(
+            {
+              code: 'ACCOUNT_MISMATCH',
+              error: 'Your signed-in account changed before retrying upgrade. Please reopen Pricing from the active account.',
+            },
+            409,
+          );
+        }
       } catch (error) {
         // NEVER downgrade a session-bearing upgrade request to unbound guest Pricing on
         // upstream 401/403 or on any DB/Redis/503 error.
@@ -1160,7 +1192,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             error.status === 403 ? 403 : 401,
           );
         }
-        return unavailableResponse();
+        return unavailableResponse(appUserId);
       }
 
       if (authUserId && appUserId && rawSession) {
@@ -1182,7 +1214,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         }
       }
 
-      return unavailableResponse();
+      return unavailableResponse(appUserId);
     });
   }
 
