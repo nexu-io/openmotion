@@ -6,10 +6,11 @@ export const PREVIEW_SCENE_GESTURES = `
 
   function sameGestureBasis(before, after) {
     const same = (a, b, keys) => keys.every(key => Math.abs(a[key] - b[key]) < 0.001);
-    if (before.makeRelative !== after.makeRelative || !same(before, after, ['left','top']) ||
+    const positionKeys = Object.keys(before.startPosition);
+    if (positionKeys.length !== Object.keys(after.startPosition).length || before.makeRelative !== after.makeRelative || !same(before, after, ['left','top']) ||
         !same(before.axes, after.axes, ['a','b','c','d']) ||
         !same(before.selection.geometry, after.selection.geometry, ['x','y','width','height']) ||
-        !same(before.startPosition, after.startPosition, ['time','x','y'])) return false;
+        !same(before.startPosition, after.startPosition, positionKeys)) return false;
     return !before.corner || (same(before, after, ['width','height']) &&
       ['width','height'].every(axis => same(before.resize[axis], after.resize[axis], ['w','h','x','y'])));
   }
@@ -45,7 +46,7 @@ export const PREVIEW_SCENE_GESTURES = `
       try {
         drag = null;
         if (node === step.element) restoreStyles(node, step.original, step.applied);
-        if (!startDrag({ gestureId:step.id, corner:step.corner, ordered:step.ordered }, node) ||
+        if (!startDrag(step.sceneStart, node) ||
             !drag || !sameGestureBasis(step, drag)) return null;
         return canvasDrag(message);
       } finally { drag = active; }
@@ -70,8 +71,10 @@ export const PREVIEW_SCENE_GESTURES = `
     if (message.phase === 'finish' && drag?.id === message.gestureId && drag.sceneUpdate)
       return finishSceneGesture(drag, message);
     const result = canvasDrag(message);
-    if (message.phase === 'start' && drag?.id === message.gestureId && applyingSceneUpdate?.targets.has(drag.selection.sourceFile))
+    if (message.phase === 'start' && drag?.id === message.gestureId && applyingSceneUpdate?.targets.has(drag.selection.sourceFile)) {
       drag.sceneUpdate = applyingSceneUpdate;
+      drag.sceneStart = message;
+    }
     return result;
   }
 
