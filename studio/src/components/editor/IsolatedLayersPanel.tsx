@@ -98,10 +98,10 @@ export function IsolatedLayersPanel({ iframe }: { iframe: HTMLIFrameElement | nu
         label={layer.label} depth={layer.depth} childCount={layer.childCount} kind={layer.kind} isCompHost={layer.isCompHost} index={index} selected={selected === layer.key} isCollapsed={Boolean(collapsed[layer.key])}
         onPointerDown={event => drag.handleRowPointerDown(index, event)} isDragged={drag.dragKey === layer.key} dragging={drag.dragKey !== null}
         onToggle={() => setCollapsed(current => ({ ...current, [layer.key]: !current[layer.key] }))}
-        onSelect={() => {
+        onSelect={(additive) => {
           const active = connection.current;
           if (!active || active.adapter.iframe !== iframe) return;
-          active.adapter.send("layer-select", { key: layer.key, subscription: active.subscription });
+          active.adapter.send("layer-select", { key: layer.key, subscription: active.subscription, ...(additive && { additive: true }) });
           trackStudioClick("layers", "locate_layer");
         }}
       />)}

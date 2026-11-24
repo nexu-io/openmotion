@@ -351,3 +351,78 @@ it('uses the authorized sidebar activation to mount its target without another p
     setCachedCloudDisklessMode(null);
   }
 });
+
+it.each([
+  '/brand-kits',
+  '/does-not-exist',
+  '/create/missing',
+  '/studios/unknown',
+  '/?page=unknown',
+])('redirects unknown route %s to /404 without opening the sample editor', async badPath => {
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith('/projects')) return Response.json({ activeId: id, projects: [{ id, title: 'Sample' }] });
+    if (url.endsWith('/template-catalog')) return Response.json({ items: [], total: 0, next: null, catalogVersion: 'test' });
+    return Response.json({ projectId: id, revision: 'r1' });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', badPath);
+  const historyLengthBefore = history.length;
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+    expect(location.pathname).toBe('/404');
+    expect(history.length).toBe(historyLengthBefore);
+    expect(preloadMotionProjectEditor).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/preview/open'))).toBe(false);
+    expect(container.querySelector('[data-viewer-project]')).toBeNull();
+    expect(container.querySelector('.motion-loading')).toBeNull();
+    expect(container.querySelector('.om-not-found-code')?.textContent).toBe('404');
+    expect(container.querySelector('.om-not-found-title')?.textContent).toBe('Page not found');
+
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('.om-not-found-actions button')];
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('Back to Explore');
+    await act(async () => buttons[0].click());
+    expect(location.pathname).toBe('/explore');
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    history.replaceState(null, '', '/');
+    setCachedCloudDisklessMode(null);
+  }
+});
+
+it('renders /404 directly with only the Back to Explore action and without loading a project', async () => {
+  const fetcher = vi.fn(async (url: string) => {
+    if (url.endsWith('/projects')) return Response.json({ activeId: id, projects: [{ id, title: 'Sample' }] });
+    return Response.json({ projectId: id, revision: 'r1' });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  setCachedCloudDisklessMode(true);
+  history.replaceState(null, '', '/404');
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<I18nProvider initialLocale="en"><MotionApp /></I18nProvider>));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+    expect(location.pathname).toBe('/404');
+    expect(preloadMotionProjectEditor).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls.some(([url]) => String(url).includes('/preview/open'))).toBe(false);
+    expect(container.querySelector('.motion-loading')).toBeNull();
+    expect(container.querySelector('.om-not-found-code')?.textContent).toBe('404');
+    expect(container.querySelector('.om-not-found-title')?.textContent).toBe('Page not found');
+    expect(container.querySelectorAll('.om-not-found-actions button')).toHaveLength(1);
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+    history.replaceState(null, '', '/');
+    setCachedCloudDisklessMode(null);
+  }
+});

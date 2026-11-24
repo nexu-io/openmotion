@@ -1,10 +1,11 @@
+import { ORDERED_TEXT_EDITS_HEADER } from '../../../shared/ordered-text-edits';
 import { studioFileContentVersion } from "./studioFileVersion";
 
 // Sources belong to the exact revision observed on a capability-advertising cloud read.
 // Keep recent active compositions only. An eviction always has an authoritative read fallback.
 export interface ConfirmedSource { content: string; version: string }
 const sources = new Map<string, ConfirmedSource>();
-const capableProjects = new Set<string>();
+const capableProjects = new Map<string, boolean>();
 let codeUnits = 0;
 const key = (projectId: string, path: string) => JSON.stringify([projectId, path]);
 
@@ -30,6 +31,10 @@ export function confirmedSource(projectId: string, path: string) {
 
 export function supportsProjectTextEdits(projectId: string) {
   return capableProjects.has(projectId);
+}
+
+export function supportsOrderedTextEdits(projectId: string) {
+  return capableProjects.get(projectId) === true;
 }
 
 export async function observedSourceVersion(projectId: string, path: string, content: string) {
@@ -64,8 +69,8 @@ export function observeSourceRead(projectId: string, path: string, response: Res
   const capable = response.headers?.get('X-OpenMotion-Text-Edits') === '1';
   capableProjects.delete(projectId);
   if (capable) {
-    capableProjects.add(projectId);
-    if (capableProjects.size > 128) capableProjects.delete(capableProjects.values().next().value!);
+    capableProjects.set(projectId, response.headers?.get(ORDERED_TEXT_EDITS_HEADER) === '1');
+    if (capableProjects.size > 128) capableProjects.delete(capableProjects.keys().next().value!);
   }
   if (capable && typeof data.content === 'string' && version) rememberSource(projectId, path, {content: data.content, version});
   else forgetSource(projectId, path);

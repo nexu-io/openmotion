@@ -12,31 +12,38 @@ export interface PlaybackReadinessSlice {
   /** Latched when the project's first preview shows its first frame (or fails), kept through edit
    *  reloads, so work that must not compete with the boot waits for it once. */
   previewBooted: boolean;
-  /** Active composition asset readiness for unified editor unlock. */
+  /** Active composition asset readiness for initial cover gate, background preloading & failure recovery. */
   assetReadinessPhase: "loading" | "ready";
   assetReadinessCompleted: number;
   assetReadinessTotal: number;
   assetReadinessFailed: PreviewAssetFailure[];
-  assetReadinessSkipped: boolean;
   assetReadinessGeneration: number;
-  /** True when the live preview reported a fatal boot/load error and shows its own retry UI. */
-  previewLoadError: boolean;
-  /** Initial visible timeline composition preview capture progress integrated into unified loading. */
+  /** True after the user clicks the escape button or the cover auto-releases on timeout. */
+  assetReadinessSkipped: boolean;
+  /** True while the full-cover initial opening gate is actively blocking editor input. */
+  editorInputLocked: boolean;
+  /** Initial visible timeline clip filmstrip (composition & video) gate progress. */
   timelinePreviewCompleted: number;
   timelinePreviewTotal: number;
   timelinePreviewSettledInitial: boolean;
-  /** True while StudioApp holds the unified editor loading lock (gates global edit & playback hotkeys). */
-  editorInputLocked: boolean;
+  /** True while the user explicitly triggered an in-place retry of failed preview assets. */
+  assetReadinessRetrying: boolean;
+  /** True when the live preview reported a fatal boot/load error and shows its own retry UI. */
+  previewLoadError: boolean;
+  /** True when an active video/audio element at the current playhead is buffering media data. */
+  mediaBuffering: boolean;
   setTimelineReady: (ready: boolean) => void;
   markPreviewBooted: () => void;
   beginAssetReadinessLoad: () => number;
   updateAssetReadiness: (progress: PreviewAssetProgress, generation?: number) => void;
   skipAssetReadiness: () => void;
-  setPreviewLoadError: (hasError: boolean) => void;
   registerTimelinePreviewTask: (taskId: string, generation: number) => void;
   settleTimelinePreviewTask: (taskId: string, generation: number) => void;
   markInitialTimelinePreviewGateSettled: (generation: number) => void;
   setEditorInputLocked: (locked: boolean) => void;
+  setAssetReadinessRetrying: (retrying: boolean) => void;
+  setPreviewLoadError: (hasError: boolean) => void;
+  setMediaBuffering: (buffering: boolean) => void;
   playLocked: boolean;
   setPlayLocked: (locked: boolean) => void;
   /** Sets timelineReady once doc's readiness inputs settle, or immediately
@@ -79,6 +86,10 @@ export function registerRetryFailedAssetsHandler(
   retryFailedAssetsEntry = { generation, handler };
 }
 
+export function hasRetryFailedAssetsHandler(): boolean {
+  return retryFailedAssetsEntry !== null;
+}
+
 export async function retryFailedPreviewAssets(): Promise<PreviewAssetFailure[]> {
   const entry = retryFailedAssetsEntry;
   if (!entry) return [];
@@ -95,12 +106,15 @@ export function resetPlaybackReadinessState(): Pick<
   | "assetReadinessCompleted"
   | "assetReadinessTotal"
   | "assetReadinessFailed"
-  | "assetReadinessSkipped"
   | "assetReadinessGeneration"
-  | "previewLoadError"
+  | "assetReadinessSkipped"
+  | "editorInputLocked"
   | "timelinePreviewCompleted"
   | "timelinePreviewTotal"
   | "timelinePreviewSettledInitial"
+  | "assetReadinessRetrying"
+  | "previewLoadError"
+  | "mediaBuffering"
 > {
   timelineReadyGeneration++;
   assetReadinessGenerationCounter++;
@@ -113,12 +127,15 @@ export function resetPlaybackReadinessState(): Pick<
     assetReadinessCompleted: 0,
     assetReadinessTotal: 0,
     assetReadinessFailed: [],
-    assetReadinessSkipped: false,
     assetReadinessGeneration: assetReadinessGenerationCounter,
-    previewLoadError: false,
+    assetReadinessSkipped: false,
+    editorInputLocked: false,
     timelinePreviewCompleted: 0,
     timelinePreviewTotal: 0,
     timelinePreviewSettledInitial: false,
+    assetReadinessRetrying: false,
+    previewLoadError: false,
+    mediaBuffering: false,
   };
 }
 
@@ -136,13 +153,15 @@ export function createPlaybackReadinessSlice(
     assetReadinessCompleted: 0,
     assetReadinessTotal: 0,
     assetReadinessFailed: [],
-    assetReadinessSkipped: false,
     assetReadinessGeneration: 0,
-    previewLoadError: false,
+    assetReadinessSkipped: false,
+    editorInputLocked: false,
     timelinePreviewCompleted: 0,
     timelinePreviewTotal: 0,
     timelinePreviewSettledInitial: false,
-    editorInputLocked: false,
+    assetReadinessRetrying: false,
+    previewLoadError: false,
+    mediaBuffering: false,
     markPreviewBooted: () => set({ previewBooted: true }),
     beginAssetReadinessLoad: () => {
       const generation = ++assetReadinessGenerationCounter;
@@ -153,12 +172,14 @@ export function createPlaybackReadinessSlice(
         assetReadinessCompleted: 0,
         assetReadinessTotal: 0,
         assetReadinessFailed: [],
-        assetReadinessSkipped: false,
         assetReadinessGeneration: generation,
-        previewLoadError: false,
+        assetReadinessSkipped: false,
         timelinePreviewCompleted: 0,
         timelinePreviewTotal: 0,
         timelinePreviewSettledInitial: false,
+        assetReadinessRetrying: false,
+        previewLoadError: false,
+        mediaBuffering: false,
       });
       return generation;
     },
@@ -167,22 +188,19 @@ export function createPlaybackReadinessSlice(
         if (generation !== undefined && generation !== state.assetReadinessGeneration) {
           return state;
         }
-        const skipped = state.assetReadinessSkipped || progress.skipped === true;
         return {
-          assetReadinessPhase: skipped ? "ready" : progress.status,
+          assetReadinessPhase: progress.status,
           assetReadinessCompleted: progress.completed,
           assetReadinessTotal: progress.total,
           assetReadinessFailed: progress.failed,
-          assetReadinessSkipped: skipped,
         };
       }),
     skipAssetReadiness: () =>
       set({
-        assetReadinessPhase: "ready",
         assetReadinessSkipped: true,
         timelinePreviewSettledInitial: true,
+        editorInputLocked: false,
       }),
-    setPreviewLoadError: (hasError) => set({ previewLoadError: hasError }),
     registerTimelinePreviewTask: (taskId, generation) =>
       set((state) => {
         if (
@@ -224,7 +242,12 @@ export function createPlaybackReadinessSlice(
         }
         return { timelinePreviewSettledInitial: true };
       }),
-    setEditorInputLocked: (locked) => set({ editorInputLocked: locked }),
+    setEditorInputLocked: (locked) =>
+      set((state) => (state.editorInputLocked === locked ? state : { editorInputLocked: locked })),
+    setAssetReadinessRetrying: (retrying) => set({ assetReadinessRetrying: retrying }),
+    setPreviewLoadError: (hasError) => set({ previewLoadError: hasError }),
+    setMediaBuffering: (buffering) =>
+      set((state) => (state.mediaBuffering === buffering ? state : { mediaBuffering: buffering })),
     playLocked: false,
     setPlayLocked: (locked) => set({ playLocked: locked }),
     setTimelineReady: (ready) => {

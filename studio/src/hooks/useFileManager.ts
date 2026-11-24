@@ -102,6 +102,7 @@ export function useFileManager({
     projectDir,
     fileTree,
     fileTreeLoaded,
+    fileTreeError,
     refreshFileTree,
     compositions,
     assets,
@@ -331,6 +332,14 @@ export function useFileManager({
             reservedPaths.add(targetPath);
             return { ...entry, targetPath };
           });
+          const plannedTargetById = new Map(directPlan.map((entry) => [entry.id, entry.targetPath]));
+          update((batch) => ({
+            ...batch,
+            items: batch.items.map((item) => {
+              const targetPath = plannedTargetById.get(item.id);
+              return targetPath ? { ...item, targetPath } : item;
+            }),
+          }));
 
           let cursor = 0;
           const workerCount = Math.min(2, directPlan.length);
@@ -380,6 +389,7 @@ export function useFileManager({
                       name: entry.file.name,
                       status: 'imported',
                       path: outcome.path,
+                      targetPath: entry.targetPath,
                       ...(preview ? { previewUrl: preview.url } : {}),
                     },
                   ],
@@ -394,7 +404,7 @@ export function useFileManager({
                 if (outcome.diagnostic) {
                   update(batch => ({ ...batch, diagnostic: outcome.diagnostic }));
                 }
-                markResults([{ id: entry.id, name: entry.file.name, status: 'failed', reason }]);
+                markResults([{ id: entry.id, name: entry.file.name, status: 'failed', targetPath: entry.targetPath, reason }]);
                 if (!attempt) showToast(reason, 'error');
               } else {
                 if (preview?.isObjectUrl) {
@@ -403,7 +413,7 @@ export function useFileManager({
                 if (outcome.diagnostic) {
                   update(batch => ({ ...batch, diagnostic: outcome.diagnostic }));
                 }
-                markResults([{ id: entry.id, name: entry.file.name, status: 'unknown', reason: t(UNKNOWN_IMPORT_REASON) }]);
+                markResults([{ id: entry.id, name: entry.file.name, status: 'unknown', targetPath: entry.targetPath, reason: t(UNKNOWN_IMPORT_REASON) }]);
                 if (!attempt) showToast(t(UNKNOWN_IMPORT_REASON), 'error');
               }
             }
@@ -758,6 +768,7 @@ export function useFileManager({
     projectDir,
     fileTree,
     fileTreeLoaded,
+    fileTreeError,
 
     // Refs
     editingPathRef,

@@ -1858,5 +1858,7 @@
   "Moves with the selected main track clip": "Se déplace avec le clip sélectionné sur la piste principale",
   "Trim left to playhead": "Rogner à gauche jusqu’à la tête",
   "Trim right to playhead": "Rogner à droite jusqu’à la tête",
-  "Screen too small to expand this panel": "L’écran est trop petit pour déployer ce panneau"
+  "Screen too small to expand this panel": "L’écran est trop petit pour déployer ce panneau",
+  "{label} picker": "Sélecteur de {label}",
+  "Pick {value0}": "Choisir {value0}"
 }

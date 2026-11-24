@@ -2,7 +2,7 @@ import { buildProjectApiPath } from "../utils/projectRouting";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type { LintFinding } from "../components/LintModal";
 import { usePlayerStore } from "../player";
-import { isPreviewBooted, whenPreviewBooted } from "../player/store/playerStore";
+import { isEditorInteractive, whenEditorInteractive } from "../player/store/playerStore";
 import { studioApiFetch } from "../utils/studioApiFetch";
 
 interface RawFinding {
@@ -41,7 +41,7 @@ export function useLintModal(projectId: string | null, refreshKey?: number) {
 
   const runBackgroundLint = useCallback(async () => {
     if (!projectId) return;
-    if (!isPreviewBooted(projectId) && !(await whenPreviewBooted(projectId))) return;
+    if (!isEditorInteractive(projectId) && !(await whenEditorInteractive(projectId))) return;
     try {
       setBackgroundFindings(await fetchLintFindings(projectId));
     } catch {}

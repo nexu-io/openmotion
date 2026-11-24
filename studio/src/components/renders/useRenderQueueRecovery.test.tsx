@@ -132,12 +132,16 @@ describe("export attempt recovery", () => {
     expect(ProgressStream.instances.some(stream => stream.url.includes("new"))).toBe(true);
   });
 
-  it("preserves write protection after a disconnected stream until the service confirms no worker", async () => {
+  it("releases the editor lock immediately after a disconnected stream while rechecking before a new export", async () => {
     const mounted = await start();
     act(() => { ProgressStream.instances.at(-1)!.onerror?.(); });
-    expect(mounted.api().isRendering).toBe(true);
+    expect(mounted.api().jobs[0].status).toBe("unknown");
+    expect(mounted.api().isRendering).toBe(false);
+    // Starting another export rechecks server history first and refuses a duplicate while the worker is still active.
     await act(async () => { await mounted.api().startRender({}); });
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+    expect(mounted.api().isRendering).toBe(true);
+    // Once the server confirms no active worker, the editor stays unlocked and a separate export proceeds cleanly.
     history[0] = { ...history[0], status: "unknown", workerActive: false };
     await act(async () => { await mounted.api().recheckRender("native-1"); });
     expect(mounted.api().isRendering).toBe(false);
@@ -147,6 +151,46 @@ describe("export attempt recovery", () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(2);
     expect(mounted.api().jobs).toHaveLength(2);
     expect(mounted.api().jobs.find(job => job.id === "native-1")?.status).toBe("unknown");
+  });
+
+  it("marks a 404/missing native task as requestNotFound on recheck and allows removing it or exporting again", async () => {
+    const mounted = await start();
+    act(() => { ProgressStream.instances.at(-1)!.onerror?.(); });
+    expect(mounted.api().isRendering).toBe(false);
+    expect(mounted.api().jobs[0]).toMatchObject({ id: "native-1", nativeJobId: "native-1", status: "unknown" });
+    history = [];
+    await act(async () => { await mounted.api().recheckRender("native-1"); });
+    expect(mounted.api().isRendering).toBe(false);
+    expect(mounted.api().jobs[0]).toMatchObject({ id: "native-1", status: "unknown", workerActive: false, requestNotFound: true });
+    // Removing a confirmed-missing unknown task clears it locally without failing on DELETE.
+    await act(async () => { await mounted.api().deleteRender("native-1"); });
+    expect(mounted.api().jobs).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(0);
+  });
+
+  it("cancels a disconnected task via /cancel and converges cleanly when /cancel returns cancelled", async () => {
+    const mounted = await start();
+    act(() => { ProgressStream.instances.at(-1)!.onerror?.(); });
+    expect(mounted.api().isRendering).toBe(false);
+    cancelResponse = Promise.resolve(json({ status: "cancelled", workerActive: false }));
+    await act(async () => { await mounted.api().cancelRender("native-1"); });
+    expect(mounted.api().jobs[0]).toMatchObject({ id: "native-1", status: "cancelled", workerActive: false });
+    expect(mounted.api().isRendering).toBe(false);
+  });
+
+  it("marks a disconnected task as requestNotFound without locking the editor when /cancel returns 404", async () => {
+    const mounted = await start();
+    act(() => { ProgressStream.instances.at(-1)!.onerror?.(); });
+    expect(mounted.api().isRendering).toBe(false);
+    cancelResponse = Promise.resolve(new Response(null, { status: 404 }));
+    await act(async () => { await mounted.api().cancelRender("native-1"); });
+    expect(mounted.api().jobs[0]).toMatchObject({
+      id: "native-1",
+      status: "unknown",
+      workerActive: false,
+      requestNotFound: true,
+    });
+    expect(mounted.api().isRendering).toBe(false);
   });
 
   it("rechecks an inactive unknown and refuses a separate export if the original worker is now active", async () => {
@@ -168,14 +212,15 @@ describe("export attempt recovery", () => {
     expect(queue.api().jobs[0].status).toBe("unknown");
   });
 
-  it("provides reload guidance only after a client-only receipt cannot be found", async () => {
+  it("provides reload guidance after a client-only receipt cannot be found while keeping the editor unlocked", async () => {
     const real = fetchMock.getMockImplementation()!;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => init?.method === "POST" ? Promise.reject(new TypeError("lost")) : real(url, init));
     const mounted = await start();
     expect(mounted.api().jobs[0].requestNotFound).toBeUndefined();
+    expect(mounted.api().isRendering).toBe(false);
     await act(async () => { await mounted.api().recheckRender(mounted.api().jobs[0].id); });
-    expect(mounted.api().jobs[0]).toMatchObject({ status: "unknown", requestNotFound: true });
-    expect(mounted.api().isRendering).toBe(true);
+    expect(mounted.api().jobs[0]).toMatchObject({ status: "unknown", workerActive: false, requestNotFound: true });
+    expect(mounted.api().isRendering).toBe(false);
   });
 
   it("shows cancelling until the renderer confirms a terminal state", async () => {

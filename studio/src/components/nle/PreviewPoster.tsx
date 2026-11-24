@@ -68,6 +68,7 @@ export function usePreviewPoster(
   const visit = useVisitNumber(activeKey);
   const [coverDoneFor, setCoverDoneFor] = useState<number | null>(null);
   const [posterSettledFor, setPosterSettledFor] = useState<number | null>(null);
+  const [posterLoadedFor, setPosterLoadedFor] = useState<number | null>(null);
   const missingForRef = useRef<number | null>(null);
   const liveReadyForRef = useRef<number | null>(null);
   const renderMissingPoster = useCallback(() => {
@@ -84,12 +85,18 @@ export function usePreviewPoster(
     },
     [visit, renderMissingPoster],
   );
+  const mountPoster = !cloud && !directUrl && (coverDoneFor !== visit || posterSettledFor !== visit);
+  const hidePoster = coverDoneFor === visit;
   return {
-    mountPoster: !cloud && !directUrl && (coverDoneFor !== visit || posterSettledFor !== visit),
-    hidePoster: coverDoneFor === visit,
+    mountPoster,
+    hidePoster,
+    posterVisible: mountPoster && !hidePoster && posterLoadedFor === visit,
     onLiveReadyToShowChange,
     onPreviewError: () => setCoverDoneFor(visit),
-    onPosterLoaded: () => setPosterSettledFor(visit),
+    onPosterLoaded: () => {
+      setPosterLoadedFor(visit);
+      setPosterSettledFor(visit);
+    },
     onPosterMissing: () => {
       setCoverDoneFor(visit);
       setPosterSettledFor(visit);

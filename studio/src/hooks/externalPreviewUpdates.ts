@@ -18,16 +18,11 @@ export class ExternalPreviewUpdates {
 
     const settle = (applied: boolean) => {
       const owed = keys.filter(key => this.pending.get(key) === ticket);
-      if (!owed.length) return;
-      if (applied) {
-        for (const key of owed) this.pending.delete(key);
-        return;
-      }
-      // A new preview reads the current project, including every file already delivered.
-      const paths = [...this.pending.keys()];
-      this.clear();
-      if (paths.includes(".")) reload(".");
-      else reload(paths.length === 1 ? paths[0] : paths);
+      for (const key of owed) this.pending.delete(key);
+      if (applied || !owed.length) return;
+      // Other paths may still acknowledge an in-place change; their recovery is independent.
+      if (owed.includes(".")) reload(".");
+      else reload(owed.length === 1 ? owed[0]! : owed);
     };
     if (inPlace) void inPlace.then(settle, () => settle(false));
     else settle(false);

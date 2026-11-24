@@ -528,7 +528,7 @@ export const NLEPreview = memo(function NLEPreview({
                   onPreviewError={poster.onPreviewError}
                   onPainted={(details) => reportPreviewFirstFrame(slot, details)}
                   portrait={portrait}
-                  suppressLoadingOverlay={suppressLoadingOverlay}
+                  suppressLoadingOverlay={suppressLoadingOverlay || poster.posterVisible}
                   loadingUi={loadingUi}
                   style={LIVE_IFRAME_STYLE}
                 />

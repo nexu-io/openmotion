@@ -227,20 +227,24 @@ export function createStudioMediaRoutes(deps: DisklessStudioDeps): Hono<{ Variab
       return c.body(buf.toString('utf8'), 200);
     }
 
-    if (deps.queues) {
-      void deps.queues
-        .enqueueMediaIngest(
-          'extract_waveform_peaks',
-          {
-            workspaceId: auth.workspaceId,
-            blobScope: file.blobScope,
-            sha256: file.sha256,
-            projectId,
-            samples,
-          },
-          { jobId: buildWaveformPeaksJobId(auth.workspaceId, file.sha256) },
-        )
-        .catch(() => {});
+    if (!deps.queues) {
+      return c.json({ error: 'Waveform extraction unavailable', path: safePath }, 503);
+    }
+
+    try {
+      await deps.queues.enqueueMediaIngest(
+        'extract_waveform_peaks',
+        {
+          workspaceId: auth.workspaceId,
+          blobScope: file.blobScope,
+          sha256: file.sha256,
+          projectId,
+          samples,
+        },
+        { jobId: buildWaveformPeaksJobId(auth.workspaceId, file.sha256) },
+      );
+    } catch {
+      return c.json({ error: 'Waveform extraction unavailable', path: safePath }, 503);
     }
 
     return c.json({ pending: true, path: safePath, sha256: file.sha256 }, 202);

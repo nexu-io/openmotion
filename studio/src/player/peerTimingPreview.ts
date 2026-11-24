@@ -1,3 +1,4 @@
+import { diffGroupChange } from "./visualGroupChange";
 import { isLiveMediaMove } from "../../../shared/preview-live-media";
 import { takeInsertedClip, takeRemovedClip } from "./visualClipStructure";
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from "../../../packages/edit-core/canvas-position";
@@ -5,7 +6,7 @@ import { createPreviewAdapter } from "./lib/previewAdapter";
 import { capturePresentedTimelineChanges } from "./lib/isolatedTimelineEdits";
 import { setPreviewMediaMuted } from "./lib/timelineIframeHelpers";
 import { usePlayerStore } from "./store/playerStore";
-import { MAX_PEER_PREVIEW_SOURCE_LENGTH, PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isAuthoredPresentation, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
 
 type FileSnapshot = { content: string; version: string };
 
@@ -22,18 +23,22 @@ export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: stri
   else documents.delete(frame);
 }
 
-export async function tryRefreshParkedPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean) {
+export async function tryRefreshParkedPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean, parkedOnly = false) {
+  return refreshPeerScenes(frame, [[path, version]], isCurrent, parkedOnly);
+}
+
+export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string, string][], isCurrent: () => boolean, parkedOnly = false) {
   const doc = documents.get(frame);
   if (!doc?.canRefreshParked || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
   if (adapter.token !== doc.token) return false;
   const timeout = 5000;
   const applied = await adapter.request<boolean>("refresh-parked-scene", {
-    path, fileVersion: version, documentId: doc.id, expiresAt: Date.now() + timeout,
+    ...(files.length === 1 ? {path: files[0]![0], fileVersion: files[0]![1]} : {files}),
+    documentId: doc.id, expiresAt: Date.now() + timeout, ...(parkedOnly && { parkedOnly }),
   }, timeout).catch(() => false);
   if (applied !== true || documents.get(frame) !== doc || !isCurrent()) return false;
-  // The size of a replaced parked scene is unknown until its new source is read.
-  doc.mountedVersions.delete(path);
+  for (const [path, version] of files) doc.mountedVersions.set(path, version);
   return true;
 }
 
@@ -52,7 +57,7 @@ export function acceptsTimingManifest(frame: HTMLIFrameElement, path: unknown, v
   return !expected || path !== expected.path || version === expected.version;
 }
 
-/** Only the small child files actually compiled into this document have a pinned baseline. */
+/** Only child files compiled into this document have a pinned baseline. */
 export function mountedPeerFileVersion(frame: HTMLIFrameElement, path: string) {
   return documents.get(frame)?.mountedVersions.get(path);
 }
@@ -97,9 +102,8 @@ function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["st
 }
 
 /** Strip only supported changes, then compare the entire remaining document before touching the player. */
-export function diffPreviewChanges(previous: string, current: string): PreviewChange[] | null {
-  // This optional fast path runs on the UI thread; large source rewrites use the regular loader.
-  if (previous === current || Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
+export function diffPreviewChanges(previous: string, current: string, measured = false): PreviewChange[] | null {
+  if (previous === current) return null;
   const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
   const before = parse(previous);
   const after = parse(current);
@@ -111,7 +115,11 @@ export function diffPreviewChanges(previous: string, current: string): PreviewCh
   if (a.length !== b.length) {
     const structural = a.length === b.length + 1 ? takeRemovedClip(before, after, a, presentationTags)
       : b.length === a.length + 1 && takeInsertedClip(before, after, b, presentationTags);
-    if (!structural) return null;
+    if (!structural) {
+      if (Math.abs(a.length - b.length) !== 1) return null;
+      const group = diffGroupChange(before, after, b.length > a.length, presentationTags);
+      return group ? [group] : null;
+    }
     changes.push(structural);
   }
   for (let i = 0; i < a.length; i++) {
@@ -131,7 +139,7 @@ export function diffPreviewChanges(previous: string, current: string): PreviewCh
     let styles: PreviewChange["styles"];
     let text: PreviewChange["text"];
     let captureOriginalTranslate: boolean | undefined;
-    if ((presentationTags.has(left.localName) || left.localName === "canvas") && left instanceof HTMLElement && right instanceof HTMLElement) {
+    if ((presentationTags.has(left.localName) || ["canvas", "img", "video"].includes(left.localName)) && left instanceof HTMLElement && right instanceof HTMLElement) {
       if (left.getAttribute("style") !== right.getAttribute("style")) {
         styles = changedStyles(left, right) ?? undefined;
         if (!styles) return null;
@@ -160,20 +168,20 @@ export function diffPreviewChanges(previous: string, current: string): PreviewCh
     if (!hfId && !left.id && !compositionId) return null;
     const change = { hfId, id: left.id, compositionId, tag: left.localName, attributes, styles, text, captureOriginalTranslate };
     // Moving the canvas DOM box preserves its drawing buffer. Its content and dimensions are owned by the renderer.
-    if (change.tag === "canvas" && (styles || text) && !isLivePositionEdit([change])) return null;
+    if (!presentationTags.has(change.tag) && (styles || text) && !isPaintOnlyChange(change) && !(measured && isMediaBoxChange(change)) &&
+        !(change.tag === "canvas" && isLivePositionEdit([change]))) return null;
     changes.push(change);
   }
-  if (!changes.length || changes.length > 32 || before.documentElement.outerHTML !== after.documentElement.outerHTML) return null;
+  if (!changes.length || before.documentElement.outerHTML !== after.documentElement.outerHTML) return null;
   return changes;
 }
 
 /** The first visual edit can persist the exact IDs already mounted by the compiler. */
-async function diffMountedPreview(previous: string, current: string) {
-  if (Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
-  const changes = diffPreviewChanges(previous, current);
+export async function diffMountedPreview(previous: string, current: string, measured = false) {
+  const changes = diffPreviewChanges(previous, current, measured);
   if (changes || current.split("data-hf-id=").length <= previous.split("data-hf-id=").length) return changes;
   const { ensureHfIds } = await import("@hyperframes/parsers/hf-ids");
-  return diffPreviewChanges(ensureHfIds(previous), current);
+  return diffPreviewChanges(ensureHfIds(previous), current, measured);
 }
 
 function onlyStyles(changes: PreviewChange[]) {
@@ -189,7 +197,7 @@ export async function tryApplyPeerChanges(
   frame: HTMLIFrameElement | null,
   update: PeerTimingUpdate,
   isCurrent: () => boolean,
-  options?: "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string },
+  options?: "paint-only" | "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string; onGroup?: (group: import("../../../shared/preview-group").GroupChange) => void },
 ): Promise<boolean> {
   if (!frame || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
@@ -199,20 +207,27 @@ export async function tryApplyPeerChanges(
   const releasePresented = capturePresentedTimelineChanges(frame, update.path);
   // Several accepted toggles can bring the file back to the exact source already on screen.
   const sameContent = !options && document.canRebind && previous.content === current.content;
+  const measured = typeof options === "object" && "gestureId" in options && !!options.gestureId;
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
-    await diffMountedPreview(previous.content, current.content);
-  if (!changes || !isCurrent()) return false;
-  const canAdvance = document.canRebind || (document.liveEdits.position && isLivePositionEdit(changes)) ||
+    await diffMountedPreview(previous.content, current.content, measured);
+  if (!changes || !isCurrent() || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return false;
+  const nestedBox = document.mountedVersions.has(update.path) && changes.length > 0 &&
+    changes.every(change => presentationTags.has(change.tag) && isPixelBoxChange(change));
+  const canAdvance = nestedBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
   if (temporary && (document.canRebind || !onlyStyles(changes))) return false;
   if (!temporary && !canAdvance) return false;
   const draftId = typeof options === "object" && "structureDraftId" in options ? options.structureDraftId : undefined;
-  if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert))) return false;
+  if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert || change.group))) return false;
   const localSave = typeof options === "object" && !("structureDraftId" in options) ? options : undefined;
   const presentation = changes.some(c => c.styles || c.text);
-  if (localSave && (!presentation || changes.some(c => c.attributes.length))) return false;
+  const mediaControl = !presentation && !!document.canRebind && changes.length > 0 && changes.every(c =>
+    (c.tag === "audio" || c.tag === "video") && c.attributes.length > 0 &&
+    c.attributes.every(([name]) => ["data-media-start", "data-playback-start", "loop", "data-playback-rate"].includes(name)));
+  if (localSave && !mediaControl && (!presentation || changes.some(c => c.attributes.length))) return false;
   const timeout = 350;
+  const sentFrom = document.mountedVersions.get(update.path);
   try {
     const paint = adapter.request<boolean>(presentation ? "peer-presentation" : "peer-timing", {
       documentId: document.id, path: update.path, before: update.previous.version, after: update.current.version,
@@ -224,15 +239,32 @@ export async function tryApplyPeerChanges(
       void paint.catch(() => {});
       return false;
     }
-    if (await paint !== true || documents.get(frame) !== document || !isCurrent()) return false;
-    if (draftId) return true;
-    if (!temporary && document.mountedVersions.has(update.path)) document.mountedVersions.set(update.path, current.version);
+    // A busy player can apply an edit before Studio receives its reply. Verify the
+    // mounted revision without performing the mutation a second time.
+    const applied = await paint.catch(async () => {
+      if (temporary || draftId || previous.version === current.version || documents.get(frame) !== document) return false;
+      const version = await adapter.request<string | null>("mounted-file-version", { documentId: document.id, path: update.path });
+      return version === current.version;
+    });
+    if (applied !== true || documents.get(frame) !== document) return false;
+    // A newer gesture supersedes an old paint's UI side effects, but its next
+    // patch still needs to know which source the live frame actually accepted.
+    const lastKnown = document.mountedVersions.get(update.path);
+    if (!temporary && !draftId && (lastKnown === sentFrom || lastKnown === previous.version)) {
+      document.mountedVersions.set(update.path, current.version);
+    }
+    if (!isCurrent()) return false;
+    if (draftId) {
+      const group = changes[0]?.group;
+      if (group && typeof options === "object" && "structureDraftId" in options) options.onGroup?.(group);
+      return true;
+    }
     // The HTML attribute changes defaultMuted. The runtime combines per-clip mute
     // with this window's independent monitor preference on a set-muted message.
     if (changes.some(change => change.attributes.some(([name]) => name === "muted"))) {
       setPreviewMediaMuted(frame, usePlayerStore.getState().audioMuted);
     }
-    if (!temporary && changes.some(change => change.attributes.length || change.removeFromComposition || change.insert)) releasePresented?.();
+    if (!temporary && changes.some(change => change.attributes.length || change.removeFromComposition || change.insert || change.group)) releasePresented?.();
     if (!temporary && (!presentation || document.timingFile?.path === update.path)) {
       document.timingFile = { path: update.path, version: current.version };
     }
@@ -241,7 +273,7 @@ export async function tryApplyPeerChanges(
 }
 
 /** Paint the same structural delta that its receipt will confirm. The draft never advances the file version. */
-export function stageStructurePreview(frame: HTMLIFrameElement, path: string, previous: FileSnapshot, content: string) {
+export function stageStructurePreview(frame: HTMLIFrameElement, path: string, previous: FileSnapshot, content: string, onGroup?: (group: import("../../../shared/preview-group").GroupChange) => void) {
   const doc = documents.get(frame);
   if (!doc?.canRebind) return;
   const adapter = createPreviewAdapter({ iframe: frame });
@@ -249,7 +281,7 @@ export function stageStructurePreview(frame: HTMLIFrameElement, path: string, pr
   let active = true;
   const current = () => active && frame.isConnected && documents.get(frame) === doc;
   void tryApplyPeerChanges(frame, { path, previous, current: { content, version: previous.version } }, current,
-    { structureDraftId: id }).catch(() => {});
+    { structureDraftId: id, onGroup }).catch(() => {});
   return () => {
     active = false;
     if (frame.isConnected && documents.get(frame) === doc) {

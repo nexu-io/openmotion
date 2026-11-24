@@ -246,7 +246,7 @@
 .reviewColors { display: flex; justify-content: space-between; gap: var(--motion-space-12); align-items: center; font-size: var(--motion-text-xs); color: var(--motion-muted); }
 .palette { display: flex; padding-left: var(--motion-space-6); }
 .palette > * { margin-left: calc(-1 * var(--motion-space-6)); }
-.library .colorSwatch { display: block; width: var(--motion-space-32); height: var(--motion-space-32); min-width: var(--motion-space-32); border-radius: var(--motion-radius-full); border: 2px solid var(--color-template-surface); transition: transform var(--motion-duration-normal) var(--motion-ease-out); }
+.library .colorSwatch { display: block; width: var(--motion-space-32); height: var(--motion-space-32); min-width: var(--motion-space-32); border-radius: var(--motion-radius-full); border: 2px solid var(--color-template-surface); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--motion-strong) 24%, transparent); transition: transform var(--motion-duration-normal) var(--motion-ease-out); }
 .colorSwatch:hover { transform: translateY(-3px); }
 .reviewGuideEntry { margin-top: var(--motion-space-12); }
 .library .guideEntry { display: flex; width: 100%; justify-content: flex-start; gap: var(--motion-space-8); font-size: var(--motion-text-sm); }

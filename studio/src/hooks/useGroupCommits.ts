@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, type RefObject } from "react";
 import {
   readProjectFileContent,
   saveProjectFilesWithHistory,
@@ -9,6 +9,10 @@ import {
   readHfId,
   type DomEditSelection,
 } from "../components/editor/domEditing";
+import { scheduleCommittedPreview } from "../player/committedPreview";
+import { stageStructurePreview } from "../player/peerTimingPreview";
+import { projectLocalTimelineEdit } from "../player/lib/peerTimeline";
+import type { GroupSelectionResult, followGroupSelection } from "./groupResultSelection";
 import { confirmedSource } from "../utils/confirmedTextSources";
 import {
   findMatchingTimelineElementId,
@@ -21,6 +25,8 @@ interface UseGroupCommitsParams extends DomEditCommitBaseParams {
   /** Refresh the SDK after the document hierarchy changes. */
   forceReloadSdkSession?: () => void;
   timelineElements: TimelineElement[];
+  previewIframeRef?: RefObject<HTMLIFrameElement | null>;
+  followSelection?: (frame: HTMLIFrameElement, path: string, group: GroupSelectionResult) => ReturnType<typeof followGroupSelection> | undefined;
 }
 
 interface PatchTarget {
@@ -112,20 +118,48 @@ async function saveGroupEdit(
   projectId: string,
   path: string,
   label: string,
-  transform: (source: string) => string,
+  transform: (source: string) => {html: string; selection: GroupSelectionResult},
   deps: UseGroupCommitsParams,
 ): Promise<void> {
+  let result: GroupSelectionResult;
+  let selection: ReturnType<typeof followGroupSelection> | undefined;
   await saveProjectFilesWithHistory({
     projectId,
     label,
-    files: { [path]: transform },
+    files: { [path]: source => {
+      const edit = transform(source);
+      result = edit.selection;
+      return edit.html;
+    } },
     readFile: async (file) => confirmedSource(projectId, file)?.content ?? readProjectFileContent(projectId, file),
+    projectPending(files) {
+      const frame = deps.previewIframeRef?.current;
+      const base = confirmedSource(projectId, path);
+      const file = files[path];
+      if (!frame || !file) return;
+      selection = deps.followSelection?.(frame, path, result);
+      if (base?.content !== file.before) return selection?.rollback;
+      const undoTimeline = projectLocalTimelineEdit(projectId, path, file, frame);
+      const undoPreview = stageStructurePreview(frame, path, base, file.after, group => {
+        result.members = group.members;
+        selection?.ready();
+      });
+      return () => { undoPreview?.(); undoTimeline?.(); selection?.rollback(); };
+    },
+    onSaved: async (_files, previous) => {
+      selection?.saved();
+      const frame = deps.previewIframeRef?.current;
+      if (!frame || deps.projectIdRef.current !== projectId) return;
+      scheduleCommittedPreview(frame, projectId, [{path, previous, current: confirmedSource(projectId, path)}], deps.reloadPreview);
+    },
     writeFile: deps.writeProjectFile,
     recordEdit: deps.editHistory.recordEdit,
   });
-  deps.clearDomSelection();
+  if (!deps.previewIframeRef?.current) {
+    deps.clearDomSelection();
+    deps.reloadPreview();
+  }
   deps.forceReloadSdkSession?.();
-  deps.reloadPreview();
 }
 
 export function useGroupCommits(params: UseGroupCommitsParams) {
@@ -150,14 +184,20 @@ export function useGroupCommits(params: UseGroupCommitsParams) {
       try {
         const { bbox, targets, rebases } = computeGroupGeometry(members, timelineElements);
         const { groupCanvasElements } = await import("../../../packages/edit-core/canvas-source");
-        let wrapperId = groupId;
+        const { findTargetElement, parseSourceDocument } = await import("@hyperframes/studio-server/source-mutation");
+        let label = groupId;
         await saveGroupEdit(pid, targetPath, "Group elements", (source) => {
           const result = groupCanvasElements(source, targets, groupId, bbox, rebases);
           if (!result.matched) throw new Error(result.error || "Cannot group the selected elements.");
-          wrapperId = result.groupId ?? groupId;
-          return result.html;
+          label = result.groupId ?? groupId;
+          // The upstream groupId is a display label. The emitted DOM id accounts
+          // for collisions in the file, so get it from an actual wrapped member.
+          const first = targets[0];
+          const parent = first && findTargetElement(parseSourceDocument(result.html).document, first)?.parentElement;
+          const id = parent?.getAttribute("data-hf-group") === label ? parent.id : undefined;
+          return { html: result.html, selection: { wrap: true, wrapper: { id }, members: targets } };
         }, params);
-        return wrapperId;
+        return label;
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Failed to group elements", "error");
         return null;
@@ -174,10 +214,13 @@ export function useGroupCommits(params: UseGroupCommitsParams) {
       const childTracks = resolveGroupChildTracks(group, timelineElements);
 
       try {
-        const { applyCanvasCommand } = await import("../../../packages/edit-core/canvas-commands");
+        const { unwrapGroupWithGsapCleanup } = await import("../../../packages/edit-core/canvas-source");
         const target = buildDomEditPatchTarget(group);
-        await saveGroupEdit(pid, targetPath, "Ungroup elements", (source) =>
-          applyCanvasCommand(source, { kind: "ungroupElements", target, childTracks }), params);
+        await saveGroupEdit(pid, targetPath, "Ungroup elements", source => {
+          const result = unwrapGroupWithGsapCleanup(source, target, childTracks);
+          if (!result.unwrapped) throw new Error("Group was not found.");
+          return {html: result.html, selection: {wrap:false, wrapper:target, members:result.memberIds?.map(id => ({id})) ?? []}};
+        }, params);
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Failed to ungroup elements", "error");
       }

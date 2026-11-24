@@ -13,7 +13,7 @@ import {
   trackStudioPendingEdit,
   trackedStudioEdit,
 } from "./studioPendingEdits";
-import { StudioFileConflictError } from "./studioSaveDiagnostics";
+import { RejectedCanvasGesture, StudioFileConflictError } from "./studioSaveDiagnostics";
 import { revertNewestStudioPendingEdit as hostRevert } from "../index";
 
 describe("a canvas press still waiting to run", () => {
@@ -42,6 +42,15 @@ describe("a canvas press still waiting to run", () => {
 });
 
 describe("studio pending edit flush", () => {
+  it("releases collaborators waiting on a gesture that the preview rolled back", async () => {
+    const remove = addStudioPendingEditFlushListener(async () => { throw new RejectedCanvasGesture(new Error("Layout is locked")); });
+    try {
+      await expect(flushStudioPendingEdits()).resolves.toEqual({ status: "clean" });
+    } finally {
+      remove();
+    }
+  });
+
   it("waits for mounted panels to persist pending local edits", async () => {
     const persist = vi.fn(async () => undefined);
     const remove = addStudioPendingEditFlushListener(persist);

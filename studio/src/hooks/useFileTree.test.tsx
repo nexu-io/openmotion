@@ -425,3 +425,46 @@ it('serves previously loaded project trees immediately via stale-while-revalidat
     fetchSpy.mockRestore();
   }
 });
+
+it('tracks fileTreeError on initial load failure and clears it after refreshFileTree recovers', async () => {
+  let attempt = 0;
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    attempt += 1;
+    if (attempt === 1) {
+      return new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+    }
+    return Response.json({ files: ['index.html', 'assets/bg.png'], compositions: ['index.html'] });
+  });
+  let latestError = false;
+  let latestFiles: string[] = [];
+  let refreshFn: (() => Promise<void>) | null = null;
+  function ErrorHarness({ projectId }: { projectId: string }) {
+    const projectIdRef = useRef(projectId);
+    projectIdRef.current = projectId;
+    const tree = useFileTree({ projectId, projectIdRef });
+    latestError = tree.fileTreeError;
+    latestFiles = tree.fileTree;
+    refreshFn = tree.refreshFileTree;
+    return null;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  try {
+    await act(async () => {
+      root!.render(<ErrorHarness projectId="proj-err-retry" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latestError).toBe(true);
+    expect(latestFiles).toEqual([]);
+
+    await act(async () => {
+      await refreshFn?.();
+    });
+    expect(latestError).toBe(false);
+    expect(latestFiles).toEqual(['index.html', 'assets/bg.png']);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});

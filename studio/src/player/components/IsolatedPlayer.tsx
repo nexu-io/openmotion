@@ -44,6 +44,8 @@ function parseBridgeAssetProgress(raw: unknown): PreviewAssetProgress | null {
   return { status, completed, total, failed };
 }
 
+const FIRST_FRAME_SOFT_UNLOCK_MS = 3_000;
+
 /** The remote runtime owns the document. Studio can size the frame and use its scoped message channel. */
 export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { origin: string; passive?: boolean }>(
   function IsolatedPlayer(props, forwardedRef) {
@@ -85,6 +87,8 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       let loadId = 0;
       let startedAt = performance.now();
       let deadline: ReturnType<typeof setTimeout>;
+      let softUnlockTimer: ReturnType<typeof setTimeout>;
+      let softUnlocked = false;
       let paintFrame = 0;
       let busyTimer: ReturnType<typeof setTimeout>;
       let busyForLoad = false;
@@ -101,16 +105,36 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           transform: `translate(-50%, -50%) scale(${scale})`,
         });
       }
+      function softUnlockPreview() {
+        if (ready || softUnlocked) return;
+        softUnlocked = true;
+        clearTimeout(deadline);
+        clearTimeout(softUnlockTimer);
+        setAwaitingFirstFrame(false);
+        callbacks.current.onCompositionLoadingChange?.(false);
+        callbacks.current.onReadyToShowChange?.(true);
+        usePlayerStore.getState().markPreviewBooted();
+      }
+      const unsubscribeSkip =
+        tracksAssets && !passive
+          ? usePlayerStore.subscribe((state, prev) => {
+              if (state.assetReadinessSkipped && !prev.assetReadinessSkipped) {
+                softUnlockPreview();
+              }
+            })
+          : null;
       function fail(message: string) {
         ready = true;
         clearTimeout(busyTimer);
         clearTimeout(deadline);
+        clearTimeout(softUnlockTimer);
         setError(message);
         callbacks.current.onCompositionLoadingChange?.(false);
         callbacks.current.onPreviewError?.(message);
         if (tracksAssets && !passive) {
           const store = usePlayerStore.getState();
           store.setPreviewLoadError(true);
+          store.setMediaBuffering(false);
           store.updateAssetReadiness(
             { status: "ready", completed: 0, total: 0, failed: [] },
             assetReadinessGenRef.current,
@@ -153,6 +177,9 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         if (event.data.type !== "timeline-state") return;
         rememberBridgeTimelineState(iframe!, bridge.token, event.data);
         if (Number.isFinite(event.data.currentTime)) runtimeTime = event.data.currentTime;
+        if (tracksAssets && !passive && typeof event.data.buffering === "boolean") {
+          usePlayerStore.getState().setMediaBuffering(event.data.buffering);
+        }
         const assetSnapshot = parseBridgeAssetProgress(event.data.assets);
         if (assetSnapshot && tracksAssets && !passive) {
           sawAssetReadiness = true;
@@ -174,12 +201,28 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           resize();
           callbacks.current.onLoad();
           if (!passive) announcePreviewDocumentLoaded(iframe!);
+          if (tracksAssets && !passive) {
+            if (usePlayerStore.getState().assetReadinessSkipped) {
+              softUnlockPreview();
+            } else {
+              // Do not keep timeline & canvas controls locked for up to 90s when a slow first-frame
+              // asset is still downloading; unlock after a short grace window (or immediately on Skip)
+              // and let asset readiness + retry handle the slow/broken media.
+              softUnlockTimer = setTimeout(softUnlockPreview, FIRST_FRAME_SOFT_UNLOCK_MS);
+            }
+          }
           deadline = setTimeout(() => fail("The composition preview did not become ready."), 90_000);
         }
         if (event.data.firstFrame === "loading") return;
         ready = true;
         clearTimeout(deadline);
+        clearTimeout(softUnlockTimer);
         if (event.data.firstFrame === "error") {
+          if (softUnlocked && tracksAssets && !passive) {
+            // Once soft-unlocked, surface per-asset errors via the asset-readiness retry UI instead
+            // of replacing the entire interactive canvas with a fatal error screen.
+            return;
+          }
           fail("The composition preview did not become ready.");
           return;
         }
@@ -204,17 +247,21 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         if (ready && !passive && !callbacks.current.noLoadTimeout) rememberPreviewPosition(iframe, runtimeTime);
         ready = false;
         timelineLoaded = false;
+        softUnlocked = false;
         sawAssetReadiness = false;
         setAwaitingFirstFrame(callbacks.current.showInitialLoading === true);
         busyForLoad = false;
         clearTimeout(busyTimer);
         setError(undefined);
         clearTimeout(deadline);
+        clearTimeout(softUnlockTimer);
         cancelAnimationFrame(paintFrame);
         startedAt = performance.now();
         loadId++;
         if (tracksAssets && !passive) {
-          usePlayerStore.getState().setPreviewLoadError(false);
+          const store = usePlayerStore.getState();
+          store.setPreviewLoadError(false);
+          store.setMediaBuffering(false);
         }
         callbacks.current.onReadyToShowChange?.(false);
         callbacks.current.onCompositionLoadingChange?.(true);
@@ -245,11 +292,14 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         deadline = setTimeout(() => fail("The composition preview did not become ready."), 15_000);
       }, fail, initialLease.current);
       return () => {
+        unsubscribeSkip?.();
         if (tracksAssets && !passive) {
           registerRetryFailedAssetsHandler(assetReadinessGenRef.current, null);
+          usePlayerStore.getState().setMediaBuffering(false);
         }
         clearTimeout(busyTimer);
         clearTimeout(deadline);
+        clearTimeout(softUnlockTimer);
         cancelAnimationFrame(paintFrame);
         observer.disconnect();
         window.removeEventListener("message", message);
@@ -271,7 +321,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           referrerPolicy="no-referrer" tabIndex={passive || props.inert ? -1 : undefined}
           allow={passive ? "autoplay 'none'" : "autoplay; fullscreen"}
           className="absolute left-1/2 top-1/2 max-w-none border-0" />
-        {awaitingFirstFrame && !error && !passive && props.loadingUi !== "host" && <PreviewCompositionLoading />}
+        {awaitingFirstFrame && !error && !passive && !props.suppressLoadingOverlay && props.loadingUi !== "host" && <PreviewCompositionLoading />}
         {error && !passive && <div data-testid="composition-preview-error" className="absolute inset-0 flex flex-col items-center justify-center bg-studio-surface text-center">
           <p>{t(error)}</p>
           <Button variant="plain" onClick={() => {

@@ -291,7 +291,7 @@ export class WorkspaceService {
       .select()
       .from(projects)
       .where(eq(projects.workspaceId, ctx.workspaceId))
-      .orderBy(desc(projects.openedAt), desc(projects.createdAt));
+      .orderBy(desc(projects.createdAt), asc(projects.id));
     const projectRows = agentFilter ? workspaceProjectRows.filter(agentFilter) : workspaceProjectRows;
 
     const sessionRows = await this.db

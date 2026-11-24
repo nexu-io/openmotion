@@ -4,6 +4,7 @@ import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
 import { useEffect, useMemo, useRef } from "react";
 import { usePlayerStore } from "../player/store/playerStore";
 import { resolveBeatSourceTrack } from "../utils/timelineInspector";
+import { resolveProjectMediaUrl } from "../player/components/thumbnailUtils";
 import { analyzeMusicFromUrl } from "@hyperframes/core/beats";
 import { whenTimelineIdle } from "../player/components/timelineMotion";
 import { useFileManagerContextOptional } from "../contexts/FileManagerContext";
@@ -125,13 +126,18 @@ export function useMusicBeatAnalysis(): void {
       ? { readOptionalProjectFile, writeProjectFile }
       : null;
 
+  const projectId = usePlayerStore((s) => s.timelineProjectId);
   const { musicSrc, isFallbackTrack } = useMemo(() => {
     const resolved = resolveBeatSourceTrack(elements);
     return {
-      musicSrc: resolved?.element.src ?? null,
+      musicSrc: resolveProjectMediaUrl(
+        resolved?.element.src,
+        projectId,
+        typeof window !== "undefined" ? window.location.origin : undefined,
+      ),
       isFallbackTrack: resolved?.isFallback ?? false,
     };
-  }, [elements]);
+  }, [elements, projectId]);
 
   // ── Load: decode for strength data, then use the saved beat file if present,
   //    otherwise seed it from detection. Resets edits + history on track change. ──

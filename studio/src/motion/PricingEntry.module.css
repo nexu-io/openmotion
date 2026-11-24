@@ -118,9 +118,12 @@
     display: none;
   }
   .trigger {
-    padding: 0 var(--motion-space-8) 1px;
+    padding: 0 var(--motion-space-8);
+    gap: var(--motion-space-4);
   }
   .badge {
+    position: static;
+    transform: skewX(-8deg);
     padding: 0 5px;
   }
   .cornerBadge {

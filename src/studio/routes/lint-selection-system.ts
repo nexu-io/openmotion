@@ -1,4 +1,4 @@
-import { etag } from 'hono/etag';
+import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -6,7 +6,8 @@ import { Hono, type Context } from 'hono';
 import { streamSSE } from 'hono/streaming';
 import { getHyperframeRuntimeScript } from '@hyperframes/core/runtime-script';
 import { CloudError, featureDeferredP2 } from '../../contracts/errors.ts';
-import type { SelectionEvent } from '../../contracts/events.ts';
+import type { AuthContext } from '../../contracts/auth.ts';
+import type { ProjectEvent, SelectionEvent } from '../../contracts/events.ts';
 import { projectChannel, selectionChannel, workspaceCatalogChannel } from '../../infra/redis.ts';
 import { isUuid } from '../../../shared/project-validation.ts';
 import {
@@ -18,13 +19,63 @@ import {
 import { infoInMemory, timelineInMemory } from '../engine/inspect.ts';
 import { lintProjectInMemory } from '../engine/lint-project.ts';
 import { installMotionComponent, motionComponentCards } from '../../services/motion-component-registry.ts';
-import { createWriteToken, getMimeType } from '../etag.ts';
+import { createWriteToken, fileContentVersion, getMimeType, hashIndexHeadMarkup } from '../etag.ts';
+import type { VirtualFileRecord } from '../virtual-project-store.ts';
 
 const SAFE_VENDOR_PATH_RE = /^[a-zA-Z0-9._/@-]{1,200}$/;
 const VERSIONED_GSAP_PREFIX_RE = /^gsap@[a-zA-Z0-9._-]+\/(?:dist\/)?/;
 const SAFE_GSAP_ASSET_FILE_RE = /^[a-zA-Z0-9._-]+\.(?:js|mjs|cjs|map)$/;
+const LINT_CACHE_MAX_ENTRIES = 64;
 
 type StoredSelection = SelectionEvent & { selection?: unknown };
+
+interface CachedLintEntry {
+  readonly fingerprint: string;
+  readonly fullBody: string;
+  readonly fullEtag: string;
+  readonly findingsBody: string;
+  readonly findingsEtag: string;
+}
+
+function computeLintFingerprint(files: readonly VirtualFileRecord[]): string {
+  const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+  const hash = createHash('sha256');
+  for (const file of sorted) {
+    hash.update(file.path);
+    hash.update('\0');
+    hash.update(file.blobScope);
+    hash.update('\0');
+    hash.update(file.sha256);
+    hash.update('\0');
+    hash.update(String(file.sizeBytes));
+    if (file.metadata) {
+      const dur = file.metadata.durationSec;
+      const codec = file.metadata.codec;
+      if (typeof dur === 'number' || typeof codec === 'string') {
+        hash.update('\0');
+        hash.update(String(dur ?? ''));
+        hash.update(':');
+        hash.update(String(codec ?? ''));
+      }
+    }
+    hash.update('\n');
+  }
+  return hash.digest('hex');
+}
+
+function normalizeEtagValue(tag: string): string {
+  const trimmed = tag.trim();
+  return trimmed.startsWith('W/') ? trimmed.slice(2).trim() : trimmed;
+}
+
+function ifNoneMatchMatches(header: string | undefined, currentEtag: string): boolean {
+  if (!header) return false;
+  const trimmed = header.trim();
+  if (!trimmed) return false;
+  if (trimmed === '*') return true;
+  const target = normalizeEtagValue(currentEtag);
+  return trimmed.split(',').some((part) => normalizeEtagValue(part) === target);
+}
 
 export type StudioSystemRouteDeps = DisklessStudioDeps & {
   readonly previewOrigin?: string | null;
@@ -38,6 +89,39 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
 
   // In-memory latest selection mirror (per instance, updated via Redis pub/sub for multi-pod sync).
   const latestSelections = new Map<string, StoredSelection>();
+  // Bounded per-project lint result cache keyed by workspace+project and validated against file+metadata fingerprint.
+  const lintCache = new Map<string, CachedLintEntry>();
+  const inFlightLint = new Map<string, Promise<CachedLintEntry>>();
+
+  const putLintCache = (key: string, entry: CachedLintEntry): void => {
+    if (lintCache.has(key)) lintCache.delete(key);
+    lintCache.set(key, entry);
+    while (lintCache.size > LINT_CACHE_MAX_ENTRIES) {
+      const oldestKey = lintCache.keys().next().value;
+      if (!oldestKey) break;
+      lintCache.delete(oldestKey);
+    }
+  };
+
+  // During a rolling update, old tabs need an explicit shared thumbnail digest. Read
+  // only for those subscribers and share the immutable version's result across tabs.
+  const legacyHeadDigests = new Map<string, Promise<string | undefined>>();
+  function legacyHeadDigest(auth: AuthContext, projectId: string, version: string) {
+    const key = [auth.workspaceId, projectId, version].join(':');
+    const cached = legacyHeadDigests.get(key);
+    if (cached) return cached;
+    const patch = /^"patch:([a-f0-9]{64})"$/.exec(version);
+    const source = patch
+      ? deps.files.readTextBlob(auth.workspaceId, 'patch', patch[1])
+      : deps.files.readTextFile(auth, projectId, 'index.html').then(file => file?.version === version ? file.content : undefined);
+    const digest = source.then(text => text === undefined ? undefined : hashIndexHeadMarkup(text)).catch(() => {
+      if (legacyHeadDigests.get(key) === digest) legacyHeadDigests.delete(key);
+      return undefined;
+    });
+    legacyHeadDigests.set(key, digest);
+    if (legacyHeadDigests.size > 64) legacyHeadDigests.delete(legacyHeadDigests.keys().next().value!);
+    return digest;
+  }
 
   let cachedRuntimeJs: string | null = null;
   const vendorCache = new Map<string, { content: Buffer; mimeType: string }>();
@@ -94,21 +178,60 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
   };
 
   // GET /api/projects/:id/lint — Pure in-memory lintProjectInMemory (reads blobs.metadata, zero ffprobe).
-  app.get('/api/projects/:id/lint', etag(), async (c) => {
+  // Cached by project file+metadata fingerprint with single-flight dedupe so 304 revalidations avoid re-linting.
+  app.get('/api/projects/:id/lint', async (c) => {
     const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
     const projectId = c.req.param('id');
-    const virtual = await deps.files.loadVirtualProject(auth, projectId);
-    const result = await lintProjectInMemory(virtual);
+    const files = await deps.files.listFiles(auth, projectId);
+    const fingerprint = computeLintFingerprint(files);
+    const cacheKey = `${auth.workspaceId}:${projectId}`;
+
+    let entry = lintCache.get(cacheKey);
+    if (entry && entry.fingerprint === fingerprint) {
+      putLintCache(cacheKey, entry);
+    } else {
+      const flightKey = `${cacheKey}:${fingerprint}`;
+      let pending = inFlightLint.get(flightKey);
+      if (!pending) {
+        pending = (async () => {
+          const virtual = await deps.files.loadVirtualProject(auth, projectId);
+          const result = await lintProjectInMemory(virtual);
+          const fullBody = JSON.stringify(result);
+          // Keep the UI validator stable across edits that preserve the visible findings.
+          const findings = result.findings.map(({ severity, message, file, fixHint, elementId }) => ({
+            severity, message, file, fixHint, elementId,
+          }));
+          const findingsBody = JSON.stringify({ findings });
+          const computed: CachedLintEntry = {
+            fingerprint: computeLintFingerprint(virtual.listFiles()),
+            fullBody,
+            fullEtag: fileContentVersion(fullBody),
+            findingsBody,
+            findingsEtag: fileContentVersion(findingsBody),
+          };
+          putLintCache(cacheKey, computed);
+          return computed;
+        })().finally(() => {
+          if (inFlightLint.get(flightKey) === pending) {
+            inFlightLint.delete(flightKey);
+          }
+        });
+        inFlightLint.set(flightKey, pending);
+      }
+      entry = await pending;
+    }
+
+    const isFindingsView = c.req.query('view') === 'findings';
+    const body = isFindingsView ? entry.findingsBody : entry.fullBody;
+    const responseEtag = isFindingsView ? entry.findingsEtag : entry.fullEtag;
     c.header('Cache-Control', 'private, no-cache');
     c.header('Vary', 'Cookie, Authorization');
-    if (c.req.query('view') === 'findings') {
-      // Keep the UI validator stable across edits that preserve the visible findings.
-      const findings = result.findings.map(({ severity, message, file, fixHint, elementId }) => ({
-        severity, message, file, fixHint, elementId,
-      }));
-      return c.json({ findings });
+    c.header('ETag', responseEtag);
+    if (ifNoneMatchMatches(c.req.header('if-none-match'), responseEtag)) {
+      return c.body(null, 304);
     }
-    return c.json(result);
+    c.header('Content-Type', 'application/json; charset=utf-8');
+    return c.body(body, 200);
   });
 
   // GET /api/projects/:id/info — Pure in-memory project metadata inspection.
@@ -226,13 +349,16 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
       stream.onAbort(disconnect);
       const unsubscribe: Array<() => Promise<void>> = [];
       let keepalive: ReturnType<typeof setInterval> | undefined;
+      const ordered = c.req.query('orderedEdits') === '1';
+      let projectDelivery = Promise.resolve();
 
       try {
         unsubscribe.push(await deps.eventBus.subscribe(
           projectChannel(auth.workspaceId, projectId),
           (payload) => {
             if (stream.aborted) return;
-            const evt = payload as { type?: string; path?: string; paths?: string[] };
+            const evt = payload as ProjectEvent;
+            if (ordered && evt?.type === 'history-changed' && evt.includedInOrderedEdit) return;
             const eventName =
               evt?.type === 'history-changed'
                 ? 'history-changed'
@@ -244,16 +370,27 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
                       ? 'render-updated'
                       : 'file-change';
             // Tabs opened before a rolling update may only understand the single-path wire format.
-            const files = evt?.paths;
-            const data = !evt?.path && files?.length && (evt.type === 'file-change' || evt.type === 'files-changed')
-              ? { ...evt, path: files.length === 1 ? files[0] : '.' }
-              : payload;
-            void stream
-              .writeSSE({
-                event: eventName,
-                data: JSON.stringify(data),
-              })
-              .catch(() => {});
+            const fileEvent = evt?.type === 'file-change' || evt?.type === 'files-changed' ? evt : undefined;
+            const files = fileEvent?.paths;
+            const data = fileEvent && files?.length && !('path' in fileEvent)
+              ? { ...fileEvent, path: files.length === 1 ? files[0] : '.' }
+              : evt;
+            const send = (data: unknown) => stream.writeSSE({ event: eventName, data: JSON.stringify(data) });
+            if (ordered) {
+              void send(data).catch(() => {});
+              return;
+            }
+            // A legacy digest may be asynchronous; preserve event ordering on that stream.
+            projectDelivery = projectDelivery.then(async () => {
+              if (stream.aborted) return;
+              const root = fileEvent?.fileVersions?.['index.html'];
+              if (root && !fileEvent?.indexHeadHash) {
+                const indexHeadHash = await legacyHeadDigest(auth, projectId, root);
+                if (stream.aborted) return;
+                return send({ ...data, indexHeadHash });
+              }
+              return send(data);
+            }).catch(() => {});
           },
         ));
 

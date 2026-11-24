@@ -67,12 +67,40 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     if(!(duration>0)) return {status:'loading',completed:0,total:0,failed:[]};
     return ensureAssetTracker(function(snapshot){ post('asset-readiness',snapshot); }).snapshot();
   }
+  function mediaTimingWindow(node){
+    var start=0, end=Infinity, chain=[], owner=node;
+    while(owner){ if(owner.hasAttribute && owner.hasAttribute('data-start')) chain.push(owner); owner=owner.parentElement; }
+    for(var i=chain.length-1;i>=0;i--){
+      start+=Number(chain[i].getAttribute('data-start'))||0;
+      var dur=Number(chain[i].getAttribute('data-duration'));
+      if(dur>0) end=Math.min(end,start+dur);
+    }
+    return {start:start,end:end};
+  }
+  function isMediaBuffering(time){
+    if(isCaptureMode) return false;
+    var nodes=document.querySelectorAll('video,audio');
+    for(var i=0;i<nodes.length;i++){
+      var node=nodes[i];
+      if(node.hasAttribute('data-hf-clip-hidden') || (node.closest && node.closest('[data-hyperframes-ignore]'))) continue;
+      if(node.error || node.networkState===3) continue;
+      if(!node.currentSrc && !node.getAttribute('src') && !(node.querySelector && node.querySelector('source[src]'))) continue;
+      var win=mediaTimingWindow(node);
+      if(time < win.start - 0.05 || time >= win.end) continue;
+      if(node.readyState < 3) return true;
+    }
+    return false;
+  }
+  var lastReportedBuffering=false;
   function timeline(includeManifest){
     var p=player();
     var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
     var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
+    var buffering=duration>0?isMediaBuffering(currentTime):false;
+    lastReportedBuffering=buffering;
     return {currentTime:currentTime,duration:duration,firstFrame:isCaptureMode?'ready':(duration>0?visualFrameStatus(currentTime):'loading'),
       assets:assetState(duration),
+      buffering:buffering,
       isPlaying:p&&typeof p.isPlaying==='function'?p.isPlaying()===true:false,
       width:window.__clipManifest&&window.__clipManifest.compositionWidth, height:window.__clipManifest&&window.__clipManifest.compositionHeight,
       fps:window.__clipManifest&&window.__clipManifest.fps,
@@ -171,8 +199,9 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     else parentWindow.postMessage(message,targetOrigin);
   }
   function ready(){
-    var mountedVersions=settings.smallMountedSources&&Object.fromEntries(settings.smallMountedSources.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}));
-    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:settings.liveEdits,mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
+    var paths=[compositionPath].concat(settings.smallMountedSources||[]);
+    var mountedVersions=Object.fromEntries(paths.map(function(path){return [path,sourceIdentity(sourceVersions[path]).fileVersion];}).filter(function(entry){return typeof entry[1]==='string';}));
+    post('preview-ready',{timingDocumentId:timingDocumentId,styleDocumentId:styleDocumentId,liveEdits:Object.assign({presentation:true},settings.liveEdits),mountedVersions:mountedVersions,htmlSources:settings.htmlSources,capabilities:['selection','selection-geometry','edit-element','timeline','playback-control','pick-mode','refresh-parked-scene','layer-tree','layer-select','layer-family','inspect-element','canvas-framing','canvas-drag','inline-text','asset-readiness','thumbnail-capture','browser-export']});
     var state=timeline(true);
     if(state.duration>0){
       durationBootAnnounced=true;
@@ -197,6 +226,12 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
     if(!message || message.source!==PARENT || message.version!==VERSION || message.projectId!==projectId || message.token!==token) return;
     var requestId=message.requestId;
     try {
+      if(message.type==='mounted-file-version'){
+        if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
+        const mounted = styleDocumentId && message.documentId === styleDocumentId && typeof message.path === 'string' &&
+          Object.hasOwn(sourceVersions, message.path) && sourceIdentity(sourceVersions[message.path]).fileVersion;
+        respond(requestId,mounted || null); return;
+      }
       if(message.type==='peer-timing' || message.type==='peer-presentation'){
         if (!settings.studioOrigin || settings.studioOrigin !== event.origin) return;
         respond(requestId,applyPeerTiming(message)); return;
@@ -292,10 +327,18 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       }
       if(message.type==='canvas-drag'){
         var result=canvasDrag(message);
+        if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
+          const active=drag;
+          active.boundsScheduled=true;
+          requestAnimationFrame(function(){
+            active.boundsScheduled=false;
+            if(drag===active) post('canvas-drag',{phase:'bounds',gestureId:active.id,...resizeFrameBounds(active.element)});
+          });
+        }
         if(message.phase==='start'){
           const started=drag?.id===message.gestureId ? drag : null;
-          const hit=started?.element || (!message.corner && document.elementFromPoint(message.x * innerWidth,message.y * innerHeight)?.closest('[data-hf-id],[id]'));
-          if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, started?.selection || describe(hit));
+          const hit=started?.element || (!message.corner && !message.target && canvasPointHit(message.x, message.y));
+          if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, started?.selection || describe(hit), message.additive);
         }
         if(message.phase==='start' || message.phase==='finish') respond(requestId,result);
         return;
@@ -345,6 +388,21 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
         bootPoll=null;
       }
     },25);
+  }
+  if(!isCaptureMode){
+    var syncBufferingState=function(event){
+      var target=event&&event.target;
+      if(!target || (target.tagName!=='VIDEO' && target.tagName!=='AUDIO')) return;
+      var p=player();
+      var duration=p&&typeof p.getDuration==='function'?Number(p.getDuration())||0:0;
+      if(!(duration>0)) return;
+      var currentTime=p&&typeof p.getTime==='function'?Number(p.getTime())||0:0;
+      var next=isMediaBuffering(currentTime);
+      if(next!==lastReportedBuffering) post('timeline-state',timeline());
+    };
+    ['waiting','playing','canplay','canplaythrough','error'].forEach(function(type){
+      document.addEventListener(type,syncBufferingState,true);
+    });
   }
   setInterval(function(){ if(document.visibilityState!=='hidden' && !(isCaptureMode && durationBootAnnounced)) post('timeline-state',timeline()); },500);
 `);

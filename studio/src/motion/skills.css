@@ -79,7 +79,7 @@
 a.om-skill-source { color: var(--motion-strong); }
 .om-skill-source > svg, .om-skill-license { flex-shrink: 0; }
 .om-skill-license { margin-inline-start: auto; }
-.om-skill-provenance { display: grid; gap: var(--motion-space-8); margin-top: auto; padding-top: var(--motion-space-16); border-top: 1px solid var(--motion-border-subtle); }
+.om-skill-provenance { display: grid; gap: var(--motion-space-8); margin-top: auto; padding-block: var(--motion-space-16); border-top: 1px solid var(--motion-border-subtle); }
 .om-skill-source > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .om-skill-source:hover > span:first-of-type { text-decoration: underline; }
 .om-skill-credit { margin: 0; color: var(--motion-muted); font-size: var(--motion-text-xs); overflow-wrap: anywhere; }
@@ -97,7 +97,7 @@ a.om-skill-source { color: var(--motion-strong); }
 .om-collection-skill { display: flex; flex: none; width: 400px; max-width: 46%; min-height: 0; }
 .om-collection-skill > .om-skill-detail { width: 100%; max-width: none; }
 /* The copy and connect actions stay pinned to the panel bottom while the brief scrolls. */
-.om-skill-footer { position: sticky; bottom: 0; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--motion-space-8); margin-top: auto; margin-inline: calc(var(--motion-space-20) * -1); padding: var(--motion-space-12) var(--motion-space-20) var(--motion-space-16); background: var(--color-template-surface); border-top: 1px solid var(--color-template-line); }
+.om-skill-footer { position: sticky; bottom: 0; z-index: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--motion-space-8); margin-inline: calc(var(--motion-space-20) * -1); padding: var(--motion-space-12) var(--motion-space-20) var(--motion-space-16); background: var(--color-template-surface); border-top: 1px solid var(--color-template-line); }
 .om-skill-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--motion-space-8); }
 [data-motion-studio] .om-skill-actions .om-button { justify-content: center; }
 

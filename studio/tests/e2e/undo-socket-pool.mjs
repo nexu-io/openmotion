@@ -163,9 +163,9 @@ try {
     const shownBefore = await previewColor();
     // Exercise the manual editor save path; WebMCP content-writing tools are not registered.
     await call("openmotion_studio_select", { handle: target.handle });
-    await page.waitForSelector('[aria-label="Pick color color"]');
-    await page.click('[aria-label="Pick color color"]');
-    const hex = await page.waitForSelector('[role="dialog"][aria-label="Color color picker"] input');
+    await page.waitForSelector('[aria-label="Pick color"]');
+    await page.click('[aria-label="Pick color"]');
+    const hex = await page.waitForSelector('[role="dialog"][aria-label="Color picker"] input');
     await hex.click({ clickCount: 3 });
     await page.keyboard.type(colors[round % colors.length]);
     await page.click('[aria-label="Close color picker"]');

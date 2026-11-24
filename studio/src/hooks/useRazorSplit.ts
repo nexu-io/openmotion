@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { splitFailureMessage } from "../i18n/editorErrors";
 import { useCallback, useRef } from "react";
 import type { TimelineElement } from "../player";
@@ -23,7 +24,7 @@ interface UseRazorSplitOptions {
   writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
   observeProjectFileVersion?: (path: string, version: string | null) => void;
   recordEdit: (input: RecordEditInput) => Promise<void>;
-  reloadPreview: (path?: string) => void;
+  reloadPreview: (path?: string | readonly string[]) => void;
   forceReloadSdkSession?: () => void;
   isRecordingRef?: React.RefObject<boolean>;
 }
@@ -165,7 +166,8 @@ export function useRazorSplit({
   const playheadCutPendingRef = useRef(false);
   const handleSplitAtPlayhead = useCallback(
     async (splitTime: number) => {
-      if (playheadCutPendingRef.current) return;
+      const ordered = projectIdRef.current && supportsOrderedTextEdits(projectIdRef.current);
+      if (!ordered && playheadCutPendingRef.current) return;
       if (isRecordingRef?.current) {
         showToast("Cannot edit timeline while recording", "error");
         return;
@@ -184,7 +186,7 @@ export function useRazorSplit({
       }
       const targets = selectPlayheadSplitElements(state, splitTime);
       if (targets.length === 0) return;
-      playheadCutPendingRef.current = true;
+      if (!ordered) playheadCutPendingRef.current = true;
       try {
         const result = await runCut(targets, splitTime, targets.length === 1 ? "single" : "all");
         if (result && !result.syncFailed) {
@@ -194,7 +196,7 @@ export function useRazorSplit({
         console.warn("Timeline split failed", error);
         showToast(splitFailureMessage(error), "error");
       } finally {
-        playheadCutPendingRef.current = false;
+        if (!ordered) playheadCutPendingRef.current = false;
       }
     },
     [isRecordingRef, mvpEditor, runCut, showToast],

@@ -120,7 +120,7 @@ it("mirrors the reorder into the timeline rows through the host's move handler",
   await act(async () => root.unmount());
 });
 
-it("puts a caret only on a group's row and starts each child's icon where its parent's label starts", async () => {
+it("puts a caret only on a group's row and indents nested children compactly per depth", async () => {
   const { root } = await mountPanel(
     undefined,
     '<div data-composition-id="main"><h1 id="title" style="z-index:2">Hi</h1>' +
@@ -153,6 +153,6 @@ it("puts a caret only on a group's row and starts each child's icon where its pa
   expect(byLabel("Intro").firstElementChild?.getAttribute("aria-label")).toBe("Collapse children");
   expect(
     ["Title", "Intro", "Logo", "Inner", "Mark"].map((l) => byLabel(l).style.paddingLeft),
-  ).toEqual(["8px", "8px", "56px", "56px", "104px"]);
+  ).toEqual(["8px", "8px", "24px", "24px", "40px"]);
   await act(async () => root.unmount());
 });

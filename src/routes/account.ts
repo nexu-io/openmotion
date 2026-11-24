@@ -31,15 +31,16 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
   app.get('/summary', async (c) => {
     try {
       const auth = getAuthContext(c);
-      const [user, activeWorkspace, workspaces, billing] = await Promise.all([
+      const refresh = c.req.query('refresh') === 'true';
+      const gatewayCtx = gatewayCallContextFromAuth(auth, { signal: c.req.raw.signal });
+      const [user, activeWorkspace, workspaces, billing, availableModels] = await Promise.all([
         deps.authStore.findUserById(auth.userId),
         deps.authStore.findWorkspaceById(auth.workspaceId),
         deps.authStore.listUserWorkspaces(auth.userId),
         deps.gateway.getBillingSummary
-          ? deps.gateway.getBillingSummary(
-              gatewayCallContextFromAuth(auth, { signal: c.req.raw.signal }),
-            )
+          ? deps.gateway.getBillingSummary(gatewayCtx)
           : Promise.resolve(null),
+        deps.gateway.listMediaModels(gatewayCtx, { refresh }).catch(() => null),
       ]);
 
       return c.json({
@@ -78,6 +79,7 @@ export function createAccountRoutes(deps: AccountRoutesDeps): Hono<AuthEnv> {
         modelGateway: {
           provider: deps.gateway.providerId,
           mode: deps.gateway.mode,
+          ...(availableModels !== null ? { availableModelCount: availableModels.length } : {}),
         },
       });
     } catch (error) {

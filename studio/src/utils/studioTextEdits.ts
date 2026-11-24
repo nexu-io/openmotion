@@ -1,11 +1,12 @@
 import type { CompositionEdit } from '../../../packages/edit-core/commands';
+import { enqueueProjectEdit, runOrderedProjectBarrier } from './orderedProjectEdits';
 import { contentDependencies, isContentCommand } from '../../../packages/edit-core/content-schema';
-import { confirmedSource, forgetSource, observeSourceRead, pendingSourceRead, rememberSource, supportsProjectTextEdits, type ConfirmedSource } from './confirmedTextSources';
+import { confirmedSource, forgetSource, observeSourceRead, pendingSourceRead, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits, type ConfirmedSource } from './confirmedTextSources';
 import { acknowledgeFileEdit, isolatedEditVersion } from './isolatedEditVersions';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import type { StudioWriteHistory } from './studioFileHistory';
 import { createStudioWriteToken, studioWriteHeaders } from './studioFileVersion';
-import { createStudioSaveHttpError, retryStudioSave, StudioFileConflictError, StudioSaveNetworkError } from './studioSaveDiagnostics';
+import { createStudioSaveHttpError, RejectedCanvasGesture, retryStudioSave, StudioFileConflictError, StudioSaveNetworkError } from './studioSaveDiagnostics';
 import { studioApiFetch } from './studioApiFetch';
 import { trackStudioProjectSave } from './studioSaveState';
 
@@ -14,7 +15,7 @@ type Prepared = TextEditSource & { version: string };
 
 // Commands which read external assets, nested compositions or beat sidecars still require the
 // semantic endpoint until the browser can attest all of the corresponding input revisions.
-const localCommand = (command: CompositionEdit) => isContentCommand(command)
+export const isLocalProjectEdit = (command: CompositionEdit) => isContentCommand(command)
   ? contentDependencies(command).length === 0
   : command.kind !== 'setBeatGrid' && command.kind !== 'gradeMedia';
 
@@ -48,28 +49,99 @@ export async function resolveEditSource(project: string, path: string, matches: 
 }
 
 export async function tryStudioTextEdit(project: string, sources: readonly TextEditSource[], history?: StudioWriteHistory) {
-  const files: Prepared[] = [];
-  for (const source of sources) {
-    const confirmed = await resolveEditSource(project, source.path, current => current.content === source.before, source.after);
-    if (!confirmed) return;
-    files.push({ ...source, version: confirmed.version });
+  const prepare = async (drafts?: ReadonlyMap<string, ConfirmedSource>) => {
+    const edits: Prepared[] = [];
+    for (const source of sources) {
+      const draft = drafts?.get(source.path);
+      if (draft && draft.content !== source.before) throw staleSource(source.path, draft, source.after);
+      const base = draft ?? await resolveEditSource(project, source.path, current => current.content === source.before, source.after);
+      if (!base) return;
+      edits.push({ ...source, version: base.version });
+    }
+    return { edits, label: history?.label ?? 'Edit file', undoGroup: history?.continuous ? history.windowId : undefined };
+  };
+  if (sources.length && supportsOrderedTextEdits(project)) {
+    const result = await enqueueProjectEdit(project, sources[0].path, async drafts => {
+      const plan = await prepare(drafts);
+      if (!plan) throw new Error('Missing source for ordered text edit');
+      return plan;
+    });
+    return { ...result, divergent: [] };
   }
-  return commitTextEdits(project, files, history);
+  const plan = await prepare();
+  if (plan) return commitTextEdits(project, plan.edits, history);
 }
 
 export async function tryStudioCommandPatches(project: string, commands: CompositionEdit[], versions: Record<string, string>,
   history?: StudioWriteHistory, predicted?: (path: string) => string | undefined) {
-  if (!commands.length || !commands.every(localCommand)) return;
+  if (!commands.length || !commands.every(isLocalProjectEdit)) return;
   if (!supportsProjectTextEdits(project) && !Object.values(versions).some(version => version.startsWith('"patch:'))) return;
-  const files = new Map<string, Prepared>();
-  for (const command of commands) {
-    const path = command.compositionPath;
-    if (files.has(path)) continue;
-    const expected = predicted ? versions[path] : isolatedEditVersion(project, path, versions[path]);
-    const source = await resolveEditSource(project, path, current => current.version === expected, predicted?.(path) ?? '', true);
-    if (!source) return;
-    files.set(path, { path, before: source.content, after: source.content, version: source.version });
+  const ordered = supportsOrderedTextEdits(project);
+  const canvasGesture = !predicted && commands.every(c => c.kind === 'moveCanvasElement' || c.kind === 'setCanvasBox');
+  const captured = new Map<string, ConfirmedSource>();
+  for (const [path, version] of Object.entries(versions)) {
+    const source = confirmedSource(project, path);
+    const shownVersion = predicted ? version : isolatedEditVersion(project, path, version);
+    if (source?.version === shownVersion) captured.set(path, source);
   }
+  const prepare = async (drafts?: ReadonlyMap<string, ConfirmedSource>) => {
+    const files = new Map<string, Prepared>();
+    for (const path of new Set(commands.map(command => command.compositionPath))) {
+      const expected = predicted ? versions[path] : isolatedEditVersion(project, path, versions[path]);
+      const projected = drafts?.get(path);
+      const source = projected ?? await resolveEditSource(project, path,
+        current => ordered || current.version === expected, predicted?.(path) ?? '', true);
+      if (!source) return;
+      if (source.version === expected && !projected && !captured.has(path)) captured.set(path, source);
+      if (source.version !== expected) {
+        const original = captured.get(path);
+        const confirmed = projected ? confirmedSource(project, path) : source;
+        const { canReplayCanvasCommands } = await import('./canvasReplay');
+        if (!ordered || !original || !confirmed ||
+            !await canReplayCanvasCommands(commands.filter(command => command.compositionPath === path), original.content, confirmed.content)) {
+          reconcileFileEdit(project, path, source.version);
+          throw staleSource(path, source, predicted?.(path) ?? '');
+        }
+      }
+      files.set(path, { path, before: source.content, after: source.content, version: source.version });
+    }
+    const label = await applyCommands(commands, files).catch(error => {
+      // Only the in-memory transformation is covered. Reads, submissions and receipts keep their save errors.
+      if (canvasGesture) throw new RejectedCanvasGesture(error);
+      throw error;
+    });
+    return { edits: [...files.values()], label: history?.label ?? label, undoGroup: history?.continuous ? history.windowId : undefined };
+  };
+  let edits: Prepared[] = [];
+  let saved;
+  if (ordered) {
+    saved = await enqueueProjectEdit(project, commands[0].compositionPath, async drafts => {
+      const plan = await prepare(drafts);
+      if (!plan) throw new Error('Missing source for ordered project edit');
+      edits = plan.edits;
+      return plan;
+    }, canvasGesture);
+  } else {
+    const plan = await prepare();
+    if (!plan) return;
+    edits = plan.edits;
+    saved = await commitTextEdits(project, edits, history, plan.label);
+  }
+  const divergent = [];
+  for (const file of edits) {
+    const visible = predicted?.(file.path);
+    if (visible !== undefined && file.after !== visible) {
+      divergent.push(reconcileFileEdit(project, file.path, saved.versions[file.path], saved.changedPaths.includes(file.path)));
+    }
+  }
+  return { ...saved, divergent };
+}
+
+function staleSource(path: string, source: ConfirmedSource, attemptedContent: string) {
+  return new StudioFileConflictError({ filePath: path, currentVersion: source.version, currentContent: source.content, attemptedContent, syncLatest: true });
+}
+
+async function applyCommands(commands: CompositionEdit[], files: Map<string, Prepared>) {
   const { applyProjectEdit } = await import('../../../packages/edit-core/commands');
   const labels = new Set<string>();
   const inputs = new Map<string, string>();
@@ -79,30 +151,24 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
     if (edited.content !== file.after) labels.add(edited.label);
     file.after = edited.content;
   }
-  const saved = await commitTextEdits(project, [...files.values()], history, labels.size === 1 ? [...labels][0] : 'Edit project');
-  const divergent = [];
-  for (const file of files.values()) {
-    const visible = predicted?.(file.path);
-    if (visible !== undefined && file.after !== visible) {
-      divergent.push(reconcileFileEdit(project, file.path, saved.versions[file.path], saved.changedPaths.includes(file.path)));
-    }
-  }
-  return { ...saved, divergent };
+  return labels.size === 1 ? [...labels][0] : 'Edit project';
 }
 
 /** A catalog drop creates the missing files and edits their host in one project transaction. */
 export async function placeCatalogComponent(project: string, path: string, name: string, label: string,
   insertHost: (content: string) => string) {
-  let source = confirmedSource(project, path);
-  if (!source) {
-    const response = await studioApiFetch('/api/projects/' + encodeURIComponent(project) + '/files/' + encodeURIComponent(path));
-    if (!response.ok) throw await createStudioSaveHttpError(response, 'Could not read ' + path);
-    const data = await response.json();
-    if (typeof data.content !== 'string' || typeof data.version !== 'string') throw new Error('Missing composition source or version');
-    observeSourceRead(project, path, response, data);
-    source = { content: data.content, version: data.version };
-  }
-  return commitTextEdits(project, [{ path, before: source.content, version: source.version, after: insertHost(source.content) }], undefined, label, name);
+  return runOrderedProjectBarrier(project, async () => {
+    let source = confirmedSource(project, path);
+    if (!source) {
+      const response = await studioApiFetch('/api/projects/' + encodeURIComponent(project) + '/files/' + encodeURIComponent(path));
+      if (!response.ok) throw await createStudioSaveHttpError(response, 'Could not read ' + path);
+      const data = await response.json();
+      if (typeof data.content !== 'string' || typeof data.version !== 'string') throw new Error('Missing composition source or version');
+      observeSourceRead(project, path, response, data);
+      source = { content: data.content, version: data.version };
+    }
+    return commitTextEdits(project, [{ path, before: source.content, version: source.version, after: insertHost(source.content) }], undefined, label, name);
+  });
 }
 
 async function commitTextEdits(project: string, edits: Prepared[], history?: StudioWriteHistory, label = 'Edit file', installComponent?: string) {

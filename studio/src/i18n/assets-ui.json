@@ -146,6 +146,7 @@
     "Submitting your idea…": "正在提交创意…",
     "Saved automatically to your library": "结果自动保存到资产库",
     "Model usage is billed to your configured account.": "模型用量由你配置的账号计费。",
+    "Model usage is billed to your OpenDesign platform account.": "模型用量将计入你的 OpenDesign 平台账号。",
     "AN IDEA. A CONVERSATION. A CREATION.": "灵感 · 对话 · 创作",
     "A creative partner,\nfrom the first spark.": "从一个念头，\n到无限可能。",
     "Explore an idea, build on a reference, or create something entirely new.": "聊聊你的想法，延展一份参考，\n或一起创造全新的作品。",
@@ -355,7 +356,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "高解像度プレビューをバックグラウンドで最適化中 — 今すぐ編集できます",
     "Generating audio waveform in the background — ready to edit now": "音声波形をバックグラウンドで生成中 — 今すぐ編集できます",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "参照画像が OpenDesign の 2 MiB アップロード上限を超えています。",
-    "OpenDesign does not accept this reference image format.": "OpenDesign はこの参照画像形式に対応していません。"
+    "OpenDesign does not accept this reference image format.": "OpenDesign はこの参照画像形式に対応していません。",
+    "Model usage is billed to your OpenDesign platform account.": "モデルの利用料金は OpenDesign プラットフォームアカウントに請求されます。"
   },
   "ko": {
     "Follows first frame": "첫 프레임에 맞춤",
@@ -376,7 +378,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "백그라운드에서 고해상도 미리보기를 최적화하는 중 — 지금 바로 편집할 수 있습니다",
     "Generating audio waveform in the background — ready to edit now": "백그라운드에서 오디오 파형을 생성하는 중 — 지금 바로 편집할 수 있습니다",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "참조 이미지가 OpenDesign의 2 MiB 업로드 한도를 초과합니다.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign에서 지원하지 않는 참조 이미지 형식입니다."
+    "OpenDesign does not accept this reference image format.": "OpenDesign에서 지원하지 않는 참조 이미지 형식입니다.",
+    "Model usage is billed to your OpenDesign platform account.": "모델 사용량은 OpenDesign 플랫폼 계정에 청구됩니다."
   },
   "de": {
     "Follows first frame": "Wie das erste Bild",
@@ -397,7 +400,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "Hochauflösende Vorschau wird im Hintergrund optimiert — sofort bearbeitbar",
     "Generating audio waveform in the background — ready to edit now": "Audiowellenform wird im Hintergrund erzeugt — sofort bearbeitbar",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Das Referenzbild überschreitet das OpenDesign-Upload-Limit von 2 MiB.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign unterstützt dieses Referenzbildformat nicht."
+    "OpenDesign does not accept this reference image format.": "OpenDesign unterstützt dieses Referenzbildformat nicht.",
+    "Model usage is billed to your OpenDesign platform account.": "Die Modellnutzung wird über dein OpenDesign-Plattformkonto abgerechnet."
   },
   "fr": {
     "Follows first frame": "Selon la première image",
@@ -418,7 +422,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "Optimisation de l’aperçu haute résolution en arrière-plan — prêt pour le montage",
     "Generating audio waveform in the background — ready to edit now": "Génération de la forme d’onde audio en arrière-plan — prêt pour le montage",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "L’image de référence dépasse la limite de 2 Mio d’OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign ne prend pas en charge ce format d’image de référence."
+    "OpenDesign does not accept this reference image format.": "OpenDesign ne prend pas en charge ce format d’image de référence.",
+    "Model usage is billed to your OpenDesign platform account.": "L’utilisation des modèles est facturée sur votre compte de la plateforme OpenDesign."
   },
   "ru": {
     "Follows first frame": "По первому кадру",
@@ -439,7 +444,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "Фоновая оптимизация предпросмотра высокого разрешения — можно монтировать уже сейчас",
     "Generating audio waveform in the background — ready to edit now": "Фоновая генерация звуковой волны — можно монтировать уже сейчас",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Размер референсного изображения превышает лимит OpenDesign в 2 МиБ.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign не поддерживает этот формат референсного изображения."
+    "OpenDesign does not accept this reference image format.": "OpenDesign не поддерживает этот формат референсного изображения.",
+    "Model usage is billed to your OpenDesign platform account.": "Использование моделей оплачивается с вашего аккаунта платформы OpenDesign."
   },
   "es": {
     "Follows first frame": "Según el primer fotograma",
@@ -460,7 +466,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "Optimizando vista previa de alta resolución en segundo plano — listo para editar ahora",
     "Generating audio waveform in the background — ready to edit now": "Generando forma de onda de audio en segundo plano — listo para editar ahora",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "La imagen de referencia supera el límite de carga de 2 MiB de OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign no admite este formato de imagen de referencia."
+    "OpenDesign does not accept this reference image format.": "OpenDesign no admite este formato de imagen de referencia.",
+    "Model usage is billed to your OpenDesign platform account.": "El uso de modelos se factura en tu cuenta de la plataforma OpenDesign."
   },
   "pt-BR": {
     "Follows first frame": "Conforme o primeiro quadro",
@@ -481,7 +488,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "Otimizando prévia em alta resolução em segundo plano — pronto para editar agora",
     "Generating audio waveform in the background — ready to edit now": "Gerando forma de onda de áudio em segundo plano — pronto para editar agora",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "A imagem de referência excede o limite de envio de 2 MiB do OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "O OpenDesign não aceita este formato de imagem de referência."
+    "OpenDesign does not accept this reference image format.": "O OpenDesign não aceita este formato de imagem de referência.",
+    "Model usage is billed to your OpenDesign platform account.": "O uso de modelos é cobrado na sua conta da plataforma OpenDesign."
   },
   "it": {
     "Follows first frame": "Come il primo fotogramma",
@@ -502,7 +510,8 @@
     "Optimizing high-res preview in the background — ready to edit now": "Ottimizzazione dell’anteprima ad alta risoluzione in background — pronto per il montaggio",
     "Generating audio waveform in the background — ready to edit now": "Generazione della forma d’onda audio in background — pronto per il montaggio",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "L’immagine di riferimento supera il limite di caricamento di 2 MiB di OpenDesign.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign non accetta questo formato di immagine di riferimento."
+    "OpenDesign does not accept this reference image format.": "OpenDesign non accetta questo formato di immagine di riferimento.",
+    "Model usage is billed to your OpenDesign platform account.": "L’utilizzo dei modelli viene addebitato sul tuo account della piattaforma OpenDesign."
   },
   "tr": {
     "Follows first frame": "İlk kareye göre",
@@ -523,6 +532,7 @@
     "Optimizing high-res preview in the background — ready to edit now": "Yüksek çözünürlüklü önizleme arka planda optimize ediliyor — şimdi düzenlemeye hazır",
     "Generating audio waveform in the background — ready to edit now": "Ses dalga formu arka planda oluşturuluyor — şimdi düzenlemeye hazır",
     "The reference image is larger than the 2 MiB OpenDesign upload limit.": "Referans görsel OpenDesign’ın 2 MiB yükleme sınırını aşıyor.",
-    "OpenDesign does not accept this reference image format.": "OpenDesign bu referans görsel biçimini kabul etmiyor."
+    "OpenDesign does not accept this reference image format.": "OpenDesign bu referans görsel biçimini kabul etmiyor.",
+    "Model usage is billed to your OpenDesign platform account.": "Model kullanımı OpenDesign platform hesabınıza faturalandırılır."
   }
 }

@@ -1,6 +1,6 @@
 import { Fragment, Suspense, useMemo, type ComponentType } from 'react';
 import type { ArtifactKind, SessionArtifact } from '../../../shared/session';
-import { EditorLoading, type EditorLoadingLayout } from './EditorLoading';
+import { SuspenseOpeningGateMarker } from './editorOpeningGate';
 import { getMotionProjectEditor } from './MotionProjectEditor';
 import { useStudioHost } from './StudioHost';
 
@@ -10,13 +10,13 @@ const viewers: Record<ArtifactKind, () => ComponentType<{ resolvedProjectId: str
   'motion-project': getMotionProjectEditor,
 };
 
-export function ArtifactViewer({ artifact, loadingLayout }: { artifact: SessionArtifact; loadingLayout?: EditorLoadingLayout | null }) {
+export function ArtifactViewer({ artifact }: { artifact: SessionArtifact }) {
   const host = useStudioHost();
   // Preserve the mounted editor when a pending lazy import becomes available.
   const Viewer = useMemo(() => viewers[artifact.kind](), [artifact.kind]);
   const EditorHost = host?.EditorHost ?? Fragment;
   return (
-    <Suspense fallback={<EditorLoading layout={loadingLayout} />}>
+    <Suspense fallback={<SuspenseOpeningGateMarker />}>
       <div className="motion-project-editor" data-project-id={artifact.projectId}>
         <EditorHost>
           <Viewer resolvedProjectId={artifact.projectId} />

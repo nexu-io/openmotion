@@ -541,7 +541,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
 
     const firstFrameShown =
       loaded && (painted || visualFrameReady) && !compositionLoading && !shaderTransitionLoading && !previewError;
-    const readyToShow = firstFrameShown && !assetsLoading;
+    const readyToShow = tracksAssets ? firstFrameShown : firstFrameShown && !assetsLoading;
     // Work waiting on the boot starts at the first frame, while media still buffers.
     useEffect(() => {
       if (firstFrameShown) usePlayerStore.getState().markPreviewBooted();
@@ -594,7 +594,42 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         },
       );
       registerRetryFailedAssetsHandler(generation, () => tracker.retryFailed());
+
+      const computeBuffering = (): boolean => {
+        const currentTime = usePlayerStore.getState().currentTime;
+        const nodes = doc.querySelectorAll<HTMLMediaElement>("video, audio");
+        for (const node of nodes) {
+          if (node.hasAttribute("data-hf-clip-hidden") || node.closest("[data-hyperframes-ignore]")) continue;
+          if (node.error || node.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) continue;
+          if (!node.currentSrc && !node.getAttribute("src") && !node.querySelector("source[src]")) continue;
+          let start = 0;
+          let end = Infinity;
+          const chain: Element[] = [];
+          let owner: Element | null = node;
+          while (owner) {
+            if (owner.hasAttribute("data-start")) chain.push(owner);
+            owner = owner.parentElement;
+          }
+          for (let i = chain.length - 1; i >= 0; i--) {
+            start += Number(chain[i]!.getAttribute("data-start")) || 0;
+            const dur = Number(chain[i]!.getAttribute("data-duration"));
+            if (dur > 0) end = Math.min(end, start + dur);
+          }
+          if (currentTime < start - 0.05 || currentTime >= end) continue;
+          if (node.readyState < 3) return true;
+        }
+        return false;
+      };
+      const syncBuffering = () => {
+        usePlayerStore.getState().setMediaBuffering(computeBuffering());
+      };
+      const bufferingEvents = ["waiting", "playing", "canplay", "canplaythrough", "ended", "error"] as const;
+      for (const evt of bufferingEvents) doc.addEventListener(evt, syncBuffering, true);
+      syncBuffering();
+
       return () => {
+        for (const evt of bufferingEvents) doc.removeEventListener(evt, syncBuffering, true);
+        usePlayerStore.getState().setMediaBuffering(false);
         registerRetryFailedAssetsHandler(generation, null);
         tracker.dispose();
       };
@@ -608,6 +643,23 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       return () => clearTimeout(timer);
     }, [projectId]);
 
+    useEffect(() => {
+      if (!tracksAssets) return;
+      const unlockOnSkip = () => {
+        setAwaitingFirstFrame(false);
+        setCompositionLoading(false);
+        usePlayerStore.getState().markPreviewBooted();
+      };
+      if (usePlayerStore.getState().assetReadinessSkipped) {
+        unlockOnSkip();
+      }
+      return usePlayerStore.subscribe((state, prev) => {
+        if (state.assetReadinessSkipped && !prev.assetReadinessSkipped) {
+          unlockOnSkip();
+        }
+      });
+    }, [tracksAssets]);
+
     const compositionWaitShown =
       !suppressLoadingOverlay && !compositionOverlayDeferred && shouldShowCompositionLoadingOverlay(compositionLoading);
     const assetWaitShown =
@@ -616,11 +668,11 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
     // continue to use their existing readiness signals.
     const initialWait = awaitingFirstFrame && !assetWaitLong;
     const showCompositionOverlay = studioDraws(!previewError && (initialWait || compositionWaitShown), host.loadingUi);
-    const showAssetOverlay = studioDraws(!initialWait && assetWaitShown, host.loadingUi);
+    const showAssetOverlay = !tracksAssets && studioDraws(!initialWait && assetWaitShown, host.loadingUi);
 
     useEffect(() => {
-      onCompositionLoadingChange?.(compositionWaitShown || assetWaitShown);
-    }, [onCompositionLoadingChange, compositionWaitShown, assetWaitShown]);
+      onCompositionLoadingChange?.(tracksAssets ? compositionWaitShown : compositionWaitShown || assetWaitShown);
+    }, [onCompositionLoadingChange, tracksAssets, compositionWaitShown, assetWaitShown]);
 
     return (
       <div

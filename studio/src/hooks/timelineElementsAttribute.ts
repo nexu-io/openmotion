@@ -1,7 +1,7 @@
 import { projectTimelineControl } from "./timelineControlPreview";
 import { refreshCommittedTimeline } from "./timelineTimingSync";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
-import { confirmedSource } from "../utils/confirmedTextSources";
+import { confirmedSource, supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { saveCloudTimeline, timelineAttributeCommand } from "../utils/cloudTimelineEdit";
 import { useCallback } from "react";
 import { useCaptionWorkspace } from "../motion/captionWorkspace";
@@ -108,6 +108,10 @@ export function useSetElementsAttribute({
             }) })),
             writeProjectFile, recordEdit, label, onSaved,
           );
+        } else if (cloud && supportsOrderedTextEdits(projectId)) {
+          changedPaths = await saveCloudTimeline(projectId, [...byFile].map(([path, patches]) => ({
+            path, command: timelineAttributeCommand(patches, attr),
+          })), writeProjectFile, recordEdit, label, onSaved);
         } else {
           const apply = cloud ? (await import("../../../packages/edit-core/canvas-commands")).applyCanvasCommand : undefined;
           const commands = new Map([...byFile].map(([path, patches]) => [path, timelineAttributeCommand(patches, attr)]));

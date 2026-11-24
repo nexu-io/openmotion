@@ -1,10 +1,10 @@
 // The player owns the markup and scripts from which a parked scene will mount.
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
-  function parkedHost(path) {
+  function uniqueSceneHost(path) {
     const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
-    return hosts.length === 1 && hosts[0].hasAttribute('data-hf-parked-scene') ? hosts[0] : null;
+    return hosts.length === 1 ? hosts[0] : null;
   }
 
   // The runtime keeps the compiled HTML in a private cache and replaces the scene host
@@ -37,7 +37,9 @@ export const PREVIEW_PARKED_SCENE = `
         for (const [selector, {tag, styles}] of file.targets) {
           const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
             node.localName === tag && sourceFileForElement(node) === path);
-          for (const node of nodes) for (const [name, [from, to]] of styles) {
+          if (nodes.length !== 1) continue;
+          const node = nodes[0];
+          for (const [name, [from, to]] of styles) {
             const style = node.style;
             if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
             if (to) style.setProperty(name, to);
@@ -73,26 +75,34 @@ export const PREVIEW_PARKED_SCENE = `
   }
 
   function sameOtherEntries(before, after, changed) {
-    return !!before && !!after && Object.hasOwn(before, changed) && Object.hasOwn(after, changed) &&
-      Object.keys(before).length === Object.keys(after).length &&
-      Object.keys(before).every(key => key === changed || before[key] === after[key]);
+    return !!before && !!after && Object.keys(before).length === Object.keys(after).length &&
+      Object.keys(before).every(key => Object.hasOwn(after, key) && (changed.has(key) || before[key] === after[key]));
   }
 
   async function refreshParkedScene(message) {
-    const { path, fileVersion: version, expiresAt } = message;
-    if (compositionPath !== 'index.html' || message.documentId !== styleDocumentId ||
-        typeof path !== 'string' || !Object.hasOwn(sourceVersions, path) || typeof version !== 'string' ||
+    const {expiresAt} = message;
+    if (compositionPath !== 'index.html' || !styleDocumentId || message.documentId !== styleDocumentId ||
         !Number.isFinite(expiresAt) || expiresAt <= Date.now() || typeof window.__hfSwapScenes !== 'function') return false;
-    const host = parkedHost(path), base = sourceVersions[path];
-    if (!host || !base) return false;
-    const scene = host.getAttribute('data-hf-scene');
-    const current = () => parkedHost(path) === host && sourceVersions[path] === base &&
-      !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt;
+    const files = message.files ?? [[message.path, message.fileVersion]];
+    if (!Array.isArray(files) || !files.length) return false;
+    const targets = new Map(), scenes = new Set();
+    for (const entry of files) {
+      if (!Array.isArray(entry) || entry.length !== 2) return false;
+      const [path, version] = entry;
+      if (typeof path !== 'string' || typeof version !== 'string' || targets.has(path) ||
+          !Object.hasOwn(sourceVersions, path) || !sourceVersions[path]) return false;
+      const host = uniqueSceneHost(path), scene = host?.getAttribute('data-hf-scene');
+      if (!scene || scenes.has(scene) || (message.parkedOnly && !host.hasAttribute('data-hf-parked-scene'))) return false;
+      targets.set(path, {base:sourceVersions[path], host, version});
+      scenes.add(scene);
+    }
+    const current = () => !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt &&
+      Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base && uniqueSceneHost(path) === target.host);
     if (!current()) return false;
-
     const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
     const url = new URL(location.href);
-    url.searchParams.set('sceneFile', path);
+    // One file needs just its fragment. A batch must compare and mount scenes from the same compilation.
+    if (files.length === 1) url.searchParams.set('sceneFile', files[0][0]);
     const response = await fetch(url.href, { cache: 'no-cache', redirect: 'error', signal });
     if (!response.ok) return false;
     const html = await response.text();
@@ -104,14 +114,17 @@ export const PREVIEW_PARKED_SCENE = `
     if (incoming?.projectId !== projectId || incoming.compositionPath !== compositionPath ||
         incoming.canRebindTiming !== settings.canRebindTiming || JSON.stringify(incoming.liveEdits) !== JSON.stringify(settings.liveEdits) ||
         JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) ||
-        !sameOtherEntries(sourceVersions, versions, path) || sourceIdentity(versions[path]).fileVersion !== version) return false;
+        !sameOtherEntries(sourceVersions, versions, targets) ||
+        !files.every(([path, version]) => sourceIdentity(versions[path]).fileVersion === version)) return false;
     const oldParts = sceneParts(document), newParts = sceneParts(next);
     if (!oldParts || !newParts || oldParts.shared !== newParts.shared ||
-        !sameOtherEntries(oldParts.scenes, newParts.scenes, scene) || !current()) return false;
-
-    if (newParts.scenes[scene] !== oldParts.scenes[scene]) await window.__hfSwapScenes(html, signal);
-    forgetScenePlacement(path);
-    confirmCanvasVersion(path, versions[path]);
+        !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
+        !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key)) || !current()) return false;
+    if (Array.from(scenes).some(key => newParts.scenes[key] !== oldParts.scenes[key])) await window.__hfSwapScenes(html, signal);
+    for (const [path] of files) {
+      forgetScenePlacement(path);
+      confirmCanvasVersion(path, versions[path]);
+    }
     return true;
   }
 `;

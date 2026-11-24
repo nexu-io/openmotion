@@ -27,3 +27,22 @@ export function isolatedPatchTarget(location: IsolatedSourceTarget) {
   const target = { ...(hfId && { hfId }), ...(elementId && { id: elementId }) };
   return { sourceFile, ifMatch: isolatedSourceVersion(location), target };
 }
+
+
+const mountedSources = new WeakMap<Document, { projectId: string; sourceVersions: Record<string, string> } | null>();
+
+/** Read once from the actual same-origin preview, never from a newer background file read. */
+export function mountedCanvasVersion(doc: Document, projectId: string, path: string): string | undefined {
+  if (!mountedSources.has(doc)) {
+    const tag = doc.querySelector("script[data-openmotion-source-versions], script[data-openmotion-preview]");
+    try {
+      const data = JSON.parse(tag?.getAttribute("data-openmotion-preview") ?? tag?.textContent ?? "null");
+      mountedSources.set(doc, data && typeof data.sourceVersions === "object" ? data : null);
+    } catch { mountedSources.set(doc, null); }
+  }
+  const source = mountedSources.get(doc);
+  const tag = source?.projectId === projectId && source.sourceVersions?.[path];
+  if (!tag || typeof tag !== "string") return;
+  if (/^[a-f0-9]{64}$/.test(tag)) return '"sha256:' + tag + '"';
+  return /^"(?:sha256|patch):[a-f0-9]{64}"$/.test(tag) ? tag : undefined;
+}

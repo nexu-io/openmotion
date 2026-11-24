@@ -156,7 +156,7 @@ export function createStudioFileMutationsRoutes(
         sourceFile?: string;
         path?: string;
         ifMatch?: string;
-        geometry?: { target: SourceMutationTarget; box?: CanvasBox; position?: MeasuredCanvasPosition };
+        geometry?: { target: SourceMutationTarget; box: CanvasBox; position?: MeasuredCanvasPosition };
         patches?: Array<{ target: SourceMutationTarget; operations: PatchOperation[] }>;
         edits?: Array<{ target: SourceMutationTarget; ops: PatchOperation[]; fontFaceCss?: string }>;
         target?: SourceMutationTarget;
@@ -221,13 +221,13 @@ export function createStudioFileMutationsRoutes(
 
       if (batch.geometry) {
         const { target, position, box } = batch.geometry;
-        if ((!box && !position) || !target || edits.length || (position && !Number.isFinite(position.time))) {
+        if (!box || !target || edits.length || (position && !Number.isFinite(position.time))) {
           return c.json({ error: 'Invalid canvas geometry', durable: false }, 400);
         }
         try {
           after = applyCanvasCommand(before, position
             ? { kind: 'moveCanvasElement', target, time: position.time, staticBox: box, ...(position.delta ? { delta: position.delta } : { x: position.x, y: position.y }) }
-            : { kind: 'setCanvasBox', target, box: box! });
+            : { kind: 'setCanvasBox', target, box });
           matched.push(true);
         } catch (error) {
           return c.json({ error: error instanceof Error ? error.message : 'Invalid canvas geometry', durable: false }, 400);

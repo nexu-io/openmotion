@@ -5,6 +5,7 @@ import {
   computeThumbnailStrip,
   encodePreviewPath,
   resolveMediaPreviewUrl,
+  resolveProjectMediaUrl,
   quantizeThumbnailFrameCount,
   thumbnailFrameForTile,
 } from "./thumbnailUtils";
@@ -218,5 +219,53 @@ describe("authoredSrcPath", () => {
     expect(authoredSrcPath("assets/100%.png")).toBe("assets/100%.png");
     expect(authoredSrcPath("https://cdn.example/a%20b.mp4")).toBe("https://cdn.example/a%20b.mp4");
     expect(authoredSrcPath("//cdn.example/a%20b.mp4")).toBe("//cdn.example/a%20b.mp4");
+  });
+
+  it("strips /editor/ prefix when resolving same-origin URLs from semantic editor routes", () => {
+    expect(
+      resolveMediaPreviewUrl("https://studio.example/editor/assets/soundtrack.m4a", "proj-1", "https://studio.example"),
+    ).toBe("/api/projects/proj-1/preview/assets/soundtrack.m4a");
+  });
+});
+
+describe("semantic /editor route media URL resolution", () => {
+  it("strips accidental /editor/ and /editor/<projectId>/ prefixes from same-origin URLs without affecting project editor/ paths", () => {
+    expect(
+      resolveMediaPreviewUrl(
+        "https://studio.example/editor/assets/soundtrack.m4a",
+        "proj-1",
+        "https://studio.example",
+      ),
+    ).toBe("/api/projects/proj-1/preview/assets/soundtrack.m4a");
+    expect(
+      resolveMediaPreviewUrl(
+        "https://studio.example/editor/proj-1/assets/soundtrack.m4a",
+        "proj-1",
+        "https://studio.example",
+      ),
+    ).toBe("/api/projects/proj-1/preview/assets/soundtrack.m4a");
+    expect(resolveMediaPreviewUrl("editor/logo.png", "proj-1", "https://studio.example")).toBe(
+      "/api/projects/proj-1/preview/editor/logo.png",
+    );
+    expect(
+      resolveMediaPreviewUrl(
+        "https://studio.example/api/projects/proj-1/preview/editor/logo.png",
+        "proj-1",
+        "https://studio.example",
+      ),
+    ).toBe("https://studio.example/api/projects/proj-1/preview/editor/logo.png");
+  });
+
+  it("returns null for bare relative paths until projectId is known", () => {
+    expect(resolveProjectMediaUrl("assets/soundtrack.m4a", null, "https://studio.example")).toBeNull();
+    expect(resolveProjectMediaUrl("assets/soundtrack.m4a", "proj-1", "https://studio.example")).toBe(
+      "/api/projects/proj-1/preview/assets/soundtrack.m4a",
+    );
+    expect(resolveProjectMediaUrl("/api/media/clip.mp4", null, "https://studio.example")).toBe(
+      "/api/media/clip.mp4",
+    );
+    expect(resolveProjectMediaUrl("https://cdn.example/a.m4a", null, "https://studio.example")).toBe(
+      "https://cdn.example/a.m4a",
+    );
   });
 });

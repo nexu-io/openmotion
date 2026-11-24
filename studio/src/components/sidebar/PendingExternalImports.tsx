@@ -1,7 +1,34 @@
 import { IconButton } from "open-design-ui/icon-button";
+import type { ManualImportBatch } from "../../hooks/manualImportResults";
 import type { PendingExternalImport } from "../../hooks/useFileTree";
 import { useI18n } from "../../i18n/I18n";
 import { RemixIcon } from "../../icons/RemixIcons";
+
+const STALE_PROCESSING_DISMISS_MS = 5 * 60_000;
+
+/**
+ * Deduplicate server-tracked pending imports against the active manual upload
+ * batch card (`ManualImportResults`) so a timed-out or settled web upload never
+ * renders duplicate `Processing…` + `Result unknown` cards for the same file.
+ */
+export function filterPendingExternalImports(
+  pendingImports: readonly PendingExternalImport[],
+  importBatch: ManualImportBatch | null,
+): PendingExternalImport[] {
+  if (!importBatch || pendingImports.length === 0) return [...pendingImports];
+  const batchTargetPaths = new Set(
+    importBatch.items.flatMap((item) =>
+      [item.targetPath, item.path].filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const batchNames = new Set(importBatch.items.map((item) => item.name));
+  return pendingImports.filter((item) => {
+    if (importBatch.busy && item.source === "web_upload") return false;
+    if (item.targetPath && batchTargetPaths.has(item.targetPath)) return false;
+    if (item.source === "web_upload" && batchNames.has(item.filename)) return false;
+    return true;
+  });
+}
 
 function formatCompactBytes(bytes?: number): string {
   if (!bytes || !Number.isFinite(bytes) || bytes <= 0) return "";
@@ -25,6 +52,11 @@ export function PendingExternalImports({
       {items.map((item) => {
         const isFailed = item.state === "failed";
         const isWaiting = item.state === "waiting_upload";
+        const isStaleProcessing =
+          item.state === "processing" &&
+          Number.isFinite(item.updatedAt) &&
+          Date.now() - item.updatedAt >= STALE_PROCESSING_DISMISS_MS;
+        const canDismiss = Boolean(onDismiss) && (isFailed || isStaleProcessing);
         const hasDeterminateProgress =
           !isWaiting && !isFailed && typeof item.progress === "number" && item.progress > 0;
         const clampedPct = hasDeterminateProgress
@@ -67,7 +99,7 @@ export function PendingExternalImports({
                   {sizeLabel}
                 </span>
               )}
-              {isFailed && onDismiss && (
+              {canDismiss && onDismiss && (
                 <IconButton
                   variant="plain"
                   size="sm"

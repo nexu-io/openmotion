@@ -5,6 +5,7 @@ import { lazy, memo, Suspense, useCallback, type ReactNode } from "react";
 import { TranscriptPanel } from '../motion/TranscriptPanel';
 import { CaptionsPanel } from '../motion/CaptionsPanel';
 import { FileTree } from "./editor/FileTree";
+import { FileListError } from "./sidebar/FileListLoading";
 import { MediaPreview } from "./MediaPreview";
 import { AssetsTab } from "./sidebar/AssetsTab";
 import { BlocksTab, type BlockPreviewInfo } from "./sidebar/BlocksTab";
@@ -66,6 +67,7 @@ export const StudioLeftPanels = memo(function StudioLeftPanels({
     editingFile,
     fileTree,
     fileTreeLoaded,
+    fileTreeError,
     revealSourceOffset,
     handleFileSelect,
     handleCreateFile,
@@ -119,6 +121,8 @@ export const StudioLeftPanels = memo(function StudioLeftPanels({
             projectId={projectId}
             compositions={compositions}
             loading={!fileTreeLoaded}
+            error={fileTreeError}
+            onRetry={refreshFileTree}
             onSelect={(...args: Parameters<typeof onSelectComposition>) => {
               trackStudioClick("clips", "select_clip", projectId);
               return onSelectComposition(...args);
@@ -136,6 +140,8 @@ export const StudioLeftPanels = memo(function StudioLeftPanels({
             projectId={projectId}
             assets={assets}
             loading={!fileTreeLoaded}
+            error={fileTreeError}
+            onRetry={refreshFileTree}
             onImport={importAssets}
             onLibraryImport={refreshFileTree}
             onDelete={handleDeleteFile}
@@ -168,14 +174,18 @@ export const StudioLeftPanels = memo(function StudioLeftPanels({
               </div>
             )}
             <div className="flex-1 overflow-hidden min-w-0">
-              <CodeBody
-                projectId={projectId}
-                editingFile={editingFile}
-                revealOffset={revealSourceOffset}
-                onChange={handleContentChange}
-                onFlush={flushPendingSourceSave}
-                hasPendingChange={() => Boolean(getPendingSourceCandidate())}
-              />
+              {fileTreeError && fileTree.length === 0 && !editingFile ? (
+                <FileListError onRetry={refreshFileTree} />
+              ) : (
+                <CodeBody
+                  projectId={projectId}
+                  editingFile={editingFile}
+                  revealOffset={revealSourceOffset}
+                  onChange={handleContentChange}
+                  onFlush={flushPendingSourceSave}
+                  hasPendingChange={() => Boolean(getPendingSourceCandidate())}
+                />
+              )}
             </div>
           </div>
         </PanelColumn>

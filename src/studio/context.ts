@@ -68,6 +68,7 @@ export interface DisklessStudioDeps {
   readonly skipDeterministicFonts?: boolean;
   readonly fetchImpl?: typeof fetch;
   readonly studioVersion?: string;
+  readonly renderProgressKeepaliveMs?: number;
 }
 
 export async function getAuthContext(

@@ -109,10 +109,10 @@ export function isolatedCanvasCommands(batches: DomEditPatchBatch[]) {
     if (!ifMatch || !patches.length || Object.hasOwn(versions, sourceFile)) return null;
     versions[sourceFile] = ifMatch;
     const target = patches[0]!.target;
-    if ((position || box) && patches.length !== 1) return null;
-    if (position) commands.push({ kind: "moveCanvasElement", compositionPath: sourceFile, target, ...(box && {staticBox: box}), ...position });
-    else if (box) commands.push({ kind: "setCanvasBox", compositionPath: sourceFile, target, box });
-    else commands.push({ kind: "editElements", compositionPath: sourceFile, patches });
+    if (box && patches.length !== 1) return null;
+    if (!box) commands.push({ kind: "editElements", compositionPath: sourceFile, patches });
+    else if (!position) commands.push({ kind: "setCanvasBox", compositionPath: sourceFile, target, box });
+    else commands.push({ kind: "moveCanvasElement", compositionPath: sourceFile, target, staticBox: box, ...position });
   }
   return commands.length ? { commands, versions } : null;
 }
@@ -124,7 +124,7 @@ export async function patchElementBatches(projectId: string, batches: DomEditPat
   const guarded = batches.map(batch => batch.ifMatch
     ? { ...batch, ifMatch: isolatedEditVersion(projectId, batch.sourceFile, batch.ifMatch) }
     : batch);
-  const body = JSON.stringify({ batches: guarded.map(batch => (batch.box || batch.position) && getCachedCloudDisklessMode()
+  const body = JSON.stringify({ batches: guarded.map(batch => batch.box && getCachedCloudDisklessMode()
     ? {sourceFile:batch.sourceFile, ifMatch:batch.ifMatch, geometry:{target:batch.patches[0]!.target, box:batch.box, position:batch.position}}
     : batch) });
   try {

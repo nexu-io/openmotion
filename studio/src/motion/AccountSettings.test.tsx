@@ -231,3 +231,28 @@ it('offers Free and Go accounts an upgrade through the registered entry source, 
   const paid = await open({ state: 'signed-in', user: { email: 'ada@example.test' }, plan: 'plus', balance: '12.00' }, 'en', 'subscription');
   expect(paid.querySelector('[data-guide="upgrade"]')).toBeNull();
 });
+
+it('shows the upgrade guide and honest billing notice when billing is unavailable and zero models are available', async () => {
+  const page = await open(
+    {
+      authenticated: true,
+      authMode: 'oidc',
+      user: { id: 'u1', email: 'free@example.test', displayName: 'Free User' },
+      billing: { plan: 'cloud', mediaEntitlement: 'unknown', unavailable: true },
+      modelGateway: { provider: 'opendesign', mode: 'opendesign', availableModelCount: 0 },
+    },
+    'zh-CN',
+    'account',
+  );
+  const guide = page.querySelector('[data-guide="upgrade"]');
+  expect(guide).not.toBeNull();
+  expect(guide?.querySelector('h2')?.textContent).toBe('当前暂无可用媒体模型');
+  expect(guide?.querySelector('.om-plan-name')).toBeNull();
+  expect(guide?.querySelector('.om-badge')?.textContent).toBe('Plus 及以上');
+  const [upgrade, manage] = guide!.querySelectorAll<HTMLAnchorElement>('a');
+  expect(upgrade.textContent).toContain('升级到 Plus');
+  expect(new URL(upgrade.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(new URL(manage.href).searchParams.get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(page.textContent).toContain('当前工作区暂无可用媒体模型，请前往 OpenDesign 查看或升级订阅方案。');
+  expect(page.textContent).not.toContain('账户模型不受影响，可以照常使用');
+});

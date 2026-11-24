@@ -27,6 +27,7 @@ export interface ModelRoutesDeps {
   gateway: PlatformModelGateway;
   authStore: AuthStore;
   mediaJobs?: MediaJobPort;
+  consoleUrl?: string;
 }
 
 function handleRouteError(c: { json: (body: unknown, status?: 400 | 401 | 402 | 403 | 404 | 409 | 429 | 500 | 501 | 502 | 503) => Response }, error: unknown): Response {
@@ -138,7 +139,10 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
             ...(billing.unavailable ? { unavailable: true } : {}),
           }
         : null;
-      return c.json(buildGatewayStatus(models, defaults, redactedBilling));
+      return c.json({
+        ...buildGatewayStatus(models, defaults, redactedBilling),
+        ...(deps.consoleUrl ? { consoleUrl: deps.consoleUrl } : {}),
+      });
     } catch (error) {
       return handleRouteError(c, error);
     }

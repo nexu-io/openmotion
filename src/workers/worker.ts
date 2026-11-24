@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { Worker, type Job } from 'bullmq';
+import { DelayedError, Worker, type Job } from 'bullmq';
 import {
   QUEUE_NAMES,
   type BlobGcJobName,
@@ -14,6 +14,7 @@ import type { AppConfig } from '../infra/config.ts';
 import { createLogger, type Logger } from '../infra/logger.ts';
 import {
   QueueService,
+  hasWaitingUserRenderWork,
   validateBlobGcPayload,
   validateMediaGeneratePayload,
   validateMediaIngestPayload,
@@ -22,6 +23,7 @@ import {
 import { RedisEventBus, createRedisClient } from '../infra/redis.ts';
 import { ShutdownCoordinator } from '../infra/shutdown.ts';
 import { StorageService } from '../infra/storage.ts';
+import { RedisCatalogFilmstripBakeState } from '../services/catalog-filmstrip-autobake.ts';
 import { processBlobGcJob } from './blob-gc.ts';
 import {
   processMediaGenerateJob,
@@ -270,14 +272,49 @@ export interface RenderWorkerDeps {
   readonly db: Database;
   readonly storage: StoragePort;
   readonly eventBus: RedisEventBus;
+  readonly queues?: Pick<QueueService, 'renderExport'>;
   readonly logger: Logger;
   readonly workerId: string;
   readonly shutdown: ShutdownCoordinator;
 }
 
+const CATALOG_BAKE_YIELD_DELAY_MS = 2_000;
+
+function isYieldedCatalogBakeResult(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'status' in value &&
+      (value as { status?: unknown }).status === 'yielded',
+  );
+}
+
+export function registerRenderWorkerShutdownHooks(params: {
+  shutdown: ShutdownCoordinator;
+  heartbeat: RenderHealthHeartbeatHandle;
+  renderWorker: Pick<Worker, 'close'>;
+  closeConnections: () => Promise<void>;
+}): void {
+  const { shutdown, heartbeat, renderWorker, closeConnections } = params;
+  // Register LIFO drain hooks:
+  // 1) Mark heartbeat draining and drain active renders cleanly via renderWorker.close()
+  //    while keeping RenderWorkerHealth pulsing for the entire drain window.
+  // 2) Stop heartbeat only after renderWorker.close() resolves.
+  // 3) Quit BullMQ / bake-state Redis connections.
+  shutdown.register('bullmq-render-connection', closeConnections);
+  shutdown.register('render-health-heartbeat', () => {
+    heartbeat.stop();
+  });
+  shutdown.register('bullmq-render-worker', async () => {
+    heartbeat.setDraining(true);
+    void heartbeat.pulse().catch(() => {});
+    await renderWorker.close();
+  });
+}
+
 /**
  * Start BullMQ consumer for `WORKER_ROLE=render`:
- * - Sweeps stale `/tmp/om-render-*` directories left by prior crashes.
+ * - Sweeps stale `/tmp/om-render-*`, `/tmp/om-thumb-*`, and `/tmp/om-filmstrip-*` directories left by prior crashes.
  * - Starts periodic Redis heartbeat on `om:workers:render:health`.
  * - Consumes `render-export` (`concurrency = config.RENDER_CONCURRENCY`, default 1, `attempts: 1`).
  * - Registers LIFO drain on `ShutdownCoordinator` so in-flight renders finish cleanly on `SIGTERM`.
@@ -286,7 +323,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   workers: Worker[];
   heartbeat: RenderHealthHeartbeatHandle;
 }> {
-  const { config, db, storage, eventBus, logger, workerId, shutdown } = deps;
+  const { config, db, storage, eventBus, queues, logger, workerId, shutdown } = deps;
   const concurrency = config.RENDER_CONCURRENCY;
 
   const swept = await sweepStaleRenderTempDirs(os.tmpdir(), logger);
@@ -302,18 +339,23 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   });
 
   const renderConn = createRedisClient(config.REDIS_URL, 'bullmq');
+  const bakeStateConn = createRedisClient(config.REDIS_URL, 'command');
+  const bakeState = new RedisCatalogFilmstripBakeState(bakeStateConn);
+  const shouldYieldCatalogBake = queues
+    ? () => hasWaitingUserRenderWork(queues.renderExport)
+    : undefined;
   let activeJobs = 0;
 
   const renderWorker = new Worker(
     QUEUE_NAMES.renderExport,
-    async (job: Job) => {
+    async (job: Job, token?: string) => {
       const name = job.name as RenderExportJobName;
       const validated = validateRenderExportPayload(name, job.data);
       activeJobs += 1;
       heartbeat.setActiveJobs(activeJobs);
       void heartbeat.pulse().catch(() => {});
       try {
-        return await processRenderExportQueueJob(
+        const result = await processRenderExportQueueJob(
           {
             db,
             storage,
@@ -321,10 +363,17 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
             logger: logger.child({ queue: QUEUE_NAMES.renderExport, bullJobId: job.id, jobName: name }),
             workerId,
             concurrency,
+            bakeState,
+            shouldYieldCatalogBake,
           },
           name,
           validated,
         );
+        if (name === 'bake_catalog_filmstrips' && isYieldedCatalogBakeResult(result) && token) {
+          await job.moveToDelayed(Date.now() + CATALOG_BAKE_YIELD_DELAY_MS, token);
+          throw new DelayedError();
+        }
+        return result;
       } finally {
         activeJobs = Math.max(0, activeJobs - 1);
         heartbeat.setActiveJobs(activeJobs);
@@ -352,16 +401,13 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
     logger.error('Render worker runtime error', { queue: QUEUE_NAMES.renderExport, error });
   });
 
-  // Register LIFO drain hooks:
-  // 1) Stop heartbeat -> 2) Drain active render cleanly via renderWorker.close() -> 3) Quit Redis.
-  shutdown.register('bullmq-render-connection', async () => {
-    await renderConn.quit();
-  });
-  shutdown.register('bullmq-render-worker', async () => {
-    await renderWorker.close();
-  });
-  shutdown.register('render-health-heartbeat', () => {
-    heartbeat.stop();
+  registerRenderWorkerShutdownHooks({
+    shutdown,
+    heartbeat,
+    renderWorker,
+    closeConnections: async () => {
+      await Promise.allSettled([renderConn.quit(), bakeStateConn.quit()]);
+    },
   });
 
   logger.info('worker-render started', {
@@ -467,6 +513,7 @@ export async function startWorkerRuntime(options: StartWorkerRuntimeOptions): Pr
         db: dbHandle.db,
         storage,
         eventBus,
+        queues,
         logger,
         workerId,
         shutdown,

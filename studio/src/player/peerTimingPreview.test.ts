@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { ensureHfIds } from "@hyperframes/parsers/hf-ids";
-import { diffPreviewChanges, diffScriptedPreviewStyles, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
+import { diffPreviewChanges, diffScriptedPreviewStyles, mountedPeerFileVersion, rememberPeerTimingDocument, tryApplyPeerChanges } from "./peerTimingPreview";
 
 const source = '<!doctype html><main data-composition-id="root" data-duration="15"><audio id="a" data-start="2" data-duration="3"></audio><script>window.run(1)</script></main>';
 
@@ -96,6 +96,19 @@ describe("peer timing classification", () => {
     expect(diffPreviewChanges('<div id="clip"></div>', '<div id="clip" muted></div>')).toBeNull();
   });
 
+  it("identifies a media speed change together with its shorter clip and following clip", () => {
+    const before = '<main data-composition-id="film" data-duration="8"><video id="shot" data-start="0" data-duration="4"></video><div id="end" data-start="4"></div></main>';
+    const after = before.replace('data-duration="8"', 'data-duration="6"')
+      .replace('data-duration="4"', 'data-duration="2" data-playback-rate="2"')
+      .replace('data-start="4"', 'data-start="2"');
+    expect(diffPreviewChanges(before, after)).toMatchObject([
+      { compositionId: "film", attributes: [["data-duration", "8", "6"]] },
+      { id: "shot", attributes: [["data-duration", "4", "2"], ["data-playback-rate", null, "2"]] },
+      { id: "end", attributes: [["data-start", "4", "2"]] },
+    ]);
+    expect(diffPreviewChanges(before, after.replace('rate="2"', 'rate="0"'))).toBeNull();
+  });
+
   it("clears a fill image in place while loading a new image through the asset pipeline", () => {
     const before = '<div id="tile" style="background-color:red"></div>';
     const filled = '<div id="tile" style="background-color:blue;background-image:none"></div>';
@@ -155,4 +168,51 @@ it("keeps an unverified font change visible while the certified project's script
   }, () => true, "keep-visible");
   expect(result).toBe(false);
   expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "peer-presentation", temporary: true }), "https://preview.test");
+});
+
+it("accepts a peer paint and a measured local media box together without changing the canvas buffer", () => {
+  const before = '<canvas id="picture" width="1200"></canvas>';
+  const after = before.replace('id="picture"', 'id="picture" style="position:relative;left:16px;opacity:.52"');
+  expect(diffPreviewChanges(before, after, true)).toMatchObject([{id:"picture", tag:"canvas"}]);
+  expect(diffPreviewChanges(before, after.replace('width="1200"', 'width="1600"'), true)).toBeNull();
+});
+
+it("derives every changed element in a large source without changing the rest of the document", () => {
+  const titles = Array.from({ length: 80 }, (_, i) => '<p id="title-' + i + '" style="color: red">hello</p>');
+  const original = '<main>' + ' '.repeat(150 * 1024) + titles.join('') + '</main>';
+  const next = original.replaceAll('color: red', 'color: blue');
+  expect(diffPreviewChanges(original, next)).toHaveLength(titles.length);
+  expect(diffPreviewChanges(original, next + '<script>boot()</script>')).toBeNull();
+});
+
+it("records a superseded paint's confirmed version without letting a late ACK replace newer frame evidence", async () => {
+  const frame = document.createElement("iframe");
+  frame.src = "https://preview.test/api/projects/p/preview?pt=active";
+  const child = { postMessage: vi.fn() };
+  Object.defineProperty(frame, "contentWindow", { value: child });
+  rememberPeerTimingDocument(frame, "active", "document");
+  const file = (version: string) => ({ content: '<p id="t">' + version + '</p>', version });
+  let current = true;
+  const send = (from: string, to: string) => tryApplyPeerChanges(frame, {
+    path: "index.html", previous: file(from), current: file(to),
+  }, () => current);
+  const ack = (index: number) => {
+    const sent = child.postMessage.mock.calls[index]![0];
+    window.dispatchEvent(new MessageEvent("message", {source: child as unknown as Window,
+      origin: "https://preview.test", data: {...sent, source: "openmotion-preview-bridge", type: "response", result: true}}));
+  };
+  const first = send("v1", "v2");
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(1));
+  current = false;
+  ack(0);
+  expect(await first).toBe(false);
+  expect(mountedPeerFileVersion(frame, "index.html")).toBe("v2");
+  current = true;
+  const second = send("v2", "v3"), third = send("v3", "v4");
+  await vi.waitFor(() => expect(child.postMessage).toHaveBeenCalledTimes(3));
+  ack(2);
+  expect(await third).toBe(true);
+  ack(1);
+  await second;
+  expect(mountedPeerFileVersion(frame, "index.html")).toBe("v4");
 });

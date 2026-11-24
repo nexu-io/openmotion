@@ -21,7 +21,7 @@ export function isWorkspaceSettingsPage(search: string, hash = '') {
   if (page === 'model') return Boolean(query.get('model'));
   if (page === 'model-hub') return Boolean(query.get('hub'));
   if (page === 'create') return Boolean(findLandingScene(query.get('scene')));
-  return page === 'settings' || page === 'mcp' || page === 'assets' || page === 'skills' || page === 'brand-kit' || page === 'explore' || page === 'motion' || page === 'audio' || page === 'scenario' || page === 'scenarios' || Boolean(findMediaStudio(page) || findTechniqueStudio(page));
+  return page === '404' || page === 'settings' || page === 'mcp' || page === 'assets' || page === 'skills' || page === 'brand-kit' || page === 'explore' || page === 'motion' || page === 'audio' || page === 'scenario' || page === 'scenarios' || Boolean(findMediaStudio(page) || findTechniqueStudio(page));
 }
 export function workspacePresentation(search: string): WorkspacePresentation {
   const query = new URLSearchParams(search), embedded = query.get('embed') === '1';

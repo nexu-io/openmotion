@@ -589,6 +589,11 @@ export function isPreviewBooted(projectId: string): boolean {
   return previewBooted && timelineProjectId === projectId;
 }
 
+export function isEditorInteractive(projectId: string): boolean {
+  const { previewBooted, editorInputLocked, timelineProjectId } = usePlayerStore.getState();
+  return previewBooted && !editorInputLocked && timelineProjectId === projectId;
+}
+
 /** True once projectId's live preview has booted, false once another project replaces it.
  * Open-time work the first frame does not need (server parses, lint) waits on it. */
 export function whenPreviewBooted(projectId: string): Promise<boolean> {
@@ -598,6 +603,33 @@ export function whenPreviewBooted(projectId: string): Promise<boolean> {
     if (state.timelineProjectId === projectId) {
       seen = true;
       return state.previewBooted ? true : null;
+    }
+    return seen || state.timelineProjectId !== openedFrom ? false : null;
+  };
+  return new Promise((resolve) => {
+    const now = settle(usePlayerStore.getState());
+    if (now !== null) return resolve(now);
+    const stop = usePlayerStore.subscribe((state) => {
+      const result = settle(state);
+      if (result === null) return;
+      stop();
+      resolve(result);
+    });
+  });
+}
+
+/**
+ * True once projectId's live preview has booted and the initial opening gate has released,
+ * false once another project replaces it. Background work (lint, GSAP AST parses) waits here
+ * so it never competes with initial filmstrip hydration or server CPU while the cover is up.
+ */
+export function whenEditorInteractive(projectId: string): Promise<boolean> {
+  const openedFrom = usePlayerStore.getState().timelineProjectId;
+  let seen = false;
+  const settle = (state: PlayerState): boolean | null => {
+    if (state.timelineProjectId === projectId) {
+      seen = true;
+      return state.previewBooted && !state.editorInputLocked ? true : null;
     }
     return seen || state.timelineProjectId !== openedFrom ? false : null;
   };

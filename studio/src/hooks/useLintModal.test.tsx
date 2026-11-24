@@ -110,4 +110,16 @@ describe("useLintModal background lint", () => {
     });
     expect(fetchStub).not.toHaveBeenCalled();
   });
+
+  it("defers background lint while the opening gate holds editorInputLocked", async () => {
+    usePlayerStore.setState({ previewBooted: true, editorInputLocked: true });
+    const fetchStub = vi.fn(lintResponse([]));
+    vi.stubGlobal("fetch", fetchStub);
+    root = createRoot(document.createElement("div"));
+    await act(async () => root?.render(<Probe />));
+    expect(fetchStub).not.toHaveBeenCalled();
+
+    await act(async () => usePlayerStore.getState().setEditorInputLocked(false));
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
 });

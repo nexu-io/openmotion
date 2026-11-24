@@ -50,3 +50,6 @@ commit=$(git -c user.name='github-actions[bot]' -c user.email='41898282+github-a
 # A concurrent publisher cannot overwrite a release based on a stale parent.
 git push origin "$commit:$release_ref"
 echo "Published test release $GITHUB_SHA ($commit) for Argo CD." >> "$GITHUB_STEP_SUMMARY"
+if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+  echo 'publication_result=release_branch_advanced' >> "$GITHUB_OUTPUT"
+fi

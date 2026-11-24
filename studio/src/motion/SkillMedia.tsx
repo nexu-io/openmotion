@@ -21,18 +21,18 @@ export function SkillMedia({ skill, playing = false, large = false, brandedFallb
   // each half fills one side, a divider runs down the middle and the skill name sits on it.
   if (cover.compare) return <span className="om-skill-media om-skill-split" data-large={large}>
     {(['before', 'after'] as const).map(side => <span key={side} className="om-skill-split-half" data-side={side}>
-      <CoverMedia cover={cover} video={video} play={play} large={large} onFail={() => setFailed(true)} brandedFallback={brandedFallback} />
+      <CoverMedia cover={cover} video={video} play={play} large={large} motif={skill.motif} name={skill.name} onFail={() => setFailed(true)} brandedFallback={brandedFallback} />
     </span>)}
     <span className="om-skill-split-divider" aria-hidden="true" />
     <span className="om-skill-split-label" aria-hidden="true"><RemixIcon name="sparkling-line" size={14} />{t('Remove the AI look')}</span>
     <span className="om-skill-split-caption" data-side="before" aria-hidden="true">{t('Before')}</span>
     <span className="om-skill-split-caption" data-side="after" aria-hidden="true">{t('After')}</span>
   </span>;
-  return <span className="om-skill-media" data-large={large}><CoverMedia cover={cover} video={video} play={play} large={large} onFail={() => setFailed(true)} brandedFallback={brandedFallback} /></span>;
+  return <span className="om-skill-media" data-large={large}><CoverMedia cover={cover} video={video} play={play} large={large} motif={skill.motif} name={skill.name} onFail={() => setFailed(true)} brandedFallback={brandedFallback} /></span>;
 }
 
 /** Keep the poster visible while an active card's demo loads. */
-function CoverMedia({ cover, video, play, large, onFail, brandedFallback }: { cover: NonNullable<MotionSkill['cover']>; video?: string; play: boolean; large: boolean; onFail: () => void; brandedFallback: boolean }) {
+function CoverMedia({ cover, video, play, large, motif, name, onFail, brandedFallback }: { cover: NonNullable<MotionSkill['cover']>; video?: string; play: boolean; large: boolean; motif: SkillMotif; name: string; onFail: () => void; brandedFallback: boolean }) {
   const player = useRef<HTMLVideoElement>(null);
   // A video the browser cannot load or decode falls back to its poster before the motif illustration.
   const [videoFailed, setVideoFailed] = useState(false);
@@ -47,8 +47,14 @@ function CoverMedia({ cover, video, play, large, onFail, brandedFallback }: { co
     {video && !videoFailed && <video ref={player} src={video} muted playsInline loop preload="auto" aria-hidden="true"
       style={{ opacity: readyVideo === video ? 1 : 0 }} onLoadedData={() => setReadyVideo(video)} onError={() => setVideoFailed(true)} />}
   </>;
-  if (video && !videoFailed) return <video ref={player} src={video} poster={cover.poster} muted playsInline loop
-    preload="auto" aria-hidden="true" onError={() => cover.poster ? setVideoFailed(true) : onFail()} />;
+  if (video && !videoFailed) return <>
+    {cover.poster
+      ? <img src={cover.poster} alt="" loading="lazy" decoding="async" />
+      : <SkillCover motif={motif} name={name} large={large} playing={play} />}
+    <video ref={player} src={video} poster={cover.poster} muted playsInline loop
+      preload="auto" aria-hidden="true" style={{ opacity: readyVideo === video ? 1 : 0 }}
+      onLoadedData={() => setReadyVideo(video)} onError={() => cover.poster ? setVideoFailed(true) : onFail()} />
+  </>;
   const still = cover.poster ?? cover.gif;
   return <>{cover.gif && <img src={play ? cover.gif : still} alt="" loading="lazy" decoding="async" onError={onFail} />}
     {!cover.gif && cover.poster && <img src={cover.poster} alt="" loading="lazy" decoding="async" onError={onFail} />}</>;

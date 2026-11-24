@@ -266,6 +266,9 @@ it("submits the isolated frame's position intent with its displayed source versi
   const selection = createSelection(element);
   selection.sourceFile = "intro.html";
   selection.isolatedTarget = { sourceFile: "intro.html", sha256: "c".repeat(64), hfId: "hf-card", elementId: "title" };
+  const { usePlayerStore } = await import("../player/store/playerStore");
+  const previousProject = usePlayerStore.getState().timelineProjectId;
+  usePlayerStore.setState({ timelineProjectId: "p1" });
   const rendered = renderDomEditCommits(selection, iframe);
   const seen: Array<{ url: string; init?: RequestInit }> = [];
   vi.stubGlobal("fetch", async (input: RequestInfo, init?: RequestInit) => {
@@ -284,7 +287,7 @@ it("submits the isolated frame's position intent with its displayed source versi
       }], { label: "Move title" });
       expect(receipt).toMatchObject({ durable: true, changed: true, savedCanvasVersion: "new-version" });
     });
-    expect(rendered.reloadPreview).toHaveBeenCalledWith(["intro.html"]);
+    await vi.waitFor(() => expect(rendered.reloadPreview).toHaveBeenCalledWith(["intro.html"]));
     expect(seen).toHaveLength(1);
     expect(seen[0]?.url).toMatch(/\/edits$/);
     expect(new Headers(seen[0]?.init?.headers).get("Idempotency-Key")).toBeTruthy();
@@ -303,6 +306,7 @@ it("submits the isolated frame's position intent with its displayed source versi
     });
   } finally {
     setCachedCloudDisklessMode(null);
+    usePlayerStore.setState({ timelineProjectId: previousProject });
     rendered.cleanup();
     vi.unstubAllGlobals();
   }
@@ -736,7 +740,7 @@ describe("useDomEditCommits z-index reorder persistence", () => {
         hasExplicitZIndex: true,
       });
       expect(rendered.recordEdit).not.toHaveBeenCalled();
-      expect(rendered.reloadPreview).toHaveBeenCalledWith();
+      expect(rendered.reloadPreview).toHaveBeenCalledWith(["index.html"]);
       expect(
         fetchMock.mock.calls.filter(([input]) =>
           requestUrl(input).endsWith("/file-mutations/patch-element-batches"),

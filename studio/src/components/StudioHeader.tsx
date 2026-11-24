@@ -3,6 +3,7 @@ import { useI18n } from "../i18n/I18n";
 import { Fragment, memo, useContext, useEffect, useRef, useState, type MouseEvent } from "react";
 import { Camera } from "../icons/SystemIcons";
 import { useStudioShellContext } from "../contexts/StudioContext";
+import { useFileManagerContextOptional } from "../contexts/FileManagerContext";
 import { usePanelLayoutContext } from "../contexts/PanelLayoutContext";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { Button, buttonBase, buttonSizes, buttonVariants } from "open-design-ui/button";
@@ -60,6 +61,8 @@ export const StudioHeader = memo(function StudioHeader({
   const showThemeToggle = useContext(ShowThemeToggle);
   const { projectId, renderQueue } = useStudioShellContext();
   const { rightCollapsed, setRightCollapsed, setRightPanelTab } = usePanelLayoutContext();
+  const fileManager = useFileManagerContextOptional();
+  const fileTreeError = Boolean(fileManager?.fileTreeError && fileManager.fileTree.length === 0);
   const isRendering = renderQueue.isRendering;
   const ffmpegMissing = renderQueue.ffmpegMissing;
   useEffect(() => setExportOpen(false), [projectId]);
@@ -156,13 +159,17 @@ export const StudioHeader = memo(function StudioHeader({
         <div className={host?.projectAction ? "motion-header-project-actions" : "contents"}>
         {host?.projectAction}
         <Tooltip
-          disabled={host?.mvpEditor}
+          disabled={host?.mvpEditor && !fileTreeError}
           label={
-            host?.mvpEditor ? t("Export") : ffmpegMissing
-              ? renderQueue.ffmpeg?.runtime ? t("Video components are not ready. Check preparation status.") : t("FFmpeg is not installed. Opens the Renders panel with the install command.")
-              : isRendering
-                ? t("A render is already in progress")
-                : t("Render and export this composition")
+            fileTreeError
+              ? t("Could not load project files")
+              : host?.mvpEditor
+                ? t("Export")
+                : ffmpegMissing
+                  ? renderQueue.ffmpeg?.runtime ? t("Video components are not ready. Check preparation status.") : t("FFmpeg is not installed. Opens the Renders panel with the install command.")
+                  : isRendering
+                    ? t("A render is already in progress")
+                    : t("Render and export this composition")
           }
           side="bottom"
         >
@@ -172,7 +179,7 @@ export const StudioHeader = memo(function StudioHeader({
             className={host?.mvpEditor ? "motion-header-export" : undefined}
             ref={exportTriggerRef}
             aria-haspopup={host?.mvpEditor ? "dialog" : undefined}
-            disabled={!host?.mvpEditor && isRendering}
+            disabled={fileTreeError || (!host?.mvpEditor && isRendering)}
             onClick={(event) => {
               if (host?.mvpEditor) {
                 trackStudioClick("header", "export", projectId, clickMethod(event));

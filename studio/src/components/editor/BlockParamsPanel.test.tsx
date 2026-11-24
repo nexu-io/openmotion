@@ -82,7 +82,8 @@ function renderPanel(fileManager: ReturnType<typeof makeFileManager>["value"], l
 }
 
 function changeParam(label: string, next: string) {
-  const trigger = document.querySelector<HTMLButtonElement>(`[aria-label="Pick ${label.toLowerCase()} color"]`)!;
+  const aria = /color/i.test(label) ? `Pick ${label.toLowerCase()}` : `Pick ${label.toLowerCase()} color`;
+  const trigger = document.querySelector<HTMLButtonElement>(`[aria-label="${aria}"]`)!;
   expect(trigger.dataset.formControl).toBe("boxed");
   act(() => trigger.click());
   const picker = document.querySelector<HTMLElement>('.motion-color-picker[data-open]')!;

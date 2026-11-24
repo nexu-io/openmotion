@@ -1,6 +1,7 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
-import { changedFilePaths, changedFileVersion, readFileChangeAffectsPreview, readFileTreeChanged } from "../components/editor/manualEditsParsing";
+import { changedFilePaths, changedFileVersion, changedFileVersions, readFileChangeAffectsPreview, readFileTreeChanged } from "../components/editor/manualEditsParsing";
 import { isUnrelatedPreviewHtmlChange } from "../player/lib/previewHtmlSources";
+import { presentPendingCanvasChange } from "./submitIsolatedCanvasEdit";
 import { syncPeerComposition } from "./syncPeerComposition";
 import { createRemoteFileReader } from "./remoteFileReads";
 import { knownCompositionSource } from "../player/lib/compositionPosterSource";
@@ -79,6 +80,14 @@ export function useStudioExternalFileChanges({
     [bumpThumbnailRevisions, onOutsideChange, projectId],
   );
   const filesForChange = useMemo(() => createRemoteFileReader(), []);
+  const presentPendingPeerChange = useCallback((payload: unknown) => {
+    const paths = changedFilePaths(payload);
+    if (!projectId || !paths?.length) return;
+    const read = filesForChange(projectId, payload);
+    for (const file of paths) {
+      void presentPendingCanvasChange(projectId, file, previewIframeRef, () => read(projectId, file)).catch(() => {});
+    }
+  }, [projectId, previewIframeRef, filesForChange]);
   const refreshFileViews = useCallback((payload: unknown, acceptChange: (unaffectedPreview?: string) => void) => {
     const activePath = activeCompPath ?? masterCompPath;
     const previous = projectId && activePath
@@ -96,14 +105,16 @@ export function useStudioExternalFileChanges({
     const changedPath = paths?.length === 1 ? paths[0] : undefined;
     const version = changedPath && changedFileVersion(payload, changedPath);
     const preview = unrelated ? "unaffected" as const : affectsPreview
-      ? syncPeerComposition(projectId, activePath, paths, read, previewIframeRef, previous, version)
+      ? syncPeerComposition(projectId, activePath, paths, read, previewIframeRef, previous, version, {
+        versions: changedFileVersions(payload), treeChanged: readFileTreeChanged(payload), refresh: reloadPreview,
+      })
       : undefined;
     for (const path of paths ?? ["."]) {
       notifyExternalFileReload(path, read);
       fileManager.refreshOpenSource(path, read);
     }
     return preview;
-  }, [projectId, activeCompPath, masterCompPath, previewIframeRef, filesForChange, fileManager.refreshOpenSource]);
+  }, [projectId, activeCompPath, masterCompPath, previewIframeRef, filesForChange, fileManager.refreshOpenSource, reloadPreview]);
 
   const drainPendingChanges = useCallback(async () => {
     const source = await flushPendingSourceSave();
@@ -127,6 +138,7 @@ export function useStudioExternalFileChanges({
     discardPendingChanges,
     reloadPreview,
     refreshFileViews,
+    presentPendingPeerChange,
     persistConflictSnapshot: persistExternalConflictSnapshot,
     persistFailureSnapshot: persistExternalFailureSnapshot,
     loadConflictSnapshot: loadExternalConflictSnapshot,

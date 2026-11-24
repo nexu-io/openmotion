@@ -289,6 +289,7 @@ export function clearClientCompositionCaptureCacheForTest(): void {
   progressiveListeners.clear();
   clearRemoteCompositionFilmstripStateForTest();
   clearSharedPreviewGrantsForTest();
+  thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
 }
 
 function normalizeCompositionPathForGate(raw: string): string {
@@ -886,15 +887,17 @@ function nextAnimationFrames(win: Window, count: number, signal: AbortSignal): P
   });
 }
 
-async function waitUntilInteractiveIdle(signal: AbortSignal): Promise<void> {
+async function waitUntilInteractiveIdle(signal: AbortSignal, gatePriority = false): Promise<void> {
   // Wait for primary composition assets to finish so capture hits the warm HTTP cache
   // without competing with initial preview loads, and yield while playing or hidden.
-  // Do NOT block on editorInputLocked: initial timeline captures complete inside the unified loader.
+  // While the opening gate is up (`editorInputLocked`), only gated timeline clips may run
+  // so non-gated sidebar cards never spawn SnapDOM iframes or contend for sockets.
   while (!signal.aborted) {
     const state = usePlayerStore.getState();
+    const gateAllowed = gatePriority || !state.editorInputLocked;
     const assetsSettled =
       state.assetReadinessPhase === "ready" || state.assetReadinessSkipped || !state.editorInputLocked;
-    if (assetsSettled && !state.isPlaying && (typeof document === "undefined" || !document.hidden)) {
+    if (gateAllowed && assetsSettled && !state.isPlaying && (typeof document === "undefined" || !document.hidden)) {
       return;
     }
     await sleepAbortable(60, signal);
@@ -1637,7 +1640,7 @@ async function captureSameOrigin(
     try {
       for (const frameIdx of order) {
         const t = times[frameIdx]!;
-        await waitUntilInteractiveIdle(signal);
+        await waitUntilInteractiveIdle(signal, Boolean(input.gatePriority));
         if (observer) {
           observer.takeRecords();
           observedMutated = false;
@@ -2540,9 +2543,12 @@ async function runClientCompositionCapture(
   const docKey = buildCaptureDocumentKey(input, previewOrigin);
   const isEditRefresh = input.contentRevision > 0;
 
+  const gatePriority = Boolean(input.gatePriority);
   try {
+    await waitUntilInteractiveIdle(signal, gatePriority);
+    if (signal.aborted) throw abortError();
     const result = await enqueueSerializedCapture(queuePriority, docKey, isEditRefresh, signal, async () => {
-      await waitUntilInteractiveIdle(signal);
+      await waitUntilInteractiveIdle(signal, gatePriority);
       if (signal.aborted) throw abortError();
       return previewOrigin
         ? captureIsolatedOrigin(input, previewOrigin, docKey, signal, onProgressiveFrame)
@@ -2617,6 +2623,21 @@ async function runClientCompositionCapture(
   }
 }
 
+/** Keep ThumbnailScheduler's opening-gate hold synced with `editorInputLocked` so deferred captures never occupy slots. */
+function syncOpeningGateHold(): void {
+  thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
+}
+syncOpeningGateHold();
+const unbindOpeningGateHold = usePlayerStore.subscribe((state) => {
+  thumbnailScheduler.setOpeningGateActive(state.editorInputLocked);
+});
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    unbindOpeningGateHold();
+    thumbnailScheduler.setOpeningGateActive(false);
+  });
+}
+
 /** Build a scheduler-managed request that captures real composition frames in the browser. */
 export function createClientCompositionCaptureRequest(input: ClientCaptureInput): ThumbnailRequest {
   const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
@@ -2637,6 +2658,7 @@ export function createClientCompositionCaptureRequest(input: ClientCaptureInput)
     concurrencyBucket: "client-capture",
     priority: input.priority ?? "visible",
     rich: input.rich ?? true,
+    gatePriority: Boolean(input.gatePriority),
     compositionPath: normalizeCompositionPathForGate(input.previewUrl),
     contentRevision: hasFileVersion ? 0 : input.contentRevision,
     compositionRevision: compRev,

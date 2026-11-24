@@ -120,6 +120,16 @@ describe("RenderQueue controls", () => {
     expect(host.textContent).toContain("Prior.mp4");
   });
 
+  it("offers a separate export after a disconnected unknown attempt without waiting for workerActive=false", () => {
+    const onStartRender: Mock<StartRenderHandler> = vi.fn();
+    const prior: RenderJob = { id: "prior", nativeJobId: "native-prior", filename: "Prior.mp4", status: "unknown", progress: 40, createdAt: 1 };
+    const host = mountRenderQueue(onStartRender, undefined, true, [prior]);
+    expect(exportButtonIn(host).textContent).toBe("Export current version as a new task");
+    expect(exportButtonIn(host).disabled).toBe(false);
+    act(() => exportButtonIn(host).click());
+    expect(onStartRender).toHaveBeenCalledExactlyOnceWith("mp4", "standard", "auto", 30, false);
+  });
+
   it("keeps the new-export control blocked when another worker is active", () => {
     const onStartRender: Mock<StartRenderHandler> = vi.fn();
     const prior: RenderJob = { id: "prior", filename: "Prior.mp4", status: "unknown", workerActive: false, progress: 40, createdAt: 1 };

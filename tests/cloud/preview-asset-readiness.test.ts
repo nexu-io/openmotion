@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { PREVIEW_ASSET_READINESS } from '../../src/studio/engine/preview-asset-readiness.ts';
+import { PREVIEW_BRIDGE_SCRIPT } from '../../src/studio/engine/preview-bridge.ts';
 
 function createFakeImg(src: string, opts: { lazy?: boolean; complete?: boolean; naturalWidth?: number } = {}) {
   const listeners = new Map<string, Set<() => void>>();
@@ -380,4 +381,10 @@ it('frees the video concurrency slot when all active video slots stall on HEAD p
   } finally {
     tracker.dispose();
   }
+});
+
+it('preview bridge reports live buffering state for active media at the playhead', () => {
+  assert.match(PREVIEW_BRIDGE_SCRIPT, /function isMediaBuffering\(time\)/);
+  assert.match(PREVIEW_BRIDGE_SCRIPT, /buffering:buffering/);
+  assert.match(PREVIEW_BRIDGE_SCRIPT, /\['waiting','playing','canplay','canplaythrough','error'\]/);
 });

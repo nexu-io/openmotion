@@ -19,8 +19,8 @@ function formatTime(timestamp: number, locale: string): string {
   return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(timestamp);
 }
 
-function outputSettings(settings: RenderJob['settings'], t: Translate): string {
-  if (!settings) return '';
+function outputSettings(settings: RenderJob['settings'], t: Translate, browserLocal?: boolean): string {
+  if (!settings) return browserLocal ? t('Browser export') : '';
   const value = (key: string) => settings[key] ?? settings[`render_${key}`];
   const format = value('format');
   const quality = value('quality');
@@ -30,10 +30,11 @@ function outputSettings(settings: RenderJob['settings'], t: Translate): string {
   const dimensions = typeof resolution === 'string' && Object.hasOwn(CANVAS_DIMENSIONS, resolution)
     ? CANVAS_DIMENSIONS[resolution as keyof typeof CANVAS_DIMENSIONS] : undefined;
   return [
+    browserLocal ? t('Browser export') : '',
     typeof format === 'string' && /^(mp4|mov|webm|gif)$/.test(format) ? format.toUpperCase() : '',
     format !== 'mov' && typeof quality === 'string' && Object.hasOwn(qualityLabels, quality) ? t(qualityLabels[quality]) : '',
     typeof fps === 'number' && Number.isFinite(fps) ? t('{fps} fps', { fps }) : '',
-    dimensions ? `${dimensions.width}×${dimensions.height}` : resolution === 'auto' ? t('Auto') : '',
+    dimensions ? `${dimensions.width}×${dimensions.height}` : (!browserLocal && resolution === 'auto') ? t('Auto') : '',
   ].filter(Boolean).join(' · ');
 }
 
@@ -41,7 +42,7 @@ export function RenderQueueInfo({ job }: { job: RenderJob }) {
   const { t, locale } = useI18n();
   const isRendering = job.status === "rendering";
   const awaitingResult = job.status === 'unknown' || job.status === 'cancelling';
-  const settings = outputSettings(job.settings, t);
+  const settings = outputSettings(job.settings, t, job.browserLocal);
   const statusLabels: Record<RenderJob['status'], string> = {
     rendering: 'Rendering', complete: 'Export completed', failed: 'Export failed', cancelled: 'Cancelled',
     cancelling: 'Cancelling…', unknown: 'Result needs checking',

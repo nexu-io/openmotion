@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDomEditSaveQueue } from "./domEditSaveQueue";
-import { StudioFileConflictError, StudioSaveHttpError } from "./studioSaveDiagnostics";
+import { RejectedCanvasGesture, StudioFileConflictError, StudioSaveHttpError } from "./studioSaveDiagnostics";
 
 describe("dom edit save queue", () => {
+  it("keeps a rejected gesture out of the save breaker", async () => {
+    const queue = createDomEditSaveQueue({ failureThreshold: 1 });
+    const rejection = new RejectedCanvasGesture(new Error("Layout is locked"));
+    await expect(queue.enqueue(async () => { throw rejection; })).rejects.toBe(rejection);
+    await expect(queue.waitForIdle()).resolves.toEqual({ status: "clean" });
+    await expect(queue.enqueue(async () => "saved")).resolves.toBe("saved");
+    queue.destroy();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

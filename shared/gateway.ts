@@ -29,7 +29,8 @@ export type ProviderState = { id: ProviderId; label: string; enabled: boolean; c
   verification: 'unverified' | 'verified' | 'rejected'; reason: string; checkedAt?: number; baseUrl?: string } & Partial<AccountMediaEntitlement>;
 export type GatewayStatus = { providers: ProviderState[]; agents: Agent[];
   routes: Partial<Record<Modality, string>>;
-  capabilities: { modality: Modality; available: boolean; modelIds: string[]; selectedModelId?: string }[] };
+  capabilities: { modality: Modality; available: boolean; modelIds: string[]; selectedModelId?: string }[];
+  consoleUrl?: string };
 export type GenerateInput = { modality: Modality; prompt: string; model?: string;
   mode?: string;
   projectId?: string; parameters?: Record<string, unknown>; idempotencyKey?: string;

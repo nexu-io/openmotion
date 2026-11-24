@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -12,6 +12,7 @@ import type { Database } from '../../src/db/client.ts';
 import { jobs } from '../../src/db/schema/jobs.ts';
 import { createLogger } from '../../src/infra/logger.ts';
 import { cancelChannel, jobChannel } from '../../src/infra/redis.ts';
+import { ShutdownCoordinator } from '../../src/infra/shutdown.ts';
 import {
   catalogBlobKey,
   compThumbnailKey,
@@ -33,7 +34,13 @@ import {
   processRenderThumbnailJob,
   selectReferencedMediaCandidates,
   startRenderHealthHeartbeat,
+  sweepStaleRenderTempDirs,
 } from '../../src/workers/render-export.ts';
+import {
+  launchFilmstripBrowser,
+  type LaunchFilmstripBrowserOptions,
+} from '../../src/workers/filmstrip-renderer.ts';
+import { registerRenderWorkerShutdownHooks } from '../../src/workers/worker.ts';
 
 const WID_A = '11111111-1111-4111-8111-111111111111';
 const PID_A = '22222222-2222-4222-8222-222222222222';
@@ -314,6 +321,102 @@ describe('worker-render Security Boundary: buildRenderSubprocessEnv & Isolated S
       if (prevSessionSecret === undefined) delete process.env.SESSION_SECRET;
       else process.env.SESSION_SECRET = prevSessionSecret;
       await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('launches catalog filmstrip Chromium with strictly allowlisted render env and cleans up ephemeral dirs on close and launch failure', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-filmstrip-env-'));
+    try {
+      const pollutedSourceEnv: NodeJS.ProcessEnv = {
+        PATH: '/usr/local/bin:/usr/bin:/bin',
+        HYPERFRAMES_BROWSER_PATH: '/usr/bin/chromium',
+        DATABASE_URL: 'postgres://user:placeholder@postgres:5432/openmotion',
+        REDIS_URL: 'redis://:placeholder@redis:6379',
+        S3_ACCESS_KEY_ID: 'synthetic-s3-access-id',
+        S3_SECRET_ACCESS_KEY: 'test-s3-secret-00000000',
+        AWS_SECRET_ACCESS_KEY: 'synthetic-aws-secret-val',
+        OPENDESIGN_S2S_API_KEY: 'synthetic-opendesign-key',
+        OIDC_CLIENT_SECRET: 'synthetic-oidc-secret',
+        SESSION_SECRET: 'synthetic-session-secret-0123456789abcdef',
+        DEV_PAT: 'synthetic-dev-pat-value',
+        OPENAI_API_KEY: 'synthetic-openai-val',
+      };
+
+      const captured: Array<Record<string, unknown>> = [];
+      let browserClosed = false;
+      const session = await launchFilmstripBrowser({
+        executablePath: '/usr/bin/chromium',
+        sourceEnv: pollutedSourceEnv,
+        tmpBaseDir: tmpBase,
+        launchFn: (async (opts: Record<string, unknown>) => {
+          captured.push(opts);
+          return {
+            close: async () => {
+              browserClosed = true;
+            },
+          };
+        }) as unknown as LaunchFilmstripBrowserOptions['launchFn'],
+      });
+
+      const capturedLaunchOptions = captured[0];
+      assert.ok(capturedLaunchOptions);
+      const launchEnv = capturedLaunchOptions.env as Record<string, string | undefined>;
+      assert.ok(launchEnv, 'puppeteer.launch MUST receive an explicit sanitized env object');
+      assert.doesNotThrow(() => assertRenderSubprocessEnvClean(launchEnv));
+      for (const secretKey of [
+        'DATABASE_URL',
+        'REDIS_URL',
+        'S3_ACCESS_KEY_ID',
+        'S3_SECRET_ACCESS_KEY',
+        'AWS_SECRET_ACCESS_KEY',
+        'OPENDESIGN_S2S_API_KEY',
+        'OIDC_CLIENT_SECRET',
+        'SESSION_SECRET',
+        'DEV_PAT',
+        'OPENAI_API_KEY',
+      ]) {
+        assert.equal(launchEnv[secretKey], undefined, `Secret "${secretKey}" leaked into filmstrip Chromium env!`);
+      }
+      assert.equal(launchEnv.HYPERFRAMES_NO_TELEMETRY, '1');
+      assert.equal(launchEnv.HYPERFRAMES_NO_AUTO_INSTALL, '1');
+      assert.equal(launchEnv.HOME, path.join(session.rootDir, 'home'));
+      assert.equal(launchEnv.TMPDIR, path.join(session.rootDir, 'tmp'));
+      assert.equal(capturedLaunchOptions.userDataDir, path.join(session.rootDir, 'profile'));
+      await access(session.rootDir);
+
+      await session.close();
+      assert.equal(browserClosed, true);
+      await assert.rejects(() => access(session.rootDir), 'session.close() must wipe ephemeral filmstrip dir');
+
+      // Launch failure must also wipe the created ephemeral filmstrip dir immediately.
+      let failedUserDataDir = '';
+      await assert.rejects(
+        () =>
+          launchFilmstripBrowser({
+            executablePath: '/usr/bin/chromium',
+            sourceEnv: pollutedSourceEnv,
+            tmpBaseDir: tmpBase,
+            launchFn: (async (opts: Record<string, unknown>) => {
+              failedUserDataDir = String(opts.userDataDir ?? '');
+              throw new Error('simulated Chromium launch failure');
+            }) as unknown as LaunchFilmstripBrowserOptions['launchFn'],
+          }),
+        /simulated Chromium launch failure/,
+      );
+      assert.ok(failedUserDataDir.startsWith(tmpBase));
+      await assert.rejects(
+        () => access(path.dirname(failedUserDataDir)),
+        'failed browser launch must wipe ephemeral filmstrip dir',
+      );
+
+      // Stale om-filmstrip-* directories left by OOM kills are swept on worker startup.
+      const staleFilmstripDir = path.join(tmpBase, 'om-filmstrip-stale-oom');
+      await mkdir(staleFilmstripDir, { recursive: true });
+      const sweptCount = await sweepStaleRenderTempDirs(tmpBase, SILENT_LOGGER);
+      assert.equal(sweptCount, 1);
+      await assert.rejects(() => access(staleFilmstripDir));
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
     }
   });
 });
@@ -725,6 +828,79 @@ describe('worker-render: End-to-End Export Lifecycle, Failure & Cancel /tmp Clea
     } finally {
       await rm(tmpBase, { recursive: true, force: true });
     }
+  });
+
+  it('keeps render health heartbeat pulsing with draining=true until renderWorker.close() finishes', async () => {
+    const eventBus = new MemoryEventBus();
+    const shutdown = new ShutdownCoordinator({ logger: SILENT_LOGGER, timeoutMs: 5_000 });
+    const heartbeat = startRenderHealthHeartbeat({
+      eventBus,
+      logger: SILENT_LOGGER,
+      workerId: 'render-drain-1',
+      concurrency: 1,
+      intervalMs: 25,
+    });
+    heartbeat.setActiveJobs(1);
+
+    const lifecycle: string[] = [];
+    let resolveDrain!: () => void;
+    const drainPromise = new Promise<void>((resolve) => {
+      resolveDrain = resolve;
+    });
+    const origStop = heartbeat.stop.bind(heartbeat);
+    heartbeat.stop = () => {
+      lifecycle.push('heartbeat-stop');
+      origStop();
+    };
+
+    registerRenderWorkerShutdownHooks({
+      shutdown,
+      heartbeat,
+      renderWorker: {
+        close: async () => {
+          lifecycle.push('worker-close-start');
+          await drainPromise;
+          lifecycle.push('worker-close-end');
+        },
+      },
+      closeConnections: async () => {
+        lifecycle.push('connections-quit');
+      },
+    });
+
+    const shutdownDone = shutdown.shutdown('SIGTERM');
+
+    // Wait for at least two draining pulses while renderWorker.close() is still in flight.
+    const deadline = Date.now() + 2_000;
+    while (
+      eventBus.healthPulses.filter((p) => p.workerId === 'render-drain-1' && p.draining === true && p.activeJobs === 1)
+        .length < 2
+    ) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Timed out waiting for draining heartbeat pulses (observed ${JSON.stringify(eventBus.healthPulses)})`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 15));
+    }
+
+    // Heartbeat must remain alive and connections open until renderWorker.close() resolves.
+    assert.deepEqual(lifecycle, ['worker-close-start']);
+
+    heartbeat.setActiveJobs(0);
+    resolveDrain();
+    assert.equal(await shutdownDone, true);
+
+    assert.deepEqual(lifecycle, [
+      'worker-close-start',
+      'worker-close-end',
+      'heartbeat-stop',
+      'connections-quit',
+    ]);
+
+    const pulsesAtStop = eventBus.healthPulses.length;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(eventBus.healthPulses.length, pulsesAtStop);
   });
 
   it('skips unreferenced large media blobs during referenced-only hydration while keeping referenced & encoded-path media and dynamic template fallbacks', async () => {

@@ -103,7 +103,8 @@ export function mergeFileChangePayloads(waiting: unknown, incoming: unknown): un
       ? { ...(earlierVersions ?? {}), ...(laterVersions ?? {}) }
       : undefined;
   const indexHeadHash =
-    readFileChangeIndexHeadHash(incoming) ?? readFileChangeIndexHeadHash(waiting);
+    readFileChangeIndexHeadHash(incoming) ??
+    (laterVersions && 'index.html' in laterVersions ? undefined : readFileChangeIndexHeadHash(waiting));
   const fileTreeChanged = readFileTreeChanged(waiting) || readFileTreeChanged(incoming);
   if (readFileChangeAffectsPreview(waiting) && !readFileChangeAffectsPreview(incoming)) {
     return {
@@ -111,7 +112,7 @@ export function mergeFileChangePayloads(waiting: unknown, incoming: unknown): un
       path: readStudioFileChangePath(waiting),
       paths,
       ...(fileVersions ? { fileVersions } : {}),
-      ...(indexHeadHash ? { indexHeadHash } : {}),
+      indexHeadHash,
       fileTreeChanged,
     };
   }
@@ -125,7 +126,7 @@ export function mergeFileChangePayloads(waiting: unknown, incoming: unknown): un
     return {
       ...next,
       ...(fileVersions ? { fileVersions } : {}),
-      ...(indexHeadHash ? { indexHeadHash } : {}),
+      indexHeadHash,
       affectsPreview,
       fileTreeChanged,
       affectedCompositions: merged,
@@ -137,7 +138,7 @@ export function mergeFileChangePayloads(waiting: unknown, incoming: unknown): un
     paths,
     projectId: next?.projectId,
     ...(fileVersions ? { fileVersions } : {}),
-    ...(indexHeadHash ? { indexHeadHash } : {}),
+    indexHeadHash,
     fileTreeChanged,
     affectsPreview,
     affectedCompositions: merged,

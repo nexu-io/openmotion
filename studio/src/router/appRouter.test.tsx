@@ -79,6 +79,9 @@ describe('createAppRouter semantic route handles', () => {
     ['/templates', 'templates', false, true],
     ['/editor', 'editor', true, false],
     ['/editor/proj-123', 'editor', true, false],
+    ['/404', 'not-found', false, true],
+    ['/brand-kits', 'not-found', false, true],
+    ['/does-not-exist', 'not-found', false, true],
   ];
 
   it.each(cases)(

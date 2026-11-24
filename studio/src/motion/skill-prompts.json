@@ -24,7 +24,10 @@
     "shortcut": "Use the OpenMotion \"{title}\" skill to make a {duration}s {aspect} video: {subject}{style}. Technique reference: {repository}. If OpenMotion is not installed, install and connect it with {installUrl} first.",
     "shortcutStyle": "; style: {style}",
     "shortcutLibrary": " Read it with openmotion_get_skill (skillId {id}) and follow its SKILL.md.",
-    "shortcutGenerator": " Make the film with its own generator; if the generator cannot make that length or frame, keep its film and tell me the length and frame it made."
+    "shortcutGenerator": " Make the film with its own generator; if the generator cannot make that length or frame, keep its film and tell me the length and frame it made.",
+    "introCloud": "Instructions: Use OpenMotion Cloud MCP. If not connected yet, follow {installUrl} to connect Cloud MCP, then continue (do not install locally from GitHub).",
+    "libraryStep3Cloud": "3. Read this skill with openmotion_get_skill (skillId {id}) and follow the SKILL.md it returns. Download any script or reference files it lists from the objects URLs and check their SHA-256.",
+    "shortcutCloud": "Use the OpenMotion \"{title}\" skill to make a {duration}s {aspect} video: {subject}{style}. Technique reference: {repository}. If OpenMotion Cloud MCP is not connected yet, follow {installUrl} to connect first."
   },
   "zh-CN": {
     "intro": "使用说明：请使用 OpenMotion 插件。如未安装，请按 {installUrl} 安装并接入后继续。",
@@ -51,7 +54,10 @@
     "shortcut": "用 OpenMotion 的「{title}」Skill 做一支 {duration} 秒、{aspect} 的视频：{subject}{style}。做法参考 {repository}。如果还没安装 OpenMotion，请先按 {installUrl} 安装并接入。",
     "shortcutStyle": "；风格：{style}",
     "shortcutLibrary": "用 openmotion_get_skill（skillId 填 {id}）读取这个 Skill，按它的 SKILL.md 操作。",
-    "shortcutGenerator": "用它自带的生成脚本出片；脚本做不出这个时长或画幅时，保留脚本的成片，并告诉我实际的时长和画幅。"
+    "shortcutGenerator": "用它自带的生成脚本出片；脚本做不出这个时长或画幅时，保留脚本的成片，并告诉我实际的时长和画幅。",
+    "introCloud": "使用说明：请使用 OpenMotion 云端 MCP。如未接入，请按 {installUrl} 接入云端 MCP 后继续（不要按本地 GitHub 仓库部署）。",
+    "libraryStep3Cloud": "3. 用 openmotion_get_skill（skillId 填 {id}）读取这个 Skill，按返回的 SKILL.md 操作；它用到的脚本和参考文件，按 objects 里的地址下载并核对 SHA-256。",
+    "shortcutCloud": "用 OpenMotion 的「{title}」Skill 做一支 {duration} 秒、{aspect} 的视频：{subject}{style}。做法参考 {repository}。如果还没接入 OpenMotion 云端 MCP，请先按 {installUrl} 接入。"
   },
   "ja": {
     "intro": "使い方：OpenMotion プラグインを使ってください。インストールされていない場合は、{installUrl} に従ってインストールと接続を行ってから続けてください。",
@@ -78,7 +84,10 @@
     "shortcut": "OpenMotion の「{title}」Skill で、{duration} 秒・{aspect} の動画を作ってください：{subject}{style}。手法の参考：{repository}。OpenMotion がインストールされていない場合は、先に {installUrl} でインストールと接続を行ってください。",
     "shortcutStyle": "、スタイル：{style}",
     "shortcutLibrary": "openmotion_get_skill（skillId は {id}）で読み込み、その SKILL.md に従ってください。",
-    "shortcutGenerator": "付属の生成スクリプトで動画を作り、その長さや画幅を作れない場合はスクリプトの成果物を残して、実際の長さと画幅を伝えてください。"
+    "shortcutGenerator": "付属の生成スクリプトで動画を作り、その長さや画幅を作れない場合はスクリプトの成果物を残して、実際の長さと画幅を伝えてください。",
+    "introCloud": "手順：OpenMotion クラウド MCP を使用してください。未接続の場合は {installUrl} に従ってクラウド MCP を接続してから続行してください（GitHub からローカル導入しないでください）。",
+    "libraryStep3Cloud": "3. openmotion_get_skill（skillId は {id}）でこの Skill を読み込み、返された SKILL.md に従ってください。使用するスクリプトや参考ファイルは objects の URL からダウンロードして SHA-256 を照合してください。",
+    "shortcutCloud": "OpenMotion の「{title}」Skill で {duration} 秒・{aspect} の動画を作成してください：{subject}{style}。手法の参考：{repository}。OpenMotion クラウド MCP に未接続の場合は、先に {installUrl} に従って接続してください。"
   },
   "ko": {
     "intro": "사용 안내: OpenMotion 플러그인을 사용하세요. 설치되어 있지 않다면 {installUrl}에 따라 설치하고 연결한 뒤 계속하세요.",
@@ -105,7 +114,10 @@
     "shortcut": "OpenMotion의 “{title}” Skill로 {duration}초, {aspect} 영상을 만드세요: {subject}{style}. 기법 참고: {repository}. OpenMotion이 설치되어 있지 않다면 먼저 {installUrl}로 설치하고 연결하세요.",
     "shortcutStyle": "; 스타일: {style}",
     "shortcutLibrary": " openmotion_get_skill(skillId는 {id})로 읽고 SKILL.md를 따르세요.",
-    "shortcutGenerator": " 포함된 생성 스크립트로 영상을 만들고, 그 길이나 화면비를 만들 수 없으면 스크립트 결과물을 그대로 두고 실제 길이와 화면비를 알려 주세요."
+    "shortcutGenerator": " 포함된 생성 스크립트로 영상을 만들고, 그 길이나 화면비를 만들 수 없으면 스크립트 결과물을 그대로 두고 실제 길이와 화면비를 알려 주세요.",
+    "introCloud": "안내: OpenMotion 클라우드 MCP를 사용하세요. 아직 연결되지 않았다면 {installUrl} 안내에 따라 클라우드 MCP를 먼저 연결한 뒤 계속 진행하세요(GitHub 로컬 설치는 하지 마세요).",
+    "libraryStep3Cloud": "3. openmotion_get_skill(skillId는 {id})로 이 Skill을 읽고 반환된 SKILL.md를 따르세요. 사용하는 스크립트와 참고 파일은 objects의 URL에서 내려받아 SHA-256을 확인하세요.",
+    "shortcutCloud": "OpenMotion의 \"{title}\" Skill로 {duration}초, {aspect} 영상을 만들어 주세요: {subject}{style}. 기법 참고: {repository}. 아직 OpenMotion 클라우드 MCP에 연결하지 않았다면 먼저 {installUrl} 안내에 따라 연결하세요."
   },
   "ru": {
     "intro": "Инструкция: используйте плагин OpenMotion. Если он не установлен, установите и подключите его по {installUrl}, затем продолжайте.",
@@ -132,7 +144,10 @@
     "shortcut": "С помощью Skill «{title}» в OpenMotion сделайте видео длительностью {duration} с в формате {aspect}: {subject}{style}. Источник приёма: {repository}. Если OpenMotion не установлен, сначала установите и подключите его по {installUrl}.",
     "shortcutStyle": "; стиль: {style}",
     "shortcutLibrary": " Прочитайте его через openmotion_get_skill (skillId {id}) и следуйте его SKILL.md.",
-    "shortcutGenerator": " Сделайте ролик его генератором; если генератор не умеет такую длительность или кадр, оставьте его ролик и сообщите, какие длительность и кадр получились."
+    "shortcutGenerator": " Сделайте ролик его генератором; если генератор не умеет такую длительность или кадр, оставьте его ролик и сообщите, какие длительность и кадр получились.",
+    "introCloud": "Инструкция: используйте облачный OpenMotion MCP. Если он ещё не подключён, следуйте {installUrl} для подключения облачного MCP и затем продолжите (не устанавливайте локально из GitHub).",
+    "libraryStep3Cloud": "3. Прочитайте этот скилл через openmotion_get_skill (skillId {id}) и следуйте возвращённому SKILL.md. Нужные скрипты и справочные файлы скачивайте по адресам из objects и сверяйте SHA-256.",
+    "shortcutCloud": "Используй скилл OpenMotion «{title}», чтобы сделать видео на {duration} с ({aspect}): {subject}{style}. Референс техники: {repository}. Если облачный OpenMotion MCP ещё не подключён, сначала подключите его по {installUrl}."
   },
   "de": {
     "intro": "Anleitung: Verwende das OpenMotion-Plugin. Falls es nicht installiert ist, installiere und verbinde es gemäß {installUrl} und fahre dann fort.",
@@ -159,7 +174,10 @@
     "shortcut": "Verwende den OpenMotion-Skill „{title}“, um ein {duration}-Sekunden-Video im Format {aspect} zu erstellen: {subject}{style}. Technik-Referenz: {repository}. Falls OpenMotion nicht installiert ist, installiere und verbinde es zuerst mit {installUrl}.",
     "shortcutStyle": "; Stil: {style}",
     "shortcutLibrary": " Lies ihn mit openmotion_get_skill (skillId {id}) und folge seiner SKILL.md.",
-    "shortcutGenerator": " Erstelle den Film mit seinem eigenen Generator; kann er diese Länge oder dieses Format nicht, behalte seinen Film und nenne mir Länge und Format."
+    "shortcutGenerator": " Erstelle den Film mit seinem eigenen Generator; kann er diese Länge oder dieses Format nicht, behalte seinen Film und nenne mir Länge und Format.",
+    "introCloud": "Anleitung: Nutze OpenMotion Cloud MCP. Falls noch nicht verbunden, folge {installUrl}, um Cloud MCP zu verbinden, und fahre dann fort (nicht lokal über GitHub installieren).",
+    "libraryStep3Cloud": "3. Lies diesen Skill mit openmotion_get_skill (skillId {id}) und folge der zurückgegebenen SKILL.md. Lade die aufgeführten Skripte und Referenzdateien über die URLs in objects herunter und prüfe ihre SHA-256.",
+    "shortcutCloud": "Nutze den OpenMotion-Skill „{title}“ für ein {duration}s-Video in {aspect}: {subject}{style}. Technik-Referenz: {repository}. Falls OpenMotion Cloud MCP noch nicht verbunden ist, verbinde es zuerst über {installUrl}."
   },
   "fr": {
     "intro": "Instructions : utilise le plugin OpenMotion. S’il n’est pas installé, suis {installUrl} pour l’installer et le connecter, puis continue.",
@@ -186,7 +204,10 @@
     "shortcut": "Utilise le Skill OpenMotion « {title} » pour créer une vidéo de {duration} s au format {aspect} : {subject}{style}. Technique de référence : {repository}. Si OpenMotion n’est pas installé, installe-le et connecte-le d’abord avec {installUrl}.",
     "shortcutStyle": " ; style : {style}",
     "shortcutLibrary": " Lisez-le avec openmotion_get_skill (skillId {id}) et suivez son SKILL.md.",
-    "shortcutGenerator": " Réalisez le film avec son générateur ; s'il ne sait pas produire cette durée ou ce cadre, gardez son film et indiquez-moi la durée et le cadre obtenus."
+    "shortcutGenerator": " Réalisez le film avec son générateur ; s'il ne sait pas produire cette durée ou ce cadre, gardez son film et indiquez-moi la durée et le cadre obtenus.",
+    "introCloud": "Instructions : utilisez OpenMotion Cloud MCP. S’il n’est pas encore connecté, suivez {installUrl} pour connecter Cloud MCP puis continuez (ne l’installez pas localement depuis GitHub).",
+    "libraryStep3Cloud": "3. Lisez ce skill avec openmotion_get_skill (skillId {id}) et suivez le SKILL.md renvoyé. Téléchargez les scripts et fichiers de référence listés depuis les URL de objects et vérifiez leur SHA-256.",
+    "shortcutCloud": "Utilise le skill OpenMotion « {title} » pour créer une vidéo de {duration} s en {aspect} : {subject}{style}. Référence technique : {repository}. Si OpenMotion Cloud MCP n’est pas encore connecté, commence par suivre {installUrl}."
   },
   "es": {
     "intro": "Instrucciones: usa el plugin de OpenMotion. Si no está instalado, sigue {installUrl} para instalarlo y conectarlo, y luego continúa.",
@@ -213,7 +234,10 @@
     "shortcut": "Usa el Skill «{title}» de OpenMotion para crear un vídeo de {duration} s en formato {aspect}: {subject}{style}. Técnica de referencia: {repository}. Si OpenMotion no está instalado, instálalo y conéctalo primero con {installUrl}.",
     "shortcutStyle": "; estilo: {style}",
     "shortcutLibrary": " Léelo con openmotion_get_skill (skillId {id}) y sigue su SKILL.md.",
-    "shortcutGenerator": " Crea el vídeo con su generador; si no puede hacer esa duración o formato, conserva su vídeo y dime la duración y el formato que hizo."
+    "shortcutGenerator": " Crea el vídeo con su generador; si no puede hacer esa duración o formato, conserva su vídeo y dime la duración y el formato que hizo.",
+    "introCloud": "Instrucciones: usa OpenMotion Cloud MCP. Si aún no está conectado, sigue {installUrl} para conectar Cloud MCP y continúa (no lo instales localmente desde GitHub).",
+    "libraryStep3Cloud": "3. Lee este skill con openmotion_get_skill (skillId {id}) y sigue el SKILL.md que devuelve. Descarga los scripts y archivos de referencia que lista desde las URL de objects y comprueba su SHA-256.",
+    "shortcutCloud": "Usa el skill «{title}» de OpenMotion para crear un video de {duration} s en {aspect}: {subject}{style}. Referencia técnica: {repository}. Si aún no tienes conectado OpenMotion Cloud MCP, sigue primero {installUrl}."
   },
   "pt-BR": {
     "intro": "Instruções: use o plugin do OpenMotion. Se ele não estiver instalado, siga {installUrl} para instalar e conectar, depois continue.",
@@ -240,7 +264,10 @@
     "shortcut": "Use a Skill “{title}” do OpenMotion para criar um vídeo de {duration} s em {aspect}: {subject}{style}. Referência da técnica: {repository}. Se o OpenMotion não estiver instalado, instale e conecte primeiro com {installUrl}.",
     "shortcutStyle": "; estilo: {style}",
     "shortcutLibrary": " Leia-o com openmotion_get_skill (skillId {id}) e siga o SKILL.md dele.",
-    "shortcutGenerator": " Faça o vídeo com o gerador dele; se ele não conseguir essa duração ou formato, mantenha o vídeo dele e me diga a duração e o formato que fez."
+    "shortcutGenerator": " Faça o vídeo com o gerador dele; se ele não conseguir essa duração ou formato, mantenha o vídeo dele e me diga a duração e o formato que fez.",
+    "introCloud": "Instruções: use o OpenMotion Cloud MCP. Se ainda não estiver conectado, siga {installUrl} para conectar o Cloud MCP e continue (não instale localmente pelo GitHub).",
+    "libraryStep3Cloud": "3. Leia este skill com openmotion_get_skill (skillId {id}) e siga o SKILL.md retornado. Baixe os scripts e arquivos de referência listados pelas URLs em objects e confira o SHA-256.",
+    "shortcutCloud": "Use o skill \"{title}\" do OpenMotion para criar um vídeo de {duration}s em {aspect}: {subject}{style}. Referência técnica: {repository}. Se o OpenMotion Cloud MCP ainda não estiver conectado, siga {installUrl} primeiro."
   },
   "it": {
     "intro": "Istruzioni: usa il plugin OpenMotion. Se non è installato, segui {installUrl} per installarlo e collegarlo, poi continua.",
@@ -267,7 +294,10 @@
     "shortcut": "Usa la Skill «{title}» di OpenMotion per creare un video di {duration} s in formato {aspect}: {subject}{style}. Riferimento per la tecnica: {repository}. Se OpenMotion non è installato, installalo e collegalo prima con {installUrl}.",
     "shortcutStyle": "; stile: {style}",
     "shortcutLibrary": " Leggilo con openmotion_get_skill (skillId {id}) e segui il suo SKILL.md.",
-    "shortcutGenerator": " Realizza il video con il suo generatore; se non può fare quella durata o quel formato, tieni il suo video e dimmi durata e formato ottenuti."
+    "shortcutGenerator": " Realizza il video con il suo generatore; se non può fare quella durata o quel formato, tieni il suo video e dimmi durata e formato ottenuti.",
+    "introCloud": "Istruzioni: usa OpenMotion Cloud MCP. Se non è ancora connesso, segui {installUrl} per connettere Cloud MCP e poi continua (non installare localmente da GitHub).",
+    "libraryStep3Cloud": "3. Leggi questo skill con openmotion_get_skill (skillId {id}) e segui lo SKILL.md restituito. Scarica gli script e i file di riferimento elencati dagli URL in objects e verifica lo SHA-256.",
+    "shortcutCloud": "Usa lo skill OpenMotion \"{title}\" per creare un video di {duration}s in {aspect}: {subject}{style}. Riferimento tecnico: {repository}. Se OpenMotion Cloud MCP non è ancora connesso, segui prima {installUrl}."
   },
   "tr": {
     "intro": "Talimatlar: OpenMotion eklentisini kullan. Yüklü değilse {installUrl} adresindeki adımlarla yükleyip bağla, sonra devam et.",
@@ -294,6 +324,9 @@
     "shortcut": "OpenMotion’ın “{title}” Skill’i ile {duration} saniyelik, {aspect} oranında bir video yap: {subject}{style}. Teknik referansı: {repository}. OpenMotion yüklü değilse önce {installUrl} ile yükleyip bağla.",
     "shortcutStyle": "; stil: {style}",
     "shortcutLibrary": " openmotion_get_skill (skillId {id}) ile oku ve SKILL.md'sini izle.",
-    "shortcutGenerator": " Videoyu kendi üreticisiyle yap; o süreyi veya kadrajı yapamıyorsa üreticinin videosunu koru ve bana ortaya çıkan süreyi ve kadrajı söyle."
+    "shortcutGenerator": " Videoyu kendi üreticisiyle yap; o süreyi veya kadrajı yapamıyorsa üreticinin videosunu koru ve bana ortaya çıkan süreyi ve kadrajı söyle.",
+    "introCloud": "Talimat: OpenMotion Bulut MCP'yi kullan. Henüz bağlı değilse {installUrl} adresini izleyerek Bulut MCP'yi bağla ve devam et (GitHub'dan yerel kurulum yapma).",
+    "libraryStep3Cloud": "3. Bu skill'i openmotion_get_skill (skillId {id}) ile oku ve dönen SKILL.md'yi izle. Listelenen betikleri ve referans dosyalarını objects'teki adreslerden indirip SHA-256'larını doğrula.",
+    "shortcutCloud": "OpenMotion'ın \"{title}\" skill'iyle {duration} sn, {aspect} bir video hazırla: {subject}{style}. Teknik referans: {repository}. OpenMotion Bulut MCP henüz bağlı değilse önce {installUrl} adımlarını izleyerek bağlan."
   }
 }

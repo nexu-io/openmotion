@@ -47,7 +47,7 @@ export function useRenderProgress(projectId: string | null, jobs: RenderJob[], u
             fileAvailable: typeof data.fileAvailable === "boolean" ? data.fileAvailable : old.fileAvailable,
             workerActive: typeof data.workerActive === "boolean" ? data.workerActive : old.workerActive,
           }));
-          if (status === "complete" || status === "failed" || status === "cancelled") closeProgress(job.id);
+          if (status === "complete" || status === "failed" || status === "cancelled" || status === "unknown") closeProgress(job.id);
         } catch { /* A malformed progress event is not an execution result. */ }
       });
       stream.onerror = () => {

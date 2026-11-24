@@ -65,7 +65,7 @@ export function applyAuthoredTimeline(before: AuthoredTimeline | null, after: Au
   for (const [key, element] of after.byKey) {
     if (!existing.has(key) && (!before?.byKey.has(key) || refreshTiming || !state.elements.length)) { elements.push(element); changed = true; }
   }
-  const durationChanged = before?.duration !== after.duration && after.duration !== state.duration;
+  const durationChanged = (refreshTiming || before?.duration !== after.duration) && after.duration !== state.duration;
   if (changed || durationChanged || !state.timelineSourceProjected) usePlayerStore.setState({
     timelineSourceProjected: true,
     ...(changed ? { elements: displayAuthoredTimelineLanes(elements) } : {}),

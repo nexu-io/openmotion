@@ -180,6 +180,7 @@ export function useTimelineEditing({
   const { handleTimelineAssetDrop, handleTimelineFileDrop, handleTimelineCompositionDrop } =
     useTimelineAssetDropOps({
       projectIdRef,
+      previewIframeRef,
       activeCompPath,
       timelineElements,
       showToast,
@@ -195,6 +196,7 @@ export function useTimelineEditing({
 
   const linkEditing = useTimelineLinkEditing({
     projectIdRef,
+    previewIframeRef,
     activeCompPath,
     editQueueRef,
     pendingTimelineEditPathRef,

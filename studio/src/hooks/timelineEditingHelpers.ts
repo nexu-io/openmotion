@@ -1,5 +1,3 @@
-import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
-import { timelineAttributeCommand } from "../utils/cloudTimelineEdit";
 import { stampHfIdsInPlace } from "@hyperframes/parsers/hf-ids";
 import { isHtmlElement } from "@hyperframes/core/runtime/dom-realm";
 import { applyAuthoredTiming } from "@hyperframes/core/studio-preview-mark";
@@ -28,7 +26,6 @@ import {
 import { resolveTimelinePlaybackRate } from "../player/components/timelineGroupEditing";
 import {
   saveProjectFilesWithHistory,
-  writeProjectFilesWithHistoryInQueue,
   type RecordEditInput,
 } from "../utils/studioFileHistory";
 import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
@@ -525,79 +522,4 @@ export { formatTimelineAttributeNumber, formatTimelineMediaOffset };
 
 export { patchDocumentRootDuration } from "./timelineEditingGsap";
 
-export interface PersistElementAttributeInput {
-  projectId: string;
-  targetPath: string;
-  patchTarget: PatchTarget;
-  attr: string;
-  value: string | null;
-  label: string;
-  writeProjectFile: (path: string, content: string) => Promise<void>;
-  recordEdit: (input: RecordEditInput) => Promise<void>;
-  pendingTimelineEditPathRef: { current: Set<string> };
-  /** Write the attribute directly on the live preview DOM node. */
-  patchLive: (value: string | null) => void;
-  /** What the file held for the attribute, read inside the queue before this write. */
-  onFileRead: (value: string | null) => void;
-}
-
-/**
- * One attribute, persisted to source and optimistically patched onto the
- * live preview, with a revert on save failure. The shared core behind
- * `setAudioGroupAttribute` (a group id addressed by its own DOM id) and
- * `useSetElementAttribute` (an arbitrary timeline clip) — same shape, only
- * how the live node is found and where the patch target resolves to differs,
- * which is exactly what `patchLive`/`patchTarget` parameterize.
- */
-export async function persistElementAttribute({
-  projectId,
-  targetPath,
-  patchTarget,
-  attr,
-  value,
-  label,
-  writeProjectFile,
-  recordEdit,
-  pendingTimelineEditPathRef,
-  patchLive,
-  onFileRead,
-}: PersistElementAttributeInput): Promise<string[]> {
-  // Joins the file's mutation queue before reading, so saves land in the order they start
-  // and each patches what the save before it wrote. Resolve the target before patching
-  // the live DOM, so an unresolvable target never leaves an unsaved preview.
-  return serializeStudioFileMutations(writeProjectFile, [targetPath], async () => {
-    const before = await readFileContent(projectId, targetPath);
-    if (readTagSnippetByTarget(before, patchTarget) === undefined) {
-      throw new Error(`Unable to patch element in ${targetPath}`);
-    }
-    // Unwind to the file's value: live writers already patched the DOM, so `readLive()`
-    // would equal `value` and a failed save would keep a never-saved preview.
-    const previousValue = readAttributeByTarget(before, patchTarget, attr) ?? null;
-    onFileRead(previousValue);
-    patchLive(value);
-
-    const operation: PatchOperation = { type: "attribute", property: attr, value };
-    const command = getCachedCloudDisklessMode() ? timelineAttributeCommand([{ target: patchTarget, value }], attr) : undefined;
-
-    pendingTimelineEditPathRef.current.add(targetPath);
-    try {
-      const patched = command
-        ? (await import("../../../packages/edit-core/canvas-commands")).applyCanvasCommand(before, command)
-        : applyPatchByTarget(before, patchTarget, operation);
-      return await writeProjectFilesWithHistoryInQueue({
-        projectId,
-        label,
-        commandForWrite: command ? () => command : undefined,
-        files: { [targetPath]: () => patched },
-        readFile: async () => before,
-        writeFile: writeProjectFile,
-        recordEdit,
-      });
-    } catch (error) {
-      // The optimistic live write already ran; unwind it on a save failure so
-      // the preview doesn't show a value that never reached disk.
-      patchLive(previousValue);
-      throw error;
-    }
-  });
-}
+export { persistElementAttribute, type PersistElementAttributeInput } from "./timelineSavedAttribute";
