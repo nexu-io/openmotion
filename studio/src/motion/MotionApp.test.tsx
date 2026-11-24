@@ -381,13 +381,13 @@ it.each([
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('/preview/open'))).toBe(false);
     expect(container.querySelector('[data-viewer-project]')).toBeNull();
     expect(container.querySelector('.motion-loading')).toBeNull();
+    expect(container.querySelector('.om-not-found-code')?.textContent).toBe('404');
     expect(container.querySelector('.om-not-found-title')?.textContent).toBe('Page not found');
-    expect(container.querySelector('.om-not-found-path')?.textContent).toBe(badPath);
 
-    const exploreBtn = [...container.querySelectorAll<HTMLButtonElement>('.om-not-found-actions button')]
-      .find(btn => btn.textContent?.includes('Back to Explore'))!;
-    expect(exploreBtn).toBeTruthy();
-    await act(async () => exploreBtn.click());
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>('.om-not-found-actions button')];
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toContain('Back to Explore');
+    await act(async () => buttons[0].click());
     expect(location.pathname).toBe('/explore');
   } finally {
     act(() => root.unmount());
@@ -397,7 +397,7 @@ it.each([
   }
 });
 
-it('renders /404 directly without showing /404 as the missing path or loading a project', async () => {
+it('renders /404 directly with only the Back to Explore action and without loading a project', async () => {
   const fetcher = vi.fn(async (url: string) => {
     if (url.endsWith('/projects')) return Response.json({ activeId: id, projects: [{ id, title: 'Sample' }] });
     return Response.json({ projectId: id, revision: 'r1' });
@@ -416,8 +416,9 @@ it('renders /404 directly without showing /404 as the missing path or loading a 
     expect(preloadMotionProjectEditor).not.toHaveBeenCalled();
     expect(fetcher.mock.calls.some(([url]) => String(url).includes('/preview/open'))).toBe(false);
     expect(container.querySelector('.motion-loading')).toBeNull();
+    expect(container.querySelector('.om-not-found-code')?.textContent).toBe('404');
     expect(container.querySelector('.om-not-found-title')?.textContent).toBe('Page not found');
-    expect(container.querySelector('.om-not-found-path')).toBeNull();
+    expect(container.querySelectorAll('.om-not-found-actions button')).toHaveLength(1);
   } finally {
     act(() => root.unmount());
     container.remove();

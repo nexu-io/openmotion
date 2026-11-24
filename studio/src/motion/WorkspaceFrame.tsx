@@ -78,12 +78,6 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const brandKitEnabled = useCloudFeatureEnabled('brandKit');
   const routerLocation = useLocation();
   const [page, setPage] = useState(() => readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname));
-  const [missingPath, setMissingPath] = useState<string | null>(() => {
-    const initial = readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname);
-    return initial.notFound && routerLocation.pathname !== '/404'
-      ? `${routerLocation.pathname}${routerLocation.search}`
-      : null;
-  });
   const [source, setSource] = useState(() => readLocationWorkspaceSource(routerLocation.state));
   const [isRoutePending, startRouteTransition] = useTransition();
   const sourceUrl = source ? new URL(source.href) : null;
@@ -151,12 +145,10 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   useEffect(() => {
     if (isNotFoundSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash)) {
       if (routerLocation.pathname !== '/404') {
-        setMissingPath(`${routerLocation.pathname}${routerLocation.search}`);
         navigatePage({ notFound: true, templates: false }, true);
       }
       return;
     }
-    setMissingPath(null);
     if (page.settings === 'local' && !localAgentsEnabled) {
       navigatePage({ settings: 'providers', mcpInSettings: false, assets: false, skills: false, templates: false }, true);
       return;
@@ -589,9 +581,6 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         openMotionProject={id => workspace.open('projects', id)}
         returnToExplore={returnToExplore}
         selectAssetRoute={selectAssetRoute}
-        missingPath={missingPath}
-        canGoBack={(workspaceHistoryIndex() ?? 0) > 0}
-        onGoBack={() => history.back()}
       />
       <OverlayLayer {...overlaySharedProps} placement="in-workspace" />
       </div>
