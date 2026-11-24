@@ -339,6 +339,20 @@ export type ActionCardAccountContext = {
   accountMediaEntitlement?: 'included' | 'not-included' | 'unknown';
 };
 
+export function isProviderSettingsWebArtifactUrl(rawUrl: string, origin: string): boolean {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return false;
+  try {
+    const ownOrigin = new URL(origin).origin;
+    const target = trimmed.startsWith('/') && !trimmed.startsWith('//')
+      ? new URL(trimmed, ownOrigin)
+      : new URL(webAddress(trimmed));
+    return target.origin === ownOrigin && target.pathname.replace(/\/+$/, '') === '/settings/providers';
+  } catch {
+    return false;
+  }
+}
+
 export function extractActionCardFromTool(
   toolName: string,
   args: Record<string, unknown>,
@@ -3824,19 +3838,11 @@ export class SuperAgentConversations {
 
     if (toolName === presentArtifactTool.name) {
       validateInput(presentArtifactTool.inputSchema, rawArgs);
-      if (String(rawArgs.kind) === 'web' && typeof rawArgs.url === 'string') {
-        try {
-          const target = new URL(webAddress(rawArgs.url));
-          const ownOrigin = new URL(runtime.origin).origin;
-          if (target.origin === ownOrigin && target.pathname === '/settings/providers') {
-            return {
-              presented: false,
-              note: 'Model providers / OpenDesign sign-in is already surfaced through the inline action card in chat; do not present /settings/providers as a web artifact.',
-            };
-          }
-        } catch {
-          /* fall through to standard validation */
-        }
+      if (String(rawArgs.kind) === 'web' && typeof rawArgs.url === 'string' && isProviderSettingsWebArtifactUrl(rawArgs.url, runtime.origin)) {
+        return {
+          presented: false,
+          note: 'Model providers / OpenDesign sign-in is already surfaced through the inline action card in chat; do not present /settings/providers as a web artifact.',
+        };
       }
       const artifact = await this.resolvePresentedArtifact(rawArgs);
       const stored = await this.presentChatArtifact(active, artifact);

@@ -3160,4 +3160,13 @@ test('extractActionCardFromTool maps provider handoffs, low-balance failures, an
     { modality: 'audio' as const, available: false, modelIds: [] },
   ];
   assert.equal(resolveMediaSetupEntry(textOnlyProviders, { capabilities: emptyMediaCapabilities }), 'agent_media_signed_out');
+
+  // Guard against presenting /settings/providers as a web artifact (both absolute same-origin and relative forms)
+  const { isProviderSettingsWebArtifactUrl } = await import('../gateway/super-agent.ts');
+  const ownOrigin = 'http://127.0.0.1:4120';
+  assert.equal(isProviderSettingsWebArtifactUrl('http://127.0.0.1:4120/settings/providers?provider=account&entry_from=agent_media_signed_out', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('/settings/providers?entry_from=agent_media_signed_out', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('/settings/providers/', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('https://example.com/settings/providers', ownOrigin), false);
+  assert.equal(isProviderSettingsWebArtifactUrl('http://127.0.0.1:4120/games/demo', ownOrigin), false);
 });
