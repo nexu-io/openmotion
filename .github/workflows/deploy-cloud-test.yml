@@ -31,6 +31,7 @@ on:
       - .github/workflows/deploy-cloud-test.yml
       - .github/scripts/orbit-publish-cloud-test.mjs
       - .github/scripts/promote-cloud-test.sh
+      - .github/scripts/notify-cloud-test.mjs
   workflow_dispatch: {}
 
 permissions: {}
@@ -52,6 +53,9 @@ jobs:
 
   promote:
     name: Publish tested image digests for Argo CD
+    outputs:
+      receipt: ${{ steps.orbit.outputs.publication_receipt }}
+      published: ${{ steps.orbit.outputs.publication_result || steps.legacy.outputs.publication_result }}
     environment: orbit-cloud-test
     needs: [checks, images]
     if: github.repository == 'nexu-io/openmotion' && github.ref == 'refs/heads/main'
@@ -67,11 +71,41 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/digests
       - name: Publish tested image digests to Orbit
+        id: orbit
         if: vars.ORBIT_OPENMOTION_PULL == 'true'
         env:
           ORBIT_API_URL: ${{ vars.ORBIT_API_URL }}
           ORBIT_OPENMOTION_BUILD_TOKEN: ${{ secrets.ORBIT_OPENMOTION_BUILD_TOKEN }}
         run: node .github/scripts/orbit-publish-cloud-test.mjs "$RUNNER_TEMP/digests"
       - name: Advance the default test release
+        id: legacy
         if: vars.ORBIT_OPENMOTION_PULL != 'true'
         run: bash .github/scripts/promote-cloud-test.sh "$RUNNER_TEMP/digests"
+
+  notify:
+    name: Notify the Feishu deployment group
+    needs: [checks, images, promote]
+    if: >-
+      ${{ !cancelled() && github.repository == 'nexu-io/openmotion' && github.ref == 'refs/heads/main' &&
+          (failure() || needs.promote.outputs.published != '') }}
+    runs-on: ubuntu-24.04
+    environment:
+      name: orbit-cloud-test
+      deployment: false
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          persist-credentials: false
+      - name: Send release result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEISHU_DEPLOY_NOTIFY_WEBHOOK: ${{ secrets.FEISHU_DEPLOY_NOTIFY_WEBHOOK }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          IMAGES_RESULT: ${{ needs.images.result }}
+          PROMOTE_RESULT: ${{ needs.promote.result }}
+          ORBIT_RECEIPT: ${{ needs.promote.outputs.receipt }}
+        run: node .github/scripts/notify-cloud-test.mjs
