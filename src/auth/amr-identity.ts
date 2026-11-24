@@ -68,11 +68,14 @@ export interface AmrOneTapExchangeResponse {
   readonly image: string | null;
   readonly isNewUser: boolean;
   readonly planTier: OneTapPlanTier;
+  readonly sessionProof?: string;
+  readonly sessionProofExpiresAt?: string;
 }
 
 export interface AmrOneTapHandoffTicketRequest {
   readonly authUserId: string;
   readonly appUserId: string;
+  readonly sessionProof: string;
   readonly targetPath?: string;
 }
 
@@ -636,6 +639,12 @@ export class AmrIdentityClient {
       );
     }
 
+    const sessionProof = typeof raw.sessionProof === 'string' && raw.sessionProof.trim() ? raw.sessionProof.trim() : undefined;
+    const sessionProofExpiresAt =
+      typeof raw.sessionProofExpiresAt === 'string' && raw.sessionProofExpiresAt.trim()
+        ? raw.sessionProofExpiresAt.trim()
+        : undefined;
+
     return {
       ok: true,
       authUserId,
@@ -645,6 +654,8 @@ export class AmrIdentityClient {
       image: typeof raw.image === 'string' ? raw.image : null,
       isNewUser: Boolean(raw.isNewUser),
       planTier: normalizeDesktopHandoffPlanTier(raw.planTier),
+      ...(sessionProof ? { sessionProof } : {}),
+      ...(sessionProofExpiresAt ? { sessionProofExpiresAt } : {}),
     };
   }
 
@@ -656,6 +667,7 @@ export class AmrIdentityClient {
       {
         authUserId: input.authUserId,
         appUserId: input.appUserId,
+        sessionProof: input.sessionProof,
         ...(input.targetPath ? { targetPath: input.targetPath } : {}),
       },
       'one-tap handoff ticket',

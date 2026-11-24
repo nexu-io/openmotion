@@ -783,7 +783,8 @@ describe('Desktop System-Browser Session Handoff API', () => {
           if (url === `${oneTapInternalUrl}/api/internal/auth/one-tap/handoff-ticket`) {
             const headers = new Headers(init?.headers);
             assert.equal(headers.get('x-internal-token'), oneTapInternalToken);
-            const body = JSON.parse(String(init?.body ?? '{}')) as { targetPath?: string };
+            const body = JSON.parse(String(init?.body ?? '{}')) as { targetPath?: string; sessionProof?: string };
+            assert.equal(body.sessionProof, 'otsp_desktop_proof_1');
             if (body.targetPath) capturedTicketTargets.push(body.targetPath);
             return Response.json({
               ticket: 'ht_desktop_1',
@@ -871,9 +872,12 @@ describe('Desktop System-Browser Session Handoff API', () => {
         return { pair, sessionToken, desktopOidcCtx, returnTo };
       };
 
-      // Case 1: Real AMR One Tap OIDC (auth_method: 'google_one_tap') + membershipTier: null -> free + pricingHandoffUrl (/pricing)
+      // Case 1: Real AMR One Tap OIDC (auth_method: 'google_one_tap' + motion_session_proof) + membershipTier: null -> free + pricingHandoffUrl (/pricing)
       billingPlanResponse = { status: 200, body: { membershipTier: null } };
-      const oneTapFlow = await runOidcDesktopFlow({ auth_method: 'google_one_tap' }, 'real-onetap');
+      const oneTapFlow = await runOidcDesktopFlow(
+        { auth_method: 'google_one_tap', motion_session_proof: 'otsp_desktop_proof_1' },
+        'real-onetap',
+      );
       const startAfterOneTap = await app.request(oneTapFlow.returnTo, {
         headers: {
           Cookie: `${SESSION_COOKIE_NAME}=${oneTapFlow.sessionToken}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${oneTapFlow.desktopOidcCtx}`,

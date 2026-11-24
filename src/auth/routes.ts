@@ -342,6 +342,39 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     return entry.idToken;
   };
 
+  // Server-side AMR Motion sessionProof store (keyed by session tokenHash) required by
+  // AMR /api/internal/auth/one-tap/handoff-ticket so Motion proves AMR actually authenticated
+  // this user (via One Tap exchange or OIDC id_token claim) before minting a billing handoff ticket.
+  const SESSION_PROOF_TTL_SEC = 24 * 60 * 60;
+  const localSessionProofs = new Map<string, { proof: string; expiresAt: number }>();
+  const sessionProofCacheKey = (tokenHash: string) => `om:amr:session-proof:${tokenHash}`;
+  const saveSessionProof = async (tokenHash: string, proof: string, ttlSec = SESSION_PROOF_TTL_SEC): Promise<void> => {
+    const trimmed = proof.trim();
+    if (!trimmed) return;
+    if (deps.cache) {
+      await deps.cache.set(sessionProofCacheKey(tokenHash), trimmed, ttlSec);
+      return;
+    }
+    localSessionProofs.set(tokenHash, { proof: trimmed, expiresAt: Date.now() + ttlSec * 1000 });
+  };
+  const readSessionProof = async (tokenHash: string): Promise<string | null> => {
+    if (deps.cache) {
+      return (await deps.cache.get(sessionProofCacheKey(tokenHash))) ?? null;
+    }
+    const entry = localSessionProofs.get(tokenHash);
+    if (!entry || entry.expiresAt <= Date.now()) {
+      localSessionProofs.delete(tokenHash);
+      return null;
+    }
+    return entry.proof;
+  };
+  const deleteSessionProof = async (tokenHash: string): Promise<void> => {
+    localSessionProofs.delete(tokenHash);
+    if (deps.cache) {
+      await deps.cache.del(sessionProofCacheKey(tokenHash));
+    }
+  };
+
   // Server-side logout revocation barrier: prevents in-flight One Tap exchanges from issuing
   // an om_session after a concurrent /auth/logout completes in another tab.
   let barrierSeq = 0;
@@ -481,7 +514,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const txCookieValue = cookies[OIDC_TX_COOKIE_NAME] ?? null;
 
     try {
-      const { membership, returnTo, oneTapVerified, idToken } = await deps.oidc.completeCallback(deps.store, {
+      const { membership, returnTo, oneTapVerified, idToken, motionSessionProof } = await deps.oidc.completeCallback(deps.store, {
         code,
         state,
         txCookieValue,
@@ -496,6 +529,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         ttlSec: DEFAULT_SESSION_TTL_SEC,
       });
       await saveSessionIdToken(session.tokenHash, idToken, DEFAULT_SESSION_TTL_SEC);
+      if (motionSessionProof) {
+        await saveSessionProof(session.tokenHash, motionSessionProof, SESSION_PROOF_TTL_SEC);
+      }
 
       const headers = new Headers();
       headers.append('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
@@ -528,6 +564,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           codeChallenge: desktopTarget.codeChallenge,
           redirectUri: desktopTarget.redirectUri,
           oneTapVerified,
+          sessionProof: motionSessionProof,
         });
         headers.append(
           'Set-Cookie',
@@ -573,6 +610,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         cache: deps.cache,
       }).catch(() => null);
       idTokenHint = await consumeSessionIdToken(tokenHash);
+      await deleteSessionProof(tokenHash);
       await revokeBrowserSession(deps.store, { rawToken: rawSession }, deps.cache);
       if (resolved?.auth.userId) {
         await recordUserLogoutBarrier(resolved.auth.userId);
@@ -923,6 +961,10 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           );
         }
 
+        if (exchanged.sessionProof) {
+          await saveSessionProof(session.tokenHash, exchanged.sessionProof, SESSION_PROOF_TTL_SEC);
+        }
+
         const headers = new Headers({
           'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store',
@@ -1066,18 +1108,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       }
 
-      if (authUserId && appUserId) {
-        try {
-          const ticket = await amrIdentity.createOneTapHandoffTicket({
-            authUserId,
-            appUserId,
-            targetPath,
-          });
-          if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
-            return c.redirect(ticket.handoffUrl, 302);
+      if (authUserId && appUserId && rawSession) {
+        const sessionProof = await readSessionProof(sha256Hex(rawSession));
+        if (sessionProof) {
+          try {
+            const ticket = await amrIdentity.createOneTapHandoffTicket({
+              authUserId,
+              appUserId,
+              sessionProof,
+              targetPath,
+            });
+            if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
+              return c.redirect(ticket.handoffUrl, 302);
+            }
+          } catch {
+            // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
           }
-        } catch {
-          // Do not redirect to an unbound Pricing page where another AMR browser session could be billed.
         }
       }
 

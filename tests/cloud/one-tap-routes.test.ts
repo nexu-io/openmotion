@@ -420,6 +420,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       userId: projected.user.id,
       workspaceId: projected.workspace.id,
     });
+    await cache.set(`om:amr:session-proof:${session.tokenHash}`, 'otsp_upgrade_proof_1', 3600);
 
     let ticketMode: 'ok' | 'untrusted' | 'unavailable' = 'ok';
     const capturedTicketBodies: Array<Record<string, unknown>> = [];
@@ -455,7 +456,9 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
         if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/handoff-ticket`) {
           const headers = new Headers(init?.headers);
           assert.equal(headers.get('x-internal-token'), ONE_TAP_INTERNAL_TOKEN);
-          capturedTicketBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+          const parsedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+          assert.equal(parsedBody.sessionProof, 'otsp_upgrade_proof_1');
+          capturedTicketBodies.push(parsedBody);
           if (ticketMode === 'unavailable') {
             return new Response('Service Unavailable', { status: 503 });
           }
@@ -804,6 +807,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
           client.createOneTapHandoffTicket({
             authUserId: 'ba_1',
             appUserId: 'usr_1',
+            sessionProof: 'otsp_test_unconfigured',
             targetPath: '/pricing',
           }),
         (err: unknown) => (err as { status?: number; code?: string }).status === 503 && (err as { code?: string }).code === 'ONE_TAP_UNAVAILABLE',

@@ -47,6 +47,7 @@ export interface DesktopOidcProvenanceRecord {
   codeChallenge: string;
   redirectUri: string;
   oneTapVerified: boolean;
+  sessionProof?: string | null;
   expiresAt: number;
 }
 
@@ -119,6 +120,7 @@ export class DesktopOidcProvenanceStore {
               codeChallenge: parsed.codeChallenge,
               redirectUri: parsed.redirectUri,
               oneTapVerified: parsed.oneTapVerified === true,
+              sessionProof: typeof parsed.sessionProof === 'string' ? parsed.sessionProof : null,
               expiresAt: parsed.expiresAt,
             };
           }
@@ -167,6 +169,7 @@ export interface DesktopHandoffRecord {
   redirectUri: string;
   interactiveLogin: boolean;
   oneTapVerified: boolean;
+  sessionProof?: string | null;
   expiresAt: number;
 }
 
@@ -259,6 +262,7 @@ class DesktopHandoffCodeStore {
               redirectUri: parsed.redirectUri,
               interactiveLogin: parsed.interactiveLogin === true,
               oneTapVerified: parsed.oneTapVerified === true,
+              sessionProof: typeof parsed.sessionProof === 'string' ? parsed.sessionProof : null,
               expiresAt: parsed.expiresAt,
             };
           }
@@ -508,6 +512,7 @@ export function mountDesktopHandoffRoutes(
     // (userId + PKCE codeChallenge + loopback redirectUri). Query flags are NEVER trusted.
     let oneTapVerified = false;
     let interactiveLogin = false;
+    let sessionProof: string | null = null;
     let shouldClearOidcCtx = false;
     if (rawDesktopOidcCtx) {
       shouldClearOidcCtx = true;
@@ -521,6 +526,7 @@ export function mountDesktopHandoffRoutes(
       ) {
         oneTapVerified = true;
         interactiveLogin = true;
+        sessionProof = provenance.sessionProof ?? null;
       }
     }
 
@@ -535,6 +541,7 @@ export function mountDesktopHandoffRoutes(
       redirectUri: validated.redirectUri,
       interactiveLogin,
       oneTapVerified,
+      sessionProof,
     });
 
     const redirectTarget = new URL(validated.redirectUri);
@@ -621,11 +628,12 @@ export function mountDesktopHandoffRoutes(
       }
       if (record.oneTapVerified && record.interactiveLogin && (planTier === 'free' || planTier === 'go')) {
         pricingHandoffUrl = null;
-        if (resolvedAuthUserId && resolvedAppUserId) {
+        if (resolvedAuthUserId && resolvedAppUserId && record.sessionProof) {
           try {
             const ticket = await deps.amrIdentity.createOneTapHandoffTicket({
               authUserId: resolvedAuthUserId,
               appUserId: resolvedAppUserId,
+              sessionProof: record.sessionProof,
               targetPath: '/pricing',
             });
             if (isSafeDesktopPricingHandoffUrl(ticket.handoffUrl, deps.config)) {
