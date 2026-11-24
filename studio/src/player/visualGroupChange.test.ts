@@ -32,3 +32,9 @@ it("rejects a changed sibling, scripts and a changed member text", () => {
     expect(diffPreviewChanges(source, rewritten)).toBeNull();
   }
 });
+
+it("includes unchanged startup code in the full source comparison", () => {
+  const script = '<script>window.__qaBoot = "alpha";</script>';
+  expect(diffPreviewChanges(source + script, grouped + script)?.[0]?.group?.wrap).toBe(true);
+  expect(diffPreviewChanges(source + script, grouped + script.replace("alpha","beta"))).toBeNull();
+});

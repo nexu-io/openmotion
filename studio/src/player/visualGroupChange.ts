@@ -17,7 +17,7 @@ function stripBox(node: HTMLElement) {
 export function diffGroupChange(before: Document, after: Document, wrap: boolean, tags: Set<string>): PreviewChange | null {
   const flat = wrap ? before : after;
   const nested = wrap ? after : before;
-  if ([flat, nested].some(doc => doc.querySelector("script,template,[data-composition-src]") || doc.querySelectorAll("[data-composition-id]").length !== 1)) return null;
+  if ([flat, nested].some(doc => doc.querySelector("template,[data-composition-src]") || doc.querySelectorAll("[data-composition-id]").length !== 1)) return null;
   const candidates = [...nested.querySelectorAll<HTMLElement>("div[data-hf-group][id]")].filter(n => !flat.getElementById(n.id));
   if (candidates.length !== 1) return null;
   const wrapper = candidates[0]!;
