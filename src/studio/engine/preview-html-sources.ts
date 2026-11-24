@@ -1,3 +1,4 @@
+import { parse } from 'acorn';
 import { RUNTIME_BOOTSTRAP_ATTR } from '@hyperframes/core/compiler';
 
 // Only certify static markup whose HTML inputs the compiler can enumerate. Runtime scripts,
@@ -8,6 +9,36 @@ const formattingTags = new Set('aside nav b i em strong small br ol ul li figure
 
 export function isPassivePreviewTag(tag: string, includeFormatting = true): boolean {
   return layoutTags.has(tag) || (includeFormatting && formattingTags.has(tag));
+}
+
+// A project may initialize private scalar metadata in its own script. Such a
+// script has no DOM inputs to recompute when the editor changes markup.
+export function isPreviewDataScript(el: Element): boolean {
+  if (el.localName !== 'script' || el.hasAttribute('src') || el.getAttributeNames().some(name => /^on/i.test(name))) return false;
+  const type = el.getAttribute('type')?.trim().toLowerCase();
+  if (type === 'application/json' || type === 'application/ld+json') return true;
+  if (type && type !== 'text/javascript' && type !== 'application/javascript') return false;
+  const source = el.textContent ?? '';
+  if (!source.trim()) return true;
+  if (!source.includes('__')) return false;
+  try {
+    return parse(source, { ecmaVersion: 'latest' }).body.every(statement => {
+      if (statement.type === 'EmptyStatement') return true;
+      if (statement.type !== 'ExpressionStatement') return false;
+      const expr = statement.expression;
+      if (expr.type === 'Literal') return expr.value === 'use strict';
+      if (expr.type !== 'AssignmentExpression' || expr.operator !== '=' || expr.left.type !== 'MemberExpression' ||
+          expr.left.computed || expr.left.object.type !== 'Identifier' || expr.left.property.type !== 'Identifier' ||
+          !['window', 'globalThis'].includes(expr.left.object.name) || expr.right.type !== 'Literal' ||
+          !['string', 'number', 'boolean'].includes(typeof expr.right.value) && expr.right.value !== null) return false;
+      const key = expr.left.property.name;
+      // Leave browser prototypes and player-owned slots on the scripted path.
+      return /^__[a-z][a-z0-9_$]*$/i.test(key) && !(key in Object.prototype) &&
+        !/^__(?:hf|hyperframes|openmotion|player|timeline|clipManifest)/i.test(key);
+    });
+  } catch {
+    return false;
+  }
 }
 
 const plainMedia = /^[\w./-]+\.(?:png|jpe?g|gif|webp|avif|svg|mp[34]|mov|webm|wav|ogg|m4[av]|vtt)$/i;
@@ -54,7 +85,7 @@ function hasUnknownInputs(
   allowSafeHeadLinks = false,
 ): boolean {
   return Array.from(root.querySelectorAll('*')).some(el => {
-    if (el === runtime) return false;
+    if (el === runtime || isPreviewDataScript(el)) return false;
     if (allowSafeHeadLinks && isSafeHeadLink(el)) return false;
     if ((!isPassivePreviewTag(el.localName) && el.localName !== 'template') || el.hasAttribute('http-equiv') || el.hasAttribute('srcset')) return true;
     if (el.localName === 'template' && hasUnknownInputs((el as HTMLTemplateElement).content, null, allowSafeHeadLinks)) return true;
@@ -79,9 +110,8 @@ export function hasUnknownStaticHtmlInputs(
 }
 
 export function staticPreviewHtmlSources(entry: string, doc: Document, runtimeUrl: string) {
-  const scripts = doc.querySelectorAll('script');
-  const runtime = scripts.length === 1 && scripts[0]?.hasAttribute(RUNTIME_BOOTSTRAP_ATTR) &&
-    scripts[0].getAttribute('src') === runtimeUrl && !scripts[0].textContent?.trim() ? scripts[0] : null;
+  const runtime = Array.from(doc.querySelectorAll('script')).find(el => el.hasAttribute(RUNTIME_BOOTSTRAP_ATTR) &&
+    el.getAttribute('src') === runtimeUrl && !el.textContent?.trim());
   let known = !hasUnknownInputs(doc, runtime);
   const sources = new Set([entry]);
   return {

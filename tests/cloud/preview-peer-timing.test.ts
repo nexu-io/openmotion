@@ -366,6 +366,13 @@ it('enables the fast path only for declarative documents with no user startup co
     assert.equal(title.textContent, String(start));
   }
   assert.equal((await build(2)).allowed, true);
+  for (const script of ['window.__projectTitle = "hello";', "globalThis.__buildNumber = 17; window.__enabled = true;"]) {
+    assert.equal((await build(2, '<script>' + script + '</script>')).allowed, true, script);
+  }
+  for (const script of ['window.__title = document.title', 'window.__player = "broken"', 'window.__proto__ = null',
+    'window.location = "/other"', 'window.__x = 1; setTimeout(render)', 'window[key] = 1', 'window.__x = Math.random()']) {
+    assert.equal((await build(2, '<script>' + script + '</script>')).allowed, false, script);
+  }
   assert.equal((await build(2, '<canvas id="decoration"></canvas>')).allowed, true);
   assert.equal((await build(2, '<canvas id="decoration"></canvas>' + startup)).allowed, false);
   assert.equal((await build(2, '<canvas onclick="paint()"></canvas>')).allowed, false);

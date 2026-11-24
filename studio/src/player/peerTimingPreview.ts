@@ -225,6 +225,7 @@ export async function tryApplyPeerChanges(
     c.attributes.every(([name]) => ["data-media-start", "data-playback-start", "loop", "data-playback-rate"].includes(name)));
   if (localSave && !mediaControl && (!presentation || changes.some(c => c.attributes.length))) return false;
   const timeout = 350;
+  const sentFrom = document.mountedVersions.get(update.path);
   try {
     const paint = adapter.request<boolean>(presentation ? "peer-presentation" : "peer-timing", {
       documentId: document.id, path: update.path, before: update.previous.version, after: update.current.version,
@@ -239,17 +240,23 @@ export async function tryApplyPeerChanges(
     // A busy player can apply an edit before Studio receives its reply. Verify the
     // mounted revision without performing the mutation a second time.
     const applied = await paint.catch(async () => {
-      if (temporary || draftId || previous.version === current.version || documents.get(frame) !== document || !isCurrent()) return false;
+      if (temporary || draftId || previous.version === current.version || documents.get(frame) !== document) return false;
       const version = await adapter.request<string | null>("mounted-file-version", { documentId: document.id, path: update.path });
       return version === current.version;
     });
-    if (applied !== true || documents.get(frame) !== document || !isCurrent()) return false;
+    if (applied !== true || documents.get(frame) !== document) return false;
+    // A newer gesture supersedes an old paint's UI side effects, but its next
+    // patch still needs to know which source the live frame actually accepted.
+    const lastKnown = document.mountedVersions.get(update.path);
+    if (!temporary && !draftId && (lastKnown === sentFrom || lastKnown === previous.version)) {
+      document.mountedVersions.set(update.path, current.version);
+    }
+    if (!isCurrent()) return false;
     if (draftId) {
       const group = changes[0]?.group;
       if (group && typeof options === "object" && "structureDraftId" in options) options.onGroup?.(group);
       return true;
     }
-    if (!temporary && document.mountedVersions.has(update.path)) document.mountedVersions.set(update.path, current.version);
     // The HTML attribute changes defaultMuted. The runtime combines per-clip mute
     // with this window's independent monitor preference on a set-muted message.
     if (changes.some(change => change.attributes.some(([name]) => name === "muted"))) {
