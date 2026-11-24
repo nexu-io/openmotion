@@ -13,7 +13,6 @@ import { findModelHub } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
 import { reportHubClick, reportHubPageView } from './exploreTracking';
 import { BackToExploreButton } from './BackToExploreButton';
-import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
 
 /** Aggregates one model family: what it is, what to make with it, and whether this installation can use it. */
 export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings, onStartScenario, hasProject = false }: {
@@ -21,9 +20,9 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
   onUse: () => void; onSettings: (section: 'account' | 'subscription') => void; onStartScenario?: () => void;
 }) {
   const { t } = useI18n();
-  const chrome = useOptionalWorkspaceChrome();
   const [query, setQuery] = useState('');
   const search = useRef<HTMLInputElement>(null);
+  const searchShortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
   const hub = findModelHub(id);
   const { catalog, failed, retry } = useMediaCatalog(Boolean(hub));
   const account = useAccountSummary();
@@ -46,12 +45,14 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onSettings
   const track = (area: Parameters<typeof reportHubClick>[1], element: Parameters<typeof reportHubClick>[2], fields: Parameters<typeof reportHubClick>[3] = {}) =>
     reportHubClick(hub.id, area, element, { signedIn, ...fields });
 
-  return <main className="om-explore om-model-hub-page">
+  return <main className="om-explore om-model-hub-page" onKeyDown={event => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); search.current?.focus(); }
+  }}>
     <div className="om-gallery-sticky-header"><header className="om-gallery-header">
       <div className="om-gallery-wordmark"><BackToExploreButton onClick={() => { track('hub_header', 'back_to_explore'); onExplore(); }} /><span className="om-gallery-page-label">{hub.latestModel}</span></div>
       <div className="om-control-row om-gallery-header-actions">
-        {!chrome && <label className="om-field om-search-field"><MotionIcon name="search" size={16} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onFocus={() => track('hub_header', 'search_focus')}
-          placeholder={t('Search videos, creators, scenes…')} aria-label={t('Search videos')} /></label>}
+        <label className="om-field om-search-field"><MotionIcon name="search" size={16} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} onFocus={() => track('hub_header', 'search_focus')}
+          placeholder={t('Search videos, creators, scenes…')} aria-label={t('Search videos')} /><kbd>{searchShortcut}</kbd></label>
         <GitHubLink className="om-button" />
       </div>
     </header></div>

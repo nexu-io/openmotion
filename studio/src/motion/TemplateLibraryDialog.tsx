@@ -714,6 +714,7 @@ export function TemplateLibraryDialog(props: Props) {
   const credit = preview && templateCredit(preview);
   const searchPlaceholder = t(blackFriday ? 'Search templates…' : props.creators && !props.creator ? 'Search creators' : 'Search templates, creators, styles…');
   const searchLabel = t(props.creators && !props.creator ? 'Search creators' : 'Search templates');
+  const useInlineSearch = !props.inWorkspace || Boolean(props.creators) || blackFriday;
   const searchField = <label className="om-field om-search-field">
     <MotionIcon name="search" size={16} />
     <input ref={search} type="search" maxLength={200} value={query} placeholder={searchPlaceholder} aria-label={searchLabel}
@@ -727,11 +728,11 @@ export function TemplateLibraryDialog(props: Props) {
         setSettle(value => value + 1);
       }}
       onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) confirmSearch(); }} />
-    {!props.inWorkspace && <kbd>{searchShortcut}</kbd>}
+    {useInlineSearch && <kbd>{searchShortcut}</kbd>}
   </label>;
   const closeLabel = t(props.creators ? 'Close' : 'Close template library');
   const searchActions = <div className="om-control-row om-gallery-header-actions">
-    {!props.inWorkspace && searchField}
+    {useInlineSearch && searchField}
     <Tooltip label={closeLabel}><IconButton variant="ghost" ref={libraryClose} className="om-button om-icon-button" disabled={props.busy} onClick={props.onClose} aria-label={closeLabel} icon={<MotionIcon name="close" size={16} />} /></Tooltip>
   </div>;
   const gallery = !detailOnly && <>
@@ -765,7 +766,7 @@ export function TemplateLibraryDialog(props: Props) {
     </div>}
     {blackFriday && !props.creators ? <BlackFridayCollection templates={campaignItems}
       featuredPreviewsEnabled={props.open && !preview && !props.collectionSkillOpen} onBack={props.onClose}
-      selectedFilter={activeCampaignFilter} onFilterChange={selectCampaignFilter} searchField={props.inWorkspace ? undefined : searchField}
+      selectedFilter={activeCampaignFilter} onFilterChange={selectCampaignFilter} searchField={searchField}
       emptyResults={<div data-search-recovery="">
         <TemplateSearchRecovery visible expanded query={campaignQuery} context={listContext()} reason="no_results"
           onOpenSkill={props.onOpenSkill}
@@ -923,13 +924,13 @@ export function TemplateLibraryDialog(props: Props) {
   if (detailOnly) return <div className={styles.library} style={{ display: 'contents' }} data-motion-template-detail="">{previewDialog}</div>;
   return <dialog ref={dialog} open={props.inWorkspace ? props.open : undefined} role={props.inWorkspace ? "region" : undefined} className={styles.library} data-workspace-gallery={props.inWorkspace || undefined} data-motion-template-library="" aria-label={t(props.creators ? 'Creators' : 'Template library')} onKeyDown={event => {
     const isGlobalSearchShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k';
-    if (props.inWorkspace && isGlobalSearchShortcut && !preview && !filtersOpen) return;
+    if (!useInlineSearch && isGlobalSearchShortcut && !preview && !filtersOpen) return;
     event.stopPropagation();
     if (props.inWorkspace && event.key === 'Escape' && !event.defaultPrevented && !props.busy && !preview && !filtersOpen && event.target instanceof Element && event.target.closest('dialog') === dialog.current) {
       event.preventDefault();
       props.onClose();
     }
-    if (!props.inWorkspace && isGlobalSearchShortcut && !preview && !filtersOpen && !(event.target instanceof HTMLElement && event.target.closest('[data-search-recovery]'))) { event.preventDefault(); search.current?.focus(); }
+    if (useInlineSearch && isGlobalSearchShortcut && !preview && !filtersOpen && !(event.target instanceof HTMLElement && event.target.closest('[data-search-recovery]'))) { event.preventDefault(); search.current?.focus(); }
   }} onCancel={event => { if (event.target !== dialog.current) return; event.preventDefault(); if (!props.busy) props.onClose(); }}>
     {gallery}
     {previewDialog}
