@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { access, mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { describe, it } from 'node:test';
 import sharp from 'sharp';
@@ -13,7 +16,11 @@ import type {
   StoragePort,
 } from '../../src/contracts/storage.ts';
 import { createLogger } from '../../src/infra/logger.ts';
-import { buildCatalogFilmstripJobId, validateRenderExportPayload } from '../../src/infra/queues.ts';
+import {
+  buildCatalogFilmstripJobId,
+  hasWaitingUserRenderWork,
+  validateRenderExportPayload,
+} from '../../src/infra/queues.ts';
 import { catalogCompFilmstripKey } from '../../src/infra/storage.ts';
 import {
   CatalogFilmstripAutoBakeDispatcher,
@@ -27,6 +34,7 @@ import {
 } from '../../src/services/prism-motion-catalog.ts';
 import { handleStudioError, type DisklessStudioDeps } from '../../src/studio/context.ts';
 import {
+  COMPOSITION_FILMSTRIP_VERSION,
   computeCompositionFilmstripDepsDigest,
   embedFilmstripComment,
   extractIndexHeadMarkup,
@@ -37,6 +45,7 @@ import { createStudioCompositionFilmstripsRoutes } from '../../src/studio/routes
 import type { VirtualFileRecord } from '../../src/studio/virtual-project-store.ts';
 import { processBakeCatalogFilmstripsJob } from '../../src/workers/catalog-filmstrip-bake.ts';
 import {
+  bakeVirtualCompositionsWithChromium,
   computeFilmstripSpriteDimensions,
   type CapturedFilmstripSprite,
 } from '../../src/workers/filmstrip-renderer.ts';
@@ -671,5 +680,404 @@ describe('Prism catalog filmstrip auto-bake', () => {
     assert.equal(renderCalled, false);
     assert.equal(storageTampered.objects.size, 0);
     assert.equal(await bakeStateTampered.getState(1, payload.templateBakeHash), 'failed');
+  });
+
+  it('uses locale-independent codepoint byte ordering in computeTemplateBakeHash', () => {
+    const shaA = '1'.repeat(64);
+    const shaZ = '2'.repeat(64);
+    const shaUtf8 = '3'.repeat(64);
+    // In codepoint order: 'assets/Z.png' (0x5A) < 'assets/a.png' (0x61) < 'assets/é.png' (0xE9).
+    const expected = createHash('sha256')
+      .update(
+        `omfs-template-bake-v${COMPOSITION_FILMSTRIP_VERSION}\n` +
+          `assets/Z.png:${shaZ}\n` +
+          `assets/a.png:${shaA}\n` +
+          `assets/é.png:${shaUtf8}\n`,
+      )
+      .digest('hex');
+    const hash1 = computeTemplateBakeHash(
+      [
+        { path: 'assets/a.png', sha256: shaA },
+        { path: 'assets/é.png', sha256: shaUtf8 },
+        { path: 'assets/Z.png', sha256: shaZ },
+      ],
+      COMPOSITION_FILMSTRIP_VERSION,
+    );
+    const hash2 = computeTemplateBakeHash(
+      [
+        { path: 'assets/Z.png', sha256: shaZ },
+        { path: 'assets/a.png', sha256: shaA },
+        { path: 'assets/é.png', sha256: shaUtf8 },
+      ],
+      COMPOSITION_FILMSTRIP_VERSION,
+    );
+    assert.equal(hash1, expected);
+    assert.equal(hash2, expected);
+  });
+
+  it('closes the preview HTTP server and cleans ephemeral temp dir when Chromium launch fails', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-bake-launch-fail-'));
+    try {
+      const indexHtml = '<!doctype html><html><body><div data-composition-id="main"></div></body></html>';
+      const indexBuf = Buffer.from(indexHtml, 'utf8');
+      const indexSha = sha256(indexBuf);
+      let startedOrigin = '';
+      let failedUserDataDir = '';
+
+      await assert.rejects(
+        () =>
+          bakeVirtualCompositionsWithChromium({
+            server: {
+              projectId: 'launch-fail-test',
+              revision: 'v1',
+              files: [
+                {
+                  path: 'index.html',
+                  blobScope: 'catalog',
+                  sha256: indexSha,
+                  sizeBytes: indexBuf.byteLength,
+                  mimeType: 'text/html',
+                  isText: true,
+                  updatedAt: new Date(0),
+                },
+              ],
+              textContents: new Map([['index.html', indexHtml]]),
+              resolveAsset: () => null,
+            },
+            targetCompositions: ['index.html'],
+            executablePath: '/fake/chromium',
+            tmpBaseDir: tmpBase,
+            onPreviewStarted: (origin) => {
+              startedOrigin = origin;
+            },
+            launchFn: (async (opts: Record<string, unknown>) => {
+              failedUserDataDir = String(opts.userDataDir ?? '');
+              // Confirm the preview server was indeed listening right before launch failed.
+              const probe = await fetch(`${startedOrigin}/api/runtime.js`);
+              assert.equal(probe.status, 200);
+              throw new Error('simulated browser launch crash');
+            }) as unknown as Parameters<typeof bakeVirtualCompositionsWithChromium>[0]['launchFn'],
+          }),
+        /simulated browser launch crash/,
+      );
+
+      assert.ok(startedOrigin.startsWith('http://127.0.0.1:'));
+      // Preview HTTP server MUST be closed after launch rejection.
+      await assert.rejects(() => fetch(`${startedOrigin}/api/runtime.js`));
+      assert.ok(failedUserDataDir.startsWith(tmpBase));
+      await assert.rejects(() => access(path.dirname(failedUserDataDir)));
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects sprites whose requested catalog image fails with HTTP 503 while preserving healthy sibling compositions', async () => {
+    const tmpBase = await mkdtemp(path.join(os.tmpdir(), 'om-test-bake-503-'));
+    try {
+      const storage = new MemoryStorage();
+      const bakeState = new InMemoryCatalogFilmstripBakeState();
+      const logger = createLogger({ level: 'error' });
+
+      const okPng = await sharp({
+        create: { width: 32, height: 32, channels: 3, background: { r: 10, g: 180, b: 90 } },
+      })
+        .png()
+        .toBuffer();
+      const brokenPng = await sharp({
+        create: { width: 32, height: 32, channels: 3, background: { r: 220, g: 40, b: 40 } },
+      })
+        .png()
+        .toBuffer();
+
+      const fIndex = makePrismFile(
+        'index.html',
+        '<!doctype html><html><head></head><body><div data-composition-id="root" data-width="1920" data-height="1080" data-duration="4"><div data-composition-src="compositions/ok.html"></div><div data-composition-src="compositions/broken.html"></div></div></body></html>',
+        'text/html; charset=utf-8',
+      );
+      const fOk = makePrismFile(
+        'compositions/ok.html',
+        '<div data-composition-id="ok" data-width="1920" data-height="1080" data-duration="4"><img src="assets/ok.png"></div>',
+        'text/html; charset=utf-8',
+      );
+      const fBroken = makePrismFile(
+        'compositions/broken.html',
+        '<div data-composition-id="broken" data-width="1920" data-height="1080" data-duration="4"><img src="assets/broken.png"></div>',
+        'text/html; charset=utf-8',
+      );
+      const fOkImg = makePrismFile('assets/ok.png', okPng, 'image/png');
+      const fBrokenImg = makePrismFile('assets/broken.png', brokenPng, 'image/png');
+
+      let brokenAssetHealthy = false;
+      const contents = new Map<string, Buffer>([
+        [fIndex.remoteUrl!, fIndex.content],
+        [fOk.remoteUrl!, fOk.content],
+        [fBroken.remoteUrl!, fBroken.content],
+        [fOkImg.remoteUrl!, fOkImg.content],
+        [fBrokenImg.remoteUrl!, fBrokenImg.content],
+      ]);
+      const fakeFetch: typeof fetch = async (input) => {
+        const url = String(input);
+        if (url === fBrokenImg.remoteUrl && !brokenAssetHealthy) {
+          return new Response('Service Unavailable', { status: 503 });
+        }
+        const body = contents.get(url);
+        return body ? new Response(new Uint8Array(body), { status: 200 }) : new Response('404', { status: 404 });
+      };
+
+      const sampleFramePng = await sharp({
+        create: { width: 160, height: 90, channels: 3, background: { r: 20, g: 50, b: 90 } },
+      })
+        .png()
+        .toBuffer();
+
+      // Deterministic lightweight browser stub that performs real HTTP fetches against the
+      // local preview server for the scene HTML and every referenced <img> src.
+      const createHttpDrivingLaunchFn = () =>
+        (async () => ({
+          newPage: async () => ({
+            setViewport: async () => {},
+            goto: async (targetUrl: string) => {
+              if (targetUrl === 'about:blank') return;
+              const pageRes = await fetch(targetUrl);
+              assert.equal(pageRes.status, 200);
+              const html = await pageRes.text();
+              const origin = new URL(targetUrl).origin;
+              // Request every referenced img src and a missing non-catalog favicon to verify
+              // 404 unknown paths do not fail healthy scenes while 502 catalog failures do.
+              await fetch(`${origin}/preview/favicon.ico`);
+              for (const match of html.matchAll(/<img[^>]+src="([^"]+)"/g)) {
+                const assetRes = await fetch(`${origin}/preview/${match[1]}`);
+                await assetRes.arrayBuffer();
+              }
+            },
+            waitForFunction: async () => {},
+            evaluate: async (_fn: unknown, timeSec?: number) => {
+              if (typeof timeSec === 'number') return undefined;
+              return { width: 1920, height: 1080, duration: 4 };
+            },
+            $: async () => null,
+            screenshot: async () => sampleFramePng,
+            close: async () => {},
+          }),
+          close: async () => {},
+        })) as unknown as Parameters<typeof bakeVirtualCompositionsWithChromium>[0]['launchFn'];
+
+      const payloadFiles = [fIndex, fOk, fBroken, fOkImg, fBrokenImg].map((f) => ({
+        path: f.path,
+        sha256: f.sha256,
+        sizeBytes: f.sizeBytes,
+        mimeType: f.mimeType,
+        remoteUrl: f.remoteUrl!,
+      }));
+      const payload: RenderExportPayloadMap['bake_catalog_filmstrips'] = {
+        templateId: 'motion-asset-503',
+        catalogVersion: 'prism:prod:pub-503',
+        templateBakeHash: computeTemplateBakeHash(payloadFiles, 1),
+        formatVersion: 1,
+        files: payloadFiles,
+      };
+
+      const res1 = await processBakeCatalogFilmstripsJob(
+        {
+          storage,
+          logger,
+          bakeState,
+          fetchImpl: fakeFetch,
+          renderCompositionsFn: ({ server, targetCompositions, shouldYield }) =>
+            bakeVirtualCompositionsWithChromium({
+              server,
+              targetCompositions,
+              shouldYield,
+              executablePath: '/fake/chromium',
+              tmpBaseDir: tmpBase,
+              launchFn: createHttpDrivingLaunchFn(),
+            }),
+        },
+        payload,
+      );
+
+      assert.equal(res1.status, 'partial_failure');
+      assert.equal(res1.bakedCount, 1, 'healthy sibling compositions/ok.html must still be baked');
+      assert.deepEqual(res1.failedCompositions, ['index.html', 'compositions/broken.html']);
+      assert.equal(storage.objects.size, 1, 'broken compositions MUST NOT write incomplete sprites to S3');
+      assert.equal(await bakeState.getState(1, payload.templateBakeHash), 'failed');
+
+      // Once the upstream CDN recovers (and cooldown clears), re-running skips ok.html via S3 HEAD
+      // and cleanly bakes the previously failed compositions!
+      brokenAssetHealthy = true;
+      const recoveredState = new InMemoryCatalogFilmstripBakeState();
+      const res2 = await processBakeCatalogFilmstripsJob(
+        {
+          storage,
+          logger,
+          bakeState: recoveredState,
+          fetchImpl: fakeFetch,
+          renderCompositionsFn: ({ server, targetCompositions, shouldYield }) =>
+            bakeVirtualCompositionsWithChromium({
+              server,
+              targetCompositions,
+              shouldYield,
+              executablePath: '/fake/chromium',
+              tmpBaseDir: tmpBase,
+              launchFn: createHttpDrivingLaunchFn(),
+            }),
+        },
+        payload,
+      );
+      assert.equal(res2.status, 'baked');
+      assert.equal(res2.skippedExistingCount, 1);
+      assert.equal(res2.bakedCount, 2);
+      assert.equal(storage.objects.size, 3);
+      assert.equal(await recoveredState.getState(1, payload.templateBakeHash), 'baked');
+    } finally {
+      await rm(tmpBase, { recursive: true, force: true });
+    }
+  });
+
+  it('cooperatively yields before launch and between compositions when user render jobs are waiting, preserving completed S3 sprites', async () => {
+    // 1. Queue inspection helper detects waiting/prioritized export_render and render_thumbnail jobs only.
+    assert.equal(
+      await hasWaitingUserRenderWork({
+        getWaiting: async () => [],
+        getPrioritized: async () => [{ name: 'bake_catalog_filmstrips' } as never],
+      }),
+      false,
+    );
+    assert.equal(
+      await hasWaitingUserRenderWork({
+        getWaiting: async () => [],
+        getPrioritized: async () => [{ name: 'export_render' } as never],
+      }),
+      true,
+    );
+    assert.equal(
+      await hasWaitingUserRenderWork({
+        getWaiting: async () => [{ name: 'render_thumbnail' } as never],
+        getPrioritized: async () => [],
+      }),
+      true,
+    );
+
+    const storage = new MemoryStorage();
+    const bakeState = new InMemoryCatalogFilmstripBakeState();
+    const logger = createLogger({ level: 'error' });
+    const sprite = await makeValidSprite(8, 160, 90);
+
+    const fIndex = makePrismFile(
+      'index.html',
+      '<html><head></head><body><div data-composition-src="compositions/s1.html"></div><div data-composition-src="compositions/s2.html"></div></body></html>',
+      'text/html',
+    );
+    const fS1 = makePrismFile('compositions/s1.html', '<div>S1</div>', 'text/html');
+    const fS2 = makePrismFile('compositions/s2.html', '<div>S2</div>', 'text/html');
+    const contents = new Map<string, Buffer>([
+      [fIndex.remoteUrl!, fIndex.content],
+      [fS1.remoteUrl!, fS1.content],
+      [fS2.remoteUrl!, fS2.content],
+    ]);
+    const fakeFetch: typeof fetch = async (input) => {
+      const body = contents.get(String(input));
+      return body ? new Response(new Uint8Array(body), { status: 200 }) : new Response('404', { status: 404 });
+    };
+    const files = [fIndex, fS1, fS2].map((f) => ({
+      path: f.path,
+      sha256: f.sha256,
+      sizeBytes: f.sizeBytes,
+      mimeType: f.mimeType,
+      remoteUrl: f.remoteUrl!,
+    }));
+    const payload: RenderExportPayloadMap['bake_catalog_filmstrips'] = {
+      templateId: 'motion-yield',
+      catalogVersion: 'prism:prod:pub-yield',
+      templateBakeHash: computeTemplateBakeHash(files, 1),
+      formatVersion: 1,
+      files,
+    };
+
+    // 2. Yield upfront before Chromium launch -> zero renders, neither baked nor failed cooldown.
+    let renderCalls = 0;
+    const resUpfront = await processBakeCatalogFilmstripsJob(
+      {
+        storage,
+        logger,
+        bakeState,
+        fetchImpl: fakeFetch,
+        shouldYield: async () => true,
+        renderCompositionsFn: async () => {
+          renderCalls += 1;
+          return { results: new Map(), yielded: false };
+        },
+      },
+      payload,
+    );
+    assert.equal(resUpfront.status, 'yielded');
+    assert.equal(renderCalls, 0);
+    assert.equal(await bakeState.getState(1, payload.templateBakeHash), null);
+
+    // 3. Yield mid-template after baking the first composition -> persists 1st sprite, skips cooldown.
+    let yieldCheckCount = 0;
+    const renderedPasses: string[][] = [];
+    const resMidYield = await processBakeCatalogFilmstripsJob(
+      {
+        storage,
+        logger,
+        bakeState,
+        fetchImpl: fakeFetch,
+        shouldYield: async () => {
+          yieldCheckCount += 1;
+          // 1st check (before launch) = false; 2nd check (after index.html) = true!
+          return yieldCheckCount >= 2;
+        },
+        renderCompositionsFn: async ({ targetCompositions, shouldYield }) => {
+          const results = new Map<
+            string,
+            { ok: true; sprite: CapturedFilmstripSprite } | { ok: false; error: string }
+          >();
+          const pass: string[] = [];
+          let yielded = false;
+          for (let i = 0; i < targetCompositions.length; i += 1) {
+            if (i > 0 && shouldYield && (await shouldYield())) {
+              yielded = true;
+              break;
+            }
+            pass.push(targetCompositions[i]!);
+            results.set(targetCompositions[i]!, { ok: true, sprite });
+          }
+          renderedPasses.push(pass);
+          return { results, yielded };
+        },
+      },
+      payload,
+    );
+    assert.equal(resMidYield.status, 'yielded');
+    assert.equal(resMidYield.bakedCount, 1);
+    assert.deepEqual(renderedPasses, [['index.html']]);
+    assert.equal(storage.objects.size, 1);
+    assert.equal(await bakeState.getState(1, payload.templateBakeHash), null);
+
+    // 4. Resume when user export finishes -> S3 HEAD skips index.html, bakes only s1 + s2, marks baked!
+    const resResume = await processBakeCatalogFilmstripsJob(
+      {
+        storage,
+        logger,
+        bakeState,
+        fetchImpl: fakeFetch,
+        shouldYield: async () => false,
+        renderCompositionsFn: async ({ targetCompositions }) => {
+          renderedPasses.push([...targetCompositions]);
+          return {
+            results: new Map(targetCompositions.map((c) => [c, { ok: true as const, sprite }])),
+            yielded: false,
+          };
+        },
+      },
+      payload,
+    );
+    assert.equal(resResume.status, 'baked');
+    assert.equal(resResume.skippedExistingCount, 1);
+    assert.equal(resResume.bakedCount, 2);
+    assert.deepEqual(renderedPasses[1], ['compositions/s1.html', 'compositions/s2.html']);
+    assert.equal(storage.objects.size, 3);
+    assert.equal(await bakeState.getState(1, payload.templateBakeHash), 'baked');
   });
 });

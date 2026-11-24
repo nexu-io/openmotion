@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
-import { Worker, type Job } from 'bullmq';
+import { DelayedError, Worker, type Job } from 'bullmq';
 import {
   QUEUE_NAMES,
   type BlobGcJobName,
@@ -14,6 +14,7 @@ import type { AppConfig } from '../infra/config.ts';
 import { createLogger, type Logger } from '../infra/logger.ts';
 import {
   QueueService,
+  hasWaitingUserRenderWork,
   validateBlobGcPayload,
   validateMediaGeneratePayload,
   validateMediaIngestPayload,
@@ -271,14 +272,26 @@ export interface RenderWorkerDeps {
   readonly db: Database;
   readonly storage: StoragePort;
   readonly eventBus: RedisEventBus;
+  readonly queues?: Pick<QueueService, 'renderExport'>;
   readonly logger: Logger;
   readonly workerId: string;
   readonly shutdown: ShutdownCoordinator;
 }
 
+const CATALOG_BAKE_YIELD_DELAY_MS = 2_000;
+
+function isYieldedCatalogBakeResult(value: unknown): boolean {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'status' in value &&
+      (value as { status?: unknown }).status === 'yielded',
+  );
+}
+
 /**
  * Start BullMQ consumer for `WORKER_ROLE=render`:
- * - Sweeps stale `/tmp/om-render-*` directories left by prior crashes.
+ * - Sweeps stale `/tmp/om-render-*`, `/tmp/om-thumb-*`, and `/tmp/om-filmstrip-*` directories left by prior crashes.
  * - Starts periodic Redis heartbeat on `om:workers:render:health`.
  * - Consumes `render-export` (`concurrency = config.RENDER_CONCURRENCY`, default 1, `attempts: 1`).
  * - Registers LIFO drain on `ShutdownCoordinator` so in-flight renders finish cleanly on `SIGTERM`.
@@ -287,7 +300,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   workers: Worker[];
   heartbeat: RenderHealthHeartbeatHandle;
 }> {
-  const { config, db, storage, eventBus, logger, workerId, shutdown } = deps;
+  const { config, db, storage, eventBus, queues, logger, workerId, shutdown } = deps;
   const concurrency = config.RENDER_CONCURRENCY;
 
   const swept = await sweepStaleRenderTempDirs(os.tmpdir(), logger);
@@ -305,18 +318,21 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   const renderConn = createRedisClient(config.REDIS_URL, 'bullmq');
   const bakeStateConn = createRedisClient(config.REDIS_URL, 'command');
   const bakeState = new RedisCatalogFilmstripBakeState(bakeStateConn);
+  const shouldYieldCatalogBake = queues
+    ? () => hasWaitingUserRenderWork(queues.renderExport)
+    : undefined;
   let activeJobs = 0;
 
   const renderWorker = new Worker(
     QUEUE_NAMES.renderExport,
-    async (job: Job) => {
+    async (job: Job, token?: string) => {
       const name = job.name as RenderExportJobName;
       const validated = validateRenderExportPayload(name, job.data);
       activeJobs += 1;
       heartbeat.setActiveJobs(activeJobs);
       void heartbeat.pulse().catch(() => {});
       try {
-        return await processRenderExportQueueJob(
+        const result = await processRenderExportQueueJob(
           {
             db,
             storage,
@@ -325,10 +341,16 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
             workerId,
             concurrency,
             bakeState,
+            shouldYieldCatalogBake,
           },
           name,
           validated,
         );
+        if (name === 'bake_catalog_filmstrips' && isYieldedCatalogBakeResult(result) && token) {
+          await job.moveToDelayed(Date.now() + CATALOG_BAKE_YIELD_DELAY_MS, token);
+          throw new DelayedError();
+        }
+        return result;
       } finally {
         activeJobs = Math.max(0, activeJobs - 1);
         heartbeat.setActiveJobs(activeJobs);
@@ -471,6 +493,7 @@ export async function startWorkerRuntime(options: StartWorkerRuntimeOptions): Pr
         db: dbHandle.db,
         storage,
         eventBus,
+        queues,
         logger,
         workerId,
         shutdown,

@@ -184,6 +184,7 @@ export interface RenderExportDeps {
   readonly concurrency?: number;
   readonly sourceEnv?: NodeJS.ProcessEnv;
   readonly bakeState?: BakeCatalogFilmstripsDeps['bakeState'];
+  readonly shouldYieldCatalogBake?: BakeCatalogFilmstripsDeps['shouldYield'];
   readonly fetchImpl?: typeof fetch;
   readonly renderCatalogCompositionsFn?: BakeCatalogFilmstripsDeps['renderCompositionsFn'];
   readonly runRenderCommand?: (
@@ -299,14 +300,20 @@ export function startRenderHealthHeartbeat(options: {
   };
 }
 
-/** Remove stale ephemeral `/tmp/om-render-*` and `/tmp/om-thumb-*` folders left by hard OOM kills. */
+/** Remove stale ephemeral `/tmp/om-render-*`, `/tmp/om-thumb-*`, and `/tmp/om-filmstrip-*` folders left by hard OOM kills. */
 export async function sweepStaleRenderTempDirs(tmpBaseDir = os.tmpdir(), logger?: Logger): Promise<number> {
   let removed = 0;
   try {
     const entries = await readdir(tmpBaseDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (!entry.name.startsWith('om-render-') && !entry.name.startsWith('om-thumb-')) continue;
+      if (
+        !entry.name.startsWith('om-render-') &&
+        !entry.name.startsWith('om-thumb-') &&
+        !entry.name.startsWith('om-filmstrip-')
+      ) {
+        continue;
+      }
       await rm(path.join(tmpBaseDir, entry.name), { recursive: true, force: true }).catch(() => {});
       removed += 1;
     }
@@ -1204,7 +1211,10 @@ export async function processRenderExportQueueJob<K extends RenderExportJobName>
         logger: deps.logger,
         bakeState: deps.bakeState,
         runtimeRoot: deps.runtimeRoot,
+        sourceEnv: deps.sourceEnv,
+        tmpBaseDir: deps.tmpBaseDir,
         fetchImpl: deps.fetchImpl,
+        shouldYield: deps.shouldYieldCatalogBake,
         renderCompositionsFn: deps.renderCatalogCompositionsFn,
       },
       payload as RenderExportPayloadMap['bake_catalog_filmstrips'],

@@ -91,6 +91,32 @@ export function buildCatalogFilmstripJobId(
   return `catfilm__v${formatVersion}__${templateBakeHash}`;
 }
 
+/**
+ * Returns true if any higher-priority user render job (`export_render` or `render_thumbnail`,
+ * i.e. anything other than background `bake_catalog_filmstrips`) is waiting to be dequeued on
+ * `render-export`. Used by active multi-composition catalog bakes to cooperatively yield the
+ * single render slot between compositions.
+ */
+export async function hasWaitingUserRenderWork(
+  queue: Pick<Queue, 'getWaiting' | 'getPrioritized'>,
+): Promise<boolean> {
+  try {
+    const [waiting, prioritized] = await Promise.all([
+      queue.getWaiting(0, 4),
+      queue.getPrioritized(0, 0),
+    ]);
+    if (waiting.some((job) => Boolean(job) && job.name !== 'bake_catalog_filmstrips')) {
+      return true;
+    }
+    if (prioritized.some((job) => Boolean(job) && job.name !== 'bake_catalog_filmstrips')) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function buildPreviewProxyJobId(workspaceId: string, sha256: string): string {
   // BullMQ v5 rejects custom jobIds containing ':'.
   return `proxy__${workspaceId}__${sha256}`;
@@ -259,7 +285,8 @@ export class QueueService {
               (validated as RenderExportPayloadMap['bake_catalog_filmstrips']).templateBakeHash,
             );
     // Give export renders highest priority (1), user thumbnails (5), and background catalog
-    // filmstrip pre-baking lowest priority (10) so user work always preempts it.
+    // filmstrip pre-baking lowest priority (10) so queued user work is always dequeued ahead
+    // of waiting bakes (active multi-scene bakes also cooperatively yield between compositions).
     const defaultPriority =
       name === 'export_render' ? 1 : name === 'render_thumbnail' ? 5 : 10;
     const jobId = options?.jobId ?? defaultJobId;

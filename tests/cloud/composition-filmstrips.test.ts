@@ -30,6 +30,7 @@ import {
 } from '../../src/services/builtin-template-source.ts';
 import { handleStudioError, type DisklessStudioDeps } from '../../src/studio/context.ts';
 import {
+  COMPOSITION_FILMSTRIP_VERSION,
   computeCompositionFilmstripDepsDigest,
   embedFilmstripComment,
   extractFilmstripMeta,
@@ -254,16 +255,20 @@ describe('Composition filmstrip sprite codec & storage security', () => {
     );
   });
 
-  it('scopes catalog filmstrip keys to read-only allowCatalog guards and binds depsSha256', () => {
-    const key = catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER);
-    assert.equal(key, `catalog/filmstrips/v1/${SHA_SCENE}/${SHA_OTHER}/strip.jpg`);
+  it('scopes catalog filmstrip keys to read-only allowCatalog guards and binds depsSha256 and explicit version', () => {
+    const key = catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER, COMPOSITION_FILMSTRIP_VERSION);
+    assert.equal(key, `catalog/filmstrips/v${COMPOSITION_FILMSTRIP_VERSION}/${SHA_SCENE}/${SHA_OTHER}/strip.jpg`);
+    const v2Key = catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER, 2);
+    assert.equal(v2Key, `catalog/filmstrips/v2/${SHA_SCENE}/${SHA_OTHER}/strip.jpg`);
     assert.equal(isCatalogCasKey(key), true);
+    assert.equal(isCatalogCasKey(v2Key), true);
     assert.equal(isImmutableCasKey(key), true);
     assert.equal(assertTenantScopedKey(WID_A, key, { allowCatalog: true }), key);
     assert.throws(() => assertTenantScopedKey(WID_A, key), { code: 'WORKSPACE_FORBIDDEN' });
     assert.throws(() => assertTenantScopedKey(WID_A, key, { allowCatalog: false }), {
       code: 'WORKSPACE_FORBIDDEN',
     });
+    assert.throws(() => catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER, 0), { code: 'INVALID_PATH' });
     // Legacy key without depsSha256 is no longer accepted as a catalog CAS key.
     assert.equal(isCatalogCasKey(`catalog/filmstrips/${SHA_SCENE}/strip-v1.jpg`), false);
   });
@@ -548,7 +553,11 @@ describe('Studio composition filmstrip HTTP routes', () => {
       files: buildFiles(),
       indexHead: null,
     });
-    const initialCatalogKey = catalogCompFilmstripKey(SHA_SCENE, initialDepsSha);
+    const initialCatalogKey = catalogCompFilmstripKey(
+      SHA_SCENE,
+      initialDepsSha,
+      COMPOSITION_FILMSTRIP_VERSION,
+    );
 
     const miss = await app.request(
       `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/prism.html`,

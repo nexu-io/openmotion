@@ -1,11 +1,13 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rm } from 'node:fs/promises';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getHyperframeRuntimeScript } from '@hyperframes/core/runtime-script';
-import puppeteer, { type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Page } from 'puppeteer-core';
 import sharp from 'sharp';
 import {
   COMPOSITION_FILMSTRIP_VERSION,
@@ -23,6 +25,10 @@ import {
   InMemoryVirtualProject,
   type VirtualFileRecord,
 } from '../studio/virtual-project-store.ts';
+import {
+  assertRenderSubprocessEnvClean,
+  buildRenderSubprocessEnv,
+} from './render-env.ts';
 
 const DEFAULT_REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 export const DEFAULT_FILMSTRIP_FRAME_WIDTH = 160;
@@ -47,12 +53,14 @@ export interface VirtualPreviewServerInput {
   readonly resolveAsset: (
     relPath: string,
   ) => Promise<{ readonly bytes: Buffer; readonly mimeType: string } | null> | { readonly bytes: Buffer; readonly mimeType: string } | null;
+  readonly onAssetLoadError?: (relPath: string, error: unknown) => void;
   readonly repoRoot?: string;
 }
 
 export function detectFilmstripBrowserExecutable(env: NodeJS.ProcessEnv = process.env): string {
   const candidates = [
     env.HYPERFRAMES_BROWSER_PATH,
+    env.PRODUCER_HEADLESS_SHELL_PATH,
     env.CHROME_PATH,
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
@@ -172,9 +180,17 @@ export async function startVirtualTemplatePreviewServer(
       }
       if (url.pathname.startsWith('/preview/')) {
         const rel = decodeURIComponent(url.pathname.slice('/preview/'.length));
-        const found = await input.resolveAsset(rel);
+        let found: { readonly bytes: Buffer; readonly mimeType: string } | null;
+        try {
+          found = await input.resolveAsset(rel);
+        } catch (assetError) {
+          input.onAssetLoadError?.(rel, assetError);
+          res.writeHead(502, { 'Cache-Control': 'no-store' });
+          res.end(assetError instanceof Error ? assetError.message : 'Asset load failed');
+          return;
+        }
         if (!found) {
-          res.writeHead(404);
+          res.writeHead(404, { 'Cache-Control': 'no-store' });
           res.end('Asset not found');
           return;
         }
@@ -182,10 +198,10 @@ export async function startVirtualTemplatePreviewServer(
         res.end(found.bytes);
         return;
       }
-      res.writeHead(404);
+      res.writeHead(404, { 'Cache-Control': 'no-store' });
       res.end('Not found');
     } catch (error) {
-      res.writeHead(500);
+      res.writeHead(500, { 'Cache-Control': 'no-store' });
       res.end(error instanceof Error ? error.message : 'Server error');
     }
   });
@@ -194,7 +210,11 @@ export async function startVirtualTemplatePreviewServer(
   const { port } = server.address() as AddressInfo;
   return {
     origin: `http://127.0.0.1:${port}`,
-    close: () => new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((err) => (err ? reject(err) : resolve()));
+        server.closeAllConnections?.();
+      }),
   };
 }
 
@@ -336,54 +356,178 @@ export async function captureCompositionFilmstripSprite(
   return { jpeg, ...meta };
 }
 
-export async function launchFilmstripBrowser(executablePath?: string) {
-  return puppeteer.launch({
-    executablePath: executablePath ?? detectFilmstripBrowserExecutable(),
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--use-gl=angle',
-      '--use-angle=swiftshader',
-      '--enable-webgl',
-      '--ignore-gpu-blocklist',
-    ],
-  });
+export interface FilmstripBrowserSession {
+  readonly browser: Browser;
+  readonly env: Record<string, string>;
+  readonly rootDir: string;
+  close(): Promise<void>;
+}
+
+export interface LaunchFilmstripBrowserOptions {
+  readonly executablePath?: string;
+  readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly tmpBaseDir?: string;
+  /** Test seam for deterministic launcher / isolation verification. */
+  readonly launchFn?: typeof puppeteer.launch;
+}
+
+export type CompositionCaptureOutcome =
+  | { readonly ok: true; readonly sprite: CapturedFilmstripSprite }
+  | { readonly ok: false; readonly error: string };
+
+export interface BakeVirtualCompositionsResult {
+  readonly results: Map<string, CompositionCaptureOutcome>;
+  readonly yielded: boolean;
+}
+
+/**
+ * Launch headless Chromium inside an isolated ephemeral home/tmp/profile directory using the
+ * shared strict render environment allowlist (`buildRenderSubprocessEnv`) so worker secrets
+ * (DB/Redis/S3/OIDC/API keys) are never inherited by the browser process.
+ */
+export async function launchFilmstripBrowser(
+  options?: LaunchFilmstripBrowserOptions,
+): Promise<FilmstripBrowserSession> {
+  const sourceEnv = options?.sourceEnv ?? process.env;
+  const executablePath = options?.executablePath ?? detectFilmstripBrowserExecutable(sourceEnv);
+  const rootDir = path.join(options?.tmpBaseDir ?? os.tmpdir(), `om-filmstrip-${randomUUID()}`);
+  const ephemeralHomeDir = path.join(rootDir, 'home');
+  const ephemeralCacheDir = path.join(ephemeralHomeDir, '.cache');
+  const ephemeralConfigDir = path.join(ephemeralHomeDir, '.config');
+  const ephemeralTmpDir = path.join(rootDir, 'tmp');
+  const ephemeralProfileDir = path.join(rootDir, 'profile');
+  const cleanupRootDir = () => rm(rootDir, { recursive: true, force: true }).catch(() => {});
+
+  try {
+    await Promise.all([
+      mkdir(ephemeralCacheDir, { recursive: true, mode: 0o700 }),
+      mkdir(ephemeralConfigDir, { recursive: true, mode: 0o700 }),
+      mkdir(ephemeralTmpDir, { recursive: true, mode: 0o700 }),
+      mkdir(ephemeralProfileDir, { recursive: true, mode: 0o700 }),
+    ]);
+
+    const renderEnv = buildRenderSubprocessEnv({
+      ephemeralHomeDir,
+      ephemeralTmpDir,
+      sourceEnv,
+    });
+    assertRenderSubprocessEnvClean(renderEnv);
+
+    const launchFn = options?.launchFn ?? puppeteer.launch.bind(puppeteer);
+    const browser = await launchFn({
+      executablePath,
+      headless: true,
+      env: renderEnv,
+      userDataDir: ephemeralProfileDir,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--use-gl=angle',
+        '--use-angle=swiftshader',
+        '--enable-webgl',
+        '--ignore-gpu-blocklist',
+      ],
+    });
+
+    let closed = false;
+    return {
+      browser,
+      env: renderEnv,
+      rootDir,
+      async close() {
+        if (closed) return;
+        closed = true;
+        try {
+          await browser.close();
+        } finally {
+          await cleanupRootDir();
+        }
+      },
+    };
+  } catch (error) {
+    await cleanupRootDir();
+    throw error;
+  }
 }
 
 export async function bakeVirtualCompositionsWithChromium(input: {
   readonly server: VirtualPreviewServerInput;
   readonly targetCompositions: readonly string[];
   readonly executablePath?: string;
-}): Promise<Map<string, { ok: true; sprite: CapturedFilmstripSprite } | { ok: false; error: string }>> {
-  const results = new Map<
-    string,
-    { ok: true; sprite: CapturedFilmstripSprite } | { ok: false; error: string }
-  >();
-  if (input.targetCompositions.length === 0) return results;
+  readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly tmpBaseDir?: string;
+  readonly launchFn?: typeof puppeteer.launch;
+  readonly shouldYield?: () => Promise<boolean> | boolean;
+  /** Test seam for observing preview origin without changing capture logic. */
+  readonly onPreviewStarted?: (origin: string) => void;
+}): Promise<BakeVirtualCompositionsResult> {
+  const results = new Map<string, CompositionCaptureOutcome>();
+  if (input.targetCompositions.length === 0) return { results, yielded: false };
 
-  const preview = await startVirtualTemplatePreviewServer(input.server);
-  const browser = await launchFilmstripBrowser(input.executablePath);
+  let activeCompAssetErrors: string[] | null = null;
+  const preview = await startVirtualTemplatePreviewServer({
+    ...input.server,
+    onAssetLoadError: (relPath, error) => {
+      input.server.onAssetLoadError?.(relPath, error);
+      if (activeCompAssetErrors) {
+        const message = error instanceof Error ? error.message : String(error);
+        activeCompAssetErrors.push(`${relPath}: ${message}`);
+      }
+    },
+  });
+  input.onPreviewStarted?.(preview.origin);
+
+  let browserSession: FilmstripBrowserSession | null = null;
+  let yielded = false;
   try {
-    const page = await browser.newPage();
+    browserSession = await launchFilmstripBrowser({
+      executablePath: input.executablePath,
+      sourceEnv: input.sourceEnv,
+      tmpBaseDir: input.tmpBaseDir,
+      launchFn: input.launchFn,
+    });
+    const page = await browserSession.browser.newPage();
     try {
-      for (const compPath of input.targetCompositions) {
+      for (let i = 0; i < input.targetCompositions.length; i += 1) {
+        if (i > 0 && input.shouldYield && (await input.shouldYield())) {
+          yielded = true;
+          break;
+        }
+        const compPath = input.targetCompositions[i]!;
+        const compAssetErrors: string[] = [];
+        activeCompAssetErrors = compAssetErrors;
         try {
           const sprite = await captureCompositionFilmstripSprite(page, preview.origin, compPath);
-          results.set(compPath, { ok: true, sprite });
+          if (compAssetErrors.length > 0) {
+            results.set(compPath, {
+              ok: false,
+              error: `Requested catalog asset failed to load (${compAssetErrors.join('; ')})`,
+            });
+          } else {
+            results.set(compPath, { ok: true, sprite });
+          }
         } catch (error) {
-          results.set(compPath, {
-            ok: false,
-            error: error instanceof Error ? error.message : String(error),
-          });
+          const baseMessage = error instanceof Error ? error.message : String(error);
+          const detail =
+            compAssetErrors.length > 0
+              ? `${baseMessage} (asset load failures: ${compAssetErrors.join('; ')})`
+              : baseMessage;
+          results.set(compPath, { ok: false, error: detail });
+        } finally {
+          activeCompAssetErrors = null;
+          await page.goto('about:blank').catch(() => {});
         }
       }
     } finally {
+      activeCompAssetErrors = null;
       await page.close().catch(() => {});
     }
   } finally {
-    await Promise.allSettled([browser.close(), preview.close()]);
+    await Promise.allSettled([
+      browserSession ? browserSession.close() : Promise.resolve(),
+      preview.close(),
+    ]);
   }
-  return results;
+  return { results, yielded };
 }

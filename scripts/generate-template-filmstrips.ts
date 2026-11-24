@@ -162,13 +162,13 @@ async function run(argv: readonly string[]): Promise<void> {
     }
   }
 
-  const browser = await launchFilmstripBrowser();
+  const browserSession = await launchFilmstripBrowser();
   const entries: Record<string, BuiltinFilmstripManifestEntry> = { ...existingEntries };
   let totalBytes = 0;
   let generatedCount = 0;
 
   try {
-    const page = await browser.newPage();
+    const page = await browserSession.browser.newPage();
     for (const def of selectedTemplates) {
       const assembled = await assembleBuiltinTemplate(def, REPO_ROOT, REPO_ROOT);
       const { records, textContents, bytesByPath, shaByPath, compositions, depsByPath } =
@@ -214,7 +214,7 @@ async function run(argv: readonly string[]): Promise<void> {
       }
     }
   } finally {
-    await browser.close();
+    await browserSession.close();
   }
 
   const sortedEntries: Record<string, BuiltinFilmstripManifestEntry> = {};

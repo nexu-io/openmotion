@@ -134,7 +134,7 @@ export function catalogBlobKey(sha256: string): string {
 export function catalogCompFilmstripKey(
   fileSha256: string,
   depsSha256: string,
-  version = 1,
+  version: number,
 ): string {
   assertSha256(fileSha256);
   assertSha256(depsSha256);

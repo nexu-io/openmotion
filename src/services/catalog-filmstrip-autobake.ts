@@ -66,7 +66,7 @@ export function computeTemplateBakeHash(
   }
   const hash = createHash('sha256');
   hash.update(`omfs-template-bake-v${formatVersion}\n`);
-  const sorted = [...files].sort((a, b) => a.path.localeCompare(b.path));
+  const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   for (const file of sorted) {
     hash.update(file.path);
     hash.update(':');

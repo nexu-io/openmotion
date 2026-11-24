@@ -22,7 +22,9 @@ import {
 } from '../studio/virtual-project-store.ts';
 import {
   bakeVirtualCompositionsWithChromium,
+  type BakeVirtualCompositionsResult,
   type CapturedFilmstripSprite,
+  type CompositionCaptureOutcome,
   type VirtualPreviewServerInput,
 } from './filmstrip-renderer.ts';
 
@@ -37,16 +39,21 @@ export interface BakeCatalogFilmstripsDeps {
   readonly logger: Logger;
   readonly bakeState?: CatalogFilmstripBakeStatePort;
   readonly runtimeRoot?: string;
+  readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly tmpBaseDir?: string;
   readonly fetchImpl?: typeof fetch;
+  /** Cooperative yield hook checked before launch and between compositions for user export priority. */
+  readonly shouldYield?: () => Promise<boolean> | boolean;
   /** Test seam to avoid launching Chromium during deterministic unit tests. */
   readonly renderCompositionsFn?: (input: {
     readonly server: VirtualPreviewServerInput;
     readonly targetCompositions: readonly string[];
-  }) => Promise<Map<string, { ok: true; sprite: CapturedFilmstripSprite } | { ok: false; error: string }>>;
+    readonly shouldYield?: () => Promise<boolean> | boolean;
+  }) => Promise<BakeVirtualCompositionsResult | Map<string, CompositionCaptureOutcome>>;
 }
 
 export interface BakeCatalogFilmstripsResult {
-  readonly status: 'already_baked' | 'baked' | 'partial_failure' | 'failed';
+  readonly status: 'already_baked' | 'baked' | 'yielded' | 'partial_failure' | 'failed';
   readonly templateId: string;
   readonly templateBakeHash: string;
   readonly formatVersion: number;
@@ -283,6 +290,27 @@ export async function processBakeCatalogFilmstripsJob(
     };
   }
 
+  if (deps.shouldYield && (await deps.shouldYield())) {
+    deps.logger.info('Catalog template filmstrip bake yielded before Chromium launch for user render work', {
+      templateId: payload.templateId,
+      templateBakeHash: payload.templateBakeHash,
+      remainingCompositions: targetsToBake.length,
+      durationMs: Date.now() - startedAt,
+    });
+    return {
+      status: 'yielded',
+      templateId: payload.templateId,
+      templateBakeHash: payload.templateBakeHash,
+      formatVersion,
+      totalCompositions: allCompositions.length,
+      bakedCount: 0,
+      skippedBuiltinCount,
+      skippedExistingCount,
+      failedCompositions: [],
+      totalBytes: 0,
+    };
+  }
+
   // Step 2: Preload remaining small text files (CSS/JS/JSON/SVG) needed by the preview bundler,
   // while binary media assets (images, fonts, etc.) are fetched lazily on-demand only when Chromium requests them.
   const otherTextFiles = normalizedFiles.filter(
@@ -316,7 +344,7 @@ export async function processBakeCatalogFilmstripsJob(
     };
   }
 
-  const inFlightAssetLoads = new Map<string, Promise<Buffer | null>>();
+  const inFlightAssetLoads = new Map<string, Promise<Buffer>>();
   const resolveAsset = async (
     relPath: string,
   ): Promise<{ readonly bytes: Buffer; readonly mimeType: string } | null> => {
@@ -337,14 +365,13 @@ export async function processBakeCatalogFilmstripsJob(
           assetBytesCache.set(safeRel, bytes);
           return bytes;
         })
-        .catch(() => null)
         .finally(() => {
           inFlightAssetLoads.delete(safeRel);
         });
       inFlightAssetLoads.set(safeRel, pending);
     }
     const loaded = await pending;
-    return loaded ? { bytes: loaded, mimeType: file.mimeType } : null;
+    return { bytes: loaded, mimeType: file.mimeType };
   };
 
   const serverInput: VirtualPreviewServerInput = {
@@ -357,20 +384,28 @@ export async function processBakeCatalogFilmstripsJob(
     repoRoot: deps.runtimeRoot,
   };
 
-  let renderResults: Map<
-    string,
-    { ok: true; sprite: CapturedFilmstripSprite } | { ok: false; error: string }
-  >;
+  let renderResults: Map<string, CompositionCaptureOutcome>;
+  let yielded = false;
   try {
-    renderResults = deps.renderCompositionsFn
+    const rawRender = deps.renderCompositionsFn
       ? await deps.renderCompositionsFn({
           server: serverInput,
           targetCompositions: targetsToBake.map((t) => t.compPath),
+          shouldYield: deps.shouldYield,
         })
       : await bakeVirtualCompositionsWithChromium({
           server: serverInput,
           targetCompositions: targetsToBake.map((t) => t.compPath),
+          sourceEnv: deps.sourceEnv,
+          tmpBaseDir: deps.tmpBaseDir,
+          shouldYield: deps.shouldYield,
         });
+    if (rawRender instanceof Map) {
+      renderResults = rawRender;
+    } else {
+      renderResults = rawRender.results;
+      yielded = rawRender.yielded;
+    }
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     deps.logger.warn('Catalog filmstrip Chromium session failed', {
@@ -397,12 +432,22 @@ export async function processBakeCatalogFilmstripsJob(
   let totalBytes = 0;
   const failedCompositions: string[] = [];
   const failureReasons: string[] = [];
+  let remainingOnYield = 0;
 
   for (const target of targetsToBake) {
     const outcome = renderResults.get(target.compPath);
-    if (!outcome || !outcome.ok) {
+    if (!outcome) {
+      if (yielded) {
+        remainingOnYield += 1;
+        continue;
+      }
       failedCompositions.push(target.compPath);
-      const errText = outcome && 'error' in outcome ? outcome.error : 'missing render result';
+      failureReasons.push(`${target.compPath}: missing render result`);
+      continue;
+    }
+    if (!outcome.ok) {
+      failedCompositions.push(target.compPath);
+      const errText = 'error' in outcome ? outcome.error : 'missing render result';
       failureReasons.push(`${target.compPath}: ${errText}`);
       continue;
     }
@@ -422,6 +467,30 @@ export async function processBakeCatalogFilmstripsJob(
         `${target.compPath}: S3 upload failed (${error instanceof Error ? error.message : String(error)})`,
       );
     }
+  }
+
+  if (yielded && remainingOnYield > 0) {
+    deps.logger.info('Catalog template filmstrip bake yielded mid-template for user render work', {
+      templateId: payload.templateId,
+      templateBakeHash: payload.templateBakeHash,
+      bakedCount,
+      remainingCompositions: remainingOnYield,
+      failedBeforeYield: failedCompositions.length,
+      totalBytes,
+      durationMs: Date.now() - startedAt,
+    });
+    return {
+      status: 'yielded',
+      templateId: payload.templateId,
+      templateBakeHash: payload.templateBakeHash,
+      formatVersion,
+      totalCompositions: allCompositions.length,
+      bakedCount,
+      skippedBuiltinCount,
+      skippedExistingCount,
+      failedCompositions,
+      totalBytes,
+    };
   }
 
   if (failedCompositions.length === 0) {
