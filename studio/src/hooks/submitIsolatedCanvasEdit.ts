@@ -1,3 +1,5 @@
+import { cancelRemovedCanvasTargets, watchedCanvasTargets } from "../components/editor/remoteCanvasTargets";
+import { readMountedSource } from "./syncPeerComposition";
 import type { RefObject } from "react";
 import type { CompositionEdit } from "../../../packages/edit-core/commands";
 import { hasPeerLiveEdit, hasPeerTimingDocument, tryApplyPeerChanges } from "../player/peerTimingPreview";
@@ -25,17 +27,21 @@ function beginPresentation(frame: HTMLIFrameElement, path: string, previous?: Co
 }
 
 /** Show a non-geometric peer edit while the project save is still in flight. */
-export async function presentPendingCanvasPaint(
+export async function presentPendingCanvasChange(
   project: string, path: string, frameRef: RefObject<HTMLIFrameElement | null>,
   read: () => Promise<{ content?: string; version?: string | null }> | undefined,
 ) {
   const frame = frameRef.current;
   const group = frame && presentations.get(frame)?.get(path);
-  if (!frame || !group) return;
-  const previous = group.previous ?? confirmedSource(project, path);
-  if (!previous) return;
+  if (!frame) return;
+  const targets = watchedCanvasTargets(frame, path);
+  if (!group && !targets.length) return;
+  const previous = group?.previous ?? confirmedSource(project, path);
   const file = await read();
-  if (typeof file?.content !== "string" || !file.version || previous.version === file.version) return;
+  if (frameRef.current !== frame || typeof file?.content !== "string" || !file.version || previous?.version === file.version) return;
+  await cancelRemovedCanvasTargets(frame, targets, file.content, async version =>
+    previous?.version === version ? previous.content : (await readMountedSource(project, version))?.content);
+  if (!group || !previous) return;
   const current = { content: file.content, version: file.version };
   const isCurrent = () => frameRef.current === frame && !isPreviewChanging() && presentations.get(frame)?.get(path) === group;
   if (await tryApplyPeerChanges(frame, { path, previous, current }, isCurrent, "paint-only")) {

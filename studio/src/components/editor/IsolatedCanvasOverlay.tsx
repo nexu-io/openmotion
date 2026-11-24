@@ -15,6 +15,7 @@ import { canvasBoxOperations, type MeasuredCanvasPosition } from "../../../../pa
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
 import { beginStudioManualEditGesture, endStudioManualEditGesture } from "./manualEditsDom";
 import { supportsOrderedTextEdits } from "../../utils/confirmedTextSources";
+import { watchCanvasTarget } from "./remoteCanvasTargets";
 import { saveCanvasDrag } from "./saveCanvasDrag";
 
 interface Drag {
@@ -22,6 +23,7 @@ interface Drag {
   gestureId: string;
   ordered: boolean;
   hold?: string;
+  unwatch?: () => void;
   adapter: PreviewAdapter;
   startX: number;
   startY: number;
@@ -48,7 +50,7 @@ interface DragResult extends IsolatedSourceTarget {
   height?: number;
 }
 
-interface Pick { geometry: LayerBounds; viewport: { width: number; height: number } }
+interface Pick { target?: IsolatedSourceTarget; geometry: LayerBounds; viewport: { width: number; height: number } }
 
 function validResult(result: DragResult | null): result is DragResult {
   return isIsolatedSourceTarget(result) && Number.isFinite(result.left) && Number.isFinite(result.top);
@@ -64,7 +66,7 @@ function positionPatch(result: DragResult) {
 /** Input and persistence stay in Studio. The scoped frame only measures and previews layout. */
 export function IsolatedCanvasOverlay() {
   const { t } = useI18n();
-  const { commitDomEditPatchBatches } = useDomEditActionsContext();
+  const { commitDomEditPatchBatches, clearDomSelection } = useDomEditActionsContext();
   const { previewIframeRef, projectId, showToast, writeBlockedReason } = useStudioShellContext();
   const select = usePlayerStore(state => state.activeTool === "select");
   const text = useIsolatedInlineText(previewIframeRef, projectId, select && !writeBlockedReason);
@@ -86,6 +88,7 @@ export function IsolatedCanvasOverlay() {
   const observedFrame = useRef<HTMLIFrameElement | null>(null);
   const cancel = useCallback(() => {
     const active = drag.current;
+    active?.unwatch?.();
     active?.adapter.send("canvas-drag", { phase: "cancel", gestureId: active.gestureId });
     if (active?.hold) endStudioManualEditGesture(active.adapter.iframe, active.hold);
     drag.current = null;
@@ -176,6 +179,20 @@ export function IsolatedCanvasOverlay() {
       .then(pick => {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
+        if (active.ordered && pick.target && isIsolatedSourceTarget(pick.target)) {
+          active.unwatch = watchCanvasTarget(iframe, pick.target, () => {
+            active.unwatch?.();
+            active.adapter.send("canvas-drag", { phase: "removed", gestureId: active.gestureId });
+            if (active.hold) endStudioManualEditGesture(iframe, active.hold);
+            if (drag.current === active) drag.current = null;
+            if (lastPick.current === active) {
+              lastPick.current = null;
+              setDraft(null);
+              clearDomSelection();
+              showToast(t("The project changed elsewhere. Changes were not saved."), "error");
+            }
+          });
+        }
         const bounds = relativeLayerBounds(pick);
         if (!bounds) return;
         active.bounds = bounds;
@@ -203,6 +220,7 @@ export function IsolatedCanvasOverlay() {
       return;
     }
     if (phase === "cancel" || !active.offset) {
+      active.unwatch?.();
       active.finishSettled = true;
       if (phase === "cancel") { setDraft(null); lastPick.current = null; }
       else if (active.pickSettled && lastPick.current === active) { lastPick.current = null; }
@@ -247,6 +265,7 @@ export function IsolatedCanvasOverlay() {
     }, () => { if (gestureSession === session.current) showToast(t("Preview unavailable"), "error"); }).catch(() => {
       // The shared save queue reports the error and reloads the authoritative preview.
     }).finally(() => {
+      active.unwatch?.();
       active.finishSettled = true;
       if (active.hold) endStudioManualEditGesture(active.adapter.iframe, active.hold);
       active.adapter.send("canvas-drag", { phase: committed ? "commit" : "cancel", changed, gestureId: active.gestureId });

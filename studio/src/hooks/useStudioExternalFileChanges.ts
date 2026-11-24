@@ -1,7 +1,7 @@
 import { useCallback, useMemo, type MutableRefObject } from "react";
 import { changedFilePaths, changedFileVersion, readFileChangeAffectsPreview, readFileTreeChanged } from "../components/editor/manualEditsParsing";
 import { isUnrelatedPreviewHtmlChange } from "../player/lib/previewHtmlSources";
-import { presentPendingCanvasPaint } from "./submitIsolatedCanvasEdit";
+import { presentPendingCanvasChange } from "./submitIsolatedCanvasEdit";
 import { syncPeerComposition } from "./syncPeerComposition";
 import { createRemoteFileReader } from "./remoteFileReads";
 import { knownCompositionSource } from "../player/lib/compositionPosterSource";
@@ -83,7 +83,7 @@ export function useStudioExternalFileChanges({
   const presentPendingPeerChange = useCallback((payload: unknown) => {
     const paths = changedFilePaths(payload);
     if (!projectId || paths?.length !== 1) return;
-    void presentPendingCanvasPaint(projectId, paths[0]!, previewIframeRef, () =>
+    void presentPendingCanvasChange(projectId, paths[0]!, previewIframeRef, () =>
       filesForChange(projectId, payload)(projectId, paths[0]!)).catch(() => {});
   }, [projectId, previewIframeRef, filesForChange]);
   const refreshFileViews = useCallback((payload: unknown, acceptChange: (unaffectedPreview?: string) => void) => {

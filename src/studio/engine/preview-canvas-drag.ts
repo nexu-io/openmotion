@@ -111,12 +111,20 @@ export const PREVIEW_CANVAS_DRAG = `
     const pos = axis => parseFloat(window.gsap?.getProperty?.(element, axis)) || 0;
     const startPosition = {time,x:pos('x'),y:pos('y')};
     drag = { ordered: message.ordered === true, startPosition, id: message.gestureId, element, original, left, top, makeRelative, axes, selection, width, height, corner };
-    return { geometry: selection.geometry, viewport: selection.viewport };
+    return { geometry: selection.geometry, viewport: selection.viewport, target: { sourceFile: selection.sourceFile, hfId: selection.hfId, elementId: selection.elementId, ...sourceIdentity(canvasBase(selection.sourceFile, drag)) } };
   }
 
   function canvasDrag(message) {
     if (message.phase === 'start') return startDrag(message);
     const pending = pendingDrags.get(message.gestureId);
+    if (message.phase === 'removed') {
+      const step = pending || (drag?.id === message.gestureId && drag);
+      if (!step?.ordered) return null;
+      step.element.remove();
+      pendingDrags.delete(step.id);
+      if (drag === step) drag = null;
+      return null;
+    }
     if (pending && (message.phase === 'commit' || message.phase === 'cancel')) {
       const path = pending.selection.sourceFile;
       const requiresFreshFrame = !pending.ordered && message.phase === 'commit' && message.changed && !pending.verifiedVersion;

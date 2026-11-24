@@ -13,7 +13,7 @@ import { buildProjectApiPath } from "../utils/projectRouting";
 import { confirmedSource } from "../utils/confirmedTextSources";
 
 /** A cold observer can compare a mounted child without prefetching every scene on open. */
-async function readMountedSource(projectId: string, version: string) {
+export async function readMountedSource(projectId: string, version: string) {
   const digest = /^"(?:sha256|patch):([a-f0-9]{64})"$/.exec(version)?.[1];
   if (!digest) return null;
   const response = await studioApiFetch(buildProjectApiPath(projectId, "/history/blob/" + digest));
