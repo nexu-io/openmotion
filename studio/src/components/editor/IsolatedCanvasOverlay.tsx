@@ -145,9 +145,17 @@ export function IsolatedCanvasOverlay() {
     const adapter = projectPreviewAdapter(iframe, projectId);
     if (!adapter) return;
     const frame = iframe.getBoundingClientRect();
+    if (!frame.width || !frame.height) return;
     const { clientX: startX, clientY: startY } = event;
-    const x = (startX - frame.x) / frame.width, y = (startY - frame.y) / frame.height;
-    if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return;
+    const insideFrame = startX >= frame.left && startX <= frame.right && startY >= frame.top && startY <= frame.bottom;
+    const hit = event.target as HTMLElement;
+    const handle = hit.closest<HTMLElement>("[data-resize-corner]");
+    const corner = handle?.dataset.resizeCorner as Corner | undefined;
+    const target = (corner || !insideFrame) ? domEditSelection?.isolatedTarget : undefined;
+    if (!insideFrame && (writeBlockedReason || !target || !hit.closest("[data-isolated-selection]"))) return;
+    // The whole handle is clickable, even where it straddles the frame edge.
+    const x = corner && box ? box.x + (corner.endsWith("e") ? box.width : 0) : (startX - frame.left) / frame.width;
+    const y = corner && box ? box.y + (corner.startsWith("s") ? box.height : 0) : (startY - frame.top) / frame.height;
     if (writeBlockedReason) {
       adapter.send("layer-select", { x, y });
       return;
@@ -157,7 +165,6 @@ export function IsolatedCanvasOverlay() {
       observedFrame.current = iframe;
       iframe.addEventListener("load", handleFrameLoad);
     }
-    const corner = (event.target as HTMLElement).closest<HTMLElement>("[data-resize-corner]")?.dataset.resizeCorner as Corner | undefined;
     const batchWrites = !!projectId && supportsOrderedTextEdits(projectId);
     const active: Drag = {
       corner,
@@ -177,7 +184,6 @@ export function IsolatedCanvasOverlay() {
     drag.current = lastPick.current = active;
     // Keep the last visible bounds until the new hit has been measured.
     event.currentTarget.setPointerCapture(event.pointerId);
-    const target = corner && domEditSelection?.isolatedTarget;
     void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, ...(event.shiftKey && { additive: true }), ...(active.optimistic && { ordered: true }),
       ...(target && { target: { sourceFile: target.sourceFile, elementId: target.elementId, hfId: target.hfId } }) })
       .then(pick => {
@@ -322,7 +328,7 @@ export function IsolatedCanvasOverlay() {
     onPointerUp={event => update(event, "finish")} onPointerCancel={event => update(event, "cancel")}
     onLostPointerCapture={lostCapture}>
     {menu && <IsolatedCanvasContextMenu pick={menu} close={() => setMenu(null)} />}
-    {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div className="absolute pointer-events-none border border-studio-accent"
+    {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div data-isolated-selection="" className="absolute border border-studio-accent"
       style={{ left: compositionRect.left + box.x * compositionRect.width,
         top: compositionRect.top + box.y * compositionRect.height,
         width: box.width * compositionRect.width, height: box.height * compositionRect.height }}>

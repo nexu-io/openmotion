@@ -354,6 +354,29 @@ it("resizes the selected source target after a replacement frame has forgotten i
   expect(messages[0]).toMatchObject({ type:"canvas-drag", phase:"start", corner:"ne", target });
 });
 
+it("starts at an exposed selection or handle outside the frame and preserves in-frame picking", () => {
+  const target = { sourceFile: "compositions/gallery.html", elementId: "gallery-wall" };
+  state.domEditSelection = { isolatedTarget: target, isolatedBounds: { x: -.25, y: .1, width: 1.5, height: .6 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const selected = canvas.querySelector<HTMLElement>("[data-isolated-selection]")!;
+  function press(node: HTMLElement, clientX: number, clientY: number) {
+    act(() => node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX, clientY })));
+  }
+  press(canvas, -50, 60);
+  expect(messages).toHaveLength(0);
+  press(selected, -10, 60);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", x: -.1, y: .5, target });
+  pointer("pointercancel", -10);
+  press(selected.querySelector<HTMLElement>('[data-resize-corner="se"]')!, 261, 82);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", corner: "se", x: 1.25, y: .7, target });
+  pointer("pointermove", 271);
+  expect(messages.at(-1)).toMatchObject({ phase: "move", dx: .05 });
+  pointer("pointercancel", 271);
+  press(selected, 60, 60);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", x: .25, y: .5 });
+  expect(messages.at(-1)).not.toHaveProperty("target");
+});
+
 it("shows the released bounds even when the initial pick arrives after pointerup", async () => {
   pointer("pointerdown", 60);
   pointer("pointermove", 72);
