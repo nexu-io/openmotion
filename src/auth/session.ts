@@ -203,14 +203,6 @@ export async function resolveBrowserSession(
             bindingRevoked = true;
           }
         }
-        if (!bindingRevoked && parsedBinding.userId && typeof parsedBinding.startedEpoch === 'number') {
-          const logoutEpochRaw = await options.cache.get(
-            oneTapUserLogoutEpochCacheKey(parsedBinding.userId),
-          );
-          if (logoutEpochRaw && Number(logoutEpochRaw) >= parsedBinding.startedEpoch) {
-            bindingRevoked = true;
-          }
-        }
       } catch {
         // Ignore malformed binding record.
       }

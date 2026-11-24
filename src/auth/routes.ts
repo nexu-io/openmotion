@@ -396,9 +396,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   const userLogoutEpochCacheKey = oneTapUserLogoutEpochCacheKey;
 
   const revokeOneTapBinding = async (bindingHash: string): Promise<void> => {
-    const expiresAt = Date.now() + ONETAP_CTX_TTL_SEC * 1000;
+    const expiresAt = Date.now() + DEFAULT_SESSION_TTL_SEC * 1000;
     if (deps.cache) {
-      await deps.cache.set(revokedBindingCacheKey(bindingHash), String(expiresAt), ONETAP_CTX_TTL_SEC);
+      await deps.cache.set(revokedBindingCacheKey(bindingHash), String(expiresAt), DEFAULT_SESSION_TTL_SEC);
     } else {
       localRevokedBindings.set(bindingHash, expiresAt);
     }
@@ -978,7 +978,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
               userId: membership.user.id,
               startedEpoch: exchangeStartedEpoch,
             }),
-            ONETAP_CTX_TTL_SEC,
+            DEFAULT_SESSION_TTL_SEC,
           );
         }
 
@@ -1128,10 +1128,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         } catch (error) {
           // NEVER downgrade a resolved/authenticated session to unbound guest Pricing on upstream 401/403
           // (could bill a different AMR account in the browser) or on any DB/Redis/503 error.
+          // Keep the error deterministic on reload (do not clear om_session into guest fallback).
           if (isCloudError(error) && (error.status === 401 || error.status === 403)) {
-            if (hasActiveSession) {
-              c.header('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie));
-            }
             return c.json(
               {
                 code: error.status === 403 ? 'FORBIDDEN' : 'UNAUTHORIZED',
