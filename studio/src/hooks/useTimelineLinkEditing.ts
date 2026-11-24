@@ -23,7 +23,7 @@ interface UseTimelineLinkEditingOptions {
   showToast: (message: string, tone?: "error" | "info") => void;
   writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
   recordEdit: (input: RecordEditInput) => Promise<void>;
-  reloadPreview: () => void;
+  reloadPreview: (path?: string | readonly string[]) => void;
   forceReloadSdkSession?: () => void;
   handleTimelineElementsDelete: (
     selection: TimelineElement[],
@@ -129,7 +129,7 @@ export function useTimelineLinkEditing({
         await queued;
         if (!ordered) {
           forceReloadSdkSession?.();
-          reloadPreview();
+          reloadPreview(path);
         }
       } catch (error) {
         showToast(getStudioSaveErrorMessage(error), "error");

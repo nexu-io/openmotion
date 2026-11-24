@@ -123,7 +123,7 @@ export async function saveCloudTimeline(
   write: ProjectFileWriter,
   recordEdit: (entry: RecordEditInput) => Promise<void>,
   label: string,
-  onSaved?: (files: RecordEditInput['files'], previous?: ConfirmedSource) => Promise<void>,
+  onSaved?: (files: RecordEditInput['files'], previous?: ConfirmedSource, bases?: ReadonlyMap<string, ConfirmedSource>) => Promise<void>,
   options: {
     onSkippedSelectors?: (selectors: string[]) => void;
     projectPending?: (files: RecordEditInput['files']) => (() => void) | undefined;

@@ -3,7 +3,7 @@ import { confirmedSource, supportsOrderedTextEdits, observedSourceVersion } from
 import { isolatedEditVersion } from "../utils/isolatedEditVersions";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import { submitStudioCommands } from "../utils/projectEditBatch";
-import { tryApplyPeerChanges } from "../player/peerTimingPreview";
+import { scheduleCommittedPreview } from "../player/committedPreview";
 import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { useCallback, useRef } from "react";
@@ -170,9 +170,9 @@ export function useDomEditPersist({
           if (options?.shouldSave && !options.shouldSave()) return null;
           if (!selection.isolatedTarget) {
             const result = await submitStudioCommands(pid, [command], versions, writeHistory);
-            return { ...result, previewApplied: options?.skipRefresh === true, deferPresentation: false, presentChanged: result.changedPaths.length > 0 };
+            return { ...result, needsRefresh: options?.skipRefresh !== true, deferPresentation: false, presentChanged: result.changedPaths.length > 0 };
           }
-          return submitIsolatedCanvasEdit(pid, [command], versions, writeHistory, previewIframeRef, options?.coalesceKey);
+          return { ...await submitIsolatedCanvasEdit(pid, [command], versions, writeHistory, previewIframeRef, reloadPreview, options?.coalesceKey), needsRefresh: false };
         };
         const result = ordered ? await submit() : await serializeStudioFileMutations(writeProjectFile, [targetPath], submit);
         if (!result) return;
@@ -180,7 +180,7 @@ export function useDomEditPersist({
         if (changed) await editHistory.recordEdit({ ...history, files: {} });
         if (result.presentChanged && !result.divergent.length && !result.deferPresentation) {
           forceReloadSdkSession?.({ projectId: pid, versions: result.versions });
-          if (!result.previewApplied) reloadPreview(targetPath);
+          if (result.needsRefresh) reloadPreview(targetPath);
         }
         return completePersistence({ sourceFile: targetPath, version: result.versions[targetPath], changed }, changed);
       }
@@ -295,14 +295,12 @@ export function useDomEditPersist({
       if (selection.isolatedTarget) {
         const frame = previewIframeRef.current;
         const current = confirmedSource(pid, targetPath);
-        const isCurrent = () => projectIdRef.current === pid && previewIframeRef.current === frame &&
-          confirmedSource(pid, targetPath)?.version === current?.version;
-        const applied = options?.syncTimingInPlace && originalVersion && current?.content === finalContent &&
-          await tryApplyPeerChanges(frame, {
-            path: targetPath, previous: { content: originalContent, version: originalVersion },
-            current,
-          }, isCurrent);
-        if (!applied && isCurrent()) reloadPreview(targetPath);
+        if (frame && projectIdRef.current === pid) {
+          scheduleCommittedPreview(frame, pid, [{ path: targetPath,
+            previous: originalVersion ? {content: originalContent, version: originalVersion} : undefined,
+            current: current?.content === finalContent ? current : undefined,
+          }], reloadPreview, options?.coalesceKey ? {gestureId: options.coalesceKey} : undefined);
+        }
       } else if (options?.syncTimingInPlace) {
         // Reuse the same attribute-only diff and runtime rebind as soft undo.
         // Keep the iframe, media decoder, thumbnails and ruler alive during a slider drag.

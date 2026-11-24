@@ -70,7 +70,7 @@ interface SaveProjectFilesWithHistoryInput {
   /** Observe successful file writes, including a compensating write after a history failure. */
   onFileWritten?: (path: string, submitted: string) => void;
   projectPending?: (files: RecordEditInput["files"]) => (() => void) | undefined;
-  onSaved?: (files: RecordEditInput["files"], previous?: ConfirmedSource) => Promise<void>;
+  onSaved?: (files: RecordEditInput["files"], previous?: ConfirmedSource, bases?: ReadonlyMap<string, ConfirmedSource>) => Promise<void>;
   recordEdit: (entry: RecordEditInput) => Promise<void>;
   /**
    * What a path holds ON DISK right now, when that is not the same as the

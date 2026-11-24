@@ -53,7 +53,7 @@ interface UseTimelineDeleteOpsOptions {
   showToast: (message: string, tone?: "error" | "info") => void;
   writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
   recordEdit: (input: RecordEditInput) => Promise<void>;
-  reloadPreview: () => void;
+  reloadPreview: (paths?: string | readonly string[]) => void;
   isRecordingRef?: MutableRefObject<boolean>;
   forceReloadSdkSession?: () => void;
   previewIframeRef: RefObject<HTMLIFrameElement | null>;
@@ -141,10 +141,10 @@ export function useTimelineDeleteOps({
                 kind: "deleteClips", hfIds: clips.map(resolve), rippleTrack,
                 ...(splitLane && { rippleMembers: peers.filter(el => el.track === main).map(resolve) }),
               }) };
-            }), writeProjectFile, recordEdit, deleteHistoryLabel, async (files, previous) => {
+            }), writeProjectFile, recordEdit, deleteHistoryLabel, async (files, previous, bases) => {
               const frame = previewIframeRef.current;
-              if (!frame || targetPath !== (activeCompPath ?? "index.html")) return;
-              scheduleCommittedTimelinePreview(frame, pid, targetPath, files, previous, reloadPreview);
+              if (!frame) return;
+              scheduleCommittedTimelinePreview(frame, pid, targetPath, files, previous, reloadPreview, bases);
               previewScheduled = true;
             }, { projectPending: files => {
               const deleted = new Set(removing.map(clip => clip.key ?? clip.id));
@@ -252,7 +252,7 @@ export function useTimelineDeleteOps({
           usePlayerStore.getState().setSelectedElementId(null);
           usePlayerStore.getState().setSelectedElementIds(new Set());
           forceReloadSdkSession?.();
-          if (!previewScheduled) reloadPreview();
+          if (!previewScheduled) reloadPreview(targetPath);
         }
         // A failed ripple already showed its own toast above; the user did one
         // thing (delete), so they get one message, not this generic follow-up too.

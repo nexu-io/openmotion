@@ -174,10 +174,10 @@ export function useDomEditCommits({
         const sourceFiles = batches.map((batch) => batch.sourceFile);
         async function saveFiles() {
           if (intent) {
-            const result = await submitIsolatedCanvasEdit(pid, intent.commands, intent.versions, history, previewIframeRef, options.coalesceKey);
+            const result = await submitIsolatedCanvasEdit(pid, intent.commands, intent.versions, history, previewIframeRef, reloadPreview, options.coalesceKey);
             const changed = result.changedPaths.length > 0;
             if (changed) await editHistory.recordEdit({ ...options, files: {} });
-            return { allMatched: true, changedPaths: result.changedPaths, reconcileFromServer: result.divergent.length > 0, previewApplied: result.previewApplied, presentPaths: result.presentChanged && !result.deferPresentation ? sourceFiles : [], savedVersions: result.versions };
+            return { allMatched: true, changedPaths: result.changedPaths, reconcileFromServer: result.divergent.length > 0, previewScheduled: true, presentPaths: result.presentChanged && !result.deferPresentation ? sourceFiles : [], savedVersions: result.versions };
           }
           const atomicResult = await patchElementBatches(pid, batches, history);
           const files = Object.fromEntries(
@@ -214,10 +214,10 @@ export function useDomEditCommits({
             allMatched:
               atomicResult.durable && atomicResult.files.every((result) => result.allMatched),
             changedPaths: Object.keys(files),
-            reconcileFromServer: false, previewApplied: false, presentPaths: Object.keys(files), savedVersions: undefined,
+            reconcileFromServer: false, previewScheduled: false, presentPaths: Object.keys(files), savedVersions: undefined,
           };
         }
-        const { allMatched, changedPaths, reconcileFromServer, previewApplied, presentPaths, savedVersions } = ordered
+        const { allMatched, changedPaths, reconcileFromServer, previewScheduled, presentPaths, savedVersions } = ordered
           ? await saveFiles()
           : await serializeStudioFileMutations(writeProjectFile, sourceFiles, saveFiles);
         const changed = changedPaths.length > 0;
@@ -232,13 +232,13 @@ export function useDomEditCommits({
         // doesn't hold — reload so the preview reconverges.
         const skipSafe =
           options.skipReload === true && batchesAreInlineStyleOnly(batches) && durable;
-        if (!durable) reloadPreview();
-        else if (presentPaths.length && !skipSafe && !previewApplied) reloadPreview(presentPaths);
+        if (!durable) reloadPreview(sourceFiles);
+        else if (presentPaths.length && !skipSafe && !previewScheduled) reloadPreview(presentPaths);
         const savedCanvasVersion = batches.length === 1 ? savedVersions?.[batches[0]!.sourceFile] : undefined;
         return { durable, allMatched, changed, ...(savedCanvasVersion && { savedCanvasVersion }) };
       };
       const saved = (ordered ? perform() : queueDomEditSave(perform)).catch((error) => {
-        if (error instanceof AtomicElementPatchConvergenceError) reloadPreview();
+        if (error instanceof AtomicElementPatchConvergenceError) reloadPreview(batches.map(batch => batch.sourceFile));
         const alreadyToasted =
           (error instanceof StudioSaveHttpError ||
             error instanceof DomEditPersistUnsafeValueError) &&

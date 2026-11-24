@@ -24,7 +24,7 @@ import {
   resolveDroppedAssetHasAudio,
 } from "../utils/studioHelpers";
 import { formatTimelineAttributeNumber } from "./timelineEditingHelpers";
-import { readFileContent } from "./timelineTimingSync";
+import { isolatedStructureRefresh, readFileContent } from "./timelineTimingSync";
 import { commitTimelineCompositionInsertion } from "../utils/timelineCompositionInsert";
 import { deriveTimelineStoreKeyForDomId } from "../player/lib/timelineElementHelpers";
 import { selectAndRevealTimelineElement } from "../player/components/timelineDropReveal";
@@ -46,6 +46,7 @@ interface DropGesture {
   placed: TimelineElement[];
   onNewTrack: boolean;
   deferRefresh?: boolean;
+  needsRefresh?: boolean;
   reportFailure?: boolean;
 }
 
@@ -70,7 +71,8 @@ interface UseTimelineAssetDropOpsOptions {
   showToast: (message: string, tone?: "error" | "info") => void;
   writeProjectFile: ProjectFileWriter;
   recordEdit: (input: RecordEditInput) => Promise<void>;
-  reloadPreview: () => void;
+  previewIframeRef?: RefObject<HTMLIFrameElement | null>;
+  reloadPreview: (paths?: string | readonly string[]) => void;
   uploadProjectFiles: (files: Iterable<File>, dir?: string, entryPoint?: ImportEntryPoint) => Promise<string[]>;
   isRecordingRef?: RefObject<boolean>;
   forceReloadSdkSession?: () => void;
@@ -80,6 +82,7 @@ interface UseTimelineAssetDropOpsOptions {
 
 export function useTimelineAssetDropOps({
   projectIdRef,
+  previewIframeRef,
   activeCompPath,
   timelineElements,
   showToast,
@@ -213,6 +216,7 @@ export function useTimelineAssetDropOps({
           return applyContentCommand(originalContent, place);
         };
 
+        const onSaved = isolatedStructureRefresh(previewIframeRef?.current, targetPath, pid, reloadPreview);
         await saveProjectFilesWithHistory({
           projectId: pid,
           label: "Add timeline asset",
@@ -220,6 +224,7 @@ export function useTimelineAssetDropOps({
           readFile: (path) => readFileContent(pid, path),
           writeFile: writeProjectFile,
           commandForWrite: () => command,
+          onSaved,
           recordEdit,
         });
 
@@ -231,12 +236,13 @@ export function useTimelineAssetDropOps({
           id: newId, key, domId: newId, sourceFile: targetPath,
           tag, start, duration: normalizedDuration, track: lane, authoredTrack: track, zIndex: newElementZIndex,
         };
+        if (!onSaved) gesture.needsRefresh = true;
         finishPendingAssetDrop(pendingId, element);
         if (!stillActive()) return element;
         if (!gesture.deferRefresh) {
           selectAndRevealTimelineElement(key);
           forceReloadSdkSession?.();
-          reloadPreview();
+          if (gesture.needsRefresh) reloadPreview(targetPath);
         }
         return element;
       } catch (error) {
@@ -254,6 +260,7 @@ export function useTimelineAssetDropOps({
     },
     [
       projectIdRef,
+      previewIframeRef,
       activeCompPath,
       recordEdit,
       showToast,
@@ -343,7 +350,7 @@ export function useTimelineAssetDropOps({
       if (last && scope === dropScopeRef.current) {
         selectAndRevealTimelineElement(last.key ?? last.id);
         forceReloadSdkSession?.();
-        reloadPreview();
+        if (gesture.needsRefresh) reloadPreview(activeCompPath ?? "index.html");
       }
     },
     [
@@ -386,7 +393,7 @@ export function useTimelineAssetDropOps({
           observeVersion: observeProjectFileVersion,
           selectHost: selectAndRevealTimelineElement,
           resync: forceReloadSdkSession,
-          refresh: reloadPreview,
+          refresh: () => reloadPreview(targetPath),
           isActive,
         });
         if (element && isActive()) finishPendingAssetDrop(pendingId, element);

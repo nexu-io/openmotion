@@ -10,7 +10,7 @@ type Transform = { path: string; apply(source: string): string | Promise<string>
 type Changes = RecordEditInput['files'];
 type Options = {
   projectPending?: (files: Changes) => (() => void) | undefined;
-  onSaved?: (files: Changes, previous?: ConfirmedSource) => Promise<void>;
+  onSaved?: (files: Changes, previous?: ConfirmedSource, bases?: ReadonlyMap<string, ConfirmedSource>) => Promise<void>;
   recordEdit: (entry: RecordEditInput) => Promise<void>;
   undoGroup?: string;
   coalesceKey?: string;
@@ -101,7 +101,13 @@ export async function saveOrderedTimeline(
         await projection.refresh?.({ [first.path]: { before: previous.content, after: first.after } }, previous);
       }
     } else if (current && saved.changedPaths.length) {
-      await onSaved?.(files);
+      if (onSaved) {
+        const bases = new Map(await Promise.all(transforms.map(async ({ path }, index) =>
+          [path, await projections[index]!.session.baseline] as const)));
+        const changes = Object.fromEntries(Object.entries(files).map(([path, file]) =>
+          [path, { before: bases.get(path)!.content, after: file.after }]));
+        await onSaved(changes, undefined, bases);
+      }
     }
     return saved.changedPaths;
   } catch (error) {
