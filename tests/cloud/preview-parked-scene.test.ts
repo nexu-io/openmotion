@@ -32,8 +32,14 @@ it('keeps ordered scene scripts, styles and font declarations while omitting the
   assert.equal(previewSceneFragment(compile(host + host), file), null);
 });
 
-function fixture() {
+function fixture(batch = false) {
   const document = parseHTMLContent(`<html><head></head><body>${parked}</body></html>`);
+  if (batch) {
+    const second = document.querySelector('section')!.cloneNode(true) as Element;
+    second.setAttribute('data-hf-scene', 'outro');
+    second.setAttribute('data-composition-file', other);
+    document.body.append(second);
+  }
   const meta = document.createElement('meta');
   meta.setAttribute('name', 'hf-scene-parts');
   meta.setAttribute('content', JSON.stringify(parts('old intro')));
@@ -41,9 +47,14 @@ function fixture() {
   const settings = {projectId: 'p', compositionPath: 'index.html'};
   const fresh = { ...settings, sourceVersions: { ...oldVersions, [file]: after }};
   const nextParts = parts('new intro');
+  if (batch) {
+    fresh.sourceVersions[other] = digest('updated outro');
+    nextParts.scenes.outro = 'new outro';
+  }
   const templ = () => `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'></head><body><script data-openmotion-preview='${JSON.stringify(fresh)}'></script></body></html>`;
   const counts = { reads: 0, swaps: 0, confirms: 0 };
   const request = { documentId: 'frame-1', path: file, fileVersion: version, expiresAt: Date.now() + 3000 };
+  if (batch) Object.assign(request, {files: [[file, version], [other, '"sha256:' + fresh.sourceVersions[other] + '"']]});
   let duringRead = () => {};
   const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + '\nrefreshParkedScene;', {
     settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: { ...oldVersions }, projectId: 'p',
@@ -51,13 +62,13 @@ function fixture() {
     drag: null, pendingDrags: new Map(), inlineText: null,
     DOMParser: class { parseFromString(html: string) { return parseHTMLContent(html); } },
     fetch: async (url: string) => {
-      assert.equal(url, 'https://preview.example/current?pt=test&sceneFile=compositions%2Fintro.html');
+      assert.equal(url, 'https://preview.example/current?pt=test' + (batch ? '' : '&sceneFile=compositions%2Fintro.html'));
       counts.reads++;
       duringRead();
       return new Response(templ());
     },
     window: { __hfSwapScenes: async (html: string) => { assert.equal(html, templ()); counts.swaps++; } },
-    confirmCanvasVersion: (path: string, value: string) => { assert.equal(path, file); assert.equal(value, after); counts.confirms++; },
+    confirmCanvasVersion: (path: string, value: string) => { assert.ok(path === file || batch && path === other); assert.equal(value, fresh.sourceVersions[path]); counts.confirms++; },
   });
   return { document, counts, request, fresh, nextParts, run: () => refresh(request), onRead: (fn: () => void) => {duringRead = fn;} };
 }
@@ -66,6 +77,16 @@ it('updates the parked template through the runtime only after validating the fr
   const f = fixture();
   assert.equal(await f.run(), true);
   assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 1});
+});
+
+it('mounts two cold scenes from one compilation after checking both file versions', async () => {
+  const f = fixture(true);
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.counts, {reads: 1, swaps: 1, confirms: 2});
+  const stale = fixture(true);
+  stale.fresh.sourceVersions[other] = digest('concurrent edit');
+  assert.equal(await stale.run(), false);
+  assert.deepEqual(stale.counts, {reads: 1, swaps: 0, confirms: 0});
 });
 
 it('updates an active child through the same runtime lifecycle as a parked child', async () => {

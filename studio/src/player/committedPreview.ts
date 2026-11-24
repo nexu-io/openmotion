@@ -2,7 +2,7 @@ import { afterStudioManualEditGestures } from "../components/editor/manualEditsD
 import { STUDIO_MANUAL_EDIT_GESTURE_ATTR } from "../components/editor/manualEditsTypes";
 import { confirmedSource, type ConfirmedSource } from "../utils/confirmedTextSources";
 import { afterStudioPendingEdits, isStudioEditSaving } from "../utils/studioPendingEdits";
-import { hasPeerLiveEdit, hasPeerTimingDocument, mountedPeerFileVersion, tryApplyPeerChanges, tryRefreshParkedPeerScene } from "./peerTimingPreview";
+import { hasPeerLiveEdit, hasPeerTimingDocument, mountedPeerFileVersion, refreshPeerScenes, tryApplyPeerChanges, tryRefreshParkedPeerScene } from "./peerTimingPreview";
 import { isPreviewChanging } from "./previewReloading";
 import { announcePreviewScenesSwapped } from "./sceneSwap";
 import { usePlayerStore } from "./store/playerStore";
@@ -30,7 +30,7 @@ type Session = {
 };
 const sessions = new WeakMap<HTMLIFrameElement, Session>();
 
-async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Session["sent"], isCurrent: () => boolean) {
+async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Session["sent"], isCurrent: () => boolean, deferSceneRefresh: boolean) {
   const { path, options } = change;
   const target = change.current?.version ?? change.version;
   if (!target || !isCurrent()) return false;
@@ -40,7 +40,7 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
   // source only when the iframe confirms it is what the user is actually seeing.
   const last = sent.get(path);
   const base = last && last.version === mounted ? last : change.previous;
-  const refreshParked = () => path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, target, isCurrent);
+  const refreshParked = () => !deferSceneRefresh && path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, target, isCurrent);
   // A parked scene can adopt the new version without downloading its source into Studio.
   if (!base && await refreshParked()) return true;
   if ((base || change.readPrevious) &&
@@ -69,7 +69,9 @@ async function present(frame: HTMLIFrameElement, session: Session) {
     usePlayerStore.getState().timelineProjectId === session.project;
   const retry: Change[] = [];
   const applied: Change[] = [];
-  for (const change of [...session.pending.values()]) {
+  const pending = [...session.pending.values()];
+  const batchScenes = pending.length > 1 && pending.every(change => change.path !== "index.html" && (change.current?.version || change.version));
+  for (const change of pending) {
     const owns = () => mounted() && session.pending.get(change.path) === change;
     if (!mounted() || busy(frame)) break;
     const current = () => {
@@ -78,11 +80,17 @@ async function present(frame: HTMLIFrameElement, session: Session) {
       if (change.version) return !version || version === change.version || version === change.observedVersion;
       return version === change.current?.version;
     };
-    const done = await applyChange(frame, change, session.sent, current).catch(() => false);
+    const done = await applyChange(frame, change, session.sent, current, batchScenes).catch(() => false);
     // A later input/receipt owns the same pixels, even if this bridge response was successful.
     if (!owns() || busy(frame)) continue;
     if (done && current()) applied.push(change);
     else retry.push(change);
+  }
+  if (batchScenes && retry.length) {
+    const current = () => mounted() && !busy(frame) && !isPreviewChanging() &&
+      retry.every(change => session.pending.get(change.path) === change);
+    const files = retry.map((change): [string, string] => [change.path, (change.current?.version ?? change.version)!]);
+    if (current() && await refreshPeerScenes(frame, files, current).catch(() => false)) applied.push(...retry.splice(0));
   }
   if (!mounted()) {
     if (sessions.get(frame) === session) sessions.delete(frame);

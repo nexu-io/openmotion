@@ -24,17 +24,21 @@ export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: stri
 }
 
 export async function tryRefreshParkedPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean) {
+  return refreshPeerScenes(frame, [[path, version]], isCurrent);
+}
+
+export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string, string][], isCurrent: () => boolean) {
   const doc = documents.get(frame);
   if (!doc?.canRefreshParked || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
   if (adapter.token !== doc.token) return false;
   const timeout = 5000;
   const applied = await adapter.request<boolean>("refresh-parked-scene", {
-    path, fileVersion: version, documentId: doc.id, expiresAt: Date.now() + timeout,
+    ...(files.length === 1 ? {path: files[0]![0], fileVersion: files[0]![1]} : {files}),
+    documentId: doc.id, expiresAt: Date.now() + timeout,
   }, timeout).catch(() => false);
   if (applied !== true || documents.get(frame) !== doc || !isCurrent()) return false;
-  // The size of a replaced parked scene is unknown until its new source is read.
-  doc.mountedVersions.delete(path);
+  for (const [path, version] of files) doc.mountedVersions.set(path, version);
   return true;
 }
 

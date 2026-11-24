@@ -8,7 +8,7 @@ import { scheduleCommittedTimelinePreview } from "./committedTimelinePreview";
 import { hasPeerTimingDocument, mountedPeerFileVersion, tryApplyPeerChanges } from "./peerTimingPreview";
 
 vi.mock("./peerTimingPreview", () => ({
-  mountedPeerFileVersion: vi.fn(() => undefined), tryRefreshParkedPeerScene: () => false,
+  refreshPeerScenes: vi.fn(async () => false), mountedPeerFileVersion: vi.fn(() => undefined), tryRefreshParkedPeerScene: () => false,
   hasPeerTimingDocument: vi.fn(() => true), hasPeerLiveEdit: () => false,
   tryApplyPeerChanges: vi.fn(async () => true),
 }));
