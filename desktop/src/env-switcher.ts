@@ -126,7 +126,7 @@ export function validateTestEnvironmentUrl(
   try {
     parsed = new URL(trimmed);
   } catch {
-    return { ok: false, reason: 'Enter a valid URL (for example https://openmotion.powerformer.net or http://127.0.0.1:4173).' };
+    return { ok: false, reason: 'Enter a valid URL (for example https://motion.open-design.ai or http://127.0.0.1:4173).' };
   }
 
   if (parsed.username || parsed.password) {

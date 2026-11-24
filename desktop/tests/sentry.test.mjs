@@ -101,7 +101,7 @@ test('createDesktopSentryReporter sends scrubbed Sentry Envelopes, wires crashRe
     chromeVersion: '134.0.0.0',
     nodeVersion: '22.18.0',
     appStartTime: 1_700_000_000_000,
-    redactPaths: ['/Users/ada/Library/Application Support/OpenDesign', '/Users/ada'],
+    redactPaths: ['/opt/demo-home/Library/Application Support/OpenDesign', '/opt/demo-home'],
     env: {},
     maxEventsPerMinute: 2,
     now: () => nowMs,
@@ -135,18 +135,18 @@ test('createDesktopSentryReporter sends scrubbed Sentry Envelopes, wires crashRe
 
   reporter.addBreadcrumb({
     category: 'lifecycle',
-    message: 'Loaded /Users/ada/secret with Bearer sk_live_secret_999',
+    message: 'Loaded /opt/demo-home/secret with Bearer sk_live_secret_999',
     data: { token: 'crumb_secret', step: 'boot' },
   });
 
   const leakyError = new Error(
-    'Failed loading /Users/ada/Library/Application Support/OpenDesign/secrets.json with Bearer sk_live_secret_999',
+    'Failed loading /opt/demo-home/Library/Application Support/OpenDesign/secrets.json with Bearer sk_live_secret_999',
   );
   const ok1 = await reporter.captureException(leakyError, {
     area: 'updater',
     extra: {
       accessToken: 'super_secret_token',
-      note: 'path=/Users/ada/private.txt',
+      note: 'path=/opt/demo-home/private.txt',
     },
   });
   assert.equal(ok1, true);
@@ -181,7 +181,7 @@ test('createDesktopSentryReporter sends scrubbed Sentry Envelopes, wires crashRe
   assert.equal(sentRequests[0].body.includes('sk_live_secret_999'), false);
   assert.equal(sentRequests[0].body.includes('super_secret_token'), false);
   assert.equal(sentRequests[0].body.includes('crumb_secret'), false);
-  assert.equal(sentRequests[0].body.includes('/Users/ada'), false);
+  assert.equal(sentRequests[0].body.includes('/opt/demo-home'), false);
 
   // Second event within 1 minute succeeds; third is rate-limited
   assert.equal(await reporter.captureMessage('Renderer gone', 'fatal'), true);

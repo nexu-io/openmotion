@@ -227,6 +227,7 @@ jobs:
             tests/desktop-security-audit.test.ts \
             tests/local-atoms.test.ts \
             tests/connect-script.test.ts \
+            tests/connect-script-e2e.test.ts \
             tests/desktop-showcase-e2e.test.ts
 
   build-desktop:

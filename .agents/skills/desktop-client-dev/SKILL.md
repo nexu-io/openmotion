@@ -11,7 +11,7 @@ Use this repository-local contributor Skill for all desktop client work (`deskto
 
 OpenDesign Next is a **cloud-first Electron thin shell** designed so product features ship via Web without waiting for desktop releases or Apple notarization:
 
-1. **Zero bundled Studio / zero local Node sidecar.** `desktop/electron-builder.yml` packages only `desktop/dist/**/*` and `desktop/package.json`. The shell loads cloud Studio directly (`stable`: `https://motion.open-design.ai`, `test`: `https://openmotion.powerformer.net`, `dev`: `http://127.0.0.1:4173`). Do not reintroduce a bundled local server or `stage-app` flow.
+1. **Zero bundled Studio / zero local Node sidecar.** `desktop/electron-builder.yml` packages only `desktop/dist/**/*` and `desktop/package.json`. The shell loads cloud Studio directly (`stable`: `https://motion.open-design.ai`, `test`: built-in `DEFAULT_STUDIO_URLS.test`, `dev`: `http://127.0.0.1:4173`). Do not reintroduce a bundled local server or `stage-app` flow.
 2. **Frozen 4-method `UniversalHostBridge`.** `desktop/src/preload.ts` exposes only `window.__OPENMOTION_HOST__` with `info()`, `capabilities()`, `invoke(capability, method, params)`, and `subscribe(capability, event, cb)`. Main-process dispatch goes through `CapabilityRegistry` + Zod validation (`shared/desktop-schemas.ts`).
 3. **Isomorphic Desktop + Browser Connect Script.** Cloud Studio (`studio/src/utils/platformHost.ts`) talks to the exact same `UniversalHostBridge` contract whether hosted inside Electron or paired in a regular browser with `packages/connect-script` over `127.0.0.1` HTTP + SSE. Both hosts execute the same `packages/local-atoms` engine and `packages/signed-config` verifier.
 4. **Five atomic local capabilities.** Local host operations are composed from five audited primitives in `packages/local-atoms/`: `atom.detect`, `atom.exec`, `atom.installComponent`, `atom.credential`, and `atom.config`.
@@ -57,8 +57,8 @@ npm --prefix desktop run build
 # 2. Launch Electron against a local Studio server (e.g. http://127.0.0.1:4173)
 MOTION_DESKTOP_CHANNEL=dev npm --prefix desktop run dev -- --studio-url=http://127.0.0.1:4173
 
-# 3. Launch Electron against staging / Orbit test lane
-MOTION_DESKTOP_CHANNEL=test npm --prefix desktop run dev -- --studio-url=https://openmotion.powerformer.net
+# 3. Launch Electron against a staging / test lane
+MOTION_DESKTOP_CHANNEL=test npm --prefix desktop run dev -- --studio-url=https://staging.open-design.ai
 
 # 4. Build an unsigned local macOS arm64 .dmg/.zip for manual smoke testing
 npm --prefix desktop run pack:mac:local

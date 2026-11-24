@@ -131,8 +131,8 @@ test('preferences capability validates allowlisted keys and rejects direct path 
           return hostOk(snapshot());
         },
         pickDownloadDir: async () => {
-          store.update({ lastDownloadDir: '/Users/demo/Exports' });
-          return hostOk({ canceled: false, path: '/Users/demo/Exports', snapshot: snapshot() });
+          store.update({ lastDownloadDir: '/opt/demo/Exports' });
+          return hostOk({ canceled: false, path: '/opt/demo/Exports', snapshot: snapshot() });
         },
         relaunch: async () => {
           relaunched = true;
@@ -190,7 +190,7 @@ test('preferences capability validates allowlisted keys and rejects direct path 
     // Native picker updates lastDownloadDir and reset clears it.
     const picked = await registry.invoke(HOST_CAPABILITIES.PREFERENCES, 'pickDownloadDir');
     assert.equal(picked.ok, true);
-    assert.equal(picked.data.path, '/Users/demo/Exports');
+    assert.equal(picked.data.path, '/opt/demo/Exports');
 
     const cleared = await registry.invoke(HOST_CAPABILITIES.PREFERENCES, 'reset', {
       key: 'lastDownloadDir',

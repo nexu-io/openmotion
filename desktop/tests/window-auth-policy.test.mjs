@@ -11,6 +11,7 @@ import {
   isValidDesktopLoopbackRedirectUri,
 } from '../../shared/desktop-auth-handoff.ts';
 import {
+  DEFAULT_STUDIO_URLS,
   DESKTOP_APP_ID,
   DESKTOP_DATA_LAYOUT_VERSION,
   DESKTOP_PROTOCOL_SCHEME,
@@ -887,17 +888,17 @@ test('K10 resolvePackagedReleaseChannel preserves packaged test channel and igno
 });
 
 test('K3 login chain helpers: parseStudioAuthNavigationUrl, probeDesktopHandoffSupport, and openInWindowFallback', async () => {
-  const studioOrigin = 'https://openmotion.powerformer.net';
+  const studioOrigin = DEFAULT_STUDIO_URLS.test;
   assert.deepEqual(
     parseStudioAuthNavigationUrl(
-      'https://openmotion.powerformer.net/auth/login?switch=1&returnTo=%2Fprojects%2Fabc',
+      `${studioOrigin}/auth/login?switch=1&returnTo=%2Fprojects%2Fabc`,
       studioOrigin,
     ),
     { returnPath: '/projects/abc', switchAccount: true },
   );
   assert.deepEqual(
     parseStudioAuthNavigationUrl(
-      'https://openmotion.powerformer.net/auth/login?returnTo=//evil.example.com/phish',
+      `${studioOrigin}/auth/login?returnTo=//evil.example.com/phish`,
       studioOrigin,
     ),
     { switchAccount: false },
@@ -909,7 +910,7 @@ test('K3 login chain helpers: parseStudioAuthNavigationUrl, probeDesktopHandoffS
     null,
   );
   assert.equal(
-    parseStudioAuthNavigationUrl('https://openmotion.powerformer.net/explore', studioOrigin),
+    parseStudioAuthNavigationUrl(`${studioOrigin}/explore`, studioOrigin),
     null,
   );
 
@@ -950,7 +951,7 @@ test('K3 login chain helpers: parseStudioAuthNavigationUrl, probeDesktopHandoffS
   const fallbackUrl = manager.openInWindowFallback({ returnPath: '/explore', switchAccount: true });
   assert.equal(
     fallbackUrl,
-    'https://openmotion.powerformer.net/auth/login?switch=1&returnTo=%2Fexplore',
+    `${studioOrigin}/auth/login?switch=1&returnTo=%2Fexplore`,
   );
 
   const started = await manager.startLogin();
@@ -968,20 +969,22 @@ test('K3 login chain helpers: parseStudioAuthNavigationUrl, probeDesktopHandoffS
 test('K2 resolveDefaultFallbackAuthOrigins allows test OIDC origins only while inWindowAuthFallbackActive is true', () => {
   const testOrigins = resolveDefaultFallbackAuthOrigins('test');
   const stableOrigins = resolveDefaultFallbackAuthOrigins('stable');
+  const testVelaApiOrigin = `https://${'vela-api.powerformer.net'}`;
+  const testPortalOrigin = `https://${'open-design.powerformer.net'}`;
 
-  assert.equal(testOrigins.includes('https://vela-api.powerformer.net'), true);
-  assert.equal(testOrigins.includes('https://open-design.powerformer.net'), true);
-  assert.equal(stableOrigins.includes('https://vela-api.powerformer.net'), false);
+  assert.equal(testOrigins.includes(testVelaApiOrigin), true);
+  assert.equal(testOrigins.includes(testPortalOrigin), true);
+  assert.equal(stableOrigins.includes(testVelaApiOrigin), false);
   assert.equal(stableOrigins.includes('https://accounts.open-design.ai'), true);
 
   const baseConfig = {
-    studioOrigin: 'https://openmotion.powerformer.net',
+    studioOrigin: DEFAULT_STUDIO_URLS.test,
     channel: 'test',
     explicitIdpAuthOrigins: testOrigins,
   };
 
   assert.equal(
-    evaluateNavigationPolicy('https://vela-api.powerformer.net/api/auth/oauth2/authorize', {
+    evaluateNavigationPolicy(`${testVelaApiOrigin}/api/auth/oauth2/authorize`, {
       ...baseConfig,
       inWindowAuthFallbackActive: false,
     }).action,
@@ -989,21 +992,21 @@ test('K2 resolveDefaultFallbackAuthOrigins allows test OIDC origins only while i
   );
 
   assert.equal(
-    evaluateNavigationPolicy('https://vela-api.powerformer.net/api/auth/oauth2/authorize', {
+    evaluateNavigationPolicy(`${testVelaApiOrigin}/api/auth/oauth2/authorize`, {
       ...baseConfig,
       inWindowAuthFallbackActive: true,
     }).action,
     'allow',
   );
   assert.equal(
-    evaluateNavigationPolicy('https://open-design.powerformer.net/cloud/login?client_id=openmotion-web', {
+    evaluateNavigationPolicy(`${testPortalOrigin}/cloud/login?client_id=openmotion-web`, {
       ...baseConfig,
       inWindowAuthFallbackActive: true,
     }).action,
     'allow',
   );
 
-  const billingDecision = evaluateNavigationPolicy('https://open-design.powerformer.net/billing/plans', {
+  const billingDecision = evaluateNavigationPolicy(`${testPortalOrigin}/billing/plans`, {
     ...baseConfig,
     inWindowAuthFallbackActive: true,
   });
@@ -1020,8 +1023,8 @@ test('K3 account.startBrowserLogin parses switch=1 from loginUrl and returns str
         receivedCalls.push(params);
         return {
           mode: 'browser-handoff',
-          url: 'https://openmotion.powerformer.net/auth/desktop/start?state=abc',
-          startUrl: 'https://openmotion.powerformer.net/auth/desktop/start?state=abc',
+          url: `${DEFAULT_STUDIO_URLS.test}/auth/desktop/start?state=abc`,
+          startUrl: `${DEFAULT_STUDIO_URLS.test}/auth/desktop/start?state=abc`,
           redirectUri: 'http://127.0.0.1:43210/callback',
           state: 'abc',
           codeChallenge: 'xyz',

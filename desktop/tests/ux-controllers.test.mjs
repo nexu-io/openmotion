@@ -179,9 +179,9 @@ test('Updater menu presentation and manual feedback handle downloaded, up-to-dat
 });
 
 test('History navigation guard blocks local fallback pages, /auth routes, and foreign origins', () => {
-  const allowed = new Set(['https://open-design.ai', 'https://openmotion.powerformer.net']);
+  const allowed = new Set(['https://open-design.ai', 'https://preview.open-design.ai']);
   assert.equal(isSafeHistoryNavigationTarget('https://open-design.ai/studio/proj-1', allowed), true);
-  assert.equal(isSafeHistoryNavigationTarget('https://openmotion.powerformer.net/explore', allowed), true);
+  assert.equal(isSafeHistoryNavigationTarget('https://preview.open-design.ai/explore', allowed), true);
   assert.equal(isSafeHistoryNavigationTarget('https://open-design.ai/auth/callback', allowed), false);
   assert.equal(isSafeHistoryNavigationTarget('https://open-design.ai/auth', allowed), false);
   assert.equal(isSafeHistoryNavigationTarget('file:///Applications/OpenDesign.app/dist/retry.html', allowed), false);

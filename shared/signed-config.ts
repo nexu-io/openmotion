@@ -307,7 +307,7 @@ export function validateSignedConfigPayloadBounds(
       });
     }
     const argvCheck = validateFirstPartyCommandArgvBounds(cmd.componentId, cmd.argv, urlOpts);
-    if (!argvCheck.ok) {
+    if ('reason' in argvCheck) {
       issues.push({
         path: `firstPartyCommands.${key}.argv`,
         message: argvCheck.reason,
