@@ -164,9 +164,9 @@ export function useMusicBeatAnalysis(): void {
     // dragging unrelated assets.
     //
     // For fallback tracks (audio dropped from Finder with no role/music-id):
-    // always run analysis so the Beat tool becomes usable immediately.
-    (async () => {
-      if (!beatPath || !io) return;
+    // run detection even when there is no saved beat grid.
+    const analyze = async () => {
+      if (!beatPath) return;
       if (!isFallbackTrack) {
         const hasSavedBeats = await readHasSavedBeats(io, beatPath);
         if (cancelled) return;
@@ -191,12 +191,30 @@ export function useMusicBeatAnalysis(): void {
         beatTimes: result.times,
         beatStrengths: result.strengths,
       });
-    })();
+    };
 
+    // Automatic beat detection downloads the entire audio file. Leave the network
+    // to the first frame; a stalled preview must still allow the Beat tool to work.
+    let stopWaiting: (() => void) | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      stopWaiting?.();
+      clearTimeout(timeout);
+      void analyze();
+    };
+    if (usePlayerStore.getState().previewBooted) start();
+    else {
+      stopWaiting = usePlayerStore.subscribe(state => {
+        if (state.timelineProjectId === projectId && state.previewBooted) start();
+      });
+      timeout = setTimeout(start, 8_000);
+    }
     return () => {
       cancelled = true;
+      stopWaiting?.();
+      clearTimeout(timeout);
     };
-  }, [musicSrc, isFallbackTrack, setBeatAnalysis, setBeatEdits, resetBeatHistory]);
+  }, [projectId, musicSrc, isFallbackTrack, setBeatAnalysis, setBeatEdits, resetBeatHistory]);
 
   // ── Persist: register a debounced writer fired by every beat edit/undo/redo.
   //    Flushes any pending write on cleanup so the last edit is never lost. ──
