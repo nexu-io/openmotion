@@ -6,7 +6,6 @@ import {
   initBrowserObservability,
 } from "@openmotion/observability/browser";
 import { MotionApp } from "./motion/MotionApp";
-import { preloadMotionProjectEditor } from './motion/MotionProjectEditor';
 import { ShowThemeToggle } from "./components/ThemeToggle";
 import { readIconTokens } from "./styles/iconTokens";
 import { trackStudioEvent } from "./utils/studioTelemetry";
@@ -158,8 +157,6 @@ function mountStudio() {
     </StrictMode>,
   );
 }
-
-if (document.head.querySelector('link[data-editor-bootstrap]')) preloadMotionProjectEditor();
 
 const initialLocale = readLocale();
 if (isLocaleLoaded(initialLocale)) {

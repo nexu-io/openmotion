@@ -111,6 +111,8 @@ it('mounts a cloud bookmark while the independent sidebar catalog is still pendi
   try {
     await act(async () => root.render(<I18nProvider><MotionApp /></I18nProvider>));
     expect(preloadMotionProjectEditor).toHaveBeenCalledOnce();
+    const openCall = fetcher.mock.calls.findIndex(([url]) => url.includes('/preview/open'));
+    expect(fetcher.mock.invocationCallOrder[openCall]).toBeLessThan(vi.mocked(preloadMotionProjectEditor).mock.invocationCallOrder[0]);
     expect(container.querySelector('[data-viewer-project]')).toBeNull();
     await act(async () => confirmProject(Response.json({ projectId: id, sessionId: session, artifact })));
     expect(container.querySelector('[data-viewer-project]')?.getAttribute('data-viewer-project')).toBe(id);

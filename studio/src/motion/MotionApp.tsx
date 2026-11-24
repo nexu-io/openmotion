@@ -82,13 +82,6 @@ function MotionAppContent() {
     if (ready || settingsPage) return;
     const controller = new AbortController();
     let previewLease: PreparedPreviewLease | undefined;
-    if (projectId && validWorkspaceProject(projectId) && (sessionId === null || validWorkspaceProject(sessionId))
-      && new URLSearchParams(location.search).get('templates') !== '1') {
-      preloadMotionProjectEditor();
-      host?.preloadEditorHost?.();
-      const origin = isolatedPreviewOrigin();
-      if (origin) previewLease = preparePreviewLease(projectId, origin, controller.signal);
-    }
     setError('');
     async function resolve() {
       const resolved = await resolveWorkspaceRoute(projectId, sessionId, libraryOnly, controller.signal);
@@ -110,6 +103,14 @@ function MotionAppContent() {
       controller.abort();
       setError((err as Error).message);
     });
+    if (projectId && validWorkspaceProject(projectId) && (sessionId === null || validWorkspaceProject(sessionId))
+      && new URLSearchParams(location.search).get('templates') !== '1') {
+      // Start the small route and grant requests before the editor chunks fill the connection.
+      const origin = isolatedPreviewOrigin();
+      if (origin) previewLease = preparePreviewLease(projectId, origin, controller.signal);
+      preloadMotionProjectEditor();
+      host?.preloadEditorHost?.();
+    }
     return () => controller.abort();
   }, [route, attempt, libraryOnly, settingsPage, host]);
   const closeLibrary = () => {
