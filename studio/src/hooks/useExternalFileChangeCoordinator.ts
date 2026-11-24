@@ -98,6 +98,7 @@ interface ExternalFileChangeCoordinatorOptions {
   refreshFileTree?: () => void | Promise<void>;
   /** Refresh the server-backed history view when another actor changes history without a file event. */
   onHistoryChanged?: (writeToken?: string) => void | Promise<void>;
+  presentPendingPeerChange?: (payload: unknown) => void;
 }
 
 export interface ExternalFileChangeCoordinatorHandle {
@@ -243,6 +244,7 @@ export function useExternalFileChangeCoordinator({
   recoveryFilePath = activeCompPath,
   pendingTimelineEditPathRef,
   drainPendingChanges,
+  presentPendingPeerChange,
   getPendingCandidate,
   discardPendingChanges,
   reloadPreview,
@@ -576,13 +578,14 @@ export function useExternalFileChangeCoordinator({
         return;
       }
 
+      presentPendingPeerChange?.(payload);
       const waiting = pendingPayloadRef.current?.payload;
       pendingPayloadRef.current = {
         payload: waiting == null ? payload : mergeFileChangePayloads(waiting, payload),
       };
       void startDrainLoop();
     },
-    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange],
+    [projectId, pendingTimelineEditPathRef, startDrainLoop, onAcceptedPersistedFileChange, presentPendingPeerChange],
   );
 
   const processChangeRef = useRef(processChange);

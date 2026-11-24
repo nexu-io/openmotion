@@ -24,6 +24,25 @@ function beginPresentation(frame: HTMLIFrameElement, path: string, previous?: Co
   } };
 }
 
+/** Show a non-geometric peer edit while the project save is still in flight. */
+export async function presentPendingCanvasPaint(
+  project: string, path: string, frameRef: RefObject<HTMLIFrameElement | null>,
+  read: () => Promise<{ content?: string; version?: string | null }> | undefined,
+) {
+  const frame = frameRef.current;
+  const group = frame && presentations.get(frame)?.get(path);
+  if (!frame || !group) return;
+  const previous = group.previous ?? confirmedSource(project, path);
+  if (!previous) return;
+  const file = await read();
+  if (typeof file?.content !== "string" || !file.version || previous.version === file.version) return;
+  const current = { content: file.content, version: file.version };
+  const isCurrent = () => frameRef.current === frame && !isPreviewChanging() && presentations.get(frame)?.get(path) === group;
+  if (await tryApplyPeerChanges(frame, { path, previous, current }, isCurrent, "paint-only")) {
+    group.previous = current;
+  }
+}
+
 /** Use the snapshots already held by the patch writer to confirm what the mounted canvas shows. */
 export async function submitIsolatedCanvasEdit(
   project: string, commands: CompositionEdit[], versions: Record<string, string>, history: StudioWriteHistory | undefined,

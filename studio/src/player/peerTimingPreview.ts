@@ -190,7 +190,7 @@ export async function tryApplyPeerChanges(
   frame: HTMLIFrameElement | null,
   update: PeerTimingUpdate,
   isCurrent: () => boolean,
-  options?: "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string },
+  options?: "paint-only" | "temporary" | "keep-visible" | { gestureId?: string } | { structureDraftId: string },
 ): Promise<boolean> {
   if (!frame || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
@@ -203,7 +203,7 @@ export async function tryApplyPeerChanges(
   const measured = typeof options === "object" && "gestureId" in options && !!options.gestureId;
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
     await diffMountedPreview(previous.content, current.content, measured);
-  if (!changes || !isCurrent()) return false;
+  if (!changes || !isCurrent() || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return false;
   const canAdvance = document.canRebind || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
