@@ -66,7 +66,13 @@ function ModelChoices({ capability, close, openSettings }: { capability?: ModelK
         <span className="om-model-choice-label"><strong>{model.label}</strong><small className="om-muted">{available.find(provider => provider.id === model.provider)?.label ?? 'OpenDesign'}</small></span>
         {directory.data?.defaults[kind] === model.id && <RemixIcon name="check-line" size={16} />}
       </Button>)}
-      {!models.length && <div className="om-empty om-muted">{t('No enabled models. Refresh the OpenDesign model catalog in Settings.')}</div>}
+      {!models.length && (
+        <div className="om-empty om-muted">
+          {t(!query.trim() && directory.data.models.length === 0
+            ? 'No media models available yet. Check your OpenDesign plan or sync models in Settings.'
+            : 'No enabled models. Refresh the OpenDesign model catalog in Settings.')}
+        </div>
+      )}
     </div>}
     <div className="om-settings-row om-selection-footer">
       <Button variant="ghost" className="om-button h-auto" onClick={() => { close(); openSettings(); }}><RemixIcon name="settings-3-line" size={15} />{t('Model gateway')}</Button>

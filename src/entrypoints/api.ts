@@ -2617,7 +2617,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   app.route('/', createArchivesRouter({ archives }));
   app.route('/motion-api/assets', createAssetRoutes({ assetService: assets }));
   app.route('/motion-api', createExportRoutes({ exportService: exportsService }));
-  app.route('/motion-api/models', createModelRoutes({ gateway, authStore, mediaJobs }));
+  app.route(
+    '/motion-api/models',
+    createModelRoutes({ gateway, authStore, mediaJobs, consoleUrl: config.OPENDESIGN_CONSOLE_URL }),
+  );
   app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway, cache: authCache }));
 
   // -------------------------------------------------------------------------

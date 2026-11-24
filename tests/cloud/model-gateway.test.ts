@@ -199,7 +199,7 @@ describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero 
         body: typeof init.body === 'string' ? init.body : undefined,
       });
 
-      if (url === 'https://amr-api.open-design.ai/api/v1/media/models') {
+      if (url === 'https://amr-api.open-design.ai/api/v1/media/models?include_audio=true') {
         return new Response(
           JSON.stringify({
             models: [
@@ -223,6 +223,23 @@ describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero 
                     },
                   },
                 },
+              },
+              {
+                model: 'elevenlabs-v3',
+                label: 'Eleven v3',
+                kind: 'audio_speech',
+                enabled: true,
+              },
+              {
+                model: 'elevenlabs-music-v2',
+                label: 'ElevenLabs Music',
+                kind: 'audio_music',
+                enabled: true,
+              },
+              {
+                model: 'sound-fx-unsupported',
+                kind: 'audio_sound_effects',
+                enabled: true,
               },
             ],
           }),
@@ -312,11 +329,13 @@ describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero 
       idempotencyKey: 'idem-job-1',
     };
 
-    // 1. Model catalog discovery
+    // 1. Model catalog discovery (requests include_audio=true and maps live speech + music without unsupported kinds)
     const models = await gateway.listMediaModels(ctx);
     assert.ok(models.some((m) => m.id === 'opendesign:wan-2.7'));
     assert.ok(models.some((m) => m.id === 'opendesign:flux-pro' && m.supportsImageReference === true));
-    assert.ok(models.some((m) => m.id === 'opendesign:elevenlabs-music-v2'));
+    assert.ok(models.some((m) => m.id === 'opendesign:elevenlabs-v3' && m.modality === 'audio' && m.mode === 'text-to-speech' && m.source === 'live'));
+    assert.ok(models.some((m) => m.id === 'opendesign:elevenlabs-music-v2' && m.modality === 'audio' && m.mode === 'text-to-audio' && m.source === 'live'));
+    assert.equal(models.some((m) => m.modelId === 'sound-fx-unsupported'), false);
     assert.equal(calls[0].headers.authorization, undefined);
     assert.equal(calls[0].headers['x-internal-token'], 'test-s2s-service-key');
     assert.equal(calls[0].headers['x-workspace-team-id'], 'vela-ws-88');
@@ -376,6 +395,98 @@ describe('OpenDesignModelGateway Direct S2S HTTP Contract (Zero vela-cli / Zero 
       () => gateway.transcribeAudio(ctx, { audioWav: generateDeterministicWav('asr') }),
       (err: unknown) => isCloudError(err) && err.code === 'FEATURE_DEFERRED_P2' && err.status === 501,
     );
+  });
+
+  it('returns an honest empty catalog without fabricated fallback models, skips caching empty results, and scopes cache by actor', async () => {
+    const store = new Map<string, string>();
+    const deletedKeys: string[] = [];
+    const cache = {
+      async get(key: string) {
+        return store.get(key) ?? null;
+      },
+      async set(key: string, value: string) {
+        store.set(key, value);
+      },
+      async del(key: string) {
+        deletedKeys.push(key);
+        store.delete(key);
+      },
+    };
+
+    let memberARequests = 0;
+    let memberBRequests = 0;
+    let grantMemberA = false;
+
+    const mockFetcher: typeof fetch = async (input, init = {}) => {
+      const url = String(input);
+      assert.equal(url, 'https://amr-api.open-design.ai/api/v1/media/models?include_audio=true');
+      const hdrs = new Headers(init.headers);
+      const memberId = hdrs.get('x-workspace-member-id');
+      if (memberId === 'mem-a') {
+        memberARequests++;
+        const models = grantMemberA
+          ? [{ model: 'flux-pro', kind: 'image', enabled: true }]
+          : [];
+        return new Response(JSON.stringify({ models }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      memberBRequests++;
+      return new Response(
+        JSON.stringify({ models: [{ model: 'wan-2.7', kind: 'video', enabled: true }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+
+    const gateway = new OpenDesignModelGateway({
+      apiUrl: 'https://amr-api.open-design.ai',
+      linkUrl: 'https://amr-link.open-design.ai',
+      internalToken: 'test-token',
+      billingSyncEnabled: false,
+      fetcher: mockFetcher,
+      cache,
+    });
+
+    const ctxA = {
+      workspaceId: randomUUID(),
+      externalWorkspaceId: 'ws-shared',
+      appUserId: 'app-user-a',
+      amrWorkspaceMemberId: 'mem-a',
+    };
+    const ctxB = {
+      workspaceId: ctxA.workspaceId,
+      externalWorkspaceId: 'ws-shared',
+      appUserId: 'app-user-b',
+      amrWorkspaceMemberId: 'mem-b',
+    };
+
+    // Member A initially receives 0 models: MUST be empty (no fabricated fallback) and NOT cached.
+    const emptyModels = await gateway.listMediaModels(ctxA);
+    assert.deepEqual(emptyModels, []);
+    assert.equal(memberARequests, 1);
+    assert.equal(store.size, 0);
+    assert.equal(deletedKeys.length, 1);
+
+    // Member B in the same external workspace has its own isolated cache entry.
+    const memberBModels = await gateway.listMediaModels(ctxB);
+    assert.deepEqual(
+      memberBModels.map((m) => m.id),
+      ['opendesign:wan-2.7'],
+    );
+    assert.equal(memberBRequests, 1);
+    // Second call for Member B hits cache.
+    await gateway.listMediaModels(ctxB);
+    assert.equal(memberBRequests, 1);
+
+    // After Member A upgrades, the next call re-fetches immediately (empty catalog was never cached).
+    grantMemberA = true;
+    const upgradedModels = await gateway.listMediaModels(ctxA);
+    assert.deepEqual(
+      upgradedModels.map((m) => m.id),
+      ['opendesign:flux-pro'],
+    );
+    assert.equal(memberARequests, 2);
   });
 });
 
@@ -507,5 +618,63 @@ describe('Hono Routes: /motion-api/models/* & /motion-api/account/*', () => {
     });
     assert.equal(okSwitch.status, 200);
     assert.equal(((await okSwitch.json()) as { activeWorkspace: { id: string } }).activeWorkspace.id, ws2.workspace.id);
+  });
+
+  it('reports unavailable status, honest reason, omits placeholder plan, and exposes availableModelCount=0 when upstream returns no models', async () => {
+    const config = makeGatewayConfig({
+      OPENDESIGN_CONSOLE_URL: 'https://console.example.test',
+    });
+    const authStore = new InMemoryAuthStore();
+    const ws = authStore.seedWorkspace({ role: 'owner', name: 'Free Studio' });
+    const session = await createBrowserSession(authStore, {
+      userId: ws.user.id,
+      workspaceId: ws.workspace.id,
+    });
+
+    const gateway = new OpenDesignModelGateway({
+      apiUrl: 'https://amr-api.open-design.ai',
+      linkUrl: 'https://amr-link.open-design.ai',
+      internalToken: 'test-token',
+      billingSyncEnabled: false,
+      fetcher: async () =>
+        new Response(JSON.stringify({ models: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    });
+
+    const app = new Hono<AuthEnv>();
+    app.use('/motion-api/*', createAuthMiddleware({ config, store: authStore }));
+    app.route(
+      '/motion-api/models',
+      createModelRoutes({ gateway, authStore, consoleUrl: config.OPENDESIGN_CONSOLE_URL }),
+    );
+    app.route('/motion-api/account', createAccountRoutes({ config, authStore, gateway }));
+
+    const statusRes = await app.request('/motion-api/models/status', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(statusRes.status, 200);
+    const statusBody = (await statusRes.json()) as {
+      consoleUrl?: string;
+      providers: Array<{ available: boolean; plan?: string; reason: string }>;
+      capabilities: Array<{ available: boolean; modelIds: string[] }>;
+    };
+    assert.equal(statusBody.consoleUrl, 'https://console.example.test');
+    assert.equal(statusBody.providers[0].available, false);
+    assert.equal(statusBody.providers[0].plan, undefined);
+    assert.match(statusBody.providers[0].reason, /No media models are currently available/i);
+    assert.ok(statusBody.capabilities.every((cap) => !cap.available && cap.modelIds.length === 0));
+
+    const summaryRes = await app.request('/motion-api/account/summary', {
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${session.token}` },
+    });
+    assert.equal(summaryRes.status, 200);
+    const summaryBody = (await summaryRes.json()) as {
+      billing: { unavailable?: boolean };
+      modelGateway: { provider: string; mode: string; availableModelCount?: number };
+    };
+    assert.equal(summaryBody.billing.unavailable, true);
+    assert.equal(summaryBody.modelGateway.availableModelCount, 0);
   });
 });

@@ -20,6 +20,23 @@ export const ACCOUNT_OFFER: AccountOffer | null = {
   startsAt: '2026-11-19T00:00:00Z',
 };
 
+export const DEFAULT_CONSOLE_URL = 'https://open-design.ai';
+
+export function buildSubscriptionUrl(
+  consoleUrl?: string | null,
+  entrySource = 'openmotion_manage_subscription',
+): string {
+  const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
+  url.search = new URLSearchParams({
+    billing: 'plan',
+    od_origin: 'openmotion',
+    od_entry_source: entrySource,
+    od_entry_id: crypto.randomUUID(),
+    od_entry_at: new Date().toISOString(),
+  }).toString();
+  return url.href;
+}
+
 export function activeAccountOffer(now = Date.now(), offer = ACCOUNT_OFFER) {
   if (!offer || now < Date.parse(offer.startsAt)) return null;
   return offer.endsAt === undefined || now <= Date.parse(offer.endsAt) ? offer : null;

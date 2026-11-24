@@ -619,6 +619,7 @@ export class McpToolDispatcher {
             plan: billing.plan,
             mediaEntitlement: billing.mediaEntitlement,
             ...(billing.hasBalance !== undefined ? { hasBalance: billing.hasBalance } : {}),
+            ...(billing.unavailable ? { unavailable: true } : {}),
           }
         : null;
       return {
