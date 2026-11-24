@@ -207,3 +207,30 @@ it('never treats cloud /motion-api/tracking enabled=true as device-ID consent an
   expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceId');
   expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceIdConsent');
 });
+
+it('propagates explicit deviceIdConsented=true from cloud /motion-api/tracking into One Tap odEntry attribution', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ enabled: true, locked: false, mode: 'cloud', deviceIdConsented: true })),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?od_origin=open_design&od_entry_id=ent_2&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T00:00:00.000Z&od_device_id=dev_consented_1',
+  );
+  const tracking = await import('./tracking');
+  const { isMotionTrackingConsented, setMotionTrackingConsented } = await import('./trackingIdentity');
+  const { collectOneTapAttribution } = await import('./googleOneTap');
+
+  setMotionTrackingConsented(false);
+  await tracking.initializeTracking();
+  expect(isMotionTrackingConsented()).toBe(true);
+
+  const collected = collectOneTapAttribution();
+  expect(collected.attribution.odEntry).toMatchObject({
+    sourceProduct: 'open_design',
+    entryId: 'ent_2',
+    odDeviceId: 'dev_consented_1',
+    odDeviceIdConsent: true,
+  });
+});

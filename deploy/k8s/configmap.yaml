@@ -58,8 +58,8 @@ data:
   OPENDESIGN_CONSOLE_URL: "https://open-design.ai/cloud"
   OPENDESIGN_PRICING_URL: "https://open-design.ai/pricing"
   # Dedicated cluster-internal AMR service URL for One Tap S2S (challenge / exchange / handoff-ticket).
-  # Never falls back to public OPENDESIGN_API_URL.
-  OPENDESIGN_ONE_TAP_INTERNAL_URL: "http://amr-api.amr.svc.cluster.local:8080"
+  # Never falls back to public OPENDESIGN_API_URL. Matches AMR API Service port 18080.
+  OPENDESIGN_ONE_TAP_INTERNAL_URL: "http://amr-api.amr.svc.cluster.local:18080"
   OPENDESIGN_ASR_URL: ""
   OPENDESIGN_BILLING_SYNC_ENABLED: "false"
   ALLOW_DOH_FAKEIP_FALLBACK: "false"

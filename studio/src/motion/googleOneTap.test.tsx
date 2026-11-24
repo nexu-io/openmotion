@@ -26,6 +26,7 @@ import {
 } from './googleOneTap';
 import { getMotionTrackingUserId, setMotionTrackingUserId } from './tracking';
 import { setMotionTrackingConsented } from './trackingIdentity';
+import { WorkspaceGoogleOneTap } from './WorkspaceFrame';
 
 const tracked: Array<{ event: string; properties: Record<string, unknown> }> = [];
 vi.mock('./tracking', async importOriginal => {
@@ -567,7 +568,21 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
     },
   };
 
+  let signedInAccount = false;
+  let accountSummaryFetches = 0;
   const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+    if (String(url).includes('account/summary')) {
+      accountSummaryFetches += 1;
+      if (!signedInAccount) {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+      return Response.json({
+        authenticated: true,
+        authMode: 'oidc',
+        consoleUrl: 'https://open-design.ai/cloud',
+        user: { id: 'om_u_ui', appUserId: 'usr_ui_retry', email: 'ui@example.com', displayName: 'UI User' },
+      });
+    }
     if (url === '/auth/one-tap/challenge') {
       challengeSeq += 1;
       if (challengeSeq === 1) {
@@ -586,6 +601,7 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
     if (url === '/auth/one-tap') {
       const body = JSON.parse(String(init?.body)) as { challengeId: string };
       expect(body.challengeId).toBe('otc_ui_retry_2');
+      signedInAccount = true;
       return Response.json({
         authenticated: true,
         user: { id: 'om_u_ui', appUserId: 'usr_ui_retry', email: 'ui@example.com', displayName: 'UI User' },
@@ -598,28 +614,17 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   });
   vi.stubGlobal('fetch', fetchSpy);
 
-  const refreshAccount = vi.fn(async () => {});
-
   function StudioRetryHarness() {
     const toast = useToast();
     const [draft, setDraft] = useState('My unsaved storyboard brief');
     const [filter, setFilter] = useState('cinema');
     return (
       <I18nProvider initialLocale="en">
-        <MotionGoogleOneTap
-          account={{ state: 'signed-out', consoleUrl: 'https://open-design.ai/cloud', authMode: 'oidc' }}
-          accountError={false}
+        <WorkspaceGoogleOneTap
           bfBannerVisible={false}
-          refreshAccount={refreshAccount}
-          onError={errorMessage =>
-            toast.showToast(errorMessage, 'error', 'feedback', {
-              key: 'onetap-retry',
-              label: 'Retry',
-              onClick: () => {
-                retryMotionOneTap();
-              },
-            })
-          }
+          hostChrome={false}
+          showToast={toast.showToast}
+          dismissToast={toast.dismissToast}
         />
         <StudioToastViewport {...toast} />
         <textarea
@@ -645,8 +650,15 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   act(() => {
     root!.render(<StudioRetryHarness />);
   });
+  // Allow useAccountSummary() initial guest fetch (/api/account/summary -> 401) to settle
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(accountSummaryFetches).toBeGreaterThanOrEqual(1);
 
-  // First challenge fails with 503 -> error alert appears with a real clickable Retry button
+  // First challenge fails with 503 -> error alert appears with the real production Retry button
   await act(async () => {
     await vi.advanceTimersByTimeAsync(MOTION_ONETAP_DELAY_MS);
     await Promise.resolve();
@@ -661,7 +673,7 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   );
   expect(retryBtn).toBeTruthy();
 
-  // Click the actual in-place Retry button -> acquires fresh challenge #2 and completes sign-in
+  // Click the actual production Retry button -> acquires fresh challenge #2 and completes sign-in
   await act(async () => {
     retryBtn!.click();
     await vi.advanceTimersByTimeAsync(0);
@@ -678,7 +690,7 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
     await Promise.resolve();
   });
 
-  expect(refreshAccount).toHaveBeenCalledTimes(1);
+  expect(accountSummaryFetches).toBeGreaterThanOrEqual(2);
   expect(getMotionTrackingUserId()).toBe('usr_ui_retry');
   // Draft and filter state stay 100% intact across failure and retry
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="Draft brief"]')?.value).toBe(
@@ -687,6 +699,29 @@ it('shows an actionable in-place Retry button on initial challenge failure and p
   expect(container.querySelector<HTMLSelectElement>('select[aria-label="Category filter"]')?.value).toBe(
     'cinema',
   );
+});
+
+it('parses real od-landing compact od_attr cookie keys (s/m/c/ct/tm/lp) and treats ref as organic referrer without forwarding as referralCode', () => {
+  history.replaceState(null, '', '/explore');
+  document.cookie = `od_attr=${encodeURIComponent(
+    JSON.stringify({ s: 'x_launch', m: 'social', c: 'bf2026', ct: 'hero', tm: 'motion', lp: '/zh/motion/' }),
+  )}; path=/`;
+  const compact = collectOneTapAttribution();
+  expect(compact.attribution.utmSource).toBe('x_launch');
+  expect(compact.attribution.utmMedium).toBe('social');
+  expect(compact.attribution.utmCampaign).toBe('bf2026');
+  expect(compact.attribution.utmContent).toBe('hero');
+  expect(compact.attribution.utmTerm).toBe('motion');
+  expect(compact.attribution.landingPath).toBe('/zh/motion/');
+  expect(compact.referralCode).toBeUndefined();
+
+  // Organic referrer fallback when `s` is absent: `ref` is referrer hostname, NEVER an invite referralCode
+  document.cookie = `od_attr=${encodeURIComponent(JSON.stringify({ ref: 'google.com', lp: '/pricing/' }))}; path=/`;
+  const organic = collectOneTapAttribution();
+  expect(organic.attribution.utmSource).toBe('google.com');
+  expect(organic.attribution.utmMedium).toBe('referrer');
+  expect(organic.attribution.landingPath).toBe('/pricing/');
+  expect(organic.referralCode).toBeUndefined();
 });
 
 it('supports cross-tab logout cancellation and in-place retry with a fresh challenge', async () => {

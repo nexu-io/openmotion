@@ -42,14 +42,14 @@ export function initializeTracking() {
         if (request.signal.aborted) return;
         tracking.setEnabled(config.enabled);
         // Server availability (`config.enabled`) is NEVER user consent for device-ID transmission.
-        // Only revoke consent if telemetry is disabled or accept an explicit consent flag.
+        // Reflect the explicit `deviceIdConsented` boolean returned by /motion-api/tracking.
         if (!config.enabled) {
           setMotionTrackingConsented(false);
-        } else if (
-          'deviceIdConsented' in config &&
-          (config as { deviceIdConsented?: unknown }).deviceIdConsented === true
-        ) {
-          setMotionTrackingConsented(true);
+        } else {
+          setMotionTrackingConsented(
+            'deviceIdConsented' in config &&
+              (config as { deviceIdConsented?: unknown }).deviceIdConsented === true,
+          );
         }
         configuration = config.enabled ? 'ready' : 'disabled'; retryAt = 0;
         return;

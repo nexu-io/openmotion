@@ -31,7 +31,7 @@ metadata:
     # script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client;
     # style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style;
     # frame-src 'self' https://accounts.google.com/gsi/;
-    # connect-src 'self' https://accounts.google.com/gsi/ https: wss:;
+    # connect-src 'self' https://accounts.google.com/gsi/ http://127.0.0.1:* http://localhost:* https: wss:;
     # Cookie-less Preview Subdomain Isolation (c5):
     # - Main Studio/API host (`motion.example.com`) issues host-only HttpOnly session cookies (never Domain=.example.com).
     # - Dedicated preview host (`preview.openmotion.example.com`) receives zero browser session cookies and is

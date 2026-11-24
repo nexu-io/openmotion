@@ -201,30 +201,6 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   });
   const navigationError = blockerError ?? workspace.navigationError;
   const navigationToast = useToast();
-  const oneTapErrorToastIdRef = useRef<number | null>(null);
-  const handleOneTapError = useCallback(
-    (errorMessage: string) => {
-      oneTapErrorToastIdRef.current = navigationToast.showToast(
-        errorMessage,
-        'error',
-        'feedback',
-        {
-          key: 'onetap-retry',
-          label: t('Retry'),
-          onClick: () => {
-            retryMotionOneTap();
-          },
-        },
-      );
-    },
-    [navigationToast.showToast, t],
-  );
-  const handleOneTapSuccess = useCallback(() => {
-    if (oneTapErrorToastIdRef.current !== null) {
-      navigationToast.dismissToast(oneTapErrorToastIdRef.current);
-      oneTapErrorToastIdRef.current = null;
-    }
-  }, [navigationToast.dismissToast]);
   useEffect(() => {
     if (!navigationError) return;
     const id = navigationToast.showToast(navigationError.message, 'error', 'feedback');
@@ -577,8 +553,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     <WorkspaceGoogleOneTap
       bfBannerVisible={bfBannerVisible}
       hostChrome={hostChrome}
-      onError={handleOneTapError}
-      onSuccess={handleOneTapSuccess}
+      showToast={navigationToast.showToast}
+      dismissToast={navigationToast.dismissToast}
     />
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
@@ -678,15 +654,40 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
 export function WorkspaceGoogleOneTap({
   bfBannerVisible,
   hostChrome,
-  onError,
-  onSuccess,
+  showToast,
+  dismissToast,
 }: {
   bfBannerVisible: boolean;
   hostChrome: boolean;
-  onError: (message: string) => void;
-  onSuccess?: () => void;
+  showToast: ReturnType<typeof useToast>['showToast'];
+  dismissToast: ReturnType<typeof useToast>['dismissToast'];
 }) {
+  const { t } = useI18n();
   const { account, error, refresh } = useAccountSummary();
+  const oneTapErrorToastIdRef = useRef<number | null>(null);
+  const handleOneTapError = useCallback(
+    (errorMessage: string) => {
+      oneTapErrorToastIdRef.current = showToast(
+        errorMessage,
+        'error',
+        'feedback',
+        {
+          key: 'onetap-retry',
+          label: t('Retry'),
+          onClick: () => {
+            retryMotionOneTap();
+          },
+        },
+      );
+    },
+    [showToast, t],
+  );
+  const handleOneTapSuccess = useCallback(() => {
+    if (oneTapErrorToastIdRef.current !== null) {
+      dismissToast(oneTapErrorToastIdRef.current);
+      oneTapErrorToastIdRef.current = null;
+    }
+  }, [dismissToast]);
   return (
     <MotionGoogleOneTap
       account={account}
@@ -694,8 +695,8 @@ export function WorkspaceGoogleOneTap({
       bfBannerVisible={bfBannerVisible}
       hostChrome={hostChrome}
       refreshAccount={() => refresh(false)}
-      onError={onError}
-      onSuccess={onSuccess}
+      onError={handleOneTapError}
+      onSuccess={handleOneTapSuccess}
     />
   );
 }

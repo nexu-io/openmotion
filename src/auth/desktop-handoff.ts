@@ -97,9 +97,15 @@ export class DesktopOidcProvenanceStore {
       let record: DesktopOidcProvenanceRecord | null = null;
       if (this.cache) {
         const key = this.cacheKey(tokenHash);
-        const raw = await this.cache.get(key);
+        const raw =
+          typeof this.cache.getdel === 'function'
+            ? await this.cache.getdel(key)
+            : await (async () => {
+                const value = await this.cache!.get(key);
+                if (value !== null) await this.cache!.del(key);
+                return value;
+              })();
         if (!raw) return null;
-        await this.cache.del(key);
         try {
           const parsed = JSON.parse(raw) as Partial<DesktopOidcProvenanceRecord>;
           if (

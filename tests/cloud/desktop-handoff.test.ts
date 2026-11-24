@@ -8,7 +8,10 @@ import {
   DESKTOP_HANDOFF_TTL_SEC,
   type DesktopHandoffExchangeResponse,
 } from '../../shared/desktop-auth-handoff.ts';
-import { createDesktopHandoffRoutes } from '../../src/auth/desktop-handoff.ts';
+import {
+  createDesktopHandoffRoutes,
+  DesktopOidcProvenanceStore,
+} from '../../src/auth/desktop-handoff.ts';
 import {
   AmrIdentityClient,
   DESKTOP_OIDC_CTX_COOKIE_NAME,
@@ -989,6 +992,27 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.equal(unknownBody.oneTapVerified, true);
       assert.equal(unknownBody.planTier, 'unknown');
       assert.equal(unknownBody.pricingHandoffUrl, undefined);
+    });
+
+    it('guarantees single-use DesktopOidcProvenanceStore consumption across two API replicas sharing one cache', async () => {
+      const sharedCache = new InMemoryAuthCache();
+      const replicaA = new DesktopOidcProvenanceStore(sharedCache);
+      const replicaB = new DesktopOidcProvenanceStore(sharedCache);
+
+      await replicaA.save('prov_hash_atomic', {
+        userId: 'u_atomic',
+        codeChallenge: 'challenge_atomic',
+        redirectUri: 'http://127.0.0.1:45200/callback',
+        oneTapVerified: true,
+      });
+
+      const [resA, resB] = await Promise.all([
+        replicaA.consume('prov_hash_atomic'),
+        replicaB.consume('prov_hash_atomic'),
+      ]);
+      const winners = [resA, resB].filter(Boolean);
+      assert.equal(winners.length, 1, 'Exactly one replica may consume a desktop provenance record');
+      assert.equal(winners[0]?.oneTapVerified, true);
     });
   });
 });

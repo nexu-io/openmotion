@@ -1401,6 +1401,8 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       assert.match(csp, /style-src[^;]*https:\/\/accounts\.google\.com\/gsi\/style/);
       assert.match(csp, /frame-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
       assert.match(csp, /connect-src[^;]*https:\/\/accounts\.google\.com\/gsi\//);
+      assert.match(csp, /connect-src[^;]*http:\/\/127\.0\.0\.1:\*/);
+      assert.match(csp, /connect-src[^;]*http:\/\/localhost:\*/);
       assert.equal(
         htmlRes.headers.get('permissions-policy'),
         'identity-credentials-get=(self "https://accounts.google.com")',
@@ -1410,9 +1412,213 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
 
       const ingressYaml = await readFile(path.resolve('deploy/k8s/ingress.yaml'), 'utf8');
       assert.match(ingressYaml, /accounts\.google\.com\/gsi/);
+      assert.match(ingressYaml, /http:\/\/127\.0\.0\.1:\*/);
       assert.match(ingressYaml, /identity-credentials-get=\(self "https:\/\/accounts\.google\.com"\)/);
       assert.match(ingressYaml, /Cross-Origin-Opener-Policy:\s*same-origin-allow-popups/);
       assert.doesNotMatch(ingressYaml, /Cross-Origin-Opener-Policy:\s*same-origin["';\s]*$/m);
+
+      // K8s ConfigMap & NetworkPolicy alignment for internal AMR One Tap service (port 18080)
+      const configMapYaml = await readFile(path.resolve('deploy/k8s/configmap.yaml'), 'utf8');
+      assert.match(configMapYaml, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"http:\/\/amr-api\.amr\.svc\.cluster\.local:18080"/);
+      const netPolYaml = await readFile(path.resolve('deploy/k8s/networkpolicy.yaml'), 'utf8');
+      assert.match(netPolYaml, /kubernetes\.io\/metadata\.name:\s*amr[\s\S]*?port:\s*18080/);
+
+      // /motion-api/tracking consent gate: default false, explicit consent cookie enables deviceIdConsented=true
+      const defaultTrackCfg = await app.request('/motion-api/tracking');
+      assert.equal(defaultTrackCfg.status, 200);
+      assert.equal(((await defaultTrackCfg.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, false);
+
+      const grantConsentRes = await app.request('/motion-api/tracking/consent', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceIdConsented: true }),
+      });
+      assert.equal(grantConsentRes.status, 200);
+      const consentCookie = extractCookieValue(grantConsentRes.headers.getSetCookie(), 'om_metrics_consent');
+      assert.equal(consentCookie, 'granted');
+      const consentedTrackCfg = await app.request('/motion-api/tracking', {
+        headers: { Cookie: `om_metrics_consent=${consentCookie}` },
+      });
+      assert.equal(((await consentedTrackCfg.json()) as { deviceIdConsented?: boolean }).deviceIdConsented, true);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves event utm_source in PostHog payload, returns retryable 503 on PostHog outage, and revokes session if logout races createSession commit', async () => {
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'om-onetap-r3-'));
+    try {
+      const store = new InMemoryAuthStore();
+      const cache = new InMemoryAuthCache();
+      const config = makeConfig();
+      let posthogFailOnce = true;
+      const outboundBatches: Array<{ batch: Array<{ event: string; properties: Record<string, unknown> }> }> = [];
+
+      const onTrackingEvents = createCloudPosthogDispatcher({
+        config,
+        host: 'https://us.i.posthog.com',
+        token: 'phc_test_r3_token_12345',
+        fetch: (async (_url, init) => {
+          if (posthogFailOnce) {
+            posthogFailOnce = false;
+            return new Response('rate limited', { status: 429 });
+          }
+          outboundBatches.push(JSON.parse(String(init?.body)));
+          return Response.json({ status: 1 });
+        }) as typeof fetch,
+      });
+
+      const amrIdentity = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+            return Response.json({
+              challengeId: 'otc_r3_race',
+              nonce: 'nonce_r3_race',
+              clientId: 'gid-r3',
+              expiresAt: '2026-11-24T12:00:00.000Z',
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+            return Response.json({
+              ok: true,
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              isNewUser: false,
+              planTier: 'free',
+            });
+          }
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/auth_r3_u`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_r3',
+                workspaceName: 'WS R3',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_r3',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          throw new Error(`Unexpected AMR fetch: ${url}`);
+        }) as typeof fetch,
+      });
+
+      // Intercept createSession to inject a concurrent /auth/logout AFTER pre-insert checks pass
+      // and BEFORE createSession resolves!
+      let triggerLogoutDuringCommit: (() => Promise<void>) | null = null;
+      const originalCreateSession = store.createSession.bind(store);
+      store.createSession = async (input) => {
+        const created = await originalCreateSession(input);
+        if (triggerLogoutDuringCommit) {
+          const fn = triggerLogoutDuringCommit;
+          triggerLogoutDuringCommit = null;
+          await fn();
+        }
+        return created;
+      };
+
+      const { app } = createApiApp({
+        config,
+        db: {} as Database,
+        storage: {} as StoragePort,
+        queues: {} as ApiQueuesPort,
+        eventBus: {} as ApiEventBusPort,
+        authStore: store,
+        authCache: cache,
+        amrIdentity,
+        gateway: new MockModelGateway(),
+        onTrackingEvents,
+        runtimeRoot: tmpRoot,
+      });
+
+      // 1. PostHog 429 must return retryable 503 (never silent 202), and retry preserves event utm_source
+      const makeUtmEvent = () => ({
+        event: 'onetap_login_success',
+        event_id: crypto.randomUUID(),
+        occurred_at: new Date().toISOString(),
+        entrypoint: 'studio',
+        device_timezone: 'UTC',
+        utc_offset_minutes: 0,
+        properties: {
+          surface: 'motion_web',
+          attempt_id: 'att-utm-1',
+          is_new_user: false,
+          plan_tier: 'free',
+          post_login_action: 'in_place',
+          utm_source: 'x_launch',
+        },
+      });
+      const firstAttempt = await app.request('/motion-api/tracking', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ events: [makeUtmEvent()] }),
+      });
+      assert.equal(firstAttempt.status, 503);
+      assert.equal(((await firstAttempt.json()) as { retryable?: boolean }).retryable, true);
+
+      const secondAttempt = await app.request('/motion-api/tracking', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ events: [makeUtmEvent()] }),
+      });
+      assert.equal(secondAttempt.status, 202);
+      assert.equal(outboundBatches.length, 1);
+      assert.equal(outboundBatches[0].batch[0].properties.utm_source, 'x_launch');
+      assert.equal(outboundBatches[0].batch[0].properties.od_utm_source, 'x_launch');
+
+      // 2. Concurrent logout racing DURING createSession commit must revoke the newly created session and return 409
+      const cRes = await app.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-commit-race' }),
+      });
+      const cBody = (await cRes.json()) as { challengeId: string };
+      const cName = oneTapChallengeCookieName(cBody.challengeId);
+      const cTok = extractCookieValue(cRes.headers.getSetCookie(), cName)!;
+
+      triggerLogoutDuringCommit = async () => {
+        const lRes = await app.request('/auth/logout', {
+          method: 'POST',
+          headers: {
+            Origin: PUBLIC_ORIGIN,
+            Cookie: `${cName}=${cTok}`,
+          },
+        });
+        assert.equal(lRes.status, 200);
+      };
+
+      const raceRes = await app.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${cName}=${cTok}`,
+        },
+        body: JSON.stringify({ challengeId: cBody.challengeId, idToken: 'tok_race' }),
+      });
+      assert.equal(raceRes.status, 409);
+      const raceCookies = raceRes.headers.getSetCookie();
+      assert.equal(extractCookieValue(raceCookies, SESSION_COOKIE_NAME), null, 'No om_session cookie may be emitted');
+      // Verify all sessions created in store were revoked
+      const activeSessions = [...store.sessions.values()].filter((s) => s.revokedAt === null);
+      assert.equal(activeSessions.length, 0, 'Newly created session must be revoked when logout raced commit');
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

@@ -898,6 +898,31 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           ttlSec: DEFAULT_SESSION_TTL_SEC,
         });
 
+        // Close the TOCTOU window between the pre-insert barrier check and session commit:
+        // if another tab completed /auth/logout while createBrowserSession was writing to DB,
+        // immediately revoke the newly minted session before returning any Set-Cookie.
+        const bindingRevokedAfterCommit = await isOneTapBindingRevoked(browserBindingHash);
+        const userLoggedOutAfterCommit = await hasUserLoggedOutSince(
+          membership.user.id,
+          exchangeStartedEpoch,
+        );
+        if (bindingRevokedAfterCommit || userLoggedOutAfterCommit) {
+          await revokeBrowserSession(deps.store, { rawToken: session.token }, deps.cache).catch(() => {});
+          c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
+          deps.onOneTapTelemetry?.({
+            event: 'onetap_login_failed',
+            errorCode: 'CHALLENGE_INVALID',
+          });
+          return c.json(
+            {
+              code: 'CHALLENGE_INVALID',
+              error: 'One Tap sign-in was canceled because you signed out in another tab.',
+              message: 'One Tap sign-in was canceled because you signed out in another tab.',
+            },
+            409,
+          );
+        }
+
         const headers = new Headers({
           'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store',

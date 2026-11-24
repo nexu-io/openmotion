@@ -62,6 +62,16 @@ export function createPosthogSender(options: {
     const batch = events.map(event => {
       const hasAppUserId = typeof event.app_user_id === 'string' && event.app_user_id.length > 0;
       const distinctId = hasAppUserId ? event.app_user_id! : options.identity.installation_id;
+      const eventUtmSource =
+        typeof event.properties?.utm_source === 'string' && event.properties.utm_source.length > 0
+          ? event.properties.utm_source
+          : null;
+      const eventOdUtmSource =
+        typeof event.properties?.od_utm_source === 'string' && event.properties.od_utm_source.length > 0
+          ? event.properties.od_utm_source
+          : null;
+      const resolvedUtmSource = eventUtmSource ?? source;
+      const resolvedOdUtmSource = eventOdUtmSource ?? resolvedUtmSource;
       return { event: event.event, uuid: event.event_id, timestamp: event.occurred_at,
         properties: { ...event.properties, event_schema_version: 1, schema_version: 1, product: 'openmotion',
           ...(event.host_context ?? unknownHost),
@@ -71,7 +81,7 @@ export function createPosthogSender(options: {
           installation_id: options.identity.installation_id, ...device,
           distinct_id: distinctId,
           ...(hasAppUserId ? { app_user_id: event.app_user_id } : {}),
-          utm_source: source, od_utm_source: source,
+          utm_source: resolvedUtmSource, od_utm_source: resolvedOdUtmSource,
           entrypoint: event.entrypoint, runtime: event.entrypoint === 'studio' ? 'browser' : 'node',
           capture_source: 'explicit', client_type: event.entrypoint === 'studio' ? 'web' : 'local',
           platform: os.platform(), arch: os.arch(), $os: os.type(), $os_version: os.release(),

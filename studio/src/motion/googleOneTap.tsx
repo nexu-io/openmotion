@@ -382,6 +382,69 @@ function parseStoredAttribution(raw: string | null): StoredAttribution {
   }
 }
 
+function parseOdAttrCookie(raw: string | null): StoredAttribution {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    // od-landing writes compact keys { s, m, c, ct, tm, lp, ref } where `ref` is the
+    // organic referrer hostname (NOT an invite referralCode).
+    let utmSource = readCleanString(parsed.utmSource ?? parsed.utm_source ?? parsed.s);
+    let utmMedium = readCleanString(parsed.utmMedium ?? parsed.utm_medium ?? parsed.m);
+    const utmCampaign = readCleanString(parsed.utmCampaign ?? parsed.utm_campaign ?? parsed.c);
+    const utmContent = readCleanString(parsed.utmContent ?? parsed.utm_content ?? parsed.ct);
+    const utmTerm = readCleanString(parsed.utmTerm ?? parsed.utm_term ?? parsed.tm);
+    const landingPath = readCleanString(parsed.landingPath ?? parsed.landing_path ?? parsed.lp);
+    if (!utmSource) {
+      const refHost = readCleanString(parsed.ref);
+      if (refHost) {
+        utmSource = refHost;
+        utmMedium = 'referrer';
+      }
+    }
+    return {
+      ...(utmSource ? { utmSource } : {}),
+      ...(utmMedium ? { utmMedium } : {}),
+      ...(utmCampaign ? { utmCampaign } : {}),
+      ...(utmContent ? { utmContent } : {}),
+      ...(utmTerm ? { utmTerm } : {}),
+      ...(landingPath ? { landingPath } : {}),
+      // Only honor explicit referralCode in cookie (never `ref`, which is organic referrer host).
+      ...(readCleanString(parsed.referralCode) ? { referralCode: readCleanString(parsed.referralCode) } : {}),
+      ...(readCleanString(parsed.odOrigin ?? parsed.od_origin ?? parsed.sourceProduct)
+        ? { odOrigin: readCleanString(parsed.odOrigin ?? parsed.od_origin ?? parsed.sourceProduct) }
+        : {}),
+      ...(readCleanString(parsed.odEntryId ?? parsed.od_entry_id ?? parsed.entryId)
+        ? { odEntryId: readCleanString(parsed.odEntryId ?? parsed.od_entry_id ?? parsed.entryId) }
+        : {}),
+      ...(readCleanString(parsed.odEntrySource ?? parsed.od_entry_source ?? parsed.sourceDetail)
+        ? { odEntrySource: readCleanString(parsed.odEntrySource ?? parsed.od_entry_source ?? parsed.sourceDetail) }
+        : {}),
+      ...(readCleanString(parsed.odEntryAt ?? parsed.od_entry_at ?? parsed.entryOccurredAt)
+        ? { odEntryAt: readCleanString(parsed.odEntryAt ?? parsed.od_entry_at ?? parsed.entryOccurredAt) }
+        : {}),
+      ...(readCleanString(parsed.odCampaignId ?? parsed.od_campaign_id ?? parsed.campaignId)
+        ? { odCampaignId: readCleanString(parsed.odCampaignId ?? parsed.od_campaign_id ?? parsed.campaignId) }
+        : {}),
+      ...(readCleanString(parsed.odPlacementId ?? parsed.od_placement_id ?? parsed.placementId)
+        ? { odPlacementId: readCleanString(parsed.odPlacementId ?? parsed.od_placement_id ?? parsed.placementId) }
+        : {}),
+      ...(readCleanString(parsed.odConversionSource ?? parsed.od_conversion_source ?? parsed.conversionSource)
+        ? {
+            odConversionSource: readCleanString(
+              parsed.odConversionSource ?? parsed.od_conversion_source ?? parsed.conversionSource,
+            ),
+          }
+        : {}),
+      ...(readCleanString(parsed.odDeviceId ?? parsed.od_device_id)
+        ? { odDeviceId: readCleanString(parsed.odDeviceId ?? parsed.od_device_id) }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 function readOdAttrCookie(): StoredAttribution {
   if (typeof document === 'undefined' || !document.cookie) return {};
   for (const part of document.cookie.split(';')) {
@@ -391,9 +454,9 @@ function readOdAttrCookie(): StoredAttribution {
     if (name !== 'od_attr') continue;
     const value = part.slice(idx + 1).trim();
     try {
-      return parseStoredAttribution(decodeURIComponent(value));
+      return parseOdAttrCookie(decodeURIComponent(value));
     } catch {
-      return parseStoredAttribution(value);
+      return parseOdAttrCookie(value);
     }
   }
   return {};

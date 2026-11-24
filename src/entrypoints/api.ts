@@ -176,6 +176,8 @@ export function buildStudioDocumentSecurityHeaders(
   const connectSrc = [
     "'self'",
     'https://accounts.google.com/gsi/',
+    'http://127.0.0.1:*',
+    'http://localhost:*',
     'https:',
     'wss:',
     ...(preview ? [preview] : []),
@@ -216,6 +218,14 @@ export interface CloudPosthogDispatcherOptions {
  * Creates the production/cloud PostHog delivery callback wired into `createApiApp({ onTrackingEvents })`.
  * Reads `OPENMOTION_POSTHOG_HOST`/`OPENMOTION_POSTHOG_KEY` or falls back to `shared/tracking-config.json`.
  */
+export class TrackingDeliveryRetryError extends Error {
+  readonly retryable = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'TrackingDeliveryRetryError';
+  }
+}
+
 export function createCloudPosthogDispatcher(
   options: CloudPosthogDispatcherOptions,
 ): (events: readonly PendingEvent[]) => Promise<void> {
@@ -289,18 +299,27 @@ export function createCloudPosthogDispatcher(
   return async (events: readonly PendingEvent[]): Promise<void> => {
     for (let offset = 0; offset < events.length; offset += 16) {
       const slice = events.slice(offset, offset + 16);
+      let receipt: 'accepted' | 'retry' | 'drop';
       try {
-        const receipt = await sender(slice, AbortSignal.timeout(options.timeoutMs ?? 3000));
-        if (receipt !== 'accepted') {
-          options.logger?.warn('Cloud PostHog batch was not accepted', {
-            receipt,
-            count: slice.length,
-          });
-        }
+        receipt = await sender(slice, AbortSignal.timeout(options.timeoutMs ?? 3000));
       } catch (error) {
-        options.logger?.warn('Cloud PostHog batch delivery failed', {
+        options.logger?.warn('Cloud PostHog batch delivery failed; returning retryable error', {
           count: slice.length,
           error,
+        });
+        throw new TrackingDeliveryRetryError('Cloud PostHog delivery failed');
+      }
+      if (receipt === 'retry') {
+        options.logger?.warn('Cloud PostHog batch returned retryable receipt', {
+          receipt,
+          count: slice.length,
+        });
+        throw new TrackingDeliveryRetryError('Cloud PostHog upstream temporarily unavailable');
+      }
+      if (receipt !== 'accepted') {
+        options.logger?.warn('Cloud PostHog batch dropped permanently', {
+          receipt,
+          count: slice.length,
         });
       }
     }
@@ -2624,8 +2643,33 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
   const trackingAttestationSecret = resolveTrackingAttestationSecret(config);
   const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
 
+  const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
+
   app.get('/motion-api/tracking', (c) => {
-    return c.json({ enabled: true, locked: false, mode: 'cloud' });
+    const cookies = parseCookies(c.req.header('cookie'));
+    const deviceIdConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === 'granted';
+    return c.json({ enabled: true, locked: false, mode: 'cloud', deviceIdConsented });
+  });
+  app.post('/motion-api/tracking/consent', async (c) => {
+    if (!verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
+      return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
+    }
+    let consented = false;
+    try {
+      const parsed = (await c.req.json()) as { deviceIdConsented?: unknown };
+      consented = parsed?.deviceIdConsented === true;
+    } catch {
+      return c.json({ code: 'INVALID_ARGUMENT', error: 'Invalid JSON body' }, 400);
+    }
+    const cookieParts = [
+      `${METRICS_CONSENT_COOKIE_NAME}=${consented ? 'granted' : 'denied'}`,
+      'Path=/',
+      'SameSite=Lax',
+      'Max-Age=31536000',
+    ];
+    if (trackingCookieSecure) cookieParts.push('Secure');
+    c.header('Set-Cookie', cookieParts.join('; '));
+    return c.json({ ok: true, deviceIdConsented: consented });
   });
   app.post('/motion-api/tracking', async (c) => {
     const cookies = parseCookies(c.req.header('cookie'));
@@ -2723,7 +2767,21 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         hasAppUserId: Boolean(resolvedAppUserId),
         events: acceptedEvents.map((item) => item.event),
       });
-      await deps.onTrackingEvents?.(acceptedEvents);
+      try {
+        await deps.onTrackingEvents?.(acceptedEvents);
+      } catch (error) {
+        if (error instanceof TrackingDeliveryRetryError) {
+          return c.json(
+            {
+              code: 'TRACKING_UNAVAILABLE',
+              error: 'Telemetry upstream temporarily unavailable',
+              retryable: true,
+            },
+            503,
+          );
+        }
+        throw error;
+      }
     }
 
     if (isAuthenticated && resolvedAppUserId) {

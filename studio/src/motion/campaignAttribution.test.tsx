@@ -85,7 +85,7 @@ it('reports the header Pricing click with the entry id on its link', async () =>
   expect(tracked()).toEqual([{ event: 'ui_click', properties: expect.objectContaining({ page_name: 'studio', area: 'header', element: 'open_pricing', campaign_id: 'black_friday_2026', entry_id: entry }) }]);
 });
 
-it('routes probing, probe-error, and signed-in OIDC web users through /auth/upgrade-handoff and gives direct Pricing only to confirmed signed-out guests', async () => {
+it('always routes browser cloud OIDC Pricing clicks through /auth/upgrade-handoff (even when cached probe was signed-out) and keeps direct Pricing only in dev/desktop mode', async () => {
   // 1. Account probe still in-flight (account === null) -> MUST route through same-origin /auth/upgrade-handoff
   accountSummaryHook.account = null;
   accountSummaryHook.error = false;
@@ -102,8 +102,17 @@ it('routes probing, probe-error, and signed-in OIDC web users through /auth/upgr
   expect(url.pathname).toBe('/auth/upgrade-handoff');
   expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
 
-  // 3. Confirmed signed-out guest (state === 'signed-out', error === false) -> direct public Pricing URL
+  // 3. Cached signed-out state in browser OIDC mode -> STILL routes through /auth/upgrade-handoff
+  // so a stale guest tab cannot bypass billing handoff after another tab signed in.
   accountSummaryHook.account = { state: 'signed-out', authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
+  accountSummaryHook.error = false;
+  render(<PricingEntry trackingPage="studio" />);
+  url = new URL(container.querySelector<HTMLAnchorElement>('a')!.href);
+  expect(url.pathname).toBe('/auth/upgrade-handoff');
+  expect(url.searchParams.get('targetPath')).toBe('/zh/pricing');
+
+  // 3b. Local dev auth mode keeps direct public Pricing URL
+  accountSummaryHook.account = { state: 'signed-out', authMode: 'dev', consoleUrl: 'https://open-design.ai/cloud' };
   accountSummaryHook.error = false;
   render(<PricingEntry trackingPage="studio" />);
   url = new URL(container.querySelector<HTMLAnchorElement>('a')!.href);
