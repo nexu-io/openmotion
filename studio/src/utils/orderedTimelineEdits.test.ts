@@ -64,3 +64,33 @@ it('projects a split and deletion while an earlier move waits for its receipt, a
     release.resolve(); close(); usePlayerStore.getState().reset(); vi.unstubAllGlobals();
   }
 });
+
+it('allows a valid gesture after a missing target and paints it even when the final gesture is a no-op', async () => {
+  const { saveOrderedTimeline } = await import('./orderedTimelineEdits');
+  const project = 'timeline-missing-target', path = 'notes.txt';
+  observeSourceRead(project, path, new Response(null, { headers: { 'X-OpenMotion-Text-Edits':'1', 'X-OpenMotion-Ordered-Edits':'1' } }), { content:'a', version:'v1' });
+  const sent: string[] = [];
+  const history = vi.fn(async () => {});
+  const paint = vi.fn(async () => {});
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+    const operations: OrderedTextEditOperation[] = JSON.parse(String(init.body)).operations;
+    sent.push(...operations.map(op => op.label!));
+    return Response.json({ committed: operations.map(op => ({
+      id:op.id, versions:{[path]:'v2'}, changedPaths:[path], versionId:'v2', revision:'2', writeToken:op.id,
+    })) });
+  }));
+  try {
+    const run = (label: string, apply: (source: string) => string, refresh?: typeof paint) =>
+      saveOrderedTimeline(project, [{path, apply}], label, {recordEdit: history, onSaved: refresh});
+    const [invalid, changed, noop] = await Promise.allSettled([
+      run('missing', () => { throw new Error('Missing clip'); }),
+      run('rename', source => source+'b', paint),
+      run('noop', source => source),
+    ]);
+    expect(invalid.status).toBe('rejected');
+    expect([changed, noop]).toEqual([{status:'fulfilled',value:[path]}, {status:'fulfilled',value:[]}]);
+    expect(sent).toEqual(['rename']);
+    expect(history).toHaveBeenCalledTimes(1);
+    expect(paint).toHaveBeenCalledExactlyOnceWith({[path]:{before:'a', after:'ab'}},{version:'v1',content:'a'});
+  } finally { vi.unstubAllGlobals(); }
+});

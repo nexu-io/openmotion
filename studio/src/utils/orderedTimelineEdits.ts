@@ -18,12 +18,23 @@ type Options = {
 
 // A structural edit needs the rows produced by the preceding gesture even while its receipt is in flight.
 // Keep only the newest local computation per file; the transport owns persistence and confirmed sources.
-type DisplayedFile = { edit: Promise<EditFile>; baseline: Promise<ConfirmedSource> };
+type DisplayedFile = {
+  edit: Promise<EditFile>;
+  before: Promise<ConfirmedSource>;
+  baseline: Promise<ConfirmedSource>;
+  refresh: Options['onSaved'];
+};
 const displayed = new Map<string, DisplayedFile>();
 const key = (project: string, path: string) => JSON.stringify([project, path]);
 
+function visibleSource(file: DisplayedFile): Promise<ConfirmedSource> {
+  // A gesture with an invalid target changes no bytes. The next gesture still sees the previous projection.
+  return file.edit.then(edit => ({ content: edit.after, version: edit.version }), () => file.before);
+}
+
 export function projectedTimelineText(project: string, path: string) {
-  return displayed.get(key(project, path))?.edit.then(edit => edit.after);
+  const file = displayed.get(key(project, path));
+  return file && visibleSource(file).then(source => source.content);
 }
 
 async function readBase(project: string, path: string) {
@@ -46,11 +57,9 @@ export async function saveOrderedTimeline(
   const projections = transforms.map(({ path, apply }) => {
     const id = key(project, path);
     const previous = displayed.get(id);
-    const captured = previous
-      ? previous.edit.then(prior => ({ content: prior.after, version: prior.version }))
-      : readBase(project, path);
+    const captured = previous ? visibleSource(previous) : readBase(project, path);
     const projected = captured.then(async ({content, version}) => ({path, before: content, after: await apply(content), version}));
-    const next = { edit: projected, baseline: previous?.baseline ?? captured };
+    const next = { edit: projected, before: captured, baseline: previous?.baseline ?? captured, refresh: onSaved ?? previous?.refresh };
     displayed.set(id, next);
     return next;
   });
@@ -77,17 +86,21 @@ export async function saveOrderedTimeline(
       }));
       return {edits: accepted, label, undoGroup};
     });
-    if (!saved.changedPaths.length) return [];
     const files = snapshots(accepted);
-    await recordEdit({ label, files, coalesceKey, coalesceMs });
+    if (saved.changedPaths.length) await recordEdit({ label, files, coalesceKey, coalesceMs });
     // Later gestures own the currently displayed rows. Only the final matching receipt may refresh the canvas.
     const current = accepted.every((edit, i) => displayed.get(key(project, edit.path)) === projections[i] &&
       confirmedSource(project, edit.path)?.version === saved.versions[edit.path]);
-    if (current && onSaved) {
-      // The mounted preview can still be at the start of this burst. Paint its entire accepted delta once.
-      const previous = accepted.length === 1 ? await projections[0]!.baseline : undefined;
+    if (current && accepted.length === 1) {
+      // A final no-op or volume edit may still have an earlier structural edit to paint.
       const first = accepted[0]!;
-      await onSaved(previous ? { [first.path]: { before: previous.content, after: first.after } } : files, previous);
+      const projection = projections[0]!;
+      const previous = await projection.baseline;
+      if (previous.version !== saved.versions[first.path]) {
+        await projection.refresh?.({ [first.path]: { before: previous.content, after: first.after } }, previous);
+      }
+    } else if (current && saved.changedPaths.length) {
+      await onSaved?.(files);
     }
     return saved.changedPaths;
   } catch (error) {
