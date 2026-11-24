@@ -1504,6 +1504,40 @@ export function SuperAgentWorkspace({
           if (activeChatIdRef.current !== originChatId) return;
           /* fall back to account settings below */
         }
+      } else if (card.targetKind === 'motion' && card.targetId) {
+        const artifactId = `motion:${card.targetId}`;
+        if (viewerArtifacts.some(item => item.id === artifactId)) {
+          setOpenTabIds(prev => (prev.includes(artifactId) ? prev : [...prev, artifactId]));
+          setActiveTabId(artifactId);
+          setViewerOpen(true);
+          setPendingDeployArtifactId(artifactId);
+          return;
+        }
+        const now = Date.now();
+        const motionArtifact: SuperAgentArtifact = {
+          id: artifactId,
+          kind: 'motion-project',
+          title: card.targetId,
+          subtitle: 'Motion Studio',
+          projectId: card.targetId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        if (activeChat && activeChat.id === originChatId) {
+          try {
+            const res = await updateSuperAgentChat(activeChat.id, { addArtifact: motionArtifact });
+            if (activeChatIdRef.current !== originChatId) return;
+            applyChatSnapshot(res.conversation, false);
+          } catch {
+            if (activeChatIdRef.current !== originChatId) return;
+          }
+        }
+        setPreviewArtifacts(prev => [...prev.filter(item => item.id !== artifactId), motionArtifact]);
+        setOpenTabIds(prev => (prev.includes(artifactId) ? prev : [...prev, artifactId]));
+        setActiveTabId(artifactId);
+        setViewerOpen(true);
+        setPendingDeployArtifactId(artifactId);
+        return;
       }
       if (onOpenProviderSettings) {
         onOpenProviderSettings('account', card.entry);

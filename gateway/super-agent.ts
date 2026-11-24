@@ -352,25 +352,20 @@ export function extractActionCardFromTool(
 
   if (ok && name === 'openmotion_open_preview' && args.target === 'providers') {
     const entry = resolveProviderSetupEntry(typeof args.entry === 'string' ? args.entry : undefined);
-    const previewUrl = typeof payload?.previewUrl === 'string'
-      ? payload.previewUrl
-      : typeof record?.previewUrl === 'string'
-        ? record.previewUrl
-        : undefined;
     if (entry === 'agent_media_signed_out') {
-      return { id: `action:sign_in:${entry}`, kind: 'sign_in', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+      return { id: `action:sign_in:${entry}`, kind: 'sign_in', entry, provider: 'account' };
     }
     if (entry === 'agent_media_upgrade_free') {
-      return { id: `action:upgrade_free:${entry}`, kind: 'upgrade_free', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+      return { id: `action:upgrade_free:${entry}`, kind: 'upgrade_free', entry, provider: 'account' };
     }
     if (entry === 'agent_media_upgrade_go') {
-      return { id: `action:upgrade_go:${entry}`, kind: 'upgrade_go', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+      return { id: `action:upgrade_go:${entry}`, kind: 'upgrade_go', entry, provider: 'account' };
     }
     if (entry === 'agent_media_balance_low') {
-      return { id: `action:top_up:${entry}`, kind: 'top_up', entry, provider: 'account', ...(previewUrl ? { previewUrl } : {}) };
+      return { id: `action:top_up:${entry}`, kind: 'top_up', entry, provider: 'account' };
     }
     if (entry === 'agent_media_key_rejected') {
-      return { id: `action:configure_key:${entry}`, kind: 'configure_key', entry, ...(previewUrl ? { previewUrl } : {}) };
+      return { id: `action:configure_key:${entry}`, kind: 'configure_key', entry };
     }
     return undefined;
   }
@@ -467,6 +462,24 @@ export function extractActionCardFromTool(
   }
 
   return undefined;
+}
+
+const MEDIA_ACTION_CARD_TOOLS = new Set([
+  'openmotion_assets_use',
+  'openmotion_assets',
+  'openmotion_media_use',
+  'openmotion_capability_run',
+  'openmotion_job_manage',
+]);
+
+function mayHavePlanEntitlementFailure(toolName: string, value: unknown, ok: boolean): boolean {
+  if (!MEDIA_ACTION_CARD_TOOLS.has(normalizeOpenMotionToolName(toolName))) return false;
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const payload = unwrapToolPayload(value) ?? record;
+  const isErrorResult = !ok || record?.isError === true;
+  const jobFailed = (payload?.job as Record<string, unknown> | undefined)?.state === 'failed';
+  if (!isErrorResult && !jobFailed) return false;
+  return PLAN_ENTITLEMENT_ERROR_RE.test(extractActionCardErrorText(value));
 }
 
 const ALLOWED_ARTIFACT_KINDS = new Set<SuperAgentArtifact['kind']>([
@@ -3705,7 +3718,7 @@ export class SuperAgentConversations {
           createdAt: startedAt,
           toolEvent: ev,
         }, true);
-        if (item.type === 'mcpToolCall' && !actionCard && PLAN_ENTITLEMENT_ERROR_RE.test(extractActionCardErrorText(rawOutput))) {
+        if (item.type === 'mcpToolCall' && !actionCard && mayHavePlanEntitlementFailure(toolName, rawOutput, ok)) {
           void this.resolveActionCardFromTool(toolName, toolArgs, rawOutput, ok).then(resolved => {
             if (!resolved || active.deleted) return;
             const targetMsg = active.chat.messages.find(m => m.id === msgId);
@@ -3777,7 +3790,10 @@ export class SuperAgentConversations {
       const scopedModality = typeof modality === 'string' && ['image', 'video', 'audio'].includes(modality)
         ? modality as Modality
         : undefined;
-      const entry = resolveMediaSetupEntry(status.providers, scopedModality ? { modality: scopedModality, capabilities: status.capabilities } : undefined);
+      const entry = resolveMediaSetupEntry(status.providers, {
+        ...(scopedModality ? { modality: scopedModality } : {}),
+        capabilities: status.capabilities,
+      });
       return {
         ...await gateway.listModels({ modality, query, offset, limit }),
         providers: status.providers.map(({ id, available, reason, mediaEntitlement, plan, hasBalance }) => ({
@@ -4028,8 +4044,7 @@ export class SuperAgentConversations {
   ): Promise<SuperAgentActionCard | undefined> {
     const direct = extractActionCardFromTool(toolName, args, value, ok);
     if (direct) return direct;
-    const errorText = extractActionCardErrorText(value);
-    if (!errorText || !PLAN_ENTITLEMENT_ERROR_RE.test(errorText)) return undefined;
+    if (!mayHavePlanEntitlementFailure(toolName, value, ok)) return undefined;
     try {
       const account = await gatewayFor(this.store).account.summary(false);
       const media = accountMediaState(account);

@@ -271,7 +271,6 @@ export type SuperAgentActionCard = {
   kind: SuperAgentActionCardKind;
   entry: ProviderSetupEntry;
   provider?: string;
-  previewUrl?: string;
   targetKind?: 'design' | 'game' | 'html' | 'motion';
   targetId?: string;
 };

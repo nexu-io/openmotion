@@ -22,8 +22,10 @@ export function resolveMediaSetupEntry(
     capabilities?: GatewayStatus['capabilities'];
   },
 ): ProviderSetupEntry | undefined {
-  const hasUsableForScope = options?.modality && options.capabilities
-    ? options.capabilities.some(cap => cap.modality === options.modality && cap.available)
+  const hasUsableForScope = options?.capabilities
+    ? (options.modality
+      ? options.capabilities.some(cap => cap.modality === options.modality && cap.available)
+      : options.capabilities.some(cap => cap.available))
     : providers.some(isMediaProviderUsable);
   if (hasUsableForScope) return undefined;
   const account = providers.find(p => p.id === 'account');
