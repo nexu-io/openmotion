@@ -622,7 +622,7 @@ export class McpToolDispatcher {
           }
         : null;
       return {
-        ...buildGatewayStatus(models, defaults, safeBilling),
+        ...buildGatewayStatus(models, defaults, safeBilling, this.ports.gateway.statusIdentity),
         references: { opendesign: 'openmotion://workflow/media/opendesign' },
       };
     }

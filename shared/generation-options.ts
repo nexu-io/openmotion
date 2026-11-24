@@ -19,6 +19,11 @@ const text = (key: string, label: string, required = false): GenerationOption =>
  * 2.0 (`*_uranus_bigtts`) speakers; 1.0 speakers fail upstream with a resource mismatch. */
 const cloudSpeechVoices: Record<string, { value: string; label: string; previewUrl?: string }[]> = {
   'byteplus-tts-2': [{ value: 'zh_female_vv_uranus_bigtts', label: 'Vivi · Chinese female' }],
+  // Volcengine Doubao speech 2.0 (MODEL_GATEWAY_MODE=volcengine); xiaohe produced audio through the SSE API on 2026-11-23.
+  'seed-tts-2.0': [
+    { value: 'zh_female_xiaohe_uranus_bigtts', label: 'Xiaohe · Chinese female' },
+    { value: 'zh_female_vv_uranus_bigtts', label: 'Vivi · Chinese female' },
+  ],
   'elevenlabs-v3': [
     ['21m00Tcm4TlvDq8ikWAM', 'Rachel · Female', 'https://storage.googleapis.com/eleven-public-prod/premade/voices/21m00Tcm4TlvDq8ikWAM/df6788f9-5c96-470d-8312-aab3b3d8f50a.mp3'],
     ['JBFqnCBsd6RMkjVDRZzb', 'George · Male', 'https://storage.googleapis.com/eleven-public-prod/premade/voices/JBFqnCBsd6RMkjVDRZzb/e6206d1a-0721-4787-aafb-06a6e705cac5.mp3'],

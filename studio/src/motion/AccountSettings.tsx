@@ -31,7 +31,7 @@ export interface CloudAccountSummary extends AccountSummary {
   mediaEntitlement?: 'included' | 'not-included' | 'unknown';
   modelGateway?: {
     provider: string;
-    mode: 'opendesign' | 'mock';
+    mode: 'opendesign' | 'mock' | 'volcengine';
   };
 }
 
@@ -82,7 +82,7 @@ interface CloudSummaryApiResponse {
   };
   modelGateway?: {
     provider: string;
-    mode: 'opendesign' | 'mock';
+    mode: 'opendesign' | 'mock' | 'volcengine';
   };
   // Legacy AccountSummary fields (accepted for mocked unit tests)
   state?: AccountSummary['state'];

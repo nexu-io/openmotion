@@ -138,7 +138,7 @@ export function createModelRoutes(deps: ModelRoutesDeps): Hono<AuthEnv> {
             ...(billing.unavailable ? { unavailable: true } : {}),
           }
         : null;
-      return c.json(buildGatewayStatus(models, defaults, redactedBilling));
+      return c.json(buildGatewayStatus(models, defaults, redactedBilling, deps.gateway.statusIdentity));
     } catch (error) {
       return handleRouteError(c, error);
     }

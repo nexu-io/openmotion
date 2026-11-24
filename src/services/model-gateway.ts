@@ -4,6 +4,7 @@ import type { WorkspaceDefaultModels } from '../db/schema/auth.ts';
 import type { AppConfig } from '../infra/config.ts';
 import { MockModelGateway, type MockModelGatewayOptions } from './mock-model-adapter.ts';
 import { OpenDesignModelGateway, type OpenDesignGatewayOptions } from './opendesign-adapter.ts';
+import { VolcengineModelGateway, parseArkModelList, type VolcengineGatewayOptions } from './volcengine-adapter.ts';
 
 export interface GatewayCallContext {
   readonly workspaceId: string;
@@ -104,7 +105,9 @@ export interface TranscriptSegment {
 
 export interface PlatformModelGateway {
   readonly providerId: 'opendesign';
-  readonly mode: 'opendesign' | 'mock';
+  readonly mode: 'opendesign' | 'mock' | 'volcengine';
+  /** Overrides the provider label/reason/verification shown by status for non-OpenDesign backends. */
+  readonly statusIdentity?: GatewayStatusIdentity;
   listMediaModels(ctx: GatewayCallContext, options?: { refresh?: boolean }): Promise<Model[]>;
   listLinkModels?(ctx: GatewayCallContext): Promise<LinkModelEntry[]>;
   uploadReference(
@@ -214,6 +217,7 @@ export function normalizeGatewayErrorMessage(code?: string, status?: number): st
 export interface CreateGatewayOptions {
   opendesign?: Partial<OpenDesignGatewayOptions>;
   mock?: MockModelGatewayOptions;
+  volcengine?: Partial<VolcengineGatewayOptions>;
 }
 
 export function createPlatformModelGateway(
@@ -226,11 +230,22 @@ export function createPlatformModelGateway(
     | 'OPENDESIGN_ASR_URL'
     | 'OPENDESIGN_BILLING_SYNC_ENABLED'
   > &
-    Partial<Pick<AppConfig, 'OPENDESIGN_INTERNAL_API_TOKEN'>>,
+    Partial<Pick<AppConfig, 'OPENDESIGN_INTERNAL_API_TOKEN' | 'ARK_API_KEY' | 'ARK_BASE_URL' | 'ARK_IMAGE_MODELS' | 'ARK_VIDEO_MODELS' | 'VOLC_TTS_API_KEY' | 'VOLC_TTS_BASE_URL'>>,
   options: CreateGatewayOptions = {},
 ): PlatformModelGateway {
   if (config.MODEL_GATEWAY_MODE === 'mock') {
     return new MockModelGateway(options.mock);
+  }
+  if (config.MODEL_GATEWAY_MODE === 'volcengine') {
+    return new VolcengineModelGateway({
+      apiKey: config.ARK_API_KEY,
+      baseUrl: config.ARK_BASE_URL,
+      speechApiKey: config.VOLC_TTS_API_KEY,
+      speechBaseUrl: config.VOLC_TTS_BASE_URL,
+      imageModels: parseArkModelList(config.ARK_IMAGE_MODELS),
+      videoModels: parseArkModelList(config.ARK_VIDEO_MODELS),
+      ...options.volcengine,
+    });
   }
   const internalToken = config.OPENDESIGN_INTERNAL_API_TOKEN ?? config.OPENDESIGN_S2S_API_KEY;
   if (!internalToken) {
@@ -251,10 +266,17 @@ export function createPlatformModelGateway(
   });
 }
 
+export interface GatewayStatusIdentity {
+  readonly label: string;
+  readonly reason: string;
+  readonly verification: 'unverified' | 'verified' | 'rejected';
+}
+
 export function buildGatewayStatus(
   models: readonly Model[],
   defaultModels: WorkspaceDefaultModels,
   billing?: GatewayBillingSummary | null,
+  identity?: GatewayStatusIdentity,
 ): GatewayStatus {
   const modalities: readonly Modality[] = ['image', 'video', 'audio'];
   const capabilities = modalities.map((modality) => {
@@ -281,13 +303,13 @@ export function buildGatewayStatus(
     providers: [
       {
         id: 'opendesign',
-        label: 'OpenDesign',
+        label: identity?.label ?? 'OpenDesign',
         enabled: true,
         configured: true,
         available: models.length > 0,
         credentialSource: 'environment',
-        verification: 'verified',
-        reason: 'Unified OpenDesign platform gateway',
+        verification: identity?.verification ?? 'verified',
+        reason: identity?.reason ?? 'Unified OpenDesign platform gateway',
         ...(billing
           ? {
               mediaEntitlement: billing.mediaEntitlement,

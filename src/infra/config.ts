@@ -90,7 +90,15 @@ const rawConfigSchema = z.object({
   OAUTH_DCR_RATE_LIMIT_PER_MIN: z.coerce.number().int().min(1).max(1000).default(10),
 
   // Unified OpenDesign Model Gateway & AMR Identity
-  MODEL_GATEWAY_MODE: z.enum(['opendesign', 'mock']).default('opendesign'),
+  MODEL_GATEWAY_MODE: z.enum(['opendesign', 'mock', 'volcengine']).default('opendesign'),
+  // Volcengine Ark backend (MODEL_GATEWAY_MODE=volcengine): service-held key, comma-separated model IDs.
+  ARK_API_KEY: optionalNonEmptyString,
+  ARK_BASE_URL: z.string().url().default('https://ark.cn-beijing.volces.com/api/v3'),
+  ARK_IMAGE_MODELS: optionalNonEmptyString,
+  ARK_VIDEO_MODELS: optionalNonEmptyString,
+  // Doubao speech synthesis 2.0 and Seed Audio (same backend), single X-Api-Key.
+  VOLC_TTS_API_KEY: optionalNonEmptyString,
+  VOLC_TTS_BASE_URL: z.string().url().default('https://openspeech.bytedance.com'),
   OPENDESIGN_API_URL: z.string().url().default('https://amr-api.open-design.ai'),
   OPENDESIGN_LINK_URL: z.string().url().default('https://amr-link.open-design.ai'),
   // OpenDesign web console that account/plan links open; non-production environments point at their own console.
@@ -158,6 +166,15 @@ export function parseConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(
       'INVALID_CONFIG: MODEL_GATEWAY_MODE=opendesign requires OPENDESIGN_INTERNAL_API_TOKEN (or OPENDESIGN_S2S_API_KEY; set MODEL_GATEWAY_MODE=mock for local dev/tests).',
     );
+  }
+
+  if (
+    (config.WORKER_ROLE === 'api' || config.WORKER_ROLE === 'media') &&
+    config.MODEL_GATEWAY_MODE === 'volcengine' &&
+    !config.ARK_API_KEY &&
+    !config.VOLC_TTS_API_KEY
+  ) {
+    throw new Error('INVALID_CONFIG: MODEL_GATEWAY_MODE=volcengine requires ARK_API_KEY or VOLC_TTS_API_KEY.');
   }
 
   if (config.SENTRY_WEB_DSN && !parseSentryDsn(config.SENTRY_WEB_DSN)) {
