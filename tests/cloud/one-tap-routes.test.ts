@@ -1778,6 +1778,75 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       store.findActiveSessionByTokenHash = originalFindSession;
       assert.equal(dbErrRes.status, 503);
       assert.equal(dbErrRes.headers.get('location'), null);
+
+      // 5. Post-response logout barrier: even if /auth/logout commits AFTER POST /auth/one-tap returns 200,
+      //    resolveBrowserSession rejects & revokes the late One Tap session immediately.
+      cache.set = originalCacheSet;
+      const c5Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r5-late' }),
+      });
+      const c5Body = (await c5Res.json()) as { challengeId: string };
+      const c5Name = oneTapChallengeCookieName(c5Body.challengeId);
+      const c5Tok = extractCookieValue(c5Res.headers.getSetCookie(), c5Name)!;
+      const okOneTapRes = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${c5Name}=${c5Tok}`,
+        },
+        body: JSON.stringify({ challengeId: c5Body.challengeId, idToken: 'tok_r5_late' }),
+      });
+      assert.equal(okOneTapRes.status, 200);
+      const lateSessionTok = extractCookieValue(okOneTapRes.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      assert.ok(lateSessionTok);
+
+      // Another tab completes /auth/logout with the same browser binding after POST /auth/one-tap finished
+      const lateLogoutRes = await appProofRace.request('/auth/logout', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c5Name}=${c5Tok}` },
+      });
+      assert.equal(lateLogoutRes.status, 200);
+
+      // Late om_session cookie MUST be rejected and revoked on resolution
+      const meAfterLateLogout = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${lateSessionTok}` },
+      });
+      assert.equal(meAfterLateLogout.status, 401);
+
+      // 6. Active Motion session encountering upstream 401/403 on /auth/upgrade-handoff MUST fail closed (no unbound Pricing Location)
+      const c6Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r5-401' }),
+      });
+      const c6Body = (await c6Res.json()) as { challengeId: string };
+      const c6Name = oneTapChallengeCookieName(c6Body.challengeId);
+      const c6Tok = extractCookieValue(c6Res.headers.getSetCookie(), c6Name)!;
+      const okRes2 = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${c6Name}=${c6Tok}`,
+        },
+        body: JSON.stringify({ challengeId: c6Body.challengeId, idToken: 'tok_r5_401' }),
+      });
+      assert.equal(okRes2.status, 200);
+      const activeTok = extractCookieValue(okRes2.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      const origVerify = amrWithProof.verifyAndEnrichAuthContext.bind(amrWithProof);
+      amrWithProof.verifyAndEnrichAuthContext = async () => {
+        const { CloudError } = await import('../../src/contracts/errors.ts');
+        throw new CloudError('UNAUTHORIZED', 'Account disabled upstream', { status: 401 });
+      };
+      const upstream401Res = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${activeTok}` },
+      });
+      amrWithProof.verifyAndEnrichAuthContext = origVerify;
+      assert.equal(upstream401Res.status, 401);
+      assert.equal(upstream401Res.headers.get('location'), null);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

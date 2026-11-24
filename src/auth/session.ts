@@ -28,6 +28,18 @@ export function oneTapChallengeCookieName(challengeId: string): string {
   return `${ONETAP_CTX_COOKIE_PREFIX}${sha256Hex(challengeId).slice(0, 16)}`;
 }
 
+export function oneTapRevokedBindingCacheKey(bindingHash: string): string {
+  return `om:onetap:revoked-binding:${bindingHash}`;
+}
+
+export function oneTapUserLogoutEpochCacheKey(userId: string): string {
+  return `om:onetap:logout-user:${userId}`;
+}
+
+export function oneTapSessionBindingCacheKey(tokenHash: string): string {
+  return `om:onetap:session-binding:${tokenHash}`;
+}
+
 export function isHttpsOrigin(origin: string): boolean {
   try {
     return new URL(origin).protocol === 'https:';
@@ -171,6 +183,47 @@ export async function resolveBrowserSession(
   const tokenHash = sha256Hex(rawToken);
   const cacheKey = sessionCacheKey(tokenHash);
 
+  // Enforce One Tap logout revocation even if /auth/logout completed after
+  // POST /auth/one-tap finished its final pre-response barrier check.
+  if (options.cache) {
+    const rawBinding = await options.cache.get(oneTapSessionBindingCacheKey(tokenHash));
+    if (rawBinding) {
+      let bindingRevoked = false;
+      try {
+        const parsedBinding = JSON.parse(rawBinding) as {
+          bindingHash?: string;
+          userId?: string;
+          startedEpoch?: number;
+        };
+        if (parsedBinding.bindingHash) {
+          const revokedMarker = await options.cache.get(
+            oneTapRevokedBindingCacheKey(parsedBinding.bindingHash),
+          );
+          if (revokedMarker) {
+            bindingRevoked = true;
+          }
+        }
+        if (!bindingRevoked && parsedBinding.userId && typeof parsedBinding.startedEpoch === 'number') {
+          const logoutEpochRaw = await options.cache.get(
+            oneTapUserLogoutEpochCacheKey(parsedBinding.userId),
+          );
+          if (logoutEpochRaw && Number(logoutEpochRaw) >= parsedBinding.startedEpoch) {
+            bindingRevoked = true;
+          }
+        }
+      } catch {
+        // Ignore malformed binding record.
+      }
+      if (bindingRevoked) {
+        await store.revokeSessionByTokenHash(tokenHash).catch(() => {});
+        await options.cache.del(cacheKey).catch(() => {});
+        await options.cache.del(oneTapSessionBindingCacheKey(tokenHash)).catch(() => {});
+        await options.cache.del(`om:amr:session-proof:${tokenHash}`).catch(() => {});
+        return null;
+      }
+    }
+  }
+
   let sessionMeta: CachedSessionPayload | null = null;
   if (options.cache) {
     const cached = await options.cache.get(cacheKey);
@@ -265,7 +318,10 @@ export async function revokeBrowserSession(
   let revoked = false;
   if (tokenHash) {
     revoked = await store.revokeSessionByTokenHash(tokenHash);
-    if (cache) await cache.del(sessionCacheKey(tokenHash));
+    if (cache) {
+      await cache.del(sessionCacheKey(tokenHash));
+      await cache.del(oneTapSessionBindingCacheKey(tokenHash)).catch(() => {});
+    }
   } else if (input.sessionId) {
     revoked = await store.revokeSessionById(input.sessionId);
   }

@@ -38,6 +38,9 @@ import {
   createBrowserSession,
   isHttpsOrigin,
   oneTapChallengeCookieName,
+  oneTapRevokedBindingCacheKey,
+  oneTapSessionBindingCacheKey,
+  oneTapUserLogoutEpochCacheKey,
   parseCookies,
   resolveBrowserSession,
   resolveTrackingAttestationSecret,
@@ -389,8 +392,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   };
   const localRevokedBindings = new Map<string, number>();
   const localUserLogoutEpochs = new Map<string, number>();
-  const revokedBindingCacheKey = (bindingHash: string) => `om:onetap:revoked-binding:${bindingHash}`;
-  const userLogoutEpochCacheKey = (userId: string) => `om:onetap:logout-user:${userId}`;
+  const revokedBindingCacheKey = oneTapRevokedBindingCacheKey;
+  const userLogoutEpochCacheKey = oneTapUserLogoutEpochCacheKey;
 
   const revokeOneTapBinding = async (bindingHash: string): Promise<void> => {
     const expiresAt = Date.now() + ONETAP_CTX_TTL_SEC * 1000;
@@ -967,6 +970,18 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           );
         }
 
+        if (deps.cache) {
+          await deps.cache.set(
+            oneTapSessionBindingCacheKey(session.tokenHash),
+            JSON.stringify({
+              bindingHash: browserBindingHash,
+              userId: membership.user.id,
+              startedEpoch: exchangeStartedEpoch,
+            }),
+            ONETAP_CTX_TTL_SEC,
+          );
+        }
+
         if (exchanged.sessionProof) {
           await saveSessionProof(session.tokenHash, exchanged.sessionProof, SESSION_PROOF_TTL_SEC);
           const bindingRevokedAfterProof = await isOneTapBindingRevoked(browserBindingHash);
@@ -1111,19 +1126,18 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             appUserId = enriched.appUserId ?? null;
           }
         } catch (error) {
-          // Only explicit 401/403 revoked/inactive account status may treat the session as signed out;
-          // ANY DB, Redis, network, or 503 error MUST fail closed with 503 retry page and NO Location.
+          // NEVER downgrade a resolved/authenticated session to unbound guest Pricing on upstream 401/403
+          // (could bill a different AMR account in the browser) or on any DB/Redis/503 error.
           if (isCloudError(error) && (error.status === 401 || error.status === 403)) {
-            const guestPricingUrl = resolveGuestPricingRedirectUrl(targetPath, deps.config);
-            if (guestPricingUrl) {
-              return c.redirect(guestPricingUrl, 302);
+            if (hasActiveSession) {
+              c.header('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie));
             }
             return c.json(
               {
-                code: 'UNAUTHORIZED',
-                error: 'Authentication is required for this upgrade handoff target.',
+                code: error.status === 403 ? 'FORBIDDEN' : 'UNAUTHORIZED',
+                error: 'Your session is no longer active. Please sign in again before upgrading.',
               },
-              401,
+              error.status === 403 ? 403 : 401,
             );
           }
           return unavailableResponse();
