@@ -169,7 +169,7 @@ export function diffPreviewChanges(previous: string, current: string, measured =
 }
 
 /** The first visual edit can persist the exact IDs already mounted by the compiler. */
-async function diffMountedPreview(previous: string, current: string, measured = false) {
+export async function diffMountedPreview(previous: string, current: string, measured = false) {
   if (Math.max(previous.length, current.length) > MAX_PEER_PREVIEW_SOURCE_LENGTH) return null;
   const changes = diffPreviewChanges(previous, current, measured);
   if (changes || current.split("data-hf-id=").length <= previous.split("data-hf-id=").length) return changes;
