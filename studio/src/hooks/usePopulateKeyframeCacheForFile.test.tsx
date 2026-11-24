@@ -226,6 +226,31 @@ describe("usePopulateKeyframeCacheForFile", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("never requests the previous timeline's files under the newly opened project", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: RequestInfo | URL) => {
+      requests.push(decodeURIComponent(String(url)));
+      return Response.json({ animations: [] });
+    }));
+    const clip = usePlayerStore.getState().elements[0];
+    const oldFiles = ["gallery", "intro", "outro", "statement", "reel"];
+    usePlayerStore.setState({ elements: oldFiles.map(id => ({
+      ...clip, id, compositionSrc: `compositions/${id}.html`,
+    })) });
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => root!.render(<HookHost />));
+    requests.length = 0;
+    await act(async () => root!.render(<HookHost projectId="promo" />));
+    await act(async () => {
+      usePlayerStore.getState().beginTimelineSession("promo");
+      usePlayerStore.setState({ previewBooted: true, elements: [{ ...clip, compositionSrc: "compositions/product.html" }] });
+    });
+    expect(requests.map(url => url.split("/gsap-animations/").at(-1)).sort())
+      .toEqual(["compositions/product.html", "index.html"]);
+    expect(requests.every(url => url.includes("/projects/promo/"))).toBe(true);
+  });
+
   it("discards a retired project's or source version's late response", async () => {
     usePlayerStore.setState({ elements: [], keyframeCache: new Map(), gsapAnimations: new Map() });
     const finish: ((response: Response) => void)[] = [];

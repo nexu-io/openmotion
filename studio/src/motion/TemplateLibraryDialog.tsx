@@ -328,7 +328,6 @@ export function TemplateLibraryDialog(props: Props) {
         if (page.catalogVersion !== version) await load();
       } catch {} finally { pending = false; }
     }, 5000);
-    void motionApi<IntegrationInfo>('/integration', { signal: controller.signal }).then(value => { info.current = value; }).catch(() => {});
     return () => { controller.abort(); clearInterval(timer); };
   }, [props.open, attempt, locale]);
   const available = useMemo(() => facets.map(([key, label]) => ({ key, label, values: [...new Set(catalog.flatMap(item => values(item, key)))] })).filter(facet => facet.values.length), [catalog]);
@@ -588,16 +587,20 @@ export function TemplateLibraryDialog(props: Props) {
   useEffect(() => {
     if (!preview) return;
     setPromptError(false);
+    if (handoffPreview || blackFridayReference(preview.id, locale)) {
+      setPrompt(templateHandoffPrompt(preview, locale));
+      return;
+    }
     let cancelled = false;
     async function loadPrompt() {
       try {
         const connection = info.current ?? await motionApi<IntegrationInfo>('/integration'); info.current = connection;
-        if (!cancelled) setPrompt(handoffPreview || blackFridayReference(preview!.id, locale) ? templateHandoffPrompt(preview!, locale, connection) : templatePrompt(connection, 'codex', preview!, locale));
+        if (!cancelled) setPrompt(templatePrompt(connection, 'codex', preview!, locale));
       } catch { if (!cancelled) setPromptError(true); }
     }
     void loadPrompt();
     return () => { cancelled = true; };
-  }, [preview, locale, promptAttempt]);
+  }, [preview, handoffPreview, locale, promptAttempt]);
   async function copy(submit = false) {
     if (!prompt) return;
     const text = submit ? templateSubmissionPrompt(prompt, handoffPreview ? locale : 'en') : prompt;
