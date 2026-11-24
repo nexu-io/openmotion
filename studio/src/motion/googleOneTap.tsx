@@ -521,12 +521,17 @@ function readUrlAttribution(): StoredAttribution {
 export function persistOneTapLandingAttribution(): void {
   if (typeof window === 'undefined') return;
   const fromUrl = readUrlAttribution();
-  if (Object.keys(fromUrl).length === 0) return;
+  // Never persist odDeviceId to localStorage before explicit metrics consent is granted.
+  const safeFromUrl: StoredAttribution = isMotionTrackingConsented()
+    ? fromUrl
+    : { ...fromUrl, odDeviceId: undefined };
+  if (Object.values(safeFromUrl).every(v => v === undefined)) return;
   try {
     const existing = parseStoredAttribution(window.localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY));
     const merged: StoredAttribution = {
       ...existing,
-      ...fromUrl,
+      ...safeFromUrl,
+      ...(isMotionTrackingConsented() ? {} : { odDeviceId: undefined }),
     };
     window.localStorage.setItem(ONETAP_ATTRIBUTION_STORAGE_KEY, JSON.stringify(merged));
   } catch {

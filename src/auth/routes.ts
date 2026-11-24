@@ -80,7 +80,12 @@ function sanitizeOptionalShortString(raw: unknown, maxLength = 256): string | un
   return trimmed;
 }
 
-function sanitizeOneTapAttribution(raw: unknown): AmrOneTapAttribution | undefined {
+const METRICS_CONSENT_COOKIE_NAME = 'om_metrics_consent';
+
+function sanitizeOneTapAttribution(
+  raw: unknown,
+  options: { metricsConsented?: boolean } = {},
+): AmrOneTapAttribution | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const obj = raw as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -103,7 +108,7 @@ function sanitizeOneTapAttribution(raw: unknown): AmrOneTapAttribution | undefin
     const placementId = sanitizeOptionalShortString(rawEntry.placementId, 128);
     const conversionSource = sanitizeOptionalShortString(rawEntry.conversionSource, 128);
     const odDeviceId =
-      rawEntry.odDeviceIdConsent === true
+      options.metricsConsented === true && rawEntry.odDeviceIdConsent === true
         ? sanitizeOptionalShortString(rawEntry.odDeviceId, 128)
         : undefined;
     if (sourceProduct) sanitizedEntry.sourceProduct = sourceProduct;
@@ -345,7 +350,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   // Server-side AMR Motion sessionProof store (keyed by session tokenHash) required by
   // AMR /api/internal/auth/one-tap/handoff-ticket so Motion proves AMR actually authenticated
   // this user (via One Tap exchange or OIDC id_token claim) before minting a billing handoff ticket.
-  const SESSION_PROOF_TTL_SEC = 24 * 60 * 60;
+  const SESSION_PROOF_TTL_SEC = DEFAULT_SESSION_TTL_SEC;
   const localSessionProofs = new Map<string, { proof: string; expiresAt: number }>();
   const sessionProofCacheKey = (tokenHash: string) => `om:amr:session-proof:${tokenHash}`;
   const saveSessionProof = async (tokenHash: string, proof: string, ttlSec = SESSION_PROOF_TTL_SEC): Promise<void> => {
@@ -886,7 +891,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       }
 
-      const attribution = sanitizeOneTapAttribution(rawBody.attribution);
+      const metricsConsented = cookies[METRICS_CONSENT_COOKIE_NAME] === 'granted';
+      const attribution = sanitizeOneTapAttribution(rawBody.attribution, { metricsConsented });
       const referralCode = sanitizeOptionalShortString(rawBody.referralCode, 128);
 
       try {
@@ -936,9 +942,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           ttlSec: DEFAULT_SESSION_TTL_SEC,
         });
 
-        // Close the TOCTOU window between the pre-insert barrier check and session commit:
-        // if another tab completed /auth/logout while createBrowserSession was writing to DB,
-        // immediately revoke the newly minted session before returning any Set-Cookie.
+        // Close the TOCTOU window across both DB session commit AND Redis sessionProof save:
+        // check after commit, persist sessionProof, then run a final logout barrier check
+        // right before returning Set-Cookie.
         const bindingRevokedAfterCommit = await isOneTapBindingRevoked(browserBindingHash);
         const userLoggedOutAfterCommit = await hasUserLoggedOutSince(
           membership.user.id,
@@ -963,6 +969,28 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
 
         if (exchanged.sessionProof) {
           await saveSessionProof(session.tokenHash, exchanged.sessionProof, SESSION_PROOF_TTL_SEC);
+          const bindingRevokedAfterProof = await isOneTapBindingRevoked(browserBindingHash);
+          const userLoggedOutAfterProof = await hasUserLoggedOutSince(
+            membership.user.id,
+            exchangeStartedEpoch,
+          );
+          if (bindingRevokedAfterProof || userLoggedOutAfterProof) {
+            await deleteSessionProof(session.tokenHash).catch(() => {});
+            await revokeBrowserSession(deps.store, { rawToken: session.token }, deps.cache).catch(() => {});
+            c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
+            deps.onOneTapTelemetry?.({
+              event: 'onetap_login_failed',
+              errorCode: 'CHALLENGE_INVALID',
+            });
+            return c.json(
+              {
+                code: 'CHALLENGE_INVALID',
+                error: 'One Tap sign-in was canceled because you signed out in another tab.',
+                message: 'One Tap sign-in was canceled because you signed out in another tab.',
+              },
+              409,
+            );
+          }
         }
 
         const headers = new Headers({
@@ -1083,12 +1111,22 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             appUserId = enriched.appUserId ?? null;
           }
         } catch (error) {
-          if (isCloudError(error) && error.status === 503) {
-            // Active session could not be verified with AMR — fail closed, never redirect to unbound Pricing.
-            return unavailableResponse();
+          // Only explicit 401/403 revoked/inactive account status may treat the session as signed out;
+          // ANY DB, Redis, network, or 503 error MUST fail closed with 503 retry page and NO Location.
+          if (isCloudError(error) && (error.status === 401 || error.status === 403)) {
+            const guestPricingUrl = resolveGuestPricingRedirectUrl(targetPath, deps.config);
+            if (guestPricingUrl) {
+              return c.redirect(guestPricingUrl, 302);
+            }
+            return c.json(
+              {
+                code: 'UNAUTHORIZED',
+                error: 'Authentication is required for this upgrade handoff target.',
+              },
+              401,
+            );
           }
-          // Inactive/revoked session -> treat as signed-out guest below.
-          hasActiveSession = false;
+          return unavailableResponse();
         }
       }
 

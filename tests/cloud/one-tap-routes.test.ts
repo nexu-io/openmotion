@@ -995,7 +995,7 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       headers: {
         Origin: PUBLIC_ORIGIN,
         'content-type': 'application/json',
-        Cookie: `${c2CookieName}=${c2Token}`,
+        Cookie: `${c2CookieName}=${c2Token}; om_metrics_consent=granted`,
       },
       body: JSON.stringify({
         challengeId: c2Body.challengeId,
@@ -1623,6 +1623,161 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       // Verify all sessions created in store were revoked
       const activeSessions = [...store.sessions.values()].filter((s) => s.revokedAt === null);
       assert.equal(activeSessions.length, 0, 'Newly created session must be revoked when logout raced commit');
+
+      // 3. Logout racing DURING saveSessionProof (cache.set) must ALSO revoke session + delete proof + return 409
+      const cProofRes = await app.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-proof-race' }),
+      });
+      const cProofBody = (await cProofRes.json()) as { challengeId: string };
+      const cProofName = oneTapChallengeCookieName(cProofBody.challengeId);
+      const cProofTok = extractCookieValue(cProofRes.headers.getSetCookie(), cProofName)!;
+
+      // Return sessionProof from AMR and trigger logout right while cache.set persists sessionProof
+      const originalCacheSet = cache.set.bind(cache);
+      let proofRaceTriggered = false;
+      cache.set = async (key, value, ttlSec) => {
+        await originalCacheSet(key, value, ttlSec);
+        if (!proofRaceTriggered && key.startsWith('om:amr:session-proof:')) {
+          proofRaceTriggered = true;
+          const lRes = await app.request('/auth/logout', {
+            method: 'POST',
+            headers: { Origin: PUBLIC_ORIGIN, Cookie: `${cProofName}=${cProofTok}` },
+          });
+          assert.equal(lRes.status, 200);
+        }
+      };
+
+      const amrWithProof = new AmrIdentityClient({
+        apiUrl: AMR_API_URL,
+        internalToken: INTERNAL_TOKEN,
+        oneTapApiUrl: AMR_INTERNAL_ONE_TAP_URL,
+        oneTapInternalToken: ONE_TAP_INTERNAL_TOKEN,
+        cache,
+        fetcher: (async (input, init) => {
+          const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/challenge`) {
+            return Response.json({
+              challengeId: 'otc_r4_proof_race',
+              nonce: 'nonce_r4',
+              clientId: 'gid-r4',
+              expiresAt: '2026-11-24T12:00:00.000Z',
+            });
+          }
+          if (url === `${AMR_INTERNAL_ONE_TAP_URL}/api/internal/auth/one-tap/exchange`) {
+            const parsed = JSON.parse(String(init?.body ?? '{}')) as { attribution?: { odEntry?: Record<string, unknown> } };
+            // Without om_metrics_consent=granted cookie, odDeviceId must be stripped even if client claims consent
+            assert.equal(parsed.attribution?.odEntry?.odDeviceId, undefined);
+            assert.equal(parsed.attribution?.odEntry?.odDeviceIdConsent, undefined);
+            return Response.json({
+              ok: true,
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              isNewUser: false,
+              planTier: 'free',
+              sessionProof: 'otsp_r4_proof_race',
+            });
+          }
+          if (url.startsWith(`${AMR_API_URL}/api/internal/identity/auth_r3_u`)) {
+            return Response.json({
+              active: true,
+              status: 'active',
+              authUserId: 'auth_r3_u',
+              appUserId: 'usr_r3_u',
+              email: 'r3@example.com',
+              name: 'R3 User',
+              image: null,
+              workspace: {
+                workspaceId: 'ws_r3',
+                workspaceName: 'WS R3',
+                workspaceType: 'personal',
+                workspaceMemberId: 'wm_r3',
+                role: 'owner',
+                lifecycleState: 'active',
+                effectiveWriteAccess: 'writable',
+              },
+            });
+          }
+          throw new Error(`Unexpected AMR fetch: ${url}`);
+        }) as typeof fetch,
+      });
+
+      const { app: appProofRace } = createApiApp({
+        config,
+        db: {} as Database,
+        storage: {} as StoragePort,
+        queues: {} as ApiQueuesPort,
+        eventBus: {} as ApiEventBusPort,
+        authStore: store,
+        authCache: cache,
+        amrIdentity: amrWithProof,
+        gateway: new MockModelGateway(),
+        onTrackingEvents,
+        runtimeRoot: tmpRoot,
+      });
+
+      const c4Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r4' }),
+      });
+      const c4Body = (await c4Res.json()) as { challengeId: string };
+      const c4Name = oneTapChallengeCookieName(c4Body.challengeId);
+      const c4Tok = extractCookieValue(c4Res.headers.getSetCookie(), c4Name)!;
+
+      // Wire logout during saveSessionProof to use c4Name/c4Tok
+      cache.set = async (key, value, ttlSec) => {
+        await originalCacheSet(key, value, ttlSec);
+        if (key.startsWith('om:amr:session-proof:')) {
+          const lRes = await appProofRace.request('/auth/logout', {
+            method: 'POST',
+            headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c4Name}=${c4Tok}` },
+          });
+          assert.equal(lRes.status, 200);
+        }
+      };
+
+      const proofRaceRes = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: {
+          Origin: PUBLIC_ORIGIN,
+          'content-type': 'application/json',
+          Cookie: `${c4Name}=${c4Tok}; om_metrics_consent=denied`,
+        },
+        body: JSON.stringify({
+          challengeId: c4Body.challengeId,
+          idToken: 'tok_r4',
+          attribution: {
+            odEntry: {
+              sourceProduct: 'open_design',
+              entryId: 'ent_denied',
+              sourceDetail: 'openmotion_manage_subscription',
+              entryOccurredAt: '2026-11-24T02:00:00.000Z',
+              odDeviceId: 'dev_spoofed_without_cookie',
+              odDeviceIdConsent: true,
+            },
+          },
+        }),
+      });
+      assert.equal(proofRaceRes.status, 409);
+      assert.equal(extractCookieValue(proofRaceRes.headers.getSetCookie(), SESSION_COOKIE_NAME), null);
+      assert.equal([...store.sessions.values()].filter((s) => s.revokedAt === null).length, 0);
+
+      // 4. GET /auth/upgrade-handoff with om_session cookie when store/cache throws DB error MUST fail closed (503, NO Location)
+      const originalFindSession = store.findActiveSessionByTokenHash.bind(store);
+      store.findActiveSessionByTokenHash = async () => {
+        throw new Error('simulated postgres connection error');
+      };
+      const dbErrRes = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=some_valid_length_session_token_0123456789` },
+      });
+      store.findActiveSessionByTokenHash = originalFindSession;
+      assert.equal(dbErrRes.status, 503);
+      assert.equal(dbErrRes.headers.get('location'), null);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

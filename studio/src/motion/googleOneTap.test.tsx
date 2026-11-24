@@ -499,10 +499,19 @@ it('resolves full od_* product entry attribution by URL -> localStorage -> od_at
     },
   });
   expect(unconsented.attribution.odEntry).not.toHaveProperty('odDeviceId');
-  expect(localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY)).toBeTruthy();
+  const unconsentedStored = localStorage.getItem(ONETAP_ATTRIBUTION_STORAGE_KEY);
+  expect(unconsentedStored).toBeTruthy();
+  expect(unconsentedStored).not.toContain('dev_123');
 
-  // With explicit tracking consent -> odDeviceId is transmitted with consent flag
+  // With explicit tracking consent active on landing -> odDeviceId is persisted and transmitted with consent flag
   setMotionTrackingConsented(true);
+  history.replaceState(
+    null,
+    '',
+    '/explore?utm_source=url_src&od_origin=open_design&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T01:30:00.000Z&od_campaign_id=black_friday_2026&od_placement_id=hero_slot&od_device_id=dev_123',
+  );
+  persistOneTapLandingAttribution();
+  history.replaceState(null, '', '/templates');
   const consented = collectOneTapAttribution();
   expect(consented.attribution.odEntry).toMatchObject({
     sourceProduct: 'open_design',

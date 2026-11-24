@@ -1018,5 +1018,128 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.equal(winners.length, 1, 'Exactly one replica may consume a desktop provenance record');
       assert.equal(winners[0]?.oneTapVerified, true);
     });
+
+    it('guarantees single-use /auth/desktop/exchange across two API replicas sharing one cache (1 session + 1 AMR ticket)', async () => {
+      const config = makeConfig();
+      const store = new InMemoryAuthStore();
+      const sharedCache = new InMemoryAuthCache();
+      const projected = await store.projectAmrUserAndWorkspace({
+        oidcSub: 'ba_dual_replica',
+        appUserId: 'usr_dual_replica',
+        email: 'dual@example.test',
+        displayName: 'Dual Replica',
+        avatarUrl: null,
+        externalWorkspaceId: 'ws_dual',
+        workspaceName: 'Dual WS',
+        role: 'owner',
+      });
+      const browserSession = await createBrowserSession(store, {
+        userId: projected.user.id,
+        workspaceId: projected.workspace.id,
+      });
+
+      let ticketMintCalls = 0;
+      const makeAmrClient = () =>
+        new AmrIdentityClient({
+          apiUrl: 'https://amr-api.example.test',
+          internalToken: 'internal-token',
+          oneTapApiUrl: 'http://amr-api.internal.svc.cluster.local:18080',
+          oneTapInternalToken: 'one-tap-internal-token',
+          cache: sharedCache,
+          fetcher: (async (input) => {
+            const url = String(input);
+            if (url.startsWith('https://amr-api.example.test/api/internal/identity/ba_dual_replica')) {
+              return Response.json({
+                active: true,
+                status: 'active',
+                authUserId: 'ba_dual_replica',
+                appUserId: 'usr_dual_replica',
+                email: 'dual@example.test',
+                name: 'Dual Replica',
+                image: null,
+                workspace: {
+                  workspaceId: 'ws_dual',
+                  workspaceName: 'Dual WS',
+                  workspaceType: 'personal',
+                  workspaceMemberId: 'wm_dual',
+                  role: 'owner',
+                  lifecycleState: 'active',
+                  effectiveWriteAccess: 'writable',
+                },
+              });
+            }
+            if (url === 'https://amr-api.example.test/api/internal/billing/summary/usr_dual_replica') {
+              return Response.json({ membershipTier: null });
+            }
+            if (url === 'http://amr-api.internal.svc.cluster.local:18080/api/internal/auth/one-tap/handoff-ticket') {
+              ticketMintCalls += 1;
+              return Response.json({
+                ticket: `ht_dual_${ticketMintCalls}`,
+                handoffUrl: `https://amr-api.example.test/api/auth/one-tap/handoff?ticket=ht_dual_${ticketMintCalls}`,
+                expiresAt: '2026-11-24T12:01:00.000Z',
+              });
+            }
+            return new Response('Not Found', { status: 404 });
+          }) as typeof fetch,
+        });
+
+      const provStoreA = new DesktopOidcProvenanceStore(sharedCache);
+      const provStoreB = new DesktopOidcProvenanceStore(sharedCache);
+      const replicaA = createDesktopHandoffRoutes(
+        { config, store, cache: sharedCache, amrIdentity: makeAmrClient() },
+        { oidcProvenanceStore: provStoreA },
+      );
+      const replicaB = createDesktopHandoffRoutes(
+        { config, store, cache: sharedCache, amrIdentity: makeAmrClient() },
+        { oidcProvenanceStore: provStoreB },
+      );
+
+      const pair = generatePkcePair();
+      const redirectUri = 'http://127.0.0.1:45201/callback';
+      const ctxRaw = 'dual_ctx_token_value';
+      const { createHash } = await import('node:crypto');
+      const ctxHash = createHash('sha256').update(ctxRaw).digest('hex');
+      await provStoreA.save(ctxHash, {
+        userId: projected.user.id,
+        codeChallenge: pair.codeChallenge,
+        redirectUri,
+        oneTapVerified: true,
+        sessionProof: 'otsp_dual_proof',
+      });
+
+      const startRes = await replicaA.request(
+        buildStartUrl({
+          code_challenge: pair.codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'st_dual',
+        }),
+        {
+          headers: {
+            Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${ctxRaw}`,
+          },
+        },
+      );
+      assert.equal(startRes.status, 302);
+      const code = new URL(startRes.headers.get('location')!).searchParams.get('code')!;
+      const initialSessions = store.sessions.size;
+
+      const [exA, exB] = await Promise.all([
+        replicaA.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, codeVerifier: pair.codeVerifier, redirectUri }),
+        }),
+        replicaB.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code, codeVerifier: pair.codeVerifier, redirectUri }),
+        }),
+      ]);
+      const statuses = [exA.status, exB.status].sort();
+      assert.deepEqual(statuses, [200, 401], 'Exactly one replica may exchange a desktop handoff code');
+      assert.equal(store.sessions.size - initialSessions, 1, 'Exactly one desktop session may be created');
+      assert.equal(ticketMintCalls, 1, 'Exactly one AMR Pricing handoff ticket may be minted');
+    });
   });
 });
