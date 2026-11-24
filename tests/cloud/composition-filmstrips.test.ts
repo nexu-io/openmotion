@@ -30,6 +30,7 @@ import {
 } from '../../src/services/builtin-template-source.ts';
 import { handleStudioError, type DisklessStudioDeps } from '../../src/studio/context.ts';
 import {
+  COMPOSITION_FILMSTRIP_VERSION,
   computeCompositionFilmstripDepsDigest,
   embedFilmstripComment,
   extractFilmstripMeta,
@@ -254,16 +255,22 @@ describe('Composition filmstrip sprite codec & storage security', () => {
     );
   });
 
-  it('scopes catalog filmstrip keys to read-only allowCatalog guards', () => {
-    const key = catalogCompFilmstripKey(SHA_SCENE);
-    assert.equal(key, `catalog/filmstrips/${SHA_SCENE}/strip-v1.jpg`);
+  it('scopes catalog filmstrip keys to read-only allowCatalog guards and binds depsSha256 and explicit version', () => {
+    const key = catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER, COMPOSITION_FILMSTRIP_VERSION);
+    assert.equal(key, `catalog/filmstrips/v${COMPOSITION_FILMSTRIP_VERSION}/${SHA_SCENE}/${SHA_OTHER}/strip.jpg`);
+    const v2Key = catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER, 2);
+    assert.equal(v2Key, `catalog/filmstrips/v2/${SHA_SCENE}/${SHA_OTHER}/strip.jpg`);
     assert.equal(isCatalogCasKey(key), true);
+    assert.equal(isCatalogCasKey(v2Key), true);
     assert.equal(isImmutableCasKey(key), true);
     assert.equal(assertTenantScopedKey(WID_A, key, { allowCatalog: true }), key);
     assert.throws(() => assertTenantScopedKey(WID_A, key), { code: 'WORKSPACE_FORBIDDEN' });
     assert.throws(() => assertTenantScopedKey(WID_A, key, { allowCatalog: false }), {
       code: 'WORKSPACE_FORBIDDEN',
     });
+    assert.throws(() => catalogCompFilmstripKey(SHA_SCENE, SHA_OTHER, 0), { code: 'INVALID_PATH' });
+    // Legacy key without depsSha256 is no longer accepted as a catalog CAS key.
+    assert.equal(isCatalogCasKey(`catalog/filmstrips/${SHA_SCENE}/strip-v1.jpg`), false);
   });
 
   it('ships valid pre-baked 8-frame filmstrips for every built-in template composition', async () => {
@@ -510,34 +517,46 @@ describe('Studio composition filmstrip HTTP routes', () => {
 
     let cssScope: BlobScope = 'catalog';
     let cssSha = SHA_OTHER;
+    let includeCss = true;
+    const buildFiles = (): VirtualFileRecord[] => [
+      {
+        path: 'compositions/prism.html',
+        blobScope: 'catalog',
+        sha256: SHA_SCENE,
+        sizeBytes: 512,
+        mimeType: 'text/html; charset=utf-8',
+        isText: true,
+        updatedAt: new Date(0),
+      },
+      ...(includeCss
+        ? [
+            {
+              path: 'assets/film.css',
+              blobScope: cssScope,
+              sha256: cssSha,
+              sizeBytes: 128,
+              mimeType: 'text/css',
+              isText: true,
+              updatedAt: new Date(0),
+            } satisfies VirtualFileRecord,
+          ]
+        : []),
+    ];
     const app = makeRouteApp(
       storage,
-      (_auth, projectId) =>
-        projectId === PID_A
-          ? {
-              files: [
-                {
-                  path: 'compositions/prism.html',
-                  blobScope: 'catalog',
-                  sha256: SHA_SCENE,
-                  sizeBytes: 512,
-                  mimeType: 'text/html; charset=utf-8',
-                  isText: true,
-                  updatedAt: new Date(0),
-                },
-                {
-                  path: 'assets/film.css',
-                  blobScope: cssScope,
-                  sha256: cssSha,
-                  sizeBytes: 128,
-                  mimeType: 'text/css',
-                  isText: true,
-                  updatedAt: new Date(0),
-                },
-              ],
-            }
-          : null,
+      (_auth, projectId) => (projectId === PID_A ? { files: buildFiles() } : null),
       () => makeAuth(),
+    );
+
+    const { depsSha256: initialDepsSha } = computeCompositionFilmstripDepsDigest({
+      compPath: 'compositions/prism.html',
+      files: buildFiles(),
+      indexHead: null,
+    });
+    const initialCatalogKey = catalogCompFilmstripKey(
+      SHA_SCENE,
+      initialDepsSha,
+      COMPOSITION_FILMSTRIP_VERSION,
     );
 
     const miss = await app.request(
@@ -567,11 +586,11 @@ describe('Studio composition filmstrip HTTP routes', () => {
       },
     );
     assert.equal(put.status, 200);
-    assert.equal(storage.objects.has(catalogCompFilmstripKey(SHA_SCENE)), false);
+    assert.equal(storage.objects.has(initialCatalogKey), false);
     assert.equal(storage.objects.has(projectCompFilmstripKey(WID_A, PID_A, renderKey)), true);
 
-    // Once trusted catalog-sync populates catalog/filmstrips/{sha}/strip-v1.jpg, GET prefers catalog while deps are unmodified.
-    await storage.putObject(catalogCompFilmstripKey(SHA_SCENE), tagged8, 'image/jpeg');
+    // Once trusted worker populates catalog/filmstrips/v1/{fileSha}/{depsSha}/strip.jpg, GET prefers catalog while deps match.
+    await storage.putObject(initialCatalogKey, tagged8, 'image/jpeg');
     const hit = await app.request(
       `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/prism.html`,
     );
@@ -579,7 +598,39 @@ describe('Studio composition filmstrip HTTP routes', () => {
     assert.equal(hit.headers.get(FILMSTRIP_HEADER_SOURCE), 'catalog');
     assert.equal(hit.headers.get(FILMSTRIP_HEADER_FRAMES), '8');
 
-    // Editing assets/film.css stops serving the catalog S3 sprite immediately.
+    // Deleting a catalog dependency leaves all remaining files catalog-scoped, but rotates depsSha256
+    // so the old catalog sprite is NOT served and a fresh workspace PUT is accepted instead of returning already_cached.
+    includeCss = false;
+    const missAfterDelete = await app.request(
+      `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/prism.html`,
+    );
+    assert.equal(missAfterDelete.status, 204);
+    const deletedDepsRenderKey = missAfterDelete.headers.get(FILMSTRIP_HEADER_RENDER_KEY)!;
+    assert.notEqual(deletedDepsRenderKey, renderKey);
+
+    const repairPut = await app.request(
+      `http://studio.local/api/projects/${PID_A}/composition-filmstrip/compositions/prism.html`,
+      {
+        method: 'PUT',
+        headers: {
+          'content-type': 'image/jpeg',
+          [FILMSTRIP_HEADER_SHA256]: SHA_SCENE,
+          [FILMSTRIP_HEADER_RENDER_KEY]: deletedDepsRenderKey,
+          [FILMSTRIP_HEADER_SCOPE]: 'catalog',
+          [FILMSTRIP_HEADER_FRAMES]: '4',
+          [FILMSTRIP_HEADER_WIDTH]: '160',
+          [FILMSTRIP_HEADER_HEIGHT]: '90',
+        },
+        body: new Uint8Array(raw4),
+      },
+    );
+    assert.equal(repairPut.status, 200);
+    const repairBody = (await repairPut.json()) as { stored: boolean; source: string };
+    assert.equal(repairBody.stored, true);
+    assert.equal(repairBody.source, 'workspace');
+
+    // Restoring and editing assets/film.css to workspace scope also stops serving the catalog S3 sprite.
+    includeCss = true;
     cssScope = 'workspace';
     cssSha = SHA_PATCH;
     const missAfterCss = await app.request(

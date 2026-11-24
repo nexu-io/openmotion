@@ -44,6 +44,10 @@ import {
   buildRenderSubprocessEnv,
   injectStudioRenderParityIntoHydratedDir,
 } from './render-env.ts';
+import {
+  processBakeCatalogFilmstripsJob,
+  type BakeCatalogFilmstripsDeps,
+} from './catalog-filmstrip-bake.ts';
 
 const HYDRATION_CONCURRENCY = 8;
 const HYDRATION_LARGE_FILE_BYTES = 10 * 1024 * 1024;
@@ -179,6 +183,10 @@ export interface RenderExportDeps {
   readonly tmpBaseDir?: string;
   readonly concurrency?: number;
   readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly bakeState?: BakeCatalogFilmstripsDeps['bakeState'];
+  readonly shouldYieldCatalogBake?: BakeCatalogFilmstripsDeps['shouldYield'];
+  readonly fetchImpl?: typeof fetch;
+  readonly renderCatalogCompositionsFn?: BakeCatalogFilmstripsDeps['renderCompositionsFn'];
   readonly runRenderCommand?: (
     runtimeRoot: string,
     projectDir: string,
@@ -292,14 +300,20 @@ export function startRenderHealthHeartbeat(options: {
   };
 }
 
-/** Remove stale ephemeral `/tmp/om-render-*` and `/tmp/om-thumb-*` folders left by hard OOM kills. */
+/** Remove stale ephemeral `/tmp/om-render-*`, `/tmp/om-thumb-*`, and `/tmp/om-filmstrip-*` folders left by hard OOM kills. */
 export async function sweepStaleRenderTempDirs(tmpBaseDir = os.tmpdir(), logger?: Logger): Promise<number> {
   let removed = 0;
   try {
     const entries = await readdir(tmpBaseDir, { withFileTypes: true });
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (!entry.name.startsWith('om-render-') && !entry.name.startsWith('om-thumb-')) continue;
+      if (
+        !entry.name.startsWith('om-render-') &&
+        !entry.name.startsWith('om-thumb-') &&
+        !entry.name.startsWith('om-filmstrip-')
+      ) {
+        continue;
+      }
       await rm(path.join(tmpBaseDir, entry.name), { recursive: true, force: true }).catch(() => {});
       removed += 1;
     }
@@ -1189,6 +1203,22 @@ export async function processRenderExportQueueJob<K extends RenderExportJobName>
   }
   if (name === 'render_thumbnail') {
     return processRenderThumbnailJob(deps, payload as RenderExportPayloadMap['render_thumbnail']);
+  }
+  if (name === 'bake_catalog_filmstrips') {
+    return processBakeCatalogFilmstripsJob(
+      {
+        storage: deps.storage,
+        logger: deps.logger,
+        bakeState: deps.bakeState,
+        runtimeRoot: deps.runtimeRoot,
+        sourceEnv: deps.sourceEnv,
+        tmpBaseDir: deps.tmpBaseDir,
+        fetchImpl: deps.fetchImpl,
+        shouldYield: deps.shouldYieldCatalogBake,
+        renderCompositionsFn: deps.renderCatalogCompositionsFn,
+      },
+      payload as RenderExportPayloadMap['bake_catalog_filmstrips'],
+    );
   }
   throw new Error(`Unknown render-export job: ${String(name)}`);
 }
