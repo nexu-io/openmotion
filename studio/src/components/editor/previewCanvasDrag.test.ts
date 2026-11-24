@@ -161,7 +161,7 @@ it.each([false, true])("replays a CSS layout move only while the replacement kee
   }
 });
 
-it.each(["before", "after"])("keeps two ordered releases made %s the new host mounts", async timing => {
+it.each(["before", "after", "across"])("keeps two ordered releases made %s the incoming host mounts", async timing => {
   const {one, swap, gesture, makeElement} = createScene();
   one.style.position = "absolute";
   const version = "b".repeat(64);
@@ -176,15 +176,61 @@ it.each(["before", "after"])("keeps two ordered releases made %s the new host mo
   }
   let next = timing === "after" ? replace() : one;
   expect(gesture("start", "first", {ordered:true})).toBeTruthy();
-  const first = gesture("finish", "first");
+  const replies: string[] = [];
+  const first = gesture("finish", "first").then((reply: unknown) => { replies.push("first"); return reply; });
+  if (timing === "across") next = replace();
   expect(gesture("start", "second", {ordered:true})).toBeTruthy();
-  const second = gesture("finish", "second");
+  const second = gesture("finish", "second").then((reply: unknown) => { replies.push("second"); return reply; });
   expect(next.style.left).toBe("50px");
   if (timing === "before") next = replace();
   resolve();
   expect(await first).toMatchObject({elementId:"one", left:25, sha256:version});
   expect(await second).toMatchObject({elementId:"one", left:50, sha256:version, predecessor:"first"});
   expect(next.style.left).toBe("50px");
+  expect(replies).toEqual(["first", "second"]);
+});
+
+it("restores the visible release when the incoming host mounts without another pointer event", async () => {
+  const {one, swap, gesture, makeElement} = createScene();
+  one.style.position = "absolute";
+  const { promise, resolve } = Promise.withResolvers<void>();
+  swap("one.html", "b".repeat(64), promise);
+  gesture("start", "first", {ordered:true});
+  const first = gesture("finish", "first");
+  one.remove();
+  const next = makeElement("one");
+  next.style.position = "absolute";
+  await vi.waitFor(() => expect(next.style.left).toBe("25px"));
+  resolve();
+  expect(await first).toMatchObject({left:25});
+});
+
+it.each(["moved", "cancelled", "expired"])("cleans up a %s release spanning the two hosts", async reason => {
+  const {one, swap, gesture, makeElement} = createScene();
+  one.style.position = "absolute";
+  const { promise, resolve } = Promise.withResolvers<boolean>();
+  swap("one.html", "b".repeat(64), promise);
+  gesture("start", "first", {ordered:true});
+  const first = gesture("finish", "first");
+  one.remove();
+  const next = makeElement("one");
+  next.style.position = "absolute";
+  if (reason === "moved") next.style.left = "100px";
+  vi.mocked(document.elementFromPoint).mockReturnValue(next);
+  gesture("start", "second", {ordered:true});
+  const second = gesture("finish", "second");
+  if (reason === "cancelled") gesture("cancel", "first");
+  resolve(reason !== "expired");
+  expect(await first).toBeNull();
+  if (reason === "moved") {
+    expect(await second).toMatchObject({left:125});
+    expect(next.style.left).toBe("125px");
+    gesture("commit", "second");
+  } else {
+    expect(await second).toBeNull();
+    expect(next.style.left).toBe("");
+  }
+  expect(gesture("start", "retry", {ordered:true})).toBeTruthy();
 });
 
 it.each(["same layer", "other layer", "cancelled"])("opens the inline caret after the swap only on the original hit (%s)", async state => {
