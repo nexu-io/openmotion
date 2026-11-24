@@ -32,7 +32,7 @@ it('keeps ordered scene scripts, styles and font declarations while omitting the
   assert.equal(previewSceneFragment(compile(host + host), file), null);
 });
 
-function fixture(batch = false) {
+function fixture(batch = false, separateReceipts = false) {
   const document = parseHTMLContent(`<html><head></head><body>${parked}</body></html>`);
   if (batch) {
     const second = document.querySelector('section')!.cloneNode(true) as Element;
@@ -51,26 +51,39 @@ function fixture(batch = false) {
     fresh.sourceVersions[other] = digest('updated outro');
     nextParts.scenes.outro = 'new outro';
   }
-  const templ = () => `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'></head><body><script data-openmotion-preview='${JSON.stringify(fresh)}'></script></body></html>`;
+  function templ(fragment: string | null) {
+    const body = separateReceipts && fragment ? document.querySelector('[data-composition-file="' + fragment + '"]')!.outerHTML : '';
+    return `<html><head><meta name="hf-scene-parts" content='${JSON.stringify(nextParts)}'><script data-openmotion-preview='${JSON.stringify(fresh)}'></script></head><body>${body}</body></html>`;
+  }
   const counts = { reads: 0, swaps: 0, confirms: 0 };
   const request = { documentId: 'frame-1', path: file, fileVersion: version, expiresAt: Date.now() + 3000 };
-  if (batch) Object.assign(request, {files: [[file, version], [other, '"sha256:' + fresh.sourceVersions[other] + '"']]});
+  if (batch && !separateReceipts) Object.assign(request, {files: [[file, version], [other, '"sha256:' + fresh.sourceVersions[other] + '"']]});
   let duringRead = () => {};
+  const reads: (string | null)[] = [];
+  const currentVersions = { ...oldVersions };
   const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + '\nrefreshParkedScene;', {
-    settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: { ...oldVersions }, projectId: 'p',
+    settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: currentVersions, projectId: 'p',
     document, location: {href: 'https://preview.example/current?pt=test'}, URL, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
     DOMParser: class { parseFromString(html: string) { return parseHTMLContent(html); } },
     fetch: async (url: string) => {
-      assert.equal(url, 'https://preview.example/current?pt=test' + (batch ? '' : '&sceneFile=compositions%2Fintro.html'));
+      const fragment = new URL(url).searchParams.get('sceneFile');
+      if (!separateReceipts) assert.equal(fragment, batch ? null : file);
+      reads.push(fragment);
       counts.reads++;
       duringRead();
-      return new Response(templ());
+      return new Response(templ(fragment));
     },
-    window: { __hfSwapScenes: async (html: string) => { assert.equal(html, templ()); counts.swaps++; } },
-    confirmCanvasVersion: (path: string, value: string) => { assert.ok(path === file || batch && path === other); assert.equal(value, fresh.sourceVersions[path]); counts.confirms++; },
+    window: { __hfSwapScenes: async (html: string) => {
+      if (separateReceipts) {
+        const swapped = parseHTMLContent(html);
+        assert.deepEqual(Array.from(swapped.querySelectorAll('section'), el => el.getAttribute('data-composition-file')), [file, other]);
+      } else assert.equal(html, templ(null));
+      counts.swaps++;
+    } },
+    confirmCanvasVersion: (path: string, value: string) => { assert.ok(path === file || batch && path === other); assert.equal(value, fresh.sourceVersions[path]); currentVersions[path] = value; counts.confirms++; },
   });
-  return { document, counts, request, fresh, nextParts, run: () => refresh(request), onRead: (fn: () => void) => {duringRead = fn;} };
+  return { document, counts, request, fresh, nextParts, reads, run: (message = request) => refresh(message), onRead: (fn: () => void) => {duringRead = fn;} };
 }
 
 it('updates the parked template through the runtime only after validating the fresh file and all other scenes', async () => {
@@ -87,6 +100,22 @@ it('mounts two cold scenes from one compilation after checking both file version
   stale.fresh.sourceVersions[other] = digest('concurrent edit');
   assert.equal(await stale.run(), false);
   assert.deepEqual(stale.counts, {reads: 1, swaps: 0, confirms: 0});
+});
+
+it('reuses both compact scene bodies when two independent saves arrive in adjacent receipts', async () => {
+  const f = fixture(true, true);
+  const sibling = { ...f.request, path: other, fileVersion: '"sha256:' + f.fresh.sourceVersions[other] + '"' };
+  assert.deepEqual(await Promise.all([f.run(), f.run(sibling)]), [true, true]);
+  assert.deepEqual(f.reads, [file, other]);
+  assert.deepEqual(f.counts, {reads: 2, swaps: 1, confirms: 2});
+});
+
+it('leaves the original scene and its version intact if the sibling changes between compact reads', async () => {
+  const f = fixture(true, true);
+  f.onRead(() => { if (f.counts.reads === 2) f.fresh.sourceVersions[other] = digest('another outro'); });
+  assert.equal(await f.run(), false);
+  assert.deepEqual(f.reads, [file, other]);
+  assert.deepEqual(f.counts, {reads: 2, swaps: 0, confirms: 0});
 });
 
 it('checks for a parked child without fetching or replacing a visible scene', async () => {

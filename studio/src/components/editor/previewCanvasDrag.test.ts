@@ -8,7 +8,7 @@ import { canvasBoxOperations } from "../../../../packages/edit-core/canvas-box";
 
 const originalHash = "a".repeat(64);
 
-function createScene(declarative = false, position = false, tag = "div") {
+function createScene(declarative = false, position = false, tag = "div", cssLayoutOffset = false) {
   const elements = ["one", "two"].map(id => {
     const element = document.createElement(tag);
     element.id = id;
@@ -22,17 +22,52 @@ function createScene(declarative = false, position = false, tag = "div") {
   const dispatch = new Function("document", "getComputedStyle", "HTMLElement", "sourceVersions", "describe",
     "innerWidth", "innerHeight", "picked", "timingDocumentId", "compositionPath", "settings", "sourceFileForElement",
     PREVIEW_SOURCE_IDENTITY + PREVIEW_INSPECTOR + PREVIEW_CANVAS_DRAG + "\nreturn canvasDrag;")(
-    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: el.style.transform || "none", display: el.style.display || "block" }),
+    document, (el: HTMLElement) => ({ position: el.style.position || "static", visibility: el.style.visibility, left: el.style.left, top: el.style.top, width: "20px", height: "10px", transform: el.style.transform || "none", display: el.style.display || "block", animationName: el.style.animationName, translate: el.style.translate || "none" }),
     HTMLElement, { "one.html": originalHash, "two.html": originalHash },
     (el: HTMLElement) => ({ sourceFile: el.id + ".html", elementId: el.id, geometry: el.getBoundingClientRect(),
-      viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position}}, (el: HTMLElement) => el.id + ".html",
+      viewport: { width: 100, height: 100 } }), 100, 100, elements[0], declarative ? "frame" : undefined, "one.html", {liveEdits: {position, cssLayoutOffset}}, (el: HTMLElement) => el.id + ".html",
   );
   return { one: elements[0]!, two: elements[1]!,
     gesture: (phase: string, gestureId: string, fields: Record<string, unknown> = {}) =>
-      dispatch({ phase, gestureId, x: 0, y: 0, dx: 0.25, dy: 0.5, ...fields }) };
+      dispatch({ phase, gestureId, x: 0, y: 0, dx: 0.25, dy: 0.5, cssLayoutOffset: true, ...fields }) };
 }
 
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
+
+it.each([ [true, false], [false, false], [true, true] ])("uses only a free translation on verified CSS layout animation (%s, %s)", (verified, ownsTranslate) => {
+  const { one, gesture } = createScene(false, true, "div", verified);
+  one.style.animationName = "slide";
+  one.style.position = "absolute";
+  one.style.translate = "3px 4px";
+  Object.defineProperty(one, "getAnimations", { value: () => [{ effect: { target: one,
+    getKeyframes: () => [{ left: "12px", ...(ownsTranslate && { translate: "2px" }) }] } }] });
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const [x,y] = one.style.translate.split(" ").map(parseFloat);
+    return new DOMRect(12 + x!, y, 20, 10);
+  });
+  if (!verified || ownsTranslate) {
+    expect(gesture("start", "move")).toBeNull();
+    expect(one.style.translate).toBe("3px 4px");
+    return;
+  }
+  // An already-open Studio with an older bridge contract cannot persist this coordinate space.
+  expect(gesture("start", "old-host", {cssLayoutOffset: false})).toBeNull();
+  vi.stubGlobal("gsap", {getProperty: () => { throw Error("GSAP must not normalize the authored translate"); }});
+  try {
+    expect(gesture("start", "move")).toBeTruthy();
+  } finally {
+    vi.unstubAllGlobals();
+  }
+  gesture("move", "move");
+  expect(one.style.translate).toBe("28px 54px");
+  const finish = gesture("finish", "move", {wholePath: true});
+  expect(finish).toMatchObject({translated:true,left:28,top:54});
+  expect(finish).not.toHaveProperty("position");
+  expect(one.style.left).toBe("");
+  expect(one.style.top).toBe("");
+  gesture("cancel", "move");
+  expect(one.style.translate).toBe("3px 4px");
+});
 
 it("moves immediately across pending saves and rolls back dependent measurements together", () => {
   const {one, gesture} = createScene(true);
