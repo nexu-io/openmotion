@@ -31,56 +31,6 @@
 .motion-placement-label strong { font-family: var(--motion-font-mono); font-weight: var(--motion-weight-medium); font-variant-numeric: tabular-nums; }
 .motion-placement-label[data-snapped] { border-color: var(--motion-accent); }
 
-/* Seamless solid full-cover entry gate matching MotionLoading (no modal card or progress text). */
-.motion-editor-cover {
-  position: absolute;
-  inset: 0;
-  z-index: 120;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  padding: var(--motion-space-24);
-  background: var(--motion-bg);
-  color: var(--motion-text);
-  user-select: none;
-  opacity: 1;
-  transition: opacity var(--motion-duration-normal) var(--motion-ease-out);
-}
-.motion-editor-cover[data-visible="false"] {
-  opacity: 0;
-  pointer-events: none;
-}
-.motion-editor-cover-inner {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--motion-space-16);
-  text-align: center;
-}
-.motion-editor-cover-mark {
-  display: block;
-  width: var(--motion-space-40);
-  height: var(--motion-space-40);
-  background: var(--motion-accent);
-  -webkit-mask: url('./brand/loading-mark.svg') center / contain no-repeat;
-  mask: url('./brand/loading-mark.svg') center / contain no-repeat;
-  animation: motion-preview-mark-breathe var(--motion-duration-loading) var(--motion-ease-standard) infinite alternate;
-}
-.motion-editor-cover-label {
-  margin: 0;
-  color: var(--motion-muted);
-  font: var(--motion-text-sm)/var(--motion-leading-body) var(--motion-font-sans);
-}
-.motion-editor-cover-escape {
-  position: absolute;
-  top: calc(100% + var(--motion-space-16));
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-  animation: motion-preview-loading-enter var(--motion-duration-normal) var(--motion-ease-out) both;
-}
-
 /* Non-blocking editor asset progress hairline (bundled into hashed studio CSS). */
 .motion-editor-asset-bar {
   position: absolute;
@@ -176,17 +126,9 @@
   opacity: 0.65;
 }
 @media (prefers-reduced-motion: reduce) {
-  .motion-editor-cover,
   .motion-editor-asset-bar,
   .motion-editor-asset-bar-fill {
     transition: none;
-  }
-  .motion-editor-cover-mark {
-    opacity: 0.9;
-    animation: none;
-  }
-  .motion-editor-cover-escape {
-    animation: none;
   }
   .motion-editor-asset-bar-fill[data-indeterminate="true"] {
     width: 100%;

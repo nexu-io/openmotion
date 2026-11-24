@@ -1369,7 +1369,7 @@ describe('Cloud API Entrypoint — Models, Account, Catalog, Integration & P2 Ro
     // Regression: createApiApp wires authCache into OpenDesignModelGateway when MODEL_GATEWAY_MODE=opendesign
     const cachedAuthCache = new InMemoryAuthCache();
     await cachedAuthCache.set(
-      'om:gateway:models:global',
+      'om:gateway:models:global:anon',
       JSON.stringify([
         {
           id: 'opendesign:cached-image-1',

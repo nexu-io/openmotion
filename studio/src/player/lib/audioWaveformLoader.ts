@@ -3,6 +3,15 @@ import { waitForMediaDerived } from "../../utils/mediaDerivedBus";
 
 export class UnavailableAudioError extends Error {}
 
+// Stay well inside ThumbnailScheduler's 30 s thumbnailLoadTimeoutMs so audio clips
+// fall back to local browser decoding before the scheduler aborts the shared signal.
+export const AUDIO_WAVEFORM_PENDING_BUDGET_MS = 8_000;
+export const VIDEO_WAVEFORM_PENDING_BUDGET_MS = 25_000;
+const INITIAL_PENDING_DELAY_MS = 500;
+const MAX_PENDING_DELAY_MS = 4_000;
+const MIN_PENDING_WAIT_MS = 50;
+const MAX_PENDING_ATTEMPTS = 12;
+
 function extractPeaks(channelData: Float32Array, barCount: number): number[] {
   const peaks: number[] = [];
   const samplesPerBar = Math.floor(channelData.length / barCount);
@@ -33,21 +42,47 @@ export async function loadWaveform(
     return await decodeWaveformPeaks(audioUrl, signal);
   }
   try {
-    return await fetchWaveformPeaks(waveformUrl, signal);
+    return await fetchWaveformPeaks(waveformUrl, signal, sourceKind);
   } catch (error) {
     // Missing media stays missing; a cancelled lease stays cancelled.
     if (sourceKind === "video" || error instanceof UnavailableAudioError || signal.aborted) throw error;
-    // The server decodes with FFmpeg, which a first run may still be downloading (409) or lack
-    // entirely (500). Decode audio sources locally, but never download whole video containers.
+    // The server decodes with FFmpeg, which a first run may still be downloading (409), lack
+    // entirely (500/503), or leave pending beyond the audio wait budget. Decode audio sources
+    // locally, but never download whole video containers.
     return await decodeWaveformPeaks(audioUrl, signal);
   }
 }
 
-async function fetchWaveformPeaks(url: string, signal: AbortSignal): Promise<number[]> {
-  const maxPendingAttempts = 12;
-  let delayMs = 500;
+async function waitForPendingWaveform(
+  expectedSha: string | undefined,
+  delayMs: number,
+  deadline: number,
+  signal: AbortSignal,
+): Promise<boolean> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs < MIN_PENDING_WAIT_MS) return false;
+  const sseEvent = await waitForMediaDerived(
+    (evt) => evt.kind === "waveform" && (!expectedSha || evt.sha256 === expectedSha),
+    Math.min(delayMs, remainingMs),
+    signal,
+  );
+  if (sseEvent?.status === "failed") {
+    throw new Error("Waveform extraction failed");
+  }
+  return true;
+}
 
-  for (let attempt = 0; attempt < maxPendingAttempts; attempt += 1) {
+async function fetchWaveformPeaks(
+  url: string,
+  signal: AbortSignal,
+  sourceKind: "audio" | "video",
+): Promise<number[]> {
+  const budgetMs =
+    sourceKind === "audio" ? AUDIO_WAVEFORM_PENDING_BUDGET_MS : VIDEO_WAVEFORM_PENDING_BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
+  let delayMs = INITIAL_PENDING_DELAY_MS;
+
+  for (let attempt = 0; attempt < MAX_PENDING_ATTEMPTS; attempt += 1) {
     const response = await studioApiFetch(url, { signal });
     if (response.status === 404 || response.status === 410) {
       throw new UnavailableAudioError(`Waveform request failed (${response.status})`);
@@ -55,15 +90,8 @@ async function fetchWaveformPeaks(url: string, signal: AbortSignal): Promise<num
     if (response.status === 202) {
       const pendingBody = (await response.json().catch(() => null)) as { sha256?: string } | null;
       const expectedSha = typeof pendingBody?.sha256 === "string" ? pendingBody.sha256 : undefined;
-      const sseEvent = await waitForMediaDerived(
-        (evt) => evt.kind === "waveform" && (!expectedSha || evt.sha256 === expectedSha),
-        delayMs,
-        signal,
-      );
-      if (sseEvent?.status === "failed") {
-        throw new Error("Waveform extraction failed");
-      }
-      delayMs = Math.min(4000, Math.round(delayMs * 1.7));
+      if (!(await waitForPendingWaveform(expectedSha, delayMs, deadline, signal))) break;
+      delayMs = Math.min(MAX_PENDING_DELAY_MS, Math.round(delayMs * 1.7));
       continue;
     }
     if (!response.ok) throw new Error(`Waveform request failed (${response.status})`);
@@ -73,12 +101,8 @@ async function fetchWaveformPeaks(url: string, signal: AbortSignal): Promise<num
         typeof (data as { sha256?: unknown }).sha256 === "string"
           ? ((data as { sha256: string }).sha256)
           : undefined;
-      await waitForMediaDerived(
-        (evt) => evt.kind === "waveform" && (!expectedSha || evt.sha256 === expectedSha),
-        delayMs,
-        signal,
-      );
-      delayMs = Math.min(4000, Math.round(delayMs * 1.7));
+      if (!(await waitForPendingWaveform(expectedSha, delayMs, deadline, signal))) break;
+      delayMs = Math.min(MAX_PENDING_DELAY_MS, Math.round(delayMs * 1.7));
       continue;
     }
     if (

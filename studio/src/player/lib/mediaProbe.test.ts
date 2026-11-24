@@ -172,4 +172,15 @@ describe("media probe registry", () => {
     );
     expect(requestedSources).toHaveLength(1);
   });
+
+  it("skips bare project-relative paths when projectId is unset to avoid /editor/... 404s", async () => {
+    const apply = vi.fn();
+    const elements = [{ id: "welcome-soundtrack", tag: "audio", src: "assets/soundtrack.m4a" }];
+
+    expect(applyCachedSourceDurations(elements, null)).toEqual(elements);
+    await probeMissingSourceDurations(elements, null, apply);
+
+    expect(requestedSources).toEqual([]);
+    expect(apply).not.toHaveBeenCalled();
+  });
 });

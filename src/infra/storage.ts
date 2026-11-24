@@ -45,7 +45,8 @@ export const IMMUTABLE_PUBLIC_CACHE_CONTROL = 'public, max-age=31536000, immutab
 export const IMMUTABLE_PRIVATE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
 
 const CATALOG_CAS_KEY_REGEX = /^catalog\/blobs\/[a-f0-9]{64}$/;
-const CATALOG_FILMSTRIP_KEY_REGEX = /^catalog\/filmstrips\/[a-f0-9]{64}\/strip-v1\.jpg$/;
+const CATALOG_FILMSTRIP_KEY_REGEX =
+  /^catalog\/filmstrips\/v[1-9]\d*\/[a-f0-9]{64}\/[a-f0-9]{64}\/strip\.jpg$/;
 const WORKSPACE_IMMUTABLE_CAS_KEY_REGEX =
   /^workspaces\/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\/(?:blobs\/[a-f0-9]{64}|(?:thumbnails|derived)\/[a-f0-9]{64}\/[^/]+)$/;
 
@@ -57,7 +58,7 @@ export function isCatalogCasKey(key: string): boolean {
  * Returns true for content-addressed immutable object keys whose bytes never change at that key:
  * - `workspaces/{wid}/blobs/{sha256}`
  * - `catalog/blobs/{sha256}`
- * - `catalog/filmstrips/{sha256}/strip-v1.jpg`
+ * - `catalog/filmstrips/v{version}/{fileSha}/{depsSha}/strip.jpg`
  * - `workspaces/{wid}/thumbnails/{sha256}/*`
  * - `workspaces/{wid}/derived/{sha256}/*`
  */
@@ -130,9 +131,20 @@ export function catalogBlobKey(sha256: string): string {
   return `catalog/blobs/${sha256}`;
 }
 
-export function catalogCompFilmstripKey(sha256: string): string {
-  assertSha256(sha256);
-  return `catalog/filmstrips/${sha256}/strip-v1.jpg`;
+export function catalogCompFilmstripKey(
+  fileSha256: string,
+  depsSha256: string,
+  version: number,
+): string {
+  assertSha256(fileSha256);
+  assertSha256(depsSha256);
+  if (!Number.isInteger(version) || version < 1) {
+    throw new CloudError('INVALID_PATH', 'Filmstrip version must be a positive integer', {
+      status: 400,
+      applied: false,
+    });
+  }
+  return `catalog/filmstrips/v${version}/${fileSha256}/${depsSha256}/strip.jpg`;
 }
 
 export function uploadStagingKey(workspaceId: string, uploadId: string): string {
