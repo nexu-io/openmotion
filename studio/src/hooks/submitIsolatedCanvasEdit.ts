@@ -29,7 +29,7 @@ function beginPresentation(frame: HTMLIFrameElement, path: string, previous?: Co
 /** Show a non-geometric peer edit while the project save is still in flight. */
 export async function presentPendingCanvasChange(
   project: string, path: string, frameRef: RefObject<HTMLIFrameElement | null>,
-  read: () => Promise<{ content?: string; version?: string | null }> | undefined,
+  read: () => Promise<{ content?: string; version?: string | null; missing?: boolean }> | undefined,
 ) {
   const frame = frameRef.current;
   const group = frame && presentations.get(frame)?.get(path);
@@ -38,11 +38,13 @@ export async function presentPendingCanvasChange(
   if (!group && !targets.length) return;
   const previous = group?.previous ?? confirmedSource(project, path);
   const file = await read();
-  if (frameRef.current !== frame || typeof file?.content !== "string" || !file.version || previous?.version === file.version) return;
-  await cancelRemovedCanvasTargets(frame, targets, file.content, async version =>
+  if (frameRef.current !== frame || !file) return;
+  const content = file.missing ? "" : file.content;
+  if (typeof content !== "string" || (!file.missing && (!file.version || previous?.version === file.version))) return;
+  await cancelRemovedCanvasTargets(frame, targets, content, async version =>
     previous?.version === version ? previous.content : (await readMountedSource(project, version))?.content);
-  if (!group || !previous) return;
-  const current = { content: file.content, version: file.version };
+  if (!group || !previous || !file.version) return;
+  const current = { content, version: file.version };
   const isCurrent = () => frameRef.current === frame && !isPreviewChanging() && presentations.get(frame)?.get(path) === group;
   if (await tryApplyPeerChanges(frame, { path, previous, current }, isCurrent, "paint-only")) {
     group.previous = current;
