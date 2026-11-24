@@ -598,7 +598,6 @@
     "Every WeChat user can find and play it.": "所有微信用户都能搜到并玩。",
     "Saved only on this computer, never in the conversation.": "只保存在这台电脑上，不会进入对话。",
     "Saved on this computer for {appid}; the conversation keeps no copy": "已为 {appid} 保存在这台电脑上，对话里不留副本",
-    "OpenDesign link": "OpenDesign 链接",
     "Use a different .key file": "换一个 .key 文件"
   },
   "ja": {
@@ -1200,7 +1199,6 @@
     "Every WeChat user can find and play it.": "すべての WeChat ユーザーが検索してプレイできます。",
     "Saved only on this computer, never in the conversation.": "このコンピューターにのみ保存され、会話には入りません。",
     "Saved on this computer for {appid}; the conversation keeps no copy": "{appid} 用にこのコンピューターへ保存しました。会話にはコピーを残しません",
-    "OpenDesign link": "OpenDesign リンク",
     "Use a different .key file": "別の .key ファイルを使う"
   },
   "ko": {
@@ -1802,7 +1800,6 @@
     "Every WeChat user can find and play it.": "모든 WeChat 사용자가 찾아서 플레이할 수 있습니다.",
     "Saved only on this computer, never in the conversation.": "이 컴퓨터에만 저장되며 대화에는 들어가지 않습니다.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "{appid}용으로 이 컴퓨터에 저장했습니다. 대화에는 사본이 남지 않습니다",
-    "OpenDesign link": "OpenDesign 링크",
     "Use a different .key file": "다른 .key 파일 사용"
   },
   "de": {
@@ -2404,7 +2401,6 @@
     "Every WeChat user can find and play it.": "Alle WeChat-Nutzer können es finden und spielen.",
     "Saved only on this computer, never in the conversation.": "Nur auf diesem Computer gespeichert, nie in der Unterhaltung.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Für {appid} auf diesem Computer gespeichert; die Unterhaltung behält keine Kopie",
-    "OpenDesign link": "OpenDesign-Link",
     "Use a different .key file": "Andere .key-Datei verwenden"
   },
   "fr": {
@@ -3006,7 +3002,6 @@
     "Every WeChat user can find and play it.": "Tous les utilisateurs WeChat peuvent le trouver et y jouer.",
     "Saved only on this computer, never in the conversation.": "Enregistrée uniquement sur cet ordinateur, jamais dans la conversation.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Enregistrée sur cet ordinateur pour {appid} ; la conversation n'en garde aucune copie",
-    "OpenDesign link": "Lien OpenDesign",
     "Use a different .key file": "Utiliser un autre fichier .key"
   },
   "ru": {
@@ -3608,7 +3603,6 @@
     "Every WeChat user can find and play it.": "Любой пользователь WeChat может найти игру и сыграть.",
     "Saved only on this computer, never in the conversation.": "Сохраняется только на этом компьютере и не попадает в разговор.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Сохранено на этом компьютере для {appid}; в разговоре копии нет",
-    "OpenDesign link": "Ссылка OpenDesign",
     "Use a different .key file": "Другой файл .key"
   },
   "es": {
@@ -4210,7 +4204,6 @@
     "Every WeChat user can find and play it.": "Cualquier usuario de WeChat puede encontrarlo y jugar.",
     "Saved only on this computer, never in the conversation.": "Se guarda solo en este equipo, nunca en la conversación.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Guardada en este equipo para {appid}; la conversación no guarda copia",
-    "OpenDesign link": "Enlace de OpenDesign",
     "Use a different .key file": "Usar otro archivo .key"
   },
   "pt-BR": {
@@ -4812,7 +4805,6 @@
     "Every WeChat user can find and play it.": "Qualquer usuário do WeChat pode encontrar e jogar.",
     "Saved only on this computer, never in the conversation.": "Salva apenas neste computador, nunca na conversa.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Salva neste computador para {appid}; a conversa não guarda cópia",
-    "OpenDesign link": "Link do OpenDesign",
     "Use a different .key file": "Usar outro arquivo .key"
   },
   "it": {
@@ -5414,7 +5406,6 @@
     "Every WeChat user can find and play it.": "Ogni utente WeChat può trovarlo e giocarci.",
     "Saved only on this computer, never in the conversation.": "Salvata solo su questo computer, mai nella conversazione.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "Salvata su questo computer per {appid}; la conversazione non ne conserva copia",
-    "OpenDesign link": "Link OpenDesign",
     "Use a different .key file": "Usa un altro file .key"
   },
   "tr": {
@@ -6016,7 +6007,6 @@
     "Every WeChat user can find and play it.": "Tüm WeChat kullanıcıları bulup oynayabilir.",
     "Saved only on this computer, never in the conversation.": "Yalnızca bu bilgisayarda saklanır, sohbete girmez.",
     "Saved on this computer for {appid}; the conversation keeps no copy": "{appid} için bu bilgisayara kaydedildi; sohbette kopyası tutulmaz",
-    "OpenDesign link": "OpenDesign bağlantısı",
     "Use a different .key file": "Başka bir .key dosyası kullan"
   }
 }

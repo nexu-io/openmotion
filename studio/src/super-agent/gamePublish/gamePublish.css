@@ -550,11 +550,11 @@
 .om-gp-overview-item[data-state='confirmed'] svg { color: var(--motion-success); }
 
 
-/* Platform choice: the export panel's square tiles, four per row. */
-.om-gp-platforms { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--motion-space-6); margin-top: var(--motion-space-8); }
+/* Platform choice: the export panel's square tiles, three per row so names fit. */
+.om-gp-platforms { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--motion-space-6); margin-top: var(--motion-space-8); }
 .om-gp-badge { font-weight: var(--motion-weight-semibold); }
 
 /* WeChat key file and preview code, under the Agent's message in the conversation. */
 .om-gp-inline { display: grid; justify-items: start; gap: var(--motion-space-8); }
 .om-gp-inline-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-8); }
-.om-gp-od-icon { color: var(--motion-strong); }
+.om-gp-od-icon { background: var(--motion-strong); color: var(--motion-bg); }

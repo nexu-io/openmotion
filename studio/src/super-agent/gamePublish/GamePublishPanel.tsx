@@ -63,7 +63,7 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
       value={session.linkUrl ? OPENDESIGN : ''}
       className="om-gp-platforms"
       options={[
-        { value: OPENDESIGN, label: t('OpenDesign link'), icon: <span className="om-platform-icon om-gp-od-icon" aria-hidden="true"><RemixIcon name="global-line" size={18} /></span> },
+        { value: OPENDESIGN, label: 'OpenDesign', icon: <span className="om-platform-icon om-gp-od-icon" aria-hidden="true"><RemixIcon name="global-line" size={18} /></span> },
         ...list.map(item => ({
           value: item.id,
           label: t(item.name),
