@@ -1,5 +1,6 @@
 import { formatFileVersion } from '../etag.ts';
-import { hasUnknownStaticHtmlInputs, isPassivePreviewTag, isPreviewDataScript, staticPreviewHtmlSources } from './preview-html-sources.ts';
+import { standaloneHtmlSources } from './standalone-html-sources.ts';
+import { isPassivePreviewTag, isPreviewDataScript, staticPreviewHtmlSources } from './preview-html-sources.ts';
 import { verifiedPreviewLiveEdits } from './preview-live-edits.ts';
 import { bridgeDocumentTags, previewBuildBusyScript } from './preview-bridge.ts';
 import { posix } from 'node:path';
@@ -1006,9 +1007,8 @@ export async function buildSubCompositionHtmlInMemory(
   // A standalone clip inherits index.html's head. Certify the authored markup before
   // adding player scripts. Nested compositions and dynamic inputs stay unscoped.
   const htmlSources = options.bridgeOrigin && !options.capture && !Object.keys(options.variables ?? {}).length &&
-    !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH) &&
-    !scriptsDoc.querySelector('template, [data-composition-src]') && !hasUnknownStaticHtmlInputs(scriptsDoc)
-    ? [compPath, 'index.html'] : undefined;
+    !project.exists(STUDIO_MOTION_PATH) && !project.exists(STUDIO_MANUAL_EDITS_PATH)
+    ? await standaloneHtmlSources(project, compPath, scriptsDoc) : undefined;
   deferScriptsUntilFonts(scriptsDoc);
   ensurePreviewMediaCrossOrigin(scriptsDoc.body, Boolean(options.capture));
   const rootComp = scriptsDoc.body.querySelector('[data-composition-id]');

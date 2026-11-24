@@ -79,16 +79,18 @@ function isSafeHeadLink(el: Element): boolean {
   return !/\.html?$/i.test(pathOnly);
 }
 
-function hasUnknownInputs(
-  root: Document | DocumentFragment,
-  runtime?: Element | null,
-  allowSafeHeadLinks = false,
+/** Unknown scripts, embedded documents and resource-loading CSS require a full preview refresh. */
+export function hasUnknownStaticHtmlInputs(
+  root: Document | DocumentFragment | Element,
+  options?: { runtime?: Element | null; allowSafeHeadLinks?: boolean; recordInput?: (el: Element) => boolean },
 ): boolean {
   return Array.from(root.querySelectorAll('*')).some(el => {
-    if (el === runtime || isPreviewDataScript(el)) return false;
-    if (allowSafeHeadLinks && isSafeHeadLink(el)) return false;
-    if ((!isPassivePreviewTag(el.localName) && el.localName !== 'template') || el.hasAttribute('http-equiv') || el.hasAttribute('srcset')) return true;
-    if (el.localName === 'template' && hasUnknownInputs((el as HTMLTemplateElement).content, null, allowSafeHeadLinks)) return true;
+    if (el === options?.runtime || isPreviewDataScript(el) || options?.recordInput?.(el)) return false;
+    if (options?.allowSafeHeadLinks && isSafeHeadLink(el)) return false;
+    if (el.hasAttribute('http-equiv') || el.hasAttribute('srcset')) return true;
+    const knownTag = isPassivePreviewTag(el.localName) || el.localName === 'template' || (el.localName === 'canvas' && options?.recordInput);
+    if (!knownTag) return true;
+    if (el.localName === 'template' && hasUnknownStaticHtmlInputs((el as HTMLTemplateElement).content, options)) return true;
     // CSS can load more resources through @import, url(), image-set() or escaped identifiers.
     const css = el.localName === 'style' ? el.textContent : el.getAttribute('style');
     if (css && cssMayLoadResources(css)) return true;
@@ -97,26 +99,14 @@ function hasUnknownInputs(
   });
 }
 
-/**
- * Returns true when markup contains scripts, event handlers, embedded documents,
- * dynamic CSS resource loads, or unrecognized tags whose runtime file dependencies
- * cannot be statically enumerated.
- */
-export function hasUnknownStaticHtmlInputs(
-  root: Document | DocumentFragment,
-  options?: { runtime?: Element | null; allowSafeHeadLinks?: boolean },
-): boolean {
-  return hasUnknownInputs(root, options?.runtime ?? null, options?.allowSafeHeadLinks === true);
-}
-
 export function staticPreviewHtmlSources(entry: string, doc: Document, runtimeUrl: string) {
   const runtime = Array.from(doc.querySelectorAll('script')).find(el => el.hasAttribute(RUNTIME_BOOTSTRAP_ATTR) &&
     el.getAttribute('src') === runtimeUrl && !el.textContent?.trim());
-  let known = !hasUnknownInputs(doc, runtime);
+  let known = !hasUnknownStaticHtmlInputs(doc, { runtime });
   const sources = new Set([entry]);
   return {
     add(path: string) { if (known) sources.add(path); },
-    inspect(child: Document) { if (known && hasUnknownInputs(child)) known = false; },
+    inspect(child: Document) { if (known && hasUnknownStaticHtmlInputs(child)) known = false; },
     markUnknown() { known = false; },
     paths() { return known ? [...sources] : undefined; },
   };

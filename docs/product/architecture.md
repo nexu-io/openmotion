@@ -89,6 +89,8 @@ Studio can group successive edits into one HTTP request. Each completed edit ret
 
 Studio opens the project workspace as soon as the file list is ready. Media loads in the preview while timeline edits use the file's verified version. When switching between isolated clip previews, Studio can keep the last painted player paused. Project events update resident file sources and the parked player. An unopened clip is read at its current version on first use.
 
+For a standalone clip, the compiler can report the HTML files on which its preview depends. Studio keeps that player mounted when a peer edits another file outside the list. A template with startup scripts can declare reviewed dependencies, as shown in the [Welcome template](../../template-library/openmotion-welcome/TEMPLATE.md#standalone-previews).
+
 
 Environments already using patch writes upgrade in two releases with the existing `TEXT_PATCH_WRITES` setting. First apply migration 0005 and roll out the compatible readers and garbage collectors to every API, media worker and render worker. This release still produces complete baselines at the previous intervals. After that rollout is healthy, deploy the asynchronous writer and media worker. During either rollout every running process can read the versions being written. Once asynchronous writes have started, the compatible first release is the rollback floor for readers and garbage collectors.
 
