@@ -5,6 +5,7 @@ A component should explain one reusable piece of motion: its input, visible chan
 | Starting point | Kind | Use |
 | --- | --- | --- |
 | [Title reveal](title-reveal/README.md) | Original motion recipe; not a rendered component | Reveal a short title, settle, and leave enough time to read. |
+| [Scene timing](https://github.com/nexu-io/openmotion/tree/main/library/components/scene-timing) | Source-only timing helper | Keep fixed beats intact and distribute the remaining frames across editable scenes. |
 | [App Showcase](https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry/blocks/app-showcase/registry-item.json) | External registry item · Hyperframes | Inspect the original source for a product-screen presentation. |
 | [Glass Shard Title](https://raw.githubusercontent.com/heygen-com/hyperframes/main/registry/blocks/glass-shard-title/registry-item.json) | External registry item · Hyperframes | Study a more expressive title treatment. |
 
