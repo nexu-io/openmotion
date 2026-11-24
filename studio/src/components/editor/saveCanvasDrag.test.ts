@@ -33,3 +33,13 @@ it("drops descendants after a conflict or an unverified source write", async () 
   expect(await saveCanvasDrag(frame, "a", "5", "4", write)).toBeUndefined();
   expect(write).not.toHaveBeenCalled();
 });
+
+it("continues a settled local version on the same displayed source and respects a separately updated frame", async () => {
+  const frame = document.createElement("iframe");
+  const write = vi.fn(async () => saved("v3"));
+  await saveCanvasDrag(frame, "a", "1", undefined, async () => saved("v2"), "v1");
+  await saveCanvasDrag(frame, "a", "2", undefined, write, "v1");
+  expect(write).toHaveBeenLastCalledWith("v2");
+  await saveCanvasDrag(frame, "a", "3", undefined, write, "v4");
+  expect(write).toHaveBeenLastCalledWith();
+});

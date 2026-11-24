@@ -1,6 +1,6 @@
 import { IsolatedCanvasContextMenu, type CanvasMenuPick } from "./IsolatedCanvasContextMenu";
 import { useIsolatedInlineText } from "./useIsolatedInlineText";
-import { isIsolatedSourceTarget, isolatedPatchTarget, type IsolatedSourceTarget } from "./isolatedSourceTarget";
+import { isIsolatedSourceTarget, isolatedPatchTarget, isolatedSourceVersion, type IsolatedSourceTarget } from "./isolatedSourceTarget";
 import { usePreviewOverlayContext } from "./PreviewOverlayProvider";
 import { relativeLayerBounds, type LayerBounds } from "./isolatedLayerBounds";
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
@@ -14,14 +14,15 @@ import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
 import { beginStudioManualEditGesture, endStudioManualEditGesture } from "./manualEditsDom";
-import { supportsOrderedTextEdits } from "../../utils/confirmedTextSources";
+import { supportsOrderedTextEdits, supportsProjectTextEdits } from "../../utils/confirmedTextSources";
 import { watchCanvasTarget } from "./remoteCanvasTargets";
 import { saveCanvasDrag } from "./saveCanvasDrag";
 
 interface Drag {
   pointer: number;
   gestureId: string;
-  ordered: boolean;
+  batchWrites: boolean;
+  optimistic: boolean;
   hold?: string;
   unwatch?: () => void;
   adapter: PreviewAdapter;
@@ -157,11 +158,14 @@ export function IsolatedCanvasOverlay() {
       iframe.addEventListener("load", handleFrameLoad);
     }
     const corner = (event.target as HTMLElement).closest<HTMLElement>("[data-resize-corner]")?.dataset.resizeCorner as Corner | undefined;
+    const batchWrites = !!projectId && supportsOrderedTextEdits(projectId);
     const active: Drag = {
       corner,
       pointer: event.pointerId,
       gestureId: crypto.randomUUID(),
-      ordered: !!projectId && supportsOrderedTextEdits(projectId),
+      batchWrites,
+      // Single-edit servers can render every gesture locally too. Only their writes need a receipt chain.
+      optimistic: batchWrites || (!!projectId && supportsProjectTextEdits(projectId)),
       adapter,
       frame,
       startX,
@@ -169,17 +173,17 @@ export function IsolatedCanvasOverlay() {
       pickSettled: false,
       finishSettled: false,
     };
-    if (active.ordered) active.hold = beginStudioManualEditGesture(iframe, corner ? "resize" : "move");
+    if (active.optimistic) active.hold = beginStudioManualEditGesture(iframe, corner ? "resize" : "move");
     drag.current = lastPick.current = active;
     // Keep the last visible bounds until the new hit has been measured.
     event.currentTarget.setPointerCapture(event.pointerId);
     const target = corner && domEditSelection?.isolatedTarget;
-    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, ...(event.shiftKey && { additive: true }), ...(active.ordered && { ordered: true }),
+    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, ...(event.shiftKey && { additive: true }), ...(active.optimistic && { ordered: true }),
       ...(target && { target: { sourceFile: target.sourceFile, elementId: target.elementId, hfId: target.hfId } }) })
       .then(pick => {
         if (lastPick.current !== active || !pick) return;
         if ("waitingForSource" in pick) { active.waitingForSource = true; return; }
-        if (active.ordered && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
+        if (active.optimistic && !active.finishSettled && pick.target && isIsolatedSourceTarget(pick.target)) {
           active.unwatch = watchCanvasTarget(iframe, pick.target, () => {
             active.unwatch?.();
             if (previewIframeRef.current !== iframe) return;
@@ -252,7 +256,7 @@ export function IsolatedCanvasOverlay() {
         return;
       }
       const frame = active.adapter.iframe;
-      const write = (version?: string) => {
+      const write = async (version?: string) => {
         const patch = positionPatch(result);
         // The authenticated measurement is complete. A preview swap while a prior
         // write settles cannot invalidate its target and conditional source version.
@@ -260,8 +264,8 @@ export function IsolatedCanvasOverlay() {
         if (version) patch.ifMatch = version;
         return commitDomEditPatchBatches([patch], { label: active.corner ? "Resize layer" : "Move layer", coalesceKey: active.gestureId });
       };
-      const saved = active.ordered ? await write()
-        : await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, async version => write(version));
+      const saved = active.batchWrites ? await write()
+        : await saveCanvasDrag(frame, result.sourceFile, active.gestureId, result.predecessor, write, active.optimistic ? isolatedSourceVersion(result) : undefined);
       if (!saved && gestureSession === session.current) reportUnapplied();
       committed = saved?.durable === true;
       changed = saved?.changed === true;

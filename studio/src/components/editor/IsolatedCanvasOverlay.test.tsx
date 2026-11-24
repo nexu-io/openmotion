@@ -168,6 +168,24 @@ it("accepts a second pointerdown before the first measurement returns", async ()
   expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: '"patch:next"', box: { left: 88 } }]);
 });
 
+it("keeps nested canvas input open on a server with single versioned writes", async () => {
+  vi.spyOn(sources, "supportsProjectTextEdits").mockReturnValue(true);
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(false);
+  const first = Promise.withResolvers<{durable: boolean; changed: boolean; savedCanvasVersion: string}>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [100, 130]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(m => m.phase === "start");
+    expect(starts.at(-1)).toMatchObject({ordered:true});
+    await reply("finish", {...result, left, predecessor:starts.at(-2)?.gestureId}, starts.at(-1)!.gestureId);
+  }
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+  await act(async () => first.resolve({durable:true, changed:true, savedCanvasVersion:'"patch:next"'}));
+  expect(state.commitDomEditPatchBatches.mock.calls[1]?.[0]).toMatchObject([{ifMatch:'"patch:next"', box:{left:130}}]);
+  expect(state.showToast).not.toHaveBeenCalled();
+});
+
 it("hands consecutive ordered gestures to the project transport before any save acknowledgement", async () => {
   vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(true);
   const first = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
