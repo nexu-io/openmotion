@@ -219,7 +219,12 @@ function groupMessagesIntoTurns(chat: SuperAgentChat): TurnGroup[] {
       if (!card) continue;
       actionCardsByKey.set(`${card.kind}:${card.targetId ?? ''}`, card);
     }
-    const actionCards = [...actionCardsByKey.values()];
+    const rawActionCards = [...actionCardsByKey.values()];
+    // When a turn already surfaces an in-place publish sign-in card, suppress redundant generic sign_in cards from the same turn.
+    const hasWebPublishSignIn = rawActionCards.some(card => card.kind === 'web_publish_sign_in');
+    const actionCards = hasWebPublishSignIn
+      ? rawActionCards.filter(card => card.kind !== 'sign_in')
+      : rawActionCards;
     const turnId = group.user?.id ?? `turn-${idx}`;
     const persistedFiles = chat.turnChangedFiles?.[turnId];
     const changedFiles = persistedFiles?.length ? persistedFiles : collectTurnFiles(workItems);

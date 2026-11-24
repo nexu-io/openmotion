@@ -163,7 +163,7 @@ You have access to every capability across OpenMotion:
    - Proceed directly when the single-player brief already provides the game idea and relevant options.
    - Set status to building via openmotion_game_set_status(id=..., status="building"), implement/edit game files with openmotion_game_write_files, update metadata via openmotion_game_update_meta, capture a cover via openmotion_game_capture_cover, validate with openmotion_game_validate, simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and call openmotion_present_artifact(kind="game-project", projectId=...) so the playable game opens and reloads live inside the Browser Artifact Viewer.
    - For playable ads, follow the playable-ad recipe and keep game assets inline in index.html. For other games, ${gameAssetInstructions}
-   - Only when the user explicitly asks to deploy or share an HTML game or design project online, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects). If it fails because OpenDesign is signed out (OPENDESIGN_SIGN_IN_REQUIRED), do not retry — tell the user to sign in using the inline action card and reply to resume.
+   - Only when the user explicitly asks to deploy or share an HTML game or design project online, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects). If it fails because OpenDesign is signed out (OPENDESIGN_SIGN_IN_REQUIRED), do not retry and do not also call openmotion_open_preview(target="providers") or openmotion_present_artifact(kind="web") for /settings/providers — Studio automatically renders the inline publish sign-in card in chat; tell the user to click it and reply if needed.
    - For lightweight interactive Canvas/WebGL demos requested outside Game Studio, you can also use openmotion_design_project(scenario="prototype"|"webgl").
 3. Editable Motion Videos (HyperFrames / Motion Studio — embedded live in Super Agent's right-hand Artifact Viewer):
    - Read workflow guides via openmotion_read_workflow (workflow="production"|"director"|"template"|"recreate"|"design"|"game", section="start"|...) and browse templates/skills via openmotion_list_templates / openmotion_list_skills / openmotion_get_skill.
@@ -202,7 +202,7 @@ Use the registered OpenMotion MCP tools (mcp__openmotion__*) and injected <openm
    - Publish any HTML-expressed deliverable (Design page, Game, Motion HTML bundle, or standalone HTML file/folder) to a live Open Design Cloud share link via openmotion_assets_use(action="web_publish", webPublish={command:"publish"|"status"|"unpublish"|"list", targetKind:"design"|"game"|"html"|"motion", ...}) or openmotion_design_project(action="deploy", projectId=...) (requires OpenDesign sign-in).
 2. Playable Single-Player Games (Game Studio):
    - For Game Studio projects, call openmotion_read_workflow(workflow="game", section="start") and inspect with openmotion_game_get(id=...). Create and remix single-player games only. When the user explicitly requests multiplayer, explain that game generation currently supports single-player and ask before adapting the brief. Existing multiplayer projects may be inspected, playtested or opened for local play.
-   - When the single-player brief already specifies the game concept or options, proceed directly: call openmotion_game_set_status(id, "building"), write files via openmotion_game_write_files, update metadata (openmotion_game_update_meta), capture cover (openmotion_game_capture_cover), validate (openmotion_game_validate), simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and open via openmotion_present_artifact(kind="game-project", projectId=...). Only when the user explicitly requests online cloud deployment/sharing, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects); if it fails with OPENDESIGN_SIGN_IN_REQUIRED, do not retry and direct the user to sign in via the inline action card.
+   - When the single-player brief already specifies the game concept or options, proceed directly: call openmotion_game_set_status(id, "building"), write files via openmotion_game_write_files, update metadata (openmotion_game_update_meta), capture cover (openmotion_game_capture_cover), validate (openmotion_game_validate), simulate and playtest, set status="ready" (or call openmotion_game_publish when appropriate), and open via openmotion_present_artifact(kind="game-project", projectId=...). Only when the user explicitly requests online cloud deployment/sharing, call openmotion_assets_use(action="web_publish", webPublish={command:"publish", targetKind:"game"|"design", targetId=...}) (or openmotion_design_project(action="deploy", projectId=...) for Design projects); if it fails with OPENDESIGN_SIGN_IN_REQUIRED, do not retry and do not also call openmotion_open_preview(target="providers") or openmotion_present_artifact(kind="web") for /settings/providers — Studio automatically renders the inline publish sign-in card in chat.
    - For playable ads, follow the playable-ad recipe and keep game assets inline in index.html. For other games, ${gameAssetInstructions}
 3. Editable Motion Videos (HyperFrames / Motion Studio — embedded live in Super Agent's Artifact Viewer):
    - Read workflow guides via MCP resources (openmotion://workflow/production/start or specialist guides) and browse templates/skills via openmotion_list_templates / openmotion_list_skills / openmotion_get_skill.
@@ -3824,6 +3824,20 @@ export class SuperAgentConversations {
 
     if (toolName === presentArtifactTool.name) {
       validateInput(presentArtifactTool.inputSchema, rawArgs);
+      if (String(rawArgs.kind) === 'web' && typeof rawArgs.url === 'string') {
+        try {
+          const target = new URL(webAddress(rawArgs.url));
+          const ownOrigin = new URL(runtime.origin).origin;
+          if (target.origin === ownOrigin && target.pathname === '/settings/providers') {
+            return {
+              presented: false,
+              note: 'Model providers / OpenDesign sign-in is already surfaced through the inline action card in chat; do not present /settings/providers as a web artifact.',
+            };
+          }
+        } catch {
+          /* fall through to standard validation */
+        }
+      }
       const artifact = await this.resolvePresentedArtifact(rawArgs);
       const stored = await this.presentChatArtifact(active, artifact);
       return { presented: true, artifact: stored };

@@ -60,14 +60,13 @@ function chatWithCards(cards: SuperAgentActionCard[]): SuperAgentChat {
 }
 
 describe('ExecutionTimeline inline action cards', () => {
-  it('renders deduplicated onboarding/top-up/publish action cards and fires callback on click', async () => {
+  it('renders deduplicated onboarding/top-up action cards and fires callback on click', async () => {
     const onTriggerActionCard = vi.fn();
     const cards: SuperAgentActionCard[] = [
       { id: 'c1', kind: 'sign_in', entry: 'agent_media_signed_out', provider: 'account' },
       { id: 'c1-dup', kind: 'sign_in', entry: 'agent_media_signed_out', provider: 'account' },
       { id: 'c2', kind: 'upgrade_go', entry: 'agent_media_upgrade_go', provider: 'account' },
       { id: 'c3', kind: 'top_up', entry: 'agent_media_balance_low', provider: 'account' },
-      { id: 'c4', kind: 'web_publish_sign_in', entry: 'agent_media_signed_out', provider: 'account', targetKind: 'game', targetId: 'g-1' },
     ];
 
     container = document.createElement('div');
@@ -92,26 +91,59 @@ describe('ExecutionTimeline inline action cards', () => {
     });
 
     const renderedCards = container.querySelectorAll('.om-sa-action-card');
-    expect(renderedCards).toHaveLength(4);
+    expect(renderedCards).toHaveLength(3);
     expect(container.textContent).toContain('Sign in with OpenDesign');
     expect(container.textContent).toContain('Upgrade to OpenDesign Plus');
     expect(container.textContent).toContain('Top up OpenDesign balance');
-    expect(container.textContent).toContain('Sign in to publish online');
 
     const signInBtn = Array.from(container.querySelectorAll('button')).find(btn => btn.textContent?.trim() === 'Sign in');
     expect(signInBtn).toBeTruthy();
+    expect(signInBtn?.getAttribute('aria-describedby')).toBeTruthy();
     await act(async () => {
       signInBtn!.click();
     });
     expect(onTriggerActionCard).toHaveBeenCalledWith(cards[1]);
+  });
+
+  it('suppresses redundant generic sign_in cards when web_publish_sign_in is present in the same turn', async () => {
+    const onTriggerActionCard = vi.fn();
+    const cards: SuperAgentActionCard[] = [
+      { id: 'pub-1', kind: 'web_publish_sign_in', entry: 'agent_media_signed_out', provider: 'account', targetKind: 'game', targetId: 'g-1' },
+      { id: 'gen-1', kind: 'sign_in', entry: 'agent_media_signed_out', provider: 'account' },
+    ];
+
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root!.render(
+        <I18nProvider initialLocale="en">
+          <ExecutionTimeline
+            chat={chatWithCards(cards)}
+            busy={false}
+            sending={false}
+            onOpenArtifactId={vi.fn()}
+            onPreviewAttachment={vi.fn()}
+            onCopyText={vi.fn()}
+            onApprove={vi.fn()}
+            onTriggerActionCard={onTriggerActionCard}
+          />
+        </I18nProvider>,
+      );
+    });
+
+    const renderedCards = container.querySelectorAll('.om-sa-action-card');
+    expect(renderedCards).toHaveLength(1);
+    expect(renderedCards[0]?.getAttribute('data-kind')).toBe('web_publish_sign_in');
+    expect(container.textContent).toContain('Sign in to publish online');
 
     const publishBtn = Array.from(container.querySelectorAll('button')).find(btn => btn.textContent?.trim() === 'Sign in & publish');
     expect(publishBtn).toBeTruthy();
-    expect(publishBtn?.getAttribute('aria-describedby')).toBeTruthy();
     await act(async () => {
       publishBtn!.click();
     });
-    expect(onTriggerActionCard).toHaveBeenCalledWith(cards[4]);
+    expect(onTriggerActionCard).toHaveBeenCalledWith(cards[0]);
   });
 
   it('suppresses stale action cards on older turns once a newer turn exists', async () => {
