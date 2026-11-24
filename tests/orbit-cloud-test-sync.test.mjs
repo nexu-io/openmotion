@@ -628,4 +628,13 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 		imagesWorkflow,
 		/\$\{\{\s*runner\.temp\s*\}\}\/\$\{\{\s*matrix\.target\s*\}\}\.manifest\.json/,
 	);
+
+	const ciWorkflow = await readFile(
+		new URL("../.github/workflows/ci.yml", import.meta.url),
+		"utf8",
+	);
+	assert.match(
+		ciWorkflow,
+		/concurrency:\n\s+group:\s*motion-\$\{\{\s*github\.workflow\s*\}\}-\$\{\{\s*github\.event\.pull_request\.number \|\| github\.ref\s*\}\}/,
+	);
 });
