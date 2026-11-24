@@ -186,6 +186,22 @@ it("keeps nested canvas input open on a server with single versioned writes", as
   expect(state.showToast).not.toHaveBeenCalled();
 });
 
+it("does not replace a reported conflict with a preview warning on dependent gestures", async () => {
+  vi.spyOn(sources, "supportsProjectTextEdits").mockReturnValue(true);
+  const first = Promise.withResolvers<{durable: boolean; changed: boolean}>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [100, 130]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(m => m.phase === "start");
+    await reply("finish", {...result, left, predecessor:starts.at(-2)?.gestureId}, starts.at(-1)!.gestureId);
+  }
+  await act(async () => first.reject(new Error("Version conflict")));
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledOnce();
+  expect(messages.filter(m => m.phase === "cancel")).toHaveLength(2);
+  expect(state.showToast).not.toHaveBeenCalled();
+});
+
 it("hands consecutive ordered gestures to the project transport before any save acknowledgement", async () => {
   vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(true);
   const first = Promise.withResolvers<{ durable: boolean; changed: boolean }>();

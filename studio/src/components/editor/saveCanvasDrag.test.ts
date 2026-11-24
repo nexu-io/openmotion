@@ -27,8 +27,8 @@ it("drops descendants after a conflict or an unverified source write", async () 
   const second = saveCanvasDrag(frame, "a", "2", "1", write);
   const third = saveCanvasDrag(frame, "a", "3", "2", write);
   await expect(conflict).rejects.toThrow("409");
-  expect(await second).toBeUndefined();
-  expect(await third).toBeUndefined();
+  await expect(second).rejects.toThrow("409");
+  await expect(third).rejects.toThrow("409");
   await saveCanvasDrag(frame, "a", "4", undefined, async () => saved());
   expect(await saveCanvasDrag(frame, "a", "5", "4", write)).toBeUndefined();
   expect(write).not.toHaveBeenCalled();
