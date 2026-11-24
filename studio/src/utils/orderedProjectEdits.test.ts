@@ -4,6 +4,8 @@ import type { OrderedTextEditOperation } from '../../../shared/ordered-text-edit
 import { confirmedSource, observeSourceRead } from './confirmedTextSources';
 import { tryStudioCommandPatches, tryStudioTextEdit } from './studioTextEdits';
 import { applyTextPatch } from '../../../shared/text-patch';
+import { getStudioSaveSnapshot, trackStudioProjectSave } from './studioSaveState';
+import { RejectedCanvasGesture } from './studioSaveDiagnostics';
 
 function observe(project: string, path: string, content: string, version: string) {
   observeSourceRead(project, path, new Response(null, { headers: {
@@ -23,6 +25,25 @@ function recordAcceptedBatches(path: string) {
   return batches;
 }
 afterEach(() => vi.unstubAllGlobals());
+
+it('rejects an impossible drag before sending, keeps the save status honest and accepts the next layer', async () => {
+  const project = 'rejected-gesture', path = 'scene.html';
+  observe(project, path, '<div id="locked" data-timeline-locked></div><div id="other"></div>', 'base');
+  const batches = recordAcceptedBatches(path);
+  const move = (id: string) => tryStudioCommandPatches(project, [{
+    compositionPath: path, kind: 'moveCanvasElement', target: { id }, delta: { x: 20, y: 0 },
+  }], { [path]: 'base' });
+  await expect(move('locked')).rejects.toBeInstanceOf(RejectedCanvasGesture);
+  expect(batches).toEqual([]);
+  expect(getStudioSaveSnapshot(project)).toEqual({ pending: 0, failed: false, savedAt: null });
+  await move('other');
+  expect(batches).toHaveLength(1);
+  expect(getStudioSaveSnapshot(project).savedAt).toBeTypeOf('number');
+
+  await expect(trackStudioProjectSave(project, path, async () => { throw new Error('offline'); })).rejects.toThrow('offline');
+  await expect(move('locked')).rejects.toBeInstanceOf(RejectedCanvasGesture);
+  expect(getStudioSaveSnapshot(project).failed).toBe(true);
+});
 
 it('sends 100 completed edits in order and ties each patch to its predecessor', async () => {
   const path = 'style.css', project = 'ordered-burst';

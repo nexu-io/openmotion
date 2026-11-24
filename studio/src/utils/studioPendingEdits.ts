@@ -1,4 +1,4 @@
-import { StudioFileConflictError, type StudioSaveDrainResult } from "./studioSaveDiagnostics";
+import { StudioFileConflictError, type StudioSaveDrainResult, wasDiscardedStudioEdit } from "./studioSaveDiagnostics";
 import { isTypingTarget } from "./typingTarget";
 
 const STUDIO_FLUSH_PENDING_EDITS_EVENT = "hf-studio-flush-pending-edits";
@@ -65,9 +65,8 @@ function inspectDrainFailures(results: PromiseSettledResult<unknown>[]): {
 } {
   let firstFailure: PromiseRejectedResult | undefined;
   for (const result of results) {
-    if (result.status !== "rejected") continue;
+    if (result.status !== "rejected" || wasDiscardedStudioEdit(result.reason)) continue;
     if (result.reason instanceof StudioFileConflictError) {
-      if (result.reason.syncLatest) continue;
       return { conflict: result.reason };
     }
     firstFailure ??= result;

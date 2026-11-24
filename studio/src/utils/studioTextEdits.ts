@@ -6,7 +6,7 @@ import { acknowledgeFileEdit, isolatedEditVersion } from './isolatedEditVersions
 import { reconcileFileEdit } from './rebasedFileEdit';
 import type { StudioWriteHistory } from './studioFileHistory';
 import { createStudioWriteToken, studioWriteHeaders } from './studioFileVersion';
-import { createStudioSaveHttpError, retryStudioSave, StudioFileConflictError, StudioSaveNetworkError } from './studioSaveDiagnostics';
+import { createStudioSaveHttpError, RejectedCanvasGesture, retryStudioSave, StudioFileConflictError, StudioSaveNetworkError } from './studioSaveDiagnostics';
 import { studioApiFetch } from './studioApiFetch';
 import { trackStudioProjectSave } from './studioSaveState';
 
@@ -77,6 +77,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
   if (!commands.length || !commands.every(isLocalProjectEdit)) return;
   if (!supportsProjectTextEdits(project) && !Object.values(versions).some(version => version.startsWith('"patch:'))) return;
   const ordered = supportsOrderedTextEdits(project);
+  const canvasGesture = !predicted && commands.every(c => c.kind === 'moveCanvasElement' || c.kind === 'setCanvasBox');
   const captured = new Map<string, ConfirmedSource>();
   for (const [path, version] of Object.entries(versions)) {
     const source = confirmedSource(project, path);
@@ -104,19 +105,22 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
       }
       files.set(path, { path, before: source.content, after: source.content, version: source.version });
     }
-    const label = await applyCommands(commands, files);
+    const label = await applyCommands(commands, files).catch(error => {
+      // Only the in-memory transformation is covered. Reads, submissions and receipts keep their save errors.
+      if (canvasGesture) throw new RejectedCanvasGesture(error);
+      throw error;
+    });
     return { edits: [...files.values()], label: history?.label ?? label, undoGroup: history?.continuous ? history.windowId : undefined };
   };
   let edits: Prepared[] = [];
   let saved;
   if (ordered) {
-    const allowReplay = !predicted && commands.every(c => c.kind === 'moveCanvasElement' || c.kind === 'setCanvasBox');
     saved = await enqueueProjectEdit(project, commands[0].compositionPath, async drafts => {
       const plan = await prepare(drafts);
       if (!plan) throw new Error('Missing source for ordered project edit');
       edits = plan.edits;
       return plan;
-    }, allowReplay);
+    }, canvasGesture);
   } else {
     const plan = await prepare();
     if (!plan) return;

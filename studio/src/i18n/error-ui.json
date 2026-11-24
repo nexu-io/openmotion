@@ -1,5 +1,6 @@
 {
   "zh-CN": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "这个图层有多段位置动画。请选择要修改的那一段。",
     "Uploaded {uploaded}.": "已上传 {uploaded} 个。",
     "Uploaded {uploaded}, not uploaded {failed}.": "已上传 {uploaded} 个，{failed} 个未上传。",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "已上传 {uploaded} 个，{unknown} 个结果待确认。",
@@ -73,6 +74,7 @@
     "The page you are looking for does not exist or is no longer available.": "你访问的页面不存在，或已下线。"
   },
   "ja": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "このレイヤーには位置のアニメーションが複数あります。変更するものを選んでください。",
     "Uploaded {uploaded}.": "アップロード済み：{uploaded} 件。",
     "Uploaded {uploaded}, not uploaded {failed}.": "アップロード済み：{uploaded} 件、未アップロード：{failed} 件。",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "アップロード済み：{uploaded} 件、結果未確認：{unknown} 件。",
@@ -146,6 +148,7 @@
     "The page you are looking for does not exist or is no longer available.": "お探しのページは存在しないか、現在利用できません。"
   },
   "ko": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "이 레이어에는 위치 애니메이션이 여러 개 있습니다. 수정할 애니메이션을 선택하세요.",
     "Uploaded {uploaded}.": "업로드됨: {uploaded}개.",
     "Uploaded {uploaded}, not uploaded {failed}.": "업로드됨: {uploaded}개, 업로드되지 않음: {failed}개.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "업로드됨: {uploaded}개, 결과 확인 필요: {unknown}개.",
@@ -219,6 +222,7 @@
     "The page you are looking for does not exist or is no longer available.": "찾으시는 페이지가 존재하지 않거나 더 이상 이용할 수 없습니다."
   },
   "de": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Diese Ebene hat mehrere Positionsanimationen. Wähle die Animation aus, die du ändern möchtest.",
     "Uploaded {uploaded}.": "Hochgeladen: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Hochgeladen: {uploaded}, nicht hochgeladen: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Hochgeladen: {uploaded}, Ergebnis unbestätigt: {unknown}.",
@@ -292,6 +296,7 @@
     "The page you are looking for does not exist or is no longer available.": "Die gesuchte Seite existiert nicht oder ist nicht mehr verfügbar."
   },
   "fr": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Ce calque a plusieurs animations de position. Sélectionnez celle que vous souhaitez modifier.",
     "Uploaded {uploaded}.": "Téléversés : {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Téléversés : {uploaded}, non téléversés : {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Téléversés : {uploaded}, résultat à confirmer : {unknown}.",
@@ -365,6 +370,7 @@
     "The page you are looking for does not exist or is no longer available.": "La page que vous recherchez n’existe pas ou n’est plus disponible."
   },
   "es": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Esta capa tiene varias animaciones de posición. Selecciona la que quieras modificar.",
     "Uploaded {uploaded}.": "Subidos: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Subidos: {uploaded}, no subidos: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Subidos: {uploaded}, resultado por confirmar: {unknown}.",
@@ -438,6 +444,7 @@
     "The page you are looking for does not exist or is no longer available.": "La página que buscas no existe o ya no está disponible."
   },
   "pt-BR": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Esta camada tem várias animações de posição. Selecione a que deseja alterar.",
     "Uploaded {uploaded}.": "Enviados: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Enviados: {uploaded}, não enviados: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Enviados: {uploaded}, resultado a confirmar: {unknown}.",
@@ -511,6 +518,7 @@
     "The page you are looking for does not exist or is no longer available.": "A página que você procura não existe ou não está mais disponível."
   },
   "it": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Questo livello ha più animazioni di posizione. Seleziona quella da modificare.",
     "Uploaded {uploaded}.": "Caricati: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Caricati: {uploaded}, non caricati: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Caricati: {uploaded}, esito da confermare: {unknown}.",
@@ -584,6 +592,7 @@
     "The page you are looking for does not exist or is no longer available.": "La pagina che stai cercando non esiste o non è più disponibile."
   },
   "ru": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "У этого слоя несколько анимаций положения. Выберите ту, которую хотите изменить.",
     "Uploaded {uploaded}.": "Загружено: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Загружено: {uploaded}, не загружено: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Загружено: {uploaded}, результат не подтверждён: {unknown}.",
@@ -657,6 +666,7 @@
     "The page you are looking for does not exist or is no longer available.": "Запрошенная страница не существует или больше недоступна."
   },
   "tr": {
+    "Multiple position tweens could own this move. Select the animation explicitly.": "Bu katmanda birden fazla konum animasyonu var. Değiştirmek istediğinizi seçin.",
     "Uploaded {uploaded}.": "Yüklenen: {uploaded}.",
     "Uploaded {uploaded}, not uploaded {failed}.": "Yüklenen: {uploaded}, yüklenmeyen: {failed}.",
     "Uploaded {uploaded}, awaiting confirmation {unknown}.": "Yüklenen: {uploaded}, sonucu doğrulanmamış: {unknown}.",

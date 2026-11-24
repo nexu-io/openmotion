@@ -61,6 +61,18 @@ export class StudioFileConflictError extends StudioSaveHttpError {
   }
 }
 
+/** The preview rolls back this gesture. There are no edited bytes waiting to be saved. */
+export class RejectedCanvasGesture extends Error {
+  constructor(cause: unknown) {
+    super(getStudioSaveErrorMessage(cause), { cause });
+    this.name = "RejectedCanvasGesture";
+  }
+}
+
+export function wasDiscardedStudioEdit(error: unknown): boolean {
+  return error instanceof RejectedCanvasGesture || (error instanceof StudioFileConflictError && error.syncLatest);
+}
+
 export type StudioSaveDrainResult<Failure = unknown> =
   | { status: "clean" }
   | { status: "conflict"; error: StudioFileConflictError }
