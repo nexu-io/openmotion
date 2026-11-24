@@ -59,12 +59,8 @@ export type AccountSummary = {
   /** While authorizing: the browser approved the sign-in and the account is being set up locally. */
   syncing?: boolean;
   plan?: string; balance?: string | null; billingUnavailable?: boolean;
-  /**
-   * Credits the current plan grants per billing period, in USD, when the billing service reports it. The header balance
-   * draws its remaining-credit bar against it and shows no bar without it. Not filled yet: the billing summary read in
-   * gateway/account.ts has to pass it through once the account service returns it.
-   */
-  allowance?: string | null;
+  /** Design Plan quota left in the tightest window (5-hour or 7-day), from the workspace billing snapshot. Absent when the plan has none or it could not be read. */
+  quota?: { kind: '5h' | '7d'; remainingPercent: number; resetsAt: string | null };
   /** Service rejection behind `billingUnavailable`, when the connector reported one. */
   billingError?: { status: number; code?: string };
   error?: string; errorCode?: AccountErrorCode; attempt?: AccountAttempt;

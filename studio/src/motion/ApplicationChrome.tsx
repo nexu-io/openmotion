@@ -26,7 +26,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CreativeNavigation, type CreativeNavigationProps } from './CreativeNavigation';
 import { PricingEntry } from './PricingEntry';
 import { StartEntry } from './StartEntry';
-import { AccountAvatar, BalanceMenuItem, planLabel, remainingShare } from './BalanceEntry';
+import { AccountAvatar, BalanceMenuItem, planLabel, quotaShare } from './BalanceEntry';
 import balanceStyles from './BalanceEntry.module.css';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { WorkspaceResourceActions } from './WorkspaceResourceActions';
@@ -196,11 +196,12 @@ export function ApplicationAccountMenu({ settings, openSettings, trackingPage }:
   const avatarInitial = avatarSegmenter.segment(userName)[Symbol.iterator]().next().value?.segment;
   // Not signed in: the avatar becomes the sign-in call to action. While the account loads the avatar stays, so it never flashes.
   if (trackingPage && account && account.state !== 'signed-in') return <StartEntry account={account} trackingPage={trackingPage} openAccount={() => openSettings('account')} />;
-  const balance = account?.state === 'signed-in' && !account.billingUnavailable && account.balance != null ? account.balance : null;
-  const share = balance === null ? null : remainingShare(balance, account?.allowance);
+  const signedIn = account?.state === 'signed-in';
+  const balance = signedIn && !account.billingUnavailable && account.balance != null ? account.balance : null;
+  const quota = signedIn ? account.quota : undefined, share = quotaShare(quota);
   return <Menu tooltip={t('Account menu')} modal={false} side="bottom" align="end" aria-label={t('Account menu')} className="om-account-menu om-selection-panel om-menu-panel" trigger={<Button variant="plain" type="button" className="om-nav-item om-account-trigger" aria-current={settings === 'account' || settings === 'subscription' ? 'page' : undefined} aria-label={t('Account menu')} onPointerEnter={() => preloadWorkspacePage('settings')} onFocus={() => preloadWorkspacePage('settings')}><span className="om-avatar" aria-hidden="true" data-round={account?.state === 'signed-in' || undefined}>{account?.state === 'signed-in' ? <AccountAvatar initial={avatarInitial} share={share} /> : <><RemixIcon className="om-default-avatar-icon om-default-avatar-icon-outline" name="user-3-line" size={14} /><svg className="om-default-avatar-icon om-default-avatar-icon-solid" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20 22H4V20C4 17.2386 6.23858 15 9 15H15C17.7614 15 20 17.2386 20 20V22ZM12 13C8.68629 13 6 10.3137 6 7C6 3.68629 8.68629 1 12 1C15.3137 1 18 3.68629 18 7C18 10.3137 15.3137 13 12 13Z" /></svg></>}</span></Button>}>
       <MenuItem onClick={() => openSettings('account')}><span className="om-menu-label"><RemixIcon name="user-3-line" size={16} /><span className={balanceStyles.identity}><strong>{userName}</strong>{account?.state === 'signed-in' && account.plan && !account.billingUnavailable && <span className={balanceStyles.plan}>{planLabel(account.plan, t)}</span>}</span></span></MenuItem>
-      {balance !== null && <BalanceMenuItem balance={balance} allowance={account?.allowance} trackingPage={trackingPage} openUsage={() => openSettings('subscription')} />}
+      {(balance !== null || share !== null) && <BalanceMenuItem balance={balance} quota={quota} trackingPage={trackingPage} openUsage={() => openSettings('subscription')} />}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('subscription')}><span className="om-menu-label"><RemixIcon name="bank-card-line" size={16} />{t('Subscription & usage')}</span></MenuItem>
       <MenuSeparator />

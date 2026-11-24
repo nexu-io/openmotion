@@ -3,6 +3,7 @@ import { MenuItem } from '../components/ui/Menu';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useI18n } from '../i18n/I18n';
 import type { CreativePage } from './exploreTracking';
+import type { AccountSummary } from '../../../shared/provider-directory';
 import { trackMotion } from './tracking';
 import styles from './BalanceEntry.module.css';
 
@@ -21,11 +22,10 @@ export function planLabel(plan: string, t: (message: string, values?: Record<str
   return t('{plan} plan', { plan: name.charAt(0).toUpperCase() + name.slice(1) });
 }
 
-/** Share of the plan's credits still available, 0–1; null when the plan's credits are unknown. */
-export function remainingShare(balance?: string | null, allowance?: string | null) {
-  const left = balance == null ? null : amount(balance), total = allowance == null ? null : amount(allowance);
-  if (left === null || total === null || total <= 0) return null;
-  return Math.min(1, Math.max(0, left / total));
+/** Share of the Design Plan quota left, 0–1, from the account's tightest quota window; null when there is none. */
+export function quotaShare(quota?: AccountSummary['quota']) {
+  if (!quota || !Number.isFinite(quota.remainingPercent)) return null;
+  return Math.min(1, Math.max(0, quota.remainingPercent / 100));
 }
 
 /** A circle round the 30px avatar, clockwise from the top. */
@@ -48,19 +48,26 @@ export function AccountAvatar({ initial, share }: { initial?: string; share: num
   </>;
 }
 
-/** Account menu row: how much is left, with a bar of the plan credits left when those are known. Opens Subscription & usage. */
-export function BalanceMenuItem({ balance, allowance, trackingPage, openUsage }: { balance: string; allowance?: string | null; trackingPage?: CreativePage; openUsage: () => void }) {
+/**
+ * Account menu row: with a Design Plan quota, how much of it is left as a percentage and a bar, the wallet balance
+ * below; without one, the wallet balance left. Opens Subscription & usage.
+ */
+export function BalanceMenuItem({ balance, quota, trackingPage, openUsage }: { balance: string | null; quota?: AccountSummary['quota']; trackingPage?: CreativePage; openUsage: () => void }) {
   const { t } = useI18n();
-  const left = formatBalance(balance), share = remainingShare(balance, allowance);
+  const share = quotaShare(quota), wallet = balance === null ? null : formatBalance(balance);
+  if (share === null && wallet === null) return null;
+  const percent = share === null ? null : `${Math.round(share * 100)}%`;
+  const label = percent ? t('Plan quota') : t('Available balance'), left = percent ?? wallet!;
   function open(event: MouseEvent) {
     if (trackingPage) void trackMotion('ui_click', { page_name: trackingPage, area: 'header', element: 'open_balance', interaction_method: event.detail === 0 ? 'keyboard' : 'pointer' });
     openUsage();
   }
-  return <MenuItem className={styles.item} onClick={open} aria-label={`${t('Available balance')} · ${t('Remaining')} ${left}`}>
+  return <MenuItem className={styles.item} onClick={open} aria-label={`${label} · ${t('Remaining')} ${left}${percent && wallet ? ` · ${t('Available balance')} ${wallet}` : ''}`}>
     <span className={styles.row}>
-      <span>{t('Available balance')}</span>
+      <span>{label}</span>
       <span className={styles.left}>{t('Remaining')} {left}<RemixIcon name="arrow-right-s-line" size={14} /></span>
     </span>
     {share !== null && <span className={styles.meter} aria-hidden="true"><span className={styles.fill} style={{ width: `${Math.round(share * 100)}%` }} /></span>}
+    {percent && wallet && <span className={styles.wallet}>{t('Available balance')} {wallet}</span>}
   </MenuItem>;
 }

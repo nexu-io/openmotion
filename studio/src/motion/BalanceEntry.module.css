@@ -50,3 +50,4 @@
 /* Account menu identity: name over the plan. */
 .identity { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
 .plan { color: var(--motion-muted); font-size: var(--motion-text-xs); font-weight: var(--motion-weight-medium); }
+.wallet { display: block; margin-top: var(--motion-space-6); color: var(--motion-muted); font-size: var(--motion-text-xs); font-variant-numeric: tabular-nums; }

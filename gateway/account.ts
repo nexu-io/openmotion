@@ -87,6 +87,29 @@ export const accountSignInMessages = [...new Set([...Object.values(failureMessag
 const hasCredentials = (profile?: Profile) => Boolean(profile?.controlKey && profile.controlKeyId && profile.runtimeKey && profile.user?.id);
 const signedInProfile = (profile?: Profile) => hasCredentials(profile) && !profile!.pendingLogin;
 
+// Match the workspace snapshot's datetime grammar, including offsets and leap days.
+const designPlanTime = /^((\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-((0[13578]|1[02])-(0[1-9]|[12]\d|3[01])|(0[469]|11)-(0[1-9]|[12]\d|30)|(02)-(0[1-9]|1\d|2[0-8])))T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
+const isRecord = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+function designPlanQuota(snapshot: unknown, workspaceId: string): AccountSummary['quota'] {
+  if (!isRecord(snapshot) || snapshot.schemaVersion !== 1 || snapshot.workspaceId !== workspaceId || !Array.isArray(snapshot.designPlanWindows)) return;
+  const seen = new Set<string>();
+  let tightest: AccountSummary['quota'];
+  for (const window of snapshot.designPlanWindows) {
+    if (!isRecord(window) || (window.kind !== '5h' && window.kind !== '7d') || seen.has(window.kind) ||
+        typeof window.remainingCredits !== 'string' || !/^(0|[1-9]\d*)$/.test(window.remainingCredits) ||
+        typeof window.limitCredits !== 'string' || !/^(0|[1-9]\d*)$/.test(window.limitCredits) || window.limitCredits === '0' ||
+        ![window.windowStart, window.resetsAt].every(time => time === null || (typeof time === 'string' && designPlanTime.test(time)))) return;
+    const remaining = BigInt(window.remainingCredits), limit = BigInt(window.limitCredits);
+    if (remaining > limit) return;
+    seen.add(window.kind);
+    const remainingPercent = Number((remaining * 100n + limit / 2n) / limit);
+    if (!tightest || remainingPercent < tightest.remainingPercent) {
+      tightest = { kind: window.kind, remainingPercent, resetsAt: window.resetsAt as string | null };
+    }
+  }
+  return tightest;
+}
+
 // Service error codes the connector reports, mapped to fixed (translatable) messages.
 const requestMessages: Record<string, string> = {
   // A media 401 does not change the account state, so the user has to sign out before signing in again.
@@ -202,6 +225,7 @@ export class OpenDesignAccount {
   private attempt?: AccountAttempt;
   // Retain the last verified plan internally through transient billing failures to detect upgrades on recovery.
   private billing?: { plan: string; balance: string | null; keyId?: string };
+  private quota?: { value: NonNullable<AccountSummary['quota']>; keyId?: string };
   private billingRequestId = 0;
   private billingModelRefresh?: Promise<unknown>;
   private billingUnavailable = false;
@@ -542,6 +566,7 @@ export class OpenDesignAccount {
     const browser = this.attempt?.stages.find(entry => entry.startsWith('browser_open_result:'))?.split(':')[1];
     return { state: this.connecting ? 'authorizing' : rejected ? 'reauth-required' : signedIn ? 'signed-in' : 'signed-out',
       ...(signedIn ? { user: { name: profile?.user?.name, email: profile?.user?.email }, ...(rejected || this.billingUnavailable || this.billing?.keyId !== profile!.controlKeyId ? {} : { plan: this.billing!.plan, balance: this.billing!.balance }), billingUnavailable: this.billingUnavailable, ...(this.billingError ? { billingError: { ...this.billingError } } : {}) } : {}),
+      ...(signedIn && !rejected && this.quota?.keyId === profile!.controlKeyId ? { quota: { ...this.quota!.value } } : {}),
       ...(this.connecting ? { authorizationUrl: this.authorizationUrl, userCode: this.userCode, ...(browser ? { browserOpened: browser === 'success' } : {}), ...(this.syncing ? { syncing: true } : {}) } : {}),
       ...(this.attempt ? { attempt: { ...this.attempt, stages: [...this.attempt.stages] } } : {}),
       error: this.error, errorCode: this.errorCode, consoleUrl,
@@ -569,10 +594,33 @@ export class OpenDesignAccount {
     }
     return data;
   }
+  private async billingQuota(profile: Profile): Promise<AccountSummary['quota']> {
+    if (profile.apiUrl?.replace(/\/$/, '') !== productionApi) return;
+    try {
+      const fetcher = this.options.fetcher ?? fetch;
+      const init = { headers: { Authorization: 'Bearer ' + profile.controlKey, Accept: 'application/json' }, redirect: 'error' as const, signal: AbortSignal.timeout(15_000) };
+      const response = await fetcher(productionApi + '/api/v1/workspaces', init);
+      if (!response.ok) return;
+      const data: unknown = await response.json();
+      if (!isRecord(data) || !Array.isArray(data.items)) return;
+      const workspaces = data.items.filter(isRecord);
+      const workspace = workspaces.find(item => item.isDefault === true)
+        ?? workspaces.find(item => item.workspaceType === 'personal' && item.role === 'owner');
+      if (typeof workspace?.workspaceId !== 'string' || !workspace.workspaceId) return;
+      const id = encodeURIComponent(workspace.workspaceId);
+      const snapshot = await fetcher(`${productionApi}/api/v1/workspaces/${id}/billing/snapshot?workspaceId=${id}`, init);
+      if (!snapshot.ok) return;
+      return designPlanQuota(await snapshot.json(), workspace.workspaceId);
+    } catch {
+      // Quota is advisory: never change billing availability or account authentication on failure.
+      return;
+    }
+  }
   private async readBilling(generation: number, profile: Profile) {
     if (generation !== this.generation) return;
     const requestId = ++this.billingRequestId;
     const isCurrent = () => generation === this.generation && requestId === this.billingRequestId;
+    const quota = this.billingQuota(profile);
     try {
       const data = await this.billingSummary(profile);
       if (!isCurrent()) return;
@@ -601,6 +649,9 @@ export class OpenDesignAccount {
       else if (status && status < 500 && status !== 408 && status !== 429) this.rejectedKeyId = undefined;
       this.billingUnavailable = status !== 401;
       this.billingError = status ? { status, ...(code ? { code } : {}) } : undefined;
+    } finally {
+      const value = await quota;
+      if (isCurrent()) this.quota = value ? { value, keyId: profile.controlKeyId } : undefined;
     }
   }
   async login() {
@@ -608,7 +659,7 @@ export class OpenDesignAccount {
     if (this.signingOut) throw new Error('Wait for sign-out to finish before connecting an account');
     if (this.connecting || current.state === 'signed-in') return this.summary();
     this.connecting = true; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.cachedModels = [];
-    this.billing = undefined; this.billingModelRefresh = undefined; this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
+    this.billing = undefined; this.quota = undefined; this.billingModelRefresh = undefined; this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
     this.authorizationUrl = undefined; this.userCode = undefined; this.syncing = false;
     const generation = ++this.generation;
     this.attempt = { id: randomUUID(), stages: [], persisted: false };
@@ -772,7 +823,7 @@ export class OpenDesignAccount {
     this.signingOut = true;
     try {
       await this.cancel();
-      this.billing = undefined; this.billingModelRefresh = undefined; this.cachedModels = []; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.attempt = undefined;
+      this.billing = undefined; this.quota = undefined; this.billingModelRefresh = undefined; this.cachedModels = []; this.error = undefined; this.errorCode = undefined; this.connectorProblem = undefined; this.attempt = undefined;
       this.billingUnavailable = false; this.billingError = undefined; this.rejectedKeyId = undefined;
       await this.commit(this.generation, async () => {
         await writeSettings(path.join(this.root, 'session.json'), {});

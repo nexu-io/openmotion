@@ -383,7 +383,8 @@
     "Signing in…": "登录中…",
     "Remaining": "剩余",
     "Plan credits": "套餐额度",
-    "{plan} plan": "{plan} 套餐"
+    "{plan} plan": "{plan} 套餐",
+    "Plan quota": "套餐额度"
   },
   "ja": {
     "Go back": "戻る",
@@ -536,7 +537,8 @@
     "Available balance": "利用可能残高",
     "Subscription & usage": "サブスクリプションと使用量",
     "Free plan": "無料プラン",
-    "{plan} plan": "{plan} プラン"
+    "{plan} plan": "{plan} プラン",
+    "Plan quota": "プラン枠"
   },
   "ko": {
     "Go back": "뒤로",
@@ -584,7 +586,8 @@
     "Available balance": "사용 가능 잔액",
     "Subscription & usage": "구독 및 사용량",
     "Free plan": "무료 플랜",
-    "{plan} plan": "{plan} 플랜"
+    "{plan} plan": "{plan} 플랜",
+    "Plan quota": "플랜 사용량"
   },
   "de": {
     "Go back": "Zurück",
@@ -632,7 +635,8 @@
     "Available balance": "Verfügbares Guthaben",
     "Subscription & usage": "Abo & Nutzung",
     "Free plan": "Kostenloser Plan",
-    "{plan} plan": "{plan}-Plan"
+    "{plan} plan": "{plan}-Plan",
+    "Plan quota": "Plankontingent"
   },
   "fr": {
     "Go back": "Retour",
@@ -680,7 +684,8 @@
     "Available balance": "Solde disponible",
     "Subscription & usage": "Abonnement et utilisation",
     "Free plan": "Forfait gratuit",
-    "{plan} plan": "Forfait {plan}"
+    "{plan} plan": "Forfait {plan}",
+    "Plan quota": "Quota du forfait"
   },
   "ru": {
     "Go back": "Назад",
@@ -728,7 +733,8 @@
     "Available balance": "Доступный баланс",
     "Subscription & usage": "Подписка и использование",
     "Free plan": "Бесплатный тариф",
-    "{plan} plan": "Тариф {plan}"
+    "{plan} plan": "Тариф {plan}",
+    "Plan quota": "Лимит тарифа"
   },
   "es": {
     "Go back": "Volver",
@@ -776,7 +782,8 @@
     "Available balance": "Saldo disponible",
     "Subscription & usage": "Suscripción y uso",
     "Free plan": "Plan gratuito",
-    "{plan} plan": "Plan {plan}"
+    "{plan} plan": "Plan {plan}",
+    "Plan quota": "Cuota del plan"
   },
   "pt-BR": {
     "Go back": "Voltar",
@@ -824,7 +831,8 @@
     "Available balance": "Saldo disponível",
     "Subscription & usage": "Assinatura e uso",
     "Free plan": "Plano gratuito",
-    "{plan} plan": "Plano {plan}"
+    "{plan} plan": "Plano {plan}",
+    "Plan quota": "Cota do plano"
   },
   "it": {
     "Go back": "Indietro",
@@ -872,7 +880,8 @@
     "Available balance": "Saldo disponibile",
     "Subscription & usage": "Abbonamento e utilizzo",
     "Free plan": "Piano gratuito",
-    "{plan} plan": "Piano {plan}"
+    "{plan} plan": "Piano {plan}",
+    "Plan quota": "Quota del piano"
   },
   "tr": {
     "Go back": "Geri",
@@ -920,6 +929,7 @@
     "Available balance": "Kullanılabilir bakiye",
     "Subscription & usage": "Abonelik ve kullanım",
     "Free plan": "Ücretsiz plan",
-    "{plan} plan": "{plan} planı"
+    "{plan} plan": "{plan} planı",
+    "Plan quota": "Plan kotası"
   }
 }
