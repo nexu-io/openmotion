@@ -84,6 +84,20 @@ export function projectLocalTimelineEdit(
   };
 }
 
+/** All pending local gestures on this file have settled after a failure. Restore the confirmed
+ * authored rows and keep runtime-only or other-composition rows in place. */
+export function restoreConfirmedTimeline(projectId: string, path: string, content: string) {
+  const scope = timelineFor(projectId, path);
+  if (!scope) return;
+  const duration = usePlayerStore.getState().duration;
+  const previous = scope.baseline;
+  const before = previous?.rows ?? (previous?.content ? parseAuthoredTimeline(previous.content, path, projectId, duration) : null);
+  const after = parseAuthoredTimeline(content, path, projectId, duration);
+  if (!after) return;
+  applyAuthoredTimeline(before, after, true);
+  scope.baseline = { rows: after, generation: ++scope.generation, writeRevision: studioFileRevision() };
+}
+
 /** Project a local structural edit without publishing it to other windows or advancing its confirmed source. */
 export function projectPendingStructure(projectId: string, path: string, frame: HTMLIFrameElement | null,
   files: Record<string, { before: string; after: string }>, selection?: readonly string[]) {

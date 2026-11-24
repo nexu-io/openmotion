@@ -1,3 +1,4 @@
+import { restoreConfirmedTimeline } from "../player/lib/peerTimeline";
 import { confirmedSource, supportsOrderedTextEdits, type ConfirmedSource } from './confirmedTextSources';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import { isolatedEditVersion } from './isolatedEditVersions';
@@ -21,7 +22,7 @@ type Options = {
 type DisplayedFile = {
   edit: Promise<EditFile>;
   before: Promise<ConfirmedSource>;
-  baseline: Promise<ConfirmedSource>;
+  session: { baseline: Promise<ConfirmedSource>; failed: boolean };
   refresh: Options['onSaved'];
 };
 const displayed = new Map<string, DisplayedFile>();
@@ -59,7 +60,7 @@ export async function saveOrderedTimeline(
     const previous = displayed.get(id);
     const captured = previous ? visibleSource(previous) : readBase(project, path);
     const projected = captured.then(async ({content, version}) => ({path, before: content, after: await apply(content), version}));
-    const next = { edit: projected, before: captured, baseline: previous?.baseline ?? captured, refresh: onSaved ?? previous?.refresh };
+    const next = { edit: projected, before: captured, session: previous?.session ?? { baseline: captured, failed: false }, refresh: onSaved ?? previous?.refresh };
     displayed.set(id, next);
     return next;
   });
@@ -95,7 +96,7 @@ export async function saveOrderedTimeline(
       // A final no-op or volume edit may still have an earlier structural edit to paint.
       const first = accepted[0]!;
       const projection = projections[0]!;
-      const previous = await projection.baseline;
+      const previous = await projection.session.baseline;
       if (previous.version !== saved.versions[first.path]) {
         await projection.refresh?.({ [first.path]: { before: previous.content, after: first.after } }, previous);
       }
@@ -104,12 +105,21 @@ export async function saveOrderedTimeline(
     }
     return saved.changedPaths;
   } catch (error) {
+    for (const projection of projections) projection.session.failed = true;
     (await shown.catch(() => undefined))?.();
     throw error;
   } finally {
     transforms.forEach(({path}, i) => {
       const id = key(project, path);
-      if (displayed.get(id) === projections[i]) displayed.delete(id);
+      const projection = projections[i]!;
+      if (displayed.get(id) !== projection) return;
+      displayed.delete(id);
+      if (projection.session.failed) {
+        const confirmed = confirmedSource(project, path);
+        if (confirmed) restoreConfirmedTimeline(project, path, confirmed.content);
+        // The player can still have uncommitted paint even when the timeline rows are restored.
+        reconcileFileEdit(project, path, confirmed?.version);
+      }
     });
   }
 }
