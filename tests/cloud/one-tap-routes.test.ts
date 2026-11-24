@@ -1847,6 +1847,64 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
       amrWithProof.verifyAndEnrichAuthContext = origVerify;
       assert.equal(upstream401Res.status, 401);
       assert.equal(upstream401Res.headers.get('location'), null);
+      assert.equal(extractCookieValue(upstream401Res.headers.getSetCookie(), SESSION_COOKIE_NAME), null);
+
+      // 7. Revoked/expired om_session cookie on /auth/upgrade-handoff MUST fail closed (401, NO Location to guest Pricing)
+      const revokedCookieHandoff = await appProofRace.request('/auth/upgrade-handoff?targetPath=%2Fpricing', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${lateSessionTok}` },
+      });
+      assert.equal(revokedCookieHandoff.status, 401);
+      assert.equal(revokedCookieHandoff.headers.get('location'), null);
+
+      // 8. Transient Redis read error & transient Postgres revoke error in resolveBrowserSession MUST fail closed
+      //    without clearing the One Tap binding key
+      const c8Res = await appProofRace.request('/auth/one-tap/challenge', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ attemptId: 'att-r7-err' }),
+      });
+      const c8Body = (await c8Res.json()) as { challengeId: string };
+      const c8Name = oneTapChallengeCookieName(c8Body.challengeId);
+      const c8Tok = extractCookieValue(c8Res.headers.getSetCookie(), c8Name)!;
+      const okRes8 = await appProofRace.request('/auth/one-tap', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, 'content-type': 'application/json', Cookie: `${c8Name}=${c8Tok}` },
+        body: JSON.stringify({ challengeId: c8Body.challengeId, idToken: 'tok_r7_err' }),
+      });
+      assert.equal(okRes8.status, 200);
+      const tok8 = extractCookieValue(okRes8.headers.getSetCookie(), SESSION_COOKIE_NAME)!;
+      await appProofRace.request('/auth/logout', {
+        method: 'POST',
+        headers: { Origin: PUBLIC_ORIGIN, Cookie: `${c8Name}=${c8Tok}` },
+      });
+      const origCacheGet = cache.get.bind(cache);
+      cache.get = async (key: string) => {
+        if (key.startsWith('om:onetap:revoked-binding:')) {
+          throw new Error('simulated redis read error');
+        }
+        return origCacheGet(key);
+      };
+      const redisFailMe = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
+      });
+      cache.get = origCacheGet;
+      assert.ok(redisFailMe.status >= 500, 'Redis revocation read error must fail closed (never 200)');
+
+      const origRevoke = store.revokeSessionByTokenHash.bind(store);
+      store.revokeSessionByTokenHash = async () => {
+        throw new Error('simulated db revoke error');
+      };
+      const dbRevokeFailMe = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
+      });
+      store.revokeSessionByTokenHash = origRevoke;
+      assert.ok(dbRevokeFailMe.status >= 500, 'DB revoke error must fail closed and retain binding');
+
+      // Once DB recovers, the retained binding MUST still reject & revoke the late session
+      const afterRecoveryMe = await appProofRace.request('/auth/me', {
+        headers: { Cookie: `${SESSION_COOKIE_NAME}=${tok8}` },
+      });
+      assert.equal(afterRecoveryMe.status, 401);
     } finally {
       await rm(tmpRoot, { recursive: true, force: true });
     }

@@ -188,30 +188,28 @@ export async function resolveBrowserSession(
   if (options.cache) {
     const rawBinding = await options.cache.get(oneTapSessionBindingCacheKey(tokenHash));
     if (rawBinding) {
-      let bindingRevoked = false;
+      let bindingHash: string | undefined;
       try {
-        const parsedBinding = JSON.parse(rawBinding) as {
-          bindingHash?: string;
-          userId?: string;
-          startedEpoch?: number;
-        };
-        if (parsedBinding.bindingHash) {
-          const revokedMarker = await options.cache.get(
-            oneTapRevokedBindingCacheKey(parsedBinding.bindingHash),
-          );
-          if (revokedMarker) {
-            bindingRevoked = true;
-          }
-        }
+        const parsedBinding = JSON.parse(rawBinding) as { bindingHash?: string };
+        bindingHash = parsedBinding.bindingHash;
       } catch {
-        // Ignore malformed binding record.
+        // Malformed binding record cannot be trusted; treat as unparseable.
       }
-      if (bindingRevoked) {
-        await store.revokeSessionByTokenHash(tokenHash).catch(() => {});
-        await options.cache.del(cacheKey).catch(() => {});
-        await options.cache.del(oneTapSessionBindingCacheKey(tokenHash)).catch(() => {});
-        await options.cache.del(`om:amr:session-proof:${tokenHash}`).catch(() => {});
-        return null;
+      if (bindingHash) {
+        // Read revocation marker OUTSIDE try/catch so Redis read failures fail closed.
+        const revokedMarker = await options.cache.get(
+          oneTapRevokedBindingCacheKey(bindingHash),
+        );
+        if (revokedMarker) {
+          // Revoke DB session first without swallowing errors; only clear the
+          // binding key after DB revocation succeeds so transient DB errors
+          // never drop the revocation barrier.
+          await store.revokeSessionByTokenHash(tokenHash);
+          await options.cache.del(cacheKey).catch(() => {});
+          await options.cache.del(oneTapSessionBindingCacheKey(tokenHash)).catch(() => {});
+          await options.cache.del(`om:amr:session-proof:${tokenHash}`).catch(() => {});
+          return null;
+        }
       }
     }
   }

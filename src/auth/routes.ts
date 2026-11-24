@@ -1109,42 +1109,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           },
         });
 
-      let authUserId: string | null = null;
-      let appUserId: string | null = null;
-      let hasActiveSession = false;
-
-      if (rawSession) {
-        try {
-          const resolved = await resolveBrowserSession(deps.store, rawSession, {
-            authMode: deps.config.AUTH_MODE,
-            cache: deps.cache,
-          });
-          if (resolved) {
-            hasActiveSession = true;
-            const enriched = await amrIdentity.verifyAndEnrichAuthContext(deps.store, resolved.auth);
-            authUserId = enriched.authUserId ?? null;
-            appUserId = enriched.appUserId ?? null;
-          }
-        } catch (error) {
-          // NEVER downgrade a resolved/authenticated session to unbound guest Pricing on upstream 401/403
-          // (could bill a different AMR account in the browser) or on any DB/Redis/503 error.
-          // Keep the error deterministic on reload (do not clear om_session into guest fallback).
-          if (isCloudError(error) && (error.status === 401 || error.status === 403)) {
-            return c.json(
-              {
-                code: error.status === 403 ? 'FORBIDDEN' : 'UNAUTHORIZED',
-                error: 'Your session is no longer active. Please sign in again before upgrading.',
-              },
-              error.status === 403 ? 403 : 401,
-            );
-          }
-          return unavailableResponse();
-        }
-      }
-
-      if (!hasActiveSession) {
-        // Guests requesting public Pricing paths via same-origin /auth/upgrade-handoff (e.g. while
-        // header account probe is still in-flight) are safely forwarded to the public Pricing page.
+      if (!rawSession) {
+        // Only genuine guests (no om_session cookie) requesting public Pricing paths via
+        // same-origin /auth/upgrade-handoff are safely forwarded to the public Pricing page.
         const guestPricingUrl = resolveGuestPricingRedirectUrl(targetPath, deps.config);
         if (guestPricingUrl) {
           return c.redirect(guestPricingUrl, 302);
@@ -1156,6 +1123,44 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           },
           401,
         );
+      }
+
+      let authUserId: string | null = null;
+      let appUserId: string | null = null;
+
+      try {
+        const resolved = await resolveBrowserSession(deps.store, rawSession, {
+          authMode: deps.config.AUTH_MODE,
+          cache: deps.cache,
+        });
+        if (!resolved) {
+          // A presented om_session cookie that is expired or revoked MUST fail closed
+          // instead of falling through to unbound guest Pricing where a different AMR
+          // browser account could be billed.
+          return c.json(
+            {
+              code: 'UNAUTHORIZED',
+              error: 'Your session has expired. Please sign in again before upgrading.',
+            },
+            401,
+          );
+        }
+        const enriched = await amrIdentity.verifyAndEnrichAuthContext(deps.store, resolved.auth);
+        authUserId = enriched.authUserId ?? null;
+        appUserId = enriched.appUserId ?? null;
+      } catch (error) {
+        // NEVER downgrade a session-bearing upgrade request to unbound guest Pricing on
+        // upstream 401/403 or on any DB/Redis/503 error.
+        if (isCloudError(error) && (error.status === 401 || error.status === 403)) {
+          return c.json(
+            {
+              code: error.status === 403 ? 'FORBIDDEN' : 'UNAUTHORIZED',
+              error: 'Your session is no longer active. Please sign in again before upgrading.',
+            },
+            error.status === 403 ? 403 : 401,
+          );
+        }
+        return unavailableResponse();
       }
 
       if (authUserId && appUserId && rawSession) {
