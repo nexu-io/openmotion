@@ -74,9 +74,12 @@ communityGames.sort((a, b) => (moreViews.get(b.id) ?? 0) - (moreViews.get(a.id) 
 for (let index = communityGames.length - 1; index >= 0; index--) if (!communityGames[index].external?.embeddable) communityGames.splice(index, 1);
 
 import communityBriefs from './community/briefs.json';
+import { topGameRemixPrompt, topGames } from './topGames';
 
 /** 做同款 for a community game: an original game built from a detailed brief (goal, controls, rules, art, assets, acceptance), never a copy. */
 export function communityRemixPrompt(game: GameCard) {
+  const top = game.id.startsWith('top100-') ? topGames.find(item => 'top100-' + item.id === game.id) : undefined;
+  if (top) return topGameRemixPrompt(top);
   const brief = (communityBriefs as Record<string, unknown>)[game.id.replace(/^community-/, '')];
   const lead = `Make an original game in the spirit of "${game.title}". Use original characters, names, story and art; do not copy its code or assets.`;
   return brief ? `${lead}\nFollow this brief, including every acceptance check:\n${JSON.stringify(brief, null, 2)}` : `${lead} ${game.description}`;

@@ -146,7 +146,13 @@
     "Continue in Super Agent": "在 Super Agent 中继续",
     "Edit & optimize in Super Agent": "在 Super Agent 中二创与优化",
     "Create trailer": "生成宣传片",
-    "Edit in Agent": "在 Agent 中编辑"
+    "Edit in Agent": "在 Agent 中编辑",
+    "In-app purchases": "内购",
+    "Ad revenue": "广告变现",
+    "Easy to build": "好做",
+    "Hybrid": "混合",
+    "Top 100 earners": "Top 100 赚钱",
+    "Earners": "赚钱"
   },
   "ja": {
     "3D": "3D",
@@ -295,7 +301,13 @@
     "Continue in Super Agent": "Super Agent で続ける",
     "Edit & optimize in Super Agent": "Super Agent で編集・最適化",
     "Create trailer": "予告編を作成",
-    "Edit in Agent": "Agent で編集"
+    "Edit in Agent": "Agent で編集",
+    "In-app purchases": "アプリ内課金",
+    "Ad revenue": "広告収益",
+    "Easy to build": "作りやすい",
+    "Hybrid": "ハイブリッド",
+    "Top 100 earners": "稼げる Top 100",
+    "Earners": "稼げる"
   },
   "ko": {
     "3D": "3D",
@@ -444,7 +456,13 @@
     "Continue in Super Agent": "Super Agent에서 계속하기",
     "Edit & optimize in Super Agent": "Super Agent에서 편집 및 최적화",
     "Create trailer": "트레일러 생성",
-    "Edit in Agent": "Agent에서 편집"
+    "Edit in Agent": "Agent에서 편집",
+    "In-app purchases": "인앱 결제",
+    "Ad revenue": "광고 수익",
+    "Easy to build": "만들기 쉬움",
+    "Hybrid": "혼합",
+    "Top 100 earners": "수익 Top 100",
+    "Earners": "수익"
   },
   "de": {
     "3D": "3D",
@@ -593,7 +611,13 @@
     "Continue in Super Agent": "In Super Agent fortfahren",
     "Edit & optimize in Super Agent": "In Super Agent bearbeiten & optimieren",
     "Create trailer": "Trailer erstellen",
-    "Edit in Agent": "Im Agent bearbeiten"
+    "Edit in Agent": "Im Agent bearbeiten",
+    "In-app purchases": "In-App-Käufe",
+    "Ad revenue": "Werbeeinnahmen",
+    "Easy to build": "Leicht umsetzbar",
+    "Hybrid": "Hybrid",
+    "Top 100 earners": "Top 100 Umsatz",
+    "Earners": "Umsatz"
   },
   "fr": {
     "3D": "3D",
@@ -742,7 +766,13 @@
     "Continue in Super Agent": "Continuer dans Super Agent",
     "Edit & optimize in Super Agent": "Modifier et optimiser dans Super Agent",
     "Create trailer": "Créer une bande-annonce",
-    "Edit in Agent": "Modifier dans Agent"
+    "Edit in Agent": "Modifier dans Agent",
+    "In-app purchases": "Achats intégrés",
+    "Ad revenue": "Publicité",
+    "Easy to build": "Facile à créer",
+    "Hybrid": "Hybride",
+    "Top 100 earners": "Top 100 revenus",
+    "Earners": "Revenus"
   },
   "ru": {
     "3D": "3D",
@@ -891,7 +921,13 @@
     "Continue in Super Agent": "Продолжить в Super Agent",
     "Edit & optimize in Super Agent": "Редактировать и улучшать в Super Agent",
     "Create trailer": "Создать трейлер",
-    "Edit in Agent": "Изменить в Agent"
+    "Edit in Agent": "Изменить в Agent",
+    "In-app purchases": "Покупки в приложении",
+    "Ad revenue": "Реклама",
+    "Easy to build": "Легко сделать",
+    "Hybrid": "Смешанная",
+    "Top 100 earners": "Топ-100 по доходу",
+    "Earners": "Доход"
   },
   "es": {
     "3D": "3D",
@@ -1040,7 +1076,13 @@
     "Continue in Super Agent": "Continuar en Super Agent",
     "Edit & optimize in Super Agent": "Editar y optimizar en Super Agent",
     "Create trailer": "Crear tráiler",
-    "Edit in Agent": "Editar en Agent"
+    "Edit in Agent": "Editar en Agent",
+    "In-app purchases": "Compras integradas",
+    "Ad revenue": "Publicidad",
+    "Easy to build": "Fácil de crear",
+    "Hybrid": "Híbrido",
+    "Top 100 earners": "Top 100 en ingresos",
+    "Earners": "Ingresos"
   },
   "pt-BR": {
     "3D": "3D",
@@ -1189,7 +1231,13 @@
     "Continue in Super Agent": "Continuar no Super Agent",
     "Edit & optimize in Super Agent": "Editar e otimizar no Super Agent",
     "Create trailer": "Criar trailer",
-    "Edit in Agent": "Editar no Agent"
+    "Edit in Agent": "Editar no Agent",
+    "In-app purchases": "Compras no app",
+    "Ad revenue": "Anúncios",
+    "Easy to build": "Fácil de criar",
+    "Hybrid": "Híbrido",
+    "Top 100 earners": "Top 100 em receita",
+    "Earners": "Receita"
   },
   "it": {
     "3D": "3D",
@@ -1338,7 +1386,13 @@
     "Continue in Super Agent": "Continua in Super Agent",
     "Edit & optimize in Super Agent": "Modifica e ottimizza in Super Agent",
     "Create trailer": "Crea trailer",
-    "Edit in Agent": "Modifica in Agent"
+    "Edit in Agent": "Modifica in Agent",
+    "In-app purchases": "Acquisti in-app",
+    "Ad revenue": "Pubblicità",
+    "Easy to build": "Facile da creare",
+    "Hybrid": "Ibrido",
+    "Top 100 earners": "Top 100 per ricavi",
+    "Earners": "Ricavi"
   },
   "tr": {
     "3D": "3D",
@@ -1487,6 +1541,12 @@
     "Continue in Super Agent": "Super Agent'ta devam et",
     "Edit & optimize in Super Agent": "Super Agent'ta düzenle ve iyileştir",
     "Create trailer": "Fragman oluştur",
-    "Edit in Agent": "Agent’ta düzenle"
+    "Edit in Agent": "Agent’ta düzenle",
+    "In-app purchases": "Uygulama içi satın alma",
+    "Ad revenue": "Reklam geliri",
+    "Easy to build": "Yapması kolay",
+    "Hybrid": "Karma",
+    "Top 100 earners": "En çok kazanan 100",
+    "Earners": "Kazanç"
   }
 }

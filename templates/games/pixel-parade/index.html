@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>Pixel Parade</title><style>
+/* Standalone authored pixel artwork; every shape is drawn on the canvas. */
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#151229;touch-action:none}body{display:grid;place-items:center;height:100dvh}canvas{display:block;width:min(100vw,56.25dvh);height:min(100dvh,177.7778vw);touch-action:none;user-select:none;-webkit-user-select:none;image-rendering:pixelated}
+</style></head><body><canvas width="450" height="800" aria-label="Pixel Parade"></canvas><script>
+'use strict';
+const cv=document.querySelector('canvas'),ctx=cv.getContext('2d');
+const W=450,H=800,zh=(navigator.language||'').toLowerCase().startsWith('zh'),tr=(a,b)=>zh?a:b;
+document.documentElement.lang=zh?'zh-CN':'en';
+const KEY='pixel-parade.v1';
+function loadSave(){try{const v=JSON.parse(localStorage.getItem(KEY)||'{}');return{level:Math.max(0,Math.min(4,v.level|0)),best:Math.max(0,Math.min(5,v.best|0)),muted:!!v.muted}}catch(e){return{level:0,best:0,muted:false}}}
+function store(){try{localStorage.setItem(KEY,JSON.stringify(save))}catch(e){}}
+const save=loadSave();
+const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),ease=t=>t<0?0:t>1?1:1-Math.pow(1-t,3);
+function rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const FONT='ui-monospace,Menlo,Consolas,"Courier New",monospace';
+function txt(s,x,y,size,color,align='center',max=420){ctx.font=`900 ${size}px ${FONT}`;while(ctx.measureText(s).width>max&&size>8){size-=.5;ctx.font=`900 ${size}px ${FONT}`}ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillText(s,Math.round(x)+2,Math.round(y)+2);ctx.fillStyle=color;ctx.fillText(s,Math.round(x),Math.round(y))}
+function rect(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(Math.round(x),Math.round(y),Math.round(w),Math.round(h))}
+// Pixel-bevel block: flat face, light top-left edge, dark bottom-right edge.
+function block(x,y,w,h,c,lt,dk,b=3){rect(x,y,w,h,dk);rect(x,y,w-b,h-b,lt);rect(x+b,y+b,w-2*b,h-2*b,c)}
+
+// ---------- audio ----------
+let ac=null;
+function unlock(){if(!ac){const A=window.AudioContext||window.webkitAudioContext;if(A)try{ac=new A()}catch(e){}}if(ac&&ac.state==='suspended')ac.resume().catch(()=>{})}
+function beep(f,d=.1,type='square',v=.04,slide=1,delay=0){if(save.muted||!ac)return;try{const t=ac.currentTime+delay,o=ac.createOscillator(),g=ac.createGain();o.type=type;o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(Math.max(30,f*slide),t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+d+.03)}catch(e){}}
+let popT=0;
+const sfx={send(){beep(330,.1,'square',.04,2)},pop(){if(popT>0)return;popT=.035;beep(rand(700,1000),.05,'square',.025,.6)},
+ leave(){beep(520,.12,'triangle',.05,1.6)},full(){beep(140,.14,'square',.05,.8)},
+ lose(){[392,311,262,196].forEach((f,i)=>beep(f,.2,'square',.045,.95,i*.13))},win(){[523,659,784,1046,1318].forEach((f,i)=>beep(f,.16,'square',.04,1,i*.08))}};
+
+// ---------- content (original pixel motifs) ----------
+const PAL={R:['#ff4f5e','#ff8f98','#b02a3a'],W:['#f4efe2','#ffffff','#b9b2a0'],B:['#3d7bff','#86adff','#2149b0'],U:['#22c3d6','#7ce8f2','#11818f'],
+ O:['#ff9a2e','#ffc483','#c0620f'],Y:['#ffd23f','#fff08f','#c39a0c'],G:['#4cc35a','#94eb9c','#2a8436'],P:['#ff7ab8','#ffb6d8','#c2407c'],
+ K:['#7b5cd6','#ad95f5','#4f37a0'],N:['#a8693c','#d39a6a','#6e3f1e'],S:['#9aa3b5','#c9d0dd','#646c80']};
+const NAME={R:tr('红','red'),W:tr('白','white'),B:tr('蓝','blue'),U:tr('青','cyan'),O:tr('橙','orange'),Y:tr('黄','yellow'),G:tr('绿','green'),P:tr('粉','pink'),K:tr('紫','violet'),N:tr('棕','brown'),S:tr('灰','stone')};
+const LEVELS=[
+ {name:tr('小帆船','Little Sailboat'),lanes:2,max:10,seed:5,bg:'B',run:[1,2],art:[
+ '....W.....','....WW....','...RWWW...','..RRWWWW..','.RRRWWWWW.','....N.....','NNNNNNNNNN','.NNNNNNNN.','UUUUUUUUUU','.UU.UU.UU.']},
+ {name:tr('开花仙人掌','Blooming Cactus'),lanes:3,max:8,seed:17,bg:'U',run:[2,3],art:[
+ '.....PP.....','....PYYP....','....GGGG....','.GG.GGGG.GG.','.GG.GGGG.GG.','.GGGGGGGGGG.','..GGGGGGGG..','....GGGG....','....GGGG....','..OOOOOOOO..','...OOOOOO...','...OOOOOO...']},
+ {name:tr('纸板火箭','Cardboard Rocket'),lanes:3,max:7,seed:29,bg:'K',run:[3,4],art:[
+ '......RR......','.....RRRR.....','....WWWWWW....','....WWWWWW....','....WWBBWW....','....WBBBBW....','....WWBBWW....','....WWWWWW....','...RWWWWWWR...','..RRWWWWWWRR..','..RRWWWWWWRR..','..RR.OOOO.RR..','......OO......','.....YOOY.....']},
+ {name:tr('糖霜甜甜圈','Sprinkle Donut'),lanes:4,max:9,seed:43,bg:'B',run:[2,4],art:[
+ '................','.....NNNNNN.....','...NNPPPPPPNN...','..NPPYPPPPGPPN..','.NPPPPPPRPPPPPN.','.NPGPPPPPPPYPPN.','NPPPPPN..NPPPBPN','NPPRPN....NPPPPN','NPPPPN....NPGPPN','NPYPPPN..NPPPPPN','.NPPPPPNNPPPRPN.','.NPPBPPPPPPPPPN.','..NPPPPYPPPGPN..','...NNPPPPPPNN...','.....NNNNNN.....','................']},
+ {name:tr('小鱼缸','Goldfish Bowl'),lanes:4,max:6,seed:61,bg:'K',run:[3,4],art:[
+ '.....WWWWWW.....','....W......W....','...WUUUUUUUUW...','..WUUUUUUUUUUW..','.WUUUOOUUUUUUUW.','.WUUOOOOUUUBUUW.','WUUOOKOOOUUUUUUW','WUUOOOOOOOUUWUUW','WUUUOOOOUUUUUUUW','WUUUUOOUUUUGUUUW','WUUUUUUUUUGGUUUW','.WUUGUUUUUGUUUW.','.WUGGUUSSSGUUUW.','..WSSSSSSSSSSW..','...WWWWWWWWWW...','....SSSSSSSS....']}];
+const BELT=5,SPEED=235;
+
+function parse(L){const N=L.art.length;return L.art.map(row=>{if(row.length!==N)throw new Error('bad art');return[...row].map(ch=>ch==='.'?L.bg:ch)})}
+// A cell is exposed when it is the first remaining cell seen from any of the four belt sides.
+function exposed(g){const N=g.length,s=new Set();
+ for(let c=0;c<N;c++){for(let r=0;r<N;r++)if(g[r][c]!==-1){s.add(r*N+c);break}for(let r=N-1;r>=0;r--)if(g[r][c]!==-1){s.add(r*N+c);break}}
+ for(let r=0;r<N;r++){for(let c=0;c<N;c++)if(g[r][c]!==-1){s.add(r*N+c);break}for(let c=N-1;c>=0;c--)if(g[r][c]!==-1){s.add(r*N+c);break}}
+ return s}
+// Builds the cart queue by peeling the picture: pick a color that is exposed, remove every
+// cell of it reachable by peeling only that color, and give those cells to consecutive carts.
+// Total ammo per color therefore equals its cell count, and the plan order is a solution.
+function build(li){
+ const L=LEVELS[li],g=parse(L),N=g.length,r=rng(L.seed),work=g.map(x=>x.slice()),carts=[];
+ let left=g.flat().filter(v=>v!==-1).length;
+ while(left>0){
+  const ex=[...exposed(work)],cols=[...new Set(ex.map(k=>work[k/N|0][k%N]))].sort(),c=cols[Math.floor(r()*cols.length)];
+  let k=0;for(;;){const e=[...exposed(work)].filter(i=>work[i/N|0][i%N]===c);if(!e.length)break;for(const i of e){work[i/N|0][i%N]=-1;k++}}
+  left-=k;const n=Math.ceil(k/L.max),base=Math.floor(k/n);
+  for(let i=0;i<n;i++)carts.push({color:c,ammo:base+(i<k-base*n?1:0)});
+ }
+ // Carts are dealt to random lanes but keep plan order inside each lane, so the next
+ // planned cart is always at the front of some lane while other fronts may be traps.
+ const lanes=Array.from({length:L.lanes},()=>[]),plan=[];let lane=-1;
+ for(let k=0;k<carts.length;){const len=L.run[0]+Math.floor(r()*(L.run[1]-L.run[0]+1));let i;do{i=Math.floor(r()*L.lanes)}while(i===lane&&L.lanes>1);lane=i;for(let j=0;j<len&&k<carts.length;j++,k++){lanes[i].push(carts[k]);plan.push(i)}}
+ return{grid:g,N,lanes,plan};
+}
+
+// ---------- state ----------
+let phase='title',level=save.level,G=null,timer=0,artT=0,speed=1,btns=[],parts=[],bullets=[],shake=0,laneShake=[],sent=0;
+const GC=270;
+function geo(){const N=G.N,cs=Math.floor(300/N),sz=cs*N,gx=Math.round(225-sz/2),gy=Math.round(GC-sz/2),m=30;
+ return{N,cs,gx,gy,x0:gx-m,y0:gy-m,x1:gx+sz+m,y1:gy+sz+m,Wd:sz+2*m,Hd:sz+2*m,P:4*(sz+2*m)}}
+function startLevel(i){level=i;const b=build(i);G={...b,orig:b.grid.map(r=>r.slice()),belt:[],pending:[],leaving:[],cells:b.grid.flat().filter(v=>v!==-1).length};
+ G.geo=geo();parts=[];bullets=[];timer=0;sent=0;laneShake=b.lanes.map(()=>0);phase='play';save.level=i;store()}
+function beltCount(){return G.belt.length+G.pending.length}
+function lanePos(i,k=0){const L=G.lanes.length,w=410/L;return{x:20+w*i+w/2,y:560+k*66,w:Math.min(86,w-14)}}
+function pathXY(s){const g=G.geo;s=((s%g.P)+g.P)%g.P;
+ if(s<g.Wd)return{x:g.x0+s,y:g.y1,side:0};s-=g.Wd;if(s<g.Hd)return{x:g.x1,y:g.y1-s,side:1};s-=g.Hd;
+ if(s<g.Wd)return{x:g.x1-s,y:g.y0,side:2};s-=g.Wd;return{x:g.x0,y:g.y0+s,side:3}}
+function tapLane(i){
+ const q=G.lanes[i];if(!q||!q.length)return;
+ if(beltCount()>=BELT){laneShake[i]=.3;sfx.full();return}
+ const c=q.shift(),p=lanePos(i);sent++;
+ G.pending.push({...c,fx:p.x,fy:p.y,t:0});sfx.send();
+}
+function lineTarget(side,idx){const g=G.grid,N=G.N;
+ if(side===0){for(let r=N-1;r>=0;r--)if(g[r][idx]!==-1)return[r,idx]}
+ if(side===2){for(let r=0;r<N;r++)if(g[r][idx]!==-1)return[r,idx]}
+ if(side===1){for(let c=N-1;c>=0;c--)if(g[idx][c]!==-1)return[idx,c]}
+ if(side===3){for(let c=0;c<N;c++)if(g[idx][c]!==-1)return[idx,c]}
+ return null}
+function cartLine(p){const g=G.geo;const v=(p.side===0||p.side===2)?Math.floor((p.x-g.gx)/g.cs):Math.floor((p.y-g.gy)/g.cs);return v>=0&&v<g.N?v:-1}
+
+function update(dt){
+ artT+=dt;if(popT>0)popT-=dt;
+ for(const q of parts){q.life-=dt;q.x+=q.vx*dt;q.y+=q.vy*dt;q.vy+=600*dt}parts=parts.filter(q=>q.life>0);
+ if(shake>0)shake=Math.max(0,shake-dt*25);
+ if(G){
+  laneShake=laneShake.map(v=>Math.max(0,v-dt));
+  const g=G.geo;
+  for(const p of G.pending)p.t+=dt;
+  // pending carts enter at the start of the loop once the entry is clear
+  for(let i=0;i<G.pending.length;i++){const p=G.pending[i];if(p.t<.32)continue;
+   if(G.belt.every(c=>c.s>=48&&c.s<=g.P-48)){G.belt.push({color:p.color,ammo:p.ammo,s:0,line:'',fired:false,bob:rand(0,6)});G.pending.splice(i,1);i--}}
+  if(phase==='play'||phase==='clear'){
+   for(const c of G.belt){c.s=(c.s+SPEED*dt)%g.P;const p=pathXY(c.s),idx=cartLine(p),key=idx<0?'':p.side+':'+idx;if(key!==c.line){c.line=key;c.fired=false}if(idx<0||c.ammo<=0||c.fired)continue;
+    const t=lineTarget(p.side,idx);if(t&&G.grid[t[0]][t[1]]===c.color){G.grid[t[0]][t[1]]=-1;G.cells--;c.ammo--;c.fired=true;c.kick=.12;
+     bullets.push({x0:p.x,y0:p.y,r:t[0],c:t[1],color:c.color,t:0})}}
+   for(const c of G.belt)if(c.ammo<=0){const p=pathXY(c.s);G.leaving.push({color:c.color,x:p.x,y:p.y,side:p.side,t:0});sfx.leave()}
+   G.belt=G.belt.filter(c=>c.ammo>0);
+  }
+  for(const c of G.belt)if(c.kick>0)c.kick-=dt;
+  for(const l of G.leaving)l.t+=dt;G.leaving=G.leaving.filter(l=>l.t<.6);
+  for(const b of bullets){b.t+=dt;if(b.t>=.13&&!b.hit){b.hit=1;const x=g.gx+b.c*g.cs+g.cs/2,y=g.gy+b.r*g.cs+g.cs/2;sfx.pop();
+   for(let i=0;i<6;i++)parts.push({x,y,vx:rand(-120,120),vy:rand(-170,40),life:rand(.35,.6),col:PAL[b.color][i%3],s:rand(3,6)|0})}}
+  bullets=bullets.filter(b=>!b.hit);
+  if(phase==='play'){
+   if(G.cells===0){phase='clear';timer=1.1}
+   else if(beltCount()>=BELT&&!bullets.length&&!G.pending.length){const ex=exposed(G.grid),cols=new Set([...ex].map(k=>G.grid[k/G.N|0][k%G.N]));
+    if(!G.belt.some(c=>cols.has(c.color))){phase='jam';timer=.9}}
+  }
+ }
+ if(timer>0){timer-=dt;if(timer<=0){
+  if(phase==='jam'){phase='lost';sfx.lose();shake=8}
+  else if(phase==='clear'){sfx.win();for(let i=0;i<60;i++)parts.push({x:225,y:GC,vx:rand(-260,260),vy:rand(-380,-80),life:rand(.8,1.4),col:['#ffd23f','#ff7ab8','#22c3d6','#4cc35a'][i%4],s:5});
+   if(level>=4){phase='done';save.best=5;save.level=0;store()}else{phase='won';save.best=Math.max(save.best,level+1);save.level=level+1;store();timer=1.8}}
+  else if(phase==='won')startLevel(level+1);
+ }}
+}
+
+// ---------- drawing ----------
+function drawBg(){
+ rect(0,0,W,H,'#1b1736');
+ for(let y=0;y<H;y+=20)for(let x=(y/20)%2*20;x<W;x+=40)rect(x,y,20,20,'#201b40');
+ for(let i=0;i<26;i++){const x=(i*97)%W,y=(i*173)%460,tw=(Math.sin(artT*2+i)+1)/2;rect(x,y,3,3,`rgba(255,240,200,${.15+tw*.4})`)}
+}
+function drawBelt(){
+ const g=G.geo,t=12;
+ block(g.x0-t-4,g.y0-t-4,g.x1-g.x0+2*t+8,g.y1-g.y0+2*t+8,'#2b2550','#3a3368','#16122e',4);
+ rect(g.x0+t+4,g.y0+t+4,g.x1-g.x0-2*t-8,g.y1-g.y0-2*t-8,'#110e24');
+ // moving tread marks
+ const off=(artT*SPEED)%24;ctx.fillStyle='#4a4280';
+ for(let s=off;s<g.P;s+=24){const p=pathXY(s);if(p.side%2===0)ctx.fillRect(Math.round(p.x)-2,Math.round(p.y)-t+2,4,2*t-4);else ctx.fillRect(Math.round(p.x)-t+2,Math.round(p.y)-2,2*t-4,4)}
+}
+function drawGrid(){
+ const g=G.geo,cs=g.cs;
+ for(let r=0;r<g.N;r++)for(let c=0;c<g.N;c++){const o=G.orig[r][c],v=G.grid[r][c],x=g.gx+c*cs,y=g.gy+r*cs;
+  if(v!==-1){const p=PAL[v];block(x,y,cs,cs,p[0],p[1],p[2],Math.max(2,cs/7|0))}
+  else if(o!==-1){rect(x+cs/2-1,y+cs/2-1,2,2,'rgba(255,255,255,.14)')}}
+}
+function drawCart(x,y,color,ammo,scale=1,alpha=1,dir=0){
+ const p=PAL[color],w=40*scale,h=32*scale;ctx.save();ctx.globalAlpha=alpha;
+ rect(x-w/2+3,y-h/2+5,w,h,'rgba(0,0,0,.35)');
+ block(x-w/2,y-h/2,w,h,p[0],p[1],p[2],Math.max(2,3*scale|0));
+ rect(x-w/2+5*scale,y-h/2+5*scale,w-10*scale,h*.46,'rgba(0,0,0,.25)');
+ rect(x-w/2+4*scale,y+h/2-3*scale,8*scale,6*scale,'#1a1730');rect(x+w/2-12*scale,y+h/2-3*scale,8*scale,6*scale,'#1a1730');
+ txt(String(ammo),x,y-h*.1,15*scale,color==='W'||color==='Y'?'#2b2540':'#fff',undefined,w);
+ ctx.restore();
+}
+function drawBeltCarts(){
+ for(const c of G.belt){const p=pathXY(c.s),k=c.kick>0?c.kick*20:0;const dx=p.side===1?k:p.side===3?-k:0,dy=p.side===0?k:p.side===2?-k:0;
+  // barrel points at the picture
+  const bx=p.side===1?-1:p.side===3?1:0,by=p.side===0?-1:p.side===2?1:0;
+  rect(p.x+dx+bx*18-4+(bx?bx*2:0),p.y+dy+by*18-4,8,8,'#d8d3f0');
+  drawCart(p.x+dx,p.y+dy+Math.sin(artT*12+c.bob)*1,c.color,c.ammo,.9)}
+ for(const l of G.leaving){const t=l.t/.6,ox=l.side===1?1:l.side===3?-1:0,oy=l.side===0?1:l.side===2?-1:0;drawCart(l.x+ox*t*80,l.y+oy*t*80-Math.sin(t*3)*20,l.color,0,.9*(1-t*.4),1-t)}
+ for(const p of G.pending){const t=ease(p.t/.32),g=G.geo;drawCart(p.fx+(g.x0-p.fx)*t,p.fy+(g.y1-p.fy)*t-Math.sin(t*Math.PI)*60,p.color,p.ammo,.9+.2*(1-t))}
+ for(const b of bullets){const g=G.geo,t=b.t/.13,x=g.gx+b.c*g.cs+g.cs/2,y=g.gy+b.r*g.cs+g.cs/2;const bx=b.x0+(x-b.x0)*t,by=b.y0+(y-b.y0)*t;rect(bx-4,by-4,8,8,PAL[b.color][1]);rect(bx-2,by-2,4,4,'#fff')}
+}
+function drawQueue(){
+ const n=beltCount();
+ txt(tr('传送带','BELT'),24,486,14,'#b9b2e0','left');
+ for(let i=0;i<BELT;i++)block(92+i*26,476,20,20,i<n?(n>=BELT?'#ff5f6d':'#ffd23f'):'#2b2550',i<n?'#fff2a8':'#3a3368','#16122e',3);
+ txt(`${tr('剩余','LEFT')} ${G.cells}`,426,486,14,'#b9b2e0','right');
+ G.lanes.forEach((q,i)=>{const p=lanePos(i),sh=laneShake[i]>0?Math.sin(artT*80)*5:0;
+  block(p.x-p.w/2-6,516,p.w+12,248,'#231e45','#2e2858','#15112b',3);
+  for(let k=Math.min(2,q.length-1);k>=0;k--){const c=q[k],pp=lanePos(i,k);drawCart(pp.x+(k?0:sh),pp.y+(k?10:0),c.color,c.ammo,k?.95:1.35,k?.55:1)}
+  if(!q.length)txt('—',p.x,600,20,'#4a4280');
+  if(q.length>3)txt('+'+(q.length-3),p.x,748,12,'#8d86c0');
+  btns.push({x:p.x-p.w/2-6,y:516,w:p.w+12,h:248,fn:()=>{if(phase==='play')tapLane(i)},silent:1});
+ });
+}
+function drawHud(){
+ txt('PIXEL PARADE',20,30,22,'#ffd23f','left');
+ txt(`${tr('第','LV ')}${level+1}${tr('关','')} · ${LEVELS[level].name}`,20,56,13,'#b9b2e0','left',250);
+ hudBtn(344,36,'R',()=>{if(G&&phase!=='title')startLevel(level)});hudBtn(400,36,save.muted?'x':'♪',()=>{save.muted=!save.muted;store()});
+}
+function hudBtn(x,y,label,fn){block(x-22,y-20,44,40,'#2e2858','#4a4280','#15112b',3);txt(label==='R'?'↻':label,x,y,20,'#fff');btns.push({x:x-22,y:y-20,w:44,h:40,fn})}
+function button(x,y,w,label,fn,c=['#ffd23f','#fff08f','#c39a0c']){block(x-w/2,y-28,w,56,c[0],c[1],c[2],5);txt(label,x,y,22,'#2b2540');btns.push({x:x-w/2,y:y-28,w,h:56,fn})}
+function card(y,h){ctx.fillStyle='rgba(12,9,28,.72)';ctx.fillRect(0,0,W,H);block(30,y,390,h,'#2b2550','#5a50a0','#120f26',6)}
+function mini(x,y,size){const N=G.N,cs=Math.floor(size/N),o=x-cs*N/2,p=y-cs*N/2;for(let r=0;r<N;r++)for(let c=0;c<N;c++){const v=G.orig[r][c];if(v!==-1)rect(o+c*cs,p+r*cs,cs,cs,PAL[v][0])}}
+function drawOverlay(){
+ if(phase==='title'){card(150,470);mini(225,250,140);
+  txt('PIXEL PARADE',225,356,36,'#ffd23f');txt(tr('像素巡游','Belt · Blast · Clear'),225,392,15,'#ff7ab8');
+  txt(tr('把小车送上传送带，打光整幅像素画。','Send carts round the belt and blast the picture clear.'),225,432,14,'#e8e3ff','center',360);
+  txt(`${tr('进度','PROGRESS')} ${save.best}/5 · ${tr('从第'+(level+1)+'关开始','START LV '+(level+1))}`,225,462,12,'#a39bd8');
+  button(225,520,220,tr('开始 ▶','START ▶'),()=>startLevel(level));
+  if(level>0){txt(tr('从第1关重新开始','Restart from level 1'),225,584,13,'#ffd23f');btns.push({x:95,y:566,w:260,h:36,fn:()=>startLevel(0)})}
+ }else if(phase==='won'){card(240,280);mini(225,330,110);txt(tr('画面清空！','PICTURE CLEARED!'),225,418,26,'#ffd23f');
+  const t=clamp(1-timer/1.8,0,1);rect(115,452,220,12,'#15112b');rect(115,452,220*t,12,'#4cc35a');txt(tr('下一幅马上开始…','Next picture loading…'),225,484,12,'#b9b2e0');
+ }else if(phase==='lost'){card(250,270);txt(tr('传送带堵住了！','BELT JAMMED!'),225,300,28,'#ff5f6d');
+  txt(tr('5 辆车都打不到同色像素。','No cart can reach its color.'),225,342,14,'#e8e3ff','center',340);
+  txt(tr('先派外圈颜色的车。','Tip: send outer colors first.'),225,368,13,'#a39bd8','center',340);
+  button(225,430,220,tr('重试 ↻','RETRY ↻'),()=>startLevel(level),['#ff7ab8','#ffb6d8','#c2407c']);
+  txt(tr('回到标题','Back to title'),225,488,13,'#ffd23f');btns.push({x:95,y:470,w:260,h:36,fn:()=>{phase='title'}});
+ }else if(phase==='done'){card(200,380);
+  for(let i=0;i<5;i++){const l=LEVELS[i],N=l.art.length,cs=Math.floor(56/N);for(let r=0;r<N;r++)for(let c=0;c<N;c++){const ch=l.art[r][c];rect(62+i*68+c*cs,232+r*cs,cs,cs,PAL[ch==='.'?l.bg:ch][0])}}
+  txt(tr('五幅全部通关！','ALL 5 PICTURES CLEARED!'),225,340,24,'#ffd23f','center',360);txt(tr('巡游圆满结束。','The parade is complete.'),225,378,14,'#e8e3ff');
+  button(225,450,240,tr('再玩一遍 ↻','PLAY AGAIN ↻'),()=>startLevel(0));
+ }
+}
+function drawHint(){
+ if(phase!=='play'||sent>0||level!==0)return;const p=lanePos(G.plan[0]),b=Math.abs(Math.sin(artT*5))*8;
+ ctx.save();ctx.strokeStyle='#ffd23f';ctx.lineWidth=3;ctx.strokeRect(p.x-p.w/2-2,520-b/2,p.w+4,82+b);ctx.restore();
+ block(40,770,370,26,'#2b2550','#3a3368','#16122e',2);txt(tr('点一辆车，它会绕画射击同色像素','Tap a cart — it rides the belt and shoots its color'),225,783,12,'#fff','center',350);
+}
+let last=0;
+function frame(ts){
+ const raw=last?Math.min((ts-last)/1000,.05):0;last=ts;
+ const steps=Math.max(1,Math.ceil(speed));for(let i=0;i<steps;i++)update(raw*speed/steps);
+ ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,W,H);btns=[];
+ ctx.save();if(shake>0)ctx.translate(rand(-shake,shake)|0,rand(-shake,shake)|0);
+ drawBg();if(G){drawBelt();drawGrid();drawBeltCarts();drawQueue()}
+ for(const q of parts){ctx.globalAlpha=clamp(q.life*2,0,1);rect(q.x,q.y,q.s,q.s,q.col)}ctx.globalAlpha=1;
+ ctx.restore();drawHud();drawHint();drawOverlay();
+ requestAnimationFrame(frame);
+}
+function pos(e){const b=cv.getBoundingClientRect();return{x:(e.clientX-b.left)*W/b.width,y:(e.clientY-b.top)*H/b.height}}
+function resize(){const b=cv.getBoundingClientRect(),d=Math.min(3,window.devicePixelRatio||1);cv.width=Math.max(1,Math.round(b.width*d));cv.height=Math.max(1,Math.round(b.height*d))}
+cv.addEventListener('pointerdown',e=>{e.preventDefault();unlock();const p=pos(e);
+ const overlay=phase!=='play'&&phase!=='jam'&&phase!=='clear';
+ for(let i=btns.length-1;i>=0;i--){const b=btns[i];if(b.silent&&overlay)continue;if(p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h){if(!b.silent)beep(660,.05,'square',.035);b.fn();return}}});
+addEventListener('resize',resize);resize();
+startLevel(level);phase='title';
+window.__pixelParade={
+ state:()=>({phase,level,cells:G?G.cells:0,belt:G?beltCount():0,queue:G?G.lanes.map(q=>q.length):[],fronts:G?G.lanes.map(q=>q[0]&&q[0].color):[],exposedColors:G?[...new Set([...exposed(G.grid)].map(k=>G.grid[k/G.N|0][k%G.N]))]:[]}),
+ plan:()=>G?G.plan.slice():[],lanePos:i=>lanePos(i),startLevel,set speed(v){speed=v},get speed(){return speed},
+ audit:()=>LEVELS.map((L,i)=>{const b=build(i),cells={},ammo={};b.grid.flat().forEach(v=>{if(v!==-1)cells[v]=(cells[v]||0)+1});b.lanes.flat().forEach(c=>ammo[c.color]=(ammo[c.color]||0)+c.ammo);return{n:b.N,carts:b.plan.length,cells,ammo,match:JSON.stringify(Object.entries(cells).sort())===JSON.stringify(Object.entries(ammo).sort())}})
+};
+requestAnimationFrame(frame);
+</script></body></html>

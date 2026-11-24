@@ -3449,22 +3449,6 @@ export function ModeComposerTopBar({
     const playableAd = isPlayableAd(options);
     return (
       <div className="om-sa-composer-top-bar" role="group" aria-label={t('Game studio options')}>
-        {canChoosePlayableAd(options) && (
-          <label
-            className="om-sa-composer-top-pill cursor-pointer"
-            data-active={playableAd || undefined}
-          >
-            <span>{t('Playable ad')}</span>
-            <Toggle
-              label={t('Playable ad')}
-              checked={playableAd}
-              disabled={disabled}
-              onCommit={enabled => onChange(enabled
-                ? { gameOrientation: 'portrait', gamePlayableAd: true }
-                : { gamePlayableAd: false })}
-            />
-          </label>
-        )}
         {renderGameArtPicker({
           menuKey: 'game-genre',
           fallbackIcon: 'gamepad-line',
@@ -3582,6 +3566,22 @@ export function ModeComposerTopBar({
             </div>
           </div>
         </Popover>
+        {canChoosePlayableAd(options) && (
+          <label
+            className="om-sa-composer-top-pill cursor-pointer"
+            data-active={playableAd || undefined}
+          >
+            <span>{t('Playable ad')}</span>
+            <Toggle
+              label={t('Playable ad')}
+              checked={playableAd}
+              disabled={disabled}
+              onCommit={enabled => onChange(enabled
+                ? { gameOrientation: 'portrait', gamePlayableAd: true }
+                : { gamePlayableAd: false })}
+            />
+          </label>
+        )}
       </div>
     );
   }

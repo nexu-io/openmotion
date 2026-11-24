@@ -18,6 +18,7 @@ import { MotionIcon } from '../icons';
 import { projectHref } from '../workspaceRouting';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { GameMasonry, interleavePortrait } from './GameMasonry';
+import { topGameCard, topGameCards, topGameFor, topGameRemixPrompt, topGames, type TopGame } from './topGames';
 import { bundledGames, communityGames, communityRemixPrompt, composeBrief, coverUrl, formatPlays, gameApi, gameSource, storedInstruction, genreCovers, genreLabels, settingCovers, styleCovers, genrePlaceholders, isLocalOnly, playableUrl, rememberInstruction, settingLabels, styleLabels } from './gameCatalog';
 import { buildGameContextTags, buildGameHiddenInstructions, buildGameUserPrompt, toGameArtifact, toGameCapabilityRef } from './gameSuperAgent';
 import { optionId as optionFilter } from '../reporting';
@@ -60,7 +61,7 @@ export function GameStudio({
   const [games, setGames] = useState<GameCard[]>(bundledGames);
   const [offline, setOffline] = useState(false);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<GameGenre | 'all' | 'portrait'>('all');
+  const [category, setCategory] = useState<GameGenre | 'all' | 'portrait' | 'top100'>('all');
   const [sort, setSort] = useState<Sort>('relevance');
   // The open project is tracked by id so polling updates reach it.
   // ?game=<id> opens that game's detail page directly (used by links from Assets and Super Agent).
@@ -218,6 +219,15 @@ export function GameStudio({
     }
     catch (error) { reportGameCreate('remix', { error: createError(error) }, { source: game }); notify(failure(error), 'error'); }
   };
+  // Top 100: an original game with the same core loop, briefed from the chart entry.
+  const remixTop = async (top: TopGame) => {
+    const source = topGameCard(top);
+    try {
+      const created = await gameApi.create({ prompt: topGameRemixPrompt(top), genre: top.genre, style: null, setting: null, multiplayer: false, orientation: top.orientation });
+      reportGameCreate('remix', { game: created.game, handoff: started(created) }, { source });
+    }
+    catch (error) { reportGameCreate('remix', { error: createError(error) }, { source }); notify(failure(error), 'error'); }
+  };
   const open = (game: GameCard, area: 'game_market' | 'game_sidebar' = 'game_market', position?: number) => {
     reportGameClick(area, 'open_game', game, position === undefined ? {} : { position });
     // Sites that refuse to be embedded open in a new window; everything else plays in the project view.
@@ -231,7 +241,7 @@ export function GameStudio({
   const visible = useMemo(() => {
     const needle = query.trim();
     // Explore lists templates and community games only; games made here live in Assets → Games.
-    const byCategory = all.filter(game => game.source !== 'mine' && game.status === 'published'
+    const byCategory = category === 'top100' ? topGameCards() : all.filter(game => game.source !== 'mine' && game.status === 'published'
       && (category === 'all' || (category === 'portrait' ? game.orientation === 'portrait' : game.genre === category)));
     const list = needle
       ? rankSearchResults(byCategory, needle, game => ({
@@ -247,6 +257,7 @@ export function GameStudio({
           ],
         })).map(r => r.item)
       : byCategory;
+    if (category === 'top100') return list;
     if (sort === 'plays') return [...list].sort((a, b) => b.plays - a.plays);
     if (sort === 'newest') return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return needle ? list : interleavePortrait(list);
@@ -257,7 +268,7 @@ export function GameStudio({
   const rows = [
     ...(browsing ? [
       { id: 'featured', title: t('Templates'), icon: 'gamepad-line', games: visible },
-    ] : [{ id: 'all', title: category === 'all' ? t('All games') : category === 'portrait' ? t('Portrait games') : t('{genre} games', { genre: t(genreLabels[category]) }), icon: 'gamepad-line', games: visible }]),
+    ] : [{ id: 'all', title: category === 'all' ? t('All games') : category === 'top100' ? t('Top 100 earners') : category === 'portrait' ? t('Portrait games') : t('{genre} games', { genre: t(genreLabels[category]) }), icon: 'gamepad-line', games: visible }]),
   ];
 
   const options: { id: string; label: string; cover?: string | null; selected: boolean; pick: () => void }[] = menu === 'genre'
@@ -317,18 +328,19 @@ export function GameStudio({
           <div className="om-game-genres" role="tablist" aria-label={t('Category')}>
             {(['all', ...gameGenres] as const).map(id => <Button key={id} variant="plain" role="tab" className="om-game-genre-chip" aria-selected={category === id} onClick={() => { if (category !== id) reportGameClick('game_market', 'category_select', null, optionFilter(id)); setCategory(id); }}>
               {id === 'all' ? <RemixIcon name="layout-grid-line" size={15} /> : genreCovers[id] && <img src={genreCovers[id]!} alt="" />}{id === 'all' ? t('All') : t(genreLabels[id])}</Button>)}
+            {topGames.length > 0 && <Button variant="plain" role="tab" className="om-game-genre-chip" data-variant="top" aria-selected={category === 'top100'} onClick={() => { if (category !== 'top100') reportGameClick('game_market', 'category_select', null, optionFilter('top100')); setCategory('top100'); }}><span className="ui-collection-label" aria-label={t('Top 100 earners')}><span className="ui-collection-label__title" aria-hidden="true">TOP 100</span><span aria-hidden="true">{t('Earners')}</span></span></Button>}
             <Button variant="plain" role="tab" className="om-game-genre-chip" aria-selected={category === 'portrait'} onClick={() => { if (category !== 'portrait') reportGameClick('game_market', 'category_select', null, optionFilter('portrait')); setCategory('portrait'); }}><RemixIcon name="smartphone-line" size={15} />{t('Portrait')}</Button>
           </div>
           <span className="om-game-selects">
             <span className="om-field om-game-search"><RemixIcon name="search-line" size={15} /><input value={query} placeholder={t('Search')} aria-label={t('Search games')} onChange={event => setQuery(event.target.value)} /></span>
-            <label className="om-field"><RemixIcon name="sort-desc" size={15} /><select value={sort} aria-label={t('Sort')} onChange={event => { reportGameClick('game_market', 'sort_option', null, optionFilter(event.target.value)); setSort(event.target.value as Sort); }}>
-              <option value="relevance">{t('Relevance')}</option><option value="plays">{t('Most played')}</option><option value="newest">{t('Newest')}</option></select></label>
+            {category !== 'top100' && <label className="om-field"><RemixIcon name="sort-desc" size={15} /><select value={sort} aria-label={t('Sort')} onChange={event => { reportGameClick('game_market', 'sort_option', null, optionFilter(event.target.value)); setSort(event.target.value as Sort); }}>
+              <option value="relevance">{t('Relevance')}</option><option value="plays">{t('Most played')}</option><option value="newest">{t('Newest')}</option></select></label>}
           </span>
         </div>
         {offline && <p className="om-muted om-game-note">{t('Showing the built-in games. Your games appear once the local game service is running.')}</p>}
         {rows.filter(row => row.games.length || row.id === 'all').map(row => <section key={row.id} className="om-game-row" aria-label={row.title}>
           {row.id !== 'featured' && <header><h2 className="om-subtitle"><RemixIcon name={row.icon} size={16} />{row.title}</h2></header>}
-          {row.games.length ? <GameMasonry games={row.games} minColumn={280} render={game => <GameTile key={game.id} game={game} locale={locale} onOpen={() => open(game)} />} />
+          {row.games.length ? <GameMasonry games={row.games} minColumn={280} render={game => <GameTile key={game.id} game={game} locale={locale} onOpen={() => { const top = topGameFor(game.id); if (top) { reportGameClick('game_market', 'remix_game', game); void remixTop(top); } else open(game); }} />} />
             : <div className="om-discovery-empty"><span>{t('No games match these filters.')}</span></div>}
         </section>)}
       </section>

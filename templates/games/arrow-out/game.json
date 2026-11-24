@@ -1,0 +1,27 @@
+{
+  "id": "arrow-out",
+  "title": "Arrow Out",
+  "description": "Tap arrow tiles to launch them off a crowded board. Straight and bent arrows need a clear path; bump into another and lose a heart. Five hand-built boards from warm-up to tangle.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": null,
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap an arrow to launch it along its path; hold to preview the path and release to fire. Bent arrows step one cell, then turn. A blocked arrow bounces back and costs one of three hearts.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "箭出重围",
+      "description": "点箭头把它们从拥挤的棋盘上发射出去。直箭和拐弯箭都要路线畅通，撞上别的箭会丢一颗心。五个手工设计的棋盘，从热身到大缠绕。",
+      "controls": "点箭头沿路线发射；按住可预览路线，松手发射。拐弯箭先走一格再转向。被挡住会弹回并扣掉三颗心中的一颗。"
+    }
+  },
+  "orientation": "portrait"
+}

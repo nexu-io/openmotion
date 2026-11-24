@@ -1,0 +1,27 @@
+{
+  "id": "teacup-tower",
+  "title": "Teacup Tower",
+  "description": "Pick uncovered tea-house tiles off a layered pile, match three in a seven-slot tray and clear three rising towers.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "fantasy",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap a bright, uncovered tile to move it to the tray. Three alike clear. Undo and Shuffle can each be used once per level.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "茶盏叠叠",
+      "description": "从层层叠放的茶点牌里点出没被压住的牌，托盘凑齐三个相同就消除，清空三座越来越高的茶楼。",
+      "controls": "点亮色、没被压住的牌放进托盘，三个相同自动消除；托盘 7 格装满即失败。每关可撤回、洗牌各一次。"
+    }
+  },
+  "orientation": "portrait"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "scope-spot",
+  "title": "Scope Spot",
+  "description": "Sweep a magnifying scope over a rainy neon street and tag the three disguised impostors hiding in each crowd before time runs out.",
+  "genre": "shooter",
+  "style": "minimal",
+  "setting": "cyberpunk",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Drag to move the scope and release to fire (mouse: move and click). Glowing eyes under the scope give impostors away; tagging a civilian costs a life.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "霓虹街侦测",
+      "description": "在下雨的霓虹街头移动放大镜，赶在时间结束前揪出每轮人群里的 3 个伪装者，3 轮人越来越多、破绽越来越小。",
+      "controls": "拖动瞄准镜，松手发射（鼠标移动后点击）；伪装者在镜中眼睛发光，误中路人扣 1 条命。"
+    }
+  },
+  "orientation": "portrait"
+}

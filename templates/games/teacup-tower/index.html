@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>Teacup Tower</title><style>
+/* Standalone authored game artwork; independent of Studio interface themes. */
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#1d3b3a;touch-action:none}body{display:grid;place-items:center;height:100dvh}canvas{display:block;width:min(100vw,56.25dvh);height:min(100dvh,177.7778vw);touch-action:none;user-select:none;-webkit-user-select:none}
+</style></head><body><canvas aria-label="Teacup Tower"></canvas><script>
+'use strict';
+const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d');
+const W=450,H=800,DPR=Math.min(3,Math.max(1,window.devicePixelRatio||1));
+canvas.width=W*DPR;canvas.height=H*DPR;
+const zh=navigator.language.toLowerCase().startsWith('zh'),tr=(a,b)=>zh?a:b;
+document.documentElement.lang=zh?'zh-CN':'en';
+const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const ease=t=>1-Math.pow(1-clamp(t,0,1),3);
+const TW=56,TH=62,SLOT=7,TRAY_Y=612,SLOT_W=56,TRAY_X=225-(SLOT*SLOT_W+6*4)/2;
+const BEST_KEY='teacup-tower-best';
+function loadBest(){try{return Number(localStorage.getItem(BEST_KEY))||0}catch{return 0}}
+function saveBest(v){try{localStorage.setItem(BEST_KEY,String(v))}catch{}}
+
+// ---------- drawing helpers ----------
+function rr(x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r);}
+function box(x,y,w,h,c,r=12){ctx.fillStyle=c;rr(x,y,w,h,r);ctx.fill();}
+function circle(x,y,r,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(x,y,Math.max(0,r),0,Math.PI*2);ctx.fill();}
+function ell(x,y,rx,ry,c,rot=0){ctx.fillStyle=c;ctx.beginPath();ctx.ellipse(x,y,rx,ry,rot,0,Math.PI*2);ctx.fill();}
+function text(s,x,y,size=20,color='#fff',...o){let align='center',weight=700,maxW=410;if(typeof o[0]==='string')align=o.shift();if(o.length&&o[0]!==undefined)weight=o.shift();else o.shift();if(o.length&&o[0]!==undefined)maxW=o.shift();ctx.font=`${weight} ${size}px system-ui,-apple-system,sans-serif`;while(ctx.measureText(s).width>maxW&&size>10){size-=.5;ctx.font=`${weight} ${size}px system-ui,-apple-system,sans-serif`;}ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(s,x,y);}
+function grad(x,y,w,h,a,b,r=12){const g=ctx.createLinearGradient(x,y,x,y+h);g.addColorStop(0,a);g.addColorStop(1,b);box(x,y,w,h,g,r);}
+
+// Eight tea-house icons, authored as simple vector shapes (unit ~ 20px radius).
+const TYPES=[
+ {name:'cup',c:'#d9674e'},{name:'leaf',c:'#4f9d5d'},{name:'bun',c:'#e8b48a'},{name:'lantern',c:'#d8443f'},
+ {name:'pot',c:'#3f7fb8'},{name:'blossom',c:'#e7799e'},{name:'koi',c:'#ef8a2f'},{name:'cake',c:'#c8902f'}];
+function icon(t,x,y,s){
+ ctx.save();ctx.translate(x,y);ctx.scale(s,s);ctx.lineCap='round';ctx.lineJoin='round';
+ switch(t){
+ case 0: // teacup on saucer with steam
+  ell(0,13,18,4.5,'#c7b9a5');
+  ctx.fillStyle='#d9674e';ctx.beginPath();ctx.moveTo(-14,-4);ctx.lineTo(14,-4);ctx.quadraticCurveTo(13,12,0,12);ctx.quadraticCurveTo(-13,12,-14,-4);ctx.fill();
+  ctx.strokeStyle='#d9674e';ctx.lineWidth=3.2;ctx.beginPath();ctx.arc(15,3,5,-1.4,1.4);ctx.stroke();
+  ell(0,-4,14,3.2,'#f6e3c8');ell(0,-4,10,2,'#9b6a3a');
+  ctx.strokeStyle='#ffffffaa';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-4,-9);ctx.bezierCurveTo(-8,-13,0,-15,-4,-20);ctx.moveTo(4,-9);ctx.bezierCurveTo(0,-13,8,-15,4,-20);ctx.stroke();
+  break;
+ case 1: // tea leaf
+  ctx.fillStyle='#4f9d5d';ctx.beginPath();ctx.moveTo(-15,14);ctx.bezierCurveTo(-18,-6,0,-18,16,-16);ctx.bezierCurveTo(16,2,4,16,-15,14);ctx.fill();
+  ctx.strokeStyle='#d8efc6';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-15,14);ctx.quadraticCurveTo(-2,2,14,-14);ctx.stroke();
+  ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(-6,6);ctx.lineTo(-7,-3);ctx.moveTo(1,0);ctx.lineTo(1,-8);ctx.moveTo(-6,6);ctx.lineTo(3,7);ctx.moveTo(1,0);ctx.lineTo(9,1);ctx.stroke();
+  break;
+ case 2: // steamed bun
+  ell(0,12,18,4,'#c9a37c');
+  ctx.fillStyle='#fbefe0';ctx.beginPath();ctx.moveTo(-18,11);ctx.bezierCurveTo(-18,-14,18,-14,18,11);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#e2c4a2';ctx.lineWidth=1.8;for(const a of [-9,-3,3,9]){ctx.beginPath();ctx.moveTo(0,-7);ctx.quadraticCurveTo(a*.8,0,a*1.5,9);ctx.stroke();}
+  circle(0,-7,2.8,'#e46d7a');
+  break;
+ case 3: // paper lantern
+  ctx.strokeStyle='#8a5a2b';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,-20);ctx.lineTo(0,-15);ctx.stroke();
+  box(-7,-16,14,4,'#e3b341',2);box(-7,11,14,4,'#e3b341',2);
+  ell(0,-1,15,13,'#d8443f');
+  ctx.strokeStyle='#a52c2c';ctx.lineWidth=1.4;for(const k of [-8,0,8]){ctx.beginPath();ctx.ellipse(0,-1,Math.abs(k)?Math.abs(k):1,13,0,0,Math.PI*2);ctx.stroke();}
+  ctx.strokeStyle='#e3b341';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(0,15);ctx.lineTo(0,21);ctx.moveTo(-2,21);ctx.lineTo(2,21);ctx.stroke();
+  ell(-5,-6,3,5,'#ffffff55',-.4);
+  break;
+ case 4: // teapot
+  ctx.strokeStyle='#3f7fb8';ctx.lineWidth=3.4;ctx.beginPath();ctx.arc(14,1,6,-1.3,1.3);ctx.stroke();
+  ctx.fillStyle='#3f7fb8';ctx.beginPath();ctx.moveTo(-11,0);ctx.quadraticCurveTo(-18,-4,-21,-9);ctx.lineTo(-18,-10);ctx.quadraticCurveTo(-14,-3,-9,-3);ctx.fill();
+  ell(0,4,14,11,'#3f7fb8');ell(0,-6,8,3,'#2d628f');circle(0,-10,3,'#2d628f');
+  ctx.strokeStyle='#d7e8f6';ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(-8,5);ctx.quadraticCurveTo(0,0,8,5);ctx.stroke();
+  ell(-6,0,2.5,4,'#ffffff55',-.5);
+  break;
+ case 5: // plum blossom
+  for(let i=0;i<5;i++){const a=i*Math.PI*2/5-Math.PI/2;circle(Math.cos(a)*9,Math.sin(a)*9,8,'#e7799e');}
+  for(let i=0;i<5;i++){const a=i*Math.PI*2/5-Math.PI/2;circle(Math.cos(a)*9,Math.sin(a)*9,4.4,'#f4a9c2');}
+  circle(0,0,5,'#f6d36b');for(let i=0;i<5;i++){const a=i*Math.PI*2/5;circle(Math.cos(a)*3,Math.sin(a)*3,1.1,'#b05a2e');}
+  break;
+ case 6: // koi fish
+  ctx.fillStyle='#ef8a2f';ctx.beginPath();ctx.moveTo(-16,0);ctx.bezierCurveTo(-8,-12,10,-11,14,0);ctx.bezierCurveTo(10,11,-8,12,-16,0);ctx.fill();
+  ctx.beginPath();ctx.moveTo(12,0);ctx.lineTo(21,-9);ctx.lineTo(19,0);ctx.lineTo(21,9);ctx.closePath();ctx.fill();
+  ell(-2,-3,5,4,'#fff4e6');ell(6,3,3.5,3,'#fff4e6');circle(-10,-2,1.8,'#2a1d18');
+  ctx.strokeStyle='#c96a1d';ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(-3,8);ctx.lineTo(1,13);ctx.stroke();
+  break;
+ case 7: // moon cake
+  for(let i=0;i<10;i++){const a=i*Math.PI/5;circle(Math.cos(a)*14,Math.sin(a)*14,5,'#c8902f');}
+  circle(0,0,15,'#d9a441');circle(0,0,10,'#c8902f');
+  ctx.strokeStyle='#f3d48a';ctx.lineWidth=1.8;ctx.beginPath();ctx.arc(0,0,10,0,Math.PI*2);ctx.moveTo(-5,0);ctx.lineTo(5,0);ctx.moveTo(0,-5);ctx.lineTo(0,5);ctx.stroke();
+  circle(0,0,2,'#f3d48a');
+  break;
+ }
+ ctx.restore();
+}
+function tileArt(x,y,type,{s=1,dim=0,lift=0,glow=0}={}){
+ ctx.save();ctx.translate(x,y-lift);ctx.scale(s,s);
+ box(-TW/2+1,-TH/2+5,TW-2,TH,'#7b5a3c',11); // thickness
+ grad(-TW/2,-TH/2,TW,TH-3,'#fffaf0','#f1e2c8',11);
+ ctx.strokeStyle='#c9ae86';ctx.lineWidth=1.5;rr(-TW/2+.75,-TH/2+.75,TW-1.5,TH-4.5,10.5);ctx.stroke();
+ ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(-TW/2+10,-TH/2+3.5);ctx.lineTo(TW/2-10,-TH/2+3.5);ctx.stroke();
+ icon(type,0,-2,1);
+ if(glow){ctx.globalAlpha=glow;ctx.strokeStyle='#ffe28a';ctx.lineWidth=4;rr(-TW/2-2,-TH/2-2,TW+4,TH+4,13);ctx.stroke();ctx.globalAlpha=1;}
+ if(dim){ctx.globalAlpha=dim;box(-TW/2,-TH/2,TW,TH+5,'#2b3a36',11);ctx.globalAlpha=1;}
+ ctx.restore();
+}
+
+// ---------- audio ----------
+let audio=null,muted=false;
+function unlock(){if(!audio){const A=window.AudioContext||window.webkitAudioContext;if(A)try{audio=new A()}catch{}}if(audio&&audio.state==='suspended')audio.resume().catch(()=>{});}
+function tone(f=440,d=.14,type='triangle',v=.07){if(muted||!audio)return;const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*.7,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d+.02);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+d+.03);}
+function chime(base=660){[0,.07,.14].forEach((dt,i)=>setTimeout(()=>tone(base*[1,1.25,1.5][i],.18,'sine',.06),dt*1000));}
+
+// ---------- level generation (guaranteed solvable) ----------
+const LEVELS=[
+ {types:4,layers:[[5,3],[4,2]],mix:1},
+ {types:6,layers:[[6,4],[5,3],[4,2]],mix:2},
+ {types:8,layers:[[7,5],[6,4],[5,3],[4,2]],mix:3}];
+const BOARD_CY=318;
+function overlaps(a,b){return Math.abs(a.x-b.x)<TW-4&&Math.abs(a.y-b.y)<TH-4;}
+function coveredBy(t,list){for(const u of list)if(u!==t&&u.layer>t.layer&&u.state==='board'&&overlaps(t,u))return true;return false;}
+function shuffleArr(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function generate(li){
+ const cfg=LEVELS[li];let list=[],id=0;
+ cfg.layers.forEach(([c,r],l)=>{for(let j=0;j<r;j++)for(let i=0;i<c;i++)list.push({id:0,x:225+(i-(c-1)/2)*TW,y:BOARD_CY+(j-(r-1)/2)*TH,layer:l,type:0,state:'board'});});
+ // drop random top-layer tiles until the total is a multiple of three
+ while(list.length%3){const top=Math.max(...list.map(t=>t.layer));const cands=list.filter(t=>t.layer===top);list.splice(list.indexOf(cands[Math.floor(Math.random()*cands.length)]),1);}
+ list.forEach(t=>t.id=id++);
+ // simulate a removal order taking only uncovered tiles
+ const order=[],work=list.map(t=>({...t}));
+ while(order.length<work.length){const free=work.filter(t=>t.state==='board'&&!coveredBy(t,work));const pick=free[Math.floor(Math.random()*free.length)];pick.state='gone';order.push(pick.id);}
+ // assign types along that order: groups of `mix` triples are interleaved, so tray never needs more than 3*mix slots
+ const triples=order.length/3,ttypes=shuffleArr(Array.from({length:triples},(_,i)=>i%cfg.types));
+ let k=0;
+ for(let g=0;g<triples;g+=cfg.mix){const group=ttypes.slice(g,g+cfg.mix);const seq=shuffleArr(group.flatMap(t=>[t,t,t]));for(const t of seq)list[order[k++]].type=t;}
+ return{tiles:list,order};
+}
+
+// ---------- state ----------
+let phase='ready',level=0,tiles=[],solution=[],tray=[],score=0,levelStartScore=0,best=loadBest();
+let undoLeft=1,shuffleLeft=1,combo=0,lastClear=-9,elapsed=0,artTime=0,last=0,shake=0;
+let particles=[],floats=[],rings=[],banner=null,transition=0,pendingLose=0,history=[],wobble=null;
+function setupLevel(){const g=generate(level);tiles=g.tiles;solution=g.order;tray=[];history=[];undoLeft=1;shuffleLeft=1;combo=0;pendingLose=0;transition=0;levelStartScore=score;
+ tiles.forEach((t,i)=>{t.ax=t.x;t.ay=t.y-260-t.layer*30;t.appear=-(i%9)*.03-t.layer*.12;});
+ banner={s:tr(`第 ${level+1} 关`,`LEVEL ${level+1}`),life:1.4};}
+function start(){if(phase!=='ready')return;phase='playing';elapsed=0;tone(520,.12);}
+function restart(){phase='ready';level=0;score=0;particles=[];floats=[];rings=[];setupLevel();}
+function retryLevel(){phase='playing';score=levelStartScore;particles=[];floats=[];setupLevel();}
+function finish(won){if(phase!=='playing')return;phase=won?'won':'lost';if(score>best){best=score;saveBest(best);}won?chime(784):(tone(220,.3,'sawtooth',.05),setTimeout(()=>tone(150,.4,'sawtooth',.05),180));}
+
+function slotPos(i){return{x:TRAY_X+SLOT_W/2+i*(SLOT_W+4),y:TRAY_Y};}
+function isFree(t){return t.state==='board'&&!coveredBy(t,tiles);}
+function topTileAt(p){let hit=null;for(const t of tiles)if(t.state==='board'&&Math.abs(p.x-t.x)<TW/2&&Math.abs(p.y-t.y)<TH/2&&(!hit||t.layer>hit.layer))hit=t;return hit;}
+function liveTray(){return tray.filter(e=>!e.clearing);}
+function pick(t){
+ if(!t||!isFree(t)){if(t){wobble={t,life:.3};tone(180,.08,'square',.03);}return false;}
+ if(liveTray().length>=SLOT||transition)return false;
+ t.state='tray';
+ let idx=tray.length;for(let i=tray.length-1;i>=0;i--)if(tray[i].type===t.type&&!tray[i].clearing){idx=i+1;break;}
+ const e={tile:t,type:t.type,x:t.x,y:t.y,s:1,fly:0,clearing:0};tray.splice(idx,0,e);history.push(e);
+ tone(440+t.type*40,.1);
+ const same=tray.filter(q=>q.type===t.type&&!q.clearing);
+ if(same.length>=3){same.slice(0,3).forEach(q=>q.clearing=.32);}
+ else if(liveTray().length>=SLOT)pendingLose=.55;
+ return true;
+}
+function doUndo(){if(!undoLeft||transition)return;const e=[...history].reverse().find(q=>tray.includes(q)&&!q.clearing);if(!e)return;undoLeft--;tray.splice(tray.indexOf(e),1);history.splice(history.indexOf(e),1);e.tile.state='board';e.tile.ax=e.x;e.tile.ay=e.y;e.tile.appear=0;pendingLose=0;tone(330,.12);floats.push({x:135,y:676,s:tr('撤回','UNDO'),life:.8});}
+function doShuffle(){if(!shuffleLeft||transition)return;const left=tiles.filter(t=>t.state==='board');if(left.length<2)return;shuffleLeft--;const types=shuffleArr(left.map(t=>t.type));left.forEach((t,i)=>{t.type=types[i];t.spin=.45;});tone(600,.1);setTimeout(()=>tone(760,.1),80);shake=4;}
+
+function update(dt){
+ for(const t of tiles){if(t.appear<1)t.appear+=dt*2.6;if(t.spin>0)t.spin-=dt;}
+ if(wobble){wobble.life-=dt;if(wobble.life<=0)wobble=null;}
+ // tray tweening
+ const placed=tray.filter(e=>true);
+ placed.forEach((e,i)=>{const p=slotPos(i);e.fly=Math.min(1,e.fly+dt*4.2);const k=1-Math.pow(.0005,dt);e.x+=(p.x-e.x)*Math.max(k,ease(e.fly)*.5);e.y+=(p.y-e.y)*Math.max(k,ease(e.fly)*.5);e.s+=(.9-e.s)*k;});
+ let cleared=false;
+ for(const e of tray)if(e.clearing){if(e.fly<.9)continue;e.clearing-=dt;if(e.clearing<=0){e.dead=true;cleared=true;}}
+ if(cleared){const dead=tray.filter(e=>e.dead);const cx=dead.reduce((a,e)=>a+e.x,0)/dead.length;
+  for(const e of dead)for(let i=0;i<14;i++)particles.push({x:e.x,y:e.y,vx:rand(-200,200),vy:rand(-320,-60),life:rand(.5,.9),c:TYPES[e.type].c,r:rand(3,6)});
+  rings.push({x:cx,y:TRAY_Y,life:.35});
+  combo=elapsed-lastClear<4?Math.min(combo+1,5):1;lastClear=elapsed;const gain=100*combo;score+=gain;
+  floats.push({x:cx,y:TRAY_Y-46,s:(combo>1?`x${combo} `:'')+`+${gain}`,life:1});
+  chime(520+Math.min(combo,5)*60);shake=6;
+  tray=tray.filter(e=>!e.dead);pendingLose=liveTray().length>=SLOT?.55:0;}
+ if(pendingLose>0){pendingLose-=dt;if(pendingLose<=0&&liveTray().length>=SLOT&&!tray.some(e=>e.clearing))finish(false);}
+ if(!transition&&tiles.every(t=>t.state!=='board')&&tray.length===0){
+  const bonus=300*(level+1)+100*(undoLeft+shuffleLeft);score+=bonus;floats.push({x:225,y:330,s:tr('清台 +','TOWER CLEAR +')+bonus,life:1.4});
+  for(let i=0;i<90;i++)particles.push({x:225,y:300,vx:rand(-260,260),vy:rand(-380,-80),life:rand(.8,1.5),c:TYPES[i%8].c,r:rand(3,6)});
+  if(level>=LEVELS.length-1){transition=-1;setTimeout(()=>finish(true),700);}else{transition=1.6;chime(660);}}
+ if(transition>0){transition-=dt;if(transition<=0){transition=0;level++;setupLevel();}}
+}
+
+// ---------- render ----------
+function drawBackground(){
+ const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#2f5d57');g.addColorStop(.55,'#24484a');g.addColorStop(1,'#16302f');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // soft paper-lantern bokeh and lattice window motif
+ ctx.save();ctx.globalAlpha=.07;ctx.strokeStyle='#f6e7c8';ctx.lineWidth=2;for(let i=-1;i<8;i++){ctx.beginPath();ctx.moveTo(i*70,96);ctx.lineTo(i*70+140,560);ctx.moveTo(i*70+140,96);ctx.lineTo(i*70,560);ctx.stroke();}ctx.restore();
+ for(let i=0;i<6;i++){const x=40+i*75,y=110+Math.sin(artTime*.8+i)*6;ctx.save();ctx.globalAlpha=.10;circle(x,y,22+i%3*6,'#ffcf7a');ctx.restore();}
+ // table top
+ grad(0,560,W,240,'#6b4529','#3d2615',0);ctx.save();ctx.globalAlpha=.18;ctx.strokeStyle='#2a170b';ctx.lineWidth=1.5;for(let i=0;i<9;i++){ctx.beginPath();ctx.moveTo(0,580+i*26);ctx.bezierCurveTo(140,572+i*26,300,590+i*26,450,578+i*26);ctx.stroke();}ctx.restore();
+}
+function drawHeader(){
+ text(tr('茶盏叠叠','TEACUP TOWER'),22,34,25,'#fff4dc','left',800,240);
+ text(tr('三个相同即可消除','Match three to clear'),22,62,14,'#b9d6cd','left',600,240);
+ box(392,14,44,42,'#1b3634',12);text(muted?'♪×':'♪',414,35,22,'#fff4dc');
+ const pills=[[tr('关卡','LEVEL'),`${level+1}/3`],[tr('得分','SCORE'),String(score)],[tr('最佳','BEST'),String(best)]];
+ pills.forEach(([a,b],i)=>{const x=24+i*140;box(x,78,124,34,'#1b3634aa',12);text(a,x+12,95,12,'#9cc3b8','left',700,60);text(b,x+112,95,17,'#ffe3a1','right',800,70);});
+}
+function drawBoard(){
+ const order=[...tiles].filter(t=>t.state==='board').sort((a,b)=>a.layer-b.layer||a.y-b.y);
+ for(const t of order){const a=ease(t.appear);if(t.appear<=0)continue;let x=t.ax+(t.x-t.ax)*a,y=t.ay+(t.y-t.ay)*a;if(wobble&&wobble.t===t)x+=Math.sin(wobble.life*60)*4;
+  const free=!coveredBy(t,tiles);const sc=t.spin>0?1-Math.sin(t.spin/.45*Math.PI)*.25:1;
+  ctx.save();ctx.globalAlpha=clamp(t.appear*2,0,1);tileArt(x,y,t.type,{s:sc,dim:free?0:.42,glow:free&&phase==='playing'?.18+.12*Math.sin(artTime*3+t.id):0});ctx.restore();}
+}
+function drawTray(){
+ box(TRAY_X-12,TRAY_Y-46,SLOT*SLOT_W+24+24,92,'#2a1a0e',20);grad(TRAY_X-8,TRAY_Y-42,SLOT*SLOT_W+16+24,84,'#9a6a3f','#6d4526',17);
+ for(let i=0;i<SLOT;i++){const p=slotPos(i);box(p.x-SLOT_W/2+2,p.y-30,SLOT_W-4,62,'#00000033',10);}
+ const n=liveTray().length;if(n>=5){ctx.save();ctx.globalAlpha=.35+.25*Math.sin(artTime*10);ctx.strokeStyle='#ff6b5b';ctx.lineWidth=4;rr(TRAY_X-10,TRAY_Y-44,SLOT*SLOT_W+44,88,18);ctx.stroke();ctx.restore();}
+ for(const e of tray){const pop=e.clearing&&e.fly>=.9?1+(.32-e.clearing)*1.2:1;tileArt(e.x,e.y,e.type,{s:e.s*pop,glow:e.clearing?.9:0});}
+ text(`${n} / ${SLOT}`,225,TRAY_Y+58,13,n>=5?'#ffb3a8':'#e9d2b4');
+}
+function button(x,y,w,h,label,count,on){ctx.save();ctx.globalAlpha=on?1:.45;box(x,y+4,w,h,'#2a1a0e',16);grad(x,y,w,h,on?'#ffe0a3':'#cbb999',on?'#f0b85c':'#a79676',16);text(label,x+w/2-12,y+h/2,18,'#4a2b12');circle(x+w-24,y+h/2,13,'#4a2b12');text(String(count),x+w-24,y+h/2+1,15,'#ffe0a3');ctx.restore();}
+function drawControls(){button(52,688,160,52,tr('↶ 撤回','↶ Undo'),undoLeft,undoLeft>0&&phase==='playing');button(238,688,160,52,tr('⟳ 洗牌','⟳ Shuffle'),shuffleLeft,shuffleLeft>0&&phase==='playing');
+ text(tr('只有没被压住的亮色牌可以点','Only bright, uncovered tiles can be tapped'),225,766,14,'#e9d2b4');}
+function overlay(){
+ if(phase==='ready'){ctx.save();ctx.globalAlpha=.55;ctx.fillStyle='#0d1f1e';ctx.fillRect(0,0,W,H);ctx.restore();
+  box(30,170,390,400,'#fff6e6',28);box(30,170,390,10,'#d9674e',28);
+  icon(0,165,250,1.6);icon(3,225,240,1.7);icon(5,285,250,1.6);
+  text(tr('茶盏叠叠','Teacup Tower'),225,315,36,'#3b2414',800);
+  text(tr('点开最上层的茶点，三个相同就消除','Tap uncovered tiles. Three alike clear.'),225,360,16,'#6b4a33',600,350);
+  text(tr('托盘只有 7 格 —— 装满就输','The tray holds 7 — fill it and you lose'),225,388,16,'#6b4a33',600,350);
+  text(tr('3 关 · 每关 1 次撤回 + 1 次洗牌','3 levels · 1 Undo + 1 Shuffle each'),225,416,14,'#9b7b5f',600,350);
+  grad(95,462,260,64,'#e47b5f','#c4523c',20);text(tr('开始','START'),225,494,26,'#fff6e6',800);
+  if(best)text(tr('最佳 ','BEST ')+best,225,548,14,'#9b7b5f');}
+ if(phase==='won'||phase==='lost'){ctx.save();ctx.globalAlpha=.6;ctx.fillStyle='#0d1f1e';ctx.fillRect(0,0,W,H);ctx.restore();
+  box(30,220,390,340,'#fff6e6',28);
+  text(phase==='won'?tr('茶楼全清！','TOWER CLEARED!'):tr('托盘满了','TRAY FULL'),225,280,32,phase==='won'?'#3f7f4a':'#c4523c',800);
+  text(phase==='won'?tr('三关全部通过','All three levels complete'):tr(`停在第 ${level+1} 关`,`Stopped on level ${level+1}`),225,322,17,'#6b4a33',600);
+  text(tr('得分 ','SCORE ')+score,225,370,26,'#3b2414',800);text(tr('最佳 ','BEST ')+best,225,404,16,'#9b7b5f');
+  grad(95,446,260,62,'#e47b5f','#c4523c',20);text(phase==='won'?tr('再来一局 ↻','PLAY AGAIN ↻'):tr('重试本关 ↻','RETRY LEVEL ↻'),225,477,22,'#fff6e6',800);
+  if(phase==='lost'){text(tr('从第 1 关重来','Restart from level 1'),225,532,15,'#9b7b5f',700);}}
+}
+function frame(ts){const dt=last?Math.min((ts-last)/1000,.04):0;last=ts;artTime+=dt;if(phase==='playing'){elapsed+=dt;update(dt);}else if(phase==='ready'){for(const t of tiles)if(t.appear<1)t.appear+=dt*2.6;}
+ ctx.setTransform(DPR,0,0,DPR,0,0);ctx.clearRect(0,0,W,H);ctx.save();if(shake>0){ctx.translate(rand(-shake,shake),rand(-shake,shake));shake=Math.max(0,shake-dt*30);}
+ drawBackground();drawHeader();drawBoard();drawTray();drawControls();
+ for(const r of rings){r.life-=dt;ctx.save();ctx.globalAlpha=Math.max(0,r.life/.35);ctx.strokeStyle='#ffe28a';ctx.lineWidth=5;ctx.beginPath();ctx.arc(r.x,r.y,20+(1-r.life/.35)*70,0,Math.PI*2);ctx.stroke();ctx.restore();}rings=rings.filter(r=>r.life>0);
+ for(const p of particles){p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=520*dt;circle(p.x,p.y,p.r*Math.max(0,p.life),p.c);}particles=particles.filter(p=>p.life>0);
+ for(const f of floats){f.life-=dt;f.y-=dt*50;ctx.save();ctx.globalAlpha=clamp(f.life*2,0,1);ctx.shadowColor='#1a0f08';ctx.shadowBlur=6;text(f.s,clamp(f.x,90,360),f.y,24,'#ffe28a',800);ctx.restore();}floats=floats.filter(f=>f.life>0);
+ if(banner&&phase==='playing'){banner.life-=dt;const a=clamp(Math.min(banner.life,1.4-banner.life)*4,0,1);ctx.save();ctx.globalAlpha=a;box(105,300,240,64,'#1b3634e6',20);text(banner.s,225,332,28,'#ffe3a1',800);ctx.restore();if(banner.life<=0)banner=null;}
+ ctx.restore();overlay();requestAnimationFrame(frame);}
+
+// ---------- input ----------
+function pos(e){const b=canvas.getBoundingClientRect();return{x:(e.clientX-b.left)*W/b.width,y:(e.clientY-b.top)*H/b.height};}
+const inside=(p,x,y,w,h)=>p.x>=x&&p.x<=x+w&&p.y>=y&&p.y<=y+h;
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();unlock();const p=pos(e);
+ if(inside(p,388,10,52,50)){muted=!muted;return;}
+ if(phase==='ready'){if(inside(p,95,462,260,64))start();return;}
+ if(phase==='won'){if(inside(p,95,446,260,62)){restart();start();}return;}
+ if(phase==='lost'){if(inside(p,95,446,260,62))retryLevel();else if(inside(p,95,515,260,34)){restart();start();}return;}
+ if(inside(p,52,688,160,52)){doUndo();return;}
+ if(inside(p,238,688,160,52)){doShuffle();return;}
+ if(p.y<560)pick(topTileAt(p));
+});
+window.addEventListener('blur',()=>{last=0;});document.addEventListener('visibilitychange',()=>{last=0;});
+
+// Test hook: read-only state plus the generator's known solution order.
+window.__omGame={
+ state:()=>({phase,level:level+1,score,best,tray:tray.map(e=>e.type),boardLeft:tiles.filter(t=>t.state==='board').length,undoLeft,shuffleLeft,transition}),
+ start,restart,
+ nextSolutionPoint(){const id=solution.find(i=>tiles[i].state==='board');if(id===undefined)return null;const t=tiles[id];return{x:t.x,y:t.y,free:isFree(t)};},
+ freeTiles:()=>tiles.filter(isFree).map(t=>({x:t.x,y:t.y,type:t.type})),
+ toClient(x,y){const b=canvas.getBoundingClientRect();return{x:b.left+x*b.width/W,y:b.top+y*b.height/H};}
+};
+restart();requestAnimationFrame(frame);
+</script></body></html>

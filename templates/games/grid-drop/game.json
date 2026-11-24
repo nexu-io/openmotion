@@ -1,0 +1,27 @@
+{
+  "id": "grid-drop",
+  "title": "Grid Drop",
+  "description": "Drag three block pieces at a time onto an 8x8 board, clear full rows and columns, chain combos and race to 1000 points.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Drag a piece from the tray onto the board. Fill a row or column to clear it; back-to-back clears build a combo. The run ends when no piece fits.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "方格落块",
+      "description": "每次给三块方块，拖到 8×8 棋盘上，填满整行或整列即消除，连续消除叠连击，冲到 1000 分获胜。",
+      "controls": "从下方拖动方块放到棋盘上，填满整行或整列即可消除，连续消除有连击加成；三块都放不下时游戏结束。"
+    }
+  },
+  "orientation": "portrait"
+}

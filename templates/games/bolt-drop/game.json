@@ -1,0 +1,27 @@
+{
+  "id": "bolt-drop",
+  "title": "Bolt Drop",
+  "description": "Unscrew colored bolts from stacked wooden planks into matching boxes, keep the 5-slot tray clear and drop every plank across five boards.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap an uncovered screw to unscrew it. It flies to the open box of its color, otherwise to the tray. Three screws fill a box; five in the tray jams the board.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "螺丝落盒",
+      "description": "把叠在一起的木板上的彩色螺丝拧进同色盒子，别让 5 格托盘塞满，五块木板逐关变难。",
+      "controls": "点没被挡住的螺丝把它拧下：有同色盒子就飞进盒子，否则进托盘。3 颗装满一盒，托盘满 5 颗就失败。"
+    }
+  },
+  "orientation": "portrait"
+}

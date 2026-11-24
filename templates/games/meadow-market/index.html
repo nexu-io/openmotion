@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><title>Meadow Market</title><style>
+/* Standalone authored game artwork; all visuals are drawn on canvas. */
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#20362a;touch-action:none}body{display:grid;place-items:center;height:100dvh}canvas{display:block;width:min(100vw,56.25dvh);height:min(100dvh,177.7778vw);touch-action:none;user-select:none;-webkit-user-select:none}
+</style></head><body><canvas width="450" height="800" aria-label="Meadow Market"></canvas><script>
+'use strict';
+const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d');
+const W=450,H=800,zh=navigator.language.toLowerCase().startsWith('zh'),tr=(a,b)=>zh?a:b;
+document.documentElement.lang=zh?'zh-CN':'en';
+const TARGET=5000,LIMIT=180,BEST_KEY='meadow-market-best';
+const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),TAU=Math.PI*2;
+const fmt=n=>Math.floor(n).toLocaleString('en-US');
+
+// ---------- crops ----------
+const CROPS=[
+ {key:'radish',name:tr('小萝卜','Radish'),seed:2,price:7,grow:3,color:'#f0607c',leaf:'#5fbf5a'},
+ {key:'corn',name:tr('甜玉米','Corn'),seed:6,price:18,grow:7,color:'#f6c945',leaf:'#79c35a'},
+ {key:'pumpkin',name:tr('南瓜','Pumpkin'),seed:14,price:40,grow:12,color:'#f28b35',leaf:'#4fa65a'},
+ {key:'melon',name:tr('星纹瓜','Star Melon'),seed:30,price:85,grow:20,color:'#7ed0a0',leaf:'#3f9654'}];
+const PLOT_COST=[0,0,0,0,25,45,70,100,140,190,250,320];
+const FERT_COST=[70,180,420],FERT_MUL=[1,.8,.65,.52];
+const HELPER_COST=160,TRUCK_COST=110;
+
+// ---------- state ----------
+let phase='ready',coins=0,earned=0,elapsed=0,last=0,muted=false,audio=null,shake=0,artTime=0;
+let plots=[],basket=[0,0,0,0],selected=0,fert=0,helper=false,helperT=0,helperArm=null,truck=null,orderSeq=0;
+let particles=[],floats=[],flyers=[],rings=[],pops=[],sellAnim=0,best=readBest(),newBest=false,timeScale=1,toast=null;
+function readBest(){try{return JSON.parse(localStorage.getItem(BEST_KEY)||'null')||{earned:0,time:0}}catch{return{earned:0,time:0}}}
+function saveBest(){try{localStorage.setItem(BEST_KEY,JSON.stringify(best))}catch{}}
+function reset(){coins=20;earned=0;elapsed=0;basket=[0,0,0,0];selected=0;fert=0;helper=false;helperT=0;helperArm=null;truck=null;orderSeq=0;
+ particles=[];floats=[];flyers=[];rings=[];pops=[];sellAnim=0;shake=0;newBest=false;toast=null;
+ plots=[];for(let i=0;i<12;i++)plots.push({i,unlocked:i<4,crop:-1,t:0,ripe:false,bounce:0});}
+
+// ---------- geometry ----------
+function plotRect(i){const c=i%3,r=Math.floor(i/3);return{x:22+c*138,y:164+r*90,w:130,h:82};}
+const BASKET={x:16,y:534,w:128,h:100},STALL={x:152,y:526,w:146,h:108},TRUCKR={x:306,y:534,w:128,h:100};
+const UPG=[{k:'plot',x:16},{k:'fert',x:122},{k:'helper',x:228},{k:'truck',x:334}].map(u=>({...u,y:646,w:100,h:84}));
+const MUTE={x:392,y:14,w:44,h:40};
+const inR=(p,r)=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
+
+// ---------- drawing helpers ----------
+function box(x,y,w,h,c,r=12){ctx.fillStyle=c;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+function circle(x,y,r,c){ctx.fillStyle=c;ctx.beginPath();ctx.arc(x,y,Math.max(0,r),0,TAU);ctx.fill();}
+function grad(x,y,w,h,a,b,r=12){const g=ctx.createLinearGradient(x,y,x,y+h);g.addColorStop(0,a);g.addColorStop(1,b);box(x,y,w,h,g,r);}
+function text(s,x,y,size=18,color='#fff',align='center',weight=800,maxW=420){ctx.font=`${weight} ${size}px system-ui,-apple-system,sans-serif`;while(ctx.measureText(s).width>maxW&&size>9){size-=.5;ctx.font=`${weight} ${size}px system-ui,-apple-system,sans-serif`;}ctx.fillStyle=color;ctx.textAlign=align;ctx.textBaseline='middle';ctx.fillText(s,x,y);}
+function coinIcon(x,y,r=9){circle(x,y+1.5,r,'#b97a18');circle(x,y,r,'#ffd34d');circle(x-r*.25,y-r*.25,r*.45,'#fff2a8');}
+
+function drawCrop(k,x,y,s,stage=1){ // stage 0..1 growth
+ const c=CROPS[k];ctx.save();ctx.translate(x,y);ctx.scale(s,s);
+ if(stage<.35){const g=stage/.35;ctx.strokeStyle=c.leaf;ctx.lineWidth=3;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(0,8);ctx.lineTo(0,8-10*g);ctx.stroke();circle(-4*g,-2*g,4*g+1,c.leaf);circle(4*g,-4*g,4*g+1,c.leaf);ctx.restore();return;}
+ const g=Math.min(1,(stage-.35)/.65),sz=.45+.55*g;
+ if(k===0){circle(0,6,11*sz,c.color);circle(-3*sz,3,4*sz,'#ffb3c1');ctx.fillStyle=c.leaf;for(const a of[-.5,0,.5]){ctx.save();ctx.rotate(a);box(-3,-22*sz,6,18*sz,c.leaf,3);ctx.restore();}}
+ else if(k===1){box(-3,-18*sz,6,30*sz,'#6aa845',3);ctx.save();ctx.rotate(-.18);box(-8*sz,-16*sz,16*sz,28*sz,c.color,8*sz);for(let j=0;j<3;j++)line(-4*sz,-10*sz+j*8*sz,4*sz,-10*sz+j*8*sz,'#e7a91f',2);ctx.restore();ctx.fillStyle=c.leaf;ctx.beginPath();ctx.ellipse(-9*sz,4,5*sz,12*sz,.5,0,TAU);ctx.fill();ctx.beginPath();ctx.ellipse(9*sz,4,5*sz,12*sz,-.5,0,TAU);ctx.fill();}
+ else if(k===2){box(-2,-18*sz,5,9*sz,'#5c7b2c',2);for(const o of[-8,0,8]){ctx.fillStyle=o?'#e4782a':c.color;ctx.beginPath();ctx.ellipse(o*sz,2,9*sz,13*sz,0,0,TAU);ctx.fill();}circle(-5*sz,-3,3*sz,'#ffc286');}
+ else{ctx.fillStyle=c.color;ctx.beginPath();ctx.ellipse(0,2,16*sz,12*sz,0,0,TAU);ctx.fill();ctx.strokeStyle='#3d9a62';ctx.lineWidth=2.4;for(const o of[-9,0,9]){ctx.beginPath();ctx.ellipse(o*sz,2,3*sz,11*sz,0,0,TAU);ctx.stroke();}star(6*sz,-4*sz,4*sz,'#fff7c2');}
+ ctx.restore();}
+function line(x,y,a,b,c,w=3){ctx.strokeStyle=c;ctx.lineWidth=w;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(a,b);ctx.stroke();}
+function star(x,y,r,c){ctx.fillStyle=c;ctx.beginPath();for(let i=0;i<10;i++){const a=i*Math.PI/5-Math.PI/2,rr=i%2?r*.45:r;ctx.lineTo(x+Math.cos(a)*rr,y+Math.sin(a)*rr);}ctx.closePath();ctx.fill();}
+function ring(x,y,r,p,c){ctx.lineWidth=5;ctx.strokeStyle='rgba(40,30,20,.35)';ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.stroke();ctx.strokeStyle=c;ctx.beginPath();ctx.arc(x,y,r,-Math.PI/2,-Math.PI/2+TAU*p);ctx.stroke();}
+
+// ---------- audio ----------
+function unlock(){if(!audio){const A=window.AudioContext||window.webkitAudioContext;if(A)try{audio=new A()}catch{}}if(audio&&audio.state==='suspended')audio.resume().catch(()=>{});}
+function tone(f=440,d=.12,type='triangle',v=.06){if(muted||!audio)return;const t=audio.currentTime,o=audio.createOscillator(),g=audio.createGain();o.type=type;o.frequency.setValueAtTime(f,t);o.frequency.exponentialRampToValueAtTime(f*1.25,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d+.04);o.connect(g);g.connect(audio.destination);o.start(t);o.stop(t+d+.05);}
+function chime(){tone(660,.08);setTimeout(()=>tone(880,.1),70);setTimeout(()=>tone(1175,.14),140);}
+
+// ---------- fx ----------
+function burst(x,y,color,n=16){for(let i=0;i<n;i++)particles.push({x,y,vx:rand(-150,150),vy:rand(-220,-40),life:rand(.5,.9),r:rand(2,5),color});rings.push({x,y,life:.3});}
+function float(x,y,s,color='#fff3b0'){floats.push({x,y,s,color,life:1});}
+function say(s){toast={s,life:1.6};}
+function flyCoins(x,y,n){for(let i=0;i<Math.min(n,12);i++)flyers.push({x:x+rand(-14,14),y:y+rand(-10,10),t:-i*.04});}
+
+// ---------- logic ----------
+function growTime(k){return CROPS[k].grow*FERT_MUL[fert];}
+function earn(v,x,y){coins+=v;earned+=v;flyCoins(x,y,Math.ceil(v/15));if(earned>=TARGET)finish(true);}
+function plant(p,k){const c=CROPS[k];if(coins<c.seed){say(tr('金币不够买种子','Not enough coins for seeds'));tone(180,.1,'square',.03);return false;}coins-=c.seed;p.crop=k;p.t=0;p.ripe=false;p.bounce=1;const r=plotRect(p.i);burst(r.x+r.w/2,r.y+r.h/2+10,'#8a5a32',10);tone(330+k*60,.08);return true;}
+function harvest(p){const r=plotRect(p.i),k=p.crop;basket[k]++;p.crop=-1;p.ripe=false;p.t=0;p.bounce=1;burst(r.x+r.w/2,r.y+r.h/2,CROPS[k].color,18);pops.push({k,x:r.x+r.w/2,y:r.y+r.h/2,t:0});float(r.x+r.w/2,r.y+16,'+1 '+CROPS[k].name);tone(520+k*80,.1);}
+function basketValue(){return basket.reduce((s,n,k)=>s+n*CROPS[k].price,0);}
+function sell(){const v=basketValue();if(!v){say(tr('篮子是空的，先去收菜','Basket is empty — harvest first'));tone(180,.1,'square',.03);return;}basket=[0,0,0,0];sellAnim=1;earn(v,STALL.x+STALL.w/2,STALL.y+30);float(STALL.x+STALL.w/2,STALL.y-6,'+'+fmt(v),'#ffe066');burst(STALL.x+STALL.w/2,STALL.y+40,'#ffd34d',24);chime();shake=4;}
+function newOrder(){orderSeq++;const tier=Math.min(3,1+Math.floor(elapsed/45));const items=[0,0,0,0];const kinds=Math.min(2,1+(orderSeq%2));for(let j=0;j<kinds;j++){const k=Math.floor(rand(0,tier+1))%4;items[k]+=Math.round(rand(2,4));}
+ const base=items.reduce((s,n,k)=>s+n*CROPS[k].price,0);return{items,reward:Math.round(base*1.6+30)};}
+function canFill(o){return o.items.every((n,k)=>basket[k]>=n);}
+function deliver(){if(!truck)return;if(truck.away>0){say(tr('货车送货中…','Truck is out on delivery…'));return;}
+ if(!canFill(truck.order)){truck.wiggle=1;say(tr('篮子里的货不够这张订单','Basket can\'t fill this order yet'));tone(180,.1,'square',.03);return;}
+ truck.order.items.forEach((n,k)=>basket[k]-=n);truck.away=7;truck.pay=truck.order.reward;burst(TRUCKR.x+64,TRUCKR.y+60,'#9ad7ff',16);tone(440,.1,'sawtooth',.03);say(tr('出发！回来结算奖金','Off it goes! Bonus paid on return'));}
+const buyCost={plot:()=>{const n=plots.findIndex(p=>!p.unlocked);return n<0?null:PLOT_COST[n];},fert:()=>fert<3?FERT_COST[fert]:null,helper:()=>helper?null:HELPER_COST,truck:()=>truck?null:TRUCK_COST};
+function buy(k){const cost=buyCost[k]();if(cost==null)return false;if(coins<cost){say(tr('还差 ','Need ')+fmt(cost-coins)+tr(' 金币',' more coins'));tone(180,.1,'square',.03);return false;}coins-=cost;
+ const u=UPG.find(u=>u.k===k);burst(u.x+u.w/2,u.y+u.h/2,'#ffe066',20);chime();
+ if(k==='plot'){const p=plots.find(p=>!p.unlocked);p.unlocked=true;p.bounce=1;const r=plotRect(p.i);burst(r.x+r.w/2,r.y+r.h/2,'#c6f08a',22);say(tr('新地块开垦！','New plot cleared!'));}
+ if(k==='fert'){fert++;say(tr('肥料升级：生长更快','Fertilizer up: faster growth'));}
+ if(k==='helper'){helper=true;say(tr('小帮手上岗：自动收菜并补种','Helper hired: auto-harvest & replant'));}
+ if(k==='truck'){truck={order:newOrder(),away:0,pay:0,wiggle:0,x:0};say(tr('货车到了：点它完成订单','Truck ready: tap it to fill orders'));}
+ return true;}
+function finish(won){if(phase!=='playing')return;phase=won?'won':'lost';
+ if(won){if(!best.time||elapsed<best.time){best.time=elapsed;newBest=true;}}
+ if(earned>best.earned){best.earned=earned;if(!won)newBest=true;}saveBest();
+ if(won){chime();setTimeout(chime,260);for(let i=0;i<5;i++)setTimeout(()=>burst(rand(60,390),rand(200,500),['#ffd34d','#f0607c','#7ed0a0','#9ad7ff'][i%4],30),i*120);}else tone(150,.4,'sawtooth',.05);}
+function update(dt){elapsed+=dt;
+ for(const p of plots){p.bounce=Math.max(0,p.bounce-dt*3);if(p.crop>=0&&!p.ripe){p.t+=dt;if(p.t>=growTime(p.crop)){p.ripe=true;p.bounce=1;}}}
+ if(helper){helperT-=dt;if(helperT<=0){helperT=.55;const p=plots.find(p=>p.ripe);if(p){const k=p.crop;helperArm={i:p.i,life:.4};harvest(p);if(coins>=CROPS[k].seed)plant(p,k);}}}
+ if(helperArm){helperArm.life-=dt;if(helperArm.life<=0)helperArm=null;}
+ if(truck){truck.wiggle=Math.max(0,truck.wiggle-dt*3);if(truck.away>0){truck.away-=dt;if(truck.away<=0){truck.away=0;earn(truck.pay,TRUCKR.x+64,TRUCKR.y+40);float(TRUCKR.x+64,TRUCKR.y-6,tr('订单 +','ORDER +')+fmt(truck.pay),'#9ad7ff');burst(TRUCKR.x+64,TRUCKR.y+50,'#9ad7ff',26);chime();truck.order=newOrder();}}}
+ sellAnim=Math.max(0,sellAnim-dt*2.5);
+ if(elapsed>=LIMIT&&phase==='playing'){elapsed=LIMIT;finish(false);}}
+
+// ---------- input ----------
+function pos(e){const b=canvas.getBoundingClientRect();return{x:(e.clientX-b.left)*W/b.width,y:(e.clientY-b.top)*H/b.height};}
+function tap(p){
+ if(inR(p,MUTE)){muted=!muted;return;}
+ if(phase==='ready'){if(p.x>95&&p.x<355&&p.y>560&&p.y<628){phase='playing';tone(520,.1);}return;}
+ if(phase==='won'||phase==='lost'){if(p.x>95&&p.x<355&&p.y>500&&p.y<566){reset();phase='playing';tone(520,.1);}return;}
+ for(let k=0;k<4;k++){const x=16+k*106;if(p.x>=x&&p.x<=x+100&&p.y>=100&&p.y<=154){selected=k;tone(400+k*50,.06);return;}}
+ for(const pl of plots){const r=plotRect(pl.i);if(inR(p,r)){if(!pl.unlocked){buy('plot');return;}if(pl.ripe)harvest(pl);else if(pl.crop<0)plant(pl,selected);else{pl.bounce=.6;const left=Math.ceil(growTime(pl.crop)-pl.t);float(r.x+r.w/2,r.y+14,left+'s','#e8f7d0');}return;}}
+ if(inR(p,STALL)||inR(p,BASKET)){sell();return;}
+ if(inR(p,TRUCKR)){if(truck)deliver();else buy('truck');return;}
+ for(const u of UPG)if(inR(p,u)){buy(u.k);return;}
+}
+canvas.addEventListener('pointerdown',e=>{e.preventDefault();unlock();tap(pos(e));});
+document.addEventListener('visibilitychange',()=>{last=0;});
+
+// ---------- render ----------
+function drawBg(){grad(0,0,W,H,'#9fdc8a','#5aa457',0);
+ // soft meadow stripes and flowers
+ ctx.globalAlpha=.13;for(let i=0;i<9;i++){ctx.fillStyle=i%2?'#ffffff':'#2e7a3a';ctx.beginPath();ctx.ellipse(225,830+i*10,520-i*30,300-i*20,0,Math.PI,TAU);ctx.fill();}ctx.globalAlpha=1;
+ for(let i=0;i<26;i++){const x=(i*97)%450,y=150+((i*173)%640);circle(x,y,2.3,i%3?'#fff8d8':'#ffc0d4');}}
+function drawHeader(){grad(0,0,W,92,'#2f6b3f','#25573a',0);
+ text(tr('草地集市','Meadow Market'),20,26,22,'#fff7d6','left',900,240);
+ coinIcon(30,62,11);text(fmt(coins),48,63,22,'#ffe066','left',900,120);
+ const pr=Math.min(1,earned/TARGET);box(170,52,204,22,'#183e27',11);grad(172,54,Math.max(18,200*pr),18,'#ffe680','#f0b43a',9);ctx.save();ctx.shadowColor='rgba(10,30,15,.9)';ctx.shadowBlur=4;text(tr('累计 ','EARNED ')+fmt(earned)+' / '+fmt(TARGET),272,63,12,'#fffbe8','center',900,196);ctx.restore();
+ const left=Math.max(0,LIMIT-elapsed),m=Math.floor(left/60),s=Math.floor(left%60);text(`${m}:${String(s).padStart(2,'0')}`,272,26,22,left<30&&Math.floor(artTime*2)%2?'#ff8f8f':'#fff7d6','center',900);
+ box(MUTE.x,MUTE.y,MUTE.w,MUTE.h,'#1c4a2e',12);text(muted?'♪×':'♪',MUTE.x+22,MUTE.y+21,20,'#fff7d6');}
+function drawChips(){for(let k=0;k<4;k++){const x=16+k*106,c=CROPS[k],sel=selected===k;box(x,100,100,54,sel?'#fff7d6':'rgba(255,255,255,.55)',14);if(sel){ctx.strokeStyle='#f0b43a';ctx.lineWidth=3;ctx.beginPath();ctx.roundRect(x+1.5,101.5,97,51,13);ctx.stroke();}
+ drawCrop(k,x+22,126,.85,1);text(c.name,x+42,114,13,'#2d4a2b','left',900,54);coinIcon(x+42,139,5.5);text(c.seed+'→'+c.price+' · '+(Math.round(growTime(k)*10)/10)+'s',x+50,140,11,'#7a5420','left',800,45);}}
+function drawPlots(){for(const p of plots){const r=plotRect(p.i),b=p.bounce,sc=1+Math.sin(b*Math.PI)*.06;ctx.save();ctx.translate(r.x+r.w/2,r.y+r.h/2);ctx.scale(sc,sc);ctx.translate(-r.w/2,-r.h/2);
+ if(!p.unlocked){box(0,4,r.w,r.h,'rgba(30,60,30,.25)',16);box(0,0,r.w,r.h,'rgba(255,255,255,.28)',16);ctx.setLineDash([6,6]);ctx.strokeStyle='rgba(40,80,40,.5)';ctx.lineWidth=2;ctx.beginPath();ctx.roundRect(4,4,r.w-8,r.h-8,12);ctx.stroke();ctx.setLineDash([]);
+  const idx=plots.findIndex(q=>!q.unlocked);if(idx===p.i){text('+ '+tr('开垦','Clear'),r.w/2,r.h/2-10,15,'#2d4a2b','center',900);coinIcon(r.w/2-22,r.h/2+14,7);text(fmt(PLOT_COST[idx]),r.w/2+6,r.h/2+15,14,coins>=PLOT_COST[idx]?'#2d4a2b':'#8a5040','center',900);}else text('🔒',r.w/2,r.h/2,18,'#2d4a2b');ctx.restore();continue;}
+ box(0,6,r.w,r.h,'#5a3a22',16);grad(0,0,r.w,r.h,'#a06a3e','#7c4f2c',16);for(let j=0;j<3;j++)box(10,14+j*22,r.w-20,6,'rgba(60,35,18,.35)',3);
+ if(p.crop>=0){const g=growTime(p.crop),pr=Math.min(1,p.t/g),c=CROPS[p.crop];
+  if(p.ripe){const bob=Math.sin(artTime*6+p.i)*2;ctx.globalAlpha=.35+.25*Math.sin(artTime*5+p.i);circle(r.w/2,r.h/2+4,34,'#fff3a0');ctx.globalAlpha=1;drawCrop(p.crop,r.w/2,r.h/2+8+bob,1.35,1);star(r.w-16,14,7+Math.sin(artTime*8+p.i)*2,'#fff3a0');}
+  else{drawCrop(p.crop,r.w/2,r.h/2+10,1.2,pr);ring(r.w-18,18,10,pr,c.color);}}
+ else{text(tr('点我种','tap to plant'),r.w/2,r.h/2+2,12,'rgba(255,240,210,.7)','center',800);}
+ ctx.restore();
+ if(helperArm&&helperArm.i===p.i){const a=helperArm.life/.4;ctx.save();ctx.globalAlpha=a;circle(r.x+r.w-12,r.y+r.h-10,13,'#ffcf9e');circle(r.x+r.w-16,r.y+r.h-13,2,'#3a2a10');circle(r.x+r.w-8,r.y+r.h-13,2,'#3a2a10');box(r.x+r.w-26,r.y+r.h-28,28,8,'#4a90d9',4);ctx.restore();}}}
+function drawBasket(){const r=BASKET;box(r.x,r.y+5,r.w,r.h,'#7a5420',18);grad(r.x,r.y,r.w,r.h,'#f6d79b','#e2b86a',18);for(let i=0;i<4;i++)line(r.x+12,r.y+44+i*13,r.x+r.w-12,r.y+44+i*13,'rgba(140,90,40,.35)',2);
+ text(tr('篮子','BASKET'),r.x+r.w/2,r.y+16,13,'#7a5420','center',900);
+ for(let k=0;k<4;k++){const x=r.x+16+(k%2)*58,y=r.y+46+Math.floor(k/2)*32;drawCrop(k,x,y,.62,1);text('×'+basket[k],x+14,y+2,14,basket[k]?'#4a3010':'rgba(74,48,16,.35)','left',900,38);}}
+function drawStall(){const r=STALL,s=1+Math.sin(sellAnim*Math.PI)*.08;ctx.save();ctx.translate(r.x+r.w/2,r.y+r.h);ctx.scale(s,s);ctx.translate(-r.w/2,-r.h);
+ box(8,40,r.w-16,r.h-40,'#c77a3a',10);box(8,r.h-24,r.w-16,24,'#9b5a28',8);
+ for(let i=0;i<6;i++){ctx.fillStyle=i%2?'#fff7e8':'#ef5f5f';ctx.beginPath();ctx.moveTo(i*r.w/6,8);ctx.lineTo((i+1)*r.w/6,8);ctx.lineTo((i+1)*r.w/6,34);ctx.arc((i+.5)*r.w/6,34,r.w/12,0,Math.PI);ctx.closePath();ctx.fill();}
+ box(0,0,r.w,12,'#c94848',6);const v=basketValue();
+ text(tr('集市 · 点击卖出','MARKET · TAP SELL'),r.w/2,62,12,'#fff7e8','center',900,r.w-20);coinIcon(r.w/2-30,86,9);text(fmt(v),r.w/2+8,87,20,v?'#ffe066':'rgba(255,240,200,.5)','center',900,90);
+ ctx.restore();}
+function drawTruckShape(x,y,s,c='#4a90d9'){ctx.save();ctx.translate(x,y);ctx.scale(s,s);box(-34,-22,44,30,c,6);box(10,-12,24,20,'#3570b0',6);box(15,-8,13,9,'#cfeaff',3);box(-30,-18,36,10,'rgba(255,255,255,.25)',4);circle(-20,10,7,'#2a2a2a');circle(22,10,7,'#2a2a2a');circle(-20,10,3,'#bbb');circle(22,10,3,'#bbb');ctx.restore();}
+function drawTruckCard(){const r=TRUCKR;box(r.x,r.y+5,r.w,r.h,'#2c5f86',18);grad(r.x,r.y,r.w,r.h,'#d9f0ff','#a9d5f2',18);
+ if(!truck){drawTruckShape(r.x+r.w/2,r.y+44,1,'#9aaabb');text(tr('雇货车','HIRE TRUCK'),r.x+r.w/2,r.y+16,13,'#2c5f86','center',900);coinIcon(r.x+r.w/2-22,r.y+82,7);text(fmt(TRUCK_COST),r.x+r.w/2+6,r.y+83,15,coins>=TRUCK_COST?'#2c5f86':'#8a5040','center',900);return;}
+ text(tr('订单','ORDER'),r.x+r.w/2,r.y+14,12,'#2c5f86','center',900);
+ if(truck.away>0){const t=1-truck.away/7;ctx.save();ctx.beginPath();ctx.rect(r.x,r.y,r.w,r.h);ctx.clip();drawTruckShape(r.x+r.w/2+(t<.5?t*2:2-t*2)*80*(t<.5?1:-1),r.y+50,.9);ctx.restore();text(Math.ceil(truck.away)+'s · +'+fmt(truck.pay),r.x+r.w/2,r.y+86,13,'#2c5f86','center',900);return;}
+ const w=Math.sin(truck.wiggle*20)*truck.wiggle*4;let ix=r.x+14,ok=canFill(truck.order);
+ truck.order.items.forEach((n,k)=>{if(!n)return;drawCrop(k,ix+10+w,r.y+42,.7,1);text(Math.min(basket[k],n)+'/'+n,ix+40+w,r.y+44,13,basket[k]>=n?'#1f7a3a':'#8a5040','center',900);ix+=56;});
+ box(r.x+10,r.y+66,r.w-20,26,ok?'#ffd34d':'rgba(44,95,134,.25)',13);text((ok?tr('发货 +','SHIP +'):'+')+fmt(truck.order.reward),r.x+r.w/2,r.y+79,14,ok?'#5a3a10':'#2c5f86','center',900);}
+function drawUpgrades(){const info={plot:[tr('新地块','New Plot'),'#c6f08a'],fert:[tr('肥料','Fertilizer'),'#ffd2a0'],helper:[tr('小帮手','Helper'),'#ffc6dc'],truck:[tr('货车','Truck'),'#bfe4ff']};
+ for(const u of UPG){const cost=buyCost[u.k](),can=cost!=null&&coins>=cost,[nm,col]=info[u.k];box(u.x,u.y+4,u.w,u.h,'rgba(20,50,25,.35)',16);box(u.x,u.y,u.w,u.h,cost==null?'rgba(255,255,255,.4)':can?'#fffaf0':'rgba(255,255,255,.7)',16);
+  circle(u.x+u.w/2,u.y+27,17,col);
+  if(u.k==='plot'){box(u.x+u.w/2-10,u.y+19,20,15,'#8a5a32',4);text('+',u.x+u.w/2,u.y+26,18,'#fff');}
+  if(u.k==='fert'){box(u.x+u.w/2-8,u.y+15,16,22,'#7a5420',5);text('★'.repeat(fert)||'·',u.x+u.w/2,u.y+27,9,'#ffe066');}
+  if(u.k==='helper'){circle(u.x+u.w/2,u.y+27,10,'#ffcf9e');box(u.x+u.w/2-12,u.y+15,24,6,'#4a90d9',3);circle(u.x+u.w/2-4,u.y+28,1.6,'#3a2a10');circle(u.x+u.w/2+4,u.y+28,1.6,'#3a2a10');}
+  if(u.k==='truck')drawTruckShape(u.x+u.w/2,u.y+28,.42);
+  text(nm,u.x+u.w/2,u.y+54,13,'#2d4a2b','center',900,u.w-10);
+  if(cost==null)text((u.k==='helper'||u.k==='truck')?tr('已雇用','HIRED'):tr('已满级','MAXED'),u.x+u.w/2,u.y+72,12,'#5a8a50','center',900);else{coinIcon(u.x+u.w/2-24,u.y+72,6);text(fmt(cost),u.x+u.w/2+6,u.y+73,13,can?'#7a5420':'#a07060','center',900);}
+  if(can&&phase==='playing'){ctx.globalAlpha=.5+.5*Math.sin(artTime*6);circle(u.x+u.w-10,u.y+10,5,'#f0607c');ctx.globalAlpha=1;}}}
+function drawHint(){let s;if(toast)s=toast.s;else if(earned<30)s=tr('☝ 选作物 → 点空地种下 → 成熟后点收 → 点集市卖出','☝ Pick a crop → tap a plot → harvest when ripe → tap Market');else if(!truck&&coins>=TRUCK_COST)s=tr('货车订单奖金翻倍，试试雇一辆','Truck orders pay ~2× — try hiring one');else if(!helper&&coins>=HELPER_COST)s=tr('雇小帮手，自动收菜补种','Hire a Helper to auto-harvest & replant');else s=tr('3 分钟内累计赚到 5,000 金币','Earn 5,000 coins within 3 minutes');
+ box(16,742,418,44,'rgba(25,60,35,.75)',14);text(s,225,764,14,'#fff7d6','center',800,400);}
+function drawFx(dt){for(const r of rings){r.life-=dt;ctx.save();ctx.globalAlpha=Math.max(0,r.life/.3);ctx.strokeStyle='#fffbe0';ctx.lineWidth=3;ctx.beginPath();ctx.arc(r.x,r.y,10+(1-r.life/.3)*30,0,TAU);ctx.stroke();ctx.restore();}rings=rings.filter(r=>r.life>0);
+ for(const p of particles){p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=420*dt;circle(p.x,p.y,p.r*Math.max(0,p.life),p.color);}particles=particles.filter(p=>p.life>0);
+ for(const p of pops){p.t+=dt*1.8;const t=Math.min(1,p.t),x=p.x+(BASKET.x+64-p.x)*t,y=p.y+(BASKET.y+50-p.y)*t-Math.sin(t*Math.PI)*80;drawCrop(p.k,x,y,1.1-t*.4,1);}pops=pops.filter(p=>p.t<1);
+ for(const f of flyers){f.t+=dt*2;if(f.t<0)continue;const t=Math.min(1,f.t),x=f.x+(30-f.x)*t*t,y=f.y+(62-f.y)*t*t-Math.sin(t*Math.PI)*40;coinIcon(x,y,7);}flyers=flyers.filter(f=>f.t<1);
+ for(const f of floats){f.life-=dt;f.y-=dt*40;ctx.save();ctx.globalAlpha=Math.min(1,f.life*2);ctx.shadowColor='rgba(30,40,20,.6)';ctx.shadowBlur=6;text(f.s,clamp(f.x,70,380),f.y,18,f.color,'center',900);ctx.restore();}floats=floats.filter(f=>f.life>0);
+ if(toast){toast.life-=dt;if(toast.life<=0)toast=null;}}
+function panel(y,h){ctx.fillStyle='rgba(16,40,24,.55)';ctx.fillRect(0,0,W,H);box(28,y+6,394,h,'#1c4a2e',26);grad(28,y,394,h,'#fffaf0','#f3e6c8',26);}
+function button(label,y){box(95,y+5,260,62,'#b8761c',20);grad(95,y,260,62,'#ffe27a','#f6b93b',20);text(label,225,y+31,24,'#4a3010','center',900);}
+function drawOverlay(){
+ if(phase==='ready'){panel(196,450);drawCrop(3,150,262,1.8,1);drawCrop(2,225,252,1.9,1);drawCrop(1,300,262,1.8,1);text(tr('草地集市','Meadow Market'),225,322,34,'#2d4a2b','center',900);
+  text(tr('3 分钟内累计赚到 5,000 金币！','Earn 5,000 coins in 3 minutes!'),225,364,18,'#7a5420','center',900,370);
+  const lines=[tr('选作物，点空地种下','Pick a crop, tap a plot to plant'),tr('成熟后点击收进篮子','Tap ripe crops into the basket'),tr('点集市卖出，换来金币','Tap the market stall to sell'),tr('扩地、施肥、雇帮手和货车','Buy plots, fertilizer, helper & truck')];
+  lines.forEach((s,i)=>{circle(78,410+i*32,11,'#7ed0a0');text(String(i+1),78,411+i*32,13,'#fff','center',900);text(s,96,411+i*32,15,'#2d4a2b','left',800,300);});
+  button(tr('开始经营','START'),560);if(best.earned)text(tr('最佳：','Best: ')+fmt(best.earned)+(best.time?tr(' · 最快 ',' · fastest ')+best.time.toFixed(0)+'s':''),225,612+30,13,'#7a5420','center',800);return;}
+ if(phase==='won'||phase==='lost'){const won=phase==='won';panel(236,350);
+  if(won){for(let i=0;i<7;i++)star(225+Math.cos(artTime+i)*150,262+Math.sin(artTime*1.3+i)*14,8,['#ffd34d','#f0607c','#7ed0a0'][i%3]);}
+  text(won?tr('集市大丰收！','Bumper harvest!'):tr('时间到！','Time\'s up!'),225,300,32,won?'#2d4a2b':'#8a4030','center',900);
+  text(won?tr('用时 ','Reached 5,000 in ')+elapsed.toFixed(1)+tr(' 秒达成 5,000',' s'):tr('累计赚到 ','You earned ')+fmt(earned)+' / '+fmt(TARGET),225,346,18,'#7a5420','center',800,370);
+  text(tr('最佳累计 ','Best earned ')+fmt(best.earned)+(best.time?tr(' · 最快 ',' · fastest ')+best.time.toFixed(1)+'s':''),225,384,15,'#5a6a50','center',800,370);
+  if(newBest)text(tr('★ 新纪录 ★','★ NEW BEST ★'),225,420,20,'#f0607c','center',900);
+  text(tr('地块 ','Plots ')+plots.filter(p=>p.unlocked).length+tr(' · 肥料 ',' · Fert ')+fert+tr(' · 帮手 ',' · Helper ')+(helper?'✓':'–')+tr(' · 货车 ',' · Truck ')+(truck?'✓':'–'),225,456,13,'#5a6a50','center',800,370);
+  button(tr('再来一局 ↻','PLAY AGAIN ↻'),500);}}
+function frame(ts){const raw=last?Math.min((ts-last)/1000,.05):0;last=ts;const dt=raw*timeScale;artTime+=raw;if(phase==='playing')update(dt);
+ ctx.save();if(shake>0){ctx.translate(rand(-shake,shake),rand(-shake,shake));shake=Math.max(0,shake-raw*30);}
+ drawBg();drawHeader();drawChips();drawPlots();drawBasket();drawStall();drawTruckCard();drawUpgrades();drawHint();drawFx(raw);ctx.restore();drawOverlay();requestAnimationFrame(frame);}
+
+// Test/automation hook (no gameplay effect unless called).
+window.__omGame={state:()=>({phase,coins,earned,elapsed,target:TARGET,limit:LIMIT,selected,fert,helper,truck:truck?{away:truck.away,order:truck.order.items.slice(),reward:truck.order.reward,canFill:canFill(truck.order)}:null,basket:basket.slice(),plots:plots.map(p=>({i:p.i,unlocked:p.unlocked,crop:p.crop,ripe:p.ripe,rect:plotRect(p.i)})),costs:{plot:buyCost.plot(),fert:buyCost.fert(),helper:buyCost.helper(),truck:buyCost.truck()},ui:{basket:BASKET,stall:STALL,truck:TRUCKR,upgrades:UPG,chips:CROPS.map((c,k)=>({x:16+k*106+50,y:127}))}}),
+ start:()=>{if(phase==='ready'){phase='playing';}},restart:()=>{reset();phase='playing';},setTimeScale:v=>{timeScale=v;}};
+reset();requestAnimationFrame(frame);
+</script></body></html>

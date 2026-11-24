@@ -1,0 +1,27 @@
+{
+  "id": "color-gate-jam",
+  "title": "Color Gate Jam",
+  "description": "Slide chunky colored blocks out through matching gates on the board edge. Plan the order, beat the move limit and clear five hand-built jams.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Drag a block up, down, left or right; it glides until something stops it. A block touching a same-color gate that fits its width slides out. Clear the board before moves run out.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "彩门滑块",
+      "description": "把彩色滑块从同色的出口滑出棋盘。想清楚先后顺序，在步数用完前清空五个手工设计的拥堵关卡。",
+      "controls": "按住色块上下左右拖动，它会一直滑到被挡住；碰到宽度合适的同色出口就会滑出。步数用完前清空全部色块即过关。"
+    }
+  },
+  "orientation": "portrait"
+}

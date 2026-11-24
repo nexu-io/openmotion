@@ -242,3 +242,6 @@ button.om-game-chip:hover, .om-game-chip[aria-expanded="true"] { background: var
 .om-game-handoff-link { display: inline-flex; align-items: center; gap: var(--motion-space-6); text-decoration: none; }
 .om-game-handoff-link[aria-disabled] { pointer-events: none; opacity: .5; }
 .om-game-handoff-text { width: 100%; max-height: 220px; margin: 0; overflow: auto; padding: var(--motion-space-12); border: 1px solid var(--motion-border-subtle); border-radius: var(--motion-radius-md); background: var(--motion-inset); color: var(--motion-text); font: var(--motion-text-xs)/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: start; white-space: pre-wrap; word-break: break-word; }
+
+.om-game-genre-chip[data-variant="top"] svg { color: var(--motion-warning); }
+.om-game-genre-chip[data-variant="top"][aria-selected="true"] svg { color: inherit; }

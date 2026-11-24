@@ -1,0 +1,27 @@
+{
+  "id": "lantern-brigade",
+  "title": "Lantern Brigade",
+  "description": "Recruit lantern-bearing heroes, merge triples into starred upgrades, set a 2x3 formation and auto-battle through ten stages to topple the Ash Lantern-Eater.",
+  "genre": "story",
+  "style": "anime",
+  "setting": "fantasy",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap a shop card to recruit, tap or drag a hero onto a slot to move it, then press Fight. Three copies of a hero merge automatically. Reroll costs 1 gold.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "提灯旅团",
+      "description": "招募提灯英雄，三个同名自动合成升星，排好 2×3 阵型自动对战，闯过十关击败灰烬噬灯兽。",
+      "controls": "点商店卡片招募，点选或拖动英雄换格子，再点出战；三个同名同星英雄自动合成；刷新花 1 金币。"
+    }
+  },
+  "orientation": "portrait"
+}

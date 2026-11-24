@@ -1,0 +1,27 @@
+{
+  "id": "meadow-market",
+  "title": "Meadow Market",
+  "description": "Plant four crops, harvest into your basket, sell at the stall and grow a tiny farm into a 5,000-coin business in three minutes.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "modern",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap a crop, then an empty plot to plant. Tap ripe crops to harvest, tap the market to sell, tap upgrades to buy plots, fertilizer, a helper and a delivery truck.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "草地集市",
+      "description": "种下四种作物，收进篮子再到集市卖掉，扩地、施肥、雇帮手和货车，3 分钟内把小农场做到累计 5,000 金币。",
+      "controls": "先选作物再点空地种下；成熟后点击收获，点集市卖出；点下方升级购买地块、肥料、小帮手和货车。"
+    }
+  },
+  "orientation": "portrait"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "pixel-parade",
+  "title": "Pixel Parade",
+  "description": "Send colored carts around a conveyor belt to blast matching pixels off five original pixel pictures without jamming the five-cart belt.",
+  "genre": "casual",
+  "style": "pixel",
+  "setting": null,
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Tap a cart at the front of a lane to send it onto the belt. Carts shoot the first pixel of their color they can see; empty carts leave. Five stuck carts jam the belt.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "像素巡游",
+      "description": "把彩色小车送上环形传送带，打掉同色像素清空五幅原创像素画，别让 5 辆车堵死传送带。",
+      "controls": "点队列最前面的小车送上传送带，它会射击视线里第一个同色像素，弹药打完自动离开；5 辆车都打不到就失败。"
+    }
+  },
+  "orientation": "portrait"
+}

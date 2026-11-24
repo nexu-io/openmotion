@@ -1,0 +1,27 @@
+{
+  "id": "banner-rush",
+  "title": "Banner Rush",
+  "description": "Drag marching columns between round castles, outgrow two rival banners and capture every keep across three maps of rising difficulty.",
+  "genre": "casual",
+  "style": "minimal",
+  "setting": "medieval",
+  "multiplayer": false,
+  "maxPlayers": 1,
+  "status": "published",
+  "cover": "cover.webp",
+  "entry": "index.html",
+  "controls": "Drag from one of your blue castles to any other castle to send half its troops. Sweep across several of your castles to send from all of them. Tap a castle, then a target, as an alternative.",
+  "plays": 0,
+  "likes": 0,
+  "dislikes": 0,
+  "createdAt": "2026-11-24T00:00:00.000Z",
+  "updatedAt": "2026-11-24T00:00:00.000Z",
+  "i18n": {
+    "zh-CN": {
+      "title": "旗争：城堡争夺战",
+      "description": "从自家城堡拖向任意城堡派出半数兵力，压过赤、金两路对手，在三张由易到难的地图上占领每一座城堡。",
+      "controls": "从蓝色城堡拖到另一座城堡，派出一半兵力；拖动时划过多座蓝色城堡可一起出兵；也可先点己方城堡再点目标。"
+    }
+  },
+  "orientation": "portrait"
+}
