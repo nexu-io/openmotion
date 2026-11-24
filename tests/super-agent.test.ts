@@ -30,13 +30,59 @@ import {
   saveCapabilityOverrides,
   unregisterCapabilityScriptExecutor,
 } from '../gateway/capability-center.ts';
-import { classifySuperAgentTool, describeSuperAgentApproval, formatSuperAgentToolLabel, type SuperAgentResourceCatalog } from '../shared/super-agent.ts';
+import {
+  classifySuperAgentTool, describeSuperAgentApproval, formatSuperAgentToolLabel,
+  summarizeSuperAgentChat, superAgentIntentMeta, type SuperAgentChat, type SuperAgentResourceCatalog,
+} from '../shared/super-agent.ts';
+import { designScenarios } from '../shared/design-project.ts';
 import { execute } from '../hyperframes.ts';
 import { verificationBinaries } from '../scripts/verify-export.ts';
 import { AssetAgentRpc } from '../gateway/asset-chat.ts';
 import { buildSuperAgentHandoff } from '../shared/capability-hub.ts';
 import { fixture } from './fixtures.ts';
 import { transport } from './http.ts';
+
+test('Super Agent uses distinct task icons for design scenarios, media, and standalone modes', () => {
+  const chat: SuperAgentChat = {
+    id: 'task', title: 'Task', engine: 'codex', permissionMode: 'auto',
+    state: 'running', messages: [], artifacts: [], approvals: [], createdAt: 1, updatedAt: 1,
+  };
+  const icon = (overrides: Partial<SuperAgentChat>) => {
+    const summary = summarizeSuperAgentChat({ ...chat, ...overrides });
+    return superAgentIntentMeta(summary.intent, summary).icon;
+  };
+  const designIcons = designScenarios.map(scenario => {
+    const designIcon = icon({
+      intent: 'website',
+      artifacts: [{ id: 'project', kind: 'design-project', title: 'Project', scenario: scenario.id, createdAt: 1, updatedAt: 1 }],
+    });
+    assert.equal(designIcon, scenario.icon);
+    return designIcon;
+  });
+  const otherIcons = (['chat', 'coding', 'design', 'research', 'visualization', 'image', 'video', 'audio', 'game', 'brand'] as const)
+    .map(intent => icon({ intent }));
+  const generatedVideoIcon = icon({
+    intent: 'video',
+    artifacts: [{ id: 'video', kind: 'asset-video', title: 'Video', createdAt: 1, updatedAt: 1 }],
+  });
+  const icons = [...designIcons, ...otherIcons, generatedVideoIcon];
+  assert.equal(new Set(icons).size, icons.length);
+
+  const firstPrompt = { id: 'prompt', role: 'user', text: 'Make this', createdAt: 1 } as const;
+  assert.equal(icon({
+    intent: 'design',
+    messages: [{ ...firstPrompt, contextTags: [{ kind: 'mode', label: 'Design Studio', designScenario: 'document' }] }],
+  }), 'file-text-line');
+  assert.equal(icon({
+    intent: 'website',
+    messages: [{ ...firstPrompt, attachments: [{ id: 'template', kind: 'design-template', title: 'Template', scenario: 'web-clone' }] }],
+  }), 'global-line');
+  assert.equal(icon({
+    intent: 'slides',
+    artifacts: [{ id: 'report', kind: 'design-project', title: 'Report', scenario: 'document', createdAt: 1, updatedAt: 1 }],
+    messages: [{ ...firstPrompt, contextTags: [{ kind: 'mode', label: 'Research', icon: 'book-open-line' }] }],
+  }), 'book-open-line');
+});
 
 test('collectWorkspaceResources and buildResourceContextManifest aggregate workspace inputs and filter cleanly', () => fixture(async store => {
   await designProjectsFor(store.directory).create({
