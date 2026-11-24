@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "open-design-ui/button";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/I18n";
+import {
+  EDITOR_ASSET_AUTO_RELEASE_MS,
+  EDITOR_ASSET_ESCAPE_HATCH_MS,
+  UnifiedEditorOpeningCover,
+  useEditorOpeningGate,
+} from "../motion/editorOpeningGate";
 import { usePlayerStore } from "../player/store/playerStore";
 import {
   hasRetryFailedAssetsHandler,
@@ -19,8 +24,7 @@ import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import type { PreviewAssetFailure } from "../player/lib/previewAssetReadiness";
 import type { AppToast } from "../utils/studioHelpers";
 
-export const EDITOR_ASSET_ESCAPE_HATCH_MS = 4_000;
-export const EDITOR_ASSET_AUTO_RELEASE_MS = 12_000;
+export { EDITOR_ASSET_AUTO_RELEASE_MS, EDITOR_ASSET_ESCAPE_HATCH_MS };
 const TIMELINE_PREVIEW_REGISTER_GRACE_MS = 400;
 export const EDITOR_ASSET_PROGRESS_DEBOUNCE_MS = 120;
 export const EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS = 300;
@@ -34,11 +38,11 @@ export interface EditorAssetLoadingOverlayProps {
 }
 
 /**
- * Seamless solid full-cover opening gate that matches the pre-editor MotionLoading
- * screen (breathing brand mark + quiet status line, no modal card or progress text).
- * Holds until initial project files, preview first frame, and all composition assets
- * settle, reveals a real skip action at 4s, and auto-releases at 12s so a stalled
- * resource can never trap the user.
+ * Seamless solid full-cover opening gate shared with `MotionApp`'s shell loading
+ * boundary. When mounted inside `EditorOpeningGateHost`, delegates state to the
+ * single host cover so shell resolution -> Suspense -> editor readiness stay on
+ * one unbroken DOM node without resetting copy or animation; renders directly
+ * when mounted standalone.
  */
 export function EditorAssetLoadingOverlay({
   visible,
@@ -46,64 +50,42 @@ export function EditorAssetLoadingOverlay({
   escapeDelayMs = EDITOR_ASSET_ESCAPE_HATCH_MS,
   autoReleaseMs = EDITOR_ASSET_AUTO_RELEASE_MS,
 }: EditorAssetLoadingOverlayProps) {
-  const { t } = useI18n();
-  const [mounted, setMounted] = useState(visible);
-  const [escapeReady, setEscapeReady] = useState(false);
+  const openingGate = useEditorOpeningGate();
+  const ownerRef = useRef<symbol | null>(null);
+  if (!ownerRef.current) ownerRef.current = Symbol("editor-opening-gate");
   const onSkipRef = useRef(onSkip);
   onSkipRef.current = onSkip;
+  const stableSkip = useCallback(() => onSkipRef.current(), []);
 
-  useEffect(() => {
-    if (visible) {
-      setMounted(true);
-      setEscapeReady(false);
-      const escapeTimer = setTimeout(() => setEscapeReady(true), escapeDelayMs);
-      const autoReleaseTimer =
-        autoReleaseMs > 0
-          ? setTimeout(() => onSkipRef.current(), autoReleaseMs)
-          : undefined;
-      return () => {
-        clearTimeout(escapeTimer);
-        if (autoReleaseTimer) clearTimeout(autoReleaseTimer);
-      };
-    }
+  useLayoutEffect(() => {
+    if (!openingGate) return;
+    openingGate.setDelegation({
+      owner: ownerRef.current!,
+      visible,
+      onSkip: stableSkip,
+      escapeDelayMs,
+      autoReleaseMs,
+    });
+  }, [autoReleaseMs, escapeDelayMs, openingGate, stableSkip, visible]);
 
-    setEscapeReady(false);
-    const unmountTimer = setTimeout(() => setMounted(false), EXIT_FADE_MS);
-    return () => clearTimeout(unmountTimer);
-  }, [autoReleaseMs, escapeDelayMs, visible]);
+  useLayoutEffect(() => {
+    if (!openingGate) return;
+    const owner = ownerRef.current!;
+    return () => {
+      openingGate.clearDelegation(owner);
+    };
+  }, [openingGate]);
 
-  if (!mounted) return null;
+  if (openingGate) return null;
 
   return (
-    <div
-      className="motion-editor-cover"
-      data-visible={visible ? "true" : "false"}
-      data-testid="editor-asset-loading-overlay"
-      role="status"
-      aria-live="polite"
-      aria-busy={visible || undefined}
-      onDragStart={(event) => event.preventDefault()}
-    >
-      <div className="motion-editor-cover-inner">
-        <span className="motion-editor-cover-mark" aria-hidden="true" />
-        <p className="motion-editor-cover-label">
-          {t(escapeReady ? "Still loading media…" : "Preparing project assets")}
-        </p>
-        {visible && escapeReady && (
-          <div className="motion-editor-cover-escape">
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              data-testid="editor-asset-loading-skip"
-              onClick={onSkip}
-            >
-              {t("Enter editor now")}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
+    <UnifiedEditorOpeningCover
+      visible={visible}
+      onSkip={onSkip}
+      escapeDelayMs={escapeDelayMs}
+      autoReleaseMs={autoReleaseMs}
+      fadeOnExit
+    />
   );
 }
 

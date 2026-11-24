@@ -6,7 +6,7 @@ export function MotionLoading({ overlay = false }: { overlay?: boolean }) {
   return (
     <div className="motion-loading" role="status" data-overlay={overlay || undefined}>
       <span className="motion-loading-mark" aria-hidden="true" />
-      <span className="motion-loading-label">{t('Opening project…')}</span>
+      <span className="motion-loading-label">{t('Preparing project assets')}</span>
     </div>
   );
 }
