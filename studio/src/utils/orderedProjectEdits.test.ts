@@ -77,3 +77,20 @@ it('compiles consecutive semantic edits against the projected HTML before confir
   expect(post).toHaveBeenCalledTimes(1);
   expect(text).toMatch(/color:\s*blue/);
 });
+
+it('preserves order across server-side edits with external dependencies', async () => {
+  const project = 'barrier', path = 'scene.css';
+  observe(project, path, '0', 'base');
+  const sequence: string[] = [];
+  const { runOrderedProjectBarrier } = await import('./orderedProjectEdits');
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    const [op]: OrderedTextEditOperation[] = JSON.parse(String(init.body)).operations;
+    sequence.push('patch');
+    return Response.json({ committed: [receipt(op.id, path, 'r' + sequence.length)] });
+  });
+  const first = tryStudioTextEdit(project, [{path, before:'0', after:'1'}]);
+  const middle = runOrderedProjectBarrier(project, async () => { sequence.push('semantic'); });
+  const last = tryStudioTextEdit(project, [{path, before:'1', after:'2'}]);
+  await Promise.all([first, middle, last]);
+  expect(sequence).toEqual(['patch','semantic','patch']);
+});

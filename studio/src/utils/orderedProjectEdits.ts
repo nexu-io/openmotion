@@ -1,6 +1,6 @@
 import { MAX_ORDERED_TEXT_EDITS, type OrderedTextEditOperation, type OrderedTextEditReceipt, type OrderedTextEditResult } from '../../../shared/ordered-text-edits';
 import type { ConfirmedSource } from './confirmedTextSources';
-import { confirmedSource, forgetSource, rememberSource } from './confirmedTextSources';
+import { confirmedSource, forgetSource, rememberSource, supportsOrderedTextEdits } from './confirmedTextSources';
 import { acknowledgeFileEdit } from './isolatedEditVersions';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import { studioApiFetch } from './studioApiFetch';
@@ -13,7 +13,8 @@ export type EditFile = { path: string; before: string; after: string; version: s
 type Prepare = (drafts: ReadonlyMap<string, ConfirmedSource>) => Promise<{ edits: EditFile[]; label: string; undoGroup?: string }>;
 type Intent = { at: number; prepare: Prepare; allowReplay: boolean; resolve(value: Output): void; reject(reason: unknown): void };
 type Step = { intent: Intent; edits: EditFile[]; payload: OrderedTextEditOperation };
-type Queue = { project: string; waiting: Intent[]; running: boolean; timer?: ReturnType<typeof setTimeout> };
+type Barrier = { at: number; run(): Promise<void>; reject(reason: unknown): void };
+type Queue = { project: string; waiting: (Intent | Barrier)[]; running: boolean; timer?: ReturnType<typeof setTimeout> };
 const queues = new Map<string, Queue>();
 
 export function hasOrderedProjectEdits(project: string) {
@@ -21,16 +22,30 @@ export function hasOrderedProjectEdits(project: string) {
 }
 
 export function enqueueProjectEdit(project: string, path: string, prepare: Prepare, allowReplay = false) {
+  const current = projectQueue(project);
+  return trackStudioProjectSave(project, path, () => new Promise<Output>((resolve, reject) => {
+    current.waiting.push({ at: Date.now(), prepare, allowReplay, resolve, reject });
+    schedule(current);
+  }));
+}
+
+function projectQueue(project: string): Queue {
   let queue = queues.get(project);
   if (!queue) {
     queue = { project, waiting: [], running: false };
     queues.set(project, queue);
   }
-  const current = queue;
-  return trackStudioProjectSave(project, path, () => new Promise<Output>((resolve, reject) => {
-    current.waiting.push({ at: Date.now(), prepare, allowReplay, resolve, reject });
-    schedule(current);
-  }));
+  return queue;
+}
+
+/** A guarded semantic write retains its own protocol and takes one place in the project FIFO. */
+export function runOrderedProjectBarrier<T>(project: string, task: () => Promise<T>): Promise<T> {
+  if (!supportsOrderedTextEdits(project)) return task();
+  const queue = projectQueue(project);
+  return new Promise((resolve, reject) => {
+    queue.waiting.push({ at: Date.now(), run: async () => { resolve(await task()); }, reject });
+    schedule(queue);
+  });
 }
 
 function schedule(queue: Queue) {
@@ -42,7 +57,7 @@ function schedule(queue: Queue) {
     return;
   }
   const last = queue.waiting.at(-1)!;
-  const due = queue.waiting.length >= MAX_ORDERED_TEXT_EDITS ? 0 : Math.min(first.at + 1000, last.at + 100);
+  const due = queue.waiting.length >= MAX_ORDERED_TEXT_EDITS || queue.waiting.some(item => 'run' in item) ? 0 : Math.min(first.at + 1000, last.at + 100);
   queue.timer = setTimeout(() => void flush(queue), Math.max(0, due - Date.now()));
 }
 
@@ -69,6 +84,7 @@ async function prepareSteps(queue: Queue, steps: Step[]) {
   // Bound transient source copies. A single large edit always makes progress.
   while (queue.waiting.length && steps.length < MAX_ORDERED_TEXT_EDITS && retainedChars < 4 * 1024 * 1024) {
     const intent = queue.waiting[0]!;
+    if ('run' in intent) break;
     let plan;
     try { plan = await intent.prepare(drafts); }
     catch (error) {
@@ -129,6 +145,12 @@ async function flush(queue: Queue) {
   queue.running = true;
   const steps: Step[] = [];
   try {
+    const first = queue.waiting[0];
+    if (first && 'run' in first) {
+      queue.waiting.shift();
+      try { await first.run(); } catch (error) { first.reject(error); }
+      return;
+    }
     await prepareSteps(queue, steps);
     if (!steps.length) return;
     for (const step of steps) markStudioWriteToken(step.payload.id);

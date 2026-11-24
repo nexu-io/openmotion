@@ -15,7 +15,7 @@ type Prepared = TextEditSource & { version: string };
 
 // Commands which read external assets, nested compositions or beat sidecars still require the
 // semantic endpoint until the browser can attest all of the corresponding input revisions.
-const localCommand = (command: CompositionEdit) => isContentCommand(command)
+export const isLocalProjectEdit = (command: CompositionEdit) => isContentCommand(command)
   ? contentDependencies(command).length === 0
   : command.kind !== 'setBeatGrid' && command.kind !== 'gradeMedia';
 
@@ -74,22 +74,30 @@ export async function tryStudioTextEdit(project: string, sources: readonly TextE
 
 export async function tryStudioCommandPatches(project: string, commands: CompositionEdit[], versions: Record<string, string>,
   history?: StudioWriteHistory, predicted?: (path: string) => string | undefined) {
-  if (!commands.length || !commands.every(localCommand)) return;
+  if (!commands.length || !commands.every(isLocalProjectEdit)) return;
   if (!supportsProjectTextEdits(project) && !Object.values(versions).some(version => version.startsWith('"patch:'))) return;
   const ordered = supportsOrderedTextEdits(project);
-  const captured = new Map(Object.keys(versions).map(path => [path, confirmedSource(project, path)]));
+  const captured = new Map<string, ConfirmedSource>();
+  for (const [path, version] of Object.entries(versions)) {
+    const source = confirmedSource(project, path);
+    const shownVersion = predicted ? version : isolatedEditVersion(project, path, version);
+    if (source?.version === shownVersion) captured.set(path, source);
+  }
   const prepare = async (drafts?: ReadonlyMap<string, ConfirmedSource>) => {
     const files = new Map<string, Prepared>();
     for (const path of new Set(commands.map(command => command.compositionPath))) {
       const expected = predicted ? versions[path] : isolatedEditVersion(project, path, versions[path]);
-      const original = captured.get(path);
-      const source = drafts?.get(path) ?? await resolveEditSource(project, path,
+      const projected = drafts?.get(path);
+      const source = projected ?? await resolveEditSource(project, path,
         current => ordered || current.version === expected, predicted?.(path) ?? '', true);
       if (!source) throw new Error('Missing source for project edit');
+      if (source.version === expected && !projected && !captured.has(path)) captured.set(path, source);
       if (source.version !== expected) {
+        const original = captured.get(path);
+        const confirmed = projected ? confirmedSource(project, path) : source;
         const { canReplayCanvasCommands } = await import('./canvasReplay');
-        if (!ordered || !original || original.version !== versions[path] ||
-            !canReplayCanvasCommands(commands.filter(command => command.compositionPath === path), original.content, source.content)) {
+        if (!ordered || !original || !confirmed ||
+            !canReplayCanvasCommands(commands.filter(command => command.compositionPath === path), original.content, confirmed.content)) {
           reconcileFileEdit(project, path, source.version);
           throw staleSource(path, source, predicted?.(path) ?? '');
         }
