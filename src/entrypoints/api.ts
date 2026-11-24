@@ -2,7 +2,7 @@ import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-r
 import { PrismMotionCatalog } from '../services/prism-motion-catalog.ts';
 import { commitCaptionCommand } from '../mcp/caption-mutations.ts';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -45,11 +45,13 @@ import {
 } from '../../shared/workspace-url.ts';
 import { validPending, type PendingEvent } from '../../tracking/core.ts';
 import { studioEvents } from '../../tracking/events.ts';
+import { createPosthogSender } from '../../tracking/node.ts';
 import {
   AmrIdentityClient,
   InMemoryAuthCache,
   OidcService,
   SESSION_COOKIE_NAME,
+  TRACKING_ATTESTATION_COOKIE_NAME,
   amrIdentityClientFromAppConfig,
   buildOAuth21Config,
   createAuthMiddleware,
@@ -58,10 +60,14 @@ import {
   createPgAuthStore,
   createRedisAuthCache,
   getAuthContext,
+  isHttpsOrigin,
   oidcConfigFromAppConfig,
   parseCookies,
   resolveBrowserSession,
+  resolveTrackingAttestationSecret,
+  serializeTrackingAttestationCookie,
   verifyCsrfOrigin,
+  verifyTrackingAttestationCookie,
   type AuthEnv,
   type AuthKeyValueCache,
   type AuthMiddlewareDeps,
@@ -155,6 +161,150 @@ export function resolveApiCorsAllowedOrigins(
     config.APP_PUBLIC_ORIGIN,
     config.PREVIEW_PUBLIC_ORIGIN ? [config.PREVIEW_PUBLIC_ORIGIN] : [],
   );
+}
+
+/**
+ * Main-document security headers required by Google Identity Services (GIS) One Tap + FedCM.
+ * Enforces GIS script/style/frame/connect allowances, `identity-credentials-get` Permissions-Policy,
+ * and `Cross-Origin-Opener-Policy: same-origin-allow-popups` (never `same-origin`).
+ */
+export function buildStudioDocumentSecurityHeaders(
+  options: { previewOrigin?: string | null } = {},
+): Record<string, string> {
+  const preview = options.previewOrigin?.trim() || '';
+  const frameSrc = ["'self'", 'https://accounts.google.com/gsi/', ...(preview ? [preview] : [])].join(' ');
+  const connectSrc = [
+    "'self'",
+    'https://accounts.google.com/gsi/',
+    'https:',
+    'wss:',
+    ...(preview ? [preview] : []),
+  ].join(' ');
+  return {
+    'Content-Security-Policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client",
+      "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
+      `frame-src ${frameSrc}`,
+      `connect-src ${connectSrc}`,
+      "img-src 'self' data: blob: https:",
+      "media-src 'self' data: blob: https:",
+      "font-src 'self' data: https:",
+      "worker-src 'self' blob:",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join('; '),
+    'Permissions-Policy': 'identity-credentials-get=(self "https://accounts.google.com")',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'X-Content-Type-Options': 'nosniff',
+  };
+}
+
+export interface CloudPosthogDispatcherOptions {
+  readonly config: Pick<AppConfig, 'NODE_ENV' | 'APP_PUBLIC_ORIGIN'>;
+  readonly logger?: Pick<Logger, 'warn'>;
+  readonly host?: string;
+  readonly token?: string;
+  readonly geoip?: boolean;
+  readonly fetch?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Creates the production/cloud PostHog delivery callback wired into `createApiApp({ onTrackingEvents })`.
+ * Reads `OPENMOTION_POSTHOG_HOST`/`OPENMOTION_POSTHOG_KEY` or falls back to `shared/tracking-config.json`.
+ */
+export function createCloudPosthogDispatcher(
+  options: CloudPosthogDispatcherOptions,
+): (events: readonly PendingEvent[]) => Promise<void> {
+  const procEnv = options.env ?? process.env;
+  const telemetryDisabled =
+    ['0', 'false', 'off'].includes(procEnv.OPENMOTION_TELEMETRY?.toLowerCase() ?? '') ||
+    procEnv.DO_NOT_TRACK === '1';
+  if (telemetryDisabled) {
+    return async () => {};
+  }
+
+  const testing = options.config.NODE_ENV === 'test' || Boolean(procEnv.NODE_TEST_CONTEXT);
+  const explicitOverride = Boolean(options.fetch || (options.host && options.token));
+  if (testing && !explicitOverride && !procEnv.OPENMOTION_TRACKING_TEST_RUN_ID) {
+    return async () => {};
+  }
+
+  let host = options.host;
+  let token = options.token;
+  let geoip = options.geoip;
+
+  if (!host || !token) {
+    const customEnv =
+      procEnv.OPENMOTION_POSTHOG_HOST !== undefined || procEnv.OPENMOTION_POSTHOG_KEY !== undefined;
+    if (customEnv) {
+      host = host ?? procEnv.OPENMOTION_POSTHOG_HOST;
+      token = token ?? procEnv.OPENMOTION_POSTHOG_KEY;
+      geoip = geoip ?? procEnv.OPENMOTION_GEOIP === '1';
+    } else {
+      try {
+        const bundled = JSON.parse(
+          readFileSync(new URL('../../shared/tracking-config.json', import.meta.url), 'utf8'),
+        ) as { host?: string; token?: string; geoip?: boolean };
+        host = host ?? bundled.host;
+        token = token ?? bundled.token;
+        geoip = geoip ?? bundled.geoip;
+      } catch {
+        return async () => {};
+      }
+    }
+  }
+
+  if (!host || !token) {
+    return async () => {};
+  }
+
+  let sender: ReturnType<typeof createPosthogSender>;
+  try {
+    sender = createPosthogSender({
+      host,
+      token,
+      identity: {
+        installation_id: randomUUID(),
+        utm_source: null,
+        created_at: new Date().toISOString(),
+      },
+      appVersion: VERSION,
+      env: options.config.NODE_ENV,
+      testRunId:
+        options.config.NODE_ENV === 'test' ? procEnv.OPENMOTION_TRACKING_TEST_RUN_ID : undefined,
+      geoip: geoip ?? true,
+      channel: 'cloud',
+      timeoutMs: options.timeoutMs ?? 3000,
+      fetch: options.fetch,
+    });
+  } catch (error) {
+    options.logger?.warn('Cloud PostHog telemetry sender disabled due to invalid configuration', { error });
+    return async () => {};
+  }
+
+  return async (events: readonly PendingEvent[]): Promise<void> => {
+    for (let offset = 0; offset < events.length; offset += 16) {
+      const slice = events.slice(offset, offset + 16);
+      try {
+        const receipt = await sender(slice, AbortSignal.timeout(options.timeoutMs ?? 3000));
+        if (receipt !== 'accepted') {
+          options.logger?.warn('Cloud PostHog batch was not accepted', {
+            receipt,
+            count: slice.length,
+          });
+        }
+      } catch (error) {
+        options.logger?.warn('Cloud PostHog batch delivery failed', {
+          count: slice.length,
+          error,
+        });
+      }
+    }
+  };
 }
 
 function resolveIncomingRequestHost(request: Request, trustProxyHops: number): string {
@@ -2471,14 +2621,18 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     'onetap_login_failed',
   ]);
 
+  const trackingAttestationSecret = resolveTrackingAttestationSecret(config);
+  const trackingCookieSecure = isHttpsOrigin(config.APP_PUBLIC_ORIGIN);
+
   app.get('/motion-api/tracking', (c) => {
     return c.json({ enabled: true, locked: false, mode: 'cloud' });
   });
   app.post('/motion-api/tracking', async (c) => {
     const cookies = parseCookies(c.req.header('cookie'));
     const rawSession = cookies[SESSION_COOKIE_NAME];
+    const rawTrackAtt = cookies[TRACKING_ATTESTATION_COOKIE_NAME];
     const hasOriginHeader = c.req.header('origin') !== undefined;
-    if ((rawSession || hasOriginHeader) && !verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
+    if ((rawSession || rawTrackAtt || hasOriginHeader) && !verifyCsrfOrigin(c.req.raw, config.APP_PUBLIC_ORIGIN)) {
       return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed' }, 403);
     }
 
@@ -2497,6 +2651,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       return c.json({ code: 'INVALID_ARGUMENT', error: 'events must be a non-empty array of up to 32 items' }, 400);
     }
 
+    const attestedAppUserIds = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
     let resolvedAppUserId: string | null = null;
     let isAuthenticated = false;
     if (rawSession) {
@@ -2512,6 +2667,9 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
               ? await authDeps.amrIdentity.verifyAndEnrichAuthContext(authDeps.store, resolved.auth)
               : resolved.auth;
           resolvedAppUserId = auth.appUserId ?? null;
+          if (resolvedAppUserId) {
+            attestedAppUserIds.add(resolvedAppUserId);
+          }
         }
       } catch {
         // Treat invalid/expired session cookie as guest for One Tap telemetry.
@@ -2523,17 +2681,39 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     const acceptedEvents: PendingEvent[] = [];
     for (const candidate of rawBody.events) {
       if (!validPending(studioEvents, candidate)) continue;
-      if (!isAuthenticated && !GUEST_ALLOWED_TRACKING_EVENTS.has(candidate.event)) {
+      const isGuestEvent = GUEST_ALLOWED_TRACKING_EVENTS.has(candidate.event);
+      const claimedAppUserId =
+        typeof candidate.app_user_id === 'string' && candidate.app_user_id.trim()
+          ? candidate.app_user_id.trim()
+          : undefined;
+      const normalized: PendingEvent = { ...candidate };
+
+      if (claimedAppUserId) {
+        if (attestedAppUserIds.has(claimedAppUserId)) {
+          // Preserve server-confirmed event attribution across account switches and post-logout flushes.
+          normalized.app_user_id = claimedAppUserId;
+          acceptedEvents.push(normalized);
+          continue;
+        }
+        // Never trust an unverified/spoofed app_user_id.
+        delete normalized.app_user_id;
+        if (isGuestEvent) {
+          acceptedEvents.push(normalized);
+        }
         continue;
       }
-      // Stamp server-confirmed appUserId for authenticated sessions and never trust spoofed guest app_user_id.
-      const normalized: PendingEvent = { ...candidate };
-      if (isAuthenticated && resolvedAppUserId) {
-        normalized.app_user_id = resolvedAppUserId;
-      } else {
-        delete normalized.app_user_id;
+
+      // Event had no app_user_id when queued (e.g. guest pre-login One Tap prompt):
+      // never overwrite guest events with a subsequent signed-in session cookie.
+      delete normalized.app_user_id;
+      if (isGuestEvent) {
+        acceptedEvents.push(normalized);
+      } else if (isAuthenticated) {
+        if (resolvedAppUserId) {
+          normalized.app_user_id = resolvedAppUserId;
+        }
+        acceptedEvents.push(normalized);
       }
-      acceptedEvents.push(normalized);
     }
 
     if (acceptedEvents.length > 0) {
@@ -2544,6 +2724,21 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         events: acceptedEvents.map((item) => item.event),
       });
       await deps.onTrackingEvents?.(acceptedEvents);
+    }
+
+    if (isAuthenticated && resolvedAppUserId) {
+      const existingAttested = verifyTrackingAttestationCookie(rawTrackAtt, trackingAttestationSecret);
+      if (!existingAttested.has(resolvedAppUserId)) {
+        const attCookie = serializeTrackingAttestationCookie(
+          rawTrackAtt,
+          resolvedAppUserId,
+          trackingAttestationSecret,
+          { secure: trackingCookieSecure },
+        );
+        if (attCookie) {
+          c.header('Set-Cookie', attCookie);
+        }
+      }
     }
 
     return c.json({ ok: true, accepted: acceptedEvents.length > 0, enabled: true, count: acceptedEvents.length }, 202);
@@ -2995,24 +3190,27 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
         `${preconnectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
       const bytes = Buffer.from(studioHtml, 'utf8');
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
+      const documentSecurityHeaders = buildStudioDocumentSecurityHeaders({
+        previewOrigin: previewHostIsolationEnabled && previewOriginUrl ? previewOriginUrl.origin : null,
+      });
       if (c.req.header('if-none-match')?.trim() === etag) {
         return new Response(null, {
           status: 304,
           headers: {
+            ...documentSecurityHeaders,
             ETag: etag,
             'Cache-Control': 'no-cache',
-            'X-Content-Type-Options': 'nosniff',
           },
         });
       }
       return new Response(headOnly ? null : bytes, {
         status: 200,
         headers: {
+          ...documentSecurityHeaders,
           'Content-Type': 'text/html; charset=utf-8',
           'Content-Length': String(bytes.byteLength),
           ETag: etag,
           'Cache-Control': 'no-cache',
-          'X-Content-Type-Options': 'nosniff',
         },
       });
     } catch (error) {
@@ -3096,6 +3294,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   const authStore = createPgAuthStore(dbHandle.db);
   const authCache = createRedisAuthCache(redisCmd);
   const mcpSessionStore = new RedisMcpSessionStore(redisCmd);
+  const cloudPosthogDispatcher = createCloudPosthogDispatcher({ config, logger });
 
   const { app, services } = createApiApp({
     config,
@@ -3105,6 +3304,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     eventBus,
     hotTextCache,
     rateLimiter,
+    onTrackingEvents: cloudPosthogDispatcher,
     authStore,
     authCache,
     mcpSessionStore,

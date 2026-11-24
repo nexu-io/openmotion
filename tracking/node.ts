@@ -48,7 +48,7 @@ export async function saveInstallationSource(directory: string, source?: string)
 
 export function createPosthogSender(options: {
   host: string; token: string; identity: Identity; appVersion: string; device?: () => Promise<DeviceIdentity>;
-  env: 'development' | 'test' | 'production'; testRunId?: string; timeoutMs?: number; fetch?: typeof fetch; geoip?: boolean; source?: () => string | null;
+  env: 'development' | 'test' | 'production'; testRunId?: string; timeoutMs?: number; fetch?: typeof fetch; geoip?: boolean; source?: () => string | null; channel?: 'standalone' | 'cloud';
 }) {
   const url = new URL(options.host);
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('INVALID_INGEST_HOST');
@@ -65,7 +65,7 @@ export function createPosthogSender(options: {
       return { event: event.event, uuid: event.event_id, timestamp: event.occurred_at,
         properties: { ...event.properties, event_schema_version: 1, schema_version: 1, product: 'openmotion',
           ...(event.host_context ?? unknownHost),
-          app_version: options.appVersion, env: options.env, channel: 'standalone',
+          app_version: options.appVersion, env: options.env, channel: options.channel ?? 'standalone',
           ...(options.testRunId ? { test_run_id: options.testRunId } : {}),
           event_id: event.event_id, $insert_id: event.event_id, occurred_at: event.occurred_at,
           installation_id: options.identity.installation_id, ...device,

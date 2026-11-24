@@ -100,8 +100,13 @@ type StoredAttribution = {
   utmTerm?: string;
   referralCode?: string;
   landingPath?: string;
+  odOrigin?: string;
   odEntryId?: string;
   odEntrySource?: string;
+  odEntryAt?: string;
+  odCampaignId?: string;
+  odPlacementId?: string;
+  odConversionSource?: string;
   odDeviceId?: string;
 };
 
@@ -361,8 +366,15 @@ function parseStoredAttribution(raw: string | null): StoredAttribution {
       utmTerm: readCleanString(parsed.utmTerm ?? parsed.utm_term),
       referralCode: readCleanString(parsed.referralCode ?? parsed.ref),
       landingPath: readCleanString(parsed.landingPath ?? parsed.landing_path),
-      odEntryId: readCleanString(parsed.odEntryId ?? parsed.od_entry_id),
-      odEntrySource: readCleanString(parsed.odEntrySource ?? parsed.od_entry_source),
+      odOrigin: readCleanString(parsed.odOrigin ?? parsed.od_origin ?? parsed.sourceProduct),
+      odEntryId: readCleanString(parsed.odEntryId ?? parsed.od_entry_id ?? parsed.entryId),
+      odEntrySource: readCleanString(parsed.odEntrySource ?? parsed.od_entry_source ?? parsed.sourceDetail),
+      odEntryAt: readCleanString(parsed.odEntryAt ?? parsed.od_entry_at ?? parsed.entryOccurredAt),
+      odCampaignId: readCleanString(parsed.odCampaignId ?? parsed.od_campaign_id ?? parsed.campaignId),
+      odPlacementId: readCleanString(parsed.odPlacementId ?? parsed.od_placement_id ?? parsed.placementId),
+      odConversionSource: readCleanString(
+        parsed.odConversionSource ?? parsed.od_conversion_source ?? parsed.conversionSource,
+      ),
       odDeviceId: readCleanString(parsed.odDeviceId ?? parsed.od_device_id),
     };
   } catch {
@@ -396,8 +408,13 @@ function readUrlAttribution(): StoredAttribution {
   const utmContent = readCleanString(params.get('utm_content'));
   const utmTerm = readCleanString(params.get('utm_term'));
   const referralCode = readCleanString(params.get('ref'));
+  const odOrigin = readCleanString(params.get('od_origin'));
   const odEntryId = readCleanString(params.get('od_entry_id'));
   const odEntrySource = readCleanString(params.get('od_entry_source'));
+  const odEntryAt = readCleanString(params.get('od_entry_at'));
+  const odCampaignId = readCleanString(params.get('od_campaign_id'));
+  const odPlacementId = readCleanString(params.get('od_placement_id'));
+  const odConversionSource = readCleanString(params.get('od_conversion_source'));
   const odDeviceId = readCleanString(params.get('od_device_id'));
   const hasAny = Boolean(
     utmSource ||
@@ -406,8 +423,13 @@ function readUrlAttribution(): StoredAttribution {
       utmContent ||
       utmTerm ||
       referralCode ||
+      odOrigin ||
       odEntryId ||
       odEntrySource ||
+      odEntryAt ||
+      odCampaignId ||
+      odPlacementId ||
+      odConversionSource ||
       odDeviceId,
   );
   return {
@@ -417,8 +439,13 @@ function readUrlAttribution(): StoredAttribution {
     ...(utmContent ? { utmContent } : {}),
     ...(utmTerm ? { utmTerm } : {}),
     ...(referralCode ? { referralCode } : {}),
+    ...(odOrigin ? { odOrigin } : {}),
     ...(odEntryId ? { odEntryId } : {}),
     ...(odEntrySource ? { odEntrySource } : {}),
+    ...(odEntryAt ? { odEntryAt } : {}),
+    ...(odCampaignId ? { odCampaignId } : {}),
+    ...(odPlacementId ? { odPlacementId } : {}),
+    ...(odConversionSource ? { odConversionSource } : {}),
     ...(odDeviceId ? { odDeviceId } : {}),
     ...(hasAny ? { landingPath: window.location.pathname || '/' } : {}),
   };
@@ -479,16 +506,33 @@ export function collectOneTapAttribution() {
     fromOdAttrCookie.landingPath ??
     (typeof window !== 'undefined' ? window.location.pathname || '/' : '/');
 
+  const sourceProduct = pick('odOrigin');
   const entryId = pick('odEntryId');
   const sourceDetail = pick('odEntrySource');
+  const entryOccurredAt = pick('odEntryAt');
+  const campaignId = pick('odCampaignId');
+  const placementId = pick('odPlacementId');
+  const conversionSource = pick('odConversionSource');
   const consented = isMotionTrackingConsented();
   const odDeviceId = consented ? pick('odDeviceId') : undefined;
 
   const odEntry =
-    entryId || sourceDetail || odDeviceId
+    sourceProduct ||
+    entryId ||
+    sourceDetail ||
+    entryOccurredAt ||
+    campaignId ||
+    placementId ||
+    conversionSource ||
+    odDeviceId
       ? {
+          ...(sourceProduct ? { sourceProduct } : {}),
           ...(entryId ? { entryId } : {}),
           ...(sourceDetail ? { sourceDetail } : {}),
+          ...(entryOccurredAt ? { entryOccurredAt } : {}),
+          ...(campaignId ? { campaignId } : {}),
+          ...(placementId ? { placementId } : {}),
+          ...(conversionSource ? { conversionSource } : {}),
           ...(odDeviceId ? { odDeviceId, odDeviceIdConsent: true } : {}),
         }
       : undefined;
@@ -513,6 +557,7 @@ export interface UseMotionGoogleOneTapOptions {
   refreshAccount: () => Promise<void>;
   hostChrome?: boolean;
   onError?: (message: string) => void;
+  onSuccess?: () => void;
   delayMs?: number;
   loadTimeoutMs?: number;
   exchangeTimeoutMs?: number;
@@ -525,6 +570,7 @@ export function useMotionGoogleOneTap({
   refreshAccount,
   hostChrome = false,
   onError,
+  onSuccess,
   delayMs = MOTION_ONETAP_DELAY_MS,
   loadTimeoutMs = GOOGLE_GIS_LOAD_TIMEOUT_MS,
   exchangeTimeoutMs = ONETAP_EXCHANGE_TIMEOUT_MS,
@@ -535,6 +581,8 @@ export function useMotionGoogleOneTap({
   refreshRef.current = refreshAccount;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
   const [retrySeq, setRetrySeq] = useState(0);
 
   // Capture landing attribution on initial mount before user navigates within Studio.
@@ -666,22 +714,35 @@ export function useMotionGoogleOneTap({
             signal: createFetchSignal(abortController.signal, exchangeTimeoutMs),
           });
           if (!challengeRes.ok) {
-            if (isExplicitRetry && !isStale()) {
+            if (challengeRes.status !== 404 && !isStale()) {
               const errData = (await challengeRes.json().catch(() => null)) as {
                 code?: string;
                 message?: string;
+                error?: string;
               } | null;
               void trackMotion('onetap_login_failed', {
                 surface: 'motion_web',
                 attempt_id: attemptId,
                 error_code: normalizeLoginErrorCode(errData?.code ?? 'AUTH_UNAVAILABLE'),
               });
-              onErrorRef.current?.(errData?.message || 'Could not start Google One Tap right now.');
+              onErrorRef.current?.(
+                errData?.message || errData?.error || 'Could not start Google One Tap right now.',
+              );
             }
             return;
           }
           const payload = (await challengeRes.json()) as Partial<typeof challenge>;
-          if (!payload.challengeId || !payload.nonce || !payload.clientId) return;
+          if (!payload.challengeId || !payload.nonce || !payload.clientId) {
+            if (!isStale()) {
+              void trackMotion('onetap_login_failed', {
+                surface: 'motion_web',
+                attempt_id: attemptId,
+                error_code: 'ONE_TAP_UNAVAILABLE',
+              });
+              onErrorRef.current?.('Could not start Google One Tap right now.');
+            }
+            return;
+          }
           challenge = {
             challengeId: payload.challengeId,
             nonce: payload.nonce,
@@ -689,7 +750,7 @@ export function useMotionGoogleOneTap({
             expiresAt: payload.expiresAt ?? '',
           };
         } catch (err) {
-          if (isExplicitRetry && !isStale()) {
+          if (!isStale()) {
             const isTimeout =
               err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
             void trackMotion('onetap_login_failed', {
@@ -849,6 +910,7 @@ export function useMotionGoogleOneTap({
               });
 
               removeOneTapAnchor();
+              onSuccessRef.current?.();
               clearPrivateSwrCache();
               await refreshRef.current();
               window.dispatchEvent(new Event('motion:account-changed'));

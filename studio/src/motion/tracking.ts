@@ -41,7 +41,16 @@ export function initializeTracking() {
         if (!config || typeof config !== 'object' || !('enabled' in config) || typeof config.enabled !== 'boolean') throw new Error('INVALID_CONFIG');
         if (request.signal.aborted) return;
         tracking.setEnabled(config.enabled);
-        setMotionTrackingConsented(config.enabled);
+        // Server availability (`config.enabled`) is NEVER user consent for device-ID transmission.
+        // Only revoke consent if telemetry is disabled or accept an explicit consent flag.
+        if (!config.enabled) {
+          setMotionTrackingConsented(false);
+        } else if (
+          'deviceIdConsented' in config &&
+          (config as { deviceIdConsented?: unknown }).deviceIdConsented === true
+        ) {
+          setMotionTrackingConsented(true);
+        }
         configuration = config.enabled ? 'ready' : 'disabled'; retryAt = 0;
         return;
       } catch {

@@ -4,7 +4,12 @@ import { isCloudError } from '../contracts/errors.ts';
 import type { AppConfig } from '../infra/config.ts';
 import { isUuid } from '../../shared/project-validation.ts';
 import { isAmrOneTapError, type AmrOneTapAttribution } from './amr-identity.ts';
-import { mountDesktopHandoffRoutes } from './desktop-handoff.ts';
+import {
+  DESKTOP_OIDC_CTX_TTL_SEC,
+  DesktopOidcProvenanceStore,
+  mountDesktopHandoffRoutes,
+  parseDesktopStartReturnTo,
+} from './desktop-handoff.ts';
 import { createAuthMiddleware, getAuthContext, type AuthEnv, type AuthMiddlewareDeps } from './middleware.ts';
 import {
   buildAuthorizationServerMetadata,
@@ -25,30 +30,34 @@ import {
   DESKTOP_OIDC_CTX_COOKIE_NAME,
   OIDC_TX_COOKIE_NAME,
   ONETAP_CTX_COOKIE_NAME,
+  ONETAP_CTX_COOKIE_PREFIX,
   ONETAP_CTX_TTL_SEC,
   SESSION_COOKIE_NAME,
+  TRACKING_ATTESTATION_COOKIE_NAME,
   clearCookie,
   createBrowserSession,
   isHttpsOrigin,
+  oneTapChallengeCookieName,
   parseCookies,
   resolveBrowserSession,
+  resolveTrackingAttestationSecret,
   revokeBrowserSession,
   serializeCookie,
+  serializeTrackingAttestationCookie,
   verifyCsrfOrigin,
 } from './session.ts';
 import { assertSafeReturnTo, randomBase64Url, sha256Hex, timingSafeStringEqual } from './store.ts';
 
 const OAUTH_CONSENT_TTL_SEC = 600;
 const ONETAP_CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
-const ONETAP_CTX_TOKEN_RE = /^[A-Za-z0-9_-]{32,256}$/;
 const UPGRADE_ALLOWED_TARGET_PREFIXES = [
   '/dashboard',
   '/cloud/dashboard',
   '/pricing',
   '/plans',
   '/zh/pricing',
-  '/cloud/pricing',
 ] as const;
+const PUBLIC_PRICING_TARGET_PREFIXES = ['/pricing', '/plans', '/zh/pricing'] as const;
 const UPGRADE_ATTRIBUTION_QUERY_KEYS = [
   'billing',
   'od_origin',
@@ -81,21 +90,64 @@ function sanitizeOneTapAttribution(raw: unknown): AmrOneTapAttribution | undefin
   }
   if (obj.odEntry && typeof obj.odEntry === 'object' && !Array.isArray(obj.odEntry)) {
     const rawEntry = obj.odEntry as Record<string, unknown>;
-    const sanitizedEntry: Record<string, string> = {};
+    const sanitizedEntry: Record<string, string | boolean> = {};
+    const sourceProduct = sanitizeOptionalShortString(rawEntry.sourceProduct, 64);
     const entryId = sanitizeOptionalShortString(rawEntry.entryId, 128);
     const sourceDetail = sanitizeOptionalShortString(rawEntry.sourceDetail, 128);
+    const rawEntryOccurredAt = sanitizeOptionalShortString(rawEntry.entryOccurredAt, 64);
+    const entryOccurredAt =
+      rawEntryOccurredAt && !Number.isNaN(Date.parse(rawEntryOccurredAt))
+        ? rawEntryOccurredAt
+        : undefined;
+    const campaignId = sanitizeOptionalShortString(rawEntry.campaignId, 128);
+    const placementId = sanitizeOptionalShortString(rawEntry.placementId, 128);
+    const conversionSource = sanitizeOptionalShortString(rawEntry.conversionSource, 128);
     const odDeviceId =
       rawEntry.odDeviceIdConsent === true
         ? sanitizeOptionalShortString(rawEntry.odDeviceId, 128)
         : undefined;
+    if (sourceProduct) sanitizedEntry.sourceProduct = sourceProduct;
     if (entryId) sanitizedEntry.entryId = entryId;
     if (sourceDetail) sanitizedEntry.sourceDetail = sourceDetail;
-    if (odDeviceId) sanitizedEntry.odDeviceId = odDeviceId;
+    if (entryOccurredAt) sanitizedEntry.entryOccurredAt = entryOccurredAt;
+    if (campaignId) sanitizedEntry.campaignId = campaignId;
+    if (placementId) sanitizedEntry.placementId = placementId;
+    if (conversionSource) sanitizedEntry.conversionSource = conversionSource;
+    if (odDeviceId) {
+      sanitizedEntry.odDeviceId = odDeviceId;
+      sanitizedEntry.odDeviceIdConsent = true;
+    }
     if (Object.keys(sanitizedEntry).length > 0) {
       out.odEntry = sanitizedEntry;
     }
   }
   return Object.keys(out).length > 0 ? (out as AmrOneTapAttribution) : undefined;
+}
+
+function isPublicPricingTargetPath(targetPath: string): boolean {
+  try {
+    const parsed = new URL(targetPath, 'https://example.invalid');
+    const normalized = parsed.pathname.replace(/\/+$/, '') || '/';
+    return PUBLIC_PRICING_TARGET_PREFIXES.some(
+      (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveGuestPricingRedirectUrl(targetPath: string, config: AppConfig): string | null {
+  if (!isPublicPricingTargetPath(targetPath)) return null;
+  try {
+    const parsedTarget = new URL(targetPath, 'https://example.invalid');
+    const baseSource = config.OPENDESIGN_PRICING_URL ?? config.OPENDESIGN_CONSOLE_URL;
+    const baseUrl = new URL(baseSource);
+    const pathname = parsedTarget.pathname === '/plans' ? '/pricing' : parsedTarget.pathname;
+    const dest = new URL(`${pathname}${parsedTarget.search}`, baseUrl.origin);
+    return isSafeUpgradeHandoffUrl(dest.toString(), config) ? dest.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 function extractUpgradeAttributionParams(reqUrl: string): URLSearchParams {
@@ -264,6 +316,86 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   const oauthCfg = deps.oauth21 ?? buildOAuth21Config(deps.config);
   const secureCookie = isHttpsOrigin(deps.config.APP_PUBLIC_ORIGIN);
   const authMiddleware = createAuthMiddleware({ ...deps, oauth21: oauthCfg });
+  const desktopOidcProvenanceStore = new DesktopOidcProvenanceStore(deps.cache);
+  const trackingAttestationSecret = resolveTrackingAttestationSecret(deps.config);
+
+  // Server-side OIDC id_token_hint store (keyed by session tokenHash) for RP-Initiated Logout.
+  const localIdTokens = new Map<string, { idToken: string; expiresAt: number }>();
+  const idTokenCacheKey = (tokenHash: string) => `om:oidc:id-token:${tokenHash}`;
+  const saveSessionIdToken = async (tokenHash: string, idToken: string, ttlSec: number): Promise<void> => {
+    if (deps.cache) {
+      await deps.cache.set(idTokenCacheKey(tokenHash), idToken, ttlSec);
+      return;
+    }
+    localIdTokens.set(tokenHash, { idToken, expiresAt: Date.now() + ttlSec * 1000 });
+  };
+  const consumeSessionIdToken = async (tokenHash: string): Promise<string | null> => {
+    if (deps.cache) {
+      const key = idTokenCacheKey(tokenHash);
+      const val = await deps.cache.get(key);
+      if (val) await deps.cache.del(key);
+      return val ?? null;
+    }
+    const entry = localIdTokens.get(tokenHash);
+    localIdTokens.delete(tokenHash);
+    if (!entry || entry.expiresAt <= Date.now()) return null;
+    return entry.idToken;
+  };
+
+  // Server-side logout revocation barrier: prevents in-flight One Tap exchanges from issuing
+  // an om_session after a concurrent /auth/logout completes in another tab.
+  let barrierSeq = 0;
+  const nextBarrierEpoch = (): number => {
+    barrierSeq += 1;
+    return Date.now() * 1000 + (barrierSeq % 1000);
+  };
+  const localRevokedBindings = new Map<string, number>();
+  const localUserLogoutEpochs = new Map<string, number>();
+  const revokedBindingCacheKey = (bindingHash: string) => `om:onetap:revoked-binding:${bindingHash}`;
+  const userLogoutEpochCacheKey = (userId: string) => `om:onetap:logout-user:${userId}`;
+
+  const revokeOneTapBinding = async (bindingHash: string): Promise<void> => {
+    const expiresAt = Date.now() + ONETAP_CTX_TTL_SEC * 1000;
+    if (deps.cache) {
+      await deps.cache.set(revokedBindingCacheKey(bindingHash), String(expiresAt), ONETAP_CTX_TTL_SEC);
+    } else {
+      localRevokedBindings.set(bindingHash, expiresAt);
+    }
+  };
+  const isOneTapBindingRevoked = async (bindingHash: string): Promise<boolean> => {
+    if (deps.cache) {
+      const val = await deps.cache.get(revokedBindingCacheKey(bindingHash));
+      return Boolean(val);
+    }
+    const expiresAt = localRevokedBindings.get(bindingHash);
+    if (!expiresAt) return false;
+    if (expiresAt <= Date.now()) {
+      localRevokedBindings.delete(bindingHash);
+      return false;
+    }
+    return true;
+  };
+  const recordUserLogoutBarrier = async (userId: string): Promise<void> => {
+    const epoch = nextBarrierEpoch();
+    localUserLogoutEpochs.set(userId, epoch);
+    if (deps.cache) {
+      await deps.cache.set(userLogoutEpochCacheKey(userId), String(epoch), ONETAP_CTX_TTL_SEC);
+    }
+  };
+  const hasUserLoggedOutSince = async (userId: string, startedEpoch: number): Promise<boolean> => {
+    const localEpoch = localUserLogoutEpochs.get(userId);
+    if (localEpoch !== undefined && localEpoch > startedEpoch) {
+      return true;
+    }
+    if (deps.cache) {
+      const raw = await deps.cache.get(userLogoutEpochCacheKey(userId));
+      const parsed = raw ? Number(raw) : NaN;
+      if (Number.isFinite(parsed) && parsed > startedEpoch) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   // -------------------------------------------------------------------------
   // RFC 9728 & RFC 8414 Well-Known Metadata
@@ -349,7 +481,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     const txCookieValue = cookies[OIDC_TX_COOKIE_NAME] ?? null;
 
     try {
-      const { membership, returnTo, oneTapVerified } = await deps.oidc.completeCallback(deps.store, {
+      const { membership, returnTo, oneTapVerified, idToken } = await deps.oidc.completeCallback(deps.store, {
         code,
         state,
         txCookieValue,
@@ -363,6 +495,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         workspaceId: membership.workspace.id,
         ttlSec: DEFAULT_SESSION_TTL_SEC,
       });
+      await saveSessionIdToken(session.tokenHash, idToken, DEFAULT_SESSION_TTL_SEC);
 
       const headers = new Headers();
       headers.append('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
@@ -376,20 +509,35 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           maxAgeSec: DEFAULT_SESSION_TTL_SEC,
         }),
       );
-      if (returnTo.startsWith('/auth/desktop/start')) {
+      if (membership.user.appUserId) {
+        const attCookie = serializeTrackingAttestationCookie(
+          cookies[TRACKING_ATTESTATION_COOKIE_NAME],
+          membership.user.appUserId,
+          trackingAttestationSecret,
+          { secure: secureCookie },
+        );
+        if (attCookie) {
+          headers.append('Set-Cookie', attCookie);
+        }
+      }
+      const desktopTarget = parseDesktopStartReturnTo(returnTo);
+      if (desktopTarget) {
+        const oidcCtxToken = randomBase64Url(24);
+        await desktopOidcProvenanceStore.save(sha256Hex(oidcCtxToken), {
+          userId: membership.user.id,
+          codeChallenge: desktopTarget.codeChallenge,
+          redirectUri: desktopTarget.redirectUri,
+          oneTapVerified,
+        });
         headers.append(
           'Set-Cookie',
-          serializeCookie(
-            DESKTOP_OIDC_CTX_COOKIE_NAME,
-            `${membership.user.id}:${oneTapVerified ? '1' : '0'}`,
-            {
-              httpOnly: true,
-              secure: secureCookie,
-              sameSite: 'Lax',
-              path: '/auth/desktop',
-              maxAgeSec: 120,
-            },
-          ),
+          serializeCookie(DESKTOP_OIDC_CTX_COOKIE_NAME, oidcCtxToken, {
+            httpOnly: true,
+            secure: secureCookie,
+            sameSite: 'Lax',
+            path: '/auth/desktop',
+            maxAgeSec: DESKTOP_OIDC_CTX_TTL_SEC,
+          }),
         );
       }
       headers.set('Location', returnTo);
@@ -406,12 +554,29 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   app.post('/auth/logout', async (c) => {
     const cookies = parseCookies(c.req.header('cookie'));
     const rawSession = cookies[SESSION_COOKIE_NAME];
+    const oneTapCookieEntries = Object.entries(cookies).filter(
+      ([name, value]) =>
+        Boolean(value) && (name === ONETAP_CTX_COOKIE_NAME || name.startsWith(ONETAP_CTX_COOKIE_PREFIX)),
+    );
 
-    if (rawSession) {
+    if (rawSession || oneTapCookieEntries.length > 0) {
       if (!verifyCsrfOrigin(c.req.raw, deps.config.APP_PUBLIC_ORIGIN)) {
         return c.json({ code: 'FORBIDDEN', error: 'CSRF Origin check failed on logout' }, 403);
       }
+    }
+
+    let idTokenHint: string | null = null;
+    if (rawSession) {
+      const tokenHash = sha256Hex(rawSession);
+      const resolved = await resolveBrowserSession(deps.store, rawSession, {
+        authMode: deps.config.AUTH_MODE,
+        cache: deps.cache,
+      }).catch(() => null);
+      idTokenHint = await consumeSessionIdToken(tokenHash);
       await revokeBrowserSession(deps.store, { rawToken: rawSession }, deps.cache);
+      if (resolved?.auth.userId) {
+        await recordUserLogoutBarrier(resolved.auth.userId);
+      }
     }
 
     const headers = new Headers({
@@ -420,17 +585,39 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
     });
     headers.append('Set-Cookie', clearCookie(SESSION_COOKIE_NAME, secureCookie, '/'));
     headers.append('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'));
+    headers.append('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth'));
+    for (const [cookieName, cookieValue] of oneTapCookieEntries) {
+      await revokeOneTapBinding(sha256Hex(cookieValue));
+      if (cookieName.startsWith(ONETAP_CTX_COOKIE_PREFIX)) {
+        headers.append('Set-Cookie', clearCookie(cookieName, secureCookie, '/auth'));
+      }
+    }
+
+    // Deliver od_onetap_suppress=1 reliably via OIDC RP-Initiated Logout (id_token_hint +
+    // post_logout_redirect_uri) or via a verified configured logout landing URL — never by blindly
+    // appending a query parameter onto a bare end_session_endpoint.
     let endSessionUrl: string | undefined;
-    if (deps.config.AUTH_MODE === 'oidc' && deps.oidc) {
+    const configuredLogoutLanding = deps.config.OIDC_POST_LOGOUT_REDIRECT_URI;
+    const postLogoutRedirectUri = appendOneTapSuppressHint(
+      configuredLogoutLanding ?? new URL('/', deps.config.APP_PUBLIC_ORIGIN).toString(),
+    );
+    if (deps.config.AUTH_MODE === 'oidc' && deps.oidc && idTokenHint) {
       try {
         const doc = await deps.oidc.discover();
-        endSessionUrl = doc.end_session_endpoint
-          ? appendOneTapSuppressHint(doc.end_session_endpoint)
-          : undefined;
+        if (doc.end_session_endpoint) {
+          const logoutUrl = new URL(doc.end_session_endpoint);
+          logoutUrl.searchParams.set('id_token_hint', idTokenHint);
+          logoutUrl.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+          endSessionUrl = logoutUrl.toString();
+        }
       } catch {
         // Optional end_session_endpoint discovery failure must not block local logout.
       }
     }
+    if (!endSessionUrl && configuredLogoutLanding) {
+      endSessionUrl = postLogoutRedirectUri;
+    }
+
     return new Response(
       JSON.stringify({ ok: true, ...(endSessionUrl ? { endSessionUrl } : {}) }),
       { status: 200, headers },
@@ -440,6 +627,18 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
   app.get('/auth/me', authMiddleware, async (c) => {
     const auth = getAuthContext(c);
     const workspaces = await deps.store.listUserWorkspaces(auth.userId);
+    if (auth.authMethod === 'session_cookie' && auth.appUserId) {
+      const cookies = parseCookies(c.req.header('cookie'));
+      const attCookie = serializeTrackingAttestationCookie(
+        cookies[TRACKING_ATTESTATION_COOKIE_NAME],
+        auth.appUserId,
+        trackingAttestationSecret,
+        { secure: secureCookie },
+      );
+      if (attCookie) {
+        c.header('Set-Cookie', attCookie);
+      }
+    }
     return c.json({
       authenticated: true,
       authMode: auth.authMode,
@@ -518,11 +717,9 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         attemptId = sanitized;
       }
 
-      // Reuse an existing valid browser binding cookie so parallel tabs do not clobber each other's challenges.
-      const existingCookies = parseCookies(c.req.header('cookie'));
-      const existingCtx = existingCookies[ONETAP_CTX_COOKIE_NAME];
-      const ctxToken =
-        existingCtx && ONETAP_CTX_TOKEN_RE.test(existingCtx) ? existingCtx : randomBase64Url(32);
+      // Issue an isolated per-challenge binding cookie (Path=/auth) so concurrent cookieless tabs
+      // never overwrite each other's challenge bindings, while /auth/logout can revoke all active bindings.
+      const ctxToken = randomBase64Url(32);
       const browserBindingHash = sha256Hex(ctxToken);
 
       try {
@@ -533,6 +730,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           browserBindingHash,
         });
 
+        const cookieName = oneTapChallengeCookieName(challenge.challengeId);
         const headers = new Headers({
           'content-type': 'application/json; charset=utf-8',
           'cache-control': 'no-store',
@@ -540,11 +738,11 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         });
         headers.append(
           'Set-Cookie',
-          serializeCookie(ONETAP_CTX_COOKIE_NAME, ctxToken, {
+          serializeCookie(cookieName, ctxToken, {
             httpOnly: true,
             secure: secureCookie,
             sameSite: 'Lax',
-            path: '/auth/one-tap',
+            path: '/auth',
             maxAgeSec: ONETAP_CTX_TTL_SEC,
           }),
         );
@@ -614,9 +812,14 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       }
 
       const cookies = parseCookies(c.req.header('cookie'));
-      const ctxToken = cookies[ONETAP_CTX_COOKIE_NAME];
+      const challengeCookieName = oneTapChallengeCookieName(challengeId);
+      const perChallengeToken = cookies[challengeCookieName];
+      const legacyToken = cookies[ONETAP_CTX_COOKIE_NAME];
+      const ctxToken = perChallengeToken || legacyToken;
+      const matchedCookieName = perChallengeToken ? challengeCookieName : ONETAP_CTX_COOKIE_NAME;
+      const matchedCookiePath = perChallengeToken ? '/auth' : '/auth/one-tap';
       if (!ctxToken || !ctxToken.trim()) {
-        c.header('Set-Cookie', clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'));
+        c.header('Set-Cookie', clearCookie(challengeCookieName, secureCookie, '/auth'));
         return c.json(
           {
             code: 'CHALLENGE_INVALID',
@@ -627,7 +830,24 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         );
       }
 
+      const exchangeStartedEpoch = nextBarrierEpoch();
       const browserBindingHash = sha256Hex(ctxToken);
+      if (await isOneTapBindingRevoked(browserBindingHash)) {
+        c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
+        deps.onOneTapTelemetry?.({
+          event: 'onetap_login_failed',
+          errorCode: 'CHALLENGE_INVALID',
+        });
+        return c.json(
+          {
+            code: 'CHALLENGE_INVALID',
+            error: 'One Tap sign-in was canceled after logout.',
+            message: 'One Tap sign-in was canceled after logout.',
+          },
+          409,
+        );
+      }
+
       const attribution = sanitizeOneTapAttribution(rawBody.attribution);
       const referralCode = sanitizeOptionalShortString(rawBody.referralCode, 128);
 
@@ -648,6 +868,29 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           displayName: exchanged.name || exchanged.email || 'User',
           avatarUrl: exchanged.image,
         });
+
+        // Re-check logout revocation barriers right before creating om_session so a slow in-flight
+        // exchange can never resurrect a session after another tab completed /auth/logout.
+        const bindingRevokedDuringExchange = await isOneTapBindingRevoked(browserBindingHash);
+        const userLoggedOutDuringExchange = await hasUserLoggedOutSince(
+          membership.user.id,
+          exchangeStartedEpoch,
+        );
+        if (bindingRevokedDuringExchange || userLoggedOutDuringExchange) {
+          c.header('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
+          deps.onOneTapTelemetry?.({
+            event: 'onetap_login_failed',
+            errorCode: 'CHALLENGE_INVALID',
+          });
+          return c.json(
+            {
+              code: 'CHALLENGE_INVALID',
+              error: 'One Tap sign-in was canceled because you signed out in another tab.',
+              message: 'One Tap sign-in was canceled because you signed out in another tab.',
+            },
+            409,
+          );
+        }
 
         const session = await createBrowserSession(deps.store, {
           userId: membership.user.id,
@@ -670,10 +913,16 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             maxAgeSec: DEFAULT_SESSION_TTL_SEC,
           }),
         );
-        headers.append(
-          'Set-Cookie',
-          clearCookie(ONETAP_CTX_COOKIE_NAME, secureCookie, '/auth/one-tap'),
+        headers.append('Set-Cookie', clearCookie(matchedCookieName, secureCookie, matchedCookiePath));
+        const attCookie = serializeTrackingAttestationCookie(
+          cookies[TRACKING_ATTESTATION_COOKIE_NAME],
+          exchanged.appUserId,
+          trackingAttestationSecret,
+          { secure: secureCookie },
         );
+        if (attCookie) {
+          headers.append('Set-Cookie', attCookie);
+        }
 
         deps.onOneTapTelemetry?.({
           event: 'onetap_login_success',
@@ -716,12 +965,12 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       }
     });
 
-    app.get('/auth/upgrade-handoff', authMiddleware, async (c) => {
+    app.get('/auth/upgrade-handoff', async (c) => {
       c.header('Cache-Control', 'no-store');
       c.header('Pragma', 'no-cache');
 
-      const auth = getAuthContext(c);
-      if (auth.authMethod !== 'session_cookie') {
+      // Non-session Bearer/PAT credentials must never mint browser upgrade handoff tickets.
+      if (c.req.header('authorization')) {
         return c.json(
           {
             code: 'FORBIDDEN',
@@ -736,11 +985,67 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const parsedReqUrl = new URL(c.req.url);
       const retryPath = `${parsedReqUrl.pathname}${parsedReqUrl.search}`;
 
-      if (auth.authUserId && auth.appUserId) {
+      const cookies = parseCookies(c.req.header('cookie'));
+      const rawSession = cookies[SESSION_COOKIE_NAME];
+      const unavailableResponse = () =>
+        new Response(renderUpgradeHandoffUnavailableHtml(retryPath), {
+          status: 503,
+          headers: {
+            'content-type': 'text/html; charset=utf-8',
+            'cache-control': 'no-store',
+            pragma: 'no-cache',
+            'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+            'x-content-type-options': 'nosniff',
+          },
+        });
+
+      let authUserId: string | null = null;
+      let appUserId: string | null = null;
+      let hasActiveSession = false;
+
+      if (rawSession) {
+        try {
+          const resolved = await resolveBrowserSession(deps.store, rawSession, {
+            authMode: deps.config.AUTH_MODE,
+            cache: deps.cache,
+          });
+          if (resolved) {
+            hasActiveSession = true;
+            const enriched = await amrIdentity.verifyAndEnrichAuthContext(deps.store, resolved.auth);
+            authUserId = enriched.authUserId ?? null;
+            appUserId = enriched.appUserId ?? null;
+          }
+        } catch (error) {
+          if (isCloudError(error) && error.status === 503) {
+            // Active session could not be verified with AMR — fail closed, never redirect to unbound Pricing.
+            return unavailableResponse();
+          }
+          // Inactive/revoked session -> treat as signed-out guest below.
+          hasActiveSession = false;
+        }
+      }
+
+      if (!hasActiveSession) {
+        // Guests requesting public Pricing paths via same-origin /auth/upgrade-handoff (e.g. while
+        // header account probe is still in-flight) are safely forwarded to the public Pricing page.
+        const guestPricingUrl = resolveGuestPricingRedirectUrl(targetPath, deps.config);
+        if (guestPricingUrl) {
+          return c.redirect(guestPricingUrl, 302);
+        }
+        return c.json(
+          {
+            code: 'UNAUTHORIZED',
+            error: 'Authentication is required for this upgrade handoff target.',
+          },
+          401,
+        );
+      }
+
+      if (authUserId && appUserId) {
         try {
           const ticket = await amrIdentity.createOneTapHandoffTicket({
-            authUserId: auth.authUserId,
-            appUserId: auth.appUserId,
+            authUserId,
+            appUserId,
             targetPath,
           });
           if (isSafeUpgradeHandoffUrl(ticket.handoffUrl, deps.config)) {
@@ -751,20 +1056,11 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         }
       }
 
-      return new Response(renderUpgradeHandoffUnavailableHtml(retryPath), {
-        status: 503,
-        headers: {
-          'content-type': 'text/html; charset=utf-8',
-          'cache-control': 'no-store',
-          pragma: 'no-cache',
-          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
-          'x-content-type-options': 'nosniff',
-        },
-      });
+      return unavailableResponse();
     });
   }
 
-  mountDesktopHandoffRoutes(app, deps);
+  mountDesktopHandoffRoutes(app, deps, { oidcProvenanceStore: desktopOidcProvenanceStore });
 
   // -------------------------------------------------------------------------
   // OAuth 2.1 Proxy Endpoints (DCR, PKCE Authorize, Token, Revoke)

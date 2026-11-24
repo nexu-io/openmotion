@@ -39,6 +39,7 @@ data:
   OIDC_ISSUER: "https://auth.example.com"
   OIDC_CLIENT_ID: "openmotion-web"
   OIDC_CALLBACK_URL: "https://motion.example.com/auth/callback"
+  OIDC_POST_LOGOUT_REDIRECT_URI: "https://motion.example.com/"
   OIDC_SCOPES: "openid profile email"
   OIDC_CLAIM_SUB: "sub"
   OIDC_CLAIM_EMAIL: "email"
@@ -56,7 +57,9 @@ data:
   OPENDESIGN_LINK_URL: "https://amr-link.open-design.ai"
   OPENDESIGN_CONSOLE_URL: "https://open-design.ai/cloud"
   OPENDESIGN_PRICING_URL: "https://open-design.ai/pricing"
-  OPENDESIGN_ONE_TAP_INTERNAL_URL: ""
+  # Dedicated cluster-internal AMR service URL for One Tap S2S (challenge / exchange / handoff-ticket).
+  # Never falls back to public OPENDESIGN_API_URL.
+  OPENDESIGN_ONE_TAP_INTERNAL_URL: "http://amr-api.amr.svc.cluster.local:8080"
   OPENDESIGN_ASR_URL: ""
   OPENDESIGN_BILLING_SYNC_ENABLED: "false"
   ALLOW_DOH_FAKEIP_FALLBACK: "false"

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { Hono } from 'hono';
+import { SignJWT } from 'jose';
 import {
   DESKTOP_HANDOFF_EXCHANGE_PATH,
   DESKTOP_HANDOFF_START_PATH,
@@ -13,6 +14,8 @@ import {
   DESKTOP_OIDC_CTX_COOKIE_NAME,
   InMemoryAuthCache,
   InMemoryAuthStore,
+  OIDC_TX_COOKIE_NAME,
+  OidcService,
   SESSION_COOKIE_NAME,
   assertSafeReturnTo,
   createAuthRoutes,
@@ -245,7 +248,7 @@ describe('Desktop System-Browser Session Handoff API', () => {
       assert.equal(parsedReturn.searchParams.get('code_challenge_method'), 'S256');
       assert.equal(parsedReturn.searchParams.get('redirect_uri'), redirectUri);
       assert.equal(parsedReturn.searchParams.get('state'), state);
-      assert.equal(parsedReturn.searchParams.get('interactive'), '1');
+      assert.equal(parsedReturn.searchParams.get('interactive'), null);
     });
 
     it('forwards switch=1 to /auth/login?switch=1 and strips switch=1 from returnTo to prevent loops', async () => {
@@ -723,40 +726,33 @@ describe('Desktop System-Browser Session Handoff API', () => {
     });
   });
 
-  describe('Authoritative planTier and interactiveLogin propagation', () => {
-    it('returns interactiveLogin: true when returning from /auth/login (interactive=1) and false when reusing existing om_session', async () => {
+  describe('Authoritative planTier and OIDC-bound One Tap provenance propagation', () => {
+    it('binds AMR id_token auth_method=google_one_tap strictly to the OIDC transaction + desktop PKCE and rejects spoofed query params or cross-flow replay', async () => {
+      const oneTapInternalUrl = 'http://amr-api.internal.svc.cluster.local:8080';
+      const oneTapInternalToken = 'dedicated-desktop-onetap-token';
       const config = makeConfig({
         OPENDESIGN_API_URL: 'https://amr-api.example.test',
         OPENDESIGN_INTERNAL_API_TOKEN: 's2s-token',
+        OPENDESIGN_ONE_TAP_INTERNAL_URL: oneTapInternalUrl,
+        OPENDESIGN_ONE_TAP_INTERNAL_TOKEN: oneTapInternalToken,
       });
       const store = new InMemoryAuthStore();
       const cache = new InMemoryAuthCache();
-
-      const projected = await store.projectAmrUserAndWorkspace({
-        oidcSub: 'ba_usr_desktop',
-        appUserId: 'usr_app_desktop',
-        email: 'desktop@example.test',
-        displayName: 'Desktop User',
-        avatarUrl: null,
-        externalWorkspaceId: 'ws_amr_desktop',
-        workspaceName: 'Desktop Workspace',
-        role: 'owner',
-      });
-      const browserSession = await createBrowserSession(store, {
-        userId: projected.user.id,
-        workspaceId: projected.workspace.id,
-      });
 
       let billingPlanResponse: { status: number; body: Record<string, unknown> } = {
         status: 200,
         body: { membershipTier: 'free' },
       };
+      let nextIdTokenClaims: Record<string, unknown> = {};
+      const capturedTicketTargets: string[] = [];
 
       const amrIdentity = new AmrIdentityClient({
         apiUrl: 'https://amr-api.example.test',
         internalToken: 's2s-token',
+        oneTapApiUrl: oneTapInternalUrl,
+        oneTapInternalToken,
         cache,
-        fetcher: (async (input: string | URL | Request) => {
+        fetcher: (async (input: string | URL | Request, init?: RequestInit) => {
           const url = String(input);
           if (url.startsWith('https://amr-api.example.test/api/internal/identity/ba_usr_desktop')) {
             return Response.json({
@@ -781,7 +777,11 @@ describe('Desktop System-Browser Session Handoff API', () => {
           if (url === 'https://amr-api.example.test/api/internal/billing/summary/usr_app_desktop') {
             return Response.json(billingPlanResponse.body, { status: billingPlanResponse.status });
           }
-          if (url === 'https://amr-api.example.test/api/internal/auth/one-tap/handoff-ticket') {
+          if (url === `${oneTapInternalUrl}/api/internal/auth/one-tap/handoff-ticket`) {
+            const headers = new Headers(init?.headers);
+            assert.equal(headers.get('x-internal-token'), oneTapInternalToken);
+            const body = JSON.parse(String(init?.body ?? '{}')) as { targetPath?: string };
+            if (body.targetPath) capturedTicketTargets.push(body.targetPath);
             return Response.json({
               ticket: 'ht_desktop_1',
               handoffUrl: 'https://amr-api.example.test/api/auth/one-tap/handoff?ticket=ht_desktop_1',
@@ -792,119 +792,203 @@ describe('Desktop System-Browser Session Handoff API', () => {
         }) as typeof fetch,
       });
 
+      const oidc = new OidcService(
+        {
+          issuer: 'https://idp.example.test',
+          clientId: 'openmotion-cloud-client',
+          clientSecret: 'ephemeral-test-client-secret',
+          callbackUrl: 'https://motion.example.test/auth/callback',
+          scopes: 'openid profile email',
+          claimSub: 'sub',
+          claimEmail: 'email',
+          claimName: 'name',
+          discovery: {
+            issuer: 'https://idp.example.test',
+            authorization_endpoint: 'https://idp.example.test/authorize',
+            token_endpoint: 'https://idp.example.test/token',
+            id_token_signing_alg_values_supported: ['HS256'],
+          },
+          fetcher: (async () => {
+            const idToken = await new SignJWT({
+              sub: 'ba_usr_desktop',
+              email: 'desktop@example.test',
+              name: 'Desktop User',
+              ...nextIdTokenClaims,
+            })
+              .setProtectedHeader({ alg: 'HS256' })
+              .setIssuer('https://idp.example.test')
+              .setAudience('openmotion-cloud-client')
+              .setIssuedAt()
+              .setExpirationTime('10m')
+              .sign(new TextEncoder().encode('ephemeral-test-client-secret'));
+            return Response.json({ id_token: idToken, access_token: 'at_desktop' });
+          }) as typeof fetch,
+        },
+        cache,
+      );
+
       const app = new Hono<AuthEnv>();
-      app.route('/', createAuthRoutes({ config, store, cache, amrIdentity }));
+      app.route('/', createAuthRoutes({ config, store, cache, oidc, amrIdentity }));
 
       const redirectUri = 'http://127.0.0.1:45200/callback';
 
-      // Case 1: Existing browser session fast-path (no interactive=1) -> interactiveLogin: false, planTier: 'free'
-      const pair1 = generatePkcePair();
-      const startFast = await app.request(
-        buildStartUrl({
-          code_challenge: pair1.codeChallenge,
-          code_challenge_method: 'S256',
-          redirect_uri: redirectUri,
-          state: 'fast-path',
-        }),
-        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
-      );
-      assert.equal(startFast.status, 302);
-      const code1 = new URL(startFast.headers.get('location')!).searchParams.get('code')!;
-      const exchangeFast = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code1, codeVerifier: pair1.codeVerifier, redirectUri }),
-      });
-      assert.equal(exchangeFast.status, 200);
-      const fastBody = (await exchangeFast.json()) as DesktopHandoffExchangeResponse;
-      assert.equal(fastBody.interactiveLogin, false);
-      assert.equal(fastBody.planTier, 'free');
+      // Helper running the real browser flow: /auth/desktop/start -> /auth/login -> /auth/callback -> /auth/desktop/start
+      const runOidcDesktopFlow = async (claims: Record<string, unknown>, stateLabel: string) => {
+        const pair = generatePkcePair();
+        const start1 = await app.request(
+          buildStartUrl({
+            code_challenge: pair.codeChallenge,
+            code_challenge_method: 'S256',
+            redirect_uri: redirectUri,
+            state: stateLabel,
+          }),
+        );
+        assert.equal(start1.status, 302);
+        const loginPath = start1.headers.get('location')!;
+        assert.ok(loginPath.startsWith('/auth/login?'));
 
-      // Case 2: Interactive One Tap login (om_desktop_oidc_ctx verified=1) + membershipTier: null -> free + pricingHandoffUrl
+        const loginRes = await app.request(loginPath);
+        assert.equal(loginRes.status, 302);
+        const authUrl = new URL(loginRes.headers.get('location')!);
+        const oidcState = authUrl.searchParams.get('state')!;
+        const oidcNonce = authUrl.searchParams.get('nonce')!;
+        const txCookie = extractCookieValue(loginRes.headers.getSetCookie(), OIDC_TX_COOKIE_NAME)!;
+
+        nextIdTokenClaims = { nonce: oidcNonce, ...claims };
+        const cbRes = await app.request(
+          `/auth/callback?code=code_${stateLabel}&state=${encodeURIComponent(oidcState)}`,
+          { headers: { Cookie: `${OIDC_TX_COOKIE_NAME}=${txCookie}` } },
+        );
+        assert.equal(cbRes.status, 302);
+        const cbCookies = cbRes.headers.getSetCookie();
+        const sessionToken = extractCookieValue(cbCookies, SESSION_COOKIE_NAME)!;
+        const desktopOidcCtx = extractCookieValue(cbCookies, DESKTOP_OIDC_CTX_COOKIE_NAME)!;
+        const returnTo = cbRes.headers.get('location')!;
+        assert.ok(sessionToken && desktopOidcCtx);
+        return { pair, sessionToken, desktopOidcCtx, returnTo };
+      };
+
+      // Case 1: Real AMR One Tap OIDC (auth_method: 'google_one_tap') + membershipTier: null -> free + pricingHandoffUrl (/pricing)
       billingPlanResponse = { status: 200, body: { membershipTier: null } };
-      const pair2 = generatePkcePair();
-      const startInteractive = await app.request(
-        buildStartUrl({
-          code_challenge: pair2.codeChallenge,
-          code_challenge_method: 'S256',
-          redirect_uri: redirectUri,
-          state: 'interactive-path',
-          interactive: '1',
-        }),
-        {
-          headers: {
-            Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${projected.user.id}:1`,
-          },
+      const oneTapFlow = await runOidcDesktopFlow({ auth_method: 'google_one_tap' }, 'real-onetap');
+      const startAfterOneTap = await app.request(oneTapFlow.returnTo, {
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${oneTapFlow.sessionToken}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${oneTapFlow.desktopOidcCtx}`,
         },
-      );
-      assert.equal(startInteractive.status, 302);
-      const code2 = new URL(startInteractive.headers.get('location')!).searchParams.get('code')!;
-      const exchangeInteractive = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+      });
+      assert.equal(startAfterOneTap.status, 302);
+      const code1 = new URL(startAfterOneTap.headers.get('location')!).searchParams.get('code')!;
+      const exchange1 = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code2, codeVerifier: pair2.codeVerifier, redirectUri }),
+        body: JSON.stringify({ code: code1, codeVerifier: oneTapFlow.pair.codeVerifier, redirectUri }),
       });
-      assert.equal(exchangeInteractive.status, 200);
-      const interactiveBody = (await exchangeInteractive.json()) as DesktopHandoffExchangeResponse;
-      assert.equal(interactiveBody.interactiveLogin, true);
-      assert.equal(interactiveBody.oneTapVerified, true);
-      assert.equal(interactiveBody.planTier, 'free');
+      assert.equal(exchange1.status, 200);
+      const body1 = (await exchange1.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(body1.interactiveLogin, true);
+      assert.equal(body1.oneTapVerified, true);
+      assert.equal(body1.planTier, 'free');
       assert.equal(
-        interactiveBody.pricingHandoffUrl,
+        body1.pricingHandoffUrl,
         'https://amr-api.example.test/api/auth/one-tap/handoff?ticket=ht_desktop_1',
       );
+      assert.equal(capturedTicketTargets.at(-1), '/pricing');
 
-      // Case 2b: Ordinary OIDC / silent AMR session reuse (om_desktop_oidc_ctx verified=0) -> interactiveLogin: false, no pricingHandoffUrl
-      const pair2b = generatePkcePair();
-      const startOrdinaryOidc = await app.request(
+      // Case 2: Ordinary OIDC / silent AMR session reuse (no auth_method: 'google_one_tap') -> interactiveLogin: false, NO pricingHandoffUrl
+      const ordinaryFlow = await runOidcDesktopFlow({ one_tap: true, amr: ['google_one_tap'] }, 'ordinary-oidc');
+      const startAfterOrdinary = await app.request(ordinaryFlow.returnTo, {
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${ordinaryFlow.sessionToken}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${ordinaryFlow.desktopOidcCtx}`,
+        },
+      });
+      assert.equal(startAfterOrdinary.status, 302);
+      const code2 = new URL(startAfterOrdinary.headers.get('location')!).searchParams.get('code')!;
+      const exchange2 = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code2, codeVerifier: ordinaryFlow.pair.codeVerifier, redirectUri }),
+      });
+      assert.equal(exchange2.status, 200);
+      const body2 = (await exchange2.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(body2.interactiveLogin, false);
+      assert.equal(body2.oneTapVerified, undefined);
+      assert.equal(body2.pricingHandoffUrl, undefined);
+
+      // Case 3: Existing om_session fast-path + spoofed ?interactive=1&one_tap=1 WITHOUT valid context cookie -> MUST NOT trigger Pricing
+      const spoofPair = generatePkcePair();
+      const startSpoof = await app.request(
         buildStartUrl({
-          code_challenge: pair2b.codeChallenge,
+          code_challenge: spoofPair.codeChallenge,
           code_challenge_method: 'S256',
           redirect_uri: redirectUri,
-          state: 'ordinary-oidc-path',
+          state: 'spoof-query',
           interactive: '1',
+          one_tap: '1',
+        }),
+        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${oneTapFlow.sessionToken}` } },
+      );
+      assert.equal(startSpoof.status, 302);
+      const codeSpoof = new URL(startSpoof.headers.get('location')!).searchParams.get('code')!;
+      const exchangeSpoof = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: codeSpoof, codeVerifier: spoofPair.codeVerifier, redirectUri }),
+      });
+      assert.equal(exchangeSpoof.status, 200);
+      const spoofBody = (await exchangeSpoof.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(spoofBody.interactiveLogin, false);
+      assert.equal(spoofBody.oneTapVerified, undefined);
+      assert.equal(spoofBody.pricingHandoffUrl, undefined);
+
+      // Case 4: Replaying a verified One Tap context cookie onto a DIFFERENT desktop PKCE transaction -> rejected (no Pricing)
+      const flowA = await runOidcDesktopFlow({ auth_method: 'google_one_tap' }, 'flow-a');
+      const otherPair = generatePkcePair();
+      const replayStart = await app.request(
+        buildStartUrl({
+          code_challenge: otherPair.codeChallenge,
+          code_challenge_method: 'S256',
+          redirect_uri: redirectUri,
+          state: 'flow-b',
         }),
         {
           headers: {
-            Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${projected.user.id}:0`,
+            Cookie: `${SESSION_COOKIE_NAME}=${flowA.sessionToken}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${flowA.desktopOidcCtx}`,
           },
         },
       );
-      assert.equal(startOrdinaryOidc.status, 302);
-      const code2b = new URL(startOrdinaryOidc.headers.get('location')!).searchParams.get('code')!;
-      const exchangeOrdinaryOidc = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
+      assert.equal(replayStart.status, 302);
+      const codeReplay = new URL(replayStart.headers.get('location')!).searchParams.get('code')!;
+      const exchangeReplay = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code2b, codeVerifier: pair2b.codeVerifier, redirectUri }),
+        body: JSON.stringify({ code: codeReplay, codeVerifier: otherPair.codeVerifier, redirectUri }),
       });
-      assert.equal(exchangeOrdinaryOidc.status, 200);
-      const ordinaryOidcBody = (await exchangeOrdinaryOidc.json()) as DesktopHandoffExchangeResponse;
-      assert.equal(ordinaryOidcBody.interactiveLogin, false);
-      assert.equal(ordinaryOidcBody.pricingHandoffUrl, undefined);
+      assert.equal(exchangeReplay.status, 200);
+      const replayBody = (await exchangeReplay.json()) as DesktopHandoffExchangeResponse;
+      assert.equal(replayBody.interactiveLogin, false);
+      assert.equal(replayBody.oneTapVerified, undefined);
+      assert.equal(replayBody.pricingHandoffUrl, undefined);
 
-      // Case 3: Billing lookup fails -> falls back to 'unknown' (never hardcoded 'free')
+      // Case 5: Billing lookup fails -> falls back to 'unknown' (never hardcoded 'free', no Pricing handoff ticket)
       billingPlanResponse = { status: 503, body: { error: 'billing_down' } };
-      const pair3 = generatePkcePair();
-      const startUnknown = await app.request(
-        buildStartUrl({
-          code_challenge: pair3.codeChallenge,
-          code_challenge_method: 'S256',
-          redirect_uri: redirectUri,
-          state: 'unknown-plan',
-          interactive: '1',
-        }),
-        { headers: { Cookie: `${SESSION_COOKIE_NAME}=${browserSession.token}` } },
-      );
-      const code3 = new URL(startUnknown.headers.get('location')!).searchParams.get('code')!;
+      const unknownFlow = await runOidcDesktopFlow({ auth_method: 'google_one_tap' }, 'unknown-plan');
+      const startUnknown = await app.request(unknownFlow.returnTo, {
+        headers: {
+          Cookie: `${SESSION_COOKIE_NAME}=${unknownFlow.sessionToken}; ${DESKTOP_OIDC_CTX_COOKIE_NAME}=${unknownFlow.desktopOidcCtx}`,
+        },
+      });
+      const codeUnknown = new URL(startUnknown.headers.get('location')!).searchParams.get('code')!;
       const exchangeUnknown = await app.request(DESKTOP_HANDOFF_EXCHANGE_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: code3, codeVerifier: pair3.codeVerifier, redirectUri }),
+        body: JSON.stringify({ code: codeUnknown, codeVerifier: unknownFlow.pair.codeVerifier, redirectUri }),
       });
       assert.equal(exchangeUnknown.status, 200);
       const unknownBody = (await exchangeUnknown.json()) as DesktopHandoffExchangeResponse;
       assert.equal(unknownBody.interactiveLogin, true);
+      assert.equal(unknownBody.oneTapVerified, true);
       assert.equal(unknownBody.planTier, 'unknown');
+      assert.equal(unknownBody.pricingHandoffUrl, undefined);
     });
   });
 });

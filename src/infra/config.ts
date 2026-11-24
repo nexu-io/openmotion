@@ -76,6 +76,7 @@ const rawConfigSchema = z.object({
   OIDC_CLIENT_ID: optionalNonEmptyString,
   OIDC_CLIENT_SECRET: optionalNonEmptyString,
   OIDC_CALLBACK_URL: optionalUrl,
+  OIDC_POST_LOGOUT_REDIRECT_URI: optionalUrl,
   OIDC_SCOPES: z.string().min(1).default('openid profile email'),
   OIDC_CLAIM_SUB: z.string().min(1).default('sub'),
   OIDC_CLAIM_EMAIL: z.string().min(1).default('email'),

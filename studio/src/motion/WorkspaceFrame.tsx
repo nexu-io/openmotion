@@ -39,7 +39,7 @@ import { setObservabilityContext } from '@openmotion/observability/browser';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { useAccountSummary } from './AccountSettings';
-import { MotionGoogleOneTap } from './googleOneTap';
+import { MotionGoogleOneTap, retryMotionOneTap } from './googleOneTap';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
@@ -201,6 +201,30 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   });
   const navigationError = blockerError ?? workspace.navigationError;
   const navigationToast = useToast();
+  const oneTapErrorToastIdRef = useRef<number | null>(null);
+  const handleOneTapError = useCallback(
+    (errorMessage: string) => {
+      oneTapErrorToastIdRef.current = navigationToast.showToast(
+        errorMessage,
+        'error',
+        'feedback',
+        {
+          key: 'onetap-retry',
+          label: t('Retry'),
+          onClick: () => {
+            retryMotionOneTap();
+          },
+        },
+      );
+    },
+    [navigationToast.showToast, t],
+  );
+  const handleOneTapSuccess = useCallback(() => {
+    if (oneTapErrorToastIdRef.current !== null) {
+      navigationToast.dismissToast(oneTapErrorToastIdRef.current);
+      oneTapErrorToastIdRef.current = null;
+    }
+  }, [navigationToast.dismissToast]);
   useEffect(() => {
     if (!navigationError) return;
     const id = navigationToast.showToast(navigationError.message, 'error', 'feedback');
@@ -553,7 +577,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     <WorkspaceGoogleOneTap
       bfBannerVisible={bfBannerVisible}
       hostChrome={hostChrome}
-      onError={errorMessage => navigationToast.showToast(errorMessage, 'error', 'feedback')}
+      onError={handleOneTapError}
+      onSuccess={handleOneTapSuccess}
     />
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
@@ -650,14 +675,16 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   </WorkspaceChromeContext.Provider>;
 }
 
-function WorkspaceGoogleOneTap({
+export function WorkspaceGoogleOneTap({
   bfBannerVisible,
   hostChrome,
   onError,
+  onSuccess,
 }: {
   bfBannerVisible: boolean;
   hostChrome: boolean;
   onError: (message: string) => void;
+  onSuccess?: () => void;
 }) {
   const { account, error, refresh } = useAccountSummary();
   return (
@@ -668,6 +695,7 @@ function WorkspaceGoogleOneTap({
       hostChrome={hostChrome}
       refreshAccount={() => refresh(false)}
       onError={onError}
+      onSuccess={onSuccess}
     />
   );
 }

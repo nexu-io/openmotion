@@ -286,7 +286,7 @@ export class OidcService {
       error?: string | null;
       amrIdentity?: AmrIdentityClient;
     },
-  ): Promise<{ membership: MembershipResolution; returnTo: string; oneTapVerified: boolean }> {
+  ): Promise<{ membership: MembershipResolution; returnTo: string; oneTapVerified: boolean; idToken: string }> {
     if (input.error) {
       if (input.state) {
         await this.cache.del(oidcTxCacheKey(input.state));
@@ -402,13 +402,10 @@ export class OidcService {
           externalWorkspaceId,
         });
 
-    const amrClaim = Array.isArray(payload.amr) ? payload.amr : [];
-    const oneTapVerified =
-      payload.one_tap === true ||
-      payload.auth_method === 'google_one_tap' ||
-      amrClaim.includes('google_one_tap');
+    // Single authoritative AMR OIDC id_token claim proving interactive Google One Tap sign-in.
+    const oneTapVerified = payload.auth_method === 'google_one_tap';
 
-    return { membership, returnTo: tx.returnTo, oneTapVerified };
+    return { membership, returnTo: tx.returnTo, oneTapVerified, idToken: tokenJson.id_token };
   }
 
   /**

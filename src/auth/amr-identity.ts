@@ -164,9 +164,9 @@ export function amrIdentityCacheKey(authUserId: string, externalWorkspaceId?: st
 export interface AmrIdentityClientOptions {
   apiUrl: string;
   internalToken: string;
-  /** Dedicated internal-only AMR base URL for One Tap S2S endpoints (defaults to apiUrl). */
+  /** Dedicated internal-only AMR base URL for One Tap S2S endpoints (required for One Tap; never falls back to apiUrl). */
   oneTapApiUrl?: string;
-  /** Dedicated internal service token for One Tap S2S endpoints (defaults to internalToken). */
+  /** Dedicated internal service token for One Tap S2S endpoints (required for One Tap; never falls back to internalToken). */
   oneTapInternalToken?: string;
   cache?: AuthKeyValueCache;
   cacheTtlSec?: number;
@@ -212,8 +212,8 @@ export function amrIdentityClientFromAppConfig(
 export class AmrIdentityClient {
   private readonly apiUrl: string;
   private readonly internalToken: string;
-  private readonly oneTapApiUrl: string;
-  private readonly oneTapInternalToken: string;
+  private readonly oneTapApiUrl: string | undefined;
+  private readonly oneTapInternalToken: string | undefined;
   private readonly cache?: AuthKeyValueCache;
   private readonly cacheTtlSec: number;
   private readonly timeoutMs: number;
@@ -223,8 +223,10 @@ export class AmrIdentityClient {
   constructor(options: AmrIdentityClientOptions) {
     this.apiUrl = options.apiUrl.replace(/\/$/, '');
     this.internalToken = options.internalToken;
-    this.oneTapApiUrl = (options.oneTapApiUrl ?? options.apiUrl).replace(/\/$/, '');
-    this.oneTapInternalToken = options.oneTapInternalToken ?? options.internalToken;
+    const rawOneTapUrl = options.oneTapApiUrl?.trim();
+    const rawOneTapToken = options.oneTapInternalToken?.trim();
+    this.oneTapApiUrl = rawOneTapUrl ? rawOneTapUrl.replace(/\/$/, '') : undefined;
+    this.oneTapInternalToken = rawOneTapToken || undefined;
     this.cache = options.cache;
     this.cacheTtlSec = Math.min(
       MAX_AMR_IDENTITY_CACHE_TTL_SEC,
@@ -233,6 +235,10 @@ export class AmrIdentityClient {
     this.timeoutMs = options.timeoutMs ?? 5_000;
     this.fetcher = options.fetcher ?? fetch;
     this.logger = options.logger ?? createLogger();
+  }
+
+  isOneTapConfigured(): boolean {
+    return Boolean(this.oneTapApiUrl && this.oneTapInternalToken);
   }
 
   private unavailable(
@@ -508,6 +514,13 @@ export class AmrIdentityClient {
     payload: unknown,
     actionLabel: string,
   ): Promise<Record<string, unknown>> {
+    if (!this.oneTapApiUrl || !this.oneTapInternalToken) {
+      throw new AmrOneTapError(
+        503,
+        'ONE_TAP_UNAVAILABLE',
+        'Dedicated internal One Tap service URL and token are required.',
+      );
+    }
     const url = `${this.oneTapApiUrl}${path}`;
     const signal = AbortSignal.timeout(this.timeoutMs);
     let response: Response;

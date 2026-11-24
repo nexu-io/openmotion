@@ -14,12 +14,15 @@ import {
   DEFAULT_SESSION_TTL_SEC,
   DESKTOP_OIDC_CTX_COOKIE_NAME,
   SESSION_COOKIE_NAME,
+  TRACKING_ATTESTATION_COOKIE_NAME,
   clearCookie,
   createBrowserSession,
   isHttpsOrigin,
   parseCookies,
   resolveBrowserSession,
+  resolveTrackingAttestationSecret,
   serializeCookie,
+  serializeTrackingAttestationCookie,
 } from './session.ts';
 import {
   assertSafeReturnTo,
@@ -31,11 +34,123 @@ import {
 } from './store.ts';
 
 const DESKTOP_HANDOFF_CACHE_PREFIX = 'om:auth:desktop-handoff:';
+const DESKTOP_OIDC_CTX_CACHE_PREFIX = 'om:auth:desktop-oidc-ctx:';
+export const DESKTOP_OIDC_CTX_TTL_SEC = 120;
 const MAX_STATE_LENGTH = 256;
 const MAX_REDIRECT_URI_LENGTH = 2048;
 const PKCE_BASE64URL_RE = /^[A-Za-z0-9_-]{43,128}$/;
 const CONTROL_CHAR_RE = /[\x00-\x1f\x7f]/;
 const FALLBACK_PRUNE_THRESHOLD = 128;
+
+export interface DesktopOidcProvenanceRecord {
+  userId: string;
+  codeChallenge: string;
+  redirectUri: string;
+  oneTapVerified: boolean;
+  expiresAt: number;
+}
+
+export class DesktopOidcProvenanceStore {
+  private readonly cache: AuthKeyValueCache | undefined;
+  private readonly fallback = new Map<string, DesktopOidcProvenanceRecord>();
+  private readonly consuming = new Set<string>();
+  private readonly now: () => number;
+  private readonly ttlSec: number;
+
+  constructor(cache: AuthKeyValueCache | undefined, options: { now?: () => number; ttlSec?: number } = {}) {
+    this.cache = cache;
+    this.now = options.now ?? (() => Date.now());
+    this.ttlSec = options.ttlSec ?? DESKTOP_OIDC_CTX_TTL_SEC;
+  }
+
+  private cacheKey(tokenHash: string): string {
+    return `${DESKTOP_OIDC_CTX_CACHE_PREFIX}${tokenHash}`;
+  }
+
+  async save(
+    tokenHash: string,
+    input: Omit<DesktopOidcProvenanceRecord, 'expiresAt'>,
+  ): Promise<DesktopOidcProvenanceRecord> {
+    const currentMs = this.now();
+    const record: DesktopOidcProvenanceRecord = {
+      ...input,
+      expiresAt: currentMs + this.ttlSec * 1000,
+    };
+    if (this.cache) {
+      await this.cache.set(this.cacheKey(tokenHash), JSON.stringify(record), this.ttlSec);
+    } else {
+      if (this.fallback.size >= FALLBACK_PRUNE_THRESHOLD) {
+        for (const [k, entry] of this.fallback.entries()) {
+          if (entry.expiresAt <= currentMs) this.fallback.delete(k);
+        }
+      }
+      this.fallback.set(tokenHash, record);
+    }
+    return record;
+  }
+
+  async consume(tokenHash: string): Promise<DesktopOidcProvenanceRecord | null> {
+    if (this.consuming.has(tokenHash)) return null;
+    this.consuming.add(tokenHash);
+    try {
+      const currentMs = this.now();
+      let record: DesktopOidcProvenanceRecord | null = null;
+      if (this.cache) {
+        const key = this.cacheKey(tokenHash);
+        const raw = await this.cache.get(key);
+        if (!raw) return null;
+        await this.cache.del(key);
+        try {
+          const parsed = JSON.parse(raw) as Partial<DesktopOidcProvenanceRecord>;
+          if (
+            typeof parsed.userId === 'string' &&
+            typeof parsed.codeChallenge === 'string' &&
+            typeof parsed.redirectUri === 'string' &&
+            typeof parsed.expiresAt === 'number'
+          ) {
+            record = {
+              userId: parsed.userId,
+              codeChallenge: parsed.codeChallenge,
+              redirectUri: parsed.redirectUri,
+              oneTapVerified: parsed.oneTapVerified === true,
+              expiresAt: parsed.expiresAt,
+            };
+          }
+        } catch {
+          return null;
+        }
+      } else {
+        const existing = this.fallback.get(tokenHash);
+        if (!existing) return null;
+        this.fallback.delete(tokenHash);
+        record = existing;
+      }
+      if (!record || record.expiresAt <= currentMs) return null;
+      return record;
+    } finally {
+      this.consuming.delete(tokenHash);
+    }
+  }
+}
+
+export function parseDesktopStartReturnTo(
+  returnTo: string,
+): { codeChallenge: string; redirectUri: string } | null {
+  if (!returnTo.startsWith(DESKTOP_HANDOFF_START_PATH)) return null;
+  try {
+    const parsed = new URL(returnTo, 'https://desktop-return.invalid');
+    if (parsed.pathname !== DESKTOP_HANDOFF_START_PATH) return null;
+    const codeChallenge = parsed.searchParams.get('code_challenge') ?? '';
+    const redirectUri = parsed.searchParams.get('redirect_uri') ?? '';
+    if (!PKCE_BASE64URL_RE.test(codeChallenge)) return null;
+    if (!redirectUri || redirectUri.length > MAX_REDIRECT_URI_LENGTH || !isValidDesktopLoopbackRedirectUri(redirectUri)) {
+      return null;
+    }
+    return { codeChallenge, redirectUri };
+  } catch {
+    return null;
+  }
+}
 
 export interface DesktopHandoffRecord {
   userId: string;
@@ -54,6 +169,8 @@ export interface DesktopHandoffOptions {
   now?: () => number;
   /** Override handoff code TTL in seconds. Defaults to `DESKTOP_HANDOFF_TTL_SEC` (60s). */
   ttlSec?: number;
+  /** Shared single-use OIDC provenance store linking `/auth/callback` to `/auth/desktop/start`. */
+  oidcProvenanceStore?: DesktopOidcProvenanceStore;
 }
 
 class DesktopHandoffCodeStore {
@@ -294,7 +411,10 @@ export function mountDesktopHandoffRoutes(
   options: DesktopHandoffOptions = {},
 ): void {
   const codeStore = new DesktopHandoffCodeStore(deps.cache, options);
+  const oidcProvenanceStore =
+    options.oidcProvenanceStore ?? new DesktopOidcProvenanceStore(deps.cache, { now: options.now });
   const secureCookie = isHttpsOrigin(deps.config.APP_PUBLIC_ORIGIN);
+  const trackingAttestationSecret = resolveTrackingAttestationSecret(deps.config);
 
   app.get(DESKTOP_HANDOFF_START_PATH, async (c) => {
     c.header('Cache-Control', 'no-store');
@@ -311,16 +431,15 @@ export function mountDesktopHandoffRoutes(
     }
 
     const switchAccount = c.req.query('switch') === '1';
-    const queryOneTap = c.req.query('one_tap') === '1';
-    const queryInteractive = c.req.query('interactive') === '1';
 
     // Build a clean returnTo URL with validated params only (and without switch=1 to prevent redirect loops).
+    // One Tap provenance is NEVER derived from query params; it comes exclusively from the server-side
+    // OIDC transaction provenance record created in `/auth/callback`.
     const returnParams = new URLSearchParams({
       code_challenge: validated.codeChallenge,
       code_challenge_method: 'S256',
       redirect_uri: validated.redirectUri,
       state: validated.state,
-      interactive: '1',
     });
     const safeReturnTo = assertSafeReturnTo(`${DESKTOP_HANDOFF_START_PATH}?${returnParams.toString()}`);
 
@@ -379,21 +498,23 @@ export function mountDesktopHandoffRoutes(
       return c.redirect(`/auth/login?returnTo=${encodeURIComponent(safeReturnTo)}`, 302);
     }
 
-    // Bind AMR-verified One Tap provenance from `/auth/callback` when present so ordinary OIDC
-    // or silent AMR session reuse does not falsely trigger One Tap Pricing redirects.
-    let oneTapVerified = queryOneTap;
-    let interactiveLogin = queryOneTap || queryInteractive;
+    // Strictly verify AMR-issued One Tap provenance bound to this exact OIDC transaction
+    // (userId + PKCE codeChallenge + loopback redirectUri). Query flags are NEVER trusted.
+    let oneTapVerified = false;
+    let interactiveLogin = false;
     let shouldClearOidcCtx = false;
     if (rawDesktopOidcCtx) {
       shouldClearOidcCtx = true;
-      const sep = rawDesktopOidcCtx.lastIndexOf(':');
-      if (sep > 0) {
-        const ctxUserId = rawDesktopOidcCtx.slice(0, sep);
-        const ctxFlag = rawDesktopOidcCtx.slice(sep + 1);
-        if (timingSafeStringEqual(ctxUserId, userId)) {
-          oneTapVerified = ctxFlag === '1';
-          interactiveLogin = oneTapVerified;
-        }
+      const provenance = await oidcProvenanceStore.consume(sha256Hex(rawDesktopOidcCtx));
+      if (
+        provenance &&
+        provenance.oneTapVerified === true &&
+        timingSafeStringEqual(provenance.userId, userId) &&
+        timingSafeStringEqual(provenance.codeChallenge, validated.codeChallenge) &&
+        timingSafeStringEqual(provenance.redirectUri, validated.redirectUri)
+      ) {
+        oneTapVerified = true;
+        interactiveLogin = true;
       }
     }
 
@@ -486,13 +607,13 @@ export function mountDesktopHandoffRoutes(
 
     let planTier: DesktopHandoffPlanTier = 'unknown';
     let pricingHandoffUrl: string | null | undefined;
+    const resolvedAppUserId = record.appUserId ?? membership.user.appUserId ?? null;
     if (deps.config.AUTH_MODE === 'oidc' && deps.amrIdentity) {
-      const resolvedAppUserId = record.appUserId ?? membership.user.appUserId ?? null;
       const resolvedAuthUserId = record.authUserId ?? membership.user.oidcSub ?? null;
       if (resolvedAppUserId) {
         planTier = await deps.amrIdentity.lookupBillingPlanTier(resolvedAppUserId);
       }
-      if (record.interactiveLogin && (planTier === 'free' || planTier === 'go')) {
+      if (record.oneTapVerified && record.interactiveLogin && (planTier === 'free' || planTier === 'go')) {
         pricingHandoffUrl = null;
         if (resolvedAuthUserId && resolvedAppUserId) {
           try {
@@ -511,14 +632,33 @@ export function mountDesktopHandoffRoutes(
       }
     }
 
-    const cookieHeader = serializeCookie(SESSION_COOKIE_NAME, session.token, {
-      httpOnly: true,
-      secure: secureCookie,
-      sameSite: 'Lax',
-      path: '/',
-      maxAgeSec: DEFAULT_SESSION_TTL_SEC,
+    const reqCookies = parseCookies(c.req.header('cookie'));
+    const headers = new Headers({
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      pragma: 'no-cache',
     });
-    c.header('Set-Cookie', cookieHeader);
+    headers.append(
+      'Set-Cookie',
+      serializeCookie(SESSION_COOKIE_NAME, session.token, {
+        httpOnly: true,
+        secure: secureCookie,
+        sameSite: 'Lax',
+        path: '/',
+        maxAgeSec: DEFAULT_SESSION_TTL_SEC,
+      }),
+    );
+    if (resolvedAppUserId) {
+      const attCookie = serializeTrackingAttestationCookie(
+        reqCookies[TRACKING_ATTESTATION_COOKIE_NAME],
+        resolvedAppUserId,
+        trackingAttestationSecret,
+        { secure: secureCookie },
+      );
+      if (attCookie) {
+        headers.append('Set-Cookie', attCookie);
+      }
+    }
 
     const responseBody: DesktopHandoffExchangeResponse = {
       ok: true,
@@ -533,7 +673,7 @@ export function mountDesktopHandoffRoutes(
       ...(record.oneTapVerified ? { oneTapVerified: true } : {}),
       ...(pricingHandoffUrl !== undefined ? { pricingHandoffUrl } : {}),
     };
-    return c.json(responseBody, 200);
+    return new Response(JSON.stringify(responseBody), { status: 200, headers });
   });
 }
 

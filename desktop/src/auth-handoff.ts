@@ -46,7 +46,6 @@ const ALLOWED_DESKTOP_PRICING_PATH_PREFIXES = [
   '/pricing',
   '/plans',
   '/zh/pricing',
-  '/cloud/pricing',
   '/api/auth/one-tap/handoff',
 ] as const;
 
@@ -155,6 +154,67 @@ export function parseStudioAuthNavigationUrl(
   } catch {
     return null;
   }
+}
+
+export interface ElectronSessionDeliveryTarget {
+  isDestroyed(): boolean;
+  webContents: {
+    session: {
+      cookies: {
+        flushStore(): Promise<void>;
+        get(filter: { url: string; name: string }): Promise<Array<{ value?: string }>>;
+      };
+      fetch(
+        url: string,
+        init: { method: 'GET'; credentials: 'include' },
+      ): Promise<{ ok: boolean; json: () => Promise<unknown> }>;
+    };
+  };
+}
+
+/**
+ * Verifies that the Electron BrowserWindow session actually holds the newly exchanged `om_session`
+ * for the exact `user.id` and `workspaceId` returned by `/auth/desktop/exchange` (rejecting stale
+ * Account A cookies that failed to be overwritten during Account B sign-in).
+ */
+export async function verifyElectronSessionDelivered(
+  getWindow: () => ElectronSessionDeliveryTarget | null,
+  context: {
+    studioOrigin: string;
+    user: DesktopHandoffExchangeResponse['user'];
+    workspaceId: string;
+  },
+): Promise<boolean> {
+  const win = getWindow();
+  if (!win || win.isDestroyed()) return false;
+  await win.webContents.session.cookies.flushStore().catch(() => {});
+  if (win.isDestroyed()) return false;
+  const cookies = await win.webContents.session.cookies.get({
+    url: context.studioOrigin,
+    name: 'om_session',
+  });
+  if (win.isDestroyed() || !cookies.some(cookie => Boolean(cookie.value))) {
+    return false;
+  }
+  const meUrl = new URL('/auth/me', context.studioOrigin).toString();
+  const meRes = await win.webContents.session.fetch(meUrl, {
+    method: 'GET',
+    credentials: 'include',
+  });
+  if (win.isDestroyed() || !meRes.ok) {
+    return false;
+  }
+  const meBody = (await meRes.json().catch(() => null)) as {
+    authenticated?: unknown;
+    user?: { id?: unknown };
+    activeWorkspaceId?: unknown;
+  } | null;
+  return (
+    !win.isDestroyed() &&
+    meBody?.authenticated === true &&
+    meBody.user?.id === context.user.id &&
+    meBody.activeWorkspaceId === context.workspaceId
+  );
 }
 
 /**

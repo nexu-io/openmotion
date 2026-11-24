@@ -39,6 +39,7 @@ import {
   parseStudioAuthNavigationUrl,
   probeDesktopHandoffSupport,
   sanitizeAuthReturnPath,
+  verifyElectronSessionDelivered,
 } from './auth-handoff.ts';
 import { createElectronSafeSecretStore } from './safe-secret-store.ts';
 import { createDesktopSentryReporter, resolveDesktopSentryDsn } from './sentry.ts';
@@ -466,38 +467,11 @@ const authHandoff = new DesktopAuthHandoffManager({
     }
     return response;
   },
-  verifySessionDelivered: async ({ studioOrigin, user, workspaceId }) => {
-    const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
-    if (!win) return false;
-    await win.webContents.session.cookies.flushStore().catch(() => {});
-    if (win.isDestroyed()) return false;
-    const cookies = await win.webContents.session.cookies.get({
-      url: studioOrigin,
-      name: 'om_session',
-    });
-    if (win.isDestroyed() || !cookies.some(cookie => Boolean(cookie.value))) {
-      return false;
-    }
-    const meUrl = new URL('/auth/me', studioOrigin).toString();
-    const meRes = await win.webContents.session.fetch(meUrl, {
-      method: 'GET',
-      credentials: 'include',
-    });
-    if (win.isDestroyed() || !meRes.ok) {
-      return false;
-    }
-    const meBody = (await meRes.json().catch(() => null)) as {
-      authenticated?: unknown;
-      user?: { id?: unknown };
-      activeWorkspaceId?: unknown;
-    } | null;
-    return (
-      !win.isDestroyed() &&
-      meBody?.authenticated === true &&
-      meBody.user?.id === user.id &&
-      meBody.activeWorkspaceId === workspaceId
-    );
-  },
+  verifySessionDelivered: context =>
+    verifyElectronSessionDelivered(
+      () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+      context,
+    ),
   onFocusMainWindow: () => {
     inWindowAuthFallbackActive = false;
     const returnPath = pendingLoginReturnPath;

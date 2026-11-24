@@ -177,3 +177,33 @@ it('attaches app_user_id when signed in via setMotionTrackingUserId and omits it
   await tracking.flushMotionTracking();
   expect('app_user_id' in bodies[1].events[0]).toBe(false);
 });
+
+it('never treats cloud /motion-api/tracking enabled=true as device-ID consent and blocks odDeviceId passthrough until explicit consent', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ enabled: true, locked: false, mode: 'cloud' })),
+  );
+  history.replaceState(
+    null,
+    '',
+    '/explore?od_origin=open_design&od_entry_id=ent_1&od_entry_source=openmotion_manage_subscription&od_entry_at=2026-11-24T00:00:00.000Z&od_device_id=dev_should_not_leak',
+  );
+  const tracking = await import('./tracking');
+  const { isMotionTrackingConsented, setMotionTrackingConsented } = await import('./trackingIdentity');
+  const { collectOneTapAttribution } = await import('./googleOneTap');
+
+  setMotionTrackingConsented(false);
+  await tracking.initializeTracking();
+  expect(tracking.getMotionTrackingStatus()).toMatchObject({ configuration: 'ready', enabled: true });
+  expect(isMotionTrackingConsented()).toBe(false);
+
+  const collected = collectOneTapAttribution();
+  expect(collected.attribution.odEntry).toMatchObject({
+    sourceProduct: 'open_design',
+    entryId: 'ent_1',
+    sourceDetail: 'openmotion_manage_subscription',
+    entryOccurredAt: '2026-11-24T00:00:00.000Z',
+  });
+  expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceId');
+  expect(collected.attribution.odEntry).not.toHaveProperty('odDeviceIdConsent');
+});

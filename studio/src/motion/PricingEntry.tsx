@@ -25,13 +25,16 @@ function resolvePricingHref(locale: string, entryId: string, useUpgradeHandoff: 
 
 export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
   const { locale, t } = useI18n();
-  const { account } = useAccountSummary();
+  const { account, error: accountError } = useAccountSummary();
   const gradientId = useId();
   // Each click is its own Pricing entry: its id is on the link and on the click event, then replaced.
   const [entryId, setEntryId] = useState(newCampaignEntryId);
-  const useUpgradeHandoff = Boolean(
-    account?.state === 'signed-in' && account?.authMode === 'oidc' && !isDesktopApp(),
-  );
+  // Only give an unauthenticated direct link once account probing has explicitly confirmed a guest
+  // with no probe error (or in dev/desktop mode). While probing or on probe failure, route through
+  // same-origin /auth/upgrade-handoff so the server authoritatively binds any existing om_session
+  // (and safely forwards true guests to public Pricing).
+  const confirmedGuest = !accountError && account?.state === 'signed-out';
+  const useUpgradeHandoff = !isDesktopApp() && account?.authMode !== 'dev' && !confirmedGuest;
   const href = resolvePricingHref(locale, entryId, useUpgradeHandoff);
   // Outside the campaign window the entry stays as plain Pricing: no badge, campaign label or campaign fields.
   const campaign = useBlackFridayActive();

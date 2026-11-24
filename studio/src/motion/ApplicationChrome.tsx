@@ -14,6 +14,7 @@ import { useWorkspaceChrome } from './WorkspaceFrame';
 import { buildLoginUrl, useAccountSummary } from './AccountSettings';
 import { suppressOneTapAfterConfirmedLogout } from './googleOneTap';
 import { clearPrivateSwrCache } from './swrCache';
+import { flushMotionTracking } from './tracking';
 import { setMotionTrackingUserId } from './trackingIdentity';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
@@ -139,6 +140,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
   const avatarInitial = avatarSegmenter.segment(userName)[Symbol.iterator]().next().value?.segment;
   async function signOut() {
     try {
+      void flushMotionTracking();
       const response = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
       const data = await response.json().catch(() => ({})) as { endSessionUrl?: string };
       if (!response.ok) {
