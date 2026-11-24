@@ -21,7 +21,7 @@ import { createAppTracking, closeTracking, type OmTracking } from './shared/trac
 import { extractCodexThreadMeta, flushCodexSessionTracking, isCompletedExportToolResult, recordCodexThreadActivity, syncActiveCodexThreads } from './shared/codex-session-tracking.ts';
 import { uuid } from './tracking/core.ts';
 import { mcpToolNames } from './tracking/events.ts';
-import { toolFailureFields, toolInputFields } from './tracking/tool-fields.ts';
+import { gameResultStatusIsLifecycle, gameToolFields, toolFailureFields, toolInputFields } from './tracking/tool-fields.ts';
 import { identifyHost, unknownHost } from './tracking/host.ts';
 import type { HostContext } from './tracking/host.ts';
 import { templateCatalogFor } from './prism-templates.ts';
@@ -104,7 +104,7 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
   if (definition) {
     try { validateInput(definition.inputSchema, args ?? {}); accepted = true; } catch { /* The invocation reports the validation failure. */ }
   }
-  const fields = { tool_name: name as typeof mcpToolNames[number], call_id: callId, accepted, ...toolInputFields(publicName, args),
+  const fields = { tool_name: name as typeof mcpToolNames[number], call_id: callId, accepted, ...toolInputFields(publicName, args), ...gameToolFields(name, args),
     ...(typeof args?.requestId === 'string' && uuid.test(args.requestId) ? { operation_id: args.requestId } : {}) };
   if (accepted) tracking.track('mcp_tool_started', fields, undefined, undefined, host);
   const response = await invokeRpc(message, store, registry, connection, host, trackingContext, clientState, options);
@@ -123,10 +123,12 @@ export async function rpc(message: any, store = new WorkspaceStore(), registry =
       embedded: message.params.arguments.embedded !== false,
     }, undefined, undefined, host);
   }
-  const outcome = value?.isError || content?.status === 'failed' ? 'failure' : content?.status === 'partial' ? 'partial' : value ? 'success' : 'unknown';
+  const lifecycleStatus = gameResultStatusIsLifecycle(name);
+  const outcome = value?.isError || !lifecycleStatus && content?.status === 'failed' ? 'failure'
+    : !lifecycleStatus && content?.status === 'partial' ? 'partial' : value ? 'success' : 'unknown';
   const importRejected = (outcome === 'partial' || outcome === 'failure')
     && (name === 'motion_import_assets' || name === 'motion_assets' && fields.action === 'import_to_project');
-  tracking.track('mcp_tool_finished', { ...fields, outcome, duration_ms: Math.min(86_400_000, Math.round(performance.now() - started)),
+  tracking.track('mcp_tool_finished', { ...fields, ...(value?.isError ? {} : gameToolFields(name, args, content)), outcome, duration_ms: Math.min(86_400_000, Math.round(performance.now() - started)),
     ...(value?.isError ? toolFailureFields(content?.error)
       : importRejected ? { error_code: 'ASSET_IMPORT_FAILED' as const } : {}),
     ...(typeof content?.replayed === 'boolean' ? { replayed: content.replayed } : {}) }, undefined, undefined, host);

@@ -637,6 +637,19 @@ async function runMain() {
         await new Promise((resolve, reject) => {
           let settled = false;
           let rpc;
+          let rootThreadId = '';
+          let rootTurnId = '';
+          const isForeignCodexNotification = (params, method) => {
+            const eventThreadId = typeof params?.threadId === 'string' && params.threadId ? params.threadId : undefined;
+            if (eventThreadId && rootThreadId && eventThreadId !== rootThreadId) return true;
+            if (method === 'turn/completed' || method === 'error') {
+              const eventTurnId = (typeof params?.turn?.id === 'string' && params.turn.id)
+                || (typeof params?.turnId === 'string' && params.turnId)
+                || undefined;
+              if (eventTurnId && rootTurnId && eventTurnId !== rootTurnId) return true;
+            }
+            return false;
+          };
           const finish = err => {
             if (settled) return;
             settled = true;
@@ -664,7 +677,10 @@ async function runMain() {
                 rpc.send({ id, result: { decision: dispatch.permissionMode === 'auto' ? 'accept' : 'decline' } });
               } else if (id !== undefined) {
                 rpc.send({ id, error: { code: -32601, message: 'Unsupported host request in bridge session' } });
+              } else if (isForeignCodexNotification(p, method)) {
+                return;
               } else if (method === 'turn/started') {
+                if (!rootTurnId && typeof p.turn?.id === 'string' && p.turn.id) rootTurnId = p.turn.id;
                 await sendEvent(dispatch.runId, { type: 'status.update', phase: 'thinking' });
               } else if (method === 'item/reasoning/summaryTextDelta' || method === 'item/reasoning/textDelta') {
                 await sendEvent(dispatch.runId, { type: 'reasoning.delta', messageId: String(p.itemId || 'reasoning'), delta: String(p.delta ?? '') });
@@ -764,8 +780,12 @@ async function runMain() {
             rpc.send({ method: 'initialized' });
             const opts = { cwd: execCwd, approvalPolicy: 'on-request', sandbox: resolvedWorkingDir ? 'workspace-write' : 'read-only', developerInstructions: dispatch.instructions, ...(dispatch.model && dispatch.model !== 'default' ? { model: dispatch.model } : {}) };
             const thr = dispatch.threadId ? await rpc.request('thread/resume', { ...opts, threadId: dispatch.threadId }) : await rpc.request('thread/start', { ...opts, dynamicTools: dispatch.dynamicTools });
-            if (thr?.thread?.id) await sendEvent(dispatch.runId, { type: 'thread.started', threadId: String(thr.thread.id) });
-            await rpc.request('turn/start', { threadId: thr.thread.id, ...(dispatch.model && dispatch.model !== 'default' ? { model: dispatch.model } : {}), effort: dispatch.reasoning && dispatch.reasoning !== 'default' ? dispatch.reasoning : null, input: [{ type: 'text', text: dispatch.prompt }] });
+            if (thr?.thread?.id) {
+              rootThreadId = String(thr.thread.id);
+              await sendEvent(dispatch.runId, { type: 'thread.started', threadId: rootThreadId });
+            }
+            const turnRes = await rpc.request('turn/start', { threadId: thr.thread.id, ...(dispatch.model && dispatch.model !== 'default' ? { model: dispatch.model } : {}), effort: dispatch.reasoning && dispatch.reasoning !== 'default' ? dispatch.reasoning : null, input: [{ type: 'text', text: dispatch.prompt }] });
+            if (typeof turnRes?.turn?.id === 'string' && turnRes.turn.id) rootTurnId = turnRes.turn.id;
           })().catch(finish);
         });
         return;

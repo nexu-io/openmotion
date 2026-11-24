@@ -1224,7 +1224,8 @@ test('HTML and SVG have one opaque-origin sandbox CSP with local asset and room 
     let headers:Record<string,any>={};
     await gameHttp({method:'GET',headers:{host:'localhost:4321'}} as any,{writeHead(status:number,h:Record<string,any>){assert.equal(status,200);headers=h;},end(){}} as any,new URL(`${prefix}/${game.id}/play/${file}`,'http://localhost'),workspace,async()=>({}));
     const csp=headers['Content-Security-Policy'];assert.equal(typeof csp,'string');
-    assert.match(csp,/(?:^|;)\s*sandbox allow-scripts allow-pointer-lock allow-popups allow-modals(?:;|$)/);
+    assert.match(csp,/(?:^|;)\s*sandbox allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals(?:;|$)/);
+    assert.match(csp,/(?:^|;)\s*form-action 'none'(?:;|$)/);
     assert.doesNotMatch(csp,/allow-same-origin/);assert.equal(csp.match(/sandbox/g).length,1);
     assert.match(csp,/blob: data:|data: blob:/);assert(csp.includes(`ws://localhost:4321${prefix}/${game.id}/rooms/`));
     assert.equal(headers['Access-Control-Allow-Origin'],'*');
@@ -1413,4 +1414,34 @@ test('headless playtest loads workspace asset versions via GET, HEAD, Range and 
   assert.equal(client.authoritative?.state.rangeStatus,206);
   assert.equal(client.authoritative?.state.rangeBytes,4);
   assert.equal(client.authoritative?.state.missingStatus,404);
+}));
+
+test('headless playtest lets native dialog form close modals while form-action none blocks network submits',async t=>fixture(async(service)=>{
+  if(!await browserExecutable().catch(()=>undefined)){t.skip('Local Chrome is unavailable');return;}
+  const {game}=await service.create(brief);
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="640" height="360"></canvas>
+    <dialog id="rules"><form method="dialog"><button id="close-btn">×</button></form></dialog>
+    <script>
+      const d = document.getElementById('rules');
+      d.showModal();
+      const opened = d.open;
+      document.getElementById('close-btn').click();
+      window.__omGame = { getState: () => ({ running: true, opened, closed: !d.open }) };
+    </script>`}]);
+  const {clients:[dialogClient]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.deepEqual(dialogClient.consoleErrors,[]);
+  assert.deepEqual(dialogClient.authoritative?.state,{running:true,opened:true,closed:true});
+
+  // Network form submission remains blocked by form-action 'none'.
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="640" height="360"></canvas>
+    <form id="ext" action="https://example.com/collect" method="post"><button id="send">Send</button></form>
+    <script>
+      let blockedDirective = null;
+      document.addEventListener('securitypolicyviolation', e => { blockedDirective = e.effectiveDirective; });
+      document.getElementById('send').click();
+      window.__omGame = { getState: () => ({ running: true, blockedDirective, href: location.href }) };
+    </script>`}]);
+  const {clients:[extClient]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.equal(extClient.authoritative?.state.blockedDirective,'form-action');
+  assert.match(String(extClient.authoritative?.state.href),/\/api\/games\/.*\/play\/index\.html/);
 }));

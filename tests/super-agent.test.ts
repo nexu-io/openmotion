@@ -2778,3 +2778,395 @@ test('extractArtifactFromTool auto-presents created design and motion projects s
   assert.equal(typeof motionArt.presentedAt, 'number');
   await service.close();
 }));
+
+test('Codex subagent notifications do not prematurely abort or pollute root turns, and stop() reconciles building game status', () => fixture(async store => {
+  for (const prompt of [SUPER_AGENT_INSTRUCTIONS, CLAUDE_SUPER_AGENT_INSTRUCTIONS]) {
+    assert.ok(prompt.includes('openmotion_read_workflow'), 'Super Agent prompt must direct workflow reads through openmotion_read_workflow');
+  }
+  const phase1 = new Phase1Service(store, pluginRoot, {
+    origin: () => 'http://127.0.0.1:4173',
+    nativeUrl: () => undefined,
+    openProject: async () => {},
+    mutation: async fn => fn(),
+    cancel: async () => ({ id: 'x', state: 'cancelled' } as any),
+  });
+  const created = await gameProjectsFor(store.directory).create({
+    prompt: 'Bund night cruiser',
+    genre: 'casual',
+    orientation: 'landscape',
+    multiplayer: false,
+  });
+  const gameId = created.game.id;
+  const toolReplies: Array<{ id: number; success: boolean }> = [];
+  let rootCompleted = false;
+
+  class SubagentCodexRpc {
+    onNotification: (msg: any) => void;
+    closed = false;
+    constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) {
+      this.onNotification = onNotification;
+    }
+    async request(method: string) {
+      if (method === 'initialize') return {};
+      if (method === 'thread/start') return { thread: { id: 'root-thread-1' } };
+      if (method === 'turn/start') {
+        queueMicrotask(() => {
+          this.onNotification({
+            method: 'turn/started',
+            params: { threadId: 'root-thread-1', turn: { id: 'root-turn-1' } },
+          });
+          this.onNotification({
+            id: 601,
+            method: 'item/tool/call',
+            params: {
+              threadId: 'root-thread-1',
+              turnId: 'root-turn-1',
+              callId: 'c-building',
+              tool: 'openmotion_game_set_status',
+              arguments: { id: gameId, status: 'building' },
+            },
+          });
+        });
+        return { turn: { id: 'root-turn-1' } };
+      }
+      return {};
+    }
+    send(payload: any) {
+      if (payload.id !== undefined) {
+        toolReplies.push({ id: payload.id, success: Boolean(payload.result?.success) });
+      }
+      if (payload.id === 601) {
+        queueMicrotask(() => {
+          this.onNotification({
+            id: 602,
+            method: 'item/tool/call',
+            params: {
+              threadId: 'subagent-thread-city',
+              turnId: 'subagent-turn-1',
+              callId: 'c-sub-write',
+              tool: 'openmotion_game_write_files',
+              arguments: {
+                id: gameId,
+                files: [
+                  { path: 'index.html', content: '<!doctype html><canvas id="game"></canvas><script>window.__ok=1;</script>' },
+                  { path: 'client.js', content: 'console.log("bundled");' },
+                ],
+              },
+            },
+          });
+        });
+      } else if (payload.id === 602) {
+        queueMicrotask(() => {
+          this.onNotification({
+            method: 'item/agentMessage/delta',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', itemId: 'sub-msg', delta: 'Subagent chatter' },
+          });
+          this.onNotification({
+            method: 'item/completed',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', item: { id: 'sub-msg', type: 'agentMessage', text: 'Subagent chatter' } },
+          });
+          this.onNotification({
+            method: 'thread/tokenUsage/updated',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', tokenUsage: { total: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } } },
+          });
+          this.onNotification({
+            method: 'error',
+            params: { threadId: 'subagent-thread-city', turnId: 'subagent-turn-1', willRetry: false, error: { message: 'subagent transient error' } },
+          });
+          this.onNotification({
+            method: 'turn/completed',
+            params: { threadId: 'subagent-thread-city', turn: { id: 'subagent-turn-1', status: 'completed' } },
+          });
+          this.onNotification({
+            method: 'turn/completed',
+            params: { turn: { id: 'stale-turn-999', status: 'completed' } },
+          });
+          setTimeout(() => {
+            if (this.closed) return;
+            rootCompleted = true;
+            this.onNotification({
+              method: 'thread/tokenUsage/updated',
+              params: { threadId: 'root-thread-1', turnId: 'root-turn-1', tokenUsage: { total: { inputTokens: 500, outputTokens: 200, totalTokens: 700 } } },
+            });
+            this.onNotification({
+              method: 'item/completed',
+              params: { threadId: 'root-thread-1', turnId: 'root-turn-1', item: { id: 'root-msg', type: 'agentMessage', text: 'Bund build finished.' } },
+            });
+            this.onNotification({
+              method: 'turn/completed',
+              params: { threadId: 'root-thread-1', turn: { id: 'root-turn-1', status: 'completed' } },
+            });
+          }, 30);
+        });
+      }
+    }
+    close() {
+      this.closed = true;
+    }
+  }
+
+  const service = new SuperAgentConversations(store, {
+    resolve: async () => '/usr/local/bin/codex',
+    rpc: SubagentCodexRpc as unknown as typeof AssetAgentRpc,
+  });
+
+  try {
+    const chat = await service.create({ engine: 'codex', intent: 'game', permissionMode: 'auto' });
+    await service.start(chat.id, {
+      requestId: 'req-subagent-1',
+      mode: 'game',
+      text: `Build game ${gameId}`,
+    }, {
+      origin: 'http://127.0.0.1:4173',
+      phase1: () => phase1,
+    });
+    const done = await service.waitForChat(chat.id);
+    assert.equal(rootCompleted, true, 'root turn must survive subagent turn/completed and error notifications');
+    assert.equal(done.state, 'idle');
+    assert.deepEqual(toolReplies, [{ id: 601, success: true }, { id: 602, success: true }]);
+    assert.equal(done.messages.some(m => m.text.includes('Subagent chatter')), false, 'subagent assistant text must not pollute root stream');
+    assert.equal(done.messages.some(m => m.text === 'Bund build finished.'), true);
+    assert.equal(done.lastTurnUsage?.totalTokens, 700);
+    const gameAfter = await gameProjectsFor(store.directory).get(gameId);
+    assert.equal(gameAfter.status, 'ready', 'valid written game must be promoted from building to ready on clean turn end');
+    assert.equal(done.activeArtifactId, `game:${gameId}`);
+
+    const created2 = await gameProjectsFor(store.directory).create({
+      prompt: 'Interrupted prototype',
+      genre: 'casual',
+      orientation: 'landscape',
+      multiplayer: false,
+    });
+    const gameId2 = created2.game.id;
+    let resolveStarted!: () => void;
+    const startedPromise = new Promise<void>(r => { resolveStarted = r; });
+
+    class HangingBuildingRpc {
+      onNotification: (msg: any) => void;
+      constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) {
+        this.onNotification = onNotification;
+      }
+      async request(method: string) {
+        if (method === 'initialize') return {};
+        if (method === 'thread/start') return { thread: { id: 'root-thread-2' } };
+        if (method === 'turn/start') {
+          queueMicrotask(() => {
+            this.onNotification({
+              id: 701,
+              method: 'item/tool/call',
+              params: {
+                threadId: 'root-thread-2',
+                callId: 'c-hang-build',
+                tool: 'openmotion_game_set_status',
+                arguments: { id: gameId2, status: 'building' },
+              },
+            });
+          });
+          return { turn: { id: 'root-turn-2' } };
+        }
+        return {};
+      }
+      send(payload: any) {
+        if (payload.id === 701) resolveStarted();
+      }
+      close() {}
+    }
+
+    const service2 = new SuperAgentConversations(store, {
+      resolve: async () => '/usr/local/bin/codex',
+      rpc: HangingBuildingRpc as unknown as typeof AssetAgentRpc,
+    });
+    try {
+      const chat2 = await service2.create({ engine: 'codex', intent: 'game', permissionMode: 'auto' });
+      await service2.start(chat2.id, {
+        requestId: 'req-subagent-cancel',
+        mode: 'game',
+        text: `Build game ${gameId2}`,
+      }, {
+        origin: 'http://127.0.0.1:4173',
+        phase1: () => phase1,
+      });
+      await startedPromise;
+      await service2.stop(chat2.id, undefined, 'cancelled');
+      const cancelledGame = await gameProjectsFor(store.directory).get(gameId2);
+      assert.equal(cancelledGame.status, 'failed', 'cancelled turn must demote building game to failed');
+    } finally {
+      await service2.close();
+    }
+  } finally {
+    await service.close();
+  }
+}));
+
+test('extractActionCardFromTool maps provider handoffs, low-balance failures, and web-publish auth errors', async () => {
+  const { extractActionCardFromTool } = await import('../gateway/super-agent.ts');
+  const { resolveMediaSetupEntry } = await import('../gateway/media-use.ts');
+
+  assert.deepEqual(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_signed_out' }, { previewUrl: 'http://localhost/settings/providers?provider=account' }, true),
+    {
+      id: 'action:sign_in:agent_media_signed_out',
+      kind: 'sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+    },
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_free' }, {}, true)?.kind,
+    'upgrade_free',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_upgrade_go' }, {}, true)?.kind,
+    'upgrade_go',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_balance_low' }, {}, true)?.kind,
+    'top_up',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers', entry: 'agent_media_key_rejected' }, {}, true)?.kind,
+    'configure_key',
+  );
+  // Generic provider preview without an actionable onboarding entry should not show a setup card
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'providers' }, {}, true),
+    undefined,
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_open_preview', { target: 'templates' }, {}, true),
+    undefined,
+  );
+
+  // Reactive Plus low-balance failure from failed OpenDesign account generation job (direct AND MCP structuredContent envelope)
+  assert.deepEqual(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'status' }, { job: { state: 'failed', model: { provider: 'account' }, error: 'Your OpenDesign balance is too low for this request. Top up, then try again.' } }, true),
+    {
+      id: 'action:top_up:agent_media_balance_low',
+      kind: 'top_up',
+      entry: 'agent_media_balance_low',
+      provider: 'account',
+    },
+  );
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'status', jobId: 'job-1' },
+      {
+        isError: false,
+        structuredContent: {
+          job: { state: 'failed', model: { provider: 'account' }, error: 'Your OpenDesign balance is too low for this request. Top up, then try again.' },
+        },
+        content: [{ type: 'text', text: '{"job":{"state":"failed"}}' }],
+      },
+      true,
+    ),
+    {
+      id: 'action:top_up:agent_media_balance_low',
+      kind: 'top_up',
+      entry: 'agent_media_balance_low',
+      provider: 'account',
+    },
+  );
+  // Negative case: BYOK provider insufficient_credits must NOT trigger an OpenDesign top-up card
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'fal:flux-pro' }, { error: 'insufficient_credits on fal account' }, false),
+    undefined,
+  );
+
+  // Plan restriction uses actual account context (Go -> upgrade_go, Free -> upgrade_free, Plus -> undefined)
+  const planErr = { isError: true, structuredContent: { error: { code: 'tier_model_not_entitled', message: 'Your OpenDesign plan does not include this model. Choose another model or upgrade your plan.' } } };
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:seedance' }, planErr, false, { accountPlan: 'go', accountMediaEntitlement: 'not-included' })?.kind,
+    'upgrade_go',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:seedance' }, planErr, false, { accountPlan: 'free', accountMediaEntitlement: 'not-included' })?.kind,
+    'upgrade_free',
+  );
+  assert.equal(
+    extractActionCardFromTool('openmotion_assets_use', { action: 'generate', model: 'account:pro-only' }, planErr, false, { accountPlan: 'plus', accountMediaEntitlement: 'included' }),
+    undefined,
+  );
+
+  // Structured MCP content[] envelope for web_publish auth failure (publish only, not status)
+  const mcpAuthErr = {
+    isError: true,
+    content: [{ type: 'text', text: JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: 'OPENDESIGN_SIGN_IN_REQUIRED: Sign in with OpenDesign to publish' } }) }],
+  };
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'web_publish', webPublish: { command: 'publish', targetKind: 'game', targetId: 'game-abc' } },
+      mcpAuthErr,
+      false,
+    ),
+    {
+      id: 'action:web_publish_sign_in:game:game-abc',
+      kind: 'web_publish_sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      targetKind: 'game',
+      targetId: 'game-abc',
+    },
+  );
+  assert.equal(
+    extractActionCardFromTool(
+      'openmotion_assets_use',
+      { action: 'web_publish', webPublish: { command: 'status', targetKind: 'game', targetId: 'game-abc' } },
+      mcpAuthErr,
+      false,
+    ),
+    undefined,
+  );
+  assert.deepEqual(
+    extractActionCardFromTool(
+      'openmotion_design_project',
+      { action: 'deploy', projectId: 'design-xyz' },
+      mcpAuthErr,
+      false,
+    ),
+    {
+      id: 'action:web_publish_sign_in:design:design-xyz',
+      kind: 'web_publish_sign_in',
+      entry: 'agent_media_signed_out',
+      provider: 'account',
+      targetKind: 'design',
+      targetId: 'design-xyz',
+    },
+  );
+
+  // Modality-scoped media setup resolution: Codex image-only does not suppress audio/video upgrade entry
+  const providers = [
+    { id: 'codex', available: true, configured: true, verification: 'unverified' as const },
+    { id: 'account', available: true, configured: true, verification: 'unverified' as const, mediaEntitlement: 'not-included' as const, plan: 'go' as const },
+  ];
+  const capabilities = [
+    { modality: 'image' as const, available: true, modelIds: ['codex:image-generation'] },
+    { modality: 'video' as const, available: false, modelIds: [] },
+    { modality: 'audio' as const, available: false, modelIds: [] },
+  ];
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'image', capabilities }), undefined);
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'audio', capabilities }), 'agent_media_upgrade_go');
+  assert.equal(resolveMediaSetupEntry(providers, { modality: 'video', capabilities }), 'agent_media_upgrade_go');
+
+  // Text-only provider (e.g. openai) must not suppress media setup when capabilities are supplied without modality
+  const textOnlyProviders = [
+    { id: 'openai', available: true, configured: true, verification: 'unverified' as const },
+    { id: 'account', available: false, configured: false, verification: 'unverified' as const },
+  ];
+  const emptyMediaCapabilities = [
+    { modality: 'image' as const, available: false, modelIds: [] },
+    { modality: 'video' as const, available: false, modelIds: [] },
+    { modality: 'audio' as const, available: false, modelIds: [] },
+  ];
+  assert.equal(resolveMediaSetupEntry(textOnlyProviders, { capabilities: emptyMediaCapabilities }), 'agent_media_signed_out');
+
+  // Guard against presenting /settings/providers as a web artifact (both absolute same-origin and relative forms)
+  const { isProviderSettingsWebArtifactUrl } = await import('../gateway/super-agent.ts');
+  const ownOrigin = 'http://127.0.0.1:4120';
+  assert.equal(isProviderSettingsWebArtifactUrl('http://127.0.0.1:4120/settings/providers?provider=account&entry_from=agent_media_signed_out', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('/settings/providers?entry_from=agent_media_signed_out', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('/settings/providers/', ownOrigin), true);
+  assert.equal(isProviderSettingsWebArtifactUrl('https://example.com/settings/providers', ownOrigin), false);
+  assert.equal(isProviderSettingsWebArtifactUrl('http://127.0.0.1:4120/games/demo', ownOrigin), false);
+});

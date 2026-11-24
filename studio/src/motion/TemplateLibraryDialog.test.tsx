@@ -724,7 +724,7 @@ it('does not duplicate a brand when the catalog has no author identity', async (
 
 it('copies contribution instructions with the selected template without opening another dialog', async () => {
   await mount();
-  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md"]')?.textContent).toContain('Submit template');
+  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md#submit-a-template-with-your-agent"]')?.textContent).toContain('Submit template');
   await act(async () => preview('First'));
   await act(async () => button('Recreate and submit').click());
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('First (one)'));

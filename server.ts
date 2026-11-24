@@ -1289,10 +1289,16 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         const body = await input(req); await setDefaultModel(gateway, body.kind, body.model); return json(res, 200, { ok: true });
       }
       if (url.pathname === '/api/settings/account' && req.method === 'GET') return json(res, 200, await gateway.account.summary(url.searchParams.get('refresh') === 'true'));
-      if (url.pathname === '/api/settings/account/login' && req.method === 'POST') return json(res, 200, await gateway.account.login());
+      if (url.pathname === '/api/settings/account/login' && req.method === 'POST') {
+        const body = await input(req).catch(() => ({}));
+        return json(res, 200, await gateway.account.login({ hookId: body.hookId, entryId: body.entryId }));
+      }
       if (url.pathname === '/api/settings/account/cancel' && req.method === 'POST') return json(res, 200, await gateway.account.cancel());
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
-      if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') return json(res, 200, await gateway.account.openSubscription());
+      if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') {
+        const body = await input(req).catch(() => ({}));
+        return json(res, 200, await gateway.account.openSubscription(undefined, { hookId: body.hookId, entryId: body.entryId }));
+      }
       return json(res, 404, { error: 'Settings endpoint not found' });
     }
     if (motionRequest && url.pathname.startsWith('/api/capabilities')) {

@@ -2,7 +2,7 @@
 // same page_name + area + element convention as the template library, so the funnels read alike.
 // The pages call these and own no tracking code of their own; nothing here may throw into them.
 import { slug } from '../../../tracking/core.ts';
-import { providerSetupEntries, type ProviderSetupEntry } from '../../../tracking/events.ts';
+import { providerSetupEntries, type EntitlementHookId, type ProviderSetupEntry } from '../../../tracking/events.ts';
 import type { BrandKit } from '../../../shared/brand-kit';
 import type { CopyMethod } from '../utils/clipboard';
 import type { MotionSkill, SkillParameters } from './skillCatalog';
@@ -209,10 +209,18 @@ export function reportSettingsPageView(section: SettingsSectionField, hasProject
   send('page_view', { ...settingsPage, ...shell(hasProject), settings_section: section, ...(entry ? { entry_from: entry } : {}) });
 }
 export function reportSettingsClick(area: SettingsClickArea, element: Click['element'],
-  fields: Pick<Click, 'settings_section' | 'expanded' | 'position'> & { provider?: { id: string; custom?: boolean; protocol?: string }; agent?: string } = {}) {
+  fields: Pick<Click, 'settings_section' | 'expanded' | 'position' | 'hook_id' | 'entry_id'> & { provider?: { id: string; custom?: boolean; protocol?: string }; agent?: string } = {}) {
   const { provider, agent, ...rest } = fields;
   const entry = settingsEntryFrom();
   send('ui_click', { ...settingsPage, area, element, ...rest, ...(entry ? { entry_from: entry } : {}), ...(provider ? providerFields(provider) : {}), ...slugField('agent_id', agent) });
+}
+export function reportEntitlementGateView(page: NonNullable<Fields<'surface_view'>['page_name']>, hookId: EntitlementHookId,
+  extra: Pick<Fields<'surface_view'>, 'publish_target' | 'studio_id'> = {}) {
+  send('surface_view', { page_name: page, area: 'entitlement_gate', element: 'gate_card', hook_id: hookId, ...extra });
+}
+export function reportEntitlementRefresh(page: NonNullable<Fields<'entitlement_refresh_result'>['page_name']>,
+  hookId: EntitlementHookId, entryId: string | undefined, outcome: 'success' | 'failure', planChanged: boolean) {
+  send('entitlement_refresh_result', { page_name: page, hook_id: hookId, ...(entryId ? { entry_id: entryId } : {}), outcome, plan_changed: planChanged });
 }
 export function reportProviderSetting(provider: { id: string; custom?: boolean; protocol?: string }, action: ProviderAction, outcome: 'success' | 'failure') {
   send('provider_setting_result', { ...settingsPage, ...providerFields(provider), action, outcome });

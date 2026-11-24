@@ -21,7 +21,8 @@ import { GameMasonry, interleavePortrait } from './GameMasonry';
 import { bundledGames, communityGames, communityRemixPrompt, composeBrief, coverUrl, formatPlays, gameApi, gameSource, storedInstruction, genreCovers, genreLabels, settingCovers, styleCovers, genrePlaceholders, isLocalOnly, playableUrl, rememberInstruction, settingLabels, styleLabels } from './gameCatalog';
 import { buildGameContextTags, buildGameHiddenInstructions, buildGameUserPrompt, toGameArtifact, toGameCapabilityRef } from './gameSuperAgent';
 import { optionId as optionFilter } from '../reporting';
-import { reportGameAction, reportGameClick, reportGameCreate } from './gameTracking';
+import { reportGameAction, reportGameClick, reportGameCreate, reportGameDetailShown, reportGameHandoffShown, reportGameSearch } from './gameTracking';
+import { newTrackingId } from '../reporting';
 import './gameStudio.css';
 
 type Menu = 'genre' | 'style' | 'setting';
@@ -253,6 +254,18 @@ export function GameStudio({
   }, [all, category, query, sort, t, locale]);
   // The user's own games, newest first, live in the side list like projects in the Motion editor.
   const mine = useMemo(() => games.filter(game => game.source === 'mine').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [games]);
+  const lastSearchKey = useRef('');
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) { lastSearchKey.current = ''; return; }
+    const key = `${trimmed}\0${category}\0${visible.length}`;
+    if (key === lastSearchKey.current) return;
+    const timer = window.setTimeout(() => {
+      lastSearchKey.current = key;
+      reportGameSearch(newTrackingId(), trimmed, visible.length, category);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [query, category, visible.length]);
   const browsing = category === 'all' && !query.trim();
   const rows = [
     ...(browsing ? [
@@ -320,7 +333,7 @@ export function GameStudio({
             <Button variant="plain" role="tab" className="om-game-genre-chip" aria-selected={category === 'portrait'} onClick={() => { if (category !== 'portrait') reportGameClick('game_market', 'category_select', null, optionFilter('portrait')); setCategory('portrait'); }}><RemixIcon name="smartphone-line" size={15} />{t('Portrait')}</Button>
           </div>
           <span className="om-game-selects">
-            <span className="om-field om-game-search"><RemixIcon name="search-line" size={15} /><input value={query} placeholder={t('Search')} aria-label={t('Search games')} onChange={event => setQuery(event.target.value)} /></span>
+            <span className="om-field om-game-search"><RemixIcon name="search-line" size={15} /><input value={query} placeholder={t('Search')} aria-label={t('Search games')} onFocus={() => reportGameClick('game_market', 'search_focus')} onChange={event => setQuery(event.target.value)} /></span>
             <label className="om-field"><RemixIcon name="sort-desc" size={15} /><select value={sort} aria-label={t('Sort')} onChange={event => { reportGameClick('game_market', 'sort_option', null, optionFilter(event.target.value)); setSort(event.target.value as Sort); }}>
               <option value="relevance">{t('Relevance')}</option><option value="plays">{t('Most played')}</option><option value="newest">{t('Newest')}</option></select></label>
           </span>
@@ -451,11 +464,26 @@ function GameProject({ game, offline, onClose, onRemix, onChange, onOpenMcp, onC
     const timer = setInterval(() => { void gameApi.trailer(game.id).then(next => onChange({ ...game, trailer: next })).catch(() => {}); }, 3000);
     return () => clearInterval(timer);
   }, [game.id, trailerBusy]);
-  const startTrailer = async () => {
-    try { onChange({ ...game, trailer: await gameApi.startTrailer(game.id) }); notify(t('Making the trailer. It takes a few minutes; you can keep playing.'), 'info'); }
-    catch (error) { notify(t('The trailer could not be started: {reason}', { reason: (error as Error).message }), 'error'); }
+  const startTrailer = async (regenerate = false) => {
+    reportGameClick('game_detail', regenerate ? 'regenerate_trailer' : 'create_trailer', game);
+    try {
+      const next = await gameApi.startTrailer(game.id);
+      reportGameAction(regenerate ? 'regenerate_trailer' : 'start_trailer', 'success', game);
+      onChange({ ...game, trailer: next });
+      notify(t('Making the trailer. It takes a few minutes; you can keep playing.'), 'info');
+    }
+    catch (error) {
+      reportGameAction(regenerate ? 'regenerate_trailer' : 'start_trailer', 'failure', game);
+      notify(t('The trailer could not be started: {reason}', { reason: (error as Error).message }), 'error');
+    }
   };
-  const openTrailerProject = () => { if (trailer?.projectId) window.location.assign(trailerProjectHref(trailer.projectId, location.search)); };
+  const openTrailerProject = () => {
+    if (!trailer?.projectId) return;
+    reportGameClick('game_detail', 'open_trailer_project', game);
+    reportGameAction('open_trailer_project', 'success', game);
+    window.location.assign(trailerProjectHref(trailer.projectId, location.search));
+  };
+  useEffect(() => { reportGameDetailShown(game); }, [game.id]);
   useEffect(() => { close.current?.focus(); const key = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented && document.activeElement !== frame.current && !(document.activeElement instanceof Element && document.activeElement.closest('.om-web-publish-popover'))) onClose(); }; addEventListener('keydown', key); return () => removeEventListener('keydown', key); }, []);
   const act = (action: 'favorite' | 'unfavorite' | 'like' | 'dislike' | 'clear_reaction', request: () => Promise<GameCard>) => {
     if (offline) { reportGameAction(action, 'unavailable', game); notify(t('Start the local game service to save reactions.'), 'info'); return; }
@@ -464,9 +492,10 @@ function GameProject({ game, offline, onClose, onRemix, onChange, onOpenMcp, onC
   // Games are published to this computer only. The link is copied for local use and labelled as such.
   const share = async () => {
     reportGameClick('game_detail', 'copy_game_link', game);
-    if (!url || url.startsWith('blob:')) { reportGameAction('copy_link', 'unavailable', game); notify(t('This game has no shareable link yet. Publishing to the web is not available.'), 'info'); return; }
+    if (!url || url.startsWith('blob:')) { reportGameAction('copy_link', 'unavailable', game); notify(t('This game has no shareable link yet.'), 'info'); return; }
     const link = new URL(url, location.href).href;
-    try { await navigator.clipboard.writeText(link); reportGameAction('copy_link', 'success', game); notify(isLocalOnly(link) ? t('Link copied. It only opens on this computer; publishing to the web is not available yet.') : t('Game link copied.'), 'info'); }
+    const canShareOnline = playable && !game.external && !offline;
+    try { await navigator.clipboard.writeText(link); reportGameAction('copy_link', 'success', game); notify(isLocalOnly(link) ? t(canShareOnline ? 'Local link copied. It only opens on this computer — use Share to publish online.' : 'Local link copied. It only opens on this computer.') : t('Game link copied.'), 'info'); }
     catch { reportGameAction('copy_link', 'failure', game); notify(t('Could not copy the link.'), 'error'); }
   };
   const popout = () => { if (url) reportGameClick('game_detail', 'open_external', game); if (url) window.open(url.startsWith('blob:') ? url : new URL(url, location.href).href, '_blank', 'noopener'); };
@@ -497,9 +526,9 @@ function GameProject({ game, offline, onClose, onRemix, onChange, onOpenMcp, onC
             <Button variant="ghost" className="om-button h-auto om-game-trailer-cta" onClick={() => setView('trailer')}><RemixIcon name="film-line" size={16} />{t('Trailer')}</Button>
             <span className="om-game-actions">
               {trailer!.projectId && <Button variant="ghost" className="om-button h-auto" onClick={openTrailerProject}><RemixIcon name="edit-line" size={15} />{t('Edit in Motion')}</Button>}
-              <Button variant="ghost" className="om-button h-auto" onClick={() => void startTrailer()}><RemixIcon name="refresh-line" size={15} />{t('Regenerate')}</Button>
+              <Button variant="ghost" className="om-button h-auto" onClick={() => void startTrailer(true)}><RemixIcon name="refresh-line" size={15} />{t('Regenerate')}</Button>
             </span></>
-          : <Button variant="ghost" className="om-button h-auto om-game-trailer-cta" onClick={() => void startTrailer()}><RemixIcon name="film-line" size={16} />{t('Create trailer')}</Button>}
+          : <Button variant="ghost" className="om-button h-auto om-game-trailer-cta" onClick={() => void startTrailer(false)}><RemixIcon name="film-line" size={16} />{t('Create trailer')}</Button>}
         {trailer?.status === 'failed' && <p className="om-game-trailer-error">{t('The trailer could not be made: {reason}', { reason: trailer.error ?? '' })}</p>}
       </div>}
       {playable && !game.external && !mine && <footer className="om-game-actions" role="toolbar" aria-label={t('Game actions')}>
@@ -551,7 +580,7 @@ function GameProject({ game, offline, onClose, onRemix, onChange, onOpenMcp, onC
               <div><strong>{t('This game only runs on the creator’s site.')}</strong>
                 <Button variant="ghost" className="om-button h-auto" data-primary onClick={popout}><RemixIcon name="external-link-line" size={15} />{t('Open original')}</Button></div>
             </div>
-          : url ? <iframe key={reload} ref={frame} src={url} title={game.title} onLoad={() => { if (!playReported.current) { playReported.current = true; reportGameAction('play', 'success', game); } }} sandbox={game.external ? 'allow-scripts allow-same-origin allow-pointer-lock allow-popups' : 'allow-scripts allow-pointer-lock'} allow="fullscreen; gamepad; autoplay; clipboard-write" />
+          : url ? <iframe key={reload} ref={frame} src={url} title={game.title} onLoad={() => { if (!playReported.current) { playReported.current = true; reportGameAction('play', 'success', game); } }} sandbox={game.external ? 'allow-scripts allow-same-origin allow-pointer-lock allow-popups' : 'allow-scripts allow-forms allow-pointer-lock'} allow="fullscreen; gamepad; autoplay; clipboard-write" />
           : <span className="om-muted">{t('Loading game…')}</span>}
       </div>
     </section>
@@ -600,6 +629,7 @@ function GameHandoff({ game, notify, onContinueInSuperAgent }: { game: GameCard;
   const [instruction, setInstruction] = useState<string | null>(() => storedInstruction(game.id));
   const [copied, setCopied] = useState(false);
   useEffect(() => {
+    reportGameHandoffShown(game);
     let live = true;
     void gameApi.handoff(game.id).then(handoff => { if (!live) return; setInstruction(handoff.agentInstruction); rememberInstruction(game.id, handoff.agentInstruction); }).catch(() => { /* keep the stored copy, if any */ });
     return () => { live = false; };

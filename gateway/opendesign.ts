@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Model } from '../shared/gateway.ts';
-import { openDesignImageReferenceCap } from '../shared/opendesign-models.ts';
+import { openDesignImageReferenceCap, parseServerModelRoutingMetadata } from '../shared/opendesign-models.ts';
 import { resolveGenerationParameters } from '../shared/generation-options.ts';
 import { apiJson, publicProviderFetch, ProviderError, retryRead, type Fetcher } from './network.ts';
 import type { ProviderAdapter, ProviderContext } from './providers.ts';
@@ -24,6 +24,7 @@ export async function cloudModels(baseUrl: string, key: string, fetcher: Fetcher
     id: 'opendesign:' + row.model, provider: 'opendesign', modelId: row.model, label: row.model,
     modality: row.kind.startsWith('audio') ? 'audio' : row.kind,
     mode: row.kind === 'audio_music' ? 'text-to-audio' : row.kind.startsWith('audio') ? 'text-to-speech' : 'text-to-' + row.kind, source: 'live',
+    ...parseServerModelRoutingMetadata(row),
     ...inputImages(row),
   }));
 }

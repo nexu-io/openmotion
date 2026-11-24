@@ -95,7 +95,7 @@ export type ScenarioAgentModeViewProps = {
   onExportBundle(options?: PoolExportOptions): Promise<ScenarioBundleReceipt | null>;
   exportingBundle: boolean;
   onCopySummaryJson(): Promise<void>;
-  onCopyAgentPrompt(customPrompt?: string): Promise<void>;
+  onCopyAgentPrompt(customPrompt?: string): Promise<unknown>;
   onOpenMcp(example?: string): void;
   onOpenStep(stepId: string): void;
   onSwitchToManual(): void;

@@ -20,33 +20,51 @@ Use provider `opendesign` when the account is unavailable, then any other config
 
 ## Routing
 
-| Need | Model when listed (OpenDesign) | Notes |
+Select models from live discovery (`openmotion_capability_discover` or `openmotion_media_use`) using `mode`, `bestFor`, `description`, and `generationOptions` (following `account` → `opendesign` → other configured providers):
+
+| Need | Discovery / capability routing rule (OpenDesign first) | Notes |
 |---|---|---|
-| Background music, menu loop, boss theme | `elevenlabs-music-v2` | `mode:"text-to-audio"`. Prompt instrumental with `no vocals`. Length via the provider-native option (`music_length_ms` on Cloud, whole-second `duration` on the account). |
-| Character lines, narration, announcer (English and multilingual) | `elevenlabs-v3` | `mode:"text-to-speech"`, `parameters.voice` from the model's listed voices. |
-| Chinese character lines and narration | `byteplus-tts-2` | Example voice `zh_female_vv_uranus_bigtts`; pick from the listed voices for tone. |
-| Short SFX (hit, jump, coin, UI click, explosion) | none at review | Web Audio synthesis below. If a later catalogue lists a dedicated SFX model, use it through the same consent flow. |
-| Ambience bed | `elevenlabs-music-v2` as a soft instrumental pad, or Web Audio noise layers | Keep under music level. |
+| Background music, menu loop, boss theme | `music` capability or audio model with `mode:"text-to-audio"` (`bestFor` matching `bgm-loop` / `soundtrack`) | Prompt instrumental with `no vocals`. Pass length using the provider-native option from `action:"reference"` / `generationOptions` (e.g. `music_length_ms` on Cloud, whole-second `duration` on account). |
+| Character lines, narration, announcer (English and multilingual) | `speech` capability or audio model with `mode:"text-to-speech"` (`bestFor` / `description` matching `multilingual-speech` / `en-speech`) | Pick `parameters.voice` from the model's live `generationOptions` voices. |
+| Chinese character lines and narration | `speech` capability or audio model with `mode:"text-to-speech"` (`bestFor` / `description` matching `zh-speech`) | Pick a listed Chinese voice from the model's live `generationOptions`. |
+| Short SFX (hit, jump, coin, UI click, explosion) | Check live `audio` discovery for a dedicated SFX model (`bestFor` matching `sfx`); otherwise Web Audio synthesis below | Use a discovered SFX model through the same consent flow when listed. |
+| Ambience bed | Discovered `mode:"text-to-audio"` music model as a soft instrumental pad, or Web Audio noise layers | Keep under music level. |
 
 Never use a model name that discovery did not return. No dedicated SFX model is a capability gap, not an error: synthesize instead of searching for unlisted names.
 
 ## Requests
 
-These are `openmotion_assets_use` arguments, submitted only after the user approved the planned list. Each new intended job needs a unique `requestId`.
+Submit only after the user approved the planned list. Each new intended job needs a unique `requestId`.
 
-Music:
+When Unified Capability Center meta-tools are exposed (and discovery reports `music` / `speech` with `status:"live"` and `available:true`), submit via **`openmotion_capability_run`**:
 
-```json
-{"action":"generate","requestId":"game-bgm-01","model":"opendesign:elevenlabs-music-v2","modality":"audio","mode":"text-to-audio","prompt":"Instrumental synthwave racing loop, 128 BPM, driving bass, bright arpeggios, no vocals, seamless loop ending","parameters":{"music_length_ms":30000}}
-```
-
-Speech:
+Music (`openmotion_capability_run`):
 
 ```json
-{"action":"generate","requestId":"game-vo-hero-01","model":"account:elevenlabs-v3","modality":"audio","mode":"text-to-speech","prompt":"The gate is open. Move!","parameters":{"voice":"<voice id listed by models>"}}
+{"action":"run","requestId":"game-bgm-01","capabilityId":"music","model":"<provider>:<discovered-music-model>","prompt":"Instrumental synthwave racing loop, 128 BPM, driving bass, bright arpeggios, no vocals, seamless loop ending","parameters":{}}
 ```
 
-Poll the returned `job.id` with `{"action":"status","jobId":"<job.id>"}` until `state:"completed"`, read the saved `{assetId, versionId}` from `job.libraryAssets[]`, and call `{"action":"read","assetId":"...","versionId":"..."}` (or `action:"get"`) to inspect `version` metadata (duration, format, mimeType). Speech results may include timing metadata (ElevenLabs `alignment`, BytePlus `sentences`) in `job.result`; use it to sync subtitles or mouth flaps. Never auto-retry a failed paid job; follow the media job procedure.
+Speech (`openmotion_capability_run`):
+
+```json
+{"action":"run","requestId":"game-vo-hero-01","capabilityId":"speech","model":"<provider>:<discovered-speech-model>","prompt":"The gate is open. Move!","parameters":{"voice":"<voice id listed by models>"}}
+```
+
+When using **`openmotion_assets_use`** directly (fallback or legacy hosts), use its `action:"generate"` schema:
+
+Music (`openmotion_assets_use`):
+
+```json
+{"action":"generate","requestId":"game-bgm-01","model":"<provider>:<discovered-music-model>","modality":"audio","mode":"text-to-audio","prompt":"Instrumental synthwave racing loop, 128 BPM, driving bass, bright arpeggios, no vocals, seamless loop ending","parameters":{}}
+```
+
+Speech (`openmotion_assets_use`):
+
+```json
+{"action":"generate","requestId":"game-vo-hero-01","model":"<provider>:<discovered-speech-model>","modality":"audio","mode":"text-to-speech","prompt":"The gate is open. Move!","parameters":{"voice":"<voice id listed by models>"}}
+```
+
+Poll the returned `job.id` with `openmotion_job_manage` or `openmotion_assets_use` (`{"action":"status","jobId":"<job.id>"}`) until `state:"completed"`, read the saved `{assetId, versionId}` from `job.libraryAssets[]`, and call `openmotion_asset_manage` / `openmotion_assets_use` (`{"action":"read","assetId":"...","versionId":"..."}` or `action:"get"`) to inspect `version` metadata (duration, format, mimeType). Speech results may include timing metadata (ElevenLabs `alignment`, BytePlus `sentences`) in `job.result`; use it to sync subtitles or mouth flaps. Never auto-retry a failed paid job; follow the media job procedure.
 
 ## Wiring generated audio
 

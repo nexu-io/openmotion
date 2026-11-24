@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { writeFile, readFile, symlink, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, symlink, stat } from 'node:fs/promises';
 import { fixture } from './fixtures.ts';
 import { transport } from './http.ts';
 import { execute, pluginRoot } from '../hyperframes.ts';
@@ -122,6 +122,29 @@ test('workspace generation keeps job identity and pinned references without requ
   assert.equal((await gateway.submit(input)).id, job.id); assert.equal(calls, 2);
   await gateway.close();
 }, false));
+
+test('workspace asset catalog lists past one asset page and propagates read errors', () => fixture(async store => {
+  const records = path.join(store.directory, 'asset-library', 'records');
+  await mkdir(records, { recursive: true });
+  const ids = Array.from({ length: 101 }, (_, index) => `00000000-0000-0000-0000-${String(index).padStart(12, '0')}`);
+  await Promise.all(ids.map((id, index) => writeFile(path.join(records, `${id}.json`), JSON.stringify({
+    id, name: index === 0 ? 'Oldest kitchen poster' : `Poster ${index}`, modality: 'image', versions: [], updatedAt: index,
+  }))));
+
+  const fetch = transport(store);
+  const endpoint = '/motion-api/super-agent/resources?kind=asset';
+  const catalog = await (await fetch(`${endpoint}&limit=600`)).json();
+  assert.equal(catalog.counts.assets, ids.length);
+  assert.equal(catalog.items.length, ids.length);
+  const matching = await (await fetch(`${endpoint}&limit=1&query=kitchen`)).json();
+  assert.deepEqual(matching.items.map(item => item.id), [ids[0]]);
+  await assert.rejects(new AssetLibrary(store).list({ limit: 101 }), /Invalid asset pagination/);
+
+  await writeFile(path.join(records, `${ids[0]}.json`), '{');
+  const failed = await fetch(`${endpoint}&limit=600`);
+  assert.equal(failed.ok, false);
+  assert.equal(typeof (await failed.json()).error, 'string');
+}));
 
 test('asset HTTP uploads are replayable and media supports byte ranges; project imports pin independent copies', () => fixture(async store => {
   const source = await image(store.directory), bytes = await readFile(source), fetch = transport(store);

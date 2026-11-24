@@ -9,6 +9,7 @@ import { gameGenres, type GameCard, type GameGenre } from '../../../shared/game-
 import type { SuperAgentDesignModuleId, SuperAgentResourceAttachment } from '../../../shared/super-agent';
 import { Select } from '../components/ui/Select';
 import { Skeleton } from '../components/ui/Skeleton';
+import { VideoFrameThumbnail } from '../components/ui/VideoFrameThumbnail';
 import { ScaledPreviewThumb } from '../design/ScaledPreviewThumb';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -701,12 +702,21 @@ function motionSkillToAttachment(skill: MotionSkill): SuperAgentResourceAttachme
 type FilterOption = { id: string; label: string; count?: number };
 
 function ResourceShowcaseThumb({ item, active = true }: { item: SuperAgentResourceAttachment; active?: boolean }) {
+  const { t } = useI18n();
   const [imgFailed, setImgFailed] = useState(false);
 
   if ((item.kind === 'design-template' || item.kind === 'design-project') && item.previewUrl) {
     return (
       <div className="om-sa-showcase-thumb om-sa-showcase-iframe-wrap" aria-hidden="true">
         <ScaledPreviewThumb src={item.previewUrl} title={item.title} active={active} />
+      </div>
+    );
+  }
+
+  if (item.kind === 'asset' && item.modality === 'video' && item.previewUrl) {
+    return (
+      <div className="om-sa-showcase-thumb" data-modality="video" aria-hidden="true">
+        <VideoFrameThumbnail key={item.previewUrl} src={item.previewUrl} fallbackLabel={t('Preview unavailable')} />
       </div>
     );
   }
@@ -755,6 +765,43 @@ const GAME_STATUS_LABELS: Partial<Record<GameCard['status'], string>> = {
   failed: 'Not finished',
 };
 
+type ResourceListState =
+  | { status: 'loading' | 'error' }
+  | { status: 'ready'; items: SuperAgentResourceAttachment[] };
+
+function useShowcaseResourceList(kind: 'asset' | 'brand-kit', enabled: boolean) {
+  const [state, setState] = useState<ResourceListState>({ status: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    void fetchWorkspaceResources({ kind, limit: 1000 }).then(({ items }) => {
+      if (!Array.isArray(items)) throw new Error('Invalid workspace resource list');
+      if (!cancelled) setState({ status: 'ready', items });
+    }).catch(() => {
+      if (!cancelled) setState({ status: 'error' });
+    });
+    return () => { cancelled = true; };
+  }, [kind, enabled, attempt]);
+
+  return {
+    state,
+    retry: () => {
+      setState({ status: 'loading' });
+      setAttempt(value => value + 1);
+    },
+  };
+}
+
+function filterByShowcaseQuery(items: SuperAgentResourceAttachment[], query: string) {
+  if (!query) return items;
+  return items.filter(item =>
+    [item.id, item.title, item.subtitle, item.scenario, ...(item.tags ?? [])]
+      .some(text => text?.toLocaleLowerCase().includes(query)),
+  );
+}
+
 export function ModeResourceShowcase({
   active = true,
   mode,
@@ -800,12 +847,10 @@ export function ModeResourceShowcase({
     [coveredMotion.catalog],
   );
 
-  // Full workspace catalogs cached per kind for Design templates, Design projects, Brand Kits, Design Skills, Assets, and Game Studio.
+  // Catalogs loaded when the associated mode or tab needs them.
   const [designTemplates, setDesignTemplates] = useState<SuperAgentResourceAttachment[] | null>(null);
   const [designProjects, setDesignProjects] = useState<SuperAgentResourceAttachment[] | null>(null);
-  const [brandKits, setBrandKits] = useState<SuperAgentResourceAttachment[] | null>(null);
   const [designSkills, setDesignSkills] = useState<SuperAgentResourceAttachment[] | null>(null);
-  const [assets, setAssets] = useState<SuperAgentResourceAttachment[] | null>(null);
   const [gameCatalog, setGameCatalog] = useState<GameCard[]>(() => [...communityGames, ...bundledGames]);
   const [loadingKind, setLoadingKind] = useState<string | null>(null);
 
@@ -889,7 +934,7 @@ export function ModeResourceShowcase({
         { id: 'ai-technology', label: aiTechnologyIndustry, count: hasFull ? templatesInCollection(motionCatalog, 'ai-technology').length : undefined },
         { id: 'black-friday', label: 'Black Friday collection' },
         { id: 'skills', label: 'Skill library', count: motionSkills.length },
-        { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+        { id: 'brand-kit', label: 'Brand Kits' },
       ];
     };
     const pureVideoFilters = (): FilterOption[] => [
@@ -897,7 +942,7 @@ export function ModeResourceShowcase({
       { id: 'cinema', label: 'Cinema Studio', count: cinemaTemplates.length },
       { id: 'seedance', label: 'Seedance 2.5', count: seedanceStory.cases.length },
       { id: 'video-scenes', label: 'Camera & multi-shot', count: buildCinemaCardsByCategory('video-scenes', isZh).length },
-      { id: 'asset', label: 'Workspace Assets', count: assets ? assets.filter(a => a.modality === 'video').length : undefined },
+      { id: 'asset', label: 'Workspace Assets' },
     ];
     switch (mode.id) {
       case 'design': {
@@ -910,8 +955,8 @@ export function ModeResourceShowcase({
             { id: 'remove-background', label: 'Remove background', count: sceneExamples['remove-background'].length },
             { id: 'relight', label: 'Relight', count: sceneExamples.relight.length },
             { id: 'image-blend', label: 'Image blend', count: sceneExamples['image-blend'].length },
-            { id: 'asset', label: 'Workspace Assets', count: assets ? assets.filter(a => a.modality === 'image').length : undefined },
-            { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+            { id: 'asset', label: 'Workspace Assets' },
+            { id: 'brand-kit', label: 'Brand Kits' },
           ];
         }
         return [
@@ -924,7 +969,7 @@ export function ModeResourceShowcase({
           ...(designProjects && designProjects.length > 0
             ? [{ id: 'my-designs', label: 'My designs', count: designProjects.length }]
             : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
@@ -943,7 +988,7 @@ export function ModeResourceShowcase({
           ...(designProjects && designProjects.length > 0
             ? [{ id: 'my-designs', label: 'My designs', count: designProjects.length }]
             : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
@@ -960,7 +1005,7 @@ export function ModeResourceShowcase({
           ...(designProjects && designProjects.length > 0
             ? [{ id: 'my-designs', label: 'My designs', count: designProjects.length }]
             : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
@@ -976,7 +1021,7 @@ export function ModeResourceShowcase({
           { id: 'mobile-app', label: 'Mobile App', count: designTemplates ? mobile.length : undefined },
           { id: 'live-artifact', label: 'Live artifact', count: designTemplates ? live.length : undefined },
           ...(clone.length ? [{ id: 'web-clone', label: 'Website clone', count: clone.length }] : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
@@ -988,7 +1033,7 @@ export function ModeResourceShowcase({
           { id: 'all', label: 'All templates', count: designTemplates ? decks.length + docs.length : undefined },
           { id: 'deck', label: 'Slide deck', count: designTemplates ? decks.length : undefined },
           { id: 'document', label: 'Document', count: designTemplates ? docs.length : undefined },
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
@@ -1005,7 +1050,7 @@ export function ModeResourceShowcase({
             }))
             .filter(item => item.count > 0),
           ...(portraitCount > 0 ? [{ id: 'portrait', label: 'Portrait games', count: portraitCount }] : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
         ];
       }
       case 'motion':
@@ -1022,8 +1067,8 @@ export function ModeResourceShowcase({
           { id: 'image-blend', label: 'Image blend', count: sceneExamples['image-blend'].length },
           { id: 'relight', label: 'Relight', count: sceneExamples.relight.length },
           { id: 'design-template', label: 'Design templates', count: designTemplates?.length },
-          { id: 'asset', label: 'Workspace Assets', count: assets ? assets.filter(a => a.modality === 'image').length : undefined },
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'asset', label: 'Workspace Assets' },
+          { id: 'brand-kit', label: 'Brand Kits' },
         ];
       }
       case 'audio': {
@@ -1031,11 +1076,26 @@ export function ModeResourceShowcase({
           { id: 'all-audio', label: 'All audio', count: buildCinemaCardsByCategory('all-audio', isZh).length },
           { id: 'music', label: 'Music & Soundtracks', count: sceneExamples.music.length },
           { id: 'speech', label: 'Voiceover & Speech', count: sceneExamples.speech.length },
-          { id: 'asset', label: 'Workspace Audio', count: assets ? assets.filter(a => a.modality === 'audio').length : undefined },
+          { id: 'asset', label: 'Workspace Audio' },
         ];
       }
     }
-  }, [mode.id, modeOptions?.designFormat, isPureVideoView, designTemplates, designProjects, brandKits, designSkills, assets, publishedGameTemplates, myGames, coveredMotion.catalog, motionCatalog, motionPurposes, isZh]);
+  }, [mode.id, modeOptions?.designFormat, isPureVideoView, designTemplates, designProjects, designSkills, publishedGameTemplates, myGames, coveredMotion.catalog, motionCatalog, motionPurposes, isZh]);
+
+  const brandKitList = useShowcaseResourceList('brand-kit', active && filters.some(filter => filter.id === 'brand-kit'));
+  const assetList = useShowcaseResourceList('asset', active && filters.some(filter => filter.id === 'asset'));
+  const resourceQuery = mode.id === 'design' || mode.id === 'research' || mode.id === 'visualization'
+    ? designQuery.trim().toLocaleLowerCase()
+    : '';
+  const assetModality = mode.id === 'audio' ? 'audio' : isPureVideoView ? 'video' : 'image';
+  const brandKits = useMemo(() => brandKitList.state.status === 'ready'
+    ? filterByShowcaseQuery(brandKitList.state.items, resourceQuery)
+    : null, [brandKitList.state, resourceQuery]);
+  const assets = useMemo(() => assetList.state.status === 'ready'
+    ? filterByShowcaseQuery(assetList.state.items.filter(asset => asset.modality === assetModality), resourceQuery)
+    : null, [assetList.state, assetModality, resourceQuery]);
+  const activeResourceList = activeFilter === 'brand-kit' ? brandKitList : activeFilter === 'asset' ? assetList : null;
+  const workspaceCounts: Record<string, number | undefined> = { 'brand-kit': brandKits?.length, asset: assets?.length };
 
   // Reset active tab when switching mode.
   useEffect(() => {
@@ -1116,44 +1176,34 @@ export function ModeResourceShowcase({
     setVisibleCount(PAGE_BATCH_SIZE);
   }, [activeFilter, activeSkillCategory, designQuery, gameQuery, gameSort]);
 
-  // Eagerly fetch needed catalogs cleanly with full limits (no truncation).
+  // Fetch the remaining design and game catalogs as needed.
   useEffect(() => {
     let cancelled = false;
-    const ensure = async (kind: 'design-template' | 'design-project' | 'brand-kit' | 'design-skill' | 'asset') => {
+    const ensure = async (kind: 'design-template' | 'design-project' | 'design-skill') => {
       if (kind === 'design-template' && designTemplates !== null) return;
       if (kind === 'design-project' && designProjects !== null) return;
-      if (kind === 'brand-kit' && brandKits !== null) return;
       if (kind === 'design-skill' && designSkills !== null) return;
-      if (kind === 'asset' && assets !== null) return;
       setLoadingKind(kind);
       try {
         const res = await fetchWorkspaceResources({ kind, limit: 600 });
         if (cancelled) return;
         if (kind === 'design-template') setDesignTemplates(res.items);
         if (kind === 'design-project') setDesignProjects(res.items);
-        if (kind === 'brand-kit') setBrandKits(res.items);
         if (kind === 'design-skill') setDesignSkills(res.items);
-        if (kind === 'asset') setAssets(res.items);
       } catch {
         if (cancelled) return;
         if (kind === 'design-template') setDesignTemplates([]);
         if (kind === 'design-project') setDesignProjects([]);
-        if (kind === 'brand-kit') setBrandKits([]);
         if (kind === 'design-skill') setDesignSkills([]);
-        if (kind === 'asset') setAssets([]);
       } finally {
         if (!cancelled) setLoadingKind(prev => (prev === kind ? null : prev));
       }
     };
 
     if (mode.id === 'design') {
-      if (modeOptions?.designFormat === 'image') {
-        if (activeFilter === 'asset') void ensure('asset');
-        if (activeFilter === 'brand-kit') void ensure('brand-kit');
-      } else {
+      if (modeOptions?.designFormat !== 'image') {
         void ensure('design-template');
         void ensure('design-project');
-        if (activeFilter === 'brand-kit') void ensure('brand-kit');
         if (activeFilter === 'design-skill') void ensure('design-skill');
       }
     } else if (mode.id === 'website' || mode.id === 'deck' || mode.id === 'research' || mode.id === 'visualization') {
@@ -1161,31 +1211,21 @@ export function ModeResourceShowcase({
       if (mode.id === 'research' || mode.id === 'visualization') {
         void ensure('design-project');
       }
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
       if (activeFilter === 'design-skill') void ensure('design-skill');
     } else if (mode.id === 'game') {
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
       void gameApi.catalog().then(res => {
         if (!cancelled && Array.isArray(res?.games)) {
           setGameCatalog([...communityGames, ...(res.games.length ? res.games : bundledGames)]);
         }
       }).catch(() => { /* fallback keeps bundled + community games */ });
-    } else if (isMotionGraphicsView) {
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
-    } else if (isPureVideoView) {
-      if (activeFilter === 'asset') void ensure('asset');
-    } else if (mode.id === 'image') {
-      if (activeFilter === 'design-template') void ensure('design-template');
-      if (activeFilter === 'asset') void ensure('asset');
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
-    } else if (mode.id === 'audio') {
-      if (activeFilter === 'asset') void ensure('asset');
+    } else if (mode.id === 'image' && activeFilter === 'design-template') {
+      void ensure('design-template');
     }
 
     return () => {
       cancelled = true;
     };
-  }, [mode.id, modeOptions?.designFormat, isMotionGraphicsView, isPureVideoView, activeFilter, designTemplates, designProjects, brandKits, designSkills, assets]);
+  }, [mode.id, modeOptions?.designFormat, activeFilter, designTemplates, designProjects, designSkills]);
 
   // Resolve active curated cards (Image / Cinema / Audio / AI Video).
   const curatedCards = useMemo<CuratedShowcaseCard[] | null>(() => {
@@ -1210,20 +1250,11 @@ export function ModeResourceShowcase({
   // Resolve full resource items for all other tabs (NO 12-item cap!).
   const resourceItems = useMemo<SuperAgentResourceAttachment[]>(() => {
     if (curatedCards) return [];
-    const applyDesignSearch = (items: SuperAgentResourceAttachment[]) => {
-      if (mode.id !== 'design' && mode.id !== 'research' && mode.id !== 'visualization') return items;
-      const needle = designQuery.trim().toLocaleLowerCase();
-      if (!needle) return items;
-      return items.filter(item =>
-        [item.id, item.title, item.subtitle, item.scenario, ...(item.tags ?? [])]
-          .filter(Boolean)
-          .some(text => String(text).toLocaleLowerCase().includes(needle)),
-      );
-    };
+    const applyDesignSearch = (items: SuperAgentResourceAttachment[]) => filterByShowcaseQuery(items, resourceQuery);
     if ((mode.id === 'design' || mode.id === 'research' || mode.id === 'visualization') && activeFilter === 'my-designs') {
       return applyDesignSearch(designProjects ?? []);
     }
-    if (activeFilter === 'brand-kit') return applyDesignSearch(brandKits ?? []);
+    if (activeFilter === 'brand-kit') return brandKits ?? [];
     if (activeFilter === 'design-template') return applyDesignSearch(designTemplates ?? []);
     if (activeFilter === 'design-skill') {
       const all = designSkills ?? [];
@@ -1251,15 +1282,7 @@ export function ModeResourceShowcase({
       }
       return all;
     }
-    if (activeFilter === 'asset') {
-      const all = assets ?? [];
-      if (mode.id === 'image' || (mode.id === 'design' && modeOptions?.designFormat === 'image')) {
-        return applyDesignSearch(all.filter(a => a.modality === 'image'));
-      }
-      if (mode.id === 'audio') return all.filter(a => a.modality === 'audio');
-      if (isPureVideoView) return all.filter(a => a.modality === 'video');
-      return all;
-    }
+    if (activeFilter === 'asset') return assets ?? [];
     if (isMotionGraphicsView) {
       if (activeFilter === 'skills') {
         const list = activeSkillCategory === 'all'
@@ -1308,7 +1331,7 @@ export function ModeResourceShowcase({
     if (mode.id === 'deck') return all.filter(i => i.scenario === 'deck' || i.scenario === 'document');
     if (mode.id === 'game') return all.filter(i => i.scenario === 'webgl' || i.scenario === 'live-artifact' || i.scenario === 'prototype');
     return all.filter(i => i.scenario !== 'deck' && i.scenario !== 'document' && i.scenario !== 'webgl');
-  }, [curatedCards, activeFilter, activeSkillCategory, mode.id, modeOptions?.designFormat, modeOptions?.designScenario, isMotionGraphicsView, isPureVideoView, designQuery, brandKits, designSkills, assets, motionCatalog, locale, designTemplates, designProjects]);
+  }, [curatedCards, activeFilter, activeSkillCategory, mode.id, modeOptions?.designFormat, modeOptions?.designScenario, isMotionGraphicsView, resourceQuery, brandKits, designSkills, assets, motionCatalog, locale, designTemplates, designProjects]);
 
   const showGameCards = mode.id === 'game' && activeFilter !== 'brand-kit';
 
@@ -1367,16 +1390,12 @@ export function ModeResourceShowcase({
     return () => observer.disconnect();
   }, [hasMore, totalCount]);
 
-  const isLoading =
-    !curatedCards
+  const isLoading = activeResourceList ? activeResourceList.state.status === 'loading' : !curatedCards
     && (
-      (isMotionGraphicsView && activeFilter !== 'skills' && activeFilter !== 'brand-kit' && activeFilter !== 'black-friday' && motionCatalog.length === 0 && !coveredMotion.failed)
-      || (activeFilter === 'brand-kit' && brandKits === null)
+      (isMotionGraphicsView && activeFilter !== 'skills' && activeFilter !== 'black-friday' && motionCatalog.length === 0 && !coveredMotion.failed)
       || (activeFilter === 'design-skill' && designSkills === null)
-      || (activeFilter === 'asset' && assets === null)
       || (activeFilter === 'my-designs' && designProjects === null)
       || ((mode.id === 'website' || mode.id === 'deck' || mode.id === 'research' || mode.id === 'visualization' || (mode.id === 'design' && modeOptions?.designFormat !== 'image'))
-        && activeFilter !== 'brand-kit'
         && activeFilter !== 'design-skill'
         && activeFilter !== 'my-designs'
         && designTemplates === null)
@@ -1774,52 +1793,52 @@ export function ModeResourceShowcase({
         <h3 id={templateHeadingId} className="om-sa-showcase-heading">{t('Discover templates')}</h3>
         <div className="om-sa-showcase-bar" data-game-bar={showGameCards || undefined}>
           <div className="om-sa-showcase-tabs" role="tablist" aria-label={t('Template filters')}>
-            {filters.map(f => (
+            {filters.map(({ id, label, count = workspaceCounts[id] }) => (
               <Button
-                key={f.id}
+                key={id}
                 variant="plain"
                 type="button"
                 role="tab"
-                aria-selected={activeFilter === f.id}
-                data-active={activeFilter === f.id || undefined}
+                aria-selected={activeFilter === id}
+                data-active={activeFilter === id || undefined}
                 className="om-sa-showcase-tab"
                 onClick={() => {
-                  setActiveFilter(f.id);
+                  setActiveFilter(id);
                   if (mode.id === 'design') {
                     if (modeOptions?.designFormat === 'image') {
                       if (
-                        f.id === 'text-to-image'
-                        || f.id === 'image-edit'
-                        || f.id === 'remove-background'
-                        || f.id === 'relight'
-                        || f.id === 'image-blend'
+                        id === 'text-to-image'
+                        || id === 'image-edit'
+                        || id === 'remove-background'
+                        || id === 'relight'
+                        || id === 'image-blend'
                       ) {
-                        onChangeModeOptions?.({ imageScene: f.id });
+                        onChangeModeOptions?.({ imageScene: id });
                       }
-                    } else if (isDesignScenario(f.id)) {
-                      onChangeModeOptions?.(designScenarioOptionsPatch(f.id));
+                    } else if (isDesignScenario(id)) {
+                      onChangeModeOptions?.(designScenarioOptionsPatch(id));
                     }
                   } else if (mode.id === 'image') {
                     if (
-                      f.id === 'text-to-image'
-                      || f.id === 'image-edit'
-                      || f.id === 'remove-background'
-                      || f.id === 'relight'
-                      || f.id === 'image-blend'
+                      id === 'text-to-image'
+                      || id === 'image-edit'
+                      || id === 'remove-background'
+                      || id === 'relight'
+                      || id === 'image-blend'
                     ) {
-                      onChangeModeOptions?.({ imageScene: f.id });
+                      onChangeModeOptions?.({ imageScene: id });
                     }
                   } else if (mode.id === 'audio') {
-                    if (f.id === 'music') {
+                    if (id === 'music') {
                       onChangeModeOptions?.({ audioType: 'music', audioModelId: 'auto' });
-                    } else if (f.id === 'speech') {
+                    } else if (id === 'speech') {
                       onChangeModeOptions?.({ audioType: 'voiceover', audioModelId: 'auto' });
                     }
                   }
                 }}
               >
-                <span>{t(f.label)}</span>
-                {typeof f.count === 'number' && <span className="om-sa-tab-count">{f.count}</span>}
+                <span>{t(label)}</span>
+                {typeof count === 'number' && <span className="om-sa-tab-count">{count}</span>}
               </Button>
             ))}
           </div>
@@ -2152,13 +2171,20 @@ export function ModeResourceShowcase({
                 <Skeleton style={{ width: '100%', height: 130 }} />
               </div>
             ))
+          ) : activeResourceList?.state.status === 'error' ? (
+            <div className="om-sa-showcase-empty">
+              <p className="om-muted" role="status">{t('Could not load workspace resources')}</p>
+              <Button variant="ghost" type="button" className="om-button h-auto" onClick={activeResourceList.retry}>
+                {t('Retry')}
+              </Button>
+            </div>
           ) : !visibleResources.length ? (
             <div className="om-sa-showcase-empty">
               <p className="om-muted">{t('No matching resources found')}</p>
               <Button
                 variant="ghost"
                 className="om-button h-auto"
-                onClick={() => onOpenAllResources(mode.pickerCategory)}
+                onClick={() => onOpenAllResources(activeFilter === 'asset' || activeFilter === 'brand-kit' ? activeFilter : mode.pickerCategory)}
               >
                 {t('Browse workspace resources')}
               </Button>

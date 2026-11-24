@@ -4,7 +4,7 @@ import { brandCard } from "./brandKitClient";
 import { Dialog } from "@base-ui/react/dialog";
 import { BrandLogo } from "../../../packages/design-system/react/BrandLogo";
 import { GalleryIntro } from "./GalleryIntro";
-import { templateContributionUrl } from "./templateContribution";
+import { brandKitContributionUrl } from "./templateContribution";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "../i18n/I18n";
 import { RemixIcon } from "../icons/RemixIcons";
@@ -346,7 +346,7 @@ export function BrandKitPage({
           <div className="om-gallery-toolbar"><div className="om-gallery-categories"><Button variant="plain" aria-pressed>{t('All')}</Button></div><div className="om-gallery-controls"><GallerySortMenu value={sort} options={[["newest", "Newest first"], ["oldest", "Oldest first"], ["name", "Name A–Z"]]} onChange={setSort} /></div></div>
           <div className="om-gallery-results">
             <div className="om-gallery-masonry" aria-busy={!kits && !error} aria-label={!kits && !error ? t('Loading Brand Kits') : undefined}>
-              <GalleryIntro eyebrow={t('My brand kits')} title={t('Bring your brand into motion.')} count={t('{count} brand kits', { count: filtered.length })} disabled={busy || !filtered.some(kit => kit.state === 'ready')} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={templateContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: openCreate }} />
+              <GalleryIntro eyebrow={t('My brand kits')} title={t('Bring your brand into motion.')} count={t('{count} brand kits', { count: filtered.length })} disabled={busy || !filtered.some(kit => kit.state === 'ready')} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={brandKitContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: openCreate }} />
               {!kits && !error && Array.from({ length: 8 }, (_, key) => <div className="om-gallery-skeleton" key={key} aria-hidden="true"><Skeleton className="om-brand-loading" /></div>)}
               {filtered.map(kit => kit.state === 'ready' ? <TemplateGalleryCard key={kit.id + kit.updatedAt} template={cards.get(kit.id)!} resourceKind="brand-kit" coverUrl={`/motion-api/brand-kits/${kit.id}/cover?v=${brandCoverRevision}-${encodeURIComponent(kit.updatedAt)}`} active={priority === kit.id && playback.has(kit.id)} onPriority={setCardPriority} onSelect={selectPrivateCard} /> : <Button variant="plain" key={kit.id} className="om-card om-brand-task-card om-gallery-card" data-interactive onClick={event => openPrivateCard(kit.id, event.currentTarget)}>{isBrandKitBusy(kit) ? <OpenDesignLoadingMark height={24} className="motion-loading-mark" /> : <RemixIcon name="error-warning-line" size={28} />}<strong className="om-subtitle">{kit.name}</strong><span className="om-muted">{t(brandStage[kit.state])}</span>{isBrandKitBusy(kit) && <ProgressBar value={kit.progress} label={t(brandStage[kit.state])} />}</Button>)}
             </div>

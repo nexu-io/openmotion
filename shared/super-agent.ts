@@ -1,5 +1,6 @@
 import type { BrowserPickedElement, BrowserRect } from './browser.ts';
 import type { DesignScenarioId } from './design-project.ts';
+import type { ProviderSetupEntry } from './workspace-url.ts';
 
 export const SUPER_AGENT_API = '/motion-api/super-agent';
 
@@ -257,6 +258,23 @@ export type SuperAgentTurnActivity = {
   usage?: SuperAgentUsage;
 };
 
+export type SuperAgentActionCardKind =
+  | 'sign_in'
+  | 'upgrade_free'
+  | 'upgrade_go'
+  | 'top_up'
+  | 'configure_key'
+  | 'web_publish_sign_in';
+
+export type SuperAgentActionCard = {
+  id: string;
+  kind: SuperAgentActionCardKind;
+  entry: ProviderSetupEntry;
+  provider?: string;
+  targetKind?: 'design' | 'game' | 'html' | 'motion';
+  targetId?: string;
+};
+
 export type SuperAgentToolEvent = {
   callId: string;
   tool: string;
@@ -273,6 +291,7 @@ export type SuperAgentToolEvent = {
   outputPreview?: string;
   validationPassed?: boolean;
   artifactId?: string;
+  actionCard?: SuperAgentActionCard;
   startedAt: number;
   finishedAt?: number;
 };

@@ -48,11 +48,12 @@ export function reportCreativePageView(page: ViewPage, hasProject: boolean, targ
 type HubArea = Extract<Click['area'], `hub_${string}`>;
 /** A model hub click. Video titles, creators and search text never become fields; a scene filter is sent as a stable id. */
 export function reportHubClick(hub: string, area: HubArea, element: Click['element'],
-  fields: { video?: string; position?: number; model?: string; signedIn?: boolean; filter?: string; action?: Click['template_action'] } = {}) {
-  const { video, position, model, signedIn, filter, action } = fields;
+  fields: { video?: string; position?: number; model?: string; signedIn?: boolean; filter?: string; action?: Click['template_action']; hookId?: Click['hook_id']; entryId?: string } = {}) {
+  const { video, position, model, signedIn, filter, action, hookId, entryId } = fields;
   const filterId = filter === undefined ? {} : optionId(filter);
   send('ui_click', { page_name: 'model_hub', area, element, ...slugField('hub_id', hub), ...slugField('hub_video_id', video), ...modelFields(model),
-    ...(position === undefined ? {} : { position }), ...(signedIn === undefined ? {} : { signed_in: signedIn }), ...filterId, ...(action ? { template_action: action } : {}) });
+    ...(position === undefined ? {} : { position }), ...(signedIn === undefined ? {} : { signed_in: signedIn }), ...filterId, ...(action ? { template_action: action } : {}),
+    ...(hookId ? { hook_id: hookId } : {}), ...(entryId ? { entry_id: entryId } : {}) });
 }
 export function reportHubPageView(hub: string, hasProject: boolean, signedIn: boolean) {
   send('page_view', { page_name: 'model_hub', view_id: newTrackingId(), embedded: embeddedView(), has_project: hasProject, ...slugField('hub_id', hub), signed_in: signedIn });

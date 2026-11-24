@@ -4,6 +4,7 @@ import { useI18n } from '../i18n/I18n';
 import flameArtUrl from './bf-dusk-flame.jpg';
 import styles from './BlackFridayTopBanner.module.css';
 import { BLACK_FRIDAY_CAMPAIGN, BLACK_FRIDAY_ENDS_AT, blackFridayActive, campaignPricingUrl, newCampaignEntryId } from './campaignAttribution';
+import { useCheckoutReturnRefresh } from './entitlementAttribution';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
 
@@ -37,10 +38,11 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
 
   // The link's entry id is reported with the click and replaced afterwards, so each click is its own Pricing entry.
   const [entryId, setEntryId] = useState(newCampaignEntryId);
+  const markCheckoutReturn = useCheckoutReturnRefresh(trackingPage, 'bf_banner');
   useEffect(() => {
     if (impressionReported) return;
     impressionReported = true;
-    void trackMotion('surface_view', { page_name: trackingPage, area: 'campaign_banner', element: 'banner', campaign_id: BLACK_FRIDAY_CAMPAIGN });
+    void trackMotion('surface_view', { page_name: trackingPage, area: 'campaign_banner', element: 'banner', campaign_id: BLACK_FRIDAY_CAMPAIGN, hook_id: 'bf_banner' });
   }, [trackingPage]);
 
   useEffect(() => {
@@ -79,13 +81,15 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
   const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
   const method = (event: MouseEvent) => event.detail === 0 ? 'keyboard' as const : 'pointer' as const;
   function claimOffer(event: MouseEvent<HTMLAnchorElement>) {
-    void trackMotion('ui_click', { page_name: trackingPage, area: 'campaign_banner', element: 'claim_offer', campaign_id: BLACK_FRIDAY_CAMPAIGN, entry_id: entryId, interaction_method: method(event) });
+    const clickedEntryId = entryId;
+    markCheckoutReturn(clickedEntryId);
+    void trackMotion('ui_click', { page_name: trackingPage, area: 'campaign_banner', element: 'claim_offer', campaign_id: BLACK_FRIDAY_CAMPAIGN, hook_id: 'bf_banner', entry_id: clickedEntryId, interaction_method: method(event) });
     // Stamp the click time on the address the browser is about to open, then replace the id for the next click.
-    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', clickedEntryId);
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
   }
   function close(event: MouseEvent) {
-    void trackMotion('ui_click', { page_name: trackingPage, area: 'campaign_banner', element: 'close_banner', campaign_id: BLACK_FRIDAY_CAMPAIGN, interaction_method: method(event) });
+    void trackMotion('ui_click', { page_name: trackingPage, area: 'campaign_banner', element: 'close_banner', campaign_id: BLACK_FRIDAY_CAMPAIGN, hook_id: 'bf_banner', interaction_method: method(event) });
     onClose();
   }
   const bannerStyle = {

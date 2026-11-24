@@ -15,7 +15,7 @@ import {
   useDesktopChrome,
 } from '../utils/platformHost';
 import { useWorkspaceChrome } from './WorkspaceFrame';
-import { useAccountSummary } from './AccountSettings';
+import { openOpenDesignConsole, useAccountSummary } from './AccountSettings';
 import { CommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
@@ -204,6 +204,7 @@ export function ApplicationAccountMenu({ settings, openSettings, trackingPage }:
       {(balance !== null || share !== null) && <BalanceMenuItem balance={balance} quota={quota} trackingPage={trackingPage} openUsage={() => openSettings('subscription')} />}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('subscription')}><span className="om-menu-label"><RemixIcon name="bank-card-line" size={16} />{t('Subscription & usage')}</span></MenuItem>
+      {account?.state === 'signed-in' && <MenuItem onClick={() => { trackStudioClick('settings', 'open_console'); void openOpenDesignConsole().then(opened => { if (!opened) openSettings('subscription'); }); }}><span className="om-menu-label"><RemixIcon name="layout-2-line" size={16} />{t('Console')}<RemixIcon className="om-menu-external" name="external-link-line" size={14} /></span></MenuItem>}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('general')}><span className="om-menu-label"><RemixIcon name="settings-3-line" size={16} />{t('Settings')}</span></MenuItem>
       <MenuSubmenu aria-label={t('Appearance')} className="om-selection-panel om-menu-panel" label={<span className="om-menu-label"><RemixIcon name="sun-line" size={16} />{t('Appearance')}</span>} detail={t(themeLabels[theme])}>

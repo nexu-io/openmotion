@@ -1,3 +1,5 @@
+import type { ModelRoutingTier } from './opendesign-models.ts';
+export type { ModelRoutingTier };
 /** Settings contracts contain public metadata only. Credentials remain service-owned. */
 export const modelKinds = ['text', 'image', 'video', 'audio', 'transcription', 'embedding', 'reranker'] as const;
 export type ModelKind = typeof modelKinds[number];
@@ -28,6 +30,12 @@ export type ModelMetadata = {
   group?: string; capabilities?: typeof modelCapabilities[number][]; inputs?: typeof inputModalities[number][];
   contextWindow?: number | null; maxInputTokens?: number | null; maxOutputTokens?: number | null;
   defaults?: Record<string, unknown>;
+  /** Concise routing summary for discovery (server-published or hydrated fallback). */
+  description?: string;
+  /** Speed/quality tier for automated routing (`flagship`, `balanced`, `fast`). */
+  tier?: ModelRoutingTier;
+  /** Concise capability/use-case tags (e.g. `hero-art`, `batch-sprites`, `transparent-cutout`, `zh-speech`). */
+  bestFor?: string[];
 };
 export type DirectoryModel = ModelMetadata & {
   id: string; provider: string; modelId: string; label: string; kind: ModelKind;

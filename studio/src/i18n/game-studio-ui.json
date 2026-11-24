@@ -75,7 +75,6 @@
     "Copy link": "复制链接",
     "External link": "外部链接",
     "Hand the game to your Agent again": "重新交给 Agent",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "链接已复制。它只能在这台电脑上打开，暂不支持发布到网上。",
     "Not finished": "未完成",
     "Open in new window": "在新窗口打开",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion 已在这台电脑上保存草稿。Agent 会通过 OpenMotion MCP 制作游戏，本页面会随进度更新。",
@@ -89,7 +88,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "做好后会在右侧直接试玩，并出现在这台电脑的游戏市场里。",
     "The game will load here when it is ready.": "游戏做好后会在这里加载。",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "这个浏览器里没有保存这份草稿的指令，可以再创作一份获取新指令。",
-    "This game has no shareable link yet. Publishing to the web is not available.": "这个游戏还没有可分享的链接，暂不支持发布到网上。",
     "{title} could not be finished. Hand it to your Agent again.": "{title} 没有做完，可以重新交给 Agent。",
     "{title} is ready to play.": "{title} 已可以试玩。",
     "Made by {author} · {model}": "作者 {author} · {model}",
@@ -146,7 +144,10 @@
     "Continue in Super Agent": "在 Super Agent 中继续",
     "Edit & optimize in Super Agent": "在 Super Agent 中二创与优化",
     "Create trailer": "生成宣传片",
-    "Edit in Agent": "在 Agent 中编辑"
+    "Edit in Agent": "在 Agent 中编辑",
+    "This game has no shareable link yet.": "这个游戏还没有可分享的链接。",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "本地链接已复制，仅限本机打开——点击“分享”即可发布到线上。",
+    "Local link copied. It only opens on this computer.": "本地链接已复制，仅限本机打开。"
   },
   "ja": {
     "3D": "3D",
@@ -224,7 +225,6 @@
     "Copy link": "リンクをコピー",
     "External link": "外部リンク",
     "Hand the game to your Agent again": "Agent にもう一度渡す",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "リンクをコピーしました。このパソコンでのみ開けます。Web への公開はまだできません。",
     "Not finished": "未完成",
     "Open in new window": "新しいウィンドウで開く",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion はこのパソコンに下書きを保存しました。Agent が OpenMotion MCP でゲームを作り、このページは進捗に合わせて更新されます。",
@@ -238,7 +238,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "完成すると右側でそのまま遊べ、このパソコンのゲームマーケットに表示されます。",
     "The game will load here when it is ready.": "完成するとここにゲームが読み込まれます。",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "この下書きの指示はこのブラウザに保存されていません。リミックスすると新しい指示を取得できます。",
-    "This game has no shareable link yet. Publishing to the web is not available.": "このゲームには共有できるリンクがまだありません。Web への公開はできません。",
     "{title} could not be finished. Hand it to your Agent again.": "{title} は完成しませんでした。もう一度 Agent に渡してください。",
     "{title} is ready to play.": "{title} が遊べるようになりました。",
     "Made by {author} · {model}": "作者 {author} · {model}",
@@ -295,7 +294,10 @@
     "Continue in Super Agent": "Super Agent で続ける",
     "Edit & optimize in Super Agent": "Super Agent で編集・最適化",
     "Create trailer": "予告編を作成",
-    "Edit in Agent": "Agent で編集"
+    "Edit in Agent": "Agent で編集",
+    "This game has no shareable link yet.": "このゲームにはまだ共有できるリンクがありません。",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "ローカルリンクをコピーしました。このパソコンでのみ開けます。オンライン公開には「共有」を使用してください。",
+    "Local link copied. It only opens on this computer.": "ローカルリンクをコピーしました。このパソコンでのみ開けます。"
   },
   "ko": {
     "3D": "3D",
@@ -373,7 +375,6 @@
     "Copy link": "링크 복사",
     "External link": "외부 링크",
     "Hand the game to your Agent again": "Agent에게 다시 맡기기",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "링크를 복사했습니다. 이 컴퓨터에서만 열 수 있으며, 웹 게시는 아직 지원하지 않습니다.",
     "Not finished": "미완성",
     "Open in new window": "새 창에서 열기",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion이 이 컴퓨터에 초안을 저장했습니다. Agent가 OpenMotion MCP로 게임을 만들며, 이 페이지는 진행에 맞춰 업데이트됩니다.",
@@ -387,7 +388,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "완성되면 오른쪽에서 바로 플레이하고, 이 컴퓨터의 게임 마켓에 표시됩니다.",
     "The game will load here when it is ready.": "게임이 완성되면 여기에서 불러옵니다.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "이 초안의 지시가 이 브라우저에 저장되어 있지 않습니다. 리믹스하면 새 지시를 받을 수 있습니다.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "이 게임에는 아직 공유 링크가 없습니다. 웹 게시는 지원하지 않습니다.",
     "{title} could not be finished. Hand it to your Agent again.": "{title}을(를) 완성하지 못했습니다. Agent에게 다시 맡기세요.",
     "{title} is ready to play.": "{title}을(를) 플레이할 수 있습니다.",
     "Made by {author} · {model}": "제작 {author} · {model}",
@@ -444,7 +444,10 @@
     "Continue in Super Agent": "Super Agent에서 계속하기",
     "Edit & optimize in Super Agent": "Super Agent에서 편집 및 최적화",
     "Create trailer": "트레일러 생성",
-    "Edit in Agent": "Agent에서 편집"
+    "Edit in Agent": "Agent에서 편집",
+    "This game has no shareable link yet.": "이 게임에는 아직 공유할 수 있는 링크가 없습니다.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "로컬 링크를 복사했습니다. 이 컴퓨터에서만 열 수 있으며, 온라인 게시는 공유를 사용하세요.",
+    "Local link copied. It only opens on this computer.": "로컬 링크를 복사했습니다. 이 컴퓨터에서만 열 수 있습니다."
   },
   "de": {
     "3D": "3D",
@@ -522,7 +525,6 @@
     "Copy link": "Link kopieren",
     "External link": "Externer Link",
     "Hand the game to your Agent again": "Erneut an den Agent übergeben",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Link kopiert. Er öffnet sich nur auf diesem Computer; Veröffentlichen im Web ist noch nicht verfügbar.",
     "Not finished": "Nicht fertig",
     "Open in new window": "In neuem Fenster öffnen",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion hat einen Entwurf auf diesem Computer gespeichert. Dein Agent baut das Spiel über OpenMotion MCP; diese Seite aktualisiert sich dabei.",
@@ -536,7 +538,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Danach läuft das Spiel rechts und erscheint im Spielemarkt auf diesem Computer.",
     "The game will load here when it is ready.": "Das Spiel wird hier geladen, sobald es fertig ist.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "Die Anweisung für diesen Entwurf ist in diesem Browser nicht gespeichert. Remixe ihn, um eine neue zu erhalten.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "Dieses Spiel hat noch keinen teilbaren Link. Veröffentlichen im Web ist nicht verfügbar.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} wurde nicht fertig. Übergib es erneut an deinen Agent.",
     "{title} is ready to play.": "{title} ist spielbereit.",
     "Made by {author} · {model}": "Von {author} · {model}",
@@ -593,7 +594,10 @@
     "Continue in Super Agent": "In Super Agent fortfahren",
     "Edit & optimize in Super Agent": "In Super Agent bearbeiten & optimieren",
     "Create trailer": "Trailer erstellen",
-    "Edit in Agent": "Im Agent bearbeiten"
+    "Edit in Agent": "Im Agent bearbeiten",
+    "This game has no shareable link yet.": "Dieses Spiel hat noch keinen teilbaren Link.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Lokaler Link kopiert. Er öffnet sich nur auf diesem Computer – nutze Teilen zum Veröffentlichen im Web.",
+    "Local link copied. It only opens on this computer.": "Lokaler Link kopiert. Er öffnet sich nur auf diesem Computer."
   },
   "fr": {
     "3D": "3D",
@@ -671,7 +675,6 @@
     "Copy link": "Copier le lien",
     "External link": "Lien externe",
     "Hand the game to your Agent again": "Confier à nouveau à ton Agent",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Lien copié. Il ne s’ouvre que sur cet ordinateur ; la publication sur le web n’est pas encore disponible.",
     "Not finished": "Inachevé",
     "Open in new window": "Ouvrir dans une nouvelle fenêtre",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion a enregistré un brouillon sur cet ordinateur. Ton Agent crée le jeu via OpenMotion MCP ; cette page se met à jour au fur et à mesure.",
@@ -685,7 +688,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Le jeu se joue ensuite à droite et apparaît dans le marché des jeux de cet ordinateur.",
     "The game will load here when it is ready.": "Le jeu se chargera ici quand il sera prêt.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "L’instruction de ce brouillon n’est pas enregistrée dans ce navigateur. Fais un remix pour en obtenir une nouvelle.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "Ce jeu n’a pas encore de lien partageable. La publication sur le web n’est pas disponible.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} n’a pas été terminé. Confie-le à nouveau à ton Agent.",
     "{title} is ready to play.": "{title} est prêt à jouer.",
     "Made by {author} · {model}": "Par {author} · {model}",
@@ -742,7 +744,10 @@
     "Continue in Super Agent": "Continuer dans Super Agent",
     "Edit & optimize in Super Agent": "Modifier et optimiser dans Super Agent",
     "Create trailer": "Créer une bande-annonce",
-    "Edit in Agent": "Modifier dans Agent"
+    "Edit in Agent": "Modifier dans Agent",
+    "This game has no shareable link yet.": "Ce jeu n’a pas encore de lien partageable.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Lien local copié. Il ne s’ouvre que sur cet ordinateur : utilisez Partager pour le publier en ligne.",
+    "Local link copied. It only opens on this computer.": "Lien local copié. Il ne s’ouvre que sur cet ordinateur."
   },
   "ru": {
     "3D": "3D",
@@ -820,7 +825,6 @@
     "Copy link": "Копировать ссылку",
     "External link": "Внешняя ссылка",
     "Hand the game to your Agent again": "Снова передать Agent",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Ссылка скопирована. Она открывается только на этом компьютере; публикация в интернете пока недоступна.",
     "Not finished": "Не завершено",
     "Open in new window": "Открыть в новом окне",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion сохранил черновик на этом компьютере. Agent создаёт игру через OpenMotion MCP, а эта страница обновляется по ходу работы.",
@@ -834,7 +838,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Затем игра запустится справа и появится в магазине игр на этом компьютере.",
     "The game will load here when it is ready.": "Игра загрузится здесь, когда будет готова.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "Задание для этого черновика не сохранено в браузере. Сделайте ремикс, чтобы получить новое.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "У этой игры ещё нет ссылки для публикации. Публикация в интернете недоступна.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} не закончена. Передайте её Agent снова.",
     "{title} is ready to play.": "{title} готова к игре.",
     "Made by {author} · {model}": "Автор {author} · {model}",
@@ -891,7 +894,10 @@
     "Continue in Super Agent": "Продолжить в Super Agent",
     "Edit & optimize in Super Agent": "Редактировать и улучшать в Super Agent",
     "Create trailer": "Создать трейлер",
-    "Edit in Agent": "Изменить в Agent"
+    "Edit in Agent": "Изменить в Agent",
+    "This game has no shareable link yet.": "У этой игры ещё нет ссылки для отправки.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Локальная ссылка скопирована. Она открывается только на этом компьютере — используйте «Поделиться» для публикации онлайн.",
+    "Local link copied. It only opens on this computer.": "Локальная ссылка скопирована. Она открывается только на этом компьютере."
   },
   "es": {
     "3D": "3D",
@@ -969,7 +975,6 @@
     "Copy link": "Copiar enlace",
     "External link": "Enlace externo",
     "Hand the game to your Agent again": "Volver a pasarlo a tu Agent",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Enlace copiado. Solo se abre en este ordenador; publicar en la web aún no está disponible.",
     "Not finished": "Sin terminar",
     "Open in new window": "Abrir en una ventana nueva",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion guardó un borrador en este ordenador. Tu Agent crea el juego con OpenMotion MCP y esta página se actualiza mientras trabaja.",
@@ -983,7 +988,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Luego el juego se juega a la derecha y aparece en el mercado de juegos de este ordenador.",
     "The game will load here when it is ready.": "El juego se cargará aquí cuando esté listo.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "La instrucción de este borrador no está guardada en este navegador. Haz un remix para obtener una nueva.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "Este juego aún no tiene un enlace para compartir. Publicar en la web no está disponible.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} no se terminó. Vuelve a pasárselo a tu Agent.",
     "{title} is ready to play.": "{title} ya se puede jugar.",
     "Made by {author} · {model}": "Por {author} · {model}",
@@ -1040,7 +1044,10 @@
     "Continue in Super Agent": "Continuar en Super Agent",
     "Edit & optimize in Super Agent": "Editar y optimizar en Super Agent",
     "Create trailer": "Crear tráiler",
-    "Edit in Agent": "Editar en Agent"
+    "Edit in Agent": "Editar en Agent",
+    "This game has no shareable link yet.": "Este juego aún no tiene un enlace para compartir.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Enlace local copiado. Solo se abre en este ordenador; usa Compartir para publicarlo en línea.",
+    "Local link copied. It only opens on this computer.": "Enlace local copiado. Solo se abre en este ordenador."
   },
   "pt-BR": {
     "3D": "3D",
@@ -1118,7 +1125,6 @@
     "Copy link": "Copiar link",
     "External link": "Link externo",
     "Hand the game to your Agent again": "Entregar ao Agent de novo",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Link copiado. Ele só abre neste computador; publicar na web ainda não está disponível.",
     "Not finished": "Não concluído",
     "Open in new window": "Abrir em nova janela",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "O OpenMotion salvou um rascunho neste computador. Seu Agent cria o jogo pelo OpenMotion MCP e esta página é atualizada enquanto ele trabalha.",
@@ -1132,7 +1138,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Depois o jogo roda à direita e aparece no mercado de jogos deste computador.",
     "The game will load here when it is ready.": "O jogo será carregado aqui quando estiver pronto.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "A instrução deste rascunho não está salva neste navegador. Faça um remix para obter uma nova.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "Este jogo ainda não tem link para compartilhar. Publicar na web não está disponível.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} não foi concluído. Entregue ao seu Agent de novo.",
     "{title} is ready to play.": "{title} está pronto para jogar.",
     "Made by {author} · {model}": "Por {author} · {model}",
@@ -1189,7 +1194,10 @@
     "Continue in Super Agent": "Continuar no Super Agent",
     "Edit & optimize in Super Agent": "Editar e otimizar no Super Agent",
     "Create trailer": "Criar trailer",
-    "Edit in Agent": "Editar no Agent"
+    "Edit in Agent": "Editar no Agent",
+    "This game has no shareable link yet.": "Este jogo ainda não tem um link para compartilhar.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Link local copiado. Ele só abre neste computador — use Compartilhar para publicar online.",
+    "Local link copied. It only opens on this computer.": "Link local copiado. Ele só abre neste computador."
   },
   "it": {
     "3D": "3D",
@@ -1267,7 +1275,6 @@
     "Copy link": "Copia link",
     "External link": "Link esterno",
     "Hand the game to your Agent again": "Affida di nuovo al tuo Agent",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Link copiato. Si apre solo su questo computer; la pubblicazione sul web non è ancora disponibile.",
     "Not finished": "Non finito",
     "Open in new window": "Apri in una nuova finestra",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion ha salvato una bozza su questo computer. Il tuo Agent crea il gioco tramite OpenMotion MCP e questa pagina si aggiorna mentre lavora.",
@@ -1281,7 +1288,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Poi il gioco si gioca a destra e compare nel mercato dei giochi di questo computer.",
     "The game will load here when it is ready.": "Il gioco si caricherà qui quando sarà pronto.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "L’istruzione di questa bozza non è salvata in questo browser. Fai un remix per ottenerne una nuova.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "Questo gioco non ha ancora un link da condividere. La pubblicazione sul web non è disponibile.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} non è stato finito. Affidalo di nuovo al tuo Agent.",
     "{title} is ready to play.": "{title} è pronto da giocare.",
     "Made by {author} · {model}": "Di {author} · {model}",
@@ -1338,7 +1344,10 @@
     "Continue in Super Agent": "Continua in Super Agent",
     "Edit & optimize in Super Agent": "Modifica e ottimizza in Super Agent",
     "Create trailer": "Crea trailer",
-    "Edit in Agent": "Modifica in Agent"
+    "Edit in Agent": "Modifica in Agent",
+    "This game has no shareable link yet.": "Questo gioco non ha ancora un link da condividere.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Link locale copiato. Si apre solo su questo computer: usa Condividi per pubblicarlo online.",
+    "Local link copied. It only opens on this computer.": "Link locale copiato. Si apre solo su questo computer."
   },
   "tr": {
     "3D": "3D",
@@ -1416,7 +1425,6 @@
     "Copy link": "Bağlantıyı kopyala",
     "External link": "Harici bağlantı",
     "Hand the game to your Agent again": "Agent’a yeniden ver",
-    "Link copied. It only opens on this computer; publishing to the web is not available yet.": "Bağlantı kopyalandı. Yalnızca bu bilgisayarda açılır; web’de yayınlama henüz yok.",
     "Not finished": "Tamamlanmadı",
     "Open in new window": "Yeni pencerede aç",
     "OpenMotion has saved a draft on this computer. Your Agent builds the game through OpenMotion MCP; this page updates as it works.": "OpenMotion bu bilgisayara bir taslak kaydetti. Agent oyunu OpenMotion MCP ile yapar; bu sayfa ilerledikçe güncellenir.",
@@ -1430,7 +1438,6 @@
     "The game then plays on the right and appears in the game market on this computer.": "Ardından oyun sağda oynanır ve bu bilgisayardaki oyun pazarında görünür.",
     "The game will load here when it is ready.": "Oyun hazır olduğunda burada yüklenir.",
     "The instruction for this draft is not stored in this browser. Remix it to get a new one.": "Bu taslağın talimatı bu tarayıcıda kayıtlı değil. Yeni bir talimat almak için remix yapın.",
-    "This game has no shareable link yet. Publishing to the web is not available.": "Bu oyunun henüz paylaşılabilir bağlantısı yok. Web’de yayınlama yok.",
     "{title} could not be finished. Hand it to your Agent again.": "{title} tamamlanmadı. Agent’a yeniden verin.",
     "{title} is ready to play.": "{title} oynamaya hazır.",
     "Made by {author} · {model}": "Yapan {author} · {model}",
@@ -1487,6 +1494,9 @@
     "Continue in Super Agent": "Super Agent'ta devam et",
     "Edit & optimize in Super Agent": "Super Agent'ta düzenle ve iyileştir",
     "Create trailer": "Fragman oluştur",
-    "Edit in Agent": "Agent’ta düzenle"
+    "Edit in Agent": "Agent’ta düzenle",
+    "This game has no shareable link yet.": "Bu oyunun henüz paylaşılabilir bağlantısı yok.",
+    "Local link copied. It only opens on this computer — use Share to publish online.": "Yerel bağlantı kopyalandı. Yalnızca bu bilgisayarda açılır — çevrimiçi yayınlamak için Paylaş’ı kullanın.",
+    "Local link copied. It only opens on this computer.": "Yerel bağlantı kopyalandı. Yalnızca bu bilgisayarda açılır."
   }
 }

@@ -18,6 +18,7 @@ import { accountMediaState } from './account-media.ts';
 import { AssetLibrary } from './asset-library.ts';
 import { requireLibraryMediaRuntime } from './asset-probe.ts';
 import { generationOptions, resolveGenerationParameters, validateGenerationOptions } from '../shared/generation-options.ts';
+import { hydrateOpenDesignModelMetadata } from '../shared/opendesign-models.ts';
 import { loadRegistry, toOpenMotionGenerationOptions } from '../packages/multimodal-models/src/query.ts';
 import { audioAssetTitle, classifyAudioKind } from '../shared/audio-kind.ts';
 import { MAX_ASSET_BYTES } from '../shared/asset-limits.ts';
@@ -152,11 +153,23 @@ export class ModelGateway {
     const cloud = await this.cachedCloudModels();
     return [...new Map([...builtinModels, ...cached.filter(model => model.provider !== 'opendesign'), ...cloud, ...custom, ...compatible, ...account].map(model => [model.id, model])).values()].map(model => {
       const live = cloud.find(row => row.id === model.id);
-      const merged = { ...model, ...overrides[model.id], ...(live ? { supportsImageReference: live.supportsImageReference, maxInputImages: live.maxInputImages, nativeOptions: live.nativeOptions } : {}) };
+      const merged = {
+        ...model,
+        ...overrides[model.id],
+        ...(live ? {
+          supportsImageReference: live.supportsImageReference,
+          maxInputImages: live.maxInputImages,
+          nativeOptions: live.nativeOptions,
+          ...(live.description !== undefined ? { description: live.description } : {}),
+          ...(live.tier !== undefined ? { tier: live.tier } : {}),
+          ...(live.bestFor !== undefined ? { bestFor: live.bestFor } : {}),
+        } : {}),
+      };
       const normalized = ['opendesign', 'account'].includes(merged.provider) && merged.modality === 'image' && merged.supportsImageReference
         ? { ...merged, maxInputImages: modelReferenceLimit(merged) }
         : merged;
-      return { ...normalized, generationOptions: resolveRegistryGenerationOptions(normalized) };
+      const hydrated = hydrateOpenDesignModelMetadata(normalized);
+      return { ...hydrated, generationOptions: resolveRegistryGenerationOptions(hydrated) };
     });
   }
   async listModels(input: { provider?: unknown; modality?: unknown; query?: unknown; refresh?: unknown; offset?: unknown; limit?: unknown } = {}) {
@@ -194,7 +207,7 @@ export class ModelGateway {
           title: model.label,
           subtitle: model.provider,
           description: model.description,
-          tags: [model.modality, model.mode, model.provider],
+          tags: [model.modality, model.mode, model.provider, ...(model.tier ? [model.tier] : []), ...(model.bestFor ?? [])],
           aliases: [model.id],
         })).map(result => result.item)
       : scoped;

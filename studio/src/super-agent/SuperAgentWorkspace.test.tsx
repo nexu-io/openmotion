@@ -3695,7 +3695,7 @@ it('SuperAgentWorkspace shows task project directory in header and opens changed
   expect(container.textContent).toContain('.hud { color: red; }');
 });
 
-function setupDesignStudioMocks() {
+function setupDesignStudioMocks({ assetLoadFailures = 0 } = {}) {
   const createdChats: any[] = [];
   const turnBodies: any[] = [];
   let chatCounter = 0;
@@ -3803,6 +3803,14 @@ function setupDesignStudioMocks() {
       versionId: 'v1',
       previewUrl: '/motion-api/assets/asset-poster-1/versions/v1/media',
     },
+    {
+      id: 'asset-clip-1',
+      kind: 'asset',
+      title: 'Product Video',
+      modality: 'video',
+      versionId: 'v1',
+      previewUrl: '/motion-api/assets/asset-clip-1/versions/v1/file',
+    },
   ];
 
   const json = (body: unknown, status = 200) =>
@@ -3866,6 +3874,10 @@ function setupDesignStudioMocks() {
     if (url.startsWith(`${SUPER_AGENT_API}/resources`)) {
       const parsed = new URL(url, 'http://localhost');
       const kind = parsed.searchParams.get('kind');
+      if (kind === 'asset' && assetLoadFailures > 0) {
+        assetLoadFailures -= 1;
+        return json({ error: 'Resource fetch failed' }, 503);
+      }
       const items = kind === 'design-template'
         ? designItems
         : kind === 'design-project'
@@ -3927,7 +3939,7 @@ function setupDesignStudioMocks() {
 }
 
 it('enters Design Studio from starter card with all 8 modules, floating option pills, synchronized showcase tabs, and search filtering', async () => {
-  setupDesignStudioMocks();
+  setupDesignStudioMocks({ assetLoadFailures: 1 });
   const flushMore = async () => {
     await flush();
     await flush();
@@ -3985,6 +3997,33 @@ it('enters Design Studio from starter card with all 8 modules, floating option p
     expect(topBar.textContent).toContain('Reference');
     expect(topBar.textContent).toContain('Brand Kit');
     expect(container.querySelector('.om-sa-showcase-tabs')?.textContent).toContain('All image scenes');
+
+    const imageTabs = [...container.querySelectorAll<HTMLButtonElement>('.om-sa-showcase-tab')];
+    const brandTab = imageTabs.find(tab => tab.textContent?.startsWith('Brand Kits'))!;
+    const assetTab = imageTabs.find(tab => tab.textContent?.startsWith('Workspace Assets'))!;
+    const badge = (tab: HTMLButtonElement) => tab.querySelector('.om-sa-tab-count')?.textContent;
+    expect(badge(brandTab)).toBe('1');
+    expect(badge(assetTab)).toBeUndefined();
+    await act(async () => assetTab.click());
+    const imageGrid = container.querySelector('.om-sa-showcase-grid')!;
+    expect(imageGrid.textContent).toContain('Could not load workspace resources');
+    const retry = [...imageGrid.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Retry')!;
+    await act(async () => retry.click());
+    await flushMore();
+    expect(badge(assetTab)).toBe('1');
+    expect(imageGrid.textContent).toContain('Product Hero Poster');
+    expect(imageGrid.textContent).not.toContain('Product Video');
+
+    const imageSearch = container.querySelector<HTMLInputElement>('input[aria-label="Filter templates…"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(imageSearch, 'Vercel');
+      imageSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(badge(assetTab)).toBe('0');
+    expect(badge(brandTab)).toBe('1');
+    expect(imageGrid.textContent).toContain('No matching resources found');
+    await act(async () => brandTab.click());
+    expect(imageGrid.textContent).toContain('Vercel');
 
     // Switching to Prototype switches top bar to HTML Design pills & filters to Prototype templates (?thumb=1)
     const protoCard = [...container.querySelectorAll('.om-sa-design-module-card')].find(
@@ -6417,6 +6456,15 @@ it('exposes Motion graphics as a primary entry, moves Create audio into Explore 
   expect(container.querySelector('.om-sa-composer-top-bar')?.textContent).toContain('AI Video');
   expect(container.querySelector('.om-sa-showcase-tabs')?.textContent).toContain('All video');
   expect(container.querySelector('.om-sa-showcase-tabs')?.textContent).not.toContain('TOP 100 brands');
+
+  const assetTab = [...container.querySelectorAll<HTMLButtonElement>('.om-sa-showcase-tab')].find(
+    tab => tab.textContent?.startsWith('Workspace Assets'),
+  )!;
+  await act(async () => assetTab.click());
+  const videoCard = container.querySelector('.om-sa-showcase-grid .om-sa-showcase-card')!;
+  expect(videoCard.textContent).toContain('Product Video');
+  expect(videoCard.querySelector('[data-modality="video"] [data-thumbnail-loading]')).toBeTruthy();
+  expect(videoCard.querySelector('video')).toBeNull();
 });
 
 it('embeds Motion Studio Editor in Super Agent without remounting on revision updates and supports selection attach + open-file', async () => {
@@ -7219,4 +7267,142 @@ it('formats measured step durations without a minimum or a 60-second remainder',
   expect(formatElapsedDuration(1)).toBe('1ms');
   expect(formatElapsedDuration(8)).toBe('8ms');
   expect(formatElapsedDuration(119_999)).toBe('2m 0s');
+});
+
+it('unblocks game preview iframe when chat is idle even if game metadata is still building, while showing spinner when chat is running', async () => {
+  const STALE_CHAT_ID = '99999999-aaaa-4bbb-8ccc-dddddddddddd';
+  const STALE_GAME_ID = 'game-stale-building-1';
+  let chatState: 'running' | 'idle' = 'idle';
+
+  const makeChatPayload = () => ({
+    id: STALE_CHAT_ID,
+    title: 'Bund 3D Demo',
+    intent: 'game' as const,
+    engine: 'codex' as const,
+    model: 'gpt-5',
+    permissionMode: 'auto' as const,
+    state: chatState,
+    createdAt: Date.now() - 5000,
+    updatedAt: Date.now(),
+    messages: [
+      { id: 'u1', role: 'user' as const, text: 'Build a Bund game', createdAt: Date.now() - 4000 },
+      { id: 'a1', role: 'assistant' as const, text: 'Wrote index.html.', createdAt: Date.now() - 1000, status: 'completed' as const },
+    ],
+    artifacts: [{
+      id: `game:${STALE_GAME_ID}`,
+      kind: 'game-project' as const,
+      title: 'Bund 3D Demo',
+      projectId: STALE_GAME_ID,
+      url: `/motion-api/games/${STALE_GAME_ID}/play/index.html`,
+      revision: 'rev-1',
+      presentedAt: Date.now() - 1000,
+      createdAt: Date.now() - 1000,
+      updatedAt: Date.now() - 1000,
+    }],
+    activeArtifactId: `game:${STALE_GAME_ID}`,
+    approvals: [],
+  });
+
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const okJson = (data: unknown) =>
+      new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    if (url.startsWith('/motion-api/settings/agents')) {
+      return okJson({ agents: [{ id: 'codex', label: 'Codex', bin: 'codex', installed: true, auth: 'signed-in', models: [{ id: 'gpt-5', label: 'GPT-5', source: 'cli' }] }] });
+    }
+    if (url.startsWith('/motion-api/settings/agent-runtimes')) {
+      return okJson({ localDirectAvailable: true, defaultRuntimeId: 'local:direct', runtimes: [] });
+    }
+    if (url.startsWith(`${SUPER_AGENT_API}/resources`)) {
+      return okJson({
+        counts: { assets: 0, brandKits: 0, officialBrandKits: 0, motionTemplates: 0, designTemplates: 0, skills: 0, designSkills: 0, designProjects: 0, motionProjects: 0, mediaProvidersAvailable: 0, workflows: 0, models: 0, games: 1 },
+        items: [],
+        generatedAt: Date.now(),
+      });
+    }
+    if (url === `${SUPER_AGENT_API}/chats`) {
+      return okJson({ conversations: [{ ...makeChatPayload(), artifactCount: 1, messageCount: 2 }] });
+    }
+    if (url === `${SUPER_AGENT_API}/chats/${STALE_CHAT_ID}`) {
+      return okJson({ conversation: makeChatPayload() });
+    }
+    if (url.includes('/motion-api/games/catalog') || url === '/motion-api/games') {
+      return okJson({ games: [{ id: STALE_GAME_ID, title: 'Bund 3D Demo', status: 'building', source: 'mine', genre: 'casual', multiplayer: false }] });
+    }
+    if (url.includes(`/motion-api/games/${STALE_GAME_ID}/play/index.html`)) {
+      return new Response('<!doctype html><canvas id="game"></canvas>', { status: 200, headers: { 'Content-Type': 'text/html' } });
+    }
+    return okJson({});
+  }) as any;
+
+  // 1. When chat is idle even with stale building status -> click Play and load playable iframe (no fake spinner)
+  await act(async () => {
+    root.render(
+      <I18nProvider initialLocale="en">
+        <SuperAgentWorkspace
+          active
+          chatId={STALE_CHAT_ID}
+          onChatIdChange={vi.fn()}
+          onOpenDesignProject={vi.fn()}
+          onOpenMotionProject={vi.fn()}
+          onOpenAsset={vi.fn()}
+          onOpenBrandKit={vi.fn()}
+          onOpenAgentSettings={vi.fn()}
+          onOpenMcp={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+  });
+  await flush();
+  await flush();
+  const playBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.trim() === 'Play');
+  expect(playBtn).toBeTruthy();
+  await act(async () => playBtn!.click());
+  await flush();
+  await flush();
+  expect(container.textContent).not.toContain('Agent is running…');
+  const iframe = container.querySelector<HTMLIFrameElement>('.om-sa-viewer iframe');
+  expect(iframe).toBeTruthy();
+  expect(iframe?.getAttribute('src')).toContain(`/motion-api/games/${STALE_GAME_ID}/play/index.html`);
+
+  // 2. While chat is actively running + game status is building -> show loading placeholder instead of iframe
+  chatState = 'running';
+  await act(async () => {
+    root.render(
+      <I18nProvider initialLocale="en">
+        <SuperAgentWorkspace
+          active={false}
+          chatId={STALE_CHAT_ID}
+          onChatIdChange={vi.fn()}
+          onOpenDesignProject={vi.fn()}
+          onOpenMotionProject={vi.fn()}
+          onOpenAsset={vi.fn()}
+          onOpenBrandKit={vi.fn()}
+          onOpenAgentSettings={vi.fn()}
+          onOpenMcp={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+  });
+  await act(async () => {
+    root.render(
+      <I18nProvider initialLocale="en">
+        <SuperAgentWorkspace
+          active
+          chatId={STALE_CHAT_ID}
+          onChatIdChange={vi.fn()}
+          onOpenDesignProject={vi.fn()}
+          onOpenMotionProject={vi.fn()}
+          onOpenAsset={vi.fn()}
+          onOpenBrandKit={vi.fn()}
+          onOpenAgentSettings={vi.fn()}
+          onOpenMcp={vi.fn()}
+        />
+      </I18nProvider>,
+    );
+  });
+  await flush();
+  await flush();
+  expect(container.textContent).toContain('Agent is running…');
+  expect(container.querySelector('.om-sa-viewer iframe')).toBeNull();
 });

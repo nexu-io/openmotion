@@ -2,7 +2,7 @@
 // page_name=creative_studio with studio_id=game, like the other creative studios. Titles, briefs, prompts,
 // instructions and links never leave the browser; only catalogue ids, UUIDs and fixed categories do.
 import type { GameCard } from '../../../../shared/game-contract';
-import { newTrackingId, send, slugField, type Fields } from '../reporting';
+import { newTrackingId, optionId, searchKeyword, send, slugField, type Fields } from '../reporting';
 
 type Click = Fields<'ui_click'>;
 type GameArea = Extract<Click['area'], `game_${string}`>;
@@ -50,4 +50,26 @@ export function reportGameCreate(route: 'brief' | 'remix', result: { game: GameC
 
 export function reportGameAction(action: Action, outcome: Outcome, game: GameCard) {
   send('game_action_result', { ...studio, action, outcome, ...gameFields(game) });
+}
+
+export function reportGameDetailShown(game: GameCard) {
+  send('surface_view', { ...studio, area: 'game_detail', element: 'detail', ...gameFields(game) });
+}
+
+export function reportGameHandoffShown(game: GameCard) {
+  send('surface_view', { ...studio, area: 'game_handoff', element: 'handoff', ...gameFields(game) });
+}
+
+export function reportGameAssetClick(element: Extract<Click['element'], 'open_game' | 'view_all_games' | 'open_game_studio'>, game?: GameCard | null) {
+  send('ui_click', { page_name: 'assets', area: 'assets_library', element, ...(game ? gameFields(game) : {}) });
+}
+
+export function reportGameSearch(searchId: string, query: string, resultCount: number, category?: string) {
+  const keyword = searchKeyword(query);
+  if (!keyword) return;
+  send('game_search_result', {
+    ...studio, area: 'game_market', search_id: searchId, search_keyword: keyword,
+    query_length: query.trim().length, result_count: resultCount, outcome: 'success',
+    ...(category && category !== 'all' ? optionId(category) : {}),
+  });
 }

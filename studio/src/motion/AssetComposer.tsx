@@ -31,6 +31,8 @@ import { attachableReferenceLimit, creationModels } from './creationModels';
 import { isOpenDesignProvider, modelFamilyLabel, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
 import { ProviderSetupNotice } from './ProviderSetupNotice';
+import { setPendingAttribution } from './entitlementAttribution';
+import { send } from './reporting';
 
 export interface AssetDraft { modality: Modality; prompt: string; capabilityOptions?: Record<string, string>; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
 export function AssetComposer({ active, studio, draft, setDraft, agentReferences, setAgentReferences, jobs, showCurrentJob = true, mode, onMode, taskIds, history, selectingTask, onNew, onChatChanged, onChatStarted, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
@@ -301,9 +303,34 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     </div>
   </div>;
 
-  const configureProvider = (providerId: string) => providerId === 'account'
-    ? (openAccountSettings ?? openModelSettings)()
-    : openProviderSettings ? openProviderSettings(providerId) : openModelSettings();
+  const trackingPage = studio ? 'creative_studio' as const : 'assets' as const;
+  const studioId = studio?.destination.studio.id;
+  const signInGateVisible = Boolean(openDesignMissing || (unconfiguredPreferred && preferred?.provider === 'account'));
+  const prevSignInGate = useRef(false);
+  useEffect(() => {
+    if (signInGateVisible && !prevSignInGate.current) {
+      tracking.reportEntitlementGateView(trackingPage, 'studio_generate', studioId ? { studio_id: studioId } : {});
+    }
+    prevSignInGate.current = signInGateVisible;
+  }, [signInGateVisible, trackingPage, studioId]);
+  const prevFreeGate = useRef(false);
+  useEffect(() => {
+    if (accountNotIncluded && !prevFreeGate.current) {
+      tracking.reportEntitlementGateView(trackingPage, 'studio_free_gate', studioId ? { studio_id: studioId } : {});
+    }
+    prevFreeGate.current = Boolean(accountNotIncluded);
+  }, [accountNotIncluded, trackingPage, studioId]);
+
+  const configureProvider = (providerId: string) => {
+    if (providerId === 'account') {
+      const entryId = tracking.newTrackingId();
+      setPendingAttribution('sign_in', 'studio_generate', entryId);
+      send('ui_click', { page_name: trackingPage, area: 'asset_create', element: 'sign_in', hook_id: 'studio_generate', entry_id: entryId, ...(studioId ? { studio_id: studioId } : {}) });
+      (openAccountSettings ?? openModelSettings)();
+      return;
+    }
+    (openProviderSettings ? () => openProviderSettings(providerId) : openModelSettings)();
+  };
   const providerSetupMessage = t('Configure a provider or sign in to use media models.');
   const openDesignSetupMessage = t('This feature uses OpenDesign models. Add an OpenDesign Cloud API key or sign in to continue.');
   const manageProviders = <Button variant="ghost" className="om-button h-auto" onClick={openModelSettings}>{t('Model providers')}</Button>;
@@ -342,7 +369,12 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       {accountNotIncluded && <div className="om-creation-setup" role="status">
         <RemixIcon name="bank-card-line" size={20} />
         <p className="om-muted">{t('Signed in; multimodal generation requires OpenDesign Plus or above')}</p>
-        <Button variant="ghost" className="om-button h-auto" onClick={() => (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)()}>
+        <Button variant="ghost" className="om-button h-auto" onClick={() => {
+          const entryId = tracking.newTrackingId();
+          setPendingAttribution('subscription', 'studio_free_gate', entryId);
+          send('ui_click', { page_name: trackingPage, area: 'asset_create', element: 'manage_subscription', hook_id: 'studio_free_gate', entry_id: entryId, ...(studioId ? { studio_id: studioId } : {}) });
+          (openSubscriptionSettings ?? openAccountSettings ?? openModelSettings)();
+        }}>
           {t('Manage subscription')}
         </Button>
       </div>}

@@ -384,7 +384,11 @@
     "Remaining": "剩余",
     "Plan credits": "套餐额度",
     "{plan} plan": "{plan} 套餐",
-    "Plan quota": "套餐额度"
+    "Plan quota": "套餐额度",
+    "Console": "控制台",
+    "Upgrade": "升级",
+    "Top up": "充值",
+    "Go to console": "前往控制台"
   },
   "ja": {
     "Go back": "戻る",
@@ -538,7 +542,9 @@
     "Subscription & usage": "サブスクリプションと使用量",
     "Free plan": "無料プラン",
     "{plan} plan": "{plan} プラン",
-    "Plan quota": "プラン枠"
+    "Plan quota": "プラン枠",
+    "Sign in with OpenDesign": "OpenDesign にサインイン",
+    "Open settings": "設定を開く"
   },
   "ko": {
     "Go back": "뒤로",
@@ -587,7 +593,9 @@
     "Subscription & usage": "구독 및 사용량",
     "Free plan": "무료 플랜",
     "{plan} plan": "{plan} 플랜",
-    "Plan quota": "플랜 사용량"
+    "Plan quota": "플랜 사용량",
+    "Sign in with OpenDesign": "OpenDesign 로그인",
+    "Open settings": "설정 열기"
   },
   "de": {
     "Go back": "Zurück",
@@ -636,7 +644,9 @@
     "Subscription & usage": "Abo & Nutzung",
     "Free plan": "Kostenloser Plan",
     "{plan} plan": "{plan}-Plan",
-    "Plan quota": "Plankontingent"
+    "Plan quota": "Plankontingent",
+    "Sign in with OpenDesign": "Bei OpenDesign anmelden",
+    "Open settings": "Einstellungen öffnen"
   },
   "fr": {
     "Go back": "Retour",
@@ -685,7 +695,9 @@
     "Subscription & usage": "Abonnement et utilisation",
     "Free plan": "Forfait gratuit",
     "{plan} plan": "Forfait {plan}",
-    "Plan quota": "Quota du forfait"
+    "Plan quota": "Quota du forfait",
+    "Sign in with OpenDesign": "Se connecter à OpenDesign",
+    "Open settings": "Ouvrir les paramètres"
   },
   "ru": {
     "Go back": "Назад",
@@ -734,7 +746,9 @@
     "Subscription & usage": "Подписка и использование",
     "Free plan": "Бесплатный тариф",
     "{plan} plan": "Тариф {plan}",
-    "Plan quota": "Лимит тарифа"
+    "Plan quota": "Лимит тарифа",
+    "Sign in with OpenDesign": "Войти в OpenDesign",
+    "Open settings": "Открыть настройки"
   },
   "es": {
     "Go back": "Volver",
@@ -783,7 +797,9 @@
     "Subscription & usage": "Suscripción y uso",
     "Free plan": "Plan gratuito",
     "{plan} plan": "Plan {plan}",
-    "Plan quota": "Cuota del plan"
+    "Plan quota": "Cuota del plan",
+    "Sign in with OpenDesign": "Iniciar sesión en OpenDesign",
+    "Open settings": "Abrir ajustes"
   },
   "pt-BR": {
     "Go back": "Voltar",
@@ -832,7 +848,9 @@
     "Subscription & usage": "Assinatura e uso",
     "Free plan": "Plano gratuito",
     "{plan} plan": "Plano {plan}",
-    "Plan quota": "Cota do plano"
+    "Plan quota": "Cota do plano",
+    "Sign in with OpenDesign": "Entrar no OpenDesign",
+    "Open settings": "Abrir configurações"
   },
   "it": {
     "Go back": "Indietro",
@@ -881,7 +899,9 @@
     "Subscription & usage": "Abbonamento e utilizzo",
     "Free plan": "Piano gratuito",
     "{plan} plan": "Piano {plan}",
-    "Plan quota": "Quota del piano"
+    "Plan quota": "Quota del piano",
+    "Sign in with OpenDesign": "Accedi a OpenDesign",
+    "Open settings": "Apri impostazioni"
   },
   "tr": {
     "Go back": "Geri",
@@ -930,6 +950,8 @@
     "Subscription & usage": "Abonelik ve kullanım",
     "Free plan": "Ücretsiz plan",
     "{plan} plan": "{plan} planı",
-    "Plan quota": "Plan kotası"
+    "Plan quota": "Plan kotası",
+    "Sign in with OpenDesign": "OpenDesign ile giriş yap",
+    "Open settings": "Ayarları aç"
   }
 }

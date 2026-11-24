@@ -129,12 +129,13 @@ The asset description is a stable 3-4 word shorthand from the design doc
 - template: `game UI element: <description>, single element, centered,`
 - suffix: `, on a solid uniform bright <KEY COLOR> background, crisp edges, no drop shadow outside the element`
 
-## 5. Transparency: native alpha first, key color as fallback
+## 5. Transparency: native alpha or `remove-background` first, key color as fallback
 
-Check the chosen image model before choosing a method:
+Check the chosen image model's live `generationOptions` and live capabilities before choosing a method:
 
-1. **Native transparency.** If the model's discovered `generationOptions` list a `background` option with `"transparent"` (`gpt-image-2.6-sunburst` and `gpt-image-2.6-flare` expose `parameters.background: "transparent"` on both OpenDesign `account` and `opendesign`), request `parameters.background: "transparent"` and drop the key-color suffix. `seedream-5.5` currently exposes `size` only in OpenMotion's catalogue, so route it through the solid key-color fallback unless its live entry explicitly lists `background: "transparent"`. Always verify the returned PNG really has an alpha channel (a drawn checkerboard is not transparency).
-2. **Key-color fallback.** When no transparent background is listed, generate on a solid key color and key it out in code (Canvas `getImageData` pass at load time, or a shader).
+1. **Native transparency.** If the model's discovered `generationOptions` list a `background` option with `"transparent"` (or `bestFor` includes `transparent-cutout`), request `parameters.background: "transparent"` and drop the key-color suffix. Always verify the returned PNG really has an alpha channel (a drawn checkerboard is not transparency).
+2. **Dedicated `remove-background` capability.** When an opaque asset (for example from a painterly or opaque-only model, or an edited sprite) needs a clean transparent cutout and `openmotion_capability_discover(action="list")` reports `remove-background` with both `status: "live"` and `available: true`, call `openmotion_capability_run(capabilityId="remove-background", references=[{assetId, versionId}])` rather than simulating background removal with ad-hoc edit prompts (include this step in the upfront asset/spend plan). Do **not** select `remove-background` when `available: false` (for example when only opaque-only models are configured).
+3. **Key-color fallback.** When neither native transparency nor an executable (`status: "live"` and `available: true`) `remove-background` capability is available or approved, generate on a solid key color and key it out in code (Canvas `getImageData` pass at load time, or a shader).
 
 **Choosing the key color (fallback only) is a per-asset step, driven by the
 formula's palette:**
@@ -152,17 +153,17 @@ corners, so corner flood-fill alone misses it).
 
 ## 6. Models and volumes
 
-Discover with `openmotion_media_use action=models modality=image refresh=true` and follow the `openmotion-media` provider order (OpenDesign account, then OpenDesign Cloud, then other configured providers). Use only returned IDs; the table names OpenDesign models listed at review time.
+Discover with `openmotion_capability_discover` (`action:"list"` and `action:"models" modality:"image" refresh:true`) or `openmotion_media_use action=models modality=image refresh=true`, and follow the `openmotion-media` provider order (OpenDesign account, then OpenDesign Cloud, then other configured providers). Select models dynamically from the returned `tier`, `bestFor`, `description`, `supportsImageReference`, `maxInputImages`, and `generationOptions` rather than hardcoding model version IDs. Prefer dedicated capabilities (`remove-background`, `relight`, `image-blend`) via `openmotion_capability_run` when discovery reports them with `status:"live"` and `available:true`.
 
-| What | Preferred model when listed | Composition target & live params | Volume per game |
+| What | Discovery selection rule (OpenDesign first) | Composition target & live params | Volume per game |
 |---|---|---|---|
-| Key art, cover art, title screen, character portraits, visual-novel scenes | `gpt-image-2.6-sunburst` (quality) or `seedream-5.5` (painterly/photoreal) | Target `16:9` scenes or `3:4`/`1:1` portraits; send only live-listed params (`quality`/`background` on GPT Image 2.6, `size` on Seedream 5.5 — never bare `aspect_ratio` or `output` unless listed) and crop/pad cleanly in code | 1–4 hero images |
-| Sprites, props, tiles, card art, UI icons | `gpt-image-2.6-flare` (fast + native `background:"transparent"` when listed) or `seedream-5.0-flash` (fast opaque tiles/cards, `size:"1K"`) | Square centered framing using only live-listed params; reserve slower `sunburst` for hero focal art so full batches finish fast | ≤8 assets, submitted upfront together |
-| Backgrounds, seamless textures | `seedream-5.0-flash` (fast) or `seedream-5.5` / `gpt-image-2.6-sunburst` | Target `16:9` (background) or `1:1` (tile/texture) using the model's live `size` / `quality` params | ≤4 |
-| Variants and edits of an approved asset (pose, expression, recolor) | a model returned with `supportsImageReference:true`, passing `references:[{assetId,versionId}]` | within `maxInputImages` and live-listed params | as needed |
-| 3D concept/reference images | any listed image model above | Square centered framing using live-listed params | one per prop |
+| Key art, cover art, title screen, character portraits, visual-novel scenes | Image model with `tier:"flagship"` matching `bestFor` / `description` (`hero-art`, `character-portraits`, `painterly-scenes`, `text-rendering`) | Target `16:9` scenes or `3:4`/`1:1` portraits; send only parameters declared in the model's live `generationOptions` / provider reference (never guess unsupported `aspect_ratio` or `output` fields) and crop/pad cleanly in code | 1–4 hero images |
+| Sprites, props, tiles, card art, UI icons | Image model with `tier:"fast"` matching `bestFor` (`batch-sprites`, `transparent-cutout`, `batch-tiles`, `card-art`); prefer native `background:"transparent"` when listed for cutouts | Square centered framing using only live-listed params; reserve `tier:"flagship"` for hero focal art so full batches finish fast | ≤8 assets, submitted upfront together |
+| Backgrounds, seamless textures | Fast or flagship image model matching `backgrounds` / `batch-tiles` in `bestFor` / `description` | Target `16:9` (background) or `1:1` (tile/texture) using only live-listed `generationOptions` | ≤4 |
+| Variants, cutouts, relighting, and multi-ref blends | Dedicated capabilities (`remove-background`, `relight`, `image-blend`) via `openmotion_capability_run` when reported `status:"live"` and `available:true`, or an image model returned with `supportsImageReference:true` passing `references:[{assetId,versionId}]` | within `maxInputImages` and live-listed params | as needed |
+| 3D concept/reference images | any fitting discovered image model above | Square centered framing using live-listed params | one per prop |
 
-- **Tier models & overlap work for speed:** submit the entire approved asset batch concurrently right after planning so the gateway runs jobs in parallel while you author `logic.js`, `index.html`, and `client.js`; pair 1–4 hero visuals on a quality model with faster models (`gpt-image-2.6-flare` for transparent cutouts, `seedream-5.0-flash` for opaque tiles/cards) to avoid multi-minute tail queues.
+- **Tier models & overlap work for speed:** submit the entire approved asset batch concurrently right after planning so the gateway runs jobs in parallel while you author `logic.js`, `index.html`, and `client.js`; pair 1–4 hero visuals on a `tier:"flagship"` model with `tier:"fast"` models for sprite cutouts and opaque tiles/cards to avoid multi-minute tail queues.
 - Keep style cohesion via the verbatim STYLE FORMULA across tiers (never mix wildly different art directions).
 - Pick resolution at generation time from the catalogue profile; never upscale afterwards.
 - **Regeneration budget: 2 attempts per asset** within the approved spend (style drift / keying /
@@ -180,7 +181,7 @@ Discover with `openmotion_media_use action=models modality=image refresh=true` a
   hero-units (hero = `1.0`, spike trap ≈ `0.6`, doorway ≈ `2.0`). It drives
   in-game sizing and the contact sheet; it is NOT inserted into generation
   prompts.
-- **Contact sheet before asset approval:** inspect all generated image assets together in **one** batch call — `openmotion_assets_use(action="read", items=[{assetId, versionId}, ...])` (composites up to 12 images onto one labeled grid over neutral gray so style cohesion, palette separation, framing, and transparent alpha cutouts are visible side-by-side without injecting 8–10 full-resolution images into later turns). Use single-asset `read` with `maxEdge: 512` only when zooming in on one doubtful asset. A problem caught here costs one regen; caught after coding it costs a debugging session.
+- **Contact sheet before asset approval:** inspect all generated image assets together in **one** batch call — `openmotion_asset_manage(action="read", items=[{assetId, versionId}, ...])` or `openmotion_assets_use(action="read", items=[{assetId, versionId}, ...])` (composites up to 12 images onto one labeled grid over neutral gray so style cohesion, palette separation, framing, and transparent alpha cutouts are visible side-by-side without injecting 8–10 full-resolution images into later turns). Use single-asset `read` with `maxEdge: 512` only when zooming in on one doubtful asset. A problem caught here costs one regen; caught after coding it costs a debugging session.
 - Per-set style checklist: same rendering style on every asset (block 1)?
   outlines consistent (block 2)? palette roles respected — hero contrasts
   environment, signal hue only on hazards/pickups (block 3)? one perspective

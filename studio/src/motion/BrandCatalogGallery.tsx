@@ -3,7 +3,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type RefObject
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { GalleryIntro } from './GalleryIntro';
-import { templateContributionUrl } from './templateContribution';
+import { brandKitContributionUrl } from './templateContribution';
 import { Skeleton } from '../components/ui/Skeleton';
 import { brandCatalogFile, type BrandCatalog, type BrandCatalogEntry } from '../../../shared/brand-catalog';
 import type { GalleryTemplate } from '../../../shared/catalog';
@@ -92,7 +92,7 @@ export const BrandCatalogGallery = memo(function BrandCatalogGallery({ onImport,
     {(hasFilters || query) && <div className="om-gallery-chips">{query && <Button variant="plain" onClick={() => onQueryChange('')} aria-label={t('Remove filter {value}', { value: query })}>{query}<RemixIcon name="close-line" size={14} /></Button>}{Object.entries(filters).flatMap(([key, values]) => values?.map(value => <Button variant="plain" key={key + value} onClick={() => setFilters(previous => toggleGalleryFilter(previous, key, value))} aria-label={t('Remove filter {value}', { value: t(value) })}>{t(value)}<RemixIcon name="close-line" size={14} /></Button>))}<Button variant="plain" onClick={reset}>{t('Clear filters')}</Button></div>}
     <div className="om-gallery-results">
       <div className="om-gallery-masonry" aria-busy={busy || (!catalog && !error)} aria-label={!catalog && !error ? t('Loading Brand Kits') : undefined}>
-        <GalleryIntro eyebrow={t('Official collection')} title={t('Find your next brand.')} count={t('{count} brand kits', { count: visible.length })} disabled={busy || !visible.length} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={templateContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: onCreate }} />
+        <GalleryIntro eyebrow={t('Official collection')} title={t('Find your next brand.')} count={t('{count} brand kits', { count: visible.length })} disabled={busy || !visible.length} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={brandKitContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: onCreate }} />
         {!catalog && !error && Array.from({ length: 12 }, (_, key) => <div key={key} className="om-gallery-skeleton" aria-hidden="true"><Skeleton className="om-brand-loading" /></div>)}
         {catalog && rendered.map(entry => <TemplateGalleryCard key={entry.id} template={cards.get(entry.id)!} resourceKind="brand-kit" coverUrl={brandCatalogFile(entry.id, 'cover')} animatedPreview={brandCatalogFile(entry.id, 'showcase')} active={priority === entry.id && playback.has(entry.id)} onPriority={setCardPriority} onSelect={selectCard} />)}
       </div>
