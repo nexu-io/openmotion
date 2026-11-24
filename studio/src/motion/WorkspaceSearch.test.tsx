@@ -9,6 +9,7 @@ import { fetchWorkspaceResources, listSuperAgentChats } from '../super-agent/sup
 import { copyTextToClipboard } from '../utils/clipboard';
 import { WorkspaceSearch } from './WorkspaceSearch';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
+import * as pageTracking from './pageTracking';
 import { assetRequest } from './assetClient';
 import { useCoveredTemplates } from './useCoveredTemplates';
 
@@ -679,6 +680,105 @@ it('submits any natural-language query directly to Super Agent via the colorful 
       prompt: expect.stringContaining('像王家卫电影一样的霓虹短片'),
     }));
   } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+it('reports updated scope and position when sending a template to Super Agent after switching query and scope', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  vi.mocked(assetRequest).mockResolvedValue({ assets: [], nextOffset: null });
+  const templates: GalleryTemplate[] = [
+    {
+      id: 'tpl-first-promo',
+      title: 'Alpha Promo',
+      subtitle: 'Promo',
+      description: 'First promo template.',
+      collection: 'reference',
+      kind: 'prism',
+      hasHtmlProject: true,
+      tags: ['promo'],
+      duration: 10,
+      ratio: '16:9',
+      author: 'Studio',
+    },
+    {
+      id: 'tpl-second-promo',
+      title: 'Beta Promo',
+      subtitle: 'Promo',
+      description: 'Second promo template.',
+      collection: 'reference',
+      kind: 'prism',
+      hasHtmlProject: true,
+      tags: ['promo'],
+      duration: 12,
+      ratio: '16:9',
+      author: 'Studio',
+    },
+  ];
+  vi.mocked(useCoveredTemplates).mockReturnValue({
+    catalog: templates,
+    firstPage: null,
+    failed: false,
+    retry: vi.fn(),
+  });
+  const selectSpy = vi.spyOn(pageTracking, 'reportCommandPaletteSelect');
+  const openInSuperAgent = vi.fn(), noop = vi.fn();
+  const container = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <I18nProvider initialLocale="en">
+        <WorkspaceChromeContext.Provider value={{
+          openLibrary: noop,
+          openInSuperAgent,
+          workspace: { projects: [], open: vi.fn() },
+          switchingDisabled: false,
+        } as unknown as WorkspaceChrome}>
+          <WorkspaceSearch
+            destination={null}
+            onSkill={noop}
+            onAsset={noop}
+            onStudio={noop}
+            onScene={noop}
+            onAccount={noop}
+            onLibrary={noop}
+            onCommunity={noop}
+          />
+        </WorkspaceChromeContext.Provider>
+      </I18nProvider>,
+    ));
+
+    await act(async () => container.querySelector('button')!.click());
+    const input = document.querySelector<HTMLInputElement>('.om-workspace-search input')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'promo');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const templatesTab = [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(tab => tab.textContent?.includes('Templates'))!;
+    await act(async () => templatesTab.click());
+
+    const palette = document.querySelector<HTMLElement>('.om-command-palette')!;
+    const secondRow = document.querySelector<HTMLButtonElement>('[data-result-key="motion-template:tpl-second-promo"]')!;
+    expect(secondRow).not.toBeNull();
+    await act(async () => {
+      palette.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    });
+
+    const useInAgentBtn = [...document.querySelectorAll<HTMLButtonElement>('.om-command-preview-actions button')]
+      .find(btn => btn.textContent?.includes('Super Agent'))!;
+    expect(useInAgentBtn).not.toBeNull();
+    await act(async () => useInAgentBtn.click());
+
+    expect(selectSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'motion-template', id: 'tpl-second-promo' }),
+      2,
+      'templates',
+      undefined,
+      'use_in_super_agent',
+    );
+  } finally {
+    selectSpy.mockRestore();
     await act(async () => root.unmount());
     container.remove();
   }

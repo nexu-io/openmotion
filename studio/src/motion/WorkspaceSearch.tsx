@@ -1230,7 +1230,7 @@ export function WorkspaceSearch({
     } finally {
       setCreatingDesign(false);
     }
-  }, [creatingDesign, choose, onOpenDesignProject, onOpenDesignScene, notify, t]);
+  }, [creatingDesign, choose, onOpenDesignProject, onOpenDesignScene, notify, positionOf, scope, t]);
 
   const handleUseInSuperAgent = useCallback((item: SearchPaletteItem) => {
     tracking.reportCommandPaletteSelect(item, positionOf(item.key), scope, searchIdRef.current, 'use_in_super_agent');
@@ -1332,7 +1332,7 @@ export function WorkspaceSearch({
       if (chrome?.openInSuperAgent) chrome.openInSuperAgent(payload);
       else openNewSuperAgentChat(payload.prompt);
     });
-  }, [chrome, choose, locale, openNewSuperAgentChat, t]);
+  }, [chrome, choose, locale, openNewSuperAgentChat, positionOf, scope, t]);
 
   const handlePaletteKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Escape' && !((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k')) {

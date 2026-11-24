@@ -85,7 +85,7 @@ export function OverlayLayer({
               })
             }
             onOpenSkill={(skill, trigger) => {
-              if (!templatesPage) {
+              if (!templatesPage || page.templateCollection !== 'black-friday') {
                 openSkill(skill);
                 return;
               }
