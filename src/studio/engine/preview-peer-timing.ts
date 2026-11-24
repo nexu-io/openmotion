@@ -83,7 +83,11 @@ export const PREVIEW_PEER_TIMING = `
     }
     const before = timingVersion(m.before), after = timingVersion(m.after), p = player();
     const temporary = m.type === 'peer-presentation' && m.temporary === true;
-    const local = !temporary && m.type === 'peer-presentation' && m.localSave === true;
+    const mediaControl = m.type === 'peer-timing' && Array.isArray(m.changes) && m.changes.length &&
+      m.changes.every(c => ['video','audio'].includes(c?.tag) && !c.styles && !c.text && !c.insert && !c.removeFromComposition &&
+        Array.isArray(c.attributes) && c.attributes.length && c.attributes.every(a =>
+          Array.isArray(a) && ['loop','data-playback-rate','data-media-start','data-playback-start'].includes(a[0])));
+    const local = !temporary && (m.type === 'peer-presentation' || mediaControl) && m.localSave === true;
     const pending = local && pendingDrags.get(m.gestureId);
     const ownDrag = pending && (pending.ordered || pendingForSource(m.path)[0] === pending);
     const paintDuringDrag = !local && Array.isArray(m.changes) && m.changes.every(paintOnly) &&
@@ -166,7 +170,7 @@ export const PREVIEW_PEER_TIMING = `
         const names = preserved && node.hasAttribute(preserved) ? [preserved,name] : [name];
         const control = previewControls.get(node)?.get(names[0]);
         const actual = control ? control.base : node.getAttribute(names[0]);
-        if (actual !== from && !(actual && from && Number(actual) === Number(from))) return false;
+        if (actual !== from && !(local && mediaControl && actual === to) && !(actual && from && Number(actual) === Number(from))) return false;
         for (const attr of names) edits.push({node,attr,old:attr === names[0] ? actual : node.getAttribute(attr),to});
       }
     }

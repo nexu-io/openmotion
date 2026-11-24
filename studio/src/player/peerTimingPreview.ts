@@ -213,7 +213,10 @@ export async function tryApplyPeerChanges(
   if (draftId && (!document.canRebind || !changes.some(change => change.removeFromComposition || change.insert))) return false;
   const localSave = typeof options === "object" && !("structureDraftId" in options) ? options : undefined;
   const presentation = changes.some(c => c.styles || c.text);
-  if (localSave && (!presentation || changes.some(c => c.attributes.length))) return false;
+  const mediaControl = !presentation && !!document.canRebind && changes.length > 0 && changes.every(c =>
+    (c.tag === "audio" || c.tag === "video") && c.attributes.length > 0 &&
+    c.attributes.every(([name]) => ["data-media-start", "data-playback-start", "loop", "data-playback-rate"].includes(name)));
+  if (localSave && !mediaControl && (!presentation || changes.some(c => c.attributes.length))) return false;
   const timeout = 350;
   try {
     const paint = adapter.request<boolean>(presentation ? "peer-presentation" : "peer-timing", {
