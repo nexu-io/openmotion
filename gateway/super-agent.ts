@@ -12,7 +12,7 @@ import { GameError, gameProjectsFor } from '../game-projects.ts';
 import type { Phase1Service } from '../phase1.ts';
 import { assetMediaUrl, assetReadToolResult, assetVersion, type AssetReadResult } from '../shared/asset-library.ts';
 import { webAddress } from '../shared/browser.ts';
-import { designRoutes } from '../shared/design-project.ts';
+import { designRoutes, isDesignScenario } from '../shared/design-project.ts';
 import { localAgents, type AgentDefinition } from '../shared/local-agents.ts';
 import {
   LOCAL_DIRECT_RUNTIME_ID,
@@ -579,6 +579,7 @@ function sanitizeContextTags(raw: unknown): SuperAgentContextTag[] | undefined {
       label,
       ...(icon ? { icon } : {}),
       ...(tone ? { tone } : {}),
+      ...(kind === 'mode' && isDesignScenario(obj.designScenario) ? { designScenario: obj.designScenario } : {}),
     });
   }
   return out.length ? out : undefined;
@@ -3981,6 +3982,7 @@ export class SuperAgentConversations {
         title: customTitle || 'Exported Video (MP4)',
         subtitle: 'Motion export',
         jobId: job.id,
+        exportRequestedAt: job.createdAt,
         projectId: job.projectId,
         downloadUrl: `/api/exports/${encodeURIComponent(job.id)}/file`,
         mimeType: 'video/mp4',
@@ -4280,6 +4282,7 @@ export class SuperAgentConversations {
         title: `${value.project?.title || 'Motion'} · MP4`,
         subtitle: 'Exported MP4',
         jobId: job.id,
+        exportRequestedAt: job.createdAt,
         projectId: value.projectId ?? job.projectId,
         downloadUrl: `/api/exports/${encodeURIComponent(job.id)}/file`,
         mimeType: 'video/mp4',

@@ -40,7 +40,7 @@ export const designScenarios = [
     examples: ['Draft a one-page resume for a senior product designer with summary, experience, skills and selected work.', 'Write a two-page quarterly finance report with KPIs, charts and commentary.'] },
   { id: 'web-clone', label: 'Website clone', icon: 'global-line', hint: 'Rebuild a reference website as editable HTML.', mode: 'html', entry: 'index.html', openDesign: { kind: 'prototype', intent: 'web-clone' },
     examples: ['Website URL to clone: https://example.com — rebuild the home page as responsive, editable HTML.'] },
-  { id: 'live-artifact', label: 'Live artifact', icon: 'bar-chart-box-line', hint: 'Data-backed dashboards that refresh from data.json.', mode: 'live', entry: 'index.html', openDesign: { kind: 'prototype', intent: 'live-artifact' },
+  { id: 'live-artifact', label: 'Live artifact', icon: 'layout-grid-line', hint: 'Data-backed dashboards that refresh from data.json.', mode: 'live', entry: 'index.html', openDesign: { kind: 'prototype', intent: 'live-artifact' },
     examples: ['Create a live sales dashboard driven by data.json with KPIs, a trend chart and a top-accounts table.'] },
   { id: 'webgl', label: 'WebGL', icon: 'sparkling-line', hint: 'Interactive WebGL2 experiences and shader scenes.', mode: 'webgl', entry: 'index.html', openDesign: { kind: 'prototype', intent: 'webgl-experience' },
     examples: ['Build a WebGL2 hero with a flowing particle field that reacts to the pointer and scroll.'] },

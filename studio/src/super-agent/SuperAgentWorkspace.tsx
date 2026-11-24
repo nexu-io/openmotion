@@ -85,6 +85,27 @@ function modeChatIntent(mode?: SuperAgentCreationModeId | null): SuperAgentInten
   return undefined;
 }
 
+function presentChatArtifacts(artifacts: SuperAgentArtifact[]) {
+  const motionExports = artifacts.filter((item): item is SuperAgentArtifact & { projectId: string } =>
+    item.kind === 'motion-export' && Boolean(item.projectId && item.downloadUrl));
+  const latestByProject = new Map<string, SuperAgentArtifact>();
+  for (const item of motionExports) {
+    const latest = latestByProject.get(item.projectId);
+    if (!latest || (item.exportRequestedAt ?? item.createdAt) >= (latest.exportRequestedAt ?? latest.createdAt)) {
+      latestByProject.set(item.projectId, item);
+    }
+  }
+  const replaced = new Map<string, string>();
+  for (const item of motionExports) {
+    const latest = latestByProject.get(item.projectId);
+    if (latest && latest.id !== item.id) replaced.set(item.id, latest.id);
+  }
+  return {
+    artifacts: replaced.size ? artifacts.filter(item => !replaced.has(item.id)) : artifacts,
+    replaced,
+  };
+}
+
 const ArtifactBrowserPane = preloadableLazyWithChunkReload(() =>
   import('./ArtifactBrowserPane').then(m => ({ default: m.ArtifactBrowserPane })),
 );
@@ -97,6 +118,7 @@ const RESIZER_SIZE = 1;
 const COMPACT_THREE_PANE_WIDTH = 1180;
 const MIN_STACKED_CHAT_HEIGHT = 220;
 const MIN_STACKED_VIEWER_HEIGHT = 160;
+const STACKED_MOTION_EDITOR_HEIGHT = 480;
 
 export function clampSuperAgentViewerWidth(
   desiredWidth: number,
@@ -118,12 +140,13 @@ export function clampSuperAgentViewerWidth(
   return Math.max(MIN_VIEWER_WIDTH, Math.min(maxViewer, desired));
 }
 
-export function stackedArtifactViewerHeight(totalHeight: number, preferredHeight: number | null) {
+export function stackedArtifactViewerHeight(totalHeight: number, preferredHeight: number | null, motionEditor = false) {
   const available = Math.max(0, totalHeight - RESIZER_SIZE);
   // On short screens, let both panes share the available height.
   const min = Math.min(MIN_STACKED_VIEWER_HEIGHT, Math.floor(available * 0.35));
   const max = available - Math.min(MIN_STACKED_CHAT_HEIGHT, Math.floor(available * 0.58));
-  const value = Math.max(min, Math.min(max, Math.round(preferredHeight ?? available * 0.52)));
+  const defaultHeight = Math.max(available * 0.52, motionEditor ? STACKED_MOTION_EDITOR_HEIGHT : 0);
+  const value = Math.max(min, Math.min(max, Math.round(preferredHeight ?? defaultHeight)));
   return { min, max, value };
 }
 
@@ -406,13 +429,16 @@ export function SuperAgentWorkspace({
   const [activeTabId, setActiveTabId] = useState<string>(NEW_VIEWER_TAB_ID);
   const [previewArtifacts, setPreviewArtifacts] = useState<SuperAgentArtifact[]>([]);
   const previewArtifactIdsRef = useRef<Set<string>>(new Set());
+  const chatArtifacts = useMemo(() => presentChatArtifacts(activeChat?.artifacts ?? []), [activeChat?.artifacts]);
+  const presentedChat = useMemo(() => activeChat && chatArtifacts.replaced.size
+    ? { ...activeChat, artifacts: chatArtifacts.artifacts }
+    : activeChat, [activeChat, chatArtifacts]);
   const viewerArtifacts = useMemo(() => {
-    if (!activeChat) return previewArtifacts;
-    if (!previewArtifacts.length) return activeChat.artifacts;
-    const existingIds = new Set(activeChat.artifacts.map(item => item.id));
+    if (!previewArtifacts.length) return chatArtifacts.artifacts;
+    const existingIds = new Set(chatArtifacts.artifacts.map(item => item.id));
     const extras = previewArtifacts.filter(item => !existingIds.has(item.id));
-    return extras.length ? [...activeChat.artifacts, ...extras] : activeChat.artifacts;
-  }, [activeChat, previewArtifacts]);
+    return extras.length ? [...chatArtifacts.artifacts, ...extras] : chatArtifacts.artifacts;
+  }, [chatArtifacts.artifacts, previewArtifacts]);
   const [pendingDeployArtifactId, setPendingDeployArtifactId] = useState<string | null>(null);
   const [pendingCodeFile, setPendingCodeFile] = useState<{ artifactId: string; filePath: string; seq: number } | null>(null);
   const handledRequestedGameRef = useRef<string | null>(null);
@@ -657,14 +683,18 @@ export function SuperAgentWorkspace({
       });
     }
 
-    const allIds = next.artifacts.map(item => item.id);
+    const { artifacts, replaced } = presentChatArtifacts(next.artifacts);
+    const activeId = next.activeArtifactId
+      ? replaced.get(next.activeArtifactId) ?? next.activeArtifactId
+      : undefined;
+    const allIds = artifacts.map(item => item.id);
     const presentedById: Record<string, number> = {};
-    for (const item of next.artifacts) {
+    for (const item of artifacts) {
       if (typeof item.presentedAt === 'number') {
         presentedById[item.id] = item.presentedAt;
       }
     }
-    const sig = next.artifacts
+    const sig = artifacts
       .map(item => `${item.id}:${item.revision ?? ''}:${item.presentedAt ?? item.updatedAt}`)
       .join('|');
     const prev = lastArtifactStateRef.current;
@@ -679,7 +709,7 @@ export function SuperAgentWorkspace({
     if (chatSwitched) {
       lastArtifactStateRef.current = {
         chatId: next.id,
-        activeId: next.activeArtifactId,
+        activeId,
         sig,
         artifactIds: allIds,
         presentedById,
@@ -689,41 +719,44 @@ export function SuperAgentWorkspace({
         : [...previewArtifactIdsRef.current].filter(id => !allIds.includes(id));
       const mergedOpenIds = [...allIds, ...localIds];
       setOpenTabIds(mergedOpenIds);
-      const initialActive = next.activeArtifactId && allIds.includes(next.activeArtifactId)
-        ? next.activeArtifactId
+      const initialActive = activeId && allIds.includes(activeId)
+        ? activeId
         : allIds.at(-1) ?? localIds.at(-1) ?? NEW_VIEWER_TAB_ID;
       setActiveTabId(current => (!switchedBetweenChats && previewArtifactIdsRef.current.has(current) ? current : initialActive));
-    } else if (sig !== prev.sig || next.activeArtifactId !== prev.activeId) {
+    } else if (sig !== prev.sig || activeId !== prev.activeId) {
       const newIds = allIds.filter(id => !prev.artifactIds.includes(id));
-      const activePresentedAt = next.activeArtifactId ? presentedById[next.activeArtifactId] : undefined;
-      const prevActivePresentedAt = next.activeArtifactId ? (prev.presentedById[next.activeArtifactId] ?? 0) : 0;
+      const activePresentedAt = activeId ? presentedById[activeId] : undefined;
+      const prevActivePresentedAt = activeId ? (prev.presentedById[activeId] ?? 0) : 0;
       const activeRePresented = activePresentedAt !== undefined && activePresentedAt > prevActivePresentedAt;
-      const activeChanged = Boolean(next.activeArtifactId && next.activeArtifactId !== prev.activeId);
-      const shouldPresent = Boolean(next.activeArtifactId) && (
+      const activeChanged = Boolean(activeId && activeId !== prev.activeId);
+      const shouldPresent = Boolean(activeId) && (
         activeRePresented
         || activeChanged
-        || (next.activeArtifactId ? newIds.includes(next.activeArtifactId) : false)
+        || (activeId ? newIds.includes(activeId) : false)
       );
       lastArtifactStateRef.current = {
         chatId: next.id,
-        activeId: next.activeArtifactId,
+        activeId,
         sig,
         artifactIds: allIds,
         presentedById,
       };
       setOpenTabIds(current => {
-        const merged = current.filter(id => allIds.includes(id) || previewArtifactIdsRef.current.has(id));
+        const merged = [...new Set(current.map(id => replaced.get(id) ?? id))]
+          .filter(id => allIds.includes(id) || previewArtifactIdsRef.current.has(id));
         for (const id of newIds) {
           if (!merged.includes(id)) merged.push(id);
         }
-        if (shouldPresent && next.activeArtifactId && allIds.includes(next.activeArtifactId) && !merged.includes(next.activeArtifactId)) {
-          merged.push(next.activeArtifactId);
+        if (shouldPresent && activeId && allIds.includes(activeId) && !merged.includes(activeId)) {
+          merged.push(activeId);
         }
         return merged;
       });
-      if (shouldPresent && next.activeArtifactId) {
-        setActiveTabId(next.activeArtifactId);
+      if (shouldPresent && activeId) {
+        setActiveTabId(activeId);
         setViewerOpen(true);
+      } else if (replaced.size) {
+        setActiveTabId(current => replaced.get(current) ?? current);
       }
     }
 
@@ -1171,7 +1204,8 @@ export function SuperAgentWorkspace({
     }
   };
 
-  const handleOpenArtifactId = async (artifactId: string) => {
+  const handleOpenArtifactId = async (requestedId: string) => {
+    const artifactId = chatArtifacts.replaced.get(requestedId) ?? requestedId;
     setOpenTabIds(prev => (prev.includes(artifactId) ? prev : [...prev, artifactId]));
     setActiveTabId(artifactId);
     setViewerOpen(true);
@@ -1970,7 +2004,9 @@ export function SuperAgentWorkspace({
       : clampSuperAgentViewerWidth(viewerWidth, containerWidth, getDockedSidebarWidth());
 
   const maxViewerWidth = clampSuperAgentViewerWidth(10_000, containerWidth, getDockedSidebarWidth());
-  const stackedViewer = stackedArtifactViewerHeight(containerHeight, viewerHeight);
+  const activeViewerArtifact = viewerArtifacts.find(item => item.id === activeTabId);
+  const motionEditor = activeViewerArtifact?.kind === 'motion-project' && Boolean(activeViewerArtifact.projectId);
+  const stackedViewer = stackedArtifactViewerHeight(containerHeight, viewerHeight, motionEditor);
   const viewerSizeStyle = narrow && !viewerExpanded && containerHeight > 0
     ? { flexBasis: stackedViewer.value }
     : effectiveViewerWidth === null
@@ -2077,7 +2113,7 @@ export function SuperAgentWorkspace({
         <div className="om-sa-center-slot">
           <ConversationStream
             active={active}
-            chat={activeChat}
+            chat={presentedChat}
             conversations={conversations}
             activeArtifacts={viewerArtifacts}
             requestedMode={requestedMode}

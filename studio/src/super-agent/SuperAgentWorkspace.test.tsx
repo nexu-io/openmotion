@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { SuperAgentChat, SuperAgentChatSummary, SuperAgentResourceCatalog } from '../../../shared/super-agent';
@@ -9,7 +9,7 @@ import { translate } from '../i18n/messages';
 import { ApplicationHeader } from '../motion/ApplicationChrome';
 import { communityGames } from '../motion/game/gameCatalog';
 import { WorkspaceChromeContext } from '../motion/WorkspaceChromeContext';
-import { SUPER_AGENT_API } from '../../../shared/super-agent';
+import { SUPER_AGENT_API, summarizeSuperAgentChat } from '../../../shared/super-agent';
 import { buildSuperAgentHandoff } from '../../../shared/capability-hub';
 import { queueSuperAgentHandoff } from '../motion/superAgentHandoff';
 import { clampSuperAgentViewerWidth, stackedArtifactViewerHeight, SuperAgentWorkspace } from './SuperAgentWorkspace';
@@ -17,6 +17,7 @@ import { ExecutionTimeline, formatElapsedDuration, SuperAgentLiveProgressDock } 
 import { SimpleMarkdown } from './SimpleMarkdown';
 import { DEFAULT_MODE_COMPOSER_OPTIONS, getModeComposerPlaceholder } from './ModeComposerControls';
 import { SUPER_AGENT_MODES } from './ModeResourceShowcase';
+import { ArtifactBrowserPane } from './ArtifactBrowserPane';
 import { clearSuperAgentCache, peekCachedSuperAgentChat } from './superAgentClient';
 import { designClient } from '../design/designClient';
 import { setClientCacheOverrideForTest } from '../utils/clientCacheMode';
@@ -346,6 +347,100 @@ async function flush() {
     await new Promise(r => setTimeout(r, 10));
   });
 }
+
+it('keeps each MP4 source playable when switching directly between export tabs', async () => {
+  const artifacts: SuperAgentChat['artifacts'] = ['first', 'second', 'third'].map(jobId => ({
+    id: `export:${jobId}`,
+    kind: 'motion-export',
+    title: 'Motion · MP4',
+    jobId,
+    downloadUrl: `/api/exports/${jobId}/file`,
+    createdAt: 1000,
+    updatedAt: 1000,
+  }));
+  const noop = () => {};
+  function Viewer() {
+    const [activeTabId, setActiveTabId] = useState(artifacts[0].id);
+    return <ArtifactBrowserPane
+      chatId={null} artifacts={artifacts} openTabIds={artifacts.map(artifact => artifact.id)}
+      activeTabId={activeTabId} expanded={false} workspaceItems={[]}
+      onSelectTab={setActiveTabId} onCloseTab={noop} onNewTab={noop} onOpenWebUrl={noop}
+      onOpenArtifact={noop} onOpenResource={noop} onToggleExpand={noop} onClosePane={noop}
+      onAttachArtifact={noop} onOpenInDesignStudio={noop} onOpenInMotionStudio={noop}
+      onOpenInAssets={noop} onOpenInBrandKit={noop}
+    />;
+  }
+  await act(async () => root.render(<I18nProvider initialLocale="en"><Viewer /></I18nProvider>));
+  const tabs = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  for (const index of [0, 1, 2, 0]) {
+    await act(async () => tabs[index].click());
+    expect(container.querySelector('video')?.getAttribute('src')).toBe(artifacts[index].downloadUrl);
+  }
+  const player = container.querySelector('video');
+  await act(async () => root.render(null));
+  expect(player?.getAttribute('src')).toBeNull();
+});
+
+it('shows only the newest completed MP4 per project in the chat and viewer', async () => {
+  const chatId = '32b46dfe-acd6-4fa8-84da-21861c8bcdf5';
+  const motionExport = (jobId: string, projectId: string, createdAt: number, exportRequestedAt?: number): SuperAgentChat['artifacts'][number] => ({
+    id: `export:${jobId}`,
+    kind: 'motion-export',
+    title: jobId,
+    projectId,
+    jobId,
+    downloadUrl: `/api/exports/${jobId}/file`,
+    createdAt,
+    updatedAt: createdAt,
+    exportRequestedAt,
+  });
+  const first = motionExport('First review', 'motion-a', 2000);
+  const second = motionExport('Second review', 'motion-a', 3000);
+  const other = motionExport('Other project', 'motion-b', 4000);
+  const latest = motionExport('Final export', 'motion-a', 5000, 4500);
+  const late = motionExport('Older job reported late', 'motion-a', 6000, 4200);
+  const initial: SuperAgentChat = {
+    ...sampleChat, id: chatId, state: 'idle', approvals: [],
+    messages: [{ id: 'export-prompt', role: 'user', text: 'Export the video', createdAt: 1000 }],
+    artifacts: [first, second, other], activeArtifactId: first.id, updatedAt: 4000,
+  };
+  const baseFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => (
+    String(input) === `${SUPER_AGENT_API}/chats/${chatId}`
+      ? Response.json({ conversation: initial })
+      : baseFetch(input, init)
+  ));
+
+  await act(async () => root.render(
+    <I18nProvider initialLocale="en">
+      <SuperAgentWorkspace active chatId={chatId} onChatIdChange={vi.fn()}
+        onOpenDesignProject={vi.fn()} onOpenMotionProject={vi.fn()} onOpenAsset={vi.fn()}
+        onOpenBrandKit={vi.fn()} onOpenAgentSettings={vi.fn()} onOpenMcp={vi.fn()}
+      />
+    </I18nProvider>,
+  ));
+  await flush();
+  const openViewer = container.querySelector<HTMLButtonElement>('[aria-label="Artifact Viewer"]')!;
+  await act(async () => openViewer.click());
+  const cards = () => [...container.querySelectorAll('.om-sa-deliverable-card[data-kind="motion-export"] strong')]
+    .map(item => item.textContent);
+  const tabs = () => [...container.querySelectorAll('.om-sa-viewer-tabs [role="tab"]')]
+    .map(item => item.textContent);
+  const playing = () => container.querySelector('.om-sa-media-stage video')?.getAttribute('src');
+  await vi.waitFor(() => expect(playing()).toBe(second.downloadUrl));
+  expect(cards()).toEqual(['Second review', 'Other project']);
+  expect(tabs()).toEqual(['Second review', 'Other project']);
+
+  const listeners = MockEventSource.instances.at(-1)!.listeners.get('chat')!;
+  await act(async () => {
+    const next = { ...initial, artifacts: [...initial.artifacts, latest, late], activeArtifactId: late.id, updatedAt: 6000 };
+    for (const listener of listeners) listener({ data: JSON.stringify(next) } as MessageEvent);
+  });
+  await flush();
+  expect(cards()).toEqual(['Other project', 'Final export']);
+  expect(tabs()).toEqual(['Final export', 'Other project']);
+  expect(playing()).toBe(latest.downloadUrl);
+});
 
 function getComposerEditor(rootEl: ParentNode = container): HTMLElement {
   return rootEl.querySelector<HTMLElement>('.om-sa-composer .om-sa-composer-editor')!;
@@ -1069,6 +1164,12 @@ it('sizes the stacked Artifact Viewer within the available height', () => {
   expect(stackedArtifactViewerHeight(0, 400)).toEqual({ min: 0, max: 0, value: 0 });
 });
 
+it('gives an embedded Motion editor more height while respecting the chat and manual resizing', () => {
+  expect(stackedArtifactViewerHeight(701, null, true)).toEqual({ min: 160, max: 480, value: 480 });
+  expect(stackedArtifactViewerHeight(681, null, true).value).toBe(460);
+  expect(stackedArtifactViewerHeight(701, 300, true).value).toBe(300);
+});
+
 it('renders ExecutionTimeline live status, grouped Work Log with diffs/commands, deliverables, and enhanced SimpleMarkdown', async () => {
   const onCopyText = vi.fn();
   const onOpenArtifactId = vi.fn();
@@ -1539,6 +1640,56 @@ it('enters pure Coding mode from Explore more and renders sidebar/header intent 
       updatedAt: 3000,
       createdAt: 1000,
     },
+    summarizeSuperAgentChat({
+      ...sampleChat,
+      id: 'e02bd75e-6976-4c50-9324-a8d7cbe35f40',
+      title: 'Mobile prototype',
+      intent: 'website',
+      state: 'idle',
+      activeArtifactId: sampleChat.artifacts[0].id,
+      artifacts: [{ ...sampleChat.artifacts[0], scenario: 'mobile-app' }],
+    }),
+    summarizeSuperAgentChat({
+      ...sampleChat,
+      id: '2923b1ec-3847-4d43-889c-2c3af5dceb2d',
+      title: 'Editable document',
+      intent: 'website',
+      state: 'waiting',
+      artifacts: [{ ...sampleChat.artifacts[0], scenario: 'document' }],
+    }),
+    summarizeSuperAgentChat({
+      ...sampleChat,
+      id: '9d71301a-2eb7-4bea-b87b-4d6c801f2552',
+      title: 'Generated product video',
+      intent: 'video',
+      state: 'idle',
+      messages: [],
+      artifacts: [{ id: 'generated', kind: 'asset-video', title: 'Product clip', createdAt: 1000, updatedAt: 1000 }],
+    }),
+    summarizeSuperAgentChat({
+      ...sampleChat,
+      id: '491ee881-b25c-4bf4-bcab-aa1b4e183a4c',
+      title: 'Video model draft',
+      intent: 'video',
+      state: 'running',
+      artifacts: [],
+      messages: [{
+        id: 'video-prompt',
+        role: 'user',
+        text: 'Show the product in motion',
+        createdAt: 1000,
+        contextTags: [{ kind: 'mode', label: 'Video', tone: 'video', icon: 'clapperboard-line' }],
+      }],
+    }),
+    summarizeSuperAgentChat({
+      ...sampleChat,
+      id: '51ac4baa-0d92-4f70-8ba4-0666af5fb3b5',
+      title: 'Exported motion graphics',
+      intent: 'video',
+      state: 'idle',
+      messages: [],
+      artifacts: [{ id: 'export', kind: 'motion-export', title: 'Motion · MP4', createdAt: 1000, updatedAt: 1000 }],
+    }),
     {
       id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
       title: 'Promo Reel',
@@ -1639,6 +1790,18 @@ it('enters pure Coding mode from Explore more and renders sidebar/header intent 
   expect(document.querySelector('.om-sa-chat-status-badge[data-state="failed"]')?.textContent).toBe('Stopped');
   expect(document.querySelector('.om-sa-chat-icon[data-intent="chat"][data-tone="neutral"]')).toBeTruthy();
 
+  const iconForTask = (title: string) => [...container.querySelectorAll('.om-sa-chat-row-btn')]
+    .find(row => row.querySelector('.om-sa-chat-title')?.textContent === title)
+    ?.querySelector('.om-sa-chat-icon svg')?.getAttribute('data-remix-icon');
+  expect(iconForTask('Landing Prototype')).toBe('layout-line');
+  expect(iconForTask('Mobile prototype')).toBe('smartphone-line');
+  expect(iconForTask('Editable document')).toBe('file-text-line');
+  expect(document.querySelector('.om-sa-chat-status-badge[data-state="waiting"]')?.textContent).toBe('Approval needed');
+  expect(iconForTask('Promo Reel')).toBe('movie-line');
+  expect(iconForTask('Generated product video')).toBe('clapperboard-line');
+  expect(iconForTask('Video model draft')).toBe('clapperboard-line');
+  expect(iconForTask('Exported motion graphics')).toBe('movie-line');
+
   const more = container.querySelector<HTMLButtonElement>('.om-sa-starter-card-more')!;
   await act(async () => more.click());
   const items = [...document.querySelectorAll<HTMLButtonElement>('.om-sa-more-menu .om-sa-more-item')];
@@ -1649,7 +1812,6 @@ it('enters pure Coding mode from Explore more and renders sidebar/header intent 
     'Generate image',
     'Build a website',
     'Create audio',
-    'Cinema video',
     'Coding',
   ]);
   const codingItem = items.find(item => item.textContent === 'Coding')!;
