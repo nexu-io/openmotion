@@ -251,3 +251,57 @@ test("dragging an instantaneous animation preserves zero duration while omitted 
   const zeroKeys = shift(scene('to("#a",{duration:0,keyframes:{"0%":{x:1,y:2},"100%":{x:12,y:15}}},2)')).find(anim => anim.keyframes)!;
   assert.equal(zeroKeys.duration, 0);
 });
+
+test("a whole-layer drag moves the welcome editor window identically from Studio and a headless delta", () => {
+  const html = readFileSync(new URL("../../template-library/openmotion-welcome/compositions/editor.html", import.meta.url), "utf8");
+  const target = { id: "editor-window", hfId: "hf-ns1j" };
+  const move = { kind: "moveCanvasElement", mode: "wholePath", target, delta: { x: 17.5, y: -9 } } as const;
+  const result = applyCanvasCommand(html, move);
+  assert.equal(applyCanvasCommand(html, { ...move, time: 4.3666667, staticBox: { left: 137.5, top: 71, makeRelative: false } }), result);
+  assert.match(result.match(/<div[^>]*id="editor-window"[^>]*>/)![0], /left:\s*137\.5px/);
+  assert.match(result.match(/<div[^>]*id="editor-window"[^>]*>/)![0], /top:\s*71px/);
+  assert.equal(result.match(/<script>[\s\S]*?<\/script>/)![0], html.match(/<script>[\s\S]*?<\/script>/)![0]);
+  const further = applyCanvasCommand(result, move);
+  assert.match(further.match(/<div[^>]*id="editor-window"[^>]*>/)![0], /left:\s*155px/);
+});
+
+test("a playhead on a rounded GSAP endpoint resolves its owner and genuine overlapping tracks remain ambiguous", () => {
+  const tweens = (second: number) => '<html><head><style>#a {position:absolute;left:1px;top:2px}</style></head><body><div id="a" style="translate:2px 3px;transform:rotate(15deg) scale(1.1)">A</div><script>const tl=gsap.timeline();tl.fromTo("#a",{x:0,y:1},{x:3,y:4,duration:0.4,ease:"none"},0);tl.fromTo("#a",{x:3,y:4},{x:9,y:5,duration:0.6,ease:"none"},' + second + ');</script></body></html>';
+  const source = tweens(3.7666666667);
+  const result = applyCanvasCommand(source, { ...move, mode:"playhead", time:4.3666667 });
+  const end = parseGsapAnimationsFromHtml(result).animations.find(a => a.keyframes)?.keyframes?.keyframes.at(-1);
+  assert.deepEqual(end?.properties, { x: 20, y: 30 });
+  const both = tweens(0);
+  assert.throws(() => applyCanvasCommand(both, { ...move, time:0.2 }), /Multiple position tweens/);
+  const shifted = applyCanvasCommand(both, { kind:"moveCanvasElement", target, delta:{x:10,y:20} });
+  assert.match(shifted, /translate:\s*2px 3px/);
+  assert.match(shifted, /transform:\s*rotate\(15deg\) scale\(1\.1\)/);
+  assert.equal(shifted.match(/<script>[\s\S]*?<\/script>/)![0], both.match(/<script>[\s\S]*?<\/script>/)![0]);
+});
+
+test("a whole-layer drag on a shared tween preserves its peers and requires measurements for a responsive inset", () => {
+  const html = '<html><head><style>.item{position:absolute;left:10%;top:0px}</style></head><body><div id="a" class="item"></div><div id="b" class="item"></div><script>const tl=gsap.timeline();tl.to(".item",{x:80,duration:1},0);</script></body></html>';
+  const command = { kind:"moveCanvasElement",target,delta:{x:5,y:7} } as const;
+  assert.throws(() => applyCanvasCommand(html, command), /measured layer box/);
+  const measured = applyCanvasCommand(html, {...command, staticBox:{left:25,top:7,makeRelative:false}});
+  assert.match(measured.match(/<div[^>]*id="a"[^>]*>/)![0], /left:\s*25px/);
+  assert.doesNotMatch(measured.match(/<div[^>]*id="b"[^>]*>/)![0], /style=/);
+  assert.equal(measured.match(/<script>[\s\S]*?<\/script>/)![0], html.match(/<script>[\s\S]*?<\/script>/)![0]);
+});
+
+test("headless layout inference rejects viewport styles, competing edges, logical insets, and priority overrides", () => {
+  const target = { id: "window" };
+  const command = { kind: "moveCanvasElement", target, delta: { x: 3, y: 7 } } as const;
+  for (const extra of [
+    '<link rel="stylesheet" href="theme.css">',
+    '<style media="(width < 900px)">#window{left:3px}</style>',
+    '<style>@media (width < 900px){#window{left:4px}}</style>',
+    '<style>#window{inset-inline-end:2px}</style>',
+    '<style>#window{right:2px}</style>',
+    '<style>#window{top:12px!important}</style>',
+  ]) {
+    const source = '<html><head><style>#window{position:absolute;left:10px;top:9px}</style>' + extra +
+      '</head><body><div id="window"></div><script>const tl=gsap.timeline();tl.to("#window",{x:5,duration:1},0);tl.to("#window",{x:12,duration:1},2);</script></body></html>';
+    assert.throws(() => applyCanvasCommand(source, command), /measured layer box/, extra);
+  }
+});
