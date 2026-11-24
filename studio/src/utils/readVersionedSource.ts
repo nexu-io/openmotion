@@ -1,3 +1,4 @@
+import { ORDERED_TEXT_EDITS_HEADER } from '../../../shared/ordered-text-edits';
 import { applyTextPatch, TEXT_PATCH_BASE_HEADER } from '../../../shared/text-patch';
 import { studioApiFetch } from './studioApiFetch';
 
@@ -5,7 +6,9 @@ export interface SourceVersion { content: string; version: string }
 
 function sourceResponse(source: SourceVersion, received: Headers): Response {
   const headers = new Headers({ ETag: source.version });
-  if (received.get('X-OpenMotion-Text-Edits') === '1') headers.set('X-OpenMotion-Text-Edits', '1');
+  for (const capability of ['X-OpenMotion-Text-Edits', ORDERED_TEXT_EDITS_HEADER]) {
+    if (received.get(capability) === '1') headers.set(capability, '1');
+  }
   return Response.json({ ...source, missing: false }, { headers });
 }
 
