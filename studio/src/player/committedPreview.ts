@@ -78,7 +78,7 @@ async function present(frame: HTMLIFrameElement, session: Session) {
       if (!owns() || busy(frame) || isPreviewChanging()) return false;
       const version = confirmedSource(session.project, change.path)?.version;
       if (change.version) return !version || version === change.version || version === change.observedVersion;
-      return version === change.current?.version;
+      return !version || version === change.current?.version;
     };
     const done = await applyChange(frame, change, session.sent, current, batchScenes).catch(() => false);
     // A later input/receipt owns the same pixels, even if this bridge response was successful.

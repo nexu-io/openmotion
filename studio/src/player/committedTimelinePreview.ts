@@ -1,7 +1,7 @@
 import { confirmedSource, type ConfirmedSource } from "../utils/confirmedTextSources";
 import { scheduleCommittedPreview } from "./committedPreview";
 
-type TimingReceipt = { before: string; after: string };
+type TimingReceipt = { before: string; after: string; version?: string };
 
 /** Timeline history includes source bytes. Only a matching file revision may be sent to the player. */
 export function scheduleCommittedTimelinePreview(
@@ -13,9 +13,11 @@ export function scheduleCommittedTimelinePreview(
   refresh: (paths: readonly string[]) => void,
   bases?: ReadonlyMap<string, ConfirmedSource>,
 ) {
-  const changes = Object.entries(files).map(([file, receipt]) => {
-    const base = bases?.get(file) ?? (Object.keys(files).length === 1 ? previous : undefined);
-    const current = confirmedSource(projectId, file);
+  const entries = Object.entries(files);
+  const changes = entries.map(([file, receipt]) => {
+    const base = bases?.get(file) ?? (entries.length === 1 ? previous : undefined);
+    const known = confirmedSource(projectId, file);
+    const current = receipt.version ? { version: receipt.version, content: receipt.after } : known;
     return { path: file, previous: base?.content === receipt.before ? base : undefined,
       current: current?.content === receipt.after ? current : undefined };
   });

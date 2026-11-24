@@ -58,7 +58,7 @@ it('projects a split and deletion while an earlier move waits for its receipt, a
     expect(packs).toEqual([['move'],['trim','split','delete']]);
     expect(confirmedSource(project,path)?.content).toBe(stored);
     expect(history).toHaveBeenCalledTimes(4);
-    expect(refresh).toHaveBeenCalledExactlyOnceWith({ [path]: { before: initial, after: stored } }, { content: initial, version: "base" });
+    expect(refresh).toHaveBeenCalledExactlyOnceWith({ [path]: { before: initial, after: stored, version: 'v4' } }, { content: initial, version: "base" });
     expect(writer).not.toHaveBeenCalled();
   } finally {
     release.resolve(); close(); usePlayerStore.getState().reset(); vi.unstubAllGlobals();
@@ -91,7 +91,7 @@ it('allows a valid gesture after a missing target and paints it even when the fi
     expect([changed, noop]).toEqual([{status:'fulfilled',value:[path]}, {status:'fulfilled',value:[]}]);
     expect(sent).toEqual(['rename']);
     expect(history).toHaveBeenCalledTimes(1);
-    expect(paint).toHaveBeenCalledExactlyOnceWith({[path]:{before:'a', after:'ab'}},{version:'v1',content:'a'});
+    expect(paint).toHaveBeenCalledExactlyOnceWith({[path]:{before:'a', after:'ab', version:'v2'}},{version:'v1',content:'a'});
   } finally { vi.unstubAllGlobals(); }
 });
 
@@ -127,4 +127,36 @@ it('restores authoritative rows when multiple consecutive optimistic gestures fa
     expect(confirmedSource(project,path)?.content).toBe(source);
     expect(history).not.toHaveBeenCalled();
   } finally { release.resolve(); close(); usePlayerStore.getState().reset(); vi.unstubAllGlobals(); }
+});
+
+it('keeps a multi-file receipt when a subsequent gesture supersedes just one of its files', async () => {
+  const { saveOrderedTimeline } = await import('./orderedTimelineEdits');
+  const project = 'partial-overlap';
+  const paths = ['intro.html', 'outro.html'];
+  for (const path of paths) observeSourceRead(project, path, new Response(null, { headers: {
+    'X-OpenMotion-Text-Edits':'1','X-OpenMotion-Ordered-Edits':'1',
+  }}), { content: path, version: 'v1' });
+  const first = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  let request = 0;
+  vi.stubGlobal('fetch', async (_url: string, init: RequestInit) => {
+    const [op] = JSON.parse(String(init.body)).operations as OrderedTextEditOperation[];
+    if (++request === 1) { first.resolve(); await release.promise; }
+    const files = op!.files.map(file => file.path), version = 'v' + (request + 1);
+    return Response.json({committed:[{id:op!.id, versions:Object.fromEntries(files.map(path => [path,version])),
+      changedPaths:files, versionId:version, revision:version, writeToken:op!.id}]});
+  });
+  const refresh = vi.fn(async () => {});
+  const options = { onSaved: refresh, recordEdit: vi.fn(async () => {}) };
+  const edit = (path: string) => ({path, apply: (source: string) => source + '+'});
+  try {
+    const both = saveOrderedTimeline(project, paths.map(edit), 'both scenes', options);
+    await first.promise;
+    const justIntro = saveOrderedTimeline(project, [edit(paths[0]!)], 'intro again', options);
+    release.resolve();
+    await Promise.all([both, justIntro]);
+    expect(refresh.mock.calls).toEqual([
+      [{ 'outro.html': { before: 'outro.html', after: 'outro.html+', version: 'v2' } }, { content: 'outro.html', version: 'v1' }],
+      [{ 'intro.html': { before: 'intro.html', after: 'intro.html++', version: 'v3' } }, { content: 'intro.html', version: 'v1' }],
+    ]);
+  } finally { release.resolve(); vi.unstubAllGlobals(); }
 });

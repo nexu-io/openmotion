@@ -89,25 +89,28 @@ export async function saveOrderedTimeline(
     });
     const files = snapshots(accepted);
     if (saved.changedPaths.length) await recordEdit({ label, files, coalesceKey, coalesceMs });
-    // Later gestures own the currently displayed rows. Only the final matching receipt may refresh the canvas.
-    const current = accepted.every((edit, i) => displayed.get(key(project, edit.path)) === projections[i] &&
-      confirmedSource(project, edit.path)?.version === saved.versions[edit.path]);
-    if (current && accepted.length === 1) {
-      // A final no-op or volume edit may still have an earlier structural edit to paint.
-      const first = accepted[0]!;
-      const projection = projections[0]!;
-      const previous = await projection.session.baseline;
-      if (previous.version !== saved.versions[first.path]) {
-        await projection.refresh?.({ [first.path]: { before: previous.content, after: first.after } }, previous);
+    // A later gesture can cover just one member of a multi-file edit. The remaining
+    // files still owe their own final projection, even when this step was a no-op.
+    const baselines = await Promise.all(projections.map(projection => projection.session.baseline));
+    type Receipt = { files: Record<string, Changes[string] & { version: string }>; bases: Map<string, ConfirmedSource> };
+    const updates = new Map<NonNullable<Options['onSaved']>, Receipt>();
+    for (let i = 0; i < accepted.length; i++) {
+      const file = accepted[i]!, projection = projections[i]!, base = baselines[i]!;
+      const version = saved.versions[file.path];
+      if (!projection.refresh || displayed.get(key(project, file.path)) !== projection || !version || version === base.version) continue;
+      const known = confirmedSource(project, file.path);
+      if (known && known.version !== version) continue;
+      let batch = updates.get(projection.refresh);
+      if (!batch) {
+        batch = { files: {}, bases: new Map() };
+        updates.set(projection.refresh, batch);
       }
-    } else if (current && saved.changedPaths.length) {
-      if (onSaved) {
-        const bases = new Map(await Promise.all(transforms.map(async ({ path }, index) =>
-          [path, await projections[index]!.session.baseline] as const)));
-        const changes = Object.fromEntries(Object.entries(files).map(([path, file]) =>
-          [path, { before: bases.get(path)!.content, after: file.after }]));
-        await onSaved(changes, undefined, bases);
-      }
+      batch.files[file.path] = { before: base.content, after: file.after, version };
+      batch.bases.set(file.path, base);
+    }
+    for (const [refresh, batch] of updates) {
+      if (batch.bases.size === 1) await refresh(batch.files, batch.bases.values().next().value);
+      else await refresh(batch.files, undefined, batch.bases);
     }
     return saved.changedPaths;
   } catch (error) {

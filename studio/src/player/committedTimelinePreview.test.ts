@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { beginStudioManualEditGesture, endStudioManualEditGesture } from "../components/editor/manualEditsDom";
 import { beginStudioPendingEdit } from "../utils/studioPendingEdits";
-import { rememberSource } from "../utils/confirmedTextSources";
+import { forgetSource, rememberSource } from "../utils/confirmedTextSources";
 import { usePlayerStore } from "./store/playerStore";
 import { scheduleCommittedTimelinePreview } from "./committedTimelinePreview";
 import { hasPeerTimingDocument, mountedPeerFileVersion, tryApplyPeerChanges } from "./peerTimingPreview";
@@ -148,5 +148,19 @@ it("resumes at an intermediate version actually painted before a late ACK", asyn
   old.resolve(false);
   await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
   expect(update.mock.calls[1]![1]).toEqual({ path, previous: source("v2"), current: source("v4") });
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it("presents the versioned receipt when the source cache evicts the file before the frame is ready", async () => {
+  const { frame, reload } = setup();
+  const last = beginStudioPendingEdit(null);
+  const file = "evicted.html", previous = source("v1"), current = source("v2");
+  rememberSource(pid, file, current);
+  scheduleCommittedTimelinePreview(frame, pid, file, {
+    [file]: { before: previous.content, after: current.content, version: current.version },
+  }, previous, reload);
+  forgetSource(pid, file);
+  last.settle();
+  await vi.waitFor(() => expect(update).toHaveBeenCalledWith(frame, { path: file, previous, current }, expect.any(Function)));
   expect(reload).not.toHaveBeenCalled();
 });
