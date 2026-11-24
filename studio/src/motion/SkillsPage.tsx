@@ -71,11 +71,6 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     return () => { cancelled = true; };
   }, []);
   const instruction = useRef<HTMLPreElement>(null), command = useRef<HTMLPreElement>(null), search = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (detailOnly) return;
-    const focus = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); search.current?.focus(); } };
-    window.addEventListener('keydown', focus); return () => window.removeEventListener('keydown', focus);
-  }, [detailOnly]);
   // Select the failed text in its own visible surface so one ⌘C copies the requested content.
   useEffect(() => {
     if (!manualCopy || (manualCopy.surface === 'command' && !commandOpen)) return;
@@ -211,7 +206,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
               <Button variant="plain" aria-pressed={!category} onClick={() => pickCategory(null)}>{t('All')}</Button>
               {skillCategories.map(value => <Button variant="plain" key={value} aria-pressed={category === value} onClick={() => pickCategory(value)}>{t(value)}</Button>)}
             </CategoryStrip>}
-            <label className="om-field om-search-field"><MotionIcon name="search" size={18} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search skills...')} aria-label={t('Search skills')} /><kbd aria-hidden="true">⌘ K</kbd></label>
+            {!chrome && <label className="om-field om-search-field"><MotionIcon name="search" size={18} /><input ref={search} type="search" maxLength={200} value={query} onChange={event => setQuery(event.target.value)} placeholder={t('Search skills...')} aria-label={t('Search skills')} /></label>}
           </div>
         </div>
         {studio && chrome && !query.trim() && <StudioTemplateShelf key={studio.id + locale} studio={studio.id} root={main} active={previewsEnabled && !selected} />}

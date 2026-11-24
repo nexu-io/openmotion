@@ -28,11 +28,12 @@ import { assetRequest } from './assetClient';
 import { mediaLabels, modelDestination, sceneDestination, studioIconTone, supportsScene, type StudioDestination } from './creativeStudios';
 import { ModelAvatar } from './settingsPrimitives';
 import { motionSkills } from './skillCatalog';
-import { prepareTemplateSearchIndex, rankTemplateSearch } from './templateSearch';
+import { matchingSkillsForQuery, prepareTemplateSearchIndex, rankTemplateSearch } from './templateSearch';
 import { useCoveredTemplates } from './useCoveredTemplates';
 import { useMediaCatalog } from './useMediaCatalog';
 import type { DesignSceneTarget, SettingsSection } from './workspacePageRouting';
 import {
+  defaultScopeForLocation,
   designScenarioLabel,
   formatRelativeSearchTime,
   POPULAR_SEARCH_TOPICS_EN,
@@ -251,20 +252,33 @@ export function WorkspaceSearch({
     action();
   }, [onChoose]);
 
-  // Global Cmd/Ctrl+K toggle (yields when inside another modal <dialog open>)
+  const openPalette = useCallback((method: 'pointer' | 'keyboard') => {
+    const nextScope = typeof window !== 'undefined'
+      ? defaultScopeForLocation(window.location.pathname, window.location.search, Boolean(destination))
+      : 'all';
+    setScope(nextScope);
+    setActiveKey(null);
+    tracking.reportCommandPaletteOpened(method);
+    setOpen(true);
+  }, [destination]);
+
+  // Global Cmd/Ctrl+K toggle (yields when inside another modal <dialog open>, but opens over in-workspace gallery)
   useEffect(() => {
     if (onChoose) return;
     const onGlobalKeyDown = (event: globalThis.KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
       if (event.key.toLowerCase() !== 'k' || event.defaultPrevented) return;
-      if (!open && document.querySelector('dialog[open]')) return;
+      if (!open && document.querySelector('dialog[open]:not([data-workspace-gallery])')) return;
       event.preventDefault();
-      if (!open) tracking.reportCommandPaletteOpened('keyboard');
-      setOpen(prev => !prev);
+      if (!open) {
+        openPalette('keyboard');
+      } else {
+        setOpen(false);
+      }
     };
     window.addEventListener('keydown', onGlobalKeyDown);
     return () => window.removeEventListener('keydown', onGlobalKeyDown);
-  }, [onChoose, open]);
+  }, [onChoose, open, openPalette]);
 
   // Dismiss when navigating via URL history / router changes
   useEffect(() => {
@@ -1177,6 +1191,10 @@ export function WorkspaceSearch({
   const loading = Boolean(query && ((!catalog.catalog && !catalog.failed) || !assets.result || resourcesLoading));
   const isSearching = Boolean(isQueryPending || loading);
   const popularTopics = locale.startsWith('zh') ? POPULAR_SEARCH_TOPICS_ZH : POPULAR_SEARCH_TOPICS_EN;
+  const fallbackSkills = useMemo(
+    () => (query && scope === 'templates' && groups.length === 0 ? matchingSkillsForQuery(query, t, 3) : []),
+    [query, scope, groups.length, t],
+  );
 
   const notify = useCallback((msg: string, tone: 'info' | 'error' = 'info') => {
     onNotify?.(msg, tone);
@@ -1363,10 +1381,7 @@ export function WorkspaceSearch({
     <Button
       variant="plain"
       type="button"
-      onClick={() => {
-        tracking.reportCommandPaletteOpened('pointer');
-        setOpen(true);
-      }}
+      onClick={() => openPalette('pointer')}
       className={onChoose ? 'om-nav-item om-workspace-search-trigger' : 'om-nav-item om-workspace-search-trigger om-header-icon'}
       aria-label={t('Search workspace')}
     >
@@ -1569,6 +1584,28 @@ export function WorkspaceSearch({
                 {query && !loading && !catalog.failed && assets.result?.assets && groups.length === 0 && (
                   <div className="om-command-empty">
                     <p className="om-muted">{t('No matches')}</p>
+                    {fallbackSkills.length > 0 && (
+                      <div className="om-command-topic-group">
+                        <span className="om-eyebrow">{t('Try a matching Skill')}</span>
+                        <div className="om-command-topics">
+                          {fallbackSkills.map((skill, index) => (
+                            <Button
+                              key={skill.id}
+                              type="button"
+                              variant="secondary"
+                              size="sm"
+                              className="om-command-topic-chip"
+                              onClick={() => {
+                                tracking.reportCommandPaletteSelect({ kind: 'skill', id: skill.id }, index + 1, scope, searchIdRef.current, 'open', 'pointer');
+                                choose(() => onSkill(skill.id));
+                              }}
+                            >
+                              {t(skill.title)}
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <div className="om-command-topic-group">
                       <span className="om-eyebrow">{t('Try popular topics')}</span>
                       <div className="om-command-topics">

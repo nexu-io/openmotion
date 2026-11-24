@@ -8,6 +8,7 @@ import { I18nProvider } from '../i18n/I18n';
 import { fetchWorkspaceResources, listSuperAgentChats } from '../super-agent/superAgentClient';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { WorkspaceSearch } from './WorkspaceSearch';
+import { defaultScopeForLocation } from './workspaceSearchTypes';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
 import * as pageTracking from './pageTracking';
 import { assetRequest } from './assetClient';
@@ -781,5 +782,57 @@ it('reports updated scope and position when sending a template to Super Agent af
     selectSpy.mockRestore();
     await act(async () => root.unmount());
     container.remove();
+  }
+});
+
+it('auto-focuses the matching scope tab by current page and opens via Cmd+K over an in-workspace gallery', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  expect(defaultScopeForLocation('/templates')).toBe('templates');
+  expect(defaultScopeForLocation('/explore', '?templates=1')).toBe('templates');
+  expect(defaultScopeForLocation('/skills')).toBe('tools');
+  expect(defaultScopeForLocation('/agent')).toBe('chats');
+  expect(defaultScopeForLocation('/assets')).toBe('files');
+  expect(defaultScopeForLocation('/brand-kit')).toBe('files');
+  expect(defaultScopeForLocation('/design')).toBe('studios');
+  expect(defaultScopeForLocation('/explore')).toBe('all');
+
+  const previousUrl = window.location.href;
+  window.history.replaceState({}, '', '/templates');
+  const galleryDialog = document.createElement('dialog');
+  galleryDialog.setAttribute('open', '');
+  galleryDialog.setAttribute('data-workspace-gallery', 'true');
+  document.body.appendChild(galleryDialog);
+
+  const noop = vi.fn();
+  const container = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(
+      <I18nProvider initialLocale="en">
+        <WorkspaceSearch
+          destination={null}
+          onSkill={noop}
+          onAsset={noop}
+          onStudio={noop}
+          onScene={noop}
+          onAccount={noop}
+          onLibrary={noop}
+          onCommunity={noop}
+        />
+      </I18nProvider>,
+    ));
+
+    // Pressing Cmd+K over an in-workspace gallery dialog opens the unified palette with Templates pre-selected
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }));
+    });
+    expect(document.querySelector('.om-command-palette')).not.toBeNull();
+    const selectedTab = document.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]');
+    expect(selectedTab?.textContent).toContain('Templates');
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    galleryDialog.remove();
+    window.history.replaceState({}, '', previousUrl);
   }
 });

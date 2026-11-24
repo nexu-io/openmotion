@@ -336,7 +336,7 @@ export function BrandKitPage({
           </nav>
           <div className="om-control-row om-gallery-header-actions">
             <Button variant="ghost" type="button" className="om-button h-auto" data-primary onClick={openCreate}><RemixIcon name="add-line" size={16} />{t('New Brand Kit')}</Button>
-            <GallerySearchField label={t('Search brand kits')} value={query} onChange={setQuery} />
+            {!chrome && <GallerySearchField label={t('Search brand kits')} value={query} onChange={setQuery} />}
             <IconButton variant="plain" type="button" className="om-gallery-round-button" aria-label={t('Close Brand Kit')} onClick={onClose} icon={<RemixIcon name="close-line" size={20} />} />
           </div>
         </div>
