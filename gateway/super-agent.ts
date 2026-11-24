@@ -3883,7 +3883,7 @@ export class SuperAgentConversations {
     }
 
     if ((name === 'openmotion_edit_project' || name === 'openmotion_restore_version' || name === 'openmotion_open_preview') && value.projectId) {
-      if (name === 'openmotion_open_preview' && (args.target === 'templates' || args.target === 'providers' || args.action === 'begin' || args.action === 'complete_generation')) {
+      if (name === 'openmotion_open_preview' && (args.target === 'explore' || args.target === 'templates' || args.target === 'providers' || args.action === 'begin' || args.action === 'complete_generation')) {
         return undefined;
       }
       active.touchedMotionIds ??= new Set();

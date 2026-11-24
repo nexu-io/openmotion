@@ -615,7 +615,9 @@ export function formatSuperAgentToolLabel(tool: string, args?: Record<string, un
         ? 'Prepared provider setup'
         : args?.target === 'templates'
           ? 'Prepared template library'
-          : 'Prepared Motion Studio preview';
+          : args?.target === 'explore'
+            ? 'Prepared Explore'
+            : 'Prepared Motion Studio preview';
     case 'openmotion_export_request':
       return 'Queued Motion MP4 export';
     case 'openmotion_export_cancel':

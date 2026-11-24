@@ -42,7 +42,7 @@ import { execute, inspectProject, pluginRoot } from './hyperframes.ts';
 import { verificationBinaries } from './scripts/verify-export.ts';
 import { validateInstruction } from './shared/conversation.ts';
 import { editorProjectIdFromPath } from './shared/spa-routes.ts';
-import { sessionPath, templateLibraryPreview, providerSettingsPreview } from './shared/workspace-url.ts';
+import { sessionPath, explorePreview, templateLibraryPreview, providerSettingsPreview } from './shared/workspace-url.ts';
 import { phase1Tools, validateInput, normalizeToolInput } from './shared/phase1-tools.ts';
 import { atomicJson, cloneFile, fileHash, jsonFile, ProjectVersions, recoverProjectTransactions } from './phase1-versions.ts';
 import type { ContentVersion } from './phase1-versions.ts';
@@ -162,13 +162,15 @@ export class Phase1Service {
     if (name === 'motion_open_preview' && args.entry !== undefined && args.target !== 'providers') {
       throw new ToolInputError('entry is only supported when target=providers', 'entry', 'invalid_combination');
     }
-    if (name === 'motion_open_preview' && (args.target === 'templates' || args.target === 'providers')) {
+    if (name === 'motion_open_preview' && (args.target === 'explore' || args.target === 'templates' || args.target === 'providers')) {
       const allowed = args.target === 'providers' ? ['target', 'action', 'embedded', 'presentation', 'entry'] : ['target', 'action', 'embedded', 'presentation'];
       const unsupported = args.action && args.action !== 'open' ? 'action' : Object.keys(args).find(key => !allowed.includes(key));
       if (unsupported) throw new ToolInputError('workspace page opening does not accept project, session or version arguments', unsupported, 'invalid_combination');
       return args.target === 'providers'
         ? providerSettingsPreview(this.context.origin(), { ...args, attributeEntry: options?.attributeEntry })
-        : templateLibraryPreview(this.context.origin(), args);
+        : args.target === 'explore'
+          ? explorePreview(this.context.origin(), args)
+          : templateLibraryPreview(this.context.origin(), args);
     }
     if (name === 'motion_list_templates') return templateCatalogFor(this.store.directory).index();
     if (name === 'motion_get_template') return templateCatalogFor(this.store.directory).detail(args.templateId);

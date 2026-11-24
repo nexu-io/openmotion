@@ -46,6 +46,11 @@ export function preservePresentation(target: string, search: string) {
   return url.pathname + url.search + url.hash;
 }
 
+/** Explore opens independently without creating or selecting a project. */
+export function explorePreview(origin: string, options: { embedded?: boolean; presentation?: string } = {}) {
+  return workspacePagePreview(origin, 'explore', options);
+}
+
 /** Browsing the library has no project, session or content-version identity. */
 export function templateLibraryPreview(origin: string, options: { embedded?: boolean; presentation?: string } = {}) {
   return workspacePagePreview(origin, 'templates', options);
@@ -60,8 +65,8 @@ export function resolveProviderSetupEntry(entry?: string): ProviderSetupEntry {
   return (providerSetupEntries as readonly string[]).includes(entry ?? '') ? entry as ProviderSetupEntry : 'agent_providers';
 }
 
-function workspacePagePreview(origin: string, target: 'templates' | 'providers', options: { embedded?: boolean; presentation?: string; entry?: string; attributeEntry?: boolean }) {
-  const query = new URLSearchParams(target === 'providers' ? undefined : { templates: '1' });
+function workspacePagePreview(origin: string, target: 'templates' | 'providers' | 'explore', options: { embedded?: boolean; presentation?: string; entry?: string; attributeEntry?: boolean }) {
+  const query = new URLSearchParams(target === 'templates' ? { templates: '1' } : undefined);
   if (target === 'providers') {
     const entry = resolveProviderSetupEntry(options.entry);
     if (entry === 'agent_media_signed_out' || entry === 'agent_media_upgrade_free' || entry === 'agent_media_upgrade_go' || entry === 'agent_media_balance_low') {
@@ -73,7 +78,9 @@ function workspacePagePreview(origin: string, target: 'templates' | 'providers',
   const serialized = query.toString();
   const previewUrl = target === 'providers'
     ? `${origin}/settings/providers${serialized ? `?${serialized}` : ''}`
-    : `${origin}/?${serialized}`;
+    : target === 'explore'
+      ? `${origin}/explore${serialized ? `?${serialized}` : ''}`
+      : `${origin}/?${serialized}`;
   const presentation = options.presentation ?? 'foreground';
   const background = presentation === 'background';
   return { target, previewUrl, projectCreated: false, openedByHost: false,
@@ -82,7 +89,9 @@ function workspacePagePreview(origin: string, target: 'templates' | 'providers',
       state: background ? 'background' : 'pending', openedByHost: false, hostActionRequired: !background,
       nextAction: background ? null : { kind: 'host', operation: 'present_preview', previewUrl, placement: 'right', reuseExistingTab: true,
         codex: { tool: 'open_in_codex', arguments: { placement: 'right', target: { type: 'browser', url: previewUrl } } } },
-      instructions: target === 'providers'
+      instructions: target === 'explore'
+        ? 'Open previewUrl in the host built-in browser in the calling chat, following the handoff focus policy. Reuse the matching tab and preserve all URL parameters. Confirm Explore is visible before reporting it opened; a prepared URL or queued acknowledgment is not visible delivery. If opening fails or the host has no browser, report the actual result and provide the link. Do not create or select a project. No project record_display receipt is needed for this page.'
+        : target === 'providers'
         ? 'Open previewUrl in the host built-in browser in the calling chat and follow the same focus policy. Verify that Model providers is visible before reporting it opened. If the host has no browser, provide the actual link and state the limitation. Guide the user to click Sign in with OpenDesign or Upgrade to Plus directly on the opened OpenDesign page in Model providers; select OpenDesign in the provider list first if needed. OpenDesign Plus or above includes image, video, speech and music generation; Free and Go do not. For API key setup, guide the user to save or replace their OpenDesign Cloud or other supported provider key here in Model providers. Ask them to tell you once done. Keep credentials in settings. Re-inspect providers after confirmation and resume the original request. This page does not create or select a project and needs no project record_display receipt.'
         : 'Open previewUrl in the host built-in browser in the calling chat. Reuse a matching native host tab in this chat after checking its identity and URL; preserve all URL parameters. Present it immediately when this chat is active. Queue without switching only when the host confirms this chat is inactive; a queued acknowledgment alone does not prove inactivity. Only presentation=now permits switching. Observe settled native panel visibility and template library content before reporting it opened. If presentation fails or the native tab is gone, retry presentation once, then report the display failure without repeatedly creating tabs. A prepared URL, hidden automation tab or queued acknowledgment is not visible delivery. On return from a deferred chat, recheck the live library. If the host has no browser, provide the actual link and state the limitation. Browsing and previewing templates must not create a project. Create only after the user selects Open and edit or explicitly asks the Agent to use an exact template. No project record_display receipt is needed for this page.' } };
 }

@@ -22,7 +22,7 @@ async function fixture(run: (context: { directory: string; destination: string; 
       await mkdir(path.dirname(path.join(source, file)), { recursive: true });
       await copyFile(path.join(root, file), path.join(source, file));
     }
-    await writeFile(path.join(source, 'scripts/open-template-library.ts'), `import fs from 'node:fs'; fs.appendFileSync(process.env.MOTION_TEST_LOG, 'Template library prepared' + String.fromCharCode(10)); console.log(JSON.stringify({target:'templates',projectCreated:false,previewUrl:'http://127.0.0.1:4173/?templates=1&embed=1'}));`);
+    await writeFile(path.join(source, 'scripts/open-template-library.ts'), `import fs from 'node:fs'; fs.appendFileSync(process.env.MOTION_TEST_LOG, 'Template library prepared' + String.fromCharCode(10)); console.log(JSON.stringify({target:'explore',projectCreated:false,previewUrl:'http://127.0.0.1:4173/explore?embed=1'}));`);
     await writeFile(path.join(source, 'workspace.ts'), `export class WorkspaceStore { directory = '/isolated/test-workspace'; }`);
     await writeFile(path.join(source, 'package-lock.json'), '{}');
     await writeFile(path.join(source, 'package.json'), JSON.stringify({ type: 'module', version: '0.0.1' }));

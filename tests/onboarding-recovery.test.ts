@@ -20,7 +20,7 @@ function receipt() {
       resourceUri: presentation.uri, templateIds, language: 'zh' },
     hostHandoff: { threadId, presentation: { tool: 'openmotion_show_template_recommendations',
       arguments: { templateIds, language: 'zh', onboarding: true } } },
-    preview: { status: 'ready', previewUrl: 'http://127.0.0.1:4173/?templates=1&embed=1', projectCreated: false } };
+    preview: { status: 'ready', previewUrl: 'http://127.0.0.1:4173/explore?embed=1', projectCreated: false } };
 }
 function connectedHost(directory = dataDirectory, withPresentation = true) {
   const calls: string[] = [];
@@ -52,15 +52,16 @@ test('refresh recovery uses the exact installation selections and workspace with
   const host = connectedHost();
   const result = await resumeInstallationOnboarding(JSON.parse(original), { appRoot, threadId, request: host.request });
   assert.equal(result.welcomeMarkdown, [
-    '🎉 OpenMotion 安装好啦，右侧就是模板库！',
+    '🎉 OpenMotion 安装好啦，右侧就是探索页！',
     '我是你的开源视频创作搭档，我有丰富的高水准视频模板，也支持从参考视频或一个灵感出发，和你一起创作精彩的视频。',
-    '模板库支持搜索，也可以随意浏览，找到喜欢的点击「复刻模板」就能开始你的创作！',
+    '点右上角「模板」进入模板库，支持搜索，找到喜欢的点击「复刻模板」就能开始你的创作！',
   ].join('\n\n'));
   assert.equal(result.hostSessionVerified, true);
   assert.equal(result.onboardingStatus, 'awaiting_host_delivery', 'MCP verification does not complete presentation acceptance');
   assert.equal(result.onboardingComplete, false, 'Connection verification is not visible welcome/card delivery');
   assert.deepEqual(result.hostHandoff.presentation.arguments, { templateIds, language: 'zh', onboarding: true });
   assert.deepEqual(result.preview, saved.preview);
+  assert.equal(result.preview.previewUrl, 'http://127.0.0.1:4173/explore?embed=1');
   assert.deepEqual(host.calls, ['thread/loaded/list', 'mcpServerStatus/list', 'mcpServer/tool/call']);
   assert.equal(await readFile(saved.detailsFile, 'utf8'), original, 'Recovery must preserve original installation evidence');
 });
@@ -122,7 +123,7 @@ test('installation summary keeps failed library opening truthful and ignores obs
   const summary = installationSummary(saved);
   assert.match(summary, /LIBRARY_UNAVAILABLE: Local library startup failed/);
   assert.match(summary, /Installation remains installed/);
-  assert.match(summary, /replace the library-visible heading with the actual result/);
+  assert.match(summary, /replace the page-visible heading with the actual result/);
   assert.doesNotMatch(summary, /load a hidden tab|entire final reply must be|invoke.*native/);
 });
 

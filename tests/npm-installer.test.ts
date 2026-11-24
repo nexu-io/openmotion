@@ -73,7 +73,7 @@ test('setup retains the welcome/card contract and project-free library without c
   assert.doesNotMatch(fallback, /👇|👆|这 3 个|https?:/);
   for (const raw of examples) {
     const example = raw.replaceAll('**', '');
-    assert(example.startsWith('🎉 OpenMotion 安装好啦，右侧就是模板库！\n\n'));
+    assert(example.startsWith('🎉 OpenMotion 安装好啦，右侧就是探索页！\n\n'));
     assert.doesNotMatch(example, /MCP|Skills?|prod|DEV|刷新|连接|新聊天|后台|开源免费/);
     assert.match(example, /我是你的开源视频创作搭档/);
     assert.doesNotMatch(example, /Motion.md|回复 1、2 或 3/);
@@ -88,7 +88,10 @@ test('setup retains the welcome/card contract and project-free library without c
   assert(Array.isArray(installed.onboarding.catalog.templates));
   assert.equal(installed.onboarding.preview.status, 'ready', installed.onboarding.preview.warning);
   assert.equal(installed.onboarding.preview.projectCreated, false);
-  assert.equal(new URL(installed.onboarding.preview.previewUrl).searchParams.get('templates'), '1');
+  assert.equal(installed.onboarding.preview.target, 'explore');
+  assert.equal(new URL(installed.onboarding.preview.previewUrl).pathname, '/explore');
+  assert.equal(new URL(installed.onboarding.preview.previewUrl).searchParams.get('embed'), '1');
+  assert.equal(new URL(installed.onboarding.preview.previewUrl).searchParams.has('templates'), false);
   assert.equal(installed.onboarding.preview.previewHandoff.nextAction.kind, 'host');
   assert.equal('onboarding' in JSON.parse(await readFile(path.join(options.home, 'install.json'), 'utf8')), false);
 });

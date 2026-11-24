@@ -71,14 +71,15 @@ export async function prepareInstallationPreview({ appRoot, dataDirectory }) {
       cwd: appRoot, timeout: 30_000, killSignal: 'SIGKILL',
       env: { ...process.env, ...(dataDirectory ? { MOTION_DATA_DIR: dataDirectory } : {}) },
     }));
-    assert.equal(preview.target, 'templates');
+    assert.equal(preview.target, 'explore');
     assert.equal(preview.projectCreated, false);
-    assert.equal(new URL(preview.previewUrl).searchParams.get('templates'), '1');
+    assert.equal(new URL(preview.previewUrl).pathname, '/explore');
+    assert.equal(new URL(preview.previewUrl).searchParams.has('templates'), false);
     return { status: 'ready', ...preview };
   } catch (error) {
     return { status: 'unavailable', openedByHost: false, projectCreated: false,
-      warning: 'Template library could not be prepared: ' + error.message,
-      nextAction: 'Installation succeeded; report the preview failure and retry openmotion_open_preview with target=templates after connecting MCP. Do not create a placeholder project.' };
+      warning: 'Explore could not be prepared: ' + error.message,
+      nextAction: 'Installation succeeded; report the preview failure and retry openmotion_open_preview with target=explore after connecting MCP. Do not create a placeholder project.' };
   }
 }
 
@@ -129,7 +130,7 @@ export async function prepareInstallationFlow(options) {
   }
   const language = onboarding.inlinePresentation?.language || options.language || process.env.OPENMOTION_ONBOARDING_LANGUAGE || 'en';
   return { ...onboarding, installationStatus: 'installed', applicationRoot: options.appRoot,
-    welcomeMarkdown: installationFallbackWelcome(isLanguage(language) ? language : 'en'),
+    welcomeMarkdown: installationFallbackWelcome(isLanguage(language) ? language : 'en', options.host === 'deepseek' ? 'templates' : 'explore'),
     dataDirectory: options.dataDirectory, preview,
     ...(hostHandoff ? { hostHandoff } : {}),
     onboardingStatus: preview.status !== 'ready' ? 'preview_unavailable'
@@ -200,8 +201,8 @@ export function installationSummary(result) {
     if (result.host === 'deepseek') lines.push('DSH_NEXT_ACTION: Refresh the current DSH browser page once if the OpenMotion UI has not loaded; do not kill DSH or restart the conversation. Load cardPresentation.skill and call propose_action with cardPresentation.arguments in this turn. The card opens the template library beside the current chat. Never call an unavailable openmotion_show_template_recommendations tool or report onboarding complete from a prepared receipt or healthy MCP alone.');
   }
   if (hostHandoff?.status === 'refresh_requested') lines.push('After this tool step, run recovery.command/recovery.args once to verify the queued refresh; do not reload or prepare again. This does not block the prepared HTML presentation.');
-  if (preview?.status !== 'ready') lines.push('LIBRARY_UNAVAILABLE: ' + (preview?.warning || 'No prepared library URL')
-    + '. Installation remains installed. Do not claim the library is open; report the actual result.');
+  if (preview?.status !== 'ready') lines.push('LIBRARY_UNAVAILABLE: ' + (preview?.warning || 'No prepared preview URL')
+    + '. Installation remains installed. Do not claim the page is open; report the actual result.');
   return lines.join('\n');
 }
 

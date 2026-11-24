@@ -41,6 +41,28 @@ test('template library opens without a bound project or initializing source, pre
   }, initialized);
 });
 
+test('Explore opens without project initialization and rejects project-only arguments', async () => {
+  for (const initialized of [false, true]) await fixture(async store => {
+    const service = api(store), before = await store.get(), catalog = store.projectCatalog();
+    for (const embedded of [true, false]) {
+      const opened = await service.call('openmotion_open_preview', { target: 'explore', embedded });
+      assert.equal(opened.target, 'explore');
+      assert.equal(opened.previewUrl, origin + '/explore' + (embedded ? '?embed=1' : ''));
+      assert.equal(opened.projectCreated, false);
+      assert.equal(opened.projectId, undefined);
+      assert.equal(opened.previewHandoff.nextAction.kind, 'host');
+      assert.equal(opened.previewHandoff.focusPolicy, 'preserve_current_chat');
+    }
+    for (const args of [{ projectId: 'project' }, { sessionId: 'session' }, { workId: 'work' },
+      { requestId: 'request' }, { expectedRevision: 1 }, { expectedVersionId: 'version' },
+      { action: 'begin' }, { action: 'record_display' }, { entry: 'agent_providers' }]) {
+      await assert.rejects(service.call('openmotion_open_preview', { target: 'explore', ...args }), /INVALID_ARGUMENT/);
+    }
+    assert.deepEqual(await store.get(), before);
+    assert.deepEqual(store.projectCatalog(), catalog);
+  }, initialized);
+});
+
 test('provider setup opens without a project and preserves workspace state', async () => {
   for (const initialized of [false, true]) await fixture(async store => {
     const service = api(store), before = await store.get(), catalog = store.projectCatalog();
@@ -267,6 +289,10 @@ test('public MCP round trips expose the handoff and reject a stale host receipt'
     return response.result;
   };
   try {
+    const explore = await call('openmotion_open_preview', { target: 'explore' });
+    assert.equal(explore.isError, undefined);
+    assert.equal(new URL(explore.structuredContent.previewUrl).pathname, '/explore');
+    assert.equal(explore.structuredContent.projectCreated, false);
     const library = await call('openmotion_open_preview', { target: 'templates' });
     assert.equal(library.isError, undefined);
     assert.equal(library.structuredContent.projectCreated, false);
@@ -278,6 +304,10 @@ test('public MCP round trips expose the handoff and reject a stale host receipt'
     assert.equal(settings.isError, undefined, 'A bound project must not leak into provider setup');
     assert.equal(new URL(settings.structuredContent.previewUrl).pathname, '/settings/providers');
     assert.equal(settings.structuredContent.projectId, undefined);
+    const boundExplore = await call('openmotion_open_preview', { target: 'explore' });
+    assert.equal(boundExplore.isError, undefined, 'A project binding must not leak into Explore');
+    assert.equal(boundExplore.structuredContent.projectId, undefined);
+    assert.equal(new URL(boundExplore.structuredContent.previewUrl).pathname, '/explore');
     const boundLibrary = await call('openmotion_open_preview', { target: 'templates' });
     assert.equal(boundLibrary.isError, undefined, 'A project binding must not leak into the template library target');
     assert.equal(boundLibrary.structuredContent.projectId, undefined);

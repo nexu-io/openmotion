@@ -53,9 +53,9 @@ export function TemplateRecommendationCard({ proposal, decision, summary, act }:
   return (
     <section ref={root} className="omd-recommendation-card" data-motion-ui data-theme={theme} data-phase={decision?.phase || "open"} aria-label={ui.listLabel}>
       {details.onboarding ? <header className="omd-recommendation-welcome">
-        {details.libraryOpened && <strong>{welcome.heading}</strong>}
+        {details.libraryOpened && <strong>{welcome.libraryHeading}</strong>}
         <p>{welcome.introduction}</p>
-        <p>{welcome.discovery}</p>
+        <p>{welcome.libraryDiscovery}</p>
         <strong>{welcome.recommendations}</strong>
       </header> : summary}
       <div className="omd-recommendation-list">

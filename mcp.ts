@@ -203,7 +203,7 @@ async function invokeRpc(message: any, store: WorkspaceStore, registry: ReturnTy
         const input = normalizeToolInput(definition.inputSchema, rawInput);
         validateInput(definition.inputSchema, input);
         const args = input && typeof input === 'object' && !Array.isArray(input) ? { ...input } : input;
-        if (internalName === 'motion_open_preview' && args.target !== 'templates' && args.target !== 'providers' && !args.projectId && !args.sessionId && args.action !== 'record_review') args.sessionId = selections.get(store)?.sessionId;
+        if (internalName === 'motion_open_preview' && args.target !== 'explore' && args.target !== 'templates' && args.target !== 'providers' && !args.projectId && !args.sessionId && args.action !== 'record_review') args.sessionId = selections.get(store)?.sessionId;
         if (args.sessionId === undefined) delete args.sessionId;
         if (['repository', 'hosted'].includes(templateConfig().source) && ['motion_list_templates', 'motion_get_template', 'motion_list_skills', 'motion_get_skill'].includes(internalName)) {
           const catalog = templateCatalogFor(store.directory);
