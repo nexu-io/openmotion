@@ -11,7 +11,7 @@ import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/prev
 import { projectPreviewAdapter } from "../../player/lib/projectPreviewAdapter";
 import { onPreviewPromoted } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
-import { canvasBoxOperations, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
+import { canvasBoxOperations, type CanvasBox, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
 import { beginStudioManualEditGesture, endStudioManualEditGesture } from "./manualEditsDom";
 import { supportsOrderedTextEdits, supportsProjectTextEdits } from "../../utils/confirmedTextSources";
@@ -49,6 +49,7 @@ interface DragResult extends IsolatedSourceTarget {
   corner?: Corner;
   width?: number;
   height?: number;
+  extraAxes?: CanvasBox["extraAxes"];
 }
 
 interface Pick { target?: IsolatedSourceTarget; geometry: LayerBounds; viewport: { width: number; height: number } }
@@ -59,8 +60,8 @@ function validResult(result: DragResult | null): result is DragResult {
 
 function positionPatch(result: DragResult) {
   const { sourceFile, ifMatch, target } = isolatedPatchTarget(result);
-  const {left, top, width, height, makeRelative, corner} = result;
-  const box = {left, top, width, height, makeRelative, corner};
+  const {left, top, width, height, makeRelative, corner, extraAxes} = result;
+  const box = {left, top, width, height, makeRelative, corner, ...(extraAxes && {extraAxes})};
   return { sourceFile, ifMatch, patches: [{ target, operations:canvasBoxOperations(box) }], box, ...(result.position && {position:result.position}) };
 }
 

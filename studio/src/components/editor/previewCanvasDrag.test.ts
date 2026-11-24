@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { PREVIEW_INSPECTOR } from "../../../../src/studio/engine/preview-inspector";
 import { PREVIEW_SOURCE_IDENTITY } from "../../../../src/studio/engine/preview-bridge";
 import { PREVIEW_CANVAS_DRAG } from "../../../../src/studio/engine/preview-canvas-drag";
+import { canvasBoxOperations } from "../../../../packages/edit-core/canvas-box";
 
 const originalHash = "a".repeat(64);
 
@@ -130,6 +131,31 @@ it("resizes the selected corner and rolls back a rejected gesture", () => {
   expect(one.style.width).toBe("");
   expect(gesture("start", "n", {corner:"nw"})).toBeTruthy();
   expect(gesture("finish","n",{dx:-.1,dy:-.05})).toMatchObject({corner:"nw",left:-10,top:-5,width:30,height:15});
+});
+
+it("keeps the opposite corner of a transformed layer fixed while dragging and after replay", () => {
+  const { one, gesture } = createScene();
+  const px = (value: string, fallback: number) => value ? parseFloat(value) : fallback;
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const w = px(one.style.width, 20), h = px(one.style.height, 10);
+    // A skewed element scaled around its center.
+    const boundsW = 1.5 * w + .25 * h, boundsH = .2 * w + 1.25 * h;
+    return new DOMRect(px(one.style.left, 0) + (w - boundsW) / 2,
+      px(one.style.top, 0) + (h - boundsH) / 2, boundsW, boundsH);
+  });
+  const before = one.getBoundingClientRect();
+  expect(gesture("start", "resize", { corner: "se" })).toBeTruthy();
+  gesture("move", "resize", { dx: .2, dy: .12 });
+  const during = one.getBoundingClientRect();
+  expect(during.left).toBeCloseTo(before.left, 2);
+  expect(during.top).toBeCloseTo(before.top, 2);
+  expect(during.right).toBeCloseTo(before.right + 20, 2);
+  expect(during.bottom).toBeCloseTo(before.bottom + 12, 2);
+  const result = gesture("finish", "resize", { dx: .2, dy: .12 });
+  expect(result.extraAxes).toBe("xy");
+  one.removeAttribute("style");
+  for (const op of canvasBoxOperations(result)) one.style.setProperty(op.property, op.value);
+  expect(one.getBoundingClientRect().toJSON()).toEqual(during.toJSON());
 });
 
 it("cannot resize an invisible target from a stale handle, including a target hidden mid-gesture", () => {

@@ -1,8 +1,15 @@
+import { PREVIEW_CANVAS_RESIZE } from './preview-canvas-resize.ts';
+
 /** Runs inside the scoped project frame alongside describe() and sourceVersions.
  * Studio owns pointer capture and authorizes the final source write. */
 export const PREVIEW_CANVAS_DRAG = `
   let drag = null;
   const pendingDrags = new Map();
+  ${PREVIEW_CANVAS_RESIZE}
+
+  function localOffset({ a, b, c, d, determinant }, dx, dy) {
+    return { x: (d * dx - c * dy) / determinant, y: (a * dy - b * dx) / determinant };
+  }
 
   function pendingForSource(path) {
     return Array.from(pendingDrags.values()).filter(step => step.selection.sourceFile === path);
@@ -119,8 +126,7 @@ export const PREVIEW_CANVAS_DRAG = `
     const width = parseFloat(style.width), height = parseFloat(style.height);
     if (corner) {
       // Inline replaced media honor CSS width and height, unlike an inline text span.
-      if (!(width > 0 && height > 0) || (style.display === 'inline' && !element.matches('canvas,img,video')) ||
-          style.transform !== 'none') return null;
+      if (!(width > 0 && height > 0) || (style.display === 'inline' && !element.matches('canvas,img,video'))) return null;
       properties.push('width','height');
     }
     const original = Object.fromEntries(properties.map(property => [property, {
@@ -129,13 +135,14 @@ export const PREVIEW_CANVAS_DRAG = `
     const left = makeRelative ? 0 : parseFloat(style.left) || 0;
     const top = makeRelative ? 0 : parseFloat(style.top) || 0;
     const axes = measureDragAxes(element, left, top, makeRelative, original);
-    if (!axes || (corner && (axes.a <= 0 || axes.d <= 0 || Math.abs(axes.b) + Math.abs(axes.c) > 0.001))) return null;
+    if (!axes) return null;
+    const resize = corner && measureResize(element, width, height, corner, original, axes);
 
     const localTime = window.__timelines?.[element.closest('[data-composition-id]')?.getAttribute('data-composition-id')]?.time?.();
     const time = Number.isFinite(localTime) ? localTime : (Number(window.__player?.getTime?.()) || 0);
     const pos = axis => parseFloat(window.gsap?.getProperty?.(element, axis)) || 0;
     const startPosition = {time,x:pos('x'),y:pos('y')};
-    drag = { ordered: message.ordered === true, startPosition, id: message.gestureId, element, original, left, top, makeRelative, axes, selection, width, height, corner };
+    drag = { ordered: message.ordered === true, startPosition, id: message.gestureId, element, original, left, top, makeRelative, axes, resize, selection, width, height, corner };
     return { geometry: selection.geometry, viewport: selection.viewport, target: { sourceFile: selection.sourceFile, hfId: selection.hfId, elementId: selection.elementId, ...sourceIdentity(canvasBase(selection.sourceFile, drag)) } };
   }
 
@@ -193,21 +200,20 @@ export const PREVIEW_CANVAS_DRAG = `
         !Number.isFinite(message.dx) || !Number.isFinite(message.dy)) return null;
 
     const dx = message.dx * innerWidth, dy = message.dy * innerHeight;
-    const { a, b, c, d, determinant } = drag.axes;
     const round = n => Math.round(n * 1000) / 1000;
-    const offsetX = (d * dx - c * dy) / determinant, offsetY = (a * dy - b * dx) / determinant;
     const { corner } = drag;
-    const west = corner?.endsWith('w'), north = corner?.startsWith('n');
-    const width = round(Math.max(1, drag.width + (west ? -offsetX : offsetX)));
-    const height = round(Math.max(1, drag.height + (north ? -offsetY : offsetY)));
-    const left = round(drag.left + (corner ? (west ? drag.width - width : 0) : offsetX));
-    const top = round(drag.top + (corner ? (north ? drag.height - height : 0) : offsetY));
+    const size = corner && resizedBox(drag, dx, dy);
+    const { x: offsetX, y: offsetY } = size || localOffset(drag.axes, dx, dy);
+    const left = round(drag.left + offsetX), top = round(drag.top + offsetY);
+    const width = size && round(size.width), height = size && round(size.height);
+    const writeLeft = !corner || drag.resize.writeLeft;
+    const writeTop = !corner || drag.resize.writeTop;
     const applied = {};
     const set = (key,value) => { drag.element.style[key] = value; applied[key] = drag.element.style[key]; };
-    if (!corner || west || north) {
+    if (writeLeft || writeTop) {
       if (drag.makeRelative) set('position','relative');
-      if (!corner || west) set('left',left + 'px');
-      if (!corner || north) set('top',top + 'px');
+      if (writeLeft) set('left',left + 'px');
+      if (writeTop) set('top',top + 'px');
     }
     if (corner) { set('width',width+'px'); set('height',height+'px'); }
     drag.applied = applied;
@@ -223,6 +229,7 @@ export const PREVIEW_CANVAS_DRAG = `
     if (!drag.ordered) delete sourceVersions[sourceFile];
     pendingDrags.set(drag.id, { ...drag, sha256 });
     drag = null;
-    return { sourceFile, elementId, hfId, ...sourceIdentity(sha256), ...(predecessor && {predecessor}), left, top, makeRelative, ...(!corner && {position}), ...(corner && {corner,width,height}) };
+    const extraAxes = (writeLeft && !corner?.endsWith('w') ? 'x' : '') + (writeTop && !corner?.startsWith('n') ? 'y' : '');
+    return { sourceFile, elementId, hfId, ...sourceIdentity(sha256), ...(predecessor && {predecessor}), left, top, makeRelative, ...(!corner && {position}), ...(corner && {corner,width,height,...(extraAxes && {extraAxes})}) };
   }
 `;
