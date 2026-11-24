@@ -75,6 +75,16 @@ test('tightened hot queries return relevant catalog hits without noisy false pos
       // Precision check: "科普" must stay tight instead of pulling in 30+ SaaS demos/earnings.
       const sciencePage = await catalog.page({ category: 'all', query: '科普', limit: 20 });
       assert.ok(sciencePage.total <= 10, `Expected tightened "科普" results (<=10) in ${locale}, got ${sciencePage.total}`);
+      // Exact catalog vocabulary ("字幕" / "实拍剪辑") still matches directly, while "口播" / "vlog"
+      // intentionally avoid pulling in unrelated brand films or vertical SaaS promos (handled by Skill fallback).
+      if (locale === 'zh-CN') {
+        const subtitlePage = await catalog.page({ category: 'all', query: '字幕', limit: 20 });
+        assert.ok(subtitlePage.total > 0, 'Expected exact catalog vocabulary "字幕" to match');
+        const liveActionPage = await catalog.page({ category: 'all', query: '实拍剪辑', limit: 20 });
+        assert.ok(liveActionPage.total > 0, 'Expected exact catalog vocabulary "实拍剪辑" to match');
+        const talkingHeadPage = await catalog.page({ category: 'all', query: '口播', limit: 20 });
+        assert.equal(talkingHeadPage.total, 0, 'Expected "口播" not to falsely match unrelated brand/SaaS templates');
+      }
       // Cross-locale English typo search also finds matches even in zh-CN via searchAliases.
       const typoPage = await catalog.page({ category: 'all', query: 'animaton', limit: 20 });
       assert.ok(typoPage.total > 0, `Expected cross-locale typo hits for "animaton" in ${locale}`);
