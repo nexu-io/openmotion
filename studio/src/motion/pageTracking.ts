@@ -4,7 +4,9 @@
 import { slug } from '../../../tracking/core.ts';
 import { providerSetupEntries, type ProviderSetupEntry } from '../../../tracking/events.ts';
 import type { BrandKit } from '../../../shared/brand-kit';
+import type { CopyMethod } from '../utils/clipboard';
 import type { MotionSkill, SkillParameters } from './skillCatalog';
+import type { SearchItemKind, SearchScope } from './workspaceSearchTypes';
 import { embeddedView, newTrackingId, optionId, searchKeyword, send, slugField, type Fields, modelFields } from './reporting';
 
 export { newTrackingId };
@@ -42,10 +44,10 @@ export function reportSkillCardOpened(skill: MotionSkill, position: number, sear
 export function reportSkillDetailShown(skill: MotionSkill, detailViewId: string) {
   send('surface_view', { ...skills, area: 'skill_detail', element: 'detail', ...skillFields(skill), detail_view_id: detailViewId });
 }
-export function reportSkillDetailClick(skill: MotionSkill, element: Extract<Click['element'], 'copy_instruction' | 'open_command' | 'view_source' | 'close_detail'>,
-  detailViewId: string | undefined, copyAttemptId?: string) {
+export function reportSkillDetailClick(skill: MotionSkill, element: Extract<Click['element'], 'copy_instruction' | 'open_command' | 'view_source' | 'close_detail' | 'toggle_options' | 'toggle_instruction' | 'run_super_agent'>,
+  detailViewId: string | undefined, copyAttemptId?: string, expanded?: boolean) {
   send('ui_click', { ...skills, area: 'skill_detail', element, ...skillFields(skill), ...(detailViewId ? { detail_view_id: detailViewId } : {}),
-    ...(copyAttemptId ? { copy_attempt_id: copyAttemptId } : {}) });
+    ...(copyAttemptId ? { copy_attempt_id: copyAttemptId } : {}), ...(expanded === undefined ? {} : { expanded }) });
 }
 export function reportSkillCommandCopyClicked(skill: MotionSkill, detailViewId: string | undefined, copyAttemptId: string) {
   send('ui_click', { ...skills, area: 'skill_command', element: 'copy_command', ...skillFields(skill), copy_attempt_id: copyAttemptId,
@@ -53,10 +55,10 @@ export function reportSkillCommandCopyClicked(skill: MotionSkill, detailViewId: 
 }
 /** Only `clipboard_written` is a successful copy; showing the text for a manual copy is not. The brief is reduced to its choices. */
 export function reportSkillCopyResult(skill: MotionSkill, surface: 'instruction' | 'command', status: 'clipboard_written' | 'manual_fallback_shown',
-  copyAttemptId: string, parameters: SkillParameters, detailViewId: string | undefined) {
+  copyAttemptId: string, parameters: SkillParameters, detailViewId: string | undefined, copyMethod?: CopyMethod) {
   if (!slug.test(skill.id)) return;
   send('skill_instruction_copy_result', { ...skills, skill_id: skill.id, skill_category: skillCategoryId(skill.category), copy_surface: surface, copy_status: status,
-    copy_attempt_id: copyAttemptId, duration_seconds: parameters.duration, aspect_ratio: parameters.aspect,
+    ...(copyMethod ? { copy_method: copyMethod } : {}), copy_attempt_id: copyAttemptId, duration_seconds: parameters.duration, aspect_ratio: parameters.aspect,
     has_subject: parameters.subject.trim().length > 0, has_style: parameters.style.trim().length > 0, media_required: Boolean(skill.media),
     ...(detailViewId ? { detail_view_id: detailViewId } : {}) });
 }
@@ -102,8 +104,8 @@ export function reportBrandDetailClick(kit: Pick<BrandKit, 'catalogId'>, element
   detailViewId: string | undefined, attempt: { copy_attempt_id?: string; download_attempt_id?: string } = {}) {
   send('ui_click', { ...brandPage, area: 'brand_detail', element, ...brandFields(kit), ...attempt, ...(detailViewId ? { detail_view_id: detailViewId } : {}) });
 }
-export function reportBrandCopyResult(kit: Pick<BrandKit, 'catalogId'>, status: 'clipboard_written' | 'failed', copyAttemptId: string, detailViewId: string | undefined) {
-  send('brand_kit_instruction_copy_result', { ...brandPage, ...brandFields(kit), copy_status: status, copy_attempt_id: copyAttemptId,
+export function reportBrandCopyResult(kit: Pick<BrandKit, 'catalogId'>, status: 'clipboard_written' | 'failed', copyAttemptId: string, detailViewId: string | undefined, copyMethod?: CopyMethod) {
+  send('brand_kit_instruction_copy_result', { ...brandPage, ...brandFields(kit), copy_status: status, ...(copyMethod ? { copy_method: copyMethod } : {}), copy_attempt_id: copyAttemptId,
     ...(detailViewId ? { detail_view_id: detailViewId } : {}) });
 }
 /** `browser_save_requested` means the ZIP was handed to the browser; nothing confirms the file reached disk. */
@@ -238,4 +240,75 @@ export function reportLibraryImport(entry: 'library_button' | 'library_drop' | '
   const failed = Math.max(0, requested - added);
   send('studio_asset_import_result', { entry_point: entry, outcome: added === 0 ? 'failure' : failed ? 'partial' : 'success',
     requested_count: requested, added_count: added, failed_count: failed });
+}
+
+// ---------- Global Command Palette (Cmd+K) ----------
+const palettePage = { page_name: 'studio', area: 'command_palette' } as const;
+type PaletteItemKindField = NonNullable<Click['palette_item_kind']>;
+type PaletteActionField = NonNullable<Click['palette_action']>;
+const PALETTE_KIND_MAP: Record<SearchItemKind, PaletteItemKindField> = {
+  action: 'action',
+  chat: 'chat',
+  'motion-template': 'motion_template',
+  'design-template': 'design_template',
+  'motion-project': 'motion_project',
+  'design-project': 'design_project',
+  'game-project': 'game_project',
+  asset: 'asset',
+  'brand-kit': 'brand_kit',
+  workflow: 'workflow',
+  studio: 'studio',
+  scene: 'scene',
+  skill: 'skill',
+  'design-skill': 'design_skill',
+  model: 'model',
+  community: 'community',
+};
+
+export function reportCommandPaletteOpened(method: 'pointer' | 'keyboard') {
+  send('ui_click', { ...palettePage, element: 'open_palette', interaction_method: method });
+  send('surface_view', { ...palettePage, element: 'palette' });
+}
+export function reportCommandPaletteSearch(searchId: string, query: string, resultCount: number, scope: SearchScope) {
+  const keyword = searchKeyword(query);
+  if (!keyword) return;
+  send('command_palette_search_result', { ...palettePage, search_id: searchId, search_keyword: keyword, query_length: query.trim().length, result_count: resultCount, search_scope: scope, outcome: 'success' });
+}
+export function reportCommandPaletteScope(scope: SearchScope, resultCount: number) {
+  send('ui_click', { ...palettePage, element: 'scope_tab', search_scope: scope, result_count: resultCount });
+}
+export function reportCommandPaletteSelect(
+  item: { kind: SearchItemKind; id: string },
+  position: number,
+  scope: SearchScope,
+  searchId: string | undefined,
+  action: PaletteActionField = 'open',
+  method?: 'pointer' | 'keyboard',
+) {
+  const normalizedId = item.id.startsWith('catalog:') ? item.id.slice('catalog:'.length) : item.id;
+  const linkedEntity = item.kind === 'motion-template'
+    ? slugField('template_id', normalizedId)
+    : item.kind === 'skill'
+      ? slugField('skill_id', normalizedId)
+      : item.kind === 'brand-kit' && item.id.startsWith('catalog:')
+        ? slugField('catalog_id', normalizedId)
+        : {};
+  send('ui_click', {
+    ...palettePage,
+    element: 'select_result',
+    palette_item_kind: PALETTE_KIND_MAP[item.kind],
+    palette_action: action,
+    search_scope: scope,
+    position,
+    ...slugField('resource_id', normalizedId),
+    ...linkedEntity,
+    ...(searchId ? { search_id: searchId } : {}),
+    ...(method ? { interaction_method: method } : {}),
+  });
+}
+export function reportCommandPaletteTopic(searchId: string | undefined) {
+  send('ui_click', { ...palettePage, element: 'popular_topic', ...(searchId ? { search_id: searchId } : {}) });
+}
+export function reportCommandPaletteAskAgent(searchId: string | undefined) {
+  send('ui_click', { ...palettePage, element: 'ask_super_agent', ...(searchId ? { search_id: searchId } : {}) });
 }

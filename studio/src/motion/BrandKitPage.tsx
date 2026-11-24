@@ -12,6 +12,7 @@ import { Skeleton } from "../components/ui/Skeleton";
 import { OpenDesignLoadingMark } from "../components/ui/OpenDesignLoadingMark";
 import { ProgressBar } from "../../../packages/design-system/react/ProgressBar";
 import { useToast } from "../hooks/useToast";
+import { copyTextWithMethod } from "../utils/clipboard";
 import { StudioToastViewport } from "../components/StudioToastViewport";
 import { TemplateGalleryCard } from "./TemplateGalleryCard";
 import { useTemplatePlayback } from "./useTemplatePlayback";
@@ -257,8 +258,16 @@ export function BrandKitPage({
     if (!selected) return;
     const attempt = tracking.newTrackingId(), view = detailView.current;
     tracking.reportBrandDetailClick(selected, "copy_instruction", view, { copy_attempt_id: attempt });
-    void navigator.clipboard.writeText(brandKitInstruction(selected)).then(
-      () => { notify("Style-only instruction copied"); tracking.reportBrandCopyResult(selected, "clipboard_written", attempt, view); },
+    void copyTextWithMethod(brandKitInstruction(selected)).then(
+      (method) => {
+        if (method) {
+          notify("Style-only instruction copied");
+          tracking.reportBrandCopyResult(selected, "clipboard_written", attempt, view, method);
+        } else {
+          notify("Could not copy the instruction", true);
+          tracking.reportBrandCopyResult(selected, "failed", attempt, view);
+        }
+      },
       () => { notify("Could not copy the instruction", true); tracking.reportBrandCopyResult(selected, "failed", attempt, view); },
     );
   }, [notify, selected]);

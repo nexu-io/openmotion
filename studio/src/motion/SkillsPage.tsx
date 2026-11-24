@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useToast } from '../hooks/useToast';
-import { copyTextToClipboard } from '../utils/clipboard';
+import { copyTextWithMethod } from '../utils/clipboard';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { studioSkillDefaults, localizedSkillPrompt, skillShotPrompt, aspectRatios, durations, motionSkills, skillCategories, skillShortcut, type MotionSkill, type SkillCategory, type SkillParameters } from './skillCatalog';
 import type { AssetDraft } from './AssetComposer';
@@ -157,9 +157,10 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
     if (surface === 'command') tracking.reportSkillCommandCopyClicked(selected, view, attempt);
     else tracking.reportSkillDetailClick(selected, 'copy_instruction', view, attempt);
     try {
-      if (!(await copyTextToClipboard(text))) throw new Error('Clipboard copy failed');
+      const method = await copyTextWithMethod(text);
+      if (!method) throw new Error('Clipboard copy failed');
       setManualCopy(null); toast.showToast(t('Copied. Paste into your Agent.'), 'info');
-      tracking.reportSkillCopyResult(selected, surface, 'clipboard_written', attempt, brief, view);
+      tracking.reportSkillCopyResult(selected, surface, 'clipboard_written', attempt, brief, view, method);
     }
     catch {
       // A late failure for a brief that has since changed must not restore stale text.
@@ -226,20 +227,29 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
       <RetainedDetailContent>{selected ? <>
       <header className="om-skill-detail-header"><h2 className="om-subtitle">{displayName(selected)}</h2><IconButton variant="ghost" ref={detailClose} className="motion-icon-button" aria-label={t('Close skill')} onClick={closeDetail} icon={<RemixIcon name="close-line" size={18} />} /></header>
       <SkillMedia key={selected.id} skill={selected} large />
+      <div className="om-skill-summary">
+        <p className="om-muted">{t(selected.useWhen)}</p>
+        <p className="om-skill-output"><strong>{t('You get')}</strong><span>{t(selected.output)}</span></p>
+      </div>
       <section className="om-skill-form" aria-label={t('Brief')}>
-        <label><span className="om-subtitle">{t('Your brief')}</span><span className="om-field"><textarea rows={4} maxLength={500} value={parameters.subject} placeholder={t(selected.example)} onChange={event => updateBrief({ ...parameters, subject: event.target.value })} /></span></label>
+        <label><span className="om-subtitle">{t('Your brief')}</span><span className="om-field"><textarea rows={2} maxLength={500} value={parameters.subject} placeholder={t(selected.example)} onChange={event => updateBrief({ ...parameters, subject: event.target.value })} /></span></label>
         {studio && <fieldset><legend className="om-subtitle">{t('Reference asset')}</legend><div className="om-specialty-actions">
           <Button variant="ghost" className="om-button h-auto" onClick={() => setPicking(true)}><RemixIcon name="folder-open-line" size={15} />{parameters.reference?.label ?? t('Choose an asset')}</Button>
           {parameters.reference && <IconButton variant="plain" className="om-nav-item" aria-label={t('Remove reference: {name}', { name: parameters.reference.label })} onClick={() => updateBrief({ ...parameters, reference: undefined })} icon={<RemixIcon name="close-line" size={15} />} />}
         </div></fieldset>}
-        <fieldset><legend className="om-subtitle">{t('Duration')}</legend><div className="om-segmented">{durations.map(value => <Button variant="plain" key={value} className="om-nav-item" aria-pressed={parameters.duration === value} onClick={() => updateBrief({ ...parameters, duration: value })}>{t('{count}s', { count: value })}</Button>)}</div></fieldset>
-        <fieldset><legend className="om-subtitle">{t('Aspect ratio')}</legend><div className="om-segmented">{aspectRatios.map(value => <Button variant="plain" key={value} className="om-nav-item" aria-pressed={parameters.aspect === value} onClick={() => updateBrief({ ...parameters, aspect: value })}>{value}</Button>)}</div></fieldset>
-        <label><span className="om-subtitle">{t('Style (optional)')}</span><span className="om-field"><input maxLength={200} value={parameters.style} placeholder={t('e.g. dark background, neon green accents')} onChange={event => updateBrief({ ...parameters, style: event.target.value })} /></span></label>
+        <details className="om-skill-options" onToggle={event => tracking.reportSkillDetailClick(selected, 'toggle_options', detailView.current, undefined, event.currentTarget.open)}>
+          <summary className="om-subtitle">{t('Customize options (optional)')}</summary>
+          <div className="om-skill-options-body">
+            <fieldset><legend className="om-subtitle">{t('Duration')}</legend><div className="om-segmented">{durations.map(value => <Button variant="plain" key={value} className="om-nav-item" aria-pressed={parameters.duration === value} onClick={() => updateBrief({ ...parameters, duration: value })}>{t('{count}s', { count: value })}</Button>)}</div></fieldset>
+            <fieldset><legend className="om-subtitle">{t('Aspect ratio')}</legend><div className="om-segmented">{aspectRatios.map(value => <Button variant="plain" key={value} className="om-nav-item" aria-pressed={parameters.aspect === value} onClick={() => updateBrief({ ...parameters, aspect: value })}>{value}</Button>)}</div></fieldset>
+            <label><span className="om-subtitle">{t('Style (optional)')}</span><span className="om-field"><input maxLength={200} value={parameters.style} placeholder={t('e.g. dark background, neon green accents')} onChange={event => updateBrief({ ...parameters, style: event.target.value })} /></span></label>
+          </div>
+        </details>
       </section>
-      <section className="om-skill-prompt" aria-label={t('Agent instruction')}>
-        <span className="om-subtitle">{t('Agent instruction')}</span>
+      <details className="om-skill-prompt" open={manualCopy?.surface === 'instruction' || undefined} aria-label={t('Agent instruction')} onToggle={event => tracking.reportSkillDetailClick(selected, 'toggle_instruction', detailView.current, undefined, event.currentTarget.open)}>
+        <summary className="om-subtitle">{t('Agent instruction')}</summary>
         <pre ref={instruction} data-manual={manualCopy?.surface === 'instruction'} tabIndex={0}>{manualCopy?.surface === 'instruction' ? manualCopy.text : prompt}</pre>
-      </section>
+      </details>
       <div className="om-skill-provenance">
       {selected.repository ? <a className="om-skill-source" href={selected.repository} target="_blank" rel="noopener noreferrer" onClick={() => tracking.reportSkillDetailClick(selected, 'view_source', detailView.current)}><GitHubMark width={14} height={14} /><span>{selected.repository.replace(/^https?:\/\/github\.com\//, '')}</span><span className="om-skill-license">{selected.license === 'See repository' ? t('See repository') : selected.license}</span><MotionIcon name="arrow-up-right" size={14} /></a>
         : <p className="om-skill-source"><RemixIcon name="flashlight-line" size={16} /><span>{t('OpenMotion skill')}</span></p>}
@@ -252,7 +262,7 @@ export function SkillsPage({ skillId, onSkillChange, routeCategory, onCategoryCh
           ? <p className="om-muted">{t('Use the Agent brief to work with this recording. Clip generation accepts a still image as its first frame.')}</p>
           : <Button variant="ghost" className="om-button h-auto" data-primary onClick={startShot}><RemixIcon name="film-line" size={16} />{t('Create a shot from this brief')}</Button>)}
         <div className="om-skill-actions">
-          {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'skill', id: selected.id, title: displayName(selected), subtitle: t(selected.tagline) }, { prompt: parameters.subject.trim() || undefined, hiddenInstructions: prompt || undefined, locale }))}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
+          {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { tracking.reportSkillDetailClick(selected, 'run_super_agent', detailView.current); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'skill', id: selected.id, title: displayName(selected), subtitle: t(selected.tagline) }, { prompt: parameters.subject.trim() || undefined, hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
           <Button variant="ghost" className="om-button h-auto" data-primary={!canCreateShot || undefined} onClick={() => void copy()}><RemixIcon name="file-copy-line" size={16} />{t('Copy for Agent')}</Button>
           <Popover open={commandOpen} onOpenChange={open => { setCommandOpen(open); setManualCopy(null); if (open) tracking.reportSkillDetailClick(selected, 'open_command', detailView.current); }} side="top" align="end" aria-label={t('Use in another AI Agent')} className="om-skill-shortcut"
             trigger={<Button variant="ghost" className="om-button h-auto"><RemixIcon name="plug-line" size={16} />{t('Connect Agent')}</Button>}>

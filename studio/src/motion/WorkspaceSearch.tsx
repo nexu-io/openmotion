@@ -20,6 +20,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { fetchWorkspaceResources, listSuperAgentChats } from '../super-agent/superAgentClient';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { WORKSPACE_LOCATION_CHANGED } from '../utils/workspaceHistory';
+import * as tracking from './pageTracking';
 import { creationKinds } from './AssetCreationVisuals';
 import { WorkspaceSearchPreview } from './WorkspaceSearchPreview';
 import { useOptionalWorkspaceChrome } from './WorkspaceChromeContext';
@@ -219,6 +220,8 @@ export function WorkspaceSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const composingRef = useRef(false);
+  const searchIdRef = useRef<string | undefined>(undefined);
+  const flatItemsCountRef = useRef(0);
 
   const applyInputImmediate = useCallback((value: string) => {
     composingRef.current = false;
@@ -256,6 +259,7 @@ export function WorkspaceSearch({
       if (event.key.toLowerCase() !== 'k' || event.defaultPrevented) return;
       if (!open && document.querySelector('dialog[open]')) return;
       event.preventDefault();
+      if (!open) tracking.reportCommandPaletteOpened('keyboard');
       setOpen(prev => !prev);
     };
     window.addEventListener('keydown', onGlobalKeyDown);
@@ -859,8 +863,9 @@ export function WorkspaceSearch({
       ? rankPreparedSearchResults(indexedChats, query).map(({ item }) => toChatItem(item))
       : (scope === 'chats' ? chats : chats.slice(0, 3)).map(toChatItem);
 
+    const rankedMotionTemplates = query ? rankTemplateSearch(indexedTemplates, query) : [];
     const motionTemplateItems = query
-      ? rankTemplateSearch(indexedTemplates, query)
+      ? rankedMotionTemplates
           .slice(0, 24)
           .map(({ item }) => toMotionTemplateItem(item, 'Motion templates'))
       : (scope === 'templates'
@@ -1006,8 +1011,9 @@ export function WorkspaceSearch({
       open: () => onOpenScenario ? onOpenScenario(wf.id) : onOpenScenarioHub?.(),
     }));
 
+    const rankedSkills = query ? rankPreparedSearchResults(indexedSkills, query) : [];
     const skillItems: SearchPaletteItem[] = (query || scope === 'tools')
-      ? (query ? rankPreparedSearchResults(indexedSkills, query).map(({ item }) => item) : motionSkills).map(skill => ({
+      ? (query ? rankedSkills.map(({ item }) => item) : motionSkills).map(skill => ({
           key: `skill:${skill.id}`,
           id: skill.id,
           kind: 'skill',
@@ -1057,9 +1063,16 @@ export function WorkspaceSearch({
         })
       : [];
 
+    const promoteSkills = Boolean(
+      query
+      && rankedSkills.length > 0
+      && (rankedMotionTemplates.length === 0 || rankedSkills[0].score > rankedMotionTemplates[0].score * 1.35),
+    );
+    const skillsGroup: SearchResultGroup = { id: 'skills', title: 'Skills', ariaLabel: t('Skills'), items: [...skillItems, ...designSkillItems] };
     const allGroups: SearchResultGroup[] = [
       { id: 'quick-actions', title: 'Quick actions', ariaLabel: t('Quick actions'), items: quickActionMatches },
       { id: 'chats', title: 'Super Agent chats', ariaLabel: t('Super Agent chats'), items: chatMatches },
+      ...(promoteSkills ? [skillsGroup] : []),
       { id: 'motion-templates', title: scope === 'templates' || query ? 'Motion templates' : 'Recommended templates', ariaLabel: t(scope === 'templates' || query ? 'Motion templates' : 'Recommended templates'), items: motionTemplateItems },
       { id: 'design-templates', title: 'Design templates', ariaLabel: t('Design templates'), items: designTemplateItems },
       { id: 'projects', title: 'Projects', ariaLabel: t('Projects'), items: query ? projectItems : projectItems.slice(0, scope === 'files' ? 20 : 5) },
@@ -1070,7 +1083,7 @@ export function WorkspaceSearch({
       { id: 'communities', title: 'Communities', ariaLabel: t('Communities'), items: communityItems },
       { id: 'scenes', title: 'Scenes', ariaLabel: t('Scenes'), items: sceneItems },
       { id: 'workflows', title: 'Workflows', ariaLabel: t('Workflows'), items: workflowItems },
-      { id: 'skills', title: 'Skills', ariaLabel: t('Skills'), items: [...skillItems, ...designSkillItems] },
+      ...(!promoteSkills ? [skillsGroup] : []),
       { id: 'models', title: 'Models', ariaLabel: t('Models'), items: modelItems },
     ];
 
@@ -1133,10 +1146,23 @@ export function WorkspaceSearch({
   ]);
 
   const flatItems = useMemo(() => groups.flatMap(group => group.items), [groups]);
+  flatItemsCountRef.current = flatItems.length;
   const activeItem = useMemo(
     () => flatItems.find(item => item.key === activeKey) ?? flatItems[0] ?? null,
     [flatItems, activeKey],
   );
+
+  // One settled search event per Cmd+K query (500ms after typing stops).
+  useEffect(() => {
+    searchIdRef.current = undefined;
+    if (!open || !query) return;
+    const timer = window.setTimeout(() => {
+      const id = tracking.newTrackingId();
+      searchIdRef.current = id;
+      tracking.reportCommandPaletteSearch(id, query, flatItemsCountRef.current, scope);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [open, query, scope, locale]);
 
   // Scroll highlighted row into view when using keyboard navigation
   useEffect(() => {
@@ -1156,22 +1182,35 @@ export function WorkspaceSearch({
     onNotify?.(msg, tone);
   }, [onNotify]);
 
+  const positionOf = useCallback(
+    (key: string) => Math.max(1, flatItems.findIndex(entry => entry.key === key) + 1),
+    [flatItems],
+  );
+
+  const openResultItem = useCallback((item: SearchPaletteItem, method: 'pointer' | 'keyboard') => {
+    tracking.reportCommandPaletteSelect(item, positionOf(item.key), scope, searchIdRef.current, 'open', method);
+    choose(item.open);
+  }, [choose, positionOf, scope]);
+
   const handleEditTemplate = useCallback((template: GalleryTemplate) => {
     if (!chrome || chrome.switchingDisabled) return;
+    tracking.reportCommandPaletteSelect({ kind: 'motion-template', id: template.id }, positionOf(`motion-template:${template.id}`), scope, searchIdRef.current, 'edit_template');
     choose(() => {
       void chrome.workspace.open('templates', template.id);
     });
-  }, [chrome, choose]);
+  }, [chrome, choose, positionOf, scope]);
 
   const handleCopyTemplatePrompt = useCallback(async (template: GalleryTemplate) => {
+    tracking.reportCommandPaletteSelect({ kind: 'motion-template', id: template.id }, positionOf(`motion-template:${template.id}`), scope, searchIdRef.current, 'copy_prompt');
     const prompt = formatTemplatePrompt(template, locale);
     const ok = await copyTextToClipboard(prompt);
     if (ok) notify(t('Prompt copied'), 'info');
     else notify(t('Could not copy to clipboard'), 'error');
-  }, [locale, notify, t]);
+  }, [locale, notify, positionOf, scope, t]);
 
   const handleCreateDesignFromTemplate = useCallback(async (resource: SuperAgentResourceAttachment) => {
     if (creatingDesign) return;
+    tracking.reportCommandPaletteSelect({ kind: 'design-template', id: resource.id }, positionOf(`design-template:${resource.id}`), scope, searchIdRef.current, 'create_design');
     setCreatingDesign(true);
     try {
       const scenario: DesignScenarioId = resource.scenario && resource.scenario !== 'projects'
@@ -1194,6 +1233,7 @@ export function WorkspaceSearch({
   }, [creatingDesign, choose, onOpenDesignProject, onOpenDesignScene, notify, t]);
 
   const handleUseInSuperAgent = useCallback((item: SearchPaletteItem) => {
+    tracking.reportCommandPaletteSelect(item, positionOf(item.key), scope, searchIdRef.current, 'use_in_super_agent');
     let ref: Parameters<typeof buildSuperAgentHandoff>[0] | null = null;
     if (item.kind === 'motion-template' && item.template) {
       ref = {
@@ -1315,7 +1355,7 @@ export function WorkspaceSearch({
     }
     if (event.key === 'Enter' && activeItem && document.activeElement === inputRef.current) {
       event.preventDefault();
-      choose(activeItem.open);
+      openResultItem(activeItem, 'keyboard');
     }
   };
 
@@ -1323,7 +1363,10 @@ export function WorkspaceSearch({
     <Button
       variant="plain"
       type="button"
-      onClick={() => setOpen(true)}
+      onClick={() => {
+        tracking.reportCommandPaletteOpened('pointer');
+        setOpen(true);
+      }}
       className={onChoose ? 'om-nav-item om-workspace-search-trigger' : 'om-nav-item om-workspace-search-trigger om-header-icon'}
       aria-label={t('Search workspace')}
     >
@@ -1451,7 +1494,7 @@ export function WorkspaceSearch({
                           aria-label={row.ariaLabel ?? [row.label, row.detail, row.modality && t(mediaLabels[row.modality])].filter(Boolean).join(', ')}
                           onMouseEnter={() => setActiveKey(row.key)}
                           onFocus={() => setActiveKey(row.key)}
-                          onClick={() => choose(row.open)}
+                          onClick={() => openResultItem(row, 'pointer')}
                         >
                           {row.icon}
                           <span className="om-search-result-copy">
@@ -1537,6 +1580,7 @@ export function WorkspaceSearch({
                             size="sm"
                             className="om-command-topic-chip"
                             onClick={() => {
+                              tracking.reportCommandPaletteTopic(searchIdRef.current);
                               setScope('all');
                               applyInputImmediate(topic);
                               inputRef.current?.focus();
@@ -1552,7 +1596,10 @@ export function WorkspaceSearch({
                         type="button"
                         variant="primary"
                         size="sm"
-                        onClick={() => choose(() => openNewSuperAgentChat(query))}
+                        onClick={() => {
+                          tracking.reportCommandPaletteAskAgent(searchIdRef.current);
+                          choose(() => openNewSuperAgentChat(query));
+                        }}
                       >
                         <RemixIcon name="sparkling-line" size={14} />
                         <span>{t('Ask Super Agent to create "{query}"', { query })}</span>
@@ -1566,7 +1613,7 @@ export function WorkspaceSearch({
                 item={activeItem}
                 creatingDesign={creatingDesign}
                 canAskSuperAgent={canAskSuperAgent}
-                onOpenItem={item => choose(item.open)}
+                onOpenItem={item => openResultItem(item, 'pointer')}
                 onEditTemplate={handleEditTemplate}
                 onCopyTemplatePrompt={template => { void handleCopyTemplatePrompt(template); }}
                 onCreateDesignFromTemplate={resource => { void handleCreateDesignFromTemplate(resource); }}
@@ -1586,8 +1633,10 @@ export function WorkspaceSearch({
                   event.stopPropagation();
                   const index = SEARCH_SCOPES.findIndex(tab => tab.id === scope);
                   const nextIndex = (index + (event.key === 'ArrowRight' ? 1 : -1) + SEARCH_SCOPES.length) % SEARCH_SCOPES.length;
-                  setScope(SEARCH_SCOPES[nextIndex].id);
+                  const nextScope = SEARCH_SCOPES[nextIndex].id;
+                  setScope(nextScope);
                   setActiveKey(null);
+                  tracking.reportCommandPaletteScope(nextScope, scopeCounts[nextScope] ?? 0);
                 }}
               >
                 {SEARCH_SCOPES.map(tab => (
@@ -1601,6 +1650,7 @@ export function WorkspaceSearch({
                     onClick={() => {
                       setScope(tab.id);
                       setActiveKey(null);
+                      tracking.reportCommandPaletteScope(tab.id, scopeCounts[tab.id] ?? 0);
                     }}
                   >
                     <RemixIcon name={tab.icon} size={13} />

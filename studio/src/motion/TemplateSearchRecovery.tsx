@@ -1,14 +1,14 @@
 import { IconButton } from 'open-design-ui/icon-button';
 import { Button } from 'open-design-ui/button';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../i18n/I18n';
-import { copyTextToClipboard } from '../utils/clipboard';
+import { copyTextWithMethod } from '../utils/clipboard';
 import { MotionIcon } from './icons';
 import { RemixIcon } from '../icons/RemixIcons';
 import { assetMediaUrl, type AssetReference } from '../../../shared/asset-library';
 import { uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
-import { templateSearchBrief, validReferenceLink } from './templateSearch';
+import { matchingSkillsForQuery, templateSearchBrief, validReferenceLink } from './templateSearch';
 import * as tracking from './templateLibraryTracking';
 import type { ListContext } from './templateLibraryTracking';
 import styles from './TemplateLibraryDialog.module.css';
@@ -22,6 +22,7 @@ type SearchRecovery = {
   home?: false;
   query: string; context: ListContext; reason: 'no_results' | 'unsuitable' | 'catalog_empty';
   searchAction?: ReactNode; visible: boolean; expanded: boolean; onExpand: () => void;
+  onOpenSkill?: (id: string, trigger: HTMLButtonElement) => void;
 };
 type HomeReference = { home: true; titleId: string; onClose: () => void };
 
@@ -41,12 +42,17 @@ export function TemplateSearchRecovery(props: RequestCallbacks & (SearchRecovery
   const [importing, setImporting] = useState(false);
   const [localVideo, setLocalVideo] = useState<(AssetReference & { name: string }) | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
-  const busy = useRef(false), shown = useRef<string | undefined>(undefined), section = useRef<HTMLElement>(null);
+  const busy = useRef(false), shown = useRef<string | undefined>(undefined), skillsShown = useRef<string | undefined>(undefined), section = useRef<HTMLElement>(null);
   const start = useRef<HTMLButtonElement>(null), focusStart = useRef(false);
   const formElement = useRef<HTMLFormElement>(null), focusField = useRef(false);
   const context = props.home ? undefined : props.context;
   const reason = props.home ? undefined : props.reason;
+  const onOpenSkill = props.home ? undefined : props.onOpenSkill;
   const expanded = props.home || (props.visible && props.expanded);
+  const recommendedSkills = useMemo(
+    () => (reason === 'no_results' && query.trim() && onOpenSkill ? matchingSkillsForQuery(query, t, 3) : []),
+    [reason, query, onOpenSkill, t],
+  );
   useEffect(() => {
     if (!reason || !context || !expanded || !section.current || typeof IntersectionObserver === 'undefined') return;
     const key = context.resultSetId;
@@ -58,6 +64,12 @@ export function TemplateSearchRecovery(props: RequestCallbacks & (SearchRecovery
     observer.observe(section.current);
     return () => observer.disconnect();
   }, [expanded, context, reason]);
+  useEffect(() => {
+    if (!expanded || mode || !context?.resultSetId || recommendedSkills.length === 0) return;
+    if (skillsShown.current === context.resultSetId) return;
+    skillsShown.current = context.resultSetId;
+    tracking.reportZeroResultSkillsShown(recommendedSkills.length, context);
+  }, [expanded, mode, context, recommendedSkills.length]);
   useEffect(() => {
     if (focusStart.current && !mode) { focusStart.current = false; start.current?.focus(); }
   }, [mode]);
@@ -124,9 +136,10 @@ export function TemplateSearchRecovery(props: RequestCallbacks & (SearchRecovery
     const sourceKind = mode === 'reference' ? source : 'description';
     tracking.reportRecoveryAction('copy_brief', actionContext, entry, sourceKind);
     try {
-      if (!(await copyTextToClipboard(brief))) throw new Error('Clipboard copy failed');
+      const method = await copyTextWithMethod(brief);
+      if (!method) throw new Error('Clipboard copy failed');
       setManual(null);
-      tracking.reportSearchHandoff(sourceKind, attemptId, 'clipboard_written', actionContext, entry);
+      tracking.reportSearchHandoff(sourceKind, attemptId, 'clipboard_written', actionContext, entry, method);
       showToast(t('Request copied. Paste the request in your chat and send it.'), 'info');
     } catch {
       setManual({ query, brief });
@@ -203,6 +216,34 @@ export function TemplateSearchRecovery(props: RequestCallbacks & (SearchRecovery
       {props.searchAction && <div className={styles.recoverySearchAction}>{props.searchAction}</div>}
     </div>
     <div className={styles.recoveryBody}>
+      {!mode && recommendedSkills.length > 0 && onOpenSkill && (
+        <div className={styles.recoverySkills} data-zero-result-skills="">
+          <div className={styles.recoverySkillsHeader}>
+            <h3 className="om-title">{t('Try a matching Skill')}</h3>
+            <p className="om-muted">{t('No template matched yet, but these Skills can build it:')}</p>
+          </div>
+          <div className={styles.recoverySkillList}>
+            {recommendedSkills.map((skill, index) => (
+              <Button
+                key={skill.id}
+                variant="plain"
+                type="button"
+                className={`om-button ${styles.recoverySkillButton}`}
+                onClick={event => {
+                  tracking.reportZeroResultSkillClicked(skill, index + 1, onActivity());
+                  onOpenSkill(skill.id, event.currentTarget);
+                }}
+              >
+                <span className={styles.recoverySkillCopy}>
+                  <strong>{t(skill.title)}</strong>
+                  <small>{t(skill.useWhen)}</small>
+                </span>
+                <MotionIcon name="arrow-right" size={16} />
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
       {form || <div className={styles.recoveryIntro}>
         <span aria-hidden="true" className="om-avatar"><MotionIcon name="film" size={18} /></span>
         <div>

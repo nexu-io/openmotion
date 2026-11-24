@@ -44,21 +44,27 @@ function shouldCopyWithSelectionFirst(): boolean {
   return /Safari/i.test(userAgent) && !/Chrome|Chromium|CriOS|FxiOS|Edg|OPR/i.test(userAgent);
 }
 
-export async function copyTextToClipboard(text: string): Promise<boolean> {
+export type CopyMethod = "clipboard_api" | "exec_command";
+
+export async function copyTextWithMethod(text: string): Promise<CopyMethod | false> {
   const useSelectionFirst = shouldCopyWithSelectionFirst();
   if (useSelectionFirst && copyWithSelection(text)) {
-    return true;
+    return "exec_command";
   }
 
   const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
   if (clipboard?.writeText) {
     try {
       await clipboard.writeText(text);
-      return true;
+      return "clipboard_api";
     } catch {
       // Fall back below when the browser still allows synchronous copy.
     }
   }
 
-  return !useSelectionFirst && copyWithSelection(text);
+  return !useSelectionFirst && copyWithSelection(text) ? "exec_command" : false;
+}
+
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+  return Boolean(await copyTextWithMethod(text));
 }

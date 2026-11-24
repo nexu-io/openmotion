@@ -31,7 +31,7 @@ import { Tooltip } from '../components/ui/Tooltip';
 import { Popover } from '../components/ui/Popover';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
-import { copyTextToClipboard } from '../utils/clipboard';
+import { copyTextToClipboard, copyTextWithMethod } from '../utils/clipboard';
 import { releaseMediaElement } from '../utils/releaseMediaElement';
 import { orderedPurposes } from './templateDiscoveryTaxonomy';
 import { templateContributionUrl, templateSubmissionPrompt } from './templateContribution';
@@ -645,10 +645,10 @@ export function TemplateLibraryDialog(props: Props) {
     const template = preview, view = detailView.current, attemptId = tracking.newTrackingId();
     if (template) tracking.reportUseClicked(template, submit ? 'recreate_submit' : 'recreate', view, attemptId);
     try {
-      const copied = await copyTextToClipboard(text);
-      if (!copied) throw new Error('Clipboard copy failed');
+      const method = await copyTextWithMethod(text);
+      if (!method) throw new Error('Clipboard copy failed');
       if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(''); showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info'); }
-      if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view);
+      if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view, method);
     } catch {
       if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }
       if (template) tracking.reportCopyResult(template, 'manual_fallback_shown', attemptId, submit, view);
@@ -669,13 +669,13 @@ export function TemplateLibraryDialog(props: Props) {
     }
     let copyTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const copied = await Promise.race([
-        copyTextToClipboard(text),
+      const method = await Promise.race([
+        copyTextWithMethod(text),
         new Promise<never>((_, reject) => { copyTimeout = setTimeout(() => reject(new Error('Clipboard permission timed out')), 8000); }),
       ]);
-      if (!copied) throw new Error('Clipboard copy failed');
+      if (!method) throw new Error('Clipboard copy failed');
       showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
-      tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view); return null;
+      tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view, method); return null;
     } catch {
       showToast(t('Copy failed. Select the instruction below to copy manually, or try again.'), 'error', 'feedback');
       tracking.reportCopyResult(template, 'manual_fallback_shown', attemptId, submit, view); return text;
@@ -768,6 +768,7 @@ export function TemplateLibraryDialog(props: Props) {
       selectedFilter={activeCampaignFilter} onFilterChange={selectCampaignFilter} searchField={searchField}
       emptyResults={<div data-search-recovery="">
         <TemplateSearchRecovery visible expanded query={campaignQuery} context={listContext()} reason="no_results"
+          onOpenSkill={props.onOpenSkill}
           onExpand={expandSearchRecovery} onActivity={searchRecoveryActivity} showToast={(message, kind) => showToast(message, kind, 'feedback')} />
       </div>}
       active={active} onPreview={openCard} onPriority={setPriority} onOpenSkill={props.onOpenSkill} onStartScenario={props.onStartScenario} />
@@ -795,6 +796,7 @@ export function TemplateLibraryDialog(props: Props) {
       {error && <div className={styles.empty} role="alert"><p>{t(error)}</p><Button variant="plain" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button></div>}
       {props.open && <div data-search-recovery="" hidden={!showRecovery}>
         <TemplateSearchRecovery visible={showRecovery} query={query} context={listContext()} reason={!catalog.length ? 'catalog_empty' : showEmptyRecovery ? 'no_results' : 'unsuitable'} expanded={showEmptyRecovery || recoveryExpanded}
+          onOpenSkill={props.onOpenSkill}
           searchAction={showEmptyRecovery && (!catalog.length ? <Button variant="ghost" className="om-button h-auto" onClick={() => retry(value => value + 1)}>{t('Reload')}</Button>
             : suggestedRemoval ? <Button variant="ghost" className="om-button h-auto" onClick={() => {
               if (suggestedRemoval.key === 'editable') toggleEditable(false);
@@ -871,7 +873,7 @@ export function TemplateLibraryDialog(props: Props) {
             </header>{(manualCopy ? <textarea className={styles.manualCopy} readOnly rows={8} value={manualCopy} aria-label={t('Content to copy')} onFocus={event => event.currentTarget.select()} /> : prompt ? <p className={promptExpanded ? styles.fullInstruction : styles.shortInstruction}>{prompt}</p> : promptError ? <div className={styles.promptFailure} role="status">{t('Could not load the instruction.')}<Button variant="plain" onClick={() => retryPrompt(value => value + 1)}>{t('Retry')}</Button></div> : <div className={styles.promptSkeleton} role="status" aria-label={t('Loading instruction…')}>{[100, 94, 100, 86, 62].map((width, index) => <Skeleton key={index} style={{ width: `${width}%`, height: 10 }} />)}</div>)}<Button variant="plain" disabled={!prompt} className={`om-text-link ${styles.expandInstruction}`} data-quiet aria-expanded={promptExpanded} onClick={() => { tracking.reportInstructionExpanded(preview, !promptExpanded, detailView.current); setPromptExpanded(!promptExpanded); }}>{t(promptExpanded ? 'Show less' : 'Show instruction')}<MotionIcon name="chevron-down" size={14} /></Button></section>
             {!handoffPreview && <div className={styles.actions}>
               {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
-              {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
+              {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { tracking.reportTemplateSuperAgentClicked(preview, detailView.current); openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
               <div className={styles.recreateActions}>
                 <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t('Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
@@ -898,7 +900,7 @@ export function TemplateLibraryDialog(props: Props) {
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
               <div className={styles.handoffActions}>
                 {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => void prepareProject(preview)}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
-                {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
+                {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { tracking.reportTemplateSuperAgentClicked(preview, detailView.current); openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
                 <div className={styles.recreateActions}>
                   <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>

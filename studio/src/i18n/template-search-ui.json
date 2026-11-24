@@ -38,7 +38,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "请先从同一 OpenMotion 工作区读取参考视频，再按参考制作。",
     "Local video URL": "本地视频地址",
     "Your reference video link": "填写你的参考视频链接",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "在模板库添加视频链接、选择本地视频，或描述想做的内容。复制请求并发送到已连接的 Agent。本地视频保存在素材库，可在同一 OpenMotion 工作区读取。"
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "在模板库添加视频链接、选择本地视频，或描述想做的内容。复制请求并发送到已连接的 Agent。本地视频保存在素材库，可在同一 OpenMotion 工作区读取。",
+    "Try a matching Skill": "试试匹配的 Skill",
+    "No template matched yet, but these Skills can build it:": "当前没有匹配模板，但可以用这些 Skill 直接制作："
   },
   "ja": {
     "Clear search": "検索語を消去",
@@ -79,7 +81,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "再制作する前に、同じ OpenMotion ワークスペースから参考動画を読み取ってください。",
     "Local video URL": "ローカル動画の URL",
     "Your reference video link": "参考動画のリンクを入力",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "テンプレートライブラリで動画リンクを追加するか、ローカル動画を選択するか、作りたい内容を説明します。リクエストをコピーし、接続済みのエージェントに送信してください。ローカル動画はアセットに保存され、同じ OpenMotion ワークスペースで開けます。"
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "テンプレートライブラリで動画リンクを追加するか、ローカル動画を選択するか、作りたい内容を説明します。リクエストをコピーし、接続済みのエージェントに送信してください。ローカル動画はアセットに保存され、同じ OpenMotion ワークスペースで開けます。",
+    "Try a matching Skill": "関連する Skill を試す",
+    "No template matched yet, but these Skills can build it:": "一致するテンプレートはまだありませんが、次の Skill で制作できます："
   },
   "ko": {
     "Clear search": "검색어 지우기",
@@ -120,7 +124,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "재현하기 전에 같은 OpenMotion 작업 공간에서 참고 영상을 읽어 주세요.",
     "Local video URL": "로컬 영상 URL",
     "Your reference video link": "참고 영상 링크 입력",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "템플릿 라이브러리에서 영상 링크를 추가하거나 로컬 영상을 선택하거나 원하는 내용을 설명하세요. 요청을 복사해 연결된 에이전트에게 보내세요. 로컬 영상은 에셋에 저장되며 같은 OpenMotion 작업 공간에서 열 수 있습니다."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "템플릿 라이브러리에서 영상 링크를 추가하거나 로컬 영상을 선택하거나 원하는 내용을 설명하세요. 요청을 복사해 연결된 에이전트에게 보내세요. 로컬 영상은 에셋에 저장되며 같은 OpenMotion 작업 공간에서 열 수 있습니다.",
+    "Try a matching Skill": "관련 Skill 사용해 보기",
+    "No template matched yet, but these Skills can build it:": "일치하는 템플릿은 없지만 다음 Skill로 바로 제작할 수 있습니다:"
   },
   "de": {
     "Clear search": "Suchbegriff löschen",
@@ -161,7 +167,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Lies das Referenzvideo aus demselben OpenMotion-Arbeitsbereich, bevor du es nachbaust.",
     "Local video URL": "URL des lokalen Videos",
     "Your reference video link": "Link zu deinem Referenzvideo eingeben",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Füge in der Vorlagenbibliothek einen Videolink hinzu, wähle ein lokales Video oder beschreibe dein Vorhaben. Kopiere die Anfrage und sende sie an deinen verbundenen Agenten. Lokale Videos werden in den Assets gespeichert und lassen sich im selben OpenMotion-Arbeitsbereich öffnen."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Füge in der Vorlagenbibliothek einen Videolink hinzu, wähle ein lokales Video oder beschreibe dein Vorhaben. Kopiere die Anfrage und sende sie an deinen verbundenen Agenten. Lokale Videos werden in den Assets gespeichert und lassen sich im selben OpenMotion-Arbeitsbereich öffnen.",
+    "Try a matching Skill": "Passenden Skill ausprobieren",
+    "No template matched yet, but these Skills can build it:": "Noch keine passende Vorlage gefunden, aber diese Skills können es erstellen:"
   },
   "fr": {
     "Clear search": "Effacer la recherche",
@@ -202,7 +210,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Lisez la vidéo de référence dans le même espace de travail OpenMotion avant de la recréer.",
     "Local video URL": "URL de la vidéo locale",
     "Your reference video link": "Saisissez le lien de votre vidéo de référence",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Dans la bibliothèque de modèles, ajoutez un lien vidéo, choisissez une vidéo locale ou décrivez votre idée. Copiez la demande et envoyez-la à votre agent connecté. Les vidéos locales sont enregistrées dans les médias et s’ouvrent dans le même espace de travail OpenMotion."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Dans la bibliothèque de modèles, ajoutez un lien vidéo, choisissez une vidéo locale ou décrivez votre idée. Copiez la demande et envoyez-la à votre agent connecté. Les vidéos locales sont enregistrées dans les médias et s’ouvrent dans le même espace de travail OpenMotion.",
+    "Try a matching Skill": "Essayer un Skill adapté",
+    "No template matched yet, but these Skills can build it:": "Aucun modèle trouvé pour l’instant, mais ces Skills peuvent le créer :"
   },
   "ru": {
     "Clear search": "Очистить запрос",
@@ -243,7 +253,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Перед воссозданием прочитайте видео из того же рабочего пространства OpenMotion.",
     "Local video URL": "URL локального видео",
     "Your reference video link": "Введите ссылку на видео-пример",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "В библиотеке шаблонов добавьте ссылку на видео, выберите видео с устройства или опишите идею. Скопируйте запрос и отправьте подключённому агенту. Локальные видео сохраняются в материалах, их можно открыть в том же рабочем пространстве OpenMotion."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "В библиотеке шаблонов добавьте ссылку на видео, выберите видео с устройства или опишите идею. Скопируйте запрос и отправьте подключённому агенту. Локальные видео сохраняются в материалах, их можно открыть в том же рабочем пространстве OpenMotion.",
+    "Try a matching Skill": "Попробовать подходящий Skill",
+    "No template matched yet, but these Skills can build it:": "Подходящих шаблонов пока нет, но эти Skills помогут создать видео:"
   },
   "es": {
     "Clear search": "Borrar búsqueda",
@@ -284,7 +296,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Lee el vídeo de referencia desde el mismo espacio de trabajo de OpenMotion antes de recrearlo.",
     "Local video URL": "URL del vídeo local",
     "Your reference video link": "Introduce el enlace al vídeo de referencia",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "En la biblioteca de plantillas, añade un enlace, elige un vídeo local o describe lo que quieres. Copia la solicitud y envíala a tu agente conectado. Los vídeos locales se guardan en Recursos y se abren en el mismo espacio de trabajo de OpenMotion."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "En la biblioteca de plantillas, añade un enlace, elige un vídeo local o describe lo que quieres. Copia la solicitud y envíala a tu agente conectado. Los vídeos locales se guardan en Recursos y se abren en el mismo espacio de trabajo de OpenMotion.",
+    "Try a matching Skill": "Probar un Skill relacionado",
+    "No template matched yet, but these Skills can build it:": "Aún no hay plantillas coincidentes, pero estos Skills pueden crearlo:"
   },
   "pt-BR": {
     "Clear search": "Limpar busca",
@@ -325,7 +339,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Leia o vídeo de referência no mesmo espaço de trabalho do OpenMotion antes de recriá-lo.",
     "Local video URL": "URL do vídeo local",
     "Your reference video link": "Insira o link do seu vídeo de referência",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Na biblioteca de modelos, adicione um link, escolha um vídeo local ou descreva sua ideia. Copie a solicitação e envie ao agente conectado. Os vídeos locais são salvos nos recursos e podem ser abertos no mesmo espaço de trabalho do OpenMotion."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Na biblioteca de modelos, adicione um link, escolha um vídeo local ou descreva sua ideia. Copie a solicitação e envie ao agente conectado. Os vídeos locais são salvos nos recursos e podem ser abertos no mesmo espaço de trabalho do OpenMotion.",
+    "Try a matching Skill": "Experimentar um Skill relacionado",
+    "No template matched yet, but these Skills can build it:": "Nenhum modelo correspondeu ainda, mas estes Skills podem criá-lo:"
   },
   "it": {
     "Clear search": "Cancella ricerca",
@@ -366,7 +382,9 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Leggi il video di riferimento nello stesso spazio di lavoro OpenMotion prima di ricrearlo.",
     "Local video URL": "URL del video locale",
     "Your reference video link": "Inserisci il link del tuo video di riferimento",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Nella libreria dei modelli, aggiungi un link, scegli un video locale o descrivi la tua idea. Copia la richiesta e inviala al tuo agente connesso. I video locali vengono salvati nelle risorse e si aprono nello stesso spazio di lavoro OpenMotion."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Nella libreria dei modelli, aggiungi un link, scegli un video locale o descrivi la tua idea. Copia la richiesta e inviala al tuo agente connesso. I video locali vengono salvati nelle risorse e si aprono nello stesso spazio di lavoro OpenMotion.",
+    "Try a matching Skill": "Prova uno Skill adatto",
+    "No template matched yet, but these Skills can build it:": "Nessun modello corrispondente al momento, ma questi Skill possono crearlo:"
   },
   "tr": {
     "Clear search": "Aramayı temizle",
@@ -407,6 +425,8 @@
     "Read the reference from the same OpenMotion workspace before recreating it.": "Yeniden oluşturmadan önce aynı OpenMotion çalışma alanındaki referans videoyu okuyun.",
     "Local video URL": "Yerel video URL’si",
     "Your reference video link": "Referans video bağlantınızı girin",
-    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Şablon kitaplığında video bağlantısı ekleyin, yerel bir video seçin veya ne yapmak istediğinizi açıklayın. İsteği kopyalayıp bağlı ajanınıza gönderin. Yerel videolar Varlıklar’a kaydedilir ve aynı OpenMotion çalışma alanında açılır."
+    "In Template library, add a video link, choose a local video, or describe what you want. Copy the request and send it in your connected Agent. Local videos are saved to Assets and open in the same OpenMotion workspace.": "Şablon kitaplığında video bağlantısı ekleyin, yerel bir video seçin veya ne yapmak istediğinizi açıklayın. İsteği kopyalayıp bağlı ajanınıza gönderin. Yerel videolar Varlıklar’a kaydedilir ve aynı OpenMotion çalışma alanında açılır.",
+    "Try a matching Skill": "Uygun bir Skill deneyin",
+    "No template matched yet, but these Skills can build it:": "Henüz eşleşen bir şablon yok, ancak bu Skill’ler bunu oluşturabilir:"
   }
 }

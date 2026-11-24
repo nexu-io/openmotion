@@ -78,6 +78,10 @@ const mcpEntry = ['app_header', 'app_rail', 'settings_general', 'settings_resour
 const entryFrom = [...mcpEntry, ...providerSetupEntries] as const;
 const referenceEntry = { reference_entry: ['library_home'] } as const;
 const referenceSource = { source_kind: ['link', 'local', 'description'] } as const;
+const copyMethod = ['clipboard_api', 'exec_command'] as const;
+const paletteScope = ['all', 'actions', 'chats', 'templates', 'studios', 'files', 'tools'] as const;
+const paletteItemKind = ['action', 'chat', 'motion_template', 'design_template', 'motion_project', 'design_project', 'game_project', 'asset', 'brand_kit', 'workflow', 'studio', 'scene', 'skill', 'design_skill', 'model', 'community'] as const;
+const paletteAction = ['open', 'edit_template', 'copy_prompt', 'create_design', 'use_in_super_agent'] as const;
 const mcp = { mcp_client: mcpClient, setup_method: ['agent', 'manual'], capability_id: 'slug' } as const;
 // A Skill is identified by its catalogue id and group only; the brief text never leaves the browser.
 const skill = { skill_id: 'slug', skill_category: ['talking_head', 'product_promos', 'explainers', 'product_ads', 'brand_covers', 'motion_techniques'] } as const;
@@ -167,7 +171,8 @@ export const omEvents = {
       'project_manager', 'version_history',
       'creative_nav', 'explore_tabs', 'explore_spotlight', 'explore_featured', 'explore_feed', 'explore_collection', 'capability_index', 'studio_bar', 'model_overview',
       'hub_header', 'hub_hero', 'hub_videos', 'hub_video_detail', 'hub_availability', 'campaign_banner',
-      'game_composer', 'game_market', 'game_detail', 'game_handoff', 'game_sidebar', 'web_publish'],
+      'game_composer', 'game_market', 'game_detail', 'game_handoff', 'game_sidebar', 'web_publish',
+      'command_palette', 'template_zero_result_skills'],
     element: ['new_creation', 'recent_session', 'open_project', 'select_template', 'copy_template',
       'select_work', 'select_chapter', 'browse_timeline', 'expand_learning', 'compare_brands',
       'open_detail', 'start_use', 'expand_instruction', 'open_collection', 'category_select', 'filter_open', 'filter_clear',
@@ -199,7 +204,9 @@ export const omEvents = {
       'back_to_explore', 'open_editor', 'scene_tab', 'open_in_studio', 'connect_key', 'manage_connection', 'view_plans',
       'claim_offer', 'close_banner', 'open_pricing',
       'submit_game', 'game_option', 'open_game', 'remix_game', 'favorite_game', 'like_game', 'dislike_game', 'copy_game_link', 'edit_in_agent', 'continue_in_agent',
-      'open_in_codex', 'open_external', 'reload_game', 'fullscreen_game', 'game_tab', 'open_publish', 'toggle_link_access', 'publish_link', 'new_link', 'copy_publish_link'],
+      'open_in_codex', 'open_external', 'reload_game', 'fullscreen_game', 'game_tab', 'open_publish', 'toggle_link_access', 'publish_link', 'new_link', 'copy_publish_link',
+      'open_palette', 'select_result', 'scope_tab', 'popular_topic', 'ask_super_agent',
+      'open_skill_fallback', 'toggle_options', 'toggle_instruction', 'run_super_agent'],
     // The chosen value of a control with a small fixed set of choices; never free text.
     option: ['on', 'off', 'light', 'dark', 'en', 'zh-CN', 'ja', 'ko', 'de', 'fr', 'ru', 'es', 'pt-BR', 'it', 'tr',
       'all', 'images', 'video', 'audio', 'fonts',
@@ -212,7 +219,9 @@ export const omEvents = {
     filter_group: ['brand', 'uses', 'styles', 'industries', 'creationModels', 'colors', 'ratio', 'duration', 'editable'], filter_value: 'slug',
     selected: 'boolean', expanded: 'boolean', previous_sort: sortOrder, changed: 'boolean', ...templateDetail, ...templateList,
     ...skill, ...brand, brand_collection: brandCollection, ...mcp, entry_from: entryFrom, ...referenceEntry, ...referenceSource,
-    doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer', ...workspacePages, ...creative, ...modelHub, ...campaign,
+    doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer',
+    search_scope: paletteScope, palette_item_kind: paletteItemKind, palette_action: paletteAction, resource_id: 'slug',
+    ...workspacePages, ...creative, ...modelHub, ...campaign,
     ...game, game_option_kind: ['genre', 'style', 'setting', 'orientation', 'playable_ad', 'multiplayer'], game_view: ['preview', 'code', 'trailer'], publish_target: webPublishTargets },
     required: ['page_name', 'area', 'element'] },
   // Studio UI exports run in the editor's own render pipeline, not the worker that owns export_result.
@@ -241,16 +250,21 @@ export const omEvents = {
     required: ['outcome', 'entry_point', 'requested_count', 'added_count', 'failed_count'] },
   // A surface that became visible: the library, a template card, one template's detail, or the instruction to copy.
   // A card counts once it is at least half visible for a second, once per result set.
-  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner'],
-    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner'], ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
+  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'command_palette', 'template_zero_result_skills'],
+    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'palette', 'skill_fallback'], ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
     ...skill, ...brand, ...referenceEntry, brand_state: brandState, recovery_reason: ['no_results', 'unsuitable', 'catalog_empty'] },
     required: ['page_name', 'area', 'element'] },
+  // Global Cmd+K command palette settled search; one per settled query, never per keystroke.
+  command_palette_search_result: { producers: ['studio'], fields: { page_name: pages, area: ['command_palette'],
+    search_id: 'uuid', search_keyword: 'text', query_length: 'integer', result_count: 'integer',
+    search_scope: paletteScope, outcome: ['success'] },
+    required: ['search_id', 'query_length', 'result_count', 'search_scope', 'outcome'] },
   // One per settled query, never per keystroke. `search_keyword` is the only free-text field in this registry.
   template_search_result: { producers: ['studio'], fields: { page_name: ['home', 'studio'], area: ['template_discovery'],
     search_keyword: 'text', query_length: 'integer', outcome: ['success', 'failure'], ...templateList },
     required: ['search_id', 'query_length', 'result_count', 'outcome'] },
   template_search_handoff_result: { producers: ['studio'], fields: { page_name: ['studio'], area: ['template_discovery'],
-    handoff_attempt_id: 'uuid', ...referenceSource, handoff_status: ['clipboard_written', 'manual_fallback', 'draft_added', 'failure'], ...templateList, ...referenceEntry },
+    handoff_attempt_id: 'uuid', ...referenceSource, handoff_status: ['clipboard_written', 'manual_fallback', 'draft_added', 'failure'], copy_method: copyMethod, ...templateList, ...referenceEntry },
     required: ['handoff_attempt_id', 'source_kind', 'handoff_status'] },
   template_filter_result: { producers: ['studio'], fields: { page_name: ['home', 'studio'], area: ['template_discovery'],
     action: ['category_select', 'filter_apply', 'filter_clear', 'sort_change'], outcome: ['success', 'failure'], ...templateList },
@@ -263,7 +277,7 @@ export const omEvents = {
     action: ['shown', 'edit', 'chapter', 'reference', 'reset', 'copy', 'open_editor', 'download', 'document', 'source'],
     expanded: 'boolean', delivery_status: ['browser_save_requested', 'fetch_failed'],
     field: ['title', 'accent'], outcome: ['success', 'failure', 'manual_fallback'] }, required: ['page_name', 'template_id', 'view_id', 'action'] },
-  template_instruction_copy_result: { producers: ['studio'], fields: { host_product: hosts, copy_status: ['clipboard_written', 'manual_fallback_shown', 'failed'],
+  template_instruction_copy_result: { producers: ['studio'], fields: { host_product: hosts, copy_status: ['clipboard_written', 'manual_fallback_shown', 'failed'], copy_method: copyMethod,
     page_name: ['home', 'studio'], copy_attempt_id: 'uuid', ...templateList, ...templateDetail, ...project, ...template, ...templateSeries }, required: ['host_product', 'copy_status'] },
   // One observed Studio handoff operation result, not an Agent receipt or a completed film.
   template_project_result: { producers: ['studio'], fields: { page_name: ['studio'], ...template, ...project, ...templateDetail,
@@ -275,7 +289,7 @@ export const omEvents = {
     required: ['search_id', 'query_length', 'result_count', 'outcome'] },
   // `instruction` is the full Agent instruction; `command` is the short command in the Connect Agent popover.
   skill_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['skills'], ...skill, ...skillBrief, copy_surface: ['instruction', 'command'],
-    copy_status: ['clipboard_written', 'manual_fallback_shown'], copy_attempt_id: 'uuid', detail_view_id: 'uuid' },
+    copy_status: ['clipboard_written', 'manual_fallback_shown'], copy_method: copyMethod, copy_attempt_id: 'uuid', detail_view_id: 'uuid' },
     required: ['skill_id', 'copy_surface', 'copy_status', 'copy_attempt_id'] },
   // MCP connection page. One result per copy attempt; `includes_setup` says whether the connection instruction was prepended.
   mcp_copy_result: { producers: ['studio'], fields: { page_name: ['mcp'], ...mcp, ...template, copy_kind: ['connection_instruction', 'manual_config', 'starter', 'capability_example', 'template'],
@@ -317,7 +331,7 @@ export const omEvents = {
     required: ['outcome', 'create_attempt_id'] },
   brand_kit_import_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], catalog_id: 'slug', outcome: ['success', 'failure'], already_in_library: 'boolean',
     position: 'integer' }, required: ['catalog_id', 'outcome', 'already_in_library'] },
-  brand_kit_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand, copy_status: ['clipboard_written', 'failed'],
+  brand_kit_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand, copy_status: ['clipboard_written', 'failed'], copy_method: copyMethod,
     copy_attempt_id: 'uuid', detail_view_id: 'uuid' }, required: ['brand_source', 'copy_status', 'copy_attempt_id'] },
   brand_kit_action_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand,
     action: ['edit', 'context', 'rescan', 'retry', 'cancel', 'delete'], outcome: ['success', 'failure'], detail_view_id: 'uuid' },
