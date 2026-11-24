@@ -38,3 +38,19 @@ it("includes unchanged startup code in the full source comparison", () => {
   expect(diffPreviewChanges(source + script, grouped + script)?.[0]?.group?.wrap).toBe(true);
   expect(diffPreviewChanges(source + script, grouped + script.replace("alpha","beta"))).toBeNull();
 });
+
+it("groups a selection with more than 32 identified members without replacing any child", () => {
+  const targets = Array.from({length: 48}, (_, i) => ({id: "item-" + i}));
+  const html = '<main data-hf-id="stage" data-composition-id="film">' +
+    targets.map(({id}) => `<div id="${id}" data-hf-id="${id}" style="position:absolute;left:10px;top:20px">item</div>`).join("") + '</main>';
+  const next = applyCanvasCommand(html, {kind: "groupElements", groupId: "Group", targets,
+    bbox:{left:10,top:20,width:100,height:50}, rebases: targets.map(target => ({target,left:0,top:0,track:0}))});
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const originals = [...doc.querySelector("main")!.children];
+  const delta = diffPreviewChanges(html, next)![0]!.group!;
+  const apply = stageGroupChange(doc, delta, new Set(PRESENTATION_TAGS))!;
+  apply(true);
+  expect([...doc.getElementById(delta.wrapper.id)!.children].every((node, i) => node === originals[i])).toBe(true);
+  apply(false);
+  expect([...doc.querySelector("main")!.children]).toEqual(originals);
+});

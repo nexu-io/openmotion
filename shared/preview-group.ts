@@ -6,11 +6,21 @@ export type GroupChange = {
   members: { id: string; hfId: string; tag: string; before: GroupMemberBox; after: GroupMemberBox }[];
 };
 
+/** A duplicate authored ID cannot identify a group member unambiguously. */
+export function indexGroupMembers(parent: Element) {
+  const nodes = new Map<string, HTMLElement | null>();
+  for (const node of parent.children) {
+    const id = node.getAttribute("data-hf-id");
+    if (id) nodes.set(id, nodes.has(id) ? null : node as HTMLElement);
+  }
+  return nodes;
+}
+
 /** Pure staging for an already-certified source change. Keep the mounted children, including their references. */
 export function stageGroupChange(doc: Document, change: GroupChange, tags: Set<string>) {
   const { wrap, owner, wrapper, members } = change;
   if (typeof wrap !== "boolean" || !owner || !wrapper?.id || !wrapper.label || !Array.isArray(members) ||
-      !members.length || members.length > 32 || new Set(members.map(m => m.hfId)).size !== members.length) return null;
+      members.length < 2 || new Set(members.map(m => m.hfId)).size !== members.length) return null;
   const roots = [...doc.querySelectorAll<HTMLElement>("[data-composition-id]")].filter(n => n.dataset.compositionId === owner);
   if (roots.length !== 1) return null;
   const parent = roots[0]!;
@@ -35,12 +45,12 @@ export function stageGroupChange(doc: Document, change: GroupChange, tags: Set<s
   }
 
   const origin = wrap ? parent : group;
+  const children = indexGroupMembers(origin);
   const nodes: HTMLElement[] = [];
   for (const member of members) {
     if (!tags.has(member.tag) || !member.hfId || !member.before || !member.after) return null;
-    const matches = [...origin.children].filter(n => n.getAttribute("data-hf-id") === member.hfId);
-    const node = matches[0] as HTMLElement | undefined;
-    if (matches.length !== 1 || !node || node.localName !== member.tag || node.id !== member.id || node.childElementCount ||
+    const node = children.get(member.hfId);
+    if (!node || node.localName !== member.tag || node.id !== member.id || node.childElementCount ||
         nodes.length && nodes.at(-1)!.nextElementSibling !== node) return null;
     for (const name of ["left", "top"] as const) {
       if (node.style[name] !== member.before[name] || node.style.getPropertyPriority(name) ||

@@ -1,4 +1,4 @@
-import { stageGroupChange } from "../../../shared/preview-group.ts";
+import { indexGroupMembers, stageGroupChange } from "../../../shared/preview-group.ts";
 import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
@@ -8,6 +8,7 @@ import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESEN
 export const PREVIEW_PEER_TIMING = `
   const canPatchPreviewAttribute = ${canPatchPreviewAttribute.toString()};
   const previewAttributes = new Set(${JSON.stringify(PREVIEW_ATTRIBUTES)});
+  const indexGroupMembers = ${indexGroupMembers.toString()};
   const stageGroup = ${stageGroupChange.toString()};
   const mediaBox = ${isMediaBoxChange.toString()};
   const paintOnly = ${isPaintOnlyChange.toString()};

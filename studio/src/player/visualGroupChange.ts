@@ -1,4 +1,4 @@
-import type { GroupChange, GroupMemberBox } from "../../../shared/preview-group";
+import { indexGroupMembers, type GroupChange, type GroupMemberBox } from "../../../shared/preview-group";
 import type { PreviewChange } from "../../../shared/preview-timing";
 
 function box(node: HTMLElement): GroupMemberBox {
@@ -23,17 +23,17 @@ export function diffGroupChange(before: Document, after: Document, wrap: boolean
   const wrapper = candidates[0]!;
   const parent = flat.querySelector("[data-composition-id]")!;
   const owner = parent.getAttribute("data-composition-id");
-  if (!owner || wrapper.parentElement?.getAttribute("data-composition-id") !== owner || wrapper.children.length < 2 || wrapper.children.length > 32 ||
+  if (!owner || wrapper.parentElement?.getAttribute("data-composition-id") !== owner || wrapper.children.length < 2 ||
       [...wrapper.attributes].some(a => !["id","data-hf-group","data-hf-id","style"].includes(a.name)) ||
       [...wrapper.childNodes].some(n => n.nodeType !== 1)) return null;
   const members: GroupChange["members"] = [];
   const flatNodes: HTMLElement[] = [];
+  const children = indexGroupMembers(parent);
   for (const element of wrapper.children) {
     const child = element as HTMLElement;
     const hfId = child.getAttribute("data-hf-id");
-    const matched = hfId && [...parent.children].filter(n => n.getAttribute("data-hf-id") === hfId);
-    if (!matched || matched.length !== 1 || !tags.has(child.localName) || child.childElementCount) return null;
-    const other = matched[0] as HTMLElement;
+    const other = hfId && children.get(hfId);
+    if (!hfId || !other || !tags.has(child.localName) || child.childElementCount) return null;
     if (flatNodes.length && flatNodes.at(-1)!.nextElementSibling !== other) return null;
     const left = wrap ? other : child, right = wrap ? child : other;
     members.push({hfId, id: child.id, tag: child.localName, before: box(left), after: box(right)});
