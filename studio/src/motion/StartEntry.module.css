@@ -1,0 +1,24 @@
+/* Signed-out call to action in the avatar's place: brand green, the strongest control in the header. */
+.start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 var(--motion-space-16);
+  border: 0;
+  border-radius: var(--motion-radius-step-9);
+  background: var(--motion-brand);
+  color: var(--motion-on-brand);
+  font-family: var(--motion-font-sans);
+  font-size: var(--motion-text-md);
+  font-weight: var(--motion-weight-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: filter var(--motion-duration-fast) var(--motion-ease-out);
+}
+.start:hover { filter: brightness(0.94); }
+.start:focus-visible { outline: 1.5px solid var(--motion-text); outline-offset: 2px; }
+.start:disabled { cursor: progress; }

@@ -90,6 +90,8 @@ beforeEach(() => {
       return Response.json({ items: [{ id: `fixture-${scenario}`, title: `Design ${scenario} fixture`, description: 'Starter design.', scenario, category: scenario, tags: [], previewUrl: 'data:text/html,Design%20template' }], nextCursor: null });
     }
     if (url.pathname.endsWith('/template-catalog')) return Response.json({ items: [{ id: 'product-promo', title: 'Product Promo', description: 'A slow product reveal.', kind: 'builtin', tags: [] }], next: null, catalogVersion: 'test' });
+    // Signed in, so the header shows the account menu these navigation tests open; signed out shows Get started instead.
+    if (url.pathname.endsWith('/settings/account') && (init?.method ?? 'GET') === 'GET') return Response.json({ state: 'signed-in', user: { name: 'Ada', email: 'ada@example.com' } });
     return Response.json({ projectId, revision: 'r', version: '1.2.3', agents: [], defaults: {}, state: 'signed-out' });
   });
   vi.stubGlobal('fetch', fetcher);

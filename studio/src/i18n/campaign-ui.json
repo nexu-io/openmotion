@@ -9,7 +9,9 @@
     "Claim offer": "领取优惠",
     "Close campaign banner": "关闭活动 Banner",
     "Pricing · Black Friday up to 50% off": "Pricing · 黑五特惠年付低至 5 折",
-    "Free credits": "免费额度"
+    "Free credits": "免费额度",
+    "Pricing": "定价",
+    "Upgrade": "升级"
   },
   "ja": {
     "Black Friday campaign banner": "ブラックフライデーキャンペーンバナー",
@@ -21,7 +23,9 @@
     "Claim offer": "特典を受け取る",
     "Close campaign banner": "キャンペーンバナーを閉じる",
     "Pricing · Black Friday up to 50% off": "Pricing · ブラックフライデー 年払い最大50%オフ",
-    "Free credits": "無料クレジット"
+    "Free credits": "無料クレジット",
+    "Pricing": "料金",
+    "Upgrade": "アップグレード"
   },
   "ko": {
     "Black Friday campaign banner": "블랙프라이데이 캠페인 배너",
@@ -33,7 +37,9 @@
     "Claim offer": "혜택 받기",
     "Close campaign banner": "캠페인 배너 닫기",
     "Pricing · Black Friday up to 50% off": "Pricing · 블랙프라이데이 연간 결제 최대 50% 할인",
-    "Free credits": "무료 크레딧"
+    "Free credits": "무료 크레딧",
+    "Pricing": "요금제",
+    "Upgrade": "업그레이드"
   },
   "de": {
     "Black Friday campaign banner": "Black-Friday-Aktionsbanner",
@@ -45,7 +51,9 @@
     "Claim offer": "Angebot sichern",
     "Close campaign banner": "Aktionsbanner schließen",
     "Pricing · Black Friday up to 50% off": "Pricing · Black Friday: bis zu 50 % Rabatt",
-    "Free credits": "Gratis-Credits"
+    "Free credits": "Gratis-Credits",
+    "Pricing": "Preise",
+    "Upgrade": "Upgrade"
   },
   "fr": {
     "Black Friday campaign banner": "Bannière de la campagne Black Friday",
@@ -57,7 +65,9 @@
     "Claim offer": "Profiter de l’offre",
     "Close campaign banner": "Fermer la bannière de la campagne",
     "Pricing · Black Friday up to 50% off": "Pricing · Black Friday : jusqu’à -50 %",
-    "Free credits": "Crédits offerts"
+    "Free credits": "Crédits offerts",
+    "Pricing": "Tarifs",
+    "Upgrade": "Mettre à niveau"
   },
   "ru": {
     "Black Friday campaign banner": "Баннер акции «Чёрная пятница»",
@@ -69,7 +79,9 @@
     "Claim offer": "Получить скидку",
     "Close campaign banner": "Закрыть баннер акции",
     "Pricing · Black Friday up to 50% off": "Pricing · Чёрная пятница: скидка до 50%",
-    "Free credits": "Бесплатные кредиты"
+    "Free credits": "Бесплатные кредиты",
+    "Pricing": "Цены",
+    "Upgrade": "Улучшить"
   },
   "es": {
     "Black Friday campaign banner": "Banner de la campaña Black Friday",
@@ -81,7 +93,9 @@
     "Claim offer": "Obtener oferta",
     "Close campaign banner": "Cerrar banner de la campaña",
     "Pricing · Black Friday up to 50% off": "Pricing · Black Friday: hasta un 50 % de descuento",
-    "Free credits": "Créditos gratis"
+    "Free credits": "Créditos gratis",
+    "Pricing": "Precios",
+    "Upgrade": "Mejorar"
   },
   "pt-BR": {
     "Black Friday campaign banner": "Banner da campanha Black Friday",
@@ -93,7 +107,9 @@
     "Claim offer": "Aproveitar oferta",
     "Close campaign banner": "Fechar banner da campanha",
     "Pricing · Black Friday up to 50% off": "Pricing · Black Friday: até 50% de desconto",
-    "Free credits": "Créditos grátis"
+    "Free credits": "Créditos grátis",
+    "Pricing": "Preços",
+    "Upgrade": "Fazer upgrade"
   },
   "it": {
     "Black Friday campaign banner": "Banner della campagna Black Friday",
@@ -105,7 +121,9 @@
     "Claim offer": "Approfitta dell’offerta",
     "Close campaign banner": "Chiudi il banner della campagna",
     "Pricing · Black Friday up to 50% off": "Pricing · Black Friday: fino al 50% di sconto",
-    "Free credits": "Crediti gratis"
+    "Free credits": "Crediti gratis",
+    "Pricing": "Prezzi",
+    "Upgrade": "Upgrade"
   },
   "tr": {
     "Black Friday campaign banner": "Black Friday kampanya banner'ı",
@@ -117,6 +135,8 @@
     "Claim offer": "Fırsatı yakala",
     "Close campaign banner": "Kampanya banner'ını kapat",
     "Pricing · Black Friday up to 50% off": "Pricing · Black Friday: %50'ye varan indirim",
-    "Free credits": "Ücretsiz kredi"
+    "Free credits": "Ücretsiz kredi",
+    "Pricing": "Fiyatlar",
+    "Upgrade": "Yükselt"
   }
 }

@@ -102,7 +102,7 @@ it('shows the campaign only inside its window and drops campaign fields afterwar
   const link = container.querySelector<HTMLAnchorElement>('a')!;
   link.addEventListener('click', event => event.preventDefault());
   expect(container.textContent).not.toContain('50% OFF');
-  expect(link.getAttribute('aria-label')).toBe('Pricing');
+  expect(link.getAttribute('aria-label')).toBe('定价');
   await act(async () => { link.click(); });
   expect(tracked().at(-1)?.properties).not.toHaveProperty('campaign_id');
   expect(params(link.href).get('od_entry_source')).toBe('openmotion_manage_subscription');
@@ -123,7 +123,10 @@ it('localizes the banner and the Pricing label in every supported language', () 
     expect(container.textContent).toContain(messages['Claim offer']);
     expect(container.textContent).toContain(messages['7-day unlimited']);
     expect(container.querySelector('aside')!.getAttribute('aria-label')).toBe(messages['Black Friday campaign banner']);
-    expect(container.querySelector('a[aria-label^="Pricing"]')!.getAttribute('aria-label')).toBe(messages['Pricing · Black Friday up to 50% off']);
+    // Signed out (the account request fails here): the entry is the localized Pricing label.
+    const pricing = [...container.querySelectorAll('a[href*="pricing"]')].at(-1)!;
+    expect(pricing.textContent).toContain(messages.Pricing);
+    expect(pricing.getAttribute('aria-label')).toBe(messages['Pricing · Black Friday up to 50% off'].replace(/^Pricing/, messages.Pricing));
   }
 });
 
@@ -160,5 +163,17 @@ it('keeps the Pricing entry with localized Free credits badge before the campaig
   for (const locale of ['zh-CN', 'ja', 'ko', 'de', 'fr', 'ru', 'es', 'pt-BR', 'it', 'tr'] as const) {
     act(() => root.render(<I18nProvider key={locale} initialLocale={locale}><PricingEntry trackingPage="studio" /></I18nProvider>));
     expect(container.textContent).toContain(campaignUi[locale]['Free credits']);
+  }
+});
+
+it('reads Upgrade once the visitor is signed in, on any plan', async () => {
+  for (const plan of ['free', 'plus']) {
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ state: 'signed-in', plan, user: { email: 'ada@example.com' } })));
+    await act(async () => { root.render(<I18nProvider key={plan} initialLocale="zh-CN"><PricingEntry trackingPage="explore" /></I18nProvider>); });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+    const link = container.querySelector('a')!;
+    expect(link.textContent).toContain('升级');
+    expect(link.getAttribute('aria-label')).toBe('升级 · 黑五特惠年付低至 5 折');
+    vi.unstubAllGlobals();
   }
 });

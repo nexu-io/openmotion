@@ -202,7 +202,7 @@ export const omEvents = {
       'community_tab', 'creators', 'media_filter', 'open_scene', 'open_skill', 'open_template', 'try_prompt', 'open_studio', 'slide_select', 'slide_toggle', 'slide_action',
       'load_more', 'view_all_templates', 'models_toggle', 'skill_category', 'open_brand_kit', 'open_assets', 'open_providers', 'open_mcp', 'open_skills',
       'back_to_explore', 'open_editor', 'scene_tab', 'open_in_studio', 'connect_key', 'manage_connection', 'view_plans',
-      'claim_offer', 'close_banner', 'open_pricing',
+      'claim_offer', 'close_banner', 'open_pricing', 'start_sign_in',
       'submit_game', 'game_option', 'open_game', 'remix_game', 'favorite_game', 'like_game', 'dislike_game', 'copy_game_link', 'edit_in_agent', 'continue_in_agent',
       'open_in_codex', 'open_external', 'reload_game', 'fullscreen_game', 'game_tab', 'open_publish', 'toggle_link_access', 'publish_link', 'new_link', 'copy_publish_link',
       'open_palette', 'select_result', 'scope_tab', 'popular_topic', 'ask_super_agent',

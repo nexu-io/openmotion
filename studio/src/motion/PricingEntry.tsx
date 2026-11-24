@@ -3,6 +3,7 @@ import { useI18n } from '../i18n/I18n';
 import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
+import { useAccountSummary } from './AccountSettings';
 import styles from './PricingEntry.module.css';
 
 export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
@@ -13,7 +14,10 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
   const href = campaignPricingUrl(locale, 'openmotion_header_pricing', entryId);
   // Outside the campaign window the entry stays as plain Pricing: no badge, campaign label or campaign fields.
   const campaign = useBlackFridayActive();
-  const aria = campaign ? t('Pricing · Black Friday up to 50% off') : 'Pricing';
+  // Signed in (any plan) the entry reads Upgrade; signed out, or while the account loads, it reads Pricing.
+  const { account } = useAccountSummary();
+  const label = t(account?.state === 'signed-in' ? 'Upgrade' : 'Pricing');
+  const aria = campaign ? t('Pricing · Black Friday up to 50% off').replace(/^Pricing/, label) : label;
 
   function open(event: MouseEvent<HTMLAnchorElement>) {
     void trackMotion('ui_click', { page_name: trackingPage, area: 'header', element: 'open_pricing', ...(campaign ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}), entry_id: entryId,
@@ -47,7 +51,7 @@ export function PricingEntry({ trackingPage }: { trackingPage: CreativePage }) {
           d="M3.5 5.25C3.5 4.2835 4.2835 3.5 5.25 3.5H10.5251C11.1219 3.5 11.6942 3.73705 12.1161 4.15901L19.841 11.8839C20.7197 12.7626 20.7197 14.1872 19.841 15.0659L15.0659 19.841C14.1872 20.7197 12.7626 20.7197 11.8839 19.841L4.15901 12.1161C3.73705 11.6942 3.5 11.1219 3.5 10.5251V5.25ZM8 9.25C8.69036 9.25 9.25 8.69036 9.25 8C9.25 7.30964 8.69036 6.75 8 6.75C7.30964 6.75 6.75 7.30964 6.75 8C6.75 8.69036 7.30964 9.25 8 9.25Z"
         />
       </svg>
-      <span className={styles.label}>Pricing</span>
+      <span className={styles.label}>{label}</span>
       {campaign ? (
         <span className={styles.badge} aria-hidden="true">
           <span className={styles.badgeText}>50% OFF</span>
