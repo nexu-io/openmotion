@@ -19,6 +19,7 @@ import { readPreviewCompositionSize } from '../utils/previewCompositionSize';
 import { reviewFrameMatches, useReviewMarkupStore } from './reviewMarkupStore';
 import { ReviewMarkupTools, ReviewAnnotationLabel } from './ReviewMarkupTools';
 import { ReviewCommentCard } from './ReviewCommentCard';
+import { CommentSyncBanner } from './collab/CommentSyncBanner';
 import { useReviewPresentationStore } from './reviewPresentationStore';
 
 const scopeLabels = { project: 'Whole video', frame: 'Current frame', element: 'Selected element' } as const;
@@ -269,6 +270,7 @@ function ProjectReviewComments() {
       </Menu>
     </div>}
     <div className="min-h-0 flex-1 overflow-y-auto p-3" data-review-scroll>
+      <CommentSyncBanner projectId={projectId} />
       {review.error && <div role="alert" className="flex flex-col items-start gap-3 rounded-lg border border-border p-4 text-text-2">
         <p>{t('Could not load comments')}</p><p className="text-text-3">{t('Check the connection and try again.')}</p><Button size="sm" disabled={review.busy} onClick={() => run(review.refresh)}>{t('Retry')}</Button>
       </div>}

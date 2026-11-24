@@ -11,6 +11,8 @@ import { mcpHttpFor } from './gateway/mcp-http.ts';
 import { contentBatchesFor } from './gateway/content-batch.ts';
 import { triggersFor } from './gateway/triggers.ts';
 import { closeWebPublishFor, webPublishFor } from './gateway/web-publish.ts';
+import { workspaceCollabFor } from './gateway/workspace-collab.ts';
+import type { CommentSyncState, ProjectVisibility, WorkspaceCloudDestination, WorkspaceInviteRowInput } from './shared/workspace-collab.ts';
 import { closeDesignDeployFor } from './gateway/design-deploy.ts';
 import { AdaptivePoller } from './shared/lifecycle.ts';
 import { mapWebPublishError, resolveWebPublishTarget } from './gateway/web-publish-ops.ts';
@@ -758,9 +760,13 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
               { targetKind, targetId, sourcePath, filePath, title, embedUrl },
               originUrl,
             );
+            const account = gatewayFor(store, context.tracking).account;
+            const explicitWorkspaceId = typeof body?.workspaceId === 'string' && body.workspaceId.trim()
+              ? body.workspaceId.trim()
+              : (await workspaceCollabFor(account).getActiveWorkspaceId()) ?? undefined;
             const result = await publishService.publish(target, {
               filePath,
-              workspaceId: typeof body?.workspaceId === 'string' ? body.workspaceId : undefined,
+              workspaceId: explicitWorkspaceId,
               mode: body?.deployMode as WebPublishMode | undefined,
               name: title,
             });
@@ -1113,6 +1119,82 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
       if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') return json(res, 200, await gateway.account.openSubscription());
       return json(res, 404, { error: 'Settings endpoint not found' });
+    }
+    if (motionRequest && (url.pathname === '/api/workspace/collab' || url.pathname.startsWith('/api/workspace/collab/'))) {
+      const collab = workspaceCollabFor(gatewayFor(store, context.tracking).account);
+      if (url.pathname === '/api/workspace/collab' && req.method === 'GET') {
+        return json(res, 200, await collab.getSnapshot({ refresh: url.searchParams.get('refresh') === 'true' }));
+      }
+      if (url.pathname === '/api/workspace/collab/switch' && req.method === 'POST') {
+        const body = await input(req);
+        if (typeof body.workspaceId !== 'string') return json(res, 400, { error: 'workspaceId is required' });
+        return json(res, 200, await collab.switchWorkspace(body.workspaceId));
+      }
+      if (url.pathname === '/api/workspace/collab/recover-personal' && req.method === 'POST') {
+        return json(res, 200, await collab.recoverToPersonalWorkspace());
+      }
+      if (url.pathname === '/api/workspace/collab/invites' && req.method === 'POST') {
+        const body = await input(req, 64 * 1024);
+        const rows = Array.isArray(body.rows) ? (body.rows as WorkspaceInviteRowInput[]) : [];
+        return json(res, 200, await collab.inviteMembers(typeof body.workspaceId === 'string' ? body.workspaceId : undefined, rows));
+      }
+      if (url.pathname === '/api/workspace/collab/cloud-link' && req.method === 'POST') {
+        const body = await input(req);
+        const allowedDestinations: readonly WorkspaceCloudDestination[] = [
+          'plans', 'billing', 'members', 'create-workspace', 'billing-recovery', 'referral', 'workspace-settings',
+        ];
+        if (!allowedDestinations.includes(body.destination as WorkspaceCloudDestination)) {
+          return json(res, 400, { error: 'Invalid cloud destination' });
+        }
+        return json(res, 200, await collab.openCloudDestination(
+          body.destination as WorkspaceCloudDestination,
+          typeof body.workspaceId === 'string' ? body.workspaceId : undefined,
+          { launch: body.launch !== false },
+        ));
+      }
+      const moveMatch = url.pathname.match(/^\/api\/workspace\/collab\/projects\/([^/]+)\/move$/);
+      if (moveMatch && req.method === 'POST') {
+        const body = await input(req);
+        if (typeof body.workspaceId !== 'string') return json(res, 400, { error: 'workspaceId is required' });
+        return json(res, 200, await collab.moveProjectToWorkspace(
+          decodeURIComponent(moveMatch[1]),
+          body.workspaceId,
+          body.skipConfirm === true,
+        ));
+      }
+      const visibilityMatch = url.pathname.match(/^\/api\/workspace\/collab\/projects\/([^/]+)\/visibility$/);
+      if (visibilityMatch && req.method === 'POST') {
+        const body = await input(req);
+        if (body.visibility !== 'private' && body.visibility !== 'workspace') {
+          return json(res, 400, { error: 'visibility must be private or workspace' });
+        }
+        return json(res, 200, await collab.setProjectVisibility(
+          decodeURIComponent(visibilityMatch[1]),
+          body.visibility as ProjectVisibility,
+        ));
+      }
+      const commentSyncMatch = url.pathname.match(/^\/api\/workspace\/collab\/comments\/([^/]+)\/sync$/);
+      if (commentSyncMatch && req.method === 'POST') {
+        const body = await input(req).catch(() => ({} as Record<string, unknown>));
+        const targetId = decodeURIComponent(commentSyncMatch[1]);
+        if (body.state === 'pending' || body.state === 'failed' || body.state === 'synced') {
+          return json(res, 200, await collab.reportCommentSyncState(
+            targetId,
+            body.state as CommentSyncState,
+            typeof body.pendingCount === 'number' ? body.pendingCount : 0,
+            typeof body.lastError === 'string' ? body.lastError : undefined,
+          ));
+        }
+        return json(res, 200, await collab.retryCommentSync(targetId));
+      }
+      if (url.pathname === '/api/workspace/collab/preferences' && req.method === 'POST') {
+        const body = await input(req);
+        return json(res, 200, await collab.updatePreferences({
+          skipMoveToTeamConfirm: typeof body.skipMoveToTeamConfirm === 'boolean' ? body.skipMoveToTeamConfirm : undefined,
+          dismissBanner: typeof body.dismissBanner === 'string' ? body.dismissBanner : undefined,
+        }));
+      }
+      return json(res, 404, { error: 'Workspace collaboration endpoint not found' });
     }
     if (motionRequest && (url.pathname.startsWith('/api/models') || url.pathname.startsWith('/api/generations'))) {
       const gateway = gatewayFor(store, context.tracking);

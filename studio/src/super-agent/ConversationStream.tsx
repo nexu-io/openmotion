@@ -42,6 +42,8 @@ import { ModelAvatar, ProviderAvatar } from '../motion/settingsPrimitives';
 import { inspectBridgeAgent, notifyRuntimesChanged } from '../motion/useAgentRuntimes';
 import { notifyAgentsChanged } from '../motion/useLocalAgents';
 import { WorkspaceBack } from '../motion/WorkspaceBack';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { UpgradeCard } from '../motion/collab/UpgradeCard';
 import { ExecutionTimeline, SuperAgentLiveProgressDock } from './ExecutionTimeline';
 import { ResourcePickerPanel, resourceIcon, resourceKey, type ResourceCategoryTab } from './ResourcePickerDialog';
 import {
@@ -205,6 +207,7 @@ export function ConversationStream({
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
   const [text, setText] = useState('');
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -443,6 +446,13 @@ export function ConversationStream({
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
+    if (
+      collab?.snapshot?.signedIn &&
+      collab.snapshot.activeWorkspace?.lifecycleState === 'locked'
+    ) {
+      collab.setBillingGate({ kind: 'balance' });
+      return;
+    }
     if (activeMode?.id === 'game' && !chat?.messages.length && !attachments.some(att => att.kind === 'game-project')) {
       const selectedTemplate = modeOptions.gameTemplate;
       setScaffoldingGame(true);
@@ -873,6 +883,7 @@ export function ConversationStream({
       </div>
 
       <div className="om-sa-composer-wrap">
+        <UpgradeCard />
         <SuperAgentLiveProgressDock
           chat={chat}
           busy={busy}

@@ -33,6 +33,13 @@ import { GITHUB_REPOSITORY } from './githubRepository';
 import { trackMotion } from './tracking';
 import { ApplicationHeader, WorkspaceUtilityActions } from './ApplicationChrome';
 import { BlackFridayTopBanner } from './BlackFridayTopBanner';
+import { WorkspaceCollabProvider, useOptionalWorkspaceCollab } from './WorkspaceCollabContext';
+import { WorkspaceCollabBanner, resolvePriorityBanner } from './collab/WorkspaceTopBanner';
+import { WorkspaceRemovalBoundary } from './collab/WorkspaceRemovalBoundary';
+import { InviteMembersDialog } from './collab/InviteMembersDialog';
+import { MoveToTeamDialog } from './collab/MoveToTeamDialog';
+import { BillingGateDialog } from './collab/UpgradeCard';
+import { ProjectScopeTabs, filterProjectsByScope, type ProjectScopeFilter } from './collab/ProjectScopeTabs';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
@@ -515,15 +522,29 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   const navCurrentPage = navTemplatesPage || navPage.explore || (navPage.skills && !navSettings) ? 'explore' : navStandaloneMcp ? 'mcp' : navSuperAgentActive ? 'agent' : null;
   const navEditorRoute = !navSettings && !isWorkspacePageOpen(navPage, navTemplatesPage);
   const navEditorActive = navEditorRoute && !navConnectionsOpen;
+  const isExploreHome = Boolean(navPage.explore && !navPage.community && !navPage.medium && !navConnectionsOpen && !navSettings);
 
   return <WorkspaceChromeContext.Provider value={value}>
     <StudioToastViewport {...navigationToast} />
     <StudioConnectionToast reconnecting={reconnecting} />
+    <WorkspaceCollabProvider hasActiveTask={Boolean(editorState?.blocked || workspace.busy)}>
     {archives.manager}
+    <InviteMembersDialog />
+    <MoveToTeamDialog />
+    <BillingGateDialog />
     <Dialog.Root open={sidebarOpen && narrow && editorActive} onOpenChange={setSidebarOpen}>
-    <div ref={applicationRef} className="om-application" data-embedded={presentation.embedded} data-host-chrome={hostChrome} data-has-bf-banner={bfBannerVisible || undefined} data-navigation-collapsed={navigationCollapsed}>
-      {bfBannerVisible && <BlackFridayTopBanner trackingPage={navTrackingPage} onClose={closeBfBanner} onExpire={expireBfBanner} />}
-      <ApplicationHeader atExploreHome={navPage.explore && !navPage.community && !navPage.medium && !navConnectionsOpen}
+    <WorkspaceApplicationShell
+      applicationRef={applicationRef}
+      embedded={presentation.embedded}
+      hostChrome={hostChrome}
+      navigationCollapsed={navigationCollapsed}
+      isExploreHome={isExploreHome}
+      bfBannerVisible={bfBannerVisible}
+      navTrackingPage={navTrackingPage}
+      closeBfBanner={closeBfBanner}
+      expireBfBanner={expireBfBanner}
+    >
+      <ApplicationHeader atExploreHome={isExploreHome}
         specialty={navPage.specialty} onChooseStudio={chooseStudio} openSettings={openSettings}
         openAsset={(assetId, assetVersion) => navigatePage({ assets: true, assetId, assetVersion, templates: false })}
         onCommunity={feed => navigatePage({ explore: true, community: feed.id, medium: null, templates: false })} onSkill={openSkill} currentPage={navCurrentPage} trackingPage={navTrackingPage} onOpenPage={openPage} settings={navSettings} destination={navTemplatesPage ? null : navPage.studio} soundTab={navTemplatesPage ? null : navPage.soundTab ?? null} motionActive={!navTemplatesPage && (navPage.motion || navEditorActive)}
@@ -533,6 +554,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
         onOpenScenarioHub={() => openScenarioHub()}
         onNavigate={openStudio} onNavigateSound={openAudioNav} />
       <div className="motion-workspace">
+      <WorkspaceRemovalBoundary />
       {isRoutePending && <div className="motion-route-progress" role="progressbar" aria-hidden="true" />}
       <Dialog.Portal>
         <Dialog.Backdrop className="hf-overlay-backdrop motion-sidebar-backdrop" />
@@ -592,10 +614,71 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       />
       <OverlayLayer {...overlaySharedProps} placement="in-workspace" />
       </div>
-    </div>
+    </WorkspaceApplicationShell>
     </Dialog.Root>
     <OverlayLayer {...overlaySharedProps} placement="portal" />
+    </WorkspaceCollabProvider>
   </WorkspaceChromeContext.Provider>;
+}
+
+function WorkspaceApplicationShell({
+  applicationRef,
+  embedded,
+  hostChrome,
+  navigationCollapsed,
+  isExploreHome,
+  bfBannerVisible,
+  navTrackingPage,
+  closeBfBanner,
+  expireBfBanner,
+  children,
+}: {
+  applicationRef: React.RefObject<HTMLDivElement | null>;
+  embedded: boolean;
+  hostChrome: boolean;
+  navigationCollapsed: boolean;
+  isExploreHome: boolean;
+  bfBannerVisible: boolean;
+  navTrackingPage: ReturnType<typeof resolveNavTrackingPage>;
+  closeBfBanner: () => void;
+  expireBfBanner: () => void;
+  children: ReactNode;
+}) {
+  const collab = useOptionalWorkspaceCollab();
+  const snapshot = collab?.snapshot;
+  const activeBanner = hostChrome
+    ? null
+    : resolvePriorityBanner({
+        signedIn: Boolean(snapshot?.signedIn),
+        isExploreHome,
+        bfBannerVisible,
+        lifecycleState: snapshot?.activeWorkspace?.lifecycleState,
+        weeklyLimitExhausted: snapshot?.quota?.weeklyLimitExhausted,
+        inviteeWindowActive: snapshot?.referral?.inviteeWindowActive,
+        canInviteMembers: snapshot?.permissions?.canInviteMembers,
+        workspaceType: snapshot?.activeWorkspace?.workspaceType,
+        workspaceId: snapshot?.activeWorkspace?.workspaceId,
+        dismissedBanners: snapshot?.preferences?.dismissedBanners,
+      });
+
+  return (
+    <div
+      ref={applicationRef}
+      className="om-application"
+      data-embedded={embedded}
+      data-host-chrome={hostChrome}
+      data-has-bf-banner={activeBanner?.kind === 'campaign' ? true : undefined}
+      data-has-top-banner={activeBanner && activeBanner.kind !== 'campaign' ? true : undefined}
+      data-navigation-collapsed={navigationCollapsed}
+    >
+      {activeBanner?.kind === 'campaign' ? (
+        <BlackFridayTopBanner trackingPage={navTrackingPage} onClose={closeBfBanner} onExpire={expireBfBanner} />
+      ) : activeBanner ? (
+        <WorkspaceCollabBanner banner={activeBanner} />
+      ) : null}
+      {children}
+    </div>
+  );
 }
 
 function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery, onNavigate, openSettings, openTemplates }: {
@@ -605,9 +688,13 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
 }) {
   const { t } = useI18n();
   const { workspace, switchingDisabled } = useWorkspaceChrome();
-  const projects = workspace.projects;
+  const collab = useOptionalWorkspaceCollab();
+  const [scope, setScope] = useState<ProjectScopeFilter>('all');
+  const personalIds = new Set((collab?.snapshot?.workspaces ?? []).filter(w => w.workspaceType === 'personal').map(w => w.workspaceId));
+  const teamIds = new Set((collab?.snapshot?.workspaces ?? []).filter(w => w.workspaceType === 'team').map(w => w.workspaceId));
+  const projects = filterProjectsByScope(workspace.projects, scope, collab?.snapshot?.projectMeta, personalIds, teamIds);
   const filtered = projects.filter(project => project.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  const loadingProjects = !workspace.status && !workspace.error && projects.length === 0;
+  const loadingProjects = !workspace.status && !workspace.error && workspace.projects.length === 0;
   return <aside className="motion-sidebar" aria-label={t('Workspace navigation')}>
     <div className="motion-sidebar-brand">
       <strong className="om-subtitle">{t('Workspace')}</strong>
@@ -630,6 +717,7 @@ function WorkspaceSidebar({ archives, currentId, close, expand, query, setQuery,
       </div>
     </div>
     <label data-form-field="regular" className="motion-session-search"><MotionIcon name="search" /><FieldInput appearance="embedded" type="search" value={query} onChange={event => { if (searchStarted(query, event.target.value)) trackStudioClick('project_drawer', 'project_search', currentId); setQuery(event.target.value); }} placeholder={t('Search projects…')} aria-label={t('Search projects')} /></label>
+    <ProjectScopeTabs value={scope} onChange={setScope} />
     <nav className="motion-session-list" aria-label={t('Project list')} aria-busy={loadingProjects}>
       {loadingProjects && ['75%', '55%', '65%'].map(width => <div key={width} className="motion-session pointer-events-none" data-testid="project-list-skeleton" aria-hidden="true">
         <Skeleton style={{ width, height: 'var(--motion-space-16)' }} />

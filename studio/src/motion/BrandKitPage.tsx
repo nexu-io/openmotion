@@ -20,6 +20,7 @@ import { buildSuperAgentHandoff } from "../../../shared/capability-hub";
 import { useOptionalWorkspaceChrome } from "./WorkspaceChromeContext";
 import { BrandCatalogGallery } from "./BrandCatalogGallery";
 import { SettingsDialog } from "./settingsPrimitives";
+import { WorkspaceScopeNotice } from "./collab/WorkspaceScopeNotice";
 import { BrandKitDetail } from "./BrandKitDetail";
 import { GallerySearchField, GallerySortMenu } from "./GalleryFilters";
 import {
@@ -318,6 +319,7 @@ export function BrandKitPage({
         {collection === "official" ? <BrandCatalogGallery scrollRoot={root} onImport={importCatalog} onCreate={openCreate} busy={busy} previewsEnabled={previewsEnabled && !detailId} query={query} onQueryChange={setQuery} /> : <>
           <div className="om-gallery-toolbar"><div className="om-gallery-categories"><Button variant="plain" aria-pressed>{t('All')}</Button></div><div className="om-gallery-controls"><GallerySortMenu value={sort} options={[["newest", "Newest first"], ["oldest", "Oldest first"], ["name", "Name A–Z"]]} onChange={setSort} /></div></div>
           <div className="om-gallery-results">
+            <WorkspaceScopeNotice surface="brand-kits" />
             <div className="om-gallery-masonry" aria-busy={!kits && !error} aria-label={!kits && !error ? t('Loading Brand Kits') : undefined}>
               <GalleryIntro eyebrow={t('My brand kits')} title={t('Bring your brand into motion.')} count={t('{count} brand kits', { count: filtered.length })} disabled={busy || !filtered.some(kit => kit.state === 'ready')} onSurprise={surprise} submitLabel={t('Submit Brand Kit')} submitUrl={templateContributionUrl} createAction={{ label: t('New Brand Kit'), onClick: openCreate }} />
               {!kits && !error && Array.from({ length: 8 }, (_, key) => <div className="om-gallery-skeleton" key={key} aria-hidden="true"><Skeleton className="om-brand-loading" /></div>)}

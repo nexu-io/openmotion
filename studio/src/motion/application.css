@@ -1,6 +1,7 @@
 /* Application geometry; all presentation primitives come from the design system. */
 .om-application { --om-project-navigation-width: 200px; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 46px minmax(0, 1fr); height: 100%; width: 100%; min-height: 0; overflow: hidden; }
-.om-application[data-has-bf-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
+.om-application[data-has-bf-banner="true"],
+.om-application[data-has-top-banner="true"] { grid-template-rows: auto 46px minmax(0, 1fr); }
 .om-app-header { position: relative; z-index: 30; container-type: inline-size; grid-column: 1 / -1; display: flex; align-items: center; gap: var(--motion-space-16); padding: 0 var(--motion-space-8); min-width: 0; }
 .om-application > .motion-workspace { grid-column: 1; width: auto; height: auto; margin: 0 var(--motion-space-4) var(--motion-space-4); }
 .om-app-brand { display: flex; align-items: center; gap: var(--motion-space-8); flex: 0 0 auto; }
@@ -323,7 +324,7 @@
 [data-motion-studio] .om-application[data-host-chrome="true"] > .motion-workspace { border-radius: 0; box-shadow: none; border: 0; }
 
 /* Measure the actual space between the brand and tools, including in library dialogs. */
-.om-creative-navigation { flex: 1 1 0; min-width: 0; container: creative-nav / inline-size; }
+.om-creative-navigation { flex: 1 1 0; min-width: 0; overflow-x: clip; container: creative-nav / inline-size; }
 .om-gallery-header .om-creative-navigation { flex-basis: min(32%, 400px); }
 .om-creative-strip { position: relative; display: flex; align-items: center; gap: var(--motion-space-4); padding-block: var(--motion-space-2); }
 .om-app-header .om-creative-strip { justify-content: center; }
@@ -620,6 +621,9 @@
 @container (max-width: 560px) {
   .om-app-header-links { display: none; }
   .om-app-header-actions { gap: var(--motion-space-2); }
+}
+@media (max-width: 600px) {
+  .om-app-header { gap: var(--motion-space-6); padding-inline: var(--motion-space-6); }
 }
 @media (max-width: 420px) {
   .om-app-header { gap: var(--motion-space-4); padding-inline: var(--motion-space-6); }

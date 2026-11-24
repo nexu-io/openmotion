@@ -12,6 +12,8 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
 import { SettingsDialog } from './settingsPrimitives';
+import { useOptionalWorkspaceCollab } from './WorkspaceCollabContext';
+import { ProjectScopeTabs, filterProjectsByScope, type ProjectScopeFilter } from './collab/ProjectScopeTabs';
 import { motionApi, type useWorkspace } from './useWorkspace';
 import { PROJECT_ARCHIVE_LIMITS, PROJECT_ARCHIVE_VALIDATION_UNAVAILABLE } from '../../../shared/project-archive';
 import type { ProjectLocation, ProjectManagementInput } from '../../../shared/project-management';
@@ -48,6 +50,7 @@ export function useProjectArchives(workspace: Workspace, waitForSaves: () => Pro
   const [opened, setOpened] = useState(false);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState<'projects' | 'trash'>('projects');
+  const [scope, setScope] = useState<ProjectScopeFilter>('all');
   const [selection, setSelection] = useState<Set<string>>(() => new Set());
   const [deleteDraft, setDeleteDraft] = useState<{ projects: ProjectTarget[]; returnFocus?: HTMLElement | null } | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -216,11 +219,6 @@ export function useProjectArchives(workspace: Workspace, waitForSaves: () => Pro
   const locked = disabled || Boolean(busy);
   const actions: ProjectMenuActions = { locked, exportProject, beginRename, projectAction };
   const catalog = tab === 'trash' ? workspace.trashedProjects : workspace.projects;
-  const filter = query.trim().toLocaleLowerCase();
-  const visible = catalog.filter(project => project.title.toLocaleLowerCase().includes(filter));
-  const selected = catalog.filter(project => selection.has(project.id)).map(({ id, title }) => ({ projectId: id, title }));
-  const visibleSelected = visible.filter(project => selection.has(project.id)).length;
-  const allVisibleSelected = visible.length > 0 && visibleSelected === visible.length;
   const toggleSelection = (ids: string[], checked: boolean) => setSelection(previous => {
     const next = new Set(previous);
     for (const id of ids) { if (checked) next.add(id); else next.delete(id); }
@@ -233,51 +231,28 @@ export function useProjectArchives(workspace: Workspace, waitForSaves: () => Pro
     }} />
     <StudioToastViewport {...toast} />
     {opened && <SettingsDialog title={t('All projects')} className="om-project-manager-dialog" onClose={() => setOpened(false)} returnFocus={returnFocus.current}>
-      <Tabs value={tab} onValueChange={value => { tracking.reportProjectsClick('manager_tab', { manager_tab: value === 'trash' ? 'trash' : 'projects' }); setTab(value as typeof tab); setSelection(new Set()); setQuery(''); }} className="om-project-manager">
-        <div className="om-project-manager-toolbar">
-          <TabsList aria-label={t('All projects')}><Tab value="projects">{t('Projects')}</Tab><Tab value="trash">{t('Trash')}</Tab></TabsList>
-          {tab === 'projects' && <div className="om-settings-actions">
-            <Button variant="ghost" className="om-button h-auto" data-primary disabled={locked} onClick={() => { tracking.reportProjectsClick('import_projects'); chooseImport(); }}><RemixIcon name="upload-2-line" size={16} />{t(busy === 'import' ? 'Importing…' : 'Import projects')}</Button>
-            <Popover modal={false} align="end" aria-label={t('Import help')} className="om-project-import-help"
-              trigger={<IconButton variant="ghost" type="button" className="motion-icon-button" aria-label={t('Import help')} icon={<RemixIcon name="question-line" size={18} />} />}>
-              <h3 className="om-subtitle">{t('Start with a HyperFrames project')}</h3>
-              <p className="om-muted">{t('Zip your HyperFrames project folder with its source and local assets, then choose Import projects to continue editing in OpenMotion.')}</p>
-              <p className="om-muted">{t('OpenMotion or HyperFrames ZIP · Up to 500 MB. Local assets are included; linked online resources still need the internet.')}</p>
-            </Popover>
-          </div>}
-        </div>
-        <TabPanel key={tab} value={tab} className="om-project-manager-panel">
-          <label className="om-field"><RemixIcon name="search-line" size={16} /><input type="search" aria-label={t('Search all projects')} placeholder={t('Search projects…')} value={query} onChange={event => setQuery(event.target.value)} /></label>
-          <div className="om-project-manager-toolbar om-project-selection">
-            <div className="om-settings-actions">
-              <Checkbox aria-label={t('Select visible projects')} checked={allVisibleSelected} mixed={visibleSelected > 0 && !allVisibleSelected} disabled={locked || !visible.length} onCheckedChange={checked => toggleSelection(visible.map(project => project.id), checked)} />
-              <span className="om-muted" aria-live="polite">{t('{count} selected', { count: selected.length })}</span>
-              {selected.length > 0 && <Button variant="ghost" size="sm" disabled={locked} onClick={() => setSelection(new Set())}>{t('Clear project selection')}</Button>}
-            </div>
-            <div className="om-settings-actions">
-              {tab === 'projects' ? <>
-                <Button variant="ghost" className="om-button h-auto" disabled={locked || !catalog.length} onClick={() => { tracking.reportProjectsClick('export_projects', { selection_count: selected.length }); void exportProjects(selected.length ? selected.map(project => project.projectId) : undefined); }}>{t(busy === 'export' ? 'Exporting…' : selected.length ? 'Export selected' : 'Export all projects')}</Button>
-                <Button variant="ghost" className="om-button h-auto" disabled={locked || !selected.length} onClick={() => void runLifecycle('trash', selected)}>{t('Move to trash')}</Button>
-              </> : <>
-                <Button variant="ghost" className="om-button h-auto" disabled={locked || !selected.length} onClick={() => void runLifecycle('restore', selected)}>{t('Restore')}</Button>
-                <Button variant="danger" disabled={locked || !selected.length} onClick={event => setDeleteDraft({ projects: selected, returnFocus: event.currentTarget })}>{t('Delete permanently')}</Button>
-              </>}
-            </div>
-          </div>
-          <div className="om-project-manager-list" aria-label={t(tab === 'trash' ? 'Trash' : 'Project list')} aria-busy={loading || Boolean(busy)}>
-            {loading && [0, 1, 2].map(id => <Skeleton key={id} style={{ height: 'var(--motion-control)' }} />)}
-            {workspace.error && !catalog.length && !workspace.status ? <div className="om-empty"><p className="om-muted">{t('Check your connection and try again.')}</p><Button variant="ghost" className="om-button h-auto" onClick={workspace.retryConnection}>{t('Retry')}</Button></div>
-              : !loading && !visible.length && <p className="om-muted">{t(filter ? 'No matching projects' : tab === 'trash' ? 'Trash is empty' : 'Create a project with your Agent to start editing.')}</p>}
-            {visible.map(project => <div className="om-project-manager-row om-nav-row" key={project.id} data-active={tab === 'projects' && workspace.status?.projectId === project.id}>
-              <Checkbox aria-label={t('Select {title}', { title: project.title })} checked={selection.has(project.id)} disabled={locked} onCheckedChange={checked => toggleSelection([project.id], checked)} />
-              {tab === 'projects'
-                ? <Button variant="plain" className="om-nav-item om-nav-row-link" disabled={locked} onClick={() => { void workspace.open('projects', project.id).then(open => { if (open) setOpened(false); }); }}><span className="truncate">{project.title}</span></Button>
-                : <span className="om-project-trashed-label truncate" title={project.title}>{project.title}</span>}
-              <ProjectArchiveMenu projectId={project.id} title={project.title} trashed={tab === 'trash'} archives={actions} />
-            </div>)}
-          </div>
-        </TabPanel>
-      </Tabs>
+      <ProjectManagerTabsBody
+        tab={tab}
+        setTab={setTab}
+        scope={scope}
+        setScope={setScope}
+        query={query}
+        setQuery={setQuery}
+        selection={selection}
+        setSelection={setSelection}
+        toggleSelection={toggleSelection}
+        catalog={catalog}
+        loading={loading}
+        busy={busy}
+        locked={locked}
+        workspace={workspace}
+        actions={actions}
+        chooseImport={chooseImport}
+        exportProjects={exportProjects}
+        runLifecycle={runLifecycle}
+        setOpened={setOpened}
+        setDeleteDraft={setDeleteDraft}
+      />
       {deleteDraft && <SettingsDialog title={t('Delete permanently?')} onClose={() => setDeleteDraft(null)} returnFocus={deleteDraft.returnFocus}>
         <div className="om-project-edit-form">
           <p className="om-muted">{deleteDraft.projects.length === 1
@@ -299,10 +274,232 @@ export function useProjectArchives(workspace: Workspace, waitForSaves: () => Pro
 }
 
 export type ProjectArchiveActions = ReturnType<typeof useProjectArchives>;
+
+function ProjectManagerTabsBody({
+  tab,
+  setTab,
+  scope,
+  setScope,
+  query,
+  setQuery,
+  selection,
+  setSelection,
+  toggleSelection,
+  catalog,
+  loading,
+  busy,
+  locked,
+  workspace,
+  actions,
+  chooseImport,
+  exportProjects,
+  runLifecycle,
+  setOpened,
+  setDeleteDraft,
+}: {
+  tab: 'projects' | 'trash';
+  setTab: (next: 'projects' | 'trash') => void;
+  scope: ProjectScopeFilter;
+  setScope: (next: ProjectScopeFilter) => void;
+  query: string;
+  setQuery: (next: string) => void;
+  selection: Set<string>;
+  setSelection: (next: Set<string>) => void;
+  toggleSelection: (ids: string[], checked: boolean) => void;
+  catalog: Array<{ id: string; title: string }>;
+  loading: boolean;
+  busy: string | null;
+  locked: boolean;
+  workspace: Workspace;
+  actions: ProjectMenuActions;
+  chooseImport: () => void;
+  exportProjects: (projectIds?: string[]) => Promise<void>;
+  runLifecycle: (action: LifecycleAction, projects: ProjectTarget[]) => Promise<void> | undefined;
+  setOpened: (open: boolean) => void;
+  setDeleteDraft: (draft: { projects: ProjectTarget[]; returnFocus?: HTMLElement | null } | null) => void;
+}) {
+  const { t } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
+  const personalIds = new Set(
+    (collab?.snapshot?.workspaces ?? []).filter(w => w.workspaceType === 'personal').map(w => w.workspaceId),
+  );
+  const teamIds = new Set(
+    (collab?.snapshot?.workspaces ?? []).filter(w => w.workspaceType === 'team').map(w => w.workspaceId),
+  );
+  const scopedCatalog =
+    tab === 'projects'
+      ? filterProjectsByScope(catalog, scope, collab?.snapshot?.projectMeta, personalIds, teamIds)
+      : catalog;
+  const filter = query.trim().toLocaleLowerCase();
+  const visible = scopedCatalog.filter(project => project.title.toLocaleLowerCase().includes(filter));
+  const selected = catalog.filter(project => selection.has(project.id)).map(({ id, title }) => ({ projectId: id, title }));
+  const visibleSelected = visible.filter(project => selection.has(project.id)).length;
+  const allVisibleSelected = visible.length > 0 && visibleSelected === visible.length;
+
+  return (
+    <Tabs
+      value={tab}
+      onValueChange={value => {
+        tracking.reportProjectsClick('manager_tab', { manager_tab: value === 'trash' ? 'trash' : 'projects' });
+        setTab(value as typeof tab);
+        setSelection(new Set());
+        setQuery('');
+      }}
+      className="om-project-manager"
+    >
+      <div className="om-project-manager-toolbar">
+        <TabsList aria-label={t('All projects')}>
+          <Tab value="projects">{t('Projects')}</Tab>
+          <Tab value="trash">{t('Trash')}</Tab>
+        </TabsList>
+        {tab === 'projects' && (
+          <div className="om-settings-actions">
+            <Button
+              variant="ghost"
+              className="om-button h-auto"
+              data-primary
+              disabled={locked}
+              onClick={() => {
+                tracking.reportProjectsClick('import_projects');
+                chooseImport();
+              }}
+            >
+              <RemixIcon name="upload-2-line" size={16} />
+              {t(busy === 'import' ? 'Importing…' : 'Import projects')}
+            </Button>
+            <Popover
+              modal={false}
+              align="end"
+              aria-label={t('Import help')}
+              className="om-project-import-help"
+              trigger={
+                <IconButton
+                  variant="ghost"
+                  type="button"
+                  className="motion-icon-button"
+                  aria-label={t('Import help')}
+                  icon={<RemixIcon name="question-line" size={18} />}
+                />
+              }
+            >
+              <h3 className="om-subtitle">{t('Start with a HyperFrames project')}</h3>
+              <p className="om-muted">{t('Zip your HyperFrames project folder with its source and local assets, then choose Import projects to continue editing in OpenMotion.')}</p>
+              <p className="om-muted">{t('OpenMotion or HyperFrames ZIP · Up to 500 MB. Local assets are included; linked online resources still need the internet.')}</p>
+            </Popover>
+          </div>
+        )}
+      </div>
+      <TabPanel key={tab} value={tab} className="om-project-manager-panel">
+        {tab === 'projects' && <ProjectScopeTabs value={scope} onChange={setScope} />}
+        <label className="om-field">
+          <RemixIcon name="search-line" size={16} />
+          <input
+            type="search"
+            aria-label={t('Search all projects')}
+            placeholder={t('Search projects…')}
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+          />
+        </label>
+        <div className="om-project-manager-toolbar om-project-selection">
+          <div className="om-settings-actions">
+            <Checkbox
+              aria-label={t('Select visible projects')}
+              checked={allVisibleSelected}
+              mixed={visibleSelected > 0 && !allVisibleSelected}
+              disabled={locked || !visible.length}
+              onCheckedChange={checked => toggleSelection(visible.map(project => project.id), checked)}
+            />
+            <span className="om-muted" aria-live="polite">{t('{count} selected', { count: selected.length })}</span>
+            {selected.length > 0 && (
+              <Button variant="ghost" size="sm" disabled={locked} onClick={() => setSelection(new Set())}>
+                {t('Clear project selection')}
+              </Button>
+            )}
+          </div>
+          <div className="om-settings-actions">
+            {tab === 'projects' ? (
+              <>
+                <Button
+                  variant="ghost"
+                  className="om-button h-auto"
+                  disabled={locked || !catalog.length}
+                  onClick={() => {
+                    tracking.reportProjectsClick('export_projects', { selection_count: selected.length });
+                    void exportProjects(selected.length ? selected.map(project => project.projectId) : undefined);
+                  }}
+                >
+                  {t(busy === 'export' ? 'Exporting…' : selected.length ? 'Export selected' : 'Export all projects')}
+                </Button>
+                <Button variant="ghost" className="om-button h-auto" disabled={locked || !selected.length} onClick={() => void runLifecycle('trash', selected)}>
+                  {t('Move to trash')}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" className="om-button h-auto" disabled={locked || !selected.length} onClick={() => void runLifecycle('restore', selected)}>
+                  {t('Restore')}
+                </Button>
+                <Button variant="danger" disabled={locked || !selected.length} onClick={event => setDeleteDraft({ projects: selected, returnFocus: event.currentTarget })}>
+                  {t('Delete permanently')}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="om-project-manager-list" aria-label={t(tab === 'trash' ? 'Trash' : 'Project list')} aria-busy={loading || Boolean(busy)}>
+          {loading && [0, 1, 2].map(id => <Skeleton key={id} style={{ height: 'var(--motion-control)' }} />)}
+          {workspace.error && !catalog.length && !workspace.status ? (
+            <div className="om-empty">
+              <p className="om-muted">{t('Check your connection and try again.')}</p>
+              <Button variant="ghost" className="om-button h-auto" onClick={workspace.retryConnection}>{t('Retry')}</Button>
+            </div>
+          ) : (
+            !loading && !visible.length && <p className="om-muted">{t(filter ? 'No matching projects' : tab === 'trash' ? 'Trash is empty' : 'Create a project with your Agent to start editing.')}</p>
+          )}
+          {visible.map(project => (
+            <div className="om-project-manager-row om-nav-row" key={project.id} data-active={tab === 'projects' && workspace.status?.projectId === project.id}>
+              <Checkbox
+                aria-label={t('Select {title}', { title: project.title })}
+                checked={selection.has(project.id)}
+                disabled={locked}
+                onCheckedChange={checked => toggleSelection([project.id], checked)}
+              />
+              {tab === 'projects' ? (
+                <Button
+                  variant="plain"
+                  className="om-nav-item om-nav-row-link"
+                  disabled={locked}
+                  onClick={() => {
+                    void workspace.open('projects', project.id).then(open => {
+                      if (open) setOpened(false);
+                    });
+                  }}
+                >
+                  <span className="truncate">{project.title}</span>
+                </Button>
+              ) : (
+                <span className="om-project-trashed-label truncate" title={project.title}>{project.title}</span>
+              )}
+              <ProjectArchiveMenu projectId={project.id} title={project.title} trashed={tab === 'trash'} archives={actions} />
+            </div>
+          ))}
+        </div>
+      </TabPanel>
+    </Tabs>
+  );
+}
 export function ProjectArchiveMenu({ projectId, title, trashed = false, archives }: { projectId: string; title: string; trashed?: boolean; archives: ProjectMenuActions }) {
   const { t } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
   const trigger = useRef<HTMLButtonElement>(null);
   const revealLabel = /Mac/i.test(navigator.platform) ? 'Reveal in Finder' : /Win/i.test(navigator.platform) ? 'Show in File Explorer' : 'Show in file manager';
+  const activeTeams = (collab?.snapshot?.workspaces ?? []).filter(
+    w => w.workspaceType === 'team' && w.memberStatus === 'active' && w.lifecycleState === 'active',
+  );
+  const currentWsId = collab?.snapshot?.projectMeta[projectId]?.workspaceId;
+  const inTeamWorkspace = Boolean(currentWsId && activeTeams.some(team => team.workspaceId === currentWsId));
+  const canMoveToTeam = Boolean(collab?.snapshot?.signedIn && activeTeams.length > 0 && !inTeamWorkspace);
   return <Menu modal={false} align="end" presentation="panel" aria-label={t('Actions for {title}', { title })} trigger={<IconButton variant="plain" ref={trigger} type="button" className="motion-icon-button om-nav-row-action" disabled={archives.locked} aria-label={t('Actions for {title}', { title })} icon={<RemixIcon name="more-2-line" size={16} />} />}>
     {trashed ? <>
       <MenuItem icon={<RemixIcon name="history-line" size={14} />} onClick={() => void archives.projectAction('restore', projectId, title)}>{t('Restore project')}</MenuItem>
@@ -313,6 +510,9 @@ export function ProjectArchiveMenu({ projectId, title, trashed = false, archives
       <MenuItem icon={<RemixIcon name="download-2-line" size={14} />} onClick={() => void archives.exportProject(projectId)}>{t('Export project')}</MenuItem>
       <MenuItem icon={<RemixIcon name="folder-open-line" size={14} />} onClick={() => void archives.projectAction('reveal', projectId, title)}>{t(revealLabel)}</MenuItem>
       <MenuItem icon={<RemixIcon name="clipboard-line" size={14} />} onClick={() => void archives.projectAction('info', projectId, title)}>{t('Copy path')}</MenuItem>
+      {canMoveToTeam && (
+        <MenuItem icon={<RemixIcon name="group-line" size={14} />} onClick={() => collab?.requestMoveToTeam({ id: projectId, title })}>{t('Move to team')}</MenuItem>
+      )}
       <MenuItem icon={<RemixIcon name="delete-bin-line" size={14} />} tone="danger" onClick={() => void archives.projectAction('trash', projectId, title)}>{t('Move to trash')}</MenuItem>
     </>}
   </Menu>;

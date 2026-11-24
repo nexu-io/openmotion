@@ -14,6 +14,10 @@ import { useAccountSummary } from '../motion/AccountSettings';
 import { gatewayRequest } from '../motion/gatewayClient';
 import { notifyProvidersChanged } from '../motion/useProviderDirectory';
 import { Popover } from './ui/Popover';
+import { Select } from './ui/Select';
+import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
+import { CommentSyncBanner } from '../motion/collab/CommentSyncBanner';
+import type { ProjectVisibility } from '../../../shared/workspace-collab';
 import { WebPublishApiError, webPublishClient } from './webPublishClient';
 import './webPublishPopover.css';
 
@@ -98,6 +102,7 @@ export function WebPublishPopover({
   onOpenAccount,
 }: WebPublishPopoverProps) {
   const { t } = useI18n();
+  const collab = useOptionalWorkspaceCollab();
   const [open, setOpen] = useState(false);
   const { account, refresh: refreshAccount, setAccount } = useAccountSummary({ eager: !lazy });
   const [status, setStatus] = useState<WebPublishStatusResponse | null>(null);
@@ -187,6 +192,7 @@ export function WebPublishPopover({
 
       const published = await webPublishClient.publish(targetKind, targetId, {
         filePath,
+        workspaceId: collab?.snapshot?.activeWorkspace?.workspaceId,
         sourcePath,
         embedUrl,
         deployMode: op,
@@ -610,6 +616,51 @@ export function WebPublishPopover({
           </span>
         </div>
       )}
+
+      {signedIn && (() => {
+        const snap = collab?.snapshot;
+        const activeWs = snap?.activeWorkspace;
+        const projectWsId = snap?.projectMeta[targetId]?.workspaceId;
+        const teamWs =
+          (projectWsId && snap?.workspaces.find(w => w.workspaceId === projectWsId && w.workspaceType === 'team')) ||
+          (activeWs?.workspaceType === 'team' ? activeWs : null);
+        if (!collab || !teamWs) return null;
+        const visibility: ProjectVisibility = snap?.projectMeta[targetId]?.visibility ?? 'workspace';
+        return (
+          <div className="om-web-publish-collab-section" data-testid="share-workspace-collab">
+            <div className="om-web-publish-row-text">
+              <strong>{t('Workspace access')}</strong>
+              <span>{t('Control whether teammates in {team} can view and collaborate.', { team: teamWs.workspaceName })}</span>
+            </div>
+            <div className="om-web-publish-collab-row">
+              <Select
+                label={t('Workspace access')}
+                value={visibility}
+                options={[
+                  { value: 'workspace', label: t('Workspace members ({team})', { team: teamWs.workspaceName }) },
+                  { value: 'private', label: t('Only you') },
+                ]}
+                onCommit={next => void collab.setProjectVisibility(targetId, next as ProjectVisibility)}
+              />
+              {snap?.permissions.canInviteMembers && (
+                <Button
+                  variant="plain"
+                  type="button"
+                  className="om-collab-tonal-btn"
+                  onClick={() => {
+                    setOpen(false);
+                    collab.setInviteDialogOpen(true);
+                  }}
+                >
+                  <RemixIcon name="group-line" size={13} />
+                  <span>{t('Invite')}</span>
+                </Button>
+              )}
+            </div>
+            <CommentSyncBanner projectId={targetId} compact />
+          </div>
+        );
+      })()}
     </Popover>
   );
 }
