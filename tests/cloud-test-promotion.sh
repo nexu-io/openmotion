@@ -10,7 +10,7 @@ cd "$tmp/build"
 git config user.name test
 git config user.email test@example.invalid
 git remote add origin "$tmp/origin.git"
-export GITHUB_REF=refs/heads/feat/cloud-container-p1
+export GITHUB_REF=refs/heads/main
 export GITHUB_STEP_SUMMARY="$tmp/summary"
 release=refs/heads/deploy/openmotion-test
 release_head() { git --git-dir="$tmp/origin.git" rev-parse "$release"; }

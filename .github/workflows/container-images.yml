@@ -8,33 +8,6 @@ on:
         description: "Also update the :latest tag (allowed only on main after CI 'standalone' passes)"
         type: boolean
         default: false
-  push:
-    branches:
-      - main
-    paths:
-      - .dockerignore
-      - deploy/Dockerfile
-      - package.json
-      - package-lock.json
-      - src/**
-      - shared/**
-      - gateway/**
-      - tracking/**
-      - studio/**
-      - skills/**
-      - packages/**
-      - templates/**
-      - web/**
-      - mcp-ui/**
-      - library/**
-      - template-library/**
-      - scripts/**
-      - docs/transcripts.md
-      - hyperframes.ts
-      - server.ts
-      - template-library.ts
-      - LICENSE
-      - .github/workflows/container-images.yml
 
 permissions: {}
 
@@ -229,7 +202,7 @@ jobs:
             org.opencontainers.image.title=${{ matrix.title }}
 
       - name: Record the test image digest
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat/cloud-container-p1'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         env:
           IMAGE_REF: ${{ steps.tags.outputs.image_ref }}
           IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
@@ -240,7 +213,7 @@ jobs:
           docker buildx imagetools inspect "${IMAGE_REF}@${IMAGE_DIGEST}" --raw > "$RUNNER_TEMP/${TARGET}.manifest.json"
 
       - name: Upload the test image digest
-        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat/cloud-container-p1'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v7.0.2
         with:
           name: test-digest-${{ matrix.target }}

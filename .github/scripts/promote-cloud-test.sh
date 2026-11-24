@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-source_ref=refs/heads/feat/cloud-container-p1
+source_ref=refs/heads/main
 release_ref=refs/heads/deploy/openmotion-test
 digests=$1
 

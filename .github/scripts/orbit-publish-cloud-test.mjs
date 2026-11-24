@@ -5,7 +5,7 @@ import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_SOURCE_REF = "refs/heads/feat/cloud-container-p1";
+const DEFAULT_SOURCE_REF = "refs/heads/main";
 const ORBIT_APP = "openmotion";
 const ORBIT_ENVIRONMENT = "test";
 const RELEASE_ID_PATTERN = /^rel_[A-Za-z0-9_-]{1,80}$/;

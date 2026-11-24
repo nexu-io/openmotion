@@ -51,7 +51,7 @@ function baseEnv(overrides = {}) {
 	return {
 		ORBIT_API_URL: TEST_ORBIT_API_URL,
 		ORBIT_OPENMOTION_BUILD_TOKEN: "orbit-build-token",
-		GITHUB_REF: "refs/heads/feat/cloud-container-p1",
+		GITHUB_REF: "refs/heads/main",
 		GITHUB_SHA: SOURCE_SHA,
 		GITHUB_REPOSITORY: "nexu-io/openmotion",
 		GITHUB_REPOSITORY_OWNER: "Nexu-IO",
@@ -127,7 +127,7 @@ test("publishes all four image digests and manifests to /api/automation/v1/publi
 			app: "openmotion",
 			environment: "test",
 			sourceSha: SOURCE_SHA,
-			sourceRef: "feat/cloud-container-p1",
+			sourceRef: "main",
 			buildId: "nexu-io/openmotion:4492881234.2",
 			buildUrl: "https://github.com/nexu-io/openmotion/actions/runs/4492881234",
 			artifact: {
@@ -453,10 +453,10 @@ test("rejects tampered manifests, missing artifacts, wrong branch or endpoint, 4
 		await assert.rejects(
 			() =>
 				buildOpenMotionOrbitPayload(
-					baseEnv({ GITHUB_REF: "refs/heads/main" }),
+					baseEnv({ GITHUB_REF: "refs/heads/feat/cloud-container-p1" }),
 					dir,
 				),
-			/feat\/cloud-container-p1/,
+			/refs\/heads\/main/,
 		);
 
 		let nonRetryCalls = 0;
@@ -552,7 +552,13 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 		new URL("../.github/workflows/deploy-cloud-test.yml", import.meta.url),
 		"utf8",
 	);
-	assert.match(releaseWorkflow, /branches:\s*\[feat\/cloud-container-p1\]/);
+	assert.match(releaseWorkflow, /branches:\s*\[main\]/);
+	for (const jobName of ["checks", "images", "promote"]) {
+		assert.match(
+			extractJobBlock(releaseWorkflow, jobName),
+			/\n    if:.*github\.ref == 'refs\/heads\/main'/,
+		);
+	}
 	const promoteJob = extractJobBlock(releaseWorkflow, "promote");
 	assert.match(promoteJob, PROMOTE_ENV_PATTERN);
 	assert.match(promoteJob, /\n    needs:\s*\[checks,\s*images\]/);
@@ -607,6 +613,11 @@ test("release and container image workflows wire CI + 4-image gate, manifests, a
 		new URL("../.github/workflows/container-images.yml", import.meta.url),
 		"utf8",
 	);
+	assert.doesNotMatch(imagesWorkflow, /^  push:\s*$/m);
+	const digestIfMatches = imagesWorkflow.match(
+		/^\s+if:.*github\.ref == 'refs\/heads\/main'$/gm,
+	);
+	assert.equal(digestIfMatches?.length, 2);
 	assert.match(imagesWorkflow, /full_sha_tag="sha-\$\{GITHUB_SHA\}"/);
 	assert.match(imagesWorkflow, /\$\{image_ref\}:\$\{FULL_SHA_TAG\}/);
 	assert.match(
