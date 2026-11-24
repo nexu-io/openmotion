@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { isCloudError } from '../contracts/errors.ts';
 import type { AppConfig } from '../infra/config.ts';
@@ -1094,13 +1094,26 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       const targetPath = resolveSafeUpgradeTargetPath(c.req.query('targetPath'), attributionParams);
       const parsedReqUrl = new URL(c.req.url);
       const expectedAppUserIdParam = c.req.query('expectedAppUserId')?.trim() || null;
-      const requireAuth = c.req.query('requireAuth') === '1' || Boolean(expectedAppUserIdParam);
+      const expectedSessionParam = c.req.query('expectedSession')?.trim() || null;
+      const requireAuth =
+        c.req.query('requireAuth') === '1' ||
+        Boolean(expectedAppUserIdParam) ||
+        Boolean(expectedSessionParam);
 
       const cookies = parseCookies(c.req.header('cookie'));
       const rawSession = cookies[SESSION_COOKIE_NAME];
+      const signUpgradeSessionBinding = (sessionToken: string): string =>
+        createHmac('sha256', trackingAttestationSecret)
+          .update(`upgrade-retry:${sha256Hex(sessionToken)}`)
+          .digest('base64url')
+          .slice(0, 32);
       const buildBoundRetryPath = (boundAppUserId?: string | null): string => {
         const retryUrl = new URL(parsedReqUrl.toString());
         retryUrl.searchParams.set('requireAuth', '1');
+        const effectiveSessionSig = expectedSessionParam || (rawSession ? signUpgradeSessionBinding(rawSession) : null);
+        if (effectiveSessionSig) {
+          retryUrl.searchParams.set('expectedSession', effectiveSessionSig);
+        }
         const effectiveExpected = boundAppUserId?.trim() || expectedAppUserIdParam;
         if (effectiveExpected) {
           retryUrl.searchParams.set('expectedAppUserId', effectiveExpected);
@@ -1122,7 +1135,7 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       };
 
       if (!rawSession) {
-        // Bound retries (requireAuth=1 or expectedAppUserId set) MUST NEVER fall back to
+        // Bound retries (requireAuth=1, expectedSession, or expectedAppUserId) MUST NEVER fall back to
         // unbound guest Pricing when the session cookie disappears before retry.
         if (requireAuth) {
           return c.json(
@@ -1145,6 +1158,18 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
             error: 'Authentication is required for this upgrade handoff target.',
           },
           401,
+        );
+      }
+
+      // Enforce cryptographic binding to the originating session BEFORE touching DB/AMR so a
+      // pre-enrichment 503 retry can NEVER switch billing to a different Motion account.
+      if (expectedSessionParam && !timingSafeStringEqual(expectedSessionParam, signUpgradeSessionBinding(rawSession))) {
+        return c.json(
+          {
+            code: 'ACCOUNT_MISMATCH',
+            error: 'Your signed-in session changed before retrying upgrade. Please reopen Pricing from the active account.',
+          },
+          409,
         );
       }
 
