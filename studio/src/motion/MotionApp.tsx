@@ -57,7 +57,6 @@ function MotionAppContent() {
   }, [ready]);
   const [error, setError] = useState('');
   const [attempt, retry] = useState(0);
-  const surface = useRef<HTMLDivElement>(null);
   const onNavigate = useCallback((targetHref?: string, opened?: WorkspaceRoute) => {
     const target = targetHref ? new URL(targetHref, location.origin) : new URL(location.href);
     const nextPage = readWorkspacePage(target.search, target.hash, target.pathname);
@@ -119,7 +118,7 @@ function MotionAppContent() {
   return <WorkspaceFrame waitForSaves={noPendingSaves} projectId={ready?.artifact?.projectId ?? (error ? undefined : projectId ?? undefined)}
     sessionId={libraryOnly ? undefined : ready?.sessionId ?? sessionId ?? undefined} onNavigate={onNavigate}
     blocked={shellLoading} onLibraryClose={libraryOnly ? closeLibrary : undefined}>
-    <div ref={surface} className="motion-project-surface">
+    <div className="motion-project-surface">
       <EditorOpeningGateHost
         shellLoading={shellLoading}
         suppressed={Boolean(error) || libraryOnly || settingsPage}

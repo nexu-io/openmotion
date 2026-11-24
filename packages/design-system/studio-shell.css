@@ -78,7 +78,6 @@
   background: var(--motion-accent);
   -webkit-mask: url("./brand/loading-mark.svg") center / contain no-repeat;
   mask: url("./brand/loading-mark.svg") center / contain no-repeat;
-  animation: motion-opening-mark-breathe var(--motion-duration-loading) var(--motion-ease-standard) infinite alternate;
 }
 .motion-editor-cover-label {
   margin: 0;
@@ -97,17 +96,9 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-@keyframes motion-opening-mark-breathe {
-  from { opacity: 0.92; transform: scale(1); }
-  to { opacity: 0.42; transform: scale(0.92); }
-}
 @media (prefers-reduced-motion: reduce) {
   .motion-editor-cover {
     transition: none;
-  }
-  .motion-editor-cover-mark {
-    opacity: 0.9;
-    animation: none;
   }
   .motion-editor-cover-escape {
     animation: none;

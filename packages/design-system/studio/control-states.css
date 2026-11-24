@@ -1,10 +1,6 @@
 /* One interaction palette for editor chrome; authored content and catalogs keep
    their own presentation. Scope by document so preview iframes are unaffected. */
 
-.motion-editor-placeholder { background: var(--motion-panel); }
-.motion-editor-placeholder-header, .motion-editor-placeholder-timeline { border-top: 1px solid var(--motion-border); }
-.motion-editor-placeholder-panels > div + div { border-left: 1px solid var(--motion-border); }
-
 /* Frame-sized comment hit targets keep only their focus outline; a button
    surface would hide the authored frame during hover or keyboard focus. */
 :root[data-motion-ui][data-motion-studio] :is(button, [role="button"], [role="tab"], [role="combobox"], [role="option"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], .motion-community-link):not(:where([data-form-control="boxed"], .om-disclosure-row-label, .om-sound-waveform-btn, .om-sound-row-info-btn, .om-sound-voice-select, .om-sound-voice-preview, [data-menu-panel] [role="option"], .dv-tab:has(.hf-dock-tab:is([data-panel-zone="left"], [data-panel-zone="right"])), [data-fullscreen-playback-surface], .connection-dialog *, .connect-preview-dialog *, .motion-library *, [data-motion-catalog] *, .om-media-quick-add, .om-primary-navigation-button, [data-review-comment-canvas], .timeline-clip, .timeline-clip *, .dv-tabs-container:not(:has(> .dv-tab ~ .dv-tab)) > .dv-tab:has([data-preview-heading]))) {
