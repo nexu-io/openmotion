@@ -97,7 +97,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
         const confirmed = projected ? confirmedSource(project, path) : source;
         const { canReplayCanvasCommands } = await import('./canvasReplay');
         if (!ordered || !original || !confirmed ||
-            !canReplayCanvasCommands(commands.filter(command => command.compositionPath === path), original.content, confirmed.content)) {
+            !await canReplayCanvasCommands(commands.filter(command => command.compositionPath === path), original.content, confirmed.content)) {
           reconcileFileEdit(project, path, source.version);
           throw staleSource(path, source, predicted?.(path) ?? '');
         }
