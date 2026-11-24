@@ -34,6 +34,9 @@ it('keeps placement on assembled CSS-only scenes and preserves script and unreso
   assert.deepEqual(large.smallMountedSources, ['child.html']);
   assert.deepEqual(cssOnly.liveEdits, { position: true });
   assert.ok(!cssOnly.canRebindTiming);
+  const scripted = await previewConfig({ 'index.html': entry, 'child.html': child('<script>observe()</script>') });
+  assert.deepEqual(scripted.smallMountedSources, ['child.html']);
+  assert.equal(scripted.liveEdits?.position, undefined);
   const digest = createHash('sha256').update(JSON.stringify('mediaTiming')).digest('hex');
   const declared = entry.replace('<head>', `<head><meta name="openmotion-live-edits" content="mediaTiming" data-scripts-sha256="${digest}">`);
   const withMedia = await previewConfig({ 'index.html': declared, 'child.html': child() });

@@ -593,7 +593,7 @@ async function applyStudioPreviewAugmentations(
     }
     const tags = bridgeDocumentTags(options.bridgeOrigin, project.projectId, activeCompositionPath, versions(), {
       studioOrigin: options.studioOrigin, canRebindTiming: options.canRebindTiming, htmlSources: options.htmlSources, liveEdits,
-      smallMountedSources: liveEdits?.position ? options.smallMountedSources : undefined,
+      smallMountedSources: options.smallMountedSources,
     });
     const snapdomPreload = options.capture
       ? `<link rel="preload" as="script" href="${new URL('/api/vendor/snapdom.js', options.bridgeOrigin).href}">`

@@ -2,7 +2,7 @@ import { indexGroupMembers, stageGroupChange } from "../../../shared/preview-gro
 import { isLiveMediaMove } from '../../../shared/preview-live-media.ts';
 import { stageVisualClipInsert } from '../../../shared/preview-visual-insert.ts';
 import { STUDIO_ORIGINAL_INLINE_TRANSLATE_ATTR } from '../../../packages/edit-core/canvas-position.ts';
-import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, isAuthoredPresentation, isLivePositionEdit, isPaintOnlyChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_TAGS, PRESENTATION_STYLES, MAX_PREVIEW_TEXT_LENGTH, isAuthoredPresentation, isLivePositionEdit, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, canPatchPresentationValue } from '../../../shared/preview-timing.ts';
 
 // Runs inside the token-scoped iframe. Each change targets a verified live node and file revision.
 export const PREVIEW_PEER_TIMING = `
@@ -11,6 +11,7 @@ export const PREVIEW_PEER_TIMING = `
   const indexGroupMembers = ${indexGroupMembers.toString()};
   const stageGroup = ${stageGroupChange.toString()};
   const mediaBox = ${isMediaBoxChange.toString()};
+  const pixelBox = ${isPixelBoxChange.toString()};
   const paintOnly = ${isPaintOnlyChange.toString()};
   const presentationTags = new Set(${JSON.stringify(PRESENTATION_TAGS)});
   const presentationStyles = new Set(${JSON.stringify(PRESENTATION_STYLES)});
@@ -98,7 +99,9 @@ export const PREVIEW_PEER_TIMING = `
       (!drag || drag.ordered) && pendingForSource(m.path).every(step => step.ordered);
     const base = ownDrag ? pending.confirmedVersion || pending.sha256 : sourceVersions[m.path];
     const measured = ownDrag && pending.ordered && Array.isArray(m.changes) && m.changes.length === 1 && mediaBox(m.changes[0]);
-    const position = measured || settings.liveEdits?.position === true && m.type === 'peer-presentation' &&
+    const nestedBox = m.type === 'peer-presentation' && m.path !== compositionPath &&
+      Array.isArray(m.changes) && m.changes.length > 0 && m.changes.every(change => pixelBox(change) && presentationTags.has(change.tag));
+    const position = measured || nestedBox || settings.liveEdits?.position === true && m.type === 'peer-presentation' &&
       Array.isArray(m.changes) && (isPositionEdit(m.changes) || m.changes.every(paintOnly));
     const media = settings.liveEdits?.mediaTiming === true && m.type === 'peer-timing' &&
       Array.isArray(m.changes) && isMediaMove(m.changes);

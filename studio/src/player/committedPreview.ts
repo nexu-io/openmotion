@@ -40,9 +40,12 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
   // source only when the iframe confirms it is what the user is actually seeing.
   const last = sent.get(path);
   const base = last && last.version === mounted ? last : change.previous;
-  const refreshParked = () => !deferSceneRefresh && path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, target, isCurrent);
+  const refreshParked = (parkedOnly = false) => !deferSceneRefresh && path !== "index.html" && isCurrent() && tryRefreshParkedPeerScene(frame, path, target, isCurrent, parkedOnly);
   // A parked scene can adopt the new version without downloading its source into Studio.
-  if (!base && await refreshParked()) return true;
+  if (!base) {
+    if (!change.readPrevious) return refreshParked();
+    if (await refreshParked(true)) return true;
+  }
   if ((base || change.readPrevious) &&
       (hasPeerTimingDocument(frame) || hasPeerLiveEdit(frame, "presentation") || hasPeerLiveEdit(frame, "mediaTiming") || hasPeerLiveEdit(frame, "position"))) {
     const [previous, current] = await Promise.all([
@@ -56,7 +59,7 @@ async function applyChange(frame: HTMLIFrameElement, change: Change, sent: Sessi
       if (applied) return true;
     }
   }
-  return !!base && refreshParked();
+  return refreshParked();
 }
 
 // Isolated canvas drags and inline text hold the iframe from pointer-down through commit handoff.

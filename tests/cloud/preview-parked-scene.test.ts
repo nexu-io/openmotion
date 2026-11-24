@@ -89,6 +89,18 @@ it('mounts two cold scenes from one compilation after checking both file version
   assert.deepEqual(stale.counts, {reads: 1, swaps: 0, confirms: 0});
 });
 
+it('checks for a parked child without fetching or replacing a visible scene', async () => {
+  const f = fixture();
+  Object.assign(f.request, { parkedOnly: true });
+  const host = f.document.querySelector('section')!;
+  host.removeAttribute('data-hf-parked-scene');
+  assert.equal(await f.run(), false);
+  assert.deepEqual(f.counts, { reads: 0, swaps: 0, confirms: 0 });
+  host.setAttribute('data-hf-parked-scene', '');
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.counts, { reads: 1, swaps: 1, confirms: 1 });
+});
+
 it('updates an active child through the same runtime lifecycle as a parked child', async () => {
   const f = fixture();
   f.document.querySelector('section')!.removeAttribute('data-hf-parked-scene');
@@ -171,11 +183,12 @@ it('retains only confirmed placement across real park/remount pairs and releases
     tracker.rememberScenePlacement(active.node, file, '#title', { tag: 'h1', styles: [['left', from, to]] }, after);
     sourceVersions[file] = after;
   };
-  const mount = (left: string, parked = true, scene = 'intro', source = file) => {
+  const mount = (left: string, parked = true, scene = 'intro', source = file, duplicate = false) => {
     const previous = document.createElement('section');
     previous.setAttribute('data-hf-scene', scene);
     if (parked) previous.setAttribute('data-hf-parked-scene', '');
     const latest = makeHost(left);
+    if (duplicate) latest.host.append(latest.node.cloneNode(true));
     latest.host.setAttribute('data-hf-scene', scene);
     latest.host.setAttribute('data-composition-file', source);
     root.replaceChildren(latest.host);
@@ -184,6 +197,7 @@ it('retains only confirmed placement across real park/remount pairs and releases
     return latest.node.style.left;
   };
   move('a', 'b', '10px', '30px');
+  assert.equal(mount('10px', true, 'intro', file, true), '10px');
   move('b', 'c', '30px', '45px');
   assert.equal(mount('10px'), '45px');
   assert.equal(mount('10px'), '45px');
@@ -202,6 +216,12 @@ it('retains only confirmed placement across real park/remount pairs and releases
   assert.equal(disconnected, 1);
   assert.equal(mount('10px'), '10px');
   move('d', 'e', '10px', '55px');
+  tracker.rememberScenePlacement(active.node, file, '#title', {
+    tag: 'h1', styles: [['width', '', '280px'], ['height', '', '64px']],
+  }, 'e');
+  assert.equal(mount('10px'), '55px');
+  assert.equal(active.node.style.width, '280px');
+  assert.equal(active.node.style.height, '64px');
   // A new template owns every node in its scene, including reused element ids.
   tracker.forgetScenePlacement(file);
   assert.equal(disconnected, 2);

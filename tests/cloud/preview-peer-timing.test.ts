@@ -267,6 +267,35 @@ it('only moves the existing canvas box when the project certifies a placement ch
   }
 });
 
+it('keeps a mounted scripted child and its runtime descendants through verified pixel moves and resizes', () => {
+  const { send, document, hooks } = preview(false);
+  const path = 'scenes/intro.html';
+  const host = document.querySelector('main')!;
+  host.setAttribute('data-composition-file', path);
+  const node = document.getElementById('title')!;
+  const glyph = document.createElement('span');
+  node.replaceChildren(glyph);
+  const change = { id: 'title', tag: 'div', attributes: [], styles: [['left', '10px', '20px'], ['width', '', '84px']] };
+  const message = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes: [change] };
+  const duplicate = node.cloneNode(true);
+  host.appendChild(duplicate);
+  assert.equal(send(message), false);
+  host.removeChild(duplicate);
+  host.setAttribute('data-hf-parked-scene', '');
+  assert.equal(send(message), false);
+  host.removeAttribute('data-hf-parked-scene');
+  node.style.width = '19px'; // A running script owns a different live value.
+  assert.equal(send(message), false);
+  assert.equal(node.style.left, '10px');
+  node.style.removeProperty('width');
+  assert.equal(send({ ...message, changes: [{ ...change, styles: [['width', '', '50%']] }] }), false);
+  assert.equal(send(message), true);
+  assert.equal(document.getElementById('title'), node);
+  assert.equal(node.firstChild, glyph);
+  assert.equal(node.style.width, '84px');
+  assert.deepEqual(hooks, []);
+});
+
 it('advances a certified child placement through consecutive versions without restarting its animations', () => {
   const { send, document, hooks } = preview(false, { position: true });
   const path = 'scenes/intro.html';

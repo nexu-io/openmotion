@@ -6,7 +6,7 @@ import { createPreviewAdapter } from "./lib/previewAdapter";
 import { capturePresentedTimelineChanges } from "./lib/isolatedTimelineEdits";
 import { setPreviewMediaMuted } from "./lib/timelineIframeHelpers";
 import { usePlayerStore } from "./store/playerStore";
-import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isAuthoredPresentation, isPaintOnlyChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
+import { PREVIEW_ATTRIBUTES, canPatchPreviewAttribute, PRESENTATION_STYLES, PRESENTATION_TAGS, MAX_PREVIEW_TEXT_LENGTH, type PreviewChange, type PreviewLiveEdits, isAuthoredPresentation, isPaintOnlyChange, isPixelBoxChange, isMediaBoxChange, isLivePositionEdit, canPatchPresentationValue } from "../../../shared/preview-timing";
 
 type FileSnapshot = { content: string; version: string };
 
@@ -23,11 +23,11 @@ export function rememberPeerTimingDocument(frame: HTMLIFrameElement, token: stri
   else documents.delete(frame);
 }
 
-export async function tryRefreshParkedPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean) {
-  return refreshPeerScenes(frame, [[path, version]], isCurrent);
+export async function tryRefreshParkedPeerScene(frame: HTMLIFrameElement, path: string, version: string, isCurrent: () => boolean, parkedOnly = false) {
+  return refreshPeerScenes(frame, [[path, version]], isCurrent, parkedOnly);
 }
 
-export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string, string][], isCurrent: () => boolean) {
+export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string, string][], isCurrent: () => boolean, parkedOnly = false) {
   const doc = documents.get(frame);
   if (!doc?.canRefreshParked || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
@@ -35,7 +35,7 @@ export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string
   const timeout = 5000;
   const applied = await adapter.request<boolean>("refresh-parked-scene", {
     ...(files.length === 1 ? {path: files[0]![0], fileVersion: files[0]![1]} : {files}),
-    documentId: doc.id, expiresAt: Date.now() + timeout,
+    documentId: doc.id, expiresAt: Date.now() + timeout, ...(parkedOnly && { parkedOnly }),
   }, timeout).catch(() => false);
   if (applied !== true || documents.get(frame) !== doc || !isCurrent()) return false;
   for (const [path, version] of files) doc.mountedVersions.set(path, version);
@@ -211,7 +211,9 @@ export async function tryApplyPeerChanges(
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
     await diffMountedPreview(previous.content, current.content, measured);
   if (!changes || !isCurrent() || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return false;
-  const canAdvance = document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
+  const nestedBox = document.mountedVersions.has(update.path) && changes.length > 0 &&
+    changes.every(change => presentationTags.has(change.tag) && isPixelBoxChange(change));
+  const canAdvance = nestedBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
   if (temporary && (document.canRebind || !onlyStyles(changes))) return false;

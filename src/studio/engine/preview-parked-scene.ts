@@ -37,7 +37,9 @@ export const PREVIEW_PARKED_SCENE = `
         for (const [selector, {tag, styles}] of file.targets) {
           const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
             node.localName === tag && sourceFileForElement(node) === path);
-          for (const node of nodes) for (const [name, [from, to]] of styles) {
+          if (nodes.length !== 1) continue;
+          const node = nodes[0];
+          for (const [name, [from, to]] of styles) {
             const style = node.style;
             if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
             if (to) style.setProperty(name, to);
@@ -90,7 +92,7 @@ export const PREVIEW_PARKED_SCENE = `
       if (typeof path !== 'string' || typeof version !== 'string' || targets.has(path) ||
           !Object.hasOwn(sourceVersions, path) || !sourceVersions[path]) return false;
       const host = uniqueSceneHost(path), scene = host?.getAttribute('data-hf-scene');
-      if (!scene || scenes.has(scene)) return false;
+      if (!scene || scenes.has(scene) || (message.parkedOnly && !host.hasAttribute('data-hf-parked-scene'))) return false;
       targets.set(path, {base:sourceVersions[path], host, version});
       scenes.add(scene);
     }
