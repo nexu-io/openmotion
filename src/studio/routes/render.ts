@@ -72,10 +72,11 @@ function resolveRenderWorkerActive(
   aliveWorkers: readonly RenderWorkerHealth[] | null,
 ): boolean | undefined {
   if (isTerminalState(row.state)) return false;
+  // Queued exports have not been claimed by a specific worker yet; keep them in
+  // their pending/waiting state instead of downgrading to `unknown` while the
+  // active-export slot is still held.
+  if (row.state === 'queued') return undefined;
   if (aliveWorkers === null) return undefined;
-  if (row.state === 'queued') {
-    return aliveWorkers.some((worker) => worker.draining !== true);
-  }
   if (row.workerId) {
     return aliveWorkers.some((worker) => worker.workerId === row.workerId);
   }
@@ -228,9 +229,10 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           ),
         );
       if (existing[0]) {
-        const aliveWorkers = isTerminalState(existing[0].state)
-          ? null
-          : await readAliveRenderWorkers(deps);
+        const aliveWorkers =
+          existing[0].state === 'running' || existing[0].state === 'cancelling'
+            ? await readAliveRenderWorkers(deps)
+            : null;
         const formatted = formatRenderAttempt(existing[0], aliveWorkers);
         return c.json({
           ...formatted,
@@ -266,7 +268,12 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
         }
         const terminalAt = new Date();
         const nextTerminalState: JobState = activeRow.state === 'cancelling' ? 'cancelled' : 'failed';
-        await deps.db
+        const errorCode = nextTerminalState === 'failed' ? 'EXPORT_WORKER_LOST' : undefined;
+        const errorMessage =
+          nextTerminalState === 'failed'
+            ? 'Render worker disconnected before finishing the export.'
+            : undefined;
+        const reconciled = await deps.db
           .update(jobs)
           .set(
             asUpdate(jobs, {
@@ -274,8 +281,8 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
               stage: nextTerminalState,
               ...(nextTerminalState === 'failed'
                 ? {
-                    errorCode: 'EXPORT_WORKER_LOST',
-                    errorMessage: 'Render worker disconnected before finishing the export.',
+                    errorCode,
+                    errorMessage,
                   }
                 : {}),
               terminalAt,
@@ -288,7 +295,24 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
               eq(jobs.id, activeRow.id),
               inArray(jobs.state, ['running', 'cancelling']),
             ),
-          );
+          )
+          .returning({ id: jobs.id });
+        if (reconciled.length > 0 && deps.eventBus) {
+          void deps.eventBus
+            .publish(jobChannel(activeRow.id), {
+              jobId: activeRow.id,
+              workspaceId: auth.workspaceId,
+              projectId: activeRow.projectId ?? project.id,
+              kind: 'export_render',
+              state: nextTerminalState,
+              stage: nextTerminalState,
+              progress: nextTerminalState === 'cancelled' ? 0 : Number(activeRow.progress ?? 0),
+              ...(errorCode ? { errorCode } : {}),
+              ...(errorMessage ? { errorMessage } : {}),
+              ts: terminalAt.getTime(),
+            } satisfies JobProgressEvent)
+            .catch(() => {});
+        }
       }
       if (remainingActive.length > 0) {
         return c.json(
@@ -433,7 +457,7 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
       .orderBy(desc(jobs.createdAt))
       .limit(100);
 
-    const aliveWorkers = rows.some((row) => !isTerminalState(row.state))
+    const aliveWorkers = rows.some((row) => row.state === 'running' || row.state === 'cancelling')
       ? await readAliveRenderWorkers(deps)
       : null;
 
@@ -459,7 +483,10 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
     const job = rows[0];
     if (!job) return c.notFound();
 
-    const aliveWorkers = isTerminalState(job.state) ? null : await readAliveRenderWorkers(deps);
+    const aliveWorkers =
+      job.state === 'running' || job.state === 'cancelling'
+        ? await readAliveRenderWorkers(deps)
+        : null;
     const initialWorkerActive = resolveRenderWorkerActive(job, aliveWorkers);
 
     return streamSSE(c, async (stream) => {
@@ -559,6 +586,9 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
           finishStream();
           return true;
         }
+        if (latestJob.state === 'queued') {
+          return false;
+        }
         const latestAliveWorkers = await readAliveRenderWorkers(deps);
         if (done || stream.aborted) return true;
         if (resolveRenderWorkerActive(latestJob, latestAliveWorkers) === false) {
@@ -620,7 +650,10 @@ export function createStudioRenderRoutes(deps: DisklessStudioDeps): Hono<{ Varia
     const job = rows[0];
     if (!job) return c.notFound();
 
-    const aliveWorkers = isTerminalState(job.state) ? null : await readAliveRenderWorkers(deps);
+    const aliveWorkers =
+      job.state === 'running' || job.state === 'cancelling'
+        ? await readAliveRenderWorkers(deps)
+        : null;
     const workerActive = resolveRenderWorkerActive(job, aliveWorkers);
 
     let nextState: JobState = job.state;

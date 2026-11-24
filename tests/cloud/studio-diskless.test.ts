@@ -2744,11 +2744,129 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.ok(newExport.jobId);
     assert.equal(newExport.status, 'rendering');
 
+    const reconciledEvent = env.published.find(
+      (entry) =>
+        entry.channel === `om:job:${staleJobId}` &&
+        (entry.payload as { state?: string; errorCode?: string })?.state === 'failed',
+    );
+    assert.ok(reconciledEvent, 'reconciling an orphaned render must publish a terminal job event on jobChannel');
+    assert.equal((reconciledEvent.payload as { errorCode?: string }).errorCode, 'EXPORT_WORKER_LOST');
+    assert.equal(
+      (reconciledEvent.payload as { errorMessage?: string }).errorMessage,
+      'Render worker disconnected before finishing the export.',
+    );
+
     const afterReconcile = (await (await env.studioApp.request(`/api/projects/${created.projectId}/renders`)).json()) as {
       renders: Array<{ id: string; status: string; workerActive?: boolean }>;
     };
     assert.equal(afterReconcile.renders.find((r) => r.id === staleJobId)?.status, 'failed');
     assert.equal(afterReconcile.renders.find((r) => r.id === staleJobId)?.workerActive, false);
+  });
+
+  it('notifies an open /progress SSE subscriber immediately when another request reconciles an orphaned render', async () => {
+    const env = createStudioTestEnv({ renderProgressKeepaliveMs: 60_000 });
+    const created = await env.workspace.createProject(env.auth, {
+      title: 'Orphan Reconcile PubSub Project',
+      initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
+    });
+
+    const staleJobId = randomUUID();
+    const staleIso = new Date(Date.now() - 120_000).toISOString();
+    env.pgClient.seed('jobs', {
+      id: staleJobId,
+      workspace_id: env.auth.workspaceId,
+      project_id: created.projectId,
+      kind: 'export_render',
+      state: 'running',
+      stage: 'rendering',
+      progress: 50,
+      worker_id: 'render-1',
+      input_payload: { outputName: 'stale-live.mp4' },
+      deleted_at: null,
+      created_at: staleIso,
+      updated_at: staleIso,
+    });
+
+    // Open SSE while render-1 is still alive so the stream subscribes to jobChannel.
+    const progressRes = await env.studioApp.request(`/api/render/${staleJobId}/progress`);
+    assert.equal(progressRes.status, 200);
+    assert.ok(progressRes.body);
+    const reader = progressRes.body.getReader();
+    const decoder = new TextDecoder();
+    const readChunkWithTimeout = async (timeoutMs = 3_000) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Timed out waiting for reconciled SSE event')), timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
+    try {
+      let received = '';
+      while (!received.includes('"status":"rendering"')) {
+        const chunk = await readChunkWithTimeout();
+        assert.equal(chunk.done, false);
+        received += decoder.decode(chunk.value, { stream: true });
+      }
+
+      // Wait until the SSE handler finishes subscribing and its post-subscribe liveness check
+      // by confirming a live pubsub progress update flows through the open stream.
+      const subDeadline = Date.now() + 2_000;
+      while ((await env.eventBus.publish(`om:job:${staleJobId}`, {
+        jobId: staleJobId,
+        workspaceId: env.auth.workspaceId,
+        projectId: created.projectId,
+        kind: 'export_render',
+        state: 'running',
+        stage: 'rendering',
+        progress: 55,
+        ts: Date.now(),
+      })) === 0) {
+        assert.ok(Date.now() < subDeadline, 'Timed out waiting for SSE handler to subscribe to jobChannel');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      while (!received.includes('"progress":55')) {
+        const chunk = await readChunkWithTimeout();
+        assert.equal(chunk.done, false);
+        received += decoder.decode(chunk.value, { stream: true });
+      }
+      // Yield a tick so the post-subscribe recheck completes while render-1 is still healthy.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      // Now render-1 disappears and another tab starts a new export, triggering orphan reconciliation.
+      env.workerHealth.length = 0;
+      const reExportRes = await env.studioApp.request(`/api/projects/${created.projectId}/render`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'mp4', fps: 30, quality: 'standard' }),
+      });
+      assert.equal(reExportRes.status, 200);
+
+      // The open subscriber must receive the terminal failed event and close immediately (well before 60s keepalive).
+      let closed = false;
+      const deadline = Date.now() + 3_000;
+      while (!closed) {
+        const remaining = deadline - Date.now();
+        assert.ok(remaining > 0, `SSE stream did not close on orphan reconciliation (received: ${received})`);
+        const chunk = await readChunkWithTimeout(remaining);
+        if (chunk.value) received += decoder.decode(chunk.value, { stream: true });
+        closed = chunk.done;
+      }
+      received += decoder.decode();
+      assert.ok(received.includes('"status":"failed"'), `Expected failed event, got: ${received}`);
+      assert.ok(
+        received.includes('Render worker disconnected before finishing the export.'),
+        `Expected EXPORT_WORKER_LOST message, got: ${received}`,
+      );
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
   });
 
   it('keeps a running export active across /renders, /render, and /cancel while its owning worker is draining', async () => {
@@ -2807,9 +2925,9 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(cancelBody.status, 'cancelling');
     assert.equal(cancelBody.workerActive, true);
 
-    // 4. A queued job requires at least one non-draining worker to be considered active.
+    // 4. A queued job stays pending/rendering (never downgraded to 'unknown') even when only draining or zero workers report health.
     const queuedProject = await env.workspace.createProject(env.auth, {
-      title: 'Queued While Only Draining Project',
+      title: 'Queued While No Active Worker Project',
       initialFiles: [{ path: 'index.html', content: '<html><body>hi</body></html>' }],
     });
     const queuedJobId = randomUUID();
@@ -2829,24 +2947,53 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     });
     const onlyDrainingList = (await (
       await env.studioApp.request(`/api/projects/${queuedProject.projectId}/renders`)
-    ).json()) as { renders: Array<{ id: string; status: string; workerActive?: boolean }> };
-    assert.equal(onlyDrainingList.renders[0]?.status, 'unknown');
-    assert.equal(onlyDrainingList.renders[0]?.workerActive, false);
+    ).json()) as { renders: Array<{ id: string; status: string; state: string; workerActive?: boolean }> };
+    assert.equal(onlyDrainingList.renders[0]?.status, 'rendering');
+    assert.equal(onlyDrainingList.renders[0]?.state, 'queued');
+    assert.equal(onlyDrainingList.renders[0]?.workerActive, undefined);
 
-    env.workerHealth.push({
-      workerId: 'render-2',
-      ffmpeg: true,
-      ffprobe: true,
-      chromium: true,
-      concurrency: 1,
-      activeJobs: 0,
-      updatedAt: Date.now(),
-    });
-    const withFreshWorkerList = (await (
+    env.workerHealth.length = 0;
+    const noWorkerQueuedList = (await (
       await env.studioApp.request(`/api/projects/${queuedProject.projectId}/renders`)
-    ).json()) as { renders: Array<{ id: string; status: string; workerActive?: boolean }> };
-    assert.equal(withFreshWorkerList.renders[0]?.status, 'rendering');
-    assert.equal(withFreshWorkerList.renders[0]?.workerActive, true);
+    ).json()) as { renders: Array<{ id: string; status: string; state: string; workerActive?: boolean }> };
+    assert.equal(noWorkerQueuedList.renders[0]?.status, 'rendering');
+    assert.equal(noWorkerQueuedList.renders[0]?.state, 'queued');
+    assert.equal(noWorkerQueuedList.renders[0]?.workerActive, undefined);
+
+    // Queued export still holds the active-export slot consistently and keeps its progress stream open until cancelled/completed.
+    const queuedBusyRes = await env.studioApp.request(`/api/projects/${queuedProject.projectId}/render`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'mp4', fps: 30, quality: 'standard' }),
+    });
+    assert.equal(queuedBusyRes.status, 409);
+
+    const queuedStreamRes = await env.studioApp.request(`/api/render/${queuedJobId}/progress`);
+    assert.equal(queuedStreamRes.status, 200);
+    assert.ok(queuedStreamRes.body);
+    const queuedReader = queuedStreamRes.body.getReader();
+    const queuedDecoder = new TextDecoder();
+    try {
+      const firstChunk = await queuedReader.read();
+      assert.equal(firstChunk.done, false);
+      const firstText = queuedDecoder.decode(firstChunk.value, { stream: true });
+      assert.ok(firstText.includes('"status":"rendering"'));
+      assert.ok(firstText.includes('"state":"queued"'));
+      assert.equal(firstText.includes('"status":"unknown"'), false);
+
+      // Cancelling the queued job publishes 'cancelled' and closes the open stream cleanly.
+      const cancelQueuedRes = await env.studioApp.request(`/api/render/${queuedJobId}/cancel`, { method: 'POST' });
+      assert.equal(cancelQueuedRes.status, 200);
+      let rest = '';
+      for (;;) {
+        const chunk = await queuedReader.read();
+        if (chunk.value) rest += queuedDecoder.decode(chunk.value, { stream: true });
+        if (chunk.done) break;
+      }
+      assert.ok(rest.includes('"status":"cancelled"'));
+    } finally {
+      await queuedReader.cancel().catch(() => {});
+    }
   });
 
   it('re-evaluates worker liveness on an open /progress SSE stream and closes with status: unknown when the worker disappears', async () => {
