@@ -241,9 +241,26 @@ export const renderThumbnailPayloadSchema = z.object({
   height: z.number().int().min(32).max(1080).default(180),
 });
 
+export const catalogFilmstripFileSchema = z.object({
+  path: z.string().min(1).max(240),
+  sha256: sha256Schema,
+  sizeBytes: z.number().int().nonnegative().max(256 * 1024 * 1024),
+  mimeType: z.string().min(1).max(128),
+  remoteUrl: z.string().url().max(2048),
+});
+
+export const bakeCatalogFilmstripsPayloadSchema = z.object({
+  templateId: z.string().min(1).max(128),
+  catalogVersion: z.string().min(1).max(256),
+  templateBakeHash: sha256Schema,
+  formatVersion: z.number().int().positive().default(1),
+  files: z.array(catalogFilmstripFileSchema).min(1).max(512),
+});
+
 export const renderExportJobSchemas = {
   export_render: exportRenderPayloadSchema,
   render_thumbnail: renderThumbnailPayloadSchema,
+  bake_catalog_filmstrips: bakeCatalogFilmstripsPayloadSchema,
 } as const;
 
 export type RenderExportJobName = keyof typeof renderExportJobSchemas;

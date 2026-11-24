@@ -1,4 +1,10 @@
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
+import {
+  CatalogFilmstripAutoBakeDispatcher,
+  InMemoryCatalogFilmstripBakeState,
+  RedisCatalogFilmstripBakeState,
+  type CatalogFilmstripBakeStatePort,
+} from '../services/catalog-filmstrip-autobake.ts';
 import { PrismMotionCatalog } from '../services/prism-motion-catalog.ts';
 import { commitCaptionCommand } from '../mcp/caption-mutations.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -260,6 +266,7 @@ export interface CreateApiAppDeps {
   readonly queues: ApiQueuesPort;
   readonly eventBus: ApiEventBusPort;
   readonly hotTextCache?: HotTextCachePort;
+  readonly catalogFilmstripBakeState?: CatalogFilmstripBakeStatePort;
   readonly rateLimiter?: RateLimiter;
   readonly authStore?: AuthStore;
   readonly authCache?: AuthKeyValueCache;
@@ -1855,9 +1862,23 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       opendesign: { cache: authCache },
     });
 
+  const catalogFilmstripAutoBake =
+    config.PRISM_CONTENT_ENV && config.CATALOG_FILMSTRIP_AUTO_BAKE
+      ? new CatalogFilmstripAutoBakeDispatcher({
+          queues,
+          state: deps.catalogFilmstripBakeState ?? new InMemoryCatalogFilmstripBakeState(),
+          logger,
+        })
+      : undefined;
+
   const catalog = new CatalogService({
     prismCatalog: config.PRISM_CONTENT_ENV ? new PrismMotionCatalog(config.PRISM_CONTENT_ENV, {
-      publicOrigin: config.PRISM_PUBLIC_ORIGIN, onRefreshError: error => logger.warn('Prism catalog refresh failed', { error }),
+      publicOrigin: config.PRISM_PUBLIC_ORIGIN,
+      onRefreshError: error => logger.warn('Prism catalog refresh failed', { error }),
+      onPublicationChanged: catalogFilmstripAutoBake
+        ? (templates, catalogVersion) =>
+            catalogFilmstripAutoBake.scheduleForPublication(templates, catalogVersion)
+        : undefined,
     }) : undefined,
     db,
     storage,
@@ -2985,6 +3006,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
   shutdown.register('bullmq-queues', () => queues.close());
 
   const hotTextCache = new HotTextCache(redisCache, config.REDIS_CACHE_TTL_SEC);
+  const catalogFilmstripBakeState = new RedisCatalogFilmstripBakeState(redisCmd);
   const rateLimiter = new RateLimiter(redisCmd);
   const authStore = createPgAuthStore(dbHandle.db);
   const authCache = createRedisAuthCache(redisCmd);
@@ -2997,6 +3019,7 @@ export async function startApiServer(options: StartApiServerOptions = {}): Promi
     queues,
     eventBus,
     hotTextCache,
+    catalogFilmstripBakeState,
     rateLimiter,
     authStore,
     authCache,
