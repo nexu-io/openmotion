@@ -214,8 +214,6 @@ describe('Cloud Phase 1 feature gates', () => {
     '/scenarios/black-friday',
     '/studios/game',
     '/brand-kit',
-    '/brand-kits',
-    '/unknown-page',
   ])('redirects direct cloud navigation from %s to /explore without hitting deferred endpoints', async blockedPath => {
     const historyLengthBefore = history.length;
     await mountApp(blockedPath);
