@@ -4,6 +4,8 @@ import {
   BUILTIN_PUBLISHERS,
   BUILTIN_TEMPLATE_MAP,
   BUILTIN_THIRD_PARTY_PROGRAMS,
+  defaultMcpServerNameForChannel,
+  defaultMcpServerNameForOrigin,
   isUrlInAllowedDomainScope,
   validateFirstPartyCommandArgvBounds,
   validateTypedPlaceholderValue,
@@ -23,12 +25,19 @@ test('Q1 built-in third-party allowlist contains codex and claude with 3 templat
     'codex.version',
     'codex.mcp.add_remote',
     'codex.mcp.remove',
+    'codex.mcp.login',
     'claude.version',
     'claude.mcp.add_remote',
     'claude.mcp.remove',
   ]) {
     assert.ok(BUILTIN_TEMPLATE_MAP.has(id), `missing built-in template ${id}`);
   }
+  assert.equal(defaultMcpServerNameForChannel('stable'), 'openmotion');
+  assert.equal(defaultMcpServerNameForChannel('test'), 'openmotion-test');
+  assert.equal(defaultMcpServerNameForChannel('dev'), 'openmotion-local');
+  assert.equal(defaultMcpServerNameForOrigin('https://motion.open-design.ai/mcp'), 'openmotion');
+  assert.equal(defaultMcpServerNameForOrigin('https://openmotion.powerformer.net/mcp'), 'openmotion-test');
+  assert.equal(defaultMcpServerNameForOrigin('http://127.0.0.1:4173/mcp'), 'openmotion-local');
   const claudeAdd = BUILTIN_TEMPLATE_MAP.get('claude.mcp.add_remote')!;
   assert.ok(claudeAdd.argv.includes('--scope') && claudeAdd.argv.includes('user'));
 });

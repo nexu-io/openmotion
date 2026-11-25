@@ -18,6 +18,7 @@ import {
   createPat,
   type AuthEnv,
 } from '../../src/auth/index.ts';
+import { CloudError } from '../../src/contracts/errors.ts';
 import { PAT_SCOPES, type AuthContext } from '../../src/contracts/auth.ts';
 import type { StoragePort } from '../../src/contracts/storage.ts';
 import { parseConfig, type AppConfig } from '../../src/infra/config.ts';
@@ -1031,7 +1032,13 @@ describe('3-Way Cloud openmotion_import_assets & Streamable HTTP Config Contract
       await readFile(new URL('../../.mcp.json', import.meta.url), 'utf8'),
     ) as { mcpServers: { openmotion: { type: string; url: string } } };
     assert.equal(mcpJson.mcpServers.openmotion.type, 'http');
-    assert.equal(mcpJson.mcpServers.openmotion.url, 'http://127.0.0.1:4173/mcp');
+    assert.equal(mcpJson.mcpServers.openmotion.url, 'https://motion.open-design.ai/mcp');
+
+    const localMcpJson = JSON.parse(
+      await readFile(new URL('../../.mcp.local.json', import.meta.url), 'utf8'),
+    ) as { mcpServers: { 'openmotion-local': { type: string; url: string } } };
+    assert.equal(localMcpJson.mcpServers['openmotion-local'].type, 'http');
+    assert.equal(localMcpJson.mcpServers['openmotion-local'].url, 'http://127.0.0.1:4173/mcp');
 
     const cloudInfo = buildCloudIntegrationInfo({
       publicOrigin: 'https://motion.open-design.ai',
@@ -1042,8 +1049,9 @@ describe('3-Way Cloud openmotion_import_assets & Streamable HTTP Config Contract
     });
     assert.equal(isIntegrationInfo(cloudInfo), true);
     assert.equal(supportsChatgptCloud(cloudInfo), true);
-    assert.match(manualConnection(cloudInfo, 'claude', 'en'), /claude mcp add --transport http/);
+    assert.match(manualConnection(cloudInfo, 'claude', 'en'), /claude mcp add --scope user --transport http openmotion/);
     assert.match(manualConnection(cloudInfo, 'codex', 'en'), /codex mcp add openmotion --url/);
+    assert.match(manualConnection(cloudInfo, 'codex', 'en'), /codex mcp login openmotion/);
     assert.match(integrationConfig(cloudInfo, 'chatgpt').text, /streamable-http/);
 
     // Legacy stdio IntegrationInfo remains accepted during Wave 2B
@@ -1062,6 +1070,56 @@ describe('3-Way Cloud openmotion_import_assets & Streamable HTTP Config Contract
     };
     assert.equal(isIntegrationInfo(stdioInfo), true);
     assert.equal(supportsChatgptCloud(stdioInfo), false);
+  });
+
+  it('enriches PROJECT_NOT_FOUND with serverOrigin and workspace diagnostics for environment-mismatch detection', async () => {
+    const config = makeMcpConfig({
+      AUTH_MODE: 'dev',
+      APP_PUBLIC_ORIGIN: 'http://127.0.0.1:4173',
+    });
+    const workspaceId = randomUUID();
+    const dispatcher = new McpToolDispatcher(config, {
+      projects: {
+        async getProject() {
+          throw new CloudError('PROJECT_NOT_FOUND', 'Project cloud-proj was not found in this workspace.', {
+            status: 404,
+            applied: false,
+          });
+        },
+        async createProject() {
+          return {};
+        },
+        async editProject() {
+          return {};
+        },
+        async openPreview() {
+          return {};
+        },
+        async manageProject() {
+          return {};
+        },
+      },
+    });
+    const auth: AuthContext = {
+      userId: randomUUID(),
+      workspaceId,
+      role: 'owner',
+      scopes: [...PAT_SCOPES],
+      authMode: 'dev',
+      authMethod: 'dev_bypass',
+      entry: 'mcp',
+    };
+    const res = await dispatcher.dispatch('openmotion_get_project', { projectId: randomUUID() }, {
+      auth,
+      supportsMcpAppsUi: false,
+    });
+    assert.equal(res.isError, true);
+    const err = (res.structuredContent as { error: { code: string; details?: Record<string, unknown> } }).error;
+    assert.equal(err.code, 'PROJECT_NOT_FOUND');
+    assert.equal(err.details?.serverOrigin, 'http://127.0.0.1:4173');
+    assert.equal(err.details?.authMode, 'dev');
+    assert.equal(err.details?.workspaceId, workspaceId);
+    assert.match(String(err.details?.hint ?? ''), /OAuth 2\.1/);
   });
 });
 

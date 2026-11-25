@@ -42,12 +42,27 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   assert.equal(localHttp.transport.type === 'streamable-http' && localHttp.transport.url, 'http://127.0.0.1:4173/mcp');
   assert.equal(supportsChatgptCloud(localHttp), false);
   assert.throws(() => integrationConfig(localHttp, 'chatgpt'), /HTTPS/);
-  assert.match(manualConnection(localHttp, 'codex', 'en'), /codex mcp add openmotion --url 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
-  assert.match(manualConnection(localHttp, 'claude', 'en'), /claude mcp add --transport http openmotion 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
+  assert.match(manualConnection(localHttp, 'codex', 'en'), /codex mcp add openmotion-local --url 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
+  assert.match(manualConnection(localHttp, 'claude', 'en'), /claude mcp add --scope user --transport http openmotion-local 'http:\/\/127\.0\.0\.1:4173\/mcp'/);
+  assert.match(integrationConfig(localHttp, 'mcp').text, /"openmotion-local"/);
   assert.match(integrationConfig(localHttp, 'mcp').text, /"type": "http"/);
   assert.match(integrationConfig(localHttp, 'deepseek').text, /transport: streamable-http/);
   assert.doesNotMatch(setupPrompt(localHttp, 'codex', 'en'), /docker exec -i/);
   assert.match(setupPrompt(localHttp, 'codex', 'en'), /upload_ticket/);
+
+  const testCloud = buildCloudIntegrationInfo({
+    publicOrigin: 'https://openmotion.powerformer.net',
+    version: '1.0.0',
+    workspaceId: 'ws-test',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: phase1Tools,
+  });
+  assert.match(manualConnection(testCloud, 'codex', 'en'), /codex mcp add openmotion-test --url 'https:\/\/openmotion\.powerformer\.net\/mcp'/);
+  assert.match(manualConnection(testCloud, 'codex', 'en'), /codex mcp login openmotion-test/);
+  assert.match(manualConnection(testCloud, 'claude', 'en'), /claude mcp add --scope user --transport http openmotion-test 'https:\/\/openmotion\.powerformer\.net\/mcp'/);
+  assert.match(manualConnection(testCloud, 'claude', 'en'), /\/mcp/);
 
   const cloudHttps = buildCloudIntegrationInfo({
     publicOrigin: 'https://motion.open-design.ai',
@@ -65,6 +80,10 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   assert.match(chatgptCfg.text, /"authentication": "oauth2"/);
   assert.match(chatgptCfg.text, /https:\/\/motion\.open-design\.ai\/mcp/);
   assert.match(manualConnection(cloudHttps, 'chatgpt', 'en'), /OAuth 2\.1/);
+  assert.match(manualConnection(cloudHttps, 'codex', 'en'), /codex mcp login openmotion/);
+  assert.match(setupPrompt(cloudHttps, 'codex', 'zh-CN'), /settings\/account#tokens/);
+  assert.match(agentGuide(cloudHttps, 'mcp'), /settings\/mcp/);
+  assert.match(agentGuide(cloudHttps, 'mcp'), /settings\/account\?preset=readonly#tokens/);
 });
 
 test('cloud clip move example uses the public edit contract in the handbook and guide', () => {

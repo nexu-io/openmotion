@@ -13,8 +13,8 @@ import {
 import {
   BUILTIN_TEMPLATE_MAP,
   BUILTIN_THIRD_PARTY_PROGRAMS,
-  DEFAULT_MCP_SERVER_NAME,
   DEFAULT_STUDIO_URLS,
+  defaultMcpServerNameForChannel,
   isUrlInAllowedDomainScope,
   validateTypedPlaceholderValue,
   type BuiltinThirdPartyProgram,
@@ -62,6 +62,7 @@ export type ConnectCliArgs = {
   hasMcpUrlOverride?: boolean;
   serverName: string;
   replaceConflict: boolean;
+  login?: boolean;
   yes: boolean;
 };
 
@@ -164,8 +165,9 @@ export function formatConnectCliHelp(): string {
     '  --allow-dev-loopback           Allow http://127.0.0.1 / localhost origin (dev channel only)',
     '  --studio-url <url>             Override Cloud Studio base URL (within channel scope)',
     '  --mcp-url <url>                Override Cloud MCP URL (default: <studio-url>/mcp)',
-    `  --server-name <name>           MCP server name (default: ${DEFAULT_MCP_SERVER_NAME})`,
+    `  --server-name <name>           MCP server name (default: openmotion / openmotion-test / openmotion-local by channel)`,
     '  --replace-conflict             Replace an existing conflicting MCP server entry',
+    '  --login                        Immediately run OAuth browser login for Codex after registration',
     '  --yes, -y                      Skip interactive [y/N] prompt (facts are still printed)',
   ].join('\n');
 }
@@ -184,8 +186,9 @@ export function parseConnectCliArgs(argv: readonly string[]): ConnectCliParseRes
   let allowDevLoopback = false;
   let studioUrlOverride: string | undefined;
   let mcpUrlOverride: string | undefined;
-  let serverName: string = DEFAULT_MCP_SERVER_NAME;
+  let serverNameOverride: string | undefined;
   let replaceConflict = false;
+  let login = false;
   let yes = false;
 
   const readOptionValue = (index: number, inlineValue?: string): { value: string; nextIndex: number } | null => {
@@ -241,6 +244,11 @@ export function parseConnectCliArgs(argv: readonly string[]): ConnectCliParseRes
 
     if (raw === '--replace-conflict') {
       replaceConflict = true;
+      continue;
+    }
+
+    if (raw === '--login') {
+      login = true;
       continue;
     }
 
@@ -302,13 +310,15 @@ export function parseConnectCliArgs(argv: readonly string[]): ConnectCliParseRes
       if (!parsedOpt) {
         return { ok: false, error: 'Option --server-name requires a value.' };
       }
-      serverName = parsedOpt.value;
+      serverNameOverride = parsedOpt.value;
       i = parsedOpt.nextIndex;
       continue;
     }
 
     return { ok: false, error: `Unknown argument: ${raw}` };
   }
+
+  const serverName = serverNameOverride ?? defaultMcpServerNameForChannel(channel);
 
   if (mode === 'help') {
     const studioUrl = studioUrlOverride ?? DEFAULT_STUDIO_URLS[channel];
@@ -326,6 +336,7 @@ export function parseConnectCliArgs(argv: readonly string[]): ConnectCliParseRes
         hasMcpUrlOverride: Boolean(mcpUrlOverride),
         serverName,
         replaceConflict,
+        ...(login ? { login: true } : {}),
         yes,
       },
     };
@@ -372,6 +383,7 @@ export function parseConnectCliArgs(argv: readonly string[]): ConnectCliParseRes
       hasMcpUrlOverride: Boolean(mcpUrlOverride),
       serverName: validatedName.value,
       replaceConflict,
+      ...(login ? { login: true } : {}),
       yes,
     },
   };
@@ -522,7 +534,10 @@ export async function runConnectFlow(options: {
   const detectResult = await bridge.invoke<AtomDetectResult>(
     HOST_CAPABILITIES.ATOM_DETECT,
     detectMethod,
-    {},
+    {
+      expectedMcpUrl: args.mcpUrl,
+      serverName: args.serverName,
+    },
   );
 
   if (!detectResult.ok) {
@@ -586,7 +601,7 @@ export async function runConnectFlow(options: {
       outcomes.push({
         agentId,
         status: 'conflict_skipped',
-        message: `Existing MCP entry points to ${existingUrl}. Re-run with --replace-conflict to replace it.`,
+        message: `Existing MCP entry points to ${existingUrl}. Re-run with --replace-conflict to overwrite it, or pass --server-name <name> to keep both environments.`,
       });
       continue;
     }
@@ -716,13 +731,32 @@ export async function runConnectFlow(options: {
       continue;
     }
 
-    const nextStep = buildNextOAuthStep(item.agentId, args.serverName, args.studioUrl);
+    let nextStep: string | undefined = buildNextOAuthStep(item.agentId, args.serverName, args.studioUrl);
     out.write(`Connected ${item.agentId} to ${args.mcpUrl}.\n`);
+
+    if (args.login && item.agentId === 'codex') {
+      out.write(`Launching OAuth browser sign-in via \`codex mcp login ${args.serverName}\`...\n`);
+      const loginResult = await bridge.invoke<AtomExecResult>(HOST_CAPABILITIES.ATOM_EXEC, execMethod, {
+        featureId: CONNECT_FEATURE_ID,
+        templateId: 'codex.mcp.login',
+        args: { serverName: args.serverName },
+      });
+      if (loginResult.ok && loginResult.data.exitCode === 0) {
+        out.write(`Completed OAuth sign-in for codex (${args.serverName}).\n`);
+        nextStep = undefined;
+      } else {
+        const reason = loginResult.ok
+          ? loginResult.data.stderr.trim() || `exit code ${loginResult.data.exitCode}`
+          : `${loginResult.error.code}: ${loginResult.error.message}`;
+        errOut.write(`OAuth sign-in did not complete automatically (${reason}). You can retry manually.\n`);
+      }
+    }
+
     outcomes.push({
       agentId: item.agentId,
       status: 'connected',
       message: `Registered MCP server "${args.serverName}" -> ${args.mcpUrl}.`,
-      nextStep,
+      ...(nextStep ? { nextStep } : {}),
     });
   }
 

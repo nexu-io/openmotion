@@ -764,4 +764,45 @@ describe('DesktopConnectPanel', () => {
       connectMode: 'config',
     });
   });
+
+  it('derives environment-specific default serverName for staging/test MCP URLs', async () => {
+    const { bridge, invokeMock } = createDesktopBridgeMock({
+      detectResult: () => ({
+        platform: 'darwin',
+        arch: 'arm64',
+        agents: [
+          { agentId: 'codex', installed: true, version: 'v0.31.0', mcpConfigured: false },
+          { agentId: 'claude', installed: false, mcpConfigured: false },
+        ],
+        engine: { installed: false, running: false, port: 0, providerKind: 'none' },
+        detectedAt: '2026-11-24T00:00:00Z',
+      }),
+      onExec: () =>
+        hostOk({
+          templateId: 'codex.mcp.add_remote',
+          program: 'codex',
+          exitCode: 0,
+          stdout: 'added',
+          stderr: '',
+          durationMs: 12,
+        }),
+    });
+    window.__OPENMOTION_HOST__ = bridge;
+
+    await mount({ mcpUrl: 'https://openmotion.powerformer.net/mcp' });
+    await flushMicrotasks();
+
+    const connectCodex = findButton('Connect Codex')!;
+    await act(async () => connectCodex.click());
+    await flushMicrotasks();
+
+    expect(invokeMock).toHaveBeenCalledWith(HOST_CAPABILITIES.ATOM_EXEC, 'run', {
+      featureId: 'mcp_connect',
+      templateId: 'codex.mcp.add_remote',
+      args: {
+        serverName: 'openmotion-test',
+      },
+      conflictPolicy: 'abort',
+    });
+  });
 });
