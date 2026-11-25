@@ -79,7 +79,7 @@ For a read-only local preview of the plan, use `npm run media:prepare -- <PR-num
 
 Catalog search and MCP detail read local source and return the public preview/poster URL. They do not download media in the background. HTML and Markdown use public asset URLs. Reading the logical source asset through the local API downloads and verifies its bounded body.
 
-For Skill cards, the registered URL in `repository-media.json` takes precedence for both animations and WebP posters. Existing covers without a registry entry use their [pinned public source snapshots](../studio/skill-cover-attribution.md). New animations and posters go through **Prepare and merge PR** to receive registered URLs. If the preview host is unreachable, Studio falls back to the Skill card's built-in motif illustration.
+Skill cards stream animations from the immutable public URLs in `repository-media.json`. Explore's bundled first-screen WebP posters load from the Studio origin; the remaining Skill posters use the same media registry as the videos. The [cover attribution](../studio/skill-cover-attribution.md) records the original sources. New animations and posters go through **Prepare and merge PR** to receive registered URLs. Cards can still display their poster or built-in illustration if playback fails.
 
 Other optional media retains its local logical path in `repository-media.json`. Fetch one scope or the complete legacy set:
 

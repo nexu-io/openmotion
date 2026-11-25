@@ -6,8 +6,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { MediaPreviewPlayer } from '../components/nle/MediaPreviewPlayer';
 import { type StudioDestination } from './creativeStudios';
 import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase';
-import { skillPreviewSnapshot } from './skillCatalog';
-import { useSkillPreview } from './useSkillPreview';
+import { isHostedSkillMedia } from './skillCoverMedia';
 import { isXVideoUrl, xVideoDocument } from './xVideoEmbed';
 import sofaCutout from './scene-art/sofa-cutout.webp';
 import sofaRelight from './scene-art/sofa-relight.webp';
@@ -41,10 +40,10 @@ function ExampleMedia({ example, enabled, videoGuide = false }: { example: Scene
     typeof window.matchMedia === 'function' &&
     window.matchMedia('(prefers-reduced-motion: reduce)').matches
   ));
-  const archivedClip = example.clip?.startsWith(skillPreviewSnapshot);
+  const hostedClip = isHostedSkillMedia(example.clip);
   const xHostedClip = Boolean(example.clip && isXVideoUrl(example.clip));
   const autoplay = videoGuide && !reducedMotion;
-  const clip = useSkillPreview(example.clip, enabled && !failed && !xHostedClip && (!archivedClip || requestedClip === example.clip), setFailed);
+  const clip = enabled && !failed && !xHostedClip && (!hostedClip || requestedClip === example.clip) ? example.clip : undefined;
   useEffect(() => { if (!enabled) setRequestedClip(undefined); }, [enabled]);
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -107,8 +106,8 @@ function ExampleMedia({ example, enabled, videoGuide = false }: { example: Scene
         allow="autoplay; fullscreen"
         title={t(example.title)}
       />
-    ) : clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
-    {enabled && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
+    ) : clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && hostedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" referrerPolicy="no-referrer" />}
+    {enabled && hostedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
       {t(requestedClip === example.clip ? 'Loading…' : 'Play')}

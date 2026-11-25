@@ -9,9 +9,9 @@ import type { AssetReference } from '../../../shared/asset-library';
  */
 import skillPrompts from './skill-prompts.json';
 import type { SkillCategory } from './skillCategories';
-import { archivedSkillCover, skillCover } from './skillCoverMedia';
+import { archivedSkillCover } from './skillCoverMedia';
 export { skillCategories, type SkillCategory } from './skillCategories';
-export { archivedSkillPoster, skillPreviewSnapshot, skillPosterSnapshot } from './skillCoverMedia';
+export { archivedSkillPoster } from './skillCoverMedia';
 
 export type SkillMotif = 'agent' | 'scene' | 'layout' | 'curve' | 'stagger' | 'math' | 'vector' | 'playback' | 'depth' | 'frames' | 'canvas' | 'particles'
   | 'icon' | 'sequence' | 'character' | 'globe' | 'levelup' | 'orbit' | 'promo'

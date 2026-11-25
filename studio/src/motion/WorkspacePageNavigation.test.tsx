@@ -1368,7 +1368,7 @@ it('rotates the visible Explore spotlight and plays visible Skill previews witho
   try {
     await act(async () => { observed.get(hero)!(true); cards.forEach(card => observed.get(card)!(true)); });
     expect(hero.dataset.scene).toBe('motion');
-    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/\/bubble-field\.mp4$/);
+    expect(hero.querySelector('video[src]')?.getAttribute('src')).toMatch(/^https:\/\/releases\.open-design\.ai\/open-motion\/media\/sha256\/[a-f0-9]{64}\.mp4$/);
     for (const card of cards) expect(card.querySelector('video[src]')).toBeTruthy();
     act(() => { vi.advanceTimersByTime(6000); });
     expect(hero.dataset.scene).toBe('black-friday');

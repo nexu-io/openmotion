@@ -600,6 +600,1368 @@
       "bytes": 7014953,
       "sha256": "0796256eb0309ea3127e3603bd85cd1c9a378a647ac61ab951ce296a522ed34a",
       "url": "https://releases.open-design.ai/open-motion/media/sha256/0796256eb0309ea3127e3603bd85cd1c9a378a647ac61ab951ce296a522ed34a.gif"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ad-script.mp4",
+      "bytes": 229672,
+      "sha256": "cd909044ef02adfaaded897924b0757f0e4443bac5eff5802905f3d2c18ffdf4",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/cd909044ef02adfaaded897924b0757f0e4443bac5eff5802905f3d2c18ffdf4.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ad-script.webp",
+      "bytes": 39656,
+      "sha256": "3c4c37fec5bb46fcdf0dbd2e72c2bde940e5e63d9f8ef784936373a9d9e789cc",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/3c4c37fec5bb46fcdf0dbd2e72c2bde940e5e63d9f8ef784936373a9d9e789cc.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/adaptive-layout.mp4",
+      "bytes": 267684,
+      "sha256": "892e4dc37770082025f361bad13229730c10c81b41fb0367e65cbb25a6524aec",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/892e4dc37770082025f361bad13229730c10c81b41fb0367e65cbb25a6524aec.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/adaptive-layout.webp",
+      "bytes": 27010,
+      "sha256": "10d72896da5e549c20e43a592052b4bb836b3a09f189c931a9e859741e88e36f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/10d72896da5e549c20e43a592052b4bb836b3a09f189c931a9e859741e88e36f.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ai-assistant-tour.mp4",
+      "bytes": 224321,
+      "sha256": "e88e33d418a8acb016df591114e9f8f25b03b04ab3806b8ec8e3408aecadf89b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e88e33d418a8acb016df591114e9f8f25b03b04ab3806b8ec8e3408aecadf89b.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ai-assistant-tour.webp",
+      "bytes": 24530,
+      "sha256": "7f63f263c15e943500060f577324765165fbe09e310477662f75a3f90a327686",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7f63f263c15e943500060f577324765165fbe09e310477662f75a3f90a327686.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/anatomy-reveal.mp4",
+      "bytes": 990328,
+      "sha256": "b264a27fc80589d985fb9e73f73729452bd35be6f9c0b3c83f7d5af698a5a463",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b264a27fc80589d985fb9e73f73729452bd35be6f9c0b3c83f7d5af698a5a463.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/anatomy-reveal.webp",
+      "bytes": 36610,
+      "sha256": "975fa9c032a00a28d5836d26117b7d7e2bb1cbeb33dde4708c9a8648129e834f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/975fa9c032a00a28d5836d26117b7d7e2bb1cbeb33dde4708c9a8648129e834f.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/anatomy.mp4",
+      "bytes": 174013,
+      "sha256": "d1cfcc34922bda1e944137bc504fd9fd68997870af3adddab91fbe1ac7e3320b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d1cfcc34922bda1e944137bc504fd9fd68997870af3adddab91fbe1ac7e3320b.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/anatomy.webp",
+      "bytes": 20860,
+      "sha256": "17188e8dd777fc63ef5f0ba8358304396af3a9c47356d210a5c8bbf9e633a4f7",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/17188e8dd777fc63ef5f0ba8358304396af3a9c47356d210a5c8bbf9e633a4f7.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/anime-js.gif",
+      "bytes": 301504,
+      "sha256": "bba115bf40e7b92f664fa4d5261589e7eced06d76f53d25541c2e2c520a57754",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/bba115bf40e7b92f664fa4d5261589e7eced06d76f53d25541c2e2c520a57754.gif"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/anime-js.webp",
+      "bytes": 784,
+      "sha256": "ee896c82674c06f84f872bb1ed9080cf62af4b777d5c634009ea7eaac8bc8cf9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ee896c82674c06f84f872bb1ed9080cf62af4b777d5c634009ea7eaac8bc8cf9.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/archive-collage.mp4",
+      "bytes": 308646,
+      "sha256": "56b960c8c2a002067a9daab3c1f7ce316ea2e92af88696a1aec915c73e3d3d10",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/56b960c8c2a002067a9daab3c1f7ce316ea2e92af88696a1aec915c73e3d3d10.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/archive-collage.webp",
+      "bytes": 61204,
+      "sha256": "7463c68705555a1c031e81fe0bbe52720a04ed4c92b71e0df765d6eb5bd09542",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7463c68705555a1c031e81fe0bbe52720a04ed4c92b71e0df765d6eb5bd09542.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/article-illustrations.mp4",
+      "bytes": 103366,
+      "sha256": "d484534035a4293e64cc91aa4d5fb29dde1e7e99fd28a5a51311e08932acaf9f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d484534035a4293e64cc91aa4d5fb29dde1e7e99fd28a5a51311e08932acaf9f.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/article-illustrations.webp",
+      "bytes": 23836,
+      "sha256": "dca6ce6fffcbbfbd1d22c02987b8a32a4ea5781b64959e74fe698f2caa5c1019",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/dca6ce6fffcbbfbd1d22c02987b8a32a4ea5781b64959e74fe698f2caa5c1019.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/aurora-gradient.mp4",
+      "bytes": 324247,
+      "sha256": "e45e58e472bd7d6977d90e678067daf126df96114d9031daf3f2daf4b7752069",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e45e58e472bd7d6977d90e678067daf126df96114d9031daf3f2daf4b7752069.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/aurora-gradient.webp",
+      "bytes": 17762,
+      "sha256": "c30c7c6e18a50669995e7101f5b2eb19eb05e53acbce215defa488f5d8e99bc5",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c30c7c6e18a50669995e7101f5b2eb19eb05e53acbce215defa488f5d8e99bc5.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/babylon-js.mp4",
+      "bytes": 623469,
+      "sha256": "d3590500e1978134131988277e6bb4bd6b70973561820260c2ddf0ada6492b17",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d3590500e1978134131988277e6bb4bd6b70973561820260c2ddf0ada6492b17.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/before-after.mp4",
+      "bytes": 219017,
+      "sha256": "f1bf0041e325243d69ebf80e288a965d06089a4265317e5e813e4598f4573265",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f1bf0041e325243d69ebf80e288a965d06089a4265317e5e813e4598f4573265.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/before-after.webp",
+      "bytes": 70840,
+      "sha256": "1f5a77e589efcd628b164ced4d7f8c8b0123cb2258fe36f39d6e6c15f966b07a",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1f5a77e589efcd628b164ced4d7f8c8b0123cb2258fe36f39d6e6c15f966b07a.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/bilingual-captions.mp4",
+      "bytes": 218778,
+      "sha256": "a6632df413447e640f897abfda756ab581dfecbb82d554e323fe2ca4885885d5",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/a6632df413447e640f897abfda756ab581dfecbb82d554e323fe2ca4885885d5.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/bilingual-captions.webp",
+      "bytes": 30926,
+      "sha256": "f894ed1babe60187eea8dbb413da939ac6db9d84a33939bea6fd40f30f4a5109",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f894ed1babe60187eea8dbb413da939ac6db9d84a33939bea6fd40f30f4a5109.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/blender.mp4",
+      "bytes": 306571,
+      "sha256": "8e240f7bab26207360a62642eb6d1967bda96f19dd9fce1390396fe2ec3b01ef",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8e240f7bab26207360a62642eb6d1967bda96f19dd9fce1390396fe2ec3b01ef.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/blender.webp",
+      "bytes": 10688,
+      "sha256": "82d8197831334ab665ddd85908be46515b859aa516842f79e4ca0845419c682c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/82d8197831334ab665ddd85908be46515b859aa516842f79e4ca0845419c682c.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/bold-type-poster.mp4",
+      "bytes": 228515,
+      "sha256": "7b34d2996ee2c40b5d9060ed9495b79a02b9e8ddc791f21fc6ec0c298c895684",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7b34d2996ee2c40b5d9060ed9495b79a02b9e8ddc791f21fc6ec0c298c895684.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/bold-type-poster.webp",
+      "bytes": 33062,
+      "sha256": "0c89ed2afcafec674b7298a3bc60a10a041e0b45f10e5c8c9989a93f9cdc7e98",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0c89ed2afcafec674b7298a3bc60a10a041e0b45f10e5c8c9989a93f9cdc7e98.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/bubble-field.mp4",
+      "bytes": 382560,
+      "sha256": "94f6e99c94476baa0839237499e37ac49498172fb96a9fd573a1bd8be6be9029",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/94f6e99c94476baa0839237499e37ac49498172fb96a9fd573a1bd8be6be9029.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/caption-styling.mp4",
+      "bytes": 213782,
+      "sha256": "fa55e3a7a2d530ca05c30e099046d0087e701a936f8dabc8b351bf1268b9d7a5",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fa55e3a7a2d530ca05c30e099046d0087e701a936f8dabc8b351bf1268b9d7a5.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/caption-styling.webp",
+      "bytes": 28252,
+      "sha256": "4079c3f08296aef6ebcc18bad198b50f5d74b34291e3b3b57b41aefac6c15b57",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/4079c3f08296aef6ebcc18bad198b50f5d74b34291e3b3b57b41aefac6c15b57.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/card-carousel.mp4",
+      "bytes": 396706,
+      "sha256": "0129c5ed5caa393fa73f76cc1947732ddd3c520002948f1f4b92be33fea06624",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0129c5ed5caa393fa73f76cc1947732ddd3c520002948f1f4b92be33fea06624.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/card-carousel.webp",
+      "bytes": 19032,
+      "sha256": "c1a0d6c832f140c7cf83a91d00c70f831b136f9001c1aaae3aefa8050ee9c849",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c1a0d6c832f140c7cf83a91d00c70f831b136f9001c1aaae3aefa8050ee9c849.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/cards-and-text.mp4",
+      "bytes": 310286,
+      "sha256": "924a5591fc2aa74434d2085c3a9686501ead499222edb9048140cd687620c019",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/924a5591fc2aa74434d2085c3a9686501ead499222edb9048140cd687620c019.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/cards-and-text.webp",
+      "bytes": 30208,
+      "sha256": "8e0c96b90345a185b50189ce2f82e23e5c5cedf4d9dfbc5ff024767e71e17eef",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8e0c96b90345a185b50189ce2f82e23e5c5cedf4d9dfbc5ff024767e71e17eef.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/chalk-blueprint.mp4",
+      "bytes": 199921,
+      "sha256": "0689df30248e9774f5f319e5de0b1bdb546683a48783c04c6d8e4493235d5234",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0689df30248e9774f5f319e5de0b1bdb546683a48783c04c6d8e4493235d5234.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/cinematic-logo.mp4",
+      "bytes": 201594,
+      "sha256": "5077f02aa1185c5cdde1bbb5994ffec00cbde040af783f37df6032090d28e75c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5077f02aa1185c5cdde1bbb5994ffec00cbde040af783f37df6032090d28e75c.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/cinematic-logo.webp",
+      "bytes": 19772,
+      "sha256": "bd9756d26d272b027d347c7e86847c0e3ca9629b5c8dd4c9c114800faced0778",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/bd9756d26d272b027d347c7e86847c0e3ca9629b5c8dd4c9c114800faced0778.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/clay-explainer.mp4",
+      "bytes": 240019,
+      "sha256": "40cd4977156aa5c28861ef1759a7c36c5fc899d85aa268a9941346a2e9efa4d7",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/40cd4977156aa5c28861ef1759a7c36c5fc899d85aa268a9941346a2e9efa4d7.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/clay-explainer.webp",
+      "bytes": 26880,
+      "sha256": "006d764ab76ca5da4e3b06b6d6c93f8bdc4c7156eac092ca3e986f96e742b52e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/006d764ab76ca5da4e3b06b6d6c93f8bdc4c7156eac092ca3e986f96e742b52e.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/color-pop-poster.mp4",
+      "bytes": 326996,
+      "sha256": "da7e0166e19d09ff3053fb1d918a95d081158a77922692f027ada6cfbe38a354",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/da7e0166e19d09ff3053fb1d918a95d081158a77922692f027ada6cfbe38a354.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/content-cover.mp4",
+      "bytes": 270110,
+      "sha256": "9825f7eb3bc694535412b539f3d0dd7c7a4025a0dfb6e1c69c698fc347c13d6e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9825f7eb3bc694535412b539f3d0dd7c7a4025a0dfb6e1c69c698fc347c13d6e.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/content-cover.webp",
+      "bytes": 54194,
+      "sha256": "04da4619815ead4c957a92f0e78200b70d66178929ba2694d7f1c9ed01389bfa",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/04da4619815ead4c957a92f0e78200b70d66178929ba2694d7f1c9ed01389bfa.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/coral-title-cards.mp4",
+      "bytes": 221487,
+      "sha256": "5f47036ed969703a349689eaa50c400db8c0dd9469e6b9e9858754703265caf5",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5f47036ed969703a349689eaa50c400db8c0dd9469e6b9e9858754703265caf5.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/coral-title-cards.webp",
+      "bytes": 21784,
+      "sha256": "fcac22964d22899b7d9c06d35e4c11092dae2826f4a5020be89a6f0003daa18b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fcac22964d22899b7d9c06d35e4c11092dae2826f4a5020be89a6f0003daa18b.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/corner-frames.mp4",
+      "bytes": 210560,
+      "sha256": "c4374b634e4cf1ce5a82fed97f2d2322c48e4be51783c0d34238c0aac3d20575",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c4374b634e4cf1ce5a82fed97f2d2322c48e4be51783c0d34238c0aac3d20575.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/corner-frames.webp",
+      "bytes": 25442,
+      "sha256": "325333502343b74d7b9c7183b5cde76b332aa86fac2a951cd8153531cf9442c8",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/325333502343b74d7b9c7183b5cde76b332aa86fac2a951cd8153531cf9442c8.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/dark-premium-poster.mp4",
+      "bytes": 176738,
+      "sha256": "fe4b1be7a0ead71f6d16c1e830531898830e80da805940e57e9ba3b3aa557c2e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fe4b1be7a0ead71f6d16c1e830531898830e80da805940e57e9ba3b3aa557c2e.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/dark-premium-poster.webp",
+      "bytes": 37112,
+      "sha256": "58b5c505ef1d4cd5fa82e3d7779ec029f685ed181c7cc86f262a2f698cb62bef",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/58b5c505ef1d4cd5fa82e3d7779ec029f685ed181c7cc86f262a2f698cb62bef.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/design-styles.mp4",
+      "bytes": 857407,
+      "sha256": "a7ba77ba9188347cc570cbc04218e95aef578843c4d9bfc145e0de9c3484bef5",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/a7ba77ba9188347cc570cbc04218e95aef578843c4d9bfc145e0de9c3484bef5.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/design-styles.webp",
+      "bytes": 46964,
+      "sha256": "c891478649c1ff296fef4fc331409a73000159874c19d1b28066cc2828d05528",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c891478649c1ff296fef4fc331409a73000159874c19d1b28066cc2828d05528.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/doc-promo.mp4",
+      "bytes": 271657,
+      "sha256": "db0a8188982547983df579810839241e48a0c7dd5993b5cf21891b1a5c28a6a4",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/db0a8188982547983df579810839241e48a0c7dd5993b5cf21891b1a5c28a6a4.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/doc-promo.webp",
+      "bytes": 18974,
+      "sha256": "704ca293325023cc45938617102ab65e37502c2ba5aba64d0021445bf47161db",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/704ca293325023cc45938617102ab65e37502c2ba5aba64d0021445bf47161db.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/echo-stack-type.mp4",
+      "bytes": 428148,
+      "sha256": "047d79e7d534ba43b683e82667ced6d86f265dcd141b9ebfdf99ebb42c1da6af",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/047d79e7d534ba43b683e82667ced6d86f265dcd141b9ebfdf99ebb42c1da6af.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/echo-stack-type.webp",
+      "bytes": 35978,
+      "sha256": "8f07ac095c112f82ec9519e5314fec145be42cf94a0e06c2c2cf3cf1115c02cd",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8f07ac095c112f82ec9519e5314fec145be42cf94a0e06c2c2cf3cf1115c02cd.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/edit-to-script.mp4",
+      "bytes": 172598,
+      "sha256": "e076664342dd0c48e8c720a0c7b5ad3f48b6a0fa520ef55c047645950e94682b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e076664342dd0c48e8c720a0c7b5ad3f48b6a0fa520ef55c047645950e94682b.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/edit-to-script.webp",
+      "bytes": 39740,
+      "sha256": "97130aff60ea0742ef283150744efef829e9992e98ca6df1db1a6e91bae147ef",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/97130aff60ea0742ef283150744efef829e9992e98ca6df1db1a6e91bae147ef.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/editorial-explainer.mp4",
+      "bytes": 166168,
+      "sha256": "2bc4183a03f2849d58354e22b06a4746ecde67d81a9feecd5df3980b607afb9d",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/2bc4183a03f2849d58354e22b06a4746ecde67d81a9feecd5df3980b607afb9d.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/editorial-explainer.webp",
+      "bytes": 18088,
+      "sha256": "d0d794a826de77bea706f235ee21e6f45157706c6b9679abc7b2ef998b9d8ac2",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d0d794a826de77bea706f235ee21e6f45157706c6b9679abc7b2ef998b9d8ac2.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/editorial-poster.mp4",
+      "bytes": 181613,
+      "sha256": "b9c39fff18bb7a1243d47622f945951633351d70c941a3ecc55c58c3f226cbb1",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b9c39fff18bb7a1243d47622f945951633351d70c941a3ecc55c58c3f226cbb1.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/editorial-poster.webp",
+      "bytes": 23502,
+      "sha256": "928e1d67a6c7f5773cc6f6927be920b1e5913af78842a047767ecaa166c9d378",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/928e1d67a6c7f5773cc6f6927be920b1e5913af78842a047767ecaa166c9d378.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/editorial-webinar.mp4",
+      "bytes": 140274,
+      "sha256": "72286df7d3a7f93aca1a6d66aacd00ee5f31c65d55a167bdbe44a7246b7690bd",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/72286df7d3a7f93aca1a6d66aacd00ee5f31c65d55a167bdbe44a7246b7690bd.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/editorial-webinar.webp",
+      "bytes": 16544,
+      "sha256": "a43e151d517afefd3be8f3da589fa6240559829d0dabe78b89a20dd01a8db42d",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/a43e151d517afefd3be8f3da589fa6240559829d0dabe78b89a20dd01a8db42d.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/electric-impact-type.mp4",
+      "bytes": 150888,
+      "sha256": "a7983414d48b811fbbb6962c7d0924dd00502ec321b9b4e151aadfa2a8f4fe37",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/a7983414d48b811fbbb6962c7d0924dd00502ec321b9b4e151aadfa2a8f4fe37.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/electric-impact-type.webp",
+      "bytes": 7662,
+      "sha256": "c7e797c70270a6656d75120cb36f69c1cd4a25ba9d6941bc342b5edadb5544a0",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c7e797c70270a6656d75120cb36f69c1cd4a25ba9d6941bc342b5edadb5544a0.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/felt-stop-motion.mp4",
+      "bytes": 343952,
+      "sha256": "07a5e24a40003bc7efb73c294e9673c47dfde6a60132012dd6139f71ea076c34",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/07a5e24a40003bc7efb73c294e9673c47dfde6a60132012dd6139f71ea076c34.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/felt-stop-motion.webp",
+      "bytes": 58092,
+      "sha256": "98b9f246d6beb189c50aec2fcc75809a528fb15dd002635a23d4d974267434e9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/98b9f246d6beb189c50aec2fcc75809a528fb15dd002635a23d4d974267434e9.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/flat-beat.mp4",
+      "bytes": 267874,
+      "sha256": "12b15fc5964f6a772b3aff9a40ecc95f7016b5a0af16a232a70fa8d64d60178f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/12b15fc5964f6a772b3aff9a40ecc95f7016b5a0af16a232a70fa8d64d60178f.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/flat-beat.webp",
+      "bytes": 18924,
+      "sha256": "d5392ff30db04520753271e11d07eee7ee3fa3ce1c5f214b1e5a4466087a9165",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d5392ff30db04520753271e11d07eee7ee3fa3ce1c5f214b1e5a4466087a9165.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/flat-card-explainer.mp4",
+      "bytes": 249920,
+      "sha256": "0da8f4b9695d4d92f93bc0ac5f1f6b953e3719bfc8080e5b82753ca8ff55f968",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0da8f4b9695d4d92f93bc0ac5f1f6b953e3719bfc8080e5b82753ca8ff55f968.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/flat-card-explainer.webp",
+      "bytes": 21890,
+      "sha256": "341ddf1bdc085b32356ec8e989fe81b69139b606ed5ebc2dbd82287c9cb8eb16",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/341ddf1bdc085b32356ec8e989fe81b69139b606ed5ebc2dbd82287c9cb8eb16.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/flat-lay-product.mp4",
+      "bytes": 291627,
+      "sha256": "e7439d127145691b654fc85a595afe71799053cda95f8bcdb5753182ade63605",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e7439d127145691b654fc85a595afe71799053cda95f8bcdb5753182ade63605.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/flat-lay-product.webp",
+      "bytes": 96190,
+      "sha256": "ba81791a73dbda4d44f18657168deafca100a7fcd2dd1825dc502b169ef9acc4",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ba81791a73dbda4d44f18657168deafca100a7fcd2dd1825dc502b169ef9acc4.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/folder-pop.mp4",
+      "bytes": 129597,
+      "sha256": "9c6199583ea719710f0a6e79242ab9ec48d8f7cf4dbdabf00903f07c46a2e1dd",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9c6199583ea719710f0a6e79242ab9ec48d8f7cf4dbdabf00903f07c46a2e1dd.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/folder-pop.webp",
+      "bytes": 23738,
+      "sha256": "fe86a62c5bfef0dfa18a0987adf37fc20bcbd37de15820033409a63af11895e3",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fe86a62c5bfef0dfa18a0987adf37fc20bcbd37de15820033409a63af11895e3.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/footage-to-handpainted.mp4",
+      "bytes": 189546,
+      "sha256": "ae47079342459431376285d0c469bea414a17fef5b741d828318c698d274bf71",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ae47079342459431376285d0c469bea414a17fef5b741d828318c698d274bf71.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/giant-flip-type.mp4",
+      "bytes": 121372,
+      "sha256": "1dab92c8109d271d89ea615a3023c40758f62e9b72838271976eca3152719592",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1dab92c8109d271d89ea615a3023c40758f62e9b72838271976eca3152719592.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/giant-flip-type.webp",
+      "bytes": 27278,
+      "sha256": "2032975823b756a56eb14731a31a9446d9b771685b0d46d790cfb41b57982b4e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/2032975823b756a56eb14731a31a9446d9b771685b0d46d790cfb41b57982b4e.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/gifenc.mp4",
+      "bytes": 413286,
+      "sha256": "ab884899d303b3c6e67132175539bdc3bf8557bc95caebe45a58e354faf8b36a",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ab884899d303b3c6e67132175539bdc3bf8557bc95caebe45a58e354faf8b36a.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/gifenc.webp",
+      "bytes": 15688,
+      "sha256": "f854b5e549a9f066b77e6eb35d0086b66dda0828dbd53fc7548cfdc9becc650f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f854b5e549a9f066b77e6eb35d0086b66dda0828dbd53fc7548cfdc9becc650f.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/glitch-logo-sting.mp4",
+      "bytes": 387318,
+      "sha256": "465d69c4c0eab6f9f0d104d356204a7594e2c2dc8c7abed69473b8973923f133",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/465d69c4c0eab6f9f0d104d356204a7594e2c2dc8c7abed69473b8973923f133.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/glitch-logo-sting.webp",
+      "bytes": 28816,
+      "sha256": "58d15b5e4bd0480a8cef7efcd647351905a5dd4d62a736210ff0c3bd6ec0a009",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/58d15b5e4bd0480a8cef7efcd647351905a5dd4d62a736210ff0c3bd6ec0a009.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/growth-teardown.mp4",
+      "bytes": 166300,
+      "sha256": "35f513ddfaf95d9c1ee737fbeea955149fc68050824f1420ae06ec5f40c8ed26",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/35f513ddfaf95d9c1ee737fbeea955149fc68050824f1420ae06ec5f40c8ed26.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/growth-teardown.webp",
+      "bytes": 37362,
+      "sha256": "33fc145f125495486543a8ca3d67e2f4ab913a51955543f778697673244d8278",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/33fc145f125495486543a8ca3d67e2f4ab913a51955543f778697673244d8278.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/hairline.mp4",
+      "bytes": 125579,
+      "sha256": "25735373b41b485e0d68ef0cb624d7d5fe3c4ba24c468ab729a6569932afa768",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/25735373b41b485e0d68ef0cb624d7d5fe3c4ba24c468ab729a6569932afa768.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/hairline.webp",
+      "bytes": 17176,
+      "sha256": "8a0a2ff25320cc1a15f305abfb74c1bac9ad690391bba548ee97744e9347b31d",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8a0a2ff25320cc1a15f305abfb74c1bac9ad690391bba548ee97744e9347b31d.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/hand-drawn-explainer.mp4",
+      "bytes": 197668,
+      "sha256": "f95acb445036564367a37fbf1c96d6f7cd7db9e90c89ff1cdfef3f88ad6dc597",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f95acb445036564367a37fbf1c96d6f7cd7db9e90c89ff1cdfef3f88ad6dc597.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/hand-drawn-explainer.webp",
+      "bytes": 34688,
+      "sha256": "7e0dc2558c8cb6d313088f03581b241f98698f4b3606685cb7a695ece6d20cac",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7e0dc2558c8cb6d313088f03581b241f98698f4b3606685cb7a695ece6d20cac.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/hidden-feature-demo.mp4",
+      "bytes": 343461,
+      "sha256": "d378b84b37327877532d17c6512ef1298fadc99b255ca3ae55b676b10920e5dd",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d378b84b37327877532d17c6512ef1298fadc99b255ca3ae55b676b10920e5dd.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/hidden-feature-demo.webp",
+      "bytes": 126934,
+      "sha256": "73d9434167d8211f0f7aa9364155d1d86f89f428909d3864b12de737483d574f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/73d9434167d8211f0f7aa9364155d1d86f89f428909d3864b12de737483d574f.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/highlighter-notes.mp4",
+      "bytes": 191022,
+      "sha256": "b089a7e4c540ff83542e3abb1b90a620a8d90cbdcd9114c15140a31b05530118",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b089a7e4c540ff83542e3abb1b90a620a8d90cbdcd9114c15140a31b05530118.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/highlighter-notes.webp",
+      "bytes": 34668,
+      "sha256": "1c459319b0f105f31a9b72a57c0a146a9aaa0ef054d264250e041aa0415d891c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1c459319b0f105f31a9b72a57c0a146a9aaa0ef054d264250e041aa0415d891c.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/in-hand-product.mp4",
+      "bytes": 181038,
+      "sha256": "5313fece6825640c79f583cbe4ec364b5f35d9f3cc6031046e2f01bb90c515e9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5313fece6825640c79f583cbe4ec364b5f35d9f3cc6031046e2f01bb90c515e9.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/in-hand-product.webp",
+      "bytes": 39366,
+      "sha256": "e8551b2fe42dbed8c11584cb4a0f90f94cdc0e3e12766ddd538051cc6a97d5e9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e8551b2fe42dbed8c11584cb4a0f90f94cdc0e3e12766ddd538051cc6a97d5e9.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ink-ribbon.mp4",
+      "bytes": 172616,
+      "sha256": "cd1f5836aa78119517f1a29991537fc18e514134baed9dd9e03a624a9a7bfd00",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/cd1f5836aa78119517f1a29991537fc18e514134baed9dd9e03a624a9a7bfd00.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ink-ribbon.webp",
+      "bytes": 27728,
+      "sha256": "b5a08e9ca059eafa2a7016111c1e44c2f0a6f2d9c320cb1a8bf00cafa3188e86",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b5a08e9ca059eafa2a7016111c1e44c2f0a6f2d9c320cb1a8bf00cafa3188e86.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/isometric-card-flight.mp4",
+      "bytes": 383648,
+      "sha256": "e64e92be13ea1ffe51afd50b20754175349405421ac3d1b9357e63cbc8b6c344",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e64e92be13ea1ffe51afd50b20754175349405421ac3d1b9357e63cbc8b6c344.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/isometric-card-flight.webp",
+      "bytes": 41670,
+      "sha256": "b0a1a8f88c1f5664c2989db487525e19e1f5aa272e42f3769d88755108e71290",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b0a1a8f88c1f5664c2989db487525e19e1f5aa272e42f3769d88755108e71290.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/juicy-splash-poster.mp4",
+      "bytes": 345141,
+      "sha256": "81a087bdb6b513ebd93b3a51b4b608df4420b936d86816158d00802d96221ae4",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/81a087bdb6b513ebd93b3a51b4b608df4420b936d86816158d00802d96221ae4.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/juicy-splash-poster.webp",
+      "bytes": 88292,
+      "sha256": "c13d09b68e80e680a7ab2c29906c9952d6c864e6b7dc782f4da88deed69bad15",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c13d09b68e80e680a7ab2c29906c9952d6c864e6b7dc782f4da88deed69bad15.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/konva.mp4",
+      "bytes": 218021,
+      "sha256": "ebe6a5c8112a640ba74380b78b8703286b882129f8c79eb7d58948bcc633a5cb",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ebe6a5c8112a640ba74380b78b8703286b882129f8c79eb7d58948bcc633a5cb.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/konva.webp",
+      "bytes": 20020,
+      "sha256": "a7015230de52d8b52eaa69324123b42f12a5d3d3e282b9419e0e919603c8f208",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/a7015230de52d8b52eaa69324123b42f12a5d3d3e282b9419e0e919603c8f208.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/light-shadow-product.mp4",
+      "bytes": 235904,
+      "sha256": "7a9011cba74a7d71dd49b2c04bd5b7f68a86270b7b7fbc16d1009ee36f740a0d",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7a9011cba74a7d71dd49b2c04bd5b7f68a86270b7b7fbc16d1009ee36f740a0d.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/liquid-blob.mp4",
+      "bytes": 133139,
+      "sha256": "178bf2d77183ffa39c68d0cfa8ae8778b2626be6718854352220598180a6f149",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/178bf2d77183ffa39c68d0cfa8ae8778b2626be6718854352220598180a6f149.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/liquid-blob.webp",
+      "bytes": 11966,
+      "sha256": "aced070beec69da2de6b3dc565c3f2c96c2fec049412c92b253172a92c76e09e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/aced070beec69da2de6b3dc565c3f2c96c2fec049412c92b253172a92c76e09e.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/liquid-glass-logo.mp4",
+      "bytes": 114988,
+      "sha256": "8744d5cd4612f194c90a5cbde306d416722ed4c7c3b00fe50b4e17d9bb6116f0",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8744d5cd4612f194c90a5cbde306d416722ed4c7c3b00fe50b4e17d9bb6116f0.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/liquid-glass-logo.webp",
+      "bytes": 13010,
+      "sha256": "8b9698f2b456a9ea930f316cdb4656e810031488a3067db1e3f581aeddaa121f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8b9698f2b456a9ea930f316cdb4656e810031488a3067db1e3f581aeddaa121f.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/liquid-logo.mp4",
+      "bytes": 292170,
+      "sha256": "28bbae2c610406d16463882d9322b47f9b3f709990075429d45cf5fa55842b30",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/28bbae2c610406d16463882d9322b47f9b3f709990075429d45cf5fa55842b30.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/liquid-logo.webp",
+      "bytes": 15754,
+      "sha256": "83779b2039c38032044b523439533a895b0302b6b3c429158b1f0a650e892069",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/83779b2039c38032044b523439533a895b0302b6b3c429158b1f0a650e892069.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/livestream-clips.mp4",
+      "bytes": 254786,
+      "sha256": "b65d646ddb024bb68553b01076226e82704fc966bd9ab66416a4289a6cb5d9d2",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b65d646ddb024bb68553b01076226e82704fc966bd9ab66416a4289a6cb5d9d2.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/livestream-clips.webp",
+      "bytes": 51824,
+      "sha256": "85ca428b795255fa0ba571a0e4eb61df270eea4cbbe017813789c2a15ad31ea3",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/85ca428b795255fa0ba571a0e4eb61df270eea4cbbe017813789c2a15ad31ea3.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/lottie-web.gif",
+      "bytes": 255459,
+      "sha256": "dcc92053434e5a5a9a68f47aa80e1278c1e081b750c7d990147401c42066e404",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/dcc92053434e5a5a9a68f47aa80e1278c1e081b750c7d990147401c42066e404.gif"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/lottie-web.webp",
+      "bytes": 2074,
+      "sha256": "58f8ee11ca5a6cad953823d1dc60548a2a6427d896e1d7d2b971d2f25b9cc8ed",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/58f8ee11ca5a6cad953823d1dc60548a2a6427d896e1d7d2b971d2f25b9cc8ed.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/lume.mp4",
+      "bytes": 216012,
+      "sha256": "1848029d2d392e08f4c1ce23217fb55e0322228d6a530fa5e58a220c383a7f8f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1848029d2d392e08f4c1ce23217fb55e0322228d6a530fa5e58a220c383a7f8f.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/lume.webp",
+      "bytes": 20410,
+      "sha256": "b401327c915ceb3e52346033707954a82d3a584648eb1c586eb5534ca6d63b54",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b401327c915ceb3e52346033707954a82d3a584648eb1c586eb5534ca6d63b54.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/magnet-particles.mp4",
+      "bytes": 441003,
+      "sha256": "4c563bf1c6be97cda20f659574f0c2ffb4e8b45e9819c0b593cc56c833128d94",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/4c563bf1c6be97cda20f659574f0c2ffb4e8b45e9819c0b593cc56c833128d94.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/magnet-particles.webp",
+      "bytes": 22066,
+      "sha256": "0e6cc2364598567131dfbd9fd6e4b89b0a4923864c82bf379b46c2baedf36339",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0e6cc2364598567131dfbd9fd6e4b89b0a4923864c82bf379b46c2baedf36339.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/manifesto-pop.mp4",
+      "bytes": 295094,
+      "sha256": "4c85ebd56ca35060f79ccb297661028e2f0d84b3db988cffedec8513e4cd1413",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/4c85ebd56ca35060f79ccb297661028e2f0d84b3db988cffedec8513e4cd1413.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/manifesto-pop.webp",
+      "bytes": 26882,
+      "sha256": "1381b5889df168c47b9f17663d637ebdb81516f0c30d6b6fb41ca2d8d05e2575",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1381b5889df168c47b9f17663d637ebdb81516f0c30d6b6fb41ca2d8d05e2575.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/monochrome-magazine.mp4",
+      "bytes": 214918,
+      "sha256": "5e30c5927a4be12ad54f92c55624daf508c708656c3b2870e1904fdb8f41ee83",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5e30c5927a4be12ad54f92c55624daf508c708656c3b2870e1904fdb8f41ee83.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/monochrome-magazine.webp",
+      "bytes": 21398,
+      "sha256": "fe1439e574224a8d13e4ac95a25d91c06c96d32980bd0cb02ba46b70e464e5a0",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fe1439e574224a8d13e4ac95a25d91c06c96d32980bd0cb02ba46b70e464e5a0.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motion-canvas.mp4",
+      "bytes": 148776,
+      "sha256": "93aef2305c96e83078599e6ea6a46f9555836ead2b70a96c9162b3867077ec80",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/93aef2305c96e83078599e6ea6a46f9555836ead2b70a96c9162b3867077ec80.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motion-canvas.webp",
+      "bytes": 15082,
+      "sha256": "52a5d612cc07a570ba6cd574754fabfe00afea6ad066a9124a2a1f9a847091f7",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/52a5d612cc07a570ba6cd574754fabfe00afea6ad066a9124a2a1f9a847091f7.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motion-design-skill.mp4",
+      "bytes": 68590,
+      "sha256": "df9b2fdb2ee7b1631cf51852b06aaa3c66f5490739e59ea77c8cb64757062afa",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/df9b2fdb2ee7b1631cf51852b06aaa3c66f5490739e59ea77c8cb64757062afa.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motion-design-skill.webp",
+      "bytes": 17758,
+      "sha256": "7daf02c6a5fbaf7ef9e22ed29fc088dabcb098c007f195fcdca60c80e4ef0b26",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7daf02c6a5fbaf7ef9e22ed29fc088dabcb098c007f195fcdca60c80e4ef0b26.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motion-graphic-placement.mp4",
+      "bytes": 287399,
+      "sha256": "fd337147e2e5397a713fad49d14279066052e764cbe8096cfb41cecb3e38ef76",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fd337147e2e5397a713fad49d14279066052e764cbe8096cfb41cecb3e38ef76.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motion-graphic-placement.webp",
+      "bytes": 36764,
+      "sha256": "c0fa1cb66109ac0db2806f2b1e009f273323e39ec838e20b3212773500e1bc9a",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c0fa1cb66109ac0db2806f2b1e009f273323e39ec838e20b3212773500e1bc9a.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motionmaxxing.mp4",
+      "bytes": 802021,
+      "sha256": "dddc25b638c3c31d9b32af57b2a96c93341ee10b24ebcf95e68d7ae18cda55fc",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/dddc25b638c3c31d9b32af57b2a96c93341ee10b24ebcf95e68d7ae18cda55fc.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/motionmaxxing.webp",
+      "bytes": 24836,
+      "sha256": "efb74adf0436edf9a47e79b63f56ab510907cac888e9092efce3a77d18ea945c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/efb74adf0436edf9a47e79b63f56ab510907cac888e9092efce3a77d18ea945c.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/multi-clips-to-reels.mp4",
+      "bytes": 198280,
+      "sha256": "5de6ee20869cc79b39aee344fb3e3c20c2f446dbcff2153f6373ce37431462fb",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5de6ee20869cc79b39aee344fb3e3c20c2f446dbcff2153f6373ce37431462fb.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/multicam-edit.mp4",
+      "bytes": 210978,
+      "sha256": "7249c9b472bc115edb02fd668e3ff4d5f591f8cd09eb418e58fe49df7daf29e5",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/7249c9b472bc115edb02fd668e3ff4d5f591f8cd09eb418e58fe49df7daf29e5.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/multicam-edit.webp",
+      "bytes": 37384,
+      "sha256": "9658c1da27fbc3b3128889e354f586a1fd71f5cc3c847e9d2ffd5cbadc8f584f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9658c1da27fbc3b3128889e354f586a1fd71f5cc3c847e9d2ffd5cbadc8f584f.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/mystery-box-reveal.mp4",
+      "bytes": 303486,
+      "sha256": "fcaedc08bf5a8884e9bf8d49f221afa8b2d8bca7a06e81c777a33728b0f46e4f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/fcaedc08bf5a8884e9bf8d49f221afa8b2d8bca7a06e81c777a33728b0f46e4f.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/mystery-box-reveal.webp",
+      "bytes": 22610,
+      "sha256": "5275b1980ac9227b6b58a98d7aaa41abec213b33b806881239b661e3993b0c13",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5275b1980ac9227b6b58a98d7aaa41abec213b33b806881239b661e3993b0c13.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/neon-outline-type.mp4",
+      "bytes": 200170,
+      "sha256": "10a2a547eefc286c88f8c02ce416d100bf9f293c46c85ba68be10e8d538bc555",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/10a2a547eefc286c88f8c02ce416d100bf9f293c46c85ba68be10e8d538bc555.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/neon-outline-type.webp",
+      "bytes": 13666,
+      "sha256": "255dca6c2b4722716803889da36ce6bcab0e532c68326416b6192e733e81310d",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/255dca6c2b4722716803889da36ce6bcab0e532c68326416b6192e733e81310d.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/nova-intro.mp4",
+      "bytes": 404768,
+      "sha256": "e638bb1ad4dcaf40b341bfc5eaf6ed0fd96e7677bbc754abef765bb4cd0dd817",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e638bb1ad4dcaf40b341bfc5eaf6ed0fd96e7677bbc754abef765bb4cd0dd817.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/nova-intro.webp",
+      "bytes": 22468,
+      "sha256": "c216589952ed5282410b3ebbbc896415375e6397c33e6109c8f4d807a56bd827",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c216589952ed5282410b3ebbbc896415375e6397c33e6109c8f4d807a56bd827.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ola.mp4",
+      "bytes": 241682,
+      "sha256": "224c4371a1119537b57e0c9827e2d9aae45adab33ed4ec8eafda27ed2f6de017",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/224c4371a1119537b57e0c9827e2d9aae45adab33ed4ec8eafda27ed2f6de017.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ola.webp",
+      "bytes": 16148,
+      "sha256": "0501e7c8684c5e43dbd473bab2d7057aa3d16fe4a1cdc698fe510cd898cfa017",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0501e7c8684c5e43dbd473bab2d7057aa3d16fe4a1cdc698fe510cd898cfa017.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/one-bit-dither.mp4",
+      "bytes": 241953,
+      "sha256": "d2e0cacf877cd4498adafde930b0413be71a4f58f057ad2c4a82d2f7fd16b534",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d2e0cacf877cd4498adafde930b0413be71a4f58f057ad2c4a82d2f7fd16b534.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/one-bit-dither.webp",
+      "bytes": 35454,
+      "sha256": "818e68377b2e52b8a69510c598fa871701b10ff51a07c64d0a5fa14fe2de8f73",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/818e68377b2e52b8a69510c598fa871701b10ff51a07c64d0a5fa14fe2de8f73.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/orange-unfiltered.mp4",
+      "bytes": 246124,
+      "sha256": "470dbf36a8236fc5b76cae154b85c16fed64811ec9c58868e17da5796c2d2c97",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/470dbf36a8236fc5b76cae154b85c16fed64811ec9c58868e17da5796c2d2c97.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/orange-unfiltered.webp",
+      "bytes": 33634,
+      "sha256": "cb58181a5eb0123e76c937260f401458d999af3cb8fa86bf90df389f5dc21c94",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/cb58181a5eb0123e76c937260f401458d999af3cb8fa86bf90df389f5dc21c94.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-collage-explainer.mp4",
+      "bytes": 349188,
+      "sha256": "77c23ec1c96b5335e5507884e6206afac36d915288af502a6a362fac10e806a0",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/77c23ec1c96b5335e5507884e6206afac36d915288af502a6a362fac10e806a0.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-collage-explainer.webp",
+      "bytes": 43664,
+      "sha256": "9ddab5d12559244fdedbbb1834ca91143d533bdf6e5eb3c19dc5200f82e4ff89",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9ddab5d12559244fdedbbb1834ca91143d533bdf6e5eb3c19dc5200f82e4ff89.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-diorama.mp4",
+      "bytes": 331667,
+      "sha256": "24ea59f305b4b6d74da456e68c994b41e3db555a664a1ee04650c2a32b5c5ebe",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/24ea59f305b4b6d74da456e68c994b41e3db555a664a1ee04650c2a32b5c5ebe.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-diorama.webp",
+      "bytes": 26626,
+      "sha256": "41467467865817f1e4c6d9dabfc891398b002764fcfaa4c44e64b9cbefdf4eee",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/41467467865817f1e4c6d9dabfc891398b002764fcfaa4c44e64b9cbefdf4eee.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-map-journey.mp4",
+      "bytes": 263496,
+      "sha256": "08d8c36297a10ad971bda1bfa5f4c2d4a388d4a52ac3973b2839e857cb66efcd",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/08d8c36297a10ad971bda1bfa5f4c2d4a388d4a52ac3973b2839e857cb66efcd.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-map-journey.webp",
+      "bytes": 16870,
+      "sha256": "b7f0dfd8295c672462ae624525fc5ab7c9d071e979a952803ece2b08c19fc4db",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b7f0dfd8295c672462ae624525fc5ab7c9d071e979a952803ece2b08c19fc4db.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-stop-motion.mp4",
+      "bytes": 218213,
+      "sha256": "d7fb5bc6a4854b543f58e1716daa8e2bccdf09c7876114dc3551f1343d0d71fe",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d7fb5bc6a4854b543f58e1716daa8e2bccdf09c7876114dc3551f1343d0d71fe.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/paper-stop-motion.webp",
+      "bytes": 33952,
+      "sha256": "ee86d7ea9368539308877ab3340da887147b5f0106d88c2d22b91969a9156c94",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ee86d7ea9368539308877ab3340da887147b5f0106d88c2d22b91969a9156c94.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/pastel-flat-2d.mp4",
+      "bytes": 198161,
+      "sha256": "b8aa26a1633ba7cc73251272aef626b64f97e6fbca3e16b9d7edcfab03e09f65",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b8aa26a1633ba7cc73251272aef626b64f97e6fbca3e16b9d7edcfab03e09f65.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/pastel-flat-2d.webp",
+      "bytes": 14114,
+      "sha256": "cad798190e8148c03bce53b97f9f539e88011c5743d0dd06b6679b075ef93f00",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/cad798190e8148c03bce53b97f9f539e88011c5743d0dd06b6679b075ef93f00.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/pixel-art-explainer.mp4",
+      "bytes": 82953,
+      "sha256": "24660f2299bcd3b8c1b196898e6d95250e0ab7e12e4b3365310e25d808bc4d71",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/24660f2299bcd3b8c1b196898e6d95250e0ab7e12e4b3365310e25d808bc4d71.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/pixel-art-explainer.webp",
+      "bytes": 20714,
+      "sha256": "9deaaf71b2c30c0d70130f0bef289037cf80ee40800ef7f60e1cd5a3500efc56",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9deaaf71b2c30c0d70130f0bef289037cf80ee40800ef7f60e1cd5a3500efc56.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/pop-style.mp4",
+      "bytes": 455659,
+      "sha256": "9bbed82efcec50165a1018a3427da96a81fec88139ba26419cd544034e828ae9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9bbed82efcec50165a1018a3427da96a81fec88139ba26419cd544034e828ae9.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/pop-style.webp",
+      "bytes": 81166,
+      "sha256": "3f34f4f36c6c34cf214599a4b268a3fd7017752b777b88d78ebd082e160e2dbb",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/3f34f4f36c6c34cf214599a4b268a3fd7017752b777b88d78ebd082e160e2dbb.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/premium-halo.mp4",
+      "bytes": 188532,
+      "sha256": "4fde3d19e3c9f9ae7e23c67b4f7e6c06d7ded61cad701068ccfeb0edcb13e259",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/4fde3d19e3c9f9ae7e23c67b4f7e6c06d7ded61cad701068ccfeb0edcb13e259.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/proton.mp4",
+      "bytes": 627253,
+      "sha256": "8591ab52e34404a9b5b7623b6be94d8fe71b14117f8aebb774171b346dda6b1a",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8591ab52e34404a9b5b7623b6be94d8fe71b14117f8aebb774171b346dda6b1a.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/proton.webp",
+      "bytes": 17368,
+      "sha256": "0a036ad76d66ca011d2e1f695c59b0143f49017dc9f8a7b6094f5d7dbd0bb21d",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0a036ad76d66ca011d2e1f695c59b0143f49017dc9f8a7b6094f5d7dbd0bb21d.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/push-in-type.mp4",
+      "bytes": 322179,
+      "sha256": "1505a8ba23594b2b98303782a85d0054e9d1218e39fe938afabb61325d7aab24",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1505a8ba23594b2b98303782a85d0054e9d1218e39fe938afabb61325d7aab24.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/push-in-type.webp",
+      "bytes": 20634,
+      "sha256": "cc6237504cc31c619e35bba4e04aba03b954e96877765df732e1164862ccb8a8",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/cc6237504cc31c619e35bba4e04aba03b954e96877765df732e1164862ccb8a8.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/quantum-particles.mp4",
+      "bytes": 412700,
+      "sha256": "e55496ba496ec217780c216a92ab5a0417abf017f5f38ca815b43a1e7b0f96b9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e55496ba496ec217780c216a92ab5a0417abf017f5f38ca815b43a1e7b0f96b9.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/quantum-particles.webp",
+      "bytes": 23796,
+      "sha256": "5a4196bcfa4cb5c9a2dd60e4448aa040aec3067bc85afb21e6d4c245fc509096",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5a4196bcfa4cb5c9a2dd60e4448aa040aec3067bc85afb21e6d4c245fc509096.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/red-pen-archive.mp4",
+      "bytes": 311507,
+      "sha256": "1bacf71252a62402bad05fdc32544b0bca2b7a4091125ec9e0d16dbe87fa8bda",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1bacf71252a62402bad05fdc32544b0bca2b7a4091125ec9e0d16dbe87fa8bda.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/red-pen-archive.webp",
+      "bytes": 42862,
+      "sha256": "36d9a2d6dc2921d89a89df8723464302c1a043c4b1680219bad1ea907c88c0fa",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/36d9a2d6dc2921d89a89df8723464302c1a043c4b1680219bad1ea907c88c0fa.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/relight-reveal.mp4",
+      "bytes": 313372,
+      "sha256": "24214214886f9bfa4e0673272da953b678e053ddaa460864bbbe80b7d456c5f2",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/24214214886f9bfa4e0673272da953b678e053ddaa460864bbbe80b7d456c5f2.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/relight-reveal.webp",
+      "bytes": 31338,
+      "sha256": "034570a59bb98b20f6d1adb2a136577dfa7d59b9c7e4c573377f34291d3e1657",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/034570a59bb98b20f6d1adb2a136577dfa7d59b9c7e4c573377f34291d3e1657.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/retro-flat-scene.mp4",
+      "bytes": 305702,
+      "sha256": "6771c19d2a3631e70c1c2404483688de64fe2b96fc36963efc2f8f12e9854813",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/6771c19d2a3631e70c1c2404483688de64fe2b96fc36963efc2f8f12e9854813.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/retro-flat-scene.webp",
+      "bytes": 19270,
+      "sha256": "8a4f011dade8942ca1b1ffa24b9ee262b5078be12954ddfd6b087fb8a947e2b1",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8a4f011dade8942ca1b1ffa24b9ee262b5078be12954ddfd6b087fb8a947e2b1.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/retro-print-poster.mp4",
+      "bytes": 394987,
+      "sha256": "f00503aa78ea1986b578aba37a17e5ad2a1c829f0cdb21b064c923ee54e99472",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f00503aa78ea1986b578aba37a17e5ad2a1c829f0cdb21b064c923ee54e99472.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ring-mask-reveal.mp4",
+      "bytes": 111323,
+      "sha256": "2e70a1e61dd6ebd0242798810f1ee69309c440b8f943928c120da94e859eb972",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/2e70a1e61dd6ebd0242798810f1ee69309c440b8f943928c120da94e859eb972.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/ring-mask-reveal.webp",
+      "bytes": 9660,
+      "sha256": "1db7484ceeaaf89573569c3420ecd4ef2a958a854a3c24ab6a47b10d7db9b3e1",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1db7484ceeaaf89573569c3420ecd4ef2a958a854a3c24ab6a47b10d7db9b3e1.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/runway-rebel.mp4",
+      "bytes": 265551,
+      "sha256": "d7c5d45daf2ac48be2d97b9d611aa4e361e0fe8acc661542ae34106c588d794f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d7c5d45daf2ac48be2d97b9d611aa4e361e0fe8acc661542ae34106c588d794f.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/runway-rebel.webp",
+      "bytes": 17378,
+      "sha256": "bd353d31447ae81f3494d606af988a33f7f59c4af5738b3ddad669257a9846b9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/bd353d31447ae81f3494d606af988a33f7f59c4af5738b3ddad669257a9846b9.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sale-carousel.mp4",
+      "bytes": 558243,
+      "sha256": "b5fc18adab872099065a0d87d3ba81fc604a1c9a4f2aa18adf106f450b1f1403",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/b5fc18adab872099065a0d87d3ba81fc604a1c9a4f2aa18adf106f450b1f1403.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sale-countdown.mp4",
+      "bytes": 202682,
+      "sha256": "c6c04ab8535f1cc73a5189e2d7f5dd2f98a366093c6f84cbabe497c66bc17522",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c6c04ab8535f1cc73a5189e2d7f5dd2f98a366093c6f84cbabe497c66bc17522.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sale-promo.mp4",
+      "bytes": 578175,
+      "sha256": "c1b751226067c78bc8c148d6b7c0b0ecc1aac77265a837dcd2c10b4d521ce152",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c1b751226067c78bc8c148d6b7c0b0ecc1aac77265a837dcd2c10b4d521ce152.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sale-promo.webp",
+      "bytes": 42008,
+      "sha256": "3120efebfadd62c619bf0442d929af09ac4d0de34cd109c1884e5d2a73d3ff6c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/3120efebfadd62c619bf0442d929af09ac4d0de34cd109c1884e5d2a73d3ff6c.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shifty.mp4",
+      "bytes": 115419,
+      "sha256": "0f7fd5f795ae00ae5c97775e2468b007a84f5c4f78802050488f02e9344fc5c3",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0f7fd5f795ae00ae5c97775e2468b007a84f5c4f78802050488f02e9344fc5c3.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shifty.webp",
+      "bytes": 12306,
+      "sha256": "acee98f5039cafbc0a17c8cd0f66549f23d4cf4b0c9f1adb9c3b8e4592cc8079",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/acee98f5039cafbc0a17c8cd0f66549f23d4cf4b0c9f1adb9c3b8e4592cc8079.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shortlist-shorts.mp4",
+      "bytes": 168853,
+      "sha256": "2f781077ac97c1a4778820471886ff6d2ce4b697ce79451ce487c02eaa5abd1c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/2f781077ac97c1a4778820471886ff6d2ce4b697ce79451ce487c02eaa5abd1c.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shortlist-shorts.webp",
+      "bytes": 32552,
+      "sha256": "949d426db0e8f1af418406a369ac16c0f3ada6b67676eadf6609a76371595459",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/949d426db0e8f1af418406a369ac16c0f3ada6b67676eadf6609a76371595459.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shot-breakdown.mp4",
+      "bytes": 168411,
+      "sha256": "9e9492325e950ba616bbf47df6c6c8eef7c05fa81915d283105e54f80ac546ee",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9e9492325e950ba616bbf47df6c6c8eef7c05fa81915d283105e54f80ac546ee.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shot-breakdown.webp",
+      "bytes": 52182,
+      "sha256": "d8f881800caafabf88b18cbfb719ecd8c9e1d7a41b792b96775f69a4659eb2ad",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d8f881800caafabf88b18cbfb719ecd8c9e1d7a41b792b96775f69a4659eb2ad.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shutter-bands.mp4",
+      "bytes": 266952,
+      "sha256": "266c6a14e58b03dfbf120755b15ea68a56b1a05877fea0e1f83e55a997fb95cb",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/266c6a14e58b03dfbf120755b15ea68a56b1a05877fea0e1f83e55a997fb95cb.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/shutter-bands.webp",
+      "bytes": 17302,
+      "sha256": "9e079bf3efa704c53ea616c7b884a6ebcc2206e1f35a966e171df55f4532b8aa",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9e079bf3efa704c53ea616c7b884a6ebcc2206e1f35a966e171df55f4532b8aa.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/smooth-wipes.mp4",
+      "bytes": 160127,
+      "sha256": "1a60b4db34544b3fe142347c7c0be8e88ac3b0053bea824dd6914cc7f06577c3",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1a60b4db34544b3fe142347c7c0be8e88ac3b0053bea824dd6914cc7f06577c3.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/smooth-wipes.webp",
+      "bytes": 24746,
+      "sha256": "94d9c0096a6a5192c662fc023bebe316333f6d81b358c4ecdfca206693eee07e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/94d9c0096a6a5192c662fc023bebe316333f6d81b358c4ecdfca206693eee07e.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/spec-sheet.mp4",
+      "bytes": 192719,
+      "sha256": "e6a84a114b77c67901759ee5e367e56d054d264f2e46f541fc3692046d314a68",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e6a84a114b77c67901759ee5e367e56d054d264f2e46f541fc3692046d314a68.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/spec-sheet.webp",
+      "bytes": 33966,
+      "sha256": "deb3a4c73c505bf2d4a6e03e364ec5e9567615fbf10f0312035d579c61fc0ac0",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/deb3a4c73c505bf2d4a6e03e364ec5e9567615fbf10f0312035d579c61fc0ac0.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/splash-float-product.mp4",
+      "bytes": 353999,
+      "sha256": "33231f8ab851081fb87b6c68195ab93c5b271b183de20a685c40d466fc21f731",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/33231f8ab851081fb87b6c68195ab93c5b271b183de20a685c40d466fc21f731.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/split-slot-type.mp4",
+      "bytes": 294171,
+      "sha256": "9a51f04a5fc563bcba45b61800fb825e774ef249734b6c3b751e16a516601902",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9a51f04a5fc563bcba45b61800fb825e774ef249734b6c3b751e16a516601902.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/split-slot-type.webp",
+      "bytes": 14480,
+      "sha256": "0f606fd7990e0f3c38ee5fb080e702d62be7c410c8c17912f6ac4ed4391db6de",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/0f606fd7990e0f3c38ee5fb080e702d62be7c410c8c17912f6ac4ed4391db6de.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/step-by-step-tutorial.mp4",
+      "bytes": 268012,
+      "sha256": "453d8ec92274e6a509235fc914413693ccbae8aea2b395f6664459e7e67cfdfc",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/453d8ec92274e6a509235fc914413693ccbae8aea2b395f6664459e7e67cfdfc.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/step-by-step-tutorial.webp",
+      "bytes": 81634,
+      "sha256": "4158a4995fbf884fbaaba991221f8fb3e8a32deb4d27c62dfcf0d1fa41592326",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/4158a4995fbf884fbaaba991221f8fb3e8a32deb4d27c62dfcf0d1fa41592326.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sticker-bounce.mp4",
+      "bytes": 307322,
+      "sha256": "8a31ce2d2c27532530b9e8c1d5a889aa2d8c5180c26f815714ca107728a2397f",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/8a31ce2d2c27532530b9e8c1d5a889aa2d8c5180c26f815714ca107728a2397f.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sticker-bounce.webp",
+      "bytes": 48988,
+      "sha256": "234f615d0c6f7b46e88cfe66459c3d30dcc8c2debadc248075083ff8dc1a8949",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/234f615d0c6f7b46e88cfe66459c3d30dcc8c2debadc248075083ff8dc1a8949.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sticker-peel.mp4",
+      "bytes": 165632,
+      "sha256": "3507eca50bff1920b98dbe29d468f9148a23a3e5626a7cf7e866c8ee4a43491c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/3507eca50bff1920b98dbe29d468f9148a23a3e5626a7cf7e866c8ee4a43491c.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/sticker-peel.webp",
+      "bytes": 32092,
+      "sha256": "f8d97162844cfce1fab3fdecfa164c605ec0e404370e8a96064e05c3b61e646b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f8d97162844cfce1fab3fdecfa164c605ec0e404370e8a96064e05c3b61e646b.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/storyboard-to-motion.mp4",
+      "bytes": 269674,
+      "sha256": "4d7910c792405a0a1faf3be880f6d2f7b174a752fdebc61511500f3678b3de0b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/4d7910c792405a0a1faf3be880f6d2f7b174a752fdebc61511500f3678b3de0b.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/storyboard-to-motion.webp",
+      "bytes": 31930,
+      "sha256": "55e2b28a0911b24957654da9274fcaf184cced83633d1f9df45c31a8aef31f33",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/55e2b28a0911b24957654da9274fcaf184cced83633d1f9df45c31a8aef31f33.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/storybook-myth.mp4",
+      "bytes": 280859,
+      "sha256": "c340c7091af73421b6447817500c75f068fc6a985fbd3fd6c33031b85ddd8f56",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/c340c7091af73421b6447817500c75f068fc6a985fbd3fd6c33031b85ddd8f56.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/storybook-myth.webp",
+      "bytes": 34746,
+      "sha256": "53543afa85ffeabebdca6acfb4096b52922d724e50e154f4e14276ab4a232111",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/53543afa85ffeabebdca6acfb4096b52922d724e50e154f4e14276ab4a232111.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/surreal-3d-poster.mp4",
+      "bytes": 187790,
+      "sha256": "79594521e07bbcc237239e688d69768e34565d2027c3804ee4aad784b4d705b1",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/79594521e07bbcc237239e688d69768e34565d2027c3804ee4aad784b4d705b1.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/surreal-3d-poster.webp",
+      "bytes": 35090,
+      "sha256": "496a9913be243a091dc59ede142041f4c61ead560b3b3473c72f6d5155d61884",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/496a9913be243a091dc59ede142041f4c61ead560b3b3473c72f6d5155d61884.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/talking-head-recreation.mp4",
+      "bytes": 209575,
+      "sha256": "1d81aaec90b5b401606472929d89b6c9eda4bf0ec6efc3a56879c563656b02f9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/1d81aaec90b5b401606472929d89b6c9eda4bf0ec6efc3a56879c563656b02f9.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/three-js.mp4",
+      "bytes": 808638,
+      "sha256": "204484db1b23ec9dcb4d71a452e2bf215a43fbaa1e1cb125278b4c1e02dbe16b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/204484db1b23ec9dcb4d71a452e2bf215a43fbaa1e1cb125278b4c1e02dbe16b.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/three-js.webp",
+      "bytes": 29838,
+      "sha256": "f60e39f16bae4b393cf0ec388c863301676506ae75e131443315d24f90abd4a7",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f60e39f16bae4b393cf0ec388c863301676506ae75e131443315d24f90abd4a7.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/time-freeze.mp4",
+      "bytes": 377494,
+      "sha256": "584b912f7d3a0edf61da19ccb4433c79b8f9f993b70d3b445a22f403be7adb5e",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/584b912f7d3a0edf61da19ccb4433c79b8f9f993b70d3b445a22f403be7adb5e.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/time-freeze.webp",
+      "bytes": 25248,
+      "sha256": "099f8e958ca560909237d495c1668781dcdfaccd9edda12c3fc21bf99c117cfb",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/099f8e958ca560909237d495c1668781dcdfaccd9edda12c3fc21bf99c117cfb.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/translucent-glass.mp4",
+      "bytes": 188517,
+      "sha256": "d8cc3e74274f92590bcb102e04884a529eece5a2567b35926ae3deb2e9926b43",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/d8cc3e74274f92590bcb102e04884a529eece5a2567b35926ae3deb2e9926b43.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/translucent-glass.webp",
+      "bytes": 17190,
+      "sha256": "aff28ea41ab64b052747f069c8618fb2bbdcb25cf96ae0c7a3f9d058bbcfbc23",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/aff28ea41ab64b052747f069c8618fb2bbdcb25cf96ae0c7a3f9d058bbcfbc23.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/tween-js.mp4",
+      "bytes": 155117,
+      "sha256": "e10cbf7f447311c8ca67a7bb79d3fa7f5168fa93ad10d13bcf33dfc80b0c9a50",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e10cbf7f447311c8ca67a7bb79d3fa7f5168fa93ad10d13bcf33dfc80b0c9a50.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/tween-js.webp",
+      "bytes": 11980,
+      "sha256": "e4d0b56cf6e06dbe128ee7a9b43ef6f6b2f37f88f453c49bec32819faa06cde4",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e4d0b56cf6e06dbe128ee7a9b43ef6f6b2f37f88f453c49bec32819faa06cde4.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/two-js.mp4",
+      "bytes": 139843,
+      "sha256": "eb8f3bc1638e019f3379283121d7994cc477e197dd9d3021b700d311f0375867",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/eb8f3bc1638e019f3379283121d7994cc477e197dd9d3021b700d311f0375867.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/two-js.webp",
+      "bytes": 7318,
+      "sha256": "31d7af7871f6e6ac991885f4763eee56289c4664e2109a87565ebc494b9fa7c9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/31d7af7871f6e6ac991885f4763eee56289c4664e2109a87565ebc494b9fa7c9.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/velocity-lines.mp4",
+      "bytes": 370066,
+      "sha256": "9b43c415cd0d1ebadcf044afd5ec407cd0b93926226b00e7835ee333caffbbda",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/9b43c415cd0d1ebadcf044afd5ec407cd0b93926226b00e7835ee333caffbbda.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/velocity-lines.webp",
+      "bytes": 21042,
+      "sha256": "f947cef34f4e4ac48bb051e6db2414f2a5e1eab0550f6bfe325618a736572f41",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/f947cef34f4e4ac48bb051e6db2414f2a5e1eab0550f6bfe325618a736572f41.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/website-launch.mp4",
+      "bytes": 237141,
+      "sha256": "42c011c57e432b59a3335364465404bbd25e801de5712a3da5d371b67b67f8a9",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/42c011c57e432b59a3335364465404bbd25e801de5712a3da5d371b67b67f8a9.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/website-launch.webp",
+      "bytes": 15896,
+      "sha256": "688c31737d7a38ccac55be8b9a6fc4f1994057bf8e21cdd4ce91eb757e809804",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/688c31737d7a38ccac55be8b9a6fc4f1994057bf8e21cdd4ce91eb757e809804.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/whiteboard-doodle.mp4",
+      "bytes": 120296,
+      "sha256": "e5df377e12b9270e4f99d4e7af286bde28a092ee2f0637a6dd7cdc2744d2d103",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/e5df377e12b9270e4f99d4e7af286bde28a092ee2f0637a6dd7cdc2744d2d103.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/whiteboard-doodle.webp",
+      "bytes": 15200,
+      "sha256": "ed2de5e82b0f9dde2f8913251363a870d65144fdcf8aa49cc3e587bd1cc9b03b",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/ed2de5e82b0f9dde2f8913251363a870d65144fdcf8aa49cc3e587bd1cc9b03b.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/whiteboard-marker.mp4",
+      "bytes": 148684,
+      "sha256": "5ca2dd502980f37e90b2e498ab671cd60023c6127791f484565603b52bf0695c",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/5ca2dd502980f37e90b2e498ab671cd60023c6127791f484565603b52bf0695c.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/whiteboard-marker.webp",
+      "bytes": 27546,
+      "sha256": "18068d6b68eccde5e942ef0cdcac3bb6a94fb215c6542703de9edbb7a14108ab",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/18068d6b68eccde5e942ef0cdcac3bb6a94fb215c6542703de9edbb7a14108ab.webp"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/wireframe-style.mp4",
+      "bytes": 193749,
+      "sha256": "bb8dc7324fc66962fe7bd6ce73ad7fba031fa513f2876ebb0b6fd671708bf318",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/bb8dc7324fc66962fe7bd6ce73ad7fba031fa513f2876ebb0b6fd671708bf318.mp4"
+    },
+    {
+      "path": "studio/src/motion/skill-covers/wireframe-style.webp",
+      "bytes": 19202,
+      "sha256": "058768cddc51297d503fe2a235dee7da0afb42d332366726030002e506f8fd26",
+      "url": "https://releases.open-design.ai/open-motion/media/sha256/058768cddc51297d503fe2a235dee7da0afb42d332366726030002e506f8fd26.webp"
     }
   ]
 }

@@ -4,7 +4,6 @@ import { useI18n } from '../i18n/I18n';
 import { motionStudio, type StudioDestination } from './creativeStudios';
 import { findModelHub } from './modelHubs';
 import { motionStudioCover } from './skillCatalog';
-import { useSkillPreview } from './useSkillPreview';
 import { destinationTarget, reportCreativeClick } from './exploreTracking';
 import seedanceHeroPoster from './model-hubs/seedance-2-5/hero.webp?no-inline';
 import gptImageHeroPoster from './model-hubs/gpt-image-2-6/hero.webp?no-inline';
@@ -91,7 +90,7 @@ function FeaturedClip({ src, poster, playing }: { src: string; poster: string; p
   const player = useRef<HTMLVideoElement>(null);
   const [failed, setFailed] = useState(false);
   const [started, setStarted] = useState(playing);
-  const videoSource = useSkillPreview(src, (started || playing) && !failed);
+  const videoSource = (started || playing) && !failed ? src : undefined;
   useEffect(() => { if (playing) setStarted(true); }, [playing]);
   useEffect(() => {
     const video = player.current;
