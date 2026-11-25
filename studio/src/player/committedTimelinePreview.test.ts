@@ -6,7 +6,7 @@ import { forgetSource, rememberSource } from "../utils/confirmedTextSources";
 import { usePlayerStore } from "./store/playerStore";
 import { scheduleCommittedTimelinePreview } from "./committedTimelinePreview";
 import { scheduleCommittedPreview } from "./committedPreview";
-import { hasPeerTimingDocument, mountedPeerFileVersion, tryApplyPeerChanges } from "./peerTimingPreview";
+import { hasPeerTimingDocument, mountedPeerFileVersion, refreshPeerScenes, tryApplyPeerChanges } from "./peerTimingPreview";
 
 vi.mock("./peerTimingPreview", () => ({
   refreshPeerScenes: vi.fn(async () => false), mountedPeerFileVersion: vi.fn(() => undefined), tryRefreshParkedPeerScene: () => false,
@@ -135,6 +135,36 @@ it("does not reconcile over a second pointer drag before it starts its save", as
   await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
   expect(update.mock.calls[0]![1]).toEqual({path, previous: source("v1"), current: source("v3")});
   expect(reload).not.toHaveBeenCalled();
+});
+
+it("keeps a queued peer revision when an older timeline save receipt arrives during a gesture", async () => {
+  const { frame, reload } = setup();
+  const gesture = beginStudioManualEditGesture(frame, "resize");
+  const previous = source("local"), current = source("peer");
+  rememberSource(pid, path, current);
+  scheduleCommittedPreview(frame, pid, [{ path, version: current.version, previous, read: async () => current }], reload);
+  scheduleCommittedTimelinePreview(frame, pid, path, {
+    [path]: { before: source("initial").content, after: previous.content, version: previous.version },
+  }, source("initial"), reload);
+  endStudioManualEditGesture(frame, gesture);
+  await vi.waitFor(() => expect(update).toHaveBeenCalledWith(frame, { path, previous, current }, expect.any(Function)));
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it("recovers the latest project state when a scene advances while a sibling paint is pending", async () => {
+  const { frame, reload } = setup();
+  const paths = ["compositions/stale.html", "compositions/sibling.html"];
+  const previous = source("initial"), current = source("saved");
+  const changes = paths.map(path => ({ path, previous, current }));
+  for (const path of paths) rememberSource(pid, path, current);
+  const paint = Promise.withResolvers<boolean>();
+  update.mockResolvedValueOnce(false).mockImplementationOnce(() => paint.promise);
+  scheduleCommittedPreview(frame, pid, changes, reload);
+  await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+  rememberSource(pid, paths[0], source("peer"));
+  paint.resolve(true);
+  await vi.waitFor(() => expect(reload).toHaveBeenCalledWith([paths[0]]));
+  expect(refreshPeerScenes).not.toHaveBeenCalled();
 });
 
 it("resumes at an intermediate version actually painted before a late ACK", async () => {

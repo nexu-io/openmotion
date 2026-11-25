@@ -70,6 +70,12 @@ function busy(frame: HTMLIFrameElement) {
   return frame.hasAttribute(STUDIO_MANUAL_EDIT_GESTURE_ATTR) || isStudioEditSaving();
 }
 
+function matchesConfirmedVersion(project: string, change: Change) {
+  const version = confirmedSource(project, change.path)?.version;
+  if (change.version) return !version || version === change.version || version === change.observedVersion;
+  return !version || version === change.current?.version;
+}
+
 async function present(frame: HTMLIFrameElement, session: Session) {
   const mounted = () => sessions.get(frame) === session && frame.isConnected && frame.src === session.src &&
     usePlayerStore.getState().timelineProjectId === session.project;
@@ -80,12 +86,7 @@ async function present(frame: HTMLIFrameElement, session: Session) {
   for (const change of pending) {
     const owns = () => mounted() && session.pending.get(change.path) === change;
     if (!mounted() || busy(frame)) break;
-    const current = () => {
-      if (!owns() || busy(frame) || isPreviewChanging()) return false;
-      const version = confirmedSource(session.project, change.path)?.version;
-      if (change.version) return !version || version === change.version || version === change.observedVersion;
-      return !version || version === change.current?.version;
-    };
+    const current = () => owns() && !busy(frame) && !isPreviewChanging() && matchesConfirmedVersion(session.project, change);
     const done = await applyChange(frame, change, session.sent, current, batchScenes).catch(() => false);
     // A later input/receipt owns the same pixels, even if this bridge response was successful.
     if (!owns() || busy(frame)) continue;
@@ -93,10 +94,11 @@ async function present(frame: HTMLIFrameElement, session: Session) {
     else retry.push(change);
   }
   if (batchScenes && retry.length) {
+    const candidates = retry.filter(change => matchesConfirmedVersion(session.project, change) && session.pending.get(change.path) === change);
     const current = () => mounted() && !busy(frame) && !isPreviewChanging() &&
-      retry.every(change => session.pending.get(change.path) === change);
-    const files = retry.map((change): [string, string] => [change.path, (change.current?.version ?? change.version)!]);
-    if (current() && await refreshPeerScenes(frame, files, current).catch(() => false)) applied.push(...retry.splice(0));
+      candidates.every(change => session.pending.get(change.path) === change && matchesConfirmedVersion(session.project, change));
+    const files = candidates.map((change): [string, string] => [change.path, (change.current?.version ?? change.version)!]);
+    if (files.length && current() && await refreshPeerScenes(frame, files, current).catch(() => false) && current()) applied.push(...candidates);
   }
   if (!mounted()) {
     if (sessions.get(frame) === session) sessions.delete(frame);
@@ -149,6 +151,9 @@ export function scheduleCommittedPreview(
     const prior = session.pending.get(change.path);
     const target = change.current?.version ?? change.version;
     const priorTarget = prior?.current?.version ?? prior?.version;
+    // The queued revision already includes this local receipt. Keep its peer update and reader.
+    if (priorTarget && change.current && !change.version && target !== priorTarget &&
+        prior?.previous?.version === target && confirmedSource(project, change.path)?.version === priorTarget) continue;
     if (prior && target && priorTarget === target) {
       // A save receipt and a project event can describe the same immutable file.
       // Keep an in-flight paint unless the new notice provides something it actually lacks.
