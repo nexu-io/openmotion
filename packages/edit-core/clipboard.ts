@@ -131,8 +131,8 @@ export function pasteTimelineClips(
       existingIds.push(copy.id);
     }
     copy.classList.add('clip');
-    copy.setAttribute('data-start', String(Math.round(newStart * 100) / 100));
-    copy.setAttribute('data-duration', String(Math.round(clip.duration * 100) / 100));
+    copy.setAttribute('data-start', String(Math.round(newStart * 1000) / 1000));
+    copy.setAttribute('data-duration', String(Math.round(clip.duration * 1000) / 1000));
     copy.setAttribute('data-track-index', String(newTrack));
     const opened =
       clips.length === 1

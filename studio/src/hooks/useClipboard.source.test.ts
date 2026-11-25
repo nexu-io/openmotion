@@ -793,14 +793,80 @@ it("rejects a duplicate of a removed scene still mounted in the preview", async 
   expect(view.showToast).toHaveBeenCalledWith(expect.any(String), "error");
 });
 
-it("reports a stale split selection without writing a partial duplicate", async () => {
+it("reports a stale split selection without writing a partial duplicate, copy, or cut", async () => {
   selectTitle();
   usePlayerStore.setState({ selectedElementIds: new Set([TITLE.id, "index.html#missing-split"]) });
   const view = mountClipboard();
   expect(await view.clipboard().handleDuplicate()).toBe(false);
+  expect(view.clipboard().handleCopy()).toBe(false);
+  expect(await view.clipboard().handleCut()).toBe(false);
   expect(view.writes).toEqual([]);
+  expect(view.deleted).toEqual([]);
   expect(view.recordEdit).not.toHaveBeenCalled();
   expect(view.showToast).toHaveBeenCalledWith(expect.any(String), "error");
+});
+
+it("prefers explicit domId over a conflicting stale data-hf-id on a split timeline row", async () => {
+  const media = '<main data-composition-id="main" data-duration="20"><video id="film" src="film.mp4" data-start="1.5" data-duration="12.5" data-track-index="1"></video></main>';
+  const cut = applyAtomicCutsToHtml(media, [{
+    target: { id: "film" }, splitTime: 10.033, elementStart: 1.5, elementDuration: 12.5, track: 1,
+  }]);
+  expect(cut.splitCount).toBe(1);
+  const path = "index.html";
+  const elements = parseAuthoredTimeline(cut.after, path, "p")!.elements;
+  const left = elements.find(row => row.domId === "film")!;
+  const right = elements.find(row => row.domId === cut.rightHalfIds[0])!;
+  // Corrupt the right-half row itself with the left half's data-hf-id (simulating a stale preview scan).
+  const corruptedRight = { ...right, hfId: left.hfId };
+  usePlayerStore.setState({
+    elements: [left, corruptedRight],
+    duration: 20,
+    selectedElementId: corruptedRight.key!,
+    selectedElementIds: new Set([corruptedRight.key!]),
+  });
+  const view = mountClipboard(null, SUB, () => {}, cut.after);
+  expect(await view.clipboard().handleDuplicate()).toBe(true);
+  const doc = new DOMParser().parseFromString(view.writes[0]!, "text/html");
+  const duplicate = doc.getElementById(`${right.domId}-2`);
+  expect(duplicate).not.toBeNull();
+  const parsedDuplicate = parseAuthoredTimeline(view.writes[0]!, path, "p")!.elements.find(row => row.domId === `${right.domId}-2`)!;
+  expect(parsedDuplicate.playbackStart).toBe(right.playbackStart);
+  // Preserves millisecond precision from the split without rounding to hundredths.
+  expect(duplicate?.getAttribute("data-duration")).toBe(String(right.duration));
+  expect(duplicate?.getAttribute("data-start")).toBe(String(Math.round((right.start + right.duration) * 1000) / 1000));
+});
+
+it("still duplicates a live-only timeline clip generated at runtime without an authored data-hf-id", async () => {
+  const view = mountClipboard();
+  const doc = view.iframe.contentDocument!;
+  const runtimeClip = doc.createElement("div");
+  runtimeClip.id = "runtime-card";
+  runtimeClip.className = "clip";
+  runtimeClip.setAttribute("data-start", "4");
+  runtimeClip.setAttribute("data-duration", "2.125");
+  runtimeClip.setAttribute("data-track-index", "1");
+  runtimeClip.textContent = "Generated at runtime";
+  doc.querySelector('[data-composition-id="main"]')!.append(runtimeClip);
+
+  const liveRow: TimelineElement = {
+    id: "runtime-card",
+    key: "index.html#runtime-card",
+    domId: "runtime-card",
+    tag: "div",
+    start: 4,
+    duration: 2.125,
+    track: 1,
+    authoredTrack: 1,
+    sourceFile: "index.html",
+  };
+  usePlayerStore.setState({
+    elements: [liveRow],
+    selectedElementId: liveRow.key!,
+    selectedElementIds: new Set([liveRow.key!]),
+  });
+  expect(await view.clipboard().handleDuplicate()).toBe(true);
+  expect(view.writes[0]).toContain("Generated at runtime");
+  expect(view.writes[0]).toContain('data-duration="2.125"');
 });
 
 it("selects the duplicate when the left split half has only an authored hf-id", async () => {
