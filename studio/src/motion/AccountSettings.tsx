@@ -258,7 +258,7 @@ function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary
   const planName = !account.plan ? '—' : account.plan === 'free' ? t('Free plan') : account.plan.charAt(0).toUpperCase() + account.plan.slice(1);
   const upgrade = upgradable && (console
     ? <Button variant="plain" className="om-plan-usage-upgrade" onClick={() => open('view_plans')}><RemixIcon name="sparkling-fill" size={14} />{t('Upgrade')}</Button>
-    : <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => open('view_plans')}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade')}</Button>);
+    : <Button variant="ghost" className="om-button h-auto om-plan-usage-upgrade" data-primary onClick={() => open('view_plans')}><RemixIcon name="sparkling-line" size={16} />{t('Upgrade')}</Button>);
   return <section className="om-card om-plan-usage" data-look={console ? 'console' : 'studio'}>
     {console
       ? <div className="om-plan-usage-head" style={{ '--om-plan-art': `url(${planCardBackground})` } as CSSProperties}>
@@ -285,7 +285,7 @@ function PlanUsagePanel({ account, upgradable, open }: { account: AccountSummary
         <div className="om-plan-usage-figure"><strong>{formatUsd(account.balance)}</strong>
           {console
             ? <Button variant="plain" className="om-plan-usage-recharge" onClick={() => open('recharge')}>{t('Top up')}<RemixIcon name="external-link-line" size={15} /></Button>
-            : <Button variant="ghost" className="om-button h-auto" data-primary onClick={() => open('recharge')}>{t('Top up')}<RemixIcon name="external-link-line" size={15} /></Button>}</div>
+            : <Button variant="ghost" className="om-button h-auto om-plan-usage-recharge" data-primary onClick={() => open('recharge')}>{t('Top up')}<RemixIcon name="external-link-line" size={15} /></Button>}</div>
       </div>
     </div>
   </section>;
