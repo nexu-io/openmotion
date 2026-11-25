@@ -327,7 +327,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [switchingWorkspaceId, setSwitchingWorkspaceId] = useState<string | null>(null);
 
   // Connected OAuth applications ("已连接的应用") state
   const [connections, setConnections] = useState<ConnectedApplicationRecord[] | null>(null);
@@ -446,22 +445,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       setRefreshing(false);
     }
   }
-  async function switchWorkspace(workspaceId: string) {
-    if (workspaceId === account?.activeWorkspace?.id) return;
-    setSwitchingWorkspaceId(workspaceId);
-    try {
-      await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
-      clearPrivateSwrCache();
-      await state.refresh(true);
-      notifyProvidersChanged();
-      window.dispatchEvent(new Event('motion:account-changed'));
-      toast.showToast(t('Workspace switched'), 'info');
-    } catch (error) {
-      toast.showToast(error instanceof Error ? error.message : t('Could not switch workspace'), 'error');
-    } finally {
-      setSwitchingWorkspaceId(null);
-    }
-  }
 
   async function createToken(event: FormEvent) {
     event.preventDefault();
@@ -561,7 +544,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const email = account?.user?.email;
   const named = Boolean(name) && name!.toLowerCase() !== email?.toLowerCase();
   const workspaces = account?.workspaces ?? [];
-  const canSwitchWorkspace = account?.authMethod === 'session_cookie';
   const activeTokens = (tokens ?? []).filter(item => !item.revokedAt);
 
   return (
@@ -625,9 +607,6 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
             <section className="om-settings-section" aria-label={t('Workspaces')}>
               <div className="om-settings-row">
                 <h2 className="om-subtitle">{t('Workspaces')}</h2>
-                {!canSwitchWorkspace && (
-                  <span className="om-muted">{t('Session cookie required to switch workspaces')}</span>
-                )}
               </div>
               <div className="om-card om-card-stack">
                 {workspaces.map(ws => {
@@ -638,14 +617,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                         <strong>{ws.name}</strong>
                         <p className="om-muted">{ws.slug} · {ws.role}</p>
                       </div>
-                      <Button
-                        variant="ghost"
-                        className="om-button h-auto"
-                        disabled={isActive || !canSwitchWorkspace || switchingWorkspaceId !== null}
-                        onClick={() => void switchWorkspace(ws.id)}
-                      >
-                        {isActive ? <><RemixIcon name="check-line" size={14} />{t('Active workspace')}</> : t(switchingWorkspaceId === ws.id ? 'Switching…' : 'Switch workspace')}
-                      </Button>
+                      {isActive && <Button variant="ghost" className="om-button h-auto" disabled>
+                        <RemixIcon name="check-line" size={14} />{t('Active workspace')}
+                      </Button>}
                     </div>
                   );
                 })}

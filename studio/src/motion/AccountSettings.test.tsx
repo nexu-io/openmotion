@@ -63,9 +63,6 @@ async function open(
       hooks.tokens = hooks.tokens.filter(item => item.id !== id);
       return { ok: true, id };
     }
-    if (path === 'account/workspaces/switch' && method === 'POST') {
-      return { ok: true };
-    }
     return hooks.summary;
   });
   const container = document.createElement('div');
@@ -92,7 +89,7 @@ it('shows Local Dev Mode banner when AUTH_MODE=dev and hides OIDC sign-out', asy
   expect(findButton(page, 'Sign out')).toBeUndefined();
 });
 
-it('switches workspaces and signs out cleanly in OIDC mode', async () => {
+it('lists workspaces without a switch action and signs out cleanly in OIDC mode', async () => {
   const fetchSpy = vi.fn(async () => {
     hooks.summary = { authenticated: false, authMode: 'oidc', consoleUrl: 'https://open-design.ai/cloud' };
     return Response.json({ ok: true });
@@ -112,8 +109,8 @@ it('switches workspaces and signs out cleanly in OIDC mode', async () => {
   });
   expect(page.textContent).toContain('Studio A');
   expect(page.textContent).toContain('Studio B');
-  await act(async () => findButton(page, 'Switch workspace')!.click());
-  expect(hooks.request).toHaveBeenCalledWith('account/workspaces/switch', 'POST', { workspaceId: 'ws-2' });
+  expect(findButton(page, 'Switch workspace')).toBeUndefined();
+  expect(findButton(page, 'Active workspace')?.closest('.om-preference-row')?.textContent).toContain('Studio A');
   await act(async () => findButton(page, 'Sign out')!.click());
   expect(fetchSpy).toHaveBeenCalledWith('/auth/logout', expect.objectContaining({ method: 'POST' }));
   expect(page.querySelector('.om-plan-guide')).not.toBeNull();
