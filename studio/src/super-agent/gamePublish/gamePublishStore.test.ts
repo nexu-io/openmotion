@@ -67,7 +67,10 @@ describe('gamePublishStore', () => {
     expect(gamePublishSessionFor(input.artifactId)?.linkToo).toBe(true);
     gamePublishActions.choose(input.artifactId, 'wechat');
     expect(publish).toHaveBeenCalledWith('game', 'abc12345', expect.objectContaining({ filePath: 'index.html', deployMode: 'publish' }));
-    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('OpenDesign is selected too');
+    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('kept OpenDesign selected');
+    await settle();
+    // Whether the link is still publishing or already live, the Agent never gets the URL to repeat.
+    expect(handoff.mock.calls[0][0].hiddenInstructions).not.toContain('play.opendesign.app');
     await settle();
     expect(gamePublishSessionFor(input.artifactId)?.linkUrl).toBe('https://play.opendesign.app/g/abc');
   });
@@ -78,7 +81,7 @@ describe('gamePublishStore', () => {
     gamePublishActions.choose(input.artifactId, 'wechat');
     await settle();
     expect(publish).not.toHaveBeenCalled();
-    expect(handoff.mock.calls[0][0].hiddenInstructions).not.toContain('OpenDesign is selected too');
+    expect(handoff.mock.calls[0][0].hiddenInstructions).not.toContain('kept OpenDesign selected');
     expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'step', platformId: 'wechat' });
     expect(gamePublishSessionFor(input.artifactId)?.linkUrl).toBeUndefined();
   });
@@ -186,7 +189,7 @@ describe('gamePublishStore', () => {
     expect(guide).toContain('Step 1 of 2 · Download the HTML5 zip');
     expect(guide).toContain('"Downloaded"');
     expect(guide).toContain('One step per message');
-    expect(guide).not.toContain('OpenDesign is selected too');
+    expect(guide).not.toContain('kept OpenDesign selected');
     await settle();
     gamePublishActions.completeStep(input.artifactId, { platformId: 'itch', stepIndex: 0 });
     expect(handoff).toHaveBeenLastCalledWith({ prompt: 'Done: Download the HTML5 zip', mode: 'game', newChat: false, autoSend: true });
@@ -208,7 +211,7 @@ describe('gamePublishStore', () => {
     gamePublishActions.open(input);
     gamePublishActions.choose(input.artifactId, 'itch');
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('OpenDesign is selected too');
+    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('kept OpenDesign selected');
     await settle();
     expect(gamePublishSessionFor(input.artifactId)?.linkUrl).toBe('https://play.opendesign.app/g/abc');
   });
