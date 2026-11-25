@@ -5,7 +5,7 @@ import { gamePublishDevTool } from './devTools';
 import { downloadPackage, formatBytes, type GamePackageCheck } from './gamePackage';
 import { copyGamePublishLink, gamePublishActions, stepBlocked, type GamePublishSession } from './gamePublishStore';
 import { playableNetwork } from './playableNetworks';
-import { OpenDesignProgress } from './WechatProgress';
+import { CompactLink, OpenDesignProgress } from './WechatProgress';
 import { gamePublishPlatform } from './platforms';
 import './gamePublish.css';
 
@@ -186,9 +186,8 @@ function LinkStep({ session, onNotify }: { session: GamePublishSession; onNotify
         <div className="om-gp-check" data-tone="ok">
           <RemixIcon name="checkbox-circle-fill" size={14} />
           <span className="om-gp-check-label">{t('Live on OpenDesign')}</span>
-          <span className="om-gp-check-value">{session.linkUrl}</span>
+          <span className="om-gp-check-value"><CompactLink url={session.linkUrl} onNotify={onNotify} /></span>
         </div>
-        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
       </div>
     );
   }

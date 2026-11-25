@@ -1,9 +1,9 @@
 import { Button } from 'open-design-ui/button';
 import qrcode from 'qrcode-generator';
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
-import { gamePublishActions, type GamePublishSession } from './gamePublishStore';
+import { copyGamePublishLink, gamePublishActions, type GamePublishSession } from './gamePublishStore';
 import { WECHAT_STEPS } from './platforms';
 import type { WechatPublishStatus, WechatStepKey } from './wechatClient';
 import './gamePublish.css';
@@ -97,6 +97,26 @@ export function OpenDesignProgress({ session }: { session: GamePublishSession })
         <span className="om-gp-overview-state">{session.linkUrl ? t('Done') : session.linkError ? t('Needs a fix') : session.linkPublishing ? t('Publishing…') : t('Not started')}</span>
       </li>
     </ol>
+  );
+}
+
+/**
+ * A published OpenDesign link, folded to one line: Open · Copy link · Show link. The full URL is the tooltip and
+ * appears only when the user asks for it; Copy always copies the full URL.
+ */
+export function CompactLink({ url, onNotify }: { url: string; onNotify?: (message: string, tone?: 'info' | 'error') => void }) {
+  const { t } = useI18n();
+  const [shown, setShown] = useState(false);
+  const full = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  return (
+    <span className="om-gp-compact-link">
+      <span className="om-gp-compact-link-row">
+        <a className="om-gp-text-btn" href={full} target="_blank" rel="noopener noreferrer" title={full}>{t('Open')}</a>
+        <Button variant="plain" type="button" className="om-gp-text-btn" title={full} onClick={() => void copyGamePublishLink(full, onNotify, t)}>{t('Copy link')}</Button>
+        <Button variant="plain" type="button" className="om-gp-text-btn" aria-expanded={shown} onClick={() => setShown(value => !value)}>{shown ? t('Hide link') : t('Show link')}</Button>
+      </span>
+      {shown && <code className="om-gp-link-value">{full}</code>}
+    </span>
   );
 }
 

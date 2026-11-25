@@ -605,7 +605,10 @@
     "Download {tool}": "下载{tool}",
     "Play link": "试玩链接",
     "Publishing…": "发布中…",
-    "Only OpenDesign": "只发 OpenDesign"
+    "Only OpenDesign": "只发 OpenDesign",
+    "Open": "打开",
+    "Show link": "显示链接",
+    "Hide link": "收起链接"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -1213,7 +1216,10 @@
     "Download {tool}": "{tool} をダウンロード",
     "Play link": "プレイリンク",
     "Publishing…": "公開中…",
-    "Only OpenDesign": "OpenDesign だけ"
+    "Only OpenDesign": "OpenDesign だけ",
+    "Open": "開く",
+    "Show link": "リンクを表示",
+    "Hide link": "リンクを隠す"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1821,7 +1827,10 @@
     "Download {tool}": "{tool} 다운로드",
     "Play link": "플레이 링크",
     "Publishing…": "게시 중…",
-    "Only OpenDesign": "OpenDesign만"
+    "Only OpenDesign": "OpenDesign만",
+    "Open": "열기",
+    "Show link": "링크 보기",
+    "Hide link": "링크 숨기기"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -2429,7 +2438,10 @@
     "Download {tool}": "{tool} herunterladen",
     "Play link": "Spiel-Link",
     "Publishing…": "Wird veröffentlicht…",
-    "Only OpenDesign": "Nur OpenDesign"
+    "Only OpenDesign": "Nur OpenDesign",
+    "Open": "Öffnen",
+    "Show link": "Link anzeigen",
+    "Hide link": "Link ausblenden"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -3037,7 +3049,10 @@
     "Download {tool}": "Télécharger {tool}",
     "Play link": "Lien de jeu",
     "Publishing…": "Publication…",
-    "Only OpenDesign": "Seulement OpenDesign"
+    "Only OpenDesign": "Seulement OpenDesign",
+    "Open": "Ouvrir",
+    "Show link": "Afficher le lien",
+    "Hide link": "Masquer le lien"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3645,7 +3660,10 @@
     "Download {tool}": "Скачать {tool}",
     "Play link": "Ссылка на игру",
     "Publishing…": "Публикация…",
-    "Only OpenDesign": "Только OpenDesign"
+    "Only OpenDesign": "Только OpenDesign",
+    "Open": "Открыть",
+    "Show link": "Показать ссылку",
+    "Hide link": "Скрыть ссылку"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -4253,7 +4271,10 @@
     "Download {tool}": "Descargar {tool}",
     "Play link": "Enlace para jugar",
     "Publishing…": "Publicando…",
-    "Only OpenDesign": "Solo OpenDesign"
+    "Only OpenDesign": "Solo OpenDesign",
+    "Open": "Abrir",
+    "Show link": "Mostrar enlace",
+    "Hide link": "Ocultar enlace"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4861,7 +4882,10 @@
     "Download {tool}": "Baixar {tool}",
     "Play link": "Link para jogar",
     "Publishing…": "Publicando…",
-    "Only OpenDesign": "Só OpenDesign"
+    "Only OpenDesign": "Só OpenDesign",
+    "Open": "Abrir",
+    "Show link": "Mostrar link",
+    "Hide link": "Ocultar link"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5469,7 +5493,10 @@
     "Download {tool}": "Scarica {tool}",
     "Play link": "Link di gioco",
     "Publishing…": "Pubblicazione…",
-    "Only OpenDesign": "Solo OpenDesign"
+    "Only OpenDesign": "Solo OpenDesign",
+    "Open": "Apri",
+    "Show link": "Mostra link",
+    "Hide link": "Nascondi link"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -6077,6 +6104,9 @@
     "Download {tool}": "{tool} indir",
     "Play link": "Oyun bağlantısı",
     "Publishing…": "Yayınlanıyor…",
-    "Only OpenDesign": "Yalnızca OpenDesign"
+    "Only OpenDesign": "Yalnızca OpenDesign",
+    "Open": "Aç",
+    "Show link": "Bağlantıyı göster",
+    "Hide link": "Bağlantıyı gizle"
   }
 }

@@ -7,7 +7,7 @@ import { GamePublishResultAction } from './GamePublishThread';
 import { ENABLED_PUBLISH_PLATFORMS, GAME_PUBLISH_PLATFORMS, gamePublishPlatform, type GamePublishPlatform, type GamePublishPlatformId } from './platforms';
 import { ChoiceTiles } from '../../components/ui/ChoiceTiles';
 import { PlatformIcon } from '../../../../packages/design-system/react/PlatformIcon';
-import { LinkQr, WechatProgress } from './WechatProgress';
+import { CompactLink, WechatProgress } from './WechatProgress';
 import { PlatformProgress } from './PlatformStepControls';
 import './gamePublish.css';
 
@@ -139,8 +139,8 @@ function OpenDesignChoice({ session, onNotify }: { session: GamePublishSession; 
     return (
       <div className="om-gp-od-line" data-done>
         <RemixIcon name="checkbox-circle-fill" size={14} />
-        <span className="om-gp-od-line-text">{t('Live on OpenDesign')} · {session.linkUrl}</span>
-        <Button variant="plain" type="button" className="om-gp-text-btn" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
+        <span className="om-gp-od-line-text">{t('Live on OpenDesign')}</span>
+        <CompactLink url={session.linkUrl} onNotify={onNotify} />
       </div>
     );
   }

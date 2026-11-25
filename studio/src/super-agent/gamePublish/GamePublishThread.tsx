@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
 import { copyGamePublishLink, gamePublishActions, useGamePublishThread, usePublishForChat, type GamePublishThreadEntry } from './gamePublishStore';
-import { WechatInlineControls } from './WechatProgress';
+import { CompactLink, WechatInlineControls } from './WechatProgress';
 import { PlatformInlineControls } from './PlatformStepControls';
 import './gamePublish.css';
 
@@ -74,10 +74,12 @@ function ThreadEntry({ entry, onOpenPanel, onNotify }: { entry: GamePublishThrea
     <div className="om-gp-result-card">
       <RemixIcon name="checkbox-circle-fill" size={22} className="om-gp-result-icon" />
       <strong>{t(entry.title)}</strong>
-      <span className="om-gp-muted">{entry.link ? entry.detail : t(entry.detail, entry.vars)}</span>
       {entry.link
-        ? <Button variant="plain" type="button" className="om-gp-primary" onClick={() => void copyGamePublishLink(entry.detail, onNotify, t)}>{t('Copy link')}</Button>
-        : <GamePublishResultAction action={entry.action} href={entry.href} />}
+        ? <CompactLink url={entry.detail} onNotify={onNotify} />
+        : <>
+          <span className="om-gp-muted">{t(entry.detail, entry.vars)}</span>
+          <GamePublishResultAction action={entry.action} href={entry.href} />
+        </>}
     </div>
   );
 }
