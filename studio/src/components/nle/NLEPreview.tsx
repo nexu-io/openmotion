@@ -490,7 +490,7 @@ export const NLEPreview = memo(function NLEPreview({
         showInitialLoading
         canEditWhileLoading={canEditWhileLoading}
         trackAssets
-        projectId={directUrl ? undefined : projectId}
+        projectId={projectId}
         directUrl={directUrl}
         onLoad={() => {
           updateCompositionSizeFromPreview();

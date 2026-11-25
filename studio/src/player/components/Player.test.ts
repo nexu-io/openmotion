@@ -551,6 +551,23 @@ describe("ready to show", () => {
     }
   });
 
+  it("keeps the live canvas covered without announcing a painted frame when the loading message expires", async () => {
+    vi.useFakeTimers();
+    try {
+      usePlayerStore.setState({ previewBooted: false });
+      const onPainted = vi.fn(), onReadyToShowChange = vi.fn();
+      const { host } = await mountPlayer({ showInitialLoading: true, trackAssets: true, onPainted, onReadyToShowChange });
+      act(() => void vi.advanceTimersByTime(5001));
+      expect(host.querySelector('[data-testid="composition-loading-overlay"]')).toBeNull();
+      expect(host.querySelector('[data-testid="composition-loading-backdrop"]')).not.toBeNull();
+      expect(usePlayerStore.getState().previewBooted).toBe(false);
+      expect(onPainted).not.toHaveBeenCalled();
+      expect(onReadyToShowChange).not.toHaveBeenCalledWith(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports the document start time with the painted iframe", async () => {
     const onPainted = vi.fn();
     const now = vi.spyOn(performance, "now").mockReturnValue(100);

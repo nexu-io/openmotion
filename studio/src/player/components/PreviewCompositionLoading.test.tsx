@@ -1,7 +1,11 @@
 // @vitest-environment happy-dom
-import { act } from "react";
-import { afterEach, expect, it } from "vitest";
-import { cleanupMounted, mountHost } from "../../components/ui/mountHost.testHelpers";
+import { act, type ComponentProps } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanupMounted, mountHost, trackedRoot } from "../../components/ui/mountHost.testHelpers";
+import {
+  clearClientCompositionCaptureCacheForTest, seedClientCompositionCaptureForTest, setCachedProjectRevision,
+} from "../lib/clientCompositionCapture";
+import { thumbnailScheduler } from "../lib/thumbnailScheduler";
 import { usePlayerStore } from "../store/playerStore";
 import { PreviewCompositionLoading } from "./PreviewCompositionLoading";
 
@@ -14,7 +18,10 @@ const downloadHint = "Downloading this file for playback.";
 
 afterEach(() => {
   cleanupMounted();
+  clearClientCompositionCaptureCacheForTest();
   usePlayerStore.setState(usePlayerStore.getInitialState(), true);
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 it("updates the same live status when the player starts a generation after mount", () => {
@@ -83,4 +90,120 @@ it.each([true, false, undefined])("describes the download when edit eligibility 
   expect(file.getAttribute("title")).toBe(longName);
   expect(file.classList.contains("truncate")).toBe(true);
   expect(file.nextElementSibling?.textContent).toBe(canEditWhileLoading ? `${downloadHint} You can keep editing.` : downloadHint);
+});
+
+describe("after three seconds on the stage", () => {
+  const advance = (ms: number) => act(() => { vi.advanceTimersByTime(ms); });
+  const backdrop = '[data-testid="composition-loading-backdrop"]';
+  const clip = "compositions/夜の街 opening.html";
+  const seedCover = (projectId: string, path = "index.html", contentRevision = 0) => {
+    const value = seedClientCompositionCaptureForTest({
+      projectId, previewUrl: `/api/projects/${projectId}/preview/comp/${path.split("/").map(encodeURIComponent).join("/")}`,
+      contentRevision, frameCount: 1,
+    }, [new Blob(["cover"], { type: "image/jpeg" })]);
+    if (value.kind !== "image") throw new Error("Expected a single captured cover");
+    return value.url;
+  };
+  const setup = () => {
+    const host = document.createElement("div");
+    const root = trackedRoot(host);
+    const render = (props: ComponentProps<typeof PreviewCompositionLoading>) => act(() => root.render(<PreviewCompositionLoading {...props} />));
+    return { host, render };
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    let sequence = 0;
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:test/cover-${++sequence}`);
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  });
+
+  it.each([true, false])("replaces the status on its original deadline, including quiet switches (showMark=%s)", showMark => {
+    const { host, render } = setup();
+    const generation = { current: 1 };
+    render({ showMark, assetGeneration: generation });
+    advance(2_500);
+    act(() => usePlayerStore.setState({ duration: 10, assetReadinessGeneration: 1, assetReadinessPendingAsset: filename }));
+    render({ showMark, assetGeneration: generation, canEditWhileLoading: true });
+    advance(499);
+    expect(host.querySelector('[role="status"]')?.textContent).toContain(filename);
+    advance(1);
+    const canvas = host.querySelector(backdrop)!;
+    expect(canvas.getAttribute("aria-hidden")).toBe("true");
+    expect(canvas.classList.contains("bg-[var(--motion-canvas)]")).toBe(true);
+    expect(canvas.classList.contains("pointer-events-none")).toBe(true);
+    expect(host.querySelector('[role="status"], [aria-live], .motion-preview-loading-mark')).toBeNull();
+    expect(host.textContent).toBe("");
+    act(() => usePlayerStore.setState({ duration: 20, assetReadinessPendingAsset: "late.mp4" }));
+    render({ showMark: !showMark, assetGeneration: generation });
+    expect(host.querySelector(backdrop)).toBe(canvas);
+    expect(host.textContent).toBe("");
+  });
+
+  it("cancels the deadline when the player removes the cover early", () => {
+    mountHost(<PreviewCompositionLoading />);
+    expect(vi.getTimerCount()).toBe(1);
+    cleanupMounted();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("borrows the root cover already in memory at the deadline and releases its URL on unmount", () => {
+    const host = mountHost(<PreviewCompositionLoading showMark={false} posterProjectId="p" />);
+    advance(2_900);
+    const url = seedCover("p");
+    expect(host.querySelector("img")).toBeNull();
+    advance(100);
+    expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
+    seedCover("p", "index.html", 1); // Supersede the cache entry while the backdrop holds it.
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(url);
+    cleanupMounted();
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(url);
+  });
+
+  it("never carries a cover to another project, clip or file version", () => {
+    const { host, render } = setup();
+    setCachedProjectRevision("a", "v1", { [clip]: "file-1" });
+    const url = seedCover("a", clip);
+    render({ posterProjectId: "a", posterCompositionPath: clip });
+    advance(3_000);
+    expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
+    render({ posterProjectId: "b", posterCompositionPath: clip });
+    expect(host.querySelector("img")).toBeNull();
+    render({ posterProjectId: "a", posterCompositionPath: "other.html" });
+    expect(host.querySelector("img")).toBeNull();
+    render({ posterProjectId: "a", posterCompositionPath: clip });
+    expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
+    act(() => setCachedProjectRevision("a", "v2", { [clip]: "file-2" }));
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector(backdrop)).not.toBeNull();
+  });
+
+  it("uses the current clip's thumbnail revision when it has no persisted file version", () => {
+    const path = "parts/scene.html";
+    usePlayerStore.getState().bumpThumbnailRevisions([path]);
+    const url = seedCover("p", path, 1);
+    const host = mountHost(<PreviewCompositionLoading posterProjectId="p" posterCompositionPath={path} />);
+    advance(3_000);
+    expect(host.querySelector("img")?.getAttribute("src")).toBe(url);
+    act(() => usePlayerStore.getState().bumpThumbnailRevisions([path]));
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelector(backdrop)).not.toBeNull();
+  });
+
+  it("falls back silently on image error or a cache miss without requesting another thumbnail", () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const acquire = vi.spyOn(thumbnailScheduler, "acquire");
+    const url = seedCover("p");
+    const host = mountHost(<PreviewCompositionLoading posterProjectId="p" />);
+    advance(3_000);
+    const img = host.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe(url);
+    act(() => { img.dispatchEvent(new Event("error")); });
+    expect(host.querySelector("img")).toBeNull();
+    act(() => usePlayerStore.getState().bumpThumbnailRevisions(null));
+    expect(host.querySelector("img, [role=status], [role=alert]")).toBeNull();
+    expect(host.querySelector(backdrop)).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(acquire).not.toHaveBeenCalled();
+  });
 });

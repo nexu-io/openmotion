@@ -4,6 +4,7 @@ import { isolatedPreviewOrigin } from "../lib/previewLease";
 import { Button } from "open-design-ui/button";
 import { useI18n } from "../../i18n/I18n";
 import { buildProjectApiPath } from "../../utils/projectRouting";
+import { compositionPathOfPreviewUrl } from "../../utils/projectCompositionPath";
 import { forwardRef, useEffect, useRef, useState } from "react";
 import { isLottieAnimationLoaded } from "@hyperframes/core/runtime/lottie-readiness";
 import { scanPendingCompositionAssets } from "@hyperframes/core/composition-readiness";
@@ -641,12 +642,14 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
     }, [tracksAssets, previewError, loaded, compositionLoading, assetScanTick]);
 
     useEffect(() => {
+      // A live editor waiting for its first frame reports readiness from the player.
+      if (startsWithLoading) return;
       const timer = setTimeout(
         () => usePlayerStore.getState().markPreviewBooted(),
         PREVIEW_BOOT_DEADLINE_MS,
       );
       return () => clearTimeout(timer);
-    }, [projectId]);
+    }, [projectId, startsWithLoading]);
 
     useEffect(() => {
       if (!tracksAssets) return;
@@ -671,7 +674,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       assetOverlayVisible && !shaderTransitionLoading && !compositionWaitShown && !previewError;
     // Displaying the first frame is local to the canvas. Timeline and editor controls
     // continue to use their existing readiness signals.
-    const initialWait = awaitingFirstFrame && !assetWaitLong;
+    const initialWait = awaitingFirstFrame && (tracksAssets || !assetWaitLong);
     const showCompositionOverlay = studioDraws(!previewError && (initialWait || compositionWaitShown), host.loadingUi);
     const showAssetOverlay = !tracksAssets && studioDraws(!initialWait && assetWaitShown, host.loadingUi);
 
@@ -688,6 +691,8 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         <div ref={containerRef} className="w-full h-full" />
         {showCompositionOverlay && <PreviewCompositionLoading
           canEditWhileLoading={canEditWhileLoading}
+          posterProjectId={tracksAssets ? projectId : undefined}
+          posterCompositionPath={directUrl ? compositionPathOfPreviewUrl(directUrl) : undefined}
           assetGeneration={tracksAssets ? assetReadinessGenRef : undefined}
         />}
         {showAssetOverlay && (

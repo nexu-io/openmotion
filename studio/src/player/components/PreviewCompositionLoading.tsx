@@ -1,15 +1,38 @@
-import { useId } from "react";
+import { useEffect, useId, useState } from "react";
 import { useI18n } from "../../i18n/I18n";
 import { usePlayerStore } from "../store/playerStore";
+import { CachedCompositionPoster } from "./CachedCompositionPoster";
 
 interface PreviewCompositionLoadingProps {
   showMark?: boolean;
   canEditWhileLoading?: boolean;
   assetGeneration?: { readonly current: number };
+  posterProjectId?: string;
+  posterCompositionPath?: string;
 }
 
-/** Keep the stage opaque from mount until the player releases its first-frame cover. */
-export function PreviewCompositionLoading({ showMark = true, canEditWhileLoading, assetGeneration }: PreviewCompositionLoadingProps) {
+/** Bound the loading message, not the player's wait for a displayable frame. */
+export function PreviewCompositionLoading({ posterProjectId, posterCompositionPath = "index.html", ...status }: PreviewCompositionLoadingProps) {
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setExpired(true), 3_000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  if (!expired) return <CompositionLoadingStatus {...status} />;
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-20 overflow-hidden bg-[var(--motion-canvas)]"
+      data-hyperframes-ignore=""
+      data-testid="composition-loading-backdrop"
+      aria-hidden="true"
+    >
+      {posterProjectId && <CachedCompositionPoster projectId={posterProjectId} compositionPath={posterCompositionPath} />}
+    </div>
+  );
+}
+
+function CompositionLoadingStatus({ showMark = true, canEditWhileLoading, assetGeneration }: PreviewCompositionLoadingProps) {
   const { t } = useI18n();
   const labelId = useId();
   const pendingAsset = usePlayerStore((state) =>
