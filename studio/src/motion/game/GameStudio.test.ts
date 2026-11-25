@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { trailerProjectHref } from './GameStudio';
-import { bundledGames, needsGameService } from './gameCatalog';
+import { bundledGames, isTopEarningGame, needsGameService, TOP_EARNING_TAG } from './gameCatalog';
 
 describe('trailerProjectHref', () => {
   it('routes to the canonical /editor/:projectId URL instead of reusing the Game Studio pathname', () => {
@@ -31,19 +31,36 @@ describe('gameCatalog multi-file detection and internal tags', () => {
     expect(needsGameService('<!doctype html><script>console.log("inline")</script>')).toBe(false);
   });
 
-  it('preserves internal top赚钱 tags on bundled templates for downstream category grouping', () => {
-    const tagged = bundledGames.filter(game => game.tags?.includes('top赚钱')).map(game => game.id).sort();
+  it('exposes the featured TOP赚钱 tag helper and marks all curated uploaded templates', () => {
+    expect(isTopEarningGame({ tags: ['TOP赚钱'] })).toBe(true);
+    expect(isTopEarningGame({ tags: ['top赚钱'] })).toBe(true);
+    expect(isTopEarningGame({ tags: [] })).toBe(false);
+    expect(isTopEarningGame({})).toBe(false);
+    const tagged = bundledGames.filter(game => game.tags?.includes(TOP_EARNING_TAG)).map(game => game.id).sort();
     expect(tagged).toEqual([
+      '3d-mahjong',
+      'backpack-hero',
       'ball-match',
       'block-blast',
+      'breakout-fire',
+      'candy-match',
+      'catch-fish',
       'catch-piggy',
+      'chubby-bird-gym',
+      'doomsday-survivor',
+      'escape-match',
+      'gold-miner',
+      'hanzi-meme',
       'kazehane',
       'mahjong-pairs',
+      'ocean-fish-match',
+      'plants-vs-zombies',
       'screw-puzzle',
       'shanghai-vice',
       'tile-stack',
       'vice-beach-golf-club',
       'vice-beach-motor-club',
+      'village-defense',
     ]);
   });
 });

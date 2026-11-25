@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { AccountAttempt, AccountErrorCode, AccountSummary, DirectoryModel } from '../shared/provider-directory.ts';
 import type { GenerationJob, Model } from '../shared/gateway.ts';
+import { attributedEntryId, PRODUCT_UTM_SOURCE } from '../shared/product-identity.ts';
 import { validField, type EventFields } from '../tracking/core.ts';
 import { accountErrorKinds, accountStages, entitlementHookIds, type EntitlementHookId, type omEvents } from '../tracking/events.ts';
 import { readSettings, writeSettings } from './settings-storage.ts';
@@ -29,7 +30,7 @@ export function systemBrowserCommand(url: string, platform: string) {
   if (platform === 'win32') return { command: 'rundll32.exe', args: ['url.dll,FileProtocolHandler', url] };
   return { command: 'xdg-open', args: [url] };
 }
-async function openSystemBrowser(url: string) {
+export async function openSystemBrowser(url: string) {
   const { command, args } = systemBrowserCommand(url, process.platform);
   await execute(command, args, { timeout: 10_000, windowsHide: true });
 }
@@ -805,27 +806,28 @@ export class OpenDesignAccount {
   /**
    * Opens an OpenDesign Cloud destination in the system browser with a one-time account intent
    * when signed into production so the browser session stays matched with the desktop client.
+   * Set accountIntent to false for shareable links that must not carry sign-in credentials.
    */
   async openCloudUrl(
     targetPath: string,
     entrySource = OPENMOTION_CLOUD_ENTRY_SOURCE,
     launch: ((url: string) => Promise<void>) | false = openSystemBrowser,
-    attribution?: { utmMedium?: string; entryId?: unknown },
+    attribution?: { utmMedium?: string; entryId?: unknown; accountIntent?: boolean },
   ) {
     const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
     const [pathname, rawQuery = ''] = cleanPath.split('?', 2);
     const params = new URLSearchParams(rawQuery);
     params.set('od_origin', 'openmotion');
     params.set('od_entry_source', entrySource);
-    params.set('od_entry_id', validEntryId(attribution?.entryId) ?? randomUUID());
+    params.set('od_entry_id', attributedEntryId(validEntryId(attribution?.entryId) ?? randomUUID()));
     params.set('od_entry_at', new Date().toISOString());
     if (attribution?.utmMedium) {
-      params.set('utm_source', 'openmotion');
+      params.set('utm_source', PRODUCT_UTM_SOURCE);
       params.set('utm_medium', attribution.utmMedium);
     }
     const target = `${pathname}?${params.toString()}`;
     let url = consoleUrl + target;
-    const profile = await this.profile();
+    const profile = attribution?.accountIntent === false ? undefined : await this.profile();
     if (
       isCloudIntentTargetPath(pathname) &&
       signedInProfile(profile) &&
