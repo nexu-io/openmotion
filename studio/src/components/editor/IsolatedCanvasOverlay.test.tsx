@@ -409,6 +409,25 @@ it("starts at an exposed selection or handle outside the frame and preserves in-
   expect(messages.at(-1)).not.toHaveProperty("target");
 });
 
+it("submits a compensated CSS resize as one edit with both dimensions", async () => {
+  state.domEditSelection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="nw"]')!;
+  act(() => handle.dispatchEvent(new PointerEvent("pointerdown", {
+    bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX: 30, clientY: 20,
+  })));
+  expect(messages[0]).toMatchObject({phase:"start", corner:"nw", cssResizeOffset:true});
+  pointer("pointerup", 15);
+  await reply("finish", {...result, corner:"nw", translated:true, width:100, height:70});
+  const [batch] = state.commitDomEditPatchBatches.mock.calls[0]![0];
+  expect(batch.box).toBeUndefined();
+  expect(batch.patches[0].operations).toEqual([
+    {type:"inline-style", property:"translate", value:"12px 34px"},
+    {type:"inline-style", property:"width", value:"100px"},
+    {type:"inline-style", property:"height", value:"70px"},
+  ]);
+});
+
 it("outlines the rendered size during a constrained resize and ignores late geometry", async () => {
   state.domEditSelection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
   act(() => root.render(<IsolatedCanvasOverlay />));

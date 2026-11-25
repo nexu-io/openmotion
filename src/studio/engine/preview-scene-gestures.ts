@@ -5,7 +5,7 @@ export const PREVIEW_SCENE_GESTURES = `
   let waitingTextPick = null;
 
   function sameGestureBasis(before, after) {
-    const same = (a, b, keys) => keys.every(key => Math.abs(a[key] - b[key]) < 0.001);
+    const same = (a, b, keys) => a === b || (a && b && keys.every(key => Math.abs(a[key] - b[key]) < 0.001));
     const positionKeys = Object.keys(before.startPosition);
     if (positionKeys.length !== Object.keys(after.startPosition).length || before.makeRelative !== after.makeRelative || !same(before, after, ['left','top']) ||
         !same(before.axes, after.axes, ['a','b','c','d']) ||

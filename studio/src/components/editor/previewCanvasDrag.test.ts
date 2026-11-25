@@ -83,6 +83,76 @@ it.each([ [true, false], [false, false], [true, true] ])("uses only a free trans
   expect(one.style.translate).toBe("3px 4px");
 });
 
+it.each(["se", "nw", "sw", "ne"] as const)("resizes a CSS-positioned layer by its %s handle without overwriting animated offsets", corner => {
+  const { one, gesture } = createScene(false, true, "div", true);
+  one.style.cssText = "position:absolute; left:8px; animation-name:slide; translate:3px 4px";
+  Object.defineProperty(one, "getAnimations", {value: () => [{effect: {target: one, getKeyframes: () => [{left:"12px"}]}}]});
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const [x, y] = one.style.translate.split(" ").map(parseFloat);
+    return new DOMRect(12 + x!, y!, parseFloat(one.style.width) || 20, parseFloat(one.style.height) || 10);
+  });
+  const start = one.getBoundingClientRect();
+  const fields = { dx: corner.endsWith("w") ? -.1 : .1, dy: corner.startsWith("n") ? -.05 : .05 };
+  expect(gesture("start", "size", {corner, cssResizeOffset:true})).toBeTruthy();
+  gesture("move", "size", fields);
+  const live = one.getBoundingClientRect();
+  expect([live.width, live.height]).toEqual([30, 15]);
+  const anchorX = corner.endsWith("w") ? "right" : "left";
+  const anchorY = corner.startsWith("n") ? "bottom" : "top";
+  expect([live[anchorX], live[anchorY]]).toEqual([start[anchorX], start[anchorY]]);
+  const result = gesture("finish", "size", fields);
+  expect(result).toMatchObject({translated:true, width:30, height:15});
+  gesture("cancel", "size");
+  expect(one.getBoundingClientRect().toJSON()).toEqual(start.toJSON());
+  const ops = canvasBoxOperations(result, "translate");
+  expect(ops.map(op => op.property)).toEqual(corner === "se" ? ["width","height"] : ["translate","width","height"]);
+  for (const op of ops) one.style.setProperty(op.property, op.value);
+  expect(one.getBoundingClientRect().toJSON()).toEqual(live.toJSON());
+  expect(one.style.left).toBe("8px");
+});
+
+it("compensates a projected CSS resize using translation without touching the animated layout", () => {
+  const {one, gesture} = createScene(false, true, "div", true);
+  one.style.cssText = "position:absolute; left:8px; animation-name:slide; translate:0px 0px";
+  one.parentElement!.style.transform = "matrix3d(1,0,0,.003,0,1,0,0,0,0,1,0,0,0,0,1)";
+  Object.defineProperty(one, "getAnimations", {value: () => [{effect: {target:one, getKeyframes: () => [{left:"12px"}]}}]});
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() => {
+    const [x, y] = one.style.translate.split(" ").map(parseFloat);
+    const depth = 1 + x! * .003;
+    return new DOMRect((12 + x!) / depth, y! / depth,
+      (parseFloat(one.style.width) || 20) / depth, (parseFloat(one.style.height) || 10) / depth);
+  });
+  try {
+    const before = one.getBoundingClientRect();
+    expect(gesture("start", "nw", {corner:"nw", cssResizeOffset:true})).toBeTruthy();
+    const result = gesture("finish", "nw", {dx:-.04, dy:-.03});
+    expect(result).toMatchObject({translated:true, corner:"nw"});
+    const after = one.getBoundingClientRect();
+    expect(Math.abs(after.right - before.right)).toBeLessThan(.2);
+    expect(Math.abs(after.bottom - before.bottom)).toBeLessThan(.2);
+    expect(Math.abs(after.left - (before.left - 4))).toBeLessThan(.2);
+    expect(one.style.left).toBe("8px");
+    expect(one.style.top).toBe("");
+  } finally {
+    one.parentElement!.style.removeProperty("transform");
+  }
+});
+
+it("allows only an independently measurable size when the host cannot persist a translated corner", () => {
+  const {one, gesture} = createScene(true);
+  one.style.animationName = "slide";
+  one.style.position = "absolute";
+  one.style.translate = "10%";
+  vi.mocked(one.getBoundingClientRect).mockImplementation(() =>
+    new DOMRect(22, 8, parseFloat(one.style.width) || 20, parseFloat(one.style.height) || 10));
+  expect(gesture("start", "nw", {corner:"nw"})).toBeNull();
+  expect(gesture("start", "se", {corner:"se"})).toBeTruthy();
+  const result = gesture("finish", "se", {dx:.12, dy:.07});
+  expect(result).toMatchObject({corner:"se", width:32, height:17});
+  expect(canvasBoxOperations(result).map(op => op.property)).toEqual(["width","height"]);
+  expect(one.style.translate).toBe("10%");
+});
+
 it("moves immediately across pending saves and rolls back dependent measurements together", () => {
   const {one, gesture} = createScene(true);
   gesture("start", "first");

@@ -170,11 +170,25 @@ it("keeps an unverified font change visible while the certified project's script
   expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: "peer-presentation", temporary: true }), "https://preview.test");
 });
 
+it("diffs an animated canvas resize in the authored declaration order only with CSS layout capabilities", () => {
+  const before = '<style>@keyframes slide{to{left:24px;top:2px}}</style><canvas id="art" width="640" style="animation:slide 1s infinite"></canvas>';
+  for (const geometry of ['translate: 15px -9px; width: 20px; height: 30px', 'height: 30px; width: 20px; translate: 15px -9px']) {
+    const after = before.replace('1s infinite', '1s infinite; ' + geometry);
+    const certified = {cssLayoutOffset: true};
+    expect(diffPreviewChanges(before, after)).toBeNull();
+    expect(diffPreviewChanges(before, after, certified)?.[0]?.styles?.map(([name]) => name)).toEqual(geometry.split('; ').map(s => s.split(':')[0]));
+    expect(diffPreviewChanges(after, before, certified)).not.toBeNull();
+    expect(diffPreviewChanges(before, after.replace('640', '1280'), certified)).toBeNull();
+    expect(diffPreviewChanges(before, after.replace('24px', '48px'), certified)).toBeNull();
+    expect(diffPreviewChanges(before, after.replace('15px -9px', '15% -9px'), certified)).toBeNull();
+  }
+});
+
 it("accepts a peer paint and a measured local media box together without changing the canvas buffer", () => {
   const before = '<canvas id="picture" width="1200"></canvas>';
   const after = before.replace('id="picture"', 'id="picture" style="position:relative;left:16px;opacity:.52"');
-  expect(diffPreviewChanges(before, after, true)).toMatchObject([{id:"picture", tag:"canvas"}]);
-  expect(diffPreviewChanges(before, after.replace('width="1200"', 'width="1600"'), true)).toBeNull();
+  expect(diffPreviewChanges(before, after, {measured: true})).toMatchObject([{id:"picture", tag:"canvas"}]);
+  expect(diffPreviewChanges(before, after.replace('width="1200"', 'width="1600"'), {measured: true})).toBeNull();
 });
 
 it("derives every changed element in a large source without changing the rest of the document", () => {
