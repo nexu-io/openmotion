@@ -573,3 +573,5 @@
 .om-gp-od-line[data-done] .om-gp-od-line-text { flex: 0 1 auto; color: var(--motion-text); }
 .om-gp-od-line[data-done] { flex-wrap: nowrap; white-space: nowrap; }
 .om-gp-od-line[data-done] .om-gp-compact-link-row { flex-wrap: nowrap; gap: var(--motion-space-8); }
+.om-platform-icon.om-gp-badge { background: var(--motion-strong); color: var(--motion-bg); }
+.om-gp-overview-name { min-width: 0; overflow-wrap: anywhere; }

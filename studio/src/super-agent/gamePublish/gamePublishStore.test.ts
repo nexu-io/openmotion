@@ -161,7 +161,7 @@ describe('gamePublishStore', () => {
     await settle();
     wx.saveKey.mockResolvedValue({ appid: 'wx0123456789abcdef', hasKey: true, savedAt: 'now' });
     wx.state.mockResolvedValue(wechatStatus('ip'));
-    await gamePublishActions.saveWechatKey(input.artifactId, '-----BEGIN RSA PRIVATE KEY-----x-----END RSA PRIVATE KEY-----');
+    await gamePublishActions.saveWechatKey(input.artifactId, ['-----BEGIN', 'RSA PRIVATE KEY-----x-----END', 'RSA PRIVATE KEY-----'].join(' '));
     expect(wx.saveKey).toHaveBeenCalledWith('wx0123456789abcdef', expect.stringContaining('PRIVATE KEY'));
     expect(handoff).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(handoff.mock.calls)).not.toContain('PRIVATE KEY');

@@ -156,7 +156,6 @@
     "You published it on itch.io": "你已在 itch.io 发布",
     "Your page is on your itch.io dashboard": "页面在你的 itch.io 后台",
     "Open itch.io dashboard": "打开 itch.io 后台",
-    "Link": "链接",
     "Get the game link": "拿到游戏链接",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Telegram Mini App 打开的是一个网址，这里用 OpenDesign 游戏链接。",
     "Publish the OpenDesign link": "发布 OpenDesign 链接",
@@ -284,7 +283,6 @@
     "Find the version you uploaded and click Submit for review": "找到刚上传的版本，点「提交审核」",
     "Submitted for review": "已提交审核",
     "Version review": "版本审核",
-    "Release": "发布",
     "Still checking this computer.": "还在检查这台电脑。",
     "Choose the .key file first.": "请先选择 .key 文件。",
     "The Mini Game project is not ready yet.": "小游戏工程还没准备好。",
@@ -328,7 +326,6 @@
     "The game link is published": "游戏链接已发布",
     "Saved on this computer for {appid}; the web page keeps no copy": "已保存在这台电脑上（{appid}），网页里不留副本",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "连不上这台电脑上的 OpenDesign，请确认 OpenDesign 正在运行。（{message}）",
-    "Where": "去哪",
     "What to click": "点什么",
     "What you get back": "拿回什么",
     "Why": "为什么",
@@ -604,7 +601,9 @@
     "Play link": "试玩链接",
     "Publishing…": "发布中…",
     "Only OpenDesign": "只发 OpenDesign",
-    "Open": "打开"
+    "Open": "打开",
+    "Game link": "链接",
+    "Release on WeChat": "发布"
   },
   "ja": {
     "WeChat Mini Game": "WeChat ミニゲーム",
@@ -763,7 +762,6 @@
     "You published it on itch.io": "itch.io で公開しました",
     "Your page is on your itch.io dashboard": "ページは itch.io ダッシュボードにあります",
     "Open itch.io dashboard": "itch.io ダッシュボードを開く",
-    "Link": "リンク",
     "Get the game link": "ゲームのリンクを取得",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Telegram ミニアプリはウェブアドレスを開きます。ここでは OpenDesign のゲームリンクを使用します。",
     "Publish the OpenDesign link": "OpenDesign のリンクを公開",
@@ -891,7 +889,6 @@
     "Find the version you uploaded and click Submit for review": "アップロードしたバージョンを探し、「審査に提出」をクリックしてください",
     "Submitted for review": "審査に提出済み",
     "Version review": "バージョン審査",
-    "Release": "公開",
     "Still checking this computer.": "このコンピューターを引き続き確認しています。",
     "Choose the .key file first.": "先に.keyファイルを選択してください。",
     "The Mini Game project is not ready yet.": "ミニゲームのプロジェクトはまだ準備できていません。",
@@ -935,7 +932,6 @@
     "The game link is published": "ゲームのリンクを公開しました",
     "Saved on this computer for {appid}; the web page keeps no copy": "このパソコンに{appid}用として保存済み。ウェブページにはコピーを残しません",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "このパソコンのOpenDesignに接続できませんでした。OpenDesignが起動していることを確認してください。（{message}）",
-    "Where": "場所",
     "What to click": "クリックする項目",
     "What you get back": "得られるもの",
     "Why": "理由",
@@ -1211,7 +1207,9 @@
     "Play link": "プレイリンク",
     "Publishing…": "公開中…",
     "Only OpenDesign": "OpenDesign だけ",
-    "Open": "開く"
+    "Open": "開く",
+    "Game link": "リンク",
+    "Release on WeChat": "公開"
   },
   "ko": {
     "WeChat Mini Game": "WeChat 미니게임",
@@ -1370,7 +1368,6 @@
     "You published it on itch.io": "itch.io에 게시했어요",
     "Your page is on your itch.io dashboard": "페이지는 itch.io 대시보드에 있어요",
     "Open itch.io dashboard": "itch.io 대시보드 열기",
-    "Link": "링크",
     "Get the game link": "게임 링크 받기",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Telegram 미니 앱은 웹 주소를 엽니다. 여기에는 OpenDesign 게임 링크를 사용합니다.",
     "Publish the OpenDesign link": "OpenDesign 링크 게시",
@@ -1498,7 +1495,6 @@
     "Find the version you uploaded and click Submit for review": "업로드한 버전을 찾아 '심사 제출'을 클릭하세요",
     "Submitted for review": "심사 제출 완료",
     "Version review": "버전 심사",
-    "Release": "출시",
     "Still checking this computer.": "아직 이 컴퓨터를 확인하고 있습니다.",
     "Choose the .key file first.": "먼저 .key 파일을 선택하세요.",
     "The Mini Game project is not ready yet.": "미니게임 프로젝트가 아직 준비되지 않았습니다.",
@@ -1542,7 +1538,6 @@
     "The game link is published": "게임 링크가 게시되었습니다",
     "Saved on this computer for {appid}; the web page keeps no copy": "이 컴퓨터에 {appid}용으로 저장됨. 웹페이지에는 사본을 남기지 않습니다",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "이 컴퓨터의 OpenDesign에 연결할 수 없습니다. OpenDesign이 실행 중인지 확인하세요. ({message})",
-    "Where": "어디로 가나요",
     "What to click": "무엇을 클릭하나요",
     "What you get back": "무엇을 받나요",
     "Why": "왜 필요한가요",
@@ -1818,7 +1813,9 @@
     "Play link": "플레이 링크",
     "Publishing…": "게시 중…",
     "Only OpenDesign": "OpenDesign만",
-    "Open": "열기"
+    "Open": "열기",
+    "Game link": "링크",
+    "Release on WeChat": "출시"
   },
   "de": {
     "WeChat Mini Game": "WeChat-Minispiel",
@@ -1977,7 +1974,6 @@
     "You published it on itch.io": "Du hast es auf itch.io veröffentlicht",
     "Your page is on your itch.io dashboard": "Deine Seite findest du in deinem itch.io-Dashboard",
     "Open itch.io dashboard": "itch.io-Dashboard öffnen",
-    "Link": "Link",
     "Get the game link": "Spiellink abrufen",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Eine Telegram-Mini-App öffnet eine Webadresse. Hier wird der OpenDesign-Spiellink verwendet.",
     "Publish the OpenDesign link": "OpenDesign-Link veröffentlichen",
@@ -2105,7 +2101,6 @@
     "Find the version you uploaded and click Submit for review": "Suche die hochgeladene Version und klicke auf „Zur Prüfung einreichen“",
     "Submitted for review": "Zur Prüfung eingereicht",
     "Version review": "Versionsprüfung",
-    "Release": "Veröffentlichen",
     "Still checking this computer.": "Dieser Computer wird noch geprüft.",
     "Choose the .key file first.": "Wähle zuerst die .key-Datei aus.",
     "The Mini Game project is not ready yet.": "Das Minispiel-Projekt ist noch nicht bereit.",
@@ -2149,7 +2144,6 @@
     "The game link is published": "Der Spiellink ist veröffentlicht",
     "Saved on this computer for {appid}; the web page keeps no copy": "Für {appid} auf diesem Computer gespeichert; die Webseite behält keine Kopie",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "OpenDesign auf diesem Computer ist nicht erreichbar. Stelle sicher, dass OpenDesign läuft. ({message})",
-    "Where": "Wo",
     "What to click": "Was du anklickst",
     "What you get back": "Was du erhältst",
     "Why": "Warum",
@@ -2425,7 +2419,9 @@
     "Play link": "Spiel-Link",
     "Publishing…": "Wird veröffentlicht…",
     "Only OpenDesign": "Nur OpenDesign",
-    "Open": "Öffnen"
+    "Open": "Öffnen",
+    "Game link": "Link",
+    "Release on WeChat": "Veröffentlichen"
   },
   "fr": {
     "WeChat Mini Game": "Mini-jeu WeChat",
@@ -2584,7 +2580,6 @@
     "You published it on itch.io": "Vous avez publié le jeu sur itch.io",
     "Your page is on your itch.io dashboard": "Votre page se trouve dans votre tableau de bord itch.io",
     "Open itch.io dashboard": "Ouvrir le tableau de bord itch.io",
-    "Link": "Lien",
     "Get the game link": "Obtenir le lien du jeu",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Une mini-application Telegram ouvre une adresse web. Le lien du jeu OpenDesign est utilisé ici.",
     "Publish the OpenDesign link": "Publier le lien OpenDesign",
@@ -2712,7 +2707,6 @@
     "Find the version you uploaded and click Submit for review": "Trouvez la version envoyée et cliquez sur « Soumettre à validation »",
     "Submitted for review": "Soumis à validation",
     "Version review": "Validation de la version",
-    "Release": "Publier",
     "Still checking this computer.": "La vérification de cet ordinateur est toujours en cours.",
     "Choose the .key file first.": "Choisissez d’abord le fichier .key.",
     "The Mini Game project is not ready yet.": "Le projet de mini-jeu n’est pas encore prêt.",
@@ -2756,7 +2750,6 @@
     "The game link is published": "Le lien du jeu est publié",
     "Saved on this computer for {appid}; the web page keeps no copy": "Enregistré sur cet ordinateur pour {appid} ; la page web ne conserve aucune copie",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "Impossible de joindre OpenDesign sur cet ordinateur. Vérifiez qu’OpenDesign est en cours d’exécution. ({message})",
-    "Where": "Où aller",
     "What to click": "Sur quoi cliquer",
     "What you get back": "Ce que vous obtenez",
     "Why": "Pourquoi",
@@ -3032,7 +3025,9 @@
     "Play link": "Lien de jeu",
     "Publishing…": "Publication…",
     "Only OpenDesign": "Seulement OpenDesign",
-    "Open": "Ouvrir"
+    "Open": "Ouvrir",
+    "Game link": "Lien",
+    "Release on WeChat": "Publier"
   },
   "ru": {
     "WeChat Mini Game": "Мини-игра WeChat",
@@ -3191,7 +3186,6 @@
     "You published it on itch.io": "Вы опубликовали игру на itch.io",
     "Your page is on your itch.io dashboard": "Ваша страница находится в панели управления itch.io",
     "Open itch.io dashboard": "Открыть панель управления itch.io",
-    "Link": "Ссылка",
     "Get the game link": "Получите ссылку на игру",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Мини-приложение Telegram открывает веб-адрес. Здесь используется ссылка на игру в OpenDesign.",
     "Publish the OpenDesign link": "Опубликуйте ссылку OpenDesign",
@@ -3319,7 +3313,6 @@
     "Find the version you uploaded and click Submit for review": "Найдите загруженную версию и нажмите «Отправить на проверку»",
     "Submitted for review": "Отправлено на проверку",
     "Version review": "Проверка версии",
-    "Release": "Опубликовать",
     "Still checking this computer.": "Проверка этого компьютера ещё идёт.",
     "Choose the .key file first.": "Сначала выберите файл .key.",
     "The Mini Game project is not ready yet.": "Проект мини-игры ещё не готов.",
@@ -3363,7 +3356,6 @@
     "The game link is published": "Ссылка на игру опубликована",
     "Saved on this computer for {appid}; the web page keeps no copy": "Сохранено на этом компьютере для {appid}; веб-страница не хранит копию",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "Не удалось связаться с OpenDesign на этом компьютере. Убедитесь, что OpenDesign запущен. ({message})",
-    "Where": "Куда перейти",
     "What to click": "Что нажать",
     "What you get back": "Что вы получите",
     "Why": "Зачем",
@@ -3639,7 +3631,9 @@
     "Play link": "Ссылка на игру",
     "Publishing…": "Публикация…",
     "Only OpenDesign": "Только OpenDesign",
-    "Open": "Открыть"
+    "Open": "Открыть",
+    "Game link": "Ссылка",
+    "Release on WeChat": "Опубликовать"
   },
   "es": {
     "WeChat Mini Game": "Minijuego de WeChat",
@@ -3798,7 +3792,6 @@
     "You published it on itch.io": "Has publicado el juego en itch.io",
     "Your page is on your itch.io dashboard": "Tu página está en tu panel de itch.io",
     "Open itch.io dashboard": "Abrir el panel de itch.io",
-    "Link": "Enlace",
     "Get the game link": "Obtén el enlace del juego",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Una miniaplicación de Telegram abre una dirección web. Aquí se usa el enlace del juego de OpenDesign.",
     "Publish the OpenDesign link": "Publica el enlace de OpenDesign",
@@ -3926,7 +3919,6 @@
     "Find the version you uploaded and click Submit for review": "Busca la versión que has subido y haz clic en «Enviar a revisión»",
     "Submitted for review": "Enviado a revisión",
     "Version review": "Revisión de la versión",
-    "Release": "Publicar",
     "Still checking this computer.": "Todavía se está comprobando este ordenador.",
     "Choose the .key file first.": "Elige primero el archivo .key.",
     "The Mini Game project is not ready yet.": "El proyecto del minijuego aún no está listo.",
@@ -3970,7 +3962,6 @@
     "The game link is published": "El enlace del juego está publicado",
     "Saved on this computer for {appid}; the web page keeps no copy": "Guardado en este ordenador para {appid}; la página web no conserva ninguna copia",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "No se ha podido conectar con OpenDesign en este ordenador. Asegúrate de que OpenDesign esté en ejecución. ({message})",
-    "Where": "Dónde ir",
     "What to click": "En qué hacer clic",
     "What you get back": "Qué obtienes",
     "Why": "Por qué",
@@ -4246,7 +4237,9 @@
     "Play link": "Enlace para jugar",
     "Publishing…": "Publicando…",
     "Only OpenDesign": "Solo OpenDesign",
-    "Open": "Abrir"
+    "Open": "Abrir",
+    "Game link": "Enlace",
+    "Release on WeChat": "Publicar"
   },
   "pt-BR": {
     "WeChat Mini Game": "Minijogo do WeChat",
@@ -4405,7 +4398,6 @@
     "You published it on itch.io": "Você publicou o jogo no itch.io",
     "Your page is on your itch.io dashboard": "Sua página está no painel do itch.io",
     "Open itch.io dashboard": "Abrir o painel do itch.io",
-    "Link": "Link",
     "Get the game link": "Obtenha o link do jogo",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Um miniapp do Telegram abre um endereço web. Aqui é usado o link do jogo no OpenDesign.",
     "Publish the OpenDesign link": "Publique o link do OpenDesign",
@@ -4533,7 +4525,6 @@
     "Find the version you uploaded and click Submit for review": "Encontre a versão enviada e clique em “Enviar para análise”",
     "Submitted for review": "Enviado para análise",
     "Version review": "Análise da versão",
-    "Release": "Publicar",
     "Still checking this computer.": "Ainda verificando este computador.",
     "Choose the .key file first.": "Escolha o arquivo .key primeiro.",
     "The Mini Game project is not ready yet.": "O projeto do minijogo ainda não está pronto.",
@@ -4577,7 +4568,6 @@
     "The game link is published": "O link do jogo foi publicado",
     "Saved on this computer for {appid}; the web page keeps no copy": "Salvo neste computador para {appid}; a página da web não mantém uma cópia",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "Não foi possível conectar ao OpenDesign neste computador. Verifique se o OpenDesign está em execução. ({message})",
-    "Where": "Onde ir",
     "What to click": "Em que clicar",
     "What you get back": "O que você recebe",
     "Why": "Por quê",
@@ -4853,7 +4843,9 @@
     "Play link": "Link para jogar",
     "Publishing…": "Publicando…",
     "Only OpenDesign": "Só OpenDesign",
-    "Open": "Abrir"
+    "Open": "Abrir",
+    "Game link": "Link",
+    "Release on WeChat": "Publicar"
   },
   "it": {
     "WeChat Mini Game": "Minigioco WeChat",
@@ -5012,7 +5004,6 @@
     "You published it on itch.io": "Hai pubblicato il gioco su itch.io",
     "Your page is on your itch.io dashboard": "La tua pagina è nella dashboard di itch.io",
     "Open itch.io dashboard": "Apri la dashboard di itch.io",
-    "Link": "Link",
     "Get the game link": "Ottieni il link del gioco",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Una mini app Telegram apre un indirizzo web. Qui viene usato il link del gioco OpenDesign.",
     "Publish the OpenDesign link": "Pubblica il link OpenDesign",
@@ -5140,7 +5131,6 @@
     "Find the version you uploaded and click Submit for review": "Trova la versione caricata e fai clic su «Invia per la revisione»",
     "Submitted for review": "Inviato per la revisione",
     "Version review": "Revisione della versione",
-    "Release": "Pubblica",
     "Still checking this computer.": "La verifica di questo computer è ancora in corso.",
     "Choose the .key file first.": "Scegli prima il file .key.",
     "The Mini Game project is not ready yet.": "Il progetto del minigioco non è ancora pronto.",
@@ -5184,7 +5174,6 @@
     "The game link is published": "Il link del gioco è pubblicato",
     "Saved on this computer for {appid}; the web page keeps no copy": "Salvato su questo computer per {appid}; la pagina web non conserva copie",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "Impossibile connettersi a OpenDesign su questo computer. Assicurati che OpenDesign sia in esecuzione. ({message})",
-    "Where": "Dove andare",
     "What to click": "Cosa selezionare",
     "What you get back": "Cosa ottieni",
     "Why": "Perché",
@@ -5460,7 +5449,9 @@
     "Play link": "Link di gioco",
     "Publishing…": "Pubblicazione…",
     "Only OpenDesign": "Solo OpenDesign",
-    "Open": "Apri"
+    "Open": "Apri",
+    "Game link": "Link",
+    "Release on WeChat": "Pubblica"
   },
   "tr": {
     "WeChat Mini Game": "WeChat Mini Oyunu",
@@ -5619,7 +5610,6 @@
     "You published it on itch.io": "itch.io’da yayınladın",
     "Your page is on your itch.io dashboard": "Sayfan itch.io panonda",
     "Open itch.io dashboard": "itch.io panosunu aç",
-    "Link": "Bağlantı",
     "Get the game link": "Oyun bağlantısını al",
     "A Telegram Mini App opens a web address. The OpenDesign game link is used for it.": "Telegram Mini Uygulaması bir web adresi açar. Burada OpenDesign oyun bağlantısı kullanılır.",
     "Publish the OpenDesign link": "OpenDesign bağlantısını yayınla",
@@ -5747,7 +5737,6 @@
     "Find the version you uploaded and click Submit for review": "Yüklediğiniz sürümü bulun ve “İncelemeye gönder”e tıklayın",
     "Submitted for review": "İncelemeye gönderildi",
     "Version review": "Sürüm incelemesi",
-    "Release": "Yayımla",
     "Still checking this computer.": "Bu bilgisayar hâlâ kontrol ediliyor.",
     "Choose the .key file first.": "Önce .key dosyasını seçin.",
     "The Mini Game project is not ready yet.": "Mini Oyun projesi henüz hazır değil.",
@@ -5791,7 +5780,6 @@
     "The game link is published": "Oyun bağlantısı yayımlandı",
     "Saved on this computer for {appid}; the web page keeps no copy": "Bu bilgisayarda {appid} için kaydedildi; web sayfası bir kopya tutmaz",
     "Could not reach OpenDesign on this computer. Make sure OpenDesign is running. ({message})": "Bu bilgisayardaki OpenDesign’a ulaşılamadı. OpenDesign’ın çalıştığından emin olun. ({message})",
-    "Where": "Nereye gidilir",
     "What to click": "Neye tıklanır",
     "What you get back": "Ne elde edilir",
     "Why": "Neden",
@@ -6067,6 +6055,8 @@
     "Play link": "Oyun bağlantısı",
     "Publishing…": "Yayınlanıyor…",
     "Only OpenDesign": "Yalnızca OpenDesign",
-    "Open": "Aç"
+    "Open": "Aç",
+    "Game link": "Bağlantı",
+    "Release on WeChat": "Yayımla"
   }
 }
