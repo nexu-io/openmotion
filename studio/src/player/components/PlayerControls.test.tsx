@@ -173,7 +173,7 @@ describe("PlayerControls buffering and asset-failure recovery", () => {
 
     const pill = host.querySelector<HTMLButtonElement>('[data-testid="player-asset-retry-pill"]');
     expect(pill).not.toBeNull();
-    expect(pill?.textContent).toContain("1 asset failed");
+    expect(pill?.textContent).toContain("1 asset failed to load · Retry");
 
     await act(async () => {
       pill!.click();
