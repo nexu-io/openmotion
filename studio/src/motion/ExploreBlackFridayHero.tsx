@@ -57,7 +57,8 @@ function buildCorridorRings(topCols: number) {
     const topArtCount = ringIdx % 2 === 0 ? 3 : 2;
     const bottomArtCount = 5 - topArtCount;
 
-    const leftSlots = pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 1);
+    // Keep the front-left center tile on the hero foreground ring (ring 6) as a clean model logo tile.
+    const leftSlots = ringIdx === 6 ? new Set([0, 2]) : pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 1);
     const rightSlots = pickArtSlots(SIDE_ROWS, 2, ringIdx * 2 + 2);
     const topSlots = pickArtSlots(topCols, topArtCount, ringIdx * 3 + 1);
     const bottomSlots = pickArtSlots(topCols, bottomArtCount, ringIdx * 3 + 3);
