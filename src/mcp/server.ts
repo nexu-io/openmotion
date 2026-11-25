@@ -103,6 +103,14 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
 
   const registry = createToolRegistry(phase1Tools, 'phase1', extensions);
 
+  const normalizedOrigin = options.publicOrigin.replace(/\/$/, '');
+  const environmentInstruction =
+    `Connected OpenMotion MCP server: ${normalizedOrigin}/mcp (origin=${normalizedOrigin}, authMode=${options.auth.authMode}, workspaceId=${options.auth.workspaceId}). ` +
+    `When given a project or session URL from a different origin, treat PROJECT_NOT_FOUND as an environment mismatch and connect to that URL's /mcp endpoint via OAuth 2.1 instead of querying this workspace.`;
+  const instructions = registry.instructions
+    ? `${registry.instructions}\n\n${environmentInstruction}`
+    : environmentInstruction;
+
   const server = new Server(
     {
       name: 'openmotion',
@@ -114,7 +122,7 @@ export function createPerRequestMcpServer(options: CreatePerRequestMcpServerOpti
         tools: {},
         resources: {},
       },
-      instructions: registry.instructions ?? undefined,
+      instructions,
     },
   );
 

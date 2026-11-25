@@ -152,7 +152,13 @@ function handleStaticDesignCatalog(args: Record<string, unknown>): Record<string
   });
 }
 
-function formatErrorResult(error: unknown): McpToolCallResponse {
+interface FormatErrorContext {
+  serverOrigin: string;
+  authMode: string;
+  workspaceId: string;
+}
+
+function formatErrorResult(error: unknown, errorCtx?: FormatErrorContext): McpToolCallResponse {
   if (error instanceof ToolInputError) {
     const payload = {
       error: {
@@ -174,13 +180,25 @@ function formatErrorResult(error: unknown): McpToolCallResponse {
   if (isCloudError(error)) {
     const legacyCode =
       typeof error.details?.legacyCode === 'string' ? error.details.legacyCode : undefined;
+    const isNotFoundScopeError =
+      error.code === 'PROJECT_NOT_FOUND' || error.code === 'SESSION_NOT_FOUND';
+    const enrichedDetails =
+      isNotFoundScopeError && errorCtx
+        ? {
+            ...(error.details ?? {}),
+            serverOrigin: errorCtx.serverOrigin,
+            authMode: errorCtx.authMode,
+            workspaceId: errorCtx.workspaceId,
+            hint: `Queried ${errorCtx.serverOrigin}/mcp (workspace ${errorCtx.workspaceId}). If your target URL belongs to a different OpenMotion host, connect to that host's /mcp endpoint via OAuth 2.1.`,
+          }
+        : error.details;
     const payload = {
       error: {
         code: legacyCode ?? error.code,
         status: error.status,
         message: error.message,
         applied: error.applied ?? false,
-        ...(error.details ? { details: error.details } : {}),
+        ...(enrichedDetails ? { details: enrichedDetails } : {}),
       },
     };
     return {
@@ -393,7 +411,11 @@ export class McpToolDispatcher {
         structuredContent: normalized,
       };
     } catch (error) {
-      return formatErrorResult(error);
+      return formatErrorResult(error, {
+        serverOrigin: this.config.APP_PUBLIC_ORIGIN.replace(/\/$/, ''),
+        authMode: this.config.AUTH_MODE,
+        workspaceId: ctx.auth.workspaceId,
+      });
     }
   }
 

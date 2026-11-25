@@ -870,4 +870,43 @@ describe('CLI Argument Parsing & Orchestration', () => {
       assert.equal(res.error.code, 'UNSUPPORTED');
     }
   });
+
+  it('derives environment-specific default serverName per channel and supports --login for Codex OAuth', async () => {
+    const testParsed = parseConnectCliArgs(['--connect', 'codex', '--channel', 'test', '--login', '--yes']);
+    assert.equal(testParsed.ok, true);
+    if (!testParsed.ok) return;
+    assert.equal(testParsed.args.serverName, 'openmotion-test');
+    assert.equal(testParsed.args.login, true);
+
+    const devParsed = parseConnectCliArgs([
+      '--connect',
+      'codex',
+      '--channel',
+      'dev',
+      '--allow-dev-loopback',
+      '--yes',
+    ]);
+    assert.equal(devParsed.ok, true);
+    if (!devParsed.ok) return;
+    assert.equal(devParsed.args.serverName, 'openmotion-local');
+
+    const mock = createMockBridge();
+    const out = new PassThrough();
+    const err = new PassThrough();
+    const result = await runConnectFlow({
+      args: testParsed.args,
+      bridge: mock.bridge,
+      confirm: async () => true,
+      output: out,
+      errorOutput: err,
+    });
+    assert.equal(result.exitCode, 0);
+    const execCalls = mock.invokeCalls.filter(call => call.capability === HOST_CAPABILITIES.ATOM_EXEC);
+    assert.equal(execCalls.length, 2);
+    assert.equal(execCalls[0]?.params?.templateId, 'codex.mcp.add_remote');
+    assert.equal((execCalls[0]?.params?.args as { serverName?: string })?.serverName, 'openmotion-test');
+    assert.equal(execCalls[1]?.params?.templateId, 'codex.mcp.login');
+    assert.equal((execCalls[1]?.params?.args as { serverName?: string })?.serverName, 'openmotion-test');
+    assert.equal(result.outcomes[0]?.nextStep, undefined);
+  });
 });

@@ -110,6 +110,37 @@ const DEFAULT_PAT_SCOPES = [
   'media:generate',
   'mcp:tools',
 ] as const;
+const READ_ONLY_PAT_SCOPES = ['mcp:tools', 'projects:read', 'assets:read'] as const;
+
+type PatScopePreset = 'full' | 'readonly';
+
+function readInitialPatScopePreset(): PatScopePreset {
+  if (typeof window === 'undefined') return 'full';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('preset') === 'readonly' ? 'readonly' : 'full';
+  } catch {
+    return 'full';
+  }
+}
+
+function shouldFocusTokensSection(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const hash = window.location.hash.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
+    return hash === '#tokens' || hash === '#account-tokens' || params.get('preset') === 'readonly';
+  } catch {
+    return false;
+  }
+}
+
+function isReadOnlyTokenScopes(scopes: readonly string[]): boolean {
+  return (
+    scopes.length > 0 &&
+    scopes.every(scope => scope === 'mcp:tools' || scope.endsWith(':read'))
+  );
+}
 
 function subscriptionUrl(consoleUrl: string, entrySource = 'openmotion_manage_subscription') {
   const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
@@ -243,9 +274,12 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   const [tokensError, setTokensError] = useState(false);
   const [tokenName, setTokenName] = useState('');
   const [tokenExpiryDays, setTokenExpiryDays] = useState('90');
+  const [tokenScopePreset, setTokenScopePreset] = useState<PatScopePreset>(readInitialPatScopePreset);
   const [creatingToken, setCreatingToken] = useState(false);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [createdToken, setCreatedToken] = useState<{ token: string; name: string } | null>(null);
+  const tokensSectionRef = useRef<HTMLElement | null>(null);
+  const scrolledToTokensRef = useRef(false);
 
   const account = state.account;
   const signedIn = account?.state === 'signed-in';
@@ -276,6 +310,10 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     if (signedIn && !subscription) {
       void loadTokens();
       void loadConnections();
+      if (!scrolledToTokensRef.current && shouldFocusTokensSection()) {
+        scrolledToTokensRef.current = true;
+        tokensSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      }
     }
   }, [signedIn, subscription, loadTokens, loadConnections]);
 
@@ -371,7 +409,8 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     setCreatingToken(true);
     try {
       const expiresInDays = tokenExpiryDays === 'never' ? undefined : Number(tokenExpiryDays);
-      // Omit explicit `scopes` so `createPat()` intersects DEFAULT_PAT_SCOPES with the user's live workspace role (incl. viewers).
+      // Omit explicit `scopes` for full workspace access so `createPat()` intersects DEFAULT_PAT_SCOPES
+      // with the user's live workspace role (incl. viewers). Send minimal read-only scopes when requested.
       const response = await gatewayRequest<{
         id?: string;
         name?: string;
@@ -380,6 +419,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
         record?: PersonalAccessTokenRecord;
       }>('tokens', 'POST', {
         name: trimmed,
+        ...(tokenScopePreset === 'readonly' ? { scopes: [...READ_ONLY_PAT_SCOPES] } : {}),
         ...(expiresInDays ? { expiresInDays } : {}),
       });
       setCreatedToken({ token: response.token, name: response.name ?? response.record?.name ?? trimmed });
@@ -595,7 +635,12 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
           )}
 
           {!subscription && signedIn && (
-            <section id="account-tokens" className="om-settings-section" aria-label={t('Personal access tokens')}>
+            <section
+              id="account-tokens"
+              ref={tokensSectionRef}
+              className="om-settings-section"
+              aria-label={t('Personal access tokens')}
+            >
               <div className="om-settings-row">
                 <div>
                   <h2 className="om-subtitle">{t('Personal access tokens')}</h2>
@@ -650,6 +695,18 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                     </span>
                   </label>
                   <div className="om-label">
+                    {t('Permissions')}
+                    <Select
+                      label={t('Permissions')}
+                      value={tokenScopePreset}
+                      onCommit={value => setTokenScopePreset(value === 'readonly' ? 'readonly' : 'full')}
+                      options={[
+                        { value: 'full', label: t('Full workspace access') },
+                        { value: 'readonly', label: t('Read-only verification') },
+                      ]}
+                    />
+                  </div>
+                  <div className="om-label">
                     {t('Expiration')}
                     <Select
                       label={t('Expiration')}
@@ -665,7 +722,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                   </div>
                 </div>
                 <div className="om-settings-row">
-                  <span className="om-muted">{t('Scopes')}: {DEFAULT_PAT_SCOPES.join(', ')}</span>
+                  <span className="om-muted">
+                    {t('Scopes')}: {(tokenScopePreset === 'readonly' ? READ_ONLY_PAT_SCOPES : DEFAULT_PAT_SCOPES).join(', ')}
+                  </span>
                   <Button variant="ghost" className="om-button h-auto" data-primary type="submit" disabled={creatingToken || !tokenName.trim()}>
                     <RemixIcon name="lock-line" size={15} />
                     {t(creatingToken ? 'Creating token…' : 'Create token')}
@@ -685,6 +744,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                     <div className="om-preference-row" key={item.id}>
                       <div>
                         <strong>{item.name}</strong>
+                        {isReadOnlyTokenScopes(item.scopes) && (
+                          <span className="om-badge" style={{ marginLeft: 8 }}>{t('Read-only')}</span>
+                        )}
                         <p className="om-muted">
                           <code>{item.tokenPrefix}…</code> · {t('Created')} {formatDate(item.createdAt)} · {t('Expires')} {item.expiresAt ? formatDate(item.expiresAt) : t('Never')}
                           {item.lastUsedAt ? ` · ${t('Last used')} ${formatDate(item.lastUsedAt)}` : ''}

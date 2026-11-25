@@ -272,3 +272,49 @@ it('shows a calm account-verification hint before external billing links in desk
     delete window.__OPENMOTION_HOST__;
   }
 });
+
+it('supports minimal read-only PAT preset via ?preset=readonly#tokens and displays read-only badge', async () => {
+  const originalHref = window.location.href;
+  window.history.replaceState(null, '', '/settings/account?preset=readonly#tokens');
+  try {
+    const page = await open(
+      {
+        authenticated: true,
+        authMode: 'oidc',
+        authMethod: 'session_cookie',
+        user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+      },
+      'en',
+      'account',
+      [
+        {
+          id: 'pat-ro-existing',
+          name: 'Read-only Audit',
+          tokenPrefix: 'om_pat_ro01',
+          scopes: ['mcp:tools', 'projects:read', 'assets:read'],
+          expiresAt: null,
+          lastUsedAt: null,
+          revokedAt: null,
+          createdAt: '2026-11-20T00:00:00.000Z',
+        },
+      ],
+    );
+    expect(page.textContent).toContain('Scopes: mcp:tools, projects:read, assets:read');
+    expect(page.textContent).toContain('Read-only');
+
+    const input = page.querySelector<HTMLInputElement>('input[aria-label="Token name"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Verify Cloud');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => page.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    const createCall = hooks.request.mock.calls.find(([p, m]) => p === 'tokens' && m === 'POST');
+    expect(createCall?.[2]).toEqual({
+      name: 'Verify Cloud',
+      scopes: ['mcp:tools', 'projects:read', 'assets:read'],
+      expiresInDays: 90,
+    });
+  } finally {
+    window.history.replaceState(null, '', originalHref);
+  }
+});

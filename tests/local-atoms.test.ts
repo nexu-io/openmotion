@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, it } from 'node:test';
-import { BUILTIN_PUBLISHERS } from '../shared/desktop-builtin-rules.ts';
+import {
+  BUILTIN_PUBLISHERS,
+  DEFAULT_STUDIO_URLS,
+  INTERACTIVE_OAUTH_TIMEOUT_MS,
+} from '../shared/desktop-builtin-rules.ts';
 import {
   HOST_CAPABILITIES,
   type HostConfirmationRequest,
@@ -739,6 +743,175 @@ describe('atom.exec security boundaries & MCP conflict protection', () => {
       'openmotion',
       'https://motion.open-design.ai/mcp',
     ]);
+  });
+
+  it('gives codex.mcp.login a bounded interactive OAuth timeout so pending browser auth survives past normal command timeout', async () => {
+    const dataDir = makeTempDir('local-atoms-oauth-timeout-data-');
+    const homeDir = makeTempDir('local-atoms-oauth-timeout-home-');
+    const binDir = path.join(dataDir, 'bin');
+    mkdirSync(binDir, { recursive: true });
+
+    const fakeCodex = path.join(binDir, 'codex');
+    writeFileSync(
+      fakeCodex,
+      `#!${process.execPath}\nsetTimeout(() => { process.stdout.write('ok ' + process.argv.slice(2).join(' ')); process.exit(0); }, 180);\n`,
+      'utf8',
+    );
+    chmodSync(fakeCodex, 0o755);
+
+    const signedConfig: SignedConfigPayload = {
+      ...createSampleSignedConfig(Buffer.from('ok')),
+      features: {
+        'connect-agents': {
+          featureId: 'connect-agents',
+          version: '1.0.0',
+          title: 'Connect Agents',
+          summary: 'Register and log in MCP servers',
+          commandTemplateIds: ['codex.version', 'codex.mcp.login'],
+        },
+      },
+    };
+
+    const capturedTimeouts: Array<{ argv: readonly string[]; timeoutMs: number }> = [];
+    const pathResolver = createPathResolver({
+      platform: process.platform === 'win32' ? 'win32' : 'darwin',
+      homeDir,
+      env: { PATH: binDir },
+      loginShellRunner: async () => ({ exitCode: 0, stdout: '' }),
+      fs: {
+        existsSync: p => p === fakeCodex,
+        readdirSync: () => [],
+        isExecutableFile: p => p === fakeCodex,
+      },
+    });
+    const execAtom = createExecAtom({
+      homeDir,
+      channel: 'test',
+      getSignedConfig: () => signedConfig,
+      pathResolver,
+      componentRegistry: new ComponentInstallRegistry(dataDir),
+      confirmationGate: createFeatureConfirmationGate({ dataDir, shellVersion: '1.0.0', confirmCallback: async () => true }),
+      mutationQueue: createSerialMutationQueue(),
+      timeoutMs: 60,
+    });
+
+    // Normal non-interactive command times out when exceeding normal command timeout (60ms < 180ms)
+    const normalTimeout = await execAtom.run({
+      featureId: 'connect-agents',
+      templateId: 'codex.version',
+    });
+    assert.equal(normalTimeout.ok, false);
+    if (!normalTimeout.ok) {
+      assert.equal(normalTimeout.error.code, 'TIMEOUT');
+    }
+
+    // Interactive OAuth login survives beyond normal command timeout (180ms << INTERACTIVE_OAUTH_TIMEOUT_MS)
+    const loginResult = await execAtom.run({
+      featureId: 'connect-agents',
+      templateId: 'codex.mcp.login',
+      args: { serverName: 'openmotion-test' },
+    });
+    assert.equal(loginResult.ok, true);
+    if (loginResult.ok) {
+      assert.equal(loginResult.data.exitCode, 0);
+      assert.match(loginResult.data.stdout, /ok mcp login openmotion-test/);
+    }
+
+    // Verify exact bounded timeout value passed to commandRunner
+    const inspectExec = createExecAtom({
+      homeDir,
+      channel: 'test',
+      getSignedConfig: () => signedConfig,
+      pathResolver,
+      componentRegistry: new ComponentInstallRegistry(dataDir),
+      confirmationGate: createFeatureConfirmationGate({ dataDir, shellVersion: '1.0.0', confirmCallback: async () => true }),
+      mutationQueue: createSerialMutationQueue(),
+      timeoutMs: 20_000,
+      commandRunner: async input => {
+        capturedTimeouts.push({ argv: input.argv, timeoutMs: input.timeoutMs });
+        return { exitCode: 0, stdout: 'logged in', stderr: '' };
+      },
+    });
+    const inspected = await inspectExec.run({
+      featureId: 'connect-agents',
+      templateId: 'codex.mcp.login',
+      args: { serverName: 'openmotion-test' },
+    });
+    assert.equal(inspected.ok, true);
+    assert.equal(capturedTimeouts[0]?.timeoutMs, INTERACTIVE_OAUTH_TIMEOUT_MS);
+  });
+
+  it('detects environment-specific named MCP entries without colliding with production openmotion', async () => {
+    const dataDir = makeTempDir('local-atoms-named-detect-data-');
+    const homeDir = makeTempDir('local-atoms-named-detect-home-');
+    mkdirSync(path.join(homeDir, '.codex'), { recursive: true });
+
+    const testMcpUrl = `${DEFAULT_STUDIO_URLS.test}/mcp`;
+    writeFileSync(
+      path.join(homeDir, '.codex', 'config.toml'),
+      [
+        '[mcp_servers.openmotion]',
+        'url = "https://motion.open-design.ai/mcp"',
+        '',
+        '[mcp_servers.openmotion-test]',
+        `url = "${testMcpUrl}"`,
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const runtime = createLocalAtomsRuntime({
+      dataDir,
+      homeDir,
+      platform: 'darwin',
+      arch: 'arm64',
+      channel: 'test',
+      shellVersion: '1.0.0',
+      getSignedConfig: () => createSampleSignedConfig(Buffer.from('ok')),
+      confirmCallback: async () => true,
+      pathResolver: createPathResolver({
+        platform: 'darwin',
+        homeDir,
+        env: { PATH: '/usr/local/bin' },
+        loginShellRunner: async () => ({ exitCode: 0, stdout: '' }),
+        fs: {
+          existsSync: p => p === '/usr/local/bin/codex',
+          readdirSync: () => [],
+          isExecutableFile: p => p === '/usr/local/bin/codex',
+        },
+      }),
+      commandRunner: async () => ({ exitCode: 0, stdout: 'codex-cli 0.31.0', stderr: '' }),
+      engineHttpProbe: async () => ({ reachable: false }),
+    });
+
+    const testScan = await runtime.invoke(HOST_CAPABILITIES.ATOM_DETECT, 'scan', {
+      serverName: 'openmotion-test',
+      expectedMcpUrl: testMcpUrl,
+    });
+    assert.equal(testScan.ok, true);
+    if (testScan.ok) {
+      const data = testScan.data as {
+        agents: Array<{ agentId: string; mcpConfigured: boolean; mcpConflict?: boolean; mcpUrl?: string }>;
+      };
+      const codex = data.agents.find(a => a.agentId === 'codex');
+      assert.equal(codex?.mcpConfigured, true);
+      assert.equal(codex?.mcpConflict, false);
+      assert.equal(codex?.mcpUrl, testMcpUrl);
+    }
+
+    const localScan = await runtime.invoke(HOST_CAPABILITIES.ATOM_DETECT, 'scan', {
+      serverName: 'openmotion-local',
+      expectedMcpUrl: 'http://127.0.0.1:4173/mcp',
+    });
+    assert.equal(localScan.ok, true);
+    if (localScan.ok) {
+      const data = localScan.data as {
+        agents: Array<{ agentId: string; mcpConfigured: boolean; mcpConflict?: boolean }>;
+      };
+      const codex = data.agents.find(a => a.agentId === 'codex');
+      assert.equal(codex?.mcpConfigured, false);
+      assert.equal(Boolean(codex?.mcpConflict), false);
+    }
   });
 });
 
