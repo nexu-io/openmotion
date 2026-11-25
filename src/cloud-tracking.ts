@@ -75,7 +75,7 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
   }
 
   const flag = (env.OPENMOTION_TRACKING_ENABLED ?? '').trim().toLowerCase();
-  const token = (env.OPENMOTION_POSTHOG_TOKEN ?? env.OPENMOTION_POSTHOG_KEY ?? '').trim();
+  const token = (env.OPENMOTION_POSTHOG_TOKEN ?? '').trim() || (env.OPENMOTION_POSTHOG_KEY ?? '').trim();
   const host = (env.OPENMOTION_POSTHOG_HOST ?? 'https://us.i.posthog.com').trim();
   const rawEnv = (env.OPENMOTION_TRACKING_ENV ?? (testing ? 'test' : 'production')).trim().toLowerCase();
   const trackingEnv: 'development' | 'test' | 'production' =

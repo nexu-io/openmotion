@@ -76,3 +76,19 @@ test('acceptBrowserBatch preserves event identity, deduplicates event_id, and re
   // Retrying the exact same event_id is deduplicated by tracker.ingest().
   assert.equal(tracker.acceptBrowserBatch({ events: [validStudioEvent] }), 0);
 });
+
+test('createCloudTracking falls back to OPENMOTION_POSTHOG_KEY when OPENMOTION_POSTHOG_TOKEN is empty or whitespace', () => {
+  const fromComposeEmpty = createCloudTracking('1.0.0', {
+    ...BASE_ENV,
+    OPENMOTION_POSTHOG_TOKEN: '',
+    OPENMOTION_POSTHOG_KEY: VALID_TOKEN,
+  });
+  assert.equal(fromComposeEmpty.isEnabled(), true);
+
+  const fromWhitespace = createCloudTracking('1.0.0', {
+    ...BASE_ENV,
+    OPENMOTION_POSTHOG_TOKEN: '   ',
+    OPENMOTION_POSTHOG_KEY: VALID_TOKEN,
+  });
+  assert.equal(fromWhitespace.isEnabled(), true);
+});
