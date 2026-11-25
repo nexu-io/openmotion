@@ -62,6 +62,7 @@ data:
   # Worker concurrency, history coalescing & CAS GC tuning (7-day Mark-and-Sweep grace)
   MEDIA_CONCURRENCY: "20"
   RENDER_CONCURRENCY: "1"
+  RENDER_CAPTURE_WORKERS: "auto"
   BLOB_GC_GRACE_SECONDS: "604800"
   HISTORY_COALESCE_WINDOW_MS: "4000"
 

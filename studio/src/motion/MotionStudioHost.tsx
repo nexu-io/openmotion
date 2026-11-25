@@ -6,6 +6,8 @@ import { useStudioShellContext } from '../contexts/StudioContext';
 import { TimelineHistoryButtons } from '../components/TimelineHistoryButtons';
 import { MotionHistoryPopover } from './MotionHistoryPopover';
 import { isStudioEditSaving, subscribeStudioEditSaving } from '../utils/studioPendingEdits';
+import { useCloudDisklessMode } from '../utils/cloudRuntime';
+import { blocksProjectWork, readRenderStatus } from '../components/renders/renderQueueState';
 import { useStudioAutosave } from '../hooks/useStudioAutosave';
 import { StudioHostContext, type StudioHost } from './StudioHost';
 import { WorkspaceFrame, useOptionalWorkspaceChrome } from './WorkspaceFrame';
@@ -27,9 +29,26 @@ import { bindThumbnailPageLifecycle } from '../player/lib/thumbnailPageLifecycle
 
 installEditorTracking(trackMotion);
 
+function hasActiveBrowserLocalRender(jobs: unknown): boolean {
+  if (!Array.isArray(jobs)) return false;
+  return jobs.some((job) => {
+    if (!job || typeof job !== 'object') return false;
+    const record = job as { browserLocal?: unknown; status?: unknown; workerActive?: unknown };
+    if (record.browserLocal !== true) return false;
+    const status = readRenderStatus(record.status);
+    return status
+      ? blocksProjectWork({
+          status,
+          workerActive: typeof record.workerActive === 'boolean' ? record.workerActive : undefined,
+        })
+      : false;
+  });
+}
+
 export function MotionEditorFrame({ children }: { children: ReactNode }) {
   const { t } = useI18n();
   const { projectId, waitForPendingDomEditSaves, writeBlockedReason, renderQueue } = useStudioShellContext();
+  const cloudDiskless = useCloudDisklessMode();
   const historyOperation = useMotionHistoryOperation();
   const chrome = useOptionalWorkspaceChrome();
   const register = chrome?.registerEditor;
@@ -62,7 +81,12 @@ export function MotionEditorFrame({ children }: { children: ReactNode }) {
       embedded, duration_ms: loadDurationMs, ...project,
       ...projectScaleFields(player.timelineReady ? player.elements.length : undefined), ...openTemplateFields() });
   }, []);
-  const blocked = renderQueue.isRendering || historyOperation.busy || Boolean(writeBlockedReason);
+  // Cloud server-side exports run asynchronously on worker-render against an immutable frozen
+  // snapshot, so keep MCP handoff, autosave, and project switching available unless an in-tab
+  // browser-local WebCodecs render or a local-disk native render is active.
+  const renderBlocksWorkspace =
+    renderQueue.isRendering && (!cloudDiskless || hasActiveBrowserLocalRender(renderQueue.jobs));
+  const blocked = renderBlocksWorkspace || historyOperation.busy || Boolean(writeBlockedReason);
   useStudioAutosave({ projectId, blocked, flush: () => waitForPendingDomEditSaves({ blur: false }) });
   const saveState = t(historyOperation.busy ? 'Updating version…' : renderQueue.isRendering ? 'Rendering…' : writeBlockedReason ? 'Needs attention' : saving ? 'Saving…' : '');
   useEffect(() => {

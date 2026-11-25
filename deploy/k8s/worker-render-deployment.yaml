@@ -109,6 +109,12 @@ spec:
                 configMapKeyRef:
                   name: openmotion-config
                   key: RENDER_CONCURRENCY
+            - name: RENDER_CAPTURE_WORKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: openmotion-config
+                  key: RENDER_CAPTURE_WORKERS
+                  optional: true
           resources:
             requests:
               cpu: "2000m"

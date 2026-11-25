@@ -363,6 +363,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
             logger: logger.child({ queue: QUEUE_NAMES.renderExport, bullJobId: job.id, jobName: name }),
             workerId,
             concurrency,
+            captureWorkers: config.RENDER_CAPTURE_WORKERS,
             bakeState,
             shouldYieldCatalogBake,
           },
@@ -413,6 +414,7 @@ export async function startRenderWorker(deps: RenderWorkerDeps): Promise<{
   logger.info('worker-render started', {
     workerId,
     concurrency,
+    captureWorkers: config.RENDER_CAPTURE_WORKERS,
     queue: QUEUE_NAMES.renderExport,
   });
 

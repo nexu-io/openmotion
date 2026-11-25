@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
 import { access, mkdir, open, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -55,7 +55,18 @@ const HYDRATION_LARGE_FILE_CONCURRENCY = 2;
 const RENDER_TIMEOUT_MS = 25 * 60_000;
 const THUMBNAIL_TIMEOUT_MS = 90_000;
 const PROGRESS_PUBLISH_MIN_INTERVAL_MS = 500;
+const PROGRESS_DB_PERSIST_MIN_INTERVAL_MS = 2_000;
 const DEFAULT_HEALTH_INTERVAL_MS = 15_000;
+const MAX_CAPTURE_WORKERS = 8;
+const AUTO_CAPTURE_WORKERS_CAP = 6;
+const CAPTURE_WORKER_BASE_OVERHEAD_MB = 1024;
+const CAPTURE_WORKER_PER_BROWSER_MB = 1280;
+const CGROUP_V2_CPU_MAX_PATH = '/sys/fs/cgroup/cpu.max';
+const CGROUP_V1_CPU_QUOTA_PATH = '/sys/fs/cgroup/cpu/cpu.cfs_quota_us';
+const CGROUP_V1_CPU_PERIOD_PATH = '/sys/fs/cgroup/cpu/cpu.cfs_period_us';
+const CGROUP_V2_MEMORY_MAX_PATH = '/sys/fs/cgroup/memory.max';
+const CGROUP_V1_MEMORY_LIMIT_PATH = '/sys/fs/cgroup/memory/memory.limit_in_bytes';
+const UNLIMITED_CGROUP_MEMORY_BYTES = 1_000_000_000_000_000; // ~1 PB sentinel used by cgroup v1
 
 export interface HydratedSnapshotFile {
   path: string;
@@ -182,6 +193,7 @@ export interface RenderExportDeps {
   readonly runtimeRoot?: string;
   readonly tmpBaseDir?: string;
   readonly concurrency?: number;
+  readonly captureWorkers?: 'auto' | number;
   readonly sourceEnv?: NodeJS.ProcessEnv;
   readonly bakeState?: BakeCatalogFilmstripsDeps['bakeState'];
   readonly shouldYieldCatalogBake?: BakeCatalogFilmstripsDeps['shouldYield'];
@@ -477,23 +489,250 @@ export async function hydrateSnapshotFilesToDir(params: {
   };
 }
 
-function parseRenderProgressLine(line: string): { progress?: number; stage?: string } | null {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+const ANSI_CSI_REGEX = /\x1b\[[0-9;]*[A-Za-z]/g;
+const HF_PROGRESS_PREFIX = '@hf-progress ';
+const PROGRESS_BAR_LINE_REGEX = /^[█░]+\s+(\d{1,3})%\s+(.+)$/;
+
+function clampRenderPercent(value: number): number {
+  return Math.max(0, Math.min(99, Math.round(value)));
+}
+
+function parseProgressValue(record: Record<string, unknown>): number | undefined {
+  if (typeof record.pct === 'number' && Number.isFinite(record.pct)) {
+    return clampRenderPercent(record.pct);
+  }
+  if (typeof record.percent === 'number' && Number.isFinite(record.percent)) {
+    return clampRenderPercent(record.percent);
+  }
+  if (typeof record.progress === 'number' && Number.isFinite(record.progress)) {
+    const raw = record.progress;
+    return clampRenderPercent(raw > 0 && raw <= 1 ? raw * 100 : raw);
+  }
+  return undefined;
+}
+
+function formatStageProgressCode(record: Record<string, unknown>): string | undefined {
+  const code = typeof record.code === 'string' ? record.code.trim() : '';
+  const done = typeof record.done === 'number' && Number.isFinite(record.done) ? Math.max(0, Math.round(record.done)) : undefined;
+  const total = typeof record.total === 'number' && Number.isFinite(record.total) ? Math.round(record.total) : undefined;
+  const hasCounts = done !== undefined && total !== undefined && total > 0;
+
+  switch (code) {
+    case 'start_browsers':
+      return hasCounts ? `Starting browsers (${Math.min(done, total)}/${total} ready)` : 'Starting browsers';
+    case 'extract_video':
+      return 'Extracting video frames';
+    case 'capture':
+      return hasCounts ? `Capturing frame ${Math.min(done, total)}/${total}` : 'Capturing frame';
+    case 'encode':
+      return hasCounts ? `Encoding frame ${Math.min(done, total)}/${total}` : 'Encoding video';
+    case 'assemble':
+      return 'Assembling final video';
+    default:
+      return typeof record.stage === 'string' && record.stage.trim() ? record.stage.trim() : undefined;
+  }
+}
+
+/**
+ * Parse incremental stdout progress emitted by `hyperframes@0.9.7 render`:
+ * - Machine progress lines (`@hf-progress {"code":"capture","done":12,"total":300,"pct":4}`)
+ * - Legacy bare JSON progress objects (`{"progress":0.5,"stage":"capturing"}`)
+ * - Human progress bar lines (`███░░...  42%  Compiling composition`), with ANSI codes stripped
+ */
+export function parseRenderProgressLine(line: string): { progress?: number; stage?: string } | null {
+  const cleaned = line.replace(ANSI_CSI_REGEX, '').trim();
+  if (!cleaned) return null;
+
+  if (cleaned.startsWith(HF_PROGRESS_PREFIX)) {
+    const jsonText = cleaned.slice(HF_PROGRESS_PREFIX.length).trim();
+    if (!jsonText.startsWith('{') || !jsonText.endsWith('}')) return null;
+    try {
+      const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+      const progress = parseProgressValue(parsed);
+      const stage = formatStageProgressCode(parsed);
+      if (progress === undefined && stage === undefined) return null;
+      return { progress, stage };
+    } catch {
+      return null;
+    }
+  }
+
+  if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
+    try {
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+      const progress = parseProgressValue(parsed);
+      const stage = formatStageProgressCode(parsed);
+      if (progress === undefined && stage === undefined) return null;
+      return { progress, stage };
+    } catch {
+      return null;
+    }
+  }
+
+  const barMatch = PROGRESS_BAR_LINE_REGEX.exec(cleaned);
+  if (barMatch) {
+    const percent = Number.parseInt(barMatch[1], 10);
+    const stage = barMatch[2].trim();
+    if (!Number.isFinite(percent)) return null;
+    return {
+      progress: clampRenderPercent(percent),
+      ...(stage ? { stage } : {}),
+    };
+  }
+
+  return null;
+}
+
+export interface RenderCaptureTuning {
+  workers: number;
+  disableLowMemoryMode: boolean;
+  disableBrowserGpu: boolean;
+  cpuLimit: number;
+  memoryLimitMb: number;
+  source: 'env' | 'auto';
+}
+
+function readOptionalProcFile(filePath: string): string | null {
   try {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
-    const progress =
-      typeof parsed.progress === 'number' && Number.isFinite(parsed.progress)
-        ? Math.max(0, Math.min(99, parsed.progress <= 1 ? Math.round(parsed.progress * 100) : Math.round(parsed.progress)))
-        : typeof parsed.percent === 'number' && Number.isFinite(parsed.percent)
-          ? Math.max(0, Math.min(99, Math.round(parsed.percent)))
-          : undefined;
-    const stage = typeof parsed.stage === 'string' && parsed.stage.trim() ? parsed.stage.trim() : undefined;
-    if (progress === undefined && stage === undefined) return null;
-    return { progress, stage };
+    return readFileSync(filePath, 'utf8');
   } catch {
     return null;
   }
+}
+
+export function parseCgroupCpuLimit(
+  v2CpuMax: string | null,
+  v1Quota: string | null,
+  v1Period: string | null,
+): number | null {
+  if (v2CpuMax) {
+    const parts = v2CpuMax.trim().split(/\s+/);
+    if (parts.length >= 2 && parts[0] !== 'max') {
+      const quota = Number.parseFloat(parts[0]);
+      const period = Number.parseFloat(parts[1]);
+      if (Number.isFinite(quota) && Number.isFinite(period) && quota > 0 && period > 0) {
+        return Math.max(1, quota / period);
+      }
+    }
+  }
+  if (v1Quota && v1Period) {
+    const quota = Number.parseFloat(v1Quota.trim());
+    const period = Number.parseFloat(v1Period.trim());
+    if (Number.isFinite(quota) && Number.isFinite(period) && quota > 0 && period > 0) {
+      return Math.max(1, quota / period);
+    }
+  }
+  return null;
+}
+
+export function parseCgroupMemoryLimitMb(v2MemoryMax: string | null, v1MemoryLimit: string | null): number | null {
+  const parseRawBytes = (raw: string | null): number | null => {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === 'max') return null;
+    const bytes = Number.parseInt(trimmed, 10);
+    if (!Number.isFinite(bytes) || bytes <= 0 || bytes >= UNLIMITED_CGROUP_MEMORY_BYTES) return null;
+    return Math.floor(bytes / (1024 * 1024));
+  };
+  return parseRawBytes(v2MemoryMax) ?? parseRawBytes(v1MemoryLimit);
+}
+
+function detectContainerCpuLimit(): number {
+  const hostCpus = Math.max(1, os.cpus().length || 1);
+  if (process.platform !== 'linux') return hostCpus;
+  const v2 = readOptionalProcFile(CGROUP_V2_CPU_MAX_PATH);
+  const cgroupCpus =
+    v2 !== null
+      ? parseCgroupCpuLimit(v2, null, null)
+      : parseCgroupCpuLimit(
+          null,
+          readOptionalProcFile(CGROUP_V1_CPU_QUOTA_PATH),
+          readOptionalProcFile(CGROUP_V1_CPU_PERIOD_PATH),
+        );
+  return cgroupCpus !== null ? Math.max(1, Math.min(hostCpus, cgroupCpus)) : hostCpus;
+}
+
+function detectContainerMemoryLimitMb(): number {
+  const hostMemMb = Math.max(512, Math.floor(os.totalmem() / (1024 * 1024)));
+  if (process.platform !== 'linux') return hostMemMb;
+  const v2 = readOptionalProcFile(CGROUP_V2_MEMORY_MAX_PATH);
+  const cgroupMemMb = parseCgroupMemoryLimitMb(
+    v2,
+    v2 === null ? readOptionalProcFile(CGROUP_V1_MEMORY_LIMIT_PATH) : null,
+  );
+  return cgroupMemMb !== null ? Math.max(256, Math.min(hostMemMb, cgroupMemMb)) : hostMemMb;
+}
+
+function parseExplicitCaptureWorkers(value: 'auto' | number | string | undefined): number | null {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_CAPTURE_WORKERS) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed || trimmed === 'auto') return null;
+    if (/^\d+$/.test(trimmed)) {
+      const parsed = Number.parseInt(trimmed, 10);
+      if (parsed >= 1 && parsed <= MAX_CAPTURE_WORKERS) return parsed;
+    }
+  }
+  return null;
+}
+
+/**
+ * Determine safe parallel capture worker count and headless container flags for `hyperframes render`.
+ * Hyperframes pins containers with `<= 8 GiB` cgroup RAM to a single worker unless `--workers` is
+ * explicitly passed, leaving multi-core pods mostly idle. Sizing from both cgroup CPU and memory
+ * budgets keeps `<= 2 GiB` containers at 1 worker while unlocking 2–3 workers on 4–8 GiB pods.
+ */
+export function resolveRenderCaptureTuning(options: {
+  captureWorkers?: 'auto' | number | string;
+  concurrency?: number;
+  sourceEnv?: NodeJS.ProcessEnv;
+  settings?: Record<string, unknown>;
+  cpuLimit?: number;
+  memoryLimitMb?: number;
+} = {}): RenderCaptureTuning {
+  const sourceEnv = options.sourceEnv ?? process.env;
+  const cpuLimit = Math.max(1, options.cpuLimit ?? detectContainerCpuLimit());
+  const memoryLimitMb = Math.max(256, options.memoryLimitMb ?? detectContainerMemoryLimitMb());
+  const jobConcurrency = Math.max(1, Math.floor(options.concurrency ?? 1));
+
+  const explicit = parseExplicitCaptureWorkers(options.captureWorkers ?? sourceEnv.RENDER_CAPTURE_WORKERS);
+  let workers: number;
+  let source: 'env' | 'auto';
+  if (explicit !== null) {
+    workers = explicit;
+    source = 'env';
+  } else {
+    const effectiveCpu = cpuLimit / jobConcurrency;
+    const effectiveMemMb = memoryLimitMb / jobConcurrency;
+    const memWorkers = Math.max(
+      1,
+      Math.floor((effectiveMemMb - CAPTURE_WORKER_BASE_OVERHEAD_MB) / CAPTURE_WORKER_PER_BROWSER_MB),
+    );
+    const cpuWorkers = Math.max(
+      1,
+      Math.min(
+        AUTO_CAPTURE_WORKERS_CAP,
+        effectiveCpu >= 4 ? Math.floor(effectiveCpu) - 1 : Math.floor(effectiveCpu),
+      ),
+    );
+    workers = Math.max(1, Math.min(MAX_CAPTURE_WORKERS, Math.min(cpuWorkers, memWorkers)));
+    source = 'auto';
+  }
+
+  const gpuRequested =
+    options.settings?.gpu === true ||
+    sourceEnv.PRODUCER_BROWSER_GPU_MODE?.trim().toLowerCase() === 'hardware';
+
+  return {
+    workers,
+    disableLowMemoryMode: workers > 1,
+    disableBrowserGpu: !gpuRequested,
+    cpuLimit,
+    memoryLimitMb,
+    source,
+  };
 }
 
 async function computeFileSha256(filePath: string): Promise<string> {
@@ -512,13 +751,19 @@ const SAFE_BITRATE_STRING = /^\d+(?:\.\d+)?[kKmM]?$/;
 /**
  * Build validated CLI arguments for `hyperframes@0.9.7 render`, forwarding only safe
  * allowlisted `payload.settings` (`fps`, `quality`, `resolution`, `crf`, `videoBitrate`,
- * `gifLoop`, `variables`).
+ * `gifLoop`, `variables`) plus optional worker/runtime capture tuning flags.
+ *
+ * Intentionally omits `--json`: in `hyperframes@0.9.7`, `--json` implies `quiet` and
+ * suppresses all incremental `@hf-progress` and progress-bar stdout updates.
  */
 export function buildRenderExportArgs(params: {
   compositionPath: string;
   outputFilePath: string;
   format: 'mp4' | 'mov' | 'webm' | 'gif';
   settings?: Record<string, unknown>;
+  workers?: number;
+  disableLowMemoryMode?: boolean;
+  disableBrowserGpu?: boolean;
 }): string[] {
   const args: string[] = [
     'render',
@@ -579,7 +824,21 @@ export function buildRenderExportArgs(params: {
     }
   }
 
-  args.push('--json');
+  if (
+    typeof params.workers === 'number' &&
+    Number.isInteger(params.workers) &&
+    params.workers >= 1 &&
+    params.workers <= MAX_CAPTURE_WORKERS
+  ) {
+    args.push('--workers', String(params.workers));
+  }
+  if (params.disableLowMemoryMode === true) {
+    args.push('--no-low-memory-mode');
+  }
+  if (params.disableBrowserGpu === true) {
+    args.push('--no-browser-gpu');
+  }
+
   return args;
 }
 
@@ -817,30 +1076,107 @@ export async function processExportRenderJob(
     });
     assertRenderSubprocessEnvClean(renderEnv);
 
-    let lastPublishAt = 0;
+    const captureTuning = resolveRenderCaptureTuning({
+      captureWorkers: deps.captureWorkers,
+      concurrency: deps.concurrency,
+      sourceEnv: deps.sourceEnv,
+      settings: payload.settings,
+    });
+    deps.logger.info('Resolved export render capture tuning', {
+      jobId,
+      workers: captureTuning.workers,
+      disableLowMemoryMode: captureTuning.disableLowMemoryMode,
+      disableBrowserGpu: captureTuning.disableBrowserGpu,
+      cpuLimit: captureTuning.cpuLimit,
+      memoryLimitMb: captureTuning.memoryLimitMb,
+      source: captureTuning.source,
+    });
+
     const renderArgs = buildRenderExportArgs({
       compositionPath,
       outputFilePath,
       format,
       settings: payload.settings,
+      workers: captureTuning.workers,
+      disableLowMemoryMode: captureTuning.disableLowMemoryMode,
+      disableBrowserGpu: captureTuning.disableBrowserGpu,
     });
 
+    let lastPublishAt = 0;
+    let lastDbPersistAt = 0;
+    let lastScaledProgress = 15;
+    let lastStage = 'rendering';
+    let lastPersistedProgress = 15;
+    let lastPersistedStage = 'rendering';
+    let renderActive = true;
+    let pendingDbPersist: Promise<void> | null = null;
+
+    const persistRenderProgress = (stage: string, progress: number) => {
+      if (!renderActive || pendingDbPersist) return;
+      lastDbPersistAt = Date.now();
+      lastPersistedProgress = progress;
+      lastPersistedStage = stage;
+      pendingDbPersist = Promise.resolve()
+        .then(() =>
+          deps.db
+            .update(jobs)
+            .set(asUpdate(jobs, { stage, progress, updatedAt: new Date() }))
+            .where(
+              and(
+                eq(jobs.id, jobId),
+                eq(jobs.workspaceId, workspaceId),
+                eq(jobs.claimToken, claimToken),
+                eq(jobs.state, 'running'),
+              ),
+            ),
+        )
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          pendingDbPersist = null;
+        });
+    };
+
     const runRender = deps.runRenderCommand ?? runHyperframesIsolated;
-    const renderResult = await runRender(runtimeRoot, projectDir, renderArgs, {
-      env: renderEnv,
-      timeoutMs: RENDER_TIMEOUT_MS,
-      signal: abortController.signal,
-      onStdoutLine: (line) => {
-        const parsed = parseRenderProgressLine(line);
-        if (!parsed) return;
-        const nowMs = Date.now();
-        if (nowMs - lastPublishAt < PROGRESS_PUBLISH_MIN_INTERVAL_MS) return;
-        lastPublishAt = nowMs;
-        const scaledProgress =
-          parsed.progress !== undefined ? Math.max(15, Math.min(85, Math.round(15 + parsed.progress * 0.7))) : 50;
-        void publishProgress('running', parsed.stage ?? 'rendering', scaledProgress);
-      },
-    });
+    let renderResult: CommandResult;
+    try {
+      renderResult = await runRender(runtimeRoot, projectDir, renderArgs, {
+        env: renderEnv,
+        timeoutMs: RENDER_TIMEOUT_MS,
+        signal: abortController.signal,
+        onStdoutLine: (line) => {
+          if (!renderActive) return;
+          const parsed = parseRenderProgressLine(line);
+          if (!parsed) return;
+          const candidateProgress =
+            parsed.progress !== undefined
+              ? Math.max(15, Math.min(85, Math.round(15 + parsed.progress * 0.7)))
+              : lastScaledProgress;
+          const scaledProgress = Math.max(lastScaledProgress, candidateProgress);
+          const nextStage = parsed.stage ?? lastStage;
+          if (scaledProgress === lastScaledProgress && nextStage === lastStage) return;
+
+          const nowMs = Date.now();
+          if (lastPublishAt !== 0 && nowMs - lastPublishAt < PROGRESS_PUBLISH_MIN_INTERVAL_MS) return;
+          lastPublishAt = nowMs;
+          lastScaledProgress = scaledProgress;
+          lastStage = nextStage;
+          void publishProgress('running', nextStage, scaledProgress);
+
+          if (
+            (lastDbPersistAt === 0 || nowMs - lastDbPersistAt >= PROGRESS_DB_PERSIST_MIN_INTERVAL_MS) &&
+            (scaledProgress > lastPersistedProgress || nextStage !== lastPersistedStage)
+          ) {
+            persistRenderProgress(nextStage, scaledProgress);
+          }
+        },
+      });
+    } finally {
+      renderActive = false;
+      if (pendingDbPersist) {
+        await pendingDbPersist;
+      }
+    }
 
     const renderLogContent = `${renderResult.stdout}\n${renderResult.stderr}`.trim() + '\n';
     const logKey = exportKey(workspaceId, jobId, 'render.log');

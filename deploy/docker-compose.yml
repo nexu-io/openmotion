@@ -316,6 +316,7 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-openmotion_local_dev}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       RENDER_CONCURRENCY: ${RENDER_CONCURRENCY:-1}
+      RENDER_CAPTURE_WORKERS: ${RENDER_CAPTURE_WORKERS:-auto}
     read_only: true
     tmpfs:
       - /tmp:size=${RENDER_TMP_SIZE:-2g}
