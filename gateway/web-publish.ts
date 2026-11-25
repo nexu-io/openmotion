@@ -885,28 +885,47 @@ export class WebPublishService {
         if (!isUnsupportedGameListingEndpointError(error)) {
           throw error;
         }
-        let allowFallback = options.visibility === 'public';
-        if (!allowFallback && this.account.summary) {
-          let summary = await this.account.summary().catch(() => null);
-          if (
-            !normalizeWebPublishPlanId(summary?.plan as string | { id?: string | null } | null | undefined)
-            && summary?.billingUnavailable !== true
-          ) {
-            summary = (await this.account.summary(true).catch(() => null)) ?? summary;
+        // A 404 on PATCH /visibility can mean the listing row was never created
+        // (for example after a transient post-publish sync failure). Retry once
+        // via PUT /game-listing so the remote control plane applies the change
+        // before we persist anything locally.
+        try {
+          res = await this.account.controlApiJson<GameListingControlResponse>(
+            `/api/v1/collab/shares/${encodeURIComponent(current.slug)}/game-listing`,
+            {
+              method: 'PUT',
+              workspaceId: current.workspaceId,
+              body: {
+                projectId: remoteProjectId,
+                visibility: options.visibility,
+                allowRemix: options.allowRemix ?? current.allowRemix ?? true,
+                gameMeta: { title: current.name },
+              },
+              timeoutMs: 20_000,
+            },
+          );
+        } catch (putError) {
+          if (!isUnsupportedGameListingEndpointError(putError)) {
+            throw putError;
           }
-          allowFallback = isPaidWebPublishPlan(
-            summary?.plan as string | { id?: string | null } | null | undefined,
-          );
-        }
-        if (!allowFallback) {
+          if (options.visibility === 'unlisted' && this.account.summary) {
+            let summary = await this.account.summary().catch(() => null);
+            if (
+              !normalizeWebPublishPlanId(summary?.plan as string | { id?: string | null } | null | undefined)
+              && summary?.billingUnavailable !== true
+            ) {
+              summary = (await this.account.summary(true).catch(() => null)) ?? summary;
+            }
+            if (!isPaidWebPublishPlan(summary?.plan as string | { id?: string | null } | null | undefined)) {
+              throw new Error(
+                'PRIVATE_SHARE_REQUIRES_PAID_PLAN: Unlisted/private game sharing requires a paid OpenDesign plan (Go or above).',
+              );
+            }
+          }
           throw new Error(
-            'PRIVATE_SHARE_REQUIRES_PAID_PLAN: Unlisted/private game sharing requires a paid OpenDesign plan (Go or above).',
+            'DEPLOY_FAILED: OpenDesign Cloud did not apply the game visibility change because the visibility endpoint is unavailable.',
           );
         }
-        res = {
-          visibility: options.visibility,
-          ...(options.allowRemix !== undefined ? { allowRemix: options.allowRemix } : {}),
-        };
       }
       const next: WebPublicationRecord = {
         ...current,

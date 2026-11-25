@@ -596,12 +596,81 @@ test('WebPublishService hydrates missing billing plan via refresh=true and toler
     assert.equal(published.publication.visibility, 'unlisted');
     assert.match(published.url ?? '', /^https:\/\/open-design\.app\/artifact\/[^/]+\/[^?]+\?kind=game$/);
 
-    // 3. setVisibility() switches cleanly when legacy cloud API returns 404 on PATCH visibility.
-    const toggled = await service.setVisibility(target, { visibility: 'public' });
-    assert.equal(toggled.publication.visibility, 'public');
+    // 3. setVisibility() fails cleanly without fabricating local state when both PATCH visibility and PUT game-listing return 404.
+    await assert.rejects(
+      () => service.setVisibility(target, { visibility: 'public' }),
+      /DEPLOY_FAILED:.*visibility endpoint is unavailable/i,
+    );
+    const unchangedStatus = await service.status(target);
+    assert.equal(unchangedStatus.active?.visibility, 'unlisted');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('setVisibility heals a missing listing via PUT /game-listing when PATCH /visibility returns 404', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'om-vis-heal-'));
+  try {
+    const gameDir = path.join(root, 'heal-game');
+    await mkdir(gameDir, { recursive: true });
+    await writeFile(path.join(gameDir, 'index.html'), '<!doctype html><h1>Heal Game</h1>');
+
+    const baseMock = createCommunityMockAccount('go');
+    let failInitialPut = true;
+    const client: WebPublishAccountClient = {
+      isSignedIn: baseMock.client.isSignedIn,
+      listWorkspaces: baseMock.client.listWorkspaces,
+      summary: baseMock.client.summary,
+      runWithEnv: baseMock.client.runWithEnv,
+      async controlApiJson(apiPath: string, options?: { method?: string; body?: unknown }) {
+        const method = options?.method ?? 'GET';
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/game-listing$/.test(apiPath) && method === 'PUT' && failInitialPut) {
+          failInitialPut = false;
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (503: SERVICE_UNAVAILABLE)`);
+        }
+        if (/^\/api\/v1\/collab\/shares\/[^/]+\/visibility$/.test(apiPath) && method === 'PATCH') {
+          throw new Error(`DEPLOY_FAILED: OpenDesign API ${apiPath} failed (404: NOT_FOUND)`);
+        }
+        return baseMock.client.controlApiJson!(apiPath, options);
+      },
+    };
+
+    const service = new WebPublishService(path.join(root, 'pub-data'), client);
+    const target = {
+      kind: 'game' as const,
+      id: 'heal-game',
+      title: 'Heal Game',
+      entryPath: 'index.html',
+      sourceRevision: 'rev-1',
+      sourcePath: gameDir,
+    };
+
+    const published = await service.publish(target, { visibility: 'public' });
+    assert.equal(published.publication.status, 'published');
+    assert.equal(baseMock.listings.size, 0);
+
+    // PATCH /visibility hits 404 -> retries PUT /game-listing -> succeeds remotely and persists unlisted locally.
+    const toggled = await service.setVisibility(target, { visibility: 'unlisted' });
+    assert.equal(toggled.publication.visibility, 'unlisted');
+    assert.equal(baseMock.listings.get(published.publication.slug)?.visibility, 'unlisted');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('isPaidWebPublishPlan excludes free and team_free tiers while unlocking Go+ personal and team tiers', () => {
+  assert.equal(isPaidWebPublishPlan(undefined), false);
+  assert.equal(isPaidWebPublishPlan(null), false);
+  assert.equal(isPaidWebPublishPlan('free'), false);
+  assert.equal(isPaidWebPublishPlan('team_free'), false);
+  assert.equal(isPaidWebPublishPlan({ id: 'TEAM_FREE' }), false);
+  assert.equal(isPaidWebPublishPlan('starter_free'), false);
+  assert.equal(isPaidWebPublishPlan('go'), true);
+  assert.equal(isPaidWebPublishPlan('team_go'), true);
+  assert.equal(isPaidWebPublishPlan('plus'), true);
+  assert.equal(isPaidWebPublishPlan('pro'), true);
+  assert.equal(isPaidWebPublishPlan({ id: 'team_pro' }), true);
+  assert.equal(isPaidWebPublishPlan('max'), true);
 });
 
 test('WebPublishService preserves local publication state when post-publish game-listing sync hits a transient 500 error', async () => {

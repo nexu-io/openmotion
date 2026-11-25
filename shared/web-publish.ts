@@ -45,10 +45,11 @@ export function normalizeWebPublishPlanId(
   return undefined;
 }
 
-/** Any paid OpenDesign plan (starting at `go`, up through `plus`, `pro`, `max`, and `team_*`) unlocks unlisted/private game shares. */
+/** Any paid OpenDesign plan (starting at `go`, up through `plus`, `pro`, `max`, and paid `team_*` tiers) unlocks unlisted/private game shares. */
 export function isPaidWebPublishPlan(plan?: string | { id?: string | null } | null): boolean {
   const normalized = normalizeWebPublishPlanId(plan);
-  return Boolean(normalized && normalized !== 'free');
+  if (!normalized) return false;
+  return normalized !== 'free' && normalized !== 'team_free' && !normalized.endsWith('_free');
 }
 
 export type WebPublishTarget = {
