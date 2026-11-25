@@ -80,6 +80,28 @@ test('acceptBrowserBatch preserves event identity, deduplicates event_id, and re
   assert.deepEqual(tracker.acceptBrowserBatch({ events: [validStudioEvent] }), { queued: 0, full: 0 });
 });
 
+test('hosted admission counts hookless settings funnel clicks and refreshes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const lines: string[] = [];
+  const tracker = createCloudTracking('1.0.0', { OPENMOTION_TRACKING_ENABLED: 'count-only', OPENMOTION_TRACKING_TEST_RUN_ID: TEST_RUN_UUID },
+    createLogger({ sink: (_level, line) => lines.push(line) }));
+  const packet = (event: string, properties: Record<string, string>) => ({ event, properties, entrypoint: 'studio',
+    event_id: crypto.randomUUID(), occurred_at: new Date().toISOString(), device_timezone: null, utc_offset_minutes: 0 });
+  const click = (area: string, element: string, page_name = 'settings') => packet('ui_click', { page_name, area, element });
+  const accepted = [click('account', 'sign_in'), click('account', 'manage_subscription'), click('account', 'view_plans'),
+    click('provider_detail', 'view_plans'), packet('entitlement_refresh_result', { outcome: 'failure' })];
+  const rejected = [click('account', 'sign_out'), click('provider_detail', 'manage_subscription'), click('account', 'sign_in', 'home'),
+    click('entitlement_modal', 'sign_in'), packet('entitlement_refresh_result', { outcome: 'success', hook_id: 'unregistered' }),
+    packet('entitlement_refresh_result', { outcome: 'invalid' })];
+  assert.deepEqual(tracker.acceptBrowserBatch(rejected), { queued: 0, full: 0 });
+  assert.deepEqual(tracker.acceptBrowserBatch(accepted), { queued: accepted.length, full: 0 });
+  t.mock.timers.tick(1000);
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.deepEqual(lines.map(line => JSON.parse(line).counts), [{ 'ui_click/account/sign_in': 1,
+    'ui_click/account/manage_subscription': 1, 'ui_click/account/view_plans': 1, 'ui_click/provider_detail/view_plans': 1,
+    entitlement_refresh_result: 1 }]);
+});
+
 test('count-only batches log bounded counts, preserve queue-pressure receipts and make no outgoing requests', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const network = t.mock.method(globalThis, 'fetch', async () => new Response('{}'));

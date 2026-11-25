@@ -9,10 +9,17 @@ it('queues only commercial funnel events when the cloud advertises entitlement s
   const tracking = await import('./tracking');
   expect(await tracking.trackMotion('ui_click', click)).toBe('filtered');
   expect(await tracking.trackMotion('ui_click', { ...click, hook_id: 'header_pricing' })).toBe('filtered');
+  expect(await tracking.trackMotion('ui_click', { page_name: 'settings', area: 'account', element: 'sign_out' })).toBe('filtered');
+  expect(await tracking.trackMotion('ui_click', { page_name: 'studio', area: 'entitlement_modal', element: 'sign_in' })).toBe('filtered');
   expect(await tracking.flushMotionTracking()).toBe('empty');
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(await tracking.trackMotion('surface_view', { page_name: 'studio', area: 'entitlement_modal', element: 'modal', hook_id: 'header_signin' })).toBe('queued');
   expect(await tracking.trackMotion('ui_click', { page_name: 'studio', area: 'entitlement_modal', element: 'sign_in', hook_id: 'header_signin' })).toBe('queued');
+  for (const element of ['sign_in', 'manage_subscription', 'view_plans'] as const) {
+    expect(await tracking.trackMotion('ui_click', { page_name: 'settings', area: 'account', element })).toBe('queued');
+  }
+  expect(await tracking.trackMotion('ui_click', { page_name: 'settings', area: 'provider_detail', element: 'view_plans' })).toBe('queued');
+  expect(await tracking.trackMotion('entitlement_refresh_result', { outcome: 'success' })).toBe('queued');
   expect(await tracking.flushMotionTracking()).toBe('accepted');
   expect(fetcher).toHaveBeenCalledTimes(2);
 });

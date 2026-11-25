@@ -11,7 +11,7 @@ For new events, start with the [integration guide and agent task template](INTEG
 
 ## Reporting and user control
 
-Reporting is **on by default in every application environment and version**, including
+Local installation reporting is **on by default**, including
 stable releases, test/prerelease packages and local builds, into the existing
 OpenDesign project (420348). Application version and environment remain event
 properties; they do not disable collection. DEV packages retain their separate
@@ -54,12 +54,28 @@ Marked live-ingestion checks use `env=test` with any application version.
 Deterministic checks use fake senders and extracted stable/test/local packages
 without external requests.
 
-Studio retrieves only an enabled flag and submits semantic events to the same-origin
-`/motion-api/tracking` endpoint. The server validates the complete batch, rejects
-identity/source/credential overrides, and adds trusted common fields before posting
-to PostHog `/batch/`. Browser Do Not Track suppresses browser collection. Network
-reporting is asynchronous, with a bounded timeout; local business results never wait
-for PostHog. A collector receipt confirms acceptance, not queryable ingestion.
+Hosted Web Cloud deployments control the commercial funnel with `OPENMOTION_TRACKING_ENABLED`.
+The default (`0` or unset) disables collection. `count-only` logs aggregate counts per batch
+in the API logs and makes no PostHog requests. It requires neither a token nor a host.
+`1` or `true` also forwards accepted events to PostHog using `OPENMOTION_POSTHOG_TOKEN`
+(or `OPENMOTION_POSTHOG_KEY`) and `OPENMOTION_POSTHOG_HOST` (default `https://us.i.posthog.com`).
+Forwarding requires a valid public project token and an HTTPS ingestion origin. HTTP is
+also supported for `127.0.0.1` and `[::1]`.
+The environment opt-outs and test-run restrictions above apply to both modes.
+
+Studio reads the tracking policy from the same-origin `/motion-api/tracking` endpoint.
+The hosted API returns `enabled`, `scope: "entitlement"`, `locked` and `reason`.
+Studio filters events before enqueueing them, and the API independently applies the same
+commercial funnel allowlist to submitted batches. It accepts entitlement modal and campaign
+banner views, their sign-in, pricing and offer clicks, entitlement gate actions, and the header
+pricing click with registered hooks. Settings account clicks (`sign_in`, `manage_subscription`,
+`view_plans`), provider-detail `view_plans` clicks and `entitlement_refresh_result` can omit
+`hook_id`. The API also records web sign-in results from the server callback. Local Studio
+uses the full Studio event registry when its tracking policy is enabled without this scope.
+
+The server validates each submitted event, rejects identity/source/credential overrides,
+and adds trusted common fields when forwarding to PostHog `/batch/`. Delivery is asynchronous
+and bounded by a timeout. A collector receipt confirms acceptance for delivery.
 
 Event `producers` and closed property schemas live together in `events.ts`.
 Studio's typed API and the service's browser-admission registry are derived from

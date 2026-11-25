@@ -59,11 +59,10 @@ function stableDeploymentInstallationId(env: NodeJS.ProcessEnv, host: string, to
 }
 
 /**
- * Env-controlled PostHog tracker for the Web Cloud API server.
- * Stays safely disabled unless OPENMOTION_TRACKING_ENABLED=1/true and a valid
- * public PostHog token (OPENMOTION_POSTHOG_TOKEN or OPENMOTION_POSTHOG_KEY=phc_...)
- * are configured, and always honors OPENMOTION_TELEMETRY=0, DO_NOT_TRACK=1,
- * test-context suppression, and fail-closed host validation.
+ * Hosted commercial funnel tracking is disabled by default. OPENMOTION_TRACKING_ENABLED=count-only
+ * logs aggregate counts locally without a PostHog token or host. Use 1 or true with a public
+ * project token and a valid ingestion host to forward events. Both modes honor environment
+ * opt-outs and test-context suppression.
  */
 export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv = process.env, logger?: Logger): CloudTrackingHandle {
   const lockReason = cloudTrackingLockReason(env);
@@ -114,7 +113,10 @@ export function createCloudTracking(appVersion: string, env: NodeJS.ProcessEnv =
     // Only validated, low-cardinality fields reach deployment logs, once per batch.
     const counts: Record<string, number> = {};
     for (const { event, properties } of events) {
-      const key = `${event}/${properties.hook_id ?? properties.source_detail}`;
+      const attribution = properties.hook_id ?? properties.source_detail;
+      let key: string = event;
+      if (attribution) key = `${event}/${attribution}`;
+      else if (event === 'ui_click') key = `${event}/${properties.area}/${properties.element}`;
       counts[key] = (counts[key] ?? 0) + 1;
     }
     logger?.info('Cloud entitlement tracking batch', { outcome: countOnly ? 'counted' : result, events: events.length, counts });

@@ -28,9 +28,14 @@ export function isEntitlementHookId(value: string): value is EntitlementHookId {
 /** Hosted product analytics covers the commercial funnel. Local Studio has its own event policy. */
 export function isCloudEntitlementEvent(event: unknown, properties: unknown): boolean {
   if (!properties || typeof properties !== 'object') return false;
-  const { hook_id, area, element } = properties as Record<string, unknown>;
-  if (typeof hook_id !== 'string' || !isEntitlementHookId(hook_id)) return false;
+  const { hook_id, page_name, area, element } = properties as Record<string, unknown>;
+  if (hook_id !== undefined && (typeof hook_id !== 'string' || !isEntitlementHookId(hook_id))) return false;
   if (event === 'entitlement_refresh_result') return true;
+  if (event === 'ui_click' && page_name === 'settings') {
+    if (area === 'account') return element === 'sign_in' || element === 'manage_subscription' || element === 'view_plans';
+    if (area === 'provider_detail') return element === 'view_plans';
+  }
+  if (hook_id === undefined) return false;
   if (event === 'surface_view') return (area === 'entitlement_modal' && element === 'modal')
     || (hook_id === 'bf_banner' && area === 'campaign_banner' && element === 'banner');
   if (event !== 'ui_click') return false;
