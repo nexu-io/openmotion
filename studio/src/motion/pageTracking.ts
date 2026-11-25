@@ -161,11 +161,14 @@ export function reportAssetsClick(area: AssetClickArea, element: Click['element'
 }
 /** `studio` is the Design, Cinema or Sound Studio form the generation was submitted from, as catalogue ids. */
 export function reportAssetGenerationSubmit(modality: unknown, outcome: 'success' | 'failure', referenceCount: number, newVersion: boolean,
-  studio?: { studio: string; scene: string; model?: string }) {
+  studio?: { studio: string; scene: string; model?: string },
+  source?: { hubId?: string; templateId?: string; promptEdited?: boolean }) {
   const field = modalityField(modality);
   if (!field.modality) return;
   send('asset_generation_submit_result', { ...(studio ? { page_name: 'creative_studio' as const, ...slugField('studio_id', studio.studio), ...slugField('scene_id', studio.scene),
-    ...modelFields(studio.model) } : assetsPage), modality: field.modality, outcome, reference_count: referenceCount, new_version: newVersion });
+    ...modelFields(studio.model) } : assetsPage), modality: field.modality, outcome, reference_count: referenceCount, new_version: newVersion,
+    ...slugField('hub_id', source?.hubId), ...slugField('template_id', source?.templateId),
+    ...(source?.promptEdited === undefined ? {} : { prompt_edited: source.promptEdited }) });
 }
 /** Which change an asset write made: only the kind of change, never the new name. */
 export function assetUpdateAction(changes: Record<string, unknown>): Fields<'asset_update_result'>['action'] {

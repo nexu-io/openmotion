@@ -36,7 +36,8 @@ import { setPendingAttribution } from './entitlementAttribution';
 import { send } from './reporting';
 
 export interface AssetGuideExample { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number }
-export interface AssetDraft { modality: Modality; prompt: string; capabilityOptions?: Record<string, string>; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; guideExample?: AssetGuideExample; references: { reference: AssetReference; name: string }[] }
+export interface AssetDraftSource { hubId?: string; templateId?: string; promptEdited?: boolean; initialPrompt?: string }
+export interface AssetDraft { modality: Modality; prompt: string; capabilityOptions?: Record<string, string>; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; guideExample?: AssetGuideExample; references: { reference: AssetReference; name: string }[]; source?: AssetDraftSource }
 export function AssetComposer({ active, studio, draft, setDraft, agentReferences, setAgentReferences, jobs, showCurrentJob = true, mode, onMode, taskIds, history, selectingTask, onNew, onChatChanged, onChatStarted, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
   active: boolean; studio?: StudioCreation; draft: AssetDraft; setDraft: Dispatch<SetStateAction<AssetDraft>>; jobs: GenerationJob[]; showCurrentJob?: boolean;
   agentReferences: AssetDraft['references']; setAgentReferences: (references: AssetDraft['references']) => void;
@@ -251,6 +252,16 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const submit = async () => {
     if (!selected || !promptReady || busy || uploadingReferences || invalidReferences || capabilityBlocked) return; setBusy(true);
     const studioContext = studio ? { studio: studio.destination.studio.id, scene: studio.destination.scene.id, model: selected.id } : undefined;
+    const sourceContext = draft.source
+      ? {
+          hubId: draft.source.hubId,
+          templateId: draft.source.templateId,
+          promptEdited: Boolean(
+            draft.source.promptEdited ||
+            (draft.source.initialPrompt !== undefined && draft.prompt.trim() !== draft.source.initialPrompt.trim()),
+          ),
+        }
+      : undefined;
     try {
       const parsed = requestParameters(parameters, selected, draft.references.length > 0, studioDefaultValues(selected));
       const prompt = activeCapability
@@ -272,9 +283,9 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
         setDraft(current => current === draft ? { ...current, model: selected.id, parameters: parsed } : current);
         onCreated(result.job);
       }
-      tracking.reportAssetGenerationSubmit(draft.modality, 'success', draft.references.length, Boolean(draft.target), studioContext);
+      tracking.reportAssetGenerationSubmit(draft.modality, 'success', draft.references.length, Boolean(draft.target), studioContext, sourceContext);
     } catch (error) {
-      tracking.reportAssetGenerationSubmit(draft.modality, 'failure', draft.references.length, Boolean(draft.target), studioContext);
+      tracking.reportAssetGenerationSubmit(draft.modality, 'failure', draft.references.length, Boolean(draft.target), studioContext, sourceContext);
       if (mounted.current) onError((error as Error).message);
     } finally { if (mounted.current) setBusy(false); }
   };

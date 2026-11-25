@@ -17,9 +17,10 @@ import { isOpenDesignProvider } from './imageMenuModels';
 import type { AssetDraft } from './AssetComposer';
 import { findModelHub, type HubShowcaseCase } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
-import { setPendingAttribution } from './entitlementAttribution';
-import { reportHubClick, reportHubPageView } from './exploreTracking';
-import { campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
+import { setPendingAttribution, useCheckoutReturnRefresh } from './entitlementAttribution';
+import { reportHubCardImpression, reportHubClick, reportHubPageView } from './exploreTracking';
+import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
+import { useCardImpressions } from './useTemplateImpressions';
 import { newTrackingId } from './pageTracking';
 import { BackToExploreButton } from './BackToExploreButton';
 import { X_VIDEO_ESCAPE_EVENT, isXVideoUrl, xVideoDocument } from './xVideoEmbed';
@@ -135,6 +136,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
   ));
   const [lightboxPrompt, setLightboxPrompt] = useState('');
   const toast = useToast();
+  const pageRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const lightboxIframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeDismissToken] = useState(() => newTrackingId());
@@ -153,6 +155,8 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [activeCaseId, iframeDismissToken]);
+  const markCheckoutReturn = useCheckoutReturnRefresh('model_hub', 'bf_hub');
+  const seenCaseImpressions = useRef(new Set<string>());
   const showcaseRef = useRef<HTMLElement>(null);
   const masonryCount = useMasonryColumns(showcaseRef);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -236,11 +240,39 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
     viewed.current = true;
     reportHubPageView(hub.id, hasProject, signedIn);
   }, [hub, accountKnown, signedIn, hasProject]);
+  const isShowcaseHub = Boolean(hub?.cases && hub.cases.length > 0 && hub.videos.length === 0);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredCases: HubShowcaseCase[] = (hub?.cases ?? []).filter(item => {
+    if (isShowcaseHub && selectedTag !== 'all' && item.tag !== selectedTag) return false;
+    if (!normalizedQuery) return true;
+    return [item.title, t(item.title), item.tag, t(item.tag), item.prompt, t(item.prompt)]
+      .some(field => field.toLowerCase().includes(normalizedQuery));
+  });
+  const impressionResultKey = `${hub?.id ?? ''}:${selectedTag}`;
+  const impressionCatalogKey = `${impressionResultKey}:${filteredCases.map(item => item.id).join(',')}`;
+  useEffect(() => {
+    seenCaseImpressions.current.clear();
+  }, [impressionResultKey]);
+  useCardImpressions(
+    pageRef,
+    impressionCatalogKey,
+    isShowcaseHub && filteredCases.length > 0,
+    impressionResultKey,
+    templateId => {
+      if (!hub || activeCaseId) return false;
+      if (seenCaseImpressions.current.has(templateId)) return true;
+      const position = filteredCases.findIndex(entry => entry.id === templateId);
+      if (position < 0) return false;
+      seenCaseImpressions.current.add(templateId);
+      reportHubCardImpression(hub.id, templateId, position, signedIn, selectedTag);
+      return true;
+    },
+    'data-template-id',
+  );
   if (!hub) return <main className="om-explore"><div className="om-discovery-page">
     <div><BackToExploreButton onClick={onExplore} /></div>
     <section><h1 className="om-title">{t('Page unavailable')}</h1><p className="om-muted">{id}</p></section>
   </div></main>;
-  const isShowcaseHub = Boolean(hub.cases && hub.cases.length > 0 && hub.videos.length === 0);
   const availableProviders = new Set(
     (catalog?.status.providers ?? [])
       .filter(item => item.available && item.mediaEntitlement !== 'not-included')
@@ -270,8 +302,15 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
     else onUse();
   };
 
-  const launchShowcaseRemix = (item: HubShowcaseCase, promptOverride?: string) => {
-    const prompt = (promptOverride ?? t(item.prompt)).trim();
+  const launchShowcaseRemix = (
+    item: HubShowcaseCase,
+    area: 'hub_videos' | 'hub_video_detail',
+    position: number,
+    promptOverride?: string,
+  ) => {
+    const defaultPrompt = t(item.prompt).trim();
+    const prompt = (promptOverride ?? defaultPrompt).trim();
+    const promptEdited = promptOverride !== undefined && prompt !== defaultPrompt;
     const aspect = aspectRatioLabel(item.aspectRatio);
     const modality = item.destination.scene.modality;
     const remixClip = item.videoHd || item.video;
@@ -288,35 +327,49 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
         posterAspect: item.aspectRatio,
       },
       references: [],
+      source: { hubId: hub.id, templateId: item.id, promptEdited, initialPrompt: prompt },
     };
     setActiveCaseId(null);
-    track('hub_hero', 'open_in_studio', { model: preferredModelId ?? hub.id });
+    track(area, 'start_use', {
+      template: item.id,
+      ...(position >= 0 ? { position } : {}),
+      model: preferredModelId ?? hub.id,
+      promptEdited,
+    });
     openDestination(item.destination, draft);
+  };
+
+  const openShowcaseDetail = (item: HubShowcaseCase, position: number) => {
+    track('hub_videos', 'open_detail', {
+      template: item.id,
+      ...(position >= 0 ? { position } : {}),
+      filter: selectedTag,
+    });
+    setActiveCaseId(item.id);
+  };
+
+  const selectShowcaseCategory = (nextTag: string) => {
+    if (nextTag === selectedTag) return;
+    track('hub_videos', 'category_select', { filter: nextTag });
+    setSelectedTag(nextTag);
   };
 
   const eyebrowText = t(hub.eyebrow);
   const summaryText = t(hub.summary);
   const primaryCtaText = hub.primaryCta ? t(hub.primaryCta) : t('Open in {studio}', { studio: t('Motion Studio') });
   const promoBadgeText = hub.promoBadge ? t(hub.promoBadge) : undefined;
-  const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+  const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_hub', entryId);
 
   const showcaseTags = Array.from(new Map(
     (hub.cases ?? []).map(item => [item.tag, t(item.tag)])
   ).entries());
 
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredCases: HubShowcaseCase[] = (hub.cases ?? []).filter(item => {
-    if (isShowcaseHub && selectedTag !== 'all' && item.tag !== selectedTag) return false;
-    if (!normalizedQuery) return true;
-    return [item.title, t(item.title), item.tag, t(item.tag), item.prompt, t(item.prompt)]
-      .some(field => field.toLowerCase().includes(normalizedQuery));
-  });
-
+  const caseIndexById = new Map(filteredCases.map((item, idx) => [item.id, idx]));
   const masonryColumns = packMasonryColumns(filteredCases, Math.min(masonryCount, Math.max(1, filteredCases.length)));
 
   if (isShowcaseHub) {
     return (
-      <main className="om-explore om-model-hub-page">
+      <main ref={pageRef} className="om-explore om-model-hub-page">
         <div className="om-discovery-page om-model-hub om-model-hub-showcase" data-hub={hub.id}>
           <header className="om-hub-editorial-header">
             <div className="om-hub-editorial-main">
@@ -329,7 +382,15 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                       href={pricingHref}
                       {...pricingLinkTargetProps()}
                       onClick={event => {
-                        event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+                        const clickedEntryId = entryId;
+                        markCheckoutReturn(clickedEntryId);
+                        track('hub_hero', 'claim_offer', {
+                          campaignId: BLACK_FRIDAY_CAMPAIGN,
+                          hookId: 'bf_hub',
+                          entryId: clickedEntryId,
+                          interactionMethod: event.detail === 0 ? 'keyboard' : 'pointer',
+                        });
+                        event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_hub', clickedEntryId);
                         window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
                       }}
                     >
@@ -350,7 +411,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                       aria-selected={selectedTag === 'all'}
                       className="om-hub-editorial-tab"
                       data-active={selectedTag === 'all' ? 'true' : undefined}
-                      onClick={() => setSelectedTag('all')}
+                      onClick={() => selectShowcaseCategory('all')}
                     >
                       {t('All')}
                     </Button>
@@ -363,7 +424,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                         aria-selected={selectedTag === tagKey}
                         className="om-hub-editorial-tab"
                         data-active={selectedTag === tagKey ? 'true' : undefined}
-                        onClick={() => setSelectedTag(tagKey)}
+                        onClick={() => selectShowcaseCategory(tagKey)}
                       >
                         {tagLabel}
                       </Button>
@@ -411,6 +472,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                 >
                   {column.map(item => {
                     const itemTitle = t(item.title);
+                    const itemPosition = caseIndexById.get(item.id) ?? -1;
                     const isVideo = item.destination.scene.modality === 'video';
                     const kindLabel = t(isVideo ? 'Video template' : 'Image template');
                     const playingHoverVideo = Boolean(
@@ -422,6 +484,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                         role="button"
                         tabIndex={0}
                         className="om-hub-showcase-card"
+                        data-template-id={item.id}
                         data-playing={playingHoverVideo ? 'true' : undefined}
                         aria-label={itemTitle}
                         onMouseEnter={() => setHoveredCaseId(item.id)}
@@ -432,11 +495,11 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                             setHoveredCaseId(prev => (prev === item.id ? null : prev));
                           }
                         }}
-                        onClick={() => setActiveCaseId(item.id)}
+                        onClick={() => openShowcaseDetail(item, itemPosition)}
                         onKeyDown={event => {
                           if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
                             event.preventDefault();
-                            setActiveCaseId(item.id);
+                            openShowcaseDetail(item, itemPosition);
                           }
                         }}
                       >
@@ -461,7 +524,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                               className="om-hub-showcase-cta"
                               onClick={event => {
                                 event.stopPropagation();
-                                launchShowcaseRemix(item);
+                                launchShowcaseRemix(item, 'hub_videos', itemPosition);
                               }}
                             >
                               <span>{t('Remix this')}</span>
@@ -499,8 +562,10 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
             if (!text) return;
             try {
               await navigator.clipboard.writeText(text);
+              track('hub_video_detail', 'copy_prompt', { template: activeCase.id, copyStatus: 'clipboard_written' });
               toast.showToast(t('Copied'), 'info', 'feedback');
             } catch {
+              track('hub_video_detail', 'copy_prompt', { template: activeCase.id, copyStatus: 'failed' });
               toast.showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback');
             }
           };
@@ -668,7 +733,7 @@ export function ModelHub({ id, onExplore, onProvider, onModel, onUse, onScene, o
                         type="button"
                         variant="plain"
                         className="om-hub-lightbox-cta"
-                        onClick={() => launchShowcaseRemix(activeCase, lightboxPrompt)}
+                        onClick={() => launchShowcaseRemix(activeCase, 'hub_video_detail', currentIndex, lightboxPrompt)}
                       >
                         <span>{t('Remix this look')}</span>
                       </Button>

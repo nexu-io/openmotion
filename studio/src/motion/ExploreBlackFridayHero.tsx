@@ -12,7 +12,14 @@ import {
   pricingLinkTargetProps,
   readBlackFridayCountdown,
 } from './campaignAttribution';
+import { useCheckoutReturnRefresh } from './entitlementAttribution';
 import { trackMotion } from './tracking';
+
+let heroImpressionReported = false;
+/** Test hook: clear the page-load impression guard between renders. */
+export function resetBlackFridayHeroImpression() {
+  heroImpressionReported = false;
+}
 
 const RING_COUNT = 8;
 const SIDE_ROWS = 3;
@@ -116,6 +123,18 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
   const script = locale.startsWith('zh') ? 'zh' : (locale === 'ja' || locale === 'ko') ? 'cjk' : 'latin';
   const [time, setTime] = useState(() => readBlackFridayCountdown());
   const [entryId, setEntryId] = useState(newCampaignEntryId);
+  const markCheckoutReturn = useCheckoutReturnRefresh('explore', 'bf_hero');
+  useEffect(() => {
+    if (!active || heroImpressionReported) return;
+    heroImpressionReported = true;
+    void trackMotion('surface_view', {
+      page_name: 'explore',
+      area: 'campaign_banner',
+      element: 'banner',
+      campaign_id: BLACK_FRIDAY_CAMPAIGN,
+      hook_id: 'bf_hero',
+    });
+  }, [active]);
   const [displayDigits, setDisplayDigits] = useState<[string, string, string] | null>(null);
   const [startedCollapsed] = useState(() => (
     typeof window !== 'undefined' &&
@@ -505,17 +524,20 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
     interactionRef.current.hoveringTile = false;
   };
 
-  const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+  const pricingHref = campaignPricingUrl(locale, 'openmotion_bf_hero', entryId);
   const claimOffer = (event: MouseEvent<HTMLAnchorElement>) => {
+    const clickedEntryId = entryId;
+    markCheckoutReturn(clickedEntryId);
     void trackMotion('ui_click', {
       page_name: 'explore',
       area: 'campaign_banner',
       element: 'claim_offer',
       campaign_id: BLACK_FRIDAY_CAMPAIGN,
-      entry_id: entryId,
+      hook_id: 'bf_hero',
+      entry_id: clickedEntryId,
       interaction_method: event.detail === 0 ? 'keyboard' : 'pointer',
     });
-    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_banner', entryId);
+    event.currentTarget.href = campaignPricingUrl(locale, 'openmotion_bf_hero', clickedEntryId);
     window.setTimeout(() => setEntryId(newCampaignEntryId()), 0);
   };
 
