@@ -1,4 +1,4 @@
-import { finishFileProjections, presentAcceptedFiles, projectedFileSource, stageFileProjection,
+import { finishFileProjections, hasProjectedFile, presentAcceptedFiles, projectedFileSource, stageFileProjection,
   type PresentFiles } from './projectedTextEdits';
 import { supportsOrderedTextEdits } from './confirmedTextSources';
 import { reconcileFileEdit } from './rebasedFileEdit';
@@ -43,9 +43,15 @@ export async function saveOrderedTimeline(
   project: string, transforms: Transform[], label: string, { readPaths = [], assetPaths = [], onReceipt, projectPending, onSaved, recordEdit, undoGroup, coalesceKey, coalesceMs }: Options,
 ): Promise<string[]> {
   if (!transforms.length) return [];
-  const reads = Promise.all([...new Set(readPaths)].map(async path => ({ path, ...await displayedSource(project, path) })));
+  const textPaths = new Set(readPaths);
+  const mediaPaths = new Set<string>();
+  for (const path of assetPaths) {
+    if (hasProjectedFile(project, path)) textPaths.add(path);
+    else if (!textPaths.has(path)) mediaPaths.add(path);
+  }
+  const reads = Promise.all([...textPaths].map(async path => ({ path, ...await displayedSource(project, path) })));
   const inputs = reads.then(files => new Map(files.map(file => [file.path, file.content])));
-  const assets = Promise.all([...new Set(assetPaths)].map(async path => [path, await readStudioAssetVersion(project, path)] as const));
+  const assets = Promise.all([...mediaPaths].map(async path => [path, await readStudioAssetVersion(project, path)] as const));
   void assets.catch(() => {}); // The FIFO reports failure; a slow prior receipt must not delay painting.
   const projections = transforms.map(({ path, apply, shownVersion }) => {
     const captured = displayedSource(project, path);

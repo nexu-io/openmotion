@@ -1,6 +1,6 @@
 import { MAX_ORDERED_TEXT_EDITS, type OrderedTextEditOperation, type OrderedTextEditReceipt, type OrderedTextEditResult } from '../../../shared/ordered-text-edits';
 import { confirmedSource, forgetSource, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits } from './confirmedTextSources';
-import { acknowledgeFileEdit } from './isolatedEditVersions';
+import { acknowledgeFileEdit, isolatedEditVersion } from './isolatedEditVersions';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import { studioApiFetch } from './studioApiFetch';
 import { createStudioWriteToken, markStudioWriteToken } from './studioFileVersion';
@@ -12,7 +12,7 @@ export type EditFile<Version extends string | null = string> = { path: string; b
 export type DraftSource = { content: string; version: string | null };
 type PreparedFile = EditFile<string | null>;
 type Plan = Omit<OrderedTextEditOperation, 'id' | 'files' | 'dependencies'> & {
-  edits: PreparedFile[]; label: string; dependencies?: Record<string, string | null>;
+  edits: PreparedFile[]; label: string; dependencies?: Record<string, string>;
 };
 type Prepare = (drafts: ReadonlyMap<string, DraftSource>) => Promise<Plan>;
 type Intent = { at: number; prepare: Prepare; allowReplay: boolean; resolve(value: Output): void; reject(reason: unknown): void };
@@ -111,7 +111,11 @@ async function prepareSteps(queue: Queue, steps: Step[]) {
     }
     const id = createStudioWriteToken();
     const files: OrderedTextEditOperation['files'] = [];
-    const dependencies: NonNullable<OrderedTextEditOperation['dependencies']> = { ...plan.dependencies };
+    const dependencies: NonNullable<OrderedTextEditOperation['dependencies']> = Object.create(null);
+    for (const [path, version] of Object.entries(plan.dependencies ?? {})) {
+      const prior = producers.get(path);
+      dependencies[path] = prior ? { after: prior } : isolatedEditVersion(queue.project, path, version);
+    }
     for (const edit of plan.edits) {
       const prior = producers.get(edit.path);
       const baseVersion = prior ? { after: prior } : edit.version;

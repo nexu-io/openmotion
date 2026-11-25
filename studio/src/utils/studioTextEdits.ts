@@ -16,16 +16,26 @@ import { trackStudioProjectSave } from './studioSaveState';
 
 export type TextEditSource = { path: string; before: string; after: string };
 type Prepared = EditFile<string | null>;
+type CommandInput = 'text' | 'asset' | 'edited-asset';
 
-async function localDependencies(project: string, commands: readonly CompositionEdit[], drafts?: ReadonlyMap<string, DraftSource>) {
-  const texts = new Map<string, DraftSource>();
-  const assets: Record<string, string> = Object.create(null);
-  const required = new Map<string, 'text' | 'asset'>();
+function commandInputs(project: string, commands: readonly CompositionEdit[]) {
+  const required = new Map<string, CommandInput>();
   for (const command of commands) {
     if (command.kind === 'setBeatGrid') return; // Uses its observed optional sidecar.
     if (!isContentCommand(command)) continue;
-    for (const input of contentDependencies(command)) required.set(input.path, input.type);
+    for (const input of contentDependencies(command)) {
+      if (required.get(input.path) === 'text') continue;
+      // A reference to a file being authored locally can be resolved before the file exists in storage.
+      const editingAsset = input.type === 'asset' && hasProjectedFile(project, input.path);
+      required.set(input.path, editingAsset ? 'edited-asset' : input.type);
+    }
   }
+  return required;
+}
+
+async function localDependencies(project: string, required: ReadonlyMap<string, CommandInput>, drafts?: ReadonlyMap<string, DraftSource>) {
+  const texts = new Map<string, DraftSource>();
+  const assets: Record<string, string> = Object.create(null);
   const hosted = getCachedCloudDisklessMode();
   const loaded = await Promise.all([...required].map(async ([path, kind]) => {
     if (kind === 'asset') {
@@ -138,6 +148,8 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
     throw new Error('Use an absolute LUT source when grading multiple compositions');
   }
   const ordered = supportsOrderedTextEdits(project);
+  const required = commandInputs(project, commands);
+  if (!required) return;
   const canvasGesture = !predicted && commands.every(c => c.kind === 'moveCanvasElement' || c.kind === 'setCanvasBox');
   const captured = new Map<string, ConfirmedSource>();
   for (const [path, version] of Object.entries(versions)) {
@@ -146,7 +158,7 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
     if (source?.version === shownVersion) captured.set(path, source);
   }
   const prepare = async (drafts?: ReadonlyMap<string, DraftSource>) => {
-    const dependencies = await localDependencies(project, commands, drafts);
+    const dependencies = await localDependencies(project, required, drafts);
     if (!dependencies) return;
     const files = new Map<string, Prepared>();
     for (const path of targets) {
@@ -195,11 +207,8 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
     // Resolve all inputs against the same working copy, before registering our outputs.
     // A following gesture can then preview these bytes even while an older HTTP packet is in flight.
     const inputs = new Set(targets);
-    for (const command of commands) {
-      if (!isContentCommand(command)) continue;
-      for (const input of contentDependencies(command)) {
-        if (input.type === 'text' && (hosted || confirmedSource(project, input.path) || hasProjectedFile(project, input.path))) inputs.add(input.path);
-      }
+    for (const [path, type] of required) {
+      if (type !== 'asset' && (hosted || confirmedSource(project, path) || hasProjectedFile(project, path))) inputs.add(path);
     }
     const bases = new Map([...inputs].map(path => [
       path, projectedFileSource(project, path) ?? readStudioEditSource(project, path),
@@ -223,6 +232,13 @@ export async function tryStudioCommandPatches(project: string, commands: Composi
         });
         const plan = sameBase ? local : await prepare(drafts);
         if (!plan) throw new Error('Missing source for ordered project edit');
+        if (!sameBase) {
+          for (const file of plan.edits) {
+            if (required.get(file.path) !== 'edited-asset') continue;
+            const authored = await bases.get(file.path)!;
+            if (file.before !== authored.content) throw staleSource(file.path, {content:file.before, version:file.version}, '');
+          }
+        }
         edits = plan.edits;
         return plan;
       }, canvasGesture);
