@@ -198,6 +198,51 @@ it('invalidates workspace and gateway consumers immediately on switch success wh
   }
 });
 
+it('publishes switched activeWorkspace immediately and clears prior workspace billing even if post-switch summary returns 503', async () => {
+  const page = await open({
+    ...cookieAccount,
+    billing: { plan: 'pro', balanceUsd: 42.5, hasBalance: true },
+  });
+  const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;
+  const [target] = await workspaceOptions(trigger);
+
+  const originalImpl = hooks.request.getMockImplementation()!;
+  let summaryAttempts = 0;
+  hooks.request.mockImplementation((path: string, method = 'GET', body?: Record<string, unknown>) => {
+    if (path === 'account/workspaces/switch') {
+      const id = String(body?.workspaceId ?? '');
+      const ws = id === studioB.id ? studioB : studioA;
+      return Promise.resolve({ ok: true, activeWorkspace: ws });
+    }
+    if (path === 'account/summary?refresh=true') {
+      summaryAttempts++;
+      if (summaryAttempts === 1) {
+        const err = new Error('Service unavailable') as Error & { status?: number };
+        err.status = 503;
+        return Promise.reject(err);
+      }
+      return Promise.resolve({ consoleUrl: 'https://open-design.ai/cloud', ...cookieAccount, activeWorkspace: studioA });
+    }
+    return originalImpl(path, method, body);
+  });
+
+  await act(async () => { target.click(); });
+  // UI reflects Studio B immediately and clears Studio A's balance/plan despite summary 503.
+  expect(trigger.textContent).toBe('Studio B');
+  expect(page.textContent).not.toContain('42.5');
+  expect(getPrivateSwrIdentity()).toBe('u1:ws-2');
+
+  // Selecting Studio A again is not blocked because Studio B is now current.
+  const optionsAfterSwitch = await workspaceOptions(trigger);
+  const studioAOption = optionsAfterSwitch.find(item => item.textContent?.includes('Studio A'))!;
+  await act(async () => { studioAOption.click(); });
+  expect(hooks.request.mock.calls.filter(([path]) => path === 'account/workspaces/switch')).toEqual([
+    ['account/workspaces/switch', 'POST', { workspaceId: studioB.id }],
+    ['account/workspaces/switch', 'POST', { workspaceId: studioA.id }],
+  ]);
+  expect(trigger.textContent).toBe('Studio A');
+});
+
 it('keeps the current workspace and enables another choice after a rejected switch', async () => {
   const page = await open(cookieAccount);
   const trigger = page.querySelector<HTMLButtonElement>('[role="combobox"][aria-label="Switch workspace"]')!;

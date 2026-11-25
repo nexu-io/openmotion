@@ -9,7 +9,6 @@ const CACHE_KEY = 'openmotion.github-stars';
 const BACKOFF_KEY = 'openmotion.github-stars.backoff';
 const CACHE_TTL = 5 * 60 * 1000;
 const DEFAULT_RETRY_MS = 60_000;
-const MAX_RATE_LIMIT_RETRY_MS = 24 * 60 * 60_000;
 type StarsCache = { count: number; at: number };
 
 function parseRetryAfterMs(header: string | null, now: number): number | null {
@@ -19,13 +18,13 @@ function parseRetryAfterMs(header: string | null, now: number): number | null {
   if (/^\d+$/.test(trimmed)) {
     const seconds = Number(trimmed);
     if (Number.isFinite(seconds) && seconds > 0) {
-      return Math.min(seconds * 1000, MAX_RATE_LIMIT_RETRY_MS);
+      return seconds * 1000;
     }
     return null;
   }
   const dateMs = Date.parse(trimmed);
   if (Number.isFinite(dateMs) && dateMs > now) {
-    return Math.min(dateMs - now, MAX_RATE_LIMIT_RETRY_MS);
+    return dateMs - now;
   }
   return null;
 }
@@ -40,7 +39,7 @@ function resolveRateLimitRetryMs(headers: Headers, now: number): number {
   const resetHeader = headers.get('x-ratelimit-reset')?.trim();
   const resetSeconds = resetHeader ? Number(resetHeader) : NaN;
   const resetMs = primaryExhausted && Number.isFinite(resetSeconds) && resetSeconds * 1000 > now
-    ? Math.min(resetSeconds * 1000 - now, MAX_RATE_LIMIT_RETRY_MS)
+    ? resetSeconds * 1000 - now
     : null;
   if (retryAfterMs !== null && resetMs !== null) return Math.max(retryAfterMs, resetMs);
   if (retryAfterMs !== null) return retryAfterMs;
@@ -51,7 +50,7 @@ function resolveRateLimitRetryMs(headers: Headers, now: number): number {
 function readPersistedRetryAt(): number {
   try {
     const raw = Number(localStorage.getItem(BACKOFF_KEY));
-    if (Number.isFinite(raw) && raw > Date.now() && raw - Date.now() <= MAX_RATE_LIMIT_RETRY_MS) return raw;
+    if (Number.isFinite(raw) && raw > Date.now()) return raw;
   } catch { /* Unavailable storage must not affect navigation. */ }
   return 0;
 }

@@ -6,6 +6,7 @@ import { invalidateGatewayCache, loadGateway, setGatewayCacheEnabledForTest, typ
 import { useMediaCatalog } from './useMediaCatalog';
 import { guestMediaCatalog } from './guestMediaCatalog';
 import { publishSignedOutAccountSummary, resetAccountSummaryCacheForTest, useAccountSummary } from './AccountSettings';
+import { AUTH_RECOVERY_EVENT } from './authRecoveryStore';
 import { useProviderDirectory } from './useProviderDirectory';
 import { clearPrivateSwrCache, getPrivateSwrIdentity, setPrivateSwrIdentity } from './swrCache';
 import { WorkspaceChromeContext, type WorkspaceChrome } from './WorkspaceChromeContext';
@@ -325,36 +326,60 @@ describe('useMediaCatalog guest and auth-resolving behavior', () => {
       expect(second.models).toEqual([modelB]);
       expect(fetcher).toHaveBeenCalledTimes(4);
 
-      // Verify useProviderDirectory clears prior workspace data immediately and discards stale responses.
-      const pendingB = Promise.withResolvers<Response>();
-      let dirCalls = 0;
+      // Verify useProviderDirectory clears prior workspace data immediately, ignores late Workspace A responses
+      // arriving AFTER Workspace B loads, and suppresses stale Workspace A 503 AUTH_UNAVAILABLE recovery notices.
+      const pendingACatalog = Promise.withResolvers<Response>();
+      const pendingAStatus = Promise.withResolvers<Response>();
+      let catalogBatch = 0;
+      let statusBatch = 0;
       vi.stubGlobal('fetch', vi.fn((input: string | URL | Request) => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
         if (url.endsWith('/models/status')) {
-          return Promise.resolve(Response.json({ providers: [{ id: 'opendesign', plan: dirCalls === 1 ? 'pro' : 'free' }], agents: [], routes: {}, capabilities: [] }));
+          statusBatch++;
+          if (statusBatch === 1) return pendingAStatus.promise;
+          return Promise.resolve(Response.json({ providers: [{ id: 'opendesign', plan: 'free' }], agents: [], routes: {}, capabilities: [] }));
         }
-        dirCalls++;
-        if (dirCalls === 1) return Promise.resolve(Response.json({ models: [modelA], mode: 'opendesign', defaults: { image: modelA.id } }));
-        return pendingB.promise;
+        catalogBatch++;
+        if (catalogBatch === 1) return pendingACatalog.promise;
+        return Promise.resolve(Response.json({ models: [modelB], mode: 'opendesign', defaults: { image: modelB.id } }));
       }));
 
-      let dirState: ReturnType<typeof useProviderDirectory> | undefined;
-      function DirectoryProbe() {
-        dirState = useProviderDirectory();
-        return null;
+      const recoveryEvents: Event[] = [];
+      const onRecovery = (event: Event) => { recoveryEvents.push(event); };
+      window.addEventListener(AUTH_RECOVERY_EVENT, onRecovery);
+      try {
+        let dirState: ReturnType<typeof useProviderDirectory> | undefined;
+        function DirectoryProbe() {
+          dirState = useProviderDirectory();
+          return null;
+        }
+        await act(async () => { root.render(<DirectoryProbe />); });
+        expect(catalogBatch).toBe(1);
+        expect(dirState?.data).toBeNull();
+
+        // Switch to Workspace B while Workspace A's directory request is still pending; Workspace B loads cleanly.
+        await act(async () => {
+          window.dispatchEvent(new Event('motion:account-changed'));
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(catalogBatch).toBe(2);
+        expect(dirState?.data?.billing?.plan).toBe('free');
+        expect(dirState?.data?.models.map(m => m.id)).toEqual([modelB.id]);
+
+        // Workspace A's pending request resolves late with 503 AUTH_UNAVAILABLE: must NOT overwrite Workspace B
+        // and must NOT emit a global auth-recovery banner over healthy Workspace B.
+        await act(async () => {
+          pendingACatalog.resolve(Response.json({ code: 'AUTH_UNAVAILABLE', error: 'Auth backend unavailable' }, { status: 503 }));
+          pendingAStatus.resolve(Response.json({ providers: [{ id: 'opendesign', plan: 'pro' }], agents: [], routes: {}, capabilities: [] }));
+          await new Promise(resolve => setTimeout(resolve, 0));
+        });
+        expect(dirState?.data?.billing?.plan).toBe('free');
+        expect(dirState?.data?.models.map(m => m.id)).toEqual([modelB.id]);
+        expect(dirState?.error).toBe(false);
+        expect(recoveryEvents).toHaveLength(0);
+      } finally {
+        window.removeEventListener(AUTH_RECOVERY_EVENT, onRecovery);
       }
-      await act(async () => { root.render(<DirectoryProbe />); });
-      expect(dirState?.data?.billing?.plan).toBe('pro');
-
-      // Account change clears Workspace A's data immediately while Workspace B is still pending.
-      await act(async () => { window.dispatchEvent(new Event('motion:account-changed')); });
-      expect(dirState?.data).toBeNull();
-
-      await act(async () => {
-        pendingB.resolve(Response.json({ models: [modelB], mode: 'opendesign', defaults: { image: modelB.id } }));
-        await new Promise(resolve => setTimeout(resolve, 0));
-      });
-      expect(dirState?.data?.billing?.plan).toBe('free');
     } finally {
       setGatewayCacheEnabledForTest(null);
       invalidateGatewayCache();

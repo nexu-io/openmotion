@@ -509,17 +509,41 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
     switchInFlight.current = true;
     setSwitchingWorkspace(true);
     try {
-      await gatewayRequest('account/workspaces/switch', 'POST', { workspaceId });
-      // Server cookie is already switched: bind SWR to the target workspace and immediately
-      // invalidate old workspace/gateway reads before awaiting the billing refresh.
+      const switched = await gatewayRequest<{ ok?: boolean; activeWorkspace?: CloudWorkspaceSummary }>(
+        'account/workspaces/switch',
+        'POST',
+        { workspaceId },
+      );
+      const nextWorkspace = switched?.activeWorkspace ?? workspaces.find(ws => ws.id === workspaceId) ?? null;
+      // Server cookie is already switched: bind SWR to the target workspace, publish the
+      // switched activeWorkspace with prior workspace billing/model fields cleared, and
+      // immediately invalidate old workspace/gateway reads before awaiting billing refresh.
       setPrivateSwrIdentity({
         userId: account?.userId ?? account?.user?.email ?? 'signed-in',
         workspaceId,
       });
       setDiagnosticsAuthState(false);
-      invalidateAccountSummaryCache();
+      const switchedSummary: CloudAccountSummary | null = account && nextWorkspace
+        ? {
+            ...account,
+            activeWorkspace: nextWorkspace,
+            plan: undefined,
+            balance: undefined,
+            billingUnavailable: undefined,
+            billingError: undefined,
+            modelGateway: undefined,
+          }
+        : null;
+      if (switchedSummary) {
+        state.setAccount(switchedSummary);
+      } else {
+        invalidateAccountSummaryCache();
+      }
       dispatchSelfAccountChanged();
-      await state.refresh(true, { force: true });
+      const refreshResult = await loadSharedAccountSummary(true, { force: true });
+      if (refreshResult.error && switchedSummary && cachedAccountSummary === switchedSummary) {
+        state.setAccount({ ...switchedSummary, billingUnavailable: true });
+      }
       notifyProvidersChanged();
       toast.showToast(t('Workspace switched'), 'info');
     } catch (error) {

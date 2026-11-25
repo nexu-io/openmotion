@@ -152,3 +152,23 @@ it('does not let an unexhausted primary x-ratelimit-reset extend a secondary Ret
   expect(await createRepositoryStarsReader()()).toBe(10002);
   expect(fetcher).toHaveBeenCalledTimes(3);
 });
+
+it('preserves explicit Retry-After deadlines longer than 24 hours without truncating them', async () => {
+  let now = 30_000_000;
+  vi.spyOn(Date, 'now').mockImplementation(() => now);
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(new Response('', { status: 429, headers: { 'retry-after': '172800' } }))
+    .mockResolvedValueOnce(Response.json({ stargazers_count: 10003 }));
+  vi.stubGlobal('fetch', fetcher);
+
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  // Must stay backed off past 24 hours + 1ms across a fresh reader.
+  now += 24 * 60 * 60_000 + 1;
+  expect(await createRepositoryStarsReader()()).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+
+  // Retries once the full 48-hour deadline elapses.
+  now += 24 * 60 * 60_000;
+  expect(await createRepositoryStarsReader()()).toBe(10003);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});

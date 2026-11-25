@@ -20,6 +20,7 @@ export function setGatewayCacheEnabledForTest(enabled: boolean | null): void {
 }
 
 let cacheGeneration = 0;
+let accountGeneration = 0;
 let cachedGateway: { value: { status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }; expiresAt: number } | null = null;
 let inflightModels: Promise<Model[]> | null = null;
 let inflightGateway: Promise<{ status: GatewayStatus; models: Model[]; mode?: 'opendesign' | 'mock' }> | null = null;
@@ -36,7 +37,10 @@ function ensureGatewayInvalidationListener(): void {
   if (gatewayListenerRegistered || typeof window === 'undefined') return;
   gatewayListenerRegistered = true;
   window.addEventListener('motion:gateway-changed', invalidateGatewayCache);
-  window.addEventListener('motion:account-changed', invalidateGatewayCache);
+  window.addEventListener('motion:account-changed', () => {
+    accountGeneration++;
+    invalidateGatewayCache();
+  });
 }
 
 export async function gatewayRequest<T>(
@@ -45,6 +49,8 @@ export async function gatewayRequest<T>(
   body?: unknown,
   options?: { suppressAuthRecovery?: boolean },
 ): Promise<T> {
+  ensureGatewayInvalidationListener();
+  const requestAccountGeneration = accountGeneration;
   if (method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') invalidateGatewayCache();
   const response = await fetch('/motion-api/' + path, {
     method,
@@ -76,6 +82,7 @@ export async function gatewayRequest<T>(
     const authRecovery = classifyAuthHttpError(response.status, data, message);
     const isMutating = method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD';
     if (
+      requestAccountGeneration === accountGeneration &&
       authRecovery &&
       (authRecovery.kind === 'auth_unavailable' || (isMutating && !options?.suppressAuthRecovery))
     ) {

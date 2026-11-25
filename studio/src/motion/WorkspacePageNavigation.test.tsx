@@ -2259,6 +2259,44 @@ it('hides Explore and stops previews and queued Design fetches while Template Li
   expect(designTemplateReads()).toBe(0);
 });
 
+it('publishes signed-out state immediately on header menu sign-out even if post-logout account/summary returns 503', async () => {
+  let signedOut = false;
+  const fallback = fetcher.getMockImplementation()!;
+  fetcher.mockImplementation(async (input: string, init?: RequestInit) => {
+    const url = new URL(input, location.origin);
+    if (url.pathname === '/auth/logout' && init?.method === 'POST') {
+      signedOut = true;
+      return Response.json({ ok: true });
+    }
+    if (url.pathname.endsWith('/account/summary')) {
+      if (signedOut) {
+        return Response.json({ error: 'Service unavailable' }, { status: 503 });
+      }
+      return Response.json({
+        authenticated: true,
+        authMode: 'oidc',
+        authMethod: 'session_cookie',
+        consoleUrl: 'https://open-design.ai/cloud',
+        user: { id: 'u1', email: 'ada@example.test', displayName: 'Ada' },
+        activeWorkspace: { id: 'ws-a', slug: 'studio-a', name: 'Studio A', role: 'owner' },
+        workspaces: [{ id: 'ws-a', slug: 'studio-a', name: 'Studio A', role: 'owner' }],
+      });
+    }
+    return fallback(input, init);
+  });
+
+  await mount();
+  // Header avatar shows signed-in initial before logout.
+  expect(container.querySelector('.om-account-trigger .om-avatar')?.textContent).toBe('A');
+
+  // Sign out through the real header Account menu while post-logout account/summary fails 503.
+  await accountAction('Sign out');
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+  expect(signedOut).toBe(true);
+  // Header avatar immediately reverts to the guest icon instead of showing Ada's initial.
+  expect(container.querySelector('.om-account-trigger .om-avatar')?.textContent).toBe('');
+});
+
 it('opens Creators in the shared Explore shell and keeps its search and history', async () => {
   const reveal = stubExploreVisibility();
   const fallback = fetcher.getMockImplementation()!;
