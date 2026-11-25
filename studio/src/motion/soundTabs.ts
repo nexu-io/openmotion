@@ -1,4 +1,5 @@
 import { classifyAudioKind, isAudioKind, isSfxModelText, type AudioKind } from '../../../shared/audio-kind';
+import { defaultCapabilities, findCapability, type CapabilityDefinition } from '../../../shared/capability-registry';
 import type { Model } from '../../../shared/gateway';
 
 export type SoundLiveTabId = 'music' | 'sfx' | 'speech';
@@ -116,6 +117,27 @@ export const SOUND_TAB_GROUPS: readonly { id: SoundTabGroupId; tabs: readonly So
 
 export function findSoundTab(id: string | null | undefined): SoundTabDefinition | undefined {
   return id ? SOUND_TABS.find(tab => tab.id === id) : undefined;
+}
+
+/** Resolve live vs coming-soon Sound Studio tabs from runtime Unified Capability Center metadata. */
+export function resolveSoundTabs(capabilities: readonly CapabilityDefinition[] = defaultCapabilities): readonly SoundTabDefinition[] {
+  return SOUND_TABS.map(tab => {
+    const cap = findCapability(tab.id, capabilities);
+    if (!cap) return tab;
+    const isLive = cap.status === 'live' && cap.channels.gui;
+    if (isLive && tab.status !== 'live') return { ...tab, status: 'live' };
+    if (!isLive && tab.status !== 'soon' && tab.id !== 'music' && tab.id !== 'sfx' && tab.id !== 'speech') {
+      return { ...tab, status: 'soon' };
+    }
+    return tab;
+  });
+}
+
+export function findResolvedSoundTab(
+  id: string | null | undefined,
+  capabilities: readonly CapabilityDefinition[] = defaultCapabilities,
+): SoundTabDefinition | undefined {
+  return id ? resolveSoundTabs(capabilities).find(tab => tab.id === id) : undefined;
 }
 
 export function isExtendedSoundTab(id: string | null | undefined): id is Exclude<SoundTabId, 'music' | 'speech'> {

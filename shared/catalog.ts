@@ -1,4 +1,5 @@
 import type { LocalTemplateSource } from './repository-template-catalog.ts';
+import { rankSearchResults } from './fuzzy-search.ts';
 
 export const templateCategories = [
   { id: 'featured', label: '精选模板' }, { id: 'clone', label: '视频复刻' },
@@ -23,6 +24,7 @@ export type GalleryTemplate = {
   creationModels?: string[]; colors?: string[]; width?: number; height?: number;
   sortOrder?: number; featuredOrder?: number | null; hasHtmlProject?: boolean;
   localSource?: LocalTemplateSource;
+  searchAliases?: string[];
 };
 export type SocialPlatform = 'X' | 'Instagram' | 'YouTube' | 'TikTok';
 export type TemplateSocial = { platform: SocialPlatform; views: number; sourceUrl: string; syncedAt: string; metadataUrl: string };
@@ -141,14 +143,28 @@ export function matchesTemplateCategory(item: GalleryTemplate, category: string)
 export function templatePage(items: GalleryTemplate[], options: { category?: string; query?: string; offset?: number; limit?: number; grouped?: boolean } = {}): TemplatePage {
   const { category = 'featured', query = '', offset = 0, limit = 12, grouped = false } = options;
   if (!['all', 'builtin', ...templateCategories.map(option => option.id)].includes(category) || query.length > 200 || !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 60) throw new Error('模板分页参数无效');
-  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = items.filter(item => {
-    return matchesTemplateCategory(item, category) && terms.every(term => `${item.id} ${item.title} ${item.description} ${item.subtitle} ${item.authorName || ''} ${item.tags.join(' ')} ${collectionNames[item.collection]} ${templateCategoryLabel(item)} ${socialPlatform(item.sourceUrl) || ''}`.toLowerCase().includes(term));
-  });
+  const categoryMatches = items.filter(item => matchesTemplateCategory(item, category));
   if (category === 'featured' || category === 'all') {
     const rank = (item: GalleryTemplate) => { const index = item.kind === 'prism' ? -1 : featuredTemplateIds.indexOf(item.id); return index < 0 ? featuredTemplateIds.length : index; };
-    matches.sort((a, b) => rank(a) - rank(b));
+    categoryMatches.sort((a, b) => rank(a) - rank(b));
   }
+  const matches = query.trim()
+    ? rankSearchResults(categoryMatches, query, item => ({
+        id: item.id,
+        title: item.title,
+        subtitle: item.subtitle,
+        description: item.description,
+        tags: [...item.tags, ...(item.uses ?? []), ...(item.styles ?? [])],
+        aliases: item.searchAliases,
+        author: item.authorName || item.author,
+        extra: [
+          collectionNames[item.collection],
+          templateCategoryLabel(item),
+          socialPlatform(item.sourceUrl) ?? '',
+          ...(item.industries ?? []),
+        ],
+      })).map(entry => entry.item)
+    : categoryMatches;
   const visible = grouped ? groupTemplates(matches) : matches;
   return { items: visible.slice(offset, offset + limit), total: visible.length, entryTotal: matches.length, catalogTotal: items.length,
     offset, next: offset + limit < visible.length ? offset + limit : null };

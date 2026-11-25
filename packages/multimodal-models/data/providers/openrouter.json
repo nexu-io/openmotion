@@ -1,0 +1,745 @@
+{
+  "schemaVersion": "1.0.0",
+  "shardId": "openrouter",
+  "source": "openrouter",
+  "generatedAt": "2026-11-23T12:30:54.600Z",
+  "providers": [
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "website": "https://openrouter.ai",
+      "docsUrl": "https://openrouter.ai/docs",
+      "catalogUrl": "https://openrouter.ai/api/v1/models",
+      "protocol": "openrouter",
+      "source": "openrouter",
+      "authEnv": "OPENROUTER_API_KEY",
+      "supportsLiveSchema": false
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "openrouter:google/gemini-2.5-flash-image",
+      "canonicalId": "google/gemini-2.5-flash-image",
+      "family": "gemini",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-2.5-flash-image",
+      "displayName": "Google: Nano Banana (Gemini 2.5 Flash Image)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Gemini 2.5 Flash Image, a.k.a. \"Nano Banana,\" is now generally available. It is a state of the art image generation model with contextual understanding. It is capable of image generation,...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-2.5-flash-image",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "pricing": {
+        "currency": "USD",
+        "unit": "per_image",
+        "price": 3e-7
+      },
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-3-pro-image",
+      "canonicalId": "google/gemini-3-pro-image",
+      "family": "gemini",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-3-pro-image",
+      "displayName": "Google: Nano Banana Pro (Gemini 3 Pro Image)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Nano Banana Pro is Google’s most advanced image-generation and editing model, built on Gemini 3 Pro. It extends the original Nano Banana with significantly improved multimodal reasoning, real-world grounding, and...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-3-pro-image",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "pricing": {
+        "currency": "USD",
+        "unit": "per_image",
+        "price": 0.000002
+      },
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-3-pro-image-preview",
+      "canonicalId": "google/gemini-3-pro-image-preview",
+      "family": "gemini",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-3-pro-image-preview",
+      "displayName": "Google: Nano Banana Pro (Gemini 3 Pro Image Preview)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Nano Banana Pro is Google’s most advanced image-generation and editing model, built on Gemini 3 Pro. It extends the original Nano Banana with significantly improved multimodal reasoning, real-world grounding, and...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-3-pro-image-preview",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "pricing": {
+        "currency": "USD",
+        "unit": "per_image",
+        "price": 0.000002
+      },
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-3.1-flash-image",
+      "canonicalId": "google/gemini-3.1-flash-image",
+      "family": "gemini",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-3.1-flash-image",
+      "displayName": "Google: Nano Banana 2 (Gemini 3.1 Flash Image)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Gemini 3.1 Flash Image, a.k.a. \"Nano Banana 2,\" is Google’s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines advanced...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-3.1-flash-image",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-3.1-flash-image-preview",
+      "canonicalId": "google/gemini-3.1-flash-image-preview",
+      "family": "gemini",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-3.1-flash-image-preview",
+      "displayName": "Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Gemini 3.1 Flash Image Preview, a.k.a. \"Nano Banana 2,\" is Google’s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-3.1-flash-image-preview",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-3.1-flash-lite-image",
+      "canonicalId": "google/gemini-3.1-flash-lite-image",
+      "family": "gemini",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-3.1-flash-lite-image",
+      "displayName": "Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image) is Google's fastest, most cost-efficient Gemini image model, built for high-velocity developer pipelines and rapid-fire visual exploration. It delivers text-to-image generation...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-3.1-flash-lite-image",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-nano-banana-2.1",
+      "canonicalId": "google/nano-banana-2.1",
+      "family": "nano-banana",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-nano-banana-2.1",
+      "displayName": "Google: Nano Banana 2.1",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Nano Banana 2.1 (Gemini Nano Banana 2.1) is Google's image generation and editing model on the Flash tier, succeeding Nano Banana 2 and Nano Banana Pro. It improves product recontextualization,...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-nano-banana-2.1",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-omni-1.1-flash",
+      "canonicalId": "google/gemini-omni-1.1-flash",
+      "family": "gemini-omni",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-omni-1.1-flash",
+      "displayName": "Google: Gemini Omni 1.1 Flash",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video"
+      ],
+      "description": "Gemini Omni 1.1 Flash is Google's native multimodal video generation and editing model, the generally available successor to Gemini Omni Flash Preview. It is suited for text-to-video, image-to-video, first and...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-omni-1.1-flash",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "video"
+        ],
+        "tasks": [
+          "text-to-video"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/gemini-omni-1.2-flash",
+      "canonicalId": "google/gemini-omni-1.2-flash",
+      "family": "gemini-omni",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/gemini-omni-1.2-flash",
+      "displayName": "Google: Gemini Omni 1.2 Flash",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video"
+      ],
+      "description": "Gemini Omni 1.2 Flash is Google's native multimodal video generation and editing model, the successor to Gemini Omni 1.1 Flash. It generates clips up to 15 seconds long with native...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/gemini-omni-1.2-flash",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "video"
+        ],
+        "tasks": [
+          "text-to-video"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/lyria-3-clip-preview",
+      "canonicalId": "google/lyria-3",
+      "family": "lyria",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/lyria-3-clip-preview",
+      "displayName": "Google: Lyria 3 Clip Preview",
+      "modality": "audio",
+      "primaryTask": "text-to-music",
+      "tasks": [
+        "text-to-music"
+      ],
+      "description": "30 second duration clips are priced at $0.04 per clip. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/lyria-3-clip-preview",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-music"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:google/lyria-3-pro-preview",
+      "canonicalId": "google/lyria-3",
+      "family": "lyria",
+      "creator": "Google",
+      "provider": "openrouter",
+      "endpointId": "google/lyria-3-pro-preview",
+      "displayName": "Google: Lyria 3 Pro Preview",
+      "modality": "audio",
+      "primaryTask": "text-to-music",
+      "tasks": [
+        "text-to-music"
+      ],
+      "description": "Full-length songs are priced at $0.08 per song. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate high-quality, 48kHz...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/google/lyria-3-pro-preview",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-music"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openai/gpt-5-image",
+      "canonicalId": "openai/gpt-5-image",
+      "family": "gpt",
+      "creator": "Openai",
+      "provider": "openrouter",
+      "endpointId": "openai/gpt-5-image",
+      "displayName": "OpenAI: GPT-5 Image",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "[GPT-5](https://openrouter.ai/openai/gpt-5) Image combines OpenAI's GPT-5 model with state-of-the-art image generation capabilities. It offers major improvements in reasoning, code quality, and user experience while incorporating GPT Image 1's superior inst...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openai/gpt-5-image",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openai/gpt-5-image-mini",
+      "canonicalId": "openai/gpt-5-image-mini",
+      "family": "gpt",
+      "creator": "Openai",
+      "provider": "openrouter",
+      "endpointId": "openai/gpt-5-image-mini",
+      "displayName": "OpenAI: GPT-5 Image Mini",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "GPT-5 Image Mini combines OpenAI's advanced language capabilities, powered by [GPT-5 Mini](https://openrouter.ai/openai/gpt-5-mini), with GPT Image 1 Mini for efficient image generation. This natively multimodal model features superior instruction following...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openai/gpt-5-image-mini",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openai/gpt-5.4-image-2",
+      "canonicalId": "openai/gpt-5.4-image-2",
+      "family": "gpt",
+      "creator": "Openai",
+      "provider": "openrouter",
+      "endpointId": "openai/gpt-5.4-image-2",
+      "displayName": "OpenAI: GPT-5.4 Image 2",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "[GPT-5.4](https://openrouter.ai/openai/gpt-5.4) Image 2 combines OpenAI's GPT-5.4 model with state-of-the-art image generation capabilities from GPT Image 2. It enables rich multimodal workflows, allowing users to seamlessly move between reasoning, coding, ...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openai/gpt-5.4-image-2",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "image",
+          "text"
+        ],
+        "outputModalities": [
+          "image",
+          "text"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openai/gpt-audio",
+      "canonicalId": "openai/gpt-audio",
+      "family": "gpt-audio",
+      "creator": "Openai",
+      "provider": "openrouter",
+      "endpointId": "openai/gpt-audio",
+      "displayName": "OpenAI: GPT Audio",
+      "modality": "audio",
+      "primaryTask": "text-to-music",
+      "tasks": [
+        "text-to-music"
+      ],
+      "description": "The gpt-audio model is OpenAI's first generally available audio model. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Audio is priced...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openai/gpt-audio",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "audio"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-music"
+        ]
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openai/gpt-audio-mini",
+      "canonicalId": "openai/gpt-audio-mini",
+      "family": "gpt-audio-mini",
+      "creator": "Openai",
+      "provider": "openrouter",
+      "endpointId": "openai/gpt-audio-mini",
+      "displayName": "OpenAI: GPT Audio Mini",
+      "modality": "audio",
+      "primaryTask": "text-to-music",
+      "tasks": [
+        "text-to-music"
+      ],
+      "description": "A cost-efficient version of GPT Audio. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Input is priced at $0.60 per million...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openai/gpt-audio-mini",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "audio"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-music"
+        ]
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openrouter/auto",
+      "canonicalId": "openrouter/auto",
+      "family": "auto",
+      "creator": "Openrouter",
+      "provider": "openrouter",
+      "endpointId": "openrouter/auto",
+      "displayName": "Auto Router",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Auto is OpenRouter’s flagship model router, built for general-purpose usage. It adapts to each request, choosing cost-optimal models and adjusting reasoning effort. It balances task difficulty, benchmark results, live prices,...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openrouter/auto",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openrouter/auto-beta",
+      "canonicalId": "openrouter/auto-beta",
+      "family": "auto-beta",
+      "creator": "Openrouter",
+      "provider": "openrouter",
+      "endpointId": "openrouter/auto-beta",
+      "displayName": "Auto Router (Beta)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "The experimental version of our Auto Router where we test new improvements. Use it to get the latest and greatest version of our general purpose auto router, but expect beta...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openrouter/auto-beta",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    },
+    {
+      "id": "openrouter:openrouter/auto-code",
+      "canonicalId": "openrouter/auto-code",
+      "family": "auto-code",
+      "creator": "Openrouter",
+      "provider": "openrouter",
+      "endpointId": "openrouter/auto-code",
+      "displayName": "Auto Code",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Auto Code is OpenRouter’s router built specifically for coding agents and harnesses. It uses the same routing engine as the [Auto Router](https://openrouter.ai/openrouter/auto), with every request treated as part of an...",
+      "source": "openrouter",
+      "docsUrl": "https://openrouter.ai/openrouter/auto-code",
+      "schemaQuality": "catalog-metadata",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsImageInput": true
+      },
+      "parameters": [],
+      "standardParameterMap": {},
+      "requiredParameters": [],
+      "syncedAt": "2026-11-23T12:30:54.600Z"
+    }
+  ]
+}

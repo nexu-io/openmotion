@@ -247,7 +247,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "按 OpenMotion sale-carousel Skill 执行：收集 3～7 个商品的真实照片、原价和各自一种折扣写法，写 carousel.json，运行 build.mjs --check 并向用户复述价格，再生成并渲染轮播。",
     "A gift guide under $100 with our five best deals": "做一条 100 美元以内的礼物清单，放我们最好的五个优惠",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10 秒预告：大号数字滚到真实剩余的天数或小时，再给出日期、优惠和行动按钮",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9～17 秒轮播：商品卡片排成一排滑动，每张轮流到中间，显示照片、划线原价、促销价和角标，最后整排商品与优惠码同框"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9～17 秒轮播：商品卡片排成一排滑动，每张轮流到中间，显示照片、划线原价、促销价和角标，最后整排商品与优惠码同框",
+    "Customize options (optional)": "自定义参数（选填）"
   },
   "ja": {
     "Skills": "Skills",
@@ -497,7 +498,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "OpenMotion の sale-carousel Skill に従う：実物写真、定価、割引の指定1つを持つ商品を3〜7点集めて carousel.json を書き、build.mjs --check を実行して価格を読み上げてから、リールを生成・レンダリングする。",
     "A gift guide under $100 with our five best deals": "100ドル以下のギフトガイド、ベスト5のお得商品で",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10秒の予告：フリップ式の数字が実際の残り日数・時間まで回り、日付、オファー、行動ボタンへ",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9〜17秒のリール：商品カードが横一列に流れ、1枚ずつ中央に来て写真・取り消し線の定価・セール価格・バッジを表示、最後に全商品とコード"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9〜17秒のリール：商品カードが横一列に流れ、1枚ずつ中央に来て写真・取り消し線の定価・セール価格・バッジを表示、最後に全商品とコード",
+    "Customize options (optional)": "オプション設定（任意）"
   },
   "ko": {
     "Skills": "Skills",
@@ -747,7 +749,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "OpenMotion sale-carousel Skill을 따르세요: 실제 사진, 정가, 할인 방식 하나씩을 가진 상품 3~7개를 모아 carousel.json을 작성하고, build.mjs --check를 실행해 가격을 확인한 뒤 릴을 생성하고 렌더링합니다.",
     "A gift guide under $100 with our five best deals": "100달러 이하 선물 가이드, 베스트 딜 다섯 개로",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10초 티저: 플립 숫자가 실제 남은 일수나 시간까지 넘어가고, 날짜, 혜택, 행동 유도 버튼",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9~17초 릴: 상품 카드가 한 줄로 흐르며 차례로 가운데에 와서 사진, 취소선 정가, 할인가, 배지를 보여 주고 마지막에 전체 줄과 코드"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9~17초 릴: 상품 카드가 한 줄로 흐르며 차례로 가운데에 와서 사진, 취소선 정가, 할인가, 배지를 보여 주고 마지막에 전체 줄과 코드",
+    "Customize options (optional)": "세부 옵션 설정 (선택)"
   },
   "ru": {
     "Skills": "Skills",
@@ -997,7 +1000,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Следуйте Skill OpenMotion sale-carousel: соберите от 3 до 7 товаров с реальными фото, обычными ценами и одним видом скидки для каждого, запишите carousel.json, запустите build.mjs --check и зачитайте цены, затем соберите и отрендерите ролик.",
     "A gift guide under $100 with our five best deals": "Подборка подарков до $100 с нашими пятью лучшими предложениями",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Тизер на 10 секунд: перекидные цифры доходят до реального числа оставшихся дней или часов, затем дата, предложение и призыв",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ролик на 9–17 секунд: ряд карточек товаров скользит, каждая по очереди выходит в центр с фото, зачёркнутой ценой, ценой со скидкой и значком, в конце весь ряд и код"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ролик на 9–17 секунд: ряд карточек товаров скользит, каждая по очереди выходит в центр с фото, зачёркнутой ценой, ценой со скидкой и значком, в конце весь ряд и код",
+    "Customize options (optional)": "Настроить параметры (необязательно)"
   },
   "de": {
     "Skills": "Skills",
@@ -1247,7 +1251,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Folge dem OpenMotion-Skill sale-carousel: Sammle 3 bis 7 Produkte mit echten Fotos, Normalpreisen und je einer Rabattangabe, schreibe carousel.json, führe build.mjs --check aus und lies die Preise vor, dann erzeuge und rendere das Reel.",
     "A gift guide under $100 with our five best deals": "Ein Geschenk-Guide unter 100 $ mit unseren fünf besten Deals",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Ein 10-Sekunden-Teaser: Fallblatt-Ziffern laufen bis zu den echten verbleibenden Tagen oder Stunden, dann Datum, Angebot und Call-to-Action",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ein 9–17-Sekunden-Reel: eine gleitende Reihe von Produktkarten, jede rückt mit Foto, durchgestrichenem Normalpreis, Sale-Preis und Badge in die Mitte, am Ende die ganze Reihe mit Code"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Ein 9–17-Sekunden-Reel: eine gleitende Reihe von Produktkarten, jede rückt mit Foto, durchgestrichenem Normalpreis, Sale-Preis und Badge in die Mitte, am Ende die ganze Reihe mit Code",
+    "Customize options (optional)": "Optionen anpassen (optional)"
   },
   "fr": {
     "Skills": "Skills",
@@ -1497,7 +1502,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Suivez le Skill OpenMotion sale-carousel : réunissez 3 à 7 produits avec de vraies photos, leur prix normal et une forme de remise chacun, écrivez carousel.json, lancez build.mjs --check et relisez les prix, puis générez et rendez le reel.",
     "A gift guide under $100 with our five best deals": "Un guide cadeaux à moins de 100 $ avec nos cinq meilleures offres",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Un teaser de 10 secondes : des chiffres à volets défilent jusqu'au vrai nombre de jours ou d'heures restants, puis la date, l'offre et un appel à l'action",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 à 17 secondes : une rangée de cartes produits qui glisse, chacune passe au centre avec photo, prix barré, prix soldé et badge, puis toute la rangée avec le code"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 à 17 secondes : une rangée de cartes produits qui glisse, chacune passe au centre avec photo, prix barré, prix soldé et badge, puis toute la rangée avec le code",
+    "Customize options (optional)": "Personnaliser les options (facultatif)"
   },
   "es": {
     "Skills": "Skills",
@@ -1747,7 +1753,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Sigue el Skill sale-carousel de OpenMotion: reúne de 3 a 7 productos con fotos reales, precio normal y una forma de descuento cada uno, escribe carousel.json, ejecuta build.mjs --check y repasa los precios, luego genera y renderiza el reel.",
     "A gift guide under $100 with our five best deals": "Una guía de regalos por menos de 100 $ con nuestras cinco mejores ofertas",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Un teaser de 10 segundos: dígitos de paleta bajan hasta los días u horas que realmente quedan, luego la fecha, la oferta y una llamada a la acción",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 a 17 segundos: una fila de tarjetas de producto que se desliza, cada una pasa al centro con foto, precio tachado, precio rebajado y distintivo, y al final toda la fila con el código"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel de 9 a 17 segundos: una fila de tarjetas de producto que se desliza, cada una pasa al centro con foto, precio tachado, precio rebajado y distintivo, y al final toda la fila con el código",
+    "Customize options (optional)": "Personalizar opciones (opcional)"
   },
   "pt-BR": {
     "Skills": "Skills",
@@ -1997,7 +2004,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Siga o Skill sale-carousel do OpenMotion: reúna de 3 a 7 produtos com fotos reais, preço normal e uma forma de desconto cada, escreva carousel.json, rode build.mjs --check e confirme os preços, depois gere e renderize o reel.",
     "A gift guide under $100 with our five best deals": "Um guia de presentes abaixo de US$ 100 com nossas cinco melhores ofertas",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Um teaser de 10 segundos: dígitos de painel giram até os dias ou horas que realmente faltam, depois a data, a oferta e uma chamada para ação",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Um reel de 9 a 17 segundos: uma fileira de cards de produto deslizando, cada um vai ao centro com foto, preço riscado, preço promocional e selo, e no fim a fileira toda com o cupom"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Um reel de 9 a 17 segundos: uma fileira de cards de produto deslizando, cada um vai ao centro com foto, preço riscado, preço promocional e selo, e no fim a fileira toda com o cupom",
+    "Customize options (optional)": "Personalizar opções (opcional)"
   },
   "it": {
     "Skills": "Skill",
@@ -2247,7 +2255,8 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "Segui lo Skill OpenMotion sale-carousel: raccogli da 3 a 7 prodotti con foto reali, prezzo pieno e una forma di sconto ciascuno, scrivi carousel.json, esegui build.mjs --check e rileggi i prezzi, poi genera e renderizza il reel.",
     "A gift guide under $100 with our five best deals": "Una guida ai regali sotto i 100 $ con le nostre cinque offerte migliori",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "Un teaser di 10 secondi: cifre a palette scorrono fino ai giorni o alle ore che mancano davvero, poi data, offerta e call to action",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel di 9–17 secondi: una fila di schede prodotto che scorre, ognuna passa al centro con foto, prezzo barrato, prezzo scontato e badge, poi tutta la fila con il codice"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "Un reel di 9–17 secondi: una fila di schede prodotto che scorre, ognuna passa al centro con foto, prezzo barrato, prezzo scontato e badge, poi tutta la fila con il codice",
+    "Customize options (optional)": "Personalizza opzioni (facoltativo)"
   },
   "tr": {
     "Skills": "Skill’ler",
@@ -2497,6 +2506,7 @@
     "Follow the OpenMotion sale-carousel Skill: collect 3 to 7 products with real photos, regular prices and one form of discount each, write carousel.json, run build.mjs --check and read the prices back, then build and render the reel.": "OpenMotion sale-carousel Skill'ini izleyin: gerçek fotoğrafı, normal fiyatı ve birer indirim biçimi olan 3–7 ürün toplayın, carousel.json yazın, build.mjs --check çalıştırıp fiyatları teyit edin, ardından reel'i oluşturup render edin.",
     "A gift guide under $100 with our five best deals": "En iyi beş fırsatımızla 100 $ altı hediye rehberi",
     "A 10 second teaser: giant digits roll down to the true days or hours left, then the date, the offer and a call to action": "10 saniyelik tanıtım: dönen rakamlar gerçek kalan gün ya da saate iner, ardından tarih, teklif ve harekete geçirici buton",
-    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9–17 saniyelik reel: kayan bir ürün kartı sırası; her kart sırayla fotoğraf, üstü çizili fiyat, indirimli fiyat ve rozetle ortaya gelir, sonunda tüm sıra ve kod"
+    "A 9–17 second reel: a sliding shelf of product cards, each taking the centre with its photo, struck-through regular price, sale price and badge, then the whole row with the code": "9–17 saniyelik reel: kayan bir ürün kartı sırası; her kart sırayla fotoğraf, üstü çizili fiyat, indirimli fiyat ve rozetle ortaya gelir, sonunda tüm sıra ve kod",
+    "Customize options (optional)": "Seçenekleri özelleştir (isteğe bağlı)"
   }
 }

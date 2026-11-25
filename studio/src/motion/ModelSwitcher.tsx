@@ -1,5 +1,6 @@
 import { Button } from 'open-design-ui/button';
 import { useState, useEffect } from 'react';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { modelKinds, type ModelKind } from '../../../shared/provider-directory';
 import { Popover } from '../components/ui/Popover';
 import { Menu, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
@@ -28,8 +29,15 @@ function ModelChoices({ capability, close, openSettings }: { capability?: ModelK
   const [mode, setMode] = useState('media');
   const available = directory.data?.providers.filter(provider => provider.available) ?? [];
   const selectedProvider = available.find(provider => provider.id === providerId);
-  const models = directory.data?.models.filter(model => model.kind === kind && model.enabled && available.some(provider => provider.id === model.provider && (!['image', 'video', 'audio'].includes(kind) || ['media', 'agent', 'account'].includes(provider.protocol) || provider.protocol === 'openai' && kind !== 'video'))
-    && (providerId === 'all' || model.provider === providerId) && `${model.label} ${model.modelId} ${model.provider}`.toLowerCase().includes(query.toLowerCase())) ?? [];
+  const byFilter = directory.data?.models.filter(model => model.kind === kind && model.enabled && available.some(provider => provider.id === model.provider && (!['image', 'video', 'audio'].includes(kind) || ['media', 'agent', 'account'].includes(provider.protocol) || provider.protocol === 'openai' && kind !== 'video'))
+    && (providerId === 'all' || model.provider === providerId)) ?? [];
+  const models = rankSearchResults(byFilter, query, model => ({
+    id: model.modelId,
+    title: model.label,
+    subtitle: available.find(p => p.id === model.provider)?.label ?? model.provider,
+    tags: [model.kind, model.provider],
+    aliases: [model.id],
+  })).map(r => r.item);
   async function choose(model: string | null) {
     setBusy(true);
     try { await gatewayRequest('settings/default-model', 'PUT', { kind, model }); notifyProvidersChanged(); close(); }

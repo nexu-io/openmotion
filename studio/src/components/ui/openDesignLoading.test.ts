@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { brandPlayerLoading, mountOpenDesignLoading } from "./openDesignLoading";
 
@@ -75,5 +77,17 @@ describe("OpenDesign loading", () => {
     overlay.classList.add("hfp-visible");
     await flush();
     expect(host.childElementCount).toBe(0);
+  });
+
+  it("uses the OpenDesign loading-wordmark geometry without spaces", () => {
+    const svgPath = path.resolve(
+      __dirname,
+      "../../../../packages/design-system/brand/loading-wordmark.svg",
+    );
+    const svg = readFileSync(svgPath, "utf8");
+    expect(svg).toContain('viewBox="0 0 1705 291"');
+    expect(svg).toContain("OpenDesign");
+    expect(svg).not.toContain("141.625");
+    expect(svg).not.toContain("OpenMotion");
   });
 });

@@ -8,8 +8,26 @@ import type { WorkspaceStore } from '../workspace.ts';
 import { MAX_ASSET_BYTES } from '../shared/asset-limits.ts';
 import { AUDIO_KINDS, classifyAudioKind, isAudioKind } from '../shared/audio-kind.ts';
 import { knownSpeechVoiceName } from '../shared/generation-options.ts';
+import { rankSearchResults } from '../shared/fuzzy-search.ts';
 import { assetVersion, type AssetListInput, type AssetReference, type AssetVersion, type LibraryAsset, type LibraryGeneration } from '../shared/asset-library.ts';
 import { probeLibraryMedia } from './asset-probe.ts';
+
+export function assetSearchDocument(asset: LibraryAsset) {
+  const current = assetVersion(asset);
+  return {
+    id: asset.id,
+    title: asset.name,
+    subtitle: current?.model ?? current?.source ?? asset.modality,
+    description: asset.versions.map(version => version.prompt ?? '').filter(Boolean).join(' '),
+    tags: [asset.modality, current?.audioKind ?? ''],
+    aliases: asset.versions.flatMap(version => [
+      version.model ?? '',
+      version.capabilityId ?? '',
+      typeof version.parameters?.voice === 'string' ? version.parameters.voice : '',
+      knownSpeechVoiceName(version.parameters?.voice) ?? '',
+    ]),
+  };
+}
 
 export const libraryId = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(value);
 export const assetHash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -33,20 +51,23 @@ export class AssetLibrary {
     try { return JSON.parse(await readFile(await this.file(`records/${id}.json`), 'utf8')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('ASSET_NOT_FOUND'); throw error; }
   }
-  async list(input: AssetListInput = {}) {
+  async list(input: AssetListInput = {}, {
+    maxPageSize = 100, includeUnfilteredTotal = false, toSearchDocument = assetSearchDocument,
+  } = {}) {
     const { offset = 0, limit = 60 } = input;
-    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid asset pagination');
+    if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > maxPageSize) throw new Error('Invalid asset pagination');
     if (input.modality && !['image', 'video', 'audio'].includes(input.modality)
       || input.audioKind && !AUDIO_KINDS.includes(input.audioKind)
       || input.source && !['upload', 'generated'].includes(input.source)
       || input.sort && !['newest', 'oldest', 'name'].includes(input.sort) || input.query && (typeof input.query !== 'string' || input.query.length > 200)) throw new Error('Invalid asset filter');
     const names = await readdir(await this.file('records')).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return []; throw error; });
-    const query = input.query?.trim().toLocaleLowerCase();
-    const all = (await Promise.all(names.filter(name => name.endsWith('.json') && libraryId(name.slice(0, -5))).map(name => this.get(name.slice(0, -5)))))
+    const query = input.query?.trim() ?? '';
+    const visible = (await Promise.all(names.filter(name => name.endsWith('.json') && libraryId(name.slice(0, -5))).map(name => this.get(name.slice(0, -5)))))
+      .filter(asset => Boolean(asset.trashedAt) === Boolean(input.trash));
+    const filtered = visible
       .filter(asset => {
-        const current = assetVersion(asset);
-        if (Boolean(asset.trashedAt) !== Boolean(input.trash)) return false;
         if (input.modality && asset.modality !== input.modality) return false;
+        const current = assetVersion(asset);
         if (input.audioKind) {
           const resolvedKind = isAudioKind(current?.audioKind)
             ? current.audioKind
@@ -54,14 +75,19 @@ export class AssetLibrary {
           if (asset.modality !== 'audio' || resolvedKind !== input.audioKind) return false;
         }
         if (input.source && current?.source !== input.source) return false;
-        if (query) {
-          const haystack = `${asset.name} ${asset.versions.map(v => `${v.prompt ?? ''} ${v.model ?? ''} ${typeof v.parameters?.voice === 'string' ? v.parameters.voice : ''} ${knownSpeechVoiceName(v.parameters?.voice) ?? ''}`).join(' ')}`.toLocaleLowerCase();
-          if (!haystack.includes(query)) return false;
-        }
         return true;
       })
       .sort((a, b) => input.sort === 'name' ? a.name.localeCompare(b.name) : input.sort === 'oldest' ? a.updatedAt - b.updatedAt : b.updatedAt - a.updatedAt);
-    return { assets: all.slice(offset, offset + limit), total: all.length, nextOffset: offset + limit < all.length ? offset + limit : null };
+    const all = query ? rankSearchResults(filtered, query, toSearchDocument).map(result => result.item) : filtered;
+    if (query && input.sort) {
+      all.sort((a, b) => input.sort === 'name' ? a.name.localeCompare(b.name) : input.sort === 'oldest' ? a.updatedAt - b.updatedAt : b.updatedAt - a.updatedAt);
+    }
+    return {
+      assets: all.slice(offset, offset + limit),
+      total: all.length,
+      nextOffset: offset + limit < all.length ? offset + limit : null,
+      ...(includeUnfilteredTotal ? { unfilteredTotal: visible.length } : {}),
+    };
   }
   async resolve(reference: AssetReference, allowTrash = false) {
     const asset = await this.get(reference.assetId);
@@ -71,8 +97,10 @@ export class AssetLibrary {
     return { asset, version, filename };
   }
   async validateGeneration(input: LibraryGeneration) {
-    if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['assetId', 'title', 'parentVersionId', 'references', 'conversationId'].includes(key))) throw new Error('Invalid asset generation destination');
+    if (!input || typeof input !== 'object' || Object.keys(input).some(key => !['assetId', 'title', 'parentVersionId', 'capabilityId', 'capabilityOptions', 'references', 'conversationId'].includes(key))) throw new Error('Invalid asset generation destination');
     if (input.title !== undefined) assetName(input.title);
+    if (input.capabilityId !== undefined && (typeof input.capabilityId !== 'string' || !/^[a-z0-9][a-z0-9-]{0,80}$/.test(input.capabilityId))) throw new Error('Invalid capability identity');
+    if (input.capabilityOptions !== undefined && (!input.capabilityOptions || typeof input.capabilityOptions !== 'object' || Array.isArray(input.capabilityOptions))) throw new Error('Invalid capability options');
     if (input.conversationId !== undefined && !libraryId(input.conversationId)) throw new Error('Invalid asset conversation');
     if (input.parentVersionId && !input.assetId) throw new Error('Choose an asset before editing a version');
     if (input.assetId) {

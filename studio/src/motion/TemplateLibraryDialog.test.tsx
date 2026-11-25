@@ -724,7 +724,7 @@ it('does not duplicate a brand when the catalog has no author identity', async (
 
 it('copies contribution instructions with the selected template without opening another dialog', async () => {
   await mount();
-  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md"]')?.textContent).toContain('Submit template');
+  expect(host.querySelector('a[href="https://github.com/nexu-io/openmotion/blob/main/CONTRIBUTING.md#submit-a-template-with-your-agent"]')?.textContent).toContain('Submit template');
   await act(async () => preview('First'));
   await act(async () => button('Recreate and submit').click());
   expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining('First (one)'));
@@ -1671,4 +1671,22 @@ it('localizes the brand intro, series controls, and filmstrip accessibility labe
     expect(button('作品「First」を選択', brand)).toBeDefined();
     expect(button('詳細をすべて見る', brand)).toBeDefined();
   } finally { history.replaceState({}, '', previous); }
+});
+
+it('recommends matching Skills on ordinary library zero-result search and invokes onOpenSkill when clicked', async () => {
+  const onOpenSkill = vi.fn();
+  await act(async () => root.render(
+    <I18nProvider initialLocale="en">
+      <TemplateLibraryDialog open busy={false} error="" onClose={() => {}} onOpen={() => {}} onOpenSkill={onOpenSkill} />
+    </I18nProvider>,
+  ));
+  await search('confetti');
+  await confirmSearch();
+  const fallbackBlock = host.querySelector('[data-zero-result-skills]')!;
+  expect(fallbackBlock).not.toBeNull();
+  const skillButtons = [...fallbackBlock.querySelectorAll<HTMLButtonElement>('button')];
+  expect(skillButtons.length).toBeGreaterThan(0);
+  expect(skillButtons.length).toBeLessThanOrEqual(3);
+  await act(async () => skillButtons[0].click());
+  expect(onOpenSkill).toHaveBeenCalledWith(expect.any(String), skillButtons[0]);
 });

@@ -1,8 +1,17 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { useEffect, useId, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import {
+  buildCapabilityParameters,
+  buildCapabilityPrompt,
+  defaultCapabilities,
+  defaultCapabilityControlChoice,
+  findCapability,
+  resolveCapabilityOptions,
+} from '../../../shared/capability-registry';
 import type { GenerationJob, Model } from '../../../shared/gateway';
 import { generationOptions, resolveGenerationParameters } from '../../../shared/generation-options';
+import { Select } from '../components/ui/Select';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
@@ -23,7 +32,7 @@ import {
   hasPromptTag,
   togglePromptTag,
 } from './soundPresets';
-import { isSfxModel, type SoundLiveTabId } from './soundTabs';
+import { isSfxModel, type SoundLiveTabId, type SoundTabId } from './soundTabs';
 import type { VoicePreviewController } from './voicePreviews';
 import { useWorkspaceChrome } from './WorkspaceFrame';
 
@@ -52,27 +61,40 @@ export function resolveSoundModels(studio: StudioCreation, tabId: SoundLiveTabId
   return { gateway, compatible, available, preferred, selected, selectedProvider, preferredProvider };
 }
 
-const INPUT_LABEL: Record<SoundLiveTabId, string> = {
+const INPUT_LABEL: Record<SoundTabId, string> = {
   music: 'Prompt',
   sfx: 'Sound cue',
   speech: 'Script',
+  'voice-clone': 'Script',
+  'voice-changer': 'Notes (optional)',
+  dubbing: 'Notes (optional)',
+  stems: 'Notes (optional)',
 };
 
-const INPUT_PLACEHOLDER: Record<SoundLiveTabId, string> = {
+const INPUT_PLACEHOLDER: Record<SoundTabId, string> = {
   music: 'Mood, instruments, tempo, or scene…',
   sfx: 'Whoosh, UI click, impact, or ambience…',
   speech: 'Write or paste narration…',
+  'voice-clone': 'Write or paste the lines to speak in the cloned voice…',
+  'voice-changer': 'Optional style or pacing notes…',
+  dubbing: 'Optional glossary, speaker notes, or translation hints…',
+  stems: 'Optional stem or denoise notes…',
 };
 
-const SUBMIT_LABEL: Record<SoundLiveTabId, string> = {
+const SUBMIT_LABEL: Record<SoundTabId, string> = {
   music: 'Generate music',
   sfx: 'Generate sound effect',
   speech: 'Generate speech',
+  'voice-clone': 'Generate cloned speech',
+  'voice-changer': 'Convert voice',
+  dubbing: 'Generate dubbed track',
+  stems: 'Separate stems',
 };
 
 export function SoundComposer({
   active,
   tabId,
+  capabilityTabId,
   studio,
   draft,
   setDraft,
@@ -80,11 +102,14 @@ export function SoundComposer({
   setParameterDrafts,
   promptRef,
   voicePreview,
+  onPickReference,
+  onUploadReference,
   onCreated,
   onError,
 }: {
   active: boolean;
   tabId: SoundLiveTabId;
+  capabilityTabId?: SoundTabId;
   studio: StudioCreation;
   draft: AssetDraft;
   setDraft: Dispatch<SetStateAction<AssetDraft>>;
@@ -92,15 +117,25 @@ export function SoundComposer({
   setParameterDrafts: Dispatch<SetStateAction<Record<string, ParameterDraft>>>;
   promptRef: RefObject<HTMLTextAreaElement | null>;
   voicePreview?: VoicePreviewController;
+  onPickReference?: () => void;
+  onUploadReference?: () => void;
   onCreated: (job: GenerationJob) => void;
   onError: (message: string) => void;
 }) {
   const { t, locale } = useI18n();
   const { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
+  const effectiveTab: SoundTabId = capabilityTabId ?? tabId;
   const modelId = studio.destination.model;
   const promptId = useId();
   const { failed, retry } = studio.catalog;
   const { gateway, compatible, available, preferred, selected, selectedProvider, preferredProvider } = resolveSoundModels(studio, tabId);
+  const runtimeCapabilities = gateway?.capabilities ?? defaultCapabilities;
+  const activeCapability = effectiveTab !== 'sfx' ? findCapability(effectiveTab, runtimeCapabilities) : undefined;
+  const capabilityControls = activeCapability?.input.controls ?? [];
+  const capabilityOptions = draft.capabilityOptions ?? {};
+  const minReferences = activeCapability?.input.minReferences ?? 0;
+  const maxReferences = activeCapability?.input.maxReferences ?? 0;
+  const promptRequired = activeCapability ? activeCapability.input.promptRequired : true;
   const [busy, setBusy] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
@@ -117,41 +152,55 @@ export function SoundComposer({
     : typeof previewModel?.defaults?.speed === 'number'
       ? previewModel.defaults.speed
       : 1;
-  const estimatedSeconds = tabId === 'speech' ? estimateSpeechSeconds(draft.prompt, currentSpeed) : 0;
-  const canSubmit = Boolean(selected && draft.prompt.trim() && !busy);
+  const estimatedSeconds = effectiveTab === 'speech' ? estimateSpeechSeconds(draft.prompt, currentSpeed) : 0;
+  const promptReady = Boolean(draft.prompt.trim()) || !promptRequired;
+  const referencesReady = draft.references.length >= minReferences && (maxReferences === 0 || draft.references.length <= maxReferences);
+  const canSubmit = Boolean(selected && promptReady && referencesReady && !busy);
   const cjkLocale = locale === 'zh-CN' || locale === 'ja';
   const tags = tabId === 'sfx' ? SOUND_SFX_TAGS : SOUND_MUSIC_TAGS;
+  const showStarterChips = effectiveTab === 'music' || effectiveTab === 'sfx' || effectiveTab === 'speech';
 
   const submit = async () => {
-    if (!selected || !draft.prompt.trim() || busy) return;
+    if (!selected || !promptReady || !referencesReady || busy) return;
     setBusy(true);
-    const studioContext = { studio: studio.destination.studio.id, scene: tabId, model: selected.id };
+    const studioContext = { studio: studio.destination.studio.id, scene: effectiveTab, model: selected.id };
     try {
-      const parsed = requestParameters(parameters, selected, false);
+      const parsed = requestParameters(parameters, selected, draft.references.length > 0);
       const effectiveVoice = selected.mode === 'text-to-speech' && !parsed.voice
-        ? resolveGenerationParameters(selected, parsed, false).voice
+        ? resolveGenerationParameters(selected, parsed, draft.references.length > 0).voice
           ?? (selected.generationOptions ?? generationOptions(selected))?.fields.find(f => f.key === 'voice')?.default
         : undefined;
-      const submitParams = typeof effectiveVoice === 'string' && effectiveVoice.trim()
+      const baseParams = typeof effectiveVoice === 'string' && effectiveVoice.trim()
         ? { ...parsed, voice: effectiveVoice }
         : parsed;
+      const effectiveCapabilityOptions = activeCapability
+        ? resolveCapabilityOptions(activeCapability, capabilityOptions)
+        : capabilityOptions;
+      const submitParams = activeCapability
+        ? buildCapabilityParameters(activeCapability, effectiveCapabilityOptions, baseParams)
+        : baseParams;
+      const submittedPrompt = activeCapability
+        ? buildCapabilityPrompt(activeCapability.id, draft.prompt, effectiveCapabilityOptions, runtimeCapabilities) || activeCapability.title
+        : draft.prompt;
       const result = await assetRequest<{ job: GenerationJob }>({
         action: 'generate',
         requestId: crypto.randomUUID(),
         modality: 'audio',
-        prompt: draft.prompt,
+        prompt: submittedPrompt,
         model: selected.id,
         mode: selected.mode,
         parameters: submitParams,
-        references: [],
+        ...(activeCapability ? { capabilityId: activeCapability.id } : {}),
+        ...(Object.keys(effectiveCapabilityOptions).length ? { capabilityOptions: effectiveCapabilityOptions } : {}),
+        references: draft.references.map(item => item.reference),
       });
       if (mounted.current) {
         setDraft(current => current === draft ? { ...current, model: selected.id, parameters: submitParams } : current);
         onCreated(result.job);
       }
-      tracking.reportAssetGenerationSubmit('audio', 'success', 0, false, studioContext);
+      tracking.reportAssetGenerationSubmit('audio', 'success', draft.references.length, false, studioContext);
     } catch (error) {
-      tracking.reportAssetGenerationSubmit('audio', 'failure', 0, false, studioContext);
+      tracking.reportAssetGenerationSubmit('audio', 'failure', draft.references.length, false, studioContext);
       if (mounted.current) onError((error as Error).message);
     } finally {
       if (mounted.current) setBusy(false);
@@ -198,17 +247,79 @@ export function SoundComposer({
     <aside
       className="om-asset-composer om-creation-surface om-sound-composer"
       data-active={active}
-      data-scene={tabId}
+      data-scene={effectiveTab}
       aria-label={t('Audio generator')}
     >
       <div className="om-sound-composer-scroll">
+        {maxReferences > 0 && (
+          <section className="om-sound-block" aria-label={t('Source media')}>
+            <span className="om-sound-field-label">{t('Source media')}</span>
+            {draft.references.length > 0 && (
+              <div className="om-scene-source-files">
+                {draft.references.map(item => (
+                  <Button
+                    key={`${item.reference.assetId}/${item.reference.versionId}`}
+                    type="button"
+                    variant="plain"
+                    className="om-nav-item"
+                    aria-label={t('Remove reference: {name}', { name: item.name })}
+                    onClick={() => setDraft(current => ({
+                      ...current,
+                      references: current.references.filter(ref => ref !== item),
+                    }))}
+                  >
+                    <RemixIcon name="music-2-line" size={15} />
+                    <span>{item.name}</span>
+                    <RemixIcon name="close-line" size={14} />
+                  </Button>
+                ))}
+              </div>
+            )}
+            {draft.references.length < maxReferences && (
+              <div className="om-source-actions">
+                {onPickReference && (
+                  <Button type="button" variant="ghost" className="om-button h-auto" onClick={onPickReference}>
+                    <RemixIcon name="folder-open-line" size={16} />
+                    <span>{t('Choose an asset')}</span>
+                  </Button>
+                )}
+                {onUploadReference && (
+                  <Button type="button" variant="plain" className="om-nav-item" onClick={onUploadReference}>
+                    <RemixIcon name="upload-2-line" size={15} />
+                    <span>{t('Upload audio or video')}</span>
+                  </Button>
+                )}
+              </div>
+            )}
+          </section>
+        )}
+
+        {capabilityControls.length > 0 && (
+          <section className="om-sound-block om-relight-controls" aria-label={t(activeCapability?.title ?? 'Options')}>
+            {capabilityControls.map(control => (
+              <div className="om-relight-field" key={control.key}>
+                <span className="om-sound-field-label">{t(control.label)}</span>
+                <Select
+                  label={t(control.label)}
+                  value={capabilityOptions[control.key] ?? defaultCapabilityControlChoice(control).value}
+                  options={control.choices.map(choice => ({ value: choice.value, label: t(choice.label) }))}
+                  onCommit={value => setDraft(current => ({
+                    ...current,
+                    capabilityOptions: { ...current.capabilityOptions, [control.key]: value },
+                  }))}
+                />
+              </div>
+            ))}
+          </section>
+        )}
+
         <section className="om-sound-block om-sound-prompt-block">
           <div className="om-sound-prompt-header">
             <label className="om-sound-field-label" htmlFor={promptId}>
-              {t(INPUT_LABEL[tabId])}
+              {t(INPUT_LABEL[effectiveTab])}
             </label>
             <div className="om-sound-prompt-meta">
-              {tabId === 'speech' && estimatedSeconds > 0 && (
+              {effectiveTab === 'speech' && estimatedSeconds > 0 && (
                 <span className="om-badge om-sound-estimate" title={t('Estimated speaking duration')}>
                   ~{estimatedSeconds}s
                 </span>
@@ -239,7 +350,7 @@ export function SoundComposer({
             className="om-sound-textarea"
             maxLength={20000}
             aria-label={t('Asset prompt')}
-            placeholder={t(INPUT_PLACEHOLDER[tabId])}
+            placeholder={t(INPUT_PLACEHOLDER[effectiveTab])}
             value={draft.prompt}
             onChange={event => setDraft(current => ({ ...current, prompt: event.target.value }))}
             onKeyDown={event => {
@@ -250,8 +361,9 @@ export function SoundComposer({
             }}
           />
 
+          {showStarterChips && (
           <div className="om-sound-prompt-tools">
-            {tabId === 'speech' ? (
+            {effectiveTab === 'speech' ? (
               <div className="om-sound-tag-rail" role="group" aria-label={t('Script starters')}>
                 {SOUND_SPEECH_SCRIPTS.map(item => {
                   const localizedScript = t(item.script);
@@ -299,9 +411,10 @@ export function SoundComposer({
               </div>
             )}
           </div>
+          )}
         </section>
 
-        {previewModel && (
+        {previewModel && effectiveTab !== 'stems' && (
           <SoundParameters
             key={`primary:${previewModel.id}`}
             tabId={tabId}
@@ -436,7 +549,7 @@ export function SoundComposer({
             size={17}
             className={busy ? 'om-busy-icon' : undefined}
           />
-          <span>{t(SUBMIT_LABEL[tabId])}</span>
+          <span>{t(SUBMIT_LABEL[effectiveTab])}</span>
           {!busy && <kbd className="om-sound-kbd" aria-hidden="true">⌘↵</kbd>}
         </Button>
       </div>

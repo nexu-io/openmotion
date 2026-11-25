@@ -11,6 +11,7 @@ import {
   designRoutes, designScenarios, isDesignScenario,
   type DesignScenarioId, type DesignSkillSummary, type DesignSystemSummary, type DesignTemplateSummary,
 } from './design-project.ts';
+import { rankSearchResults } from './fuzzy-search.ts';
 
 export const designLibraryRoot = fileURLToPath(new URL('../library/design', import.meta.url));
 
@@ -69,12 +70,13 @@ function listFiles(base: string): string[] {
   return out;
 }
 
-const normalize = (value: string) => value.toLowerCase().normalize('NFKD');
-function matches(query: string | undefined, fields: Array<string | null | undefined | string[]>) {
-  const q = query?.trim();
-  if (!q) return true;
-  const haystack = normalize(fields.flat().filter(Boolean).join(' \u0000 '));
-  return normalize(q).split(/\s+/).every(term => haystack.includes(term));
+const zhMentionPath = fileURLToPath(new URL('./design-mention-titles.zh-CN.json', import.meta.url));
+let zhMentionsCache: { templates: Record<string, string>; skills: Record<string, string> } | undefined;
+function loadZhMentions() {
+  return zhMentionsCache ??= readJson<{ templates: Record<string, string>; skills: Record<string, string> }>(
+    zhMentionPath,
+    { templates: {}, skills: {} },
+  );
 }
 
 function createCatalog(root: string) {
@@ -111,8 +113,18 @@ function createCatalog(root: string) {
     },
 
     templates(opts: DesignTemplateQuery = {}): { items: DesignTemplateSummary[]; nextCursor: string | null } {
-      const filtered = loadTemplates().filter(item => (!opts.scenario || item.scenario === opts.scenario)
-        && matches(opts.q, [item.id, item.title, item.description, item.category, item.tags, item.scenario]));
+      const zh = loadZhMentions();
+      const byScenario = loadTemplates().filter(item => !opts.scenario || item.scenario === opts.scenario);
+      const filtered = opts.q?.trim()
+        ? rankSearchResults(byScenario, opts.q, item => ({
+            id: item.id,
+            title: item.title,
+            subtitle: item.category,
+            description: item.description,
+            tags: [...item.tags, item.scenario],
+            aliases: [zh.templates[item.id] ?? ''],
+          })).map(result => result.item)
+        : byScenario;
       const limit = Math.max(1, Math.min(MAX_LIMIT, Math.floor(Number(opts.limit) || DEFAULT_LIMIT)));
       const start = /^\d+$/.test(opts.cursor ?? '') ? Number(opts.cursor) : 0;
       const items = filtered.slice(start, start + limit).map(templateSummary);
@@ -136,8 +148,16 @@ function createCatalog(root: string) {
     },
 
     systems(opts: { q?: string; category?: string } = {}): DesignSystemSummary[] {
-      return loadSystems().filter(item => (!opts.category || item.category === opts.category)
-        && matches(opts.q, [item.id, item.title, item.description, item.category])).map(systemSummary);
+      const byCategory = loadSystems().filter(item => !opts.category || item.category === opts.category);
+      const matched = opts.q?.trim()
+        ? rankSearchResults(byCategory, opts.q, item => ({
+            id: item.id,
+            title: item.title,
+            subtitle: item.category,
+            description: item.description,
+          })).map(result => result.item)
+        : byCategory;
+      return matched.map(systemSummary);
     },
 
     system(id: string): DesignSystemDetail | null {
@@ -150,8 +170,18 @@ function createCatalog(root: string) {
     },
 
     skills(opts: { scenario?: string; q?: string } = {}): DesignSkillSummary[] {
-      return loadSkills().filter(item => (!opts.scenario || item.scenario === opts.scenario)
-        && matches(opts.q, [item.id, item.title, item.description, item.category, item.scenario]));
+      const zh = loadZhMentions();
+      const byScenario = loadSkills().filter(item => !opts.scenario || item.scenario === opts.scenario);
+      return opts.q?.trim()
+        ? rankSearchResults(byScenario, opts.q, item => ({
+            id: item.id,
+            title: item.title,
+            subtitle: item.category,
+            description: item.description,
+            tags: item.scenario ? [item.scenario] : undefined,
+            aliases: [zh.skills[item.id] ?? ''],
+          })).map(result => result.item)
+        : byScenario;
     },
 
     skill(id: string): DesignSkillDetail | null {

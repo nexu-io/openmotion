@@ -4,7 +4,8 @@ import { studioUsageEvents } from './studio-events.ts';
 import { providerSetupEntries, type ProviderSetupEntry } from '../shared/workspace-url.ts';
 export { providerSetupEntries, type ProviderSetupEntry };
 
-export const toolNames = ['motion_assets', 'motion_media_use', 'motion_list_templates', 'motion_get_template', 'motion_list_skills', 'motion_get_skill', 'motion_create_project', 'motion_open_preview',
+export const toolNames = ['motion_capability_discover', 'motion_capability_run', 'motion_job_manage', 'motion_asset_manage',
+  'motion_assets', 'motion_media_use', 'motion_list_templates', 'motion_get_template', 'motion_list_skills', 'motion_get_skill', 'motion_create_project', 'motion_open_preview',
   'motion_import_assets', 'motion_get_project', 'motion_edit_project', 'motion_export_request', 'motion_list_versions',
   'motion_restore_version', 'motion_export_cancel', 'motion_project_archive', 'motion_manage_project',
   'motion_design_catalog', 'motion_design_project', 'motion_design_edit', 'motion_design_comments',
@@ -12,7 +13,8 @@ export const toolNames = ['motion_assets', 'motion_media_use', 'motion_list_temp
 const outcome = ['success', 'failure', 'partial', 'cancelled', 'unknown'] as const;
 export const mcpToolNames = [...toolNames, 'motion_show_video', 'motion_show_template_recommendations'] as const;
 const tool = { tool_name: mcpToolNames, ...toolDimensions, call_id: 'uuid', operation_id: 'uuid', accepted: 'boolean' } as const;
-export const webMcpToolNames = ['openmotion_assets_use', 'openmotion_assets', 'openmotion_media_use', 'openmotion_list_templates', 'openmotion_get_template', 'openmotion_list_skills', 'openmotion_get_skill',
+export const webMcpToolNames = ['openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage',
+  'openmotion_assets_use', 'openmotion_assets', 'openmotion_media_use', 'openmotion_list_templates', 'openmotion_get_template', 'openmotion_list_skills', 'openmotion_get_skill',
   'openmotion_create_project', 'openmotion_open_preview', 'openmotion_import_assets', 'openmotion_get_project',
   'openmotion_edit_project', 'openmotion_export_request', 'openmotion_list_versions', 'openmotion_restore_version',
   'openmotion_export_cancel', 'openmotion_project_archive', 'openmotion_manage_project',
@@ -55,9 +57,22 @@ const creative = { studio_id: 'slug', scene_id: 'slug', model_provider: 'slug', 
   nav_target: 'slug', slide_id: 'slug', collection_id: 'slug', in_overflow: 'boolean', landing: 'boolean' } as const;
 // A model hub (page=model-hub) and one of its community videos, by catalogue id; whether the viewer is signed in to OpenDesign.
 const modelHub = { hub_id: 'slug', hub_video_id: 'slug', signed_in: 'boolean' } as const;
-// A site campaign shown in the application chrome. entry_id is the od_entry_id placed on the Pricing link of that click,
-// so the click joins the Pricing visit and payment the website attributes to it.
-const campaign = { campaign_id: ['black_friday_2026'], entry_id: 'uuid' } as const;
+// One game in Game Studio. Built-in and community games have catalogue ids; games made here have UUIDs. Titles, briefs and URLs never leave the browser.
+const game = { game_id: 'code', game_source: ['template', 'community', 'mine'], game_genre: 'slug', game_status: ['draft', 'building', 'ready', 'published', 'failed'],
+  game_orientation: ['landscape', 'portrait'], multiplayer: 'boolean' } as const;
+const webPublishTargets = ['design', 'game', 'motion', 'html'] as const;
+const generationOffer = { offer_kind: ['sign_in', 'upgrade'], offer_visit_id: 'uuid' } as const;
+// A site campaign or login/upgrade touchpoint shown in the application chrome or studio surfaces.
+// hook_id identifies which product touchpoint triggered the flow; entry_id joins the click to sign-in, Pricing visit and payment.
+export const entitlementHookIds = [
+  'header_signin', 'settings_signin', 'template_use', 'private_link_gate', 'assets_empty',
+  'studio_generate', 'cloud_export', 'session_expired_401', 'header_pricing', 'bf_banner',
+  'settings_subscription', 'studio_free_gate', 'model_picker_upgrade', 'studio_res_gate',
+  'failure_card_topup', 'mcp_oauth',
+  'model_hub_signin', 'model_hub_upgrade', 'game_publish_signin', 'cloud_share_signin',
+] as const;
+export type EntitlementHookId = (typeof entitlementHookIds)[number];
+const campaign = { campaign_id: ['black_friday_2026'], entry_id: 'uuid', hook_id: entitlementHookIds } as const;
 // Workspace assets: which shelf the library shows and what kind of media an action is about.
 const assetKind = ['all', 'image', 'video', 'audio', 'trash'] as const;
 const modality = ['image', 'video', 'audio'] as const;
@@ -72,6 +87,10 @@ const mcpEntry = ['app_header', 'app_rail', 'settings_general', 'settings_resour
 const entryFrom = [...mcpEntry, ...providerSetupEntries] as const;
 const referenceEntry = { reference_entry: ['library_home'] } as const;
 const referenceSource = { source_kind: ['link', 'local', 'description'] } as const;
+const copyMethod = ['clipboard_api', 'exec_command'] as const;
+const paletteScope = ['all', 'actions', 'chats', 'templates', 'studios', 'files', 'tools'] as const;
+const paletteItemKind = ['action', 'chat', 'motion_template', 'design_template', 'motion_project', 'design_project', 'game_project', 'asset', 'brand_kit', 'workflow', 'studio', 'scene', 'skill', 'design_skill', 'model', 'community'] as const;
+const paletteAction = ['open', 'edit_template', 'copy_prompt', 'create_design', 'use_in_super_agent'] as const;
 const mcp = { mcp_client: mcpClient, setup_method: ['agent', 'manual'], capability_id: 'slug' } as const;
 // A Skill is identified by its catalogue id and group only; the brief text never leaves the browser.
 const skill = { skill_id: 'slug', skill_category: ['talking_head', 'product_promos', 'explainers', 'product_ads', 'brand_covers', 'motion_techniques'] } as const;
@@ -97,8 +116,8 @@ export const omEvents = {
     required: ['tool_name', 'transport', 'call_id', 'outcome', 'duration_ms'] },
   webmcp_registration_result: { producers: ['studio'], fields: { ...webMcp, outcome: ['success', 'failure', 'cancelled'], duration_ms: 'integer' },
     required: ['tool_name', 'transport', 'outcome', 'duration_ms'] },
-  mcp_tool_started: { producers: ['mcp'], fields: tool, required: ['tool_name', 'call_id', 'accepted'] },
-  mcp_tool_finished: { producers: ['mcp'], fields: { ...tool, outcome, duration_ms: 'integer', ...toolFailureDimensions, replayed: 'boolean' },
+  mcp_tool_started: { producers: ['mcp'], fields: { ...tool, game_id: game.game_id }, required: ['tool_name', 'call_id', 'accepted'] },
+  mcp_tool_finished: { producers: ['mcp'], fields: { ...tool, game_id: game.game_id, game_status: game.game_status, outcome, duration_ms: 'integer', ...toolFailureDimensions, replayed: 'boolean' },
     required: ['tool_name', 'call_id', 'accepted', 'outcome', 'duration_ms'] },
   project_create_result: { producers: ['mcp'], fields: { ...business, creation_route: ['natural_language', 'template', 'reference_video', 'existing_project'], effect_status: ['applied', 'not_applied', 'unknown'] }, required: ['outcome'] },
   project_open_result: { producers: ['mcp'], fields: { ...business, opened_by_host_status: ['unknown', 'opened', 'not_opened'] }, required: ['outcome'] },
@@ -118,7 +137,7 @@ export const omEvents = {
   // sign-in continues with a new attempt. Times are milliseconds since the click. Stage values come from the connector
   // protocol; only confirmed account IDs are allowed, never links, authorization codes or credentials.
   account_sign_in_result: { producers: ['mcp'], fields: { attempt_id: 'uuid', outcome: ['success', 'failure', 'cancelled', 'replaced'],
-    source_product: ['openmotion'], source_detail: ['openmotion_editor_login'], entry_id: 'uuid', entry_occurred_at: 'timestamp', amr_user_id: 'code',
+    source_product: ['openmotion'], source_detail: ['openmotion_editor_login'], hook_id: entitlementHookIds, entry_id: 'uuid', entry_occurred_at: 'timestamp', amr_user_id: 'code',
     error_code: ['connector_unavailable', 'setup_failed', 'authorization_expired', 'credentials_rejected'],
     connector_problem: ['npm_missing', 'install_failed', 'start_failed'], connector_version: 'code', resumed: 'boolean',
     last_stage: accountStages, last_result: ['started', 'success', 'failed'], error_kind: accountErrorKinds, browser_opened: 'boolean',
@@ -160,7 +179,9 @@ export const omEvents = {
       'settings_nav', 'provider_list', 'provider_detail', 'default_agent', 'local_agents', 'account', 'diagnostics', 'help_resources',
       'project_manager', 'version_history',
       'creative_nav', 'explore_tabs', 'explore_spotlight', 'explore_featured', 'explore_feed', 'explore_collection', 'capability_index', 'studio_bar', 'model_overview',
-      'hub_header', 'hub_hero', 'hub_videos', 'hub_video_detail', 'hub_availability', 'campaign_banner'],
+      'hub_header', 'hub_hero', 'hub_videos', 'hub_video_detail', 'hub_availability', 'campaign_banner',
+      'game_composer', 'game_market', 'game_detail', 'game_handoff', 'game_sidebar', 'web_publish',
+      'command_palette', 'template_zero_result_skills', 'entitlement_modal', 'entitlement_gate'],
     element: ['new_creation', 'recent_session', 'open_project', 'select_template', 'copy_template',
       'select_work', 'select_chapter', 'browse_timeline', 'expand_learning', 'compare_brands',
       'open_detail', 'start_use', 'expand_instruction', 'open_collection', 'category_select', 'filter_open', 'filter_clear',
@@ -183,14 +204,19 @@ export const omEvents = {
       'kind_filter', 'trash_view', 'upload', 'open_asset', 'create_asset', 'mode_switch', 'add_reference', 'edit_version', 'use_as_reference',
       'download_asset', 'switch_version', 'select_task', 'cancel_task', 'retry_save', 'resume_task',
       'section_select', 'select_provider', 'add_provider', 'provider_filter', 'select_agent', 'rescan_agents', 'open_terminal',
-      'sign_in', 'sign_out', 'cancel_sign_in', 'refresh_billing', 'manage_subscription', 'export_diagnostics', 'open_resource',
+      'sign_in', 'sign_out', 'cancel_sign_in', 'refresh_billing', 'manage_subscription', 'open_console', 'recharge', 'export_diagnostics', 'open_resource',
       'import_projects', 'export_projects', 'manager_tab', 'rename_project', 'duplicate_project', 'trash_project', 'restore_project',
       'delete_project', 'copy_path', 'reveal_project', 'open_history', 'history_filter', 'select_version', 'keep_current', 'pin_version', 'restore_version',
       'nav_explore', 'nav_media', 'nav_mcp', 'nav_api', 'nav_studio', 'nav_more', 'nav_menu', 'select_scene', 'select_model', 'select_skill', 'select_client', 'filter_scene_models',
       'community_tab', 'creators', 'media_filter', 'open_scene', 'open_skill', 'open_template', 'try_prompt', 'open_studio', 'slide_select', 'slide_toggle', 'slide_action',
       'load_more', 'view_all_templates', 'models_toggle', 'skill_category', 'open_brand_kit', 'open_assets', 'open_providers', 'open_mcp', 'open_skills',
       'back_to_explore', 'open_editor', 'scene_tab', 'open_in_studio', 'connect_key', 'manage_connection', 'view_plans',
-      'claim_offer', 'close_banner', 'open_pricing'],
+      'claim_offer', 'close_banner', 'open_pricing',
+      'submit_game', 'game_option', 'open_game', 'remix_game', 'favorite_game', 'like_game', 'dislike_game', 'copy_game_link', 'edit_in_agent', 'continue_in_agent',
+      'open_in_codex', 'open_external', 'reload_game', 'fullscreen_game', 'game_tab', 'open_publish', 'toggle_link_access', 'publish_link', 'new_link', 'copy_publish_link',
+      'create_trailer', 'regenerate_trailer', 'open_trailer_project', 'open_game_studio', 'view_all_games',
+      'open_palette', 'select_result', 'scope_tab', 'popular_topic', 'ask_super_agent',
+      'open_skill_fallback', 'toggle_options', 'toggle_instruction', 'run_super_agent'],
     // The chosen value of a control with a small fixed set of choices; never free text.
     option: ['on', 'off', 'light', 'dark', 'en', 'zh-CN', 'ja', 'ko', 'de', 'fr', 'ru', 'es', 'pt-BR', 'it', 'tr',
       'all', 'images', 'video', 'audio', 'fonts',
@@ -203,7 +229,10 @@ export const omEvents = {
     filter_group: ['brand', 'uses', 'styles', 'industries', 'creationModels', 'colors', 'ratio', 'duration', 'editable'], filter_value: 'slug',
     selected: 'boolean', expanded: 'boolean', previous_sort: sortOrder, changed: 'boolean', ...templateDetail, ...templateList,
     ...skill, ...brand, brand_collection: brandCollection, ...mcp, entry_from: entryFrom, ...referenceEntry, ...referenceSource,
-    doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer', ...workspacePages, ...creative, ...modelHub, ...campaign },
+    doc_id: ['mcp_tools', 'skills', 'agent_adapters', 'docs_home', 'repository'], section_id: 'slug', faq_index: 'integer',
+    search_scope: paletteScope, palette_item_kind: paletteItemKind, palette_action: paletteAction, resource_id: 'slug',
+    ...workspacePages, ...creative, ...modelHub, ...campaign, ...generationOffer,
+    ...game, game_option_kind: ['genre', 'style', 'setting', 'orientation', 'playable_ad', 'multiplayer'], game_view: ['preview', 'code', 'trailer'], publish_target: webPublishTargets },
     required: ['page_name', 'area', 'element'] },
   // Studio UI exports run in the editor's own render pipeline, not the worker that owns export_result.
   studio_export_request_result: { producers: ['studio'], fields: { export_id: 'uuid', outcome: ['accepted', 'rejected', 'unknown'], ...exportSettings,
@@ -231,16 +260,22 @@ export const omEvents = {
     required: ['outcome', 'entry_point', 'requested_count', 'added_count', 'failed_count'] },
   // A surface that became visible: the library, a template card, one template's detail, or the instruction to copy.
   // A card counts once it is at least half visible for a second, once per result set.
-  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner'],
-    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner'], ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
-    ...skill, ...brand, ...referenceEntry, brand_state: brandState, recovery_reason: ['no_results', 'unsuitable', 'catalog_empty'] },
+  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'command_palette', 'template_zero_result_skills', 'asset_create', 'account', 'entitlement_modal', 'entitlement_gate', 'game_detail', 'game_handoff'],
+    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'palette', 'skill_fallback', 'modal', 'gate_card', 'handoff'], ...generationOffer, settings_section: settingsSection, scene_id: creative.scene_id, ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
+    ...skill, ...brand, ...referenceEntry, brand_state: brandState, recovery_reason: ['no_results', 'unsuitable', 'catalog_empty'],
+    studio_id: creative.studio_id, ...game, publish_target: webPublishTargets },
     required: ['page_name', 'area', 'element'] },
+  // Global Cmd+K command palette settled search; one per settled query, never per keystroke.
+  command_palette_search_result: { producers: ['studio'], fields: { page_name: pages, area: ['command_palette'],
+    search_id: 'uuid', search_keyword: 'text', query_length: 'integer', result_count: 'integer',
+    search_scope: paletteScope, outcome: ['success'] },
+    required: ['search_id', 'query_length', 'result_count', 'search_scope', 'outcome'] },
   // One per settled query, never per keystroke. `search_keyword` is the only free-text field in this registry.
   template_search_result: { producers: ['studio'], fields: { page_name: ['home', 'studio'], area: ['template_discovery'],
     search_keyword: 'text', query_length: 'integer', outcome: ['success', 'failure'], ...templateList },
     required: ['search_id', 'query_length', 'result_count', 'outcome'] },
   template_search_handoff_result: { producers: ['studio'], fields: { page_name: ['studio'], area: ['template_discovery'],
-    handoff_attempt_id: 'uuid', ...referenceSource, handoff_status: ['clipboard_written', 'manual_fallback', 'draft_added', 'failure'], ...templateList, ...referenceEntry },
+    handoff_attempt_id: 'uuid', ...referenceSource, handoff_status: ['clipboard_written', 'manual_fallback', 'draft_added', 'failure'], copy_method: copyMethod, ...templateList, ...referenceEntry },
     required: ['handoff_attempt_id', 'source_kind', 'handoff_status'] },
   template_filter_result: { producers: ['studio'], fields: { page_name: ['home', 'studio'], area: ['template_discovery'],
     action: ['category_select', 'filter_apply', 'filter_clear', 'sort_change'], outcome: ['success', 'failure'], ...templateList },
@@ -253,7 +288,7 @@ export const omEvents = {
     action: ['shown', 'edit', 'chapter', 'reference', 'reset', 'copy', 'open_editor', 'download', 'document', 'source'],
     expanded: 'boolean', delivery_status: ['browser_save_requested', 'fetch_failed'],
     field: ['title', 'accent'], outcome: ['success', 'failure', 'manual_fallback'] }, required: ['page_name', 'template_id', 'view_id', 'action'] },
-  template_instruction_copy_result: { producers: ['studio'], fields: { host_product: hosts, copy_status: ['clipboard_written', 'manual_fallback_shown', 'failed'],
+  template_instruction_copy_result: { producers: ['studio'], fields: { host_product: hosts, copy_status: ['clipboard_written', 'manual_fallback_shown', 'failed'], copy_method: copyMethod,
     page_name: ['home', 'studio'], copy_attempt_id: 'uuid', ...templateList, ...templateDetail, ...project, ...template, ...templateSeries }, required: ['host_product', 'copy_status'] },
   // One observed Studio handoff operation result, not an Agent receipt or a completed film.
   template_project_result: { producers: ['studio'], fields: { page_name: ['studio'], ...template, ...project, ...templateDetail,
@@ -265,7 +300,7 @@ export const omEvents = {
     required: ['search_id', 'query_length', 'result_count', 'outcome'] },
   // `instruction` is the full Agent instruction; `command` is the short command in the Connect Agent popover.
   skill_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['skills'], ...skill, ...skillBrief, copy_surface: ['instruction', 'command'],
-    copy_status: ['clipboard_written', 'manual_fallback_shown'], copy_attempt_id: 'uuid', detail_view_id: 'uuid' },
+    copy_status: ['clipboard_written', 'manual_fallback_shown'], copy_method: copyMethod, copy_attempt_id: 'uuid', detail_view_id: 'uuid' },
     required: ['skill_id', 'copy_surface', 'copy_status', 'copy_attempt_id'] },
   // MCP connection page. One result per copy attempt; `includes_setup` says whether the connection instruction was prepended.
   mcp_copy_result: { producers: ['studio'], fields: { page_name: ['mcp'], ...mcp, ...template, copy_kind: ['connection_instruction', 'manual_config', 'starter', 'capability_example', 'template'],
@@ -290,11 +325,34 @@ export const omEvents = {
   version_history_result: { producers: ['studio'], fields: { page_name: ['studio'], action: ['keep_current', 'pin', 'unpin', 'restore'],
     outcome: ['success', 'failure'], ...project }, required: ['action', 'outcome'] },
   // Brand Kit page. `success` on create means the extraction was accepted and started, not that the kit is ready.
+  // One per Start building or Remix in Game Studio, after the local game service answered. Success means a draft exists, not a finished game.
+  game_create_result: { producers: ['studio'], fields: { page_name: ['creative_studio'], studio_id: creative.studio_id, create_attempt_id: 'uuid', create_route: ['brief', 'remix'],
+    outcome: ['success', 'failure'], error_kind: ['service_unavailable', 'rejected'], handoff: ['super_agent', 'detail'], has_prompt: 'boolean', playable_ad: 'boolean',
+    game_style: 'slug', game_setting: 'slug', source_game_id: 'code', source_game_source: ['template', 'community', 'mine'], ...game },
+    required: ['page_name', 'create_attempt_id', 'create_route', 'outcome'] },
+  // An observed result in a game's detail page: the game loaded for play, a reaction saved, a trailer started/opened, or a link/instruction copied.
+  game_action_result: { producers: ['studio'], fields: { page_name: ['creative_studio'], studio_id: creative.studio_id,
+    action: ['play', 'favorite', 'unfavorite', 'like', 'dislike', 'clear_reaction', 'copy_link', 'copy_instruction', 'start_trailer', 'regenerate_trailer', 'open_trailer_project'],
+    outcome: ['success', 'failure', 'unavailable'], ...game }, required: ['page_name', 'action', 'outcome'] },
+  // Game Studio market search. One per settled query, never per keystroke.
+  game_search_result: { producers: ['studio'], fields: { page_name: ['creative_studio'], studio_id: creative.studio_id, area: ['game_market'],
+    search_id: 'uuid', search_keyword: 'text', query_length: 'integer', result_count: 'integer', outcome: ['success'],
+    filter_value: 'slug' },
+    required: ['page_name', 'search_id', 'query_length', 'result_count', 'outcome'] },
+  // One per cloud-share operation in the shared publish popover (Design, Game, Super Agent artifacts). Success means the service answered.
+  web_publish_result: { producers: ['studio'], fields: { publish_target: webPublishTargets, action: ['publish', 'resume', 'new_link', 'stop', 'copy_link', 'sign_in'],
+    outcome: ['success', 'failure', 'cancelled'], copied: 'boolean', error_kind: ['auth_required', 'conflict', 'other'], publish_attempt_id: 'uuid',
+    hook_id: entitlementHookIds, entry_id: 'uuid' },
+    required: ['publish_target', 'action', 'outcome', 'publish_attempt_id'] },
+  // Reported when the user returns from an external Pricing / subscription checkout and Studio refreshes their billing entitlement.
+  entitlement_refresh_result: { producers: ['studio'], fields: { page_name: pages, hook_id: entitlementHookIds, entry_id: 'uuid',
+    outcome: ['success', 'failure'], plan_changed: 'boolean' },
+    required: ['page_name', 'outcome', 'plan_changed'] },
   brand_kit_create_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], outcome: ['success', 'failure'], create_attempt_id: 'uuid' },
     required: ['outcome', 'create_attempt_id'] },
   brand_kit_import_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], catalog_id: 'slug', outcome: ['success', 'failure'], already_in_library: 'boolean',
     position: 'integer' }, required: ['catalog_id', 'outcome', 'already_in_library'] },
-  brand_kit_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand, copy_status: ['clipboard_written', 'failed'],
+  brand_kit_instruction_copy_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand, copy_status: ['clipboard_written', 'failed'], copy_method: copyMethod,
     copy_attempt_id: 'uuid', detail_view_id: 'uuid' }, required: ['brand_source', 'copy_status', 'copy_attempt_id'] },
   brand_kit_action_result: { producers: ['studio'], fields: { page_name: ['brand_kit'], ...brand,
     action: ['edit', 'context', 'rescan', 'retry', 'cancel', 'delete'], outcome: ['success', 'failure'], detail_view_id: 'uuid' },

@@ -43,7 +43,7 @@ export const ExploreHighlights = memo(function ExploreHighlights({ onChooseStudi
     <header className="om-discovery-heading"><h2 id="explore-highlights">{t('Explore highlights')}</h2></header>
     <HorizontalRail label="Explore highlights" className="om-highlights" viewportClassName="om-stories-rail">
       <StoryCard title={seedanceStory.title} poster={paintedFilm} label={t('Cinema Studio') + ' · ' + t('Video')} description={seedanceStory.description} onClick={() => jump('seedance')} />
-      <StoryCard title="Game Studio" poster={castleValleyPoster} label={t('Super Agent') + ' · ' + t('Game Studio')} description="Build, play, and deploy multiplayer web games with your Agent" onClick={() => jump('games')} />
+      <StoryCard title="Game Studio" poster={castleValleyPoster} label={t('Super Agent') + ' · ' + t('Game Studio')} description={t('Build, play, and share web games with your Agent')} onClick={() => jump('games')} />
       <StoryCard title="Black Friday collection" poster={sale} label={t('Template library')} description="Browse Black Friday video references and Skills for your sale." onClick={event => onOpenBlackFriday(event.currentTarget)} />
       <StoryCard title="Claude Fable 5.2" poster={blueprint} label="Claude Code · OpenMotion MCP" description="From a keyframe to an anime opening" onClick={() => jump('claude')} />
       <StoryCard title={gptImageStory.title} poster={printCover} label={t('Design Studio') + ' · ' + t('Image')} description={gptImageStory.description} onClick={() => jump('gpt-image')} />
@@ -86,7 +86,7 @@ export const GameStories = memo(function GameStories({ onOpenGameStudio, onBuild
     <div className="om-claude-intro">
       <span className="om-feed-card-label"><RemixIcon name="gamepad-line" size={16} />{t('Super Agent')} · {t('Playable web games')}</span>
       <div className="om-discovery-heading"><h2 id="explore-games" tabIndex={-1}>{t('Game Studio')}</h2></div>
-      <p className="om-muted">{t('Describe a game in one line, iterate live with Super Agent, play solo or multiplayer, and deploy a shareable link.')}</p>
+      <p className="om-muted">{t('Describe a single-player game in one line, refine it with Super Agent, and publish a shareable link.')}</p>
       <div className="om-story-intro-actions">
         {onBuildGameInSuperAgent && (
           <Button type="button" variant="primary" className="om-button" data-primary onClick={onBuildGameInSuperAgent}>

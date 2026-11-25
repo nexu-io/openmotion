@@ -82,7 +82,11 @@ test('connection guidance exposes the maintained media workflow without asking f
     transport: { type: 'stdio', command: 'node', args: ['/fixture/mcp.ts'], cwd: '/fixture', env: { MOTION_DATA_DIR: '/fixture/data' } } };
   const guide = agentGuide(info, 'codex');
   assert.ok(guide.includes(reviewCommentsPrompt({ dataDirectory: info.dataDirectory, previewUrl: info.previewUrl })));
-  for (const operation of ['openmotion_media_use', 'inspect', 'reference', 'models', 'schema', 'generate', 'status', 'cancel', 'requestId', 'jobId']) assert.ok(guide.includes(operation), operation);
+  for (const operation of ['openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage', 'openmotion_media_use', 'inspect', 'reference', 'models', 'schema', 'generate', 'status', 'cancel', 'requestId', 'jobId']) assert.ok(guide.includes(operation), operation);
+  const profiles = JSON.parse(readFileSync(new URL('../shared/mcp-profiles.json', import.meta.url), 'utf8'));
+  for (const metaTool of ['openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage']) {
+    assert.ok(profiles.phase1.instructions.includes(metaTool), `phase1.instructions: ${metaTool}`);
+  }
   assert.doesNotMatch(guide, /不公开生成/);
   assert.match(guide, /Keep credentials in Settings/);
   assert.match(guide, /openmotion_assets_use generate/);
@@ -185,19 +189,19 @@ test('timeline hover inspection remains a localized, non-mutating preview scenar
   }
 });
 
-test('image feature handbook scenarios cover background removal, relight and character consistency with limits and recovery', () => {
+test('image feature handbook scenarios cover background removal, relight and image blend with limits and recovery', () => {
   const translations = JSON.parse(readFileSync(new URL('../studio/src/i18n/mcp-ui.json', import.meta.url), 'utf8'));
   const removeBg = mcpScenarios.find(item => item.id === 'image-remove-background')!;
   const relight = mcpScenarios.find(item => item.id === 'image-relight')!;
-  const character = mcpScenarios.find(item => item.id === 'image-character')!;
+  const blend = mcpScenarios.find(item => item.id === 'image-blend')!;
   assert.ok(removeBg.prompt.includes(imageFeaturePrompt('remove-background', '')));
   assert.match(removeBg.prompt, /"background":"transparent"/);
   assert.match(removeBg.prompt, /gpt-image-2\.6-sunburst/);
   assert.ok(relight.prompt.includes(imageFeaturePrompt('relight', 'Keep the logo sharp.', { direction: 'left', temperature: 'warm', mood: 'golden-hour' })));
   assert.match(relight.prompt, /seedream-5\.5/);
-  assert.ok(character.prompt.includes(imageFeaturePrompt('character', 'Show the character walking through a sunlit café.')));
-  assert.match(character.prompt, /drop seedream-5\.5 when using 2 or more references/);
-  for (const scenario of [removeBg, relight, character]) {
+  assert.ok(blend.prompt.includes(imageFeaturePrompt('image-blend', 'Place the speaker from Image 1 onto the wooden table in Image 2, matching the warm daylight and natural shadows.')));
+  assert.match(blend.prompt, /exclude 1-reference models such as seedream-5\.5/);
+  for (const scenario of [removeBg, relight, blend]) {
     assert.match(scenario.prompt, /target=providers/);
     assert.match(scenario.prompt, /action=resume/);
     assert.match(scenario.prompt, /2 MiB/);
@@ -274,4 +278,10 @@ test('Workflows capability, Black Friday recipe and design asset embedding stay 
       assert.notEqual(values[key], key, `${locale}: untranslated ${key}`);
     }
   }
+});
+
+test('library handbook capability documents single maxEdge and batch contact-sheet read modes', () => {
+  const library = mcpCapabilities.find(item => item.id === 'library')!;
+  assert.match(library.prompt, /action=read.*maxEdge 128–1024/);
+  assert.match(library.prompt, /contact sheet.*action=read items=/);
 });

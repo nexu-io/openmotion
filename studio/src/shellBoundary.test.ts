@@ -12,6 +12,7 @@ import {
   resolveActiveWorkspaceRoute,
   resolveNavTrackingPage,
   resolveRouteArrival,
+  routeArrivalTarget,
   workspaceRouteRegistry,
 } from "./router/routeRegistry";
 
@@ -230,6 +231,19 @@ describe("workspace route registry", () => {
     const cinemaLanding = readWorkspacePage("?page=cinema");
     expect(resolveActiveWorkspaceRoute(cinemaLanding, { templatesPage: false, standaloneMcp: false }).id).toBe("cinema");
     expect(resolveRouteArrival(cinemaLanding, false)).toBe("cinema");
+
+    // Surfaces that used to report no arrival.
+    const agent = readWorkspacePage("?page=agent&mode=game");
+    expect(resolveRouteArrival(agent, false)).toBe("agent");
+    expect(routeArrivalTarget("agent", agent)).toEqual({ studio: "super-agent", scene: "game" });
+    const workflows = readWorkspacePage("?page=scenarios");
+    expect(resolveRouteArrival(workflows, false)).toBe("workflows");
+    expect(routeArrivalTarget("workflows", workflows)).toEqual({ studio: "workflows", landing: true });
+    expect(routeArrivalTarget("workflow:product-launch", explore)).toEqual({ studio: "workflows", scene: "product-launch" });
+    expect(resolveRouteArrival(readWorkspacePage("?page=game&game=tennis-go-wild"), false)).toBe("game");
+    expect(routeArrivalTarget("game", explore)).toEqual({ studio: "game", landing: true });
+    expect(routeArrivalTarget("design:projects", explore)).toEqual({ studio: "design", scene: "projects" });
+    expect(routeArrivalTarget("design:project", explore)).toEqual({ studio: "design", scene: "project-editor" });
 
     const editor = readWorkspacePage("?project=project", "#project/project");
     expect(resolveActiveWorkspaceRoute(editor, { templatesPage: false, standaloneMcp: false }).id).toBe("editor");

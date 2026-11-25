@@ -4,7 +4,7 @@ import { memo, useEffect, useRef, useState, type CSSProperties, type MouseEvent 
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { mediaEditorDestination, motionStudio, type StudioDestination, type StudioScene } from './creativeStudios';
-import { sceneExamples } from './sceneShowcase';
+import { studioExamples } from './sceneShowcase';
 import { findModelHub } from './modelHubs';
 import { motionSkills, motionStudioCover } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
@@ -57,7 +57,7 @@ const slides: FeaturedSlide[] = [{
 }, ...spotlightScenes.map(target => {
   const { scene } = target;
   const { id } = scene;
-  const example = sceneExamples[id][0];
+  const example = studioExamples(target)[0];
   return { ...example, id, icon: scene.icon, subtitle: target.studio.title, hint: scene.hint, scene: { target, prompt: example.prompt }, scenario: 'design-full-chain' as ScenarioId };
 }), {
   id: 'ai-influencer',

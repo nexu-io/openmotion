@@ -1,3 +1,4 @@
+import type { CapabilityDefinition } from './capability-registry.ts';
 import { isWorkspaceSettingsPage } from './workspace-url.ts';
 
 /**
@@ -96,13 +97,18 @@ export function isSpaRoutePath(pathname: string): boolean {
  * Standalone Studio routes stay usable even when the local native project
  * cannot initialize (for example Settings, MCP setup, Explore, or Studios).
  */
-export function isStandaloneSpaPath(pathname: string, search = '', hash = ''): boolean {
+export function isStandaloneSpaPath(
+  pathname: string,
+  search = '',
+  hash = '',
+  capabilities?: readonly CapabilityDefinition[],
+): boolean {
   const normalized = normalizePathname(pathname);
-  if (normalized === '/') return isWorkspaceSettingsPage(search, hash);
+  if (normalized === '/') return isWorkspaceSettingsPage(search, hash, capabilities);
   if (matchesPrefix(normalized, '/editor')) return false;
   if (!STANDALONE_SPA_PREFIXES.some(prefix => matchesPrefix(normalized, prefix))) return false;
   if (normalized === '/templates') return true;
-  return isWorkspaceSettingsPage(spaPathnameToSearch(normalized, search), hash);
+  return isWorkspaceSettingsPage(spaPathnameToSearch(normalized, search), hash, capabilities);
 }
 
 /** Extract the project ID from `/editor/:projectId`, if present. */

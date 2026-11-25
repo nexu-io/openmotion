@@ -1,138 +1,27 @@
 > See [source and execution notes](../PROVENANCE.md).
 
-# Game review rubric and inherited website checklist
+# Game review rubric
 
-The complete inherited checklist below is retained for provenance and applicable ancillary landing pages. For a game, items 3 (website palette bans), 5b (hosted absolute metadata), 7 (SSR), 9 (bespoke CTA instead of shared controls), 9c (legacy branding) and 9d–9f (scroll-scrub website defaults) apply **only** when that separate website surface exists; record N/A otherwise. They never require adding a scrolling movie to a game or bypassing the Studio design system. Authored game palettes follow the approved STYLE FORMULA. For Studio controls use shared OpenDesign components. Actual browser visual and gameplay review remains required; a mechanical pass is not visual acceptance.
+Run this before setting a game ready or publishing it. Mechanical checks are a floor; actual headless gameplay review (playtest screenshots, assertions, simulation outcomes) is still required, and none of it replaces human play on real devices.
 
+## Gameplay and verification
 Game-specific completion checks: six exports; deterministic authoritative rules; bounded validated inputs; no client-trusted damage; relative assets load; clip transitions; reachable win/loss; restart; co-op starts with one player by default; touch joystick/tap and keyboard/mouse (including release/cancel and focus loss); disconnect/rejoin and late join; performance on the weakest target; sound-disabled play; `openmotion_game_validate`; required server-owned `openmotion_game_playtest` with meaningful 1–4 client scripts and inspection of errors, failed requests, screenshots, joined/player-count metrics. Validate real HP/down/revive, solo five-second respawn, dash/nova cooldowns, wave countdown, spawn order and restart. Before publication, require `design/plan.md`, `design/assets.csv` and `design/verification.md`: experience formula, numeric metrics/thresholds, wave/difficulty plan, sources/licenses/costs, actual inputs/results and known gaps. Run `openmotion_game_simulate` for both routes: reference must win, idle must lose terminally; timeout is not a loss. Check `window.__omGame` snapshot/action hooks and `?debug` metrics, then inspect every playtest assertion (player count, phase, net displacement above threshold, no horizontal overflow at 390×844). Missing design files produce non-blocking reminders but still require the Agent to complete the artifacts. Before publication, verify concise title/description/controls, zh-CN i18n and a real project-relative cover set with openmotion_game_update_meta. **Require `openmotion_game_capture_cover` for game-only cover capture. Never operate, attach to or screenshot the user's visible browser, existing profile or desktop. Reject covers containing browser chrome or unrelated windows; metadata enforces at least 960×540 and 16:9 ±5%. A missing headless browser/loopback permission must be reported; do not substitute the user's Chrome.** Review advisory missing-cover/starter-similarity warnings; do not add filler lines to clear them. Report non-blocking publication metadata warnings. Publication requires authorization and stays local.
 
-# review-rubric — Phase 5 mechanical gate
+## Mechanical gate (code and asset level)
 
-§A runs BEFORE deploy and is a completion gate, not a suggestion. Most items
-are verified by grep/code inspection. **Item 9f is the hard machine gate for the
-animated-website default: a website that ships without the scroll-scrub component
-+ scene media (and without an explicit `non-animated` choice in the brief) FAILS, no matter
-how polished the rest is** — this is the single most common miss, so run 9f every
-time. For the animated website, item 9e adds its interactive runtime checks in
-local preview before the final deploy. There is no post-deploy visual/screenshot
-review — this mechanical gate is the only verification.
+Check each item; fix every hit before setting ready.
 
-## §A. Mechanical gate (pre-deploy, code-level)
-
-Check each item; fix every hit before deploying.
-
-1. **Placeholders** — zero `<...>`-style tokens (e.g. `<brand name>`, `<product>`),
-   `lorem`, `REMOVE_THIS`, `blank-app-v1`, or empty `src=""`. Grep for the
-   literal markers: `grep -rniE 'lorem ipsum|REMOVE_THIS|blank-app-v1' ./`,
-   and scan for any remaining `<...>` placeholder tokens in quoted strings.
-2. **Em-dash ban** — `grep -rn "—\|–" ./` over user-visible strings returns
-   nothing (code comments exempt).
-3. **Banned default palette** — none of the banned palette families from
-   `design-recipe.md` §2 appear in `styles.css`/tokens: beige/brass/espresso
-   hexes, graphite/near-black + orange/amber/ember accent, near-black + neon
-   cyan/blue/green accent, AI purple/violet glow, or the palette family of your
-   previous build in this chat. Overridable ONLY by the user's explicit brand
-   colors, justified in the design brief.
-4. **Eyebrow ration** — count **eyebrow-position section labels only**. An
-   eyebrow is a small uppercase/mono kicker sitting DIRECTLY above the
-   section's display headline in the same column; nothing else counts. Must
-   be ≤ ceil(sectionCount / 3). Uppercase mono in non-eyebrow roles (spec
-   strips, table/metric captions, rail labels, footer column heads) is
-   exempt — especially when the reference boards show them. Grep for
-   `uppercase tracking` to find candidates, then classify by position.
-5. **Asset kit complete + referenced** — every file downloaded into
-   `assets/` is actually referenced by a route/component; the hero
-   references a real generated asset (no picsum/stock/CSS-gradient-only hero);
-   the icon slots use the generated icon set (or the documented library
-   fallback), and no kit item from `asset-system.md`'s "always" list is
-   silently missing.
-5b. **Head kit complete** — the full favicon/meta set from `asset-system.md`
-   §7 is present and wired: favicon (ico/svg + png sizes), apple-touch-icon,
-   192/512 + maskable icons with a `site.webmanifest`, `theme-color`, and the
-   full OG + twitter card block with absolute image URLs. An empty `<head>`
-   or the scaffold's default favicon is a gate failure.
-6. **`h-screen`** — zero occurrences; use `h-dvh` / `min-h-dvh`.
-7. **SSR safety** — no `window` / `document` / `localStorage` / `navigator` at
-   module top level or in render; every `[C]`/`[W]` component behind a mounted
-   gate; `[W]` additionally `React.lazy`.
-8. **Reduced motion** — every animation source (`motion/react`, GSAP, registry
-   components) paired with a `prefers-reduced-motion` guard or static fallback.
-9. **CTA integrity + bespoke chrome** — one label per intent page-wide (no "Get
-   in touch" + "Contact us"); no CTA label longer than ~3 words for primaries;
-   AND no shared site-wide button style: grep for a repeated CTA class string /
-   `Button` utility component reused across sections — every CTA per the brief's
-   inventory has its own component with its own interaction identity.
-9b. **Screenshot-safe reveals** — flag any `opacity: 0` / `opacity-0` **whose
-   removal depends on a viewport/scroll trigger** (`whileInView`,
-   IntersectionObserver entry, ScrollTrigger-gated fade-ins). Hover-state
-   decorations at opacity-0 are fine. Nothing may sit invisible waiting for a
-   viewport trigger; animate from visible states (y-offset/blur) or fire on
-   mount. Video elements need a `poster` (or a rendered first frame) so
-   headless shots never show a black box. A full-page headless screenshot
-   must show every section.
-9c. **No Higgsfield branding on `type: "website"` builds** —
-   `grep -rin "higgsfield\|quanta" ./` returns no user-visible strings,
-   no Quanta imports, no q-prefixed tokens, no "Powered by / Built on" badge,
-   no Higgsfield marks in page chrome. fnf/auth strings in server/service
-   code are fine — that's the functional contract, not branding. On
-   `type: "app"` builds this check inverts for the design system: Quanta
-   imports and q- tokens are REQUIRED there and "Sign in with Higgsfield" is
-   part of the product — only gratuitous "Powered by / Built on Higgsfield"
-   marketing badges remain forbidden.
-9d. **Anti-convergence ledger honored** — the brief lists the previous
-   build's six identity axes (palette family, type pairing, hero
-   architecture, Tier-1 technique, CTA garments, corner language) and this
-   build differs on ≥4; the rationed garments (drawing underline, hover
-   flood-fill, framed block) appear at most once page-wide combined. On the
-   `non-animated` path the Tier-1 technique carries a `wow-catalog.md` ID and is
-   interactive (not a passive loop); on the default `animated-website` path the
-   Tier-1 technique IS the scroll-scrub animated website (enforced by 9f) — a
-   generic wow-catalog ID does NOT satisfy the default path.
-9e. **Animated website — A4 seam-locked scroll scrub (every website by default;
-   skip only if the user explicitly opted out)** — verify every media segment
-   has a first-frame poster extracted from the
-   exact deployed clip; chapter copy is server-rendered in semantic document
-   flow (not hidden until a viewport callback); `prefers-reduced-motion`
-   performs no video fetch and shows the complete static story; desktop and
-   lighter mobile encodes are wired; connector/leg handoffs use the neighboring
-   rendered clips' ACTUAL boundary frames; camera velocity does not reverse
-   accidentally; initialization runs only in an effect; and teardown aborts
-   fetches, removes listeners/video nodes, cancels RAF, and revokes Blob URLs.
-   Scrub videos directly from seekable MP4/Blob URLs, ensure CSP `media-src`
-   permits `blob:`, and ensure no second ScrollTrigger timeline drives the same
-   media. Inspect each seam immediately before/after in both scroll directions
-   and test source swapping, a fast mobile flick, and unmount/remount in local
-   preview before final deploy.
-9f. **Animation mode gate (machine-verifiable — HARD, every website).** This is
-   the completion gate for the animated-website default; a site that passes every
-   other check but this one is NOT done. Steps:
-   1. `grep -n "^Animation mode:" design/design-brief.md` — there MUST be exactly
-      one such line. Zero matches → FAIL (the brief never declared the state).
-   2. If the value is **`animated-website`**, ALL of these must hold, or FAIL:
-      - the scroll-scrub component exists —
-        `ls ./components/scroll-scrub/scroll-scrub.tsx` succeeds — and is
-        actually imported/rendered by a route (grep for its import);
-      - real film shipped — at least ONE clip (`single-shot` ships exactly
-        one; a `multi-leg` journey ships one per leg) under
-        `assets/assets/**/*.mp4` (the seam-locked chain), each with a
-        first-frame poster (item 9e);
-      - the brief carries the journey block (Journey scenes + Camera
-        architecture A/B) written in Phase 0.
-      A website on this path with no scroll-scrub component or no scene MP4s is
-      the failure mode this gate exists to catch — do NOT deploy it; go build the
-      camera journey.
-   3. If the value is **`non-animated`**, the line MUST record the user's choice
-      (an intake pick or a verbatim request). No scroll-scrub artifacts are
-      required; instead confirm the site clears the `wow-maker.md` craft floor and
-      any chosen `wow-catalog.md` technique is actually built (9d). A
-      `non-animated` with no recorded user choice → FAIL (treat as
-      `animated-website` and go back to step 2).
-10. **Section plan honored** — the built page matches `design/design-brief.md`'s
-    section plan (families, order, no consecutive family repeats). If the plan
-    changed during the build, the brief was updated to match.
-11. **Copy self-audit** — every visible string re-read; nothing grammatically
-    broken, referent-unclear, filler-verb ("Elevate", "Seamless"…), or fake-precise
-    (`92%`, `4.1×` without a source).
+1. **Placeholders**: no leftover starter strings (the arcade-2d "catch sparks, dodge rocks" sample, `lorem`, `TODO`, empty `src=""`), no starter title as the game title.
+2. **Game-first screen**: the playfield fills the viewport from the first frame; no landing-page layout, hero headline or feature list beside the game (see `game-genres.md` quality floor).
+3. **Palette follows the approved STYLE FORMULA & combat readability**: palette roles (environment, hero contrast, signal hue) are respected and both heroes and enemies pop clearly against the background. There is no fixed list of banned palettes for games: neon on near-black is right for cyberpunk or synthwave briefs, warm beige for cozy ones. Reject a palette or camera framing when it breaks readability (hero or enemies blend into the ground/skybox, 3D enemies look like tiny unreadable specks in playtest screenshots, signal hue reused on scenery, or critical cues distinguished by color alone).
+4. **Asset kit complete and referenced**: every row in `design/assets.csv` is either used by the game or removed; every generated asset is embedded as a complete literal `/motion-api/assets/<assetId>/versions/<versionId>/media` URL (or a relative bundled path, never assembled dynamically by string concatenation) and loads without errors in the playtest failed-request list; each row records source, license and actual approved cost or zero.
+5. **Multimodal-first & style fidelity honoured**: separate required assets (human/anime characters, portraits, requested illustration/cover art, background music, spoken voice) from optional polish. When discovery lists a fitting model, generated assets must be used for those required roles, **match the requested rendering medium** (e.g. an `anime` / `二次元` brief must look like 2D/2.5D anime illustration consistent with the game art, never a live-action DSLR photograph pasted onto a vector canvas), and be **visually verified in playtest screenshots inside the active gameplay/character scenes** (loading an image only on the title screen while active gameplay still draws primitive stick-figure characters fails this item). Any fallback of a required asset must record the concrete blocker in `design/plan.md` (user declined consent, account lacks entitlement, no fitting model listed, or host lacks media tools).
+6. **Audio floor**: short SFX are synthesized with Web Audio (or generated when a model exists); the audio context starts from a user gesture; a mute toggle exists; the game remains playable muted.
+7. **Fallbacks**: every generated image/audio load has a visible loading state and a code-drawn or silent fallback; a failed asset never blanks the canvas or blocks start.
+8. **Reduced motion and flashes**: screen shake and full-screen flashes have a toggle or respect `prefers-reduced-motion`; nothing flashes more than three times per second.
+9. **Touch and layout**: touch controls exist (buttons at least 56 px), no horizontal overflow at 390×844, `h-dvh`/`100dvh` instead of `100vh` for full-height layouts on mobile.
+10. **Copy self-audit**: title, goal line, controls, HUD and end-card strings re-read in every shipped language (English plus `zh-CN` metadata); no broken grammar, unexplained jargon or fake-precise numbers.
+11. **Licenses**: `vendor/`, `characters/` and any supplied asset keep their license files; generated assets list provider/model in `design/assets.csv`.
 
 ## Playable-ad addendum
 

@@ -16,6 +16,7 @@ import { useOptionalWorkspaceCollab } from './WorkspaceCollabContext';
 import { ProjectScopeTabs, filterProjectsByScope, type ProjectScopeFilter } from './collab/ProjectScopeTabs';
 import { motionApi, type useWorkspace } from './useWorkspace';
 import { PROJECT_ARCHIVE_LIMITS, PROJECT_ARCHIVE_VALIDATION_UNAVAILABLE } from '../../../shared/project-archive';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import type { ProjectLocation, ProjectManagementInput } from '../../../shared/project-management';
 
 type Workspace = ReturnType<typeof useWorkspace>;

@@ -97,6 +97,7 @@ function getReverseIndex(locale: Locale): Map<string, string> | undefined {
 const singular: Record<string, string> = {
   '{count} renders': '{count} render', '{count} layers': '{count} layer',
   '{count} works': '{count} work',
+  '{count} images': '{count} image',
   '{count} effects': '{count} effect', '{count} elements': '{count} element',
   '{count} errors': '{count} error', '{count} warnings': '{count} warning',
   ' and its {count} slides': ' and its {count} slide', '{count} lint findings': '{count} lint finding',
@@ -128,12 +129,13 @@ export function sourceMessage(message: string, locale: Locale = 'zh-CN'): string
   return message;
 }
 
-export function translate(locale: Locale, message: string, values: MessageValues = {}): string {
+export function translate(locale: Locale, message: string, values: MessageValues = {}, context?: string): string {
   // Prism returns a legacy Chinese warning followed by an untouched diagnostic.
   const warningPrefix = '模板更新失败，使用已缓存目录：';
   if (message.startsWith(warningPrefix)) return translate(locale, 'Template update failed; using cached catalogue: {message}', { message: message.slice(warningPrefix.length) });
   message = sourceMessage(message, locale);
-  const value = locale === 'en' ? undefined : loadedDictionaries[locale]?.[message];
+  const dictionary = locale === 'en' ? undefined : loadedDictionaries[locale];
+  const value = (context ? dictionary?.[`${message} (${context})`] : undefined) ?? dictionary?.[message];
   const category = typeof values.count === 'number' ? pluralRules[locale].select(values.count) : 'other';
   let text = typeof value === 'string' ? value : value?.[category] ?? value?.other ?? message;
   if (locale === 'en' && category === 'one') text = singular[message] ?? text;

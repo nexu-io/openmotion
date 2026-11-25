@@ -96,6 +96,7 @@ export type DesktopSplashProgress = {
 };
 
 export type DesktopBridgeApi = {
+  readonly initialChrome?: DesktopChromeInsets;
   getAppInfo: () => Promise<DesktopAppInfo>;
   getChromeState: () => Promise<DesktopChromeInsets>;
   subscribeChromeState: (callback: (state: DesktopChromeInsets) => void) => () => void;
@@ -120,6 +121,10 @@ export type DesktopBridgeApi = {
   splashRefreshAccount?: () => Promise<Record<string, unknown>>;
 };
 
+export const DESKTOP_TITLE_BAR_HEIGHT = 46;
+export const MACOS_TRAFFIC_LIGHT_POSITION = Object.freeze({ x: 16, y: 16 });
+export const MACOS_TRAFFIC_LIGHT_INSET_LEFT = 84;
+
 /**
  * Resolves platform-specific title bar style and safe inset geometry so macOS
  * traffic lights, Windows caption overlay, and Linux controls never collide
@@ -133,13 +138,13 @@ export function resolveDesktopChrome(input: {
 }): DesktopChromeInsets {
   const fullscreen = Boolean(input.fullscreen);
   const maximized = Boolean(input.maximized);
-  const titleBarHeight = 46;
+  const titleBarHeight = DESKTOP_TITLE_BAR_HEIGHT;
 
   if (input.platform === 'darwin') {
     return {
       platform: 'darwin',
       titleBarStyle: 'hiddenInset',
-      insetLeft: fullscreen ? 0 : 78,
+      insetLeft: fullscreen ? 0 : MACOS_TRAFFIC_LIGHT_INSET_LEFT,
       insetRight: 0,
       titleBarHeight,
       customWindowControls: false,

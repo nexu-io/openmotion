@@ -13,7 +13,9 @@ import { trackMotion } from './tracking';
 import { writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { editorProjectIdFromPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { StudioRouterProvider } from '../router/createAppRouter';
-import { readWorkspacePage } from './workspacePageRouting';
+import { peekCachedGateway } from './gatewayClient';
+import { useMediaCatalog } from './useMediaCatalog';
+import { readWorkspacePage, unresolvedCreateSceneId } from './workspacePageRouting';
 
 const noPendingSaves = async () => {};
 
@@ -46,7 +48,11 @@ function MotionAppContent() {
     sessionId: new URLSearchParams(routerLocation.search).get('session'),
   }));
   const { projectId, sessionId } = route;
-  const settingsPage = isStandaloneSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash);
+  const pendingCreateScene = unresolvedCreateSceneId(routerLocation.search, routerLocation.hash, routerLocation.pathname);
+  const dynamicRouteCatalog = useMediaCatalog(Boolean(pendingCreateScene));
+  const routeCapabilities = dynamicRouteCatalog.catalog?.capabilities ?? peekCachedGateway()?.capabilities;
+  const resolvingDynamicCreate = Boolean(pendingCreateScene && !routeCapabilities && !dynamicRouteCatalog.failed);
+  const settingsPage = isStandaloneSpaPath(routerLocation.pathname, routerLocation.search, routerLocation.hash, routeCapabilities);
   const [libraryOnly, setLibraryOnly] = useState(
     () =>
       readWorkspacePage(routerLocation.search, routerLocation.hash, routerLocation.pathname).templates &&
@@ -81,7 +87,7 @@ function MotionAppContent() {
       duration_ms: Math.min(86_400_000, Math.round(performance.now() - view.current.started)) });
   }, [projectId, sessionId, ready, error, libraryOnly]);
   useEffect(() => {
-    if (ready || settingsPage) return;
+    if (ready || settingsPage || resolvingDynamicCreate) return;
     const controller = new AbortController();
     setError('');
     async function resolve() {
@@ -112,13 +118,13 @@ function MotionAppContent() {
     }
     void resolve().catch(err => { if (!controller.signal.aborted) setError((err as Error).message); });
     return () => controller.abort();
-  }, [route, attempt, libraryOnly, settingsPage]);
+  }, [route, attempt, libraryOnly, settingsPage, resolvingDynamicCreate]);
   const closeLibrary = () => {
     setLibraryOnly(false);
   };
   return <WorkspaceFrame waitForSaves={noPendingSaves} projectId={ready?.artifact?.projectId ?? (error ? undefined : projectId ?? undefined)}
     sessionId={libraryOnly ? undefined : ready?.sessionId ?? sessionId ?? undefined} onNavigate={onNavigate}
-    blocked={!ready && !error && !libraryOnly && !settingsPage} onLibraryClose={libraryOnly ? closeLibrary : undefined}>
+    blocked={!ready && !error && !libraryOnly && !settingsPage && !resolvingDynamicCreate} onLibraryClose={libraryOnly ? closeLibrary : undefined}>
     <div ref={surface} className="motion-project-surface">
     {error ? <><div className="motion-home-navigation"><WorkspaceMenuButton /></div><RecoveryScreen title={t('Could not open project')} message={error}><Button variant="ghost" className="om-button h-auto" data-primary onClick={() => retry(value => value + 1)}>{t('Retry')}</Button><a className="om-button" href="/editor">{t('Open active project')}</a></RecoveryScreen></>
       : ready ? ready.artifact ? <ArtifactViewer key={ready.artifact.projectId} artifact={ready.artifact} loadingLayout={loadingLayout} /> : <div className="motion-route-state"><WorkspaceMenuButton />{t('Create a project with your Agent to start editing.')}</div>

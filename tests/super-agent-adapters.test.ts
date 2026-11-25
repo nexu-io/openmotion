@@ -16,6 +16,7 @@ import {
   superAgentIntentMeta,
 } from '../shared/super-agent.ts';
 import { SuperAgentConversations } from '../gateway/super-agent.ts';
+import { resolveAcpModelAndEffort } from '../gateway/super-agent-adapters.ts';
 import { AssetAgentRpc } from '../gateway/asset-chat.ts';
 import { fixture } from './fixtures.ts';
 
@@ -300,6 +301,9 @@ test('SuperAgentConversations normalizes Codex reasoning, commandExecution, file
       if (method === 'turn/start') {
         queueMicrotask(() => {
           this.onNotification({ method: 'turn/started', params: {} });
+          this.onNotification({ method: 'item/started', params: { item: { id: 'empty-reasoning', type: 'reasoning' } } });
+          this.onNotification({ method: 'item/reasoning/summaryTextDelta', params: { itemId: 'empty-reasoning', delta: ' ' } });
+          this.onNotification({ method: 'item/completed', params: { item: { id: 'empty-reasoning', type: 'reasoning', summary: [], content: [] } } });
           this.onNotification({ method: 'item/started', params: { item: { id: 'r1', type: 'reasoning' } } });
           this.onNotification({ method: 'item/reasoning/summaryTextDelta', params: { itemId: 'r1', delta: 'Checking repository files' } });
           this.onNotification({ method: 'item/completed', params: { item: { id: 'r1', type: 'reasoning', summary: [{ text: 'Checking repository files' }] } } });
@@ -318,6 +322,16 @@ test('SuperAgentConversations normalizes Codex reasoning, commandExecution, file
             },
           });
           this.onNotification({ method: 'thread/tokenUsage/updated', params: { tokenUsage: { total: { inputTokens: 80, outputTokens: 20, totalTokens: 100 } } } });
+          this.onNotification({
+            method: 'item/completed',
+            params: { item: {
+              id: 'validation', type: 'mcpToolCall', tool: 'openmotion_game_validate', status: 'completed',
+              result: {
+                content: [{ type: 'text', text: 'Validation details '.repeat(170) }],
+                structuredContent: { id: 'game-id', passed: false },
+              },
+            } },
+          });
           this.onNotification({ method: 'item/completed', params: { item: { id: 'a1', type: 'agentMessage', text: 'Updated `README.md`.' } } });
           this.onNotification({ method: 'turn/completed', params: { turn: { id: 't1', status: 'completed' } } });
         });
@@ -348,7 +362,10 @@ test('SuperAgentConversations normalizes Codex reasoning, commandExecution, file
 
     assert.equal(done.state, 'idle');
     assert.equal(done.lastTurnUsage?.totalTokens, 100);
-    assert.ok(done.messages.some(m => m.role === 'reasoning' && m.text.includes('Checking repository files')));
+    assert.deepEqual(
+      done.messages.filter(m => m.role === 'reasoning').map(m => ({ text: m.text, status: m.status })),
+      [{ text: 'Checking repository files', status: 'completed' }],
+    );
     const cmdMsg = done.messages.find(m => m.role === 'tool' && m.toolEvent?.category === 'command');
     assert.equal(cmdMsg?.toolEvent?.command, 'echo ok');
     assert.equal(cmdMsg?.toolEvent?.exitCode, 0);
@@ -356,6 +373,10 @@ test('SuperAgentConversations normalizes Codex reasoning, commandExecution, file
     assert.equal(fileMsg?.toolEvent?.fileOp?.path, 'README.md');
     assert.equal(fileMsg?.toolEvent?.fileOp?.addedLines, 2);
     assert.equal(fileMsg?.toolEvent?.fileOp?.removedLines, 1);
+    const validation = done.messages.find(m => m.toolEvent?.tool === 'openmotion_game_validate')?.toolEvent;
+    assert.equal(validation?.status, 'completed');
+    assert.equal(validation?.validationPassed, false);
+    assert(validation?.outputPreview?.endsWith('…'));
   } finally {
     await service.close();
   }
@@ -421,11 +442,22 @@ test('SuperAgentConversations captures Claude thinking_delta, Bash/Edit classifi
 
 test('detectIntentFromPrompt, inferSuperAgentIntent, generateSuperAgentTitle, and superAgentIntentMeta classify tasks cleanly', () => {
   assert.equal(modeToSuperAgentIntent('coding'), 'coding');
+  assert.equal(modeToSuperAgentIntent('design'), 'design');
+  assert.equal(modeToSuperAgentIntent('research'), 'research');
+  assert.equal(modeToSuperAgentIntent('visualization'), 'visualization');
   assert.equal(modeToSuperAgentIntent('motion'), 'video');
   assert.equal(modeToSuperAgentIntent('deck'), 'slides');
+  assert.equal(modeToSuperAgentIntent('document'), 'slides');
 
   assert.equal(detectIntentFromPrompt('Fix the bug in dashboard.tsx'), 'coding');
   assert.equal(detectIntentFromPrompt('帮我写个单元测试检查 parser.ts'), 'coding');
+  assert.equal(detectIntentFromPrompt('[Mode: Game Studio] Build a wave shooter'), 'game');
+  assert.equal(detectIntentFromPrompt('[Mode: Research a topic | Deliverable: Visual Report] Compare platforms'), 'research');
+  assert.equal(detectIntentFromPrompt('[Mode: Visualization | Visual type: KPI Dashboard] Build telemetry view'), 'visualization');
+  assert.equal(detectIntentFromPrompt('[Mode: Design Studio · HTML Design | Module: Prototype] Create a fintech landing page'), 'design');
+  assert.equal(detectIntentFromPrompt('[Mode: Design Studio · HTML Design | Module: Slide deck] Create a 6-slide deck'), 'slides');
+  assert.equal(detectIntentFromPrompt('[Mode: Design Studio · HTML Design | Module: Document] Write an annual report'), 'slides');
+  assert.equal(detectIntentFromPrompt('[Mode: Design Studio · Image Artwork] Generate a neon hero banner'), 'image');
   assert.equal(detectIntentFromPrompt('Build a retro arcade shooter game'), 'game');
   assert.equal(detectIntentFromPrompt('帮我写一个贪吃蛇小游戏'), 'game');
   assert.equal(detectIntentFromPrompt('Design a SaaS pricing landing page'), 'website');
@@ -461,6 +493,7 @@ test('detectIntentFromPrompt, inferSuperAgentIntent, generateSuperAgentTitle, an
   // Title generation preserves short prompts, strips noise, and upgrades generic hello titles
   assert.equal(generateSuperAgentTitle({ prompt: 'Build a retro arcade shooter game' }), 'Build a retro arcade shooter game');
   assert.equal(generateSuperAgentTitle({ prompt: '[Mode: Coding] Please fix bug in server.ts' }), 'fix bug in server.ts');
+  assert.equal(generateSuperAgentTitle({ prompt: '[Mode: Design Studio · HTML Design | Module: Prototype] Build a clean dashboard' }), 'Build a clean dashboard');
   assert.equal(generateSuperAgentTitle({ prompt: '帮我写一个贪吃蛇小游戏' }), '写一个贪吃蛇小游戏');
   assert.equal(
     generateSuperAgentTitle({
@@ -472,6 +505,9 @@ test('detectIntentFromPrompt, inferSuperAgentIntent, generateSuperAgentTitle, an
   );
 
   assert.equal(superAgentIntentMeta('coding').icon, 'code-s-slash-line');
+  assert.deepEqual(superAgentIntentMeta('design'), { icon: 'palette-line', tone: 'image', label: 'Design Studio' });
+  assert.deepEqual(superAgentIntentMeta('research'), { icon: 'book-open-line', tone: 'agent', label: 'Research' });
+  assert.deepEqual(superAgentIntentMeta('visualization'), { icon: 'bar-chart-box-line', tone: 'coding', label: 'Visualization' });
   assert.equal(superAgentIntentMeta('website').icon, 'layout-line');
   assert.equal(superAgentIntentMeta('chat').icon, 'chat-1-line');
 });
@@ -592,5 +628,103 @@ test('SuperAgentConversations executes Coding mode without creative MCP tools an
   } finally {
     await service.close();
     await rm(workDir, { recursive: true, force: true });
+  }
+}));
+
+test('resolveAcpModelAndEffort flattens grouped ACP configOptions and maps effort aliases cleanly', () => {
+  const groupedConfig = [
+    {
+      id: 'model',
+      category: 'model',
+      options: [
+        { group: 'Gemini', options: [{ value: 'gemini-4-neon' }, { value: 'gemini-4-carbon' }] },
+        { group: 'Claude', options: [{ value: 'claude-opus-4' }] },
+      ],
+    },
+    {
+      id: 'reasoning_effort',
+      type: 'select',
+      options: [
+        { group: 'Levels', options: [{ value: 'low' }, { value: 'medium' }, { value: 'high' }, { value: 'xhigh' }] },
+      ],
+    },
+  ];
+
+  assert.deepEqual(
+    resolveAcpModelAndEffort('gemini-4-neon', 'extra', groupedConfig),
+    { configModelValue: 'gemini-4-neon', directModelId: 'gemini-4-neon', effortValue: 'xhigh' },
+  );
+  assert.deepEqual(
+    resolveAcpModelAndEffort('gemini-4-neon-xhigh', undefined, groupedConfig),
+    { configModelValue: 'gemini-4-neon', directModelId: 'gemini-4-neon-xhigh', effortValue: 'xhigh' },
+  );
+});
+
+test('SuperAgentConversations forwards model and reasoning to Claude, Codex turn/start, and ACP re-resolved configOptions', () => fixture(async store => {
+  let capturedClaudeModel: string | undefined;
+  let capturedClaudeReasoning: string | undefined;
+  let capturedCodexTurnStart: any = null;
+
+  class EffortCodexRpc {
+    onNotification: (msg: any) => void;
+    constructor(_bin: string, _cwd: string, onNotification: (msg: any) => void) {
+      this.onNotification = onNotification;
+    }
+    async request(method: string, params?: any) {
+      if (method === 'initialize') return {};
+      if (method === 'thread/start' || method === 'thread/resume') return { thread: { id: 'thr-effort-1' } };
+      if (method === 'turn/start') {
+        capturedCodexTurnStart = params;
+        queueMicrotask(() => {
+          this.onNotification({ method: 'turn/completed', params: { turn: { id: 't-effort', status: 'completed' } } });
+        });
+        return { turn: { id: 't-effort' } };
+      }
+      return {};
+    }
+    send() {}
+    close() {}
+  }
+
+  const service = new SuperAgentConversations(store, {
+    resolve: async engine => `/usr/local/bin/${engine}`,
+    rpc: EffortCodexRpc as unknown as typeof AssetAgentRpc,
+    runClaude: async opts => {
+      capturedClaudeModel = opts.model;
+      capturedClaudeReasoning = opts.reasoning;
+      await opts.onEvent({ type: 'result', subtype: 'success', result: 'Done' });
+    },
+  });
+
+  try {
+    // 1) Claude receives both model and reasoning
+    const claudeChat = await service.create({ engine: 'claude', model: 'claude-opus-4-6', reasoning: 'high', permissionMode: 'auto' });
+    await service.start(claudeChat.id, {
+      requestId: 'req-claude-effort-1',
+      text: 'Analyze architecture',
+      model: 'claude-opus-4-6',
+      reasoning: 'high',
+    }, { origin: 'http://127.0.0.1:4173', phase1: () => fakePhase1(store) });
+    for (let i = 0; i < 60 && (await service.get(claudeChat.id)).state === 'running'; i++) {
+      await new Promise(r => setTimeout(r, 15));
+    }
+    assert.equal(capturedClaudeModel, 'claude-opus-4-6');
+    assert.equal(capturedClaudeReasoning, 'high');
+
+    // 2) Codex turn/start receives both model and effort
+    const codexChat = await service.create({ engine: 'codex', model: 'gpt-5.3-codex', reasoning: 'xhigh', permissionMode: 'auto' });
+    await service.start(codexChat.id, {
+      requestId: 'req-codex-effort-1',
+      text: 'Refactor module',
+      model: 'gpt-5.3-codex',
+      reasoning: 'xhigh',
+    }, { origin: 'http://127.0.0.1:4173', phase1: () => fakePhase1(store) });
+    for (let i = 0; i < 60 && (await service.get(codexChat.id)).state === 'running'; i++) {
+      await new Promise(r => setTimeout(r, 15));
+    }
+    assert.equal(capturedCodexTurnStart?.model, 'gpt-5.3-codex');
+    assert.equal(capturedCodexTurnStart?.effort, 'xhigh');
+  } finally {
+    await service.close();
   }
 }));

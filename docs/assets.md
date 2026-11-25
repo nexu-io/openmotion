@@ -25,7 +25,7 @@ Model Gateway keeps the existing credentials, providers, OpenDesign account conn
 | Action | Boundary |
 | --- | --- |
 | `list`, `get` | Filter/page metadata; inspect versions and provenance |
-| `read` | Read bounded media content for an explicit assetId/versionId; no generation or asset-version mutation |
+| `read` | Read bounded media content for an explicit `assetId`/`versionId` or batch image contact sheet `items` (1–12 pinned images), with optional `maxEdge` (128–1024); no generation or asset-version mutation |
 | `import` | Copy a real local file using a stable requestId; optional assetId/parentVersionId appends a version |
 | `update` | Rename, trash/restore, or select an existing currentVersionId |
 | `generate` | Explicit model, modality, prompt, stable requestId and optional parameters/references; returns a job |
@@ -40,11 +40,12 @@ The browser upload endpoint is `POST /motion-api/assets/upload?requestId=...` wi
 
 ## Reading a fixed version
 
-Call `openmotion_assets_use` with `action: "read"`, `assetId` and `versionId`. `get` stays metadata-only. The shared reader snapshots a regular no-follow file, verifies its saved byte count/SHA-256 and decodes that snapshot; it never follows a changing current-version pointer. Retained trash is readable, consistently with get/download, while new references and project imports still require an active asset.
+Call `openmotion_assets_use` (or `openmotion_asset_manage`) with `action: "read"` and either `assetId` + `versionId` (single asset) or `items` (1–12 pinned `{assetId, versionId}` image versions for a single contact sheet). `get` stays metadata-only. The shared reader snapshots every regular no-follow file, verifies its saved byte count/SHA-256 and decodes that snapshot; it never follows a changing current-version pointer. Retained trash is readable, consistently with get/download, while new references and project imports still require an active asset.
 
-- Images return a PNG preview with aspect ratio and transparency retained, at most 1024 pixels per side and without upscaling.
-- Video returns the first frame by default. Optional `timestamps` selects one to four seek positions in seconds, in request order. Positions must be before the known media duration; codec/frame-rate seeking can quantize the selected frame. These are requested seek positions, not frame-accurate motion measurements.
-- Audio returns mono 16 kHz PCM WAV. Optional `start` defaults to zero; `duration` defaults to 10 seconds, accepts 0.1–15 seconds, and clips to the available audio. The result records the measured clip duration. Timestamps are video-only; start/duration are audio-only.
+- Images return a PNG preview with aspect ratio and transparency retained, capped by optional `maxEdge` (integer `128–1024`, default `1024`) pixels per side without upscaling.
+- Batch image reads (`items`, 1–12 pinned images, mutually exclusive with `assetId`/`versionId`/`timestamps`/`start`/`duration`) composite all images into one row-major labeled contact-sheet PNG over a neutral gray matte (making transparent alpha cutouts distinct) strictly within `maxEdge` (`128–1024`, default `1024`) pixels per side.
+- Video returns the first frame by default. Optional `timestamps` selects one to four seek positions in seconds, in request order, and optional `maxEdge` (`128–1024`, default `1024`) caps each frame's longest edge. Positions must be before the known media duration; codec/frame-rate seeking can quantize the selected frame. These are requested seek positions, not frame-accurate motion measurements.
+- Audio returns mono 16 kHz PCM WAV. Optional `start` defaults to zero; `duration` defaults to 10 seconds, accepts 0.1–15 seconds, and clips to the available audio. The result records the measured clip duration. Timestamps are video-only; start/duration are audio-only; `maxEdge` is image/video-only.
 - Each preview is at most 4 MiB, and one read is at most 8 MiB of decoded output files before base64 encoding. A decode or limit failure returns an error, not an empty successful preview. Temporary snapshots/previews are removed on success or failure; no project, generation task or asset version is created.
 
 HTTP returns version metadata, measured preview metadata and typed `content`. Stdio MCP and WebMCP return the same media in native image/audio content blocks and keep base64 out of `structuredContent` and its text summary. The embedded Codex runner forwards image/audio data URLs using its app-server content types and persists only metadata, never media base64, in tool messages. Host support determines whether media can actually be interpreted or played; a successful read is not evidence of human listening or visual acceptance.

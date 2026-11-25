@@ -6,6 +6,7 @@ import { RemixIcon } from '../../../packages/design-system/react/RemixIcons';
 import { brandCatalogFile, type BrandCatalog, type BrandCatalogEntry } from '../../../shared/brand-catalog';
 import { IconButton } from 'open-design-ui/icon-button';
 import { useI18n } from '../i18n/I18n';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { BrandKitLivePreview } from '../motion/BrandKitLivePreview';
 import { brandFile, brandRequest, loadBrandKits, type BrandKit } from '../motion/brandKitClient';
 import './design.css';
@@ -107,14 +108,14 @@ export function BrandKitPicker({
     return () => { active = false; controller.abort(); };
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return kits.filter(k => !q
-      || k.name.toLowerCase().includes(q)
-      || k.category.toLowerCase().includes(q)
-      || k.description.toLowerCase().includes(q)
-      || k.tags.some(tag => tag.toLowerCase().includes(q))).slice(0, 60);
-  }, [kits, query]);
+  const filtered = useMemo(() => rankSearchResults(kits, query, k => ({
+    id: k.id,
+    title: k.name,
+    subtitle: k.category,
+    description: k.description,
+    tags: k.tags,
+    aliases: [k.appearance ?? '', t(k.category), k.websiteUrl ?? ''],
+  })).slice(0, 60).map(r => r.item), [kits, query, t]);
 
   const previewKit = hovered ?? selected ?? filtered[0] ?? null;
 
@@ -262,7 +263,7 @@ export function BrandKitPicker({
                   <div style={{ display: 'flex', gap: 8 }}>
                     <Button type="button" size="sm" variant="ghost" onClick={() => setDetailKit(null)}>{t('Close')}</Button>
                     <Button type="button" size="sm" variant="primary" onClick={() => { onSelect(detailKit); setDetailKit(null); }}>
-                      {t('Use this Brand Kit')}
+                      {t('Use Brand Kit')}
                     </Button>
                   </div>
                 </div>

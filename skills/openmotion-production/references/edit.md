@@ -20,7 +20,7 @@ Before the first content write and after the saved batch, apply the [continuing-
 
 先按 [共享上下文](context.md) 补齐本轮所需正文并完成读后决策边界，再检查目标工程、最新 revision 与受影响源文件。STATE 用于恢复决定，不能代替当前源文件。首次修改某对象时，留存足够的修改前证据：可用源文件片段、相关文件副本/哈希、时间线事件或对应画面；按风险选择，不要求每轮复制全工程。
 
-定位实际被引用的组件、素材、时间线和重复再现，注意共享样式、变量与父级变换的影响。对照预期范围形成必要的改动集合，再通过 [运行规范](production.md) 执行。保留其他已确认内容、源 ID、裁切和 Studio 编辑；不因换 Skill 重新套模板或另起工程。遇到 revision 冲突，读取真实差异后在新版本上重新形成修改，不把旧文件整体覆盖回去。
+定位实际被引用的组件、素材、时间线和重复再现，注意共享样式、变量与父级变换的影响。涉及已生成的图片、视频、配音或抠图素材需要局部重做时，先通过 `openmotion_asset_manage`（或 `openmotion_assets_use`）`action="get"` 读取该素材版本的 `capabilityId`、`capabilityOptions`、`references` 与 `parentVersionId` 来源记录，仅对受影响片段传入原 `assetId` 与 `parentVersionId` 重新生成新版本并替换对应引用，严禁把未改动的镜头、Motion 动效或背景音乐推翻重做。对照预期范围形成必要的改动集合，再通过 [运行规范](production.md) 执行。保留其他已确认内容、源 ID、裁切和 Studio 编辑；不因换 Skill 重新套模板或另起工程。遇到 revision 冲突，读取真实差异后在新版本上重新形成修改，不把旧文件整体覆盖回去。
 
 ### 大文件原地修改与保存前结构核对
 

@@ -5,6 +5,12 @@ import { useEffect, useCallback, useRef, type RefObject } from "react";
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
 
+function visibleControls(container: HTMLElement) {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    control => control.checkVisibility?.({ visibilityProperty: true }) !== false,
+  );
+}
+
 interface DialogBehaviorOptions {
   open: boolean;
   onClose: () => void;
@@ -46,7 +52,7 @@ export function useDialogBehavior({
     restoreRef.current = previouslyFocused instanceof HTMLElement ? previouslyFocused : null;
 
     const container = containerRef.current;
-    const first = container?.querySelector<HTMLElement>(FOCUSABLE);
+    const first = container && visibleControls(container)[0];
     (first ?? container)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
@@ -58,7 +64,7 @@ export function useDialogBehavior({
       if (e.key !== "Tab") return;
       const el = containerRef.current;
       if (!el) return;
-      const focusables = Array.from(el.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const focusables = visibleControls(el);
       if (focusables.length === 0) return;
       const firstEl = focusables[0];
       const lastEl = focusables[focusables.length - 1];

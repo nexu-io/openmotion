@@ -1,0 +1,24 @@
+{
+  "name": "@openmotion/multimodal-models",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed, live-syncable multimodal AI model registry covering image, video, audio, speech, music, and 3D model capabilities and configurable parameter schemas.",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./normalize": "./src/normalize.ts",
+    "./query": "./src/query.ts",
+    "./sources": "./src/sources.ts",
+    "./curated": "./src/curated.ts",
+    "./data/index.json": "./data/index.json"
+  },
+  "scripts": {
+    "sync": "node --experimental-strip-types ./src/sync.ts",
+    "sync:full": "node --experimental-strip-types ./src/sync.ts --scope=full",
+    "query": "node --experimental-strip-types ./src/cli.ts",
+    "typecheck": "tsc -p ./tsconfig.json",
+    "test": "node --experimental-strip-types --test ./tests/*.test.ts"
+  }
+}

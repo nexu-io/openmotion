@@ -1,5 +1,7 @@
 import type { BrowserWindowConstructorOptions } from 'electron';
 import {
+  DESKTOP_TITLE_BAR_HEIGHT,
+  MACOS_TRAFFIC_LIGHT_POSITION,
   resolveDesktopChrome,
   type DesktopChromeInsets,
   type DesktopPlatform,
@@ -19,13 +21,13 @@ export function getWindowsTitleBarOverlay(theme: 'light' | 'dark' = 'dark') {
     return {
       color: '#f8f8f6',
       symbolColor: '#1b1d20',
-      height: 46,
+      height: DESKTOP_TITLE_BAR_HEIGHT,
     };
   }
   return {
     color: '#141517',
     symbolColor: '#e6e8ec',
-    height: 46,
+    height: DESKTOP_TITLE_BAR_HEIGHT,
   };
 }
 
@@ -62,6 +64,9 @@ export function buildMainWindowOptions(input: {
       nodeIntegration: false,
       sandbox: true,
       spellcheck: false,
+      ...(chrome.platform === 'linux' && !chrome.customWindowControls
+        ? { additionalArguments: ['--om-linux-native-frame'] }
+        : {}),
     },
   };
 
@@ -69,7 +74,7 @@ export function buildMainWindowOptions(input: {
     return {
       ...base,
       titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 15 },
+      trafficLightPosition: { ...MACOS_TRAFFIC_LIGHT_POSITION },
     };
   }
 

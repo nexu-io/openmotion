@@ -7,20 +7,21 @@ import {
   type DesignSkillSummary, type DesignTemplateSummary,
 } from '../../../../shared/design-project';
 import { IconButton } from 'open-design-ui/icon-button';
+import { rankSearchResults } from '../../../../shared/fuzzy-search';
 import { StudioToastViewport } from '../../components/StudioToastViewport';
 import { useToast } from '../../hooks/useToast';
 import { useI18n } from '../../i18n/I18n';
 import { Skeleton } from '../../components/ui/Skeleton';
 import { GallerySearchField } from '../../motion/GalleryFilters';
 import { reportCreativeClick } from '../../motion/exploreTracking';
-import designArtwork from '../../motion/scene-art/studio-glass-sculpture.jpg';
+import designArtwork from '../../motion/scene-art/studio-glass-sculpture.avif';
 import { useIntegrationInfo } from '../../motion/useIntegrationInfo';
 import { BrandKitPicker, type SelectedBrandKit } from '../BrandKitPicker';
 import { designClient, peekCachedDesignSkills, peekCachedDesignTemplates } from '../designClient';
 import { DesignProjectList } from '../DesignProjectList';
 import { DesignTemplateDetailModal } from '../DesignTemplateDetailModal';
 import { ScaledPreviewThumb } from '../ScaledPreviewThumb';
-import designMentionTitlesZh from '../design-mention-titles.zh-CN.json';
+import designMentionTitlesZh from '../../../../shared/design-mention-titles.zh-CN.json';
 import { DesignSceneTabs, type DesignTabId } from './DesignSceneTabs';
 import '../design.css';
 
@@ -120,10 +121,17 @@ export function DesignScenePage({
     designClient.listSkills().then(res => { if (Array.isArray(res?.skills)) setSkills(res.skills); }).catch(() => setSkills([]));
   }, []);
 
+  const [debouncedTemplateQuery, setDebouncedTemplateQuery] = useState(templateQuery);
+  useEffect(() => {
+    if (!templateQuery.trim()) { setDebouncedTemplateQuery(''); return; }
+    const timer = window.setTimeout(() => setDebouncedTemplateQuery(templateQuery), 150);
+    return () => window.clearTimeout(timer);
+  }, [templateQuery]);
+
   useEffect(() => {
     if (!scenario) return;
     let cancelled = false;
-    const trimmedQuery = templateQuery.trim() || undefined;
+    const trimmedQuery = debouncedTemplateQuery.trim() || undefined;
     const cached = !trimmedQuery && templateRetry === 0
       ? peekCachedDesignTemplates({ scenario: scenario.id, limit: 24 })
       : undefined;
@@ -143,13 +151,22 @@ export function DesignScenePage({
       })
       .finally(() => { if (!cancelled) setTemplatesLoading(false); });
     return () => { cancelled = true; };
-  }, [scenario?.id, templateQuery, templateRetry]);
+  }, [scenario?.id, debouncedTemplateQuery, templateRetry]);
 
   const filteredSkills = useMemo(() => {
-    const q = skillQuery.trim().toLowerCase();
-    const list = skills.filter(s => !q || s.title.toLowerCase().includes(q) || s.description.toLowerCase().includes(q) || s.id.includes(q));
-    return [...list].sort((a, b) => Number(b.scenario === scenario?.id) - Number(a.scenario === scenario?.id)).slice(0, 48);
-  }, [skills, skillQuery, scenario?.id]);
+    const q = skillQuery.trim();
+    const list = q
+      ? rankSearchResults(skills, q, s => ({
+          id: s.id,
+          title: mentionTitlesZh.skills.get(s.id) ?? s.title,
+          subtitle: s.category,
+          description: s.description,
+          tags: s.scenario ? [s.scenario] : undefined,
+          aliases: [s.title, t(s.title), t(s.description)],
+        })).map(r => r.item)
+      : [...skills].sort((a, b) => Number(b.scenario === scenario?.id) - Number(a.scenario === scenario?.id));
+    return list.slice(0, 48);
+  }, [skills, skillQuery, scenario?.id, t]);
 
   type MentionOption =
     | { kind: 'template'; id: string; label: string; item: DesignTemplateSummary }
@@ -158,30 +175,46 @@ export function DesignScenePage({
 
   const mentionOptions = useMemo<MentionOption[]>(() => {
     if (!mention) return [];
-    const q = mention.query.trim().toLowerCase();
+    const q = mention.query.trim();
     const localizedTitles = locale === 'zh-CN' ? mentionTitlesZh : undefined;
-    const matches = (...terms: string[]) => !q || terms.some(term => term.toLowerCase().includes(q));
     const out: MentionOption[] = [];
-    for (const tpl of templates) {
+    const matchedTemplates = q
+      ? rankSearchResults(templates, q, tpl => ({
+          id: tpl.id,
+          title: localizedTitles?.templates.get(tpl.id) ?? tpl.title,
+          subtitle: tpl.category,
+          description: tpl.description,
+          tags: tpl.tags,
+          aliases: [tpl.title, mentionTitlesZh.templates.get(tpl.id) ?? ''],
+        })).map(r => r.item)
+      : templates;
+    for (const tpl of matchedTemplates.slice(0, 6)) {
       const label = localizedTitles?.templates.get(tpl.id) ?? tpl.title;
-      if (matches(label, tpl.title, tpl.id, tpl.category)) {
-        out.push({ kind: 'template', id: `tpl:${tpl.id}`, label, item: tpl });
-        if (out.length >= 6) break;
-      }
+      out.push({ kind: 'template', id: `tpl:${tpl.id}`, label, item: tpl });
     }
-    let skillCount = 0;
-    for (const sk of skills) {
+    const matchedSkills = q
+      ? rankSearchResults(skills, q, sk => ({
+          id: sk.id,
+          title: localizedTitles?.skills.get(sk.id) ?? sk.title,
+          subtitle: sk.category,
+          description: sk.description,
+          aliases: [sk.title, mentionTitlesZh.skills.get(sk.id) ?? ''],
+        })).map(r => r.item)
+      : skills;
+    for (const sk of matchedSkills.slice(0, 6)) {
       const label = localizedTitles?.skills.get(sk.id) ?? sk.title;
-      if (matches(label, sk.title, sk.id)) {
-        out.push({ kind: 'skill', id: `sk:${sk.id}`, label, item: sk });
-        if (++skillCount >= 6) break;
-      }
+      out.push({ kind: 'skill', id: `sk:${sk.id}`, label, item: sk });
     }
-    for (const [i, ex] of (scenario?.examples ?? []).entries()) {
-      const text = t(ex);
-      if (matches(text, ex)) {
-        out.push({ kind: 'prompt', id: `pr:${i}`, label: text, text });
-      }
+    const examples = (scenario?.examples ?? []).map((ex, i) => ({ ex, i, text: t(ex) }));
+    const matchedExamples = q
+      ? rankSearchResults(examples, q, item => ({
+          id: `pr:${item.i}`,
+          title: item.text,
+          aliases: [item.ex],
+        })).map(r => r.item)
+      : examples;
+    for (const item of matchedExamples) {
+      out.push({ kind: 'prompt', id: `pr:${item.i}`, label: item.text, text: item.text });
     }
     return out;
   }, [mention, templates, skills, scenario?.examples, locale, t]);

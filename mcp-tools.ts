@@ -96,7 +96,13 @@ async function designRequest(origin: string, path: string, data: object, store: 
 export async function callTool(name: string, args: Record<string, unknown> = {}, store = new WorkspaceStore(), tracking?: OmTracking) {
   name = legacyToolName(name);
   if (!tools.some(tool => tool.name === publicToolName(name))) throw new Error('Unknown tool: ' + name);
-  if (name.startsWith('motion_game_')) return dispatchGameTool(name, args, (store.workspaceStore ?? store).directory);
+  if (name.startsWith('motion_game_')) {
+    const workspace = (store.workspaceStore ?? store).directory;
+    const runtimeRoot = name === 'motion_game_validate' || name === 'motion_game_publish'
+      ? await ensureRuntime(workspace, false)
+      : undefined;
+    return dispatchGameTool(name, args, workspace, runtimeRoot);
+  }
   if (args.projectId !== undefined) {
     if (typeof args.projectId !== 'string') throw new Error('工程编号无效');
     store = store.forProject(args.projectId);

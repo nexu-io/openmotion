@@ -229,6 +229,17 @@ function extractExitCode(rawOutput: unknown): number | undefined {
   return undefined;
 }
 
+function flattenAcpSelectOptions(options: unknown): any[] {
+  if (!Array.isArray(options)) return [];
+  return options.flatMap((entry: any) => (
+    entry && typeof entry === 'object' && ('value' in entry || 'id' in entry)
+      ? [entry]
+      : Array.isArray(entry?.options)
+        ? entry.options
+        : []
+  ));
+}
+
 function pickConfigValues(configOptions: unknown): { modelOpt?: any; thoughtOpt?: any } {
   if (!Array.isArray(configOptions)) return {};
   let modelOpt: any;
@@ -237,28 +248,61 @@ function pickConfigValues(configOptions: unknown): { modelOpt?: any; thoughtOpt?
     if (!opt || typeof opt !== 'object') continue;
     const cat = String((opt as any).category || '').toLowerCase();
     const id = String((opt as any).id || '').toLowerCase();
+    const type = String((opt as any).type || '').toLowerCase();
     if (!modelOpt && (cat === 'model' || id === 'model')) modelOpt = opt;
-    if (!thoughtOpt && (cat === 'thought_level' || id === 'thought_level' || id === 'reasoning' || id === 'effort')) {
+    if (
+      !thoughtOpt
+      && (
+        cat === 'thought_level'
+        || (cat === 'thinking' && (!type || type === 'select'))
+        || ['thought_level', 'reasoning_effort', 'reasoning', 'thinking', 'effort'].includes(id)
+      )
+    ) {
       thoughtOpt = opt;
     }
   }
   return { modelOpt, thoughtOpt };
 }
 
-function resolveAcpModelAndEffort(
+function matchEffortChoice(requested: string, effortChoices: string[]): string {
+  if (!effortChoices.length) return requested;
+  if (effortChoices.includes(requested)) return requested;
+  const lower = requested.toLowerCase();
+  const ci = effortChoices.find(item => item.toLowerCase() === lower);
+  if (ci) return ci;
+  if (lower === 'xhigh' || lower === 'extra') {
+    const alias = effortChoices.find(item => {
+      const l = item.toLowerCase();
+      return l === 'xhigh' || l === 'extra' || l === 'max';
+    });
+    if (alias) return alias;
+  }
+  if (lower === 'none' || lower === 'off') {
+    const alias = effortChoices.find(item => {
+      const l = item.toLowerCase();
+      return l === 'none' || l === 'off';
+    });
+    if (alias) return alias;
+  }
+  return requested;
+}
+
+export function resolveAcpModelAndEffort(
   requestedModel: string | undefined,
   requestedReasoning: string | undefined,
   configOptions: unknown,
 ): { configModelValue?: string; directModelId?: string; effortValue?: string } {
   const { modelOpt, thoughtOpt } = pickConfigValues(configOptions);
-  const effortChoices: string[] = Array.isArray(thoughtOpt?.options)
-    ? thoughtOpt.options.map((o: any) => String(o?.value ?? o?.id ?? '')).filter(Boolean)
-    : [];
-  const modelChoices: string[] = Array.isArray(modelOpt?.options)
-    ? modelOpt.options.map((o: any) => String(o?.value ?? o?.id ?? '')).filter(Boolean)
-    : [];
+  const effortChoices: string[] = flattenAcpSelectOptions(thoughtOpt?.options)
+    .map((o: any) => String(o?.value ?? o?.id ?? ''))
+    .filter(Boolean);
+  const modelChoices: string[] = flattenAcpSelectOptions(modelOpt?.options)
+    .map((o: any) => String(o?.value ?? o?.id ?? ''))
+    .filter(Boolean);
 
-  let effortValue = requestedReasoning && requestedReasoning !== 'default' ? requestedReasoning : undefined;
+  let effortValue = requestedReasoning && requestedReasoning !== 'default'
+    ? matchEffortChoice(requestedReasoning, effortChoices)
+    : undefined;
   let configModelValue: string | undefined;
   let directModelId: string | undefined;
 
@@ -267,13 +311,16 @@ function resolveAcpModelAndEffort(
     if (modelChoices.includes(requestedModel)) {
       configModelValue = requestedModel;
     } else {
-      const suffixMatch = requestedModel.match(/^(.+)-(low|medium|high|xhigh|max)$/i);
+      const suffixMatch = requestedModel.match(/^(.+)-(low|medium|high|xhigh|extra|max|minimal|off|none)$/i);
       if (suffixMatch) {
         const [, base, effort] = suffixMatch;
         if (modelChoices.includes(base)) {
           configModelValue = base;
-          if (!effortValue && (!effortChoices.length || effortChoices.includes(effort.toLowerCase()))) {
-            effortValue = effort.toLowerCase();
+          if (!effortValue) {
+            const matched = matchEffortChoice(effort.toLowerCase(), effortChoices);
+            if (!effortChoices.length || effortChoices.includes(matched)) {
+              effortValue = matched;
+            }
           }
         }
       }
@@ -661,30 +708,40 @@ async function runSingleAcpAttempt(
         await callbacks.onThreadId(acpSessionId);
       }
 
-      const { configModelValue, directModelId, effortValue } = resolveAcpModelAndEffort(
+      let activeConfigOptions = sessionResult?.configOptions;
+      const initialResolved = resolveAcpModelAndEffort(
         model,
         reasoning,
-        sessionResult?.configOptions,
+        activeConfigOptions,
       );
-      const { modelOpt, thoughtOpt } = pickConfigValues(sessionResult?.configOptions);
+      const { modelOpt } = pickConfigValues(activeConfigOptions);
 
-      if (configModelValue && modelOpt?.id) {
-        await request('session/set_config_option', {
+      if (initialResolved.configModelValue && modelOpt?.id) {
+        const modelSetRes = await request('session/set_config_option', {
           sessionId: acpSessionId,
           configId: modelOpt.id,
-          value: configModelValue,
-        }, 8_000).catch(() => {});
-      } else if (directModelId) {
-        await request('session/set_model', {
+          value: initialResolved.configModelValue,
+        }, 8_000).catch(() => null);
+        if (Array.isArray(modelSetRes?.configOptions)) {
+          activeConfigOptions = modelSetRes.configOptions;
+        }
+      } else if (initialResolved.directModelId) {
+        const modelSetRes = await request('session/set_model', {
           sessionId: acpSessionId,
-          modelId: directModelId,
-        }, 8_000).catch(() => {});
+          modelId: initialResolved.directModelId,
+        }, 8_000).catch(() => null);
+        if (Array.isArray(modelSetRes?.configOptions)) {
+          activeConfigOptions = modelSetRes.configOptions;
+        }
       }
-      if (effortValue && thoughtOpt?.id) {
+      const { thoughtOpt } = pickConfigValues(activeConfigOptions);
+      const finalResolved = resolveAcpModelAndEffort(model, reasoning, activeConfigOptions);
+      const effortToApply = finalResolved.effortValue ?? initialResolved.effortValue;
+      if (effortToApply && thoughtOpt?.id) {
         await request('session/set_config_option', {
           sessionId: acpSessionId,
           configId: thoughtOpt.id,
-          value: effortValue,
+          value: effortToApply,
         }, 8_000).catch(() => {});
       }
 
@@ -944,6 +1001,7 @@ export async function runPiRpcAdapter(opts: {
   prompt: string;
   instructions?: string;
   model?: string;
+  reasoning?: string;
   signal: AbortSignal;
   callbacks: ProviderAdapterCallbacks;
 }): Promise<void> {
@@ -952,6 +1010,7 @@ export async function runPiRpcAdapter(opts: {
     '--mode', 'rpc',
     '--no-session',
     ...(opts.model && opts.model !== 'default' ? ['--model', opts.model] : []),
+    ...(opts.reasoning && opts.reasoning !== 'default' ? ['--thinking', opts.reasoning] : []),
   ];
   const command = await agentInvocation(opts.bin, args);
 

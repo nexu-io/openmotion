@@ -2,7 +2,7 @@
 
 # Meshy API — verified animated-character pipeline (FALLBACK ONLY)
 
-> **OpenMotion replacement:** no built-in image-to-3D, rigging or animation-preset provider is promised. Prefer `templates/game-kits/characters/`. The complete external-provider recipe below preserves input decisions, costs, numeric budgets and failure recovery as historical technical reference, not a current executable integration. An explicitly configured and authorized adapter must be discovered before any submission, with current cost and spending approval. Never request secrets in chat or game files. Upstream stages were [1] image_to_3d with should_texture, [2] enable_rigging, [3] enable_animation plus integer animation_action_id (one clip/job; extra clips via 3d_rigging), [4] local merge. OpenMotion has no equivalent shared credit balance or automatic raw-API fallback.
+> **OpenMotion replacement:** no built-in image-to-3D, rigging or animation-preset provider is promised. Prefer `templates/game-kits/characters/`. The complete external-provider recipe below preserves input decisions, costs, numeric budgets and failure recovery as historical technical reference, not a current executable integration. An explicitly configured and authorized adapter must be discovered before any submission, with current cost and spending approval. Never request secrets in chat or game files. OpenMotion media discovery listed no 3D or rigging model at review; use this file only if a later catalogue returns one (see the discovery contract in `game-3d-animation.md`) or the user runs the external service themselves. The upstream Blender/Python merge helpers mentioned below are not shipped. OpenMotion has no equivalent shared credit balance or automatic raw-API fallback.
 
 Verified end-to-end 2026-06-10 (image → 3D → rig → 4 clips → merged GLB).
 Endpoint shapes re-checked against docs.meshy.ai 2026-06-11.
@@ -13,8 +13,7 @@ rule, cropping, low-poly params). Skipping it wastes credits.
 ## Historical external-provider basics (not OpenMotion endpoints)
 
 - Base URL: `https://api.meshy.ai`
-- Auth: `Authorization: Bearer <msy_... key>`. Require the user to configure it
-  as `MESHY_API_KEY` outside chat; never print or commit it.
+- Auth (historical external-API note, not an OpenMotion setup step): external requests used `Authorization: Bearer <token>` from a user-managed environment variable outside chat; never ask for, print, or commit raw API keys.
 - All generation endpoints are async: POST returns `{"result": "<task_id>"}`,
   then poll `GET <same path>/<task_id>` until `status` is `SUCCEEDED` /
   `FAILED` / `CANCELED`. Poll every 10–15 s. SSE `.../stream` exists but
@@ -29,7 +28,7 @@ rule, cropping, low-poly params). Skipping it wastes credits.
 ```
 input image ──> [1] image-to-3d ──> [2] rigging ──> [3] animations (xN) ──> [4] merge clips
  (validated)      static GLB         rigged GLB        1 GLB per clip          1 multi-clip GLB
-                                     + walk/run free                           (Blender CLI)
+                                     + walk/run free                           (runtime, Three.js)
 ```
 
 Cost observed: **~85 credits for a full character** (image-to-3d + rig +
@@ -124,34 +123,27 @@ Recovery recipe:
 - Optional `post_process`: `change_fps` (24/25/30/60), `fbx2usdz`,
   `extract_armature`.
 
-## [4] Merge clips into one multi-clip GLB
+## [4] Combine clips at runtime
 
 Meshy gives N single-clip GLBs (walk/run from the rig + one per animation
-task). Preferred: stdlib merger, no Blender (verified on a live run
-2026-06-11 — full pipeline cost 41 credits: text-to-3d + rig + 2 anims):
-
-```bash
-python3 scripts/glb_merge_anims.py \
-  rigged.glb walk.glb:Walk run.glb:Run idle.glb:Idle attack.glb:Attack out.glb
-```
-
-Blender alternative (same semantics):
-
-```bash
-blender -b -P scripts/merge_anim_glbs.py -- \
-  rigged.glb walk.glb:Walk run.glb:Run idle.glb:Idle attack.glb:Attack out.glb
-```
+task) sharing one skeleton. No merge script ships with OpenMotion, and none
+is needed: load the rigged GLB once, load each clip GLB, and collect their
+`gltf.animations` into one list for the rigged scene's `AnimationMixer`
+(tracks bind by bone name). Rename clips on load (`clip.name = 'Walk'`).
 
 Note: `rigged.glb` may carry a service clip named like
-`Armature|clip0|baselayer` (bind pose) — drop it from the merged file before
-delivery.
+`Armature|clip0|baselayer` (bind pose) — skip it.
 
-For inherited root-scale diagnostics and corrective steps, follow the [animation merge pitfall](game-3d-animation.md#step-5--meshy-clip-merge--root-scale-check-mandatory-for-meshy).
+**Root-scale pitfall (upstream observation):** library animations can bake a
+scale factor into the root bone's scale track, so the character "grows" when
+that clip plays. On load, find `*.scale` tracks on the root bone; if their
+values differ from 1, replace them with 1 and divide that clip's root
+position track by the same factor so feet stay grounded.
 
-Finish with the standard checks: `glb_inspect.py` (skins ≥ 1, all clips
-present, alphaMode OPAQUE) and zip before local asset copying (binary uploads are not exposed by game_write_files) (raw `.glb`
-is a blocked extension).
-
+Check every file with `node scripts/game-glb-inspect.mjs` (skins ≥ 1,
+expected clip names) and force opaque materials in code. Copy GLBs with
+authorized local file access; `openmotion_game_write_files` rejects binary
+extensions.
 ## Polling skeleton (bash)
 
 ```text

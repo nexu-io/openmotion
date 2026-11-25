@@ -270,12 +270,8 @@ button, input, select, textarea { font-family: inherit; }
   }
 }
 
-@container (max-width: 480px) {
-  .motion-studio-header-centered .motion-community-link { display: none; }
-  .motion-studio-header-centered .motion-github-link { min-height: 28px; width: 28px; padding: 0; }
-  .motion-studio-header-centered .motion-github-link > span { display: none; }
-  .motion-studio-header.motion-studio-header-centered > div:last-child { gap: var(--motion-space-8); }
-  /* Keep the import action beside whole tool groups, never over their buttons. */
+@container (max-width: 580px) {
+  /* Wrap timeline tool groups cleanly before zoom controls clip in narrow embedded panes. */
   .motion-timeline-toolbar > .motion-timeline-toolbar > div {
     flex-wrap: wrap;
     row-gap: var(--motion-space-4);
@@ -283,6 +279,15 @@ button, input, select, textarea { font-family: inherit; }
   .motion-timeline-toolbar > .motion-timeline-toolbar > div > div,
   .motion-timeline-media-actions { flex-shrink: 0; }
   .motion-timeline-icon-controls > div > div { max-inline-size: 100%; flex-wrap: wrap; }
+  :root[data-motion-ui] .motion-timeline-zoom { margin-inline: var(--motion-space-4); }
+  :root[data-motion-ui] .motion-timeline-zoom input[type="range"] { width: var(--motion-space-56); }
+}
+
+@container (max-width: 480px) {
+  .motion-studio-header-centered .motion-community-link { display: none; }
+  .motion-studio-header-centered .motion-github-link { min-height: 28px; width: 28px; padding: 0; }
+  .motion-studio-header-centered .motion-github-link > span { display: none; }
+  .motion-studio-header.motion-studio-header-centered > div:last-child { gap: var(--motion-space-8); }
 }
 
 @container (max-width: 420px) {

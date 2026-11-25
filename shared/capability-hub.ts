@@ -1,4 +1,5 @@
-import type { SuperAgentArtifact, SuperAgentResourceAttachment } from './super-agent.ts';
+import { isDesignScenario } from './design-project.ts';
+import type { SuperAgentArtifact, SuperAgentContextTag, SuperAgentDesignModuleId, SuperAgentResourceAttachment } from './super-agent.ts';
 
 export type CapabilityDomainId =
   | 'motion'
@@ -58,7 +59,7 @@ export const CAPABILITY_DOMAINS: readonly CapabilityDomain[] = [
   {
     id: 'game',
     title: 'Game Studio',
-    description: 'Build, validate, simulate, playtest, capture covers, and publish single-player or multiplayer HTML games.',
+    description: 'Build, validate, simulate, playtest, capture covers, and publish single-player HTML games.',
     tools: [
       'openmotion_game_create',
       'openmotion_game_get',
@@ -81,6 +82,10 @@ export const CAPABILITY_DOMAINS: readonly CapabilityDomain[] = [
     title: 'Media Models & Generation',
     description: 'Discover configured providers and models to generate or edit images, videos, music, SFX, and speech.',
     tools: [
+      'openmotion_capability_discover',
+      'openmotion_capability_run',
+      'openmotion_job_manage',
+      'openmotion_asset_manage',
       'openmotion_media_use',
       'openmotion_assets_use',
     ],
@@ -92,6 +97,7 @@ export const CAPABILITY_DOMAINS: readonly CapabilityDomain[] = [
     title: 'Brand Kits',
     description: 'Extract and reuse brand styles, palettes, typography, logos, and visual rules across every workflow.',
     tools: [
+      'openmotion_asset_manage',
       'openmotion_assets_use',
       'openmotion_design_catalog',
     ],
@@ -230,8 +236,11 @@ export type SuperAgentHandoffPayload = {
   /** Optional Skill/workflow execution context passed to the Agent behind the scenes without cluttering the user's visible message. */
   hiddenInstructions?: string;
   attachments?: SuperAgentResourceAttachment[];
+  /** Concise mode/skill and parameter tags displayed above the user message bubble. */
+  contextTags?: SuperAgentContextTag[];
   initialArtifact?: Partial<SuperAgentArtifact>;
-  mode?: 'game' | 'website' | 'motion' | 'deck' | 'image' | 'media' | 'audio';
+  mode?: 'game' | 'design' | 'website' | 'motion' | 'deck' | 'image' | 'media' | 'audio';
+  designModule?: SuperAgentDesignModuleId;
   title?: string;
   autoSend?: boolean;
   newChat?: boolean;
@@ -429,15 +438,24 @@ export function buildResourceMcpPrompt(
   }
 }
 
+function defaultDesignModuleForRef(ref: CapabilityResourceRef): SuperAgentDesignModuleId | undefined {
+  switch (ref.kind) {
+    case 'design-template':
+    case 'design-skill':
+      return isDesignScenario(ref.scenario) ? ref.scenario : 'prototype';
+    case 'brand-kit':
+      return 'prototype';
+    default:
+      return undefined;
+  }
+}
+
 function defaultModeForRef(ref: CapabilityResourceRef): SuperAgentHandoffPayload['mode'] {
   switch (ref.kind) {
     case 'design-template':
     case 'design-skill':
-      return ref.scenario === 'deck' || ref.scenario === 'document'
-        ? 'deck'
-        : ref.scenario === 'webgl'
-          ? 'game'
-          : 'website';
+    case 'brand-kit':
+      return 'design';
     case 'motion-template':
     case 'skill':
       return 'motion';
@@ -447,8 +465,6 @@ function defaultModeForRef(ref: CapabilityResourceRef): SuperAgentHandoffPayload
     case 'model':
     case 'scene-prompt':
       return ref.modality === 'audio' ? 'audio' : ref.modality === 'video' ? 'media' : 'image';
-    case 'brand-kit':
-      return 'website';
     case 'workflow':
       return 'motion';
   }
@@ -486,6 +502,7 @@ export function buildSuperAgentHandoff(
   options: {
     prompt?: string;
     hiddenInstructions?: string;
+    contextTags?: SuperAgentContextTag[];
     locale?: string;
     autoSend?: boolean;
     newChat?: boolean;
@@ -565,12 +582,16 @@ export function buildSuperAgentHandoff(
   ].filter(Boolean);
   const hiddenInstructions = hiddenParts.join('\n');
 
+  const designModule = defaultDesignModuleForRef(ref);
+
   return {
     prompt,
     ...(hiddenInstructions ? { hiddenInstructions } : {}),
     ...(attachments.length > 0 ? { attachments } : {}),
+    ...(options.contextTags?.length ? { contextTags: options.contextTags } : {}),
     ...(options.initialArtifact ? { initialArtifact: options.initialArtifact } : {}),
     mode: defaultModeForRef(ref),
+    ...(designModule ? { designModule } : {}),
     title: ref.title,
     autoSend: options.autoSend,
     ...(options.newChat !== undefined ? { newChat: options.newChat } : {}),

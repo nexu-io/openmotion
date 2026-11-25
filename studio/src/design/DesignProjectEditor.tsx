@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Popover } from '@base-ui/react/popover';
 import { Button } from 'open-design-ui/button';
+import type { BrowserConsoleEntry } from '../../../shared/browser';
+import type { SuperAgentResourceAttachment } from '../../../shared/super-agent';
 import { RemixIcon } from '../../../packages/design-system/react/RemixIcons';
 import {
   designCommentsPrompt, designProjectPrompt, designRoutes, designViewports, findDesignScenario,
@@ -9,30 +11,100 @@ import {
 import type { ReviewAnnotation, ReviewPoint } from '../../../shared/review-comments';
 import { IconButton } from 'open-design-ui/icon-button';
 import { Tooltip } from '../components/ui';
+import { OpenDesignLoadingMark } from '../components/ui/OpenDesignLoadingMark';
+import { Skeleton } from '../components/ui/Skeleton';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { ResizablePane } from '../motion/ResizablePane';
 import { ReviewAnnotationGraphic } from '../motion/ReviewAnnotationGraphic';
 import { useIntegrationInfo } from '../motion/useIntegrationInfo';
+import { captureSuperAgentPreviewSnapshot } from '../super-agent/superAgentClient';
 import { CodeViewer } from './CodeViewer';
 import { DesignDeployPopover } from './DesignDeployPopover';
 import { DesignApiError, designClient, makeRequestId } from './designClient';
+import {
+  buildDesignCodeSelectionAttachment,
+  buildDesignSelectionAttachment,
+  designCommentToAttachment,
+  readDomCodeSelection,
+  readTextareaCodeSelection,
+  type DesignCodeSelection,
+} from './designSuperAgentBridge';
 import { buildBridgeSrcDoc, looksLikeDeck, parseDeckSlides, parseSpeakerNotes, type PickedElement } from './previewBridge';
 import { useDesignProject } from './useDesignProject';
 import './design.css';
 
 type AnnotationTool = 'none' | 'comment' | 'region' | 'pen';
 type SidebarTab = 'files' | 'comments' | 'versions';
+type PreviewPoint = NonNullable<DesignCommentAnchor['scroll']>;
+type PreviewBox = PickedElement['box'];
+type AnnotationScope = { offset: PreviewPoint; clip: PreviewBox };
+type TrackedScope = { id: string; containers?: PreviewPoint['containers']; point?: PreviewPoint };
 type PendingDraft = {
   element?: PickedElement;
   region?: { x: number; y: number; width: number; height: number };
   annotation?: ReviewAnnotation;
   pinX: number;
   pinY: number;
+  scroll: PreviewPoint;
 };
 
 const ZOOM_STEPS = [50, 75, 100, 125, 150];
+const ANNOTATION_PREVIEW_RATIO = 16 / 9;
+const ORIGIN = { x: 0, y: 0 };
+const DRAFT_ELEMENT_ID = 'pending';
+
+function previewScrollOffset(captured: PreviewPoint = ORIGIN, current: PreviewPoint, nested: PreviewPoint = ORIGIN): PreviewPoint {
+  return { x: captured.x - current.x + nested.x, y: captured.y - current.y + nested.y };
+}
+
+function isPreviewPoint(value: unknown): value is PreviewPoint {
+  if (!value || typeof value !== 'object') return false;
+  const point = value as PreviewPoint;
+  return Number.isFinite(point.x) && Number.isFinite(point.y);
+}
+
+function isPreviewBox(value: unknown): value is PreviewBox {
+  if (!isPreviewPoint(value)) return false;
+  const box = value as PreviewBox;
+  return Number.isFinite(box.width) && Number.isFinite(box.height);
+}
+
+function AnnotationLayer({ clip, children }: { clip?: PreviewBox; children: ReactNode }) {
+  if (!clip) return <>{children}</>;
+  if (clip.width <= 0 || clip.height <= 0) return null;
+  const right = clip.x + clip.width;
+  const bottom = clip.y + clip.height;
+  return (
+    <div style={{
+      position: 'absolute', inset: 0, pointerEvents: 'none',
+      clipPath: `polygon(${clip.x}px ${clip.y}px, ${right}px ${clip.y}px, ${right}px ${bottom}px, ${clip.x}px ${bottom}px)`,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function PositionedStroke({
+  annotation,
+  offset = ORIGIN,
+  selected,
+}: {
+  annotation: ReviewAnnotation;
+  offset?: PreviewPoint;
+  selected?: boolean;
+}) {
+  return (
+    <svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="none"
+      style={{ position: 'absolute', left: offset.x, top: offset.y, overflow: 'visible', pointerEvents: 'none' }}
+      aria-hidden="true">
+      <g className={selected !== undefined ? 'om-design-annotation-group' : undefined} data-selected={selected}>
+        <ReviewAnnotationGraphic annotation={{ ...annotation, width: 1000, height: 1000 }} />
+      </g>
+    </svg>
+  );
+}
 
 function formatTime(ms: number) {
   try { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); } catch { return ''; }
@@ -58,11 +130,12 @@ function escapeInlineJson(value: unknown) {
 }
 
 /** Build isolated Presenter popup HTML with sandboxed deck iframe and escaped title/notes. */
-export function buildPresenterPopupHtml(title: string, rawUrl: string, speakerNotes: string[], total: number): string {
+export function buildPresenterPopupHtml(title: string, rawUrl: string, speakerNotes: string[], total: number, bridgeToken?: string): string {
   const safeTotal = Math.max(1, Math.floor(total));
   const safeTitle = escapeHtml(title);
   const safeUrl = escapeHtml(rawUrl);
   const safeNotesJson = escapeInlineJson(speakerNotes);
+  const safeBridgeToken = escapeInlineJson(bridgeToken ?? null);
   return `<!doctype html><html><head><title>${safeTitle} — Presenter</title>
 <link rel="stylesheet" href="/design-system/ui.css" />
 <style>body{margin:0;background:var(--motion-bg);color:var(--motion-text);font-family:var(--motion-font-sans);display:grid;grid-template-columns:2fr 1fr;height:100vh}
@@ -74,7 +147,10 @@ iframe{width:100%;height:100%;border:0;background:var(--motion-canvas)}aside{dis
 <div class="row"><button onclick="go(cur-1)">Prev</button><button onclick="go(cur+1)">Next</button><button onclick="reset()">Reset timer</button></div>
 <div class="notes" id="notes"></div></aside>
 <script id="om-presenter-notes" type="application/json">${safeNotesJson}</script>
-<script>const notes=JSON.parse(document.getElementById('om-presenter-notes').textContent||'[]');let cur=0,sec=0;const f=document.getElementById('deck');
+<script>const notes=JSON.parse(document.getElementById('om-presenter-notes').textContent||'[]');let cur=0,sec=0;const f=document.getElementById('deck');const token=${safeBridgeToken};
+function configureDeck(){if(token)f.contentWindow.postMessage({type:'om:design-deck-mode',token,enabled:true,singlePage:true},'*');}
+f.addEventListener('load',configureDeck);
+window.addEventListener('message',e=>{if(e.source===f.contentWindow&&e.data?.type==='om:design-deck-ready'&&e.data.token===token)configureDeck();});
 function render(){document.getElementById('counter').textContent=(cur+1)+' / ${safeTotal}';document.getElementById('notes').textContent=notes[cur]||'No speaker notes for this slide.';}
 function go(i){cur=Math.max(0,Math.min(${safeTotal - 1},i));f.contentWindow.postMessage({type:'od:slide',action:'go',index:cur},'*');render();}
 function reset(){sec=0;}setInterval(()=>{sec++;document.getElementById('timer').textContent=String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');},1000);
@@ -97,17 +173,21 @@ export function overlayLocalPoint(el: Pick<HTMLElement, 'getBoundingClientRect' 
 }
 
 function AnnotationVisualPreview({
-  element,
   region,
   annotation,
   viewport,
+  imageUrl,
+  onImageLoaded,
 }: {
-  element?: { selector: string };
-  region?: { x: number; y: number; width: number; height: number };
+  region?: DesignCommentAnchor['region'];
   annotation?: ReviewAnnotation;
   viewport?: { width: number; height: number };
+  imageUrl?: string;
+  onImageLoaded?: () => void;
 }) {
-  if (annotation) {
+  const { t } = useI18n();
+  const [imageStatus, setImageStatus] = useState<'loading' | 'loaded' | 'unavailable'>('loading');
+  if (annotation && !imageUrl) {
     const b = annotationBounds(annotation);
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -123,40 +203,134 @@ function AnnotationVisualPreview({
       </div>
     );
   }
-  if (region) {
-    const vw = Math.max(1, viewport?.width ?? 1440);
-    const vh = Math.max(1, viewport?.height ?? 900);
-    const leftPct = Math.max(0, Math.min(96, (region.x / vw) * 100));
-    const topPct = Math.max(0, Math.min(96, (region.y / vh) * 100));
-    const widthPct = Math.max(4, Math.min(100 - leftPct, (region.width / vw) * 100));
-    const heightPct = Math.max(4, Math.min(100 - topPct, (region.height / vh) * 100));
+  if (!viewport || (!region && !annotation)) return null;
+
+  const viewportWidth = Math.max(1, annotation ? Math.round(annotation.width) : viewport.width);
+  const viewportHeight = Math.max(1, annotation ? Math.round(annotation.height) : viewport.height);
+  const bounds = annotation ? annotationBounds(annotation) : null;
+  const box = bounds ? {
+    x: bounds.minX * viewportWidth,
+    y: bounds.minY * viewportHeight,
+    width: (bounds.maxX - bounds.minX) * viewportWidth,
+    height: (bounds.maxY - bounds.minY) * viewportHeight,
+  } : region;
+  if (!box) return null;
+  const x = Math.max(0, box.x);
+  const y = Math.max(0, box.y);
+  const width = Math.max(0, Math.min(viewportWidth, box.x + box.width) - x);
+  const height = Math.max(0, Math.min(viewportHeight, box.y + box.height) - y);
+  const overlay = annotation
+    ? <ReviewAnnotationGraphic annotation={{ ...annotation, width: viewportWidth, height: viewportHeight }} />
+    : <rect className="om-design-annotation-selection" x={x} y={y} width={width} height={height} vectorEffect="non-scaling-stroke" />;
+  if (!imageUrl || imageStatus === 'unavailable') {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div className="om-design-annotation-thumb" aria-hidden="true">
-          <div className="om-design-annotation-thumb-region" style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }} />
-        </div>
-        <div className="om-design-annotation-meta">
-          <span>Region · {Math.round(region.width)} × {Math.round(region.height)}</span>
-          <span>({Math.round(region.x)}, {Math.round(region.y)})</span>
-        </div>
+      <div className="om-design-annotation-fallback">
+        <svg className="om-design-annotation-map" aria-hidden="true" viewBox={`0 0 ${viewportWidth} ${viewportHeight}`}>
+          <rect className="om-design-annotation-map-page" width={viewportWidth} height={viewportHeight} vectorEffect="non-scaling-stroke" />
+          {overlay}
+        </svg>
+        {imageUrl ? t('Preview unavailable') : `${Math.round(box.width)} × ${Math.round(box.height)}`}
       </div>
     );
   }
-  if (element) {
-    return <code className="om-design-selector-chip">{element.selector}</code>;
-  }
-  return null;
+
+  // Cropping keeps the full selection and enough surrounding page to locate it.
+  const previewWidth = Math.max(Math.min(viewportWidth, viewportHeight * ANNOTATION_PREVIEW_RATIO), width, height * ANNOTATION_PREVIEW_RATIO);
+  const previewHeight = previewWidth / ANNOTATION_PREVIEW_RATIO;
+  const left = Math.min(Math.max(0, x + (width - previewWidth) / 2), Math.max(0, viewportWidth - previewWidth))
+    - Math.max(0, previewWidth - viewportWidth) / 2;
+  const top = Math.min(Math.max(0, y + (height - previewHeight) / 2), Math.max(0, viewportHeight - previewHeight))
+    - Math.max(0, previewHeight - viewportHeight) / 2;
+  return (
+    <div className="om-design-annotation-thumb om-design-annotation-snapshot">
+      {imageStatus === 'loading' && <Skeleton className="om-design-thumb-skeleton" />}
+      <img
+        className="om-design-annotation-snapshot-image"
+        src={imageUrl}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        data-loaded={imageStatus === 'loaded'}
+        style={{
+          left: `${-left / previewWidth * 100}%`,
+          top: `${-top / previewHeight * 100}%`,
+          width: `${viewportWidth / previewWidth * 100}%`,
+          height: `${viewportHeight / previewHeight * 100}%`,
+        }}
+        onLoad={() => {
+          setImageStatus('loaded');
+          onImageLoaded?.();
+        }}
+        onError={() => setImageStatus('unavailable')}
+      />
+      {imageStatus === 'loaded' && (
+        <svg className="om-design-annotation-snapshot-overlay" aria-hidden="true" viewBox={`${left} ${top} ${previewWidth} ${previewHeight}`} preserveAspectRatio="none">
+          {overlay}
+        </svg>
+      )}
+    </div>
+  );
+}
+
+export interface DesignProjectEditorProps {
+  projectId: string;
+  onBack: () => void;
+  onOpenMcp?: () => void;
+  embedded?: boolean;
+  chatId?: string | null;
+  artifactId?: string;
+  externalRevision?: string;
+  externalReloadKey?: number;
+  requestedFile?: { path: string; seq: number } | null;
+  controlledViewMode?: 'preview' | 'code';
+  onViewModeChange?: (mode: 'preview' | 'code') => void;
+  controlledViewport?: DesignViewportId;
+  onViewportChange?: (viewport: DesignViewportId) => void;
+  externalAnnotateActive?: boolean;
+  externalAnnotTool?: 'select' | 'region' | 'draw';
+  onAnnotateStateChange?: (active: boolean, tool: 'select' | 'region' | 'draw') => void;
+  captureRef?: RefObject<(() => Promise<string | null>) | null>;
+  onConsoleEntry?: (entry: BrowserConsoleEntry) => void;
+  onAttachToChat?: (attachment: SuperAgentResourceAttachment, sendImmediately?: boolean) => void;
+  onAttachFile?: (filePath: string) => void;
+  onNotify?: (message: string, tone?: 'info' | 'error') => void;
+}
+
+function externalToolToDesignTool(tool?: 'select' | 'region' | 'draw'): AnnotationTool {
+  if (tool === 'region') return 'region';
+  if (tool === 'draw') return 'pen';
+  return 'comment';
+}
+
+function designToolToExternalTool(tool: AnnotationTool): 'select' | 'region' | 'draw' {
+  if (tool === 'region') return 'region';
+  if (tool === 'pen') return 'draw';
+  return 'select';
 }
 
 export function DesignProjectEditor({
   projectId,
   onBack,
   onOpenMcp,
-}: {
-  projectId: string;
-  onBack: () => void;
-  onOpenMcp?: () => void;
-}) {
+  embedded = false,
+  chatId = null,
+  artifactId,
+  externalRevision,
+  externalReloadKey,
+  requestedFile,
+  controlledViewMode,
+  onViewModeChange,
+  controlledViewport,
+  onViewportChange,
+  externalAnnotateActive,
+  externalAnnotTool,
+  onAnnotateStateChange,
+  captureRef,
+  onConsoleEntry,
+  onAttachToChat,
+  onAttachFile,
+  onNotify,
+}: DesignProjectEditorProps) {
   const { t, locale } = useI18n();
   const { info: integrationInfo } = useIntegrationInfo();
   const promptOptions = { integration: integrationInfo, language: locale !== 'en' ? locale : null };
@@ -165,21 +339,30 @@ export function DesignProjectEditor({
 
   const [titleDraft, setTitleDraft] = useState('');
   const [activeFile, setActiveFile] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'preview' | 'code'>('preview');
-  const [viewportId, setViewportId] = useState<DesignViewportId>('desktop');
+  const [viewMode, setViewMode] = useState<'preview' | 'code'>(controlledViewMode ?? 'preview');
+  const [viewportId, setViewportId] = useState<DesignViewportId>(controlledViewport ?? 'desktop');
   const [rotated, setRotated] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
+  const previewVersion = previewVersionId === currentVersionId ? undefined : versions.find(version => version.id === previewVersionId);
 
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(!embedded);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('files');
   const [commentFilter, setCommentFilter] = useState<'open' | 'all' | 'resolved'>('open');
-  const [activeTool, setActiveTool] = useState<AnnotationTool>('none');
+  const [annotationTool, setActiveTool] = useState<AnnotationTool>(() =>
+    externalAnnotateActive ? externalToolToDesignTool(externalAnnotTool) : 'none',
+  );
+  const activeTool = previewVersion ? 'none' : annotationTool;
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null);
+  const selectedCommentCardRef = useRef<HTMLDivElement>(null);
+  const [commentSlideIndexes, setCommentSlideIndexes] = useState(() => new Map<string, number>());
+  const commentSlideLookups = useRef(new Map<string, Promise<number | undefined>>());
+  const commentFocusRequest = useRef(0);
   const [pendingDraft, setPendingDraft] = useState<PendingDraft | null>(null);
   const [commentText, setCommentText] = useState('');
   const [submittingComment, setSubmittingComment] = useState(false);
+  const [attachingChat, setAttachingChat] = useState(false);
 
   // Code view state
   const [fileContent, setFileContent] = useState<string>('');
@@ -190,7 +373,9 @@ export function DesignProjectEditor({
   const [codeDraft, setCodeDraft] = useState('');
   const [savingCode, setSavingCode] = useState(false);
   const [reloadingCode, setReloadingCode] = useState(false);
+  const [selectedCode, setSelectedCode] = useState<DesignCodeSelection | null>(null);
   const fileReadSeqRef = useRef(0);
+  const codeViewerWrapRef = useRef<HTMLDivElement>(null);
 
   // Deck state
   const [activeSlide, setActiveSlide] = useState(0);
@@ -206,6 +391,7 @@ export function DesignProjectEditor({
   const [openInOpen, setOpenInOpen] = useState(false);
   const [deviceOpen, setDeviceOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState(false);
 
   // Region / Pen drawing state
   const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
@@ -213,23 +399,142 @@ export function DesignProjectEditor({
   const [penPoints, setPenPoints] = useState<ReviewPoint[]>([]);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [isolatedDeckFrame, setIsolatedDeckFrame] = useState<HTMLIFrameElement | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const bridgeToken = useMemo(() => makeRequestId('bridge'), []);
+  const [previewScroll, setPreviewScroll] = useState<PreviewPoint>(ORIGIN);
+  const [previewElementBoxes, setPreviewElementBoxes] = useState(() => new Map<string, PreviewBox>());
+  const [previewScopes, setPreviewScopes] = useState(() => new Map<string, AnnotationScope>());
+  const previewScrollRef = useRef(ORIGIN);
+  const drawingScrollRef = useRef(ORIGIN);
+  const drawingRequestRef = useRef<{ id: string; draft: PendingDraft; timer: number } | null>(null);
+  const clearDrawingRequest = useCallback(() => {
+    const request = drawingRequestRef.current;
+    if (request) window.clearTimeout(request.timer);
+    drawingRequestRef.current = null;
+    return request;
+  }, []);
+  useEffect(() => { clearDrawingRequest(); return () => { clearDrawingRequest(); }; }, [activeTool, clearDrawingRequest]);
+  const finishDrawingDraft = useCallback((id: string, point?: PreviewPoint) => {
+    if (drawingRequestRef.current?.id !== id) return;
+    const request = clearDrawingRequest();
+    if (!request) return;
+    setPendingDraft({
+      ...request.draft,
+      scroll: point?.containers?.length
+        ? { ...request.draft.scroll, containers: point.containers }
+        : request.draft.scroll,
+    });
+    setCommentText('');
+  }, [clearDrawingRequest]);
+  const captureResolversRef = useRef<Map<string, (dataUrl: string | null) => void>>(new Map());
+  const consoleSeqRef = useRef(0);
+  const onConsoleEntryRef = useRef(onConsoleEntry);
+  onConsoleEntryRef.current = onConsoleEntry;
 
-  // Sync title, active file, and default viewport when project loads
+  const effectiveViewMode = controlledViewMode ?? viewMode;
+  const setEffectiveViewMode = useCallback((next: 'preview' | 'code') => {
+    setViewMode(next);
+    onViewModeChange?.(next);
+  }, [onViewModeChange]);
+
+  const effectiveViewportId = controlledViewport ?? viewportId;
+  const setEffectiveViewportId = useCallback((next: DesignViewportId) => {
+    setViewportId(next);
+    onViewportChange?.(next);
+  }, [onViewportChange]);
+
+  const updateAnnotationTool = useCallback((next: AnnotationTool) => {
+    setActiveTool(next);
+    if (next !== 'none' && effectiveViewMode !== 'preview') {
+      setEffectiveViewMode('preview');
+    }
+    onAnnotateStateChange?.(next !== 'none', designToolToExternalTool(next));
+  }, [effectiveViewMode, setEffectiveViewMode, onAnnotateStateChange]);
+
+  const showToast = useCallback((message: string, tone: 'error' | 'info' = 'info', _category?: 'feedback') => {
+    if (embedded && onNotify) {
+      onNotify(message, tone);
+    } else {
+      toast.showToast(message, tone, 'feedback');
+    }
+  }, [embedded, onNotify, toast]);
+
+  // Sync controlled props from Super Agent host
+  const prevExternalAnnotRef = useRef({ active: externalAnnotateActive, tool: externalAnnotTool });
+  useEffect(() => {
+    const prev = prevExternalAnnotRef.current;
+    if (prev.active === externalAnnotateActive && prev.tool === externalAnnotTool) return;
+    prevExternalAnnotRef.current = { active: externalAnnotateActive, tool: externalAnnotTool };
+    if (externalAnnotateActive === undefined) return;
+    if (externalAnnotateActive) {
+      setActiveTool(externalToolToDesignTool(externalAnnotTool));
+    } else {
+      setActiveTool('none');
+      setDragStart(null);
+      setDragCurrent(null);
+      setPenPoints([]);
+    }
+  }, [externalAnnotateActive, externalAnnotTool]);
+
+  const prevExternalRevRef = useRef<string | undefined>(externalRevision);
+  useEffect(() => {
+    if (!externalRevision) return;
+    if (prevExternalRevRef.current === externalRevision) return;
+    prevExternalRevRef.current = externalRevision;
+    if (project && externalRevision !== project.revision) {
+      setReloadNonce(n => n + 1);
+      void refresh();
+    }
+  }, [externalRevision, project, refresh]);
+
+  const prevExternalReloadRef = useRef<number | undefined>(externalReloadKey);
+  useEffect(() => {
+    if (externalReloadKey === undefined || externalReloadKey === prevExternalReloadRef.current) return;
+    prevExternalReloadRef.current = externalReloadKey;
+    setReloadNonce(n => n + 1);
+    void refresh();
+  }, [externalReloadKey, refresh]);
+
+  const prevRequestedSeqRef = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!requestedFile || requestedFile.seq === prevRequestedSeqRef.current) return;
+    prevRequestedSeqRef.current = requestedFile.seq;
+    setActiveFile(requestedFile.path);
+    setEffectiveViewMode('code');
+    setSelectedCode(null);
+  }, [requestedFile, setEffectiveViewMode]);
+
+  // Sync title and default viewport when project loads
   useEffect(() => {
     if (!project) return;
     setTitleDraft(project.title);
-    setActiveFile(prev => (prev && project.files.some(f => f.path === prev) ? prev : project.entry));
-    if (project.scenario === 'mobile-app') setViewportId('mobile');
+    if (!controlledViewport && project.scenario === 'mobile-app') setViewportId('mobile');
   }, [project?.id]);
+
+  const previousEntryRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!project) return;
+    const previousEntry = previousEntryRef.current;
+    previousEntryRef.current = project.entry;
+    setActiveFile(file => file !== previousEntry && project.files.some(item => item.path === file) ? file : project.entry);
+  }, [project?.id, project?.entry, project?.revision]);
+
+  useEffect(() => {
+    if (previewVersionId === currentVersionId) setPreviewVersionId(null);
+  }, [previewVersionId, currentVersionId]);
 
   // Reset edit session when switching project or active file
   useEffect(() => {
     setCodeEditing(false);
     setCodeEditBaseRevision(null);
     setCodeConflict(false);
+    setSelectedCode(null);
   }, [project?.id, activeFile]);
+
+  useEffect(() => {
+    setSelectedCode(null);
+  }, [codeEditing, effectiveViewMode]);
 
   // Load text content for active file (needed for code view, deck parsing, and srcdoc bridge)
   useEffect(() => {
@@ -255,16 +560,22 @@ export function DesignProjectEditor({
   const isDeck = useMemo(() => project?.scenario === 'deck' || (isHtmlActive && looksLikeDeck(fileContent)), [project?.scenario, isHtmlActive, fileContent]);
   const deckSlides = useMemo(() => (isDeck && fileContent ? parseDeckSlides(fileContent) : []), [isDeck, fileContent]);
   const speakerNotes = useMemo(() => (isDeck && fileContent ? parseSpeakerNotes(fileContent) : []), [isDeck, fileContent]);
-
-  useEffect(() => {
-    if (deckSlides.length > 0 && slideCount === 0) setSlideCount(deckSlides.length);
-  }, [deckSlides.length, slideCount]);
+  const configureDeck = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'om:design-deck-mode',
+      token: bridgeToken,
+      enabled: isDeck,
+      singlePage: project?.scenario === 'deck',
+    }, '*');
+  }, [bridgeToken, isDeck, project?.scenario]);
+  useEffect(configureDeck, [configureDeck]);
 
   // Escape dismisses active annotation tool / composer
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setActiveTool('none');
+        clearDrawingRequest();
+        updateAnnotationTool('none');
         setPendingDraft(null);
         setDragStart(null);
         setPenPoints([]);
@@ -272,31 +583,131 @@ export function DesignProjectEditor({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  }, [clearDrawingRequest, updateAnnotationTool]);
 
   // Listen to bridge postMessages from preview iframe
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      if (iframeRef.current && event.source !== iframeRef.current.contentWindow) return;
       const data = event.data;
       if (!data || typeof data !== 'object') return;
+      const fromOwnIframe = !iframeRef.current || !event.source || event.source === iframeRef.current.contentWindow;
       if (data.type === 'od:slide-state' && typeof data.active === 'number' && typeof data.count === 'number') {
+        if (!fromOwnIframe) return;
+        const frame = iframeRef.current;
+        if (frame && event.source === frame.contentWindow && data.token === bridgeToken && typeof data.isolated === 'boolean') {
+          setIsolatedDeckFrame(data.isolated ? frame : null);
+        }
         setActiveSlide(data.active);
         setSlideCount(data.count);
-      } else if (data.type === 'om:design-pick' && data.token === bridgeToken && data.element) {
-        const pt = data.clientPoint ?? { x: 100, y: 100 };
-        setPendingDraft({ element: data.element, pinX: pt.x, pinY: pt.y });
+        return;
+      }
+      if (data.token !== bridgeToken) return;
+      if (!fromOwnIframe) return;
+      if (data.type === 'om:design-deck-ready') {
+        if (event.source && event.source === iframeRef.current?.contentWindow) configureDeck();
+        return;
+      }
+      if (data.type === 'om:design-scroll' || data.type === 'om:design-element-boxes' || data.type === 'om:design-picked-scroll') {
+        if (!event.source || event.source !== iframeRef.current?.contentWindow) return;
+        if (data.type === 'om:design-picked-scroll') {
+          const point = data.scroll;
+          if (!isPreviewPoint(point)) return;
+          const containers = Array.isArray(point.containers) ? point.containers.slice(0, 24).filter(container =>
+            isPreviewPoint(container) && typeof container.selector === 'string' && container.selector.length > 0 && container.selector.length <= 1000,
+          ) : [];
+          finishDrawingDraft(data.requestId, { x: point.x, y: point.y, containers });
+        } else if (data.type === 'om:design-scroll') {
+          const { x, y } = data.scroll ?? {};
+          if (Number.isFinite(x) && Number.isFinite(y)
+            && (x !== previewScrollRef.current.x || y !== previewScrollRef.current.y)) {
+            previewScrollRef.current = { x, y };
+            setPreviewScroll(previewScrollRef.current);
+          }
+        } else if (Array.isArray(data.boxes)) {
+          const boxes = new Map<string, PreviewBox>();
+          for (const item of data.boxes) {
+            if (typeof item?.id === 'string' && isPreviewBox(item.box)) boxes.set(item.id, item.box);
+          }
+          const scopes = new Map<string, AnnotationScope>();
+          if (Array.isArray(data.scopes)) {
+            for (const item of data.scopes) {
+              if (typeof item?.id === 'string' && isPreviewPoint(item.offset) && isPreviewBox(item.clip)) {
+                scopes.set(item.id, { offset: item.offset, clip: item.clip });
+              }
+            }
+          }
+          setPreviewElementBoxes(boxes);
+          setPreviewScopes(scopes);
+        }
+        return;
+      }
+      if ((data.type === 'om:design-pick' || data.type === 'om:preview-pick') && data.element) {
+        if (previewVersion) return;
+        const raw = data.element as Record<string, unknown>;
+        const rawBox = (raw.box ?? raw.rect ?? data.rect ?? { x: 0, y: 0, width: 40, height: 24 }) as {
+          x?: number; y?: number; width?: number; height?: number;
+        };
+        const picked: PickedElement = {
+          selector: String(raw.selector || raw.tagName || 'div'),
+          ...(typeof raw.elementId === 'string' && raw.elementId
+            ? { elementId: raw.elementId }
+            : typeof raw.id === 'string' && raw.id
+              ? { elementId: raw.id }
+              : {}),
+          tagName: String(raw.tagName || 'div').toLowerCase(),
+          label: String(raw.label || raw.text || raw.selector || raw.tagName || 'element'),
+          ...(typeof raw.text === 'string' ? { text: raw.text } : {}),
+          ...(typeof raw.htmlHint === 'string'
+            ? { htmlHint: raw.htmlHint }
+            : typeof raw.htmlPreview === 'string'
+              ? { htmlHint: raw.htmlPreview }
+              : {}),
+          box: {
+            x: Math.round(rawBox.x ?? 0),
+            y: Math.round(rawBox.y ?? 0),
+            width: Math.max(1, Math.round(rawBox.width ?? 40)),
+            height: Math.max(1, Math.round(rawBox.height ?? 24)),
+          },
+        };
+        const pt = data.clientPoint ?? {
+          x: picked.box.x + Math.round(picked.box.width / 2),
+          y: picked.box.y + Math.min(24, Math.round(picked.box.height / 2)),
+        };
+        const scroll = isPreviewPoint(data.scroll)
+          ? data.scroll
+          : previewScrollRef.current;
+        setPendingDraft({ element: picked, pinX: pt.x, pinY: pt.y, scroll });
         setCommentText('');
+      } else if (data.type === 'om:preview-console' && typeof data.text === 'string') {
+        const level = data.level === 'warn' ? 'warn' : data.level === 'log' ? 'log' : 'error';
+        onConsoleEntryRef.current?.({
+          id: `design-pv-${++consoleSeqRef.current}-${Date.now()}`,
+          level,
+          text: data.text.slice(0, 600),
+          ...(typeof data.url === 'string' ? { url: data.url } : {}),
+          ...(typeof data.line === 'number' ? { line: data.line } : {}),
+          timestamp: typeof data.timestamp === 'number' ? data.timestamp : Date.now(),
+        });
+      } else if (data.type === 'om:preview-capture-result') {
+        const reqId = String(data.requestId || '');
+        const resolver = captureResolversRef.current.get(reqId);
+        if (resolver) {
+          captureResolversRef.current.delete(reqId);
+          resolver(typeof data.dataUrl === 'string' && data.dataUrl.startsWith('data:image/png;base64,') ? data.dataUrl : null);
+        }
       }
     };
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [bridgeToken]);
+  }, [bridgeToken, configureDeck, finishDrawingDraft, previewVersion]);
 
   // Toggle pick mode inside bridge iframe
   useEffect(() => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
     try {
-      iframeRef.current?.contentWindow?.postMessage({ type: 'om:design-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
+      win.postMessage({ type: 'om:design-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
+      win.postMessage({ type: 'om:preview-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
     } catch { /* ignore */ }
   }, [activeTool, bridgeToken]);
 
@@ -310,7 +721,6 @@ export function DesignProjectEditor({
     try { iframeRef.current?.contentWindow?.postMessage({ type: 'od:slide', action: 'go', index: target }, '*'); } catch { /* ignore */ }
   }, [activeSlide, slideCount, deckSlides.length]);
 
-  const showToast = toast.showToast;
   const copyPrompt = useCallback(async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -329,10 +739,10 @@ export function DesignProjectEditor({
     try {
       const { project: updated } = await designClient.renameProject(project.id, next, project.title);
       setProject(updated);
-      toast.showToast(t('Project renamed'), 'info', 'feedback');
+      showToast(t('Project renamed'), 'info', 'feedback');
     } catch (err) {
       setTitleDraft(project.title);
-      toast.showToast(err instanceof Error ? err.message : t('Could not rename project'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Could not rename project'), 'error', 'feedback');
     }
   };
 
@@ -352,14 +762,14 @@ export function DesignProjectEditor({
       setCodeConflict(false);
       setCodeEditing(false);
       await refresh();
-      toast.showToast(t('Saved new version'), 'info', 'feedback');
+      showToast(t('Saved new version'), 'info', 'feedback');
     } catch (err) {
       if (err instanceof DesignApiError && err.code === 'VERSION_CONFLICT') {
         await refresh();
         setCodeConflict(true);
-        toast.showToast(t('Project changed externally. Reload to get the latest revision.'), 'error', 'feedback');
+        showToast(t('Project changed externally. Reload to get the latest revision.'), 'error', 'feedback');
       } else {
-        toast.showToast(err instanceof Error ? err.message : t('Could not save file'), 'error', 'feedback');
+        showToast(err instanceof Error ? err.message : t('Could not save file'), 'error', 'feedback');
       }
     } finally {
       setSavingCode(false);
@@ -383,7 +793,7 @@ export function DesignProjectEditor({
       setCodeConflict(false);
     } catch (err) {
       if (fileReadSeqRef.current === seq) {
-        toast.showToast(err instanceof Error ? err.message : t('Could not reload file'), 'error', 'feedback');
+        showToast(err instanceof Error ? err.message : t('Could not reload file'), 'error', 'feedback');
       }
     } finally {
       if (fileReadSeqRef.current === seq) setCodeLoading(false);
@@ -391,17 +801,40 @@ export function DesignProjectEditor({
     }
   };
 
-  const handleRestoreVersion = async (versionId: string, label: string) => {
-    if (!project) return;
+  const handleRestoreVersion = async (versionId: string) => {
+    if (!project || restoringVersion) return;
+    setRestoringVersion(true);
     try {
-      const { project: updated } = await designClient.restoreVersion(project.id, versionId, project.revision);
+      const { project: updated, version, changed } = await designClient.restoreVersion(project.id, versionId, project.revision);
       setProject(updated);
       setPreviewVersionId(null);
+      if (changed || previewVersion) {
+        setActiveSlide(0);
+        setSlideCount(0);
+        setReloadNonce(n => n + 1);
+      }
       await refresh();
-      toast.showToast(t('Restored {label} as a new version', { label }), 'info', 'feedback');
+      showToast(t(changed ? 'Set {label} as the current version' : '{label} is already the current version.', { label: version.label }), 'info', 'feedback');
     } catch (err) {
-      toast.showToast(err instanceof Error ? err.message : t('Could not restore version'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Could not restore version'), 'error', 'feedback');
+    } finally {
+      setRestoringVersion(false);
     }
+  };
+
+  const handlePreviewVersion = (versionId: string) => {
+    const historical = versionId !== currentVersionId;
+    if (historical) {
+      clearDrawingRequest();
+      setPendingDraft(null);
+      setCommentText('');
+      setDragStart(null);
+      setDragCurrent(null);
+      setPenPoints([]);
+      if (activeTool !== 'none') updateAnnotationTool('none');
+    }
+    setPreviewVersionId(historical ? versionId : null);
+    setEffectiveViewMode('preview');
   };
 
   const handleExport = async (format: DesignExportFormat, versionId?: string | null) => {
@@ -409,10 +842,14 @@ export function DesignProjectEditor({
     setExporting(format);
     setExportOpen(false);
     try {
-      const filename = await designClient.downloadExport(project.id, { format, versionId: versionId ?? previewVersionId, filePath: isHtmlActive ? activeFile : project.entry });
-      toast.showToast(t('Exported {filename}', { filename }), 'info', 'feedback');
+      const exportVersionId = versionId ?? previewVersion?.id ?? null;
+      const filePath = exportVersionId
+        ? exportVersionId === previewVersion?.id ? previewFile : undefined
+        : isHtmlActive ? effectiveFile : project.entry;
+      const filename = await designClient.downloadExport(project.id, { format, versionId: exportVersionId, filePath });
+      showToast(t('Exported {filename}', { filename }), 'info', 'feedback');
     } catch (err) {
-      toast.showToast(err instanceof Error ? err.message : t('Export failed'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Export failed'), 'error', 'feedback');
     } finally {
       setExporting(null);
     }
@@ -423,54 +860,206 @@ export function DesignProjectEditor({
     setOpenInOpen(false);
     try {
       await designClient.openIn(project.id, editorId);
-      toast.showToast(t('Opened in {app}', { app: label }), 'info', 'feedback');
+      showToast(t('Opened in {app}', { app: label }), 'info', 'feedback');
     } catch (err) {
-      toast.showToast(err instanceof Error ? err.message : t('Could not open editor'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Could not open editor'), 'error', 'feedback');
     }
   };
 
   const openPresenterPopup = () => {
     if (!project) return;
     const popup = window.open('', 'om-design-presenter', 'width=1200,height=760');
-    if (!popup) { toast.showToast(t('Pop-up blocked by browser'), 'error', 'feedback'); return; }
-    const rawUrl = new URL(designRoutes.raw(project.id, activeFile || project.entry), window.location.origin).href;
+    if (!popup) { showToast(t('Pop-up blocked by browser'), 'error', 'feedback'); return; }
+    const rawUrl = new URL(designRoutes.raw(project.id, activeFile || project.entry), window.location.origin);
+    rawUrl.searchParams.set('omBridge', bridgeToken);
     const total = Math.max(1, slideCount || deckSlides.length);
-    popup.document.write(buildPresenterPopupHtml(project.title, rawUrl, speakerNotes, total));
+    popup.document.write(buildPresenterPopupHtml(project.title, rawUrl.href, speakerNotes, total, bridgeToken));
     popup.document.close();
   };
 
-  const currentViewport = designViewports.find(v => v.id === viewportId) ?? designViewports[0];
+  const currentViewport = designViewports.find(v => v.id === effectiveViewportId) ?? designViewports[0];
   const frameWidth = currentViewport.width ? (rotated ? currentViewport.height! : currentViewport.width) : null;
   const frameHeight = currentViewport.height ? (rotated ? currentViewport.width! : currentViewport.height) : null;
 
+  const previewFile = previewVersion
+    ? previewVersion.entry ?? previewVersion.files.find(file => file.path === project?.entry)?.path
+      ?? previewVersion.files.find(file => /\.html?$/i.test(file.path))?.path
+    : activeFile;
+  const baseRawPreviewUrl = project
+    ? `${designRoutes.raw(project.id, previewFile || project.entry)}${previewVersion ? `?version=${encodeURIComponent(previewVersion.id)}&r=${reloadNonce}` : `?r=${reloadNonce}`}`
+    : '';
+  const rawPreviewUrl = (embedded || previewVersion) && baseRawPreviewUrl
+    ? `${baseRawPreviewUrl}&omBridge=${encodeURIComponent(bridgeToken)}`
+    : baseRawPreviewUrl;
+
+  const captureDesignSnapshot = useCallback(async (): Promise<string | null> => {
+    const win = iframeRef.current?.contentWindow;
+    if (win) {
+      const requestId = `dcap-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const canvasUrl = await new Promise<string | null>(resolve => {
+        const timer = setTimeout(() => {
+          captureResolversRef.current.delete(requestId);
+          resolve(null);
+        }, 450);
+        captureResolversRef.current.set(requestId, dataUrl => {
+          clearTimeout(timer);
+          resolve(dataUrl);
+        });
+        try {
+          win.postMessage({ type: 'om:preview-capture', token: bridgeToken, requestId }, '*');
+        } catch {
+          clearTimeout(timer);
+          captureResolversRef.current.delete(requestId);
+          resolve(null);
+        }
+      });
+      if (canvasUrl) return canvasUrl;
+    }
+    if (chatId && baseRawPreviewUrl) {
+      const cleanPath = baseRawPreviewUrl.split('?')[0];
+      const w = frameWidth ?? Math.max(240, Math.round(overlayRef.current?.clientWidth || 1280));
+      const h = frameHeight ?? Math.max(200, Math.round(overlayRef.current?.clientHeight || 800));
+      try {
+        const shot = await captureSuperAgentPreviewSnapshot(chatId, cleanPath, w, h);
+        return shot.dataUrl || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [bridgeToken, chatId, baseRawPreviewUrl, frameWidth, frameHeight]);
+
+  useEffect(() => {
+    if (!captureRef) return;
+    if (effectiveViewMode === 'preview') {
+      captureRef.current = captureDesignSnapshot;
+      return () => {
+        if (captureRef.current === captureDesignSnapshot) captureRef.current = null;
+      };
+    }
+    return undefined;
+  }, [captureRef, effectiveViewMode, captureDesignSnapshot]);
+
+  const attachDraftToSuperAgent = async (sendImmediately: boolean) => {
+    if (!project || previewVersion || !pendingDraft || !onAttachToChat || attachingChat) return;
+    setAttachingChat(true);
+    try {
+      const el = overlayRef.current;
+      const rect = el?.getBoundingClientRect();
+      const vw = frameWidth ?? Math.max(320, Math.round(el?.clientWidth || rect?.width || 1280));
+      const vh = frameHeight ?? Math.max(240, Math.round(el?.clientHeight || rect?.height || 800));
+      const attachment = await buildDesignSelectionAttachment({
+        project,
+        artifactId,
+        chatId,
+        pageUrl: baseRawPreviewUrl,
+        filePath: activeFile || project.entry,
+        ...(isDeck ? { slideIndex: activeSlide, slideCount: Math.max(1, slideCount || deckSlides.length) } : {}),
+        viewport: { width: vw, height: vh },
+        draft: pendingDraft,
+        comment: commentText.trim(),
+        captureBase: captureDesignSnapshot,
+      });
+      onAttachToChat(attachment, sendImmediately);
+      setPendingDraft(null);
+      setCommentText('');
+      updateAnnotationTool('none');
+    } finally {
+      setAttachingChat(false);
+    }
+  };
+
+  const attachCommentToSuperAgent = async (comment: DesignComment, sendImmediately: boolean) => {
+    if (!project || !onAttachToChat || attachingChat) return;
+    setAttachingChat(true);
+    try {
+      const attachment = await designCommentToAttachment({
+        project,
+        comment,
+        artifactId,
+        chatId,
+        slideCount: isDeck ? Math.max(1, slideCount || deckSlides.length) : undefined,
+      });
+      onAttachToChat(attachment, sendImmediately);
+    } finally {
+      setAttachingChat(false);
+    }
+  };
+
+  const attachOpenCommentsToSuperAgent = async (sendImmediately: boolean) => {
+    if (!project || !onAttachToChat || !openComments.length || attachingChat) return;
+    setAttachingChat(true);
+    try {
+      for (const [idx, c] of openComments.slice(0, 8).entries()) {
+        const attachment = await designCommentToAttachment({
+          project,
+          comment: c,
+          artifactId,
+          chatId,
+          slideCount: isDeck ? Math.max(1, slideCount || deckSlides.length) : undefined,
+        });
+        const isLast = idx === Math.min(openComments.length, 8) - 1;
+        onAttachToChat(attachment, sendImmediately && isLast);
+      }
+    } finally {
+      setAttachingChat(false);
+    }
+  };
+
+  const handleAttachCodeSelection = () => {
+    if (!project || !onAttachToChat || !selectedCode) return;
+    const attachment = buildDesignCodeSelectionAttachment({
+      project,
+      artifactId,
+      pageUrl: baseRawPreviewUrl,
+      filePath: effectiveFile,
+      selection: selectedCode,
+    });
+    onAttachToChat(attachment, false);
+  };
+
   const submitDraftComment = async () => {
-    if (!project || !pendingDraft || !commentText.trim()) return;
+    if (!project || previewVersion || !pendingDraft) return;
+    const autoText = pendingDraft.element
+      ? `${pendingDraft.element.tagName} ${pendingDraft.element.label}`.slice(0, 120)
+      : pendingDraft.region
+        ? `Region ${Math.round(pendingDraft.region.width)}×${Math.round(pendingDraft.region.height)}`
+        : pendingDraft.annotation
+          ? `Pen annotation (${pendingDraft.annotation.marks.length})`
+          : '';
+    const effectiveText = commentText.trim() || (embedded ? autoText : '');
+    if (!effectiveText) return;
     setSubmittingComment(true);
     try {
       const el = overlayRef.current;
       const rect = el?.getBoundingClientRect();
       const vw = frameWidth ?? Math.max(320, Math.round(el?.clientWidth || rect?.width || 1280));
       const vh = frameHeight ?? Math.max(240, Math.round(el?.clientHeight || rect?.height || 800));
+      const isolatedSlide = iframeRef.current !== null && isolatedDeckFrame === iframeRef.current;
       const anchor: DesignCommentAnchor = {
         filePath: activeFile || project.entry,
-        viewport: { id: viewportId, width: vw, height: vh },
+        viewport: { id: effectiveViewportId, width: vw, height: vh },
+        scroll: pendingDraft.scroll,
         ...(isDeck ? { slideIndex: activeSlide } : {}),
+        ...(isDeck && isolatedSlide ? { isolatedSlide: true } : {}),
         ...(pendingDraft.element ? { element: pendingDraft.element } : {}),
         ...(pendingDraft.region ? { region: pendingDraft.region } : {}),
         ...(pendingDraft.annotation ? { annotation: pendingDraft.annotation } : {}),
       };
       const res = await designClient.createComment(project.id, {
-        text: commentText.trim(), anchor, expectedRevision: project.revision,
+        text: effectiveText, anchor, expectedRevision: project.revision,
       });
       setComments(res.comments);
+      setSelectedCommentId(res.comment.id);
+      setCommentFilter(filter => filter === 'resolved' ? 'open' : filter);
       setPendingDraft(null);
       setCommentText('');
-      setActiveTool('none');
+      updateAnnotationTool('none');
       setSidebarOpen(true);
       setSidebarTab('comments');
-      toast.showToast(t('Annotation saved'), 'info', 'feedback');
+      showToast(t('Annotation saved'), 'info', 'feedback');
     } catch (err) {
-      toast.showToast(err instanceof Error ? err.message : t('Could not save annotation'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Could not save annotation'), 'error', 'feedback');
     } finally {
       setSubmittingComment(false);
     }
@@ -485,7 +1074,7 @@ export function DesignProjectEditor({
       });
       setComments(comments.map(c => (c.id === updated.id ? updated : c)));
     } catch (err) {
-      toast.showToast(err instanceof Error ? err.message : t('Could not update annotation'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Could not update annotation'), 'error', 'feedback');
     }
   };
 
@@ -495,7 +1084,7 @@ export function DesignProjectEditor({
       await designClient.deleteComment(project.id, commentId);
       setComments(comments.filter(c => c.id !== commentId));
     } catch (err) {
-      toast.showToast(err instanceof Error ? err.message : t('Could not delete annotation'), 'error', 'feedback');
+      showToast(err instanceof Error ? err.message : t('Could not delete annotation'), 'error', 'feedback');
     }
   };
 
@@ -503,7 +1092,9 @@ export function DesignProjectEditor({
   const onOverlayPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (activeTool !== 'region' && activeTool !== 'pen') return;
     if (event.target !== event.currentTarget) return;
+    clearDrawingRequest();
     setPendingDraft(null);
+    drawingScrollRef.current = previewScrollRef.current;
     const { x, y, width, height } = overlayLocalPoint(event.currentTarget, event.clientX, event.clientY);
     event.currentTarget.setPointerCapture(event.pointerId);
     if (activeTool === 'region') {
@@ -523,6 +1114,17 @@ export function DesignProjectEditor({
     }
   };
 
+  const composeDrawingDraft = (draft: PendingDraft, point: PreviewPoint) => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    const id = makeRequestId('scroll');
+    drawingRequestRef.current = {
+      id, draft,
+      timer: window.setTimeout(() => finishDrawingDraft(id), 250),
+    };
+    win.postMessage({ type: 'om:design-pick-scroll', token: bridgeToken, requestId: id, point }, '*');
+  };
+
   const onOverlayPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     const { width: w, height: h } = overlayLocalPoint(event.currentTarget, event.clientX, event.clientY);
     if (activeTool === 'region' && dragStart && dragCurrent) {
@@ -533,15 +1135,15 @@ export function DesignProjectEditor({
       setDragStart(null);
       setDragCurrent(null);
       if (width > 8 && height > 8) {
-        setPendingDraft({ region: { x, y, width, height }, pinX: x, pinY: y });
-        setCommentText('');
+        composeDrawingDraft({ region: { x, y, width, height }, pinX: x, pinY: y, scroll: drawingScrollRef.current },
+          { x: x + width / 2, y: y + height / 2 });
       }
     } else if (activeTool === 'pen' && penPoints.length >= 2) {
       const annotation: ReviewAnnotation = { version: 1, coordinateSpace: 'normalized', width: w, height: h, marks: [{ kind: 'pen', points: penPoints }] };
       const bounds = annotationBounds(annotation);
       setPenPoints([]);
-      setPendingDraft({ annotation, pinX: bounds.minX * w, pinY: bounds.minY * h });
-      setCommentText('');
+      composeDrawingDraft({ annotation, pinX: bounds.minX * w, pinY: bounds.minY * h, scroll: drawingScrollRef.current },
+        { x: penPoints[0].x * w, y: penPoints[0].y * h });
     }
   };
 
@@ -552,336 +1154,585 @@ export function DesignProjectEditor({
     return comments;
   }, [comments, openComments, commentFilter]);
 
-  const pinComments = useMemo(() => openComments.filter(c =>
-    c.anchor.filePath === (activeFile || project?.entry)
-    && (!isDeck || c.anchor.slideIndex === undefined || c.anchor.slideIndex === activeSlide),
-  ), [openComments, activeFile, project?.entry, isDeck, activeSlide]);
+  useEffect(() => {
+    if (sidebarOpen && sidebarTab === 'comments') selectedCommentCardRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [commentFilter, selectedCommentId, sidebarOpen, sidebarTab]);
 
-  const awaitingSrcDoc = viewMode === 'preview' && isHtmlActive && !previewVersionId && !fileContent;
-  const useSrcDoc = viewMode === 'preview' && isHtmlActive && !previewVersionId && Boolean(fileContent);
+  const resolveCommentSlide = useCallback((commentId: string) => {
+    const key = `${projectId}:${commentId}`;
+    const existing = commentSlideLookups.current.get(key);
+    if (existing) return existing;
+    const lookup = designClient.getCommentPreviewSlideIndex(projectId, commentId).then(index => {
+      if (index !== undefined) setCommentSlideIndexes(current => new Map(current).set(key, index));
+      return index;
+    }).catch(() => {
+      commentSlideLookups.current.delete(key);
+      return undefined;
+    });
+    commentSlideLookups.current.set(key, lookup);
+    return lookup;
+  }, [projectId]);
+
+  const pinComments = useMemo(() => {
+    if (previewVersion) return [];
+    return openComments.filter(comment => {
+      const slideIndex = commentSlideIndexes.get(`${projectId}:${comment.id}`) ?? comment.anchor.slideIndex;
+      return comment.anchor.filePath === effectiveFile
+        && (!isDeck || slideIndex === undefined || slideIndex === activeSlide);
+    });
+  }, [previewVersion, openComments, commentSlideIndexes, projectId, effectiveFile, isDeck, activeSlide]);
+
+  const pendingElement = pendingDraft?.element;
+  const trackedElements = useMemo(() => {
+    const elements = pinComments.flatMap(({ id, anchor }) => anchor.element
+      ? [{ id, selector: anchor.element.selector, elementId: anchor.element.elementId }]
+      : []);
+    if (pendingElement) elements.push({ id: DRAFT_ELEMENT_ID, selector: pendingElement.selector, elementId: pendingElement.elementId });
+    return elements;
+  }, [pinComments, pendingElement]);
+
+  const pendingContainers = pendingDraft?.scroll.containers;
+  const trackedScopes = useMemo(() => {
+    const scopes = pinComments.flatMap<TrackedScope>(({ id, anchor }) => {
+      if (anchor.scroll?.containers?.length) return [{ id, containers: anchor.scroll.containers }];
+      // Existing freeform comments only have a viewport position. Use it to find the scroll container.
+      if (anchor.scroll) return [];
+      if (anchor.region) {
+        const { x, y, width, height } = anchor.region;
+        return [{ id, point: { x: x + width / 2, y: y + height / 2 } }];
+      }
+      const firstPoint = anchor.annotation?.marks[0]?.points[0];
+      return firstPoint ? [{ id, point: { x: firstPoint.x * anchor.viewport.width, y: firstPoint.y * anchor.viewport.height } }] : [];
+    });
+    if (pendingContainers?.length) scopes.push({ id: DRAFT_ELEMENT_ID, containers: pendingContainers });
+    return scopes;
+  }, [pinComments, pendingContainers]);
+  const trackAnnotations = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({
+      type: 'om:design-track-elements', token: bridgeToken, elements: trackedElements, scopes: trackedScopes,
+    }, '*');
+  }, [bridgeToken, trackedElements, trackedScopes]);
+  useEffect(trackAnnotations, [trackAnnotations]);
+
+  const pendingBox = pendingElement && previewElementBoxes.get(DRAFT_ELEMENT_ID);
+  const pendingScope = pendingContainers?.length ? previewScopes.get(DRAFT_ELEMENT_ID) : undefined;
+  const pendingOffset = pendingBox && pendingElement
+    ? { x: pendingBox.x - pendingElement.box.x, y: pendingBox.y - pendingElement.box.y }
+    : previewScrollOffset(pendingDraft?.scroll, previewScroll, pendingScope?.offset);
+  const isolatedDeck = iframeRef.current !== null && isolatedDeckFrame === iframeRef.current;
+  const positionedComments = pinComments.map(comment => {
+    const scope = previewScopes.get(comment.id);
+    // Legacy comments captured the window scroll of the entire slide stack.
+    // The isolated slide already has its own viewport, so keep the captured viewport coordinates.
+    const legacyInIsolatedDeck = isolatedDeck && !comment.anchor.isolatedSlide
+      && commentSlideIndexes.has(`${projectId}:${comment.id}`);
+    const capturedScroll = legacyInIsolatedDeck ? ORIGIN : comment.anchor.scroll;
+    return { comment, clip: scope?.clip, offset: previewScrollOffset(capturedScroll, previewScroll, scope?.offset) };
+  });
+
+  const awaitingSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersion && !fileContent;
+  const useSrcDoc = !embedded && effectiveViewMode === 'preview' && isHtmlActive && !previewVersion && Boolean(fileContent);
   const baseHref = useMemo(() => {
     if (!project) return '';
     const relDir = activeFile.includes('/') ? activeFile.slice(0, activeFile.lastIndexOf('/') + 1) : '';
     return new URL(designRoutes.raw(project.id, relDir), window.location.origin).href;
   }, [project, activeFile]);
   const srcDocValue = useMemo(() => (useSrcDoc ? buildBridgeSrcDoc(fileContent, baseHref, bridgeToken, false) : undefined), [useSrcDoc, fileContent, baseHref, bridgeToken]);
-  const rawPreviewUrl = project ? `${designRoutes.raw(project.id, activeFile || project.entry)}${previewVersionId ? `?version=${encodeURIComponent(previewVersionId)}&r=${reloadNonce}` : `?r=${reloadNonce}`}` : '';
 
   if (loading && !project) {
-    return <div className="om-design-shell" style={{ alignItems: 'center', justifyContent: 'center' }}><span className="om-design-muted">{t('Loading design project…')}</span></div>;
+    return (
+      <div className="om-design-shell" data-embedded={embedded || undefined} style={{ alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <OpenDesignLoadingMark height={24} />
+        <span className="om-design-muted">{t('Loading design project…')}</span>
+      </div>
+    );
   }
   if (error || !project) {
-    return <div className="om-design-shell" style={{ alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-      <p>{error || t('Design project not found')}</p>
-      <Button type="button" variant="secondary" onClick={onBack}>{t('Back to Design Studio')}</Button>
-    </div>;
+    return (
+      <div className="om-design-shell" data-embedded={embedded || undefined} style={{ alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+        <p>{error || t('Design project not found')}</p>
+        {embedded ? (
+          <Button type="button" variant="secondary" onClick={() => void refresh()}>{t('Retry')}</Button>
+        ) : (
+          <Button type="button" variant="secondary" onClick={onBack}>{t('Back to Design Studio')}</Button>
+        )}
+      </div>
+    );
   }
 
+  const versionsPopupBody = (
+    <>
+      <strong>{t('Version history')}</strong>
+      {versions.length === 0 ? (
+        <span className="om-design-muted">{t('No saved versions yet.')}</span>
+      ) : versions.map(v => (
+        <div key={v.id} className="om-design-item-card" data-active={v.id === (previewVersion?.id ?? currentVersionId)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+            <strong>{v.label}</strong>
+            <span className="om-design-badge">{v.source}</span>
+            <span className="om-design-muted">{formatTime(v.createdAt)}</span>
+          </div>
+          {v.summary && <span className="om-design-muted">{v.summary}</span>}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <Button type="button" size="sm" variant="ghost" onClick={() => { handlePreviewVersion(v.id); setVersionsOpen(false); }}>
+              {v.id === currentVersionId ? t('Current') : t('Preview')}
+            </Button>
+            {v.id !== currentVersionId && (
+              <Button type="button" size="sm" variant="secondary" disabled={restoringVersion} onClick={() => { void handleRestoreVersion(v.id); setVersionsOpen(false); }}>
+                {t('Make current version')}
+              </Button>
+            )}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+
+  const exportPopupBody = (
+    <>
+      <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('open-design')}>{t('Open Design project (.zip)')}</Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('zip')}>{t('Source archive (.zip)')}</Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('html')}>{t('Standalone HTML (.html)')}</Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('pdf')}>{t('PDF document (.pdf)')}</Button>
+      <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('png')}>{t('PNG screenshot (.png)')}</Button>
+      {isDeck && <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('pptx')}>{t('PowerPoint deck (.pptx)')}</Button>}
+    </>
+  );
+
+  const toggleTool = (tool: Exclude<AnnotationTool, 'none'>) => {
+    const next = activeTool === tool ? 'none' : tool;
+    updateAnnotationTool(next);
+  };
+
   return (
-    <div className="om-design-shell" data-design-editor={project.id}>
-      {/* Top header */}
-      <header className="om-design-header">
-        <div className="om-design-header-group">
-          <Tooltip label={t('Back to projects')}>
-            <IconButton aria-label={t('Back to projects')} icon={<RemixIcon name="arrow-left-line" size={16} />} onClick={onBack} />
-          </Tooltip>
-          <input
-            className="om-design-title-input"
-            aria-label={t('Project title')}
-            size={Math.max(6, Math.min(32, (titleDraft || project.title).length))}
-            value={titleDraft}
-            onChange={e => setTitleDraft(e.target.value)}
-            onBlur={commitTitle}
-            onKeyDown={e => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
-          />
-          {findDesignScenario(project.scenario) && (
-            <span className="om-design-badge">
-              <RemixIcon name={findDesignScenario(project.scenario)!.icon} size={12} />
-              {t(findDesignScenario(project.scenario)!.label)}
-            </span>
-          )}
-          {htmlFiles.length > 1 && htmlFiles.slice(0, 4).map(file => (
-            <Button key={file.path} type="button" size="sm" variant={activeFile === file.path ? 'secondary' : 'ghost'} onClick={() => setActiveFile(file.path)}>
-              {file.path}
-            </Button>
-          ))}
-        </div>
-
-        <div className="om-design-header-group">
-          {/* Versions popover */}
-          <Popover.Root modal={false} open={versionsOpen} onOpenChange={setVersionsOpen}>
-            <Popover.Trigger render={
-              <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="history-line" size={15} />}>
-                {project.versionLabel ?? 'v1'}
-              </Button>
-            } />
-            <Popover.Portal>
-              <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
-                <Popover.Popup className="om-design-popover" style={{ maxHeight: 360, overflowY: 'auto' }}>
-                  <strong>{t('Version history')}</strong>
-                  {versions.map(v => (
-                    <div key={v.id} className="om-design-item-card" data-active={v.id === (previewVersionId ?? currentVersionId)}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                        <strong>{v.label}</strong>
-                        <span className="om-design-badge">{v.source}</span>
-                        <span className="om-design-muted">{formatTime(v.createdAt)}</span>
-                      </div>
-                      {v.summary && <span className="om-design-muted">{v.summary}</span>}
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <Button type="button" size="sm" variant="ghost" onClick={() => { setPreviewVersionId(v.id === currentVersionId ? null : v.id); setVersionsOpen(false); }}>
-                          {v.id === currentVersionId ? t('Current') : t('Preview')}
-                        </Button>
-                        {v.id !== currentVersionId && (
-                          <Button type="button" size="sm" variant="secondary" onClick={() => { void handleRestoreVersion(v.id, v.label); setVersionsOpen(false); }}>
-                            {t('Restore')}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
-
-          {/* Share live deploy popover */}
-          <DesignDeployPopover
-            projectId={project.id}
-            filePath={isHtmlActive ? activeFile : project.entry}
-            title={project.title}
-            revisionKey={project.revision}
-            onNotify={(message, variant = 'info') => showToast(message, variant, 'feedback')}
-            onCopyUrl={async url => {
-              try {
-                await navigator.clipboard.writeText(url);
-                showToast(t('Share link copied'), 'info', 'feedback');
-              } catch {
-                showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback');
-              }
-            }}
-          />
-
-          {/* Export menu */}
-          <Popover.Root modal={false} open={exportOpen} onOpenChange={setExportOpen}>
-            <Popover.Trigger render={
-              <Button type="button" size="sm" variant="secondary" loading={Boolean(exporting)} icon={<RemixIcon name="download-2-line" size={14} />}>
-                {t('Export')}
-              </Button>
-            } />
-            <Popover.Portal>
-              <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
-                <Popover.Popup className="om-design-popover">
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('open-design')}>{t('Open Design project (.zip)')}</Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('zip')}>{t('Source archive (.zip)')}</Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('html')}>{t('Standalone HTML (.html)')}</Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('pdf')}>{t('PDF document (.pdf)')}</Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('png')}>{t('PNG screenshot (.png)')}</Button>
-                  {isDeck && <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('pptx')}>{t('PowerPoint deck (.pptx)')}</Button>}
-                </Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
-
-          {/* Open in menu */}
-          <Popover.Root modal={false} open={openInOpen} onOpenChange={setOpenInOpen}>
-            <Popover.Trigger render={
-              <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="folder-open-line" size={14} />}>
-                {t('Open in')}
-              </Button>
-            } />
-            <Popover.Portal>
-              <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
-                <Popover.Popup className="om-design-popover">
-                  {editors.filter(e => e.available).map(ed => (
-                    <Button key={ed.id} type="button" size="sm" variant="ghost" icon={<RemixIcon name={ed.icon} size={14} />} onClick={() => void handleOpenIn(ed.id, ed.label)}>
-                      {ed.label}
-                    </Button>
-                  ))}
-                  <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="file-copy-line" size={14} />} onClick={() => { setOpenInOpen(false); void copyPrompt(project.path); }}>
-                    {t('Copy local path')}
-                  </Button>
-                </Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
-
-          {/* Copy to Agent (MCP) */}
-          <Popover.Root modal={false} open={agentOpen} onOpenChange={setAgentOpen}>
-            <Popover.Trigger render={
-              <Button type="button" size="sm" variant="primary" icon={<RemixIcon name="plug-line" size={14} />}>
-                {t('Copy to Agent')}
-              </Button>
-            } />
-            <Popover.Portal>
-              <Popover.Positioner side="bottom" align="end" sideOffset={8} className="z-150">
-                <Popover.Popup className="om-design-popover" style={{ width: 340 }}>
-                  <strong>{t('Hand off to Codex or Claude Code (MCP)')}</strong>
-                  <span className="om-design-muted">{t('OpenMotion does not run a built-in agent. Copy this MCP instruction into your connected Agent to edit this project.')}</span>
-                  <textarea
-                    className="om-design-textarea"
-                    placeholder={t('Optional change request for your Agent…')}
-                    value={agentNote}
-                    onChange={e => setAgentNote(e.target.value)}
-                  />
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {openComments.length > 0 && (
-                      <Button type="button" size="sm" variant="primary" onClick={() => { void copyPrompt(designCommentsPrompt(project, openComments, agentNote, promptOptions)); setAgentOpen(false); }}>
-                        {t('Copy {count} open annotations', { count: openComments.length })}
-                      </Button>
-                    )}
-                    <Button type="button" size="sm" variant={openComments.length > 0 ? 'secondary' : 'primary'} onClick={() => { void copyPrompt(designProjectPrompt(project, agentNote, promptOptions)); setAgentOpen(false); }}>
-                      {t('Copy project brief')}
-                    </Button>
-                    {onOpenMcp && (
-                      <Button type="button" size="sm" variant="ghost" onClick={() => { setAgentOpen(false); onOpenMcp(); }}>
-                        {t('Connect MCP')}
-                      </Button>
-                    )}
-                  </div>
-                </Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
-        </div>
-      </header>
-
-      {/* Secondary tool bar: sidebar toggle, reload, Preview/Code, viewport, deck controls, annotation icons, zoom */}
-      <div className="om-design-toolbar">
-        <div className="om-design-header-group">
-          <Tooltip label={t('Toggle panel')}>
-            <IconButton aria-label={t('Toggle panel')} icon={<RemixIcon name="side-bar-line" size={15} />} onClick={() => setSidebarOpen(v => !v)} />
-          </Tooltip>
-          <Tooltip label={t('Reload preview')}>
-            <IconButton aria-label={t('Reload preview')} icon={<RemixIcon name="refresh-line" size={15} />} onClick={() => { setReloadNonce(n => n + 1); void refresh(); }} />
-          </Tooltip>
-
-          <div className="om-design-segmented" role="group" aria-label={t('View mode')}>
-            <Button type="button" size="sm" variant={viewMode === 'preview' ? 'secondary' : 'ghost'} icon={<RemixIcon name="eye-line" size={14} />} onClick={() => setViewMode('preview')}>
-              {t('Preview')}
-            </Button>
-            <Button type="button" size="sm" variant={viewMode === 'code' ? 'secondary' : 'ghost'} icon={<RemixIcon name="code-s-slash-line" size={14} />} onClick={() => setViewMode('code')}>
-              {t('Code')}
-            </Button>
-          </div>
-
-          {/* Device selector */}
-          <Popover.Root modal={false} open={deviceOpen} onOpenChange={setDeviceOpen}>
-            <Popover.Trigger render={
-              <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name={currentViewport.icon} size={14} />}>
-                <span>{t(currentViewport.label)}</span>
-                <RemixIcon name="arrow-down-s-line" size={14} />
-              </Button>
-            } />
-            <Popover.Portal>
-              <Popover.Positioner side="bottom" align="start" sideOffset={6} className="z-150">
-                <Popover.Popup className="om-design-popover" style={{ minWidth: 180 }}>
-                  {designViewports.map(vp => (
-                    <Button key={vp.id} type="button" size="sm" variant={viewportId === vp.id ? 'secondary' : 'ghost'}
-                      icon={<RemixIcon name={vp.icon} size={14} />}
-                      onClick={() => { setViewportId(vp.id); setRotated(false); setDeviceOpen(false); }}>
-                      {t(vp.label)}{vp.width ? ` (${vp.width}×${vp.height})` : ''}
-                    </Button>
-                  ))}
-                  {viewportId !== 'desktop' && (
-                    <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="clockwise-line" size={14} />} onClick={() => { setRotated(r => !r); setDeviceOpen(false); }}>
-                      {t('Rotate orientation')}
-                    </Button>
-                  )}
-                </Popover.Popup>
-              </Popover.Positioner>
-            </Popover.Portal>
-          </Popover.Root>
-
-          {project.scenario === 'live-artifact' && (
-            <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="refresh-line" size={14} />} onClick={() => setReloadNonce(n => n + 1)}>
-              {t('Refresh data')}
-            </Button>
-          )}
-          <Tooltip label={t('Open preview in new tab')}>
-            <IconButton aria-label={t('Open preview in new tab')} icon={<RemixIcon name="external-link-line" size={15} />} onClick={() => window.open(rawPreviewUrl, '_blank', 'noopener,noreferrer')} />
-          </Tooltip>
-        </div>
-
-        {/* Deck controls (centered in 3-column toolbar grid) */}
-        {isDeck && viewMode === 'preview' ? (
+    <div className="om-design-shell" data-design-editor={project.id} data-embedded={embedded || undefined}>
+      {/* Standalone top header (omitted in Super Agent embedded mode where ArtifactBrowserPane owns the frame chrome) */}
+      {!embedded && (
+        <header className="om-design-header">
           <div className="om-design-header-group">
-            <IconButton aria-label={t('Previous slide')} icon={<RemixIcon name="arrow-left-s-line" size={16} />} onClick={() => sendDeckCommand('prev')} />
-            <span className="om-design-muted" style={{ minWidth: 40, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{activeSlide + 1} / {Math.max(1, slideCount || deckSlides.length)}</span>
-            <IconButton aria-label={t('Next slide')} icon={<RemixIcon name="arrow-right-s-line" size={16} />} onClick={() => sendDeckCommand('next')} />
-            <Button type="button" size="sm" variant={notesOpen ? 'secondary' : 'ghost'} onClick={() => setNotesOpen(v => !v)}>{t('Notes')}</Button>
-            <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="fullscreen-line" size={14} />} onClick={() => iframeRef.current?.requestFullscreen?.()}>{t('Present')}</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={openPresenterPopup}>{t('Presenter view')}</Button>
-          </div>
-        ) : <div />}
-
-        {/* Annotation tools & Zoom */}
-        <div className="om-design-header-group">
-          <div className="om-design-header-group" role="group" aria-label={t('Annotation tools')} style={{ gap: 2 }}>
-            <Tooltip label={t('Comment on element')}>
-              <IconButton
-                aria-label={t('Comment')}
-                variant={activeTool === 'comment' ? 'primary' : 'ghost'}
-                icon={<RemixIcon name="chat-1-line" size={15} />}
-                onClick={() => { setViewMode('preview'); setActiveTool(t0 => t0 === 'comment' ? 'none' : 'comment'); }}
-              />
+            <Tooltip label={t('Back to projects')}>
+              <IconButton aria-label={t('Back to projects')} icon={<RemixIcon name="arrow-left-line" size={16} />} onClick={onBack} />
             </Tooltip>
-            <Tooltip label={t('Mark region')}>
-              <IconButton
-                aria-label={t('Region')}
-                variant={activeTool === 'region' ? 'primary' : 'ghost'}
-                icon={<RemixIcon name="shape-2-line" size={15} />}
-                onClick={() => { setViewMode('preview'); setActiveTool(t0 => t0 === 'region' ? 'none' : 'region'); }}
-              />
-            </Tooltip>
-            <Tooltip label={t('Draw pen annotation')}>
-              <IconButton
-                aria-label={t('Draw')}
-                variant={activeTool === 'pen' ? 'primary' : 'ghost'}
-                icon={<RemixIcon name="pen-nib-line" size={15} />}
-                onClick={() => { setViewMode('preview'); setActiveTool(t0 => t0 === 'pen' ? 'none' : 'pen'); }}
-              />
-            </Tooltip>
+            <input
+              className="om-design-title-input"
+              aria-label={t('Project title')}
+              size={Math.max(6, Math.min(32, (titleDraft || project.title).length))}
+              value={titleDraft}
+              onChange={e => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={e => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+            />
+            {findDesignScenario(project.scenario) && (
+              <span className="om-design-badge">
+                <RemixIcon name={findDesignScenario(project.scenario)!.icon} size={12} />
+                {t(findDesignScenario(project.scenario)!.label)}
+              </span>
+            )}
+            {htmlFiles.length > 1 && htmlFiles.slice(0, 4).map(file => (
+              <Button key={file.path} type="button" size="sm" variant={activeFile === file.path ? 'secondary' : 'ghost'} onClick={() => setActiveFile(file.path)}>
+                {file.path}
+              </Button>
+            ))}
           </div>
 
-          <Tooltip label={t('Comments')}>
-            <Button
-              type="button"
-              size="sm"
-              variant={sidebarOpen && sidebarTab === 'comments' ? 'secondary' : 'ghost'}
-              aria-pressed={sidebarOpen && sidebarTab === 'comments'}
-              icon={<RemixIcon name="chat-1-line" size={14} />}
-              onClick={() => {
-                if (sidebarOpen && sidebarTab === 'comments') {
-                  setSidebarOpen(false);
-                } else {
-                  setSidebarOpen(true);
-                  setSidebarTab('comments');
+          <div className="om-design-header-group">
+            {/* Versions popover */}
+            <Popover.Root modal={false} open={versionsOpen} onOpenChange={setVersionsOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="history-line" size={15} />}>
+                  {project.versionLabel ?? 'v1'}
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
+                  <Popover.Popup initialFocus={false} className="om-design-popover" style={{ maxHeight: 360, overflowY: 'auto' }}>
+                    {versionsPopupBody}
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+
+            {/* Share live deploy popover */}
+            <DesignDeployPopover
+              projectId={project.id}
+              filePath={isHtmlActive ? activeFile : project.entry}
+              title={project.title}
+              revisionKey={project.revision}
+              onNotify={(message, variant = 'info') => showToast(message, variant, 'feedback')}
+              onCopyUrl={async url => {
+                try {
+                  await navigator.clipboard.writeText(url);
+                  showToast(t('Share link copied'), 'info', 'feedback');
+                } catch {
+                  showToast(t('Could not copy. Select and copy the text manually.'), 'error', 'feedback');
                 }
               }}
-            >
-              {openComments.length}
-            </Button>
-          </Tooltip>
+            />
 
-          <div className="om-design-header-group" style={{ gap: 2 }}>
-            <IconButton aria-label={t('Zoom out')} icon={<RemixIcon name="zoom-out-line" size={14} />}
-              onClick={() => setZoom(z => ZOOM_STEPS[Math.max(0, ZOOM_STEPS.indexOf(z) - 1)] ?? 75)} />
-            <Button type="button" size="sm" variant="ghost" onClick={() => setZoom(100)}>{zoom}%</Button>
-            <IconButton aria-label={t('Zoom in')} icon={<RemixIcon name="zoom-in-line" size={14} />}
-              onClick={() => setZoom(z => ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(z) + 1)] ?? 125)} />
+            {/* Export menu */}
+            <Popover.Root modal={false} open={exportOpen} onOpenChange={setExportOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="secondary" loading={Boolean(exporting)} icon={<RemixIcon name="download-2-line" size={14} />}>
+                  {t('Export')}
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
+                  <Popover.Popup initialFocus={false} className="om-design-popover">
+                    {exportPopupBody}
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+
+            {/* Open in menu */}
+            <Popover.Root modal={false} open={openInOpen} onOpenChange={setOpenInOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="folder-open-line" size={14} />}>
+                  {t('Open in')}
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
+                  <Popover.Popup initialFocus={false} className="om-design-popover">
+                    {editors.filter(e => e.available).map(ed => (
+                      <Button key={ed.id} type="button" size="sm" variant="ghost" icon={<RemixIcon name={ed.icon} size={14} />} onClick={() => void handleOpenIn(ed.id, ed.label)}>
+                        {ed.label}
+                      </Button>
+                    ))}
+                    <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="file-copy-line" size={14} />} onClick={() => { setOpenInOpen(false); void copyPrompt(project.path); }}>
+                      {t('Copy local path')}
+                    </Button>
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+
+            {/* Copy to Agent (MCP) */}
+            <Popover.Root modal={false} open={agentOpen} onOpenChange={setAgentOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="primary" icon={<RemixIcon name="plug-line" size={14} />}>
+                  {t('Copy to Agent')}
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="end" sideOffset={8} className="z-150">
+                  <Popover.Popup className="om-design-popover" style={{ width: 340 }}>
+                    <strong>{t('Hand off to Codex or Claude Code (MCP)')}</strong>
+                    <span className="om-design-muted">{t('OpenMotion does not run a built-in agent. Copy this MCP instruction into your connected Agent to edit this project.')}</span>
+                    <textarea
+                      className="om-design-textarea"
+                      placeholder={t('Optional change request for your Agent…')}
+                      value={agentNote}
+                      onChange={e => setAgentNote(e.target.value)}
+                    />
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {openComments.length > 0 && (
+                        <Button type="button" size="sm" variant="primary" onClick={() => { void copyPrompt(designCommentsPrompt(project, openComments, agentNote, promptOptions)); setAgentOpen(false); }}>
+                          {t('Copy {count} open annotations', { count: openComments.length })}
+                        </Button>
+                      )}
+                      <Button type="button" size="sm" variant={openComments.length > 0 ? 'secondary' : 'primary'} onClick={() => { void copyPrompt(designProjectPrompt(project, agentNote, promptOptions)); setAgentOpen(false); }}>
+                        {t('Copy project brief')}
+                      </Button>
+                      {onOpenMcp && (
+                        <Button type="button" size="sm" variant="ghost" onClick={() => { setAgentOpen(false); onOpenMcp(); }}>
+                          {t('Connect MCP')}
+                        </Button>
+                      )}
+                    </div>
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+          </div>
+        </header>
+      )}
+
+      {/* Editor toolbar: streamlined in embedded mode so nothing duplicates ArtifactBrowserPane's outer controls */}
+      {embedded ? (
+        <div className="om-design-toolbar om-design-toolbar-embedded" data-embedded="true">
+          <div className="om-design-header-group">
+            <Tooltip label={t('Files, Comments & Versions')}>
+              <IconButton
+                aria-label={t('Toggle panel')}
+                aria-pressed={sidebarOpen}
+                variant={sidebarOpen ? 'secondary' : 'ghost'}
+                icon={<RemixIcon name="side-bar-line" size={15} />}
+                onClick={() => setSidebarOpen(v => !v)}
+              />
+            </Tooltip>
+            <input
+              className="om-design-title-input om-design-title-input-inline"
+              aria-label={t('Project title')}
+              size={Math.max(6, Math.min(26, (titleDraft || project.title).length))}
+              value={titleDraft}
+              onChange={e => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={e => { if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur(); }}
+            />
+            {htmlFiles.length > 1 && htmlFiles.slice(0, 3).map(file => (
+              <Button key={file.path} type="button" size="sm" variant={activeFile === file.path ? 'secondary' : 'ghost'} onClick={() => setActiveFile(file.path)}>
+                {file.path}
+              </Button>
+            ))}
+            <Popover.Root modal={false} open={versionsOpen} onOpenChange={setVersionsOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="history-line" size={14} />}>
+                  {project.versionLabel ?? 'v1'}
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="start" sideOffset={6} className="z-150">
+                  <Popover.Popup initialFocus={false} className="om-design-popover" style={{ maxHeight: 340, overflowY: 'auto' }}>
+                    {versionsPopupBody}
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+          </div>
+
+          {isDeck && effectiveViewMode === 'preview' && (
+            <div className="om-design-header-group om-design-embedded-deck-ctl">
+              <IconButton aria-label={t('Previous slide')} icon={<RemixIcon name="arrow-left-s-line" size={15} />} onClick={() => sendDeckCommand('prev')} />
+              <span className="om-design-muted" style={{ minWidth: 36, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{activeSlide + 1} / {Math.max(1, slideCount || deckSlides.length)}</span>
+              <IconButton aria-label={t('Next slide')} icon={<RemixIcon name="arrow-right-s-line" size={15} />} onClick={() => sendDeckCommand('next')} />
+              <Button type="button" size="sm" variant={notesOpen ? 'secondary' : 'ghost'} onClick={() => setNotesOpen(v => !v)}>{t('Notes')}</Button>
+              <Tooltip label={t('Present')}>
+                <IconButton aria-label={t('Present')} icon={<RemixIcon name="fullscreen-line" size={14} />} onClick={() => iframeRef.current?.requestFullscreen?.()} />
+              </Tooltip>
+              <Button type="button" size="sm" variant="ghost" onClick={openPresenterPopup}>{t('Presenter view')}</Button>
+            </div>
+          )}
+
+          <div className="om-design-header-group" style={{ marginLeft: 'auto' }}>
+            {effectiveViewMode === 'preview' && (
+              <>
+                <div className="om-design-header-group" role="group" aria-label={t('Annotation tools')} style={{ gap: 2 }}>
+                  <Tooltip label={t('Comment on element')}>
+                    <IconButton
+                      aria-label={t('Comment')}
+                      disabled={Boolean(previewVersion)}
+                      variant={activeTool === 'comment' ? 'primary' : 'ghost'}
+                      icon={<RemixIcon name="chat-1-line" size={15} />}
+                      onClick={() => toggleTool('comment')}
+                    />
+                  </Tooltip>
+                  <Tooltip label={t('Mark region')}>
+                    <IconButton
+                      aria-label={t('Region')}
+                      disabled={Boolean(previewVersion)}
+                      variant={activeTool === 'region' ? 'primary' : 'ghost'}
+                      icon={<RemixIcon name="shape-2-line" size={15} />}
+                      onClick={() => toggleTool('region')}
+                    />
+                  </Tooltip>
+                  <Tooltip label={t('Draw pen annotation')}>
+                    <IconButton
+                      aria-label={t('Draw')}
+                      disabled={Boolean(previewVersion)}
+                      variant={activeTool === 'pen' ? 'primary' : 'ghost'}
+                      icon={<RemixIcon name="pen-nib-line" size={15} />}
+                      onClick={() => toggleTool('pen')}
+                    />
+                  </Tooltip>
+                </div>
+
+                {frameWidth && frameHeight && (
+                  <Tooltip label={t('Rotate orientation')}>
+                    <IconButton
+                      aria-label={t('Rotate orientation')}
+                      variant={rotated ? 'secondary' : 'ghost'}
+                      icon={<RemixIcon name="clockwise-line" size={14} />}
+                      onClick={() => setRotated(r => !r)}
+                    />
+                  </Tooltip>
+                )}
+
+                <div className="om-design-header-group om-design-embedded-zoom" style={{ gap: 2 }}>
+                  <IconButton aria-label={t('Zoom out')} icon={<RemixIcon name="zoom-out-line" size={14} />}
+                    onClick={() => setZoom(z => ZOOM_STEPS[Math.max(0, ZOOM_STEPS.indexOf(z) - 1)] ?? 75)} />
+                  <Button type="button" size="sm" variant="ghost" onClick={() => setZoom(100)}>{zoom}%</Button>
+                  <IconButton aria-label={t('Zoom in')} icon={<RemixIcon name="zoom-in-line" size={14} />}
+                    onClick={() => setZoom(z => ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(z) + 1)] ?? 125)} />
+                </div>
+              </>
+            )}
+
+            <Tooltip label={t('Comments')}>
+              <Button
+                type="button"
+                size="sm"
+                variant={sidebarOpen && sidebarTab === 'comments' ? 'secondary' : 'ghost'}
+                aria-pressed={sidebarOpen && sidebarTab === 'comments'}
+                icon={<RemixIcon name="chat-1-line" size={14} />}
+                onClick={() => {
+                  if (sidebarOpen && sidebarTab === 'comments') {
+                    setSidebarOpen(false);
+                  } else {
+                    setSidebarOpen(true);
+                    setSidebarTab('comments');
+                  }
+                }}
+              >
+                {openComments.length}
+              </Button>
+            </Tooltip>
+
+            <Popover.Root modal={false} open={exportOpen} onOpenChange={setExportOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="ghost" loading={Boolean(exporting)} icon={<RemixIcon name="download-2-line" size={14} />}>
+                  <span className="om-design-embedded-hide-narrow">{t('Export')}</span>
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="end" sideOffset={6} className="z-150">
+                  <Popover.Popup initialFocus={false} className="om-design-popover">
+                    {exportPopupBody}
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="om-design-toolbar">
+          <div className="om-design-header-group">
+            <Tooltip label={t('Toggle panel')}>
+              <IconButton aria-label={t('Toggle panel')} icon={<RemixIcon name="side-bar-line" size={15} />} onClick={() => setSidebarOpen(v => !v)} />
+            </Tooltip>
+            <Tooltip label={t('Reload preview')}>
+              <IconButton aria-label={t('Reload preview')} icon={<RemixIcon name="refresh-line" size={15} />} onClick={() => { setReloadNonce(n => n + 1); void refresh(); }} />
+            </Tooltip>
+
+            <div className="om-design-segmented" role="group" aria-label={t('View mode')}>
+              <Button type="button" size="sm" variant={effectiveViewMode === 'preview' ? 'secondary' : 'ghost'} icon={<RemixIcon name="eye-line" size={14} />} onClick={() => setEffectiveViewMode('preview')}>
+                {t('Preview')}
+              </Button>
+              <Button type="button" size="sm" variant={effectiveViewMode === 'code' ? 'secondary' : 'ghost'} icon={<RemixIcon name="code-s-slash-line" size={14} />} onClick={() => setEffectiveViewMode('code')}>
+                {t('Code')}
+              </Button>
+            </div>
+
+            {/* Device selector */}
+            <Popover.Root modal={false} open={deviceOpen} onOpenChange={setDeviceOpen}>
+              <Popover.Trigger render={
+                <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name={currentViewport.icon} size={14} />}>
+                  <span>{t(currentViewport.label)}</span>
+                  <RemixIcon name="arrow-down-s-line" size={14} />
+                </Button>
+              } />
+              <Popover.Portal>
+                <Popover.Positioner side="bottom" align="start" sideOffset={6} className="z-150">
+                  <Popover.Popup initialFocus={false} className="om-design-popover" style={{ minWidth: 180 }}>
+                    {designViewports.map(vp => (
+                      <Button key={vp.id} type="button" size="sm" variant={effectiveViewportId === vp.id ? 'secondary' : 'ghost'}
+                        icon={<RemixIcon name={vp.icon} size={14} />}
+                        onClick={() => { setEffectiveViewportId(vp.id); setRotated(false); setDeviceOpen(false); }}>
+                        {t(vp.label)}{vp.width ? ` (${vp.width}×${vp.height})` : ''}
+                      </Button>
+                    ))}
+                    {effectiveViewportId !== 'desktop' && (
+                      <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="clockwise-line" size={14} />} onClick={() => { setRotated(r => !r); setDeviceOpen(false); }}>
+                        {t('Rotate orientation')}
+                      </Button>
+                    )}
+                  </Popover.Popup>
+                </Popover.Positioner>
+              </Popover.Portal>
+            </Popover.Root>
+
+            {project.scenario === 'live-artifact' && (
+              <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="refresh-line" size={14} />} onClick={() => setReloadNonce(n => n + 1)}>
+                {t('Refresh data')}
+              </Button>
+            )}
+            <Tooltip label={t('Open preview in new tab')}>
+              <IconButton aria-label={t('Open preview in new tab')} icon={<RemixIcon name="external-link-line" size={15} />} onClick={() => window.open(rawPreviewUrl, '_blank', 'noopener,noreferrer')} />
+            </Tooltip>
+          </div>
+
+          {/* Deck controls (centered in 3-column toolbar grid) */}
+          {isDeck && effectiveViewMode === 'preview' ? (
+            <div className="om-design-header-group">
+              <IconButton aria-label={t('Previous slide')} icon={<RemixIcon name="arrow-left-s-line" size={16} />} onClick={() => sendDeckCommand('prev')} />
+              <span className="om-design-muted" style={{ minWidth: 40, textAlign: 'center', fontVariantNumeric: 'tabular-nums' }}>{activeSlide + 1} / {Math.max(1, slideCount || deckSlides.length)}</span>
+              <IconButton aria-label={t('Next slide')} icon={<RemixIcon name="arrow-right-s-line" size={16} />} onClick={() => sendDeckCommand('next')} />
+              <Button type="button" size="sm" variant={notesOpen ? 'secondary' : 'ghost'} onClick={() => setNotesOpen(v => !v)}>{t('Notes')}</Button>
+              <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="fullscreen-line" size={14} />} onClick={() => iframeRef.current?.requestFullscreen?.()}>{t('Present')}</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={openPresenterPopup}>{t('Presenter view')}</Button>
+            </div>
+          ) : <div />}
+
+          {/* Annotation tools & Zoom */}
+          <div className="om-design-header-group">
+            <div className="om-design-header-group" role="group" aria-label={t('Annotation tools')} style={{ gap: 2 }}>
+              <Tooltip label={t('Comment on element')}>
+                <IconButton
+                  aria-label={t('Comment')}
+                  disabled={Boolean(previewVersion)}
+                  variant={activeTool === 'comment' ? 'primary' : 'ghost'}
+                  icon={<RemixIcon name="chat-1-line" size={15} />}
+                  onClick={() => toggleTool('comment')}
+                />
+              </Tooltip>
+              <Tooltip label={t('Mark region')}>
+                <IconButton
+                  aria-label={t('Region')}
+                  disabled={Boolean(previewVersion)}
+                  variant={activeTool === 'region' ? 'primary' : 'ghost'}
+                  icon={<RemixIcon name="shape-2-line" size={15} />}
+                  onClick={() => toggleTool('region')}
+                />
+              </Tooltip>
+              <Tooltip label={t('Draw pen annotation')}>
+                <IconButton
+                  aria-label={t('Draw')}
+                  disabled={Boolean(previewVersion)}
+                  variant={activeTool === 'pen' ? 'primary' : 'ghost'}
+                  icon={<RemixIcon name="pen-nib-line" size={15} />}
+                  onClick={() => toggleTool('pen')}
+                />
+              </Tooltip>
+            </div>
+
+            <Tooltip label={t('Comments')}>
+              <Button
+                type="button"
+                size="sm"
+                variant={sidebarOpen && sidebarTab === 'comments' ? 'secondary' : 'ghost'}
+                aria-pressed={sidebarOpen && sidebarTab === 'comments'}
+                icon={<RemixIcon name="chat-1-line" size={14} />}
+                onClick={() => {
+                  if (sidebarOpen && sidebarTab === 'comments') {
+                    setSidebarOpen(false);
+                  } else {
+                    setSidebarOpen(true);
+                    setSidebarTab('comments');
+                  }
+                }}
+              >
+                {openComments.length}
+              </Button>
+            </Tooltip>
+
+            <div className="om-design-header-group" style={{ gap: 2 }}>
+              <IconButton aria-label={t('Zoom out')} icon={<RemixIcon name="zoom-out-line" size={14} />}
+                onClick={() => setZoom(z => ZOOM_STEPS[Math.max(0, ZOOM_STEPS.indexOf(z) - 1)] ?? 75)} />
+              <Button type="button" size="sm" variant="ghost" onClick={() => setZoom(100)}>{zoom}%</Button>
+              <IconButton aria-label={t('Zoom in')} icon={<RemixIcon name="zoom-in-line" size={14} />}
+                onClick={() => setZoom(z => ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, ZOOM_STEPS.indexOf(z) + 1)] ?? 125)} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Historical version preview notice */}
-      {previewVersionId && (
+      {previewVersion && (
         <div className="om-design-banner">
-          <span>{t('Previewing historical snapshot {label}', { label: versions.find(v => v.id === previewVersionId)?.label ?? '' })}</span>
+          <span>{t('Previewing historical snapshot {label}', { label: previewVersion.label })}</span>
           <div style={{ display: 'flex', gap: 8 }}>
-            <Button type="button" size="sm" variant="secondary" onClick={() => {
-              const ver = versions.find(v => v.id === previewVersionId);
-              if (ver) void handleRestoreVersion(ver.id, ver.label);
-            }}>{t('Restore as new version')}</Button>
+            <Button type="button" size="sm" variant="secondary" disabled={restoringVersion} onClick={() => void handleRestoreVersion(previewVersion.id)}>{t('Make current version')}</Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewVersionId(null)}>{t('Return to current')}</Button>
           </div>
         </div>
@@ -890,7 +1741,7 @@ export function DesignProjectEditor({
       {/* Main split body */}
       <div className="om-design-body">
         {sidebarOpen && (
-          <ResizablePane className="om-design-sidebar" storageKey="om.design.sidebar" initial={280} min={220} max={420} edge="right" label={t('Resize panel')}>
+          <ResizablePane className="om-design-sidebar" storageKey={embedded ? 'om.design.embedded.sidebar' : 'om.design.sidebar'} initial={embedded ? 236 : 280} min={190} max={380} edge="right" label={t('Resize panel')}>
             <div className="om-design-sidebar-tabs" role="tablist">
               <Button type="button" size="sm" variant={sidebarTab === 'files' ? 'secondary' : 'ghost'} onClick={() => setSidebarTab('files')}>{t('Files')}</Button>
               <Button type="button" size="sm" variant={sidebarTab === 'comments' ? 'secondary' : 'ghost'} onClick={() => setSidebarTab('comments')}>
@@ -901,15 +1752,43 @@ export function DesignProjectEditor({
 
             <div className="om-design-sidebar-scroll">
               {sidebarTab === 'files' && project.files.map(file => (
-                <Button key={file.path} type="button" size="sm" variant={activeFile === file.path ? 'secondary' : 'ghost'}
-                  className="om-design-file-row"
-                  onClick={() => { setActiveFile(file.path); if (file.kind !== 'html') setViewMode('code'); }}>
-                  <span className="om-design-file-name">
-                    <RemixIcon name={file.kind === 'html' ? 'file-code-line' : file.kind === 'image' ? 'file-image-line' : 'file-text-line'} size={14} />
-                    <span>{file.path}</span>
-                  </span>
-                  <span className="om-design-file-size">{formatBytes(file.size)}</span>
-                </Button>
+                embedded && onAttachFile ? (
+                  <div key={file.path} className="om-design-file-row-wrap" data-active={activeFile === file.path || undefined}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="plain"
+                      className="om-design-file-row"
+                      onClick={() => { setActiveFile(file.path); if (file.kind !== 'html') setEffectiveViewMode('code'); }}
+                    >
+                      <span className="om-design-file-name">
+                        <RemixIcon name={file.kind === 'html' ? 'file-code-line' : file.kind === 'image' ? 'file-image-line' : 'file-text-line'} size={14} />
+                        <span title={file.path}>{file.path}</span>
+                      </span>
+                      <span className="om-design-file-size">{formatBytes(file.size)}</span>
+                    </Button>
+                    <Tooltip label={t('Attach file')}>
+                      <IconButton
+                        variant="plain"
+                        className="om-design-file-attach-btn"
+                        aria-label={`${t('Attach file')}: ${file.path}`}
+                        icon={<RemixIcon name="add-line" size={13} />}
+                        onClick={() => onAttachFile(file.path)}
+                      />
+                    </Tooltip>
+                  </div>
+                ) : (
+                  <Button key={file.path} type="button" size="sm" variant={activeFile === file.path ? 'secondary' : 'ghost'}
+                    className="om-design-file-row"
+                    aria-current={activeFile === file.path || undefined}
+                    onClick={() => { setActiveFile(file.path); if (file.kind !== 'html') setEffectiveViewMode('code'); }}>
+                    <span className="om-design-file-name">
+                      <RemixIcon name={file.kind === 'html' ? 'file-code-line' : file.kind === 'image' ? 'file-image-line' : 'file-text-line'} size={14} />
+                      <span title={file.path}>{file.path}</span>
+                    </span>
+                    <span className="om-design-file-size">{formatBytes(file.size)}</span>
+                  </Button>
+                )
               ))}
 
               {sidebarTab === 'comments' && (
@@ -923,56 +1802,130 @@ export function DesignProjectEditor({
                       ))}
                     </div>
                     {openComments.length > 0 && (
-                      <Button type="button" size="sm" variant="primary" icon={<RemixIcon name="plug-line" size={13} />}
-                        onClick={() => void copyPrompt(designCommentsPrompt(project, openComments, undefined, promptOptions))}>
-                        {t('Copy for Agent')}
-                      </Button>
+                      embedded && onAttachToChat ? (
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="plain"
+                            className="om-design-tonal-btn"
+                            disabled={attachingChat}
+                            icon={<RemixIcon name="add-line" size={13} />}
+                            onClick={() => void attachOpenCommentsToSuperAgent(false)}
+                          >
+                            {t('Attach open comments')}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="plain"
+                            className="om-design-tonal-primary-btn"
+                            disabled={attachingChat}
+                            icon={<RemixIcon name="sparkling-line" size={13} />}
+                            onClick={() => void attachOpenCommentsToSuperAgent(true)}
+                          >
+                            {t('Send all to Agent')}
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button type="button" size="sm" variant="primary" icon={<RemixIcon name="plug-line" size={13} />}
+                          onClick={() => void copyPrompt(designCommentsPrompt(project, openComments, undefined, promptOptions))}>
+                          {t('Copy for Agent')}
+                        </Button>
+                      )
                     )}
                   </div>
 
                   {visibleComments.length === 0 && (
-                    <p className="om-design-muted">{t('No annotations yet. Pick Comment, Region or Draw to mark an element, then copy the brief to your Agent.')}</p>
+                    <p className="om-design-muted">{embedded
+                      ? t('No annotations yet. Pick Comment, Region or Draw to mark anything on the page and attach it directly to Super Agent.')
+                      : t('No annotations yet. Pick Comment, Region or Draw to mark an element, then copy the brief to your Agent.')}
+                    </p>
                   )}
 
                   {visibleComments.map((comment, idx) => {
-                    const kindLabel = comment.anchor.annotation ? t('Draw') : comment.anchor.region ? t('Region') : t('Comment');
-                    const kindIcon = comment.anchor.annotation ? 'pen-nib-line' : comment.anchor.region ? 'shape-2-line' : 'chat-1-line';
-                    const focusComment = () => {
+                    const { annotation, element, filePath, region, viewport } = comment.anchor;
+                    const kindLabel = annotation ? t('Draw') : region ? t('Region') : element ? t('Element') : t('Comment');
+                    const kindIcon = annotation ? 'pen-nib-line' : region ? 'shape-2-line' : 'chat-1-line';
+                    const targetBox = region ?? element?.box;
+                    const legacyDeckComment = comment.anchor.slideIndex !== undefined && !comment.anchor.isolatedSlide && Boolean(targetBox || annotation);
+                    const slideIndex = commentSlideIndexes.get(`${projectId}:${comment.id}`) ?? comment.anchor.slideIndex;
+                    const targetText = element?.text?.trim() || element?.label.trim();
+                    const viewportLabel = designViewports.find(item => item.id === viewport.id)?.label ?? 'Desktop';
+                    const focusComment = async () => {
+                      const request = ++commentFocusRequest.current;
+                      const targetSlide = legacyDeckComment ? (await resolveCommentSlide(comment.id)) ?? slideIndex : slideIndex;
+                      if (request !== commentFocusRequest.current) return;
                       setSelectedCommentId(comment.id);
-                      setViewMode('preview');
-                      if (comment.anchor.filePath && comment.anchor.filePath !== activeFile) setActiveFile(comment.anchor.filePath);
-                      if (isDeck && comment.anchor.slideIndex !== undefined && comment.anchor.slideIndex !== activeSlide) {
-                        sendDeckCommand('go', comment.anchor.slideIndex);
+                      setEffectiveViewMode('preview');
+                      if (filePath && filePath !== activeFile) setActiveFile(filePath);
+                      if (isDeck && targetSlide !== undefined && targetSlide !== activeSlide) {
+                        sendDeckCommand('go', targetSlide);
                       }
                     };
                     return (
-                      <div key={comment.id} className="om-design-item-card" data-active={selectedCommentId === comment.id} style={{ cursor: 'pointer' }} onClick={focusComment}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
-                          <span className="om-design-badge">
-                            <RemixIcon name={kindIcon} size={11} />
-                            <span>#{idx + 1} · {kindLabel} · {comment.anchor.viewport.id}</span>
+                      <div
+                        key={comment.id}
+                        ref={selectedCommentId === comment.id ? selectedCommentCardRef : undefined}
+                        className="om-design-item-card om-design-comment-card"
+                        data-active={selectedCommentId === comment.id}
+                        onClick={() => void focusComment()}
+                      >
+                        <div className="om-design-comment-heading">
+                          <span className="om-design-comment-location">
+                            <RemixIcon name={kindIcon} size={13} />
+                            <span>#{idx + 1} · {kindLabel}</span>
+                            {slideIndex === undefined ? (
+                              <span className="om-design-muted">{t(viewportLabel)}</span>
+                            ) : (
+                              <Button type="button" size="sm" variant="ghost" onClick={event => { event.stopPropagation(); void focusComment(); }}>
+                                {t('Slide {n}', { n: slideIndex + 1 })}
+                              </Button>
+                            )}
                           </span>
-                          <span className="om-design-muted">{comment.status}</span>
+                          <span className="om-design-muted">{t(comment.status === 'open' ? 'Unresolved' : 'Resolved')}</span>
                         </div>
+                        {targetText && <p className="om-design-comment-target" title={targetText}>{targetText}</p>}
                         <AnnotationVisualPreview
-                          element={comment.anchor.element}
-                          region={comment.anchor.region}
-                          annotation={comment.anchor.annotation}
-                          viewport={comment.anchor.viewport}
+                          region={targetBox}
+                          annotation={annotation}
+                          viewport={viewport}
+                          imageUrl={targetBox || annotation ? designRoutes.commentPreview(project.id, comment.id) : undefined}
+                          onImageLoaded={legacyDeckComment ? () => void resolveCommentSlide(comment.id) : undefined}
                         />
                         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.45 }}>{comment.text}</p>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
-                          {comment.anchor.slideIndex !== undefined && (
-                            <Button type="button" size="sm" variant="ghost" onClick={focusComment}>
-                              {t('Slide {n}', { n: comment.anchor.slideIndex + 1 })}
-                            </Button>
-                          )}
                           <Button type="button" size="sm" variant="ghost" onClick={() => void toggleCommentStatus(comment)}>
                             {comment.status === 'open' ? t('Resolve') : t('Reopen')}
                           </Button>
-                          <Button type="button" size="sm" variant="ghost" onClick={() => void copyPrompt(designCommentsPrompt(project, [comment], undefined, promptOptions))}>
-                            {t('Copy')}
-                          </Button>
+                          {embedded && onAttachToChat ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="plain"
+                                className="om-design-tonal-btn"
+                                disabled={attachingChat}
+                                onClick={() => void attachCommentToSuperAgent(comment, false)}
+                              >
+                                {t('Attach to chat')}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="plain"
+                                className="om-design-tonal-primary-btn"
+                                disabled={attachingChat}
+                                onClick={() => void attachCommentToSuperAgent(comment, true)}
+                              >
+                                {t('Send to Agent')}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button type="button" size="sm" variant="ghost" onClick={() => void copyPrompt(designCommentsPrompt(project, [comment], undefined, promptOptions))}>
+                              {t('Copy')}
+                            </Button>
+                          )}
                           <IconButton aria-label={t('Delete annotation')} icon={<RemixIcon name="delete-bin-line" size={14} />} onClick={() => void removeComment(comment.id)} />
                         </div>
                       </div>
@@ -981,8 +1934,10 @@ export function DesignProjectEditor({
                 </>
               )}
 
-              {sidebarTab === 'versions' && versions.map(ver => (
-                <div key={ver.id} className="om-design-item-card" data-active={ver.id === (previewVersionId ?? currentVersionId)}>
+              {sidebarTab === 'versions' && (versions.length === 0 ? (
+                <p className="om-design-muted">{t('No saved versions yet.')}</p>
+              ) : versions.map(ver => (
+                <div key={ver.id} className="om-design-item-card" data-active={ver.id === (previewVersion?.id ?? currentVersionId)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
                     <strong>{ver.label}</strong>
                     <span className="om-design-badge">{ver.source}</span>
@@ -990,18 +1945,18 @@ export function DesignProjectEditor({
                   {ver.summary && <span className="om-design-muted">{ver.summary}</span>}
                   {ver.prompt && <span className="om-design-muted" style={{ fontStyle: 'italic' }}>{ver.prompt}</span>}
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setPreviewVersionId(ver.id === currentVersionId ? null : ver.id)}>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => handlePreviewVersion(ver.id)}>
                       {ver.id === currentVersionId ? t('Current') : t('Preview')}
                     </Button>
                     {ver.id !== currentVersionId && (
-                      <Button type="button" size="sm" variant="secondary" onClick={() => void handleRestoreVersion(ver.id, ver.label)}>
-                        {t('Restore')}
+                      <Button type="button" size="sm" variant="secondary" disabled={restoringVersion} onClick={() => void handleRestoreVersion(ver.id)}>
+                        {t('Make current version')}
                       </Button>
                     )}
                     <Button type="button" size="sm" variant="ghost" onClick={() => void handleExport('zip', ver.id)}>{t('Export')}</Button>
                   </div>
                 </div>
-              ))}
+              )))}
             </div>
           </ResizablePane>
         )}
@@ -1018,10 +1973,10 @@ export function DesignProjectEditor({
             </div>
           )}
 
-          {viewMode === 'preview' ? (
+          {effectiveViewMode === 'preview' ? (
             <>
-              <div className="om-design-stage-viewport" data-fluid={viewportId === 'desktop' && zoom === 100 && project.scenario !== 'document'}>
-                {(viewportId !== 'desktop' || zoom !== 100) && (
+              <div className="om-design-stage-viewport" data-fluid={effectiveViewportId === 'desktop' && zoom === 100 && project.scenario !== 'document'}>
+                {(effectiveViewportId !== 'desktop' || zoom !== 100) && (
                   <div className="om-design-device-caption">
                     <RemixIcon name={currentViewport.icon} size={13} />
                     <span>{t(currentViewport.label)}</span>
@@ -1031,8 +1986,8 @@ export function DesignProjectEditor({
                 )}
                 <div
                   className="om-design-frame-wrap"
-                  data-fluid={viewportId === 'desktop' && zoom === 100 && project.scenario !== 'document'}
-                  data-document={viewportId === 'desktop' && project.scenario === 'document'}
+                  data-fluid={effectiveViewportId === 'desktop' && zoom === 100 && project.scenario !== 'document'}
+                  data-document={effectiveViewportId === 'desktop' && project.scenario === 'document'}
                   style={{
                     ...(frameWidth ? { width: frameWidth, height: frameHeight! } : { width: '100%', height: '100%' }),
                     ...(zoom !== 100 ? { transform: `scale(${zoom / 100})` } : {}),
@@ -1040,15 +1995,28 @@ export function DesignProjectEditor({
                 >
                   <iframe
                     ref={iframeRef}
-                    key={`${project.id}:${activeFile}:${reloadNonce}`}
+                    key={`${project.id}:${previewFile}:${previewVersion?.id ?? project.revision}:${reloadNonce}`}
                     title={project.title}
                     className="om-design-iframe"
-                    sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"
+                    sandbox={embedded
+                      ? 'allow-scripts allow-same-origin allow-forms allow-modals allow-popups allow-downloads'
+                      : 'allow-scripts allow-forms allow-modals allow-popups allow-downloads'}
                     src={useSrcDoc || awaitingSrcDoc ? undefined : rawPreviewUrl}
                     srcDoc={useSrcDoc ? srcDocValue : undefined}
                     onLoad={() => {
+                      const win = iframeRef.current?.contentWindow;
+                      if (!win) return;
+                      clearDrawingRequest();
+                      previewScrollRef.current = ORIGIN;
+                      setPreviewScroll(ORIGIN);
+                      setPreviewElementBoxes(new Map());
+                      setPreviewScopes(new Map());
                       try {
-                        iframeRef.current?.contentWindow?.postMessage({ type: 'om:design-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
+                        win.postMessage({ type: 'om:design-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
+                        win.postMessage({ type: 'om:preview-mode', token: bridgeToken, pick: activeTool === 'comment' }, '*');
+                        win.postMessage({ type: 'om:design-request-scroll', token: bridgeToken }, '*');
+                        configureDeck();
+                        trackAnnotations();
                       } catch { /* ignore */ }
                     }}
                   />
@@ -1080,81 +2048,77 @@ export function DesignProjectEditor({
 
                     {/* Pending region outline while composing comment */}
                     {pendingDraft?.region && (
-                      <div
-                        className="om-design-region-box"
-                        data-selected="true"
-                        style={{
-                          left: pendingDraft.region.x,
-                          top: pendingDraft.region.y,
-                          width: pendingDraft.region.width,
-                          height: pendingDraft.region.height,
-                        }}
-                      />
+                      <AnnotationLayer clip={pendingScope?.clip}>
+                        <div
+                          className="om-design-region-box"
+                          data-selected="true"
+                          style={{
+                            left: pendingDraft.region.x + pendingOffset.x,
+                            top: pendingDraft.region.y + pendingOffset.y,
+                            width: pendingDraft.region.width,
+                            height: pendingDraft.region.height,
+                          }}
+                        />
+                      </AnnotationLayer>
                     )}
 
                     {/* Saved region outlines */}
-                    {pinComments.map(c => c.anchor.region ? (
-                      <div
-                        key={`region-${c.id}`}
-                        className="om-design-region-box"
-                        data-saved="true"
-                        data-selected={selectedCommentId === c.id}
-                        style={{
-                          left: c.anchor.region.x,
-                          top: c.anchor.region.y,
-                          width: c.anchor.region.width,
-                          height: c.anchor.region.height,
-                        }}
-                      />
-                    ) : null)}
+                    {positionedComments.map(({ comment: c, clip, offset }) => {
+                      const { region } = c.anchor;
+                      if (!region) return null;
+                      return (
+                        <AnnotationLayer key={`region-${c.id}`} clip={clip}>
+                          <div
+                            className="om-design-region-box"
+                            data-saved="true"
+                            data-selected={selectedCommentId === c.id}
+                            style={{ left: region.x + offset.x, top: region.y + offset.y, width: region.width, height: region.height }}
+                          />
+                        </AnnotationLayer>
+                      );
+                    })}
 
                     {/* Live pen stroke, pending draft stroke & saved vector annotations */}
-                    <svg width="100%" height="100%" viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-                      {penPoints.length >= 2 && (
-                        <ReviewAnnotationGraphic annotation={{ version: 1, coordinateSpace: 'normalized', width: 1000, height: 1000, marks: [{ kind: 'pen', points: penPoints }] }} />
-                      )}
-                      {pendingDraft?.annotation && (
-                        <g className="om-design-annotation-group" data-selected="true">
-                          <ReviewAnnotationGraphic annotation={{ ...pendingDraft.annotation, width: 1000, height: 1000 }} />
-                        </g>
-                      )}
-                      {pinComments.map(c => c.anchor.annotation ? (
-                        <g key={c.id} className="om-design-annotation-group" data-selected={selectedCommentId === c.id}>
-                          <ReviewAnnotationGraphic annotation={{ ...c.anchor.annotation, width: 1000, height: 1000 }} />
-                        </g>
-                      ) : null)}
-                    </svg>
+                    {penPoints.length >= 2 && (
+                      <PositionedStroke annotation={{ version: 1, coordinateSpace: 'normalized', width: 1000, height: 1000, marks: [{ kind: 'pen', points: penPoints }] }} />
+                    )}
+                    {pendingDraft?.annotation && (
+                      <AnnotationLayer clip={pendingScope?.clip}>
+                        <PositionedStroke annotation={pendingDraft.annotation} offset={pendingOffset} selected />
+                      </AnnotationLayer>
+                    )}
+                    {positionedComments.map(({ comment: c, clip, offset }) => c.anchor.annotation ? (
+                      <AnnotationLayer key={c.id} clip={clip}>
+                        <PositionedStroke annotation={c.anchor.annotation} offset={offset} selected={selectedCommentId === c.id} />
+                      </AnnotationLayer>
+                    ) : null)}
 
                     {/* Saved pins */}
-                    {pinComments.map((c, idx) => {
-                      const ow = overlayRef.current?.clientWidth ?? c.anchor.viewport.width ?? 960;
-                      const oh = overlayRef.current?.clientHeight ?? c.anchor.viewport.height ?? 640;
-                      const drawBounds = c.anchor.annotation ? annotationBounds(c.anchor.annotation) : null;
-                      const x = c.anchor.region
-                        ? c.anchor.region.x
-                        : drawBounds
-                          ? drawBounds.minX * ow
-                          : c.anchor.element
-                            ? c.anchor.element.box.x + c.anchor.element.box.width / 2
-                            : 32 + idx * 28;
-                      const y = c.anchor.region
-                        ? c.anchor.region.y
-                        : drawBounds
-                          ? drawBounds.minY * oh
-                          : c.anchor.element
-                            ? c.anchor.element.box.y + 12
-                            : 32;
+                    {positionedComments.map(({ comment: c, clip, offset }, idx) => {
+                      const { annotation, element, region } = c.anchor;
+                      const drawBounds = annotation && annotationBounds(annotation);
+                      const liveBox = element && previewElementBoxes.get(c.id);
+                      const elementBox = liveBox ?? element?.box;
+                      const left = region ? region.x + offset.x
+                        : drawBounds ? `calc(${drawBounds.minX * 100}% + ${offset.x}px)`
+                        : elementBox ? elementBox.x + elementBox.width / 2 + (liveBox ? 0 : offset.x)
+                        : 32 + idx * 28;
+                      const top = region ? region.y + offset.y
+                        : drawBounds ? `calc(${drawBounds.minY * 100}% + ${offset.y}px)`
+                        : elementBox ? elementBox.y + 12 + (liveBox ? 0 : offset.y)
+                        : 32;
                       return (
-                        <div
-                          key={c.id}
-                          className="om-design-pin"
-                          data-selected={selectedCommentId === c.id}
-                          style={{ left: x, top: y }}
-                          title={c.text}
-                          onClick={() => { setSelectedCommentId(c.id); setSidebarOpen(true); setSidebarTab('comments'); }}
-                        >
-                          {idx + 1}
-                        </div>
+                        <AnnotationLayer key={c.id} clip={clip}>
+                          <div
+                            className="om-design-pin"
+                            data-selected={selectedCommentId === c.id}
+                            style={{ left, top }}
+                            title={c.text}
+                            onClick={() => { setSelectedCommentId(c.id); setSidebarOpen(true); setSidebarTab('comments'); }}
+                          >
+                            {idx + 1}
+                          </div>
+                        </AnnotationLayer>
                       );
                     })}
 
@@ -1162,32 +2126,33 @@ export function DesignProjectEditor({
                     {pendingDraft && (() => {
                       const ow = overlayRef.current?.clientWidth ?? 960;
                       const oh = overlayRef.current?.clientHeight ?? 640;
-                      const popW = 300;
-                      const popH = pendingDraft.annotation || pendingDraft.region ? 290 : 196;
+                      const popW = embedded ? Math.min(356, Math.max(240, ow - 24)) : 300;
+                      const popH = (pendingDraft.annotation || pendingDraft.region ? 305 : 210) + (embedded && popW < 340 ? 34 : 0);
                       const pendingAnnotation = pendingDraft.annotation;
                       const drawBox = pendingAnnotation ? (() => {
                         const b = annotationBounds(pendingAnnotation);
                         return { x: b.minX * ow, y: b.minY * oh, width: (b.maxX - b.minX) * ow, height: (b.maxY - b.minY) * oh };
                       })() : null;
-                      const anchorBox = pendingDraft.region ?? drawBox;
-                      const preferredX = anchorBox ? anchorBox.x : pendingDraft.pinX;
+                      const draftBox = pendingDraft.region ?? drawBox;
+                      const anchorBox = draftBox && { ...draftBox, y: draftBox.y + pendingOffset.y };
+                      const pinY = pendingDraft.pinY + pendingOffset.y;
+                      const preferredX = (draftBox?.x ?? pendingDraft.pinX) + pendingOffset.x;
                       const preferredY = anchorBox
                         ? (anchorBox.y + anchorBox.height + 12 + popH <= oh
                           ? anchorBox.y + anchorBox.height + 12
                           : Math.max(12, anchorBox.y - popH - 12))
-                        : (pendingDraft.pinY + 14 + popH <= oh
-                          ? pendingDraft.pinY + 14
-                          : Math.max(12, pendingDraft.pinY - popH - 14));
+                        : (pinY + 14 + popH <= oh
+                          ? pinY + 14
+                          : Math.max(12, pinY - popH - 14));
                       const left = Math.min(Math.max(12, preferredX), Math.max(12, ow - popW - 12));
                       const top = Math.min(Math.max(12, preferredY), Math.max(12, oh - popH - 12));
                       return (
-                        <div className="om-design-popover" style={{ position: 'absolute', left, top, width: popW, pointerEvents: 'auto', zIndex: 25 }}>
+                        <div className="om-design-popover" style={{ position: 'absolute', left, top, width: popW, maxHeight: Math.max(180, oh - 24), overflowY: 'auto', pointerEvents: 'auto', zIndex: 25 }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <strong>{pendingDraft.element ? `<${pendingDraft.element.tagName}> ${pendingDraft.element.label}` : pendingDraft.region ? t('Region annotation') : t('Pen annotation')}</strong>
                             <IconButton aria-label={t('Cancel')} icon={<RemixIcon name="close-line" size={14} />} onClick={() => setPendingDraft(null)} />
                           </div>
                           <AnnotationVisualPreview
-                            element={pendingDraft.element}
                             region={pendingDraft.region}
                             annotation={pendingDraft.annotation}
                             viewport={{ width: ow, height: oh }}
@@ -1195,16 +2160,66 @@ export function DesignProjectEditor({
                           <textarea
                             className="om-design-textarea"
                             autoFocus
-                            placeholder={t('Describe the change for your Agent…')}
+                            placeholder={embedded ? t('Add a note for Super Agent (optional)…') : t('Describe the change for your Agent…')}
                             value={commentText}
                             onChange={e => setCommentText(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submitDraftComment(); }}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                if (embedded && onAttachToChat) {
+                                  void attachDraftToSuperAgent(true);
+                                } else {
+                                  void submitDraftComment();
+                                }
+                              }
+                            }}
                           />
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                            <Button type="button" size="sm" variant="ghost" onClick={() => setPendingDraft(null)}>{t('Cancel')}</Button>
-                            <Button type="button" size="sm" variant="primary" loading={submittingComment} disabled={!commentText.trim()} onClick={() => void submitDraftComment()}>
-                              {t('Save annotation')}
-                            </Button>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+                            {embedded && onAttachToChat ? (
+                              <>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="plain"
+                                  className="om-design-tonal-btn"
+                                  loading={submittingComment}
+                                  disabled={attachingChat}
+                                  icon={<RemixIcon name="save-line" size={13} />}
+                                  onClick={() => void submitDraftComment()}
+                                >
+                                  {t('Save pin')}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="plain"
+                                  className="om-design-tonal-btn"
+                                  disabled={attachingChat || submittingComment}
+                                  icon={<RemixIcon name="add-line" size={13} />}
+                                  onClick={() => void attachDraftToSuperAgent(false)}
+                                >
+                                  {t('Attach to chat')}
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="plain"
+                                  className="om-design-tonal-primary-btn"
+                                  loading={attachingChat}
+                                  disabled={submittingComment}
+                                  icon={<RemixIcon name="sparkling-line" size={13} />}
+                                  onClick={() => void attachDraftToSuperAgent(true)}
+                                >
+                                  {t('Send to Agent')}
+                                </Button>
+                              </>
+                            ) : (
+                              <>
+                                <Button type="button" size="sm" variant="ghost" onClick={() => setPendingDraft(null)}>{t('Cancel')}</Button>
+                                <Button type="button" size="sm" variant="primary" loading={submittingComment} disabled={!commentText.trim()} onClick={() => void submitDraftComment()}>
+                                  {t('Save annotation')}
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                       );
@@ -1237,7 +2252,31 @@ export function DesignProjectEditor({
             <div className="om-design-code-wrap">
               <div className="om-design-code-bar">
                 <span className="om-design-muted">{activeFile} · {project.versionLabel ?? 'v1'}</span>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {embedded && onAttachToChat && selectedCode && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="plain"
+                      className="om-design-tonal-primary-btn"
+                      icon={<RemixIcon name="sparkling-line" size={13} />}
+                      onClick={handleAttachCodeSelection}
+                    >
+                      {t('Attach selection')} (L{selectedCode.startLine}{selectedCode.endLine !== selectedCode.startLine ? `–L${selectedCode.endLine}` : ''})
+                    </Button>
+                  )}
+                  {embedded && onAttachFile && effectiveFile && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="plain"
+                      className="om-design-tonal-btn"
+                      icon={<RemixIcon name="add-line" size={13} />}
+                      onClick={() => onAttachFile(effectiveFile)}
+                    >
+                      {t('Attach file')}
+                    </Button>
+                  )}
                   {codeEditing ? (
                     <>
                       <Button type="button" size="sm" variant="ghost" disabled={savingCode || reloadingCode} onClick={() => { setCodeDraft(fileContent); setCodeEditBaseRevision(null); setCodeConflict(false); setCodeEditing(false); }}>{t('Cancel')}</Button>
@@ -1246,14 +2285,14 @@ export function DesignProjectEditor({
                       </Button>
                     </>
                   ) : (
-                    <div style={{ display: 'flex', gap: 6 }}>
+                    <>
                       <Button type="button" size="sm" variant="ghost" icon={<RemixIcon name="file-copy-line" size={14} />} onClick={() => void copyPrompt(fileContent)}>
                         {t('Copy code')}
                       </Button>
                       <Button type="button" size="sm" variant="secondary" icon={<RemixIcon name="edit-line" size={14} />} onClick={() => { setCodeDraft(fileContent); setCodeEditBaseRevision(project.revision); setCodeConflict(false); setCodeEditing(true); }}>
                         {t('Edit source')}
                       </Button>
-                    </div>
+                    </>
                   )}
                 </div>
               </div>
@@ -1290,15 +2329,31 @@ export function DesignProjectEditor({
               {reloadingCode || (!codeEditing && codeLoading) ? (
                 <div style={{ padding: 16 }} className="om-design-muted">{t('Loading file…')}</div>
               ) : codeEditing ? (
-                <textarea className="om-design-code-editor" aria-label={t('Source editor')} value={codeDraft} onChange={e => setCodeDraft(e.target.value)} spellCheck={false} />
+                <textarea
+                  className="om-design-code-editor"
+                  aria-label={t('Source editor')}
+                  value={codeDraft}
+                  onChange={e => setCodeDraft(e.target.value)}
+                  onSelect={e => setSelectedCode(readTextareaCodeSelection(e.currentTarget))}
+                  onKeyUp={e => setSelectedCode(readTextareaCodeSelection(e.currentTarget))}
+                  onMouseUp={e => setSelectedCode(readTextareaCodeSelection(e.currentTarget))}
+                  spellCheck={false}
+                />
               ) : (
-                <CodeViewer content={fileContent} />
+                <div
+                  ref={codeViewerWrapRef}
+                  className="om-design-code-viewer-wrap"
+                  onMouseUp={() => setSelectedCode(readDomCodeSelection(codeViewerWrapRef.current, fileContent))}
+                  onKeyUp={() => setSelectedCode(readDomCodeSelection(codeViewerWrapRef.current, fileContent))}
+                >
+                  <CodeViewer content={fileContent} />
+                </div>
               )}
             </div>
           )}
         </section>
       </div>
-      <StudioToastViewport {...toast} />
+      {(!embedded || !onNotify) && <StudioToastViewport {...toast} />}
     </div>
   );
 }

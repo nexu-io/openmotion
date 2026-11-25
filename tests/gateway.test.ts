@@ -1,7 +1,7 @@
 import test from 'node:test';
 import https from 'node:https';
 import { Readable } from 'node:stream';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { mediaBytes } from './media-fixtures.ts';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -11,13 +11,14 @@ import { fixture } from './fixtures.ts';
 import { transport } from './http.ts';
 import { ModelGateway, gatewayFor } from '../gateway/service.ts';
 import { classifyModel, discoverModels, normalizeModels } from '../gateway/catalog.ts';
-import { apiJson, downloadMedia, isPublicAddress, mediaType, providerOrigin, publicProviderFetch, type Fetcher } from '../gateway/network.ts';
+import { apiJson, downloadMedia, isPublicAddress, mediaType, providerOrigin, publicProviderFetch, resolvePublicAddresses, type Fetcher } from '../gateway/network.ts';
 import { publicBrandAddress, brandWebsite } from '../gateway/brand-network.ts';
 import { callTool } from '../mcp.ts';
 import { createTracker, validProperties, type PendingEvent } from '../tracking/core.ts';
 import { omEvents, studioEvents } from '../tracking/events.ts';
 import type { Agent } from '../shared/gateway.ts';
-import { generateCodexImage } from '../gateway/agents.ts';
+import { detectAgents, generateCodexImage } from '../gateway/agents.ts';
+import { AssetConversations, type AssetAgentRpc } from '../gateway/asset-chat.ts';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=', 'base64');
 test('Codex adapter retains service authorization failures, imports a fresh raster and rejects references or symlinks', { skip: process.platform === 'win32' }, () => fixture(async store => {
@@ -50,6 +51,80 @@ test('Codex adapter retains service authorization failures, imports a fresh rast
     await assert.rejects(generateCodexImage('Edit sky', work, controller.signal, reference), /Cancelled fixture/);
   } finally { if (previous === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = previous; }
 }, false));
+
+test('Codex media detection, image generation and asset chat use the newer bundled CLI', { timeout: 10_000 }, t => fixture(async store => {
+  const windows = process.platform === 'win32';
+  const standalone = path.join(store.directory, windows ? 'codex.cmd' : 'codex');
+  const bundled = path.join(store.directory, 'bundled codex.cmd');
+  const bundledScript = path.join(store.directory, 'bundled.cjs');
+  const work = path.join(store.directory, 'codex-work');
+  await mkdir(work);
+  const staleCli = windows ? String.raw`@"%~dp0\standalone.cjs" %*` : `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-cli 0.99.0'
+else
+  exit 1
+fi
+`;
+  await writeFile(standalone, staleCli, { mode: 0o700 });
+  if (windows) await writeFile(path.join(store.directory, 'standalone.cjs'), "if (process.argv[2] === '--version') console.log('codex-cli 0.99.0'); else process.exitCode = 1;");
+  await writeFile(bundled, String.raw`@"%~dp0\bundled.cjs" %*`, { mode: 0o700 });
+  await writeFile(bundledScript, `
+const [command, arg] = process.argv.slice(2);
+if (command === '--version') console.log('codex-cli 0.100.0');
+else if (command === 'login' && arg === 'status') console.log('Logged in');
+else if (command === 'features' && arg === 'list') console.log('image_generation stable true');
+else if (command === 'exec' && arg === '--help') console.log('--ephemeral');
+else if (command === 'exec' && arg === '--ephemeral') {
+  process.stdin.resume();
+  process.stdin.on('end', () => require('node:fs').writeFileSync('image.png', Buffer.from('${png.toString('base64')}', 'base64')));
+} else process.exitCode = 1;
+`, { mode: 0o700 });
+
+  const connections = new EventEmitter();
+  class FakeRpc {
+    readonly command: { bin: string; args: string[] };
+    constructor(bin: string, _cwd: string, _onMessage: unknown, _onClose: unknown, args: string[]) {
+      this.command = { bin, args };
+    }
+    async request(method: string) {
+      if (method === 'thread/start') return { thread: { id: 'fixture-thread' } };
+      if (method === 'turn/start') {
+        connections.emit('started', this.command);
+        return { turn: { id: 'fixture-turn' } };
+      }
+      return {};
+    }
+    send() {}
+    close() {}
+  }
+  const chats = new AssetConversations(store, { rpc: FakeRpc as unknown as typeof AssetAgentRpc });
+  const envKeys = ['PATH', 'CODEX_BIN', 'CODEX_APP_RUNTIME_CLI_PATH'] as const;
+  const previous = envKeys.map(key => process.env[key]);
+  process.env.PATH = store.directory;
+  delete process.env.CODEX_BIN;
+  process.env.CODEX_APP_RUNTIME_CLI_PATH = bundled;
+  try {
+    const codex = (await detectAgents()).find(agent => agent.id === 'codex');
+    assert.equal(codex?.available, true, codex?.reason);
+    assert.deepEqual(await generateCodexImage('A lake', work, t.signal), png);
+
+    const chat = await chats.create();
+    const [[command]] = await Promise.all([
+      once(connections, 'started', { signal: t.signal }),
+      chats.start(chat.id, { requestId: 'fixture-request', text: 'A lake' }),
+    ]);
+    assert.deepEqual(command, { bin: process.execPath, args: [bundledScript, 'app-server', '--listen', 'stdio://'] });
+  } finally {
+    for (const [index, key] of envKeys.entries()) {
+      const before = previous[index];
+      if (before === undefined) delete process.env[key];
+      else process.env[key] = before;
+    }
+    await chats.close();
+  }
+}, false));
+
 const agents = async (): Promise<Agent[]> => [{ id: 'codex', label: 'Codex', installed: true, authenticated: true, imageGeneration: true, available: true, reason: 'ready' }];
 const fetcher = (callback: (url: string, init: RequestInit) => unknown): Fetcher => (async (url, init = {}) => {
   const body = callback(String(url), init);
@@ -446,4 +521,237 @@ test('account image auto retry verifies Range and never appends changed or corru
     });
     assert.deepEqual(result, expected, mode);
   }
+}));
+
+test('resolvePublicAddresses resolves proxy Fake-IP (198.18.0.0/15) via public DNS while blocking private IPs', async () => {
+  const signal = new AbortController().signal;
+  let queried = 0;
+  const resolved = await resolvePublicAddresses('media.example', signal, 'Generated media points to a non-public address', {
+    lookup: async () => [{ address: '198.18.0.243', family: 4 }],
+    publicDns: async () => { queried += 1; return [{ address: '142.251.35.91', family: 4 }]; },
+  });
+  assert.equal(resolved[0].address, '142.251.35.91');
+  assert.equal(queried, 1);
+
+  for (const literal of ['127.0.0.1', '198.18.0.1', '10.0.0.1']) {
+    await assert.rejects(
+      resolvePublicAddresses(literal, signal, 'Generated media points to a non-public address'),
+      /non-public address/,
+    );
+  }
+  await assert.rejects(
+    resolvePublicAddresses('mixed.example', signal, 'Generated media points to a non-public address', {
+      lookup: async () => [{ address: '198.18.0.243', family: 4 }, { address: '10.0.0.1', family: 4 }],
+      publicDns: async () => [{ address: '142.251.35.91', family: 4 }],
+    }),
+    /non-public address/,
+  );
+  await assert.rejects(
+    resolvePublicAddresses('spoofed.example', signal, 'Generated media points to a non-public address', {
+      lookup: async () => [{ address: '198.18.0.243', family: 4 }],
+      publicDns: async () => [{ address: '10.0.0.1', family: 4 }],
+    }),
+    /non-public address/,
+  );
+});
+
+test('gateway runs up to 4 OpenDesign jobs concurrently while keeping BYOK and local codex jobs capped at 2', () => fixture(async store => {
+  let inflightRemote = 0, peakRemote = 0;
+  let inflightFal = 0, peakFal = 0;
+  const resolvers: (() => void)[] = [];
+  const falResolvers: (() => void)[] = [];
+  const gateway = new ModelGateway(store, {
+    detect: agents,
+    pollMs: 1,
+    download: async () => png,
+    fetcher: (async (u, init = {}) => {
+      const url = String(u);
+      if (url.endsWith('/api/v1/media/models')) {
+        return Response.json({ models: [{ model: 'seedream-5.0-flash', kind: 'image', capabilities: { edits: true } }] });
+      }
+      if (url.startsWith('https://queue.fal.run/') && init?.method === 'POST') {
+        inflightFal++;
+        peakFal = Math.max(peakFal, inflightFal);
+        return new Promise<Response>(resolve => {
+          falResolvers.push(() => {
+            inflightFal--;
+            resolve(Response.json({
+              request_id: `fal-${falResolvers.length}`,
+              status_url: `https://queue.fal.run/status/${falResolvers.length}`,
+              response_url: `https://queue.fal.run/response/${falResolvers.length}`,
+            }));
+          });
+        });
+      }
+      if (url.startsWith('https://queue.fal.run/status/')) return Response.json({ status: 'COMPLETED' });
+      if (url.startsWith('https://queue.fal.run/response/')) return Response.json({ images: [{ url: 'https://cdn.example/out.png' }] });
+      if (init?.method === 'POST' && url.endsWith('/images/generations')) {
+        inflightRemote++;
+        peakRemote = Math.max(peakRemote, inflightRemote);
+        return new Promise<Response>(resolve => {
+          resolvers.push(() => {
+            inflightRemote--;
+            resolve(Response.json({ task_id: `t-${resolvers.length}`, status: 'queued' }));
+          });
+        });
+      }
+      return Response.json({ status: 'succeeded', assets: [{ url: 'https://cdn.example/out.png' }] });
+    }) as Fetcher,
+  });
+  try {
+    await gateway.configureProvider('opendesign', { apiKey: 'test-key', baseUrl: 'https://cloud.example' });
+    const remoteJobs = [];
+    for (let i = 0; i < 6; i++) {
+      remoteJobs.push(await gateway.submit({ modality: 'image', model: 'opendesign:seedream-5.0-flash', prompt: `Tile ${i}`, library: {} }));
+    }
+    await gateway.tick();
+    while (resolvers.length < 4) await new Promise(r => setTimeout(r, 5));
+    assert.equal(gateway.active.size, 4);
+    assert.equal(peakRemote, 4);
+    while (resolvers.length) resolvers.shift()!();
+    await Promise.all([...gateway.active.values()].map(task => task.done));
+    await gateway.tick();
+    while (resolvers.length < 2) await new Promise(r => setTimeout(r, 5));
+    assert.equal(gateway.active.size, 2);
+    while (resolvers.length) resolvers.shift()!();
+    await Promise.all([...gateway.active.values()].map(task => task.done));
+    for (const job of remoteJobs) assert.equal((await gateway.getJob(job.id)).state, 'completed');
+
+    // Non-OpenDesign BYOK providers (e.g. fal) stay capped at 2 concurrent workers.
+    await gateway.configureProvider('fal', { apiKey: 'fal-test-key' });
+    const falJobs = [];
+    for (let i = 0; i < 4; i++) {
+      falJobs.push(await gateway.submit({ modality: 'image', model: 'fal:fal-ai/flux/schnell', prompt: `Fal ${i}`, library: {} }));
+    }
+    await gateway.tick();
+    while (falResolvers.length < 2) await new Promise(r => setTimeout(r, 5));
+    assert.equal(gateway.active.size, 2);
+    assert.equal(peakFal, 2);
+    while (falResolvers.length) falResolvers.shift()!();
+    await Promise.all([...gateway.active.values()].map(task => task.done));
+    await gateway.tick();
+    while (falResolvers.length < 2) await new Promise(r => setTimeout(r, 5));
+    while (falResolvers.length) falResolvers.shift()!();
+    await Promise.all([...gateway.active.values()].map(task => task.done));
+    for (const job of falJobs) assert.equal((await gateway.getJob(job.id)).state, 'completed');
+
+    // Local codex jobs also stay capped at 2 concurrent workers.
+    let inflightLocal = 0, peakLocal = 0;
+    const localResolvers: (() => void)[] = [];
+    gateway.options.codex = async () => {
+      inflightLocal++;
+      peakLocal = Math.max(peakLocal, inflightLocal);
+      await new Promise<void>(resolve => localResolvers.push(() => { inflightLocal--; resolve(); }));
+      return png;
+    };
+    const localJobs = [];
+    for (let i = 0; i < 4; i++) {
+      localJobs.push(await gateway.submit({ modality: 'image', model: 'codex:image-generation', prompt: `Local ${i}`, library: {} }));
+    }
+    await gateway.tick();
+    while (localResolvers.length < 2) await new Promise(r => setTimeout(r, 5));
+    assert.equal(gateway.active.size, 2);
+    assert.equal(peakLocal, 2);
+    while (localResolvers.length) localResolvers.shift()!();
+    await Promise.all([...gateway.active.values()].map(task => task.done));
+    await gateway.tick();
+    while (localResolvers.length < 2) await new Promise(r => setTimeout(r, 5));
+    while (localResolvers.length) localResolvers.shift()!();
+    await Promise.all([...gateway.active.values()].map(task => task.done));
+    for (const job of localJobs) assert.equal((await gateway.getJob(job.id)).state, 'completed');
+  } finally { await gateway.close(); }
+}));
+
+test('OpenDesign model discovery hydrates fallback routing traits, prefers server-published metadata, indexes tags, and never fabricates unknown models', () => fixture(async store => {
+  const gateway = new ModelGateway(store, {
+    detect: async () => [],
+    fetcher: (async (u) => {
+      const url = String(u);
+      if (url.endsWith('/api/v1/media/models')) {
+        return Response.json({
+          models: [
+            // Existing model without server routing metadata -> hydrated from fallback profile.
+            { model: 'gpt-image-2.6-flare', kind: 'image', capabilities: { edits: true, background: ['auto', 'transparent', 'opaque'] } },
+            // Existing model WITH server-published routing metadata -> server fields take precedence,
+            // and an invalid top-level tier falls through to a valid nested capabilities.tier.
+            {
+              model: 'seedream-5.5',
+              kind: 'image',
+              tier: 'ultra-invalid',
+              best_for: ['Server Tag', 'editorial-key-art'],
+              description: 'Server-published Seedream description.',
+              capabilities: { edits: true, tier: 'balanced' },
+            },
+            // Existing model WITH explicit empty server metadata -> stays cleared (never overwritten by fallback).
+            {
+              model: 'gpt-image-2.6-sunburst',
+              kind: 'image',
+              best_for: [],
+              description: '',
+              capabilities: { edits: true },
+            },
+            // Brand-new unseen model WITH server-published metadata under capabilities -> flows through untouched.
+            {
+              model: 'gpt-image-3-pro',
+              kind: 'image',
+              capabilities: {
+                edits: true,
+                max_input_images: 12,
+                tier: 'flagship',
+                best_for: ['3d-concept', 'sprite-sheets'],
+                description: 'Next-gen image model published directly by AMR.',
+              },
+            },
+            // Brand-new unseen model WITHOUT server routing metadata -> no fabricated traits.
+            { model: 'future-mystery-v9', kind: 'video', capabilities: {} },
+          ],
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }) as Fetcher,
+  });
+  try {
+    await gateway.configureProvider('opendesign', { apiKey: 'test-key', baseUrl: 'https://cloud.example' });
+    const listed = await gateway.listModels({ provider: 'opendesign', refresh: true });
+    const byId = new Map(listed.models.map(model => [model.modelId, model]));
+
+    const flare = byId.get('gpt-image-2.6-flare')!;
+    assert.equal(flare.tier, 'fast');
+    assert(flare.bestFor?.includes('transparent-cutout'));
+    assert(flare.description && flare.description.length > 0);
+
+    const seedream = byId.get('seedream-5.5')!;
+    assert.equal(seedream.tier, 'balanced');
+    assert.deepEqual(seedream.bestFor, ['server-tag', 'editorial-key-art']);
+    assert.equal(seedream.description, 'Server-published Seedream description.');
+
+    const sunburst = byId.get('gpt-image-2.6-sunburst')!;
+    assert.equal(sunburst.tier, 'flagship');
+    assert.deepEqual(sunburst.bestFor, []);
+    assert.equal(sunburst.description, '');
+
+    const nextGen = byId.get('gpt-image-3-pro')!;
+    assert.equal(nextGen.tier, 'flagship');
+    assert.deepEqual(nextGen.bestFor, ['3d-concept', 'sprite-sheets']);
+    assert.equal(nextGen.description, 'Next-gen image model published directly by AMR.');
+
+    const unseen = byId.get('future-mystery-v9')!;
+    assert.equal(unseen.tier, undefined);
+    assert.equal(unseen.bestFor, undefined);
+    assert.equal(unseen.description, undefined);
+
+    // Search indexes tier and bestFor tags (both fallback and server-published), and respects server-cleared tags.
+    const zhSpeech = await gateway.listModels({ provider: 'opendesign', query: 'zh-speech' });
+    assert.equal(zhSpeech.models[0]?.modelId, 'byteplus-tts-2');
+    const spriteSheets = await gateway.listModels({ provider: 'opendesign', query: 'sprite-sheets' });
+    assert.equal(spriteSheets.models[0]?.modelId, 'gpt-image-3-pro');
+    const transparentCutout = await gateway.listModels({ provider: 'opendesign', modality: 'image', query: 'transparent-cutout' });
+    assert(transparentCutout.models.some(m => m.modelId === 'gpt-image-2.6-flare'));
+    assert(!transparentCutout.models.some(m => m.modelId === 'gpt-image-2.6-sunburst'));
+
+    // Non-OpenDesign models do not receive OpenDesign fallback traits.
+    const falModels = await gateway.listModels({ provider: 'fal' });
+    assert(falModels.models.length > 0);
+    assert(falModels.models.every(m => m.tier === undefined && m.bestFor === undefined));
+  } finally { await gateway.close(); }
 }));

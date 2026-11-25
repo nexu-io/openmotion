@@ -1,12 +1,35 @@
 import type { BrowserPickedElement, BrowserRect } from './browser.ts';
+import { findDesignScenario, type DesignScenarioId } from './design-project.ts';
+import type { ProviderSetupEntry } from './workspace-url.ts';
 
 export const SUPER_AGENT_API = '/motion-api/super-agent';
 
+export const SUPER_AGENT_DESIGN_MODULES = [
+  'image',
+  'prototype',
+  'mobile-app',
+  'deck',
+  'document',
+  'web-clone',
+  'live-artifact',
+  'webgl',
+] as const;
+
+export type SuperAgentDesignModuleId = DesignScenarioId | 'image';
+
+export function isSuperAgentDesignModule(value: unknown): value is SuperAgentDesignModuleId {
+  return typeof value === 'string' && (SUPER_AGENT_DESIGN_MODULES as readonly string[]).includes(value);
+}
+
 export type SuperAgentEngine = string;
 export type SuperAgentPermissionMode = 'on-request' | 'auto';
+export type SuperAgentFollowUpMode = 'steer' | 'queue';
 
 export type SuperAgentResourceKind =
   | 'asset'
+  | 'file'
+  | 'folder'
+  | 'chat'
   | 'brand-kit'
   | 'motion-template'
   | 'design-template'
@@ -19,8 +42,39 @@ export type SuperAgentResourceKind =
   | 'game-project'
   | 'browser-annotation';
 
+export type SuperAgentMotionClipSelection = {
+  id: string;
+  label: string;
+  kind: string;
+  tag?: string;
+  start: number;
+  duration: number;
+  track?: number;
+  sourceFile?: string;
+  selector?: string;
+  hfId?: string;
+  src?: string;
+};
+
+export type SuperAgentEditorElementSelection = {
+  label: string;
+  tagName: string;
+  selector: string;
+  hfId?: string;
+  sourceFile?: string;
+  text?: string;
+};
+
 export type SuperAgentBrowserAnnotation = {
-  mode: 'select' | 'region' | 'draw' | 'screenshot' | 'console';
+  mode:
+    | 'select'
+    | 'region'
+    | 'draw'
+    | 'screenshot'
+    | 'console'
+    | 'motion-selection'
+    | 'design-comment'
+    | 'code-selection';
   pageUrl: string;
   pageTitle?: string;
   comment?: string;
@@ -31,10 +85,25 @@ export type SuperAgentBrowserAnnotation = {
   strokeBounds?: BrowserRect;
   screenshotUrl?: string;
   screenshotPath?: string;
+  screenshotSource?: 'saved-design-comment';
   consoleErrors?: string[];
   artifactId?: string;
   artifactKind?: SuperAgentArtifactKind;
   projectId?: string;
+  filePath?: string;
+  lineRange?: { start: number; end: number };
+  codeSnippet?: string;
+  slideIndex?: number;
+  slideCount?: number;
+  commentId?: string;
+  compositionPath?: string;
+  timeSec?: number;
+  durationSec?: number;
+  fps?: number;
+  timeRange?: { start: number; end: number };
+  timelineClips?: SuperAgentMotionClipSelection[];
+  selectedElements?: SuperAgentEditorElementSelection[];
+  keyframeCount?: number;
 };
 
 export type SuperAgentResourceAttachment = {
@@ -42,14 +111,37 @@ export type SuperAgentResourceAttachment = {
   kind: SuperAgentResourceKind;
   title: string;
   subtitle?: string;
+  playableAd?: boolean;
   modality?: 'image' | 'video' | 'audio';
   versionId?: string;
   scenario?: string;
   previewUrl?: string;
   swatches?: string[];
   tags?: string[];
+  filePath?: string;
+  rootKey?: string;
+  artifactId?: string;
+  sizeBytes?: number;
+  mimeType?: string;
+  chatId?: string;
+  updatedAt?: number;
   annotation?: SuperAgentBrowserAnnotation;
 };
+
+export function resourceAttachmentKey(
+  item: Pick<SuperAgentResourceAttachment, 'kind' | 'id' | 'versionId'>,
+): string {
+  return `${item.kind}:${item.id}:${item.versionId ?? ''}`;
+}
+
+export function formatAttachmentBytes(bytes?: number): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '';
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
+}
 
 export type SuperAgentResourceCounts = {
   assets: number;
@@ -71,6 +163,7 @@ export type SuperAgentResourceCatalog = {
   counts: SuperAgentResourceCounts;
   items: SuperAgentResourceAttachment[];
   generatedAt: number;
+  assetPage?: { total: number; nextOffset: number | null };
 };
 
 export type SuperAgentArtifactKind =
@@ -82,6 +175,7 @@ export type SuperAgentArtifactKind =
   | 'asset-audio'
   | 'brand-kit'
   | 'game-project'
+  | 'workspace-file'
   | 'web';
 
 export type SuperAgentArtifact = {
@@ -89,6 +183,7 @@ export type SuperAgentArtifact = {
   kind: SuperAgentArtifactKind;
   title: string;
   subtitle?: string;
+  playableAd?: boolean;
   projectId?: string;
   sessionId?: string;
   scenario?: string;
@@ -98,14 +193,23 @@ export type SuperAgentArtifact = {
   versionId?: string;
   kitId?: string;
   jobId?: string;
+  exportRequestedAt?: number;
   url?: string;
   downloadUrl?: string;
   mimeType?: string;
+  filePath?: string;
+  rootKey?: string;
+  sizeBytes?: number;
   createdAt: number;
   updatedAt: number;
   /** Monotonic timestamp bumped when an artifact is explicitly presented/opened in the Artifact Viewer. */
   presentedAt?: number;
 };
+
+export function isPlayableAdArtifact(item: Pick<SuperAgentArtifact | SuperAgentResourceAttachment, 'kind' | 'playableAd' | 'subtitle'>): boolean {
+  return item.kind === 'game-project'
+    && (item.playableAd ?? /(?:^|·)\s*(?:Playable ad|广告游戏)\s*$/i.test(item.subtitle ?? ''));
+}
 
 export type SuperAgentToolCategory =
   | 'file_read'
@@ -128,6 +232,10 @@ export type SuperAgentFileOperation = {
   addedLines?: number;
   removedLines?: number;
   diffPreview?: string;
+  artifactId?: string;
+  binary?: boolean;
+  sizeBytes?: number;
+  previewUrl?: string;
 };
 
 export type SuperAgentPlanEntry = {
@@ -153,6 +261,23 @@ export type SuperAgentTurnActivity = {
   usage?: SuperAgentUsage;
 };
 
+export type SuperAgentActionCardKind =
+  | 'sign_in'
+  | 'upgrade_free'
+  | 'upgrade_go'
+  | 'top_up'
+  | 'configure_key'
+  | 'web_publish_sign_in';
+
+export type SuperAgentActionCard = {
+  id: string;
+  kind: SuperAgentActionCardKind;
+  entry: ProviderSetupEntry;
+  provider?: string;
+  targetKind?: 'design' | 'game' | 'html' | 'motion';
+  targetId?: string;
+};
+
 export type SuperAgentToolEvent = {
   callId: string;
   tool: string;
@@ -167,10 +292,24 @@ export type SuperAgentToolEvent = {
   summary?: string;
   inputPreview?: string;
   outputPreview?: string;
+  validationPassed?: boolean;
   artifactId?: string;
+  actionCard?: SuperAgentActionCard;
   startedAt: number;
   finishedAt?: number;
 };
+
+export type SuperAgentContextTag = {
+  kind: 'mode' | 'param' | 'skill';
+  label: string;
+  icon?: string;
+  designScenario?: DesignScenarioId;
+  tone?: 'coding' | 'agent' | 'image' | 'video' | 'audio';
+};
+
+export type SuperAgentPromptSegment =
+  | { type: 'text'; text: string }
+  | { type: 'mention'; attachmentKey: string; label: string; kind: SuperAgentResourceKind };
 
 export type SuperAgentMessage = {
   id: string;
@@ -180,6 +319,8 @@ export type SuperAgentMessage = {
   status?: 'streaming' | 'completed';
   durationMs?: number;
   attachments?: SuperAgentResourceAttachment[];
+  segments?: SuperAgentPromptSegment[];
+  contextTags?: SuperAgentContextTag[];
   toolEvent?: SuperAgentToolEvent;
   artifactIds?: string[];
 };
@@ -187,6 +328,9 @@ export type SuperAgentMessage = {
 export type SuperAgentIntent =
   | 'chat'
   | 'coding'
+  | 'design'
+  | 'research'
+  | 'visualization'
   | 'image'
   | 'video'
   | 'audio'
@@ -197,9 +341,13 @@ export type SuperAgentIntent =
 
 export type SuperAgentModeId =
   | 'coding'
+  | 'design'
+  | 'research'
+  | 'visualization'
   | 'website'
   | 'motion'
   | 'deck'
+  | 'document'
   | 'game'
   | 'image'
   | 'media'
@@ -224,12 +372,46 @@ export type SuperAgentApprovalDisplay = {
   technicalDetail: string;
 };
 
+export type SuperAgentProjectKind = 'custom' | 'game' | 'design' | 'motion' | 'workspace';
+
+export type SuperAgentQueuedMessage = {
+  id: string;
+  requestId: string;
+  text: string;
+  hiddenInstructions?: string;
+  mode?: SuperAgentModeId;
+  workingDir?: string;
+  runtimeId?: string;
+  engine?: SuperAgentEngine;
+  model?: string;
+  reasoning?: string;
+  permissionMode?: SuperAgentPermissionMode;
+  attachments?: SuperAgentResourceAttachment[];
+  segments?: SuperAgentPromptSegment[];
+  contextTags?: SuperAgentContextTag[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type SuperAgentFeedbackRating = 'positive' | 'negative' | 'note';
+
+export type SuperAgentFeedbackEntry = {
+  id: string;
+  rating: SuperAgentFeedbackRating;
+  note: string;
+  includeLogs?: boolean;
+  createdAt: number;
+};
+
 export type SuperAgentChat = {
   id: string;
   title: string;
   titleCustomized?: boolean;
   intent?: SuperAgentIntent;
   workingDir?: string;
+  projectDir?: string;
+  projectKind?: SuperAgentProjectKind;
+  turnChangedFiles?: Record<string, SuperAgentFileOperation[]>;
   pinned?: boolean;
   runtimeId?: string;
   engine: SuperAgentEngine;
@@ -237,6 +419,9 @@ export type SuperAgentChat = {
   reasoning?: string;
   permissionMode: SuperAgentPermissionMode;
   threadId?: string;
+  compactedSummary?: string;
+  compactedAt?: number;
+  feedback?: SuperAgentFeedbackEntry[];
   createdAt: number;
   updatedAt: number;
   state: 'idle' | 'running' | 'waiting' | 'failed' | 'cancelled';
@@ -244,6 +429,7 @@ export type SuperAgentChat = {
   artifacts: SuperAgentArtifact[];
   activeArtifactId?: string;
   approvals: SuperAgentApproval[];
+  queuedMessages?: SuperAgentQueuedMessage[];
   turnActivity?: SuperAgentTurnActivity;
   lastTurnDurationMs?: number;
   lastTurnUsage?: SuperAgentUsage;
@@ -255,15 +441,70 @@ export type SuperAgentChatSummary = {
   id: string;
   title: string;
   intent?: SuperAgentIntent;
+  designScenario?: DesignScenarioId;
+  isGeneratedVideo?: boolean;
   pinned?: boolean;
   runtimeId?: string;
   engine: SuperAgentEngine;
   state: SuperAgentChat['state'];
   artifactCount: number;
   messageCount: number;
+  queuedCount?: number;
+  lastTurnId?: string;
   updatedAt: number;
   createdAt: number;
 };
+
+export function superAgentChatPresentation(chat: SuperAgentChat): Pick<SuperAgentChatSummary, 'intent' | 'designScenario' | 'isGeneratedVideo'> {
+  const { intent } = chat;
+  if (intent === 'video') {
+    return { intent, ...(isSuperAgentGeneratedVideo(chat) ? { isGeneratedVideo: true } : {}) };
+  }
+  if (intent && intent !== 'chat' && intent !== 'design' && intent !== 'website' && intent !== 'slides') return { intent };
+
+  const prompt = chat.messages.find(message => message.role === 'user');
+  const mode = prompt?.contextTags?.find(tag => tag.kind === 'mode');
+  if (mode?.icon === 'book-open-line') return { intent: 'research' };
+  if (mode?.icon === 'bar-chart-box-line') return { intent: 'visualization' };
+
+  const projects = chat.artifacts.filter(item => item.kind === 'design-project' && findDesignScenario(item.scenario));
+  const project = projects.find(item => item.id === chat.activeArtifactId) ?? projects.at(-1);
+  const attachedProject = prompt?.attachments?.find(item => item.kind === 'design-project' && findDesignScenario(item.scenario));
+  const template = prompt?.attachments?.find(item => item.kind === 'design-template' && findDesignScenario(item.scenario));
+  const designScenario = findDesignScenario(project?.scenario ?? attachedProject?.scenario ?? mode?.designScenario ?? template?.scenario)?.id;
+  return { intent, ...(designScenario ? { designScenario } : {}) };
+}
+
+function isSuperAgentGeneratedVideo(chat: Pick<SuperAgentChat, 'messages' | 'artifacts' | 'projectKind'>): boolean {
+  const mode = chat.messages.find(message => message.role === 'user')
+    ?.contextTags?.find(tag => tag.kind === 'mode' && tag.tone === 'video');
+  if (mode?.icon === 'clapperboard-line') return true;
+  if (mode?.icon === 'movie-line') return false;
+
+  if (chat.projectKind === 'motion' || chat.artifacts.some(artifact =>
+    artifact.kind === 'motion-project' || artifact.kind === 'motion-export')) return false;
+  return chat.artifacts.some(artifact => artifact.kind === 'asset-video');
+}
+
+export function summarizeSuperAgentChat(chat: SuperAgentChat): SuperAgentChatSummary {
+  const messages = chat.messages.filter(message => message.role !== 'tool' && message.role !== 'reasoning');
+  const lastTurnId = chat.requestReceipts?.at(-1)?.requestId ?? messages.at(-1)?.id;
+  return {
+    id: chat.id,
+    title: chat.title,
+    ...superAgentChatPresentation(chat),
+    ...(chat.pinned ? { pinned: true } : {}),
+    ...(chat.runtimeId ? { runtimeId: chat.runtimeId } : {}),
+    engine: chat.engine,
+    state: chat.state,
+    artifactCount: chat.artifacts.length,
+    messageCount: messages.length,
+    ...(chat.queuedMessages?.length ? { queuedCount: chat.queuedMessages.length } : {}),
+    ...(lastTurnId ? { lastTurnId } : {}),
+    updatedAt: chat.updatedAt,
+    createdAt: chat.createdAt,
+  };
+}
 
 export type SuperAgentTurnInput = {
   requestId: string;
@@ -277,6 +518,9 @@ export type SuperAgentTurnInput = {
   reasoning?: string;
   permissionMode?: SuperAgentPermissionMode;
   attachments?: SuperAgentResourceAttachment[];
+  segments?: SuperAgentPromptSegment[];
+  contextTags?: SuperAgentContextTag[];
+  followUpBehavior?: SuperAgentFollowUpMode;
 };
 
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -314,9 +558,49 @@ export function artifactCanonicalAddress(artifact: SuperAgentArtifact): string {
       return `asset://${artifact.assetId ?? artifact.id}${artifact.versionId ? `/${artifact.versionId}` : ''}`;
     case 'brand-kit':
       return `brand://${artifact.kitId ?? artifact.id}`;
+    case 'workspace-file':
+      return `file://${artifact.filePath ?? artifact.title}`;
     case 'web':
       return artifact.url || 'about:blank';
   }
+}
+
+function parseValidationOutput(output: unknown): unknown {
+  if (typeof output !== 'string') return output;
+  try {
+    return JSON.parse(output);
+  } catch {
+    // Older previews may be cut off after the validator's top-level decision.
+    if (!output.endsWith('\n…')) return undefined;
+    const verdict = /^\s*\{\s*(?:"id"\s*:\s*"[^"]*"\s*,\s*)?"passed"\s*:\s*(true|false)\s*[,}]/.exec(output);
+    return verdict ? { passed: verdict[1] === 'true' } : undefined;
+  }
+}
+
+function validationDecision(output: unknown): boolean | undefined {
+  const value = parseValidationOutput(output);
+  if (!value || typeof value !== 'object' || !('passed' in value)) return undefined;
+  return typeof value.passed === 'boolean' ? value.passed : undefined;
+}
+
+export function gameValidationPassed(tool: string | undefined, output: unknown): boolean | undefined {
+  if (typeof tool !== 'string' || !tool) return undefined;
+  const name = tool.replace(/^mcp_+openmotion_+/, '');
+  if (name !== 'openmotion_game_validate' && name !== 'motion_game_validate') return undefined;
+  const value = parseValidationOutput(output);
+  const decision = validationDecision(value);
+  if (decision !== undefined || !value || typeof value !== 'object') return decision;
+  if ('structuredContent' in value) {
+    const structured = validationDecision(value.structuredContent);
+    if (structured !== undefined) return structured;
+  }
+  if (!('content' in value) || !Array.isArray(value.content)) return undefined;
+  for (const item of value.content) {
+    if (item?.type !== 'text') continue;
+    const text = validationDecision(item.text);
+    if (text !== undefined) return text;
+  }
+  return undefined;
 }
 
 export function formatSuperAgentToolLabel(tool: string, args?: Record<string, unknown>): string {
@@ -404,6 +688,28 @@ export function formatSuperAgentToolLabel(tool: string, args?: Record<string, un
     case 'openmotion_list_skills':
     case 'openmotion_get_skill':
       return 'Read creative Skills';
+    case 'openmotion_capability_discover':
+      if (action === 'describe') return 'Inspected capability schema';
+      if (action === 'quote') return 'Estimated capability cost';
+      if (action === 'providers') return 'Checked media providers';
+      if (action === 'models') return 'Listed media models';
+      return 'Browsed capability catalog';
+    case 'openmotion_capability_run':
+      return args?.dryRun === true ? 'Previewed capability execution' : 'Ran media capability';
+    case 'openmotion_job_manage':
+      if (action === 'status') return 'Checked generation job status';
+      if (action === 'cancel') return 'Cancelled generation job';
+      if (action === 'retry_save') return 'Retried saving generation output';
+      if (action === 'resume') return 'Resumed generation job';
+      return 'Listed generation jobs';
+    case 'openmotion_asset_manage':
+      if (action === 'read') return 'Inspected media asset';
+      if (action === 'import') return 'Imported workspace asset';
+      if (action === 'import_to_project') return 'Adopted asset into Motion project';
+      if (action === 'brand_kit') return 'Worked with Brand Kit';
+      if (action === 'get') return 'Read asset metadata';
+      if (action === 'update') return 'Updated workspace asset';
+      return 'Listed workspace assets';
     case 'openmotion_assets_use':
     case 'openmotion_assets':
       if (action === 'generate') return 'Generated workspace media asset';
@@ -577,6 +883,70 @@ function shortTargetName(filePath: string): string {
   return parts.at(-1) || filePath;
 }
 
+const BINARY_FILE_RE = /\.(?:png|jpe?g|webp|gif|avif|ico|bmp|mp3|wav|ogg|m4a|mp4|webm|woff2?|ttf|otf|wasm|glb|pdf|zip)$/i;
+
+export function isBinaryFilePath(filePath: string): boolean {
+  return BINARY_FILE_RE.test(filePath.trim());
+}
+
+function extractBatchFileOperations(
+  args: Record<string, unknown>,
+  defaultAction: 'create' | 'edit' | 'delete' = 'edit',
+): SuperAgentFileOperation[] {
+  const ops: SuperAgentFileOperation[] = [];
+  const seen = new Set<string>();
+  const pushEntry = (
+    rawPath: unknown,
+    rawContent: unknown,
+    encoding: unknown,
+    entryAction: 'create' | 'edit' | 'delete' = defaultAction,
+  ) => {
+    if (typeof rawPath !== 'string') return;
+    const cleanPath = rawPath.trim();
+    if (!cleanPath || seen.has(cleanPath)) return;
+    seen.add(cleanPath);
+    const binary = encoding === 'base64' || isBinaryFilePath(cleanPath);
+    const content = !binary && typeof rawContent === 'string' ? rawContent : undefined;
+    if (entryAction === 'delete') {
+      ops.push({ action: 'delete', path: cleanPath, ...(binary ? { binary: true } : {}) });
+      return;
+    }
+    if (content !== undefined) {
+      const preview = buildUnifiedDiffPreview('', content);
+      ops.push({
+        action: entryAction,
+        path: cleanPath,
+        ...(binary ? { binary: true } : {}),
+        addedLines: preview.addedLines,
+        ...(preview.diffPreview ? { diffPreview: preview.diffPreview } : {}),
+      });
+      return;
+    }
+    ops.push({
+      action: entryAction,
+      path: cleanPath,
+      ...(binary ? { binary: true } : {}),
+    });
+  };
+
+  if (Array.isArray(args.files)) {
+    for (const item of args.files.slice(0, 200)) {
+      if (!item || typeof item !== 'object') continue;
+      const entry = item as Record<string, unknown>;
+      const itemAction = entry.delete === true || entry.action === 'delete'
+        ? 'delete'
+        : entry.action === 'create'
+          ? 'create'
+          : defaultAction;
+      pushEntry(entry.path, entry.content, entry.encoding, itemAction);
+    }
+  }
+  if (!ops.length && typeof args.path === 'string') {
+    pushEntry(args.path, args.content, args.encoding, defaultAction);
+  }
+  return ops;
+}
+
 export function classifySuperAgentTool(
   tool: string,
   args: Record<string, unknown> = {},
@@ -617,38 +987,91 @@ export function classifySuperAgentTool(
   if (normalized.startsWith('openmotion_')) {
     const humanLabel = formatSuperAgentToolLabel(normalized, args);
     if (normalized === 'openmotion_design_edit') {
-      const filePath = firstString(args.path, Array.isArray(args.files) ? (args.files[0] as any)?.path : undefined);
-      if (action === 'write' && filePath) {
-        const content = firstString(args.content);
-        const op: SuperAgentFileOperation = {
-          action: 'edit',
-          path: filePath,
-          ...(content ? { addedLines: content.split('\n').length } : {}),
-        };
-        return { category: 'file_edit', label: humanLabel, summary: filePath, fileOp: op, files: [op] };
+      if (action === 'read_file') {
+        const filePath = firstString(args.path, Array.isArray(args.files) ? (args.files[0] as any)?.path : undefined);
+        if (filePath) {
+          const op: SuperAgentFileOperation = { action: 'read', path: filePath };
+          return { category: 'file_read', label: humanLabel, summary: filePath, fileOp: op };
+        }
       }
-      if (action === 'read_file' && filePath) {
-        const op: SuperAgentFileOperation = { action: 'read', path: filePath };
-        return { category: 'file_read', label: humanLabel, summary: filePath, fileOp: op };
+      if (action === 'delete' || action === 'delete_file') {
+        const files = extractBatchFileOperations(args, 'delete');
+        if (files.length) {
+          return {
+            category: 'file_delete',
+            label: humanLabel,
+            summary: files.length === 1 ? files[0].path : `${files.length} files`,
+            fileOp: files[0],
+            files,
+          };
+        }
+      }
+      if (action === 'write' || Array.isArray(args.files) || typeof args.path === 'string') {
+        const files = extractBatchFileOperations(args, 'edit');
+        if (files.length) {
+          return {
+            category: 'file_edit',
+            label: humanLabel,
+            summary: files.length === 1 ? files[0].path : `${files.length} files`,
+            fileOp: files[0],
+            files,
+          };
+        }
       }
     }
     if (normalized === 'openmotion_game_write_files' || normalized === 'openmotion_game_read_file') {
-      const filePath = firstString(args.path, Array.isArray(args.files) ? (args.files[0] as any)?.path : undefined);
       const isRead = normalized === 'openmotion_game_read_file';
-      const op: SuperAgentFileOperation | undefined = filePath
-        ? { action: isRead ? 'read' : 'edit', path: filePath }
-        : undefined;
+      if (isRead) {
+        const filePath = firstString(args.path, Array.isArray(args.files) ? (args.files[0] as any)?.path : undefined);
+        const op: SuperAgentFileOperation | undefined = filePath
+          ? { action: 'read', path: filePath }
+          : undefined;
+        return {
+          category: 'file_read',
+          label: humanLabel,
+          ...(filePath ? { summary: filePath } : {}),
+          ...(op ? { fileOp: op } : {}),
+        };
+      }
+      const files = extractBatchFileOperations(args, 'edit');
+      const fileOp = files[0];
       return {
-        category: isRead ? 'file_read' : 'file_edit',
+        category: 'file_edit',
         label: humanLabel,
-        ...(filePath ? { summary: filePath } : {}),
-        ...(op ? { fileOp: op, ...(!isRead ? { files: [op] } : {}) } : {}),
+        ...(files.length ? { summary: files.length === 1 ? files[0].path : `${files.length} files` } : {}),
+        ...(fileOp ? { fileOp, files } : {}),
       };
+    }
+    if (normalized === 'openmotion_game_capture_cover') {
+      const op: SuperAgentFileOperation = {
+        action: 'create',
+        path: 'assets/cover.png',
+        binary: true,
+      };
+      return {
+        category: 'file_write',
+        label: humanLabel,
+        summary: 'assets/cover.png',
+        fileOp: op,
+        files: [op],
+      };
+    }
+    if (normalized === 'openmotion_edit_project') {
+      const files = extractBatchFileOperations(args, 'edit');
+      if (files.length) {
+        return {
+          category: 'file_edit',
+          label: humanLabel,
+          summary: files.length === 1 ? files[0].path : `${files.length} files`,
+          fileOp: files[0],
+          files,
+        };
+      }
     }
     return {
       category: 'mcp',
       label: humanLabel,
-      summary: firstString(args.title, args.projectId, args.url, action),
+      summary: firstString(args.capabilityId, args.model, args.title, args.projectId, args.url, action),
     };
   }
 
@@ -864,6 +1287,12 @@ export function modeToSuperAgentIntent(mode?: SuperAgentModeId): SuperAgentInten
   switch (mode) {
     case 'coding':
       return 'coding';
+    case 'design':
+      return 'design';
+    case 'research':
+      return 'research';
+    case 'visualization':
+      return 'visualization';
     case 'image':
       return 'image';
     case 'motion':
@@ -876,6 +1305,7 @@ export function modeToSuperAgentIntent(mode?: SuperAgentModeId): SuperAgentInten
     case 'website':
       return 'website';
     case 'deck':
+    case 'document':
       return 'slides';
     default:
       return undefined;
@@ -919,6 +1349,12 @@ export function detectIntentFromPrompt(
   attachments?: SuperAgentResourceAttachment[],
 ): SuperAgentIntent {
   const source = (text || '').trim();
+  if (/^\[Mode:\s*Design Studio\s*·\s*Image Artwork/i.test(source)) return 'image';
+  if (/^\[Mode:\s*Design Studio\s*·\s*HTML Design\s*\|\s*Module:\s*(?:Slide deck|Document)\b/i.test(source)) return 'slides';
+  if (/^\[Mode:\s*Design Studio\b/i.test(source)) return 'design';
+  if (/^\[Mode:\s*Research a topic\b/i.test(source)) return 'research';
+  if (/^\[Mode:\s*Visualization\b/i.test(source)) return 'visualization';
+  if (/^\[Mode:\s*Game Studio\b/i.test(source)) return 'game';
   if (/^\[(?:Mode:\s*Coding|Coding:)/i.test(source)) return 'coding';
   if (/^\[Mode:\s*Image Artwork/i.test(source)) return 'image';
   if (/^\[Mode:\s*(?:Motion graphics|AI Cinema Video)/i.test(source)) return 'video';
@@ -1141,18 +1577,34 @@ export function generateSuperAgentTitle(input: {
   return 'New conversation';
 }
 
-export function superAgentIntentMeta(intent?: SuperAgentIntent): {
+export function superAgentIntentMeta(
+  intent?: SuperAgentIntent,
+  { designScenario, isGeneratedVideo }: Pick<SuperAgentChatSummary, 'designScenario' | 'isGeneratedVideo'> = {},
+): {
   icon: string;
   tone: 'neutral' | 'coding' | 'image' | 'video' | 'audio' | 'agent';
   label: string;
 } {
+  const scenario = findDesignScenario(designScenario);
+  if (scenario) {
+    const tone = scenario.id === 'deck' || scenario.id === 'document' ? 'audio' : 'agent';
+    return { icon: scenario.icon, tone, label: scenario.label };
+  }
   switch (intent) {
     case 'coding':
       return { icon: 'code-s-slash-line', tone: 'coding', label: 'Coding' };
+    case 'design':
+      return { icon: 'palette-line', tone: 'image', label: 'Design Studio' };
+    case 'research':
+      return { icon: 'book-open-line', tone: 'agent', label: 'Research' };
+    case 'visualization':
+      return { icon: 'bar-chart-box-line', tone: 'coding', label: 'Visualization' };
     case 'image':
       return { icon: 'image-line', tone: 'image', label: 'Image' };
     case 'video':
-      return { icon: 'movie-line', tone: 'video', label: 'Video' };
+      return isGeneratedVideo
+        ? { icon: 'clapperboard-line', tone: 'video', label: 'Make a video' }
+        : { icon: 'movie-line', tone: 'video', label: 'Video' };
     case 'audio':
       return { icon: 'music-2-line', tone: 'audio', label: 'Audio' };
     case 'game':
@@ -1162,7 +1614,7 @@ export function superAgentIntentMeta(intent?: SuperAgentIntent): {
     case 'slides':
       return { icon: 'slideshow-line', tone: 'audio', label: 'Slides & Docs' };
     case 'brand':
-      return { icon: 'palette-line', tone: 'image', label: 'Brand Kit' };
+      return { icon: 'brush-line', tone: 'image', label: 'Brand Kit' };
     case 'chat':
     default:
       return { icon: 'chat-1-line', tone: 'neutral', label: 'Chat' };

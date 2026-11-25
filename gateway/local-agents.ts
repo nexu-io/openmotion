@@ -1,9 +1,8 @@
 import path from 'node:path';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import os from 'node:os';
 import { localAgents, type AgentChoice, type AgentDirectory, type AgentLaunch, type AgentModel, type LocalAgent } from '../shared/local-agents.ts';
-import { resolveAgent } from './agents.ts';
+import { resolveLocalAgent } from './agents.ts';
 import {
   discoverAcp,
   discoverClaudeModels,
@@ -23,7 +22,8 @@ import {
 } from './agent-discovery.ts';
 import { readSettings, writeSettings } from './settings-storage.ts';
 import { launchTerminal, terminalCommand } from './agent-terminal.ts';
-import { BoundedLruCache } from '../shared/lifecycle.ts';
+
+export { clearLocalAgentResolveCache, resolveLocalAgent } from './agents.ts';
 
 type AgentDiscoverers = {
   acp: (bin: string, args: string[], options?: AcpDiscoveryOptions) => Promise<AcpDiscoveryResult>;
@@ -38,63 +38,6 @@ const defaultDiscoverers: AgentDiscoverers = {
   claude: discoverClaudeModels,
   pi: discoverPiRpc,
 };
-
-const BIN_ALIASES: Record<string, string[]> = Object.fromEntries(
-  localAgents.filter(agent => agent.binAliases?.length).map(agent => [agent.bin, [agent.bin, ...agent.binAliases!]]),
-);
-
-const RESOLVE_CACHE_TTL_MS = 30_000;
-const resolveCache = new BoundedLruCache<string, { resolved: string | null; expiresAt: number }>({
-  maxEntries: 64,
-});
-
-export function clearLocalAgentResolveCache(): void {
-  resolveCache.clear();
-}
-
-export async function resolveLocalAgent(bin: string): Promise<string | null> {
-  const pathKey = `${bin}\0${process.env.PATH || ''}`;
-  const now = Date.now();
-  const hit = resolveCache.get(pathKey);
-  if (hit && hit.expiresAt > now) {
-    return hit.resolved;
-  }
-
-  const names = BIN_ALIASES[bin] ?? [bin];
-  for (const name of names) {
-    const found = await resolveAgent(name);
-    if (found) {
-      resolveCache.set(pathKey, { resolved: found, expiresAt: now + RESOLVE_CACHE_TTL_MS });
-      return found;
-    }
-  }
-  const home = os.homedir();
-  const dirs = [
-    ...(process.env.PATH || '').split(path.delimiter).filter(dir => path.isAbsolute(dir)),
-    path.join(home, '.local/bin'),
-    path.join(home, '.bun/bin'),
-    path.join(home, '.cargo/bin'),
-    path.join(home, '.npm-global/bin'),
-    path.join(home, '.opencode/bin'),
-    path.join(home, '.cursor/bin'),
-    path.join(home, '.antigravity/bin'),
-    path.join(home, '.claude/local'),
-    path.join(home, '.kiro/bin'),
-    '/opt/homebrew/bin',
-    '/usr/local/bin',
-    ...(process.platform === 'win32' && process.env.APPDATA ? [path.join(process.env.APPDATA, 'npm')] : []),
-  ];
-  for (const dir of dirs) for (const name of names) for (const suffix of process.platform === 'win32' ? ['.exe', '.cmd'] : ['']) {
-    const file = path.join(dir, name + suffix);
-    try {
-      await access(file, constants.X_OK);
-      resolveCache.set(pathKey, { resolved: file, expiresAt: now + RESOLVE_CACHE_TTL_MS });
-      return file;
-    } catch { /* next */ }
-  }
-  resolveCache.set(pathKey, { resolved: null, expiresAt: now + RESOLVE_CACHE_TTL_MS });
-  return null;
-}
 
 function antigravityAcpClientInfo(version?: string): { name: string; version: string } {
   // Antigravity < 1.5.1 only exposes non-Gemini models to allowlisted ACP editors such as Zed.
@@ -125,10 +68,29 @@ function helpHasText(help: { ok: boolean; text: string }): boolean {
   return help.ok || (Boolean(help.text) && /\b(?:usage|options|flags|commands)\b/i.test(help.text));
 }
 
+const DISCOVERY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+type PersistedAgentCacheEntry = {
+  bin: string;
+  version?: string;
+  modelFlag?: string;
+  effortFlag?: string;
+  auth?: LocalAgent['auth'];
+  models: AgentModel[];
+  checkedAt?: string;
+  connectedAt?: string;
+};
+
+type PersistedAgentCache = Record<string, PersistedAgentCacheEntry>;
+
 export class LocalAgentDirectory {
   readonly file: string;
+  readonly cacheFile: string;
   cache = new Map<string, LocalAgent>();
   pending = new Map<string, Promise<LocalAgent>>();
+  private cacheLoaded = false;
+  private cacheLoadPromise: Promise<void> | null = null;
+  private persistedCache: PersistedAgentCache = {};
   private queue = Promise.resolve();
   readonly directory: string;
   readonly resolve: typeof resolveLocalAgent;
@@ -148,12 +110,66 @@ export class LocalAgentDirectory {
     this.terminal = terminal;
     this.discoverers = { ...defaultDiscoverers, ...discoverers };
     this.file = path.join(directory, 'agents/preferences.json');
+    this.cacheFile = path.join(directory, 'agents/discovery-cache.json');
+  }
+  private async ensureDiskCacheLoaded(): Promise<void> {
+    if (this.cacheLoaded) return;
+    if (!this.cacheLoadPromise) {
+      this.cacheLoadPromise = (async () => {
+        const stored = await readSettings<PersistedAgentCache>(this.cacheFile, {});
+        this.persistedCache = stored && typeof stored === 'object' ? stored : {};
+        this.cacheLoaded = true;
+      })().finally(() => {
+        this.cacheLoadPromise = null;
+      });
+    }
+    await this.cacheLoadPromise;
+  }
+  private async persistCacheEntry(id: string, bin: string, result: LocalAgent): Promise<void> {
+    if (!result.models.length && result.auth !== 'signed-out' && result.auth !== 'signed-in' && !result.connectedAt) return;
+    const entry: PersistedAgentCacheEntry = {
+      bin,
+      ...(result.version ? { version: result.version } : {}),
+      ...(result.modelFlag ? { modelFlag: result.modelFlag } : {}),
+      ...(result.effortFlag ? { effortFlag: result.effortFlag } : {}),
+      ...(result.auth ? { auth: result.auth } : {}),
+      models: result.models,
+      ...(result.checkedAt ? { checkedAt: result.checkedAt } : {}),
+      ...(result.connectedAt ? { connectedAt: result.connectedAt } : {}),
+    };
+    this.persistedCache[id] = entry;
+    await this.change(async () => {
+      const current = await readSettings<PersistedAgentCache>(this.cacheFile, {});
+      const next: PersistedAgentCache = { ...(current && typeof current === 'object' ? current : {}), [id]: entry };
+      await writeSettings(this.cacheFile, next);
+    }).catch(() => {});
   }
   async preferences(): Promise<{ default: AgentChoice | null; custom: Record<string, string[]> }> { return readSettings(this.file, { default: null, custom: {} }); }
   async list(): Promise<AgentDirectory> {
-    const prefs = await this.preferences();
+    const [prefs] = await Promise.all([this.preferences(), this.ensureDiskCacheLoaded()]);
+    const now = Date.now();
     const agents = await Promise.all(localAgents.map(async agent => {
-      const installed = Boolean(await this.resolve(agent.bin)), cached = this.cache.get(agent.id);
+      const resolvedBin = await this.resolve(agent.bin);
+      const installed = Boolean(resolvedBin);
+      let cached = this.cache.get(agent.id);
+      if (installed && !cached) {
+        const disk = this.persistedCache[agent.id];
+        const ageMs = disk?.checkedAt ? now - Date.parse(disk.checkedAt) : Number.POSITIVE_INFINITY;
+        if (disk && disk.bin === resolvedBin && ageMs >= 0 && ageMs <= DISCOVERY_CACHE_TTL_MS && (disk.models.length > 0 || disk.auth === 'signed-out' || disk.auth === 'signed-in' || Boolean(disk.connectedAt))) {
+          cached = {
+            ...agent,
+            installed: true,
+            version: disk.version,
+            modelFlag: disk.modelFlag ?? agent.modelFlag,
+            effortFlag: disk.effortFlag,
+            auth: disk.auth ?? 'unknown',
+            models: disk.models,
+            checkedAt: disk.checkedAt,
+            ...(disk.connectedAt ? { connectedAt: disk.connectedAt } : {}),
+          };
+          this.cache.set(agent.id, cached);
+        }
+      }
       return { ...agent, ...(installed ? cached : undefined), installed, auth: installed ? cached?.auth ?? 'unknown' : 'unknown', models: [...(installed ? cached?.models ?? [] : []), ...normalizeAgentModels(prefs.custom[agent.id] ?? [], 'custom')].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index) } as LocalAgent;
     }));
     return { agents, default: prefs.default };
@@ -161,13 +177,15 @@ export class LocalAgentDirectory {
   private warmupPromise: Promise<AgentDirectory> | null = null;
   async warmup(options: { eagerIds?: readonly string[] } = {}): Promise<AgentDirectory> {
     if (this.warmupPromise) return this.warmupPromise;
-    const eagerIds = options.eagerIds ?? ['codex', 'claude', 'opencode', 'cursor-agent'];
+    const eagerIds = options.eagerIds ?? ['antigravity', 'codex', 'claude', 'opencode', 'cursor-agent', 'gemini'];
     this.warmupPromise = (async () => {
       const directory = await this.list();
-      const targets = directory.agents
-        .filter(agent => agent.installed && eagerIds.includes(agent.id) && !this.cache.has(agent.id))
-        .slice(0, 4);
-      await Promise.allSettled(targets.map(agent => this.inspect(agent.id)));
+      const installed = directory.agents.filter(agent => agent.installed && !this.cache.has(agent.id));
+      const prioritized = [
+        ...installed.filter(agent => eagerIds.includes(agent.id)),
+        ...installed.filter(agent => !eagerIds.includes(agent.id)),
+      ].slice(0, 8);
+      await Promise.allSettled(prioritized.map(agent => this.inspect(agent.id)));
       return this.list();
     })().finally(() => {
       this.warmupPromise = null;
@@ -212,14 +230,75 @@ export class LocalAgentDirectory {
     const bin = await this.resolve(def.bin);
     const result: LocalAgent = { ...def, installed: Boolean(bin), auth: 'unknown', models: [], checkedAt: new Date().toISOString() };
     if (!bin) { this.cache.delete(id); return result; }
-    const [version, help] = await Promise.all([this.probe(bin, ['--version']), this.probe(bin, [...(def.startArgs ?? []), '--help'])]);
+    const versionPromise = this.probe(bin, ['--version']);
+    const helpPromise = this.probe(bin, [...(def.startArgs ?? []), '--help']);
+    const authArgs = id === 'codex' ? ['login', 'status'] : ['claude', 'openclaude'].includes(id) ? ['auth', 'status'] : id === 'cursor-agent' ? ['status'] : undefined;
+    const authPromise = authArgs ? this.probe(bin, authArgs) : Promise.resolve(null);
+
+    const applyHelp = (help: { ok: boolean; text: string }) => {
+      const hasHelp = helpHasText(help);
+      result.modelFlag = hasHelp && /(?:^|\s)--model\b/.test(help.text) ? '--model' : undefined;
+      result.effortFlag = hasHelp && /(?:^|\s)--effort\b/.test(help.text) ? '--effort' : undefined;
+      return hasHelp;
+    };
+
+    // For ACP agents, avoid blocking ACP startup behind `--help` (and for non-Antigravity ACP agents, also run `--version` in parallel).
+    if (def.discovery === 'acp') {
+      if (id === 'antigravity') {
+        const version = await versionPromise;
+        result.version = version.ok ? version.text.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0] : undefined;
+      }
+      const acpOptions: AcpDiscoveryOptions = {
+        ...(id === 'antigravity' ? { clientInfo: antigravityAcpClientInfo(result.version) } : {}),
+        ...(id === 'deepseek-harness' ? { isolateDeepSeek: true } : {}),
+      };
+      const candidates = [def.acpArgs!, ...(def.acpFallbacks ?? [])];
+      try {
+        const [acp, version, help, auth] = await Promise.all([
+          this.tryAcpCandidates(bin, candidates, acpOptions),
+          versionPromise,
+          helpPromise,
+          authPromise,
+        ]);
+        if (!result.version) result.version = version.ok ? version.text.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0] : undefined;
+        const hasHelp = applyHelp(help);
+        if (auth) result.auth = parseAgentAuth(id, auth.ok, auth.text);
+        if (acp.version && !result.version) result.version = acp.version;
+        if (acp.auth === 'signed-out') {
+          result.auth = 'signed-out';
+        } else if (acp.models.length > 0) {
+          result.models = acp.models;
+        } else {
+          let fallbackOk = acp.ok;
+          if (def.modelArgs) {
+            const data = await this.probe(bin, def.modelArgs);
+            if (data.ok) { fallbackOk = true; result.models = parseAgentModels('lines', data.text); }
+          }
+          if (!result.models.length && hasHelp) {
+            const fromHelp = parseAgentModels('help', help.text);
+            if (fromHelp.length > 0) { fallbackOk = true; result.models = fromHelp; }
+          }
+          if (!fallbackOk) throw new Error('Model discovery unavailable');
+        }
+      } catch {
+        const [version, help] = await Promise.all([versionPromise, helpPromise]).catch(() => [{ ok: false, text: '' }, { ok: false, text: '' }]);
+        if (!result.version && version.ok) result.version = version.text.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0];
+        applyHelp(help);
+        result.discoveryError = 'Could not discover models. Sign in or update the Agent, then refresh.';
+      }
+      if (!result.discoveryError && result.auth !== 'signed-out' && (result.auth === 'signed-in' || result.models.length > 0)) {
+        result.connectedAt = result.checkedAt;
+      }
+      this.cache.set(id, result);
+      await this.persistCacheEntry(id, bin, result);
+      return result;
+    }
+
+    const [version, help, auth] = await Promise.all([versionPromise, helpPromise, authPromise]);
     result.version = version.ok ? version.text.match(/\b\d+\.\d+(?:\.\d+)?(?:[-+][\w.-]+)?\b/)?.[0] : undefined;
     // Do not pass model/effort flags to an older CLI that does not advertise them.
-    const hasHelp = helpHasText(help);
-    result.modelFlag = hasHelp && /(?:^|\s)--model\b/.test(help.text) ? '--model' : undefined;
-    result.effortFlag = hasHelp && /(?:^|\s)--effort\b/.test(help.text) ? '--effort' : undefined;
-    const authArgs = id === 'codex' ? ['login', 'status'] : ['claude', 'openclaude'].includes(id) ? ['auth', 'status'] : id === 'cursor-agent' ? ['status'] : undefined;
-    if (authArgs) { const auth = await this.probe(bin, authArgs); result.auth = parseAgentAuth(id, auth.ok, auth.text); }
+    const hasHelp = applyHelp(help);
+    if (auth) result.auth = parseAgentAuth(id, auth.ok, auth.text);
 
     const acpOptions: AcpDiscoveryOptions = {
       ...(id === 'antigravity' ? { clientInfo: antigravityAcpClientInfo(result.version) } : {}),
@@ -281,26 +360,6 @@ export class LocalAgentDirectory {
           const opts = await this.probe(bin, ['plugins', 'show-agent-options', '--json']);
           result.models = opts.ok ? parseAmpAgentOptions(opts.text) : parseAgentModels('help', help.text);
         }
-      } else if (def.discovery === 'acp') {
-        const candidates = [def.acpArgs!, ...(def.acpFallbacks ?? [])];
-        const acp = await this.tryAcpCandidates(bin, candidates, acpOptions);
-        if (acp.version && !result.version) result.version = acp.version;
-        if (acp.auth === 'signed-out') {
-          result.auth = 'signed-out';
-        } else if (acp.models.length > 0) {
-          result.models = acp.models;
-        } else {
-          let fallbackOk = acp.ok;
-          if (def.modelArgs) {
-            const data = await this.probe(bin, def.modelArgs);
-            if (data.ok) { fallbackOk = true; result.models = parseAgentModels('lines', data.text); }
-          }
-          if (!result.models.length && hasHelp) {
-            const fromHelp = parseAgentModels('help', help.text);
-            if (fromHelp.length > 0) { fallbackOk = true; result.models = fromHelp; }
-          }
-          if (!fallbackOk) throw new Error('Model discovery unavailable');
-        }
       } else if (def.discovery === 'help') {
         if (def.acpArgs && hasHelp && /\bacp\b/i.test(help.text)) {
           const acp = await this.tryAcpCandidates(bin, [def.acpArgs], acpOptions);
@@ -325,7 +384,12 @@ export class LocalAgentDirectory {
         if (!result.models.length && hasHelp) result.models = parseAgentModels('help', help.text);
       }
     } catch { result.discoveryError = 'Could not discover models. Sign in or update the Agent, then refresh.'; }
-    this.cache.set(id, result); return result;
+    if (!result.discoveryError && result.auth !== 'signed-out' && (result.auth === 'signed-in' || result.models.length > 0)) {
+      result.connectedAt = result.checkedAt;
+    }
+    this.cache.set(id, result);
+    await this.persistCacheEntry(id, bin, result);
+    return result;
   }
   private change(fn: () => Promise<void>) { const next = this.queue.then(fn); this.queue = next.catch(() => {}); return next; }
   async addModel(id: string, model: unknown) {

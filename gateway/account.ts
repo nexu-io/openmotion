@@ -7,11 +7,12 @@ import { promisify } from 'node:util';
 import type { AccountAttempt, AccountErrorCode, AccountSummary, DirectoryModel } from '../shared/provider-directory.ts';
 import type { GenerationJob, Model } from '../shared/gateway.ts';
 import { validField, type EventFields } from '../tracking/core.ts';
-import { accountErrorKinds, accountStages, type omEvents } from '../tracking/events.ts';
+import { accountErrorKinds, accountStages, entitlementHookIds, type EntitlementHookId, type omEvents } from '../tracking/events.ts';
 import { readSettings, writeSettings } from './settings-storage.ts';
 import { planMediaEntitlement } from './account-media.ts';
 import { registeredProvider } from '../shared/provider-registry.ts';
 import { defaultVideoAudioEnabled, resolveGenerationParameters } from '../shared/generation-options.ts';
+import { hydrateOpenDesignModelMetadata, parseServerModelRoutingMetadata } from '../shared/opendesign-models.ts';
 import { apiJson, ProviderError, retryRead, type Fetcher } from './network.ts';
 import { cloudImageParameters, mediaSubmitHeaders, productionApi, uploadInputs } from './opendesign.ts';
 import type { ProviderContext } from './providers.ts';
@@ -34,6 +35,12 @@ async function openSystemBrowser(url: string) {
 }
 const consoleUrl = registeredProvider('account')!.website!;
 export type SignInRecord = EventFields<typeof omEvents['account_sign_in_result']>;
+export type AccountAttribution = { hookId?: unknown; entryId?: unknown };
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const validHookId = (value: unknown): EntitlementHookId | undefined =>
+  typeof value === 'string' && (entitlementHookIds as readonly string[]).includes(value) ? value as EntitlementHookId : undefined;
+const validEntryId = (value: unknown): string | undefined =>
+  typeof value === 'string' && uuidPattern.test(value) ? value : undefined;
 export type OpenDesignWorkspacePrincipal = {
   workspaceId: string;
   workspaceName: string;
@@ -183,7 +190,8 @@ const builtinAccountAudioModels: readonly DirectoryModel[] = [
 ];
 const withBuiltinAudio = (models: DirectoryModel[]): DirectoryModel[] => {
   const existing = new Set(models.map(model => model.id));
-  return [...models, ...builtinAccountAudioModels.filter(model => !existing.has(model.id)).map(model => ({ ...model }))];
+  return [...models, ...builtinAccountAudioModels.filter(model => !existing.has(model.id)).map(model => ({ ...model }))]
+    .map(model => model.kind === 'text' ? model : hydrateOpenDesignModelMetadata(model));
 };
 
 /** OpenDesign's versioned CLI owns device authorization and credentials. */
@@ -218,7 +226,7 @@ export class OpenDesignAccount {
   /** The connector exited with confirmed credentials and the session and model catalogue are being set up. */
   private syncing = false;
   /** Times since the sign-in click, for the attempt record. */
-  private clock?: { start: number; entryId: string; occurredAt: string; prepared?: number; link?: number; approved?: number };
+  private clock?: { start: number; entryId: string; occurredAt: string; hookId?: EntitlementHookId; prepared?: number; link?: number; approved?: number };
   private preparing?: Promise<string>;
   /** Attempts already reported; two cancels racing each other must not count one attempt twice. */
   private reported = new WeakSet<AccountAttempt>();
@@ -352,7 +360,9 @@ export class OpenDesignAccount {
     const errorKind = attempt.stages.findLast(entry => entry.split(':')[1] === 'failed' && !entry.startsWith('browser_open_result'))?.split(':')[2];
     const browser = attempt.stages.find(entry => entry.startsWith('browser_open_result:'))?.split(':')[1];
     const record = { attempt_id: attempt.id, outcome, error_code: errorCode, connector_problem: connector?.problem, connector_version: connectorVersion, resumed: Boolean(attempt.resumed),
-      source_product: 'openmotion', source_detail: 'openmotion_editor_login', entry_id: this.clock.entryId, entry_occurred_at: this.clock.occurredAt,
+      source_product: 'openmotion', source_detail: 'openmotion_editor_login',
+      ...(this.clock.hookId ? { hook_id: this.clock.hookId } : {}),
+      entry_id: this.clock.entryId, entry_occurred_at: this.clock.occurredAt,
       ...(outcome === 'success' && validField('code', amrUserId) ? { amr_user_id: amrUserId } : {}),
       last_stage: lastStage, last_result: lastResult, browser_opened: browser === undefined ? undefined : browser === 'success', receipt: attempt.receipt,
       error_kind: errorKind === undefined ? undefined : (accountErrorKinds as readonly string[]).includes(errorKind) ? errorKind : 'unknown',
@@ -619,7 +629,7 @@ export class OpenDesignAccount {
       this.billingError = status ? { status, ...(code ? { code } : {}) } : undefined;
     }
   }
-  async login() {
+  async login(attribution?: AccountAttribution) {
     const current = await this.summary();
     if (this.signingOut) throw new Error('Wait for sign-out to finish before connecting an account');
     if (this.connecting || current.state === 'signed-in') return this.summary();
@@ -628,7 +638,12 @@ export class OpenDesignAccount {
     this.authorizationUrl = undefined; this.userCode = undefined; this.syncing = false;
     const generation = ++this.generation;
     this.attempt = { id: randomUUID(), stages: [], persisted: false };
-    this.clock = { start: performance.now(), entryId: randomUUID(), occurredAt: new Date().toISOString() };
+    this.clock = {
+      start: performance.now(),
+      entryId: validEntryId(attribution?.entryId) ?? randomUUID(),
+      occurredAt: new Date().toISOString(),
+      hookId: validHookId(attribution?.hookId),
+    };
     void this.authorize(generation).catch(error => {
       if (this.generation !== generation) return;
       this.connecting = false; this.syncing = false; this.child = undefined; this.authorizationUrl = undefined; this.userCode = undefined;
@@ -752,14 +767,14 @@ export class OpenDesignAccount {
     targetPath: string,
     entrySource = OPENMOTION_CLOUD_ENTRY_SOURCE,
     launch: ((url: string) => Promise<void>) | false = openSystemBrowser,
-    attribution?: { utmMedium?: string },
+    attribution?: { utmMedium?: string; entryId?: unknown },
   ) {
     const cleanPath = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
     const [pathname, rawQuery = ''] = cleanPath.split('?', 2);
     const params = new URLSearchParams(rawQuery);
     params.set('od_origin', 'openmotion');
     params.set('od_entry_source', entrySource);
-    params.set('od_entry_id', randomUUID());
+    params.set('od_entry_id', validEntryId(attribution?.entryId) ?? randomUUID());
     params.set('od_entry_at', new Date().toISOString());
     if (attribution?.utmMedium) {
       params.set('utm_source', 'openmotion');
@@ -790,8 +805,8 @@ export class OpenDesignAccount {
    * Opens the subscription page in the system browser, the one the connector used for sign-in, so its OpenDesign session
    * carries over. A one-time account intent makes the page confirm it is the account signed in here before any purchase.
    */
-  async openSubscription(launch: (url: string) => Promise<void> = openSystemBrowser) {
-    return this.openCloudUrl('/dashboard?billing=plan', 'openmotion_manage_subscription', launch);
+  async openSubscription(launch: (url: string) => Promise<void> = openSystemBrowser, attribution?: AccountAttribution) {
+    return this.openCloudUrl('/dashboard?billing=plan', 'openmotion_manage_subscription', launch, attribution);
   }
   async cancel() {
     const connecting = this.connecting, generation = ++this.generation;
@@ -861,6 +876,7 @@ export class OpenDesignAccount {
       const maxInputs = capabilities && Number.isInteger(capabilities.max_input_images) && (capabilities.max_input_images as number) > 0 ? capabilities.max_input_images as number : undefined;
       models.push({
         id: 'account:' + row.model, provider: 'account', modelId: row.model, label: row.model, kind, enabled: row.enabled !== false, source: 'live', mode,
+        ...parseServerModelRoutingMetadata(row),
         ...(editable ? { supportsImageReference: true, ...(Number.isInteger(capabilities?.max_input_images) && (capabilities!.max_input_images as number) > 0 ? { maxInputImages: capabilities!.max_input_images as number } : {}) } : {}),
         ...(kind === 'video' && maxInputs ? { maxInputImages: 1 } : {}),
         ...(capabilities ? { nativeOptions: capabilities } : {}),

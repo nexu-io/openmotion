@@ -7,6 +7,7 @@ import { useI18n } from '../i18n/I18n';
 import { MotionIcon } from './icons';
 import { motionApi } from './useWorkspace';
 import { useWorkspaceChrome } from './WorkspaceFrame';
+import { copyTextToClipboard } from '../utils/clipboard';
 import { trackMotion } from './tracking';
 
 const categories = [
@@ -75,7 +76,7 @@ export function HomeTemplates({ onSelect }: { onSelect?: (template: GalleryTempl
       setInfo(connection);
       const prompt = templatePrompt(connection, host, template, locale);
       try {
-        await navigator.clipboard.writeText(prompt);
+        if (!(await copyTextToClipboard(prompt))) throw new Error('Clipboard copy failed');
         void trackMotion('template_instruction_copy_result', { host_product: host, copy_status: 'clipboard_written' });
         setFeedback(t('Copied. Send it to {agent} to recreate this template.', { agent: hostNames[host] }));
       } catch {

@@ -6,9 +6,44 @@ import { StudioToastViewport } from "./StudioToastViewport";
 import { StudioFeedbackCard } from "./feedback/StudioFeedbackCard";
 import { useStudioHost } from "../motion/StudioHost";
 import { useArtifactViewActive } from "../motion/ArtifactViewState";
+import { useStudioShellContextOptional } from "../contexts/StudioContext";
+import { useFileManagerContextOptional } from "../contexts/FileManagerContext";
+import { useSuperAgentMotionBridge } from "../hooks/useSuperAgentMotionBridge";
 import { buildAgentContextPreview } from "./editor/domEditingAgentPrompt";
 import type { useDomEditSession } from "../hooks/useDomEditSession";
 import type { useToast } from "../hooks/useToast";
+
+const SuperAgentMotionBridgeSync = memo(function SuperAgentMotionBridgeSync({
+  projectId,
+  activeCompPath,
+  consoleErrors,
+  domEditSession,
+}: {
+  projectId: string;
+  activeCompPath: string | null;
+  consoleErrors: ComponentProps<typeof LintModal>["findings"] | null;
+  domEditSession: ReturnType<typeof useDomEditSession>;
+}) {
+  const shell = useStudioShellContextOptional();
+  const fileManager = useFileManagerContextOptional();
+  useSuperAgentMotionBridge({
+    projectId,
+    activeCompPath,
+    compositions: fileManager?.compositions ?? [],
+    editingFile: fileManager?.editingFile ?? null,
+    domEditSelection: domEditSession.domEditSelection,
+    domEditGroupSelections: domEditSession.domEditGroupSelections,
+    consoleErrors,
+    waitForPendingDomEditSaves: () => shell?.waitForPendingDomEditSaves() ?? Promise.resolve(),
+    onOpenFile: (filePath) => {
+      void fileManager?.handleFileSelect(filePath);
+    },
+    onSelectComposition: (compPath) => {
+      shell?.setActiveCompPath(compPath);
+    },
+  });
+  return null;
+});
 
 type LintFindings = ComponentProps<typeof LintModal>["findings"];
 
@@ -46,9 +81,18 @@ export const StudioOverlays = memo(function StudioOverlays({
   const { t } = useI18n();
   const host = useStudioHost();
   const active = useArtifactViewActive();
-  if (!active) return null;
+  const bridge = (
+    <SuperAgentMotionBridgeSync
+      projectId={projectId}
+      activeCompPath={activeCompPath}
+      consoleErrors={consoleErrors}
+      domEditSession={domEditSession}
+    />
+  );
+  if (!active) return bridge;
   return (
     <>
+      {bridge}
       {lintModal !== null && (
         <LintModal
           findings={lintModal}

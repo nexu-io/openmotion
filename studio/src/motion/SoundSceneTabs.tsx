@@ -1,24 +1,28 @@
 import { Button } from 'open-design-ui/button';
 import { isAudioKind } from '../../../shared/audio-kind';
+import type { CapabilityDefinition } from '../../../shared/capability-registry';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { isClientCacheEnabled } from '../utils/clientCacheMode';
 import { getFreshCachedAssetList, runCachedAssetList, type AssetListResult } from './assetCache';
 import { assetRequest } from './assetClient';
-import { SOUND_TABS, type SoundTabId } from './soundTabs';
+import { resolveSoundTabs, type SoundTabDefinition, type SoundTabId } from './soundTabs';
 
 export function SoundSceneTabs({
   activeTab,
+  capabilities,
   onSelectTab,
 }: {
   activeTab: SoundTabId;
+  capabilities?: readonly CapabilityDefinition[];
   onSelectTab: (tabId: SoundTabId) => void;
 }) {
   const { t } = useI18n();
-  const liveTabs = SOUND_TABS.filter(tab => tab.status === 'live');
-  const soonTabs = SOUND_TABS.filter(tab => tab.status === 'soon');
+  const tabs = resolveSoundTabs(capabilities);
+  const liveTabs = tabs.filter(tab => tab.status === 'live');
+  const soonTabs = tabs.filter(tab => tab.status === 'soon');
 
-  const renderTab = (tab: (typeof SOUND_TABS)[number]) => {
+  const renderTab = (tab: SoundTabDefinition) => {
     const active = tab.id === activeTab;
     const prefetchAudioKind = tab.status === 'live' && isAudioKind(tab.id) ? tab.id : null;
     const prefetchTab = prefetchAudioKind

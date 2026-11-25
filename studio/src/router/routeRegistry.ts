@@ -233,5 +233,25 @@ export function resolveRouteArrival(page: WorkspacePage, templatesPage: boolean)
   if (page.designScene && page.designScene !== 'projects' && !page.designProject) return 'design';
   if (page.cinemaLanding) return 'cinema';
   if (page.modelOverview) return 'model:' + page.modelOverview;
+  // Surfaces that previously reported no arrival at all. Each key changes only when the user reaches a
+  // different surface, so in-page state (an opened game, a chat, a workflow step) never repeats the view.
+  if (page.superAgent && !page.settings) return 'agent';
+  if (page.scenarioHub) return 'workflows';
+  if (page.scenario) return 'workflow:' + page.scenario;
+  if (page.specialty?.id === 'game' && !page.skills) return 'game';
+  if (page.designProject) return 'design:project';
+  if (page.designScene === 'projects') return 'design:projects';
   return null;
+}
+
+/** The creative-studio dimensions reported for an arrival key returned by `resolveRouteArrival`. */
+export function routeArrivalTarget(view: string, page: WorkspacePage): { studio?: string; scene?: string; landing?: boolean } {
+  if (view === 'motion' || view === 'design' || view === 'cinema') return { studio: view, landing: true };
+  if (view === 'agent') return { studio: 'super-agent', ...(page.superAgentMode ? { scene: page.superAgentMode } : {}) };
+  if (view === 'workflows') return { studio: 'workflows', landing: true };
+  if (view.startsWith('workflow:')) return { studio: 'workflows', scene: view.slice('workflow:'.length) };
+  if (view === 'game') return { studio: 'game', landing: true };
+  if (view === 'design:projects') return { studio: 'design', scene: 'projects' };
+  if (view === 'design:project') return { studio: 'design', scene: 'project-editor' };
+  return {};
 }

@@ -53,10 +53,10 @@ describe("menu style", () => {
     expect(handBuilt).toEqual([]);
   });
 
-  it("is the panel of every role=menu, wherever its element is written", () => {
+  it("uses a shared menu surface for every role=menu", () => {
     const unowned = files
       .filter(({ text }) => /<[A-Za-z][\w.]*\s[^>]*\brole="menu"/.test(text))
-      .filter(({ name, text }) => !NOT_ROW_MENUS.has(name) && !text.includes("menuClasses.panel"))
+      .filter(({ name, text }) => !NOT_ROW_MENUS.has(name) && !/menuClasses\.panel|<MenuPanel\b/.test(text))
       .map(({ name }) => name);
     expect(unowned).toEqual([]);
   });

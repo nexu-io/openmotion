@@ -7,12 +7,13 @@ import { Menu, MenuRadioGroup, MenuRadioItem } from '../components/ui/Menu';
 import { Tooltip } from '../components/ui/Tooltip';
 import { useI18n } from '../i18n/I18n';
 import { MotionIcon } from './icons';
+import { matchesSearchDocument } from '../../../shared/fuzzy-search';
 
 export type GalleryFilters = Partial<Record<string, string[]>>;
 export type GalleryFacet = { key: string; label: string; values: string[] };
 export const toggleGalleryFilter = (filters: GalleryFilters, key: string, value: string) => ({ ...filters, [key]: filters[key]?.includes(value) ? filters[key]!.filter(item => item !== value) : [...(filters[key] || []), value] });
 export const matchesGalleryFilters = (filters: GalleryFilters, values: (key: string) => string[]) => Object.entries(filters).every(([key, selected]) => !selected?.length || selected.some(value => values(key).includes(value)));
-export const matchesGallerySearch = (query: string, text: string) => query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean).every(term => text.toLocaleLowerCase().includes(term));
+export const matchesGallerySearch = (query: string, text: string) => !query.trim() || matchesSearchDocument({ title: text }, query);
 
 export function GallerySearchField({ label, value, onChange, className = '' }: { label: string; value: string; onChange: (value: string) => void; className?: string }) {
   const { t } = useI18n();
@@ -44,11 +45,11 @@ export function GalleryFilterPopover({ groups, open, onOpenChange, draft, onChan
       {groups.map(group => <TabPanel key={group.key} value={group.key} className="om-gallery-filter-panel">
         <div className="om-gallery-facet-header"><strong>{t(group.label)}</strong><Button variant="plain" className="om-nav-item" disabled={!draft[group.key]?.length} onClick={() => onChange({ ...draft, [group.key]: [] })}>{t('Clear selection')}</Button></div>
         {group.values.length > 12 && <GallerySearchField label={t('Search options…')} value={query} onChange={onQueryChange} className="om-gallery-facet-search" />}
-        <div className="om-gallery-facet-grid">{group.values.filter(value => t(value).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).map(value => {
+        <div className="om-gallery-facet-grid">{group.values.filter(value => !query.trim() || matchesSearchDocument({ title: t(value), aliases: [value] }, query)).map(value => {
           const checked = draft[group.key]?.includes(value) ?? false;
           return <button key={value} role="checkbox" aria-checked={checked} aria-label={t(value)} className="om-gallery-facet-choice" onClick={() => onChange(toggleGalleryFilter(draft, group.key, value))}><span className="om-gallery-facet-option">{renderValue?.(group.key, value)}<span>{t(value)}</span></span><span className="om-gallery-choice-check" aria-hidden="true">{checked && <MotionIcon name="check" size={12} />}</span></button>;
         })}</div>
-        {query.trim() && !group.values.some(value => t(value).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())) && <p className="om-muted">{t('No matching options.')}</p>}
+        {query.trim() && !group.values.some(value => matchesSearchDocument({ title: t(value), aliases: [value] }, query)) && <p className="om-muted">{t('No matching options.')}</p>}
       </TabPanel>)}
     </Tabs>
     <footer className="om-gallery-filter-footer"><Button variant="plain" className="om-nav-item" disabled={!hasDraft} onClick={onClear}>{t('Clear filters')}</Button><span role="status" aria-live="polite" aria-atomic="true">{countLabel}</span><Button variant="ghost" className="om-button h-auto" data-primary onClick={onApply}>{t('Apply filters')}<MotionIcon name="arrow-right" size={14} /></Button></footer>

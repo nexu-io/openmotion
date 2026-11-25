@@ -4,6 +4,8 @@ import { projectHref, requestedProject, sessionHref } from './workspaceRouting';
 import { availableSession, type CreativeSession, type CreationMode } from '../../../shared/session';
 import { preservePresentation } from '../../../shared/workspace-url';
 import { isStandaloneSpaPath } from '../../../shared/spa-routes';
+import { peekCachedGateway } from './gatewayClient';
+import { unresolvedCreateSceneId } from './workspacePageRouting';
 import { diagnosticFetch } from './diagnosticRequests';
 import { initializeWorkspaceHistory, WORKSPACE_LOCATION_CHANGED, workspaceHistoryIndex, workspaceHistorySession, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { readWorkspacePage } from './workspacePageRouting';
@@ -140,7 +142,10 @@ export function useWorkspace(
         const savedSession = !projectId && sessionId ? catalog.sessions?.find(item => item.id === sessionId) : undefined;
         const session = savedSession && availableSession(savedSession, new Set(catalog.projects.filter(project => project.trashedAt).map(project => project.id)));
         const generated = session?.artifacts.find(item => item.id === session.activeArtifactId) ?? session?.artifacts.at(-1);
-        if (generated && !acting.current && !isStandaloneSpaPath(location.pathname, location.search, location.hash)) { navigate(sessionHref(sessionId!, generated.projectId, true), true); return; }
+        const cachedCapabilities = peekCachedGateway()?.capabilities;
+        const standalonePath = isStandaloneSpaPath(location.pathname, location.search, location.hash, cachedCapabilities)
+          || (!cachedCapabilities && Boolean(unresolvedCreateSceneId(location.search, location.hash, location.pathname)));
+        if (generated && !acting.current && !standalonePath) { navigate(sessionHref(sessionId!, generated.projectId, true), true); return; }
         setStatus(previous => (previous && JSON.stringify(previous) === JSON.stringify(data) ? previous : data));
         setConnectionError(previous => (previous ? '' : previous));
       } catch (err) { if (!controller.signal.aborted) setConnectionError((err as Error).message); }

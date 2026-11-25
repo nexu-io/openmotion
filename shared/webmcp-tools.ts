@@ -29,7 +29,7 @@ export function buildOpenMotionWebMcpTools(request: (url: string, init?: Request
         const result = await response.json();
         if (!response.ok) return { ...result, ...failure(typeof result.error === 'string' ? result.error : `HTTP ${response.status}`,
           typeof result.applied === 'boolean' ? result.applied : 'unknown', result.code ?? 'WEBMCP_CALL_FAILED', result) };
-        return tool.name === 'openmotion_assets_use' && (input as { action?: string }).action === 'read'
+        return (tool.name === 'openmotion_assets_use' || tool.name === 'openmotion_asset_manage') && (input as { action?: string }).action === 'read'
           ? assetReadToolResult(result) : result;
       } catch (error) {
         return failure(error instanceof Error ? error.message : String(error), dispatched ? 'unknown' : false,

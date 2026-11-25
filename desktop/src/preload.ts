@@ -1,12 +1,29 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type {
-  DesktopBridgeApi,
-  DesktopChromeInsets,
-  DesktopMenuAction,
-  DesktopUpdateState,
+import {
+  resolveDesktopChrome,
+  type DesktopBridgeApi,
+  type DesktopChromeInsets,
+  type DesktopMenuAction,
+  type DesktopPlatform,
+  type DesktopUpdateState,
 } from '../../shared/platform-host.ts';
 
+const rawPlatform = typeof process !== 'undefined' ? process.platform : 'linux';
+const platform: DesktopPlatform =
+  rawPlatform === 'darwin' || rawPlatform === 'win32' ? rawPlatform : 'linux';
+const linuxCustomTitleBar =
+  typeof process !== 'undefined' && Array.isArray(process.argv)
+    ? !process.argv.includes('--om-linux-native-frame')
+    : true;
+const initialChrome: DesktopChromeInsets = resolveDesktopChrome({
+  platform,
+  fullscreen: false,
+  maximized: false,
+  linuxCustomTitleBar,
+});
+
 const bridge: DesktopBridgeApi = {
+  initialChrome,
   getAppInfo: () => ipcRenderer.invoke('openmotion:get-app-info'),
   getChromeState: () => ipcRenderer.invoke('openmotion:get-chrome-state'),
   subscribeChromeState: callback => {

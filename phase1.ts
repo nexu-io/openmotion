@@ -12,6 +12,7 @@ import { requireNativeRuntime } from './scripts/npm-runtime.mjs';
 import { recordDiagnostic } from './scripts/diagnostics.mjs';
 import { mediaUse } from './gateway/media-use.ts';
 import { assetOperation } from './gateway/asset-operations.ts';
+import { assetManage, capabilityDiscover, capabilityRun, jobManage } from './gateway/capability-center.ts';
 import { transcriptOperation } from './gateway/transcript-operations.ts';
 import { transcriptsFor } from './gateway/transcription.ts';
 import { compositionCanvasSource } from './shared/composition-canvas.ts';
@@ -42,7 +43,7 @@ import { verificationBinaries } from './scripts/verify-export.ts';
 import { validateInstruction } from './shared/conversation.ts';
 import { editorProjectIdFromPath } from './shared/spa-routes.ts';
 import { sessionPath, templateLibraryPreview, providerSettingsPreview } from './shared/workspace-url.ts';
-import { phase1Tools, validateInput } from './shared/phase1-tools.ts';
+import { phase1Tools, validateInput, normalizeToolInput } from './shared/phase1-tools.ts';
 import { atomicJson, cloneFile, fileHash, jsonFile, ProjectVersions, recoverProjectTransactions } from './phase1-versions.ts';
 import type { ContentVersion } from './phase1-versions.ts';
 import { trackPhase1Result, trackingError, type OmTracking } from './shared/tracking.ts';
@@ -57,6 +58,21 @@ const textExtensions = new Set(['.html', '.css', '.js', '.mjs', '.json', '.svg',
 const digest = (value: unknown) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(canonical(value))).digest('hex');
 function canonical(value: any): any { return Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value; }
 function errorText(error: unknown) { return error instanceof Error ? error.message : String(error); }
+function versionConflictError(revision: string, versionId: string, context?: string) {
+  const prefix = context ? context.trim() + ' ' : '';
+  return Object.assign(
+    new Error(`VERSION_CONFLICT: ${prefix}当前 revision=${revision}，versionId=${versionId}。请调用 openmotion_get_project 读取最新内容后，使用这两个值重试。`),
+    { code: 'VERSION_CONFLICT', applied: false },
+  );
+}
+const loopbackHosts = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+function sameOriginOrLoopback(observed: URL, target: URL): boolean {
+  if (observed.origin === target.origin) return true;
+  return observed.protocol === target.protocol
+    && observed.port === target.port
+    && loopbackHosts.has(observed.hostname)
+    && loopbackHosts.has(target.hostname);
+}
 /** A saved file and a live host panel are separate completion conditions. */
 function previewHandoff(origin: string, target: { projectId: string; sessionId: string; revision: string; versionId: string }, presentation = 'foreground', display?: any, prepared = false, url?: string, hostTabId?: string) {
   const previewUrl = url ?? origin + sessionPath(target.sessionId, target.projectId, { embedded: true });
@@ -113,7 +129,7 @@ export class Phase1Service {
   constructor(store: WorkspaceStore, runtimeRoot: string, context: Phase1Context) { this.store = store; this.runtimeRoot = runtimeRoot; this.context = context; }
   versions(projectId: string) { return new ProjectVersions(this.store.forProject(projectId), this.runtimeRoot, this.context.nativeUrl(projectId)); }
   get workRounds() { return new WorkRounds(this.store, this.context.tracking); }
-  async call(name: string, args: any, host?: HostContext, options?: { attributeEntry?: boolean }) {
+  async call(name: string, args: any, host?: HostContext, options?: { attributeEntry?: boolean; channel?: 'gui' | 'mcp' }) {
     const requestedName = publicToolName(name);
     name = legacyToolName(name);
     try {
@@ -138,9 +154,10 @@ export class Phase1Service {
       throw error;
     }
   }
-  private async invoke(name: string, args: any, host?: HostContext, requestedName = publicToolName(name), options?: { attributeEntry?: boolean }) {
+  private async invoke(name: string, args: any, host?: HostContext, requestedName = publicToolName(name), options?: { attributeEntry?: boolean; channel?: 'gui' | 'mcp' }) {
     const definition = phase1Tools.find(tool => tool.name === requestedName);
     if (!definition) throw new Error('MCP_TOOL_NOT_EXPOSED: ' + name);
+    args = normalizeToolInput(definition.inputSchema, args);
     validateInput(definition.inputSchema, args);
     if (name === 'motion_open_preview' && args.entry !== undefined && args.target !== 'providers') {
       throw new ToolInputError('entry is only supported when target=providers', 'entry', 'invalid_combination');
@@ -160,7 +177,7 @@ export class Phase1Service {
     if (name === 'motion_get_project' && !args.projectId) return this.dispatch(name, args, host);
     const run = async () => {
       if (!this.recovered) { await recoverProjectTransactions(this.store, this.runtimeRoot); this.recovered = true; }
-      const result = await this.dispatch(name, args, host);
+      const result = await this.dispatch(name, args, host, options?.channel ?? 'mcp');
       if (name === 'motion_edit_project' || name === 'motion_restore_version') {
         const owner = this.store.projectCatalog().sessions!.find(session => session.artifacts.some(artifact => artifact.projectId === args.projectId))!;
         result.previewHandoff = previewHandoff(this.context.origin(), { projectId: args.projectId, sessionId: owner.id,
@@ -233,13 +250,19 @@ export class Phase1Service {
       ...(name === 'motion_open_preview' && args.action === 'begin' ? { workId: crypto.randomUUID() } : {}) };
     await atomicJson(file, record);
     let result, workAccepted = false;
+    const mutatesWork = name === 'motion_edit_project' || (name === 'motion_export_request' && args.action !== 'record_review');
     try {
-      if (args.workId) { await this.workRounds.writable(name, args); workAccepted = args.action !== 'complete_generation'; }
+      if (args.workId && mutatesWork) { await this.workRounds.writable(name, args); workAccepted = true; }
       result = await task(record);
-      if (args.workId) await this.workRounds.observed(name, args, result);
+      if (args.workId && mutatesWork) await this.workRounds.observed(name, args, result);
     }
     catch (error) {
-      if (workAccepted) await this.workRounds.failed(args.projectId, args.workId, errorText(error));
+      const rawCode = (error as any)?.code ?? (error instanceof Error ? /^([A-Z_]+)(?::|$)/.exec(error.message)?.[1] : '') ?? '';
+      const code = rawCode || trackingError(error);
+      const recoverableWorkError =
+        name === 'motion_edit_project' && /^(VERSION_CONFLICT|INVALID_|DUPLICATE_FILE_PATH|CONFLICTING_FILE_PATHS|SOURCE_BATCH_TOO_LARGE|INVALID_FILE_TYPE_OR_RESERVED_PATH|INVALID_ASSET_PATH|PROJECT_VALIDATION_FAILED|PROJECT_TRASHED)$/.test(code)
+        || name === 'motion_export_request' && /^(VERSION_CONFLICT|INVALID_|REVIEW_)/.test(code);
+      if (workAccepted && !recoverableWorkError) await this.workRounds.failed(args.projectId, args.workId, errorText(error));
       const { error_code, ...validation } = toolFailureFields(error);
       await atomicJson(file, { ...record, state: 'failed', error: errorText(error), ...((error as any)?.applied === false ? { applied: false } : {}),
         ...(error_code !== 'TOOL_FAILED' ? { failure: { code: error_code, ...validation } } : {}) });
@@ -250,7 +273,7 @@ export class Phase1Service {
   async completeGeneration(args: any) {
     const detail = await this.detail(args.projectId);
     if (detail.revision !== args.expectedRevision || detail.currentVersionId !== args.expectedVersionId)
-      throw new Error('VERSION_CONFLICT');
+      throw versionConflictError(detail.revision, detail.currentVersionId, 'complete_generation 版本或 revision 不匹配。');
     const work = await this.workRounds.get(args.projectId, args.workId);
     if (!work.generation) throw new Error('WORK_GENERATION_UNTRACKED: begin a new generation work round');
     if (work.generation.completedAt) {
@@ -265,12 +288,14 @@ export class Phase1Service {
         && initial.files.find(old => old.path === file.path)?.hash !== file.hash))
       throw new Error('GENERATION_CONTENT_UNCHANGED: complete the video artifact before reporting generation');
     const scoped = this.store.forProject(args.projectId);
-    if ((await scoped.get()).revision !== detail.revision) throw new Error('VERSION_CONFLICT');
+    const liveBeforeInfo = await scoped.get();
+    if (liveBeforeInfo.revision !== detail.revision) throw versionConflictError(liveBeforeInfo.revision, detail.currentVersionId, '工程在检查前已变化。');
     const info = await inspectProject(this.runtimeRoot, scoped.projectDirectory, 'info');
     if (info.exitCode || !(info.result.duration > 0)) throw new Error('GENERATION_ARTIFACT_INVALID');
     const checked = await inspectProject(this.runtimeRoot, scoped.projectDirectory, 'lint');
-    if (checked.exitCode) throw new Error('PROJECT_VALIDATION_FAILED: ' + JSON.stringify(checked.result));
-    if ((await scoped.get()).revision !== detail.revision) throw new Error('VERSION_CONFLICT');
+    if (checked.exitCode) throw Object.assign(new Error('PROJECT_VALIDATION_FAILED: fix HTML/timeline lint errors with openmotion_edit_project before completing generation: ' + JSON.stringify(checked.result)), { code: 'PROJECT_VALIDATION_FAILED', applied: false });
+    const liveAfterLint = await scoped.get();
+    if (liveAfterLint.revision !== detail.revision) throw versionConflictError(liveAfterLint.revision, detail.currentVersionId, '工程在校验期间已变化。');
     return this.workRounds.generated(args.projectId, args.workId, current.versionId, current.versionNumber, detail.revision, args.requestId);
   }
   async publicJob(jobId: string) {
@@ -283,7 +308,7 @@ export class Phase1Service {
     const versions = this.versions(projectId), scoped = versions.store;
     return versions.withHistory(async history => {
       const version = await versions.current(history), state = await scoped.get();
-      if (args.expectedRevision && args.expectedRevision !== state.revision) throw new Error('VERSION_CONFLICT: 源码快照已变化');
+      if (args.expectedRevision && args.expectedRevision !== state.revision) throw versionConflictError(state.revision, version.versionId, '源码快照已变化。');
       const meta = await jsonFile<any>(path.join(scoped.projectDirectory, metadataPath), {});
       const assets = await jsonFile<any[]>(path.join(scoped.projectDirectory, assetIndexPath), []);
       const owner = this.store.projectCatalog().sessions!.find(session => session.artifacts.some(artifact => artifact.projectId === projectId))!;
@@ -334,18 +359,24 @@ export class Phase1Service {
     const display = args.display;
     const target = new URL(this.context.origin() + sessionPath(detail.sessionId, detail.projectId, { embedded: true }));
     let observed: URL;
-    try { observed = new URL(display.previewUrl); } catch { throw new Error('PREVIEW_TARGET_MISMATCH'); }
+    try { observed = new URL(display.previewUrl); } catch {
+      throw new Error('PREVIEW_TARGET_MISMATCH: invalid previewUrl; expected ' + target.href);
+    }
     const queryProject = observed.searchParams.get('project');
     const observedProject = editorProjectIdFromPath(observed.pathname) ?? queryProject;
     const validPath = observed.pathname === target.pathname || (observed.pathname === '/' && queryProject === detail.projectId);
-    if (observed.origin !== target.origin || !validPath || observedProject !== detail.projectId ||
+    const observedHash = observed.hash.split('?')[0];
+    const validHash = observedHash === target.hash || observedHash === '' || observedHash === '#';
+    if (!sameOriginOrLoopback(observed, target) || !validPath || observedProject !== detail.projectId ||
         (queryProject !== null && queryProject !== detail.projectId) ||
         observed.searchParams.get('session') !== detail.sessionId || observed.username || observed.password ||
-        observed.hash.split('?')[0] !== target.hash) throw new Error('PREVIEW_TARGET_MISMATCH');
+        !validHash) throw new Error('PREVIEW_TARGET_MISMATCH: expected previewUrl for project=' + detail.projectId + ', session=' + detail.sessionId + ' at ' + target.href);
     const record = { ...display, projectId: detail.projectId, source: 'host_reported', requestId: args.requestId, recordedAt: Date.now() };
     await atomicJson(path.join(this.store.directory, 'phase1', 'preview-displays', detail.projectId + '.json'), record);
     const current = await this.detail(detail.projectId);
-    if (current.revision !== detail.revision || current.currentVersionId !== detail.currentVersionId) throw new Error('VERSION_CONFLICT: content changed during display confirmation');
+    if (current.revision !== detail.revision || current.currentVersionId !== detail.currentVersionId) {
+      throw versionConflictError(current.revision, current.currentVersionId, '展示确认期间工程内容已变化。');
+    }
     // Evidence follows confirmation: a rejected display observed nothing, and delivery also needs the round's fixed version.
     if (args.workId && this.context.tracking) {
       const round = await this.workRounds.get(detail.projectId, args.workId).catch(() => null);
@@ -384,7 +415,7 @@ export class Phase1Service {
     }
     return { projectId: args.projectId, review: record, changed: false };
   }
-  async dispatch(name: string, args: any, host?: HostContext): Promise<any> {
+  async dispatch(name: string, args: any, host?: HostContext, channel: 'gui' | 'mcp' = 'mcp'): Promise<any> {
     if (name.startsWith('motion_game_')) return dispatchGameTool(name, args, this.store.directory, this.runtimeRoot);
     if (name === 'motion_design_catalog' || name === 'motion_design_project' || name === 'motion_design_edit' || name === 'motion_design_comments') {
       return dispatchDesignTool(name, args, this.store.directory, this.context.origin(), ref => new AssetLibrary(this.store).resolve(ref));
@@ -399,7 +430,7 @@ export class Phase1Service {
       if (args.action === 'scenario') {
         return scenarioOperation(scenarioRunsFor(this.store), args.scenario, {
           origin: () => this.context.origin(),
-          assets: input => assetOperation(this.store, input, (i, o) => this.importAssets(i, o), this.context.tracking),
+          assets: input => assetOperation(this.store, input, (i, o) => this.importAssets(i, o), this.context.tracking, channel),
           design: designProjectsFor(this.store.directory),
           resolveAsset: ref => new AssetLibrary(this.store).resolve(ref),
           createMotionProject: input => this.dispatch('motion_create_project', input),
@@ -466,7 +497,13 @@ export class Phase1Service {
             changedFiles: [name], previewSync: this.context.nativeUrl(input.projectId) ? 'file_watcher_notified' : 'not_open' }));
         })));
       }
-      return assetOperation(this.store, args, (input, options) => this.importAssets(input, options), this.context.tracking);
+      return assetOperation(this.store, args, (input, importOptions) => this.importAssets(input, importOptions), this.context.tracking, channel);
+    }
+    if (name === 'motion_capability_discover') return capabilityDiscover(this.store, args, this.context.tracking, 'mcp');
+    if (name === 'motion_capability_run') return capabilityRun(this.store, args, this.context.tracking, 'mcp');
+    if (name === 'motion_job_manage') return jobManage(this.store, args, this.context.tracking);
+    if (name === 'motion_asset_manage') {
+      return assetManage(this.store, args, (input, options) => this.importAssets(input, options), this.context.origin(), this.context.tracking);
     }
     if (name === 'motion_media_use') return mediaUse(this.store, args, this.context.tracking);
     if (name === 'motion_get_project' && !args.projectId) {
@@ -564,7 +601,9 @@ export class Phase1Service {
       if (args.action === 'record_display') {
         if (!args.projectId || !args.display) throw new ToolInputError('projectId and display are required', !args.projectId ? 'projectId' : 'display', 'missing');
         const detail = await this.detail(args.projectId);
-        if (args.display.revision !== detail.revision || args.display.versionId !== detail.currentVersionId) throw new Error('VERSION_CONFLICT: preview display refers to a different content version');
+        if (args.display.revision !== detail.revision || args.display.versionId !== detail.currentVersionId) {
+          throw versionConflictError(detail.revision, detail.currentVersionId, 'preview display 指向的不是当前内容版本。');
+        }
         return this.writeRequest(name, args, () => this.recordDisplay(args, detail));
       }
       if (args.action === 'begin') {
@@ -598,7 +637,9 @@ export class Phase1Service {
       const scoped = this.store.forProject(projectId);
       if (session && !session.artifacts.some(artifact => artifact.projectId === projectId)) throw new Error('PROJECT_SESSION_MISMATCH');
       const before = await this.detail(projectId);
-      if (args.expectedRevision && args.expectedRevision !== before.revision || args.expectedVersionId && args.expectedVersionId !== before.currentVersionId) throw new Error('VERSION_CONFLICT');
+      if (args.expectedRevision && args.expectedRevision !== before.revision || args.expectedVersionId && args.expectedVersionId !== before.currentVersionId) {
+        throw versionConflictError(before.revision, before.currentVersionId);
+      }
       let stampedRevision = before.revision;
       if (args.expectedRevision || args.expectedVersionId) {
         const require = createRequire(path.join(this.runtimeRoot, 'package.json'));
@@ -608,7 +649,7 @@ export class Phase1Service {
         const files = await Promise.all((before.project?.files ?? []).map(async file => {
           if (!file.path.endsWith('.html')) return file;
           const source = await readFile(await scoped.safePath(file.path), 'utf8');
-          if (digest(source) !== file.hash) throw new Error('VERSION_CONFLICT');
+          if (digest(source) !== file.hash) throw versionConflictError((await scoped.get()).revision, before.currentVersionId, '源码在预览校验前变化。');
           if (!/data-composition-id\s*=/.test(source)) return file;
           const stamped = stampHfIdsInPlace(source);
           // The pinned native stamper writes only when the ID attribute count increases.
@@ -618,62 +659,82 @@ export class Phase1Service {
         stampedRevision = scoped.revision(files);
       }
       const checked = await inspectProject(this.runtimeRoot, this.store.projectDirectoryFor(projectId), 'lint');
-      if (checked.exitCode) throw new Error('PROJECT_VALIDATION_FAILED: ' + JSON.stringify(checked.result));
+      if (checked.exitCode) throw Object.assign(new Error('PROJECT_VALIDATION_FAILED: fix HTML/timeline lint errors with openmotion_edit_project before opening preview: ' + JSON.stringify(checked.result)), { code: 'PROJECT_VALIDATION_FAILED', applied: false });
       await this.context.openProject(projectId);
       const detail = await this.detail(projectId);
       // Studio may add deterministic editor IDs; only that exact next-version change is compatible.
       const stamped = stampedRevision !== before.revision && detail.revision === stampedRevision && detail.currentVersionNumber === before.currentVersionNumber + 1;
-      if (!stamped && (args.expectedRevision && args.expectedRevision !== detail.revision || args.expectedVersionId && args.expectedVersionId !== detail.currentVersionId)) throw new Error('VERSION_CONFLICT');
+      if (!stamped && (args.expectedRevision && args.expectedRevision !== detail.revision || args.expectedVersionId && args.expectedVersionId !== detail.currentVersionId)) {
+        throw versionConflictError(detail.revision, detail.currentVersionId);
+      }
       return { ...detail, previewUrl: this.context.origin() + sessionPath(detail.sessionId, projectId, { embedded: args.embedded !== false }),
         sessionUrl: this.context.origin() + sessionPath(detail.sessionId, projectId), embeddedPreviewUrl: this.context.origin() + sessionPath(detail.sessionId, projectId, { embedded: true }),
         previewHandoff: previewHandoff(this.context.origin(), { projectId, sessionId: detail.sessionId, revision: detail.revision, versionId: detail.currentVersionId }, args.presentation, undefined, true,
           this.context.origin() + sessionPath(detail.sessionId, projectId, { embedded: args.embedded !== false }), detail.previewDisplay?.hostTabId),
+        ...(stamped ? { versionNormalized: true, previousRevision: before.revision, previousVersionId: before.currentVersionId } : {}),
         preflight: checked.result, openedByHost: false, selectionSource: args.projectId ? 'explicit_project' : 'bound_session' };
     }
-    if (name === 'motion_edit_project') return this.writeRequest(name, args, () => this.context.mutation(() => this.store.lock(async () => {
-      const versions = this.versions(args.projectId), scoped = versions.store;
-      const names = new Set<string>(); let bytes = 0;
-      for (const file of args.files ?? []) {
-        projectPath(file.path);
-        if (!textExtensions.has(path.extname(file.path)) || [metadataPath, assetIndexPath].includes(file.path)) throw new Error('INVALID_FILE_TYPE_OR_RESERVED_PATH');
-        if (names.has(file.path)) throw new Error('DUPLICATE_FILE_PATH'); names.add(file.path); bytes += Buffer.byteLength(file.content);
-      }
-      if (bytes > 8388608) throw new Error('SOURCE_BATCH_TOO_LARGE: 8 MiB limit');
-      const changes = [...(args.files ?? [])];
-      let canvas;
-      if (args.canvas) {
-        const name = projectPath(args.canvas.compositionPath);
-        if (!name.endsWith('.html') || names.has(name)) throw new Error('Supply one canvas edit per HTML composition without a competing file edit');
-        const parsers = await loadCanvasSourceOperations(this.runtimeRoot);
-        const result = compositionCanvasSource(await readFile(await scoped.safePath(name), 'utf8'), parsers, args.canvas);
-        canvas = result.canvas; changes.push({ path: name, content: result.content });
-      }
-      if (args.files === undefined && !args.canvas && args.requirements === undefined && args.namingLanguage === undefined && !args.assetNames?.length) throw new Error('Supply files or canvas settings');
-      if (args.requirements !== undefined || args.namingLanguage !== undefined) {
-        if (args.requirements !== undefined) validateInstruction(args.requirements);
-        const meta = await jsonFile<any>(path.join(scoped.projectDirectory, metadataPath), { schemaVersion: 1, projectType: 'legacy' });
-        changes.push({ path: metadataPath, content: JSON.stringify({ ...meta, ...(args.requirements !== undefined ? { requirements: args.requirements } : {}), ...(args.namingLanguage !== undefined ? { namingLanguage: namingLanguage(args.namingLanguage) } : {}) }) });
-      }
-      if (args.assetNames?.length) {
-        const records = await jsonFile<any[]>(path.join(scoped.projectDirectory, assetIndexPath), []);
-        const renamed = new Set<string>();
-        for (const item of args.assetNames) {
-          const assetPath = projectPath(item.path);
-          if (renamed.has(assetPath)) throw new Error('DUPLICATE_ASSET_PATH');
-          renamed.add(assetPath);
-          const displayName = validateAssetDisplayName(item.name);
-          const file = await stat(await scoped.safePath(assetPath));
-          if (!file.isFile() || projectAssetKind(assetPath) < 0) throw new Error('INVALID_ASSET_PATH');
-          const record = records.find(asset => asset.path === assetPath);
-          if (record) Object.assign(record, { originalName: record.originalName ?? record.name ?? path.basename(assetPath), name: displayName, nameSource: 'user' });
-          else records.push({ path: assetPath, originalName: path.basename(assetPath), name: displayName, nameSource: 'user' });
+    if (name === 'motion_edit_project') return this.writeRequest(name, args, async () => {
+      const { result, projectDirectory, shouldLint } = await this.context.mutation(() => this.store.lock(async () => {
+        const versions = this.versions(args.projectId), scoped = versions.store;
+        const names = new Set<string>(); let bytes = 0;
+        for (const file of args.files ?? []) {
+          projectPath(file.path);
+          if (!textExtensions.has(path.extname(file.path)) || [metadataPath, assetIndexPath].includes(file.path)) throw new Error('INVALID_FILE_TYPE_OR_RESERVED_PATH');
+          if (names.has(file.path)) throw new Error('DUPLICATE_FILE_PATH'); names.add(file.path); bytes += Buffer.byteLength(file.content);
         }
-        changes.push({ path: assetIndexPath, content: JSON.stringify(records) });
-      }
-      return versions.withHistory(async history => ({ projectId: args.projectId,
-        ...await versions.transaction(history, args.expectedRevision, args.expectedVersionId, args.requestId, changes, { label: args.summary ?? 'Agent source edit' }),
-        ...(canvas ? { canvas } : {}), ...await readProjectAssetNames(scoped, undefined, undefined, this.runtimeRoot), changedFiles: changes.map(file => file.path), previewSync: this.context.nativeUrl(args.projectId) ? 'file_watcher_notified' : 'not_open' }));
-    })));
+        if (bytes > 8388608) throw new Error('SOURCE_BATCH_TOO_LARGE: 8 MiB limit');
+        const changes = [...(args.files ?? [])];
+        let canvas;
+        if (args.canvas) {
+          const name = projectPath(args.canvas.compositionPath);
+          if (!name.endsWith('.html') || names.has(name)) throw new Error('Supply one canvas edit per HTML composition without a competing file edit');
+          const parsers = await loadCanvasSourceOperations(this.runtimeRoot);
+          const result = compositionCanvasSource(await readFile(await scoped.safePath(name), 'utf8'), parsers, args.canvas);
+          canvas = result.canvas; changes.push({ path: name, content: result.content });
+        }
+        if (args.files === undefined && !args.canvas && args.requirements === undefined && args.namingLanguage === undefined && !args.assetNames?.length) throw new Error('Supply files or canvas settings');
+        if (args.requirements !== undefined || args.namingLanguage !== undefined) {
+          if (args.requirements !== undefined) validateInstruction(args.requirements);
+          const meta = await jsonFile<any>(path.join(scoped.projectDirectory, metadataPath), { schemaVersion: 1, projectType: 'legacy' });
+          changes.push({ path: metadataPath, content: JSON.stringify({ ...meta, ...(args.requirements !== undefined ? { requirements: args.requirements } : {}), ...(args.namingLanguage !== undefined ? { namingLanguage: namingLanguage(args.namingLanguage) } : {}) }) });
+        }
+        if (args.assetNames?.length) {
+          const records = await jsonFile<any[]>(path.join(scoped.projectDirectory, assetIndexPath), []);
+          const renamed = new Set<string>();
+          for (const item of args.assetNames) {
+            const assetPath = projectPath(item.path);
+            if (renamed.has(assetPath)) throw new Error('DUPLICATE_ASSET_PATH');
+            renamed.add(assetPath);
+            const displayName = validateAssetDisplayName(item.name);
+            const file = await stat(await scoped.safePath(assetPath));
+            if (!file.isFile() || projectAssetKind(assetPath) < 0) throw new Error('INVALID_ASSET_PATH');
+            const record = records.find(asset => asset.path === assetPath);
+            if (record) Object.assign(record, { originalName: record.originalName ?? record.name ?? path.basename(assetPath), name: displayName, nameSource: 'user' });
+            else records.push({ path: assetPath, originalName: path.basename(assetPath), name: displayName, nameSource: 'user' });
+          }
+          changes.push({ path: assetIndexPath, content: JSON.stringify(records) });
+        }
+        const committed = await versions.withHistory(async history =>
+          versions.transaction(history, args.expectedRevision, args.expectedVersionId, args.requestId, changes, { label: args.summary ?? 'Agent source edit' }));
+        return {
+          projectDirectory: scoped.projectDirectory,
+          shouldLint: changes.some(file => !file.remove && /\.(html|css|js|mjs)$/i.test(file.path)),
+          result: {
+            projectId: args.projectId, ...committed,
+            ...(canvas ? { canvas } : {}), ...await readProjectAssetNames(scoped, undefined, undefined, this.runtimeRoot),
+            changedFiles: changes.map(file => file.path), previewSync: this.context.nativeUrl(args.projectId) ? 'file_watcher_notified' : 'not_open',
+          },
+        };
+      }));
+      const checked = shouldLint
+        ? await inspectProject(this.runtimeRoot, projectDirectory, 'lint').catch(() => null)
+        : null;
+      return {
+        ...result,
+        ...(checked ? { lint: { ok: checked.exitCode === 0, result: checked.result } } : {}),
+      };
+    });
     if (name === 'motion_restore_version') return this.writeRequest(name, args, () => this.context.mutation(() => this.store.lock(async () => {
       const versions = this.versions(args.projectId);
       return versions.withHistory(async history => {
@@ -698,7 +759,9 @@ export class Phase1Service {
       }
       if (!args.versionId || !args.expectedRevision) throw new ToolInputError('versionId and expectedRevision are required', !args.versionId ? 'versionId' : 'expectedRevision', 'missing');
       const detail = await this.detail(args.projectId);
-      if (detail.currentVersionId !== args.versionId || detail.revision !== args.expectedRevision) throw new Error('VERSION_CONFLICT');
+      if (detail.currentVersionId !== args.versionId || detail.revision !== args.expectedRevision) {
+        throw versionConflictError(detail.revision, detail.currentVersionId, '导出版本或 revision 已过期。');
+      }
       const job = await this.store.forProject(args.projectId).requestExport(args.expectedRevision, { phase1: true, versionId: args.versionId, requestId: args.requestId, workId: args.workId, audio: args.audio, compositionPath: args.compositionPath,
         trackingHost: this.context.tracking?.enabled() ? host : undefined });
       if (this.context.tracking) {
@@ -761,7 +824,9 @@ export class Phase1Service {
         let saved: any = null;
         if (added.length) saved = await this.context.mutation(() => this.store.lock(() => versions.withHistory(async history => {
           const current = await versions.current(history);
-          if (digest(await jsonFile(path.join(scoped.projectDirectory, assetIndexPath), [])) !== digest(existing)) throw new Error('VERSION_CONFLICT: 素材索引在导入时变化');
+          if (digest(await jsonFile(path.join(scoped.projectDirectory, assetIndexPath), [])) !== digest(existing)) {
+            throw versionConflictError(current.revision, current.versionId, '素材索引在导入时变化。');
+          }
           changes.push({ path: assetIndexPath, content: JSON.stringify([...existing, ...added]) });
           return versions.transaction(history, current.revision, current.versionId, args.requestId, changes, { label: 'Import ' + added.length + ' assets' });
         })));

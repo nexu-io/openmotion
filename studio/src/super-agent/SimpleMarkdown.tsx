@@ -190,16 +190,39 @@ function safeImageSrc(raw: string): string | null {
   return safeHref(trimmed);
 }
 
-function formatFileChipLabel(fileRef: string): { fullPath: string; display: string } {
-  const clean = fileRef.replace(/^file:\/\//i, '');
+const LOCAL_FILE_EXT_RE = /\.(?:md|markdown|mdx|txt|json|jsonl|csv|tsx?|jsx?|mjs|cjs|css|scss|less|html?|py|sh|ya?ml|svg|png|jpe?g|webp|gif|pdf|glsl|wgsl|xml)$/i;
+const INLINE_MARKDOWN_FILE_RE = /^(?:\.{0,2}\/|[A-Za-z0-9_@.-]+\/)*[A-Za-z0-9_@.-]+\.(?:md|markdown|mdx)(?:#[^\s`]+)?$/i;
+
+function stripFileTargetMeta(raw: string): string {
+  const withoutScheme = raw.trim().replace(/^file:\/\//i, '');
+  const hashIdx = withoutScheme.indexOf('#');
+  return hashIdx >= 0 ? withoutScheme.slice(0, hashIdx) : withoutScheme;
+}
+
+function isLocalFileLinkTarget(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) return false;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return false;
+  const clean = stripFileTargetMeta(trimmed);
+  if (!clean) return false;
+  return clean.startsWith('./') || clean.startsWith('../') || clean.startsWith('/') || LOCAL_FILE_EXT_RE.test(clean);
+}
+
+function formatFileChipLabel(fileRef: string): { fullPath: string; display: string; isMarkdown: boolean } {
+  const clean = stripFileTargetMeta(fileRef);
   const parts = clean.split(/[\\/]/).filter(Boolean);
-  if (parts.length <= 2) return { fullPath: clean, display: clean || fileRef };
-  return { fullPath: clean, display: parts.slice(-2).join('/') };
+  const display = parts.length <= 2 ? (clean || fileRef) : parts.slice(-2).join('/');
+  return {
+    fullPath: clean,
+    display,
+    isMarkdown: /\.(?:md|markdown|mdx)$/i.test(clean),
+  };
 }
 
 type InlineRenderOptions = {
   onCopyCode?: (code: string) => void;
   onOpenWebUrl?: (url: string) => void;
+  onOpenFilePath?: (filePath: string, label?: string) => void;
   openViewerLabel: string;
   copyPathLabel: string;
 };
@@ -212,7 +235,18 @@ function renderLink(
 ): ReactNode {
   return (
     <span key={key} className="om-sa-link-group">
-      <a href={href} target="_blank" rel="noopener noreferrer" className="om-sa-link">
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="om-sa-link"
+        onClick={event => {
+          if (!opts.onOpenWebUrl) return;
+          if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+          event.preventDefault();
+          opts.onOpenWebUrl(href);
+        }}
+      >
         {label}
       </a>
       {opts.onOpenWebUrl && (
@@ -235,25 +269,32 @@ function renderFileChip(
   label: string | undefined,
   opts: InlineRenderOptions,
 ): ReactNode {
-  const { fullPath, display } = formatFileChipLabel(rawTarget);
+  const { fullPath, display, isMarkdown } = formatFileChipLabel(rawTarget);
+  const displayLabel = label || display;
   return (
     <Button
       key={key}
       variant="plain"
       type="button"
       className="om-sa-file-chip"
-      title={`${opts.copyPathLabel}: ${fullPath}`}
-      onClick={() => opts.onCopyCode?.(fullPath)}
+      title={opts.onOpenFilePath ? `${opts.openViewerLabel}: ${fullPath}` : `${opts.copyPathLabel}: ${fullPath}`}
+      onClick={() => {
+        if (opts.onOpenFilePath) {
+          opts.onOpenFilePath(fullPath, displayLabel);
+        } else {
+          opts.onCopyCode?.(fullPath);
+        }
+      }}
     >
-      <RemixIcon name="file-text-line" size={12} />
-      <span>{label || display}</span>
+      <RemixIcon name={isMarkdown ? 'markdown-line' : 'file-text-line'} size={12} />
+      <span>{displayLabel}</span>
     </Button>
   );
 }
 
 function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
   const tokens: ReactNode[] = [];
-  const pattern = /(!\[[^\]]*\]\([^\s)]+\)|`[^`\n]+`|\[[^\]]+\]\((?:https?:\/\/|file:\/\/)[^\s)]+\)|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*|https?:\/\/[^\s<>()]+|file:\/\/\/[^\s<>()]+)/g;
+  const pattern = /(!\[[^\]]*\]\([^\s)]+\)|`[^`\n]+`|\[[^\]]+\]\([^)\s]+\)|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\*[^*\n]+\*|https?:\/\/[^\s<>()]+|file:\/\/\/[^\s<>()]+|(?:\/|\.{1,2}\/)?(?:[A-Za-z0-9_@.-]+\/)*[A-Za-z0-9_@.-]+\.(?:md|markdown|mdx)(?:#[A-Za-z0-9_./:-]+)?(?![A-Za-z0-9_./:-]))/gi;
   let last = 0;
   let match: RegExpExecArray | null;
   let key = 0;
@@ -278,7 +319,9 @@ function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
       }
     } else if (full.startsWith('`')) {
       const inner = full.slice(1, -1);
-      if (inner.startsWith('file://') && opts.onCopyCode) {
+      if (inner.startsWith('file://') && (opts.onOpenFilePath || opts.onCopyCode)) {
+        tokens.push(renderFileChip(key++, inner, undefined, opts));
+      } else if (opts.onOpenFilePath && INLINE_MARKDOWN_FILE_RE.test(inner)) {
         tokens.push(renderFileChip(key++, inner, undefined, opts));
       } else {
         tokens.push(<code key={key++} className="om-sa-inline-code">{inner}</code>);
@@ -293,7 +336,7 @@ function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
       const labelEnd = full.indexOf('](');
       const label = full.slice(1, labelEnd);
       const rawTarget = full.slice(labelEnd + 2, -1);
-      if (rawTarget.startsWith('file://')) {
+      if (rawTarget.startsWith('file://') || isLocalFileLinkTarget(rawTarget)) {
         tokens.push(renderFileChip(key++, rawTarget, label, opts));
       } else {
         const href = safeHref(rawTarget);
@@ -318,6 +361,15 @@ function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
         tokens.push(trimmed);
       }
       if (suffix) tokens.push(suffix);
+    } else {
+      const prevChar = match.index > 0 ? text[match.index - 1] : '';
+      const afterScheme = match.index >= 3 && text.slice(match.index - 3, match.index) === '://';
+      const cleanStart = prevChar === '' || /[\s(>\[（【「"'`:：]/.test(prevChar);
+      if (opts.onOpenFilePath && cleanStart && !afterScheme) {
+        tokens.push(renderFileChip(key++, full, undefined, opts));
+      } else {
+        tokens.push(full);
+      }
     }
     last = match.index + full.length;
   }
@@ -327,24 +379,29 @@ function renderInline(text: string, opts: InlineRenderOptions): ReactNode[] {
 
 export function SimpleMarkdown({
   content,
+  compact = false,
   onCopyCode,
   onOpenWebUrl,
+  onOpenFilePath,
 }: {
   content: string;
+  compact?: boolean;
   onCopyCode?: (code: string) => void;
   onOpenWebUrl?: (url: string) => void;
+  onOpenFilePath?: (filePath: string, label?: string) => void;
 }) {
   const { t } = useI18n();
   const blocks = useMemo(() => parseBlocks(content), [content]);
   const inlineOpts: InlineRenderOptions = {
     onCopyCode,
     onOpenWebUrl,
+    onOpenFilePath,
     openViewerLabel: t('Open in Viewer'),
     copyPathLabel: t('Copy path'),
   };
 
   return (
-    <div className="om-sa-markdown">
+    <div className="om-sa-markdown" data-compact={compact || undefined}>
       {blocks.map((block, index) => {
         if (block.type === 'code') {
           return (

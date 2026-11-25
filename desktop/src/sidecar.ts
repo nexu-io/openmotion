@@ -135,7 +135,7 @@ export async function waitForServerHealth(
 
   while (Date.now() < deadline) {
     if (options.isAlive && !options.isAlive()) {
-      throw new Error('OpenMotion backend process exited before becoming healthy.');
+      throw new Error('OpenDesign backend process exited before becoming healthy.');
     }
     try {
       const response = await fetch(`${origin}/motion-api/health`, {
@@ -154,7 +154,7 @@ export async function waitForServerHealth(
       await new Promise(resolve => setTimeout(resolve, waitMs));
     }
   }
-  throw new Error(`OpenMotion backend did not become ready within ${Math.round(timeoutMs / 1000)}s.`);
+  throw new Error(`OpenDesign backend did not become ready within ${Math.round(timeoutMs / 1000)}s.`);
 }
 
 export class DesktopSidecarManager {
@@ -201,7 +201,7 @@ export class DesktopSidecarManager {
       this._appUrl = devUrl;
       this._origin = devApi;
       this.logger.info('sidecar', 'Connecting to unified dev server', { devUrl, devApi });
-      options.onProgress?.('engine', 'Connecting to unified OpenMotion server…');
+      options.onProgress?.('engine', 'Connecting to unified OpenDesign server…');
       await waitForServerHealth(devApi);
       return { appUrl: devUrl, apiOrigin: devApi, managed: false };
     }

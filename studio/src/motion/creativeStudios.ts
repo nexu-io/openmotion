@@ -1,9 +1,10 @@
+import type { CapabilityDefinition } from '../../../shared/capability-registry';
 import { modelReferenceLimit, type Model, type Modality } from '../../../shared/gateway';
 import { imageFeatureSupported, type ImageFeatureId } from '../../../shared/image-features';
 import { videoFeatureCapable, type VideoFeatureId } from '../../../shared/video-features';
-import { creativeStudios, findMediaStudio, studioScenes, type CreativeStudio, type MediaStudio, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
+import { capabilityScene, creativeStudios, findLandingScene, findMediaStudio, studioScenes, type CreativeStudio, type MediaStudio, type TechniqueStudio, type StudioScene } from '../../../shared/studio-catalog';
 
-export { creativeStudios, studioScenes, type StudioScene };
+export { capabilityScene, creativeStudios, studioScenes, type StudioScene };
 export const motionStudio = creativeStudios.find(studio => studio.surface === 'editor')!;
 type GeneratingStudio = MediaStudio | TechniqueStudio;
 /** home: the Sound Studio home (banner and templates) rather than its generation page. */
@@ -25,9 +26,17 @@ export function scenesForStudio(studio: GeneratingStudio) {
   return studio.scenes.map(id => studioScenes.find(scene => scene.id === id)!);
 }
 
-export function studioDestination(studio: GeneratingStudio, sceneId?: string | null, model: string | null = null): StudioDestination {
+export function studioDestination(
+  studio: GeneratingStudio,
+  sceneId?: string | null,
+  model: string | null = null,
+  capabilities?: readonly CapabilityDefinition[],
+): StudioDestination {
   const scenes = scenesForStudio(studio);
-  return { studio, scene: scenes.find(scene => scene.id === sceneId) ?? scenes[0], model };
+  const direct = scenes.find(scene => scene.id === sceneId);
+  const dynamic = !direct && sceneId && studio.surface === 'media' ? findLandingScene(sceneId, capabilities) : undefined;
+  const resolved = direct ?? (dynamic && studio.surface === 'media' && dynamic.modality === studio.primaryModality ? dynamic : undefined) ?? scenes[0];
+  return { studio, scene: resolved, model };
 }
 
 /** Studios with a separate home page, opened from the studio entry rather than the media menu. */
@@ -38,9 +47,10 @@ export function studioIconTone(studio: CreativeStudio): Modality {
 }
 
 export function sceneDestination(scene: StudioScene, current?: StudioDestination | null, model: string | null = null): StudioDestination {
-  const includes = (studio: GeneratingStudio) => studio.scenes.some(id => id === scene.id);
+  const includes = (studio: GeneratingStudio) => (studio.scenes as readonly string[]).includes(scene.id);
   const studio = current?.studio.surface === 'media' && includes(current.studio) ? current.studio
-    : creativeStudios.find((item): item is MediaStudio => item.surface === 'media' && includes(item))!;
+    : creativeStudios.find((item): item is MediaStudio => item.surface === 'media' && includes(item))
+    ?? findMediaStudio(scene.modality === 'video' ? 'cinema' : scene.modality === 'audio' ? 'sound' : 'design')!;
   return scene.entry === 'landing' ? { studio, scene, model, landing: true } : { studio, scene, model };
 }
 

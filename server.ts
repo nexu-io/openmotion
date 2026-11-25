@@ -27,7 +27,9 @@ import { createAutomationHost } from './gateway/automation-host.ts';
 import { MCP_HTTP_PATH } from './shared/mcp-http.ts';
 import { superAgentConversations } from './gateway/super-agent.ts';
 import { collectWorkspaceResources } from './gateway/super-agent-resources.ts';
+import { listTaskWorkspaceEntries, readTaskWorkspaceFile, resolveBrowsableRoots } from './gateway/super-agent-workspace.ts';
 import { assetHttp } from './gateway/asset-http.ts';
+import { capabilityDiscover, capabilityRun, loadCapabilityCatalog, syncCapabilityRemoteConfig } from './gateway/capability-center.ts';
 import { getWorkflow } from './shared/workflow.ts';
 import { attachmentDisposition } from './shared/http-header.ts';
 import { isMain } from './shared/entry.ts';
@@ -63,6 +65,7 @@ import { phase1McpCapabilities } from './shared/phase1-tools.ts';
 import { recoverProjectTransactions } from './phase1-versions.ts';
 import { verifyExport } from './scripts/verify-export.ts';
 import { createAppTracking, closeTracking, saveTrackingPreference, trackingPreference, trackingLockReason, type OmTracking } from './shared/tracking.ts';
+import { flushCodexSessionTracking, syncActiveCodexThreads } from './shared/codex-session-tracking.ts';
 import { studioEvents } from './tracking/events.ts';
 import { configureNativeEnvironment, nativeRuntimeStatus, startNativePreparation, requireNativeRuntime } from './scripts/npm-runtime.mjs';
 import { nativeRouteCapability } from './shared/native-runtime.ts';
@@ -87,8 +90,13 @@ const runningExports = new Map<string, AbortController>();
 const workerInstanceId = crypto.randomUUID();
 const collectorId = crypto.randomUUID();
 let lastQueueTelemetry = 0;
+let lastCodexSessionSync = 0;
 
 async function emitQueueTelemetry(store: WorkspaceStore, tracking?: OmTracking) {
+  if (Date.now() - lastCodexSessionSync >= 60_000) {
+    lastCodexSessionSync = Date.now();
+    void syncActiveCodexThreads(store.directory).catch(() => {});
+  }
   if (!tracking) return;
   if (Date.now() - lastQueueTelemetry < 60_000) return;
   lastQueueTelemetry = Date.now();
@@ -271,6 +279,19 @@ async function input(req: IncomingMessage, maxBytes = 9 * 1024 * 1024) {
   }
   return JSON.parse(Buffer.concat(chunks).toString());
 }
+async function readRawBuffer(req: IncomingMessage, maxBytes = 50 * 1024 * 1024): Promise<Buffer> {
+  let size = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buf.length;
+    if (size > maxBytes) {
+      throw Object.assign(new Error('提交内容超过大小限制'), { status: 413 });
+    }
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks);
+}
 async function readRawBody(req: IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
   let size = 0;
   const chunks: Buffer[] = [];
@@ -286,13 +307,15 @@ async function invokePhase1WithTracking(
   store: WorkspaceStore,
   context: Service,
   originUrl: string,
-  data: { name: string; arguments?: any; trackingHost?: unknown; trackingContext?: string },
+  data: { name: string; arguments?: any; trackingHost?: unknown; trackingContext?: string; channel?: unknown },
 ) {
   if (!context.runtimeRoot) throw new Error('RUNTIME_NOT_READY');
   const phase1 = ensurePhase1(store, context, originUrl);
   const host = validHostContext(data.trackingHost) ? data.trackingHost : unknownHost;
+  const channel: 'gui' | 'mcp' = data.channel === 'gui' ? 'gui' : 'mcp';
   let result = await phase1.call(data.name, data.arguments ?? {}, host, {
     attributeEntry: Object.hasOwn(data, 'trackingHost'),
+    channel,
   });
   if (host.host_agent !== 'unknown' && context.tracking?.enabled() && (result.previewUrl || result.previewHandoff)) {
     const hosts = context.trackingHosts ??= new Map();
@@ -306,6 +329,14 @@ async function invokePhase1WithTracking(
     result = previewTrackingContext(result, originUrl, token);
   }
   return result;
+}
+
+// Legacy callers can send an empty POST. The gateway validates both optional attribution fields.
+async function accountAttribution(req: IncomingMessage) {
+  if (!req.headers['content-type']?.startsWith('application/json')
+    || (!req.headers['transfer-encoding'] && !Number(req.headers['content-length']))) return {};
+  const body = await input(req, 4096);
+  return { hookId: body?.hookId, entryId: body?.entryId };
 }
 
 function revision(value: unknown): asserts value is string {
@@ -472,7 +503,11 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       if (projectHeader !== undefined && projectHeader !== id) return json(res, 400, { error: 'PROJECT_SCOPE_MISMATCH' });
       store = store.forProject(id);
     }
-    if (context.ensureStudio && !isStandaloneSpaPath(url.pathname, url.search) && (isSpaRoutePath(url.pathname) || url.pathname.startsWith('/sessions/'))) {
+    const needsRuntimeCaps = url.pathname.startsWith('/create/') || url.searchParams.get('page') === 'create';
+    const routeCapabilities = needsRuntimeCaps
+      ? await loadCapabilityCatalog(store.workspaceStore ?? store).catch(() => undefined)
+      : undefined;
+    if (context.ensureStudio && !isStandaloneSpaPath(url.pathname, url.search, '', routeCapabilities) && (isSpaRoutePath(url.pathname) || url.pathname.startsWith('/sessions/'))) {
       const projectId = editorProjectIdFromPath(url.pathname) ?? url.searchParams.get('project');
       const sessionId = url.searchParams.get('session');
       if (projectId !== null) {
@@ -801,11 +836,124 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     if (motionRequest && url.pathname.startsWith('/api/super-agent')) {
       const superAgent = superAgentConversations(store);
       if (url.pathname === '/api/super-agent/resources' && req.method === 'GET') {
+        const modality = url.searchParams.get('modality');
         return json(res, 200, await collectWorkspaceResources(store.workspaceStore ?? store, {
           kind: url.searchParams.get('kind') ?? undefined,
           query: url.searchParams.get('query') ?? undefined,
           limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined,
+          locale: url.searchParams.get('locale') ?? undefined,
+          modality: modality === 'image' || modality === 'video' || modality === 'audio' ? modality : undefined,
+          offset: url.searchParams.has('offset') ? Number(url.searchParams.get('offset')) : undefined,
         }));
+      }
+      if (url.pathname === '/api/super-agent/uploads' && req.method === 'POST') {
+        const rawHeaderName = String(req.headers['x-file-name'] ?? '').trim();
+        let fileName = rawHeaderName;
+        try {
+          fileName = decodeURIComponent(rawHeaderName);
+        } catch {
+          /* keep raw name */
+        }
+        if (!fileName || fileName.length > 260) {
+          return json(res, 400, { error: 'A valid X-File-Name header is required' });
+        }
+        const maxUploadBytes = 50 * 1024 * 1024;
+        if (Number(req.headers['content-length']) > maxUploadBytes) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Uploaded file exceeds 50 MB limit' }));
+          return;
+        }
+        try {
+          const buf = await readRawBuffer(req, maxUploadBytes);
+          const attachment = await superAgent.saveUploadedFile(
+            fileName,
+            buf,
+            typeof req.headers['content-type'] === 'string' ? req.headers['content-type'] : undefined,
+          );
+          return json(res, 200, { attachment });
+        } catch (err) {
+          const status = (err as { status?: number })?.status === 413 ? 413 : 400;
+          return json(res, status, { error: err instanceof Error ? err.message : 'Upload failed' });
+        }
+      }
+      const saUpload = url.pathname.match(/^\/api\/super-agent\/uploads\/([^/]+)$/);
+      if (saUpload && (req.method === 'GET' || req.method === 'HEAD')) {
+        const uploadId = decodeURIComponent(saUpload[1]);
+        const loaded = await superAgent.readUploadedFile(uploadId);
+        if (url.searchParams.get('format') === 'json') {
+          return json(res, 200, {
+            path: loaded.meta.name,
+            ...(loaded.content !== undefined ? { content: loaded.content } : {}),
+            binary: loaded.binary,
+            sizeBytes: loaded.meta.sizeBytes,
+            mimeType: loaded.meta.mimeType,
+            previewUrl: `/motion-api/super-agent/uploads/${encodeURIComponent(uploadId)}`,
+          });
+        }
+        res.writeHead(200, {
+          'Content-Type': loaded.meta.mimeType,
+          'Content-Length': loaded.buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
+          ...(url.searchParams.has('download') ? { 'Content-Disposition': attachmentDisposition(loaded.meta.name, loaded.meta.name) } : {}),
+        });
+        if (req.method === 'HEAD') res.end();
+        else res.end(loaded.buffer);
+        return;
+      }
+      if (url.pathname === '/api/super-agent/files' && req.method === 'GET') {
+        const chatId = url.searchParams.get('chatId')?.trim() || undefined;
+        const workingDir = url.searchParams.get('workingDir')?.trim() || undefined;
+        const query = url.searchParams.get('query') ?? undefined;
+        const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined;
+        const chat = chatId ? await superAgent.get(chatId).catch(() => null) : null;
+        const roots = await resolveBrowsableRoots(
+          (store.workspaceStore ?? store).directory,
+          chat,
+          workingDir,
+          process.cwd(),
+        );
+        return json(res, 200, {
+          items: await listTaskWorkspaceEntries(roots, { query, limit }),
+        });
+      }
+      if (url.pathname === '/api/super-agent/file-content' && req.method === 'GET') {
+        const chatId = url.searchParams.get('chatId')?.trim() || undefined;
+        const workingDir = url.searchParams.get('workingDir')?.trim() || undefined;
+        const rootKey = url.searchParams.get('rootKey')?.trim() || '';
+        const relPath = url.searchParams.get('path')?.trim() || '';
+        const chat = chatId ? await superAgent.get(chatId).catch(() => null) : null;
+        const roots = await resolveBrowsableRoots(
+          (store.workspaceStore ?? store).directory,
+          chat,
+          workingDir,
+          process.cwd(),
+        );
+        const fileData = await readTaskWorkspaceFile(roots, rootKey, relPath);
+        if (url.searchParams.get('raw') === '1' && fileData.rawBuffer) {
+          res.writeHead(200, {
+            'Content-Type': fileData.mimeType,
+            'Content-Length': fileData.rawBuffer.length,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'none'; sandbox",
+          });
+          res.end(fileData.rawBuffer);
+          return;
+        }
+        const resolvedRootKey = fileData.rootKey || rootKey;
+        const previewParams = new URLSearchParams({ rootKey: resolvedRootKey, path: fileData.path, raw: '1' });
+        if (chatId) previewParams.set('chatId', chatId);
+        if (workingDir) previewParams.set('workingDir', workingDir);
+        return json(res, 200, {
+          path: fileData.path,
+          ...(fileData.content !== undefined ? { content: fileData.content } : {}),
+          binary: fileData.binary,
+          sizeBytes: fileData.sizeBytes,
+          mimeType: fileData.mimeType,
+          previewUrl: `/motion-api/super-agent/file-content?${previewParams.toString()}`,
+        });
       }
       if (url.pathname === '/api/super-agent/chats') {
         if (req.method === 'GET') return json(res, 200, { conversations: await superAgent.list() });
@@ -889,7 +1037,38 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         const browser = context.browser ??= new WorkspaceBrowser(context.runtimeRoot);
         return json(res, 200, await browser.snapshot(parsedTarget.href, { width: data.width, height: data.height, dpr: 1 }));
       }
-      const saChat = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)(?:\/(events|turn|stop|approve))?$/);
+      const saQueue = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)\/queue(?:\/([^/]+)(?:\/(send))?)?$/);
+      if (saQueue) {
+        const [, rawId, rawQueueId, action] = saQueue;
+        const id = decodeURIComponent(rawId);
+        const queueId = rawQueueId ? decodeURIComponent(rawQueueId) : undefined;
+        if (!queueId && req.method === 'POST') {
+          return json(res, 200, { conversation: await superAgent.enqueueMessage(id, await input(req, 512 * 1024)) });
+        }
+        if (queueId && !action) {
+          if (req.method === 'PATCH') {
+            return json(res, 200, { conversation: await superAgent.updateQueuedMessage(id, queueId, await input(req, 512 * 1024)) });
+          }
+          if (req.method === 'DELETE') {
+            return json(res, 200, { conversation: await superAgent.removeQueuedMessage(id, queueId) });
+          }
+        }
+        if (queueId && action === 'send' && req.method === 'POST') {
+          return json(res, 200, {
+            conversation: await superAgent.sendQueuedMessageNow(id, queueId, {
+              origin: originUrl,
+              phase1: () => ensurePhase1(store, context, originUrl),
+              runtimeRoot: context.runtimeRoot,
+            }),
+          });
+        }
+        return json(res, 405, { error: 'Unsupported Super Agent queue request' });
+      }
+      if (url.pathname === '/api/super-agent/feedback' && req.method === 'POST') {
+        const data = await input(req, 128 * 1024);
+        return json(res, 200, await superAgent.recordFeedback(data));
+      }
+      const saChat = url.pathname.match(/^\/api\/super-agent\/chats\/([^/]+)(?:\/(events|turn|stop|approve|compact|export))?$/);
       if (saChat) {
         const [, id, action] = saChat;
         if (!action) {
@@ -898,6 +1077,17 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
           if (req.method === 'DELETE') { await superAgent.remove(id); return json(res, 200, { deleted: true }); }
         }
         if (action === 'events' && req.method === 'GET') { await superAgent.subscribe(id, res); return; }
+        if (action === 'export' && req.method === 'GET') {
+          const exported = await superAgent.exportLogZip(id);
+          res.writeHead(200, {
+            'Content-Type': 'application/zip',
+            'Content-Length': exported.data.length,
+            'Content-Disposition': attachmentDisposition(exported.filename, exported.filename),
+            'Cache-Control': 'no-store',
+          });
+          res.end(exported.data);
+          return;
+        }
         if (req.method === 'POST') {
           const data = req.headers['content-type']?.includes('application/json') ? await input(req, 512 * 1024) : {};
           if (action === 'turn') {
@@ -911,6 +1101,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
           }
           if (action === 'stop') return json(res, 200, { conversation: await superAgent.stop(id) });
           if (action === 'approve') return json(res, 200, { conversation: await superAgent.answer(id, data.approvalId, data.accepted, Boolean(data.alwaysAllow)) });
+          if (action === 'compact') return json(res, 200, await superAgent.compact(id));
         }
       }
       return json(res, 405, { error: 'Unsupported Super Agent request' });
@@ -1048,7 +1239,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         const { error_code, invalid_field, validation_rule } = toolFailureFields(error);
         return json(res, 400, { error: message, ...(error_code !== 'TOOL_FAILED' ? { code: error_code } : {}),
           ...(invalid_field ? { invalid_field, validation_rule } : {}),
-          applied: (error as any)?.applied === false || message.startsWith('VERSION_NOT_RESTORABLE:') ? false : 'unknown' });
+          applied: (error as any)?.applied === false || /^(NATIVE_RUNTIME_NOT_READY|INVALID_|VERSION_CONFLICT|VERSION_NOT_RESTORABLE|VERSION_NOT_FOUND|PROJECT_NOT_|PROJECT_SESSION_|PROJECT_TRASHED|PROJECT_VALIDATION_FAILED|REQUEST_ID_CONFLICT|SESSION_NOT_FOUND|MCP_TOOL_NOT_EXPOSED|EXPORT_NOT_|TEMPLATE_NOT_|WORK_CLOSED|WORK_VERSION_MISMATCH|WORK_GENERATION_UNTRACKED|WORK_ID_CONFLICT|WORK_NOT_FOUND|GENERATION_CONTENT_UNCHANGED|GENERATION_ARTIFACT_INVALID|DUPLICATE_ITEM_ID|ITEM_ID_CONFLICT|DUPLICATE_FILE_PATH|CONFLICTING_FILE_PATHS|SOURCE_BATCH_TOO_LARGE|REVIEW_VERSION_MISMATCH|REVIEW_OBJECT_MISMATCH|PREVIEW_TARGET_MISMATCH)(?::|$)/.test(message) ? false : 'unknown' });
       }
     }
     if (req.method === 'GET' && ['/api/integration', '/connect/guide', '/connect/config'].includes(url.pathname)) {
@@ -1108,6 +1299,7 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       const gateway = gatewayFor(store, context.tracking);
       const agents = localAgentsFor(store.directory);
       if (url.pathname === '/api/settings/agents' && req.method === 'GET') return json(res, 200, await agents.list());
+      if (url.pathname === '/api/settings/agents/check' && req.method === 'POST') return json(res, 200, await agents.warmup());
       if (url.pathname === '/api/settings/default-agent' && req.method === 'PUT') { const body = await input(req); await agents.choose(body.choice); return json(res, 200, { ok: true }); }
       const agentAction = url.pathname.match(/^\/api\/settings\/agents\/([a-z0-9-]+)\/(inspect|models|prepare|open)$/);
       if (agentAction && req.method === 'POST') {
@@ -1153,10 +1345,14 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         const body = await input(req); await setDefaultModel(gateway, body.kind, body.model); return json(res, 200, { ok: true });
       }
       if (url.pathname === '/api/settings/account' && req.method === 'GET') return json(res, 200, await gateway.account.summary(url.searchParams.get('refresh') === 'true'));
-      if (url.pathname === '/api/settings/account/login' && req.method === 'POST') return json(res, 200, await gateway.account.login());
+      if (url.pathname === '/api/settings/account/login' && req.method === 'POST') {
+        return json(res, 200, await gateway.account.login(await accountAttribution(req)));
+      }
       if (url.pathname === '/api/settings/account/cancel' && req.method === 'POST') return json(res, 200, await gateway.account.cancel());
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
-      if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') return json(res, 200, await gateway.account.openSubscription());
+      if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') {
+        return json(res, 200, await gateway.account.openSubscription(undefined, await accountAttribution(req)));
+      }
       return json(res, 404, { error: 'Settings endpoint not found' });
     }
     if (motionRequest && url.pathname === '/api/workspace/projects' && req.method === 'GET') {
@@ -1311,6 +1507,48 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     }
     if (motionRequest && url.pathname === '/api/whats-new' && req.method === 'GET') {
       return json(res, 200, await whatsNewFor().readWhatsNew());
+    }
+    if (motionRequest && url.pathname.startsWith('/api/capabilities')) {
+      if (url.pathname === '/api/capabilities' && req.method === 'GET') {
+        const action = url.searchParams.get('action') ?? undefined;
+        const capabilityId = url.searchParams.get('capabilityId') ?? undefined;
+        const modality = url.searchParams.get('modality') ?? undefined;
+        const includeComingSoon = url.searchParams.get('includeComingSoon') !== 'false';
+        const refresh = url.searchParams.get('refresh') === 'true';
+        const offsetParam = url.searchParams.get('offset');
+        const limitParam = url.searchParams.get('limit');
+        const offset = offsetParam !== null ? Number(offsetParam) : undefined;
+        const limit = limitParam !== null ? Number(limitParam) : undefined;
+        if (action === 'catalog') {
+          if (refresh) await syncCapabilityRemoteConfig(store).catch(() => {});
+          return json(res, 200, { capabilities: await loadCapabilityCatalog(store) });
+        }
+        return json(
+          res,
+          200,
+          await capabilityDiscover(
+            store,
+            action === 'quote' && capabilityId
+              ? { action: 'quote', capabilityId, model: url.searchParams.get('model') ?? undefined }
+              : capabilityId
+                ? { action: 'describe', capabilityId, refresh }
+                : { action: 'list', modality, includeComingSoon, refresh, ...(offset !== undefined ? { offset } : {}), ...(limit !== undefined ? { limit } : {}) },
+            context.tracking,
+            'gui',
+          ),
+        );
+      }
+      if (url.pathname === '/api/capabilities/sync' && req.method === 'POST') {
+        const synced = await syncCapabilityRemoteConfig(store);
+        return json(res, 200, { total: synced.length });
+      }
+      if (url.pathname === '/api/capabilities/run' && req.method === 'POST') {
+        const body = await input(req);
+        const isDryRun = body?.dryRun === true;
+        if (!isDryRun && !context.studio?.alive()) return json(res, 503, { error: 'Open the Studio before generating media' });
+        return json(res, isDryRun ? 200 : 202, await capabilityRun(store, { action: 'run', ...body }, context.tracking, 'gui'));
+      }
+      return json(res, 404, { error: 'Unknown capability center operation' });
     }
     if (motionRequest && (url.pathname.startsWith('/api/models') || url.pathname.startsWith('/api/generations'))) {
       const gateway = gatewayFor(store, context.tracking);
@@ -1504,11 +1742,15 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     if (res.headersSent) res.destroy();
     else {
       const message = error instanceof Error ? error.message : '操作失败';
-      const status = message === 'CONVERSATION_NOT_FOUND'
-        ? 404
-        : message === 'REQUEST_ID_CONFLICT' || error instanceof Conflict || (error as any).code === 'NATIVE_RUNTIME_NOT_READY'
-          ? 409
-          : 400;
+      const status =
+        message === 'CONVERSATION_NOT_FOUND'
+        || message === 'UPLOAD_NOT_FOUND'
+        || message === 'FILE_NOT_FOUND'
+        || message === 'FILE_ROOT_NOT_FOUND'
+          ? 404
+          : message === 'REQUEST_ID_CONFLICT' || error instanceof Conflict || (error as any).code === 'NATIVE_RUNTIME_NOT_READY'
+            ? 409
+            : 400;
       json(res, status, { error: message, ...((error as any).code === 'NATIVE_RUNTIME_NOT_READY' ? { code: (error as any).code, applied: false, runtime: (error as any).details } : {}) });
     }
   }
@@ -1703,7 +1945,7 @@ export async function startServer(store = sharedStore, port = Number(process.env
       server.closeAllConnections();
       server.close();
       await context.studio?.close();
-      await closeTracking(context.tracking);
+      await Promise.allSettled([closeTracking(context.tracking), flushCodexSessionTracking(store.directory)]);
     },
   };
 }

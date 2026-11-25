@@ -33,6 +33,7 @@
 - [Studio internationalization (i18n) architecture and developer guide](i18n.md)
 - [hyperframes.md](hyperframes.md)
 - [mcp-phase1-tools.md](mcp-phase1-tools.md)
+- [Unified Capability Center & Plug-in Guide](capability-center.md)
 - [Project import quick start, offline sharing and ZIP format](project-archives.md)
 - [Workspace assets, versions and Agent creation](assets.md)
 - [Transcripts, recordings, editable captions and platform/language versions](transcripts.md)

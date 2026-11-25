@@ -22,7 +22,7 @@ public, write-only token and ingestion host are distributed in
 `shared/tracking-config.json`; it contains no read/admin credentials and is never
 included in the browser bundle. Users do not need to supply a key or opt-in flag.
 
-Users can turn collection off in Studio's **Privacy settings → Share usage data**.
+Users can turn collection off in Studio's **Privacy & data → Help us improve**.
 This preference is persisted under the installation's data directory and applies
 to both MCP and Studio, including already-running processes and future restarts.
 Disabling clears pending queues and aborts in-flight delivery; accepted events
@@ -114,6 +114,13 @@ does not assert visual or human acceptance. Queue workers emit `queue_snapshot` 
 most once per minute and `worker_heartbeat` with bounded counts. Confirmed
 correctness incidents and recovery evidence use `incident_confirmed` and
 `recovery_recorded`; ordinary task failures are not incidents.
+
+## Sign-in and upgrade cards
+
+The [entry report and event definitions](generation-offer-funnels.md) cover the
+image and video generation cards and the cards in Account and Subscription & usage settings.
+The report links qualified exposure, button activation and confirmed sign-in or paid subscription
+by generation scene or settings section.
 
 ## Identity, properties and privacy
 
@@ -225,11 +232,10 @@ is retained and is not migrated or deleted. Custom zero-IP mode retains the fixe
 person profiles and emits no autocapture or session replay; other OpenDesign
 producers retain their own settings. Upstream engine telemetry stays disabled.
 
-Runtime and TypeScript event contracts whitelist required fields, enums, UUIDs and
-bounded counts. No prompts, messages, source files, URLs, local paths, titles, raw
-exceptions or credentials are accepted. Safe error categories are explicitly mapped.
-The sole bounded free-text exception is the settled template-search keyword,
-described below; it does not enable text on other event fields.
+Runtime and TypeScript event contracts in `events.ts` whitelist required fields, enums, UUIDs and
+bounded counts. Ordinary product events accept no prompts, messages, source files, URLs, local paths, titles, raw
+exceptions or credentials; safe error categories are explicitly mapped, and the sole bounded free-text field in `events.ts` is the settled template-search keyword,
+described below. Separately, Codex sessions that invoke OpenMotion MCP emit redacted `$ai_generation` turn traces under the same user consent and environment gates (see [Codex host-session LLM traces](#codex-host-session-llm-traces)).
 All retries retain the original event UUID/timestamp and PostHog `$insert_id`.
 Bounded numeric rules also preserve fractional timings, playback rates and signed
 audio/geometry measurements; non-finite or out-of-range values are rejected.
@@ -281,6 +287,16 @@ or credentials.
 The research sources are the [supported MCP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
 [Codex's MCP client](https://github.com/openai/codex/blob/main/codex-rs/rmcp-client/src/utils.rs)
 and [DSH's client declaration](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/mcp/mcp-client/src/connection.ts).
+
+### Codex host-session LLM traces
+
+When a Codex connection invokes an OpenMotion MCP `tools/call` or `resources/read` request carrying `_meta.threadId` (or `_meta['x-codex-turn-metadata'].thread_id`), `shared/codex-session-tracking.ts` records that `threadId` in `<dataDirectory>/tracking/active-codex-threads.json` (bounded to 64 active entries, without touching `~/.codex/hooks.json`). Discovery-only lifecycle calls (`initialize`, `tools/list`, `resources/list` and `ping`) never activate session collection, and unrelated threads in Codex's local database are never queried.
+
+An adaptive incremental background pass (2.5 seconds after MCP activity, two 10-second follow-ups, then 60-second intervals) plus startup and shutdown sweeps open `${CODEX_HOME:-~/.codex}/state_5.sqlite` and `thread_history_1.sqlite` via `node:sqlite` in `{ readOnly: true }` mode. New queue entries start at `lastSyncedOrdinal = -1` so the first sync backfills prior completed planning/storyboard turns from that same activated thread alongside subsequent turns past `lastSyncedOrdinal`; other Codex threads that never invoke OpenMotion remain untouched:
+
+- **Sanitization and payload bounds**: Every text field passes through `scripts/diagnostic-redaction.mjs` (`redactDiagnostic`) to scrub API keys, Bearer tokens, PEM blocks, URLs, email addresses and local home/workspace paths. `user_query` is capped at 8,000 characters, `reasoning_summary` and `assistant_reply` at 6,000 characters, and MCP tool summaries at 2,000 characters. Host shell `commandExecution` items inspect output locally only to detect `SKILL.md` reads and never upload terminal stdout/stderr text (recording `output_bytes`, command summary, exit code and duration instead). Project source payloads (`arguments.files[].content`, single-file read results such as `file.content` or `{ path, content }`, and `referencePath` reads) retain metadata (`path`, `bytes`, `lines`, offsets) with `content` stripped, `fileChange` diffs are replaced with `{ path, kind, diff_bytes }`, and inline data URIs plus `encrypted_content` are omitted.
+- **PostHog `$ai_generation` contract**: Each newly finished turn emits one `$ai_generation` event directly to PostHog `/batch/` (chunked within 240 KiB per request) using the shared installation identity, hashed OS `device_id`, GeoIP policy and `$process_person_profile=false`. Per-turn `$ai_model` and `reasoning_effort` are resolved from the thread's local rollout JSONL `turn_context` entries (falling back to live MCP turn metadata and then `threads.model` when unavailable). Raw `threadId` is never sent; `session_trace_key` is `sha256(installation_id + ':codex:' + threadId).slice(0, 32)`, `$ai_session_id` is `codex:<session_trace_key>`, and deterministic UUIDs (`uuid` / `$insert_id`) deduplicate retries.
+- **Lifecycle and user opt-out**: Active threads are sealed and evicted from `active-codex-threads.json` unconditionally after five consecutive sync failures (including backlogs at or above the 20-turn page size) or after 30 minutes of inactivity once pending pages have drained. Turning **Privacy & data → Help us improve** off—or setting `OPENMOTION_TELEMETRY=0` or `DO_NOT_TRACK=1`—immediately aborts any in-flight request, deletes `active-codex-threads.json`, and stops collection. Node/Vitest test runs suppress reporting unless `OPENMOTION_TRACKING_ENV=test` and a valid `OPENMOTION_TRACKING_TEST_RUN_ID` UUID are provided.
 
 ## Brand-story discovery and reuse
 
@@ -368,6 +384,10 @@ backend/data directory. Deterministic coverage lives in
   `open` for preview and `request` for export; invalid values are omitted.
   A failed call can carry `error_code` and schema-declared `invalid_field` and
   `validation_rule`, with array indices collapsed and unknown keys bucketed.
+  Game tools (`motion_game_*`) also carry `game_id` (the same catalogue id or UUID Game Studio reports, taken from
+  the `id` argument or, for create, from the created card) and, on finished successful calls that return a game card
+  (create, get, set_status, update_meta, publish), `game_status` after the call. A game card's `status=failed` is the
+  game's lifecycle, so it never turns the tool call into `outcome=failure`. Titles, briefs, files and URLs stay out.
   Both stdio asset names still use `tool_name=motion_assets`; WebMCP uses the
   original public name. Older events may omit these dimensions.
   To measure `read`, filter `product=openmotion`, exclude `env=test`, select the
@@ -439,7 +459,7 @@ backend/data directory. Deterministic coverage lives in
   opens report `studio_bar/open_template` with both `scene_id` and `template_id`.
   The Motion Studio banner's editor button reports `studio_bar/open_editor` with `studio_id=motion`.
   The Motion Studio template shelf reuses `studio_bar/category_select`, `load_more`, `view_all_templates`
-  and `open_template`. Explore Design template cards and their Try buttons report `explore_collection/open_template`
+  and `open_template`; the shelf loads its next batch automatically when scrolled near the end, and `load_more` reports each such batch. Explore Design template cards and their Try buttons report `explore_collection/open_template`
   with their Design scenario and template IDs.
   The Explore banner's editor button retains `explore_spotlight/slide_action` for the first Motion slide.
   A Cinema template card uses `studio_bar/try_prompt` with its `template_id`, `scene_id` and zero-based `position`.
@@ -598,6 +618,53 @@ A local save retry can update the terminal result for the same job. Use the late
 Generation uses the existing telemetry preference and installation identity.
 
 Studio recovery keeps request acknowledgement separate from execution outcome. An uncertain export receipt reports `studio_export_request_result.outcome=unknown`; a later identity-matched lookup can report one terminal result with the same browser `export_id`. Progress loss, cancelling and an inactive unknown record never produce a failed or cancelled terminal event. `studio_asset_import_result` retains its entry-point categories and reports confirmed failure, unknown and pending counts separately; unknown/pending items are not counted as failed. The manual `reload_editor` recovery action records only an unknown handoff outcome, not confirmed recovery.
+
+## Page arrivals, Game Studio and cloud sharing
+
+Every workspace surface reports one `page_view` when the user arrives. Game Studio, Super Agent, Workflows (hub and each
+workflow), the Design project list and the Design project editor use `page_name=creative_studio` with `studio_id`
+`game`, `super-agent`, `workflows` or `design`; `scene_id` carries the Super Agent mode, the workflow id, `projects` or
+`project-editor`. Opening a game, a chat or a workflow step inside the same surface is not a new arrival.
+
+Game Studio reports the try → create/remix → hand off → play → share funnel with `studio_id=game`:
+
+| Signal | Emission point | Meaning |
+| --- | --- | --- |
+| `ui_click` (`area` `game_composer`, `game_market`, `game_sidebar`, `game_detail`, `game_handoff`) | The handler of Start building, an option chip, a category/sort control, a game card, Remix, Edit in Agent, Continue in Super Agent, Copy instruction, Open in Codex, the detail tabs, Reload, Full screen and Open external. | Intent only. `game_option_kind`, `game_view`, `selected` and `filter_value` are fixed categories. |
+| `game_create_result` | After the local game service answered Start building (`create_route=brief`) or Remix (`remix`). | `success` means a draft exists and was handed to Super Agent (`handoff=super_agent`) or opened (`detail`); it is not a finished game. Failures distinguish `service_unavailable` from `rejected`. |
+| `game_action_result` | `play` once per opened game: `success` when the game frame fires its load event, `failure` when no playable page could be resolved (a frame cannot tell an error page from a game, so a broken game that still serves a page counts as loaded; games that only open on the creator's site report no play); `favorite`/`unfavorite`/`like`/`dislike`/`clear_reaction` after the service saved or rejected the change; `copy_link` and `copy_instruction` after the clipboard write. | `unavailable` means the action could not run (no shareable link, local service offline). |
+
+Game fields are `game_id` (catalogue id or UUID), `game_source` (`template`, `community`, `mine`), `game_genre`,
+`game_status`, `game_orientation` and `multiplayer`. Titles, briefs, prompts, instructions and links are never sent.
+Game detail openings report `surface_view` (`area=game_detail`, `element=detail`), agent handoff views report
+`surface_view` (`area=game_handoff`, `element=handoff`), settled market searches report `game_search_result`
+(`search_keyword`, `result_count`, optional category `filter_value`), trailer actions report `ui_click` (`create_trailer`,
+`regenerate_trailer`, `open_trailer_project`) paired with `game_action_result` (`start_trailer`, `regenerate_trailer`,
+`open_trailer_project`), and Assets game entries report `ui_click` (`page_name=assets`, `area=assets_library`,
+`element=open_game|view_all_games|open_game_studio`).
+
+The shared cloud-share popover (Design, Game and Super Agent artifacts) reports `ui_click`
+(`area=web_publish`, `element=open_publish`) when it opens and one `web_publish_result` per operation: `publish`,
+`resume`, `new_link`, `stop`, a user-initiated `copy_link`, and `sign_in` started from sharing. `copied` marks a publish
+that also copied its link; `error_kind` separates `auth_required` and `conflict`. When opened while signed out, the
+popover reports `surface_view` (`area=entitlement_gate`, `element=gate_card`) with `hook_id` (`game_publish_signin` for
+games, `cloud_share_signin` for other targets) and forwards `hookId` + `entryId` into `POST /api/settings/account/login`
+so `account_sign_in_result` joins 1:1 with the triggering click. URLs and titles are never sent.
+
+### Login & monetization touchpoint attribution (`hook_id` + `entry_id`)
+
+All plugin login and upgrade touchpoints share the closed `entitlementHookIds` enum (`hook_id`) and a per-click UUID
+(`entry_id`):
+- Exposure: `surface_view` (`area=entitlement_gate`, `element=gate_card`, `hook_id`) or `campaign_banner` (`hook_id=bf_banner`).
+- Click: `ui_click` with `hook_id` + `entry_id` across header Pricing (`header_pricing`), Black Friday banner (`bf_banner`),
+  Settings sign-in/subscription (`settings_signin` / `settings_subscription`), Media composer gates (`studio_generate` /
+  `studio_free_gate`), Model Hub (`model_hub_signin` / `model_hub_upgrade`), and Cloud Share (`game_publish_signin` /
+  `cloud_share_signin`).
+- Backend join: `POST /api/settings/account/login` forwards `{ hookId, entryId }` to `account_sign_in_result`;
+  `POST /api/settings/account/subscription` forwards `entryId` into `od_entry_id` while preserving the AMR-registered
+  `od_entry_source=openmotion_manage_subscription`.
+- Return refresh: returning to the window after checkout emits `entitlement_refresh_result` (`hook_id`, `entry_id`,
+  `outcome`, `plan_changed`).
 
 ## Template detail handoff coverage
 

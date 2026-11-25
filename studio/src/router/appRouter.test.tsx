@@ -524,4 +524,27 @@ describe('LegacyQueryRedirect', () => {
     expect(observed).toBe('/brand-kit/mine?embed=1&templates=1#project/p1');
     expect(workspaceHistoryIndex()).toBe(0);
   });
+
+  it('recognizes runtime-promoted live capability create routes in standalone gate and legacy redirects', async () => {
+    const { resolveCapabilityCatalog } = await import('../../../shared/capability-registry');
+    const { isStandaloneSpaPath } = await import('../../../shared/spa-routes');
+    const { isWorkspaceSettingsPage } = await import('../../../shared/workspace-url');
+    const { readWorkspacePage } = await import('../motion/workspacePageRouting');
+
+    // Coming-soon capabilities stay excluded under the default catalog.
+    expect(isStandaloneSpaPath('/create/inpainting')).toBe(false);
+    expect(isStandaloneSpaPath('/create/upscale-4k')).toBe(false);
+    expect(isWorkspaceSettingsPage('?page=create&scene=upscale-4k')).toBe(false);
+    expect(resolveLegacyQueryRedirect('/', '?page=create&scene=upscale-4k')).toBeNull();
+
+    // Promoting upscale-4k to live via runtime capabilities unlocks standalone routing and redirects.
+    const liveCatalog = resolveCapabilityCatalog([
+      { id: 'upscale-4k', status: 'live', channels: { gui: true, mcp: true } },
+    ]);
+    expect(isStandaloneSpaPath('/create/upscale-4k', '', '', liveCatalog)).toBe(true);
+    expect(isStandaloneSpaPath('/create/inpainting', '', '', liveCatalog)).toBe(false);
+    expect(isWorkspaceSettingsPage('?page=create&scene=upscale-4k', '', liveCatalog)).toBe(true);
+    expect(resolveLegacyQueryRedirect('/', '?page=create&scene=upscale-4k', '', liveCatalog)).toBe('/create/upscale-4k');
+    expect(readWorkspacePage('', '', '/create/upscale-4k', liveCatalog).studio?.scene.id).toBe('upscale-4k');
+  });
 });

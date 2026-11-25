@@ -103,7 +103,8 @@ export class ProjectVersions {
     const manifest = await history.peek(point);
     if (!manifest) throw new Error('VERSION_NOT_RESTORABLE: 原生历史已不存在');
     const files: VersionFile[] = [];
-    for (const [name, hash] of Object.entries(manifest) as [string, string][]) {
+    for (const [rawName, hash] of Object.entries(manifest) as [string, string][]) {
+      const name = rawName.replaceAll('\\', '/');
       try { projectPath(name); } catch { continue; }
       const file: VersionFile = { path: name, hash, size: 0 };
       try { file.size = (await stat(await this.nativeBlob(hash))).size; }
@@ -159,7 +160,9 @@ export class ProjectVersions {
   async current(history: NativeHistory) {
     const index = await this.sync(history); const version = index.versions.at(-1)!;
     const current = await this.store.get();
-    if (current.revision !== version.revision) throw new Error('VERSION_CONFLICT: 工程仍在修改，请重新读取');
+    if (current.revision !== version.revision) {
+      throw Object.assign(new Error(`VERSION_CONFLICT: 工程仍在修改。当前磁盘 revision=${current.revision}，最新已提交 versionId=${version.versionId}。请调用 openmotion_get_project 读取最新状态后重试。`), { code: 'VERSION_CONFLICT', applied: false });
+    }
     return version;
   }
   async transaction(history: NativeHistory, expectedRevision: string, expectedVersionId: string | undefined,
@@ -174,7 +177,10 @@ export class ProjectVersions {
     const journal: any = { projectId: this.store.projectId, requestId, windowId: window.id, state: 'prepared', changes: [] };
     let committed = false;
     try {
-      if ((await this.store.get()).revision !== expectedRevision) throw new Error('VERSION_CONFLICT: GUI 已产生新修改');
+      const livePre = (await this.store.get()).revision;
+      if (livePre !== expectedRevision) {
+        throw Object.assign(new Error(`VERSION_CONFLICT: GUI 已产生新修改。当前 revision=${livePre}，versionId=${current.versionId}。请调用 openmotion_get_project 读取最新内容后，用这两个值重试。`), { code: 'VERSION_CONFLICT', applied: false });
+      }
       const names = new Set<string>();
       for (let i = 0; i < changes.length; i++) {
         const change = changes[i]; projectPath(change.path);
@@ -192,7 +198,10 @@ export class ProjectVersions {
         journal.changes.push({ path: change.path, before, after: change.remove ? null : await fileHash(next) });
       }
       await atomicJson(path.join(transaction, 'journal.json'), journal);
-      if ((await this.store.get()).revision !== expectedRevision) throw new Error('VERSION_CONFLICT: 工程在保存前变化');
+      const liveBeforeCommit = (await this.store.get()).revision;
+      if (liveBeforeCommit !== expectedRevision) {
+        throw Object.assign(new Error(`VERSION_CONFLICT: 工程在保存前变化。当前 revision=${liveBeforeCommit}，versionId=${current.versionId}。请调用 openmotion_get_project 读取最新内容后，用这两个值重试。`), { code: 'VERSION_CONFLICT', applied: false });
+      }
       for (let i = 0; i < changes.length; i++) {
         const target = await this.store.safePath(changes[i].path);
         if (changes[i].remove) await rm(target, { force: true });
@@ -208,7 +217,8 @@ export class ProjectVersions {
       // A text edit must not transfer and hash every unchanged media blob again.
       // Reuse the stat-validated streaming checks used by project/version reads;
       // changed, missing or corrupt blobs still invalidate their cached verdict.
-      return { version: await this.publicVersion(version, history, true), revision: version.revision, changed: version.versionId !== current.versionId };
+      const publicVer = await this.publicVersion(version, history, true);
+      return { version: publicVer, currentVersionId: publicVer.versionId, currentVersionNumber: publicVer.versionNumber, revision: version.revision, changed: version.versionId !== current.versionId };
     } catch (error) {
       if (await exists(path.join(transaction, 'journal.json'))) await this.rollback(transaction, journal);
       throw error;

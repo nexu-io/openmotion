@@ -71,7 +71,7 @@ export async function assetRequest<T>(args: Record<string, unknown>): Promise<T>
     invalidateAssetListCache();
     invalidateAssetHistoryCache();
   }
-  return gatewayRequest<T>('phase1/call', 'POST', { name: 'openmotion_assets_use', arguments: args });
+  return gatewayRequest<T>('phase1/call', 'POST', { name: 'openmotion_assets_use', arguments: args, channel: 'gui' });
 }
 
 export async function uploadLibraryAsset(file: File, { assetId, parentVersionId, modality }: { assetId?: string; parentVersionId?: string; modality?: 'video' } = {}) {

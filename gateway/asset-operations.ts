@@ -1,13 +1,21 @@
+import { buildCapabilityParameters } from '../shared/capability-registry.ts';
 import type { OmTracking } from '../shared/tracking.ts';
 import path from 'node:path';
 import type { WorkspaceStore } from '../workspace.ts';
 import { AssetLibrary } from './asset-library.ts';
+import { preflightAssetCapabilityGenerate } from './capability-center.ts';
 import { gatewayFor } from './service.ts';
 import { requireNativeRuntime } from '../scripts/npm-runtime.mjs';
 import { pluginRoot } from '../hyperframes.ts';
 import { readLibraryAsset } from './asset-read.ts';
 
-export async function assetOperation(store: WorkspaceStore, args: any, importProject?: (input: any, options?: { receiptName: string; reusePinnedContent: boolean }) => Promise<any>, tracking?: OmTracking) {
+export async function assetOperation(
+  store: WorkspaceStore,
+  args: any,
+  importProject?: (input: any, options?: { receiptName: string; reusePinnedContent: boolean }) => Promise<any>,
+  tracking?: OmTracking,
+  channel: 'gui' | 'mcp' = 'mcp',
+) {
   const library = new AssetLibrary(store), gateway = gatewayFor(store, tracking);
   if (args.action === 'list') return library.list(args);
   if (args.action === 'read') return readLibraryAsset(library, args);
@@ -22,10 +30,24 @@ export async function assetOperation(store: WorkspaceStore, args: any, importPro
   }
   if (args.action === 'generate') {
     if (!args.requestId || !args.model) throw new Error('Choose a model and supply a stable requestId');
+    let effectiveOptions = args.capabilityOptions;
+    let effectiveParameters = args.parameters;
+    if (typeof args.capabilityId === 'string' && args.capabilityId.trim()) {
+      const preflight = await preflightAssetCapabilityGenerate(store, args, tracking, channel);
+      if (Object.keys(preflight.options).length) effectiveOptions = preflight.options;
+      if (preflight.capability.executor.kind === 'dedicated-model' || preflight.capability.executor.kind === 'prompt-preset') {
+        effectiveParameters = buildCapabilityParameters(preflight.capability, preflight.options, args.parameters ?? {});
+      }
+    }
     await requireNativeRuntime(pluginRoot, 'media');
     const job = await gateway.submit({ modality: args.modality, prompt: args.prompt, model: args.model, mode: args.mode,
-      idempotencyKey: args.requestId, parameters: args.parameters,
-      library: { assetId: args.assetId, title: args.name, parentVersionId: args.parentVersionId, references: args.references, conversationId: args.conversationId } });
+      idempotencyKey: args.requestId, parameters: effectiveParameters,
+      ...(args.capabilityId ? { capabilityId: args.capabilityId } : {}),
+      ...(effectiveOptions ? { capabilityOptions: effectiveOptions } : {}),
+      library: { assetId: args.assetId, title: args.name, parentVersionId: args.parentVersionId,
+        ...(args.capabilityId ? { capabilityId: args.capabilityId } : {}),
+        ...(effectiveOptions ? { capabilityOptions: effectiveOptions } : {}),
+        references: args.references, conversationId: args.conversationId } });
     return { job, next: { action: 'status', jobId: job.id } };
   }
   if (args.action === 'jobs') return { jobs: (await gateway.listJobs()).filter(job => (job.library || job.saveToLibrary) && (!args.conversationId || job.library?.conversationId === args.conversationId)).slice(0, 100) };

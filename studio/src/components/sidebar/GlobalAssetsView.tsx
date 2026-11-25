@@ -1,5 +1,6 @@
 import { useI18n } from "../../i18n/I18n";
 import { useEffect, useMemo, useState } from "react";
+import { rankSearchResults } from "../../../../shared/fuzzy-search";
 import { studioApiFetch } from "../../utils/studioApiFetch";
 
 // Cross-project asset view — the global media-use cache (~/.media), fetched from
@@ -25,20 +26,16 @@ export interface GlobalAssetRow {
  * (id / type / description / entity). Pure — unit-tested.
  */
 export function globalAssetRows(records: GlobalAssetRecord[], query = ""): GlobalAssetRow[] {
-  const q = query.trim().toLowerCase();
-  return records
-    .filter((r) =>
-      !q
-        ? true
-        : [r.id, r.type, r.description, r.entity].some(
-            (f) => f && String(f).toLowerCase().includes(q),
-          ),
-    )
-    .map((r) => ({
-      id: r.id ?? r.sha ?? "asset",
-      type: r.type ?? "asset",
-      label: r.description || r.entity || r.id || r.sha || "asset",
-    }));
+  return rankSearchResults(records, query, r => ({
+    id: r.id ?? r.sha,
+    title: r.description || r.entity || r.id || r.sha || "",
+    subtitle: r.type,
+    aliases: [r.entity ?? "", r.id ?? "", r.sha ?? ""],
+  })).map(({ item: r }) => ({
+    id: r.id ?? r.sha ?? "asset",
+    type: r.type ?? "asset",
+    label: r.description || r.entity || r.id || r.sha || "asset",
+  }));
 }
 
 export function GlobalAssetsView({ searchQuery }: { searchQuery: string }) {

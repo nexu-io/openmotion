@@ -66,12 +66,7 @@ test('packaged Skills reference only publicly callable Tool names', () => {
       if (!filename.endsWith('.md')) continue;
       const document = readFileSync(new URL(filename, root), 'utf8');
       for (const match of document.matchAll(/\b(?:openmotion|motion|design)_[a-z_]+\b/g)) {
-        // Game media generation is optional and explicitly gated on host discovery.
-        // The named generator is an actual legacy tool, not part of phase-one discovery.
-        if (skill === 'openmotion-game' && match[0] === 'openmotion_generate_asset') {
-          assert.ok(tools.some(tool => tool.name === match[0]));
-          assert.match(document, /discover|available|capabilit/i);
-        } else assert.ok([...target, 'openmotion_show_video'].includes(match[0]), `${skill}/${filename} calls hidden ${match[0]}`);
+        assert.ok([...target, 'openmotion_show_video'].includes(match[0]), `${skill}/${filename} calls hidden ${match[0]}`);
       }
     }
   }

@@ -22,7 +22,7 @@ const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 test('resolveDesktopChrome computes safe insets across macOS, Windows, and Linux', () => {
   const macWindowed = resolveDesktopChrome({ platform: 'darwin', fullscreen: false });
   assert.equal(macWindowed.titleBarStyle, 'hiddenInset');
-  assert.equal(macWindowed.insetLeft, 78);
+  assert.equal(macWindowed.insetLeft, 84);
   assert.equal(macWindowed.insetRight, 0);
   assert.equal(macWindowed.customWindowControls, false);
 
@@ -56,7 +56,7 @@ test('buildMainWindowOptions enforces hardened preload and OS title bar chrome',
     preloadPath: '/app/preload.cjs',
   });
   assert.equal(mac.titleBarStyle, 'hiddenInset');
-  assert.deepEqual(mac.trafficLightPosition, { x: 16, y: 15 });
+  assert.deepEqual(mac.trafficLightPosition, { x: 16, y: 16 });
   assert.equal(mac.webPreferences?.contextIsolation, true);
   assert.equal(mac.webPreferences?.nodeIntegration, false);
   assert.equal(mac.webPreferences?.sandbox, true);
@@ -75,6 +75,13 @@ test('buildMainWindowOptions enforces hardened preload and OS title bar chrome',
     preloadPath: '/app/preload.cjs',
   });
   assert.equal(linux.frame, false);
+  const linuxNative = buildMainWindowOptions({
+    platform: 'linux',
+    linuxCustomTitleBar: false,
+    preloadPath: '/app/preload.cjs',
+  });
+  assert.equal(linuxNative.frame, true);
+  assert.deepEqual(linuxNative.webPreferences?.additionalArguments, ['--om-linux-native-frame']);
   assert.equal(normalizeDesktopPlatform('freebsd'), 'linux');
 });
 
@@ -316,6 +323,16 @@ test('splash.html contains retry, log export, and WebGL disposal controls and st
   assert.match(splashHtml, /function disposePixelScan/);
   assert.match(splashHtml, /WEBGL_lose_context/);
   assert.match(splashHtml, /function teardownSplashResources/);
+  assert.match(splashHtml, /aspect-ratio:\s*1705\s*\/\s*291/);
+  assert.match(splashHtml, /viewBox="0 0 1705 291"/);
+  assert.match(splashHtml, /aria-label="OpenDesign"/);
+  assert.equal(splashHtml.includes('141.625'), false);
+  assert.equal(splashHtml.includes('openmotion-logo.svg'), false);
+  assert.equal(splashHtml.includes('Opening OpenMotion Studio'), false);
+
+  const preloadSource = readFileSync(path.join(desktopRoot, 'src', 'preload.ts'), 'utf8');
+  assert.match(preloadSource, /resolveDesktopChrome/);
+  assert.match(preloadSource, /initialChrome/);
 
   const tmpStage = path.join(os.tmpdir(), `om-stage-test-${Date.now()}`);
   const fakeRepo = path.join(tmpStage, 'repo');

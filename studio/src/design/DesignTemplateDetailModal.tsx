@@ -158,7 +158,7 @@ export function DesignTemplateDetailModal({
 
                 {!studioActions && <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 12, borderTop: '1px solid var(--motion-border-subtle)' }}>
                   <Button type="button" variant="primary" loading={remixing} icon={<RemixIcon name="arrow-right-up-line" size={15} />} onClick={() => onRemix(template)}>
-                    {t('Remix into project')}
+                    {t('Remix')}
                   </Button>
                   <Button type="button" variant="secondary" icon={<RemixIcon name="plug-line" size={15} />} onClick={() => onUseWithAgent(template)}>
                     {t('Use with Agent')}
@@ -218,12 +218,12 @@ function DesignTemplateActions({ popupRef, remixing, onRecreate, onRemix }: {
       <Button type="button" variant="ghost" className="om-button h-auto" data-primary disabled={copying} onClick={() => void recreate()}>
         {t('Recreate this template')}<MotionIcon name="sparkles" size={16} />
       </Button>
-      <Tooltip label={t('Remix into project')} wrap portalContainer={popupRef}>
+      <Tooltip label={t('Remix')} wrap portalContainer={popupRef}>
         <IconButton
           type="button"
           variant="plain"
           className="om-button om-media-detail-icon-action"
-          aria-label={t('Remix into project')}
+          aria-label={t('Remix')}
           disabled={remixing}
           aria-busy={remixing}
           icon={<RemixIcon name={remixing ? 'loader-4-line' : 'folder-add-line'} size={17} className={remixing ? 'om-busy-icon' : undefined} />}

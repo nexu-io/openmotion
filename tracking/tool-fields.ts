@@ -1,6 +1,10 @@
 const legacyAssetActions = ['list', 'get', 'import', 'update', 'generate', 'jobs', 'status', 'cancel', 'retry_save', 'resume', 'import_to_project'] as const;
 export const assetActions = [...legacyAssetActions, 'read', 'brand_kit', 'transcript', 'scenario', 'batch', 'trigger', 'web_publish'] as const;
 const actionSets = {
+  openmotion_capability_discover: ['list', 'describe', 'quote', 'providers', 'models'],
+  openmotion_capability_run: ['run'],
+  openmotion_job_manage: ['list', 'status', 'cancel', 'retry_save', 'resume'],
+  openmotion_asset_manage: ['list', 'get', 'read', 'import', 'update', 'import_to_project', 'brand_kit'],
   openmotion_game_trailer: ['start', 'status'],
   openmotion_assets_use: assetActions,
   openmotion_assets: legacyAssetActions,
@@ -20,7 +24,14 @@ export const toolDimensions = { action: [...new Set(Object.values(actionSets).fl
 export function toolInputFields(tool: string, input: unknown) {
   const args = input && typeof input === 'object' && !Array.isArray(input) ? input as { action?: unknown; target?: unknown } : {};
   const actions: readonly typeof toolDimensions.action[number][] = Object.hasOwn(actionSets, tool) ? actionSets[tool as keyof typeof actionSets] : [];
-  const defaultAction = tool === 'openmotion_export_request' ? 'request' : tool === 'openmotion_open_preview' ? 'open' : undefined;
+  const defaultAction =
+    tool === 'openmotion_export_request'
+      ? 'request'
+      : tool === 'openmotion_open_preview'
+        ? 'open'
+        : tool === 'openmotion_capability_run'
+          ? 'run'
+          : undefined;
   const action = actions.find(value => value === (args.action === undefined ? defaultAction : args.action));
   const target = tool === 'openmotion_open_preview'
     ? targets.find(value => value === (args.target === undefined ? 'project' : args.target)) : undefined;
@@ -77,7 +88,7 @@ const invalidFields = [
   'outputPath', 'path', 'deletes', 'deletes[]', 'anchor.filePath', 'anchor.viewport', 'anchor.viewport.id',
   'anchor.viewport.width', 'anchor.viewport.height', 'anchor.slideIndex', 'anchor.element.elementId',
   'anchor.element.htmlHint', 'anchor.region', 'anchor.region.x', 'anchor.region.y', 'anchor.region.width',
-  'anchor.region.height',
+  'anchor.region.height', 'capabilityId', 'capabilityOptions', 'dryRun', 'includeComingSoon', 'options',
   'scenario.command', 'scenario.runId', 'scenario.expectedRevision', 'scenario.requestId', 'scenario.scenarioId',
   'scenario.includeArchived', 'scenario.offset', 'scenario.limit', 'scenario.title', 'scenario.locale',
   'scenario.brief', 'scenario.changes', 'scenario.changes.title', 'scenario.changes.archived',
@@ -97,6 +108,8 @@ const invalidFields = [
   'scenario.activeOnly', 'scenario.includeStandaloneHtml', 'scenario.includeMotionSource',
 ] as const;
 export const toolErrorCodes = [
+  'CAPABILITY_NOT_FOUND', 'CAPABILITY_COMING_SOON', 'CAPABILITY_DEPRECATED', 'CAPABILITY_CHANNEL_DISABLED',
+  'CAPABILITY_UNAVAILABLE', 'CAPABILITY_MODEL_INCOMPATIBLE',
   'COMMENT_TARGET_NOT_FOUND', 'COMMENT_NOT_FOUND', 'COMMENT_CONFLICT', 'COMMENT_LIMIT', 'NOT_FOUND', 'UNSUPPORTED',
   'INVALID_ARGUMENT', 'VERSION_CONFLICT', 'PROJECT_NOT_BOUND', 'PROJECT_NOT_FOUND', 'PROJECT_SESSION_MISMATCH',
   'REQUEST_ID_CONFLICT', 'REQUEST_STATE_UNKNOWN', 'MCP_TOOL_NOT_EXPOSED', 'EXPORT_BUSY', 'EXPORT_NOT_FOUND',
@@ -148,3 +161,30 @@ export const exportFailureCodes = ['EXPORT_LINT_FAILED', 'EXPORT_RENDER_FAILED',
   'EXPORT_FINALIZE_FAILED', 'EXPORT_DEADLINE_EXCEEDED', 'EXPORT_WORKER_INTERRUPTED', 'EXPORT_FAILED'] as const;
 
 export type ExportFailure = { failureStage: typeof exportFailureStages[number]; failureCode: typeof exportFailureCodes[number] };
+
+const gameIdPattern = /^[A-Za-z0-9_.-]{1,128}$/;
+const gameStatuses = ['draft', 'building', 'ready', 'published', 'failed'] as const;
+type GameToolFields = { game_id?: string; game_status?: typeof gameStatuses[number] };
+
+/**
+ * Joins Agent-side game tool calls to the Game Studio funnel. `game_id` is the same catalogue id or UUID that Studio
+ * reports; for create it comes from the created card. `game_status` is the game's lifecycle status after the call
+ * (set_status, publish, get, create), not the tool outcome. Titles, briefs, files and URLs are never read.
+ */
+export function gameToolFields(tool: string, input: unknown, result?: unknown): GameToolFields {
+  if (!/^(?:openmotion|motion)_game_/.test(tool)) return {};
+  const args = input && typeof input === 'object' && !Array.isArray(input) ? input as { id?: unknown } : {};
+  const value = result && typeof result === 'object' && !Array.isArray(result) ? result as { id?: unknown; status?: unknown; game?: unknown } : {};
+  const card = value.game && typeof value.game === 'object' ? value.game as { id?: unknown; status?: unknown } : undefined;
+  const id = [args.id, card?.id, /_game_(?:get|set_status|update_meta)$/.test(tool) ? value.id : undefined]
+    .find(candidate => typeof candidate === 'string' && gameIdPattern.test(candidate)) as string | undefined;
+  // Only GameCard shapes carry a lifecycle status; trailer results carry a job status that must not be reported here.
+  const statusSource = card ? card.status : /_game_(?:get|set_status|update_meta)$/.test(tool) ? value.status : undefined;
+  const status = gameStatuses.find(candidate => candidate === statusSource);
+  return { ...(id ? { game_id: id } : {}), ...(status ? { game_status: status } : {}) };
+}
+
+/** Game tools return a GameCard whose `status: 'failed'` is the game's lifecycle, not a failed tool call. */
+export function gameResultStatusIsLifecycle(tool: string) {
+  return /^(?:openmotion|motion)_game_(?:create|get|set_status|update_meta|publish)$/.test(tool);
+}

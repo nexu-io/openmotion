@@ -1,5 +1,6 @@
 import { Button } from 'open-design-ui/button';
 import { useState } from 'react';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import type { Model, Modality } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -16,8 +17,14 @@ export function MediaModelChoices({ kind, scene, destination, onModel, onNavigat
   const providers = new Map(catalog?.status.providers.map(provider => [provider.id, provider]));
   const matchingScenes = scene ? [scene] : studioScenes.filter(item => item.modality === kind);
   const available = (model: Model) => Boolean(providers.get(model.provider)?.available);
-  const models = modelsForScenes(catalog, kind, matchingScenes)
-    .filter(model => (model.label + ' ' + (providers.get(model.provider)?.label ?? model.provider)).toLowerCase().includes(query.trim().toLowerCase()));
+  const models = rankSearchResults(modelsForScenes(catalog, kind, matchingScenes), query, model => ({
+    id: model.modelId,
+    title: model.label,
+    subtitle: providers.get(model.provider)?.label ?? model.provider,
+    description: model.description,
+    tags: [model.modality, model.mode, model.provider],
+    aliases: [model.id, ...matchingScenes.filter(s => supportsScene(model, s)).map(s => t(s.label))],
+  })).map(r => r.item);
   function selectModel(model: Model) {
     if (scene && onNavigate) onNavigate(sceneDestination(scene, destination, model.id));
     else if (destination && onNavigate) onNavigate(modelDestination(model, destination));

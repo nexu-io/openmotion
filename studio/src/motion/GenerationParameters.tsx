@@ -1,7 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
 import { Slider } from 'open-design-ui/slider';
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { modelReferenceLimit, type Model } from '../../../shared/gateway';
 import { compatibleImageResolutions, generationOptions, resolveGenerationParameters, usesInputImageRatio, videoAudioAlwaysOn, type GenerationOption } from '../../../shared/generation-options';
 import { cn } from '../components/ui/cn';
@@ -67,12 +67,14 @@ export function DurationControl({
   currentValue,
   inputId,
   showInput = true,
+  boxed = false,
   onCommit,
 }: {
   field: GenerationOption;
   currentValue: number | undefined;
   inputId?: string;
   showInput?: boolean;
+  boxed?: boolean;
   onCommit: (next: number | undefined) => void;
 }) {
   const { t, locale } = useI18n();
@@ -109,8 +111,9 @@ export function DurationControl({
     <div className="om-duration-control">
       <div className="om-creation-row om-duration-header">
         <span className="om-duration-readout">{displayValue !== undefined ? seconds.format(displayValue) : t('Auto')}</span>
-        {showInput && <label className="om-field om-duration-input">
+        {showInput && <label className="om-field om-duration-input" data-form-field={boxed ? 'compact' : undefined}>
           <input
+            data-form-control={boxed ? 'embedded' : undefined}
             id={inputId ?? generatedId}
             aria-label={t(field.label)}
             type="number"
@@ -281,11 +284,33 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
     const current = selectValue(field);
     const hasDefault = (model.defaults?.[field.key] ?? effectiveDefault(field)) !== undefined;
     const autoOption = !hasDefault || current === '__auto' ? [{ value: '__auto', label: t('Model default') }] : [];
-    return <Select label={t(field.label)} value={current} popupClassName={popupClassName} onCommit={next => set(field, choices.find(choice => String(choice.value) === next)?.value)}
+    return <Select appearance={appearance} label={t(field.label)} value={current} popupClassName={popupClassName} onCommit={next => set(field, choices.find(choice => String(choice.value) === next)?.value)}
       options={[...autoOption, ...choices.map(choice => ({
         value: String(choice.value), label: t(field.key === 'resolution' && /^\d+k$/i.test(choice.label) ? choice.label.toUpperCase() : choice.label),
         disabled: constraints[field.key] !== undefined && constraints[field.key] !== choice.value,
       }))]} />;
+  };
+  const quickPicker = (field: GenerationOption, title: string, popupClass: string, content: ReactNode) => {
+    const name = t(title);
+    const trigger = boxed
+      ? <FieldTrigger className="om-picker-trigger" aria-label={name}>
+        <span className="om-picker-trigger-label">{label(field)}</span><SelectArrow />
+      </FieldTrigger>
+      : <Button variant="plain" className="om-param-card" aria-label={name}>
+        <span className="om-param-card-copy">
+          <span className="om-param-card-label">{name}</span>
+          <span className="om-param-card-value">{label(field)}</span>
+        </span>
+        <RemixIcon name="arrow-right-s-line" size={15} />
+      </Button>;
+    const picker = <Popover side="right" align="start" aria-label={name} className={cn(popupClass, popupClassName)} trigger={trigger}>
+      <div className="om-creation-row">
+        <strong>{name}</strong>
+        {Object.hasOwn(draft.values, field.key) && <Button variant="plain" className="om-nav-item" onClick={() => set(field, undefined)}>{t('Reset')}</Button>}
+      </div>
+      {content}
+    </Popover>;
+    return boxed ? <div className="om-label"><span className="om-eyebrow">{name}</span>{picker}</div> : picker;
   };
   const settingsLabel = t('Generation settings');
   const settingsSummary = compactSummary ? t('Advanced parameters') : summary || (boxed ? t('Model parameters') : settingsLabel);
@@ -299,91 +324,11 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
     {boxed && <span id={settingsLabelId} className="om-eyebrow">{settingsLabel}</span>}
     {hasQuickCards && (
       <div className="om-param-cards">
-        {durationField && (
-          <Popover
-            side="right"
-            align="start"
-            aria-label={t('Duration')}
-            className="om-duration-popover"
-            trigger={
-              <Button variant="plain" className="om-param-card" aria-label={t('Duration')}>
-                <span className="om-param-card-copy">
-                  <span className="om-param-card-label">{t('Duration')}</span>
-                  <span className="om-param-card-value">{label(durationField)}</span>
-                </span>
-                <RemixIcon name="arrow-right-s-line" size={15} />
-              </Button>
-            }
-          >
-            <div className="om-creation-row">
-              <strong>{t('Duration')}</strong>
-              {Object.hasOwn(draft.values, durationField.key) && (
-                <Button variant="plain" className="om-nav-item" onClick={() => set(durationField, undefined)}>
-                  {t('Reset')}
-                </Button>
-              )}
-            </div>
-            <DurationControl
-              field={durationField}
-              currentValue={typeof value(durationField) === 'number' ? value(durationField) as number : undefined}
-              onCommit={v => set(durationField, v)}
-            />
-          </Popover>
-        )}
-        {resolutionField && (
-          <Popover
-            side="right"
-            align="start"
-            aria-label={t('Resolution')}
-            className="om-choice-popover"
-            trigger={
-              <Button variant="plain" className="om-param-card" aria-label={t('Resolution')}>
-                <span className="om-param-card-copy">
-                  <span className="om-param-card-label">{t('Resolution')}</span>
-                  <span className="om-param-card-value">{label(resolutionField)}</span>
-                </span>
-                <RemixIcon name="arrow-right-s-line" size={15} />
-              </Button>
-            }
-          >
-            <div className="om-creation-row">
-              <strong>{t('Resolution')}</strong>
-              {Object.hasOwn(draft.values, resolutionField.key) && (
-                <Button variant="plain" className="om-nav-item" onClick={() => set(resolutionField, undefined)}>
-                  {t('Reset')}
-                </Button>
-              )}
-            </div>
-            {renderChoicePills(resolutionField)}
-          </Popover>
-        )}
-        {ratioField && (
-          <Popover
-            side="right"
-            align="start"
-            aria-label={t('Aspect ratio')}
-            className="om-ratio-popover"
-            trigger={
-              <Button variant="plain" className="om-param-card" aria-label={t('Aspect ratio')}>
-                <span className="om-param-card-copy">
-                  <span className="om-param-card-label">{t('Aspect ratio')}</span>
-                  <span className="om-param-card-value">{label(ratioField)}</span>
-                </span>
-                <RemixIcon name="arrow-right-s-line" size={15} />
-              </Button>
-            }
-          >
-            <div className="om-creation-row">
-              <strong>{t('Aspect ratio')}</strong>
-              {Object.hasOwn(draft.values, ratioField.key) && (
-                <Button variant="plain" className="om-nav-item" onClick={() => set(ratioField, undefined)}>
-                  {t('Reset')}
-                </Button>
-              )}
-            </div>
-            {renderRatioTiles(ratioField)}
-          </Popover>
-        )}
+        {durationField && quickPicker(durationField, 'Duration', 'om-duration-popover',
+          <DurationControl field={durationField} boxed={boxed} currentValue={typeof value(durationField) === 'number' ? value(durationField) as number : undefined}
+            onCommit={v => set(durationField, v)} />)}
+        {resolutionField && quickPicker(resolutionField, 'Resolution', 'om-choice-popover', renderChoicePills(resolutionField))}
+        {ratioField && quickPicker(ratioField, 'Aspect ratio', 'om-ratio-popover', renderRatioTiles(ratioField))}
         {audioField && (
           <Button
             variant="plain"
@@ -421,17 +366,44 @@ export function GenerationParameters({ model, draft, defaultValues, hasInputImag
         {popoverFields.length > 0 && <div className="om-generation-fields">{popoverFields.map(field => <div className="om-generation-field" key={field.key}>
           <div className="om-creation-row"><label className="om-label" htmlFor={`generation-${field.key}`}>{t(field.label)}{field.required ? ' *' : ''}</label>{Object.hasOwn(draft.values, field.key) && <IconButton variant="plain" className="om-nav-item" aria-label={t('Reset {name}', { name: t(field.label) })} onClick={() => set(field, undefined)} icon={<RemixIcon name="refresh-line" size={14} />} />}</div>
           {field.key === 'duration' && (field.kind === 'number' || (field.kind === 'choice' && (field.choices?.length ?? 0) <= 6))
-            ? <DurationControl field={field} currentValue={typeof value(field) === 'number' ? value(field) as number : undefined} inputId={`generation-${field.key}`} onCommit={v => set(field, v)} />
+            ? <DurationControl field={field} boxed={boxed} currentValue={typeof value(field) === 'number' ? value(field) as number : undefined} inputId={`generation-${field.key}`} onCommit={v => set(field, v)} />
             : <>
                 {field.kind === 'choice' && (field.presentation === 'ratio' ? renderRatioTiles(field) : isVideo && field.key === 'resolution' && (field.choices?.length ?? 0) <= 4 ? renderChoicePills(field) : fieldSelect(field))}
                 {field.kind === 'boolean' && <button className="om-switch" role="switch" aria-label={t(field.label)} aria-checked={Boolean(value(field))} onClick={() => set(field, !value(field))}><span /></button>}
-                {field.kind === 'number' && <div className="om-generation-number"><label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} type="number" min={field.min} max={field.max} step={field.step} placeholder={t('Auto')} value={typeof value(field) === 'number' ? value(field) as number : ''} onChange={e => set(field, e.target.value === '' ? undefined : Number(e.target.value))} /></label>{field.min !== undefined && field.max !== undefined && <Slider label={t(field.label)} min={field.min} max={field.max} step={field.step} value={Number(value(field) ?? field.min)} onCommit={v => set(field, v)} />}</div>}
-                {field.kind === 'text' && <label className="om-field"><input id={`generation-${field.key}`} aria-label={t(field.label)} value={String(value(field) ?? '')} onChange={e => set(field, e.target.value || undefined)} /></label>}
+                {field.kind === 'number' && <div className="om-generation-number">
+                  <label className="om-field" data-form-field={boxed ? 'regular' : undefined}>
+                    <input data-form-control={boxed ? 'embedded' : undefined} id={`generation-${field.key}`}
+                      aria-label={t(field.label)} type="number" min={field.min} max={field.max} step={field.step}
+                      placeholder={t('Auto')} value={typeof value(field) === 'number' ? value(field) as number : ''}
+                      onChange={e => set(field, e.target.value === '' ? undefined : Number(e.target.value))} />
+                  </label>
+                  {field.min !== undefined && field.max !== undefined && <Slider label={t(field.label)} min={field.min}
+                    max={field.max} step={field.step} value={Number(value(field) ?? field.min)} onCommit={v => set(field, v)} />}
+                </div>}
+                {field.kind === 'text' && <label className="om-field" data-form-field={boxed ? 'regular' : undefined}>
+                  <input data-form-control={boxed ? 'embedded' : undefined} id={`generation-${field.key}`}
+                    aria-label={t(field.label)} value={String(value(field) ?? '')} onChange={e => set(field, e.target.value || undefined)} />
+                </label>}
               </>}
         </div>)}</div>}
-        <details className="om-creation-options" open={compactSummary || undefined}><summary className="om-nav-item"><RemixIcon name="code-s-slash-line" size={15} />{t('Advanced parameters')}<RemixIcon name="arrow-down-s-line" size={14} /></summary><p className="om-muted">{t('Provider JSON. Quick controls override matching fields.')}</p><label className="om-field"><textarea aria-label={t('Model parameters')} rows={4} value={draft.advanced} onChange={e => onChange({ ...draft, advanced: e.target.value })} /></label></details>
+        <details className="om-creation-options" open={compactSummary || undefined}>
+          <summary className="om-nav-item"><RemixIcon name="code-s-slash-line" size={15} />{t('Advanced parameters')}<RemixIcon name="arrow-down-s-line" size={14} /></summary>
+          <p className="om-muted">{t('Provider JSON. Quick controls override matching fields.')}</p>
+          <label className="om-field" data-form-field={boxed ? 'intrinsic' : undefined}>
+            <textarea data-form-control={boxed ? 'embedded' : undefined} aria-label={t('Model parameters')} rows={4}
+              value={draft.advanced} onChange={e => onChange({ ...draft, advanced: e.target.value })} />
+          </label>
+        </details>
       </Popover>
-      {count && <Popover side="top" align="end" aria-label={t('Output count')} trigger={<Button variant="plain" className="om-nav-item"><RemixIcon name="stack-line" size={16} />×{label(count)}</Button>}><label className="om-label">{t('Output count')}<div className="om-field"><input aria-label={t('Output count')} type="number" min={1} step={1} value={Number(value(count) ?? 1)} onChange={e => set(count, e.target.value === '' ? undefined : Number(e.target.value))} /></div></label></Popover>}
+      {count && <Popover side="top" align="end" aria-label={t('Output count')} className={popupClassName}
+        trigger={<Button variant="plain" className="om-nav-item"><RemixIcon name="stack-line" size={16} />×{label(count)}</Button>}>
+        <label className="om-label">{t('Output count')}
+          <div className="om-field" data-form-field={boxed ? 'regular' : undefined}>
+            <input data-form-control={boxed ? 'embedded' : undefined} aria-label={t('Output count')} type="number" min={1} max={count.max} step={1}
+              value={Number(value(count) ?? 1)} onChange={e => set(count, e.target.value === '' ? undefined : Number(e.target.value))} />
+          </div>
+        </label>
+      </Popover>}
     </div>
   </div>;
 }

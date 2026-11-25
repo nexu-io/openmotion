@@ -125,7 +125,10 @@ export class WorkRounds {
       const work = await this.get(projectId, id);
       if (!work.generation) throw new Error('WORK_GENERATION_UNTRACKED: begin a new work round');
       if (!work.generation.completedAt) {
-        if (work.state === 'failed' || work.jobId) throw new Error('WORK_CLOSED');
+        if (work.state === 'failed' || work.jobId) {
+          const reason = work.jobId ? `workId=${work.id} already bound export jobId=${work.jobId}` : `workId=${work.id} ended in failed state`;
+          throw Object.assign(new Error(`WORK_CLOSED: ${reason} for projectId=${work.projectId}. Call openmotion_open_preview({ action: "begin", projectId: "${work.projectId}", requestId: "<new-uuid>", mode: "modify" }) to start a new work round.`), { code: 'WORK_CLOSED', applied: false });
+        }
         Object.assign(work, { versionId, versionNumber, revision, state: 'saved' });
         Object.assign(work.generation, { completedAt: Date.now(), versionId, revision, completionRequestId: requestId,
           telemetryEligible: work.generation.telemetryEligible && this.tracking?.enabled() === true });
@@ -205,7 +208,10 @@ export class WorkRounds {
   }
   async writable(name: string, args: any) {
     const work = await this.get(args.projectId, args.workId);
-    if (work.jobId || work.state === 'failed') throw new Error('WORK_CLOSED: 请为新一轮制作建立新的视频框');
+    if (work.jobId || work.state === 'failed') {
+      const reason = work.jobId ? `workId=${work.id} already bound export jobId=${work.jobId}` : `workId=${work.id} is closed (failed)`;
+      throw Object.assign(new Error(`WORK_CLOSED: ${reason} for projectId=${work.projectId}. Call openmotion_open_preview({ action: "begin", projectId: "${work.projectId}", requestId: "<new-uuid>", mode: "modify" }) to start a new work round, or omit workId for standalone reads/display updates.`), { code: 'WORK_CLOSED', applied: false });
+    }
     if (name === 'motion_export_request' && (args.action === 'record_review' || args.versionId !== work.versionId || args.expectedRevision !== work.revision))
       throw new Error('WORK_VERSION_MISMATCH: 只可播放本轮实际保存的版本');
   }
@@ -216,7 +222,7 @@ export class WorkRounds {
         if (result.version.versionNumber < work.versionNumber) return;
         if (work.jobId) {
           if (work.versionId === result.version.versionId && work.revision === result.revision) return;
-          throw new Error('WORK_CLOSED: 已提交轮次不能重新绑定内容');
+          throw Object.assign(new Error(`WORK_CLOSED: workId=${work.id} already bound export jobId=${work.jobId} and cannot rebind new versions for projectId=${work.projectId}. Call openmotion_open_preview({ action: "begin", projectId: "${work.projectId}", requestId: "<new-uuid>", mode: "modify" }) to start a new work round.`), { code: 'WORK_CLOSED', applied: false });
         }
         if (work.state !== 'failed') work.state = 'saved';
         work.versionId = result.version.versionId;

@@ -2,6 +2,7 @@ import { Button } from "open-design-ui/button";
 import { IconButton } from "open-design-ui/icon-button";
 import { Tooltip } from "../components/ui/Tooltip";
 import { useState, type ReactNode } from 'react';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { modelKinds, type DirectoryModel } from '../../../shared/provider-directory';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -15,8 +16,15 @@ export function ModelCatalog({ models, defaultIds, render }: { models: Directory
   const showKindTabs = kindCounts.length > 1;
   const resolvedKind = activeKind === 'all' || kindCounts.some(item => item.kind === activeKind) ? activeKind : 'all';
   const scopedModels = resolvedKind === 'all' ? models : models.filter(model => model.kind === resolvedKind);
-  const trimmedQuery = query.trim().toLowerCase();
-  const filtered = scopedModels.filter(model => !trimmedQuery || `${modelDisplayLabel(model)} ${model.label} ${model.modelId} ${model.group ?? ''}`.toLowerCase().includes(trimmedQuery)).sort((a, b) => {
+  const trimmedQuery = query.trim();
+  const matched = rankSearchResults(scopedModels, trimmedQuery, model => ({
+    id: model.modelId,
+    title: modelDisplayLabel(model),
+    subtitle: model.group ?? '',
+    tags: [model.kind, model.provider],
+    aliases: [model.label, model.id],
+  })).map(r => r.item);
+  const filtered = [...matched].sort((a, b) => {
     if (defaultIds?.size) {
       const aDefault = defaultIds.has(a.id) ? 0 : 1;
       const bDefault = defaultIds.has(b.id) ? 0 : 1;

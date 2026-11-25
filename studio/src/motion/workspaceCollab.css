@@ -3049,13 +3049,26 @@
 }
 
 /* Unified Library Hub section switcher (All creations, Projects, Brand Kits) */
+[data-motion-studio] {
+  --om-library-pad-top: var(--motion-space-20);
+  --om-library-pad-x: var(--motion-space-24);
+}
+
+@media (max-width: 699px) {
+  [data-motion-studio] {
+    --om-library-pad-top: var(--motion-space-16);
+    --om-library-pad-x: var(--motion-space-16);
+  }
+}
+
 [data-motion-studio] .om-library-hub-bar {
   margin-bottom: var(--motion-space-16);
 }
 
 [data-motion-studio] .om-library-hub-band {
   width: 100%;
-  padding-bottom: var(--motion-space-8);
+  padding: var(--om-library-pad-top) var(--om-library-pad-x) 0;
+  box-sizing: border-box;
 }
 
 [data-motion-studio] .om-library-hub-nav {

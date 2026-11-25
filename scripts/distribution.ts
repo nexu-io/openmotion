@@ -153,6 +153,7 @@ const presenterStoryFiles = [
   'library/skills/openmotion-coral-title-cards/SKILL.md',
   'library/skills/openmotion-corner-frames/SKILL.md',
   'library/skills/openmotion-dark-premium-poster/SKILL.md',
+  'library/skills/openmotion-digital-human-presenter/SKILL.md',
   'library/skills/openmotion-doc-promo/SKILL.md',
   'library/skills/openmotion-echo-stack-type/SKILL.md',
   'library/skills/openmotion-edit-to-script/SKILL.md',
@@ -229,6 +230,7 @@ const presenterStoryFiles = [
   'library/skills/openmotion-time-freeze/SKILL.md',
   'library/skills/openmotion-translucent-glass/SKILL.md',
   'library/skills/openmotion-velocity-lines/SKILL.md',
+  'library/skills/openmotion-video-dubbing/SKILL.md',
   'library/skills/openmotion-website-launch/SKILL.md',
   'library/skills/openmotion-whiteboard-doodle/SKILL.md',
   'library/skills/openmotion-whiteboard-marker/SKILL.md',
@@ -678,13 +680,13 @@ export const distributionDocuments = [
   ...motionPackageFiles,
   ...designSystemDocuments,
   'docs/fonts.md',
-  ...['openmotion-brandkit', 'openmotion-presenter-story', 'openmotion-design-remix', 'openmotion-ad-script', 'openmotion-adaptive-layout', 'openmotion-ai-assistant-tour', 'openmotion-archive-collage', 'openmotion-article-illustrations', 'openmotion-aurora-gradient', 'openmotion-before-after', 'openmotion-bilingual-captions', 'openmotion-bold-type-poster', 'openmotion-bubble-field', 'openmotion-caption-styling', 'openmotion-card-carousel', 'openmotion-cards-and-text', 'openmotion-chalk-blueprint', 'openmotion-cinematic-logo', 'openmotion-clay-explainer', 'openmotion-color-pop-poster', 'openmotion-content-cover', 'openmotion-coral-title-cards', 'openmotion-corner-frames', 'openmotion-dark-premium-poster', 'openmotion-design-styles', 'openmotion-doc-promo', 'openmotion-echo-stack-type', 'openmotion-edit-to-script', 'openmotion-editorial-explainer', 'openmotion-editorial-poster', 'openmotion-editorial-webinar', 'openmotion-electric-impact-type', 'openmotion-felt-stop-motion', 'openmotion-flat-beat', 'openmotion-flat-card-explainer', 'openmotion-flat-lay-product', 'openmotion-folder-pop', 'openmotion-footage-to-handpainted', 'openmotion-giant-flip-type', 'openmotion-glitch-logo-sting', 'openmotion-growth-teardown', 'openmotion-hand-drawn-explainer', 'openmotion-hidden-feature-demo', 'openmotion-highlighter-notes', 'openmotion-in-hand-product', 'openmotion-ink-ribbon', 'openmotion-isometric-card-flight', 'openmotion-juicy-splash-poster', 'openmotion-light-shadow-product', 'openmotion-liquid-blob', 'openmotion-liquid-glass-logo', 'openmotion-liquid-logo', 'openmotion-livestream-clips', 'openmotion-magnet-particles', 'openmotion-manifesto-pop', 'openmotion-monochrome-magazine', 'openmotion-motion-graphic-placement', 'openmotion-multi-clips-to-reels', 'openmotion-multicam-edit', 'openmotion-mystery-box-reveal', 'openmotion-neon-outline-type', 'openmotion-nova-intro', 'openmotion-one-bit-dither', 'openmotion-orange-unfiltered', 'openmotion-paper-collage-explainer', 'openmotion-paper-diorama', 'openmotion-paper-map-journey', 'openmotion-paper-stop-motion', 'openmotion-pastel-flat-2d', 'openmotion-pixel-art-explainer', 'openmotion-pop-style', 'openmotion-premium-halo', 'openmotion-push-in-type', 'openmotion-quantum-particles', 'openmotion-red-pen-archive', 'openmotion-relight-reveal', 'openmotion-retro-flat-scene', 'openmotion-retro-print-poster', 'openmotion-ring-mask-reveal', 'openmotion-runway-rebel', 'openmotion-shortlist-shorts', 'openmotion-shot-breakdown', 'openmotion-shutter-bands', 'openmotion-smooth-wipes', 'openmotion-spec-sheet', 'openmotion-splash-float-product', 'openmotion-split-slot-type', 'openmotion-step-by-step-tutorial', 'openmotion-sticker-bounce', 'openmotion-sticker-peel', 'openmotion-storyboard-to-motion', 'openmotion-storybook-myth', 'openmotion-surreal-3d-poster', 'openmotion-talking-head-recreation', 'openmotion-time-freeze', 'openmotion-translucent-glass', 'openmotion-velocity-lines', 'openmotion-website-launch', 'openmotion-whiteboard-doodle', 'openmotion-whiteboard-marker', 'openmotion-wireframe-style', 'openmotion-sale-carousel', 'openmotion-sale-countdown', 'openmotion-sale-promo'].map(name => 'library/skills/' + name + '/agents/openai.yaml'),
+  ...['openmotion-brandkit', 'openmotion-presenter-story', 'openmotion-design-remix', 'openmotion-ad-script', 'openmotion-adaptive-layout', 'openmotion-ai-assistant-tour', 'openmotion-archive-collage', 'openmotion-article-illustrations', 'openmotion-aurora-gradient', 'openmotion-before-after', 'openmotion-bilingual-captions', 'openmotion-bold-type-poster', 'openmotion-bubble-field', 'openmotion-caption-styling', 'openmotion-card-carousel', 'openmotion-cards-and-text', 'openmotion-chalk-blueprint', 'openmotion-cinematic-logo', 'openmotion-clay-explainer', 'openmotion-color-pop-poster', 'openmotion-content-cover', 'openmotion-coral-title-cards', 'openmotion-corner-frames', 'openmotion-dark-premium-poster', 'openmotion-design-styles', 'openmotion-digital-human-presenter', 'openmotion-doc-promo', 'openmotion-echo-stack-type', 'openmotion-edit-to-script', 'openmotion-editorial-explainer', 'openmotion-editorial-poster', 'openmotion-editorial-webinar', 'openmotion-electric-impact-type', 'openmotion-felt-stop-motion', 'openmotion-flat-beat', 'openmotion-flat-card-explainer', 'openmotion-flat-lay-product', 'openmotion-folder-pop', 'openmotion-footage-to-handpainted', 'openmotion-giant-flip-type', 'openmotion-glitch-logo-sting', 'openmotion-growth-teardown', 'openmotion-hand-drawn-explainer', 'openmotion-hidden-feature-demo', 'openmotion-highlighter-notes', 'openmotion-in-hand-product', 'openmotion-ink-ribbon', 'openmotion-isometric-card-flight', 'openmotion-juicy-splash-poster', 'openmotion-light-shadow-product', 'openmotion-liquid-blob', 'openmotion-liquid-glass-logo', 'openmotion-liquid-logo', 'openmotion-livestream-clips', 'openmotion-magnet-particles', 'openmotion-manifesto-pop', 'openmotion-monochrome-magazine', 'openmotion-motion-graphic-placement', 'openmotion-multi-clips-to-reels', 'openmotion-multicam-edit', 'openmotion-mystery-box-reveal', 'openmotion-neon-outline-type', 'openmotion-nova-intro', 'openmotion-one-bit-dither', 'openmotion-orange-unfiltered', 'openmotion-paper-collage-explainer', 'openmotion-paper-diorama', 'openmotion-paper-map-journey', 'openmotion-paper-stop-motion', 'openmotion-pastel-flat-2d', 'openmotion-pixel-art-explainer', 'openmotion-pop-style', 'openmotion-premium-halo', 'openmotion-push-in-type', 'openmotion-quantum-particles', 'openmotion-red-pen-archive', 'openmotion-relight-reveal', 'openmotion-retro-flat-scene', 'openmotion-retro-print-poster', 'openmotion-ring-mask-reveal', 'openmotion-runway-rebel', 'openmotion-shortlist-shorts', 'openmotion-shot-breakdown', 'openmotion-shutter-bands', 'openmotion-smooth-wipes', 'openmotion-spec-sheet', 'openmotion-splash-float-product', 'openmotion-split-slot-type', 'openmotion-step-by-step-tutorial', 'openmotion-sticker-bounce', 'openmotion-sticker-peel', 'openmotion-storyboard-to-motion', 'openmotion-storybook-myth', 'openmotion-surreal-3d-poster', 'openmotion-talking-head-recreation', 'openmotion-time-freeze', 'openmotion-translucent-glass', 'openmotion-velocity-lines', 'openmotion-video-dubbing', 'openmotion-website-launch', 'openmotion-whiteboard-doodle', 'openmotion-whiteboard-marker', 'openmotion-wireframe-style', 'openmotion-sale-carousel', 'openmotion-sale-countdown', 'openmotion-sale-promo'].map(name => 'library/skills/' + name + '/agents/openai.yaml'),
   ...localReadmeResourceFiles,
   'README.md', 'README.zh-CN.md', 'CONTRIBUTING.md', 'CONTRIBUTING.zh-CN.md', 'AGENTS.md', 'CLAUDE.md', 'docs/README.md', 'repository-media.json',
   'docs/product/architecture.md', 'docs/product/changes.md', 'docs/product/media-generation-design.md', 'docs/product/studio-vision.md', 'docs/product/platform-export.md',
   'tracking/README.md', 'tracking/INTEGRATION.md', 'tracking/posthog-geoip.hog',
   'docs/agent-adapters.md', 'docs/browser-runtime.md', 'docs/design-system.md', 'docs/design-studio.md', 'docs/editor-fork.md', 'docs/routing.md', 'docs/i18n.md',
-  'docs/hyperframes.md', 'docs/mcp-phase1-tools.md', 'docs/model-gateway.md', 'docs/assets.md', 'docs/project-archives.md', 'docs/generation-options.md', 'docs/provider-settings.md', 'docs/local-agents.md', 'docs/agent-runtime-architecture.md', 'docs/cross-platform-mcp-architecture.md', 'docs/openmotion-director.md', 'docs/motion-director.md',
+  'docs/hyperframes.md', 'docs/mcp-phase1-tools.md', 'docs/capability-center.md', 'docs/model-gateway.md', 'docs/assets.md', 'docs/project-archives.md', 'docs/generation-options.md', 'docs/provider-settings.md', 'docs/local-agents.md', 'docs/agent-runtime-architecture.md', 'docs/cross-platform-mcp-architecture.md', 'docs/openmotion-director.md', 'docs/motion-director.md',
   'docs/motion-extension-scope.md', 'docs/npm-installation.md', 'docs/install-attribution.md', 'docs/install.md', 'docs/install-onboarding.md', 'docs/release-guide.md', 'docs/release-workflows.md', 'docs/templates/release-record.md', 'docs/project-workspace.md',
   'docs/repository-migration.md', 'docs/session-architecture.md', 'docs/shared-editor.md',
   'docs/README.zh-CN.md', 'docs/README.ja.md',
@@ -734,11 +736,25 @@ export const distributionDocuments = [
   'docs/skills.md', 'docs/template-catalog.md', 'docs/template-repository.md', 'docs/repository-storage.md', 'docs/test-packages.md', 'docs/templates/requirement.md',
 ];
 
+const multimodalModelsRuntimeFiles = [
+  'packages/multimodal-models/package.json',
+  'packages/multimodal-models/src/schema.ts',
+  'packages/multimodal-models/src/normalize.ts',
+  'packages/multimodal-models/src/query.ts',
+  'packages/multimodal-models/data/index.json',
+  'packages/multimodal-models/data/providers/curated.json',
+  'packages/multimodal-models/data/providers/fal.json',
+  'packages/multimodal-models/data/providers/atlascloud.json',
+  'packages/multimodal-models/data/providers/models-dev.json',
+  'packages/multimodal-models/data/providers/openrouter.json',
+];
+
 export async function distributionFiles(profile: string, include: (file: string) => boolean = () => true): Promise<string[]> {
   if (!['phase1', 'legacy'].includes(profile)) throw new Error('Unknown distribution profile: ' + profile);
   const files = [
     ...onboardingSourceFiles,
     ...designSystemRuntimeFiles.map(file => 'packages/design-system/' + file),
+    ...multimodalModelsRuntimeFiles,
     ...distributionDocuments, 'LICENSE', '.codex-plugin/plugin.json', '.codex-plugin/onboarding/SKILL.md', '.mcp.json', 'marketplace.example.json',
     'package.json', 'package-lock.json',
     'skills/openmotion-recreate/assets/reconstruction.js',
@@ -752,7 +768,7 @@ export async function distributionFiles(profile: string, include: (file: string)
     'scripts/diagnostics.mjs', 'scripts/diagnostic-redaction.mjs', 'scripts/zip.mjs',
     'scripts/verify-export.ts', 'scripts/export-adapters.ts', 'scripts/package.ts', 'scripts/distribution.ts', 'scripts/build-template-guide.mjs',
     'scripts/repository-media.ts', 'scripts/prepare-font.ts', 'scripts/font-specimen.ts', 'scripts/build-template-cards.mjs',
-    'shared/install-attribution.ts', 'shared/asset-name-ui.json', 'shared/workflow-entry.js', 'shared/inline-video-result.js', 'shared/provider-registry-LICENSE.txt', 'shared/provider-registry-NOTICE.md', 'studio/LICENSE', 'studio/README.md', 'studio/skill-cover-attribution.md', 'template-library/LICENSE', 'shared/editor-launch.pl',
+    'shared/install-attribution.ts', 'shared/asset-name-ui.json', 'shared/design-mention-titles.zh-CN.json', 'shared/workflow-entry.js', 'shared/inline-video-result.js', 'shared/provider-registry-LICENSE.txt', 'shared/provider-registry-NOTICE.md', 'studio/LICENSE', 'studio/README.md', 'studio/skill-cover-attribution.md', 'template-library/LICENSE', 'shared/editor-launch.pl',
     'gateway/brand-capture/LICENSE', 'gateway/brand-capture/NOTICE.md',
     'tracking/core.ts', 'tracking/node.ts', 'tracking/browser.ts', 'tracking/events.ts', 'tracking/tool-fields.ts', 'tracking/studio-events.ts', 'tracking/studio-properties.ts', 'tracking/host.ts', 'tracking/device.ts', 'tracking/task-ledger.ts',
     // Required, reviewed native MCP presentation assets; do not widen media globs.

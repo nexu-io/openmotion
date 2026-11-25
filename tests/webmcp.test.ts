@@ -9,6 +9,10 @@ import { pluginRoot } from '../hyperframes.ts';
 const projectId = '11111111-1111-1111-1111-111111111111';
 const revision = 'a'.repeat(64);
 const inputs: Record<string, object> = {
+  openmotion_capability_discover: { action: 'list' },
+  openmotion_capability_run: { action: 'run', requestId: 'cap-run', capabilityId: 'text-to-image', prompt: 'Clean studio cube' },
+  openmotion_job_manage: { action: 'list' },
+  openmotion_asset_manage: { action: 'list' },
   openmotion_project_archive: { action: 'export', requestId: 'zip', projectIds: [projectId] },
   openmotion_manage_project: { action: 'info', projectId },
   openmotion_assets_use: { action: 'list' },
@@ -33,11 +37,11 @@ const inputs: Record<string, object> = {
   openmotion_design_comments: { action: 'list', projectId },
 };
 
-test('all twenty-two registered domain names reuse public schemas and forward unchanged inputs and results', async () => {
+test('all twenty-six registered domain names reuse public schemas and forward unchanged inputs and results', async () => {
   const calls: { url: string; init?: RequestInit }[] = [];
   const result = { projectId, previewHandoff: { state: 'pending' }, nested: { value: 42 } };
   const tools = buildOpenMotionWebMcpTools(async (url, init) => { calls.push({ url, init }); return Response.json(result); });
-  assert.equal(tools.length, 22);
+  assert.equal(tools.length, 26);
   assert.deepEqual(tools.map(tool => tool.name).sort(), Object.keys(inputs).sort());
   // Game tools are external-Agent-only and deliberately excluded from WebMCP.
   const browserTools = phase1Tools.filter(tool => !tool.name.startsWith('openmotion_game_'));

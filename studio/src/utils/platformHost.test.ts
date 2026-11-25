@@ -33,7 +33,7 @@ describe('platformHost browser/desktop abstraction', () => {
       getChromeState: vi.fn(async () => ({
         platform: 'darwin',
         titleBarStyle: 'hiddenInset',
-        insetLeft: 78,
+        insetLeft: 84,
         insetRight: 0,
         titleBarHeight: 46,
         customWindowControls: false,
@@ -70,7 +70,8 @@ describe('platformHost browser/desktop abstraction', () => {
     expect(notifyRendererReady).toHaveBeenCalledTimes(1);
     expect(document.documentElement.dataset.desktop).toBe('true');
     expect(document.documentElement.dataset.desktopPlatform).toBe('darwin');
-    expect(document.documentElement.style.getPropertyValue('--om-desktop-inset-left')).toBe('78px');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-inset-left')).toBe('84px');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-titlebar-height')).toBe('46px');
 
     listener?.({
       platform: 'darwin',
@@ -105,7 +106,7 @@ describe('platformHost browser/desktop abstraction', () => {
       getChromeState: vi.fn(async () => ({
         platform: 'darwin',
         titleBarStyle: 'hiddenInset',
-        insetLeft: 78,
+        insetLeft: 84,
         insetRight: 0,
         titleBarHeight: 46,
         customWindowControls: false,
@@ -137,6 +138,84 @@ describe('platformHost browser/desktop abstraction', () => {
     notifyDesktopRendererReady();
     notifyDesktopRendererReady();
     expect(notifyRendererReady).toHaveBeenCalledTimes(1);
+
+    stop();
+  });
+
+  it('applies initialChrome synchronously before getChromeState resolves', () => {
+    window.__OPENMOTION_DESKTOP__ = {
+      initialChrome: {
+        platform: 'darwin',
+        titleBarStyle: 'hiddenInset',
+        insetLeft: 84,
+        insetRight: 0,
+        titleBarHeight: 46,
+        customWindowControls: false,
+        fullscreen: false,
+        maximized: false,
+      },
+      getAppInfo: vi.fn(),
+      getChromeState: vi.fn(() => new Promise(() => {})),
+      subscribeChromeState: vi.fn(() => () => {}),
+      setTheme: vi.fn(async () => {}),
+      windowMinimize: vi.fn(),
+      windowToggleMaximize: vi.fn(),
+      windowClose: vi.fn(),
+      checkForUpdates: vi.fn(),
+      downloadUpdate: vi.fn(),
+      installUpdateNow: vi.fn(),
+      getUpdateState: vi.fn(),
+      subscribeUpdateState: vi.fn(() => () => {}),
+      exportDesktopLogs: vi.fn(),
+      openLogsFolder: vi.fn(),
+      openExternal: vi.fn(),
+      subscribeMenuActions: vi.fn(() => () => {}),
+      notifyRendererReady: vi.fn(),
+    };
+
+    const stop = bindDesktopHost({ deferReady: true });
+    expect(document.documentElement.dataset.desktop).toBe('true');
+    expect(document.documentElement.dataset.desktopPlatform).toBe('darwin');
+    expect(document.documentElement.dataset.desktopTitlebar).toBe('hiddenInset');
+    expect(document.documentElement.dataset.desktopFullscreen).toBe('false');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-inset-left')).toBe('84px');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-titlebar-height')).toBe('46px');
+
+    stop();
+  });
+
+  it('falls back to navigator platform chrome synchronously even if getChromeState fails', async () => {
+    vi.spyOn(navigator, 'platform', 'get').mockReturnValue('MacIntel');
+    window.__OPENMOTION_DESKTOP__ = {
+      getAppInfo: vi.fn(),
+      getChromeState: vi.fn(() => Promise.reject(new Error('IPC unavailable'))),
+      subscribeChromeState: vi.fn(() => () => {}),
+      setTheme: vi.fn(async () => {}),
+      windowMinimize: vi.fn(),
+      windowToggleMaximize: vi.fn(),
+      windowClose: vi.fn(),
+      checkForUpdates: vi.fn(),
+      downloadUpdate: vi.fn(),
+      installUpdateNow: vi.fn(),
+      getUpdateState: vi.fn(),
+      subscribeUpdateState: vi.fn(() => () => {}),
+      exportDesktopLogs: vi.fn(),
+      openLogsFolder: vi.fn(),
+      openExternal: vi.fn(),
+      subscribeMenuActions: vi.fn(() => () => {}),
+      notifyRendererReady: vi.fn(),
+    };
+
+    const stop = bindDesktopHost({ deferReady: true });
+    expect(document.documentElement.dataset.desktop).toBe('true');
+    expect(document.documentElement.dataset.desktopPlatform).toBe('darwin');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-inset-left')).toBe('84px');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-titlebar-height')).toBe('46px');
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.documentElement.dataset.desktop).toBe('true');
+    expect(document.documentElement.style.getPropertyValue('--om-desktop-inset-left')).toBe('84px');
 
     stop();
   });

@@ -302,7 +302,7 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
   const nextStep = new URL(workspacePageHref(workspace.href, { scenarioStep: 'social' }), origin);
   expect(readWorkspacePage(nextStep.search, nextStep.hash, nextStep.pathname)).toMatchObject({ scenario: 'black-friday', scenarioRun: runId, scenarioStep: 'social', scenarioMode: null });
 
-  // Mode round-trips for 'agent', omits 'mode' for 'manual'/null, and clears when leaving.
+  // Mode round-trips for 'agent' and 'manual'; the default visual studio omits 'mode'.
   const agentMode = new URL(workspacePageHref(nextStep.href, { scenarioMode: 'agent' }), origin);
   expect(agentMode.pathname + agentMode.search).toBe(`/scenarios/black-friday?run=${runId}&step=social&mode=agent&community=product-films`);
   expect(readWorkspacePage(agentMode.search, agentMode.hash, agentMode.pathname)).toMatchObject({
@@ -316,15 +316,19 @@ it('round-trips scenario hub, scenario workspace, run/step overlay patches and s
   expect(readWorkspacePage(directAgent.search, directAgent.hash, directAgent.pathname).scenarioMode).toBe('agent');
 
   const manualOverlay = new URL(workspacePageHref(agentMode.href, { scenarioMode: 'manual' }), origin);
-  expect(manualOverlay.searchParams.has('mode')).toBe(false);
+  expect(manualOverlay.searchParams.get('mode')).toBe('manual');
   expect(readWorkspacePage(manualOverlay.search, manualOverlay.hash, manualOverlay.pathname)).toMatchObject({
     scenario: 'black-friday',
     scenarioRun: runId,
     scenarioStep: 'social',
-    scenarioMode: null,
+    scenarioMode: 'manual',
   });
   expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=manual').scenarioMode).toBe('manual');
   expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=unknown').scenarioMode).toBeNull();
+  // The visual studio is the default view, so it needs no mode in the URL.
+  const studioMode = new URL(workspacePageHref(origin, { scenario: 'black-friday', scenarioMode: 'studio' }), origin);
+  expect(studioMode.pathname + studioMode.search).toBe('/scenarios/black-friday?community=product-films');
+  expect(readWorkspacePage('?page=scenario&scenario=black-friday&mode=studio').scenarioMode).toBe('studio');
   expect(readWorkspacePage('?page=explore&mode=agent').scenarioMode).toBeNull();
 
   // Switching scenarios clears mode unless explicitly set.
@@ -386,13 +390,21 @@ it('keeps a Cinema template on the unified video editor and on legacy Cinema lin
   expect(workspacePageHref('http://localhost/', { studio: mediaEditorDestination('image-to-video'), cinemaTemplate: 'drink-splash-slow-motion' })).toBe('/create/image-to-video');
 });
 
-it.each(['text-to-image', 'image-edit', 'remove-background', 'relight', 'character'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
+it.each(['text-to-image', 'image-edit', 'remove-background', 'image-blend', 'relight'] as const)('opens a bookmarked Design Studio %s link in the unified Image editor', scene => {
   const page = readWorkspacePage(`?page=design&scene=${scene}&model=p%3Am`);
   expect(page).toMatchObject({ studio: { landing: true, scene: { id: scene }, model: 'p:m' } });
   expect(page.designScene).toBeUndefined();
   expect(isLegacyWorkspaceHref(`?page=design&scene=${scene}`, page)).toBe(true);
   expect(isLegacyWorkspaceHref('', page, `/design/${scene}`)).toBe(true);
   expect(workspacePageHref(`http://localhost/?page=design&scene=${scene}&model=p%3Am`, { studio: page.studio })).toBe(`/create/${scene}?model=p%3Am`);
+});
+
+it('keeps legacy character scene bookmarks and /create/character links resolving to image-blend', () => {
+  const legacy = readWorkspacePage('?page=design&scene=character&model=p%3Am');
+  expect(legacy).toMatchObject({ studio: { landing: true, scene: { id: 'image-blend' }, model: 'p:m' } });
+  expect(legacy.designScene).toBeUndefined();
+  expect(readWorkspacePage('', '', '/design/character')).toMatchObject({ studio: { landing: true, scene: { id: 'image-blend' } } });
+  expect(readWorkspacePage('', '', '/create/character')).toMatchObject({ studio: { landing: true, scene: { id: 'image-blend' } } });
 });
 
 it.each(['prototype', 'deck', 'document', 'web-clone', 'projects'])('keeps the Design Studio %s page for HTML design work', scene => {
@@ -458,4 +470,57 @@ it('round-trips ?mode=game on /agent and clears it when opening a chat or leavin
 
   const left = workspacePageHref('http://localhost/agent?mode=game', { explore: true });
   expect(left).toBe('/explore');
+});
+
+it('round-trips ?mode=design and ?scene=<module> on /agent, preserves legacy modes and /design/*, and clears scene on exit', () => {
+  const baseDesign = readWorkspacePage('?mode=design', '', '/agent');
+  expect(baseDesign).toMatchObject({ superAgent: true, superAgentMode: 'design' });
+  expect(baseDesign.superAgentDesignModule).toBeUndefined();
+
+  for (const mod of ['prototype', 'mobile-app', 'deck', 'document', 'web-clone', 'live-artifact', 'webgl', 'image'] as const) {
+    const parsed = readWorkspacePage(`?mode=design&scene=${mod}`, '', '/agent');
+    expect(parsed).toMatchObject({ superAgent: true, superAgentMode: 'design', superAgentDesignModule: mod });
+    const href = workspacePageHref('http://localhost/explore', {
+      superAgent: true,
+      superAgentChat: null,
+      superAgentMode: 'design',
+      superAgentDesignModule: mod,
+    });
+    expect(href).toBe(`/agent?mode=design&scene=${mod}`);
+  }
+
+  const invalidScene = readWorkspacePage('?mode=design&scene=bogus', '', '/agent');
+  expect(invalidScene).toMatchObject({ superAgent: true, superAgentMode: 'design' });
+  expect(invalidScene.superAgentDesignModule).toBeUndefined();
+
+  const roundTripMobile = workspacePageHref('http://localhost/explore', {
+    superAgent: true,
+    superAgentChat: null,
+    superAgentMode: 'design',
+    superAgentDesignModule: 'mobile-app',
+  });
+  expect(roundTripMobile).toBe('/agent?mode=design&scene=mobile-app');
+
+  expect(workspacePageHref('http://localhost/agent?mode=design&scene=mobile-app', { superAgentMode: null })).toBe('/agent');
+  expect(workspacePageHref('http://localhost/agent?mode=design&scene=mobile-app', { explore: true })).toBe('/explore');
+  expect(workspacePageHref('http://localhost/agent?mode=design&scene=mobile-app', { superAgentMode: 'game' })).toBe('/agent?mode=game');
+
+  for (const legacy of ['website', 'deck', 'document', 'image', 'research', 'visualization'] as const) {
+    expect(readWorkspacePage(`?mode=${legacy}`, '', '/agent')).toMatchObject({
+      superAgent: true,
+      superAgentMode: legacy,
+    });
+    expect(
+      workspacePageHref('http://localhost/explore', {
+        superAgent: true,
+        superAgentChat: null,
+        superAgentMode: legacy,
+        superAgentDesignModule: null,
+      }),
+    ).toBe(`/agent?mode=${legacy}`);
+  }
+  expect(readWorkspacePage('', '', '/design/prototype')).toMatchObject({
+    designScene: 'prototype',
+    superAgent: false,
+  });
 });

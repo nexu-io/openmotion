@@ -1,6 +1,9 @@
 import { Navigate, useLocation } from 'react-router';
+import type { CapabilityDefinition } from '../../../shared/capability-registry';
 import { findLandingScene } from '../../../shared/studio-catalog';
-import { workspacePageHref } from '../motion/workspacePageRouting';
+import { peekCachedGateway } from '../motion/gatewayClient';
+import { useMediaCatalog } from '../motion/useMediaCatalog';
+import { unresolvedCreateSceneId, workspacePageHref } from '../motion/workspacePageRouting';
 
 /**
  * Legacy `/?page=...` pages migrated to canonical semantic paths across
@@ -49,6 +52,7 @@ export function resolveLegacyQueryRedirect(
   pathname: string,
   search: string,
   hash = '',
+  capabilities?: readonly CapabilityDefinition[],
 ): string | null {
   const normalizedPath = pathname || '/';
   if (normalizedPath !== '/') return null;
@@ -59,14 +63,14 @@ export function resolveLegacyQueryRedirect(
     if (!MIGRATED_LEGACY_QUERY_PAGES.has(rawPage)) return null;
     if (rawPage === 'model' && !query.get('model')) return null;
     if (rawPage === 'model-hub' && !query.get('hub')) return null;
-    if (rawPage === 'create' && !findLandingScene(query.get('scene'))) return null;
+    if (rawPage === 'create' && !findLandingScene(query.get('scene'), capabilities)) return null;
   } else if (query.get('templates') === '1' || query.get('hostChrome') === '1') {
     return null;
   }
 
   const origin = 'http://workspace.local';
   const current = `${normalizedPath}${search}${hash}`;
-  const canonical = workspacePageHref(`${origin}${current}`, {});
+  const canonical = workspacePageHref(`${origin}${current}`, {}, capabilities);
   const parsedCanonical = new URL(canonical, origin);
   if (parsedCanonical.pathname === '/' || canonical === current) return null;
   return canonical;
@@ -79,10 +83,14 @@ export function resolveLegacyQueryRedirect(
  */
 export function LegacyQueryRedirect() {
   const routerLocation = useLocation();
+  const pendingCreateScene = unresolvedCreateSceneId(routerLocation.search, routerLocation.hash, routerLocation.pathname);
+  const dynamicRouteCatalog = useMediaCatalog(Boolean(pendingCreateScene));
+  const capabilities = dynamicRouteCatalog.catalog?.capabilities ?? peekCachedGateway()?.capabilities;
   const target = resolveLegacyQueryRedirect(
     routerLocation.pathname,
     routerLocation.search,
     routerLocation.hash,
+    capabilities,
   );
   if (!target) return null;
   return <Navigate to={target} replace state={routerLocation.state} />;

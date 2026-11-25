@@ -99,6 +99,11 @@
 [data-motion-studio] .om-provider-avatar img { display: block; width: 72%; height: 72%; object-fit: contain; }
 [data-motion-studio] .om-provider-avatar img[data-padded="true"] { width: 100%; height: 100%; }
 [data-motion-studio] .om-badge { display: inline-flex; gap: var(--motion-space-4); align-items: center; padding: var(--motion-space-2) var(--motion-space-8); color: var(--motion-muted); background: var(--motion-panel); border: 1px solid var(--motion-border); border-radius: var(--motion-radius-full); font-size: var(--motion-text-xs); white-space: nowrap; }
+[data-motion-studio] .om-picker-trigger > .om-badge {
+  background: var(--motion-editor-menu-bg);
+  border-color: var(--motion-editor-menu-border);
+  color: var(--motion-editor-menu-muted);
+}
 [data-motion-studio] .om-badge[data-active="true"] { color: var(--motion-accent); background: var(--motion-accent-soft); }
 [data-motion-studio] .om-nav-item:has(> [data-nav-badge]) { gap: var(--motion-space-6); }
 [data-motion-studio] .om-badge[data-nav-badge] {
@@ -169,10 +174,11 @@
   color: var(--motion-text);
   border-radius: var(--motion-radius-lg);
 }
+[data-motion-studio] .om-account-offer-callout[data-size="compact"] { border-radius: var(--motion-radius-full); }
 [data-motion-studio] .om-account-offer-callout::before { background: inherit; }
 [data-motion-studio] .om-account-offer :is(svg, strong) { color: var(--motion-warning); }
 @media (prefers-reduced-motion: no-preference) {
-  [data-motion-studio] .om-account-offer-callout {
+  [data-motion-studio] .om-account-offer-callout:not([data-size="compact"]) {
     animation: om-account-offer-wiggle var(--motion-duration-slow) var(--motion-ease-out) var(--motion-duration-fast);
   }
 }
@@ -844,4 +850,55 @@
 @media (prefers-reduced-motion: reduce) {
   [data-motion-studio] :is(.om-image-scene-tab, .om-sound-tab, .om-sound-tag, .om-sound-voice-card, .om-sound-voice-preview, .om-sound-pill, .om-sound-track-row, .om-sound-starter-row, .om-sound-failed-row, .om-sound-row-play, .om-sound-dock-locate, .om-sound-drop-cue, .om-sound-wave-base) { transition: none; }
   [data-motion-studio] .om-sound-wave-generating svg rect { animation: none; }
+}
+
+/* Shared sleek, borderless, trackless scrollbars across Studio (light & dark). */
+@supports selector(::-webkit-scrollbar) {
+  :root[data-motion-ui] ::-webkit-scrollbar,
+  [data-motion-studio] ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+    background: transparent;
+  }
+
+  :root[data-motion-ui] ::-webkit-scrollbar-track,
+  :root[data-motion-ui] ::-webkit-scrollbar-corner,
+  [data-motion-studio] ::-webkit-scrollbar-track,
+  [data-motion-studio] ::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+  }
+
+  :root[data-motion-ui] ::-webkit-scrollbar-button,
+  [data-motion-studio] ::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  :root[data-motion-ui] ::-webkit-scrollbar-thumb,
+  [data-motion-studio] ::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--motion-text) 16%, transparent);
+    border-radius: var(--motion-radius-pill);
+    border: 0;
+  }
+
+  :root[data-motion-ui] ::-webkit-scrollbar-thumb:hover,
+  [data-motion-studio] ::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--motion-text) 32%, transparent);
+  }
+
+  :root[data-motion-ui] ::-webkit-scrollbar-thumb:active,
+  [data-motion-studio] ::-webkit-scrollbar-thumb:active {
+    background-color: color-mix(in srgb, var(--motion-text) 44%, transparent);
+  }
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  :root[data-motion-ui] *,
+  [data-motion-studio] * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--motion-text) 18%, transparent) transparent;
+  }
 }

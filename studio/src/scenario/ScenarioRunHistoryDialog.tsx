@@ -4,6 +4,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ScenarioRunSummary } from '../../../shared/scenario-runs';
 import type { ScenarioDefinition } from '../../../shared/scenarios';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { FieldInput } from '../components/ui/FormField';
 import { PanelEmptyState } from '../components/ui/PanelEmptyState';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -112,9 +113,9 @@ export function ScenarioRunHistoryDialog({
 
   const visibleRuns = useMemo(() => {
     const source = view === 'active' ? activeRuns : archivedRuns;
-    const trimmed = query.trim().toLowerCase();
+    const trimmed = query.trim();
     if (!trimmed) return source;
-    return source.filter(item => item.title.toLowerCase().includes(trimmed));
+    return rankSearchResults(source, trimmed, item => ({ id: item.id, title: item.title })).map(r => r.item);
   }, [activeRuns, archivedRuns, query, view]);
 
   // Older active drafts eligible for 1-click tidy-up (always preserve current run + newest 5).

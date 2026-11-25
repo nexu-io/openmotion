@@ -185,7 +185,7 @@ it('signs in with OpenDesign in-place and automatically deploys and copies the l
 
   const popover = document.body.querySelector('.om-web-publish-popover') as HTMLElement;
   expect(popover).toBeTruthy();
-  expect(popover.textContent).toContain('Cloud deploy');
+  expect(popover.textContent).toContain('Share');
   const signInBtn = Array.from(popover.querySelectorAll('button')).find(b =>
     b.textContent?.includes('Sign in with OpenDesign'),
   ) as HTMLButtonElement;

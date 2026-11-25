@@ -2,7 +2,8 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, writeFile, rename, rm, lstat, realpath, copyFile, access, rmdir } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import vm from 'node:vm';
 // Vendored so packaged builds, which ship without node_modules, can still parse game logic.
 import { parse as parseModule } from './shared/vendor/acorn.mjs';
@@ -11,18 +12,24 @@ import { tmpdir } from 'node:os';
 import { mkdtemp } from 'node:fs/promises';
 import { browserExecutable, browserAutomation } from './browser.ts';
 import type { Page, Browser, KeyInput } from 'puppeteer-core';
+import { assetHttp } from './gateway/asset-http.ts';
 import { WorkspaceStore } from './workspace.ts';
-import { execute, pluginRoot, HYPERFRAMES_VERSION } from './hyperframes.ts';
+import { ensureRuntime, execute, pluginRoot, HYPERFRAMES_VERSION } from './hyperframes.ts';
 import { verificationBinaries } from './scripts/verify-export.ts';
 import type { Duplex } from 'node:stream';
 import { injectPreviewBridgeHtml, isValidPreviewBridgeToken } from './shared/preview-bridge.ts';
 import { attachmentDisposition } from './shared/http-header.ts';
 import { zip } from './scripts/zip.mjs';
-import { gameGenres, gameStyles, gameSettings, type GameBrief, type GameCard, type GameCatalog, type GameCatalogIssue, type GameCreated, type GameHandoff, type RoomServerMessage, type GameTrailer, type GameTrailerStatus } from './shared/game-contract.ts';
+import { escapeHtml } from './shared/scenario-content.ts';
+import { gameAssetInstructions, gameGenres, gameStyles, gameSettings, type GameBrief, type GameCard, type GameCatalog, type GameCatalogIssue, type GameCreated, type GameHandoff, type RoomServerMessage, type GameTrailer, type GameTrailerStatus } from './shared/game-contract.ts';
 
 const templatesRoot = fileURLToPath(new URL('./templates/games/', import.meta.url));
 const kitsRoot = fileURLToPath(new URL('./templates/game-kits/', import.meta.url));
 const LIMIT = 8 * 1024 * 1024;
+const gameCdnHosts = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com'];
+const gameCdnOrigins = gameCdnHosts.map(host => `https://${host}`).join(' ');
+const adStoreHosts = ['apps.apple.com', 'itunes.apple.com', 'play.google.com'];
+const xmlNamespaces = new Set(['http://www.w3.org/1999/xhtml','http://www.w3.org/2000/svg','http://www.w3.org/1999/xlink','http://www.w3.org/1998/Math/MathML','http://www.w3.org/XML/1998/namespace','http://www.w3.org/2000/xmlns/']);
 const textExtensions = /\.(html|htm|css|js|mjs|cjs|json|map|txt|md|svg|csv|yaml|yml|glsl|vert|frag)$/i;
 const mime: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.webm': 'video/webm', '.wasm': 'application/wasm', '.htm': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.cjs': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.md': 'text/markdown; charset=utf-8', '.csv': 'text/csv; charset=utf-8', '.avif': 'image/avif', '.ttf': 'font/ttf', '.otf': 'font/otf', '.m4a': 'audio/mp4', '.map': 'application/json', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json' };
 export class GameError extends Error {
@@ -60,6 +67,58 @@ async function safeFile(root: string, relative: string, writing = false) {
   if ((await lstat(path.dirname(root))).isSymbolicLink() || parent !== path.join(await realpath(path.dirname(root)), path.basename(root))) throw new GameError('Symlink game root');
   return current;
 }
+
+async function gameEntryDependencyErrors(html: string, dir: string, game: GameCard, runtimeRoot: string) {
+  // Resolve the same installed DOM parser used by the Hyperframes source tools.
+  const runtimeRequire = createRequire(path.join(runtimeRoot, 'package.json'));
+  const parserRequire = createRequire(runtimeRequire.resolve('@hyperframes/parsers/package.json'));
+  const { parseHTML } = parserRequire('linkedom') as typeof import('linkedom');
+  const { document } = parseHTML(html);
+  const playPath = `/games/${game.id}/play/`;
+  const entry = new URL(`http://game.local/api${playPath}index.html`);
+  const authoredBase = document.querySelector('base[href]')?.getAttribute('href');
+  const base = (authoredBase && URL.parse(authoredBase, entry)) || entry;
+  const errors = new Set<string>();
+
+  for (const element of document.querySelectorAll('script[src], link[href]')) {
+    if (element.closest('template, noscript')) continue;
+    const script = element.localName === 'script';
+    if (!script && !element.getAttribute('rel')?.toLowerCase().split(/\s+/).includes('stylesheet')) continue;
+    const type = element.getAttribute('type')?.trim().toLowerCase();
+    if (script && type && type !== 'module' && !/^(?:text|application)\/(?:x-)?(?:java|ecma)script(?:\s*;|$)/.test(type)) continue;
+    const kind = script ? 'script' : 'stylesheet';
+    const reference = element.getAttribute(script ? 'src' : 'href')?.trim();
+    const url = reference ? URL.parse(reference, base) : null;
+    if (!url) {
+      errors.add(`Invalid ${kind} reference: ${reference || '(empty)'}`);
+      continue;
+    }
+    if (url.origin !== entry.origin) {
+      if (game.playableAd || !script || url.protocol !== 'https:' || !gameCdnHosts.includes(url.hostname)) {
+        errors.add(`External ${kind} is not allowed in ${game.playableAd ? 'a playable ad' : 'the game preview'}: ${reference}`);
+      }
+      continue;
+    }
+    const prefix = [`/api${playPath}`, `/motion-api${playPath}`].find(candidate => url.pathname.startsWith(candidate));
+    if (!prefix) {
+      errors.add(`The ${kind} must point to a file inside this game: ${reference}`);
+      continue;
+    }
+    try {
+      const relative = url.pathname.slice(prefix.length).split('/').map(decodeURIComponent).join('/');
+      const file = await safeFile(dir, relative);
+      if (!(await lstat(file)).isFile()) {
+        errors.add(`Referenced ${kind} is not a file: ${reference}`);
+      } else if (!mime[path.extname(file).toLowerCase()]?.startsWith(script ? 'text/javascript' : 'text/css')) {
+        errors.add(`Referenced ${kind} has an unsupported file type: ${reference}`);
+      }
+    } catch (error) {
+      const reason = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'not found' : 'not readable as a game file';
+      errors.add(`Referenced ${kind} ${reason}: ${reference}`);
+    }
+  }
+  return [...errors];
+}
 async function inventory(root: string, prefix = ''): Promise<{ path: string; bytes: number }[]> {
   const result: { path: string; bytes: number }[] = [];
   for (const entry of await readdir(path.join(root, prefix), { withFileTypes: true })) {
@@ -73,7 +132,8 @@ async function inventory(root: string, prefix = ''): Promise<{ path: string; byt
   return result.sort((a, b) => a.path.localeCompare(b.path));
 }
 function briefInput(raw: any): GameBrief {
-  if (!raw || typeof raw.prompt !== 'string' || !raw.prompt.trim() || raw.prompt.length > 20000 || typeof raw.multiplayer !== 'boolean') throw new GameError('prompt and multiplayer are required');
+  if (!raw || typeof raw.prompt !== 'string' || !raw.prompt.trim() || raw.prompt.length > 20000) throw new GameError('prompt is required and must be at most 20000 characters');
+  if (typeof raw.multiplayer !== 'boolean') throw new GameError('Invalid multiplayer value');
   for (const [key, choices] of [['genre', gameGenres], ['style', gameStyles], ['setting', gameSettings]] as const) {
     if (raw[key] != null && !(choices as readonly string[]).includes(raw[key])) throw new GameError(`Invalid ${key}`);
   }
@@ -83,9 +143,19 @@ function briefInput(raw: any): GameBrief {
   const playableAd = raw.playableAd === true && raw.orientation === 'portrait' && !raw.multiplayer;
   return { playableAd, prompt: raw.prompt.trim(), multiplayer: raw.multiplayer, genre: raw.genre ?? null, style: raw.style ?? null, setting: raw.setting ?? null, orientation: raw.orientation ?? 'landscape' };
 }
+function assertSinglePlayerAuthoring(multiplayer: boolean) {
+  if (multiplayer) throw new GameError('Game Studio authoring is available for single-player games only');
+}
+function createSinglePlayerGame(service: GameProjects, raw: any) {
+  assertSinglePlayerAuthoring(raw?.multiplayer !== undefined && raw.multiplayer !== false);
+  return service.create({ ...raw, multiplayer: false });
+}
 function instruction(game: GameCard, brief: GameBrief, remix = false) {
-  const summary = [brief.style && `${brief.style} style`, brief.multiplayer && 'with multiplayer', brief.genre, brief.setting && `${brief.setting} setting`].filter(Boolean).join(', ');
-  return `Use the openmotion-game Skill to ${remix ? 'remix' : 'build'} game ${game.id} in this workspace. Read openmotion://workflow/game/start and openmotion_game_get with id=${game.id}. Brief: ${summary ? summary + '. ' : ''}${brief.prompt}\nAsk at most two short questions (multiplayer mode and local-market publication), only when missing. Propose a visual direction and a 60–90 word style formula. Obtain approval for any priced generated assets through openmotion_generate_asset. Set building with openmotion_game_set_status; author only this game's files through openmotion_game_write_files. For multiplayer implement the six logic.js exports in shared/game-contract.ts, use the room socket, and self-test through openmotion_game_playtest using headless clients. Never operate the user's browser or desktop. Use openmotion_game_update_meta to set a concise title, description, keyboard/mouse and touch controls, zh-CN i18n, and a cover captured by openmotion_game_capture_cover (game-only headless screenshot). Write design/plan.md, design/assets.csv and design/verification.md. Before publication run openmotion_game_simulate for reference and idle: reference must win and idle must lose. Run openmotion_game_validate, fix diagnostics, set ready, and call openmotion_game_publish only when publication is authorized. Report the actual playUrl, validation and play-test evidence; local publication is not internet deployment.`;
+  const summary = [brief.style && `${brief.style} style`, brief.genre, brief.setting && `${brief.setting} setting`].filter(Boolean).join(', ');
+  const assetInstructions = brief.playableAd
+    ? 'Follow the playable-ad recipe and keep all game assets inline in index.html.'
+    : gameAssetInstructions;
+  return `Use the openmotion-game Skill to ${remix ? 'remix' : 'build'} game ${game.id} in this workspace. Read openmotion://workflow/game/start (or use your host's workflow reader if provided) and openmotion_game_get with id=${game.id}. Brief: ${summary ? summary + '. ' : ''}${brief.prompt}\nAsk whether to publish to the local market only when the decision is missing. Build a single-player game. Propose a visual direction and a 60–90 word style formula. ${assetInstructions} Set building with openmotion_game_set_status; author only this game's files through openmotion_game_write_files and self-test with openmotion_game_playtest. Never operate the user's browser or desktop. Use openmotion_game_update_meta to set a concise title, description, keyboard/mouse and touch controls, zh-CN i18n, and a cover captured by openmotion_game_capture_cover (game-only headless screenshot). Write design/plan.md, design/assets.csv and design/verification.md. Before publication run openmotion_game_simulate for reference and idle: reference must win and idle must lose. Run openmotion_game_validate, fix diagnostics, set ready, and call openmotion_game_publish only when publication is authorized. Report the actual playUrl, validation and play-test evidence; local publication is not internet deployment.`;
 }
 export const starterLogic = `export const meta = { minPlayers: 1, maxPlayers: 4, tickRate: 20, serverTick: true };
 export function setup(ctx, players) { return { scores: Object.fromEntries(players.map(id => [id, 0])) }; }
@@ -311,6 +381,45 @@ export async function startGameBrowserPage(page: Pick<Page, '$' | 'evaluate' | '
 type StoredGame = GameCard & { rawPrompt?: string; kit?: 'coop-3d' | 'arcade-2d' | 'starter' };
 type GameMetaPatch = Pick<Partial<GameCard>, 'title' | 'description' | 'controls' | 'cover' | 'i18n'>;
 type Viewer = { plays: number; reaction: -1 | 0 | 1; favorite: boolean };
+
+function syncLocalizedTitles(game: StoredGame) {
+  for (const translation of Object.values(game.i18n ?? {})) {
+    if (translation.title !== undefined) translation.title = game.title;
+  }
+}
+
+// A generated client can set document.title from its translations during startup.
+const restoreGameTitleOnLoad = `<script data-openmotion-game-title>
+(() => {
+  const title = document.currentScript.previousElementSibling.textContent;
+  window.addEventListener('load', () => setTimeout(() => { document.title = title; }), { once: true });
+})();
+</script>`;
+
+async function setGameDocumentTitle(html: string, title: string, runtimeRoot: string) {
+  const runtimeRequire = createRequire(path.join(runtimeRoot, 'package.json'));
+  const manifest = runtimeRequire.resolve('@hyperframes/parsers/package.json');
+  const pkg = JSON.parse(await readFile(manifest, 'utf8'));
+  const source = path.join(path.dirname(manifest), pkg.exports['./html-attribute-spans'].import);
+  const { scanHtmlOpeningTags } = await import(pathToFileURL(source).href) as typeof import('@hyperframes/parsers/html-attribute-spans');
+  const tags = scanHtmlOpeningTags(html);
+  const headEnd = tags.find(tag => ['body', 'svg', 'template', 'noscript'].includes(tag.name))?.start ?? html.length;
+  const existing = tags.find(tag => tag.name === 'title' && tag.start < headEnd);
+  const escaped = escapeHtml(title);
+  if (existing && existing.rawTextEnd !== null) {
+    const closing = /^<\/title\s*>/i.exec(html.slice(existing.rawTextEnd))?.[0];
+    if (closing) {
+      const suffix = html.slice(existing.rawTextEnd + closing.length);
+      const authoredSuffix = suffix.startsWith(restoreGameTitleOnLoad) ? suffix.slice(restoreGameTitleOnLoad.length) : suffix;
+      return html.slice(0, existing.end) + escaped + closing + restoreGameTitleOnLoad + authoredSuffix;
+    }
+  }
+  const offset = tags.find(tag => tag.name === 'head' && tag.start < headEnd)?.end
+    ?? tags.find(tag => tag.name === 'html' && tag.start < headEnd)?.end
+    ?? (html.match(/^\s*<!doctype[^>]*>/i)?.[0].length ?? (html.startsWith('\uFEFF') ? 1 : 0));
+  return html.slice(0, offset) + `<title>${escaped}</title>` + restoreGameTitleOnLoad + html.slice(offset);
+}
+
 export class GameProjects {
   root: string;
   templates: string;
@@ -409,12 +518,14 @@ export class GameProjects {
     await saveJson(await safeFile(path.join(this.root, id), 'game.json', true), { ...stored, id });
   }
   async remix(id: string): Promise<GameCreated> { return this.mutate(async () => {
-    const original = await this.get(id), { dir } = await this.locate(id), newId = randomUUID(), target = path.join(this.root, newId);
+    const original = await this.get(id);
+    assertSinglePlayerAuthoring(original.multiplayer);
+    const { dir } = await this.locate(id), newId = randomUUID(), target = path.join(this.root, newId);
     return this.populate(target, async () => {
     for (const file of await inventory(dir)) { const dest = path.join(target, file.path); await mkdir(path.dirname(dest), { recursive: true }); await writeFile(dest, await readFile(await safeFile(dir, file.path))); }
     const originalMeta = await jsonFile<StoredGame>(path.join(dir, 'game.json'));
     // A remix keeps the original brief (and its playable-ad format line) so the Agent follows the same recipe.
-    const game = { ...original, kit: originalMeta.kit, cover: originalMeta.cover ?? null, ...(originalMeta.rawPrompt ? { rawPrompt: originalMeta.rawPrompt } : {}), id: newId, title: `${original.title.slice(0,72)} remix`, source: 'mine' as const, status: 'draft' as const, plays: 0, likes: 0, dislikes: 0, reaction: 0 as const, favorite: false, remixOf: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const game = { ...original, titleCustomized: undefined, kit: originalMeta.kit, cover: originalMeta.cover ?? null, ...(originalMeta.rawPrompt ? { rawPrompt: originalMeta.rawPrompt } : {}), id: newId, title: `${original.title.slice(0,72)} remix`, source: 'mine' as const, status: 'draft' as const, plays: 0, likes: 0, dislikes: 0, reaction: 0 as const, favorite: false, remixOf: id, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
     await this.save(newId, game);
     return { game: await this.get(newId), agentInstruction: instruction(game, { prompt: originalMeta.rawPrompt ?? original.description, genre: original.genre, style: original.style, setting: original.setting, multiplayer: original.multiplayer, orientation: original.orientation, playableAd: original.playableAd }, true) };
     });
@@ -424,6 +535,7 @@ export class GameProjects {
     const { dir } = await this.locate(id, true);
     const stored = await jsonFile<StoredGame>(path.join(dir, 'game.json'));
     if (stored.source !== 'mine') throw new GameError('Only workspace games can be handed to an Agent');
+    assertSinglePlayerAuthoring(stored.multiplayer);
     const game = await this.get(id);
     const brief: GameBrief = { prompt: stored.rawPrompt ?? stored.description, genre: stored.genre, style: stored.style, setting: stored.setting, multiplayer: stored.multiplayer, orientation: stored.orientation, playableAd: stored.playableAd };
     return { gameId: id, status: game.status, agentInstruction: instruction(game, brief, Boolean(stored.remixOf)) };
@@ -467,9 +579,30 @@ export class GameProjects {
     if ((await lstat(file)).size > LIMIT) throw new GameError('Text file exceeds 8 MiB');
     return { path: relative, content: await readFile(file, 'utf8') };
   }
-  async write(id: string, files: { path: string; content: string }[]) { return this.mutate(async () => {
-    const { dir } = await this.locate(id, true);
-    if (!Array.isArray(files) || !files.length || files.length > 100) throw new GameError('Write 1–100 files');
+  async rename(id: string, title: string) {
+    return this.mutate(async () => {
+      const { dir } = await this.locate(id, true);
+      const entry = await this.read(id, 'index.html').catch(error => {
+        if (error.code === 'ENOENT') return undefined;
+        throw error;
+      });
+      return this.writeSourceFiles(id, dir, entry ? [entry] : [], title);
+    });
+  }
+  async write(id: string, files: { path: string; content: string }[]) {
+    return this.mutate(async () => {
+      const { dir } = await this.locate(id, true);
+      return this.writeSourceFiles(id, dir, files);
+    });
+  }
+  private async writeSourceFiles(id: string, dir: string, files: { path: string; content: string }[], title?: string) {
+    if (!Array.isArray(files) || (!files.length && title === undefined) || files.length > 100) throw new GameError('Write 1–100 files');
+    const stored = await jsonFile<StoredGame>(path.join(dir, 'game.json'));
+    if (title !== undefined) {
+      stored.title = title;
+      stored.titleCustomized = true;
+      syncLocalizedTitles(stored);
+    }
     let bytes = 0;
     const targets: { file: string; content: string; previous: boolean }[] = [];
     const names = files.map(file => cleanGamePath(file?.path).toLowerCase());
@@ -478,15 +611,19 @@ export class GameProjects {
     }
     for (const [i, file] of files.entries()) {
       if (!file || typeof file.content !== 'string' || !textExtensions.test(file.path) || names[i] === 'game.json' || names[i] === 'trailer' || names[i].startsWith('trailer/')) throw new GameError('Only game text source may be written');
-      bytes += Buffer.byteLength(file.content); if (bytes > LIMIT) throw new GameError('Write exceeds 8 MiB');
+      let content = file.content;
+      if (stored.titleCustomized && file.path === 'index.html') {
+        const runtimeRoot = this.runtimeRoot === pluginRoot ? await ensureRuntime(path.dirname(this.root), false) : this.runtimeRoot;
+        content = await setGameDocumentTitle(content, stored.title, runtimeRoot);
+      }
+      bytes += Buffer.byteLength(content); if (bytes > LIMIT) throw new GameError('Write exceeds 8 MiB');
       const target = await safeFile(dir, file.path, true);
       const info = await lstat(target).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
       if (info && !info.isFile()) throw new GameError('Source path conflicts with an existing directory');
-      targets.push({ file: target, content: file.content, previous: !!info });
+      targets.push({ file: target, content, previous: !!info });
     }
-    const stored = await jsonFile<StoredGame>(path.join(dir, 'game.json'));
     stored.updatedAt = new Date().toISOString();
-    if (stored.status === 'published' || stored.status === 'ready') stored.status = 'building';
+    if (title === undefined && (stored.status === 'published' || stored.status === 'ready')) stored.status = 'building';
     const staging = await mkdtemp(path.join(dir, '.write-')), committed: number[] = [], directories: string[] = [];
     let keepRecovery = false, metadataAttempted = false;
     try {
@@ -521,7 +658,7 @@ export class GameProjects {
       if (failures.length) { keepRecovery = true; throw new AggregateError([error, ...failures], 'Source rollback failed; recovery backups retained in ' + staging); }
       throw error;
     } finally { if (!keepRecovery) await rm(staging, { recursive: true, force: true }); }
-  }); }
+  }
   async updateMeta(id: string, patch: GameMetaPatch) { return this.mutate(async () => {
     const { dir } = await this.locate(id, true);
     if (!patch || typeof patch !== 'object' || Array.isArray(patch) || Object.keys(patch).some(key => !['title','description','controls','cover','i18n'].includes(key))) throw new GameError('Invalid metadata fields');
@@ -557,21 +694,34 @@ export class GameProjects {
       for (const [locale, translation] of Object.entries(changes.i18n)) translations[locale] = { ...translations[locale], ...translation };
       changes.i18n = translations;
     }
-    Object.assign(game,changes); game.updatedAt = new Date().toISOString();
+    if (game.titleCustomized) delete changes.title;
+    Object.assign(game,changes);
+    if (game.titleCustomized) syncLocalizedTitles(game);
+    game.updatedAt = new Date().toISOString();
     await this.save(id, game); return this.get(id);
   }); }
   async validate(id: string) {
     const game = await this.get(id), diagnostics: { path: string; message: string }[] = [], warnings: string[] = [];
+    const { dir } = await this.locate(id);
+    // Playable ads may name app-store destinations for a user-initiated CTA.
+    const allowedHosts = game.playableAd ? adStoreHosts : gameCdnHosts;
     for(const file of ['design/plan.md','design/assets.csv','design/verification.md'])try{await this.read(id,file);}catch(error){warnings.push(`Missing or unreadable ${file}: ${(error as Error).message}`);}
     if(!game.cover) warnings.push('No cover image is set; use openmotion_game_capture_cover.');
     for (const relative of ['index.html','client.js']) try {
       const source = (await this.read(id, relative)).content;
+      if (relative === 'index.html') {
+        for (const message of await gameEntryDependencyErrors(source, dir, game, this.runtimeRoot)) {
+          diagnostics.push({ path: relative, message });
+        }
+      }
       if(game.multiplayer)for(const message of gameRoomEntryErrors(source))diagnostics.push({path:relative,message});
       for (const match of source.matchAll(/(?:[a-z][a-z0-9+.-]*:\/\/|(?<=["'`(=])\/\/)[^\s"'<>`\\)]+/gi)) {
+        // XML namespace URIs are identifiers, never requested: allow them only where markup declares one or code passes one
+        // to a namespace-aware DOM call (bundled libraries such as Three.js create XHTML elements this way).
+        if (xmlNamespaces.has(match[0])
+          && /(?:\sxmlns(?::[a-z]+)?\s*=\s*["']|\b(?:create(?:Element|Attribute)NS|(?:get|set|has|remove)AttributeNS)\s*\(\s*["'])$/i.test(source.slice(0, match.index))) continue;
         const host = new URL(match[0].startsWith('//') ? 'https:' + match[0] : match[0]).hostname;
-        // A playable ad may name its app-store pages: they are only opened on the CTA tap, never loaded by the page.
-        const stores = game.playableAd ? ['apps.apple.com','itunes.apple.com','play.google.com'] : [];
-        if (![...stores,'cdnjs.cloudflare.com','cdn.jsdelivr.net','unpkg.com'].includes(host)) diagnostics.push({ path: relative, message: `External network host is not allowed: ${host}` });
+        if (!allowedHosts.includes(host)) diagnostics.push({ path: relative, message: `External network host is not allowed: ${host}` });
       }
     } catch (e) {
       if (relative !== 'client.js' || (e as NodeJS.ErrnoException).code !== 'ENOENT') diagnostics.push({ path: relative, message: (e as Error).message });
@@ -581,7 +731,6 @@ export class GameProjects {
       if(!client)try{client=(await this.read(id,'index.html')).content;}catch{}
       if(!readsRoomQuery(client))warnings.push('Client does not read the room query parameter; auto-join from ?room= on load is required.');
     }
-    const { dir } = await this.locate(id);
     const { kit } = await jsonFile<StoredGame>(path.join(dir, 'game.json'));
     // Older projects have no kit marker; preserve their multiplayer comparison.
     const baseline = kit === 'coop-3d' || kit === 'arcade-2d' ? kit : !kit && game.multiplayer ? 'coop-3d' : null;
@@ -826,8 +975,29 @@ export class GameProjects {
     if(this.browserBusy)throw new GameError('A headless game run is already active; wait for it to finish',409);
     this.browserBusy=true;
     let browser:Browser|undefined,profile:string|undefined;
+    const store = new WorkspaceStore(path.dirname(this.root));
     const server=createServer((req,res)=>{
       const url=new URL(req.url??'/','http://localhost');
+      if (/^\/motion-api\/assets\/[^/]+\/versions\/[^/]+\/(?:media|file)$/.test(url.pathname)) {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS', 'Access-Control-Allow-Headers': 'Range' });
+          res.end();
+          return;
+        }
+        if (req.method === 'GET' || req.method === 'HEAD') {
+          url.pathname = url.pathname.replace(/^\/motion-api\//, '/api/');
+          void assetHttp(req, res, url, store).catch((error: any) => {
+            if (res.headersSent) res.destroy();
+            else {
+              const msg = String(error?.message ?? '');
+              const notFound = error?.code === 'ENOENT' || /ASSET_VERSION_UNAVAILABLE|not found/i.test(msg);
+              res.writeHead(notFound ? 404 : 500, { 'Access-Control-Allow-Origin': '*' });
+              res.end();
+            }
+          });
+          return;
+        }
+      }
       if(req.method==='GET'&&url.pathname==='/favicon.ico'){res.writeHead(204);res.end();return;}
       if(req.method!=='GET'||!url.pathname.startsWith(`/api/games/${id}/play/`)){res.writeHead(404);res.end();return;}
       void gameHttp(req,res,url,path.dirname(this.root),async()=>({})).catch(()=>{res.writeHead(500);res.end();});
@@ -1004,17 +1174,21 @@ export function gameProjectsFor(workspace: string, runtimeRoot?: string) {
 export async function dispatchGameTool(name: string, args: any, workspace: string, runtimeRoot?: string) {
   const service = gameProjectsFor(workspace, runtimeRoot);
   switch (name.replace(/^(?:openmotion|motion)_game_/,'')) {
-    case 'create': return service.create(args.brief ?? args);
+    case 'create': return createSinglePlayerGame(service, args?.brief ?? args);
     case 'get': return service.detail(args.id);
     case 'read_file': return service.read(args.id,args.path);
-    case 'write_files': return service.write(args.id,args.files);
+    case 'write_files':
+      assertSinglePlayerAuthoring((await service.get(args.id)).multiplayer);
+      return service.write(args.id,args.files);
     case 'capture_cover': return service.captureCover(args.id,args);
     case 'trailer': if(args.action==='start')return service.startTrailer(args.id);if(args.action==='status')return service.trailer(args.id);throw new GameError('Trailer action must be start or status');
     case 'simulate': return service.simulate(args.id,args);
     case 'playtest': return service.playtest(args.id,args);
     case 'update_meta': { const { id, ...patch } = args; return service.updateMeta(id,patch); }
     case 'validate': return service.validate(args.id);
-    case 'set_status': return service.status(args.id,args.status);
+    case 'set_status':
+      if (args.status === 'building') assertSinglePlayerAuthoring((await service.get(args.id)).multiplayer);
+      return service.status(args.id,args.status);
     case 'publish': return service.publish(args.id);
     default: throw new GameError('Unknown game tool');
   }
@@ -1025,7 +1199,7 @@ export async function gameHttp(req: IncomingMessage, res: ServerResponse, url: U
   const json = (status: number, data: unknown) => { res.writeHead(status, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }); res.end(JSON.stringify(data)); return true; };
   try {
     const service = gameProjectsFor(workspace, runtimeRoot), parts = url.pathname.slice(prefix.length).split('/').filter(Boolean).map(decodeURIComponent);
-    if (!parts.length) { if (req.method === 'GET') return json(200, await service.catalog()); if (req.method === 'POST') return json(201,await service.create(await input(req, LIMIT))); }
+    if (!parts.length) { if (req.method === 'GET') return json(200, await service.catalog()); if (req.method === 'POST') return json(201,await createSinglePlayerGame(service, await input(req, LIMIT))); }
     const [id, action, ...rest] = parts;
     if (parts.length === 1) { if (req.method === 'GET') return json(200,await service.get(id)); if (req.method === 'DELETE') return json(200,await service.delete(id)); }
     if (action === 'trailer' && !rest.length && req.method==='GET')return json(200,await service.trailer(id));
@@ -1060,7 +1234,7 @@ export async function gameHttp(req: IncomingMessage, res: ServerResponse, url: U
       const playOrigins = `${origin.origin}/api/games/${encodedId}/play/ ${origin.origin}/motion-api/games/${encodedId}/play/`;
       const sockets = ['/api/games', '/motion-api/games'].map(prefix => `${origin.protocol === 'https:' ? 'wss:' : 'ws:'}//${origin.host}${prefix}/${id}/rooms/`).join(' ');
       const executable = /^(?:text\/html|image\/svg\+xml)/.test(file.mime);
-      const csp = `sandbox allow-scripts allow-pointer-lock allow-popups allow-modals; default-src 'self' data: blob: ${playOrigins} ${assetOrigins}; connect-src 'self' blob: data: ${playOrigins} ${assetOrigins} ${sockets} https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${playOrigins} https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; style-src 'self' 'unsafe-inline' ${playOrigins}; worker-src 'none'`;
+      const csp = `sandbox allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals; default-src 'self' data: blob: ${playOrigins} ${assetOrigins}; connect-src 'self' blob: data: ${playOrigins} ${assetOrigins} ${sockets} ${gameCdnOrigins}; script-src 'self' 'unsafe-inline' 'unsafe-eval' ${playOrigins} ${gameCdnOrigins}; style-src 'self' 'unsafe-inline' ${playOrigins}; form-action 'none'; worker-src 'none'`;
       res.writeHead(200, { 'Access-Control-Allow-Origin':'*', 'Content-Type':file.mime, 'Content-Length':payload.length, 'Cache-Control':'no-store', 'X-Content-Type-Options':'nosniff', ...(executable ? { 'Content-Security-Policy': csp } : {}) }); res.end(payload); return true;
     }
     if (parts.length === 2 && req.method === 'POST') {

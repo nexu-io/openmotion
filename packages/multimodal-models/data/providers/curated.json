@@ -1,0 +1,3764 @@
+{
+  "schemaVersion": "1.0.0",
+  "shardId": "curated",
+  "source": "curated",
+  "generatedAt": "2026-11-23T00:00:00.000Z",
+  "providers": [
+    {
+      "id": "opendesign",
+      "name": "OpenDesign Cloud",
+      "website": "https://open-design.ai/cloud",
+      "docsUrl": "https://open-design.ai/cloud/dashboard",
+      "protocol": "opendesign",
+      "source": "curated",
+      "authEnv": "OPENDESIGN_API_KEY",
+      "supportsLiveSchema": true
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "website": "https://platform.openai.com",
+      "docsUrl": "https://platform.openai.com/docs/api-reference/images",
+      "protocol": "openai",
+      "source": "curated",
+      "authEnv": "OPENAI_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "google",
+      "name": "Google Gemini / Vertex AI",
+      "website": "https://ai.google.dev",
+      "docsUrl": "https://ai.google.dev/gemini-api/docs/video",
+      "protocol": "google-genai",
+      "source": "curated",
+      "authEnv": "GEMINI_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "bytedance",
+      "name": "ByteDance ModelArk / Seed",
+      "website": "https://www.byteplus.com",
+      "docsUrl": "https://docs.byteplus.com/en/docs/ModelArk",
+      "protocol": "bytedance-ark",
+      "source": "curated",
+      "authEnv": "ARK_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "kling",
+      "name": "Kling AI (Kuaishou)",
+      "website": "https://klingai.com",
+      "docsUrl": "https://docs.qingque.cn/d/home/eZQA01gB33Q40W8pM4m8M104",
+      "protocol": "kling",
+      "source": "curated",
+      "authEnv": "KLING_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "bfl",
+      "name": "Black Forest Labs",
+      "website": "https://bfl.ai",
+      "docsUrl": "https://docs.bfl.ai",
+      "protocol": "bfl",
+      "source": "curated",
+      "authEnv": "BFL_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "ideogram",
+      "name": "Ideogram",
+      "website": "https://ideogram.ai",
+      "docsUrl": "https://developer.ideogram.ai",
+      "protocol": "ideogram",
+      "source": "curated",
+      "authEnv": "IDEOGRAM_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "recraft",
+      "name": "Recraft",
+      "website": "https://www.recraft.ai",
+      "docsUrl": "https://www.recraft.ai/docs",
+      "protocol": "recraft",
+      "source": "curated",
+      "authEnv": "RECRAFT_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "elevenlabs",
+      "name": "ElevenLabs",
+      "website": "https://elevenlabs.io",
+      "docsUrl": "https://elevenlabs.io/docs/api-reference",
+      "protocol": "elevenlabs",
+      "source": "curated",
+      "authEnv": "ELEVENLABS_API_KEY",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "suno",
+      "name": "Suno",
+      "website": "https://suno.com",
+      "protocol": "suno",
+      "source": "curated",
+      "supportsLiveSchema": false
+    },
+    {
+      "id": "codex",
+      "name": "Codex Local Agent",
+      "protocol": "custom",
+      "source": "curated",
+      "supportsLiveSchema": false
+    }
+  ],
+  "endpoints": [
+    {
+      "id": "opendesign:gpt-image-2.6-flare",
+      "canonicalId": "openai/gpt-image-2.6-flare",
+      "family": "gpt-image",
+      "creator": "OpenAI",
+      "provider": "opendesign",
+      "endpointId": "gpt-image-2.6-flare",
+      "displayName": "GPT Image 2.6 Flare",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit",
+        "remove-background"
+      ],
+      "description": "GPT Image 2.6 Flare served via OpenDesign Cloud (up to 16 reference images on edits).",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit",
+          "remove-background"
+        ],
+        "maxReferenceImages": 16,
+        "supportsImageInput": true,
+        "supportsTransparentBackground": true,
+        "qualities": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "quality",
+          "standardKey": "quality",
+          "label": "Quality",
+          "type": "enum",
+          "required": false,
+          "default": "low",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "choices": [
+            {
+              "value": "low",
+              "label": "low"
+            },
+            {
+              "value": "medium",
+              "label": "medium"
+            },
+            {
+              "value": "high",
+              "label": "high"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "background",
+          "standardKey": "background",
+          "label": "Background",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "transparent"
+          ],
+          "choices": [
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "images",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 16,
+          "description": "Up to 16 reference images accepted on /images/edits.",
+          "uiOrder": 3
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "quality": "quality",
+        "background": "background",
+        "referenceImages": "images"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:gpt-image-2.6-sunburst",
+      "canonicalId": "openai/gpt-image-2.6-sunburst",
+      "family": "gpt-image",
+      "creator": "OpenAI",
+      "provider": "opendesign",
+      "endpointId": "gpt-image-2.6-sunburst",
+      "displayName": "GPT Image 2.6 Sunburst",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit",
+        "remove-background"
+      ],
+      "description": "GPT Image 2.6 Sunburst served via OpenDesign Cloud (up to 16 reference images on edits).",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit",
+          "remove-background"
+        ],
+        "maxReferenceImages": 16,
+        "supportsImageInput": true,
+        "supportsTransparentBackground": true,
+        "qualities": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "quality",
+          "standardKey": "quality",
+          "label": "Quality",
+          "type": "enum",
+          "required": false,
+          "default": "low",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "choices": [
+            {
+              "value": "low",
+              "label": "low"
+            },
+            {
+              "value": "medium",
+              "label": "medium"
+            },
+            {
+              "value": "high",
+              "label": "high"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "background",
+          "standardKey": "background",
+          "label": "Background",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "transparent"
+          ],
+          "choices": [
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "images",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 16,
+          "description": "Up to 16 reference images accepted on /images/edits.",
+          "uiOrder": 3
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "quality": "quality",
+        "background": "background",
+        "referenceImages": "images"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:seedream-5.5",
+      "canonicalId": "bytedance/seedream-5.5",
+      "family": "seedream",
+      "creator": "ByteDance",
+      "provider": "opendesign",
+      "endpointId": "seedream-5.5",
+      "displayName": "Seedream 5.5",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit"
+      ],
+      "description": "Seedream 5.5 served via OpenDesign Cloud (up to 1 reference image on edits).",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit"
+        ],
+        "maxReferenceImages": 1,
+        "supportsImageInput": true,
+        "resolutions": [
+          "1K",
+          "2K"
+        ],
+        "sizes": [
+          "1K",
+          "2K"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "1K",
+          "enum": [
+            "1K",
+            "2K"
+          ],
+          "choices": [
+            {
+              "value": "1K",
+              "label": "1K"
+            },
+            {
+              "value": "2K",
+              "label": "2K"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "images",
+          "standardKey": "referenceImages",
+          "label": "Reference Image",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 1,
+          "description": "Up to 1 reference image accepted on /images/edits.",
+          "uiOrder": 2
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "referenceImages": "images"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:seedream-5.0-flash",
+      "canonicalId": "bytedance/seedream-5.0-flash",
+      "family": "seedream",
+      "creator": "ByteDance",
+      "provider": "opendesign",
+      "endpointId": "seedream-5.0-flash",
+      "displayName": "Seedream 5.0 Flash",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit"
+      ],
+      "description": "Seedream 5.0 Flash served via OpenDesign Cloud (up to 10 reference images on edits).",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit"
+        ],
+        "maxReferenceImages": 10,
+        "supportsImageInput": true,
+        "resolutions": [
+          "1K",
+          "1.5K",
+          "2K"
+        ],
+        "sizes": [
+          "1K",
+          "1.5K",
+          "2K"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "1K",
+          "enum": [
+            "1K",
+            "1.5K",
+            "2K"
+          ],
+          "choices": [
+            {
+              "value": "1K",
+              "label": "1K"
+            },
+            {
+              "value": "1.5K",
+              "label": "1.5K"
+            },
+            {
+              "value": "2K",
+              "label": "2K"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "images",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 10,
+          "description": "Up to 10 reference images accepted on /images/edits.",
+          "uiOrder": 2
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "referenceImages": "images"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:doubao-seedance-2-5-260628",
+      "canonicalId": "bytedance/seedance-2.5",
+      "family": "seedance",
+      "creator": "ByteDance",
+      "provider": "opendesign",
+      "endpointId": "doubao-seedance-2-5-260628",
+      "displayName": "Seedance 2.5",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "reference-to-video"
+      ],
+      "description": "4–30s cinematic video up to 1080p with native audio.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "reference-to-video"
+        ],
+        "maxReferenceImages": 10,
+        "supportsImageInput": true,
+        "supportsNativeAudio": true,
+        "aspectRatios": [
+          "adaptive",
+          "16:9",
+          "9:16",
+          "1:1",
+          "4:3",
+          "3:4",
+          "21:9"
+        ],
+        "resolutions": [
+          "480p",
+          "720p",
+          "1080p"
+        ],
+        "duration": {
+          "min": 4,
+          "max": 30,
+          "default": 5
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt directing shot, motion, camera, and audio.",
+          "uiOrder": 0
+        },
+        {
+          "key": "ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect ratio",
+          "type": "enum",
+          "required": false,
+          "default": "16:9",
+          "enum": [
+            "adaptive",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "choices": [
+            {
+              "value": "adaptive",
+              "label": "adaptive"
+            },
+            {
+              "value": "16:9",
+              "label": "16:9"
+            },
+            {
+              "value": "9:16",
+              "label": "9:16"
+            },
+            {
+              "value": "1:1",
+              "label": "1:1"
+            },
+            {
+              "value": "4:3",
+              "label": "4:3"
+            },
+            {
+              "value": "3:4",
+              "label": "3:4"
+            },
+            {
+              "value": "21:9",
+              "label": "21:9"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "resolution",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "720p",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p"
+          ],
+          "choices": [
+            {
+              "value": "480p",
+              "label": "480p"
+            },
+            {
+              "value": "720p",
+              "label": "720p"
+            },
+            {
+              "value": "1080p",
+              "label": "1080p"
+            }
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "duration",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "integer",
+          "required": false,
+          "default": 5,
+          "min": 4,
+          "max": 30,
+          "step": 1,
+          "uiOrder": 3
+        },
+        {
+          "key": "generate_audio",
+          "standardKey": "generateAudio",
+          "label": "Generate audio",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "uiOrder": 4
+        },
+        {
+          "key": "images",
+          "standardKey": "referenceImages",
+          "label": "First Frame / Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 10,
+          "uiOrder": 5
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "ratio",
+        "resolution": "resolution",
+        "duration": "duration",
+        "generateAudio": "generate_audio",
+        "referenceImages": "images"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:doubao-seedance-2-5-flash-261115",
+      "canonicalId": "bytedance/seedance-2.5-flash",
+      "family": "seedance",
+      "creator": "ByteDance",
+      "provider": "opendesign",
+      "endpointId": "doubao-seedance-2-5-flash-261115",
+      "displayName": "Seedance 2.5 Flash",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "reference-to-video"
+      ],
+      "description": "Fast 4–30s generation at 480p/720p with native audio.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "reference-to-video"
+        ],
+        "maxReferenceImages": 10,
+        "supportsImageInput": true,
+        "supportsNativeAudio": true,
+        "aspectRatios": [
+          "adaptive",
+          "16:9",
+          "9:16",
+          "1:1",
+          "4:3",
+          "3:4",
+          "21:9"
+        ],
+        "resolutions": [
+          "480p",
+          "720p"
+        ],
+        "duration": {
+          "min": 4,
+          "max": 30,
+          "default": 5
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt directing shot, motion, camera, and audio.",
+          "uiOrder": 0
+        },
+        {
+          "key": "ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect ratio",
+          "type": "enum",
+          "required": false,
+          "default": "16:9",
+          "enum": [
+            "adaptive",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4",
+            "21:9"
+          ],
+          "choices": [
+            {
+              "value": "adaptive",
+              "label": "adaptive"
+            },
+            {
+              "value": "16:9",
+              "label": "16:9"
+            },
+            {
+              "value": "9:16",
+              "label": "9:16"
+            },
+            {
+              "value": "1:1",
+              "label": "1:1"
+            },
+            {
+              "value": "4:3",
+              "label": "4:3"
+            },
+            {
+              "value": "3:4",
+              "label": "3:4"
+            },
+            {
+              "value": "21:9",
+              "label": "21:9"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "resolution",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "720p",
+          "enum": [
+            "480p",
+            "720p"
+          ],
+          "choices": [
+            {
+              "value": "480p",
+              "label": "480p"
+            },
+            {
+              "value": "720p",
+              "label": "720p"
+            }
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "duration",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "integer",
+          "required": false,
+          "default": 5,
+          "min": 4,
+          "max": 30,
+          "step": 1,
+          "uiOrder": 3
+        },
+        {
+          "key": "generate_audio",
+          "standardKey": "generateAudio",
+          "label": "Generate audio",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "uiOrder": 4
+        },
+        {
+          "key": "images",
+          "standardKey": "referenceImages",
+          "label": "First Frame / Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 10,
+          "uiOrder": 5
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "ratio",
+        "resolution": "resolution",
+        "duration": "duration",
+        "generateAudio": "generate_audio",
+        "referenceImages": "images"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified",
+        "fast",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:wan-2.7",
+      "canonicalId": "alibaba/wan-2.7",
+      "family": "wan",
+      "creator": "Alibaba",
+      "provider": "opendesign",
+      "endpointId": "wan-2.7",
+      "displayName": "Wan 2.7",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video"
+      ],
+      "description": "2–15s 720p/1080p video with built-in synchronized audio.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video"
+        ],
+        "supportsImageInput": true,
+        "supportsNativeAudio": true,
+        "nativeAudioAlwaysOn": true,
+        "aspectRatios": [
+          "adaptive",
+          "16:9",
+          "9:16",
+          "1:1",
+          "4:3",
+          "3:4"
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "duration": {
+          "min": 2,
+          "max": 15,
+          "default": 5
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt directing shot, motion, camera, and audio.",
+          "uiOrder": 0
+        },
+        {
+          "key": "ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect ratio",
+          "type": "enum",
+          "required": false,
+          "default": "16:9",
+          "enum": [
+            "adaptive",
+            "16:9",
+            "9:16",
+            "1:1",
+            "4:3",
+            "3:4"
+          ],
+          "choices": [
+            {
+              "value": "adaptive",
+              "label": "adaptive"
+            },
+            {
+              "value": "16:9",
+              "label": "16:9"
+            },
+            {
+              "value": "9:16",
+              "label": "9:16"
+            },
+            {
+              "value": "1:1",
+              "label": "1:1"
+            },
+            {
+              "value": "4:3",
+              "label": "4:3"
+            },
+            {
+              "value": "3:4",
+              "label": "3:4"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "resolution",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "720p",
+          "enum": [
+            "720p",
+            "1080p"
+          ],
+          "choices": [
+            {
+              "value": "720p",
+              "label": "720p"
+            },
+            {
+              "value": "1080p",
+              "label": "1080p"
+            }
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "duration",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "integer",
+          "required": false,
+          "default": 5,
+          "min": 2,
+          "max": 15,
+          "step": 1,
+          "uiOrder": 3
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "ratio",
+        "resolution": "resolution",
+        "duration": "duration"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:elevenlabs-v3",
+      "canonicalId": "elevenlabs/v3",
+      "family": "elevenlabs",
+      "creator": "ElevenLabs",
+      "provider": "opendesign",
+      "endpointId": "elevenlabs-v3",
+      "displayName": "Eleven v3",
+      "modality": "audio",
+      "primaryTask": "text-to-speech",
+      "tasks": [
+        "text-to-speech"
+      ],
+      "description": "Eleven v3 served via OpenDesign Cloud.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "tasks": [
+          "text-to-speech"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Script text to synthesize.",
+          "uiOrder": 0
+        },
+        {
+          "key": "voice",
+          "standardKey": "voice",
+          "label": "Speech voice",
+          "type": "enum",
+          "required": false,
+          "default": "21m00Tcm4TlvDq8ikWAM",
+          "enum": [
+            "21m00Tcm4TlvDq8ikWAM",
+            "JBFqnCBsd6RMkjVDRZzb",
+            "EXAVITQu4vr4xnSDxMaL",
+            "pNInz6obpgDQGcFmaJgB",
+            "nPczCjzI2devNBz1zQrb",
+            "pFZP5JQG7iQjIQuC4Bku"
+          ],
+          "choices": [
+            {
+              "value": "21m00Tcm4TlvDq8ikWAM",
+              "label": "Rachel · Female"
+            },
+            {
+              "value": "JBFqnCBsd6RMkjVDRZzb",
+              "label": "George · Male"
+            },
+            {
+              "value": "EXAVITQu4vr4xnSDxMaL",
+              "label": "Sarah · Female"
+            },
+            {
+              "value": "pNInz6obpgDQGcFmaJgB",
+              "label": "Adam · Male"
+            },
+            {
+              "value": "nPczCjzI2devNBz1zQrb",
+              "label": "Brian · Male"
+            },
+            {
+              "value": "pFZP5JQG7iQjIQuC4Bku",
+              "label": "Lily · Female"
+            }
+          ],
+          "allowCustom": true,
+          "uiOrder": 1
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "voice": "voice"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified",
+        "tts"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:byteplus-tts-2",
+      "canonicalId": "bytedance/seed-tts-2",
+      "family": "seed-tts",
+      "creator": "ByteDance",
+      "provider": "opendesign",
+      "endpointId": "byteplus-tts-2",
+      "displayName": "BytePlus TTS 2.0",
+      "modality": "audio",
+      "primaryTask": "text-to-speech",
+      "tasks": [
+        "text-to-speech"
+      ],
+      "description": "BytePlus TTS 2.0 served via OpenDesign Cloud.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "tasks": [
+          "text-to-speech"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Script text to synthesize.",
+          "uiOrder": 0
+        },
+        {
+          "key": "voice",
+          "standardKey": "voice",
+          "label": "Speech voice",
+          "type": "enum",
+          "required": false,
+          "default": "zh_female_vv_uranus_bigtts",
+          "enum": [
+            "zh_female_vv_uranus_bigtts"
+          ],
+          "choices": [
+            {
+              "value": "zh_female_vv_uranus_bigtts",
+              "label": "Vivi · Chinese female"
+            }
+          ],
+          "allowCustom": true,
+          "uiOrder": 1
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "voice": "voice"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified",
+        "tts"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "opendesign:elevenlabs-music-v2",
+      "canonicalId": "elevenlabs/music-v2",
+      "family": "elevenlabs",
+      "creator": "ElevenLabs",
+      "provider": "opendesign",
+      "endpointId": "elevenlabs-music-v2",
+      "displayName": "Eleven Music v2",
+      "modality": "audio",
+      "primaryTask": "text-to-music",
+      "tasks": [
+        "text-to-music"
+      ],
+      "description": "Eleven Music v2 served via OpenDesign Cloud.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "tasks": [
+          "text-to-music"
+        ],
+        "duration": {
+          "min": 1
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Music style, instrumentation, mood, and tempo description.",
+          "uiOrder": 0
+        },
+        {
+          "key": "duration",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "integer",
+          "required": false,
+          "min": 1,
+          "step": 1,
+          "uiOrder": 1
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "duration": "duration"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "opendesign",
+        "verified",
+        "music"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "codex:image-generation",
+      "canonicalId": "openai/codex-image-generation",
+      "family": "gpt-image",
+      "creator": "OpenAI",
+      "provider": "codex",
+      "endpointId": "image-generation",
+      "displayName": "Codex Local Image Generation",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit"
+      ],
+      "description": "Image generation via local Codex CLI agent (preferences are passed via instruction prompt).",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit"
+        ],
+        "maxReferenceImages": 1,
+        "supportsImageInput": true,
+        "supportsTransparentBackground": true,
+        "aspectRatios": [
+          "1:1",
+          "4:3",
+          "3:4",
+          "16:9",
+          "9:16"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "aspect_ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect ratio",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "1:1",
+            "4:3",
+            "3:4",
+            "16:9",
+            "9:16"
+          ],
+          "choices": [
+            {
+              "value": "1:1",
+              "label": "1:1"
+            },
+            {
+              "value": "4:3",
+              "label": "4:3"
+            },
+            {
+              "value": "3:4",
+              "label": "3:4"
+            },
+            {
+              "value": "16:9",
+              "label": "16:9"
+            },
+            {
+              "value": "9:16",
+              "label": "9:16"
+            }
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "background",
+          "standardKey": "background",
+          "label": "Background",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "opaque",
+            "transparent"
+          ],
+          "choices": [
+            {
+              "value": "opaque",
+              "label": "opaque"
+            },
+            {
+              "value": "transparent",
+              "label": "transparent"
+            }
+          ],
+          "uiOrder": 2
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "aspect_ratio",
+        "background": "background"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "local-agent",
+        "verified",
+        "prompt-delivery"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "openai:gpt-image-1.5",
+      "canonicalId": "openai/gpt-image-1.5",
+      "family": "gpt-image",
+      "creator": "OpenAI",
+      "provider": "openai",
+      "endpointId": "gpt-image-1.5",
+      "displayName": "GPT Image 1.5",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit",
+        "inpainting"
+      ],
+      "description": "OpenAI GPT Image 1.5 native image generation and high-fidelity editing API.",
+      "source": "curated",
+      "docsUrl": "https://platform.openai.com/docs/api-reference/images/create",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit",
+          "inpainting"
+        ],
+        "maxReferenceImages": 16,
+        "supportsImageInput": true,
+        "supportsMask": true,
+        "supportsTransparentBackground": true,
+        "aspectRatios": [
+          "auto"
+        ],
+        "sizes": [
+          "auto",
+          "1024x1024",
+          "1536x1024",
+          "1024x1536"
+        ],
+        "outputFormats": [
+          "png",
+          "jpeg",
+          "webp"
+        ],
+        "qualities": [
+          "auto",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Size",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "1024x1024",
+            "1536x1024",
+            "1024x1536"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "quality",
+          "standardKey": "quality",
+          "label": "Quality",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "low",
+            "medium",
+            "high"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "background",
+          "standardKey": "background",
+          "label": "Background",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "opaque",
+            "transparent"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "output_format",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "png",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "uiOrder": 4
+        },
+        {
+          "key": "output_compression",
+          "standardKey": "outputCompression",
+          "label": "Output Compression",
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "uiOrder": 5
+        },
+        {
+          "key": "moderation",
+          "standardKey": "moderation",
+          "label": "Moderation",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "low"
+          ],
+          "uiOrder": 6
+        },
+        {
+          "key": "input_fidelity",
+          "standardKey": "inputFidelity",
+          "label": "Input Fidelity",
+          "type": "enum",
+          "required": false,
+          "default": "low",
+          "enum": [
+            "low",
+            "high"
+          ],
+          "description": "Controls detail preservation during /v1/images/edits.",
+          "uiOrder": 7
+        },
+        {
+          "key": "n",
+          "standardKey": "count",
+          "label": "Count",
+          "type": "integer",
+          "required": false,
+          "default": 1,
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "uiOrder": 8
+        },
+        {
+          "key": "image",
+          "standardKey": "referenceImages",
+          "label": "Input Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 16,
+          "uiOrder": 9
+        },
+        {
+          "key": "mask",
+          "standardKey": "maskImage",
+          "label": "Edit Mask",
+          "type": "string",
+          "required": false,
+          "uiOrder": 10
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "quality": "quality",
+        "background": "background",
+        "outputFormat": "output_format",
+        "outputCompression": "output_compression",
+        "moderation": "moderation",
+        "inputFidelity": "input_fidelity",
+        "count": "n",
+        "referenceImages": "image",
+        "maskImage": "mask"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "verified"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "openai:gpt-image-2",
+      "canonicalId": "openai/gpt-image-2",
+      "family": "gpt-image",
+      "creator": "OpenAI",
+      "provider": "openai",
+      "endpointId": "gpt-image-2",
+      "displayName": "GPT Image 2",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit",
+        "inpainting"
+      ],
+      "description": "OpenAI GPT Image 2 flagship image model supporting flexible custom resolutions up to 4K (3840x2160) and transparent output.",
+      "source": "curated",
+      "docsUrl": "https://platform.openai.com/docs/api-reference/images/create",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit",
+          "inpainting"
+        ],
+        "maxReferenceImages": 16,
+        "supportsImageInput": true,
+        "supportsMask": true,
+        "supportsTransparentBackground": true,
+        "aspectRatios": [
+          "auto"
+        ],
+        "sizes": [
+          "auto",
+          "1024x1024",
+          "1536x1024",
+          "1024x1536",
+          "2048x2048",
+          "3840x2160"
+        ],
+        "outputFormats": [
+          "png",
+          "jpeg",
+          "webp"
+        ],
+        "qualities": [
+          "auto",
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "features": [
+          "4k"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Size",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "1024x1024",
+            "1536x1024",
+            "1024x1536",
+            "2048x2048",
+            "3840x2160"
+          ],
+          "allowCustom": true,
+          "description": "Supports custom WxH up to 4K with 16px edge multiples.",
+          "uiOrder": 1
+        },
+        {
+          "key": "quality",
+          "standardKey": "quality",
+          "label": "Quality",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "background",
+          "standardKey": "background",
+          "label": "Background",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "opaque",
+            "transparent"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "output_format",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "png",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "uiOrder": 4
+        },
+        {
+          "key": "output_compression",
+          "standardKey": "outputCompression",
+          "label": "Output Compression",
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "min": 0,
+          "max": 100,
+          "step": 1,
+          "uiOrder": 5
+        },
+        {
+          "key": "moderation",
+          "standardKey": "moderation",
+          "label": "Moderation",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "low"
+          ],
+          "uiOrder": 6
+        },
+        {
+          "key": "n",
+          "standardKey": "count",
+          "label": "Count",
+          "type": "integer",
+          "required": false,
+          "default": 1,
+          "min": 1,
+          "max": 10,
+          "step": 1,
+          "uiOrder": 7
+        },
+        {
+          "key": "image",
+          "standardKey": "referenceImages",
+          "label": "Input Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 16,
+          "uiOrder": 8
+        },
+        {
+          "key": "mask",
+          "standardKey": "maskImage",
+          "label": "Edit Mask",
+          "type": "string",
+          "required": false,
+          "uiOrder": 9
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "quality": "quality",
+        "background": "background",
+        "outputFormat": "output_format",
+        "outputCompression": "output_compression",
+        "moderation": "moderation",
+        "count": "n",
+        "referenceImages": "image",
+        "maskImage": "mask"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "verified"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "openai:sora-2",
+      "canonicalId": "openai/sora-2",
+      "family": "sora",
+      "creator": "OpenAI",
+      "provider": "openai",
+      "endpointId": "sora-2",
+      "displayName": "Sora 2",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "video-to-video"
+      ],
+      "description": "OpenAI Sora 2 text- and image-to-video model with synchronized native dialogue, lip-sync, and ambient sound.",
+      "source": "curated",
+      "docsUrl": "https://platform.openai.com/docs/guides/video-generation",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "video-to-video"
+        ],
+        "maxReferenceImages": 1,
+        "supportsImageInput": true,
+        "supportsNativeAudio": true,
+        "nativeAudioAlwaysOn": true,
+        "aspectRatios": [
+          "16:9",
+          "9:16"
+        ],
+        "resolutions": [
+          "720p"
+        ],
+        "sizes": [
+          "1280x720",
+          "720x1280"
+        ],
+        "duration": {
+          "min": 4,
+          "max": 12,
+          "default": 4,
+          "values": [
+            4,
+            8,
+            12
+          ]
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Resolution Size",
+          "type": "enum",
+          "required": false,
+          "default": "1280x720",
+          "enum": [
+            "1280x720",
+            "720x1280"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "seconds",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "enum",
+          "required": false,
+          "default": "4",
+          "enum": [
+            "4",
+            "8",
+            "12"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "input_reference",
+          "standardKey": "inputImage",
+          "label": "Input Reference Image/Video",
+          "type": "string",
+          "required": false,
+          "uiOrder": 3
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "duration": "seconds",
+        "inputImage": "input_reference"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "openai:sora-2-pro",
+      "canonicalId": "openai/sora-2-pro",
+      "family": "sora",
+      "creator": "OpenAI",
+      "provider": "openai",
+      "endpointId": "sora-2-pro",
+      "displayName": "Sora 2 Pro",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "video-to-video"
+      ],
+      "description": "OpenAI Sora 2 Pro cinema-tier video generation with 1080p output, extended durations up to 25s, and synchronized audio.",
+      "source": "curated",
+      "docsUrl": "https://platform.openai.com/docs/guides/video-generation",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "video-to-video"
+        ],
+        "maxReferenceImages": 1,
+        "supportsImageInput": true,
+        "supportsNativeAudio": true,
+        "nativeAudioAlwaysOn": true,
+        "aspectRatios": [
+          "16:9",
+          "9:16"
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "sizes": [
+          "1280x720",
+          "720x1280",
+          "1792x1024",
+          "1024x1792",
+          "1920x1080",
+          "1080x1920"
+        ],
+        "duration": {
+          "min": 4,
+          "max": 25,
+          "default": 8,
+          "values": [
+            4,
+            8,
+            12,
+            16,
+            20,
+            25
+          ]
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Resolution Size",
+          "type": "enum",
+          "required": false,
+          "default": "1920x1080",
+          "enum": [
+            "1280x720",
+            "720x1280",
+            "1792x1024",
+            "1024x1792",
+            "1920x1080",
+            "1080x1920"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "seconds",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "enum",
+          "required": false,
+          "default": "8",
+          "enum": [
+            "4",
+            "8",
+            "12",
+            "16",
+            "20",
+            "25"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "input_reference",
+          "standardKey": "inputImage",
+          "label": "Input Reference Image/Video",
+          "type": "string",
+          "required": false,
+          "uiOrder": 3
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "duration": "seconds",
+        "inputImage": "input_reference"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "pro",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "google:veo-3.1-generate-preview",
+      "canonicalId": "google/veo-3.1",
+      "family": "veo",
+      "creator": "Google",
+      "provider": "google",
+      "endpointId": "veo-3.1-generate-preview",
+      "displayName": "Google Veo 3.1",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "first-last-frame-to-video",
+        "video-extend"
+      ],
+      "description": "Google DeepMind Veo 3.1 video model on Gemini / Vertex AI with native synchronized audio, first/last frame control, and video extension.",
+      "source": "curated",
+      "docsUrl": "https://ai.google.dev/gemini-api/docs/video",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "first-last-frame-to-video",
+          "video-extend"
+        ],
+        "maxReferenceImages": 3,
+        "supportsImageInput": true,
+        "supportsFirstLastFrame": true,
+        "supportsNativeAudio": true,
+        "supportsSeed": true,
+        "aspectRatios": [
+          "16:9",
+          "9:16"
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "duration": {
+          "min": 4,
+          "max": 8,
+          "default": 8,
+          "values": [
+            4,
+            6,
+            8
+          ]
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "aspectRatio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect Ratio",
+          "type": "enum",
+          "required": false,
+          "default": "16:9",
+          "enum": [
+            "16:9",
+            "9:16"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "resolution",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "720p",
+          "enum": [
+            "720p",
+            "1080p"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "durationSeconds",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "enum",
+          "required": false,
+          "default": 8,
+          "enum": [
+            4,
+            6,
+            8
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "generateAudio",
+          "standardKey": "generateAudio",
+          "label": "Generate Audio",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "uiOrder": 4
+        },
+        {
+          "key": "negativePrompt",
+          "standardKey": "negativePrompt",
+          "label": "Negative Prompt",
+          "type": "string",
+          "required": false,
+          "uiOrder": 5
+        },
+        {
+          "key": "image",
+          "standardKey": "inputImage",
+          "label": "Start Frame Image",
+          "type": "string",
+          "required": false,
+          "uiOrder": 6
+        },
+        {
+          "key": "lastFrame",
+          "standardKey": "endImage",
+          "label": "Last Frame Image",
+          "type": "string",
+          "required": false,
+          "uiOrder": 7
+        },
+        {
+          "key": "referenceImages",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 3,
+          "uiOrder": 8
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 9
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "aspectRatio",
+        "resolution": "resolution",
+        "duration": "durationSeconds",
+        "generateAudio": "generateAudio",
+        "negativePrompt": "negativePrompt",
+        "inputImage": "image",
+        "endImage": "lastFrame",
+        "referenceImages": "referenceImages",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "google:imagen-4.0-generate-001",
+      "canonicalId": "google/imagen-4",
+      "family": "imagen",
+      "creator": "Google",
+      "provider": "google",
+      "endpointId": "imagen-4.0-generate-001",
+      "displayName": "Google Imagen 4",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image"
+      ],
+      "description": "Google Imagen 4 photorealistic image generation model via Gemini / Vertex AI.",
+      "source": "curated",
+      "docsUrl": "https://ai.google.dev/gemini-api/docs/imagen",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image"
+        ],
+        "supportsSeed": true,
+        "aspectRatios": [
+          "1:1",
+          "3:4",
+          "4:3",
+          "9:16",
+          "16:9"
+        ],
+        "outputFormats": [
+          "image/png",
+          "image/jpeg",
+          "image/webp"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "aspectRatio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect Ratio",
+          "type": "enum",
+          "required": false,
+          "default": "1:1",
+          "enum": [
+            "1:1",
+            "3:4",
+            "4:3",
+            "9:16",
+            "16:9"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "outputMimeType",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "image/png",
+          "enum": [
+            "image/png",
+            "image/jpeg",
+            "image/webp"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "sampleCount",
+          "standardKey": "count",
+          "label": "Sample Count",
+          "type": "integer",
+          "required": false,
+          "default": 1,
+          "min": 1,
+          "max": 4,
+          "step": 1,
+          "uiOrder": 3
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 4
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "aspectRatio",
+        "outputFormat": "outputMimeType",
+        "count": "sampleCount",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "bytedance:doubao-seedream-5-5",
+      "canonicalId": "bytedance/seedream-5.5",
+      "family": "seedream",
+      "creator": "ByteDance",
+      "provider": "bytedance",
+      "endpointId": "doubao-seedream-5-5",
+      "displayName": "Seedream 5.5 (ModelArk)",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit",
+        "layerize"
+      ],
+      "description": "ByteDance Seedream 5.5 native image generation, multi-image editing, transparent PNG, and layer decomposition via ModelArk.",
+      "source": "curated",
+      "docsUrl": "https://docs.byteplus.com/en/docs/ModelArk",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit",
+          "layerize"
+        ],
+        "maxReferenceImages": 10,
+        "supportsImageInput": true,
+        "supportsTransparentBackground": true,
+        "supportsLayerDecomposition": true,
+        "supportsSeed": true,
+        "aspectRatios": [
+          "auto",
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4",
+          "3:2",
+          "2:3",
+          "21:9"
+        ],
+        "resolutions": [
+          "1K",
+          "2K",
+          "4K"
+        ],
+        "outputFormats": [
+          "png",
+          "jpeg",
+          "webp"
+        ],
+        "features": [
+          "4k"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "aspect_ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect Ratio",
+          "type": "enum",
+          "required": false,
+          "default": "1:1",
+          "enum": [
+            "auto",
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "3:2",
+            "2:3",
+            "21:9"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "size",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "2K",
+          "enum": [
+            "1K",
+            "2K",
+            "4K"
+          ],
+          "allowCustom": true,
+          "uiOrder": 2
+        },
+        {
+          "key": "output_format",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "png",
+          "enum": [
+            "png",
+            "jpeg",
+            "webp"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "background",
+          "standardKey": "background",
+          "label": "Background",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "opaque",
+            "transparent"
+          ],
+          "uiOrder": 4
+        },
+        {
+          "key": "image",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 10,
+          "uiOrder": 5
+        },
+        {
+          "key": "watermark",
+          "standardKey": "watermark",
+          "label": "Watermark",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "uiOrder": 6
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 7
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "aspect_ratio",
+        "resolution": "size",
+        "outputFormat": "output_format",
+        "background": "background",
+        "referenceImages": "image",
+        "watermark": "watermark",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "bytedance:doubao-seedance-2-5",
+      "canonicalId": "bytedance/seedance-2.5",
+      "family": "seedance",
+      "creator": "ByteDance",
+      "provider": "bytedance",
+      "endpointId": "doubao-seedance-2-5",
+      "displayName": "Seedance 2.5 (ModelArk)",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "first-last-frame-to-video",
+        "reference-to-video"
+      ],
+      "description": "ByteDance Seedance 2.5 multimodal video generation with 4–30s duration, synchronized audio, and image/video/audio reference conditioning.",
+      "source": "curated",
+      "docsUrl": "https://docs.byteplus.com/en/docs/ModelArk",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "first-last-frame-to-video",
+          "reference-to-video"
+        ],
+        "maxReferenceImages": 10,
+        "maxReferenceVideos": 5,
+        "maxReferenceAudios": 5,
+        "supportsImageInput": true,
+        "supportsFirstLastFrame": true,
+        "supportsNativeAudio": true,
+        "supportsSeed": true,
+        "supportsCameraControl": true,
+        "aspectRatios": [
+          "auto",
+          "21:9",
+          "16:9",
+          "4:3",
+          "1:1",
+          "3:4",
+          "9:16"
+        ],
+        "resolutions": [
+          "480p",
+          "720p",
+          "1080p"
+        ],
+        "duration": {
+          "min": 4,
+          "max": 30,
+          "default": 5,
+          "supportsAuto": true
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "aspect_ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect Ratio",
+          "type": "enum",
+          "required": false,
+          "default": "auto",
+          "enum": [
+            "auto",
+            "21:9",
+            "16:9",
+            "4:3",
+            "1:1",
+            "3:4",
+            "9:16"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "resolution",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "720p",
+          "enum": [
+            "480p",
+            "720p",
+            "1080p"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "duration",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "integer",
+          "required": false,
+          "default": 5,
+          "min": 4,
+          "max": 30,
+          "step": 1,
+          "description": "Supports 4–30 seconds, or -1 for auto/reference-matched duration.",
+          "uiOrder": 3
+        },
+        {
+          "key": "generate_audio",
+          "standardKey": "generateAudio",
+          "label": "Generate Audio",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "uiOrder": 4
+        },
+        {
+          "key": "camera_fixed",
+          "standardKey": "cameraFixed",
+          "label": "Lock Camera",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "uiOrder": 5
+        },
+        {
+          "key": "return_last_frame",
+          "standardKey": "returnLastFrame",
+          "label": "Return Last Frame",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "uiOrder": 6
+        },
+        {
+          "key": "reference_images",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 10,
+          "uiOrder": 7
+        },
+        {
+          "key": "reference_videos",
+          "standardKey": "referenceVideos",
+          "label": "Reference Videos",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 5,
+          "uiOrder": 8
+        },
+        {
+          "key": "reference_audios",
+          "standardKey": "referenceAudios",
+          "label": "Reference Audios",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 5,
+          "uiOrder": 9
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 10
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "aspect_ratio",
+        "resolution": "resolution",
+        "duration": "duration",
+        "generateAudio": "generate_audio",
+        "cameraFixed": "camera_fixed",
+        "returnLastFrame": "return_last_frame",
+        "referenceImages": "reference_images",
+        "referenceVideos": "reference_videos",
+        "referenceAudios": "reference_audios",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "kling:kling-v3-pro",
+      "canonicalId": "kuaishou/kling-3.0-pro",
+      "family": "kling",
+      "creator": "Kuaishou",
+      "provider": "kling",
+      "endpointId": "kling-v3-pro",
+      "displayName": "Kling 3.0 Pro",
+      "modality": "video",
+      "primaryTask": "text-to-video",
+      "tasks": [
+        "text-to-video",
+        "image-to-video",
+        "first-last-frame-to-video"
+      ],
+      "description": "Kuaishou Kling 3.0 Pro cinematic video generation with 3–15s duration, multi-shot prompts, native audio, and camera control.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "video",
+          "audio"
+        ],
+        "tasks": [
+          "text-to-video",
+          "image-to-video",
+          "first-last-frame-to-video"
+        ],
+        "maxReferenceImages": 2,
+        "supportsImageInput": true,
+        "supportsFirstLastFrame": true,
+        "supportsNativeAudio": true,
+        "supportsCameraControl": true,
+        "aspectRatios": [
+          "16:9",
+          "9:16",
+          "1:1",
+          "21:9"
+        ],
+        "resolutions": [
+          "720p",
+          "1080p"
+        ],
+        "qualities": [
+          "std",
+          "pro"
+        ],
+        "duration": {
+          "min": 3,
+          "max": 15,
+          "default": 5
+        }
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "negative_prompt",
+          "standardKey": "negativePrompt",
+          "label": "Negative Prompt",
+          "type": "string",
+          "required": false,
+          "uiOrder": 1
+        },
+        {
+          "key": "aspect_ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect Ratio",
+          "type": "enum",
+          "required": false,
+          "default": "16:9",
+          "enum": [
+            "16:9",
+            "9:16",
+            "1:1",
+            "21:9"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "mode",
+          "standardKey": "quality",
+          "label": "Quality Mode",
+          "type": "enum",
+          "required": false,
+          "default": "pro",
+          "enum": [
+            "std",
+            "pro"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "resolution",
+          "standardKey": "resolution",
+          "label": "Resolution",
+          "type": "enum",
+          "required": false,
+          "default": "1080p",
+          "enum": [
+            "720p",
+            "1080p"
+          ],
+          "uiOrder": 4
+        },
+        {
+          "key": "duration",
+          "standardKey": "duration",
+          "label": "Duration (seconds)",
+          "type": "integer",
+          "required": false,
+          "default": 5,
+          "min": 3,
+          "max": 15,
+          "step": 1,
+          "uiOrder": 5
+        },
+        {
+          "key": "generate_audio",
+          "standardKey": "generateAudio",
+          "label": "Generate Audio",
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "uiOrder": 6
+        },
+        {
+          "key": "cfg_scale",
+          "standardKey": "cfg",
+          "label": "CFG Scale",
+          "type": "number",
+          "required": false,
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "uiOrder": 7
+        },
+        {
+          "key": "start_image_url",
+          "standardKey": "inputImage",
+          "label": "Start Frame Image",
+          "type": "string",
+          "required": false,
+          "uiOrder": 8
+        },
+        {
+          "key": "end_image_url",
+          "standardKey": "endImage",
+          "label": "End Frame Image",
+          "type": "string",
+          "required": false,
+          "uiOrder": 9
+        },
+        {
+          "key": "camera_control",
+          "standardKey": "cameraControl",
+          "label": "Camera Control",
+          "type": "object",
+          "required": false,
+          "uiOrder": 10
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "negativePrompt": "negative_prompt",
+        "aspectRatio": "aspect_ratio",
+        "quality": "mode",
+        "resolution": "resolution",
+        "duration": "duration",
+        "generateAudio": "generate_audio",
+        "cfg": "cfg_scale",
+        "inputImage": "start_image_url",
+        "endImage": "end_image_url",
+        "cameraControl": "camera_control"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "native-audio"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "bfl:flux-2-pro",
+      "canonicalId": "bfl/flux-2-pro",
+      "family": "flux",
+      "creator": "Black Forest Labs",
+      "provider": "bfl",
+      "endpointId": "flux-2-pro",
+      "displayName": "FLUX.2 Pro",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit"
+      ],
+      "description": "Black Forest Labs FLUX.2 Pro flagship photorealistic image generation and multi-reference editing model.",
+      "source": "curated",
+      "docsUrl": "https://docs.bfl.ai",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit"
+        ],
+        "maxReferenceImages": 10,
+        "supportsImageInput": true,
+        "supportsSeed": true,
+        "outputFormats": [
+          "jpeg",
+          "png"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "width",
+          "standardKey": "width",
+          "label": "Width",
+          "type": "integer",
+          "required": false,
+          "default": 1024,
+          "min": 256,
+          "max": 2048,
+          "step": 16,
+          "uiOrder": 1
+        },
+        {
+          "key": "height",
+          "standardKey": "height",
+          "label": "Height",
+          "type": "integer",
+          "required": false,
+          "default": 1024,
+          "min": 256,
+          "max": 2048,
+          "step": 16,
+          "uiOrder": 2
+        },
+        {
+          "key": "output_format",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "jpeg",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "safety_tolerance",
+          "standardKey": "safetyTolerance",
+          "label": "Safety Tolerance",
+          "type": "integer",
+          "required": false,
+          "default": 2,
+          "min": 0,
+          "max": 6,
+          "step": 1,
+          "uiOrder": 4
+        },
+        {
+          "key": "input_images",
+          "standardKey": "referenceImages",
+          "label": "Reference Images",
+          "type": "array",
+          "itemType": "string",
+          "required": false,
+          "maxItems": 10,
+          "uiOrder": 5
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 6
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "width": "width",
+        "height": "height",
+        "outputFormat": "output_format",
+        "safetyTolerance": "safety_tolerance",
+        "referenceImages": "input_images",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "flagship"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "ideogram:ideogram-v3",
+      "canonicalId": "ideogram/ideogram-v3",
+      "family": "ideogram",
+      "creator": "Ideogram",
+      "provider": "ideogram",
+      "endpointId": "ideogram-v3",
+      "displayName": "Ideogram v3",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-edit",
+        "inpainting"
+      ],
+      "description": "Ideogram v3 specialized for crisp graphic design layouts, typography rendering, and style control.",
+      "source": "curated",
+      "docsUrl": "https://developer.ideogram.ai",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-edit",
+          "inpainting"
+        ],
+        "supportsImageInput": true,
+        "supportsPromptExpansion": true,
+        "supportsSeed": true,
+        "aspectRatios": [
+          "1:1",
+          "16:9",
+          "9:16",
+          "4:3",
+          "3:4",
+          "3:2",
+          "2:3",
+          "16:10",
+          "10:16",
+          "2:1",
+          "1:2",
+          "3:1",
+          "1:3"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Text prompt describing what to generate.",
+          "uiOrder": 0
+        },
+        {
+          "key": "aspect_ratio",
+          "standardKey": "aspectRatio",
+          "label": "Aspect Ratio",
+          "type": "enum",
+          "required": false,
+          "default": "1:1",
+          "enum": [
+            "1:1",
+            "16:9",
+            "9:16",
+            "4:3",
+            "3:4",
+            "3:2",
+            "2:3",
+            "16:10",
+            "10:16",
+            "2:1",
+            "1:2",
+            "3:1",
+            "1:3"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "rendering_speed",
+          "standardKey": "renderingSpeed",
+          "label": "Rendering Speed",
+          "type": "enum",
+          "required": false,
+          "default": "DEFAULT",
+          "enum": [
+            "TURBO",
+            "DEFAULT",
+            "QUALITY"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "magic_prompt",
+          "standardKey": "promptExtend",
+          "label": "Magic Prompt",
+          "type": "enum",
+          "required": false,
+          "default": "AUTO",
+          "enum": [
+            "AUTO",
+            "ON",
+            "OFF"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "style_type",
+          "standardKey": "style",
+          "label": "Style Type",
+          "type": "enum",
+          "required": false,
+          "default": "AUTO",
+          "enum": [
+            "AUTO",
+            "GENERAL",
+            "REALISTIC",
+            "DESIGN",
+            "FICTION"
+          ],
+          "uiOrder": 4
+        },
+        {
+          "key": "negative_prompt",
+          "standardKey": "negativePrompt",
+          "label": "Negative Prompt",
+          "type": "string",
+          "required": false,
+          "uiOrder": 5
+        },
+        {
+          "key": "num_images",
+          "standardKey": "count",
+          "label": "Count",
+          "type": "integer",
+          "required": false,
+          "default": 1,
+          "min": 1,
+          "max": 8,
+          "step": 1,
+          "uiOrder": 6
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 7
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "aspectRatio": "aspect_ratio",
+        "renderingSpeed": "rendering_speed",
+        "promptExtend": "magic_prompt",
+        "style": "style_type",
+        "negativePrompt": "negative_prompt",
+        "count": "num_images",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "typography"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "recraft:recraftv4",
+      "canonicalId": "recraft/recraft-v4",
+      "family": "recraft",
+      "creator": "Recraft",
+      "provider": "recraft",
+      "endpointId": "recraftv4",
+      "displayName": "Recraft v4",
+      "modality": "image",
+      "primaryTask": "text-to-image",
+      "tasks": [
+        "text-to-image",
+        "image-to-image"
+      ],
+      "description": "Recraft v4 design-system-grade raster and native SVG vector generation with explicit RGB palette control.",
+      "source": "curated",
+      "docsUrl": "https://www.recraft.ai/docs",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "tasks": [
+          "text-to-image",
+          "image-to-image"
+        ],
+        "supportsImageInput": true,
+        "sizes": [
+          "1024x1024",
+          "1365x1024",
+          "1024x1365",
+          "1536x1024",
+          "1024x1536",
+          "1820x1024",
+          "1024x1820",
+          "2048x1024",
+          "1024x2048"
+        ],
+        "outputFormats": [
+          "url",
+          "b64_json"
+        ],
+        "features": [
+          "brand-palette",
+          "svg"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Creative design prompt (up to 1000 chars).",
+          "uiOrder": 0
+        },
+        {
+          "key": "size",
+          "standardKey": "size",
+          "label": "Canvas Size",
+          "type": "enum",
+          "required": false,
+          "default": "1024x1024",
+          "enum": [
+            "1024x1024",
+            "1365x1024",
+            "1024x1365",
+            "1536x1024",
+            "1024x1536",
+            "1820x1024",
+            "1024x1820",
+            "2048x1024",
+            "1024x2048"
+          ],
+          "uiOrder": 1
+        },
+        {
+          "key": "style",
+          "standardKey": "style",
+          "label": "Style",
+          "type": "enum",
+          "required": false,
+          "default": "realistic_image",
+          "enum": [
+            "realistic_image",
+            "digital_illustration",
+            "vector_illustration",
+            "icon"
+          ],
+          "uiOrder": 2
+        },
+        {
+          "key": "response_format",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "url",
+          "enum": [
+            "url",
+            "b64_json"
+          ],
+          "uiOrder": 3
+        },
+        {
+          "key": "colors",
+          "standardKey": "colorPalette",
+          "label": "RGB Color Palette",
+          "type": "array",
+          "itemType": "object",
+          "required": false,
+          "description": "Explicit RGB color constraints for brand consistency.",
+          "uiOrder": 4
+        },
+        {
+          "key": "n",
+          "standardKey": "count",
+          "label": "Count",
+          "type": "integer",
+          "required": false,
+          "default": 1,
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "uiOrder": 5
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "size": "size",
+        "style": "style",
+        "outputFormat": "response_format",
+        "colorPalette": "colors",
+        "count": "n"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "vector",
+        "svg"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "elevenlabs:eleven_v3",
+      "canonicalId": "elevenlabs/v3",
+      "family": "elevenlabs",
+      "creator": "ElevenLabs",
+      "provider": "elevenlabs",
+      "endpointId": "eleven_v3",
+      "displayName": "ElevenLabs v3",
+      "modality": "audio",
+      "primaryTask": "text-to-speech",
+      "tasks": [
+        "text-to-speech"
+      ],
+      "description": "ElevenLabs flagship Eleven v3 expressive speech synthesis with inline audio performance tags and fine voice settings.",
+      "source": "curated",
+      "docsUrl": "https://elevenlabs.io/docs/api-reference/text-to-speech/convert",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "tasks": [
+          "text-to-speech"
+        ],
+        "supportsSeed": true,
+        "supportsStreaming": true,
+        "outputFormats": [
+          "mp3_44100_128",
+          "mp3_44100_192",
+          "pcm_24000",
+          "pcm_44100",
+          "ulaw_8000"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "text",
+          "standardKey": "prompt",
+          "label": "Script Text",
+          "type": "string",
+          "required": true,
+          "uiOrder": 0
+        },
+        {
+          "key": "voice_id",
+          "standardKey": "voice",
+          "label": "Voice ID",
+          "type": "string",
+          "required": true,
+          "uiOrder": 1
+        },
+        {
+          "key": "language_code",
+          "standardKey": "language",
+          "label": "Language Code",
+          "type": "string",
+          "required": false,
+          "uiOrder": 2
+        },
+        {
+          "key": "stability",
+          "standardKey": "stability",
+          "label": "Stability",
+          "type": "number",
+          "required": false,
+          "default": 0.5,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "uiOrder": 3
+        },
+        {
+          "key": "similarity_boost",
+          "standardKey": "similarityBoost",
+          "label": "Similarity Boost",
+          "type": "number",
+          "required": false,
+          "default": 0.75,
+          "min": 0,
+          "max": 1,
+          "step": 0.05,
+          "uiOrder": 4
+        },
+        {
+          "key": "speed",
+          "standardKey": "speed",
+          "label": "Speed",
+          "type": "number",
+          "required": false,
+          "default": 1,
+          "min": 0.7,
+          "max": 1.2,
+          "step": 0.05,
+          "uiOrder": 5
+        },
+        {
+          "key": "output_format",
+          "standardKey": "outputFormat",
+          "label": "Output Format",
+          "type": "enum",
+          "required": false,
+          "default": "mp3_44100_128",
+          "enum": [
+            "mp3_44100_128",
+            "mp3_44100_192",
+            "pcm_24000",
+            "pcm_44100",
+            "ulaw_8000"
+          ],
+          "uiOrder": 6
+        },
+        {
+          "key": "seed",
+          "standardKey": "seed",
+          "label": "Seed",
+          "type": "integer",
+          "required": false,
+          "description": "Random seed for reproducible generation.",
+          "uiOrder": 7
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "text",
+        "voice": "voice_id",
+        "language": "language_code",
+        "stability": "stability",
+        "similarityBoost": "similarity_boost",
+        "speed": "speed",
+        "outputFormat": "output_format",
+        "seed": "seed"
+      },
+      "requiredParameters": [
+        "text",
+        "voice_id"
+      ],
+      "tags": [
+        "official-api",
+        "flagship",
+        "tts"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    },
+    {
+      "id": "suno:chirp-v4",
+      "canonicalId": "suno/suno-v4",
+      "family": "suno",
+      "creator": "Suno",
+      "provider": "suno",
+      "endpointId": "chirp-v4",
+      "displayName": "Suno v4 (Chirp v4)",
+      "modality": "audio",
+      "primaryTask": "text-to-music",
+      "tasks": [
+        "text-to-music"
+      ],
+      "description": "Suno v4 full-song music generation with vocals, custom lyrics, genre tags, and instrumental mode.",
+      "source": "curated",
+      "schemaQuality": "verified-curated",
+      "status": "active",
+      "capabilities": {
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "tasks": [
+          "text-to-music"
+        ]
+      },
+      "parameters": [
+        {
+          "key": "prompt",
+          "standardKey": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "required": true,
+          "description": "Music style inspiration or custom song brief.",
+          "uiOrder": 0
+        },
+        {
+          "key": "tags",
+          "standardKey": "musicStyle",
+          "label": "Style Tags",
+          "type": "string",
+          "required": false,
+          "uiOrder": 1
+        },
+        {
+          "key": "lyrics",
+          "standardKey": "lyrics",
+          "label": "Custom Lyrics",
+          "type": "string",
+          "required": false,
+          "uiOrder": 2
+        },
+        {
+          "key": "make_instrumental",
+          "standardKey": "instrumental",
+          "label": "Instrumental Only",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "uiOrder": 3
+        },
+        {
+          "key": "vocal_gender",
+          "standardKey": "vocalGender",
+          "label": "Vocal Gender",
+          "type": "enum",
+          "required": false,
+          "enum": [
+            "Male",
+            "Female"
+          ],
+          "uiOrder": 4
+        }
+      ],
+      "standardParameterMap": {
+        "prompt": "prompt",
+        "musicStyle": "tags",
+        "lyrics": "lyrics",
+        "instrumental": "make_instrumental",
+        "vocalGender": "vocal_gender"
+      },
+      "requiredParameters": [
+        "prompt"
+      ],
+      "tags": [
+        "official-api",
+        "music"
+      ],
+      "syncedAt": "2026-11-23T00:00:00.000Z"
+    }
+  ]
+}

@@ -1,55 +1,39 @@
 > See [source and execution notes](../PROVENANCE.md).
 
-# Procedural animation — non-humanoid branch
+# Procedural animation — non-humanoid branch (Three.js)
 
-When Meshy rigging returns `422 — Pose estimation failed` (anything that
-isn't a clear biped: dragons, quadrupeds, snakes, spiders, fish, slimes) and
-no Tripo3D key is available, build the rig and clips yourself in headless
-Blender. **Verified on a dragon** (2026-06-10): 16 bones, distance weights,
-sine-based `idle`/`fly` clips — fully scripted, zero manual steps.
+Use this for creatures and machines the bundled humanoid characters cannot
+cover: dragons, quadrupeds, snakes, spiders, fish, slimes, drones, mechs.
+No 3D generation or rigging model is listed at review and no Blender helper
+ships with this Skill, so build the creature as a **hierarchy of meshes in
+Three.js and animate it in code**. This is deterministic, needs no external
+tools and runs inside the performance budget.
 
-## Pipeline
+## Build the rig in code
 
 ```
-static mesh (Meshy text/image-to-3d, preview mesh is fine)
-  → proc_rig_dragon.py    skeleton from bounding-box analysis → work.blend
-  → proc_weights.py       distance-based skin weights (NOT bone heat)
-  → proc_anim_dragon.py   sine clips baked to keyframes → animated GLB
+root (Group)          ← world position, facing, bob
+ └ body  → chest → neck → head
+ └ tail_0 → tail_1 → tail_2 → tail_3
+ └ wing_L_inner → wing_L_outer   (and R)
+ └ leg_LF_upper → leg_LF_lower   (×4)
 ```
 
-```bash
-blender -b -P scripts/proc_rig_dragon.py -- dragon.glb work.blend
-blender -b work.blend -P scripts/proc_weights.py -- work.blend
-blender -b work.blend -P scripts/proc_anim_dragon.py -- dragon_anim.glb
-```
-
-The three scripts are a worked example for a winged quadruped (dragon). For
-other creatures only two things change: the **bone list** and the **motion
-formulas** — see recipes below.
-
-## Why not Blender's built-in tools (headless pitfalls)
-
-- `parent_set(type='ARMATURE_AUTO')` (bone heat): on generated/photogrammetry
-  meshes it either fails ("failed to find solution for one or more bones") or
-  in headless mode **silently produces all-zero weights** → exported GLB has
-  `skins: 0`. Always count weighted vertices after binding; must be > 0.
-- Replacement that works: per-vertex **inverse-distance weights to the 2
-  nearest bones** (distance from vertex to bone segment, not bone head).
-  Crude but stable on any topology; quality is fine for stylized/low-poly.
-
-## Skeleton from bbox analysis (proc_rig pattern)
-
-- Long horizontal axis = body axis. Head side detection: the half (along the
-  body axis) with more vertex volume in the UPPER part of the bbox is the
-  head side (works for dragons/quadrupeds; for serpents just pick either end).
-- Dragon layout (16 bones): `spine → chest → neck → head`, 4 tail segments
-  (opposite the head), 2 bones per wing (inner/outer), 4 leg bones.
-- Bone positions are fractions of the bbox — no mesh-specific magic numbers;
-  the same script reruns on the textured mesh later (texture swap rule).
+- Each segment is a `Group` pivoted at its joint, holding one mesh (capsule,
+  lathe, extruded silhouette or tapered cylinder) offset so it rotates about
+  the joint, not its center.
+- Proportions are fractions of one body length so the same code scales to any
+  size; keep them in a config object next to the motion constants.
+- Share geometry and materials across instances; for swarms, animate an
+  `InstancedMesh` per segment type and write matrices per instance.
+- Optional skinning: for a smooth serpent or tail, build a `SkinnedMesh`
+  from a `TubeGeometry` and a bone chain, weighting each vertex to its two
+  nearest bones by distance along the spine. Count weighted vertices > 0
+  before relying on it.
 
 ## Motion recipes per creature type
 
-All clips are sums of sinusoids baked to keyframes (every 1–2 frames, 24 fps).
+All motion is a sum of sinusoids evaluated per frame.
 Core idiom: `angle(t) = A * sin(2π * t/T + φ)` per bone, with phase offsets φ
 creating wave propagation and gait patterns.
 
@@ -66,49 +50,36 @@ creating wave propagation and gait patterns.
 Idle for any creature: breathing (chest scale or rotation ±2–4°, 4 s cycle),
 slow head sway, tail/appendage micro-wave, wing micro-adjust.
 
-## Vision-QC loop (mandatory — you can't see WebGL)
+Implementation: `angle(t) = A * Math.sin(2 * Math.PI * t / T + phi)` evaluated in
+the render loop from game time (not wall-clock, so pauses and slow-motion
+work), applied to `rotation` of each segment group. Blend gait amplitude by
+speed (idle → walk → run) instead of switching clips abruptly. For slime-class
+creatures skip the hierarchy and animate `mesh.scale`/`position` directly.
+Keep gameplay state in `logic.js`; animation is presentation only and never
+decides hits or positions.
 
-1. Render the animated model at several phases of the cycle with Blender CLI
-   (camera auto-framed from bbox), tile into a grid image.
-2. Vision-check the grid: do phases differ? Is the motion logic right (e.g.
-   wing area shrinks on upstroke, opens on downstroke)? Any mesh tearing at
-   joints?
-3. **Phase-sampling pitfall:** sampling frames at uniform steps that alias
-   with the cycle period makes all renders look identical and you'll wrongly
-   conclude "animation is broken" (or miss that it is). Sample at non-uniform
-   cycle fractions, e.g. 0.0, 0.23, 0.41, 0.68, 0.87 of the period.
-4. Known acceptable defects: slight pinching at wing/limb roots (typical of
-   auto-skinning), no per-toe detail.
+## Visual QC (headless)
 
-## Texture-swap rule
+1. Add a debug key (active only under `?debug` or a dev constant) that
+   freezes the creature and steps it to the next sample phase. Drive it with
+   `openmotion_game_playtest` key scripts, review the returned screenshots at
+   several phases (one short run per phase when the report holds one
+   screenshot per client), and inspect them. Remove or disable the key before cover
+   capture.
+2. Check that phases differ, the motion logic is right (wing area shrinks on
+   the upstroke and opens on the downstroke; diagonal legs move together), and
+   joints do not separate visibly.
+3. **Phase-sampling pitfall:** sampling at uniform steps that alias with the
+   cycle period makes every capture look identical. Sample at non-uniform
+   fractions, e.g. 0.0, 0.23, 0.41, 0.68, 0.87 of the period.
+4. Acceptable defects: slight gaps at segment joints (hide them with joint
+   spheres or overlapping caps), no per-toe detail.
 
-Never block on Meshy refine (texture) — rig/weights/clips run on the gray
-preview mesh; when the textured mesh arrives, re-run the same three scripts
-on it (bbox-relative skeleton makes this deterministic). See stuck-refine
-recovery in `game-meshy-api.md`.
+## Supplied or future rigged models
 
-## Tripo3D alternative (UNVERIFIED — needs API key)
-
-Tripo3D (the UniRig authors; UniRig itself needs a GPU we don't have) has
-creature rigging in the cloud:
-
-1. `animate_prerigcheck` — asks if the model is riggable, returns skeleton
-   type: `biped`, `quadruped`, `hexapod`, `octopod`, `avian`, `serpentine`,
-   `aquatic`.
-2. Rig task for that skeleton type.
-3. `animate_retarget` — locomotion presets per type
-   (`preset:quadruped:walk`, `preset:hexapod:walk`, `preset:octopod:walk`,
-   `preset:serpentine:march`, `preset:aquatic:march`; biped also gets
-   idle/walk/run/jump/slash/shoot/hurt/fall/climb/dive/turn). Up to 5
-   animations per request, GLB/FBX out.
-
-Far fewer presets than Meshy's 680, but for NPC monsters walk + idle is
-usually enough. Hybrid works: generate the mesh in Meshy, rig/animate in
-Tripo via `model_url` — formats are compatible. Mark results as unverified
-until first successful run; keep the procedural branch as fallback.
-
-## Three.js consumption
-
-Identical to humanoid GLBs: `GLTFLoader` + `AnimationMixer`, clips by name
-(`idle`, `fly`). For slime-class assets skip the rig entirely and animate
-`mesh.scale`/`position` in the render loop.
+If the user supplies a rigged non-humanoid GLB, or a later media catalogue
+lists a rigging model (see the discovery contract in
+`game-3d-animation.md`), consume it exactly like a humanoid GLB:
+`GLTFLoader` + `AnimationMixer`, clips by name, inspected first with
+`node scripts/game-glb-inspect.mjs`. Keep the procedural version as the
+fallback until the supplied model passes inspection and an in-game check.

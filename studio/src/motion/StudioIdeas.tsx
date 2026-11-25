@@ -9,6 +9,7 @@ import { studioExamples, sceneLayout, type SceneExample } from './sceneShowcase'
 import { skillPreviewSnapshot } from './skillCatalog';
 import { useSkillPreview } from './useSkillPreview';
 import sofaCutout from './scene-art/sofa-cutout.webp';
+import sofaEdit from './scene-art/sofa-edit.webp';
 import sofaRelight from './scene-art/sofa-relight.webp';
 
 function SceneComparisonGuide({ src, width, height, alt, title, description, wide }: {
@@ -27,9 +28,11 @@ function SceneComparisonGuide({ src, width, height, alt, title, description, wid
   </section>;
 }
 
-function ExampleMedia({ example, enabled }: { example: SceneExample; enabled: boolean }) {
+function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample; enabled: boolean; videoGuide: boolean }) {
   const { t } = useI18n();
   const stage = useRef<HTMLDivElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
+  const [autoplay, setAutoplay] = useState(false);
   const [failed, setFailed] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
   const [requestedClip, setRequestedClip] = useState<string>();
@@ -57,21 +60,40 @@ function ExampleMedia({ example, enabled }: { example: SceneExample; enabled: bo
     };
   }, [example.audio, enabled, failed]);
   useEffect(() => {
-    const pause = () => { if (!enabled || document.hidden) stage.current?.querySelector<HTMLMediaElement>('audio, video')?.pause(); };
     const element = stage.current;
-    const observer = element && typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(entries => {
-      if (!entries[0]?.isIntersecting) element.querySelector<HTMLMediaElement>('audio, video')?.pause();
-    }) : null;
-    if (element) observer?.observe(element);
-    pause(); document.addEventListener('visibilitychange', pause);
-    return () => { observer?.disconnect(); document.removeEventListener('visibilitychange', pause); };
-  }, [enabled]);
+    if (!element) return;
+    const motion = videoGuide && example.clip ? window.matchMedia?.('(prefers-reduced-motion: reduce)') : undefined;
+    let inView = typeof IntersectionObserver === 'undefined';
+    const sync = () => {
+      const visible = enabled && inView && !document.hidden;
+      if (visible && videoGuide && example.clip) setRequestedClip(example.clip);
+      setAutoplay(Boolean(visible && videoGuide && example.clip && !motion?.matches));
+      if (!visible || motion?.matches) element.querySelector<HTMLMediaElement>('audio, video')?.pause();
+    };
+    const observer = typeof IntersectionObserver !== 'undefined' ? new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      sync();
+    }) : undefined;
+    observer?.observe(element);
+    document.addEventListener('visibilitychange', sync);
+    motion?.addEventListener?.('change', sync);
+    sync();
+    return () => {
+      observer?.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+      motion?.removeEventListener?.('change', sync);
+    };
+  }, [enabled, videoGuide, example.clip]);
+  useEffect(() => {
+    // Native controls remain available if the browser declines automatic playback.
+    if (autoplay && clip) void video.current?.play().catch(() => {});
+  }, [autoplay, clip]);
   const mediaStyle = !example.audio && example.posterAspect
     ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
     : undefined;
   return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
-    {clip && !failed ? <video controls playsInline autoPlay={archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
-    {enabled && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
+    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
+    {enabled && !videoGuide && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
       {t(requestedClip === example.clip ? 'Loading…' : 'Play')}
@@ -93,6 +115,12 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
   const { t } = useI18n();
   const [selected, setSelected] = useState(0);
   const { scene } = destination;
+  if (scene.id === 'image-edit') return (
+    <SceneComparisonGuide src={sofaEdit} width={1506} height={1032}
+      alt="An armchair before and after changing the room"
+      title="Edit images with ease"
+      description="Upload an image and describe what to change, from small details to the whole scene." />
+  );
   if (scene.id === 'remove-background') return (
     <SceneComparisonGuide src={sofaCutout} width={1004} height={688}
       alt="An armchair before and after background removal"
@@ -124,8 +152,12 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
     <div className="om-scene-hero-stage">
       {scene.id === 'speech'
         ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{t(idea.prompt)}</p></blockquote>
-        : <ExampleMedia key={idea.title} example={idea} enabled={active} />}
+        : <ExampleMedia key={idea.title} example={idea} enabled={active} videoGuide={destination.studio.id === 'cinema' && scene.modality === 'video'} />}
     </div>
+    {options.length > 1 && <div className="om-scene-hero-examples" role="group" aria-label={t('Try an idea')}>{options.map((item, index) =>
+      <Button variant="plain" key={item.title} aria-label={t(item.title)} aria-pressed={index === selected} onClick={() => setSelected(index)}>
+        <img src={item.poster} alt="" style={{ objectPosition: item.posterPosition }} />
+      </Button>)}</div>}
     <div className="om-guide-heading">
       <h2 className="om-title">{t(idea.title)}</h2>
       {scene.id !== 'speech' && <p className="om-muted">{t(idea.prompt)}</p>}

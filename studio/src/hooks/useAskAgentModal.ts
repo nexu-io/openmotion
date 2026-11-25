@@ -8,6 +8,10 @@ import { liveMarkupWithoutPreviewMarks } from "../utils/authoredSource";
 import { buildElementAgentPrompt, type DomEditSelection } from "../components/editor/domEditing";
 import { usePlayerStore } from "../player";
 import { studioApiFetch } from "../utils/studioApiFetch";
+import {
+  getSuperAgentMotionEmbedConfig,
+  requestMotionAttachToSuperAgent,
+} from "../motion/superAgentMotionBridge";
 
 // ── Types ──
 
@@ -87,8 +91,21 @@ export function useAskAgentModal({
   }, [domEditSelection, preloadAgentPromptSnippet]);
 
   const handleAgentModalSubmit = useCallback(
-    async (userInstruction: string) => {
+    async (userInstruction: string, sendImmediately = true) => {
       if (!domEditSelection) return;
+
+      if (getSuperAgentMotionEmbedConfig()) {
+        requestMotionAttachToSuperAgent({
+          comment: userInstruction,
+          sendImmediately,
+          mode: "selection",
+        });
+        setAgentModalOpen(false);
+        setAgentPromptSelectionContext(undefined);
+        setAgentModalAnchorPoint(null);
+        showToast(sendImmediately ? "Sent to Super Agent" : "Attached to Super Agent", "info");
+        return;
+      }
 
       const targetPath = domEditSelection.sourceFile || activeCompPath || "index.html";
       const tagSnippet =

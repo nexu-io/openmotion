@@ -1,3 +1,5 @@
+import { AssetLibrary } from '../gateway/asset-library.ts';
+import { mcpRegistry } from '../mcp.ts';
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, writeFile, readFile, symlink, cp } from 'node:fs/promises';
@@ -32,11 +34,47 @@ async function fixture(run: (service: GameProjects, workspace: string) => Promis
   finally { await rm(dir,{recursive:true,force:true}); }
 }
 
+test('renaming a game updates the entry title and preserves it across Agent edits', () => fixture(async service => {
+  const { game } = await service.create(brief);
+  const source = '<!doctype html><html><head><!-- <title>Comment</title> --><script>const other = "<title>Script</title>";</script><title>Old title</title></head><body><svg><title>Icon</title></svg></body></html>';
+  await service.write(game.id, [{ path: 'index.html', content: source }]);
+  await service.updateMeta(game.id, { title: 'Old title', i18n: { 'zh-CN': { title: '旧名称', description: '说明' } } });
+  await service.status(game.id, 'ready');
+
+  const renamed = await service.rename(game.id, 'Nova & <Stars>');
+  assert.equal(renamed.title, 'Nova & <Stars>');
+  assert.deepEqual(renamed.i18n?.['zh-CN'], { title: renamed.title, description: '说明' });
+  assert.equal(renamed.status, 'ready');
+  assert.equal(renamed.playUrl, game.playUrl);
+  const index = (await service.read(game.id, 'index.html')).content;
+  const managedTitleScript = /<script data-openmotion-game-title>[\s\S]*?<\/script>/g;
+  assert.equal([...index.matchAll(managedTitleScript)].length, 1);
+  assert.equal(index.replace(managedTitleScript, ''), source.replace('Old title', 'Nova &amp; &lt;Stars&gt;'));
+  await service.rename(game.id, renamed.title);
+  assert.equal((await service.read(game.id, 'index.html')).content, index);
+
+  const edited = await service.updateMeta(game.id, { title: 'Agent title', i18n: { 'zh-CN': { title: '另一名称', controls: '点击' } } });
+  assert.equal(edited.title, renamed.title);
+  assert.deepEqual(edited.i18n?.['zh-CN'], { title: renamed.title, description: '说明', controls: '点击' });
+  await service.write(game.id, [{ path: 'index.html', content: '<!doctype html><svg><title>Icon</title></svg>' }]);
+  const regeneratedIndex = (await service.read(game.id, 'index.html')).content;
+  assert.equal(regeneratedIndex.replace(managedTitleScript, ''), '<!doctype html><title>Nova &amp; &lt;Stars&gt;</title><svg><title>Icon</title></svg>');
+}));
+
 test('draft lifecycle, remix, persisted local viewer and concurrent counters',()=>fixture(async(service,workspace)=>{
   assert.deepEqual(await service.catalog(),{games:[]});
   const { game, agentInstruction }=await service.create(brief);
   assert.equal(game.status,'draft'); assert.equal(game.maxPlayers,1);
   assert.match(agentInstruction,/pixel style, racing, space setting\. A small space racer/);
+  assert.doesNotMatch(agentInstruction,/openmotion_generate_asset/);
+  assert.doesNotMatch(agentInstruction,/openmotion_read_workflow/);
+  assert.match(agentInstruction,/openmotion:\/\/workflow\/game\/start/);
+  assert.match(agentInstruction,/openmotion_media_use/);
+  assert.match(agentInstruction,/openmotion_assets_use\(action="generate"\)/);
+  const phase1ToolNames = new Set(mcpRegistry('phase1').tools.map(tool => tool.name));
+  for (const match of agentInstruction.matchAll(/\bopenmotion_[a-z_]+\b/g)) {
+    assert.ok(phase1ToolNames.has(match[0]), `agentInstruction references hidden tool ${match[0]}`);
+  }
   assert.match(agentInstruction,/openmotion-game/); assert.match(agentInstruction,new RegExp(game.id));
   assert.match((await service.read(game.id,'index.html')).content,/requestAnimationFrame/);
   assert.equal((await service.validate(game.id)).passed,true);
@@ -107,6 +145,10 @@ test('multiplayer validation, determinism, contract errors, CDN rules and public
   for(const host of ['wss://evil.example/room','https://evil.example/track','//evil.example/track','https://cdn.jsdelivr.net.evil.example/a.js']) {
     await service.write(game.id,[{path:'index.html',content:`<script src="${host}"></script>`}]); assert.equal((await service.validate(game.id)).passed,false);
   }
+  // XML namespace identifiers are not network requests; a script loaded from the same host still is.
+  await service.write(game.id,[{path:'index.html',content:'<script>document.createElementNS("http://www.w3.org/1999/xhtml","canvas");document.createElementNS("http://www.w3.org/2000/svg","svg")</script>'}]);
+  assert.equal((await service.validate(game.id)).passed,true);
+  await service.write(game.id,[{path:'index.html',content:'<script src="http://www.w3.org/1999/xhtml/evil.js"></script>'}]); assert.equal((await service.validate(game.id)).passed,false);
   await service.write(game.id,[{path:'index.html',content:'<script>\n//rendering comment\n</script>'},{path:'logic.js',content:starterLogic.replace('maxPlayers: 4','maxPlayers: 2')}]);
   assert.equal((await service.validate(game.id)).passed,true); assert.equal((await service.publish(game.id)).game.maxPlayers,2);
   const a=new GameRuntime(starterLogic,'same'),b=new GameRuntime(starterLogic,'same');
@@ -115,11 +157,27 @@ test('multiplayer validation, determinism, contract errors, CDN rules and public
   assert.throws(()=>new GameRuntime(starterLogic+'\nFunction("return process")();','escape'),/Code generation/);
 }));
 
-test('MCP game schemas and shared dispatcher use the requested workspace without video initialization',()=>fixture(async(_,workspace)=>{
+test('MCP game tools author single-player games and preserve access to existing multiplayer games',()=>fixture(async(service,workspace)=>{
   assert.equal(gameTools.length,12);
   for(const tool of gameTools) assert.match(tool.title,/^OpenMotion · /);
   validateInput(gameTools[0].inputSchema,brief);
+  validateInput(gameTools[0].inputSchema,{prompt:brief.prompt});
   assert.throws(()=>validateInput(gameTools[0].inputSchema,{...brief,genre:'invalid'}));
+  assert.throws(()=>validateInput(gameTools[0].inputSchema,{...brief,multiplayer:true}));
+  for (const [name, args] of [
+    ['openmotion_game_create',{...brief,multiplayer:true}],
+    ['motion_game_create',{brief:{...brief,multiplayer:true}}],
+  ] as const) {
+    await assert.rejects(dispatchGameTool(name,args,workspace),/single-player games only/);
+  }
+  const solo=await dispatchGameTool('openmotion_game_create',{prompt:brief.prompt},workspace);
+  assert.equal(solo.game.multiplayer,false);
+  const existing=(await service.create({...brief,multiplayer:true})).game;
+  await assert.rejects(dispatchGameTool('openmotion_game_write_files',{id:existing.id,files:[{path:'index.html',content:'unwritten'}]},workspace),/single-player games only/);
+  await assert.rejects(dispatchGameTool('openmotion_game_set_status',{id:existing.id,status:'building'},workspace),/single-player games only/);
+  const existingCard=await dispatchGameTool('openmotion_game_get',{id:existing.id},workspace);
+  assert.equal(existingCard.multiplayer,true);
+  assert.equal(existingCard.status,'draft');
   const created:any=await dispatchGameTool('motion_game_create',brief,workspace);
   const detail:any=await dispatchGameTool('openmotion_game_get',{id:created.game.id},workspace);
   assert.equal(detail.id,created.game.id); assert.equal(detail.files[0].path,'index.html');
@@ -188,7 +246,7 @@ import { EventEmitter } from 'node:events';
 import { handler } from '../server.ts';
 import { WorkspaceStore } from '../workspace.ts';
 
-test('mounted /api/games and /motion-api/games HTTP adapters work without a listening socket',()=>fixture(async(_,workspace)=>{
+test('mounted game HTTP adapters block multiplayer authoring while preserving local play',()=>fixture(async(service,workspace)=>{
   const store=new WorkspaceStore(workspace);
   async function call(method:string,url:string,body?:unknown) {
     const req=Readable.from(body===undefined?[]:[Buffer.from(JSON.stringify(body))]) as any;
@@ -197,8 +255,21 @@ test('mounted /api/games and /motion-api/games HTTP adapters work without a list
     const res={setHeader(key:string,value:unknown){headers[key.toLowerCase()]=value;},writeHead(code:number,values:Record<string,unknown>){status=code;for(const [key,value] of Object.entries(values??{}))headers[key.toLowerCase()]=value;},end(value?:any){data=Buffer.from(value??'');}} as any;
     await handler(req,res,store,{} as any);return {status,data,headers};
   }
-  const created=await call('POST','/api/games',brief);assert.equal(created.status,201);
+  for (const prefix of ['/api/games','/motion-api/games']) {
+    const rejected=await call('POST',prefix,{...brief,multiplayer:true});
+    assert.equal(rejected.status,400);
+    assert.match(rejected.data.toString(),/single-player games only/);
+  }
+  const legacy=(await service.create({...brief,multiplayer:true})).game;
+  for (const [method,action] of [['POST','remix'],['GET','handoff']]) {
+    const rejected=await call(method,`/motion-api/games/${legacy.id}/${action}`);
+    assert.equal(rejected.status,400);
+    assert.match(rejected.data.toString(),/single-player games only/);
+  }
+  assert.equal((await call('GET',legacy.playUrl)).status,302);
+  const created=await call('POST','/api/games',{prompt:brief.prompt});assert.equal(created.status,201);
   const game=JSON.parse(created.data.toString()).game;
+  assert.equal(game.multiplayer,false);
   const metadata=await call('POST',`/motion-api/games/${game.id}/update-meta`,{title:'HTTP metadata',controls:'Keyboard and touch'});assert.equal(metadata.status,200);assert.equal(JSON.parse(metadata.data.toString()).title,'HTTP metadata');
   const catalog=await call('GET','/motion-api/games');assert.equal(catalog.status,200,catalog.data.toString());
   const played=await call('GET',game.playUrl);assert.equal(played.status,200);assert.match(String(played.headers['content-type']),/text\/html/);
@@ -230,6 +301,7 @@ function memoryInbox(socket:MemorySocket) {
     while(true){const index=messages.findIndex(predicate);if(index>=0)return messages.splice(index,1)[0];await new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>{events.off('message',onMessage);reject(Error('Memory socket timeout'));},Math.max(1,deadline-Date.now()));const onMessage=()=>{clearTimeout(timeout);resolve();};events.once('message',onMessage);});}
   };
 }
+
 test('in-memory WebSocket upgrades and masked frames drive a two-player authoritative round',()=>fixture(async(_,workspace)=>{
   const service=gameProjectsFor(workspace),{game}=await service.create({...brief,multiplayer:true});
   await service.write(game.id,[{path:'logic.js',content:starterLogic.replace('minPlayers: 1','minPlayers: 2').replace('return { over: false };','return { over: Object.values(state.scores).some(n => n >= 2), winners: Object.keys(state.scores).filter(id => state.scores[id] >= 2) };')}]);
@@ -626,6 +698,60 @@ test('validation checks external client.js URLs with the same CDN allowlist and 
   }
   const coop=await service.create({...brief,genre:'shooter',multiplayer:true});const runtime=new GameRuntime((await service.read(coop.game.id,'logic.js')).content,'solo');assert.equal(runtime.meta.minPlayers,1);
   const basic=await service.create({...brief,multiplayer:true});assert.equal(new GameRuntime((await service.read(basic.game.id,'logic.js')).content,'solo-basic').meta.minPlayers,1);
+}));
+
+test('validation and publication require entry scripts and stylesheets to resolve to playable files', () => fixture(async service => {
+  const { game } = await service.create(brief);
+  await service.write(game.id, [{
+    path: 'index.html',
+    content: '<link href=./assets/theme.css rel=stylesheet><script type=module src="./assets/runtime.mjs?v=1"></script>',
+  }]);
+  await service.status(game.id, 'ready');
+  const validation = await service.validate(game.id);
+  assert.equal(validation.passed, false);
+  assert.deepEqual(validation.diagnostics.map(item => item.message), [
+    'Referenced stylesheet not found: ./assets/theme.css',
+    'Referenced script not found: ./assets/runtime.mjs?v=1',
+  ]);
+  await assert.rejects(service.publish(game.id), /Game validation failed/);
+  assert.equal((await service.get(game.id)).status, 'ready');
+
+  await service.write(game.id, [
+    { path: 'assets/theme.css', content: 'canvas { display: block }' },
+    { path: 'assets/runtime.mjs', content: 'document.body.dataset.loaded = "true";' },
+  ]);
+  assert.equal((await service.validate(game.id)).passed, true);
+  assert.equal((await service.publish(game.id)).game.status, 'published');
+}));
+
+test('playable ads reject CDN dependencies and allow inline assets and store CTA destinations', () => fixture(async service => {
+  const { game } = await service.create({ ...brief, orientation: 'portrait', playableAd: true });
+  await service.write(game.id, [{
+    path: 'index.html',
+    content: '<link rel="alternate stylesheet" href="https://cdn.jsdelivr.net/npm/normalize.css"><script src=//unpkg.com/gsap></script>',
+  }]);
+  const validation = await service.validate(game.id);
+  assert.equal(validation.passed, false);
+  assert(validation.diagnostics.some(item => /External stylesheet.*normalize\.css/.test(item.message)));
+  assert(validation.diagnostics.some(item => /External script.*unpkg\.com/.test(item.message)));
+  await assert.rejects(service.publish(game.id), /Game validation failed/);
+
+  await service.write(game.id, [{
+    path: 'index.html',
+    content: '<style>@import "https://cdn.jsdelivr.net/npm/normalize.css";</style>',
+  }]);
+  await assert.rejects(service.publish(game.id), /External network host is not allowed: cdn\.jsdelivr\.net/);
+
+  await service.write(game.id, [{
+    path: 'index.html',
+    content: [
+      '<!-- <script src="absent.js"></script> -->',
+      '<style>canvas { display: block }</style>',
+      '<script>const store = "https://apps.apple.com/app/id1";</script>',
+    ].join('\n'),
+  }]);
+  assert.equal((await service.validate(game.id)).passed, true);
+  assert.equal((await service.publish(game.id)).game.status, 'published');
 }));
 
 test('co-op lobby joins a room on load without typing and survives an opaque iframe denying history replacement',async()=>{
@@ -1098,7 +1224,8 @@ test('HTML and SVG have one opaque-origin sandbox CSP with local asset and room 
     let headers:Record<string,any>={};
     await gameHttp({method:'GET',headers:{host:'localhost:4321'}} as any,{writeHead(status:number,h:Record<string,any>){assert.equal(status,200);headers=h;},end(){}} as any,new URL(`${prefix}/${game.id}/play/${file}`,'http://localhost'),workspace,async()=>({}));
     const csp=headers['Content-Security-Policy'];assert.equal(typeof csp,'string');
-    assert.match(csp,/(?:^|;)\s*sandbox allow-scripts allow-pointer-lock allow-popups allow-modals(?:;|$)/);
+    assert.match(csp,/(?:^|;)\s*sandbox allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals(?:;|$)/);
+    assert.match(csp,/(?:^|;)\s*form-action 'none'(?:;|$)/);
     assert.doesNotMatch(csp,/allow-same-origin/);assert.equal(csp.match(/sandbox/g).length,1);
     assert.match(csp,/blob: data:|data: blob:/);assert(csp.includes(`ws://localhost:4321${prefix}/${game.id}/rooms/`));
     assert.equal(headers['Access-Control-Allow-Origin'],'*');
@@ -1160,12 +1287,12 @@ test('default arcade input uses its horizontal keyboard controls for both press 
   const client=(await service.read(game.id,'client.js')).content;assert.match(client,/KeyD/);
 }));
 
-test('any workspace draft returns a complete Agent handoff; templates do not',()=>fixture(async(service,workspace)=>{
-  const created=await service.create({...brief,prompt:'Co-op zombie night shift',multiplayer:true,orientation:'portrait'});
+test('single-player workspace drafts return a complete Agent handoff; templates do not',()=>fixture(async(service,workspace)=>{
+  const created=await service.create({...brief,prompt:'Zombie night shift',orientation:'portrait'});
   const handoff=await service.handoff(created.game.id);
   assert.equal(handoff.gameId,created.game.id); assert.equal(handoff.status,'draft');
   assert.equal(handoff.agentInstruction,created.agentInstruction);
-  for(const part of [created.game.id,'openmotion_game_get','openmotion_game_set_status','Co-op zombie night shift','portrait 9:16']) assert(handoff.agentInstruction.includes(part),part);
+  for(const part of [created.game.id,'openmotion_game_get','openmotion_game_set_status','Zombie night shift','portrait 9:16','Build a single-player game']) assert(handoff.agentInstruction.includes(part),part);
   await service.status(created.game.id,'building'); assert.equal((await service.handoff(created.game.id)).status,'building');
   const template=path.join(service.templates,'racer'); await mkdir(template,{recursive:true});
   await writeFile(path.join(template,'game.json'),JSON.stringify({...created.game,id:'racer',status:'published',source:'template'}));
@@ -1243,4 +1370,78 @@ export function tick(state){ if (state.t >= 10) throw new Error('ticked after th
 export function viewFor(state){ return state; }
 export function isGameOver(state){ return { over: state.t >= 10 }; }`}]);
   assert.deepEqual((await service.validate(game.id)).diagnostics,[]);
+}));
+
+test('validation allows SVG namespace declarations and createElementNS while rejecting external URLs on the same host',()=>fixture(async(service)=>{
+  const {game}=await service.create(brief);
+  const svg='<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"></svg><script>document.createElementNS("http://www.w3.org/2000/svg","svg");</script>';
+  await service.write(game.id,[{path:'index.html',content:svg}]);
+  assert.equal((await service.validate(game.id)).passed,true);
+  await service.write(game.id,[{path:'index.html',content:svg+'<img src="http://www.w3.org/2000/svg">'}]);
+  assert.deepEqual((await service.validate(game.id)).diagnostics,[
+    {path:'index.html',message:'External network host is not allowed: www.w3.org'},
+  ]);
+}));
+
+test('headless playtest loads workspace asset versions via GET, HEAD, Range and rejects invalid ids with 404',async t=>fixture(async(service,workspace)=>{
+  if(!await browserExecutable().catch(()=>undefined)){t.skip('Local Chrome is unavailable');return;}
+  const filename=path.join(workspace,'sprite.png');
+  await writeFile(filename,Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==','base64'));
+  const asset=await new AssetLibrary(new WorkspaceStore(workspace)).importFile(filename,{requestId:'playtest-sprite',name:'Sprite'});
+  const base='/motion-api/assets/'+asset.id+'/versions/'+asset.currentVersionId;
+  const {game}=await service.create(brief);
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="1280" height="720"></canvas>
+    <script>
+      let state = null;
+      window.__omGame = {getState: () => state};
+      (async () => {
+        const results = await Promise.all(['media', 'file'].map(async endpoint => {
+          const response = await fetch(${JSON.stringify(base)} + '/' + endpoint);
+          return {status: response.status, bytes: (await response.arrayBuffer()).byteLength};
+        }));
+        const headRes = await fetch(${JSON.stringify(base)} + '/media', {method: 'HEAD'});
+        const rangeRes = await fetch(${JSON.stringify(base)} + '/media', {headers: {Range: 'bytes=0-3'}});
+        const rangeBytes = (await rangeRes.arrayBuffer()).byteLength;
+        const missingRes = await fetch('/motion-api/assets/not-a-uuid/versions/not-a-uuid/media');
+        state = {running: true, results, headStatus: headRes.status, rangeStatus: rangeRes.status, rangeBytes, missingStatus: missingRes.status};
+      })();
+    </script>`}]);
+  const {clients:[client]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.equal(client.failedRequests.filter(r => !r.url.includes('not-a-uuid')).length, 0);
+  const bytes=(await readFile(filename)).byteLength;
+  assert.deepEqual(client.authoritative?.state.results,[{status:200,bytes},{status:200,bytes}]);
+  assert.equal(client.authoritative?.state.headStatus,200);
+  assert.equal(client.authoritative?.state.rangeStatus,206);
+  assert.equal(client.authoritative?.state.rangeBytes,4);
+  assert.equal(client.authoritative?.state.missingStatus,404);
+}));
+
+test('headless playtest lets native dialog form close modals while form-action none blocks network submits',async t=>fixture(async(service)=>{
+  if(!await browserExecutable().catch(()=>undefined)){t.skip('Local Chrome is unavailable');return;}
+  const {game}=await service.create(brief);
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="640" height="360"></canvas>
+    <dialog id="rules"><form method="dialog"><button id="close-btn">×</button></form></dialog>
+    <script>
+      const d = document.getElementById('rules');
+      d.showModal();
+      const opened = d.open;
+      document.getElementById('close-btn').click();
+      window.__omGame = { getState: () => ({ running: true, opened, closed: !d.open }) };
+    </script>`}]);
+  const {clients:[dialogClient]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.deepEqual(dialogClient.consoleErrors,[]);
+  assert.deepEqual(dialogClient.authoritative?.state,{running:true,opened:true,closed:true});
+
+  // Network form submission remains blocked by form-action 'none'.
+  await service.write(game.id,[{path:'index.html',content:`<!doctype html><canvas id="game" width="640" height="360"></canvas>
+    <form id="ext" action="https://example.com/collect" method="post"><button id="send">Send</button></form>
+    <script>
+      let blockedDirective = null;
+      document.addEventListener('securitypolicyviolation', e => { blockedDirective = e.effectiveDirective; });
+      document.getElementById('send').click();
+      window.__omGame = { getState: () => ({ running: true, blockedDirective, href: location.href }) };
+    </script>`}]);
+  const {clients:[extClient]}=await service.playtest(game.id,{durationMs:150,scripts:[[]]});
+  assert.equal(extClient.authoritative?.state.blockedDirective,'form-action');
+  assert.match(String(extClient.authoritative?.state.href),/\/api\/games\/.*\/play\/index\.html/);
 }));

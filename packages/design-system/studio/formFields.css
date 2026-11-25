@@ -10,7 +10,7 @@
   --studio-form-arrow: light-dark(var(--motion-neutral-n7), var(--motion-neutral-n4));
 }
 
-:root[data-motion-ui][data-motion-studio] [data-form-surface="subtle"] {
+:root[data-motion-ui][data-motion-studio] :is([data-form-surface="subtle"], .om-media-form-popup) {
   --studio-form-surface-fill: var(--motion-image-form-fill);
 }
 
@@ -46,13 +46,13 @@
   box-shadow: none;
 }
 
-/* Dark Image workspace fields use a lower emphasis fill over the subtle surface. */
-:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) :is([data-image-workspace], .om-image-form-popup) {
+/* Dark media workspace fields use a lower emphasis fill over the subtle surface. */
+:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) :is(.om-asset-composer[data-form-surface="subtle"], .om-media-form-popup) {
   --studio-form-hover: var(--motion-neutral-n10);
   --studio-form-focus: var(--motion-focus);
 }
 
-:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) :is([data-image-workspace], .om-image-form-popup) :is(
+:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) :is(.om-asset-composer[data-form-surface="subtle"], .om-media-form-popup) :is(
   [data-form-control="boxed"], [data-form-field], .om-field, .hf-od-field
 ):not(:disabled, [aria-disabled="true"], :has(> :disabled)):is(:hover, :focus-within, [aria-expanded="true"], :has(> select:open)) {
   background-color: var(--studio-form-hover);
@@ -67,13 +67,13 @@
   [data-form-control="boxed"], [data-form-control="embedded"]
 )::placeholder { color: var(--motion-neutral-n6); opacity: 1; }
 
-[data-motion-studio] [data-image-workspace] .om-image-prompt::placeholder {
+[data-motion-studio] .om-asset-composer[data-form-surface="subtle"] .om-media-prompt::placeholder {
   font-size: var(--motion-text-sm);
 }
 
 /* The prompt uses the darker neutral while its field is idle. */
-:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) [data-image-workspace]
-  [data-form-field]:not(:hover, :focus-within) .om-image-prompt::placeholder {
+:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) .om-asset-composer[data-form-surface="subtle"]
+  [data-form-field]:not(:hover, :focus-within) .om-media-prompt::placeholder {
   color: var(--motion-neutral-n7);
 }
 
@@ -158,11 +158,11 @@
 :root[data-motion-ui][data-motion-studio] select[data-form-control="boxed"]:enabled { cursor: pointer; }
 
 @media (hover: hover) and (pointer: fine) and (forced-colors: none) {
-  [data-motion-studio] [data-image-workspace] .om-asset-direct-scroll {
+  [data-motion-studio] .om-asset-composer[data-form-surface="subtle"] .om-asset-direct-scroll {
     scrollbar-width: thin;
     scrollbar-color: transparent transparent;
   }
-  [data-motion-studio] [data-image-workspace]:hover .om-asset-direct-scroll {
+  [data-motion-studio] .om-asset-composer[data-form-surface="subtle"]:hover .om-asset-direct-scroll {
     scrollbar-color: var(--motion-border-strong) transparent;
   }
 }

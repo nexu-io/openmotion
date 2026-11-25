@@ -339,3 +339,57 @@
   .reviewScroll { display: block; height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--review-action-height, var(--motion-space-56)); }
   .reviewGrid .reviewFooter { position: fixed; inset: auto 0 0; z-index: 3; padding-bottom: calc(var(--motion-space-12) + env(safe-area-inset-bottom)); max-height: 45dvh; overflow-y: auto; }
 }
+
+.recoverySkills {
+  display: grid;
+  gap: var(--motion-space-12);
+  padding-bottom: var(--motion-space-16);
+  margin-bottom: var(--motion-space-16);
+  border-bottom: 1px solid var(--motion-border-subtle);
+}
+.recoverySkillsHeader {
+  display: grid;
+  gap: var(--motion-space-4);
+}
+.recoverySkillsHeader > h3,
+.recoverySkillsHeader > p {
+  margin: 0;
+}
+.recoverySkillList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--motion-space-8);
+}
+.recoverySkillButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--motion-space-12);
+  width: 100%;
+  padding: var(--motion-space-12);
+  border-radius: var(--motion-radius-md);
+  border: 1px solid var(--motion-border-subtle);
+  background: var(--motion-inset);
+  text-align: start;
+}
+.recoverySkillCopy {
+  display: grid;
+  gap: var(--motion-space-4);
+  min-width: 0;
+}
+.recoverySkillCopy > strong {
+  font-size: var(--motion-text-sm);
+  font-weight: var(--motion-weight-semibold);
+  color: var(--motion-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.recoverySkillCopy > small {
+  font-size: var(--motion-text-xs);
+  color: var(--motion-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

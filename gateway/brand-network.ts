@@ -2,7 +2,7 @@ import https from "node:https";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
-import { isPublicAddress } from "./network.ts";
+import { isPublicAddress, resolvePublicAddresses, resolvePublicDns, type PublicAddress } from "./network.ts";
 
 // Brand capture and provider traffic must agree on what counts as a public address.
 export const publicBrandAddress = isPublicAddress;
@@ -31,59 +31,12 @@ export type BrandResponse = {
   headers: Record<string, string>;
   body: Buffer;
 };
-type BrandAddress = { address: string; family: number };
-const syntheticAddress = (address: string) => /^198\.(?:18|19)\./.test(address);
-
-/** A public resolver handles proxy Fake-IP answers without admitting synthetic/private peers. */
-async function publicDns(hostname: string, signal: AbortSignal): Promise<BrandAddress[]> {
-  const url = new URL('https://cloudflare-dns.com/dns-query');
-  url.searchParams.set('name', hostname);
-  url.searchParams.set('type', 'A');
-  return new Promise((resolve, reject) => {
-    const request = https.get(url, {
-      signal,
-      headers: { Accept: 'application/dns-json' },
-      // Bootstrap the resolver independently of the synthetic OS DNS. TLS still verifies its hostname.
-      lookup: (_host, options, done) => {
-        if ((options as { all?: boolean }).all) (done as Function)(null, [{ address: '1.1.1.1', family: 4 }]);
-        else done(null, '1.1.1.1', 4);
-      },
-    }, response => {
-      const chunks: Buffer[] = []; let length = 0;
-      response.on('data', (chunk: Buffer) => {
-        length += chunk.length;
-        if (length > 65_536) response.destroy(new Error('Public DNS response is too large'));
-        else chunks.push(chunk);
-      });
-      response.on('error', reject);
-      response.on('end', () => {
-        try {
-          if (response.statusCode !== 200) throw new Error('Public DNS lookup failed');
-          const answer = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (answer.Status !== 0 || !Array.isArray(answer.Answer)) throw new Error('Public DNS lookup failed');
-          resolve(answer.Answer.filter((record: { type: number; data: string }) => record.type === 1)
-            .map((record: { data: string }) => ({ address: record.data, family: 4 })));
-        } catch (error) { reject(error); }
-      });
-    });
-    request.setTimeout(5000, () => request.destroy(new Error('Public DNS lookup timed out')));
-    request.on('error', reject);
-  });
-}
+type BrandAddress = PublicAddress;
 export async function resolveBrandAddresses(hostname: string, signal: AbortSignal, dependencies = {
   lookup: (name: string) => lookup(name, { all: true }),
-  publicDns,
+  publicDns: resolvePublicDns,
 }): Promise<BrandAddress[]> {
-  let addresses = await dependencies.lookup(hostname);
-  signal.throwIfAborted();
-  // Only the well-defined benchmarking/Fake-IP range gets a second resolution path.
-  // A loopback, RFC1918, mixed private or link-local DNS answer remains a hard rejection.
-  if (addresses.length && addresses.every(({ address }) => syntheticAddress(address)))
-    addresses = await dependencies.publicDns(hostname, signal);
-  signal.throwIfAborted();
-  if (!addresses.length || addresses.some(({ address }) => !publicBrandAddress(address)))
-    throw new Error('Website points to a private network');
-  return addresses;
+  return resolvePublicAddresses(hostname, signal, 'Website points to a private network', dependencies);
 }
 const defaultUserAgent = "Mozilla/5.0 OpenMotion-BrandKit/1.0";
 const browserUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";

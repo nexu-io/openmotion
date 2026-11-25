@@ -1,7 +1,9 @@
+import { gameAssetInstructions } from '../../../../shared/game-contract';
 import type { CapabilityResourceRef } from '../../../../shared/capability-hub';
+import { gameGenres, gameSettings, gameStyles } from '../../../../shared/game-contract';
 import type { GameCard, GameGenre, GameSetting, GameStyle } from '../../../../shared/game-contract';
-import type { SuperAgentArtifact, SuperAgentResourceAttachment } from '../../../../shared/super-agent';
-import { coverUrl } from './gameCatalog';
+import type { SuperAgentArtifact, SuperAgentContextTag, SuperAgentResourceAttachment } from '../../../../shared/super-agent';
+import { coverUrl, genreLabels, settingLabels, styleLabels } from './gameCatalog';
 
 export function gamePlayPath(id: string): string {
   return `/motion-api/games/${encodeURIComponent(id)}/play/index.html`;
@@ -9,6 +11,10 @@ export function gamePlayPath(id: string): string {
 
 function playerLabel(game: GameCard): string {
   return game.playableAd ? 'Playable ad' : game.multiplayer ? 'Multiplayer' : 'Single player';
+}
+
+export function isMultiplayerGameArtifact(artifact: Pick<SuperAgentArtifact, 'kind' | 'subtitle'>): boolean {
+  return artifact.kind === 'game-project' && artifact.subtitle?.endsWith(' · Multiplayer') === true;
 }
 
 export function localizedGameTitle(game: GameCard, locale: string): string {
@@ -40,6 +46,7 @@ export function toGameArtifact(game: GameCard, displayTitle: string): Partial<Su
     subtitle: game.external
       ? `${game.external.author} · ${game.external.model}`
       : `${game.genre} · ${game.playableAd ? 'Playable ad' : game.multiplayer ? 'Multiplayer' : 'Game Studio'}`,
+    playableAd: game.playableAd === true,
     ...(isExternal ? {} : { projectId: game.id }),
     scenario: game.orientation === 'portrait' ? 'portrait' : 'landscape',
     revision: game.updatedAt,
@@ -53,8 +60,27 @@ export function toGameResourceAttachment(game: GameCard, displayTitle: string): 
     id: game.id,
     title: displayTitle,
     subtitle: `${game.genre} · ${playerLabel(game)}`,
+    playableAd: game.playableAd === true,
     ...(coverUrl(game) ? { previewUrl: coverUrl(game)! } : {}),
   };
+}
+
+export function buildGameContextTags(
+  game: Pick<GameCard, 'genre' | 'style' | 'setting' | 'orientation' | 'multiplayer'> & { playableAd?: boolean },
+  t: (text: string) => string,
+): SuperAgentContextTag[] {
+  const tags: SuperAgentContextTag[] = [
+    { kind: 'mode', label: t('Game'), icon: 'gamepad-line', tone: 'agent' },
+    { kind: 'param', label: t(genreLabels[game.genre]) },
+  ];
+  if (game.style) tags.push({ kind: 'param', label: t(styleLabels[game.style]) });
+  if (game.setting) tags.push({ kind: 'param', label: t(settingLabels[game.setting]) });
+  tags.push({ kind: 'param', label: game.orientation === 'portrait' ? '9:16' : '16:9' });
+  tags.push({
+    kind: 'param',
+    label: game.playableAd ? t('Playable ad') : game.multiplayer ? t('Multiplayer') : t('Single player'),
+  });
+  return tags;
 }
 
 export function buildGameUserPrompt(game: GameCard, locale: string, userNotes?: string): string {
@@ -83,15 +109,50 @@ export function buildGameHiddenInstructions(game: GameCard, instruction: string,
     // The draft instruction already carries the ad recipe; repeating the format here keeps it visible in Super Agent turns.
     game.playableAd ? 'format=playable ad (follow the openmotion-game playable-ad recipe: first-frame play with a hand tutorial, short levels, win/fail end cards with a store CTA, one self-contained HTML)' : '',
   ].filter(Boolean);
+  const assetNote = game.playableAd || instruction.includes('openmotion_media_use') ? '' : ` ${gameAssetInstructions}`;
+  const consentNote = game.playableAd ? '' : ' (except a single batched spend-consent check when priced media generation is planned)';
   return [
     instruction,
     extraNotes,
-    `Game Studio context: ${contextParts.join(', ')}. Proceed directly to building and testing without unnecessary questions. If custom visual sprites, textures, music, or sound effects will elevate the game, you may generate reusable assets via openmotion_assets_use(action="generate") and reference their /motion-api/assets/<assetId>/versions/<versionId>/media URLs. Always finish by calling openmotion_present_artifact(kind="game-project", projectId="${game.id}") so the playable result opens in the Browser Artifact Viewer.`,
+    `Game Studio context: ${contextParts.join(', ')}. Proceed directly to building and testing without unnecessary questions${consentNote}.${assetNote} Always finish by calling openmotion_present_artifact(kind="game-project", projectId="${game.id}") so the playable result opens in the Browser Artifact Viewer.`,
   ].filter(Boolean).join('\n\n');
 }
 
 export function buildDirectGamePrompt(game: GameCard, instruction: string, userNotes?: string): string {
   return buildGameHiddenInstructions(game, instruction, userNotes);
+}
+
+const gameBriefOption = `(?:(?:${gameStyles.join('|')}) style|with multiplayer|${gameGenres.join('|')}|(?:${gameSettings.join('|')}) setting)`;
+const gameBriefOptions = new RegExp(`^${gameBriefOption}(?:, ${gameBriefOption})*\\. `);
+
+/** Show the brief from a stored Game Studio handoff without altering the original turn. */
+export function readDirectGameBrief(text: string, gameId: string): string | undefined {
+  const header = `game ${gameId} in this workspace. Read openmotion://workflow/game/start`;
+  const prefix = ['build', 'remix']
+    .map(action => `Use the openmotion-game Skill to ${action} ${header}`)
+    .find(candidate => text.startsWith(candidate));
+  if (!prefix) return;
+  // Handoffs may include a parenthetical hint about the host's workflow reader.
+  const briefMarker = ` and openmotion_game_get with id=${gameId}. Brief: `;
+  const markerStart = text.indexOf(briefMarker, prefix.length);
+  if (markerStart < 0 || !/^(?: \([^()\r\n]*\))?$/.test(text.slice(prefix.length, markerStart))) return;
+  const briefStart = markerStart + briefMarker.length;
+  const context = text.lastIndexOf('\n\nGame Studio context: ');
+  const instructionEnd = context < 0 ? text.length : context;
+  const steps = Math.max(
+    text.lastIndexOf('\nAsk whether to publish to the local market only when the decision is missing.', instructionEnd),
+    text.lastIndexOf('\nAsk at most two short questions (multiplayer mode and local-market publication)', instructionEnd),
+  );
+  if (steps < briefStart) return;
+
+  const notesMarker = '\n\nAdditional user notes: ';
+  const notesStart = text.indexOf(notesMarker, steps);
+  if (notesStart >= 0 && notesStart < context) return text.slice(notesStart + notesMarker.length, context).trim();
+  const brief = text.slice(briefStart, steps)
+    .split(/\n\n(?:Layout: portrait 9:16 phone game\.|Format: playable ad\. Follow the playable-ad recipe)/, 1)[0]
+    .replace(gameBriefOptions, '')
+    .trim();
+  return brief || undefined;
 }
 
 export type GameQuickIdea = {
@@ -100,7 +161,6 @@ export type GameQuickIdea = {
   style: GameStyle | null;
   setting: GameSetting | null;
   orientation: 'landscape' | 'portrait';
-  multiplayer: boolean;
   /** Portrait single-player ideas can start as a playable ad. */
   playableAd?: boolean;
   prompt: string;
@@ -108,21 +168,11 @@ export type GameQuickIdea = {
 
 export const GAME_STUDIO_QUICK_IDEAS: readonly GameQuickIdea[] = [
   {
-    title: 'Co-op 3D crystal defense',
-    genre: 'shooter',
-    style: '3d',
-    setting: 'fantasy',
-    orientation: 'landscape',
-    multiplayer: true,
-    prompt: 'Defend a glowing arena crystal through 5 waves with 1–4 co-op players, dash/nova skills, and an instant invite link.',
-  },
-  {
     title: 'Retro pixel platformer',
     genre: 'platformer',
     style: 'pixel',
     setting: 'retro',
     orientation: 'landscape',
-    multiplayer: false,
     prompt: 'Build a crisp pixel-art platformer with tight jump physics, hidden coins, hazards, and a dramatic boss arena.',
   },
   {
@@ -131,7 +181,6 @@ export const GAME_STUDIO_QUICK_IDEAS: readonly GameQuickIdea[] = [
     style: 'minimal',
     setting: 'modern',
     orientation: 'portrait',
-    multiplayer: false,
     prompt: 'Create an addictive 9:16 portrait one-tap arcade game playable with one thumb, instant restarts, and combo multipliers.',
   },
   {
@@ -140,7 +189,6 @@ export const GAME_STUDIO_QUICK_IDEAS: readonly GameQuickIdea[] = [
     style: '3d',
     setting: null,
     orientation: 'portrait',
-    multiplayer: false,
     playableAd: true,
     prompt: 'Make a pull-the-pin coin playable ad: coins pour through ×2 and ×5 rings into a piggy bank, with a hand tutorial and a Play now end card.',
   },
@@ -150,7 +198,6 @@ export const GAME_STUDIO_QUICK_IDEAS: readonly GameQuickIdea[] = [
     style: '3d',
     setting: 'cyberpunk',
     orientation: 'landscape',
-    multiplayer: false,
     prompt: 'Build a neon night-time 3D street racing game with smooth drifting, nitro boost pads, and lap time records.',
   },
 ];

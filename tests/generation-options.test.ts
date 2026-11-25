@@ -151,7 +151,10 @@ test('exact endpoint schemas preserve provider types and never guess from a mode
   assert.equal(generationOptions({ ...seedance, modelId: 'unknown', label: seedance.label }), undefined);
   const flux = builtinModels.find(m => m.modelId === 'fal-ai/flux/schnell')!;
   validateGenerationOptions(flux, { image_size: { width: 1280, height: 720 } });
+  for (const num_images of [1, 2, 3, 4]) validateGenerationOptions(flux, { num_images });
+  assert.throws(() => validateGenerationOptions(flux, { num_images: 0 }), /Output count/);
   assert.throws(() => validateGenerationOptions(flux, { num_images: 1.5 }), /Output count/);
+  assert.throws(() => validateGenerationOptions(flux, { num_images: 5 }), /Output count/);
   const codex = builtinModels.find(m => m.provider === 'codex')!;
   assert.equal(generationOptions(codex)?.delivery, 'prompt');
 });
@@ -705,10 +708,10 @@ const placeholderOpenDesignModel = (provider: 'opendesign' | 'account', modelId:
 
 test('existing OpenDesign image and video models keep exact feature eligibility across Cloud, account and placeholders', () => {
   const imageMatrix: [string, Record<ImageFeatureId, boolean>][] = [
-    ['gpt-image-2.6-sunburst', { 'remove-background': true, relight: true, character: true }],
-    ['gpt-image-2.6-flare', { 'remove-background': true, relight: true, character: true }],
-    ['seedream-5.5', { 'remove-background': false, relight: true, character: true }],
-    ['seedream-5.0-flash', { 'remove-background': false, relight: true, character: true }],
+    ['gpt-image-2.6-sunburst', { 'remove-background': true, relight: true, 'image-blend': true }],
+    ['gpt-image-2.6-flare', { 'remove-background': true, relight: true, 'image-blend': true }],
+    ['seedream-5.5', { 'remove-background': false, relight: true, 'image-blend': false }],
+    ['seedream-5.0-flash', { 'remove-background': false, relight: true, 'image-blend': true }],
   ];
   const videoMatrix: [string, Record<VideoFeatureId, boolean>][] = [
     ['doubao-seedance-2-5-260628', { 'camera-control': true, 'multi-shot': true }],
@@ -775,10 +778,11 @@ test('modelCapabilities derives image edit, reference limits and transparent bac
 
   assert.equal(imageFeatureSupported('remove-background', futureTransparent), true);
   assert.equal(imageFeatureSupported('relight', futureTransparent), true);
-  assert.equal(imageFeatureSupported('character', futureTransparent), true);
+  assert.equal(imageFeatureSupported('image-blend', futureTransparent), true);
   assert.equal(imageFeatureSupported('relight', futureNoEdit), false);
-  assert.equal(imageFeatureSupported('character', futureNoEdit), false);
+  assert.equal(imageFeatureSupported('image-blend', futureNoEdit), false);
   assert.equal(imageFeatureSupported('remove-background', zeroRefI2i), false);
+  assert.equal(imageFeatureCapable('image-blend', codex), false);
 
   // Pure capability checks remain provider-agnostic, while Studio feature checks scope to OpenDesign.
   assert.equal(imageFeatureCapable('remove-background', codex), true);
@@ -896,3 +900,93 @@ test('cloudModels populates measured maxInputImages when OpenDesign Cloud omits 
   assert.equal(byId.get('seedream-5.5'), 1);
   assert.equal(byId.get('future-unknown-image'), 1);
 });
+
+test('SSOT metadata attaches standardKey and tier to generationOptions and gateway enriches registry-backed models', () => fixture(async store => {
+  const codexImage: Model = {
+    id: 'codex:image-generation',
+    provider: 'codex',
+    modelId: 'image-generation',
+    label: 'Codex Image',
+    modality: 'image',
+    mode: 'text-to-image',
+    source: 'builtin',
+  };
+  const codexOpts = generationOptions(codexImage)!;
+  assert.equal(codexOpts.fields[0].standardKey, 'aspectRatio');
+  assert.equal(codexOpts.fields[0].tier, 'primary');
+  assert.equal(codexOpts.fields[1].standardKey, 'background');
+  assert.equal(codexOpts.fields[1].tier, 'primary');
+
+  const nano = builtinModels.find(m => m.id === 'atlascloud:google/nano-banana-2/text-to-image')!;
+  const nanoOpts = generationOptions(nano)!;
+  assert.equal(nanoOpts.fields.find(f => f.key === 'aspect_ratio')?.tier, 'primary');
+  assert.equal(nanoOpts.fields.find(f => f.key === 'resolution')?.tier, 'primary');
+  assert.equal(nanoOpts.fields.find(f => f.key === 'output_format')?.tier, 'advanced');
+  assert.equal(nanoOpts.fields.find(f => f.key === 'seed')?.standardKey, 'seed');
+  assert.equal(nanoOpts.fields.find(f => f.key === 'seed')?.tier, 'advanced');
+
+  const gateway = gatewayFor(store);
+  try {
+    await mkdir(gateway.root, { recursive: true });
+    const cachedModel: Model = {
+      id: 'fal:alibaba/wan-3.0-prime/image-to-video',
+      provider: 'fal',
+      modelId: 'alibaba/wan-3.0-prime/image-to-video',
+      label: 'Wan 3.0 Prime',
+      modality: 'video',
+      mode: 'image-to-video',
+      source: 'live',
+    };
+    await writeFile(path.join(gateway.root, 'catalog.json'), JSON.stringify([cachedModel]));
+    const models = await gateway.models();
+    const enriched = models.find(m => m.id === cachedModel.id);
+    assert.ok(enriched?.generationOptions, 'Expected ModelGateway to enrich live fal model from @openmotion/multimodal-models');
+    assert.equal(enriched!.generationOptions!.fields.find(f => f.key === 'resolution')?.tier, 'primary');
+    assert.equal(enriched!.generationOptions!.fields.find(f => f.key === 'duration')?.standardKey, 'duration');
+    assert.equal(enriched!.generationOptions!.fields.find(f => f.key === 'seed')?.tier, 'advanced');
+  } finally {
+    gateway.close();
+  }
+}));
+
+test('OpenDesign image models fail fast locally on unsupported geometry/output parameters before queueing', () => fixture(async store => {
+  const sunburst: Model = {
+    id: 'opendesign:gpt-image-2.6-sunburst', provider: 'opendesign', modelId: 'gpt-image-2.6-sunburst',
+    label: 'GPT Image 2.6 Sunburst', modality: 'image', mode: 'text-to-image', source: 'live',
+  };
+  const flare: Model = { ...sunburst, id: 'account:gpt-image-2.6-flare', provider: 'account', modelId: 'gpt-image-2.6-flare' };
+  const seedream: Model = {
+    id: 'opendesign:seedream-5.0-flash', provider: 'opendesign', modelId: 'seedream-5.0-flash',
+    label: 'Seedream 5.0 Flash', modality: 'image', mode: 'text-to-image', source: 'live',
+  };
+  const profiled: Model = {
+    id: 'opendesign:nano-banana-2', provider: 'opendesign', modelId: 'nano-banana-2',
+    label: 'Nano Banana 2', modality: 'image', mode: 'text-to-image', source: 'live',
+    nativeOptions: { profiles: { generations: { profiles: [{ aspect_ratio: '1:1', resolution: '1K' }], default: { aspect_ratio: '1:1', resolution: '1K' } } } },
+  };
+  assert.throws(() => resolveGenerationParameters(sunburst, { quality: 'medium', background: 'transparent', output: { aspect_ratio: '1:1', resolution: '1k' } }), /does not support output/i);
+  assert.throws(() => validateGenerationOptions(sunburst, { output: { aspect_ratio: '1:1', resolution: '1K' } }), /does not support output/i);
+  assert.throws(() => resolveGenerationParameters(flare, { size: '1K' }), /does not support size/i);
+  assert.throws(() => resolveGenerationParameters(sunburst, { aspect_ratio: '1:1', resolution: '1K' }), /does not support aspect_ratio, resolution/i);
+  assert.doesNotThrow(() => resolveGenerationParameters(sunburst, { quality: 'medium', background: 'transparent' }));
+  assert.throws(() => resolveGenerationParameters(seedream, { output: { aspect_ratio: '1:1', resolution: '1K' } }), /does not support output/i);
+  assert.throws(() => resolveGenerationParameters(seedream, { background: 'transparent' }), /does not support background/i);
+  assert.doesNotThrow(() => resolveGenerationParameters(seedream, { size: '1K' }));
+  assert.throws(() => resolveGenerationParameters(profiled, { output: { aspect_ratio: '1:1', resolution: '1k' } }), /Output profile 1:1 \/ 1k is not available/);
+  assert.throws(() => resolveGenerationParameters(profiled, { output: '1:1' }), /parameters\.output must be an object/);
+  assert.doesNotThrow(() => resolveGenerationParameters(profiled, { output: { aspect_ratio: '1:1', resolution: '1K' } }));
+
+  let posts = 0;
+  const gateway = gatewayFor(store);
+  gateway.options.fetcher = (async () => { posts++; return Response.json({ models: [{ model: 'gpt-image-2.6-sunburst', kind: 'image', capabilities: { edits: true } }] }); }) as typeof fetch;
+  try {
+    await gateway.configureProvider('opendesign', { apiKey: 'test-key', baseUrl: 'https://cloud.example' });
+    posts = 0;
+    await assert.rejects(
+      gateway.submit({ modality: 'image', model: 'opendesign:gpt-image-2.6-sunburst', prompt: 'Hero', parameters: { quality: 'medium', output: { aspect_ratio: '1:1', resolution: '1k' } }, library: {} }),
+      /does not support output/i,
+    );
+    assert.equal(posts, 0);
+    assert.equal((await gateway.listJobs()).length, 0);
+  } finally { await gateway.close(); }
+}));

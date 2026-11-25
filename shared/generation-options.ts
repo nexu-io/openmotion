@@ -1,14 +1,57 @@
-import type { Model } from './gateway.ts';
+import type { Model, Modality } from './gateway.ts';
+import type { ParameterTier, StandardParameterKey } from '../packages/multimodal-models/src/schema.ts';
+import {
+  classifyParameterTier,
+  mapWireKeyToStandard,
+  PRIMARY_STANDARD_KEYS_BY_MODALITY,
+} from '../packages/multimodal-models/src/normalize.ts';
+
+export type { ParameterTier, StandardParameterKey };
+export { classifyParameterTier, mapWireKeyToStandard, PRIMARY_STANDARD_KEYS_BY_MODALITY };
 
 export type GenerationOption = {
   key: string; label: string; kind: 'choice' | 'number' | 'boolean' | 'text';
   choices?: { value: string | number; label: string; requires?: Record<string, string | number>; previewUrl?: string }[];
   default?: string | number | boolean; min?: number; max?: number; step?: number;
   presentation?: 'ratio' | 'count'; required?: boolean;
+  /** Canonical cross-provider parameter key from `@openmotion/multimodal-models`. */
+  standardKey?: StandardParameterKey;
+  /** Display tier (`primary` quick controls vs collapsible `advanced` parameters). */
+  tier?: ParameterTier;
+  /** Stable UI ordering index. */
+  uiOrder?: number;
+  /** Optional provider parameter description for tooltips/help. */
+  description?: string;
   /** The choices are suggestions: any other non-empty string is also accepted. */
   allowCustom?: boolean;
 };
 export type GenerationOptions = { delivery: 'provider' | 'prompt'; fields: GenerationOption[] };
+
+/** Align every `GenerationOption` field with the SSOT canonical key & primary/advanced tier taxonomy. */
+export function enrichGenerationOptionsWithSSOT(modality: Modality, options: GenerationOptions): GenerationOptions {
+  return {
+    delivery: options.delivery,
+    fields: options.fields.map((field, index) => {
+      const valueType = field.kind === 'choice'
+        ? 'enum'
+        : field.kind === 'number'
+          ? (field.step !== undefined && field.step !== 1 ? 'number' : 'integer')
+          : field.kind === 'boolean'
+            ? 'boolean'
+            : 'string';
+      const standardKey = field.standardKey ?? mapWireKeyToStandard(field.key, modality, valueType);
+      const tier = field.tier ?? classifyParameterTier(modality, field.key, standardKey, valueType);
+      const uiOrder = field.uiOrder ?? index;
+      if (field.standardKey === standardKey && field.tier === tier && field.uiOrder === uiOrder) return field;
+      return {
+        ...field,
+        ...(standardKey ? { standardKey } : {}),
+        tier,
+        uiOrder,
+      };
+    }),
+  };
+}
 const choice = (key: string, label: string, values: (string | number)[], value?: string | number, presentation?: GenerationOption['presentation']): GenerationOption => ({ key, label, kind: 'choice', choices: values.map(value => ({ value, label: String(value) })), default: value, presentation });
 const number = (key: string, label: string, value?: number, min?: number, max?: number, step = 1): GenerationOption => ({ key, label, kind: 'number', default: value, min, max, step });
 const toggle = (key: string, label: string, value = false): GenerationOption => ({ key, label, kind: 'boolean', default: value });
@@ -135,6 +178,36 @@ export function compatibleImageResolutions(model: Model, aspectRatio: unknown, h
   return [...new Set(envelope.profiles.filter(p => p.aspect_ratio === aspectRatio).map(p => p.resolution))];
 }
 
+/** Fail-fast check for unsupported geometry/output fields on OpenDesign image models before queueing remote jobs. */
+function assertOpenDesignImageParameters(model: Model, resolved: Record<string, unknown>, imageProfiles: PublishedImageProfiles | undefined) {
+  if (!isOpenDesignMedia(model) || model.modality !== 'image') return;
+  if (/^gpt-image-2\.6-/.test(model.modelId)) {
+    const unsupported = ['output', 'aspect_ratio', 'resolution', 'size', 'image_size'].filter(key => resolved[key] !== undefined);
+    if (unsupported.length) {
+      throw new Error(`Model ${model.id} does not support ${unsupported.join(', ')}. Supported parameters: quality (low|medium|high) and optional background ("transparent").`);
+    }
+    return;
+  }
+  if (model.modelId === 'seedream-5.0-flash' || model.modelId === 'seedream-5.5') {
+    const unsupported = ['output', 'aspect_ratio', 'resolution', 'background', 'image_size'].filter(key => resolved[key] !== undefined);
+    if (unsupported.length) {
+      const sizes = model.modelId === 'seedream-5.0-flash' ? '1K|1.5K|2K' : '1K|2K';
+      throw new Error(`Model ${model.id} does not support ${unsupported.join(', ')}. Supported parameters: size (${sizes}).`);
+    }
+    return;
+  }
+  if (resolved.output !== undefined) {
+    const out = resolved.output;
+    if (!isRecord(out) || typeof out.aspect_ratio !== 'string' || !out.aspect_ratio.trim()
+      || typeof out.resolution !== 'string' || !out.resolution.trim()) {
+      throw new Error('parameters.output must be an object with non-empty aspect_ratio and resolution strings.');
+    }
+    if (imageProfiles && !imageProfiles.profiles.some(p => p.aspect_ratio === out.aspect_ratio && p.resolution === out.resolution)) {
+      throw new Error(`Output profile ${out.aspect_ratio} / ${out.resolution} is not available for this model.`);
+    }
+  }
+}
+
 /** Resolve defaults without carrying a text-to-video ratio into a first-frame request,
  * and complete published OpenDesign image (aspect_ratio, resolution) output profile pairs. */
 export function resolveGenerationParameters(model: Model, parameters: Record<string, unknown>, hasInputImage = false): Record<string, unknown> {
@@ -192,6 +265,7 @@ export function resolveGenerationParameters(model: Model, parameters: Record<str
           : 'OpenDesign Cloud image requests require both aspect_ratio and resolution together, or an explicit output object.');
       }
     }
+    assertOpenDesignImageParameters(model, resolved, imageProfiles);
   }
   return resolved;
 }
@@ -270,10 +344,10 @@ function openDesignImageFields(model: Model): GenerationOption[] | undefined {
  * An unknown catalogue model deliberately gets no guessed schema. */
 export function generationOptions(model: Model, hasInputImage = false): GenerationOptions | undefined {
   const endpoint = `${model.provider}:${model.modelId}`;
-  if (endpoint === 'codex:image-generation' && model.modality === 'image') return { delivery: 'prompt', fields: [
+  if (endpoint === 'codex:image-generation' && model.modality === 'image') return enrichGenerationOptionsWithSSOT('image', { delivery: 'prompt', fields: [
     choice('aspect_ratio', 'Aspect ratio', ['1:1', '4:3', '3:4', '16:9', '9:16'], undefined, 'ratio'),
     choice('background', 'Background', ['opaque', 'transparent']),
-  ] };
+  ] });
   let fields: GenerationOption[] | undefined;
   if (endpoint === 'atlascloud:google/nano-banana-2/text-to-image' && model.modality === 'image') fields = [
     choice('aspect_ratio', 'Aspect ratio', ['1:1', '3:2', '2:3', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'], undefined, 'ratio'),
@@ -291,7 +365,7 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
     { ...choice('image_size', 'Image size', [], 'landscape_4_3', 'ratio'), choices: [
       ['square_hd', '1:1 HD'], ['square', '1:1'], ['portrait_4_3', '3:4'], ['portrait_16_9', '9:16'], ['landscape_4_3', '4:3'], ['landscape_16_9', '16:9'],
     ].map(([value, label]) => ({ value, label })) },
-    { ...number('num_images', 'Output count', 1, 1), presentation: 'count' }, choice('output_format', 'Output format', ['jpeg', 'png'], 'jpeg'), number('seed', 'Seed'),
+    { ...number('num_images', 'Output count', 1, 1, 4), presentation: 'count' }, choice('output_format', 'Output format', ['jpeg', 'png'], 'jpeg'), number('seed', 'Seed'),
   ];
   if (endpoint === 'fal:fal-ai/wan/v2.2-a14b/text-to-video' && model.modality === 'video') fields = [
     choice('aspect_ratio', 'Aspect ratio', ['16:9', '9:16', '1:1'], '16:9', 'ratio'), choice('resolution', 'Resolution', ['480p', '580p', '720p'], '720p'),
@@ -351,13 +425,19 @@ export function generationOptions(model: Model, hasInputImage = false): Generati
   if (cloudSpeech(model)) { const voices = checkedVoices(model); fields = [voices ? { key: 'voice', label: 'Speech voice', kind: 'choice', choices: voices, default: voices[0].value, allowCustom: true } : text('voice', 'Voice ID', true)]; }
   // The connector's `audio music --duration` takes whole seconds; music models publish no duration range.
   if (model.provider === 'account' && model.modality === 'audio' && model.mode === 'text-to-audio') fields = [number('duration', 'Duration (seconds)', undefined, 1)];
-  return fields ? { delivery: 'provider', fields } : undefined;
+  return fields ? enrichGenerationOptionsWithSSOT(model.modality, { delivery: 'provider', fields }) : undefined;
 }
 
 /** Validate maintained fields; preserve the advanced provider-native escape hatch. */
-export function validateGenerationOptions(model: Model, parameters: Record<string, unknown>, hasInputImage = false) {
+export function validateGenerationOptions(
+  model: Model,
+  parameters: Record<string, unknown>,
+  hasInputImage = false,
+  resolvedOptions?: GenerationOptions,
+) {
   const isEdit = hasInputImage || (Array.isArray(parameters.images) && parameters.images.length > 0);
-  for (const field of generationOptions(model, isEdit)?.fields ?? []) {
+  const schema = generationOptions(model, isEdit) ?? resolvedOptions ?? model.generationOptions;
+  for (const field of schema?.fields ?? []) {
     const value = parameters[field.key];
     if (value === undefined) { if (field.required) throw new Error(`${field.label} is required`); continue; }
     // fal also accepts custom dimensions; the quick picker is only a subset.
@@ -377,6 +457,7 @@ export function validateGenerationOptions(model: Model, parameters: Record<strin
     }
   }
   const imageProfiles = publishedImageProfiles(model, isEdit);
+  assertOpenDesignImageParameters(model, parameters, imageProfiles);
   if (imageProfiles && typeof parameters.aspect_ratio === 'string' && typeof parameters.resolution === 'string') {
     if (!imageProfiles.profiles.some(p => p.aspect_ratio === parameters.aspect_ratio && p.resolution === parameters.resolution)) {
       throw new Error(`Resolution ${parameters.resolution} is not available for aspect ratio ${parameters.aspect_ratio}.`);

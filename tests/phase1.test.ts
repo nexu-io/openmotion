@@ -9,7 +9,7 @@ import { Phase1Service } from '../phase1.ts';
 import { pluginRoot, execute } from '../hyperframes.ts';
 import { cancelExport } from '../server.ts';
 import { atomicJson, fileHash, recoverProjectTransactions } from '../phase1-versions.ts';
-import { validateInput, phase1Tools } from '../shared/phase1-tools.ts';
+import { validateInput, normalizeToolInput, phase1Tools } from '../shared/phase1-tools.ts';
 import { transport } from './http.ts';
 import { MAX_ASSET_BYTES, isAssetFileWithinLimit } from '../shared/asset-limits.ts';
 import { sessionPath } from '../shared/workspace-url.ts';
@@ -414,4 +414,108 @@ test('project pagination rejects cursors with invalid ordering values', () => fi
     const cursor = Buffer.from(JSON.stringify({ kind: 'projects', scope: 'workspace', after })).toString('base64url');
     await assert.rejects(service.call('openmotion_get_project', { cursor }), /INVALID_CURSOR/);
   }
+}, false));
+
+test('normalizeToolInput tolerates DeepSeek/OpenAI optional nulls, empty optional strings, uppercase UUIDs and whitespace', () => fixture(async store => {
+  const service = api(store);
+  const p = await create(service);
+  assert.ok(p.currentVersionId);
+  assert.equal(p.currentVersionNumber, 1);
+
+  // target='templates' with unused null/empty optional fields must succeed instead of invalid_combination.
+  const templatesPreview = await service.call('openmotion_open_preview', {
+    target: 'templates',
+    action: ' open ',
+    projectId: null,
+    sessionId: null,
+    workId: '',
+    mode: '',
+    presentation: null,
+    expectedRevision: null,
+    expectedVersionId: null,
+    requestId: null,
+  });
+  assert.equal(templatesPreview.target, 'templates');
+
+  // Uppercase projectId + revision + empty optional display fields work seamlessly.
+  const read = await service.call('openmotion_get_project', {
+    projectId: ' ' + p.projectId.toUpperCase() + ' ',
+    expectedRevision: p.revision.toUpperCase(),
+    cursor: null,
+  });
+  assert.equal(read.projectId, p.projectId);
+
+  // Top-level null and __proto__ keys are still strictly rejected.
+  await assert.rejects(service.call('openmotion_get_project', null), /INVALID_ARGUMENT: arguments must be an object/);
+  const getSchema = phase1Tools.find(t => t.name === 'openmotion_get_project')!.inputSchema;
+  assert.throws(() => validateInput(getSchema, normalizeToolInput(getSchema, JSON.parse('{"__proto__":null}'))), /INVALID_ARGUMENT/);
+}, false));
+
+test('edit_project VERSION_CONFLICT keeps work round open for retry, exposes top-level version IDs, and allows record_display after export', () => fixture(async store => {
+  const service = api(store);
+  const p = await create(service);
+  const { inlineWork: work } = await service.call('openmotion_open_preview', {
+    action: 'begin', projectId: p.projectId, requestId: crypto.randomUUID(), mode: 'create',
+  });
+
+  // External/first save advances revision.
+  const v2 = await edit(service, p, 'first save');
+  assert.equal(v2.currentVersionId, v2.version.versionId);
+  assert.equal(v2.currentVersionNumber, 2);
+
+  // Stale edit inside work round fails with actionable VERSION_CONFLICT and does NOT close the work round.
+  await assert.rejects(
+    service.call('openmotion_edit_project', {
+      projectId: p.projectId,
+      workId: work.id,
+      requestId: 'stale-retryable',
+      expectedRevision: p.revision,
+      expectedVersionId: p.currentVersionId,
+      files: [{ path: 'note.txt', content: 'stale' }],
+    }),
+    (err: Error) => err.message.includes('VERSION_CONFLICT') && err.message.includes(v2.revision) && err.message.includes('openmotion_get_project'),
+  );
+
+  // Retrying with the latest revision succeeds with the SAME workId!
+  const v3 = await service.call('openmotion_edit_project', {
+    projectId: p.projectId,
+    workId: work.id,
+    requestId: 'fresh-retry',
+    expectedRevision: v2.revision,
+    expectedVersionId: v2.currentVersionId,
+    files: [{ path: 'note.txt', content: 'retried inside same work round' }],
+  });
+  assert.equal(v3.currentVersionNumber, 3);
+
+  // After export binds the round, edit_project gives an actionable WORK_CLOSED message, while record_display with workId + localhost + hashless URL succeeds.
+  const exported = await service.call('openmotion_export_request', {
+    projectId: p.projectId, workId: work.id, requestId: 'exp-1', expectedRevision: v3.revision, versionId: v3.currentVersionId, audio: 'silent',
+  });
+  assert.ok(exported.job.id);
+  await assert.rejects(
+    service.call('openmotion_edit_project', {
+      projectId: p.projectId, workId: work.id, requestId: 'after-export', expectedRevision: v3.revision, expectedVersionId: v3.currentVersionId, files: [{ path: 'note.txt', content: 'x' }],
+    }),
+    (err: Error) => err.message.includes('WORK_CLOSED') && err.message.includes(work.id) && err.message.includes('openmotion_open_preview'),
+  );
+  const targetUrl = new URL(v3.previewHandoff.previewUrl);
+  targetUrl.hostname = 'localhost';
+  targetUrl.hash = '';
+  const displayed = await service.call('openmotion_open_preview', {
+    action: 'record_display',
+    projectId: p.projectId,
+    workId: work.id,
+    requestId: crypto.randomUUID(),
+    display: {
+      revision: v3.revision,
+      versionId: v3.currentVersionId,
+      previewUrl: targetUrl.href,
+      visibility: 'visible',
+      hostStatus: '',
+      hostTabId: '',
+      contentVerified: true,
+      evidence: 'Verified localhost panel after export',
+    },
+  });
+  assert.equal(displayed.previewHandoff.state, 'confirmed');
 }, false));

@@ -1,6 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { useMemo, type ReactNode } from 'react';
 import type { GalleryTemplate } from '../../../shared/catalog';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { useI18n } from '../i18n/I18n';
 import { Skeleton } from '../components/ui/Skeleton';
 import { TemplateGalleryCard, TemplatePoster } from './TemplateGalleryCard';
@@ -26,7 +27,18 @@ export function TemplateCreators({ catalog, creator, query, searchActions, works
   const { t, locale } = useI18n();
   const credits = useMemo(() => templateCreators(catalog, locale), [catalog, locale]);
   const current = credits.find(entry => entry.id === creator);
-  const matches = credits.filter(entry => entry.name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const matches = useMemo(
+    () =>
+      rankSearchResults(credits, query, entry => ({
+        id: entry.id,
+        title: entry.name,
+        subtitle: entry.source,
+        tags: entry.work.tags,
+        aliases: [t(entry.source), entry.work.title, ...(entry.work.searchAliases ?? [])],
+        author: entry.name,
+      })).map(result => result.item),
+    [credits, query, t],
+  );
   return <main className={styles.results} aria-busy={loading}>
     {creator && <Button variant="plain" className="om-nav-item" onClick={() => choose(null)}>← {t('Creators')}</Button>}
     <header className={`om-gallery-intro om-gallery-page-intro ${styles.creatorIntro}`}>

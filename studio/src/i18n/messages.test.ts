@@ -5,6 +5,7 @@ import mvpUi from './mvp-ui.json';
 import errorUi from './error-ui.json';
 import settingsUi from './settings-ui.json';
 import templateUi from './template-ui.json';
+import superAgentUi from './super-agent-ui.json';
 import mcpUi from './mcp-ui.json';
 import studioNavigationUi from './studio-navigation-ui.json';
 import { mcpFaq } from '../motion/mcpCapabilities';
@@ -13,6 +14,16 @@ import { errorNoticeMessage } from '../components/ui/errorNoticeMessage';
 import { historyEntryLabel } from './historyMessages';
 
 describe('editor language resources', () => {
+  it('uses the generation offer upgrade label only in locales that need different copy', () => {
+    for (const { locale } of languages) {
+      const upgrade = translate(locale, 'Upgrade');
+      expect(translate(locale, 'Upgrade', undefined, 'generation offer')).toBe(locale === 'zh-CN' ? '立即升级' : upgrade);
+    }
+    expect(translate('zh-CN', 'Upgrade')).toBe('升级');
+    expect(translate('zh-CN', 'Upgrade to Plus')).toBe('升级到 Plus');
+    expect(translate('zh-CN', 'Upgrade to Plus', undefined, 'subscription offer')).toBe('立即升级');
+  });
+
   it('keeps Studio navigation and handbook messages complete in each supported locale', () => {
     const keys = Object.keys(studioNavigationUi['zh-CN']).sort();
     for (const { locale } of languages) {
@@ -137,7 +148,7 @@ it('keeps Chinese additions interpolated and preserves fallback for unexposed ad
     const values = Object.fromEntries([...source.matchAll(/\{(\w+)\}/g)].map(match => [match[1], 'sample']));
     expect(translate('zh-CN', source, values)).not.toMatch(/\{\w+\}/);
     for (const { locale } of languages.filter(language => language.locale !== 'zh-CN')) {
-      const additions: Record<string, string> = { ...errorUi[locale as keyof typeof errorUi], ...templateUi[locale as keyof typeof templateUi], ...settingsUi[locale as keyof typeof settingsUi] };
+      const additions: Record<string, string> = { ...errorUi[locale as keyof typeof errorUi], ...templateUi[locale as keyof typeof templateUi], ...settingsUi[locale as keyof typeof settingsUi], ...superAgentUi[locale as keyof typeof superAgentUi] };
       if (!additions[source] && !mvpMessages[locale]?.[source] && (locale === 'en' || !dictionaries[locale]?.[source])) expect(translate(locale, source, values)).toBe(translate('en', source, values));
     }
   }

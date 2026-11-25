@@ -85,7 +85,7 @@ export function useBlockCatalog() {
           b.description.toLowerCase().includes(q) ||
           b.category.toLowerCase().includes(q) ||
           matchingCategories.has(b.category) ||
-          b.tags?.some((t) => t.toLowerCase().includes(q)),
+          b.tags?.some((tag) => tag.toLowerCase().includes(q)),
       );
     }
     return result;

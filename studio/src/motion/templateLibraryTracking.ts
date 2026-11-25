@@ -5,6 +5,9 @@ import type { SeriesAttribution } from './brandStoryTracking';
 import { studioEvents } from '../../../tracking/events.ts';
 import { uuid } from '../../../tracking/core.ts';
 import { isEditableTemplate, type GalleryTemplate } from '../../../shared/catalog';
+import type { CopyMethod } from '../utils/clipboard';
+import type { MotionSkill } from './skillCatalog';
+import { skillCategoryId } from './pageTracking';
 import { optionId, send, slugField, searchKeyword } from './reporting';
 import type { AssetUploadReason } from './assetUploadError';
 
@@ -98,8 +101,11 @@ export function reportInstructionExpanded(template: Template, expanded: boolean,
   send('ui_click', { ...studio, area: 'template_instruction', element: 'expand_instruction', expanded, ...templateId(template), ...detail(view) });
 }
 /** Only `clipboard_written` is a successful copy; showing the text for a manual copy is not. */
-export function reportCopyResult(template: Template, status: Fields<'template_instruction_copy_result'>['copy_status'], copyAttemptId: string, submit: boolean, view: ActionView | undefined) {
-  send('template_instruction_copy_result', { ...studio, host_product: 'codex', copy_status: status, copy_attempt_id: copyAttemptId, ...templateId(template), ...resource(template), ...instruction(template, submit), ...detail(view) });
+export function reportCopyResult(template: Template, status: Fields<'template_instruction_copy_result'>['copy_status'], copyAttemptId: string, submit: boolean, view: ActionView | undefined, copyMethod?: CopyMethod) {
+  send('template_instruction_copy_result', { ...studio, host_product: 'codex', copy_status: status, ...(copyMethod ? { copy_method: copyMethod } : {}), copy_attempt_id: copyAttemptId, ...templateId(template), ...resource(template), ...instruction(template, submit), ...detail(view) });
+}
+export function reportTemplateSuperAgentClicked(template: Template, view: DetailView | undefined) {
+  send('ui_click', { ...studio, area: 'template_detail', element: 'run_super_agent', ...templateId(template), ...resource(template), ...detail(view) });
 }
 export function reportSearchResult(searchId: string, query: string, resultCount: number, context: Omit<ListContext, 'searchId'>) {
   const keyword = searchKeyword(query);
@@ -159,6 +165,12 @@ export function reportReferenceImport(outcome: 'success' | 'failure' | 'unknown'
 export function reportRecoveryShown(reason: 'no_results' | 'unsuitable' | 'catalog_empty', context: ListContext) {
   send('surface_view', { ...studio, area: 'template_discovery', element: 'search_recovery', recovery_reason: reason, ...list(context) });
 }
-export function reportSearchHandoff(source: ReferenceSource, attemptId: string, status: 'clipboard_written' | 'manual_fallback', context: ListContext, entry?: ReferenceEntry) {
-  send('template_search_handoff_result', { ...studio, area: 'template_discovery', source_kind: source, handoff_attempt_id: attemptId, handoff_status: status, ...(entry && { reference_entry: entry }), ...list(context) });
+export function reportZeroResultSkillsShown(skillCount: number, context: ListContext) {
+  send('surface_view', { ...studio, area: 'template_zero_result_skills', element: 'skill_fallback', result_count: skillCount, ...list(context) });
+}
+export function reportZeroResultSkillClicked(skill: MotionSkill, position: number, context: ListContext) {
+  send('ui_click', { ...studio, area: 'template_zero_result_skills', element: 'open_skill_fallback', ...slugField('skill_id', skill.id), skill_category: skillCategoryId(skill.category), position, ...list(context) });
+}
+export function reportSearchHandoff(source: ReferenceSource, attemptId: string, status: 'clipboard_written' | 'manual_fallback', context: ListContext, entry?: ReferenceEntry, copyMethod?: CopyMethod) {
+  send('template_search_handoff_result', { ...studio, area: 'template_discovery', source_kind: source, handoff_attempt_id: attemptId, handoff_status: status, ...(copyMethod ? { copy_method: copyMethod } : {}), ...(entry && { reference_entry: entry }), ...list(context) });
 }

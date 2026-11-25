@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
+import { designCatalog } from '../shared/design-catalog.ts';
+import { loadLibrarySkills } from '../shared/library-skill-catalog.ts';
+import { scenarioDefinitions } from '../shared/scenarios.ts';
 import {
   I18N_EXTENSION_SOURCES,
   LEGACY_ZH_EXTRA_SOURCE_KEYS,
@@ -126,6 +129,14 @@ function isLocaleJsonFile(absolutePath: string): boolean {
 export function openmotionI18nPlugin(): Plugin {
   return {
     name: 'openmotion-i18n',
+    async generateBundle() {
+      const dictionary = buildLocaleDictionary('zh-CN');
+      const resources = [...scenarioDefinitions, ...await loadLibrarySkills(repoRoot), ...designCatalog().skills({})];
+      const titles = new Set(resources.map(resource => resource.title));
+      const translations = Object.fromEntries(Object.entries(dictionary).filter(([title, value]) => titles.has(title) && typeof value === 'string'));
+      // The resource endpoint searches before applying its result limit.
+      this.emitFile({ type: 'asset', fileName: 'super-agent-search-titles.zh-CN.json', source: JSON.stringify(translations) });
+    },
     resolveId(id) {
       if (id === VIRTUAL_META_ID) return RESOLVED_META_ID;
       if (id.startsWith(VIRTUAL_LOCALE_PREFIX)) {

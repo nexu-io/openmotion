@@ -4,6 +4,7 @@ import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
 import { useEffect, useId, useRef, useState } from 'react';
 import { type DirectoryModel, type ProviderConnection, type ProviderDirectory } from '../../../shared/provider-directory';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from '../components/ui/Menu';
@@ -86,12 +87,20 @@ export function ModelSettings({ onClose, openAccount, initialCategory = 'all', p
     }
   }, [entry, providerId, rejectedProvider]);
   const selected = visibleProviders.some(provider => provider.id === requestedProvider) ? requestedProvider : 'account';
-  const providers = visibleProviders.filter(provider => {
+  const scopedProviders = visibleProviders.filter(provider => {
     const matches = category === 'all' || category === 'configured' && provider.configured || category === 'multimodal' && provider.kinds.length > 1
       || category === 'language' && provider.kinds.includes('text') || category === 'media' && provider.kinds.some(kind => ['image', 'video', 'audio', 'transcription'].includes(kind))
       || category === 'local' && provider.category === 'local' || category === 'custom' && provider.custom;
-    return matches && (status === 'all' || status === 'enabled' && provider.enabled || status === 'disabled' && !provider.enabled || status === 'configured' && provider.configured || status === 'unconfigured' && !provider.configured) && (protocol === 'all' || provider.protocol === protocol) && `${provider.label} ${provider.id}`.toLowerCase().includes(query.toLowerCase());
+    return matches && (status === 'all' || status === 'enabled' && provider.enabled || status === 'disabled' && !provider.enabled || status === 'configured' && provider.configured || status === 'unconfigured' && !provider.configured) && (protocol === 'all' || provider.protocol === protocol);
   }).sort((a, b) => providerSortRank(a) - providerSortRank(b));
+  const providers = query.trim()
+    ? rankSearchResults(scopedProviders, query, p => ({
+        id: p.id,
+        title: p.label,
+        subtitle: p.protocol,
+        tags: p.kinds,
+      })).map(r => r.item)
+    : scopedProviders;
   const officialProviders = providers.filter(isOfficialProvider);
   const otherProviders = providers.filter(item => !isOfficialProvider(item));
   const showSidebarGroups = officialProviders.length > 0 && otherProviders.length > 0;

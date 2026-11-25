@@ -91,10 +91,95 @@ export function providerOrigin(raw: unknown): string {
   return url.origin;
 }
 /** Custom Cloud origins use pinned public DNS and never forward credentials on redirects. */
+export type PublicAddress = { address: string; family: number };
+const syntheticAddress = (address: string) => /^198\.(?:18|19)\./.test(address);
+
+function queryDnsJson(endpointUrl: string, serverIp: string, signal: AbortSignal): Promise<PublicAddress[]> {
+  const url = new URL(endpointUrl);
+  return new Promise((resolve, reject) => {
+    // Bootstrap the DoH resolver independently of OS Fake-IP DNS; TLS still verifies the DoH hostname.
+    const request = https.get(url, {
+      signal,
+      headers: { Accept: 'application/dns-json' },
+      lookup: (_host, options, done) => {
+        if ((options as { all?: boolean }).all) (done as Function)(null, [{ address: serverIp, family: 4 }]);
+        else done(null, serverIp, 4);
+      },
+    }, response => {
+      const chunks: Buffer[] = []; let length = 0;
+      response.on('data', (chunk: Buffer) => {
+        length += chunk.length;
+        if (length > 65_536) response.destroy(new Error('Public DNS response is too large'));
+        else chunks.push(chunk);
+      });
+      response.on('error', reject);
+      response.on('end', () => {
+        try {
+          if (response.statusCode !== 200) throw new Error('Public DNS lookup failed');
+          const answer = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          if (answer.Status !== 0 || !Array.isArray(answer.Answer)) throw new Error('Public DNS lookup failed');
+          resolve(
+            answer.Answer
+              .filter((record: { type?: number; data?: unknown }) => record.type === 1 && typeof record.data === 'string' && isIP(record.data) === 4)
+              .map((record: { data: string }) => ({ address: record.data, family: 4 })),
+          );
+        } catch (error) { reject(error); }
+      });
+    });
+    request.setTimeout(5000, () => request.destroy(new Error('Public DNS lookup timed out')));
+    request.on('error', reject);
+  });
+}
+
+export async function resolvePublicDns(hostname: string, signal: AbortSignal): Promise<PublicAddress[]> {
+  try {
+    const cf = await queryDnsJson(
+      `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
+      '1.1.1.1',
+      signal,
+    );
+    if (cf.length) return cf;
+  } catch (error) {
+    if (signal.aborted) throw error;
+  }
+  return queryDnsJson(
+    `https://dns.alidns.com/resolve?name=${encodeURIComponent(hostname)}&type=1`,
+    '223.5.5.5',
+    signal,
+  );
+}
+
+export async function resolvePublicAddresses(
+  hostname: string,
+  signal: AbortSignal,
+  errorMessage = 'Target points to a non-public address',
+  dependencies = {
+    lookup: (name: string) => lookup(name, { all: true }),
+    publicDns: resolvePublicDns,
+  },
+): Promise<PublicAddress[]> {
+  const family = isIP(hostname);
+  if (family) {
+    if (!isPublicAddress(hostname)) throw new Error(errorMessage);
+    return [{ address: hostname, family }];
+  }
+  let addresses = await dependencies.lookup(hostname);
+  signal.throwIfAborted();
+  // Only the benchmarking/Fake-IP range (198.18.0.0/15) used by TUN proxies gets a DoH re-check.
+  if (addresses.length && addresses.every(({ address }) => syntheticAddress(address))) {
+    addresses = await dependencies.publicDns(hostname, signal);
+  }
+  signal.throwIfAborted();
+  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) {
+    throw new Error(errorMessage);
+  }
+  return addresses;
+}
+
 export async function publicProviderFetch(raw: Parameters<Fetcher>[0], init: RequestInit = {}, idleTimeoutMs = 60_000, maxBytes = MAX_MEDIA_BYTES): Promise<Response> {
   const url = new URL(String(raw)); providerOrigin(url.origin);
-  const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Provider points to a non-public address');
+  const lookupSignal = init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+  const addresses = await resolvePublicAddresses(url.hostname.replace(/^\[|\]$/g, ''), lookupSignal, 'Provider points to a non-public address');
   return new Promise<Response>((resolve, reject) => {
     const req = https.request(url, { method: init.method ?? 'GET', headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
       lookup: (_host, options, done) => {
@@ -118,8 +203,8 @@ export const MAX_MEDIA_BYTES = 256 * 1024 * 1024;
 /** Streaming, credential-free transport for resumable media. Validate and pin every redirect's DNS. */
 export async function streamMedia(raw: string, init: RequestInit, redirects = 0): Promise<Response> {
   const url = new URL(raw); providerOrigin(url.origin);
-  const addresses = await lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Generated media points to a non-public address');
+  const lookupSignal = init.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+  const addresses = await resolvePublicAddresses(url.hostname.replace(/^\[|\]$/g, ''), lookupSignal, 'Generated media points to a non-public address');
   return new Promise<Response>((resolve, reject) => {
     const req = https.get(url, { headers: Object.fromEntries(new Headers(init.headers)), signal: init.signal ?? undefined,
       lookup: (_host, options, done) => {
@@ -151,8 +236,7 @@ export async function downloadMedia(raw: string, signal: AbortSignal, redirects 
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443')) throw new Error('Generated media must use public HTTPS');
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
-  const addresses = await lookup(hostname, { all: true });
-  if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw new Error('Generated media points to a non-public address');
+  const addresses = await resolvePublicAddresses(hostname, signal, 'Generated media points to a non-public address');
   return new Promise<Buffer>((resolve, reject) => {
     const req = https.get(url, { signal, lookup: (_host, options, done) => {
       if ((options as { all?: boolean }).all) (done as Function)(null, addresses);

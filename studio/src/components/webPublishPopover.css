@@ -200,7 +200,7 @@
   flex: none;
   padding: 0;
   border-radius: var(--motion-radius-full);
-  border: 1px solid var(--motion-border);
+  border: 1px solid var(--motion-border-strong);
   background: var(--motion-inset);
   cursor: pointer;
   transition: background var(--motion-duration-fast) var(--motion-ease-out), border-color var(--motion-duration-fast) var(--motion-ease-out);
@@ -218,12 +218,13 @@
   width: 14px;
   height: 14px;
   border-radius: var(--motion-radius-full);
-  background: var(--motion-on-action);
+  background: var(--motion-dim);
   box-shadow: var(--motion-shadow-xs);
   transition: transform var(--motion-duration-fast) var(--motion-ease-out);
 }
 
 .om-web-publish-switch[aria-checked="true"] .om-web-publish-switch-thumb {
+  background: var(--motion-on-action);
   transform: translateX(16px);
 }
 

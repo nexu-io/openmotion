@@ -68,6 +68,13 @@ export interface WebPublishAccountClient {
   summary?: (refresh?: boolean) => Promise<AccountSummary>;
 }
 
+type PublishOptions = {
+  filePath?: string;
+  workspaceId?: string;
+  mode?: WebPublishMode;
+  name?: string;
+};
+
 function normalizeEntryPath(raw?: string | null, fallback = 'index.html'): string {
   const value = (raw || fallback).replace(/\\/g, '/').replace(/^\/+/, '').trim();
   if (!value || value.includes('\0')) {
@@ -145,6 +152,25 @@ export function verifiedShareUrl(rawUrl: unknown, projectId: string, slug: strin
     return `${parsed.origin}${expectedPath}`;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Game shares are meant to be played, not reviewed: with `kind=game` the cloud
+ * share viewer hides its comments UI and shows the "Made with OpenMotion" bar
+ * with one-click Remix. Other target kinds keep the default review viewer.
+ */
+export const SHARE_VIEWER_KIND_PARAM = 'kind';
+export const SHARE_VIEWER_GAME_KIND = 'game';
+
+export function shareViewerUrlForTarget(kind: WebPublishTargetKind, url: string | null): string | null {
+  if (!url || kind !== 'game') return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set(SHARE_VIEWER_KIND_PARAM, SHARE_VIEWER_GAME_KIND);
+    return parsed.toString();
+  } catch {
+    return url;
   }
 }
 
@@ -324,7 +350,21 @@ export class WebPublishService {
     return path.join(this.storeRoot, `${storageKey(kind, targetId)}.lock`);
   }
 
+  private operationLock(target: Pick<WebPublishTarget, 'kind' | 'id'>, filePath: string): string {
+    const entry = createHash('sha256').update(filePath).digest('hex').slice(0, 16);
+    return path.join(this.storeRoot, `${storageKey(target.kind, target.id)}-${entry}.operation.lock`);
+  }
+
   private async readState(kind: WebPublishTargetKind, targetId: string): Promise<StoredPublishFile> {
+    const state = await this.readStoredState(kind, targetId);
+    if (kind !== 'game') return state;
+    for (const record of Object.values(state.publications)) {
+      record.url = shareViewerUrlForTarget(kind, record.url);
+    }
+    return state;
+  }
+
+  private async readStoredState(kind: WebPublishTargetKind, targetId: string): Promise<StoredPublishFile> {
     const primary = this.stateFile(kind, targetId);
     if (!existsSync(primary)) {
       if (kind === 'design' && existsSync(this.legacyStateFile(targetId))) {
@@ -542,7 +582,10 @@ export class WebPublishService {
           );
           if (remote.status === 'active' || remote.status === 'stopped') {
             const nextStatus = remote.status === 'stopped' ? 'stopped' : 'published';
-            const refreshedUrl = parseShareLinkFromRecord(remote, remoteProjectId, current.slug) ?? current.url;
+            const refreshedUrl = shareViewerUrlForTarget(
+              target.kind,
+              parseShareLinkFromRecord(remote, remoteProjectId, current.slug) ?? current.url,
+            );
             await withProcessLock(this.lockFile(target.kind, target.id), async () => {
               const latest = await this.readState(target.kind, target.id);
               const entry = latest.publications[targetEntry];
@@ -611,21 +654,19 @@ export class WebPublishService {
     };
   }
 
-  async publish(
-    target: WebPublishTarget,
-    options: {
-      filePath?: string;
-      workspaceId?: string;
-      mode?: WebPublishMode;
-      name?: string;
-    } = {},
-  ): Promise<{
+  async publish(target: WebPublishTarget, options: PublishOptions = {}) {
+    const filePath = normalizeEntryPath(options.filePath, target.entryPath || 'index.html');
+    return withProcessLock(this.operationLock(target, filePath), () =>
+      this.publishEntry(target, filePath, options),
+    );
+  }
+
+  private async publishEntry(target: WebPublishTarget, filePath: string, options: PublishOptions): Promise<{
     publication: WebPublicationRecord;
     deployment: WebPublicationRecord;
     url: string | null;
     updated: boolean;
   }> {
-    const filePath = normalizeEntryPath(options.filePath, target.entryPath || 'index.html');
     const mode: WebPublishMode = options.mode ?? 'publish';
     const displayName = (options.name || target.title || filePath).trim().slice(0, 120) || 'OpenMotion Web';
 
@@ -641,32 +682,7 @@ export class WebPublishService {
       );
     }
 
-    if (mode === 'new_link' && existingPublication?.status === 'published') {
-      const prevProjectId = existingPublication.cloudProjectId || cloudProjectIdFor(target.kind, target.id);
-      const stoppedPrev = await this.runVelaJson(
-        ['share', 'stop', existingPublication.slug, '--project-id', prevProjectId, '--json'],
-        existingPublication.workspaceId,
-      );
-      if (stoppedPrev.status !== 'stopped' || stoppedPrev.slug !== existingPublication.slug) {
-        throw new Error('DEPLOY_FAILED: Could not stop the previous public link before rotating to a new link');
-      }
-      await withProcessLock(this.lockFile(target.kind, target.id), async () => {
-        const latest = await this.readState(target.kind, target.id);
-        if (latest.publications[filePath]?.slug === existingPublication.slug) {
-          latest.publications[filePath] = {
-            ...latest.publications[filePath],
-            status: 'stopped',
-            updatedAt: Date.now(),
-          };
-          await this.saveState(target.kind, target.id, latest);
-        }
-      });
-    }
-
-    const cloudProjectId =
-      mode !== 'new_link' && existingPublication?.cloudProjectId
-        ? existingPublication.cloudProjectId
-        : cloudProjectIdFor(target.kind, target.id);
+    const existingProjectId = existingPublication?.cloudProjectId || cloudProjectIdFor(target.kind, target.id);
 
     const bundle = await buildPublishBundle({
       dataDirectory: this.dataDirectory,
@@ -689,14 +705,13 @@ export class WebPublishService {
       && contentMatches
       && existingPublication.workspaceId === workspace.workspaceId
     ) {
-      const remoteProjectId = existingPublication.cloudProjectId || cloudProjectId;
       const resumedRecord = await this.runVelaJson(
         [
           'share',
           'resume-existing',
           existingPublication.slug,
           '--project-id',
-          remoteProjectId,
+          existingProjectId,
           '--source-file-path',
           filePath,
           '--json',
@@ -706,12 +721,14 @@ export class WebPublishService {
       if (resumedRecord.status !== 'active') {
         throw new Error('DEPLOY_FAILED: OpenDesign could not resume the stopped share link');
       }
-      const resumedUrl =
-        parseShareLinkFromRecord(resumedRecord, remoteProjectId, existingPublication.slug)
-        ?? existingPublication.url;
+      const resumedUrl = shareViewerUrlForTarget(
+        target.kind,
+        parseShareLinkFromRecord(resumedRecord, existingProjectId, existingPublication.slug)
+          ?? existingPublication.url,
+      );
       const resumedPublication: WebPublicationRecord = {
         ...existingPublication,
-        cloudProjectId: remoteProjectId,
+        cloudProjectId: existingProjectId,
         status: 'published',
         url: resumedUrl,
         fileCount: bundle.fileCount,
@@ -738,19 +755,28 @@ export class WebPublishService {
       };
     }
 
-    // Reserve stable share identity before remote mutations (idempotent across retries).
+    // A cloud file path has one live file identity and that identity has one share
+    // binding. A replacement uses a separate cloud project and keeps its reservation on retry.
+    const rotating = mode === 'new_link' && Boolean(existingPublication);
     const reservation = await withProcessLock(this.lockFile(target.kind, target.id), async () => {
       const latest = await this.readState(target.kind, target.id);
+      const matchesWorkspace = (record: Pick<ShareReservation, 'workspaceId' | 'ownerMemberId'>) =>
+        record.workspaceId === workspace.workspaceId && record.ownerMemberId === workspace.workspaceMemberId;
       const current = latest.reservations[filePath];
+      if (!rotating && existingPublication?.slug && existingPublication.sourceFileId
+          && existingPublication.sourceKey && matchesWorkspace(existingPublication)) {
+        const { slug, sourceFileId, sourceKey, workspaceId, ownerMemberId } = existingPublication;
+        return { slug, sourceFileId, sourceKey, workspaceId, ownerMemberId, cloudProjectId: existingProjectId };
+      }
       if (
-        mode !== 'new_link'
-        && current
-        && current.workspaceId === workspace.workspaceId
-        && current.ownerMemberId === workspace.workspaceMemberId
-        && (!current.cloudProjectId || current.cloudProjectId === cloudProjectId)
+        current && matchesWorkspace(current)
+        && (rotating
+          ? current.cloudProjectId && current.cloudProjectId !== existingProjectId && current.slug !== existingPublication?.slug
+          : !current.cloudProjectId || current.cloudProjectId === existingProjectId)
       ) {
         return current;
       }
+      const cloudProjectId = rotating ? randomUUID() : existingProjectId;
       const nextSourceFileId = randomUUID();
       const next: ShareReservation = {
         slug: randomUUID(),
@@ -764,6 +790,7 @@ export class WebPublishService {
       await this.saveState(target.kind, target.id, latest);
       return next;
     });
+    const cloudProjectId = reservation.cloudProjectId || existingProjectId;
 
     const resourceId = publicFileResourceIdFor({
       workspaceId: workspace.workspaceId,
@@ -895,7 +922,17 @@ export class WebPublishService {
         typeof publishResult.publishedAt === 'number' && Number.isSafeInteger(publishResult.publishedAt)
           ? publishResult.publishedAt
           : Date.now();
-      const shareUrl = parseShareLinkFromRecord(publishResult, cloudProjectId, reservation.slug);
+      const shareUrl = shareViewerUrlForTarget(
+        target.kind,
+        parseShareLinkFromRecord(publishResult, cloudProjectId, reservation.slug),
+      );
+
+      if (rotating && !shareUrl) {
+        throw new Error('DEPLOY_FAILED: OpenDesign did not return a valid URL for the new link');
+      }
+      if (rotating && existingPublication?.status === 'published') {
+        await this.stopPublication(existingPublication, existingProjectId);
+      }
 
       const record: WebPublicationRecord = {
         schemaVersion: 1,
@@ -961,6 +998,20 @@ export class WebPublishService {
     options: { filePath?: string } = {},
   ): Promise<{ publication: WebPublicationRecord; deployment: WebPublicationRecord }> {
     const filePath = normalizeEntryPath(options.filePath, target.entryPath || 'index.html');
+    return withProcessLock(this.operationLock(target, filePath), () => this.unpublishEntry(target, filePath));
+  }
+
+  private async stopPublication(current: WebPublicationRecord, cloudProjectId: string) {
+    const receipt = await this.runVelaJson(
+      ['share', 'stop', current.slug, '--project-id', cloudProjectId, '--json'],
+      current.workspaceId,
+    );
+    if (receipt.status !== 'stopped' || receipt.slug !== current.slug) {
+      throw new Error('DEPLOY_FAILED: OpenDesign share stop confirmation failed');
+    }
+  }
+
+  private async unpublishEntry(target: Pick<WebPublishTarget, 'kind' | 'id'>, filePath: string) {
     const state = await this.readState(target.kind, target.id);
     const current = state.publications[filePath];
     if (!current) {
@@ -972,13 +1023,7 @@ export class WebPublishService {
     }
 
     const remoteProjectId = current.cloudProjectId || cloudProjectIdFor(target.kind, target.id);
-    const receipt = await this.runVelaJson(
-      ['share', 'stop', current.slug, '--project-id', remoteProjectId, '--json'],
-      current.workspaceId,
-    );
-    if (receipt.status !== 'stopped' || receipt.slug !== current.slug) {
-      throw new Error('DEPLOY_FAILED: OpenDesign share stop confirmation failed');
-    }
+    await this.stopPublication(current, remoteProjectId);
 
     const stopped: WebPublicationRecord = {
       ...current,
@@ -1000,6 +1045,7 @@ export class WebPublishService {
     const collected = new Map<string, WebPublicationRecord>();
 
     const recordCandidate = (normalized: WebPublicationRecord) => {
+      normalized.url = shareViewerUrlForTarget(normalized.targetKind, normalized.url);
       const key = `${normalized.targetKind}:${normalized.targetId}:${normalized.filePath}`;
       const prev = collected.get(key);
       if (!prev || normalized.updatedAt >= prev.updatedAt) {

@@ -3,6 +3,7 @@ import * as tracking from './pageTracking';
 import { destinationTarget, reportCreativePageView } from './exploreTracking';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assetVersion, type LibraryAsset } from '../../../shared/asset-library';
+import { findCapability } from '../../../shared/capability-registry';
 import { resumableJob, type GenerationJob } from '../../../shared/gateway';
 import type { UnifiedLibraryItem } from '../../../shared/library-index';
 import { useI18n } from '../i18n/I18n';
@@ -136,7 +137,7 @@ export function AssetsPage({
     if ((current.find(item => item.id === chat.id)?.updatedAt ?? -1) > chat.updatedAt) return current;
     return [chat, ...current.filter(item => item.id !== chat.id)];
   }), []);
-  const referenceUpload = useRef<HTMLInputElement>(null), upload = useRef<HTMLInputElement>(null), replace = useRef<HTMLInputElement>(null), knownJobs = useRef<GenerationJob[]>(initialHistory?.jobs ?? []);
+  const referenceUpload = useRef<HTMLInputElement>(null), soundReferenceUpload = useRef<HTMLInputElement>(null), upload = useRef<HTMLInputElement>(null), replace = useRef<HTMLInputElement>(null), knownJobs = useRef<GenerationJob[]>(initialHistory?.jobs ?? []);
   const mountedRef = useRef(true);
   const uploadingRef = useRef(false);
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
@@ -511,10 +512,19 @@ export function AssetsPage({
       />
     ))
     : undefined;
-  const studioModels = studioForm ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, isFeatureScene(studioForm.destination.scene), draft.references.length, draft.preferredModel) : undefined;
-  const studioAttachableReferences = studioForm && studioModels ? attachableReferenceLimit(studioModels, studioForm.destination.scene) : Infinity;
+  const soundWorkbench = studio?.destination.scene.modality === 'audio' && !audioStudio;
+  const soundTabId = studio?.soundTab ?? (studio?.destination.scene.id === 'speech' ? 'speech' : 'music');
+  const soundCapability = soundWorkbench && soundTabId !== 'sfx'
+    ? findCapability(soundTabId, studio?.catalog.catalog?.capabilities)
+    : undefined;
+  const studioModels = studioForm ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination, draft.references.length, draft.preferredModel) : undefined;
+  const studioAttachableReferences = soundWorkbench
+    ? (soundCapability?.input.maxReferences ?? 0)
+    : studioForm && studioModels
+      ? attachableReferenceLimit(studioModels, studioForm.destination.scene, studioForm.catalog.catalog?.capabilities)
+      : Infinity;
   const enforceOpenDesignLimits = Boolean(
-    studioForm && (
+    studioForm && !soundWorkbench && (
       isFeatureScene(studioForm.destination.scene)
       || (studioModels?.selected ? isOpenDesignProvider(studioModels.selected.provider) : (!studioForm.catalog.catalog && studioForm.destination.scene.modality === 'image'))
     ),
@@ -526,6 +536,12 @@ export function AssetsPage({
   const validateLibraryReference = (asset: LibraryAsset, chosenVersionId: string): string | undefined => {
     const itemVersion = assetVersion(asset, chosenVersionId);
     if (!itemVersion) return undefined;
+    if (soundWorkbench) {
+      if (asset.modality !== 'audio' && asset.modality !== 'video') {
+        return t('Choose an audio or video asset.');
+      }
+      return undefined;
+    }
     if (!isSupportedReferenceMime(itemVersion.mimeType, itemVersion.filename)) {
       return t('OpenDesign does not accept this reference image format.');
     }
@@ -678,7 +694,6 @@ export function AssetsPage({
       if (gallery.current) gallery.current.scrollTo({ top: 0, behavior: 'smooth' });
       refresh(); toast.showToast(t(studio ? 'Added to Generations' : 'Generation started. Track it in Tasks.'), 'info');
     }} onError={onError} onInfo={onInfo} onClose={() => { selectionRequest.current++; setSelectingTask(false); setCreating(false); }} />;
-  const soundWorkbench = studio?.destination.scene.modality === 'audio' && !audioStudio;
   const libraryToolbar = <AssetGalleryToolbar browser={browser} games={gamesView} onGames={() => { setGamesView(true); if (kind === 'trash') setKind('all'); }} onKindChange={next => {
     if (next !== kind || gamesView) tracking.reportAssetsClick('assets_library', next === 'trash' ? 'trash_view' : 'kind_filter', { asset_kind: next });
     setGamesView(false); setKind(next);
@@ -735,6 +750,8 @@ export function AssetsPage({
         mobileView={mobileView}
         setMobileView={setMobileView}
         onUploadClick={() => { tracking.reportAssetsClick('assets_library', 'upload'); upload.current?.click(); }}
+        onPickReference={() => { tracking.reportAssetsClick('asset_create', 'add_reference', { task_mode: 'direct' }); setPickerMulti(false); setPicking(true); }}
+        onUploadReference={!uploading ? () => soundReferenceUpload.current?.click() : undefined}
         onDropFiles={files => { void importFiles(files, false, 'library_drop'); }}
         onOpenAsset={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }}
         onTrashAsset={assetId => update(assetId, { trashed: true })}
@@ -756,7 +773,7 @@ export function AssetsPage({
     </div></div>}
     <div className="om-assets-library">
     {creating && studio && <ResizablePane className="om-creator-pane" storageKey="motion-studio-controls-width" initial={378} min={310} max={650} edge="right" label={t('Resize creator')}>{composer}</ResizablePane>}
-    <main ref={gallery} className="om-assets-main" onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
+    <main ref={gallery} className="om-assets-main" data-library-hub={!studio ? 'true' : undefined} onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
       {audioStudio?.openCreate ? <AudioStudioLanding destination={audioStudio.destination} active={active} onPrompt={audioStudio.openCreate} onCreate={() => audioStudio.openCreate?.()} /> : <>
       {!studio && (
         <div className="om-library-hub-bar">
@@ -834,12 +851,31 @@ export function AssetsPage({
       const picked = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = '';
       void uploadReferenceFiles(picked, 'library_button');
     }} />
+    <input ref={soundReferenceUpload} type="file" accept="audio/*,video/*" hidden onChange={event => {
+      const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
+      if (!file) return;
+      void importFiles([file], false, 'library_button', asset => {
+        if (asset.modality !== 'audio' && asset.modality !== 'video') {
+          onError(t('Choose an audio or video asset.'));
+          return;
+        }
+        const item = { reference: { assetId: asset.id, versionId: asset.currentVersionId }, name: asset.name };
+        setDraft(current => {
+          const filtered = current.references.filter(r => r.reference.assetId !== item.reference.assetId);
+          if (filtered.length >= draftContextRef.current.attachLimit) {
+            onError(t('Reference limit reached.'));
+            return current;
+          }
+          return { ...current, references: [...filtered, item] };
+        });
+      });
+    }} />
     <input ref={replace} type="file" accept={`${selected?.modality ?? 'image'}/*`} hidden onChange={e => { void importFiles(Array.from(e.target.files ?? []), true); e.target.value = ''; }} />
     {active && picking && (() => {
       const remainingSlots = studioForm ? Math.max(0, studioAttachableReferences - draft.references.length) : Infinity;
       const multiPickReferences = Boolean(pickerMulti && studioForm && mode === 'direct');
       return <AssetPicker
-        imageOnly={mode === 'direct' || Boolean(studioForm)}
+        imageOnly={!soundWorkbench && (mode === 'direct' || Boolean(studioForm))}
         multiple={multiPickReferences}
         maxSelect={multiPickReferences ? remainingSlots : undefined}
         attachedVersionKeys={studioForm && mode === 'direct' ? attachedReferenceVersionKeys : undefined}

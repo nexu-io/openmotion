@@ -1,7 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import { useEffect, useState } from 'react';
 import type { DesignExportFormat } from '../../../shared/design-project';
-import type { SuperAgentArtifact } from '../../../shared/super-agent';
+import { isPlayableAdArtifact, type SuperAgentArtifact } from '../../../shared/super-agent';
 import type { WebPublishTargetKind } from '../../../shared/web-publish';
 import { Popover } from '../components/ui/Popover';
 import { WebPublishPopover } from '../components/WebPublishPopover';
@@ -37,24 +37,24 @@ export function artifactDeliverableMeta(artifact: SuperAgentArtifact): ArtifactD
           icon: 'slideshow-line',
           tone: 'audio',
           typeLabel: 'Slides & Docs',
-          primaryActionLabel: 'Preview',
-          primaryActionIcon: 'eye-line',
+          primaryActionLabel: 'Open editor',
+          primaryActionIcon: 'slideshow-line',
         };
       }
       return {
         icon: 'layout-line',
         tone: 'agent',
         typeLabel: 'Interactive Prototype',
-        primaryActionLabel: 'Preview',
-        primaryActionIcon: 'eye-line',
+        primaryActionLabel: 'Open editor',
+        primaryActionIcon: 'layout-line',
       };
     case 'motion-project':
       return {
         icon: 'movie-line',
         tone: 'video',
         typeLabel: 'Motion Video',
-        primaryActionLabel: 'Preview',
-        primaryActionIcon: 'play-fill',
+        primaryActionLabel: 'Open editor',
+        primaryActionIcon: 'movie-line',
       };
     case 'motion-export':
       return {
@@ -250,8 +250,8 @@ export function ArtifactDeliverableCard({
   onCopyText,
   onNotify,
   onOpenAccountSettings,
-  onOpenInDesignStudio,
-  onOpenInMotionStudio,
+  onOpenInDesignStudio: _onOpenInDesignStudio,
+  onOpenInMotionStudio: _onOpenInMotionStudio,
   onOpenInAssets,
   onOpenInBrandKit,
 }: ArtifactDeliverableCardProps) {
@@ -270,7 +270,9 @@ export function ArtifactDeliverableCard({
   const meta = artifactDeliverableMeta(artifact);
   const rawSub = (artifact.subtitle ?? '').trim();
   const subDetail = rawSub && !RAW_ARTIFACT_SUBTITLES.has(rawSub.toLowerCase()) ? rawSub : '';
-  const subtitleText = subDetail ? `${t(meta.typeLabel)} · ${subDetail}` : t(meta.typeLabel);
+  const subtitleText = isPlayableAdArtifact(artifact)
+    ? t('Playable ad')
+    : subDetail ? `${t(meta.typeLabel)} · ${subDetail}` : t(meta.typeLabel);
   const cloudTarget = resolveArtifactCloudTarget(artifact);
 
   const thumbUrl = !thumbFailed && artifact.kind === 'asset-image' && artifact.url
@@ -400,8 +402,8 @@ export function ArtifactDeliverableCard({
             filePath={cloudTarget.filePath}
             title={artifact.title}
             revisionKey={artifact.revision ?? String(artifact.updatedAt)}
-            triggerLabel={t('Cloud deploy')}
-            triggerIcon="cloud-line"
+            triggerLabel={t('Share')}
+            triggerIcon="share-forward-line"
             triggerClassName="om-sa-deliverable-btn"
             onOpenAccount={onOpenAccountSettings}
             onNotify={onNotify}
@@ -460,30 +462,6 @@ export function ArtifactDeliverableCard({
               ))}
             </div>
           </Popover>
-        )}
-
-        {artifact.kind === 'design-project' && artifact.projectId && onOpenInDesignStudio && (
-          <Button
-            variant="plain"
-            type="button"
-            className="om-sa-deliverable-btn"
-            onClick={() => onOpenInDesignStudio(artifact.projectId!)}
-          >
-            <RemixIcon name="layout-line" size={13} />
-            <span>{t('Edit in Studio')}</span>
-          </Button>
-        )}
-
-        {artifact.kind === 'motion-project' && artifact.projectId && onOpenInMotionStudio && (
-          <Button
-            variant="plain"
-            type="button"
-            className="om-sa-deliverable-btn"
-            onClick={() => onOpenInMotionStudio(artifact.projectId!)}
-          >
-            <RemixIcon name="download-2-line" size={13} />
-            <span>{t('Export video')}</span>
-          </Button>
         )}
 
         {mediaDownloadUrl && (

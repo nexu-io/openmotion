@@ -1,12 +1,17 @@
 import { Button } from 'open-design-ui/button';
 import { IconButton } from 'open-design-ui/icon-button';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { preconnect } from 'react-dom';
 import { blackFridayTemplates } from '../../../shared/black-friday-collection';
 import type { GalleryTemplate } from '../../../shared/catalog';
+import { designScenarios, isDesignScenario } from '../../../shared/design-project';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { gameGenres, type GameCard, type GameGenre } from '../../../shared/game-contract';
-import type { SuperAgentResourceAttachment } from '../../../shared/super-agent';
+import type { Modality } from '../../../shared/gateway';
+import type { SuperAgentDesignModuleId, SuperAgentResourceAttachment } from '../../../shared/super-agent';
 import { Select } from '../components/ui/Select';
 import { Skeleton } from '../components/ui/Skeleton';
+import { VideoFrameThumbnail } from '../components/ui/VideoFrameThumbnail';
 import { ScaledPreviewThumb } from '../design/ScaledPreviewThumb';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
@@ -28,16 +33,46 @@ import {
   localizedGameTitle,
   toGameResourceAttachment,
 } from '../motion/game/gameSuperAgent';
+import lunarRef from '../motion/scene-art/apollo-11.jpg';
+import speakerRoomRef from '../motion/scene-art/speaker-room.webp';
+import speakerStudioRef from '../motion/scene-art/speaker-studio.webp';
 import { sceneExamples } from '../motion/sceneShowcase';
 import { motionSkills, skillCategories, type MotionSkill, type SkillCategory } from '../motion/skillCatalog';
 import { templateCollectionFacets, templatesInCollection, type TemplateCollection } from '../motion/templateCollections';
 import { aiTechnologyIndustry, purposeOrder } from '../motion/templateDiscoveryTaxonomy';
 import { useCoveredTemplates } from '../motion/useCoveredTemplates';
-import type { ModeComposerOptions } from './ModeComposerControls';
-import { resourceIcon, resourceKey, type ResourceCategoryTab } from './ResourcePickerDialog';
+import {
+  designScenarioOptionsPatch,
+  RESEARCH_FORMAT_CHOICES,
+  visualizationOptionsPatch,
+  VIZ_TYPE_CHOICES,
+  type ImageDesignScene,
+  type ModeComposerOptions,
+  type ResearchDeliverableFormat,
+  type VisualizationType,
+} from './ModeComposerControls';
+import { resourceDisplaySubtitle, resourceDisplayTitle, resourceIcon, resourceKey, type ResourceCategoryTab } from './ResourcePickerDialog';
 import { fetchWorkspaceResources } from './superAgentClient';
 
-export type SuperAgentCreationModeId = 'coding' | 'game' | 'website' | 'motion' | 'deck' | 'image' | 'media' | 'audio';
+function preconnectGame(game: GameCard) {
+  if (!game.external?.embeddable) return;
+  const url = new URL(game.external.url);
+  if (url.protocol === 'https:') preconnect(url.origin);
+}
+
+export type SuperAgentCreationModeId = 'coding' | 'design' | 'research' | 'visualization' | 'game' | 'website' | 'motion' | 'deck' | 'document' | 'image' | 'media' | 'audio';
+
+export type CuratedReferenceImage = {
+  url: string;
+  filename: string;
+  title: string;
+  fallbackUrl?: string;
+};
+
+export type PickPromptMeta = {
+  optionsPatch?: Partial<ModeComposerOptions>;
+  referenceImage?: CuratedReferenceImage | null;
+};
 
 export type SuperAgentModeSpec = {
   id: SuperAgentCreationModeId;
@@ -45,14 +80,30 @@ export type SuperAgentModeSpec = {
   icon: string;
   label: string;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   placeholder: string;
   defaultPrompt: string;
   pickerCategory: ResourceCategoryTab;
-  quickIdeas: readonly { title: string; prompt: string }[];
+  quickIdeas: readonly { title: string; prompt: string; optionsPatch?: Partial<ModeComposerOptions> }[];
 };
 
 export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
+  {
+    id: 'design',
+    tone: 'image',
+    icon: 'palette-line',
+    label: 'Design Studio',
+    title: 'Design anything, from visuals to live HTML',
+    subtitle: 'Switch between HTML Design Studio modules and AI Image design below, attach templates or Brand Kits, and describe what you want to create.',
+    placeholder: 'Describe the website, mobile app, slide deck, or visual artwork you want to design…',
+    defaultPrompt: 'Design a modern interactive website prototype with a bold hero, interactive feature tabs, pricing toggle, and responsive mobile layout, then open it in the Artifact Viewer.',
+    pickerCategory: 'design-template',
+    quickIdeas: [
+      { title: 'AI product landing page', prompt: 'Build a responsive AI product landing page with interactive feature switcher, pricing toggle, and customer proof.' },
+      { title: 'Mobile app prototype', prompt: 'Design a mobile app prototype in a 390x844 phone viewport with bottom tab navigation and smooth transitions.' },
+      { title: 'Investor pitch deck', prompt: 'Create an 8-slide investor pitch deck covering problem, solution, traction KPIs, and roadmap with speaker notes.' },
+    ],
+  },
   {
     id: 'coding',
     tone: 'coding',
@@ -68,6 +119,72 @@ export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
       { title: 'Debug & fix an issue', prompt: 'Reproduce and diagnose the bug, apply a minimal clean fix, and verify with tests.' },
       { title: 'Write & run tests', prompt: 'Add focused unit tests for the changed behavior and run the test suite to verify everything passes.' },
       { title: 'Refactor & review diff', prompt: 'Refactor the duplicated logic into a small clean helper, then review the git diff.' },
+    ],
+  },
+  {
+    id: 'research',
+    tone: 'agent',
+    icon: 'book-open-line',
+    label: 'Research',
+    title: 'Investigate deeply, present clearly',
+    subtitle: 'Synthesize sources into visual reports, decision rooms, or research decks with cited charts and structured tables.',
+    placeholder: 'Describe the topic, market, paper, or comparison you want to research…',
+    defaultPrompt: 'Research the 2026 enterprise AI agent platform landscape with cited market figures, architecture comparisons, and risk tradeoffs, then build an interactive Visual Report in Design Studio and open it in the Artifact Viewer.',
+    pickerCategory: 'design-template',
+    quickIdeas: [
+      {
+        title: 'Market landscape report',
+        prompt: 'Compare the top 6 AI coding and agent platforms on pricing, architecture, latency, and enterprise governance in a Visual Report.',
+        optionsPatch: { researchFormat: 'report', researchDepth: 'deep', researchVisuals: true, researchCitations: true },
+      },
+      {
+        title: 'Technical architecture decision room',
+        prompt: 'Build an interactive Decision Room comparing local-first SQLite sync engines versus cloud Postgres architectures with an evidence ledger and tradeoff matrix.',
+        optionsPatch: { researchFormat: 'decision-room', researchDepth: 'deep', researchVisuals: true, researchCitations: true },
+      },
+      {
+        title: 'Executive research deck',
+        prompt: 'Synthesize recent multimodal reasoning benchmarks into an 8-slide Research Deck with comparative charts and speaker notes.',
+        optionsPatch: { researchFormat: 'deck', researchDepth: 'balanced', researchVisuals: true, researchCitations: true },
+      },
+      {
+        title: 'Policy & competitive briefing memo',
+        prompt: 'Write a concise two-page Briefing Memo analyzing regulatory shifts and competitive responses for executive leadership.',
+        optionsPatch: { researchFormat: 'memo', researchDepth: 'quick', researchVisuals: false, researchCitations: true },
+      },
+    ],
+  },
+  {
+    id: 'visualization',
+    tone: 'coding',
+    icon: 'bar-chart-box-line',
+    label: 'Visualization',
+    title: 'Turn data into interactive visuals',
+    subtitle: 'Pick a chart, KPI dashboard, editorial infographic, or 3D WebGL scene below and attach live templates or Design Skills.',
+    placeholder: 'Describe the dataset, chart type, metrics, or visual story you want to build…',
+    defaultPrompt: 'Build an interactive KPI and cohort analytics visualization backed by data.json with responsive D3/SVG charts, hover tooltips, filter controls, and theme parity, then open it in the Artifact Viewer.',
+    pickerCategory: 'design-template',
+    quickIdeas: [
+      {
+        title: 'Live SaaS telemetry cockpit',
+        prompt: 'Build an interactive KPI Dashboard powered by data.json with revenue trends, cohort retention curves, and regional drilldowns.',
+        optionsPatch: { ...visualizationOptionsPatch('dashboard'), vizStyle: 'dark-terminal' },
+      },
+      {
+        title: 'Interactive D3 chart story',
+        prompt: 'Design an editorial multi-series D3 chart with annotations, hover scrubbing, logarithmic scale toggle, and source footnotes.',
+        optionsPatch: { ...visualizationOptionsPatch('chart'), vizStyle: 'editorial' },
+      },
+      {
+        title: 'System architecture & flow map',
+        prompt: 'Create an interactive node-and-edge knowledge architecture diagram with clickable subsystems, dataflow highlighting, and search filter.',
+        optionsPatch: { ...visualizationOptionsPatch('diagram'), vizStyle: 'minimal' },
+      },
+      {
+        title: '3D spatial & WebGL data field',
+        prompt: 'Author an interactive WebGL2 3D point-cloud visualization with orbit camera controls, category color filtering, and fluid point transitions.',
+        optionsPatch: { ...visualizationOptionsPatch('webgl'), vizStyle: 'dark-terminal' },
+      },
     ],
   },
   {
@@ -99,7 +216,7 @@ export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
     quickIdeas: [
       { title: '15s product launch reel', prompt: 'Create a 15-second product launch video with bold kinetic typography, feature callouts, and a crisp logo outro.' },
       { title: 'Website to launch video', prompt: 'Turn a product story into a fast-paced 20-second launch film with UI screen choreography.' },
-      { title: 'Brand commercial intro', prompt: 'Design a sleek 12-second brand opener styled with the attached Brand Kit palette and typography.' },
+      { title: 'Brand commercial intro', prompt: 'Design a sleek 12-second brand commercial opener with bold kinetic typography and crisp geometric transitions.' },
     ],
   },
   {
@@ -123,17 +240,11 @@ export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
     tone: 'agent',
     icon: 'gamepad-line',
     label: 'Game Studio',
-    title: 'Create your own game in minutes',
-    subtitle: 'Pick a genre, style and setting, describe your game in one line and your Agent builds a playable web game.',
+    title: 'Create a playable game in minutes',
     placeholder: 'Describe the game you want to make',
     defaultPrompt: 'Build a playable retro neon arcade space-shooter game in HTML5 Canvas with keyboard and mouse controls, score & wave HUD, particle explosions, and a restart button. Preview it in the Artifact Viewer.',
     pickerCategory: 'projects',
-    quickIdeas: [
-      { title: 'Co-op 3D crystal defense', prompt: 'Defend a glowing arena crystal through 5 waves with 1–4 co-op players, dash/nova skills, and an instant invite link.' },
-      { title: 'Retro pixel platformer', prompt: 'Build a crisp pixel-art platformer with tight jump physics, hidden coins, hazards, and a dramatic boss arena.' },
-      { title: 'Portrait one-tap arcade', prompt: 'Create an addictive 9:16 portrait one-tap arcade game playable with one thumb, instant restarts, and combo multipliers.' },
-      { title: 'Cyberpunk drift racer', prompt: 'Build a neon night-time 3D street racing game with smooth drifting, nitro boost pads, and lap time records.' },
-    ],
+    quickIdeas: GAME_STUDIO_QUICK_IDEAS,
   },
   {
     id: 'image',
@@ -146,9 +257,9 @@ export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
     defaultPrompt: 'Check my configured image models and generate a cinematic product hero illustration in the workspace asset library, inspect the result, and display it in the Artifact Viewer.',
     pickerCategory: 'asset',
     quickIdeas: [
-      { title: 'Cinematic product hero', prompt: 'Generate a studio-lit product hero illustration matching the attached Brand Kit colors and mood.' },
-      { title: 'Character concept sheet', prompt: 'Create a consistent character concept illustration in 16:9 widescreen framing.' },
-      { title: 'Editorial poster artwork', prompt: 'Design a bold editorial campaign visual with dramatic lighting and clean composition.' },
+      { title: 'Cinematic product hero', prompt: 'Generate a studio-lit matte ceramic wireless speaker hero visual with warm rim lighting on a dark slate surface.', optionsPatch: { imageScene: 'text-to-image' } },
+      { title: 'Character concept sheet', prompt: 'Create a consistent character concept illustration in 16:9 widescreen framing.', optionsPatch: { imageScene: 'text-to-image' } },
+      { title: 'Editorial poster artwork', prompt: 'Design a bold editorial campaign visual with dramatic lighting and clean composition.', optionsPatch: { imageScene: 'text-to-image' } },
     ],
   },
   {
@@ -162,7 +273,7 @@ export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
     defaultPrompt: 'Inspect my configured video models and help me generate a short cinematic shot in workspace assets, then show it in the Artifact Viewer.',
     pickerCategory: 'asset',
     quickIdeas: [
-      { title: 'Cinematic B-roll shot', prompt: 'Generate a 5-second cinematic camera-movement shot based on the attached still reference.' },
+      { title: 'Cinematic B-roll shot', prompt: 'Generate a 5-second cinematic slow push-in shot of a sunlit minimalist courtyard with drifting leaf shadows.' },
       { title: 'Product slow-motion reveal', prompt: 'Direct a 5-second studio macro slow-motion product reveal with dramatic rim lighting.' },
       { title: 'Multi-shot story sequence', prompt: 'Create a 3-shot cinematic sequence with matching lighting and smooth camera push-in.' },
     ],
@@ -178,14 +289,133 @@ export const SUPER_AGENT_MODES: readonly SuperAgentModeSpec[] = [
     defaultPrompt: 'Inspect my configured audio models and help me compose a 30-second product launch soundtrack or narration in workspace assets, then preview it in the Artifact Viewer.',
     pickerCategory: 'asset',
     quickIdeas: [
-      { title: 'Product launch soundtrack', prompt: 'Compose an upbeat 30-second electronic product launch soundtrack with a clean build-up and crisp finale.' },
-      { title: 'Warm narration voiceover', prompt: 'Generate a warm, natural studio voiceover intro suitable for a 20-second product film.' },
-      { title: 'UI & transition sound effects', prompt: 'Create a set of crisp UI click, swoosh, and reveal transition sound effects for motion design.' },
+      { title: 'Product launch soundtrack', prompt: 'Compose an upbeat 30-second electronic product launch soundtrack with a clean build-up and crisp finale.', optionsPatch: { audioType: 'music', audioModelId: 'auto' } },
+      { title: 'Warm narration voiceover', prompt: 'Every idea deserves to be seen. This is where our story begins.', optionsPatch: { audioType: 'voiceover', audioModelId: 'auto' } },
+      { title: 'UI & transition sound effects', prompt: 'Create a soft two-note notification chime with a light airy tail for a UI transition.', optionsPatch: { audioType: 'sfx', audioModelId: 'auto' } },
     ],
   },
 ];
 
-export function findSuperAgentMode(id: SuperAgentCreationModeId | null): SuperAgentModeSpec | null {
+const DESIGN_MODULE_QUICK_IDEAS: Record<SuperAgentDesignModuleId, readonly { title: string; prompt: string; optionsPatch?: Partial<ModeComposerOptions> }[]> = {
+  prototype: [
+    { title: 'AI product landing page', prompt: 'Build a responsive AI product landing page with interactive feature switcher, pricing toggle, and customer proof.' },
+    { title: 'Interactive SaaS dashboard', prompt: 'Create a live analytics dashboard with KPI cards, interactive filters, and trend charts.' },
+    { title: 'Editorial studio showcase', prompt: 'Design a kinetic editorial agency portfolio website with bold typography and interactive project previews.' },
+  ],
+  'mobile-app': [
+    { title: 'Fitness coaching app', prompt: 'Prototype a mobile fitness coaching app covering goal setup, weekly plans, workout check-ins and progress review.' },
+    { title: 'Personal finance wallet', prompt: 'Design an iOS personal finance app with account balance, recent transactions, budget rings and quick transfer.' },
+    { title: 'Travel itinerary companion', prompt: 'Create a mobile travel companion app with itinerary timeline, boarding pass card and offline city tips.' },
+  ],
+  deck: [
+    { title: 'Investor pitch deck', prompt: 'Create an 8-slide investor pitch deck covering problem, solution, traction KPIs, and roadmap with speaker notes.' },
+    { title: 'Quarterly business review', prompt: 'Build a quarterly performance deck with metric comparisons, key milestones, and next-quarter priorities.' },
+    { title: 'Product launch keynote', prompt: 'Design a clean 10-slide keynote presentation announcing a new hardware & AI product with bold visual slides.' },
+  ],
+  document: [
+    { title: 'One-page designer resume', prompt: 'Draft a one-page resume for a senior product designer with summary, experience, skills and selected work.' },
+    { title: 'Quarterly finance report', prompt: 'Write a two-page quarterly finance report with KPIs, charts and commentary.' },
+    { title: 'Competitor landscape brief', prompt: 'Draft a structured competitor analysis report with positioning matrix and executive summary.' },
+  ],
+  'web-clone': [
+    { title: 'Clone a SaaS home page', prompt: 'Rebuild a modern developer-tool landing page as clean, responsive, editable HTML with interactive tabs.' },
+    { title: 'Rebuild an editorial blog', prompt: 'Recreate an editorial publication homepage with featured stories, reading list, and dark/light theme.' },
+    { title: 'Responsive pricing page clone', prompt: 'Rebuild a multi-tier pricing page with billing toggle, feature comparison table, and FAQ accordion.' },
+  ],
+  'live-artifact': [
+    { title: 'Live sales KPI dashboard', prompt: 'Create a live sales dashboard driven by data.json with KPIs, a trend chart and a top-accounts table.' },
+    { title: 'Real-time metrics board', prompt: 'Build an operational telemetry dashboard backed by data.json with live filter chips and status breakdown.' },
+    { title: 'Interactive cohort explorer', prompt: 'Design a retention cohort analysis viewer powered by data.json with date-range and segment controls.' },
+  ],
+  webgl: [
+    { title: 'Reactive particle hero', prompt: 'Build a WebGL2 hero with a flowing particle field that reacts to the pointer and scroll.' },
+    { title: 'Interactive 3D product stage', prompt: 'Create a WebGL2 interactive 3D showcase with smooth camera orbit, studio lighting, and material presets.' },
+    { title: 'Fluid shader background', prompt: 'Author an interactive GLSL shader canvas with live color palette controls and pointer ripples.' },
+  ],
+  image: [
+    { title: 'Cinematic product hero', prompt: 'Generate a studio-lit matte ceramic wireless speaker hero visual with warm rim lighting on a dark slate surface.', optionsPatch: { imageScene: 'text-to-image' } },
+    { title: 'Editorial poster artwork', prompt: 'Design a bold editorial campaign visual with dramatic lighting and clean composition.', optionsPatch: { imageScene: 'text-to-image' } },
+    { title: 'Brand campaign visual', prompt: 'Create a cohesive key visual artwork tailored for social launch banners and product thumbnails.', optionsPatch: { imageScene: 'text-to-image' } },
+  ],
+};
+
+const RESEARCH_SKILL_IDS = new Set([
+  'research-decision-room',
+  'data-report',
+  'doc-kami-parchment',
+  'article-magazine',
+  'writing-guidelines',
+  'design-brief',
+  'frontend-slides',
+  'deck-swiss-international',
+]);
+
+const VIZ_SKILL_IDS = new Set([
+  'd3-visualization',
+  'frame-data-chart-nyt',
+  'frame-flowchart-sticky',
+  'hand-drawn-diagrams',
+  'data-report',
+  'algorithmic-art',
+]);
+
+function resourceSearchHaystack(item: SuperAgentResourceAttachment): string {
+  return [item.id, item.title, item.subtitle, ...(item.tags ?? [])].filter(Boolean).join(' ');
+}
+
+function isResearchReportTemplate(item: SuperAgentResourceAttachment): boolean {
+  return item.scenario === 'document';
+}
+
+function isResearchBoardTemplate(item: SuperAgentResourceAttachment): boolean {
+  return item.scenario === 'live-artifact' || /decision|matrix|orbit-|pm-spec|visualizer|codex|brief/i.test(item.id);
+}
+
+function isResearchDeckTemplate(item: SuperAgentResourceAttachment): boolean {
+  return item.scenario === 'deck'
+    && /report|graph|blueprint|swiss|editorial|academic|pitch|weekly|research/i.test(resourceSearchHaystack(item));
+}
+
+function isResearchTemplate(item: SuperAgentResourceAttachment): boolean {
+  return isResearchReportTemplate(item) || isResearchBoardTemplate(item) || isResearchDeckTemplate(item);
+}
+
+function researchFormatToFilter(format: ResearchDeliverableFormat): string {
+  if (format === 'decision-room') return 'boards';
+  if (format === 'deck') return 'decks';
+  return 'reports';
+}
+
+function isVizDashboardTemplate(item: SuperAgentResourceAttachment): boolean {
+  return item.scenario === 'live-artifact'
+    || /dashboard|trading|telemetry|analytics|metrics|matrix/i.test(resourceSearchHaystack(item));
+}
+
+function isVizChartOrDiagramTemplate(item: SuperAgentResourceAttachment): boolean {
+  return item.scenario === 'live-artifact'
+    || /chart|sparkline|graph|d3|data-report|finance-report|pentagram|diagram|blueprint|visualizer|map|flow|orbit|codex|architecture/i.test(resourceSearchHaystack(item));
+}
+
+function isVizInfographicTemplate(item: SuperAgentResourceAttachment): boolean {
+  return (item.scenario === 'document' && /data|finance|article|critique|eguide/i.test(item.id))
+    || /infographic|bauhaus|broadside|cobalt/i.test(resourceSearchHaystack(item));
+}
+
+function isVizTemplate(item: SuperAgentResourceAttachment): boolean {
+  return item.scenario === 'webgl'
+    || isVizDashboardTemplate(item)
+    || isVizChartOrDiagramTemplate(item)
+    || isVizInfographicTemplate(item);
+}
+
+function vizTypeToFilter(type: VisualizationType): string {
+  if (type === 'dashboard') return 'dashboards';
+  if (type === 'chart' || type === 'diagram') return 'charts';
+  if (type === 'webgl') return 'webgl';
+  return 'all';
+}
+
+export function findSuperAgentMode(id: string | null): SuperAgentModeSpec | null {
   return id ? SUPER_AGENT_MODES.find(item => item.id === id) ?? null : null;
 }
 
@@ -194,92 +424,142 @@ const PAGE_BATCH_SIZE = 24;
 type CuratedShowcaseCard = {
   id: string;
   title: string;
-  subtitle: string;
+  subtitle: string[];
+  seconds?: number;
   poster: string;
   posterPosition?: string;
   prompt: string;
+  optionsPatch?: Partial<ModeComposerOptions>;
+  referenceImage?: CuratedReferenceImage;
 };
 
-function buildImageCardsByCategory(category: string): CuratedShowcaseCard[] {
-  const gpt: CuratedShowcaseCard[] = gptImageStory.cases.map((item, idx) => ({
-    id: `gpt-${idx}`,
-    title: item.example.title,
-    subtitle: 'GPT Image 2.6 · Image',
-    poster: item.example.poster,
-    posterPosition: item.example.posterPosition,
-    prompt: item.example.prompt,
-  }));
+function buildImageCardsByCategory(category: string, isZh: boolean): CuratedShowcaseCard[] {
+  const gpt: CuratedShowcaseCard[] = gptImageStory.cases.map((item, idx) => {
+    const isEdit = item.destination.scene.id === 'image-edit';
+    return {
+      id: `gpt-${idx}`,
+      title: item.example.title,
+      subtitle: ['GPT Image 2.6', 'Image'],
+      poster: item.example.poster,
+      posterPosition: item.example.posterPosition,
+      prompt: item.example.prompt,
+      optionsPatch: { imageScene: isEdit ? 'image-edit' : 'text-to-image' },
+      ...(isEdit
+        ? {
+            referenceImage: {
+              url: speakerStudioRef,
+              filename: 'speaker-studio.webp',
+              title: 'Speaker studio reference',
+            },
+          }
+        : {}),
+    };
+  });
   const t2i: CuratedShowcaseCard[] = sceneExamples['text-to-image'].map((ex, idx) => ({
     id: `t2i-${idx}`,
     title: ex.title,
-    subtitle: 'Text to image',
+    subtitle: ['Text to image'],
     poster: ex.poster,
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
+    optionsPatch: { imageScene: 'text-to-image' },
   }));
   const edit: CuratedShowcaseCard[] = sceneExamples['image-edit'].map((ex, idx) => ({
     id: `edit-${idx}`,
     title: ex.title,
-    subtitle: 'Image edit',
+    subtitle: ['Image editing'],
     poster: ex.poster,
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
+    optionsPatch: { imageScene: 'image-edit' },
+    referenceImage: {
+      url: speakerStudioRef,
+      filename: 'speaker-studio.webp',
+      title: 'Speaker studio reference',
+    },
   }));
   const bg: CuratedShowcaseCard[] = sceneExamples['remove-background'].map((ex, idx) => ({
     id: `bg-${idx}`,
     title: ex.title,
-    subtitle: 'Remove background',
+    subtitle: ['Remove background'],
     poster: ex.poster,
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
+    optionsPatch: { imageScene: 'remove-background' },
+    referenceImage: {
+      url: speakerStudioRef,
+      filename: 'speaker-studio.webp',
+      title: 'Speaker studio reference',
+    },
   }));
   const relight: CuratedShowcaseCard[] = sceneExamples.relight.map((ex, idx) => ({
     id: `relight-${idx}`,
     title: ex.title,
-    subtitle: 'Relight',
+    subtitle: ['Relight'],
     poster: ex.poster,
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
+    optionsPatch: { imageScene: 'relight' },
+    referenceImage: {
+      url: speakerRoomRef,
+      filename: 'speaker-room.webp',
+      title: 'Speaker room reference',
+    },
   }));
-  const char: CuratedShowcaseCard[] = sceneExamples.character.map((ex, idx) => ({
-    id: `char-${idx}`,
+  const blend: CuratedShowcaseCard[] = sceneExamples['image-blend'].map((ex, idx) => ({
+    id: `image-blend-${idx}`,
     title: ex.title,
-    subtitle: 'Character consistency',
+    subtitle: ['Image blend'],
     poster: ex.poster,
     posterPosition: ex.posterPosition,
     prompt: ex.prompt,
+    optionsPatch: { imageScene: 'image-blend' },
+    referenceImage: {
+      url: lunarRef,
+      filename: 'apollo-11.jpg',
+      title: 'Astronaut reference',
+    },
   }));
 
   const cinemaStills: CuratedShowcaseCard[] = [
-    ...cinemaTemplates.map(tpl => ({
-      id: `still-cinema-${tpl.id}`,
-      title: tpl.en.title,
-      subtitle: 'Cinema still · Visual reference',
-      poster: tpl.poster,
-      prompt: tpl.en.prompt,
-    })),
-    ...seedanceStory.cases.map((item, idx) => ({
-      id: `still-seedance-${idx}`,
-      title: item.example.title,
-      subtitle: 'Key visual · Art direction',
-      poster: item.example.poster,
-      posterPosition: item.example.posterPosition,
-      prompt: item.example.prompt,
-    })),
+    ...cinemaTemplates
+      .filter(tpl => tpl.scene !== 'image-to-video')
+      .map(tpl => {
+        const copy = isZh ? tpl.zh : tpl.en;
+        return {
+          id: `still-cinema-${tpl.id}`,
+          title: copy.title,
+          subtitle: ['Cinema still', 'Visual reference'],
+          poster: tpl.poster,
+          prompt: copy.prompt,
+          optionsPatch: { imageScene: 'text-to-image' as const },
+        };
+      }),
+    ...seedanceStory.cases
+      .filter(item => item.destination.scene.id !== 'image-to-video')
+      .map((item, idx) => ({
+        id: `still-seedance-${idx}`,
+        title: item.example.title,
+        subtitle: ['Key visual', 'Art direction'],
+        poster: item.example.poster,
+        posterPosition: item.example.posterPosition,
+        prompt: item.example.prompt,
+        optionsPatch: { imageScene: 'text-to-image' as const },
+      })),
   ];
 
   if (category === 'gpt-image') return gpt;
   if (category === 'text-to-image') return t2i;
   if (category === 'image-edit') return edit;
   if (category === 'remove-background') return bg;
+  if (category === 'image-blend') return blend;
   if (category === 'relight') return relight;
-  if (category === 'character') return char;
 
   const seenTitles = new Set<string>();
   const seenPosters = new Set<string>();
   const primary: CuratedShowcaseCard[] = [];
   const secondary: CuratedShowcaseCard[] = [];
-  for (const item of [...gpt, ...t2i, ...edit, ...bg, ...relight, ...char, ...cinemaStills]) {
+  for (const item of [...gpt, ...t2i, ...edit, ...bg, ...blend, ...relight, ...cinemaStills]) {
     if (seenTitles.has(item.title)) continue;
     seenTitles.add(item.title);
     if (item.poster && !seenPosters.has(item.poster)) {
@@ -292,48 +572,87 @@ function buildImageCardsByCategory(category: string): CuratedShowcaseCard[] {
   return [...primary, ...secondary];
 }
 
-function buildCinemaCardsByCategory(category: string, isZh: boolean): CuratedShowcaseCard[] {
+function buildCinemaCardsByCategory(
+  category: string,
+  isZh: boolean,
+  modeId?: SuperAgentCreationModeId,
+): CuratedShowcaseCard[] {
+  const videoOptionsPatch: Partial<ModeComposerOptions> | undefined = modeId === 'motion'
+    ? { motionEngine: 'video-model' }
+    : modeId === 'media'
+      ? { mediaSubMode: 'video' }
+      : undefined;
   const cinema: CuratedShowcaseCard[] = cinemaTemplates.map(tpl => {
     const copy = isZh ? tpl.zh : tpl.en;
+    const referenceImage: CuratedReferenceImage | undefined = tpl.scene === 'image-to-video'
+      ? (tpl.id === 'interior-first-frame'
+          ? { url: speakerRoomRef, filename: 'speaker-room.webp', title: 'Interior first frame' }
+          : { url: tpl.poster, filename: `${tpl.id}.webp`, title: copy.title, fallbackUrl: speakerStudioRef })
+      : undefined;
     return {
       id: `cinema-${tpl.id}`,
       title: copy.title,
-      subtitle: `${tpl.model.name} · ${tpl.aspect} · ${tpl.duration}s`,
+      subtitle: [tpl.model.name, tpl.aspect],
+      seconds: tpl.duration,
       poster: tpl.poster,
       prompt: copy.prompt,
+      ...(videoOptionsPatch ? { optionsPatch: videoOptionsPatch } : {}),
+      ...(referenceImage ? { referenceImage } : {}),
     };
   });
-  const seedance: CuratedShowcaseCard[] = seedanceStory.cases.map((item, idx) => ({
-    id: `seedance-${idx}`,
-    title: item.example.title,
-    subtitle: 'Seedance 2.5 · Video',
-    poster: item.example.poster,
-    posterPosition: item.example.posterPosition,
-    prompt: item.example.prompt,
-  }));
+  const seedance: CuratedShowcaseCard[] = seedanceStory.cases.map((item, idx) => {
+    const referenceImage: CuratedReferenceImage | undefined = item.destination.scene.id === 'image-to-video'
+      ? {
+          url: item.example.poster,
+          filename: 'product-first-frame.webp',
+          title: item.example.title,
+          fallbackUrl: speakerStudioRef,
+        }
+      : undefined;
+    return {
+      id: `seedance-${idx}`,
+      title: item.example.title,
+      subtitle: ['Seedance 2.5', 'Video'],
+      poster: item.example.poster,
+      posterPosition: item.example.posterPosition,
+      prompt: item.example.prompt,
+      ...(videoOptionsPatch ? { optionsPatch: videoOptionsPatch } : {}),
+      ...(referenceImage ? { referenceImage } : {}),
+    };
+  });
   const videoScenes: CuratedShowcaseCard[] = (['video-camera-control', 'video-multi-shot'] as const).flatMap(sceneKey =>
     sceneExamples[sceneKey].map((ex, idx) => ({
       id: `${sceneKey}-${idx}`,
       title: ex.title,
-      subtitle: sceneKey.replace('video-', '').replaceAll('-', ' '),
+      subtitle: [sceneKey === 'video-camera-control' ? 'Camera control' : 'Multi-shot'],
       poster: ex.poster,
       posterPosition: ex.posterPosition,
       prompt: ex.prompt,
+      ...(videoOptionsPatch ? { optionsPatch: videoOptionsPatch } : {}),
     })),
   );
   const music: CuratedShowcaseCard[] = sceneExamples.music.map((ex, idx) => ({
     id: `audio-${idx}`,
     title: ex.title,
-    subtitle: [ex.kind || 'Audio', ex.model, ex.seconds ? `${ex.seconds}s` : ''].filter(Boolean).join(' · '),
+    subtitle: ex.model ? [ex.kind ?? 'Audio', ex.model] : [ex.kind ?? 'Audio'],
+    seconds: ex.seconds,
     poster: ex.poster,
     prompt: ex.prompt,
+    optionsPatch: {
+      audioType: ex.kind === 'Sound effect' ? 'sfx' : 'music',
+      audioModelId: 'auto',
+    },
   }));
   const speech: CuratedShowcaseCard[] = sceneExamples.speech.map((ex, idx) => ({
     id: `speech-${idx}`,
     title: ex.title,
-    subtitle: 'Text to speech',
+    subtitle: ['Text to speech'],
     poster: ex.poster,
     prompt: ex.prompt,
+    optionsPatch: {
+      audioType: 'voiceover',
+      audioModelId: 'auto',
+    },
   }));
   const audio: CuratedShowcaseCard[] = [...music, ...speech];
 
@@ -391,12 +710,21 @@ function motionSkillToAttachment(skill: MotionSkill): SuperAgentResourceAttachme
 type FilterOption = { id: string; label: string; count?: number };
 
 function ResourceShowcaseThumb({ item, active = true }: { item: SuperAgentResourceAttachment; active?: boolean }) {
+  const { t } = useI18n();
   const [imgFailed, setImgFailed] = useState(false);
 
-  if (item.kind === 'design-template' && item.previewUrl) {
+  if ((item.kind === 'design-template' || item.kind === 'design-project') && item.previewUrl) {
     return (
       <div className="om-sa-showcase-thumb om-sa-showcase-iframe-wrap" aria-hidden="true">
         <ScaledPreviewThumb src={item.previewUrl} title={item.title} active={active} />
+      </div>
+    );
+  }
+
+  if (item.kind === 'asset' && item.modality === 'video' && item.previewUrl) {
+    return (
+      <div className="om-sa-showcase-thumb" data-modality="video" aria-hidden="true">
+        <VideoFrameThumbnail key={item.previewUrl} src={item.previewUrl} fallbackLabel={t('Preview unavailable')} />
       </div>
     );
   }
@@ -445,6 +773,88 @@ const GAME_STATUS_LABELS: Partial<Record<GameCard['status'], string>> = {
   failed: 'Not finished',
 };
 
+type ResourceListState =
+  | { status: 'loading' | 'error' }
+  | { status: 'ready'; items: SuperAgentResourceAttachment[]; total: number; nextOffset: number | null; pageError?: boolean };
+
+const loadingResources: ResourceListState = { status: 'loading' };
+
+function useShowcaseResourceList(kind: 'asset' | 'brand-kit', enabled: boolean, modality?: Modality, query = '') {
+  const key = JSON.stringify([kind, modality, query]);
+  const initial: { key: string; state: ResourceListState; offset: number; attempt: number } = {
+    key, state: loadingResources, offset: 0, attempt: 0,
+  };
+  const [request, setRequest] = useState(initial);
+  const { state, offset, attempt } = request.key === key ? request : initial;
+  if (request.key !== key) setRequest(initial);
+  const loadingMore = state.status === 'ready' && offset > 0 && state.nextOffset === offset && !state.pageError;
+
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    const load = () => {
+      void fetchWorkspaceResources({
+        kind, modality, query, offset, limit: kind === 'asset' ? PAGE_BATCH_SIZE : 1000, signal: controller.signal,
+      }).then(({ items, assetPage }) => {
+        if (!Array.isArray(items) || (kind === 'asset' && !assetPage)) throw new Error('Invalid workspace resource list');
+        if (controller.signal.aborted) return;
+        setRequest(previous => {
+          if (previous.key !== key) return previous;
+          const prior = offset && previous.state.status === 'ready' ? previous.state.items : [];
+          const merged = offset ? [...new Map([...prior, ...items].map(item => [item.id, item])).values()] : items;
+          return { ...previous, state: {
+            status: 'ready',
+            items: merged,
+            total: assetPage?.total ?? items.length,
+            nextOffset: assetPage?.nextOffset ?? null,
+          } };
+        });
+      }).catch(() => {
+        if (controller.signal.aborted) return;
+        setRequest(previous => previous.key !== key ? previous : {
+          ...previous,
+          state: offset && previous.state.status === 'ready'
+            ? { ...previous.state, pageError: true }
+            : { status: 'error' },
+        });
+      });
+    };
+    const timer = query && offset === 0 ? setTimeout(load, 160) : undefined;
+    if (timer === undefined) load();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [kind, enabled, modality, query, key, offset, attempt]);
+
+  const loadMore = useCallback(() => {
+    if (state.status !== 'ready' || state.nextOffset === null || loadingMore) return;
+    const nextOffset = state.nextOffset;
+    if (state.pageError) {
+      setRequest(previous => ({ ...previous, state: { ...state, pageError: false }, attempt: previous.attempt + 1 }));
+      return;
+    }
+    setRequest(previous => ({ ...previous, offset: nextOffset }));
+  }, [loadingMore, state]);
+
+  return {
+    state,
+    loadingMore,
+    loadMore,
+    retry: () => {
+      setRequest(previous => ({ ...previous, state: loadingResources, offset: 0, attempt: previous.attempt + 1 }));
+    },
+  };
+}
+
+function filterByShowcaseQuery(items: SuperAgentResourceAttachment[], query: string) {
+  if (!query) return items;
+  return items.filter(item =>
+    [item.id, item.title, item.subtitle, item.scenario, ...(item.tags ?? [])]
+      .some(text => text?.toLocaleLowerCase().includes(query)),
+  );
+}
+
 export function ModeResourceShowcase({
   active = true,
   mode,
@@ -466,17 +876,18 @@ export function ModeResourceShowcase({
   modeOptions?: ModeComposerOptions;
   playingGameId?: string | null;
   onChangeModeOptions?: (patch: Partial<ModeComposerOptions>) => void;
-  onToggleAttachment: (item: SuperAgentResourceAttachment) => void;
+  onToggleAttachment: (item: SuperAgentResourceAttachment) => boolean | void;
   onPlayGame?: (game: GameCard) => void;
   onDeployGame?: (game: GameCard) => void;
   onFocusComposer?: () => void;
-  onPickPrompt: (prompt: string) => void;
+  onPickPrompt: (prompt: string, meta?: PickPromptMeta) => void;
   onOpenAllResources: (category: ResourceCategoryTab) => void;
   onOpenGameStudio?: () => void;
   onClose: () => void;
 }) {
   const { t, locale } = useI18n();
   const isZh = locale === 'zh-CN';
+  const templateHeadingId = useId();
 
   // Motion & Cinema modes share Explore's full covered Motion template catalog.
   const coveredMotion = useCoveredTemplates(locale, mode.id === 'motion' || mode.id === 'media', { showFirstPage: true });
@@ -489,21 +900,22 @@ export function ModeResourceShowcase({
     [coveredMotion.catalog],
   );
 
-  // Full workspace catalogs cached per kind for Design templates, Brand Kits, Design Skills, Assets, and Game Studio.
+  // Catalogs loaded when the associated mode or tab needs them.
   const [designTemplates, setDesignTemplates] = useState<SuperAgentResourceAttachment[] | null>(null);
-  const [brandKits, setBrandKits] = useState<SuperAgentResourceAttachment[] | null>(null);
+  const [designProjects, setDesignProjects] = useState<SuperAgentResourceAttachment[] | null>(null);
   const [designSkills, setDesignSkills] = useState<SuperAgentResourceAttachment[] | null>(null);
-  const [assets, setAssets] = useState<SuperAgentResourceAttachment[] | null>(null);
   const [gameCatalog, setGameCatalog] = useState<GameCard[]>(() => [...communityGames, ...bundledGames]);
   const [loadingKind, setLoadingKind] = useState<string | null>(null);
 
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [activeSkillCategory, setActiveSkillCategory] = useState<SkillCategory | 'all'>('all');
+  const [designQuery, setDesignQuery] = useState('');
   const [gameQuery, setGameQuery] = useState('');
   const [gameSort, setGameSort] = useState<GameSort>('relevance');
+  const [visibleCount, setVisibleCount] = useState(PAGE_BATCH_SIZE);
   const [fanIndex, setFanIndex] = useState(0);
   const [fanPaused, setFanPaused] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(PAGE_BATCH_SIZE);
+  const showcaseRef = useRef<HTMLElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const publishedGameTemplates = useMemo(
@@ -550,11 +962,106 @@ export function ModeResourceShowcase({
     });
   }, [fannedGames, fanIndex]);
 
+  const isVideoMode = mode.id === 'motion' || mode.id === 'media';
+  const isMotionGraphicsView =
+    (mode.id === 'motion' && modeOptions?.motionEngine !== 'video-model')
+    || (mode.id === 'media' && modeOptions?.mediaSubMode === 'motion');
+  const isPureVideoView = isVideoMode && !isMotionGraphicsView;
+  const effectiveHeroMode = isPureVideoView
+    ? (findSuperAgentMode('media') ?? mode)
+    : isMotionGraphicsView
+      ? (findSuperAgentMode('motion') ?? mode)
+      : mode;
   // Build real categories & live counts per mode.
   const filters = useMemo<FilterOption[]>(() => {
+    const motionGraphicsFilters = (): FilterOption[] => {
+      const hasFull = Boolean(coveredMotion.catalog);
+      return [
+        { id: 'all', label: 'All', count: hasFull ? motionCatalog.length : undefined },
+        { id: 'top-100-brands', label: 'TOP 100 brands' },
+        ...motionPurposes.map(purpose => ({
+          id: `purpose:${purpose}`,
+          label: purpose,
+          count: hasFull ? templatesInCollection(motionCatalog, `purpose:${purpose}` as TemplateCollection).length : undefined,
+        })),
+        { id: 'ai-technology', label: aiTechnologyIndustry, count: hasFull ? templatesInCollection(motionCatalog, 'ai-technology').length : undefined },
+        { id: 'black-friday', label: 'Black Friday collection' },
+        { id: 'skills', label: 'Skill library', count: motionSkills.length },
+        { id: 'brand-kit', label: 'Brand Kits' },
+      ];
+    };
+    const pureVideoFilters = (): FilterOption[] => [
+      { id: 'all-media', label: 'All video', count: buildCinemaCardsByCategory('all-media', isZh).length },
+      { id: 'cinema', label: 'Cinema Studio', count: cinemaTemplates.length },
+      { id: 'seedance', label: 'Seedance 2.5', count: seedanceStory.cases.length },
+      { id: 'video-scenes', label: 'Camera & multi-shot', count: buildCinemaCardsByCategory('video-scenes', isZh).length },
+      { id: 'asset', label: 'Workspace Assets' },
+    ];
     switch (mode.id) {
+      case 'design': {
+        if (modeOptions?.designFormat === 'image') {
+          return [
+            { id: 'all-image', label: 'All image scenes', count: buildImageCardsByCategory('all-image', isZh).length },
+            { id: 'gpt-image', label: 'GPT Image 2.6', count: gptImageStory.cases.length },
+            { id: 'text-to-image', label: 'Text to image', count: sceneExamples['text-to-image'].length },
+            { id: 'image-edit', label: 'Image edit', count: sceneExamples['image-edit'].length },
+            { id: 'remove-background', label: 'Remove background', count: sceneExamples['remove-background'].length },
+            { id: 'relight', label: 'Relight', count: sceneExamples.relight.length },
+            { id: 'image-blend', label: 'Image blend', count: sceneExamples['image-blend'].length },
+            { id: 'asset', label: 'Workspace Assets' },
+            { id: 'brand-kit', label: 'Brand Kits' },
+          ];
+        }
+        return [
+          { id: 'all', label: 'All templates', count: designTemplates ? designTemplates.length : undefined },
+          ...designScenarios.map(sc => ({
+            id: sc.id,
+            label: sc.label,
+            count: designTemplates ? designTemplates.filter(i => i.scenario === sc.id).length : undefined,
+          })),
+          ...(designProjects && designProjects.length > 0
+            ? [{ id: 'my-designs', label: 'My designs', count: designProjects.length }]
+            : []),
+          { id: 'brand-kit', label: 'Brand Kits' },
+          { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
+        ];
+      }
       case 'coding':
         return [];
+      case 'research': {
+        const all = (designTemplates ?? []).filter(isResearchTemplate);
+        const reports = all.filter(isResearchReportTemplate);
+        const boards = all.filter(isResearchBoardTemplate);
+        const decks = all.filter(isResearchDeckTemplate);
+        return [
+          { id: 'all', label: 'All templates', count: designTemplates ? all.length : undefined },
+          { id: 'reports', label: 'Reports & Memos', count: designTemplates ? reports.length : undefined },
+          { id: 'boards', label: 'Decision Boards', count: designTemplates ? boards.length : undefined },
+          { id: 'decks', label: 'Research Decks', count: designTemplates ? decks.length : undefined },
+          ...(designProjects && designProjects.length > 0
+            ? [{ id: 'my-designs', label: 'My designs', count: designProjects.length }]
+            : []),
+          { id: 'brand-kit', label: 'Brand Kits' },
+          { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
+        ];
+      }
+      case 'visualization': {
+        const all = (designTemplates ?? []).filter(isVizTemplate);
+        const dashboards = all.filter(isVizDashboardTemplate);
+        const charts = all.filter(isVizChartOrDiagramTemplate);
+        const webgl = all.filter(item => item.scenario === 'webgl');
+        return [
+          { id: 'all', label: 'All templates', count: designTemplates ? all.length : undefined },
+          { id: 'dashboards', label: 'Dashboards', count: designTemplates ? dashboards.length : undefined },
+          { id: 'charts', label: 'Charts & Diagrams', count: designTemplates ? charts.length : undefined },
+          { id: 'webgl', label: '3D & WebGL', count: designTemplates ? webgl.length : undefined },
+          ...(designProjects && designProjects.length > 0
+            ? [{ id: 'my-designs', label: 'My designs', count: designProjects.length }]
+            : []),
+          { id: 'brand-kit', label: 'Brand Kits' },
+          { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
+        ];
+      }
       case 'website': {
         const all = (designTemplates ?? []).filter(i => i.scenario !== 'deck' && i.scenario !== 'document' && i.scenario !== 'webgl');
         const proto = (designTemplates ?? []).filter(i => i.scenario === 'prototype');
@@ -567,18 +1074,19 @@ export function ModeResourceShowcase({
           { id: 'mobile-app', label: 'Mobile App', count: designTemplates ? mobile.length : undefined },
           { id: 'live-artifact', label: 'Live artifact', count: designTemplates ? live.length : undefined },
           ...(clone.length ? [{ id: 'web-clone', label: 'Website clone', count: clone.length }] : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
-      case 'deck': {
+      case 'deck':
+      case 'document': {
         const decks = (designTemplates ?? []).filter(i => i.scenario === 'deck');
         const docs = (designTemplates ?? []).filter(i => i.scenario === 'document');
         return [
           { id: 'all', label: 'All templates', count: designTemplates ? decks.length + docs.length : undefined },
           { id: 'deck', label: 'Slide deck', count: designTemplates ? decks.length : undefined },
           { id: 'document', label: 'Document', count: designTemplates ? docs.length : undefined },
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
           { id: 'design-skill', label: 'Design Skills', count: designSkills?.length },
         ];
       }
@@ -595,49 +1103,25 @@ export function ModeResourceShowcase({
             }))
             .filter(item => item.count > 0),
           ...(portraitCount > 0 ? [{ id: 'portrait', label: 'Portrait games', count: portraitCount }] : []),
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
+          { id: 'brand-kit', label: 'Brand Kits' },
         ];
       }
-      case 'motion': {
-        const hasFull = Boolean(coveredMotion.catalog);
-        return [
-          { id: 'all', label: 'All', count: hasFull ? motionCatalog.length : undefined },
-          { id: 'ai-video', label: 'AI Video & Seedance', count: buildCinemaCardsByCategory('ai-video', isZh).length },
-          { id: 'top-100-brands', label: 'TOP 100 brands' },
-          ...motionPurposes.map(purpose => ({
-            id: `purpose:${purpose}`,
-            label: purpose,
-            count: hasFull ? templatesInCollection(motionCatalog, `purpose:${purpose}` as TemplateCollection).length : undefined,
-          })),
-          { id: 'ai-technology', label: aiTechnologyIndustry, count: hasFull ? templatesInCollection(motionCatalog, 'ai-technology').length : undefined },
-          { id: 'black-friday', label: 'Black Friday collection' },
-          { id: 'skills', label: 'Skills', count: motionSkills.length },
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
-        ];
+      case 'motion':
+      case 'media': {
+        return isPureVideoView ? pureVideoFilters() : motionGraphicsFilters();
       }
       case 'image': {
         return [
-          { id: 'all-image', label: 'All image scenes', count: buildImageCardsByCategory('all-image').length },
+          { id: 'all-image', label: 'All image scenes', count: buildImageCardsByCategory('all-image', isZh).length },
           { id: 'gpt-image', label: 'GPT Image 2.6', count: gptImageStory.cases.length },
           { id: 'text-to-image', label: 'Text to image', count: sceneExamples['text-to-image'].length },
-          { id: 'image-edit', label: 'Image edit', count: sceneExamples['image-edit'].length },
+          { id: 'image-edit', label: 'Image editing', count: sceneExamples['image-edit'].length },
           { id: 'remove-background', label: 'Remove background', count: sceneExamples['remove-background'].length },
+          { id: 'image-blend', label: 'Image blend', count: sceneExamples['image-blend'].length },
           { id: 'relight', label: 'Relight', count: sceneExamples.relight.length },
-          { id: 'character', label: 'Character', count: sceneExamples.character.length },
           { id: 'design-template', label: 'Design templates', count: designTemplates?.length },
-          { id: 'asset', label: 'Workspace Assets', count: assets ? assets.filter(a => a.modality === 'image').length : undefined },
-          { id: 'brand-kit', label: 'Brand Kits', count: brandKits?.length },
-        ];
-      }
-      case 'media': {
-        const hasFull = Boolean(coveredMotion.catalog);
-        return [
-          { id: 'all-media', label: 'All video', count: buildCinemaCardsByCategory('all-media', isZh).length },
-          { id: 'motion-video', label: 'Motion graphics', count: hasFull ? motionCatalog.length : undefined },
-          { id: 'cinema', label: 'Cinema Studio', count: cinemaTemplates.length },
-          { id: 'seedance', label: 'Seedance 2.5', count: seedanceStory.cases.length },
-          { id: 'video-scenes', label: 'Camera & multi-shot', count: buildCinemaCardsByCategory('video-scenes', isZh).length },
-          { id: 'asset', label: 'Workspace Assets', count: assets ? assets.filter(a => a.modality === 'video').length : undefined },
+          { id: 'asset', label: 'Workspace Assets' },
+          { id: 'brand-kit', label: 'Brand Kits' },
         ];
       }
       case 'audio': {
@@ -645,100 +1129,203 @@ export function ModeResourceShowcase({
           { id: 'all-audio', label: 'All audio', count: buildCinemaCardsByCategory('all-audio', isZh).length },
           { id: 'music', label: 'Music & Soundtracks', count: sceneExamples.music.length },
           { id: 'speech', label: 'Voiceover & Speech', count: sceneExamples.speech.length },
-          { id: 'asset', label: 'Workspace Audio', count: assets ? assets.filter(a => a.modality === 'audio').length : undefined },
+          { id: 'asset', label: 'Workspace Audio' },
         ];
       }
     }
-  }, [mode.id, designTemplates, brandKits, designSkills, assets, publishedGameTemplates, myGames, coveredMotion.catalog, motionCatalog, motionPurposes, isZh]);
+  }, [mode.id, modeOptions?.designFormat, isPureVideoView, designTemplates, designProjects, designSkills, publishedGameTemplates, myGames, coveredMotion.catalog, motionCatalog, motionPurposes, isZh]);
+
+  const brandKitList = useShowcaseResourceList('brand-kit', active && filters.some(filter => filter.id === 'brand-kit'));
+  const resourceQuery = mode.id === 'design' || mode.id === 'research' || mode.id === 'visualization'
+    ? designQuery.trim().toLocaleLowerCase()
+    : '';
+  const assetModality = mode.id === 'audio' ? 'audio' : isPureVideoView ? 'video' : 'image';
+  const assetList = useShowcaseResourceList('asset', active && filters.some(filter => filter.id === 'asset'), assetModality, resourceQuery);
+  const brandKits = useMemo(() => brandKitList.state.status === 'ready'
+    ? filterByShowcaseQuery(brandKitList.state.items, resourceQuery)
+    : null, [brandKitList.state, resourceQuery]);
+  const assets = assetList.state.status === 'ready' ? assetList.state.items : null;
+  const activeResourceList = activeFilter === 'brand-kit' ? brandKitList : activeFilter === 'asset' ? assetList : null;
+  const workspaceCounts: Record<string, number | undefined> = {
+    'brand-kit': brandKits?.length,
+    asset: assetList.state.status === 'ready' ? assetList.state.total : undefined,
+  };
 
   // Reset active tab when switching mode.
   useEffect(() => {
-    setActiveFilter(filters[0]?.id ?? 'all');
+    if (mode.id !== 'design' && !isVideoMode) {
+      setActiveFilter(filters[0]?.id ?? 'all');
+    }
     setActiveSkillCategory('all');
+    setDesignQuery('');
     setGameQuery('');
     setGameSort('relevance');
     setVisibleCount(PAGE_BATCH_SIZE);
   }, [mode.id]);
 
+  // Sync Video showcase filter when switching between AI Video and Motion Graphics.
+  useEffect(() => {
+    if (!isVideoMode) return;
+    setActiveFilter(isPureVideoView ? 'all-media' : 'all');
+  }, [isVideoMode, isPureVideoView]);
+
+  const prevAudioTypeRef = useRef(modeOptions?.audioType);
+  useEffect(() => {
+    const nextAudioType = modeOptions?.audioType;
+    const prevAudioType = prevAudioTypeRef.current;
+    prevAudioTypeRef.current = nextAudioType;
+    if (mode.id === 'audio' && nextAudioType && prevAudioType && nextAudioType !== prevAudioType) {
+      setActiveFilter(nextAudioType === 'voiceover' ? 'speech' : 'music');
+    }
+  }, [mode.id, modeOptions?.audioType]);
+
+  const prevImageSceneRef = useRef<ImageDesignScene | undefined>(modeOptions?.imageScene);
+
+  // Sync Design Studio showcase filter with the selected design medium & module.
+  useEffect(() => {
+    if (mode.id !== 'design') return;
+    setActiveFilter(
+      modeOptions?.designFormat === 'image'
+        ? 'all-image'
+        : (modeOptions?.designScenario ?? 'prototype'),
+    );
+  }, [mode.id, modeOptions?.designFormat, modeOptions?.designScenario]);
+
+  // Sync Image scene pill changes into the Image showcase tab.
+  useEffect(() => {
+    const nextScene = modeOptions?.imageScene;
+    const prevScene = prevImageSceneRef.current;
+    prevImageSceneRef.current = nextScene;
+    if (mode.id === 'design' && modeOptions?.designFormat === 'image' && nextScene && prevScene && nextScene !== prevScene) {
+      setActiveFilter(nextScene);
+    }
+  }, [mode.id, modeOptions?.designFormat, modeOptions?.imageScene]);
+
+  useEffect(() => {
+    if (mode.id === 'design') setDesignQuery('');
+  }, [mode.id, modeOptions?.designFormat]);
+
+  const prevResearchFormatRef = useRef<ResearchDeliverableFormat | undefined>(modeOptions?.researchFormat);
+  useEffect(() => {
+    const next = modeOptions?.researchFormat;
+    const prev = prevResearchFormatRef.current;
+    prevResearchFormatRef.current = next;
+    if (mode.id === 'research' && next && prev && next !== prev) {
+      setActiveFilter(researchFormatToFilter(next));
+    }
+  }, [mode.id, modeOptions?.researchFormat]);
+
+  const prevVizTypeRef = useRef<VisualizationType | undefined>(modeOptions?.vizType);
+  useEffect(() => {
+    const next = modeOptions?.vizType;
+    const prev = prevVizTypeRef.current;
+    prevVizTypeRef.current = next;
+    if (mode.id === 'visualization' && next && prev && next !== prev) {
+      setActiveFilter(vizTypeToFilter(next));
+    }
+  }, [mode.id, modeOptions?.vizType]);
+
   // Reset visible scroll window when filter changes.
   useEffect(() => {
     setVisibleCount(PAGE_BATCH_SIZE);
-  }, [activeFilter, activeSkillCategory, gameQuery, gameSort]);
+  }, [activeFilter, activeSkillCategory, designQuery, gameQuery, gameSort]);
 
-  // Eagerly fetch needed catalogs cleanly with full limits (no truncation).
+  // Fetch the remaining design and game catalogs as needed.
   useEffect(() => {
     let cancelled = false;
-    const ensure = async (kind: 'design-template' | 'brand-kit' | 'design-skill' | 'asset') => {
+    const ensure = async (kind: 'design-template' | 'design-project' | 'design-skill') => {
       if (kind === 'design-template' && designTemplates !== null) return;
-      if (kind === 'brand-kit' && brandKits !== null) return;
+      if (kind === 'design-project' && designProjects !== null) return;
       if (kind === 'design-skill' && designSkills !== null) return;
-      if (kind === 'asset' && assets !== null) return;
       setLoadingKind(kind);
       try {
         const res = await fetchWorkspaceResources({ kind, limit: 600 });
         if (cancelled) return;
         if (kind === 'design-template') setDesignTemplates(res.items);
-        if (kind === 'brand-kit') setBrandKits(res.items);
+        if (kind === 'design-project') setDesignProjects(res.items);
         if (kind === 'design-skill') setDesignSkills(res.items);
-        if (kind === 'asset') setAssets(res.items);
       } catch {
         if (cancelled) return;
         if (kind === 'design-template') setDesignTemplates([]);
-        if (kind === 'brand-kit') setBrandKits([]);
+        if (kind === 'design-project') setDesignProjects([]);
         if (kind === 'design-skill') setDesignSkills([]);
-        if (kind === 'asset') setAssets([]);
       } finally {
         if (!cancelled) setLoadingKind(prev => (prev === kind ? null : prev));
       }
     };
 
-    if (mode.id === 'website' || mode.id === 'deck') {
+    if (mode.id === 'design') {
+      if (modeOptions?.designFormat !== 'image') {
+        void ensure('design-template');
+        void ensure('design-project');
+        if (activeFilter === 'design-skill') void ensure('design-skill');
+      }
+    } else if (mode.id === 'website' || mode.id === 'deck' || mode.id === 'research' || mode.id === 'visualization') {
       void ensure('design-template');
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
+      if (mode.id === 'research' || mode.id === 'visualization') {
+        void ensure('design-project');
+      }
       if (activeFilter === 'design-skill') void ensure('design-skill');
     } else if (mode.id === 'game') {
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
       void gameApi.catalog().then(res => {
         if (!cancelled && Array.isArray(res?.games)) {
           setGameCatalog([...communityGames, ...(res.games.length ? res.games : bundledGames)]);
         }
       }).catch(() => { /* fallback keeps bundled + community games */ });
-    } else if (mode.id === 'motion') {
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
-    } else if (mode.id === 'image') {
-      if (activeFilter === 'design-template') void ensure('design-template');
-      if (activeFilter === 'asset') void ensure('asset');
-      if (activeFilter === 'brand-kit') void ensure('brand-kit');
-    } else if (mode.id === 'media' || mode.id === 'audio') {
-      if (activeFilter === 'asset') void ensure('asset');
+    } else if (mode.id === 'image' && activeFilter === 'design-template') {
+      void ensure('design-template');
     }
 
     return () => {
       cancelled = true;
     };
-  }, [mode.id, activeFilter, designTemplates, brandKits, designSkills, assets]);
+  }, [mode.id, modeOptions?.designFormat, activeFilter, designTemplates, designProjects, designSkills]);
 
   // Resolve active curated cards (Image / Cinema / Audio / AI Video).
   const curatedCards = useMemo<CuratedShowcaseCard[] | null>(() => {
+    if (mode.id === 'design' && modeOptions?.designFormat === 'image' && activeFilter !== 'asset' && activeFilter !== 'brand-kit') {
+      const base = buildImageCardsByCategory(activeFilter, isZh);
+      const needle = designQuery.trim().toLocaleLowerCase();
+      if (!needle) return base;
+      return base.filter(card =>
+        [card.title, t(card.title), ...(Array.isArray(card.subtitle) ? card.subtitle : [card.subtitle]), card.prompt]
+          .some(text => text.toLocaleLowerCase().includes(needle)),
+      );
+    }
     if (mode.id === 'image' && activeFilter !== 'asset' && activeFilter !== 'brand-kit' && activeFilter !== 'design-template') {
-      return buildImageCardsByCategory(activeFilter);
+      return buildImageCardsByCategory(activeFilter, isZh);
     }
-    if ((mode.id === 'media' || mode.id === 'audio') && activeFilter !== 'asset' && activeFilter !== 'motion-video') {
-      return buildCinemaCardsByCategory(activeFilter, isZh);
-    }
-    if (mode.id === 'motion' && activeFilter === 'ai-video') {
-      return buildCinemaCardsByCategory('ai-video', isZh);
+    if ((isPureVideoView || mode.id === 'audio') && activeFilter !== 'asset') {
+      return buildCinemaCardsByCategory(activeFilter, isZh, mode.id);
     }
     return null;
-  }, [mode.id, activeFilter, isZh]);
+  }, [mode.id, modeOptions?.designFormat, isPureVideoView, activeFilter, designQuery, isZh, t]);
 
   // Resolve full resource items for all other tabs (NO 12-item cap!).
   const resourceItems = useMemo<SuperAgentResourceAttachment[]>(() => {
     if (curatedCards) return [];
+    const applyDesignSearch = (items: SuperAgentResourceAttachment[]) => filterByShowcaseQuery(items, resourceQuery);
+    if ((mode.id === 'design' || mode.id === 'research' || mode.id === 'visualization') && activeFilter === 'my-designs') {
+      return applyDesignSearch(designProjects ?? []);
+    }
     if (activeFilter === 'brand-kit') return brandKits ?? [];
-    if (activeFilter === 'design-template') return designTemplates ?? [];
+    if (activeFilter === 'design-template') return applyDesignSearch(designTemplates ?? []);
     if (activeFilter === 'design-skill') {
       const all = designSkills ?? [];
+      if (mode.id === 'design') {
+        const activeScen = modeOptions?.designScenario ?? 'prototype';
+        return applyDesignSearch([...all].sort((a, b) => Number(b.scenario === activeScen) - Number(a.scenario === activeScen)));
+      }
+      if (mode.id === 'research') {
+        const score = (s: SuperAgentResourceAttachment) =>
+          (RESEARCH_SKILL_IDS.has(s.id) ? 2 : 0) + (s.scenario === 'document' || s.scenario === 'deck' ? 1 : 0);
+        return applyDesignSearch([...all].sort((a, b) => score(b) - score(a)));
+      }
+      if (mode.id === 'visualization') {
+        const score = (s: SuperAgentResourceAttachment) =>
+          (VIZ_SKILL_IDS.has(s.id) ? 2 : 0) + (s.scenario === 'live-artifact' || s.scenario === 'webgl' ? 1 : 0);
+        return applyDesignSearch([...all].sort((a, b) => score(b) - score(a)));
+      }
       if (mode.id === 'deck') {
         const scoped = all.filter(s => s.scenario === 'deck' || s.scenario === 'document');
         return scoped.length ? scoped : all;
@@ -749,17 +1336,8 @@ export function ModeResourceShowcase({
       }
       return all;
     }
-    if (activeFilter === 'asset') {
-      const all = assets ?? [];
-      if (mode.id === 'image') return all.filter(a => a.modality === 'image');
-      if (mode.id === 'audio') return all.filter(a => a.modality === 'audio');
-      if (mode.id === 'media') return all.filter(a => a.modality === 'video');
-      return all;
-    }
-    if (mode.id === 'media' && activeFilter === 'motion-video') {
-      return motionCatalog.map(motionTemplateToAttachment);
-    }
-    if (mode.id === 'motion') {
+    if (activeFilter === 'asset') return assets ?? [];
+    if (isMotionGraphicsView) {
       if (activeFilter === 'skills') {
         const list = activeSkillCategory === 'all'
           ? motionSkills
@@ -777,19 +1355,43 @@ export function ModeResourceShowcase({
       }
       return motionCatalog.map(motionTemplateToAttachment);
     }
-    // Design templates (website / deck / game)
+    // Design templates (design / research / visualization / website / deck / game)
     const all = designTemplates ?? [];
+    if (mode.id === 'design') {
+      const scoped = activeFilter === 'all' ? all : all.filter(i => i.scenario === activeFilter);
+      return applyDesignSearch(scoped);
+    }
+    if (mode.id === 'research') {
+      const scoped = activeFilter === 'reports'
+        ? all.filter(isResearchReportTemplate)
+        : activeFilter === 'boards'
+          ? all.filter(isResearchBoardTemplate)
+          : activeFilter === 'decks'
+            ? all.filter(isResearchDeckTemplate)
+            : all.filter(isResearchTemplate);
+      return applyDesignSearch(scoped);
+    }
+    if (mode.id === 'visualization') {
+      const scoped = activeFilter === 'dashboards'
+        ? all.filter(isVizDashboardTemplate)
+        : activeFilter === 'charts'
+          ? all.filter(isVizChartOrDiagramTemplate)
+          : activeFilter === 'webgl'
+            ? all.filter(i => i.scenario === 'webgl')
+            : all.filter(isVizTemplate);
+      return applyDesignSearch(scoped);
+    }
     if (activeFilter !== 'all') return all.filter(i => i.scenario === activeFilter);
     if (mode.id === 'deck') return all.filter(i => i.scenario === 'deck' || i.scenario === 'document');
     if (mode.id === 'game') return all.filter(i => i.scenario === 'webgl' || i.scenario === 'live-artifact' || i.scenario === 'prototype');
     return all.filter(i => i.scenario !== 'deck' && i.scenario !== 'document' && i.scenario !== 'webgl');
-  }, [curatedCards, activeFilter, activeSkillCategory, mode.id, brandKits, designSkills, assets, motionCatalog, locale, designTemplates]);
+  }, [curatedCards, activeFilter, activeSkillCategory, mode.id, modeOptions?.designFormat, modeOptions?.designScenario, isMotionGraphicsView, resourceQuery, brandKits, designSkills, assets, motionCatalog, locale, designTemplates, designProjects]);
 
   const showGameCards = mode.id === 'game' && activeFilter !== 'brand-kit';
 
   const filteredGames = useMemo<GameCard[]>(() => {
     if (!showGameCards) return [];
-    const needle = gameQuery.trim().toLocaleLowerCase();
+    const needle = gameQuery.trim();
     const base = activeFilter === 'mine'
       ? myGames
       : activeFilter === 'portrait'
@@ -797,20 +1399,25 @@ export function ModeResourceShowcase({
         : activeFilter.startsWith('genre:')
           ? publishedGameTemplates.filter(item => item.genre === (activeFilter.slice(6) as GameGenre))
           : publishedGameTemplates;
-    const matched = needle
-      ? base.filter(game =>
-          [
+    const ranked = needle
+      ? rankSearchResults(base, needle, game => ({
+          id: game.id,
+          title: game.i18n?.[locale]?.title ?? game.title,
+          subtitle: t(genreLabels[game.genre]),
+          description: game.i18n?.[locale]?.description ?? game.description,
+          tags: [game.genre, ...(game.style ? [game.style] : []), ...(game.setting ? [game.setting] : [])],
+          aliases: [
             game.title,
             game.description,
-            game.i18n?.[locale]?.title,
-            game.i18n?.[locale]?.description,
-            t(genreLabels[game.genre]),
-          ].some(text => text?.toLocaleLowerCase().includes(needle)),
-        )
-      : base;
+            ...Object.values(game.i18n ?? {}).flatMap(loc => [loc?.title ?? '', loc?.description ?? '']),
+          ],
+        }))
+      : base.map(item => ({ item, score: 1 }));
+    const matched = ranked.map(r => r.item);
     if (activeFilter === 'mine') return matched;
     if (gameSort === 'plays') return [...matched].sort((a, b) => b.plays - a.plays);
     if (gameSort === 'newest') return [...matched].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    if (needle) return matched;
     return interleavePortrait(matched);
   }, [showGameCards, activeFilter, publishedGameTemplates, myGames, gameQuery, gameSort, locale, t]);
 
@@ -819,37 +1426,44 @@ export function ModeResourceShowcase({
     : curatedCards
       ? curatedCards.length
       : resourceItems.length;
-  const hasMore = visibleCount < totalCount;
+  const assetPage = activeFilter === 'asset' && assetList.state.status === 'ready' ? assetList.state : null;
+  const hasMore = assetPage ? assetPage.nextOffset !== null : visibleCount < totalCount;
+  const loadMore = useCallback(() => {
+    if (assetPage) assetList.loadMore();
+    else setVisibleCount(prev => Math.min(totalCount, prev + PAGE_BATCH_SIZE));
+  }, [assetPage, assetList.loadMore, totalCount]);
 
   // Automatic continuous scrolling via IntersectionObserver.
   useEffect(() => {
     const node = sentinelRef.current;
-    if (!node || !hasMore || typeof IntersectionObserver === 'undefined') return;
+    if (!node || !hasMore || assetPage?.pageError || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       entries => {
         if (entries.some(entry => entry.isIntersecting)) {
-          setVisibleCount(prev => Math.min(totalCount, prev + PAGE_BATCH_SIZE));
+          loadMore();
         }
       },
       { rootMargin: '280px 0px' },
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [hasMore, totalCount]);
+  }, [assetPage?.pageError, hasMore, loadMore]);
 
-  const isLoading =
-    !curatedCards
+  const isLoading = activeResourceList ? activeResourceList.state.status === 'loading' : !curatedCards
     && (
-      (mode.id === 'motion' && activeFilter !== 'skills' && activeFilter !== 'brand-kit' && activeFilter !== 'black-friday' && motionCatalog.length === 0 && !coveredMotion.failed)
-      || (activeFilter === 'brand-kit' && brandKits === null)
+      (isMotionGraphicsView && activeFilter !== 'skills' && activeFilter !== 'black-friday' && motionCatalog.length === 0 && !coveredMotion.failed)
       || (activeFilter === 'design-skill' && designSkills === null)
-      || (activeFilter === 'asset' && assets === null)
-      || ((mode.id === 'website' || mode.id === 'deck') && activeFilter !== 'brand-kit' && activeFilter !== 'design-skill' && designTemplates === null)
+      || (activeFilter === 'my-designs' && designProjects === null)
+      || ((mode.id === 'website' || mode.id === 'deck' || mode.id === 'research' || mode.id === 'visualization' || (mode.id === 'design' && modeOptions?.designFormat !== 'image'))
+        && activeFilter !== 'design-skill'
+        && activeFilter !== 'my-designs'
+        && designTemplates === null)
       || (loadingKind !== null && totalCount === 0)
     );
 
   const selectedKeys = useMemo(() => new Set(attachments.map(resourceKey)), [attachments]);
   const selectGameForAgent = (game: GameCard) => {
+    if (game.multiplayer) return;
     const title = localizedGameTitle(game, locale);
     if (game.source === 'mine') {
       const att = toGameResourceAttachment(game, title);
@@ -867,16 +1481,19 @@ export function ModeResourceShowcase({
             gameStyle: game.style,
             gameSetting: game.setting,
             gameOrientation: game.orientation ?? 'landscape',
-            gameMultiplayer: game.multiplayer,
             gamePlayableAd: Boolean(game.playableAd),
           }
         : {}),
     });
-    if (!isSelected) onFocusComposer?.();
+    if (!isSelected) {
+      onFocusComposer?.();
+    }
   };
   const visibleGames = showGameCards ? filteredGames.slice(0, visibleCount) : null;
   const visibleCurated = !showGameCards && curatedCards ? curatedCards.slice(0, visibleCount) : null;
-  const visibleResources = !showGameCards && !curatedCards ? resourceItems.slice(0, visibleCount) : [];
+  const visibleResources = !showGameCards && !curatedCards
+    ? assetPage ? resourceItems : resourceItems.slice(0, visibleCount)
+    : [];
 
   return (
     <div className="om-sa-mode-showcase">
@@ -948,25 +1565,32 @@ export function ModeResourceShowcase({
                     variant="plain"
                     type="button"
                     className="om-sa-game-fan-card"
-                    aria-pressed={isCenter ? isSelected : undefined}
-                    aria-label={isCenter ? `${t('Make one like this')}: ${title}` : title}
+                    aria-pressed={isCenter && !game.multiplayer ? isSelected : undefined}
+                    aria-label={isCenter
+                      ? game.multiplayer ? t('Play {title}', { title }) : `${t('Remix')}: ${title}`
+                      : title}
+                    disabled={isCenter && game.multiplayer && !onPlayGame}
                     onClick={() => {
                       if (!isCenter) {
                         setFanIndex(index);
+                        return;
+                      }
+                      if (game.multiplayer) {
+                        onPlayGame?.(game);
                         return;
                       }
                       selectGameForAgent(game);
                     }}
                   >
                     {cover && <img src={cover} alt="" />}
-                    {isCenter && (
+                    {isCenter && !game.multiplayer && (
                       <span
                         className="om-sa-game-select-cue"
                         data-selected={isSelected || undefined}
                         aria-hidden="true"
                       >
                         <RemixIcon name={isSelected ? 'check-line' : 'sparkling-line'} size={13} />
-                        <span>{isSelected ? t('Selected') : t('Make one like this')}</span>
+                        <span>{isSelected ? t('Selected') : t('Remix')}</span>
                       </span>
                     )}
                     <span className="om-sa-game-fan-label">{t(genreLabels[game.genre])}</span>
@@ -978,10 +1602,10 @@ export function ModeResourceShowcase({
                           variant="plain"
                           type="button"
                           className="om-sa-game-tile-deploy"
-                          title={t('Cloud deploy')}
-                          aria-label={`${t('Cloud deploy')}: ${title}`}
+                          title={t('Share')}
+                          aria-label={`${t('Share')}: ${title}`}
                           onClick={() => onDeployGame(game)}
-                          icon={<RemixIcon name="cloud-line" size={13} />}
+                          icon={<RemixIcon name="share-forward-line" size={13} />}
                         />
                       )}
                       {onPlayGame && (
@@ -990,12 +1614,14 @@ export function ModeResourceShowcase({
                           type="button"
                           className="om-sa-game-tile-play"
                           data-playing={isPlaying || undefined}
-                          title={t('Play {title}', { title })}
-                          aria-label={t('Play {title}', { title })}
+                          title={t('Try game: {title}', { title })}
+                          aria-label={t('Try game: {title}', { title })}
+                          onPointerEnter={() => preconnectGame(game)}
+                          onFocus={() => preconnectGame(game)}
                           onClick={() => onPlayGame(game)}
                         >
                           <RemixIcon name="play-fill" size={12} />
-                          <span>{t('Play')}</span>
+                          <span>{t('Try game')}</span>
                         </Button>
                       )}
                     </div>
@@ -1016,13 +1642,13 @@ export function ModeResourceShowcase({
             )}
           </div>
         ) : (
-          <span className="om-creation-icon om-sa-mode-hero-icon" data-tone={mode.tone} aria-hidden="true">
-            <RemixIcon name={mode.icon} size={22} />
+          <span className="om-creation-icon om-sa-mode-hero-icon" data-tone={effectiveHeroMode.tone} aria-hidden="true">
+            <RemixIcon name={effectiveHeroMode.icon} size={22} />
           </span>
         )}
         <div className="om-sa-mode-hero-copy">
-          <h2>{t(mode.title)}</h2>
-          <p className="om-muted">{t(mode.subtitle)}</p>
+          <h2>{t(effectiveHeroMode.title)}</h2>
+          {effectiveHeroMode.subtitle && <p className="om-muted">{t(effectiveHeroMode.subtitle)}</p>}
         </div>
 
         {mode.id === 'game' && (
@@ -1050,8 +1676,135 @@ export function ModeResourceShowcase({
           </div>
         )}
 
+        {mode.id === 'design' && (() => {
+          const isHtml = modeOptions?.designFormat !== 'image';
+          const activeScenario = modeOptions?.designScenario ?? 'prototype';
+          return (
+            <div className="om-sa-design-module-strip" role="group" aria-label={t('Design module')}>
+              <Button
+                variant="plain"
+                type="button"
+                className="om-sa-design-module-card"
+                aria-pressed={!isHtml}
+                data-active={!isHtml || undefined}
+                onClick={() => {
+                  onChangeModeOptions?.({ designFormat: 'image' });
+                  setActiveFilter('all-image');
+                }}
+              >
+                <span className="om-sa-design-module-icon" aria-hidden="true">
+                  <RemixIcon name="image-line" size={15} />
+                </span>
+                <span>{t('Image design')}</span>
+              </Button>
+              {designScenarios.map(sc => {
+                const selected = isHtml && activeScenario === sc.id;
+                return (
+                  <Button
+                    key={sc.id}
+                    variant="plain"
+                    type="button"
+                    className="om-sa-design-module-card"
+                    aria-pressed={selected}
+                    data-active={selected || undefined}
+                    onClick={() => {
+                      onChangeModeOptions?.(designScenarioOptionsPatch(sc.id));
+                      setActiveFilter(sc.id);
+                    }}
+                  >
+                    <span className="om-sa-design-module-icon" aria-hidden="true">
+                      <RemixIcon name={sc.icon} size={15} />
+                    </span>
+                    <span>{t(sc.label)}</span>
+                  </Button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {mode.id === 'research' && (() => {
+          const activeFormat = modeOptions?.researchFormat ?? 'report';
+          return (
+            <div className="om-sa-design-module-strip" role="group" aria-label={t('Deliverable')}>
+              {RESEARCH_FORMAT_CHOICES.map(choice => {
+                const selected = activeFormat === choice.id;
+                return (
+                  <Button
+                    key={choice.id}
+                    variant="plain"
+                    type="button"
+                    className="om-sa-design-module-card"
+                    aria-pressed={selected}
+                    data-active={selected || undefined}
+                    onClick={() => {
+                      onChangeModeOptions?.({ researchFormat: choice.id });
+                      setActiveFilter(researchFormatToFilter(choice.id));
+                    }}
+                  >
+                    <span className="om-sa-design-module-icon" aria-hidden="true">
+                      <RemixIcon name={choice.icon} size={15} />
+                    </span>
+                    <span>{t(choice.label)}</span>
+                  </Button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {mode.id === 'visualization' && (() => {
+          const activeType = modeOptions?.vizType ?? 'dashboard';
+          return (
+            <div className="om-sa-design-module-strip" data-cols="5" role="group" aria-label={t('Visual type')}>
+              {VIZ_TYPE_CHOICES.map(choice => {
+                const selected = activeType === choice.id;
+                return (
+                  <Button
+                    key={choice.id}
+                    variant="plain"
+                    type="button"
+                    className="om-sa-design-module-card"
+                    aria-pressed={selected}
+                    data-active={selected || undefined}
+                    onClick={() => {
+                      onChangeModeOptions?.(visualizationOptionsPatch(choice.id));
+                      setActiveFilter(vizTypeToFilter(choice.id));
+                    }}
+                  >
+                    <span className="om-sa-design-module-icon" aria-hidden="true">
+                      <RemixIcon name={choice.icon} size={15} />
+                    </span>
+                    <span>{t(choice.label)}</span>
+                  </Button>
+                );
+              })}
+            </div>
+          );
+        })()}
+
         <div className="om-sa-mode-ideas">
-          {mode.id === 'game' ? (
+          {mode.id === 'design' ? (
+            DESIGN_MODULE_QUICK_IDEAS[
+              modeOptions?.designFormat === 'image' ? 'image' : (modeOptions?.designScenario ?? 'prototype')
+            ].map(idea => (
+              <Button
+                key={idea.title}
+                variant="plain"
+                type="button"
+                className="om-sa-idea-chip"
+                onClick={() => onPickPrompt(t(idea.prompt), {
+                  ...(idea.optionsPatch ? { optionsPatch: idea.optionsPatch } : {}),
+                  referenceImage: null,
+                })}
+              >
+                <span className="om-sa-tone-icon" data-tone={mode.tone} aria-hidden="true">
+                  <RemixIcon name="sparkling-line" size={12} />
+                </span>
+                <span>{t(idea.title)}</span>
+              </Button>
+            ))
+          ) : mode.id === 'game' ? (
             GAME_STUDIO_QUICK_IDEAS.map(idea => (
               <Button
                 key={idea.title}
@@ -1064,29 +1817,31 @@ export function ModeResourceShowcase({
                     gameStyle: idea.style,
                     gameSetting: idea.setting,
                     gameOrientation: idea.orientation,
-                    gameMultiplayer: idea.multiplayer,
                     gamePlayableAd: Boolean(idea.playableAd),
                     gameTemplate: null,
                   });
-                  onPickPrompt(t(idea.prompt));
+                  onPickPrompt(t(idea.prompt), { referenceImage: null });
                 }}
               >
                 <span className="om-sa-tone-icon" data-tone={mode.tone} aria-hidden="true">
-                  <RemixIcon name={idea.multiplayer ? 'group-line' : 'sparkling-line'} size={12} />
+                  <RemixIcon name="sparkling-line" size={12} />
                 </span>
                 <span>{t(idea.title)}</span>
               </Button>
             ))
           ) : (
-            mode.quickIdeas.map(idea => (
+            effectiveHeroMode.quickIdeas.map(idea => (
               <Button
                 key={idea.title}
                 variant="plain"
                 type="button"
                 className="om-sa-idea-chip"
-                onClick={() => onPickPrompt(t(idea.prompt))}
+                onClick={() => onPickPrompt(t(idea.prompt), {
+                  ...(idea.optionsPatch ? { optionsPatch: idea.optionsPatch } : {}),
+                  referenceImage: null,
+                })}
               >
-                <span className="om-sa-tone-icon" data-tone={mode.tone} aria-hidden="true">
+                <span className="om-sa-tone-icon" data-tone={effectiveHeroMode.tone} aria-hidden="true">
                   <RemixIcon name="sparkling-line" size={12} />
                 </span>
                 <span>{t(idea.title)}</span>
@@ -1097,79 +1852,160 @@ export function ModeResourceShowcase({
       </div>
 
       {mode.id !== 'coding' && (
-      <section className="om-sa-showcase-panel">
+      <section ref={showcaseRef} className="om-sa-showcase-panel" aria-labelledby={templateHeadingId}>
+        <h3 id={templateHeadingId} className="om-sa-showcase-heading">{t('Discover templates')}</h3>
         <div className="om-sa-showcase-bar" data-game-bar={showGameCards || undefined}>
           <div className="om-sa-showcase-tabs" role="tablist" aria-label={t('Template filters')}>
-            {filters.map(f => (
+            {filters.map(({ id, label, count = workspaceCounts[id] }) => (
               <Button
-                key={f.id}
+                key={id}
                 variant="plain"
                 type="button"
                 role="tab"
-                aria-selected={activeFilter === f.id}
-                data-active={activeFilter === f.id || undefined}
+                aria-selected={activeFilter === id}
+                data-active={activeFilter === id || undefined}
                 className="om-sa-showcase-tab"
-                onClick={() => setActiveFilter(f.id)}
+                onClick={() => {
+                  setActiveFilter(id);
+                  if (mode.id === 'design') {
+                    if (modeOptions?.designFormat === 'image') {
+                      if (
+                        id === 'text-to-image'
+                        || id === 'image-edit'
+                        || id === 'remove-background'
+                        || id === 'relight'
+                        || id === 'image-blend'
+                      ) {
+                        onChangeModeOptions?.({ imageScene: id });
+                      }
+                    } else if (isDesignScenario(id)) {
+                      onChangeModeOptions?.(designScenarioOptionsPatch(id));
+                    }
+                  } else if (mode.id === 'image') {
+                    if (
+                      id === 'text-to-image'
+                      || id === 'image-edit'
+                      || id === 'remove-background'
+                      || id === 'relight'
+                      || id === 'image-blend'
+                    ) {
+                      onChangeModeOptions?.({ imageScene: id });
+                    }
+                  } else if (mode.id === 'audio') {
+                    if (id === 'music') {
+                      onChangeModeOptions?.({ audioType: 'music', audioModelId: 'auto' });
+                    } else if (id === 'speech') {
+                      onChangeModeOptions?.({ audioType: 'voiceover', audioModelId: 'auto' });
+                    }
+                  }
+                }}
               >
-                <span>{t(f.label)}</span>
-                {typeof f.count === 'number' && <span className="om-sa-tab-count">{f.count}</span>}
+                <span>{t(label)}</span>
+                {typeof count === 'number' && <span className="om-sa-tab-count">{count}</span>}
               </Button>
             ))}
           </div>
-          {showGameCards ? (
-            <div className="om-sa-game-bar-controls">
-              <span className="om-field om-sa-game-search">
+          {(mode.id === 'design' || mode.id === 'research' || mode.id === 'visualization') ? (
+            <div className="om-sa-design-bar-controls">
+              <span className="om-field om-sa-game-search om-sa-design-search">
                 <RemixIcon name="search-line" size={14} />
                 <input
-                  value={gameQuery}
-                  placeholder={t('Search')}
-                  aria-label={t('Search games')}
-                  onChange={event => setGameQuery(event.target.value)}
+                  value={designQuery}
+                  placeholder={t('Filter templates…')}
+                  aria-label={t('Filter templates…')}
+                  onChange={event => setDesignQuery(event.target.value)}
                 />
-                {gameQuery && (
+                {designQuery && (
                   <IconButton
                     variant="plain"
                     className="om-sa-game-search-clear"
                     aria-label={t('Clear')}
-                    onClick={() => setGameQuery('')}
+                    onClick={() => setDesignQuery('')}
                     icon={<RemixIcon name="close-line" size={12} />}
                   />
                 )}
               </span>
-              {activeFilter !== 'mine' && (
-                <div className="om-sa-game-sort">
-                  <Select
-                    label={t('Sort')}
-                    value={gameSort}
-                    onCommit={next => setGameSort(next as GameSort)}
-                    options={[
-                      { value: 'relevance', label: t('Relevance') },
-                      { value: 'plays', label: t('Most played') },
-                      { value: 'newest', label: t('Newest') },
-                    ]}
-                  />
-                </div>
-              )}
+              <Button
+                variant="plain"
+                type="button"
+                className="om-sa-showcase-more"
+                onClick={() => onOpenAllResources(
+                  activeFilter === 'brand-kit' ? 'brand-kit'
+                    : activeFilter === 'asset' ? 'asset'
+                    : activeFilter === 'skills' || activeFilter === 'design-skill' ? 'skills'
+                    : activeFilter === 'my-designs' ? 'projects'
+                    : modeOptions?.designFormat === 'image' ? 'asset'
+                    : mode.pickerCategory,
+                )}
+              >
+                <span>{t('View all')}</span>
+                <RemixIcon name="arrow-right-up-line" size={13} />
+              </Button>
             </div>
           ) : (
             <Button
               variant="plain"
               type="button"
               className="om-sa-showcase-more"
-              onClick={() => onOpenAllResources(
-                activeFilter === 'brand-kit' ? 'brand-kit'
-                  : activeFilter === 'asset' ? 'asset'
-                  : activeFilter === 'skills' || activeFilter === 'design-skill' ? 'skills'
-                  : mode.pickerCategory,
-              )}
+              onClick={() => {
+                if (showGameCards) {
+                  setVisibleCount(totalCount);
+                  showcaseRef.current?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+                  return;
+                }
+                onOpenAllResources(
+                  activeFilter === 'brand-kit' ? 'brand-kit'
+                    : activeFilter === 'asset' ? 'asset'
+                    : activeFilter === 'skills' || activeFilter === 'design-skill' ? 'skills'
+                    : isPureVideoView ? 'asset'
+                    : isMotionGraphicsView ? 'motion-template'
+                    : mode.pickerCategory,
+                );
+              }}
             >
               <span>{t('View all')}</span>
-              <RemixIcon name="arrow-right-up-line" size={13} />
+              <RemixIcon name={showGameCards ? 'arrow-down-s-line' : 'arrow-right-up-line'} size={13} />
             </Button>
           )}
         </div>
+        {showGameCards && (
+          <div className="om-sa-game-bar-controls">
+            <span className="om-field om-sa-game-search">
+              <RemixIcon name="search-line" size={14} />
+              <input
+                value={gameQuery}
+                placeholder={t('Search')}
+                aria-label={t('Search games')}
+                onChange={event => setGameQuery(event.target.value)}
+              />
+              {gameQuery && (
+                <IconButton
+                  variant="plain"
+                  className="om-sa-game-search-clear"
+                  aria-label={t('Clear')}
+                  onClick={() => setGameQuery('')}
+                  icon={<RemixIcon name="close-line" size={12} />}
+                />
+              )}
+            </span>
+            {activeFilter !== 'mine' && (
+              <div className="om-sa-game-sort">
+                <Select
+                  label={t('Sort')}
+                  value={gameSort}
+                  onCommit={next => setGameSort(next as GameSort)}
+                  options={[
+                    { value: 'relevance', label: t('Default sort') },
+                    { value: 'plays', label: t('Most played') },
+                    { value: 'newest', label: t('Newest') },
+                  ]}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
-        {mode.id === 'motion' && activeFilter === 'skills' && (
+        {isMotionGraphicsView && activeFilter === 'skills' && (
           <div className="om-sa-showcase-subtabs" role="tablist" aria-label={t('Skill categories')}>
             <Button
               variant="plain"
@@ -1239,10 +2075,18 @@ export function ModeResourceShowcase({
                       variant="plain"
                       type="button"
                       className="om-sa-game-tile-cover"
-                      aria-pressed={isSelected}
-                      aria-label={isMine ? `${t('Attach to Chat')}: ${title}` : `${t('Make one like this')}: ${title}`}
-                      onClick={() => selectGameForAgent(game)}
+                      data-composer-source={!game.multiplayer || undefined}
+                      aria-pressed={game.multiplayer ? undefined : isSelected}
+                      aria-label={game.multiplayer
+                        ? t('Play {title}', { title })
+                        : `${t(isMine ? 'Attach' : 'Remix')}: ${title}`}
+                      disabled={game.multiplayer && !onPlayGame}
+                      onClick={() => game.multiplayer ? onPlayGame?.(game) : selectGameForAgent(game)}
                     >
+                      {/* Portrait games share the 16:9 card: the cover sits whole in the middle over a blurred copy of itself. */}
+                      {cover && game.orientation === 'portrait' && (
+                        <img className="om-sa-game-tile-backdrop" src={cover} alt="" loading="lazy" decoding="async" />
+                      )}
                       {cover ? (
                         <img src={cover} alt="" loading="lazy" decoding="async" />
                       ) : (
@@ -1251,14 +2095,16 @@ export function ModeResourceShowcase({
                           <span>{title}</span>
                         </div>
                       )}
-                      <span
-                        className="om-sa-game-select-cue"
-                        data-selected={isSelected || undefined}
-                        aria-hidden="true"
-                      >
-                        <RemixIcon name={isSelected ? 'check-line' : 'sparkling-line'} size={13} />
-                        <span>{isSelected ? t('Selected') : isMine ? t('Attach') : t('Make one like this')}</span>
-                      </span>
+                      {!game.multiplayer && (
+                        <span
+                          className="om-sa-game-select-cue"
+                          data-selected={isSelected || undefined}
+                          aria-hidden="true"
+                        >
+                          <RemixIcon name={isSelected ? 'check-line' : 'sparkling-line'} size={13} />
+                          <span>{isSelected ? t('Selected') : isMine ? t('Attach') : t('Remix')}</span>
+                        </span>
+                      )}
                       {status && (
                         <span className="om-sa-game-status" data-tone={game.status}>
                           {game.status === 'building' && <RemixIcon name="loader-4-line" size={12} />}
@@ -1286,10 +2132,10 @@ export function ModeResourceShowcase({
                             variant="plain"
                             type="button"
                             className="om-sa-game-tile-deploy"
-                            title={t('Cloud deploy')}
-                            aria-label={`${t('Cloud deploy')}: ${title}`}
+                            title={t('Share')}
+                            aria-label={`${t('Share')}: ${title}`}
                             onClick={() => onDeployGame(game)}
-                            icon={<RemixIcon name="cloud-line" size={13} />}
+                            icon={<RemixIcon name="share-forward-line" size={13} />}
                           />
                         )}
                         {onPlayGame && (
@@ -1298,12 +2144,14 @@ export function ModeResourceShowcase({
                             type="button"
                             className="om-sa-game-tile-play"
                             data-playing={isPlaying || undefined}
-                            title={t('Play {title}', { title })}
-                            aria-label={t('Play {title}', { title })}
+                            title={t('Try game: {title}', { title })}
+                            aria-label={t('Try game: {title}', { title })}
+                            onPointerEnter={() => preconnectGame(game)}
+                            onFocus={() => preconnectGame(game)}
                             onClick={() => onPlayGame(game)}
                           >
                             <RemixIcon name="play-fill" size={12} />
-                            <span>{t('Play')}</span>
+                            <span>{t('Try game')}</span>
                           </Button>
                         )}
                       </div>
@@ -1339,14 +2187,17 @@ export function ModeResourceShowcase({
           )
         ) : (
         <div className="om-sa-showcase-grid" aria-busy={isLoading}>
-          {visibleCurated ? (
+          {visibleCurated && visibleCurated.length > 0 ? (
             visibleCurated.map(card => (
               <Button
                 key={card.id}
                 variant="plain"
                 type="button"
                 className="om-sa-showcase-card"
-                onClick={() => onPickPrompt(card.prompt)}
+                onClick={() => onPickPrompt(t(card.prompt), {
+                  ...(card.optionsPatch ? { optionsPatch: card.optionsPatch } : {}),
+                  referenceImage: card.referenceImage ?? null,
+                })}
               >
                 <div className="om-sa-showcase-thumb" aria-hidden="true">
                   <img
@@ -1362,23 +2213,43 @@ export function ModeResourceShowcase({
                 </span>
                 <div className="om-sa-showcase-meta">
                   <strong>{t(card.title)}</strong>
-                  <small>{card.subtitle}</small>
+                  <small>{[...card.subtitle.map(label => t(label)), ...(card.seconds ? [t('{count}s', { count: card.seconds })] : [])].join(' · ')}</small>
                 </div>
               </Button>
             ))
+          ) : visibleCurated ? (
+            <div className="om-sa-showcase-empty">
+              <p className="om-muted">{t('No matching resources found')}</p>
+              {designQuery && (
+                <Button
+                  variant="ghost"
+                  className="om-button h-auto"
+                  onClick={() => setDesignQuery('')}
+                >
+                  {t('Clear')}
+                </Button>
+              )}
+            </div>
           ) : isLoading ? (
             Array.from({ length: 10 }, (_, idx) => (
               <div key={idx} className="om-sa-showcase-skeleton">
                 <Skeleton style={{ width: '100%', height: 130 }} />
               </div>
             ))
+          ) : activeResourceList?.state.status === 'error' ? (
+            <div className="om-sa-showcase-empty">
+              <p className="om-muted" role="status">{t('Could not load workspace resources')}</p>
+              <Button variant="ghost" type="button" className="om-button h-auto" onClick={activeResourceList.retry}>
+                {t('Retry')}
+              </Button>
+            </div>
           ) : !visibleResources.length ? (
             <div className="om-sa-showcase-empty">
               <p className="om-muted">{t('No matching resources found')}</p>
               <Button
                 variant="ghost"
                 className="om-button h-auto"
-                onClick={() => onOpenAllResources(mode.pickerCategory)}
+                onClick={() => onOpenAllResources(activeFilter === 'asset' || activeFilter === 'brand-kit' ? activeFilter : mode.pickerCategory)}
               >
                 {t('Browse workspace resources')}
               </Button>
@@ -1386,23 +2257,27 @@ export function ModeResourceShowcase({
           ) : (
             visibleResources.map(item => {
               const isSelected = selectedKeys.has(resourceKey(item));
+              const subtitle = resourceDisplaySubtitle(item, t);
               return (
                 <Button
                   key={resourceKey(item)}
                   variant="plain"
                   type="button"
                   className="om-sa-showcase-card"
+                  data-composer-source
                   aria-pressed={isSelected}
                   data-selected={isSelected || undefined}
-                  onClick={() => onToggleAttachment(item)}
+                  onClick={() => {
+                    onToggleAttachment(item);
+                  }}
                 >
                   <ResourceShowcaseThumb item={item} active={active} />
                   <span className="om-sa-showcase-check" aria-hidden="true">
                     <RemixIcon name={isSelected ? 'check-line' : 'add-line'} size={13} />
                   </span>
                   <div className="om-sa-showcase-meta">
-                    <strong>{item.title}</strong>
-                    {item.subtitle && <small>{item.subtitle}</small>}
+                    <strong>{resourceDisplayTitle(item, t)}</strong>
+                    {subtitle && <small>{subtitle}</small>}
                   </div>
                 </Button>
               );
@@ -1417,10 +2292,11 @@ export function ModeResourceShowcase({
               variant="plain"
               type="button"
               className="om-sa-load-more-btn"
-              onClick={() => setVisibleCount(prev => Math.min(totalCount, prev + PAGE_BATCH_SIZE))}
+              disabled={Boolean(assetPage && assetList.loadingMore)}
+              onClick={loadMore}
             >
-              <span>{t('Load more')}</span>
-              <span className="om-sa-tab-count">{totalCount - visibleCount}</span>
+              <span>{assetPage?.pageError ? t('Retry') : t('Load more')}</span>
+              <span className="om-sa-tab-count">{assetPage ? Math.max(0, assetPage.total - assetPage.items.length) : totalCount - visibleCount}</span>
             </Button>
           </div>
         )}

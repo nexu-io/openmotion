@@ -12,7 +12,7 @@ import { GalleryIntro } from './GalleryIntro';
 import { BrandLogo } from "../../../packages/design-system/react/BrandLogo";
 import { GithubLogo } from '@phosphor-icons/react';
 import { templateRepositoryUrl } from './githubRepository';
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { BrandSeriesCard, BrandStoriesDialog } from './BrandStories';
 import { discoveryInsertions, groupBrandSeries, type BrandSeries } from './brandStoryData';
 import { seriesId, seriesContext, reportSeriesCard, openSeriesView, type SeriesView } from './brandStoryTracking';
@@ -31,6 +31,7 @@ import { Tooltip } from '../components/ui/Tooltip';
 import { Popover } from '../components/ui/Popover';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
+import { copyTextToClipboard, copyTextWithMethod } from '../utils/clipboard';
 import { releaseMediaElement } from '../utils/releaseMediaElement';
 import { orderedPurposes } from './templateDiscoveryTaxonomy';
 import { templateContributionUrl, templateSubmissionPrompt } from './templateContribution';
@@ -41,7 +42,7 @@ import { facetValues as values, templateFacets as facets, templateAspect, templa
 import { TemplateGalleryCard as TemplateCard, TopBrandsLabel, TemplatePoster, TemplateIdentity as Identity } from './TemplateGalleryCard';
 import { useTemplatePlayback } from './useTemplatePlayback';
 import { useTemplateImpressions } from './useTemplateImpressions';
-import { matchesTemplateSearch, normalizedTemplateQuery } from './templateSearch';
+import { normalizedTemplateQuery, prepareTemplateSearchIndex, scoreTemplateSearchMap } from './templateSearch';
 import { TemplateReferenceDialog, TemplateSearchRecovery } from './TemplateSearchRecovery';
 import { useTemplateSearchContext } from './useTemplateSearchContext';
 import * as tracking from './templateLibraryTracking';
@@ -167,10 +168,26 @@ export function TemplateLibraryDialog(props: Props) {
     if (campaignSearching) setCampaignSearch(current => ({ ...current, filter }));
     else setSelectedCampaignFilter(filter);
   };
+  const templateSearchIndex = useMemo(() => prepareTemplateSearchIndex(catalog, t), [catalog, t]);
+  const [settledKeyword, setSettledKeyword] = useState(''), [searchComposing, setSearchComposing] = useState(false);
+  const committedCampaignQueryRef = useRef(campaignQuery);
+  if (!searchComposing) committedCampaignQueryRef.current = campaignQuery;
+  const deferredCampaignQuery = useDeferredValue(searchComposing ? committedCampaignQueryRef.current : campaignQuery);
   const campaignStages = useMemo(() => blackFridayTemplates(catalog, locale), [catalog, locale]);
-  const campaignItems = useMemo(() => campaignStages.flatMap(stage =>
-    activeCampaignFilter === null || stage.id === activeCampaignFilter ? stage.items : [])
-    .filter(item => matchesTemplateSearch(item, campaignQuery, t)), [campaignStages, activeCampaignFilter, campaignQuery, t]);
+  const campaignSearchScores = useMemo(() => {
+    const trimmed = deferredCampaignQuery.trim();
+    if (!trimmed) return null;
+    const allCampaignItems = campaignStages.flatMap(stage => stage.items);
+    return scoreTemplateSearchMap(prepareTemplateSearchIndex(allCampaignItems, t), trimmed);
+  }, [campaignStages, deferredCampaignQuery, t]);
+  const campaignItems = useMemo(() => {
+    const base = campaignStages.flatMap(stage =>
+      activeCampaignFilter === null || stage.id === activeCampaignFilter ? stage.items : []);
+    if (!campaignSearchScores) return base;
+    return base
+      .filter(item => campaignSearchScores.has(item.id))
+      .sort((a, b) => (campaignSearchScores.get(b.id) ?? 0) - (campaignSearchScores.get(a.id) ?? 0));
+  }, [campaignStages, activeCampaignFilter, campaignSearchScores]);
   useEffect(() => {
     if (!blackFriday || !props.open) {
       setSelectedCampaignFilter(null);
@@ -280,7 +297,6 @@ export function TemplateLibraryDialog(props: Props) {
   useEffect(() => { if (guideOpen && preview) tracking.reportGuideShown(preview, detailView.current); }, [guideOpen, preview?.id]);
   const pendingResult = useRef<FilterAction | undefined>(undefined), composing = useRef(false), shownCards = useRef(new Set<string>()), instructionShown = useRef<string | undefined>(undefined);
   const [settle, setSettle] = useState(0);
-  const [settledKeyword, setSettledKeyword] = useState(''), [searchComposing, setSearchComposing] = useState(false);
   const [recoveryExpanded, setRecoveryExpanded] = useState(false), [catalogVersion, setCatalogVersion] = useState('');
   const [referenceTrigger, setReferenceTrigger] = useState<HTMLButtonElement | null>(null);
   const referenceShownFor = useRef<string | undefined>(undefined);
@@ -347,13 +363,28 @@ export function TemplateLibraryDialog(props: Props) {
   const industries = available.find(facet => facet.key === 'industries')?.values ?? [];
   const sortOptions = [['recommended', 'Recommended order'], ['name', 'Name A–Z'], ['reverse', 'Name Z–A'], ['duration', 'Duration']] as const;
   const hasFilters = Boolean(format || libraryQuery || editableOnly || brandsOnly || compareWithout || Object.values(selected).some(items => items?.length));
-  const searchable = useMemo(() => catalog.filter(item => (props.creators || ((!format || matchesTemplateCategory(item, format)) && (!brandsOnly || Boolean(item.brand?.trim())) && (!compareWithout || item.brand !== compareWithout))) && matchesTemplateSearch(item, libraryQuery, t)), [catalog, libraryQuery, format, brandsOnly, compareWithout, props.creators, t]);
+  const committedLibraryQueryRef = useRef(libraryQuery);
+  if (!searchComposing) committedLibraryQueryRef.current = libraryQuery;
+  const deferredLibraryQuery = useDeferredValue(searchComposing ? committedLibraryQueryRef.current : libraryQuery);
+  const librarySearchScores = useMemo(
+    () => (deferredLibraryQuery.trim() ? scoreTemplateSearchMap(templateSearchIndex, deferredLibraryQuery) : null),
+    [templateSearchIndex, deferredLibraryQuery],
+  );
+  const searchable = useMemo(
+    () => catalog.filter(item =>
+      (props.creators || ((!format || matchesTemplateCategory(item, format)) && (!brandsOnly || Boolean(item.brand?.trim())) && (!compareWithout || item.brand !== compareWithout)))
+      && (!librarySearchScores || librarySearchScores.has(item.id)),
+    ),
+    [catalog, librarySearchScores, format, brandsOnly, compareWithout, props.creators],
+  );
   const draftCount = useMemo(() => filtersOpen ? searchable.filter(item => matchesFilters(item, draftFilters, draftEditable)).length : 0, [filtersOpen, searchable, draftFilters, draftEditable]);
   const hasDraftFilters = draftEditable || Object.values(draftFilters).some(items => items?.length);
   const visible = useMemo(() => {
     if (props.creators) return props.creator ? searchable.filter(item => templateCredit(item)?.id === props.creator) : [];
-    return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended' ? (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity) : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
-  }, [searchable, selected, sort, locale, editableOnly, props.creators, props.creator]);
+    return searchable.filter(item => matchesFilters(item, selected, editableOnly)).sort((a, b) => sort === 'recommended'
+      ? (librarySearchScores ? (librarySearchScores.get(b.id) ?? 0) - (librarySearchScores.get(a.id) ?? 0) : 0) || ((a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity))
+      : sort === 'duration' ? (a.duration ?? Infinity) - (b.duration ?? Infinity) : a.title.localeCompare(b.title, locale) * (sort === 'reverse' ? -1 : 1));
+  }, [searchable, selected, sort, locale, editableOnly, props.creators, props.creator, librarySearchScores]);
   useEffect(() => { if (dialog.current) dialog.current.scrollTop = 0; }, [libraryQuery, selected, sort, editableOnly, brandsOnly, compareWithout, blackFriday]);
   const filterCount = Number(Boolean(format)) + Object.values(selected).flat().length + Number(editableOnly) + Number(brandsOnly) + Number(Boolean(compareWithout));
   const hasAppliedFilters = filterCount > 0;
@@ -397,7 +428,7 @@ export function TemplateLibraryDialog(props: Props) {
   const showEmptyRecovery = !loading && !error && !visible.length;
   const suggestedRemoval = useMemo(() => {
     if (!showEmptyRecovery || !stableSearch || !hasAppliedFilters || !catalog.length) return;
-    const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && matchesTemplateSearch(item, libraryQuery, t));
+    const matches = catalog.filter(item => (!format || matchesTemplateCategory(item, format)) && (!compareWithout || item.brand !== compareWithout) && (!librarySearchScores || librarySearchScores.has(item.id)));
     const count = (filters: Filters, editable: boolean, brands: boolean) => matches.filter(item =>
       (!brands || Boolean(item.brand?.trim())) && matchesFilters(item, filters, editable)).length;
     const options = facets.flatMap(([key]) => (selected[key] ?? []).map(value => ({
@@ -614,9 +645,10 @@ export function TemplateLibraryDialog(props: Props) {
     const template = preview, view = detailView.current, attemptId = tracking.newTrackingId();
     if (template) tracking.reportUseClicked(template, submit ? 'recreate_submit' : 'recreate', view, attemptId);
     try {
-      await navigator.clipboard.writeText(text);
+      const method = await copyTextWithMethod(text);
+      if (!method) throw new Error('Clipboard copy failed');
       if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(''); showToast(handoffPreview ? t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.') : 'Copied. Paste into your Agent.', 'info'); }
-      if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view);
+      if (template) tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view, method);
     } catch {
       if (previewLatest.current?.id === template?.id && detailView.current?.id === view?.id) { setManualCopy(text); setPromptExpanded(true); showToast(handoffPreview ? t('Copy failed. Select the instruction in this section to copy manually, or try again.') : 'Copy failed. Select and copy the instruction below.', 'error', 'feedback'); }
       if (template) tracking.reportCopyResult(template, 'manual_fallback_shown', attemptId, submit, view);
@@ -637,12 +669,13 @@ export function TemplateLibraryDialog(props: Props) {
     }
     let copyTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      await Promise.race([
-        navigator.clipboard.writeText(text),
+      const method = await Promise.race([
+        copyTextWithMethod(text),
         new Promise<never>((_, reject) => { copyTimeout = setTimeout(() => reject(new Error('Clipboard permission timed out')), 8000); }),
       ]);
+      if (!method) throw new Error('Clipboard copy failed');
       showToast(t(submit ? 'Contribution instruction copied. Paste into your Agent to prepare a reusable template and contribution PR.' : 'Copied. Paste into your Agent, add your materials and requirements, then send.'), 'info');
-      tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view); return null;
+      tracking.reportCopyResult(template, 'clipboard_written', attemptId, submit, view, method); return null;
     } catch {
       showToast(t('Copy failed. Select the instruction below to copy manually, or try again.'), 'error', 'feedback');
       tracking.reportCopyResult(template, 'manual_fallback_shown', attemptId, submit, view); return text;
@@ -681,6 +714,7 @@ export function TemplateLibraryDialog(props: Props) {
   const credit = preview && templateCredit(preview);
   const searchPlaceholder = t(blackFriday ? 'Search templates…' : props.creators && !props.creator ? 'Search creators' : 'Search templates, creators, styles…');
   const searchLabel = t(props.creators && !props.creator ? 'Search creators' : 'Search templates');
+  const useInlineSearch = !props.inWorkspace || Boolean(props.creators) || blackFriday;
   const searchField = <label className="om-field om-search-field">
     <MotionIcon name="search" size={16} />
     <input ref={search} type="search" maxLength={200} value={query} placeholder={searchPlaceholder} aria-label={searchLabel}
@@ -694,11 +728,11 @@ export function TemplateLibraryDialog(props: Props) {
         setSettle(value => value + 1);
       }}
       onKeyDown={event => { if (event.key === 'Enter' && !event.nativeEvent.isComposing) confirmSearch(); }} />
-    <kbd>{searchShortcut}</kbd>
+    {useInlineSearch && <kbd>{searchShortcut}</kbd>}
   </label>;
   const closeLabel = t(props.creators ? 'Close' : 'Close template library');
   const searchActions = <div className="om-control-row om-gallery-header-actions">
-    {searchField}
+    {useInlineSearch && searchField}
     <Tooltip label={closeLabel}><IconButton variant="ghost" ref={libraryClose} className="om-button om-icon-button" disabled={props.busy} onClick={props.onClose} aria-label={closeLabel} icon={<MotionIcon name="close" size={16} />} /></Tooltip>
   </div>;
   const gallery = !detailOnly && <>
@@ -735,6 +769,7 @@ export function TemplateLibraryDialog(props: Props) {
       selectedFilter={activeCampaignFilter} onFilterChange={selectCampaignFilter} searchField={searchField}
       emptyResults={<div data-search-recovery="">
         <TemplateSearchRecovery visible expanded query={campaignQuery} context={listContext()} reason="no_results"
+          onOpenSkill={props.onOpenSkill}
           onExpand={expandSearchRecovery} onActivity={searchRecoveryActivity} showToast={(message, kind) => showToast(message, kind, 'feedback')} />
       </div>}
       active={active} onPreview={openCard} onPriority={setPriority} onOpenSkill={props.onOpenSkill} onStartScenario={props.onStartScenario} />
@@ -762,6 +797,7 @@ export function TemplateLibraryDialog(props: Props) {
       {error && <div className={styles.empty} role="alert"><p>{t(error)}</p><Button variant="plain" onClick={() => retry(value => value + 1)}>{t('Retry')}</Button></div>}
       {props.open && <div data-search-recovery="" hidden={!showRecovery}>
         <TemplateSearchRecovery visible={showRecovery} query={query} context={listContext()} reason={!catalog.length ? 'catalog_empty' : showEmptyRecovery ? 'no_results' : 'unsuitable'} expanded={showEmptyRecovery || recoveryExpanded}
+          onOpenSkill={props.onOpenSkill}
           searchAction={showEmptyRecovery && (!catalog.length ? <Button variant="ghost" className="om-button h-auto" onClick={() => retry(value => value + 1)}>{t('Reload')}</Button>
             : suggestedRemoval ? <Button variant="ghost" className="om-button h-auto" onClick={() => {
               if (suggestedRemoval.key === 'editable') toggleEditable(false);
@@ -828,7 +864,7 @@ export function TemplateLibraryDialog(props: Props) {
             </section>}
             {!handoffPreview && preview.description && <p className={styles.description}>{preview.description}</p>}
             {handoffPreview && <>
-              <TemplateDetailReview template={preview} onCopyColor={color => { tracking.reportDetailAction(preview, 'copy_color', detailView.current); void navigator.clipboard.writeText(color).then(() => showToast(t('Copied {color}', { color }), 'info')).catch(() => showToast(t('Could not copy color. Try again.'), 'error')); }} onFilter={filterBy} />
+              <TemplateDetailReview template={preview} onCopyColor={color => { tracking.reportDetailAction(preview, 'copy_color', detailView.current); void copyTextToClipboard(color).then(copied => { if (copied) showToast(t('Copied {color}', { color }), 'info'); else showToast(t('Could not copy color. Try again.'), 'error'); }); }} onFilter={filterBy} />
             </>}
             <section ref={instructionText} className={`${styles.instruction} ${handoffPreview ? styles.reviewCreation : ''}`} aria-label={t(handoffPreview ? 'Template recreation instruction' : 'Template instruction')}><header><h3>{t(handoffPreview ? 'Template recreation instruction' : 'Template instruction')}</h3>
               {handoffPreview && <Popover key={preview.id} container={detail} align="end" openOnHover aria-label={t('After copying')} className={styles.handoffPopover} initialFocus={false} onOpenChange={open => { if (open) tracking.reportDetailAction(preview, 'handoff_help', detailView.current); }}
@@ -838,7 +874,7 @@ export function TemplateLibraryDialog(props: Props) {
             </header>{(manualCopy ? <textarea className={styles.manualCopy} readOnly rows={8} value={manualCopy} aria-label={t('Content to copy')} onFocus={event => event.currentTarget.select()} /> : prompt ? <p className={promptExpanded ? styles.fullInstruction : styles.shortInstruction}>{prompt}</p> : promptError ? <div className={styles.promptFailure} role="status">{t('Could not load the instruction.')}<Button variant="plain" onClick={() => retryPrompt(value => value + 1)}>{t('Retry')}</Button></div> : <div className={styles.promptSkeleton} role="status" aria-label={t('Loading instruction…')}>{[100, 94, 100, 86, 62].map((width, index) => <Skeleton key={index} style={{ width: `${width}%`, height: 10 }} />)}</div>)}<Button variant="plain" disabled={!prompt} className={`om-text-link ${styles.expandInstruction}`} data-quiet aria-expanded={promptExpanded} onClick={() => { tracking.reportInstructionExpanded(preview, !promptExpanded, detailView.current); setPromptExpanded(!promptExpanded); }}>{t(promptExpanded ? 'Show less' : 'Show instruction')}<MotionIcon name="chevron-down" size={14} /></Button></section>
             {!handoffPreview && <div className={styles.actions}>
               {isEditableTemplate(preview) && <Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled} onClick={() => { tracking.reportUseClicked(preview, 'open_edit', detailView.current); closeDetail(); props.onOpen(preview.id); }}>{t('Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button>}
-              {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
+              {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { tracking.reportTemplateSuperAgentClicked(preview, detailView.current); openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
               <div className={styles.recreateActions}>
                 <Button variant="ghost" className="om-button h-auto" data-primary disabled={!prompt} onClick={() => void copy()}>{t('Recreate template')}<MotionIcon name="sparkles" size={16} /></Button>
                 <Tooltip withinDialog wrap label={t('Recreate and submit')}><IconButton variant="plain" className={`om-button ${styles.submitTemplate}`} disabled={!prompt} onClick={() => void copy(true)} aria-label={t('Recreate and submit')} icon={<MotionIcon name="git-branch" size={17} />} /></Tooltip>
@@ -865,7 +901,7 @@ export function TemplateLibraryDialog(props: Props) {
           {handoffPreview && <div ref={reviewFooter} className={styles.reviewFooter} role="group" aria-label={t('Template actions')}>
               <div className={styles.handoffActions}>
                 {isEditableTemplate(preview) && <><p>{t('A separate project keeps your current work intact. Replace the sample content after opening.')}</p><Button variant="ghost" className="om-button h-auto" data-primary disabled={props.busy || props.openingDisabled || ['creating', 'opening', 'unknown'].includes(projectProgress[preview.id]?.state)} onClick={() => void prepareProject(preview)}>{t(projectProgress[preview.id]?.state === 'creating' ? 'Creating project…' : projectProgress[preview.id]?.state === 'opening' ? 'Opening project…' : projectProgress[preview.id]?.result ? 'Continue editing this project' : 'Open and edit')}<MotionIcon name="arrow-up-right" size={16} /></Button></>}
-                {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
+                {chrome?.openInSuperAgent && <Button variant="ghost" className="om-button h-auto" onClick={() => { tracking.reportTemplateSuperAgentClicked(preview, detailView.current); openLatest.current = false; detail.current?.close(); dialog.current?.close(); chrome.openInSuperAgent!(buildSuperAgentHandoff({ kind: 'motion-template', id: preview.id, title: preview.title, subtitle: preview.subtitle || preview.collection, previewUrl: preview.posterUrl, workflow: templateWorkflow(preview), tags: preview.tags }, { hiddenInstructions: prompt || undefined, locale })); }}><RemixIcon name="sparkling-line" size={16} />{t('Run in Super Agent')}</Button>}
                 <div className={styles.recreateActions}>
                   <Button variant="ghost" className="om-button h-auto" data-primary={!isEditableTemplate(preview) || undefined} disabled={!prompt} onClick={() => void copy()}>{t('Recreate this template')}<MotionIcon name="sparkles" size={16} /></Button>
                   <Tooltip withinDialog wrap label={t('Contribute a template')} description={t('Copy contribution instructions for source, a preview and credits.')}>
@@ -887,12 +923,14 @@ export function TemplateLibraryDialog(props: Props) {
   </>;
   if (detailOnly) return <div className={styles.library} style={{ display: 'contents' }} data-motion-template-detail="">{previewDialog}</div>;
   return <dialog ref={dialog} open={props.inWorkspace ? props.open : undefined} role={props.inWorkspace ? "region" : undefined} className={styles.library} data-workspace-gallery={props.inWorkspace || undefined} data-motion-template-library="" aria-label={t(props.creators ? 'Creators' : 'Template library')} onKeyDown={event => {
+    const isGlobalSearchShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k';
+    if (!useInlineSearch && isGlobalSearchShortcut && !preview && !filtersOpen) return;
     event.stopPropagation();
     if (props.inWorkspace && event.key === 'Escape' && !event.defaultPrevented && !props.busy && !preview && !filtersOpen && event.target instanceof Element && event.target.closest('dialog') === dialog.current) {
       event.preventDefault();
       props.onClose();
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k' && !preview && !filtersOpen && !(event.target instanceof HTMLElement && event.target.closest('[data-search-recovery]'))) { event.preventDefault(); search.current?.focus(); }
+    if (useInlineSearch && isGlobalSearchShortcut && !preview && !filtersOpen && !(event.target instanceof HTMLElement && event.target.closest('[data-search-recovery]'))) { event.preventDefault(); search.current?.focus(); }
   }} onCancel={event => { if (event.target !== dialog.current) return; event.preventDefault(); if (!props.busy) props.onClose(); }}>
     {gallery}
     {previewDialog}

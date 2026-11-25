@@ -13,6 +13,7 @@ import { RemixIcon } from '../icons/RemixIcons';
 import { useAccountSummary } from '../motion/AccountSettings';
 import { gatewayRequest } from '../motion/gatewayClient';
 import { notifyProvidersChanged } from '../motion/useProviderDirectory';
+import { newTrackingId, send } from '../motion/reporting';
 import { Popover } from './ui/Popover';
 import { Select } from './ui/Select';
 import { useOptionalWorkspaceCollab } from '../motion/WorkspaceCollabContext';
@@ -104,7 +105,19 @@ export function WebPublishPopover({
 }: WebPublishPopoverProps) {
   const { t } = useI18n();
   const collab = useOptionalWorkspaceCollab();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
+  // Opening the popover is the share intent; the operations below report their observed results.
+  const openRef = useRef(false);
+  const setOpen = useCallback((next: boolean) => {
+    if (next && !openRef.current) send('ui_click', { page_name: 'creative_studio', area: 'web_publish', element: 'open_publish', publish_target: targetKind });
+    openRef.current = next;
+    setOpenState(next);
+  }, [targetKind]);
+  const publishHookId = targetKind === 'game' ? 'game_publish_signin' as const : 'cloud_share_signin' as const;
+  const reportPublish = useCallback((action: 'publish' | 'resume' | 'new_link' | 'stop' | 'copy_link' | 'sign_in', outcome: 'success' | 'failure' | 'cancelled',
+    extra: { copied?: boolean; error_kind?: 'auth_required' | 'conflict' | 'other'; hook_id?: typeof publishHookId; entry_id?: string } = {}) => {
+    send('web_publish_result', { publish_target: targetKind, action, outcome, publish_attempt_id: newTrackingId(), ...extra });
+  }, [targetKind]);
   const { account, refresh: refreshAccount, setAccount } = useAccountSummary({ eager: !lazy });
   const [status, setStatus] = useState<WebPublishStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -113,11 +126,13 @@ export function WebPublishPopover({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [prepublishEnabled, setPrepublishEnabled] = useState(true);
-  const deployAfterSignInRef = useRef(false);
+  const currentTargetKey = `${targetKind}:${targetId}:${filePath ?? ''}`;
+  const deployAfterSignInTargetRef = useRef<string | null>(null);
   const prevAccountStateRef = useRef<AccountSummary['state'] | undefined>(undefined);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    deployAfterSignInTargetRef.current = null;
     setOpen(false);
     setStatus(null);
     setError(null);
@@ -172,12 +187,14 @@ export function WebPublishPopover({
       setCopied(true);
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
       copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
+      // A copy that follows a publish is part of that publish result.
+      if (notifyUser) reportPublish('copy_link', 'success');
       return true;
     } catch {
-      if (notifyUser) onNotify?.(t('Could not copy share link'), 'error');
+      if (notifyUser) { reportPublish('copy_link', 'failure'); onNotify?.(t('Could not copy share link'), 'error'); }
       return false;
     }
-  }, [onCopyUrl, onNotify, t]);
+  }, [onCopyUrl, onNotify, reportPublish, t]);
 
   const runMutation = useCallback(async (op: Exclude<ActiveOp, null>, copyOnSuccess = false) => {
     if (activeOp) return;
@@ -187,6 +204,7 @@ export function WebPublishPopover({
       if (op === 'stop') {
         const stopped = await webPublishClient.unpublish(targetKind, targetId, { filePath, sourcePath, embedUrl });
         setStatus(prev => mergePublicationStatus(prev, targetKind, targetId, stopped.publication, prev?.freshness ?? 'unknown'));
+        reportPublish('stop', 'success');
         onNotify?.(t('Share link disabled'), 'info');
         return;
       }
@@ -209,8 +227,9 @@ export function WebPublishPopover({
         ),
       );
 
+      const copiedLink = Boolean(published.url && copyOnSuccess) && await copyUrl(published.url!, false);
+      reportPublish(op, 'success', { copied: copiedLink });
       if (published.url && copyOnSuccess) {
-        await copyUrl(published.url, false);
         onNotify?.(t('Deployed and copied share link'), 'info');
       } else if (op === 'resume') {
         onNotify?.(t('Share link reopened'), 'info');
@@ -220,6 +239,8 @@ export function WebPublishPopover({
     } catch (err) {
       const msg = err instanceof Error ? err.message : t('Cloud share operation failed');
       setError(msg);
+      const authRequired = err instanceof WebPublishApiError && (err.status === 401 || err.code === 'AUTH_REQUIRED');
+      reportPublish(op, 'failure', { error_kind: authRequired ? 'auth_required' : err instanceof WebPublishApiError && err.status === 409 ? 'conflict' : 'other' });
       if (err instanceof WebPublishApiError && (err.status === 401 || err.code === 'AUTH_REQUIRED')) {
         void refreshAccount();
       }
@@ -229,9 +250,9 @@ export function WebPublishPopover({
     } finally {
       setActiveOp(null);
     }
-  }, [activeOp, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, sourcePath, t, targetId, targetKind, title]);
+  }, [activeOp, copyUrl, embedUrl, filePath, onNotify, refreshAccount, refreshStatus, reportPublish, sourcePath, t, targetId, targetKind, title]);
 
-  // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes.
+  // Automatically continue deploying as soon as an in-popover OpenDesign sign-in completes for this exact target.
   useEffect(() => {
     const nextState = account?.state;
     const prevState = prevAccountStateRef.current;
@@ -239,39 +260,57 @@ export function WebPublishPopover({
     if (nextState === 'signed-in' && prevState && prevState !== 'signed-in') {
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (deployAfterSignInRef.current) {
-        deployAfterSignInRef.current = false;
+      if (deployAfterSignInTargetRef.current === currentTargetKey) {
+        deployAfterSignInTargetRef.current = null;
         void runMutation('publish', true);
       } else if (open) {
         void refreshStatus(false);
       }
     }
-  }, [account?.state, open, refreshStatus, runMutation]);
+  }, [account?.state, currentTargetKey, open, refreshStatus, runMutation]);
 
   const handleAccountAction = async (action: 'login' | 'cancel') => {
     setAuthBusy(true);
     setError(null);
-    deployAfterSignInRef.current = action === 'login';
+    const targetAtSignIn = currentTargetKey;
+    deployAfterSignInTargetRef.current = action === 'login' ? targetAtSignIn : null;
+    const entryId = action === 'login' ? newTrackingId() : undefined;
+    if (action === 'login' && entryId) {
+      send('ui_click', { page_name: 'creative_studio', area: 'web_publish', element: 'sign_in', publish_target: targetKind, hook_id: publishHookId, entry_id: entryId });
+    }
     try {
-      const next = await gatewayRequest<AccountSummary>(`settings/account/${action}`, 'POST', {});
+      const payload = action === 'login' && entryId ? { hookId: publishHookId, entryId } : {};
+      const next = await gatewayRequest<AccountSummary>(`settings/account/${action}`, 'POST', payload);
+      // The sign-in itself is reported by the connector (account_sign_in_result); this records that it started from sharing.
+      reportPublish('sign_in', action === 'cancel' ? 'cancelled' : 'success', entryId ? { hook_id: publishHookId, entry_id: entryId } : {});
       setAccount(next);
       notifyProvidersChanged();
       window.dispatchEvent(new Event('motion:account-changed'));
-      if (action === 'login' && next.state === 'signed-in') {
-        deployAfterSignInRef.current = false;
+      if (action === 'login' && next.state === 'signed-in' && deployAfterSignInTargetRef.current === targetAtSignIn) {
+        deployAfterSignInTargetRef.current = null;
         void runMutation('publish', true);
       }
     } catch (err) {
-      deployAfterSignInRef.current = false;
+      if (deployAfterSignInTargetRef.current === targetAtSignIn) deployAfterSignInTargetRef.current = null;
+      if (action === 'login') reportPublish('sign_in', 'failure', { error_kind: 'other', ...(entryId ? { hook_id: publishHookId, entry_id: entryId } : {}) });
       setError(err instanceof Error ? err.message : t('Could not connect OpenDesign account'));
     } finally {
       setAuthBusy(false);
     }
   };
 
+  const accountResolved = account !== null || status !== null;
   const accountState = account?.state ?? status?.accountState ?? (status?.accountSignedIn ? 'signed-in' : 'signed-out');
   const signedIn = accountState === 'signed-in';
   const authorizing = accountState === 'authorizing';
+  const signInGateReportedRef = useRef(false);
+  useEffect(() => {
+    if (!open || signedIn) { signInGateReportedRef.current = false; return; }
+    if (accountResolved && !authorizing && !signInGateReportedRef.current) {
+      signInGateReportedRef.current = true;
+      send('surface_view', { page_name: 'creative_studio', area: 'entitlement_gate', element: 'gate_card', hook_id: publishHookId, publish_target: targetKind });
+    }
+  }, [open, accountResolved, signedIn, authorizing, publishHookId, targetKind]);
   const mutating = activeOp !== null;
   const pub = status?.active ?? null;
   const linkStatus = pub?.status ?? 'none';
@@ -326,10 +365,6 @@ export function WebPublishPopover({
       <div className="om-web-publish-head">
         <div className="om-web-publish-head-title">
           <strong>{t('Share')}</strong>
-          <span className="om-web-publish-tag">
-            <RemixIcon name="cloud-line" size={12} />
-            <span>{t('Cloud deploy')}</span>
-          </span>
           {isPublished && status?.freshness === 'outdated' && (
             <span className="om-web-publish-freshness" data-state="outdated">
               {t('Changes pending')}

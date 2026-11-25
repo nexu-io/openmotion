@@ -49,8 +49,8 @@ function imageTransport(directory: string) {
 
 async function until(check: () => Promise<boolean>) { for (let n = 0; n < 500; n++) { if (await check()) return; await delay(20); } throw new Error('Fixture timed out'); }
 async function finish(store: any, id: string) { const g = gatewayFor(store); await g.tick(); await Promise.all([...g.active.values()].map(task => task.done)); return g.getJob(id); }
-async function signIn(account: OpenDesignAccount) {
-  await account.login(); await until(async () => Boolean((await account.summary()).authorizationUrl));
+async function signIn(account: OpenDesignAccount, entryId?: string) {
+  await account.login({ entryId }); await until(async () => Boolean((await account.summary()).authorizationUrl));
   await writeFile(path.join(account.home, 'authorize'), 'yes');
   await until(async () => (await account.summary()).state === 'signed-in');
 }
@@ -596,7 +596,8 @@ test('completed sign-in delivers its source through the shared sender and respec
   t.after(() => tracking.close());
   const account = new OpenDesignAccount(store.directory, { binary, track: record => { tracking.track('account_sign_in_result', record); } });
   t.after(() => account.close());
-  await signIn(account);
+  const clickedEntry = randomUUID();
+  await signIn(account, clickedEntry);
   assert.equal(await tracking.flush(), 'accepted');
   const batch = batches[0].batch;
   assert.equal(batch.length, 1); assert.equal(batch[0].event, 'account_sign_in_result');
@@ -605,6 +606,7 @@ test('completed sign-in delivers its source through the shared sender and respec
   assert.equal(fields.source_product, 'openmotion'); assert.equal(fields.source_detail, 'openmotion_editor_login');
   assert.equal(fields.amr_user_id, 'fixture-user-id');
   assert.equal(fields.installation_id, installationId); assert.equal(fields.distinct_id, installationId); assert.equal(fields.utm_source, 'creator');
+  assert.equal(fields.entry_id, clickedEntry);
   assert.notEqual(fields.entry_id, fields.attempt_id);
   assert.doesNotMatch(JSON.stringify(batches), /fixture@example|synthetic-private|TEST-123|open-design\.ai/);
   enabled = false;
@@ -754,18 +756,22 @@ test('the subscription page opens in the system browser through a one-time accou
   });
   const opened: string[] = [];
   const launch = async (url: string) => { opened.push(url); };
-  assert.deepEqual(await account.openSubscription(launch), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
+  const clickedEntry = randomUUID();
+  assert.deepEqual(await account.openSubscription(launch, { entryId: clickedEntry }), { url: 'https://open-design.ai/cloud/login?intentId=intent_1-a', opened: true });
   assert.deepEqual(opened, ['https://open-design.ai/cloud/login?intentId=intent_1-a']);
   const target = new URL(targets[0], 'https://open-design.ai'), params = target.searchParams;
   assert.equal(target.pathname, '/dashboard');
   assert.deepEqual([...params.keys()].sort(), ['billing', 'od_entry_at', 'od_entry_id', 'od_entry_source', 'od_origin']);
   assert.equal(params.get('billing'), 'plan'); assert.equal(params.get('od_origin'), 'openmotion');
   assert.equal(params.get('od_entry_source'), 'openmotion_manage_subscription');
+  assert.equal(params.get('od_entry_id'), clickedEntry);
   assert.match(params.get('od_entry_id')!, /^[0-9a-f-]{36}$/); assert.equal(new Date(params.get('od_entry_at')!).toISOString(), params.get('od_entry_at'));
   // Each open carries a fresh entry; a refused or malformed intent still opens the plain page.
   for (const refusal of [() => Response.json({ error: 'unauthorized' }, { status: 401 }), () => Response.json({ intentId: '../evil' }), () => { throw new TypeError('offline'); }]) {
     response = refusal;
-    const result = await account.openSubscription(launch);
+    const fallbackEntry = randomUUID();
+    const result = await account.openSubscription(launch, { entryId: fallbackEntry });
+    assert.equal(new URL(result.url).searchParams.get('od_entry_id'), fallbackEntry);
     assert.equal(new URL(result.url).origin + new URL(result.url).pathname, 'https://open-design.ai/cloud/dashboard');
     assert.equal(new URL(result.url).searchParams.get('od_origin'), 'openmotion'); assert.equal(result.opened, true);
   }
@@ -1401,4 +1407,56 @@ test('a failed legacy migration keeps the workspace sign-in and leaves no shared
   assert.equal((await recoveredAgain.summary()).state, 'signed-in');
   assert.equal(await recoveredAgain.identity(), second.identity);
   await assert.rejects(stat(path.join(second.directory, 'account', 'credentials', 'config.json')), { code: 'ENOENT' });
+}));
+
+test('account model discovery parses server routing metadata, hydrates fallbacks on read without caching them, and leaves unseen models unfabricated', t => fixture(async store => {
+  await chmod(binary, 0o755);
+  const gateway = gatewayFor(store);
+  gateway.options.detect = async () => [];
+  const account = gateway.account = new OpenDesignAccount(store.directory, {
+    binary,
+    run: async args => args[0] === 'model'
+      ? JSON.stringify({ source: 'remote', data: [{ id: 'claude-sonnet', label: 'Claude Sonnet', enabled: true }] })
+      : JSON.stringify({
+          models: [
+            // Known model with no server metadata -> hydrated on read only.
+            { model: 'gpt-image-2.6-flare', kind: 'image', capabilities: { edits: true } },
+            // Known model with server override -> server fields win.
+            { model: 'wan-2.7', kind: 'video', tier: 'fast', best_for: ['live-loop'], description: 'Server override for Wan.' },
+            // New unseen model with server metadata -> preserved.
+            { model: 'veo-next', kind: 'video', capabilities: { tier: 'flagship', best_for: ['cinematic-4k'], description: 'Server Veo Next.' } },
+            // New unseen model without server metadata -> remains undefined.
+            { model: 'unseen-audio-x', kind: 'audio_music' },
+          ],
+        }),
+  });
+  t.after(() => gateway.close());
+  await signIn(account);
+  const refreshed = await account.models(true);
+  const byId = new Map(refreshed.map(m => [m.modelId, m]));
+
+  // Text models stay untouched; known media models are hydrated; server overrides win.
+  assert.equal(byId.get('claude-sonnet')?.tier, undefined);
+  assert.equal(byId.get('gpt-image-2.6-flare')?.tier, 'fast');
+  assert(byId.get('gpt-image-2.6-flare')?.bestFor?.includes('batch-sprites'));
+  assert.equal(byId.get('wan-2.7')?.tier, 'fast');
+  assert.deepEqual(byId.get('wan-2.7')?.bestFor, ['live-loop']);
+  assert.equal(byId.get('wan-2.7')?.description, 'Server override for Wan.');
+  assert.equal(byId.get('veo-next')?.tier, 'flagship');
+  assert.deepEqual(byId.get('veo-next')?.bestFor, ['cinematic-4k']);
+  assert.equal(byId.get('unseen-audio-x')?.tier, undefined);
+  assert.equal(byId.get('unseen-audio-x')?.bestFor, undefined);
+
+  // Built-in audio fallback models also carry hydrated routing metadata via providerDirectory and listModels.
+  const directory = await providerDirectory(gateway);
+  assert.equal(directory.models.find(m => m.id === 'account:byteplus-tts-2')?.tier, 'flagship');
+  assert(directory.models.find(m => m.id === 'account:byteplus-tts-2')?.bestFor?.includes('zh-speech'));
+  const listed = await gateway.listModels({ provider: 'account', query: 'cinematic-4k' });
+  assert.equal(listed.models[0]?.modelId, 'veo-next');
+
+  // Persisted models.json keeps only raw server rows so future server updates are never shadowed by cached fallbacks.
+  const persisted = JSON.parse(await readFile(path.join(account.root, 'models.json'), 'utf8')) as Array<{ modelId: string; tier?: string; bestFor?: string[] }>;
+  const cachedFlare = persisted.find(m => m.modelId === 'gpt-image-2.6-flare');
+  assert.equal(cachedFlare?.tier, undefined);
+  assert.equal(cachedFlare?.bestFor, undefined);
 }));

@@ -50,6 +50,32 @@
       const chromeColor = document.querySelector('meta[name="theme-color"]');
       if (chromeColor) chromeColor.content = chromeColor.dataset[theme];
     </script>
+    <script>
+      (() => {
+        // Apply synchronous desktop chrome insets before first paint so macOS traffic lights
+        // and Windows/Linux window controls never overlap the header on boot or reload.
+        const bridge = window.__OPENMOTION_DESKTOP__;
+        if (!bridge || typeof bridge.getChromeState !== "function") return;
+        const hint = (navigator.platform || "") + " " + (navigator.userAgent || "");
+        const fallbackPlatform = /Mac/i.test(hint) ? "darwin" : /Win/i.test(hint) ? "win32" : "linux";
+        const chrome = bridge.initialChrome || {
+          platform: fallbackPlatform,
+          titleBarStyle: fallbackPlatform === "darwin" ? "hiddenInset" : fallbackPlatform === "win32" ? "hiddenOverlay" : "custom",
+          insetLeft: fallbackPlatform === "darwin" ? 84 : 0,
+          insetRight: fallbackPlatform === "win32" ? 138 : fallbackPlatform === "linux" ? 132 : 0,
+          titleBarHeight: 46,
+          fullscreen: false,
+        };
+        const root = document.documentElement;
+        root.dataset.desktop = "true";
+        root.dataset.desktopPlatform = chrome.platform;
+        root.dataset.desktopTitlebar = chrome.titleBarStyle;
+        root.dataset.desktopFullscreen = chrome.fullscreen ? "true" : "false";
+        root.style.setProperty("--om-desktop-inset-left", chrome.insetLeft + "px");
+        root.style.setProperty("--om-desktop-inset-right", chrome.insetRight + "px");
+        root.style.setProperty("--om-desktop-titlebar-height", (chrome.titleBarHeight || 46) + "px");
+      })();
+    </script>
     <link rel="stylesheet" href="/design-system/tokens.css" />
     <link rel="stylesheet" href="/design-system/fonts.css" />
     <link rel="stylesheet" href="/design-system/loading.css" />
@@ -61,6 +87,7 @@
         <span class="motion-loading-label">正在打开项目…</span>
       </div>
     </div>
+    <script type="module" src="/src/bootLoading.ts"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

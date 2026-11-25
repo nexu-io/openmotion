@@ -84,7 +84,8 @@
     "Tags": "标签",
     "Example brief": "示例简报",
     "Type @ to mention templates or skills": "输入 @ 引用模板、技能或提示词",
-    "Mention template or skill": "引用模板或技能"
+    "Mention template or skill": "引用模板或技能",
+    "Use Brand Kit": "应用品牌包"
   },
   "ja": {
     "Prototype": "プロトタイプ",
@@ -158,7 +159,8 @@
     "Tags": "タグ",
     "Example brief": "ブリーフ例",
     "Type @ to mention templates or skills": "@を入力してテンプレートやスキルを参照",
-    "Mention template or skill": "テンプレート・スキルを参照"
+    "Mention template or skill": "テンプレート・スキルを参照",
+    "Use Brand Kit": "Brand Kit を適用"
   },
   "ko": {
     "Prototype": "프로토타입",
@@ -232,7 +234,8 @@
     "Tags": "태그",
     "Example brief": "예시 브리프",
     "Type @ to mention templates or skills": "@를 입력해 템플릿이나 스킬을 멘션하세요",
-    "Mention template or skill": "템플릿 또는 스킬 멘션"
+    "Mention template or skill": "템플릿 또는 스킬 멘션",
+    "Use Brand Kit": "Brand Kit 적용"
   },
   "de": {
     "Prototype": "Prototyp",
@@ -306,7 +309,8 @@
     "Tags": "Tags",
     "Example brief": "Beispiel-Briefing",
     "Type @ to mention templates or skills": "@ tippen, um Vorlagen oder Skills zu erwähnen",
-    "Mention template or skill": "Vorlage oder Skill erwähnen"
+    "Mention template or skill": "Vorlage oder Skill erwähnen",
+    "Use Brand Kit": "Brand Kit nutzen"
   },
   "fr": {
     "Prototype": "Prototype",
@@ -380,7 +384,8 @@
     "Tags": "Étiquettes",
     "Example brief": "Exemple de brief",
     "Type @ to mention templates or skills": "Tapez @ pour mentionner des modèles ou compétences",
-    "Mention template or skill": "Mentionner un modèle ou une compétence"
+    "Mention template or skill": "Mentionner un modèle ou une compétence",
+    "Use Brand Kit": "Utiliser le Brand Kit"
   },
   "ru": {
     "Prototype": "Прототип",
@@ -454,7 +459,8 @@
     "Tags": "Теги",
     "Example brief": "Пример брифа",
     "Type @ to mention templates or skills": "Введите @, чтобы упомянуть шаблоны или навыки",
-    "Mention template or skill": "Упомянуть шаблон или навык"
+    "Mention template or skill": "Упомянуть шаблон или навык",
+    "Use Brand Kit": "Применить Brand Kit"
   },
   "es": {
     "Prototype": "Prototipo",
@@ -528,7 +534,8 @@
     "Tags": "Etiquetas",
     "Example brief": "Brief de ejemplo",
     "Type @ to mention templates or skills": "Escribe @ para mencionar plantillas o habilidades",
-    "Mention template or skill": "Mencionar plantilla o habilidad"
+    "Mention template or skill": "Mencionar plantilla o habilidad",
+    "Use Brand Kit": "Usar Brand Kit"
   },
   "pt-BR": {
     "Prototype": "Protótipo",
@@ -602,7 +609,8 @@
     "Tags": "Tags",
     "Example brief": "Exemplo de briefing",
     "Type @ to mention templates or skills": "Digite @ para mencionar modelos ou skills",
-    "Mention template or skill": "Mencionar modelo ou skill"
+    "Mention template or skill": "Mencionar modelo ou skill",
+    "Use Brand Kit": "Usar Brand Kit"
   },
   "it": {
     "Prototype": "Prototipo",
@@ -676,7 +684,8 @@
     "Tags": "Tag",
     "Example brief": "Esempio di brief",
     "Type @ to mention templates or skills": "Digita @ per menzionare modelli o skill",
-    "Mention template or skill": "Menziona modello o skill"
+    "Mention template or skill": "Menziona modello o skill",
+    "Use Brand Kit": "Usa Brand Kit"
   },
   "tr": {
     "Prototype": "Prototip",
@@ -750,6 +759,7 @@
     "Tags": "Etiketler",
     "Example brief": "Örnek özet",
     "Type @ to mention templates or skills": "Şablon veya beceri eklemek için @ yazın",
-    "Mention template or skill": "Şablon veya beceri ekle"
+    "Mention template or skill": "Şablon veya beceri ekle",
+    "Use Brand Kit": "Brand Kit kullan"
   }
 }

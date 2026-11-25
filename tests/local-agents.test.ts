@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { LocalAgentDirectory } from '../gateway/local-agents.ts';
+import { resolveAgent } from '../gateway/agents.ts';
+import { clearLocalAgentResolveCache, LocalAgentDirectory, resolveLocalAgent } from '../gateway/local-agents.ts';
 import {
   agentInvocation,
   discoverAcp,
@@ -18,7 +19,50 @@ import {
   vibeConfigModels,
 } from '../gateway/agent-discovery.ts';
 import { terminalCommand } from '../gateway/agent-terminal.ts';
-import { localAgents } from '../shared/local-agents.ts';
+import { localAgents, pickPreferredLocalAgent, type LocalAgent } from '../shared/local-agents.ts';
+
+test('local Codex prefers a newer bundled CLI and respects an explicit binary', { skip: process.platform === 'win32' }, async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'openmotion-codex-resolve-'));
+  const keys = ['PATH', 'CODEX_BIN', 'CODEX_APP_RUNTIME_CLI_PATH'] as const;
+  const saved = keys.map(key => process.env[key]);
+  t.after(async () => {
+    for (const [index, key] of keys.entries()) {
+      const value = saved[index];
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    clearLocalAgentResolveCache();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const standalone = path.join(dir, 'codex');
+  const bundled = path.join(dir, 'bundled codex');
+  const override = path.join(dir, 'configured codex');
+  const writeCli = (file: string, version: string) =>
+    writeFile(file, `#!/bin/sh\nprintf '%s\\n' 'codex-cli ${version}'\n`, { mode: 0o700 });
+  await Promise.all([writeCli(standalone, '0.99.0'), writeCli(bundled, '0.100.0'), writeCli(override, '0.1.0')]);
+  process.env.PATH = dir;
+  process.env.CODEX_APP_RUNTIME_CLI_PATH = bundled;
+  delete process.env.CODEX_BIN;
+  clearLocalAgentResolveCache();
+
+  assert.equal(await resolveLocalAgent('codex'), bundled);
+  assert.equal(await resolveAgent('codex'), bundled);
+
+  process.env.CODEX_BIN = override;
+  assert.equal(await resolveLocalAgent('codex'), override);
+  assert.equal(await resolveAgent('codex'), override);
+  delete process.env.CODEX_BIN;
+
+  await writeCli(standalone, '0.100.0');
+  clearLocalAgentResolveCache();
+  assert.equal(await resolveAgent('codex'), standalone);
+
+  await writeCli(standalone, '0.101.0');
+  clearLocalAgentResolveCache();
+  assert.equal(await resolveLocalAgent('codex'), standalone);
+  assert.equal(await resolveAgent('codex'), standalone);
+});
 
 test('Agent discovery excludes hidden models and parses CLI, help, Pi and spinner outputs cleanly', () => {
   assert.deepEqual(
@@ -332,4 +376,88 @@ test('LocalAgentDirectory routes Antigravity, Claude, Kiro, Gemini, Qwen, Vibe a
     if (prevQwen === undefined) delete process.env.QWEN_SETTINGS_FILE; else process.env.QWEN_SETTINGS_FILE = prevQwen;
     if (prevVibe === undefined) delete process.env.VIBE_HOME; else process.env.VIBE_HOME = prevVibe;
   }
+});
+
+test('LocalAgentDirectory warms up Antigravity by default and hydrates persisted models across restarts without probing', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'motion-agy-cache-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  let acpCalls = 0;
+  let probeCalls = 0;
+
+  const first = new LocalAgentDirectory(
+    root,
+    async bin => (bin === 'agy' ? '/usr/local/bin/agy' : null),
+    async (_bin, args) => {
+      probeCalls += 1;
+      if (args[0] === '--version') return { ok: true, text: '1.5.14' };
+      return { ok: true, text: 'Usage: --model <id>' };
+    },
+    async () => {},
+    {
+      acp: async () => {
+        acpCalls += 1;
+        return {
+          auth: 'unknown',
+          models: [
+            { id: 'gemini-4-neon', label: 'Gemini 4 Neon', source: 'cli', reasoning: ['medium', 'high'] },
+            { id: 'gemini-4-flash', label: 'Gemini 4 Flash', source: 'cli' },
+          ],
+        };
+      },
+    },
+  );
+
+  const warmed = await first.warmup();
+  assert.equal(acpCalls, 1);
+  assert.equal(warmed.agents.find(a => a.id === 'antigravity')?.models.length, 2);
+
+  // Restarted directory hydrates Antigravity models immediately from disk with 0 CLI probes
+  let restartedProbes = 0;
+  const restarted = new LocalAgentDirectory(
+    root,
+    async bin => (bin === 'agy' ? '/usr/local/bin/agy' : null),
+    async () => {
+      restartedProbes += 1;
+      return { ok: true, text: '' };
+    },
+  );
+  const listed = await restarted.list();
+  const agy = listed.agents.find(a => a.id === 'antigravity');
+  assert.equal(restartedProbes, 0);
+  assert.equal(probeCalls > 0, true);
+  assert.deepEqual(agy?.models.map(m => m.id), ['gemini-4-neon', 'gemini-4-flash']);
+  assert.ok(agy?.checkedAt);
+  assert.ok(agy?.connectedAt);
+});
+
+test('Antigravity is listed first and pickPreferredLocalAgent selects the most recently connected Agent unless manually chosen', () => {
+  assert.equal(localAgents[0]?.id, 'antigravity');
+
+  const mk = (id: string, overrides: Partial<LocalAgent> = {}): LocalAgent => ({
+    ...localAgents.find(a => a.id === id)!,
+    installed: true,
+    auth: 'signed-in',
+    models: [{ id: `${id}-model`, label: `${id} Model`, source: 'cli' }],
+    ...overrides,
+  });
+
+  const agy = mk('antigravity', { connectedAt: '2026-11-23T10:00:00.000Z' });
+  const codex = mk('codex', { connectedAt: '2026-11-23T12:00:00.000Z' });
+  const claude = mk('claude', { auth: 'signed-out', connectedAt: undefined });
+  const failed = mk('gemini', { discoveryError: 'Could not discover models', connectedAt: '2026-11-23T13:00:00.000Z' });
+
+  // Without explicit manual default -> picks most recently connected valid agent (codex at 12:00 > antigravity at 10:00)
+  assert.equal(pickPreferredLocalAgent([agy, codex, claude, failed], null)?.id, 'codex');
+
+  // If Antigravity connected more recently -> picks Antigravity
+  const agyNewer = mk('antigravity', { connectedAt: '2026-11-23T14:00:00.000Z' });
+  assert.equal(pickPreferredLocalAgent([agyNewer, codex, claude], null)?.id, 'antigravity');
+
+  // With explicit manual default -> honors the user's manual selection
+  assert.equal(pickPreferredLocalAgent([agyNewer, codex, claude], { agent: 'codex', model: 'default' })?.id, 'codex');
+
+  // Before any connection checks complete -> falls back to top runnable agent (Antigravity)
+  const uncheckedAgy = mk('antigravity', { auth: 'unknown', models: [], connectedAt: undefined });
+  const uncheckedCodex = mk('codex', { auth: 'unknown', models: [], connectedAt: undefined });
+  assert.equal(pickPreferredLocalAgent([uncheckedAgy, uncheckedCodex], null)?.id, 'antigravity');
 });

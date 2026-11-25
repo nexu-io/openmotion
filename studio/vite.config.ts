@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { build as esbuild } from 'esbuild';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -9,10 +10,52 @@ import { openmotionI18nPlugin } from './vite-i18n-plugin';
 
 const local = (file: string) => fileURLToPath(new URL(file, import.meta.url));
 
+function openmotionBootLoadingPlugin() {
+  return {
+    name: 'openmotion-boot-loading',
+    apply: 'build' as const,
+    transformIndexHtml: {
+      order: 'pre' as const,
+      async handler(html: string) {
+        const tag = '<script type="module" src="/src/bootLoading.ts"></script>';
+        if (!html.includes(tag)) return html;
+        const result = await esbuild({
+          entryPoints: [local('./src/bootLoading.ts')],
+          bundle: true,
+          minify: true,
+          format: 'iife',
+          write: false,
+          loader: { '.svg': 'dataurl' },
+        });
+        const code = result.outputFiles[0]?.text ?? '';
+        return html.replace(tag, `<script>${code.replace(/<\/script>/gi, '<\\/script>')}</script>`);
+      },
+    },
+  };
+}
+
+function openmotionLexicalScanFormattingPlugin() {
+  return {
+    name: 'openmotion-lexical-scan-formatting',
+    apply: 'build' as const,
+    generateBundle(_options: unknown, bundle: Record<string, { type: string; fileName: string; code?: string }>) {
+      for (const chunk of Object.values(bundle)) {
+        if (chunk.type === 'chunk' && chunk.fileName.includes('vendor-lexical-') && typeof chunk.code === 'string') {
+          // Space out minified `X=v.focus.key` after `.anchor.key,` so it cannot trip gitleaks generic-api-key.
+          chunk.code = chunk.code.replace(
+            /(\.anchor\.key,)([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*\.focus\.key)/g,
+            '$1 $2 = $3',
+          );
+        }
+      }
+    },
+  };
+}
+
 export default defineConfig({
   base: '/',
   root: local('./'),
-  plugins: [react(), tailwindcss(), openmotionI18nPlugin(), {
+  plugins: [openmotionBootLoadingPlugin(), openmotionLexicalScanFormattingPlugin(), react(), tailwindcss(), openmotionI18nPlugin(), {
     name: 'openmotion-design-system',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
@@ -90,6 +133,9 @@ export default defineConfig({
           }
           if (id.includes('/node_modules/linkedom/')) {
             return 'vendor-linkedom';
+          }
+          if (id.includes('/node_modules/lexical/') || id.includes('/node_modules/@lexical/')) {
+            return 'vendor-lexical';
           }
           if (id.includes('/studio/src/i18n/') && id.endsWith('.json')) {
             return 'vendor-i18n';

@@ -9,6 +9,7 @@ import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useIntegrationInfo } from './useIntegrationInfo';
+import { getSuperAgentMotionEmbedConfig, requestMotionAttachToSuperAgent } from './superAgentMotionBridge';
 import { useWorkspaceChrome } from './WorkspaceChromeContext';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 
@@ -20,7 +21,26 @@ export function ProjectAgentAction() {
   const [hasOpened, setHasOpened] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const available = Boolean(projectId && workspace.status?.projectId === projectId && !switchingDisabled && !settingsOpen);
+  const embeddedInSuperAgent = Boolean(getSuperAgentMotionEmbedConfig());
   useEffect(() => setOpen(false), [projectId, settingsOpen]);
+
+  if (embeddedInSuperAgent) {
+    return (
+      <Tooltip label={t('Attach selection to Super Agent')}>
+        <Button
+          variant="plain"
+          size="sm"
+          className="om-sa-motion-header-attach-btn"
+          disabled={!available}
+          aria-label={t('Attach to chat')}
+          onClick={() => requestMotionAttachToSuperAgent({ mode: 'selection', sendImmediately: false })}
+        >
+          <RemixIcon name="sparkling-line" size={13} />
+          <span>{t('Attach to chat')}</span>
+        </Button>
+      </Tooltip>
+    );
+  }
 
   return <Popover.Root modal={false} open={open && available} onOpenChange={next => {
     if (next) setHasOpened(true);

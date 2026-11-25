@@ -1,5 +1,6 @@
 import { brandCatalogFile } from '../shared/brand-catalog.ts';
 import { brandKitInstruction } from '../shared/brand-kit.ts';
+import { rankSearchResults } from '../shared/fuzzy-search.ts';
 import { readBrandCatalog } from './brand-catalog.ts';
 import type { BrandKitLibrary } from './brand-kits.ts';
 
@@ -9,9 +10,16 @@ export async function brandKitOperation(library: BrandKitLibrary, command: Recor
   switch (operation) {
     case 'catalog': {
       const { revision, entries } = await readBrandCatalog();
-      const query = command.query?.trim().toLowerCase() || '';
-      return { revision, entries: entries.filter(entry => `${entry.name} ${entry.category} ${entry.tags.join(' ')}`.toLowerCase().includes(query))
-        .map(({ id, name, category, websiteUrl, sourceUrl }) => ({ id, name, category, websiteUrl, sourceUrl })) };
+      const query = command.query?.trim() || '';
+      const matched = rankSearchResults(entries, query, entry => ({
+        id: entry.id,
+        title: entry.name,
+        subtitle: entry.category,
+        description: entry.description,
+        tags: entry.tags,
+        aliases: [entry.appearance, ...(entry.colors ?? []), entry.websiteUrl ?? ''],
+      })).map(result => result.item);
+      return { revision, entries: matched.map(({ id, name, category, websiteUrl, sourceUrl }) => ({ id, name, category, websiteUrl, sourceUrl })) };
     }
     case 'list': return { kits: (await library.list()).map(({ id, name, state, updatedAt, catalogId }) => ({ id, name, state, updatedAt, catalogId })) };
     case 'get': return { kit: await library.get(kitId) };

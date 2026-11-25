@@ -164,6 +164,41 @@ export class TemplateCatalog {
       ...(snapshot.publication.content.en?.brands ?? []),
       ...(snapshot.publication.content[locale]?.brands ?? []),
     ].map(brand => [brand.name, brand.logoUrl]));
+    // Keep searchAliases compact: include cross-language names/categories/tags from
+    // English + Simplified Chinese (plus active locale) without serializing verbose prose
+    // from all 11 locales on every template response.
+    const aliasLocales = Array.from(new Set(['en', 'zh-CN', locale]))
+      .filter(loc => Boolean(snapshot.publication.content?.[loc]?.templates));
+    const aliasesById = new Map<string, string[]>();
+    const seenById = new Map<string, Set<string>>();
+    for (const loc of aliasLocales) {
+      for (const entry of snapshot.publication.content[loc]?.templates ?? []) {
+        let list = aliasesById.get(entry.templateId);
+        let seen = seenById.get(entry.templateId);
+        if (!list || !seen) {
+          list = [];
+          seen = new Set<string>();
+          aliasesById.set(entry.templateId, list);
+          seenById.set(entry.templateId, seen);
+        }
+        const candidates = [
+          entry.original.templateName,
+          entry.original.category,
+          entry.original.author,
+          entry.original.attributionNickname,
+          ...splitTags(entry.original.promotionalUseCases),
+          ...splitTags(entry.original.visualPresentation),
+          ...splitTags(entry.original.motionTags),
+        ];
+        for (const raw of candidates) {
+          const val = raw?.trim();
+          if (val && !seen.has(val)) {
+            seen.add(val);
+            list.push(val);
+          }
+        }
+      }
+    }
     const remote: EditableTemplate[] = [...this.entries(snapshot.publication, requested)].sort((a, b) => a.sortOrder - b.sortOrder).map(item => {
       const record = snapshot.repository?.records.get(item.templateId) ?? snapshot.hosted?.records.get(item.templateId);
       const localMedia = record?.localMedia;
@@ -191,6 +226,7 @@ export class TemplateCatalog {
         industries: item.industries ?? [], creationModels: item.creationModels ?? [], colors: item.colors ?? [],
         width: item.width, height: item.height, sortOrder: item.sortOrder, featuredOrder: item.featuredOrder ?? null,
         hasHtmlProject: item.files.some(file => file.path === 'index.html'),
+        searchAliases: aliasesById.get(item.templateId),
       };
     });
     return [...remote, ...builtinTemplates];
@@ -214,11 +250,24 @@ export class TemplateCatalog {
     const snapshot = await this.refresh();
     const items = this.templates(snapshot);
     const catalogVersion = snapshot.repository?.version ?? snapshot.hosted?.version ?? snapshot.publication.publicationId;
-    const indexPath = path.join(this.directory, `templates.${hash('short-form-v1:' + catalogVersion).slice(0, 16)}.index.jsonl`);
-    const lines = items.map(item => JSON.stringify({ templateId: item.id, name: item.title, summary: item.description,
-      category: item.subtitle, tags: item.tags, durationSeconds: item.duration, shortForm: isShortFormTemplate(item) || undefined, kind: item.kind, localSource: item.localSource })).join('\n') + '\n';
+    const indexPath = path.join(this.directory, `templates.${hash('short-form-v2:' + catalogVersion).slice(0, 16)}.index.jsonl`);
+    const lines = items.map(item => {
+      const own = new Set([item.title, item.description, item.subtitle, ...item.tags]);
+      const aliases = item.searchAliases?.filter(value => !own.has(value));
+      return JSON.stringify({
+        templateId: item.id, name: item.title, summary: item.description,
+        category: item.subtitle, tags: item.tags, ...(aliases?.length ? { aliases } : {}),
+        durationSeconds: item.duration, shortForm: isShortFormTemplate(item) || undefined, kind: item.kind, localSource: item.localSource,
+      });
+    }).join('\n') + '\n';
     await atomicWrite(indexPath, lines);
     return { indexPath, total: items.length, catalogVersion, source: this.source, warning: this.warning };
+  }
+
+  async allTemplates(options: { covered?: boolean; locale?: string } = {}): Promise<Omit<EditableTemplate, 'files'>[]> {
+    const snapshot = await this.refresh();
+    const items = this.templates(snapshot, options.locale).map(({ files: _files, ...item }) => item);
+    return options.covered ? items.filter(item => item.posterUrl) : items;
   }
 
   // Library Skills have their own index and detail tools; they share only the hosted publication and object store.

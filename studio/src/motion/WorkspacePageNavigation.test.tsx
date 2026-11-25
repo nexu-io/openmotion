@@ -14,6 +14,7 @@ import { readWorkspacePage, settingsSections } from './workspacePageRouting';
 import { editorProjectIdFromPath } from '../../../shared/spa-routes';
 import { workspaceHistoryIndex, writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { preloadAllWorkspacePages } from '../router/lazyPages';
+import { resetBannerDismissal } from './campaignAttribution';
 
 const editor = vi.hoisted(() => ({ mounts: 0, fail: false, wait: async () => {} }));
 vi.mock('./AssetsPage', async () => {
@@ -633,6 +634,24 @@ it('tracks active and expanded state on the sidebar All projects action while th
   expect(allProjects.getAttribute('data-active')).toBeNull();
 });
 
+// Template shelves load their next batch when a scroll sentinel intersects; tests fire that sentinel directly.
+function stubShelfScrolling() {
+  const sentinels: { target: Element; fire: () => void }[] = [];
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) {
+      if (target.classList.contains('om-shelf-sentinel')) sentinels.push({ target, fire: () => this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }]) });
+    }
+    unobserve() {}
+    disconnect() {}
+  });
+  return async () => {
+    const live = sentinels.filter(entry => entry.target.isConnected).at(-1);
+    expect(live).toBeDefined();
+    await act(async () => live!.fire());
+  };
+}
+
 it('browses the complete Motion catalog in batches and filters by its existing tags', async () => {
   const fallback = fetcher.getMockImplementation()!;
   const entries = Array.from({ length: 19 }, (_, index) => ({
@@ -647,6 +666,7 @@ it('browses the complete Motion catalog in batches and filters by its existing t
     const firstPage = url.searchParams.get('offset') === '0';
     return Promise.resolve(Response.json({ items: firstPage ? entries.slice(0, 9) : entries.slice(9), next: firstPage ? 9 : null, catalogVersion: 'test' }));
   });
+  const scrollToShelfEnd = stubShelfScrolling();
   await mount();
   await click('Motion Studio');
   const shelf = container.querySelector('[aria-label="Motion templates"] .om-explore-shelf')!;
@@ -654,15 +674,17 @@ it('browses the complete Motion catalog in batches and filters by its existing t
   expect(shelf.querySelector('[role="status"]')?.textContent).toBe('19 templates');
   expect(cards()).toHaveLength(16);
   expect(cards()[0].querySelector('.om-motion-template-tags')?.textContent).toBe('Product launch filmsUI motion');
-  await click('More templates');
-  expect(cards()).toHaveLength(19);
   expect(button('More templates')).toBeUndefined();
+  await scrollToShelfEnd();
+  expect(cards()).toHaveLength(19);
+  expect(shelf.querySelector('.om-shelf-sentinel')).toBeNull();
   await click('By industry');
   const industry = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(item => item.textContent === 'Business software')!;
   await act(async () => industry.click());
   expect(shelf.querySelector('[role="status"]')?.textContent).toBe('18 templates');
   expect(cards().slice(0, 2).map(card => card.getAttribute('data-template-id'))).toEqual(['motion-fixture-0', 'motion-fixture-2']);
-  await click('More templates');
+  expect(cards()).toHaveLength(16);
+  await scrollToShelfEnd();
   expect(cards().at(-1)?.getAttribute('data-template-id')).toBe('motion-fixture-1');
   await click('Product demos & explainers');
   expect(cards().map(card => card.getAttribute('data-template-id'))).toEqual(['motion-fixture-18']);
@@ -991,7 +1013,7 @@ it.each([
     const header = container.querySelector('.om-studio-bar')!;
     expect(returnControl?.nextElementSibling).toBe(header.querySelector('h1'));
     expect(header.querySelector('h1')?.textContent).toBe('Create image');
-    expect([...header.querySelectorAll('nav button')].map(tab => tab.textContent)).toEqual(['Create image', 'Edit image', 'Remove background', 'Relight', 'Character reference']);
+    expect([...header.querySelectorAll('nav button')].map(tab => tab.textContent)).toEqual(['Create image', 'Edit image', 'Remove background', 'Image blend', 'Relight']);
     expect(header.querySelector('[aria-current="page"]')?.textContent).toBe('Create image');
     expect(button('Image').getAttribute('aria-current')).toBe('location');
     expect(button('Design Studio').getAttribute('aria-current')).toBeNull();
@@ -1453,28 +1475,32 @@ it('lists each primary destination once in order, with the Image mega menu and t
   await mount();
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['Explore', 'Library', 'Workflows', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
+  expect(destinations).toEqual(['Explore', 'Library', 'Image', 'Video', 'Audio', 'MCP', 'Super Agent', 'Workflows', 'Design Studio', 'Motion Studio', 'Cinema Studio', 'Sound Studio', 'Shorts Studio', 'Marketing Studio', 'Explainer Studio', '3D Studio', 'Game Studio']);
   const badges = [...nav.querySelectorAll('button[aria-describedby]')].map(node =>
     [node.getAttribute('aria-label'), document.getElementById(node.getAttribute('aria-describedby')!)?.textContent]);
-  expect(badges).toEqual([['Workflows', 'New'], ['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
+  expect(badges).toEqual([['Design Studio', 'New'], ['Motion Studio', 'Top'], ['Cinema Studio', 'Hot'], ['Game Studio', 'New']]);
   await click('Image · Scenes');
   const menu = document.querySelector('.om-creative-menu-image')!;
   expect([...menu.querySelectorAll('.om-media-mega-columns h2')].map(node => node.textContent)).toEqual(['Features', 'Models']);
   const entryCards = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-entries > button')];
-  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', 'Character reference', '4K upscale']);
-  expect(entryCards[2].disabled).toBe(false);
+  expect(entryCards.map(node => node.querySelector('strong')?.textContent)).toEqual(['Create image', 'Edit image', 'Remove background', '4K upscale']);
+  expect(entryCards.slice(0, 3).map(node => node.disabled)).toEqual([false, false, false]);
   expect(entryCards[2].textContent).not.toContain('Soon');
+  expect(entryCards[2].querySelector('.om-remove-bg-demo img')).not.toBeNull();
+  expect(menu.textContent).not.toContain('Character reference');
   expect(entryCards[3].disabled).toBe(true);
   expect(entryCards[3].textContent).toContain('Soon');
-  // Background removal and relighting are live features; 2K resolution stays a Create image option, not a standalone feature.
+  // Image blend and relighting are live features; 2K resolution stays a Create image option, not a standalone feature.
   expect(menu.textContent).not.toContain('2K HD output');
-  for (const label of ['Remove background', 'Relight']) {
+  for (const label of ['Image blend', 'Relight']) {
     const row = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent === label)!;
     expect(row.disabled, label).toBe(false);
   }
   // Upcoming feature rows are visible with Soon (6 total features show directly without a 1-item More fold) and non-clickable.
   const imageFeatureLabels = [...menu.querySelectorAll('section[aria-label="Features"] .om-media-mega-label')].map(node => node.textContent);
-  expect(imageFeatureLabels).not.toContain('4K upscale');
+  expect(imageFeatureLabels).toEqual(['Image blend', 'Relight', 'Inpaint', 'Expand image', 'Batch', 'Image layers']);
+  // Remove background is a top card now, so it is not repeated in the Features list.
+  expect(imageFeatureLabels).not.toContain('Remove background');
   const inpainting = [...menu.querySelectorAll<HTMLButtonElement>('.om-media-mega-row')].find(node => node.textContent?.includes('Inpaint'))!;
   expect(inpainting.disabled).toBe(true);
   expect(inpainting.textContent).toContain('Soon');
@@ -1510,13 +1536,14 @@ it('lists each primary destination once in order, with the Image mega menu and t
   expect(videoHeader.querySelector('.om-studio-heading-icon')).toBeNull();
   expect(videoHeader.querySelector('nav button[aria-current="page"]')?.textContent).toBe('Multi-shot');
   expect(videoHeader.querySelectorAll('.om-video-scene-tab > svg')).toHaveLength(4);
-  // Character reference and the live feature rows open their own landing pages without a pinned model.
+  // The Remove background card and the live feature rows open their own landing pages without a pinned model.
   await click('Image · Scenes');
-  const character = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.querySelector('strong')?.textContent === 'Character reference')!;
-  await act(async () => character.click());
-  expect(page().studio).toMatchObject({ scene: { id: 'character' }, landing: true, model: null });
-  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Character reference');
-  for (const [label, scene] of [['Remove background', 'remove-background'], ['Relight', 'relight']]) {
+  const removeBackground = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-entries > button')].find(node => node.querySelector('strong')?.textContent === 'Remove background')!;
+  await act(async () => removeBackground.click());
+  expect(page().studio).toMatchObject({ scene: { id: 'remove-background' }, landing: true, model: null });
+  expect(container.querySelector('.om-studio-bar h1')?.textContent).toBe('Remove background');
+  expect(container.querySelector('.om-studio-bar nav button[aria-current="page"]')?.textContent).toBe('Remove background');
+  for (const [label, scene] of [['Image blend', 'image-blend'], ['Relight', 'relight']]) {
     await click('Image · Scenes');
     const row = [...document.querySelectorAll<HTMLButtonElement>('.om-creative-menu-image .om-media-mega-row')].find(node => node.textContent === label)!;
     await act(async () => row.click());
@@ -1534,7 +1561,7 @@ it('localizes every top navigation Studio label in Chinese while keeping English
   await act(async () => root.render(<I18nProvider initialLocale="zh-CN"><MotionApp /></I18nProvider>));
   const nav = container.querySelector('.om-app-header nav.om-creative-navigation')!;
   const destinations = [...nav.querySelectorAll('button:not([aria-expanded]),a')].map(node => node.getAttribute('aria-label') ?? node.textContent?.trim());
-  expect(destinations).toEqual(['探索', '资源库', '工作流', '图片', '视频', '音频', 'MCP', 'Super Agent', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
+  expect(destinations).toEqual(['探索', '资源库', '图片', '视频', '音频', 'MCP', 'Super Agent', '工作流', '设计工作室', 'Motion 工作室', '影视工作室', '音频工作室', '短视频工作室', '营销工作室', '讲解视频工作室', '3D 工作室', '游戏工作室']);
   await act(async () => {
     nav.querySelector<HTMLButtonElement>('.om-library-nav-link')?.click();
   });
@@ -1543,7 +1570,7 @@ it('localizes every top navigation Studio label in Chinese while keeping English
     const badge = document.getElementById(node.getAttribute('aria-describedby')!);
     return [node.getAttribute('aria-label'), badge?.textContent, badge?.getAttribute('lang')];
   });
-  expect(badges).toEqual([['工作流', 'New', 'en'], ['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
+  expect(badges).toEqual([['设计工作室', 'New', 'en'], ['Motion 工作室', 'Top', 'en'], ['影视工作室', 'Hot', 'en'], ['游戏工作室', 'New', 'en']]);
 });
 
 it.each([
@@ -1862,15 +1889,17 @@ it('shows only templates tagged as 3D animation on the 3D studio shelf, eight at
     ], next: null, catalogVersion: 'test' });
   });
   history.replaceState(null, '', '/?page=3d');
+  const scrollToShelfEnd = stubShelfScrolling();
   await mount();
   const shelf = container.querySelector<HTMLElement>('.om-studio-template-shelf')!;
   expect(requests.at(-1)?.get('query')).toBe('3D animation');
   const ids = () => [...shelf.querySelectorAll('[data-template-id]')].map(node => node.getAttribute('data-template-id'));
   expect(ids()).toHaveLength(8);
   expect(ids()).not.toContain('uuid-3d0a-interface');
-  await act(async () => [...shelf.querySelectorAll('button')].find(node => node.textContent === 'More templates')!.click());
-  expect(ids()).toHaveLength(10);
   expect([...shelf.querySelectorAll('button')].some(node => node.textContent === 'More templates')).toBe(false);
+  await scrollToShelfEnd();
+  expect(ids()).toHaveLength(10);
+  expect(shelf.querySelector('.om-shelf-sentinel')).toBeNull();
 });
 
 it.each(['three-js', 'babylon-js', 'lume', 'blender', 'openmotion-surreal-3d-poster', 'openmotion-isometric-card-flight'])('keeps %s usable through an Agent without offering 3D generation', async skill => {
@@ -2096,13 +2125,51 @@ it('shows the Explore shortcuts, fills two complete rows across Skills and techn
     expect(studioCards, studio).toHaveLength(expectedCount);
     expect(new Set(studioCards.map(card => card.dataset.playbackId)).size, studio).toBe(expectedCount);
   }
-  expect(container.querySelectorAll('.om-studio-collection[data-studio="image"] .om-scene-tile')).toHaveLength(7);
+  // Design Studio lists every example: 3 Create image, 1 Edit image, 1 Remove background, 3 Image blend, 1 Relight.
+  expect(container.querySelectorAll('.om-studio-collection[data-studio="image"] .om-scene-tile')).toHaveLength(9);
   expect(container.querySelectorAll('.om-studio-collection[data-studio="cinema"] .om-scene-tile')).toHaveLength(4);
   expect(container.querySelectorAll('.om-studio-collection[data-studio="sound"] .om-scene-tile')).toHaveLength(2);
   const footer = container.querySelector('main.om-explore > footer.om-capability-index');
   expect(footer).not.toBeNull();
   expect(footer?.querySelector('h2')?.textContent).toBe('Open Design');
   expect(footer?.closest('.om-discovery-page')).toBeNull();
+});
+
+it.each([
+  ['2026-11-25T12:00:00+08:00', true],
+  ['2026-11-25T20:00:00+08:00', false],
+] as const)('shows the Explore banner until the hero takes over and honors dismissal at %s', async (now, exploreBannerVisible) => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(Date.parse(now));
+  localStorage.clear();
+  resetBannerDismissal();
+  try {
+    history.replaceState(null, '', '/?page=explore');
+    await mount();
+    const banner = () => container.querySelector('aside[aria-label="Black Friday campaign banner"]');
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
+
+    await click('Motion Studio');
+    expect(banner()).not.toBeNull();
+
+    await click('Explore');
+    expect(Boolean(banner())).toBe(exploreBannerVisible);
+    expect(Boolean(container.querySelector('.om-explore-host:not([hidden]) [data-bf-hero]'))).toBe(!exploreBannerVisible);
+
+    await click('Design Studio');
+    expect(banner()).not.toBeNull();
+
+    await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Close campaign banner"]')!.click());
+    expect(banner()).toBeNull();
+
+    await click('Motion Studio');
+    expect(banner()).toBeNull();
+  } finally {
+    vi.useRealTimers();
+    localStorage.clear();
+    resetBannerDismissal();
+  }
 });
 
 it('surfaces Game Studio in the Explore spotlight carousel and featured showcase section and routes to Game Studio and Super Agent Game mode', async () => {

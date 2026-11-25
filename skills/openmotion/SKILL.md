@@ -29,6 +29,9 @@ Read the selected installed Skill, or its full MCP resource through `resources/r
 | Turn a reference into a reusable template | openmotion-video-to-template | `openmotion://workflow/video-to-template/start` |
 | Scoped edits under established decisions, preview, troubleshooting or export | openmotion-production | `openmotion://workflow/production/start` |
 | Build or remix a playable browser game | openmotion-game | `openmotion://workflow/game/start` |
-| Generate an individual image, video, speech or music asset | openmotion-media | `openmotion://workflow/media/start` |
+| Atomic capabilities (`remove-background`, `relight`, `camera-control`, `asr-transcribe`) or standalone image/video/audio generation | openmotion-media | `openmotion://workflow/media/start` |
+| Interactive HTML prototypes, 16:9 slide decks, documents or WebGL deliverables in Design Studio | openmotion-design | `openmotion://workflow/design/start` |
+
+For vertical video recipes (such as digital-human presenter, video dubbing, long-to-short clips or growth teardowns), query the on-demand Skill library with `openmotion_list_skills` and `openmotion_get_skill`.
 
 Continue directly in that workflow, preserving the user's brief and existing decisions. These are instructions for the same Agent, not recursive tasks or a new creative intake. The selected workflow owns reference reading, revision protection, asset generation, preview and delivery. Read its conditional references as needed; do not load every workflow. Technical export validation, actual playback and human visual acceptance remain separate.

@@ -22,6 +22,7 @@ export type AssetVersion = {
   waveform?: number[];
   audioKind?: AudioKind;
   prompt?: string; model?: string; parameters?: Record<string, unknown>;
+  capabilityId?: string; capabilityOptions?: Record<string, unknown>;
   references: AssetReference[]; parentVersionId?: string; jobId?: string; conversationId?: string;
   requestId?: string; requestHash?: string;
   result?: Record<string, unknown>;
@@ -32,6 +33,7 @@ export type LibraryAsset = {
 };
 export type LibraryGeneration = {
   assetId?: string; title?: string; parentVersionId?: string;
+  capabilityId?: string; capabilityOptions?: Record<string, unknown>;
   references?: AssetReference[]; conversationId?: string;
 };
 export type AssetListInput = {
@@ -44,8 +46,14 @@ export const assetDownloadUrl = (assetId: string, versionId: string, title: stri
   `${assetMediaUrl(assetId, versionId)}?${new URLSearchParams({ download: '', title })}`;
 
 export type AssetReadContent = { type: 'text'; text: string } | { type: 'image' | 'audio'; mimeType: string; data: string };
+export type AssetReadBatchItem = {
+  index: number; assetId: string; versionId: string; name: string; modality: 'image';
+  width?: number; height?: number; mimeType: string; bytes: number;
+};
 export type AssetReadResult = {
-  assetId: string; versionId: string; modality: Modality; version: AssetVersion;
+  assetId?: string; versionId?: string; modality: Modality; version?: AssetVersion;
+  items?: AssetReadBatchItem[];
+  grid?: { cols: number; rows: number; cellSize: number };
   previews: { mimeType: string; bytes: number; width?: number; height?: number; timestamp?: number; start?: number; duration?: number }[];
   content: AssetReadContent[];
 };

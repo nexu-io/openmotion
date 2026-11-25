@@ -15,12 +15,12 @@ import {
   useDesktopChrome,
 } from '../utils/platformHost';
 import { useWorkspaceChrome } from './WorkspaceFrame';
-import { useAccountSummary } from './AccountSettings';
+import { openOpenDesignConsole, useAccountSummary } from './AccountSettings';
 import { CommunityLink, useCommunityLink } from './CommunityLink';
 import { clickMethod, clickOption, trackStudioClick } from './editorTracking';
 import { GitHubLink } from './GitHubLink';
 import { repositorySupportLinks } from './githubRepository';
-import type { SettingsSection } from './workspacePageRouting';
+import type { DesignSceneTarget, SettingsSection } from './workspacePageRouting';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 import { CreativeNavigation, type CreativeNavigationProps } from './CreativeNavigation';
@@ -40,13 +40,39 @@ function workspaceInitialFor(name: string): string {
   return (avatarSegmenter.segment(name.trim() || 'W')[Symbol.iterator]().next().value?.segment ?? 'W').toUpperCase();
 }
 
-export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset, onCommunity, openSettings, ...navigation }: CreativeNavigationProps & {
+export function ApplicationHeader({
+  settings,
+  atExploreHome,
+  onSkill,
+  openAsset,
+  onCommunity,
+  openSettings,
+  onNewAgentChat,
+  onAgentChat,
+  onOpenDesignScene,
+  onOpenDesignProject,
+  onOpenMotionProject,
+  onOpenGame,
+  onOpenBrandKit,
+  onOpenMcp,
+  onNotify,
+  ...navigation
+}: CreativeNavigationProps & {
   onSkill: (id: string) => void;
   atExploreHome: boolean;
   settings: SettingsSection | null;
   openSettings: (section: SettingsSection) => void;
   openAsset: (assetId: string, version: string) => void;
   onCommunity: (community: ExploreCommunity) => void;
+  onNewAgentChat?: () => void;
+  onAgentChat?: (chatId: string) => void;
+  onOpenDesignScene?: (scene: DesignSceneTarget) => void;
+  onOpenDesignProject?: (id: string, scenario?: DesignSceneTarget) => void;
+  onOpenMotionProject?: (id: string) => void;
+  onOpenGame?: (gameId: string) => void;
+  onOpenBrandKit?: (kitId?: string | null) => void;
+  onOpenMcp?: () => void;
+  onNotify?: (message: string, tone?: 'info' | 'error') => void;
 }) {
   const { t } = useI18n();
   const { openAssets, openHome, assetsOpen, projectsOpen } = useWorkspaceChrome();
@@ -67,17 +93,40 @@ export function ApplicationHeader({ settings, atExploreHome, onSkill, openAsset,
     return () => observer.disconnect();
   }, []);
 
-  function workspaceActions(closeMenu?: () => void) {
-    return <WorkspaceSearch onChoose={closeMenu} onSkill={onSkill} destination={navigation.destination} onLibrary={openAssets} onAccount={() => openSettings('account')} onAsset={openAsset} onScene={navigation.onNavigate} onStudio={navigation.onChooseStudio} onCommunity={onCommunity} />;
+  function workspaceSearchControl() {
+    return (
+      <WorkspaceSearch
+        onSkill={onSkill}
+        destination={navigation.destination}
+        onLibrary={openAssets}
+        onAccount={() => openSettings('account')}
+        onAsset={openAsset}
+        onScene={navigation.onNavigate}
+        onStudio={navigation.onChooseStudio}
+        onCommunity={onCommunity}
+        onNewAgentChat={onNewAgentChat}
+        onAgentChat={onAgentChat}
+        onOpenDesignScene={onOpenDesignScene}
+        onOpenDesignProject={onOpenDesignProject}
+        onOpenMotionProject={onOpenMotionProject}
+        onOpenGame={onOpenGame}
+        onOpenBrandKit={onOpenBrandKit}
+        onOpenMcp={onOpenMcp}
+        onOpenSettings={openSettings}
+        onOpenScenario={id => navigation.onOpenScenario?.(id)}
+        onOpenScenarioHub={navigation.onOpenScenarioHub}
+        onNotify={onNotify}
+      />
+    );
   }
 
   const libraryActive = Boolean(assetsOpen || projectsOpen || settings === 'brand-kit');
 
   return <header ref={header} className="om-app-header">
     <Tooltip label={homeHint} side="bottom"><Button variant="plain" type="button" className="om-nav-item om-app-brand" onPointerEnter={() => preloadWorkspacePage('explore')} onFocus={() => preloadWorkspacePage('explore')} onClick={openHome} aria-label={homeHint ? `${brand.editorName} · ${homeHint}` : brand.editorName}><BrandLogo variant="editor" compact /></Button></Tooltip>
-    <CreativeNavigation {...navigation} libraryActive={libraryActive} onOpenLibrary={openAssets} overflowActions={compactActions ? workspaceActions : undefined} />
+    <CreativeNavigation {...navigation} libraryActive={libraryActive} onOpenLibrary={openAssets} />
     <div className="om-app-header-actions">
-      {!compactActions && workspaceActions()}
+      {workspaceSearchControl()}
       {!signedInHub && <div className="om-app-header-links"><CommunityLink /><GitHubLink /></div>}
       {signedInHub && !compactActions && <span className="om-header-actions-divider" aria-hidden="true" />}
       {signedInHub && <GitHubLink className="om-header-github-pill" />}
@@ -444,6 +493,7 @@ export function ApplicationAccountMenu({ settings, openSettings }: { settings: S
         </MenuItem>
       )}
       <MenuItem onClick={() => openSettings('subscription')}><span className="om-menu-label"><RemixIcon name="bank-card-line" size={16} />{t('Subscription & usage')}</span></MenuItem>
+      {account?.state === 'signed-in' && <MenuItem onClick={() => { trackStudioClick('settings', 'open_console'); void openOpenDesignConsole().then(opened => { if (!opened) openSettings('subscription'); }); }}><span className="om-menu-label"><RemixIcon name="layout-2-line" size={16} />{t('Console')}<RemixIcon className="om-menu-external" name="external-link-line" size={14} /></span></MenuItem>}
       <MenuSeparator />
       <MenuItem onClick={() => openSettings('general')}><span className="om-menu-label"><RemixIcon name="settings-3-line" size={16} />{t('Settings')}</span></MenuItem>
       <MenuSubmenu aria-label={t('Appearance')} className="om-selection-panel om-menu-panel" label={<span className="om-menu-label"><RemixIcon name="sun-line" size={16} />{t('Appearance')}</span>} detail={t(themeLabels[theme])}>

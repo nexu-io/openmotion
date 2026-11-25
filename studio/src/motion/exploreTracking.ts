@@ -6,7 +6,7 @@ import { embeddedView, modelFields, newTrackingId, optionId, send, slugField, ty
 
 type Click = Fields<'ui_click'>;
 export type CreativePage = NonNullable<Click['page_name']>;
-type CreativeArea = Extract<Click['area'], 'creative_nav' | 'explore_tabs' | 'explore_spotlight' | 'explore_featured' | 'explore_feed' | 'explore_collection' | 'capability_index' | 'studio_bar' | 'model_overview'>;
+type CreativeArea = Extract<Click['area'], 'asset_create' | 'creative_nav' | 'explore_tabs' | 'explore_spotlight' | 'explore_featured' | 'explore_feed' | 'explore_collection' | 'capability_index' | 'studio_bar' | 'model_overview'>;
 type Medium = NonNullable<Click['medium']>;
 
 /** What a click or view is about, as catalogue ids. Values that are not bounded slugs are left out. */
@@ -48,11 +48,12 @@ export function reportCreativePageView(page: ViewPage, hasProject: boolean, targ
 type HubArea = Extract<Click['area'], `hub_${string}`>;
 /** A model hub click. Video titles, creators and search text never become fields; a scene filter is sent as a stable id. */
 export function reportHubClick(hub: string, area: HubArea, element: Click['element'],
-  fields: { video?: string; position?: number; model?: string; signedIn?: boolean; filter?: string; action?: Click['template_action'] } = {}) {
-  const { video, position, model, signedIn, filter, action } = fields;
+  fields: { video?: string; position?: number; model?: string; signedIn?: boolean; filter?: string; action?: Click['template_action']; hookId?: Click['hook_id']; entryId?: string } = {}) {
+  const { video, position, model, signedIn, filter, action, hookId, entryId } = fields;
   const filterId = filter === undefined ? {} : optionId(filter);
   send('ui_click', { page_name: 'model_hub', area, element, ...slugField('hub_id', hub), ...slugField('hub_video_id', video), ...modelFields(model),
-    ...(position === undefined ? {} : { position }), ...(signedIn === undefined ? {} : { signed_in: signedIn }), ...filterId, ...(action ? { template_action: action } : {}) });
+    ...(position === undefined ? {} : { position }), ...(signedIn === undefined ? {} : { signed_in: signedIn }), ...filterId, ...(action ? { template_action: action } : {}),
+    ...(hookId ? { hook_id: hookId } : {}), ...(entryId ? { entry_id: entryId } : {}) });
 }
 export function reportHubPageView(hub: string, hasProject: boolean, signedIn: boolean) {
   send('page_view', { page_name: 'model_hub', view_id: newTrackingId(), embedded: embeddedView(), has_project: hasProject, ...slugField('hub_id', hub), signed_in: signedIn });

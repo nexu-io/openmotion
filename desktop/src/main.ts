@@ -3,11 +3,12 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type {
-  DesktopAppInfo,
-  DesktopChromeInsets,
-  DesktopDiagnosticExportResult,
-  DesktopMenuAction,
+import {
+  MACOS_TRAFFIC_LIGHT_POSITION,
+  type DesktopAppInfo,
+  type DesktopChromeInsets,
+  type DesktopDiagnosticExportResult,
+  type DesktopMenuAction,
 } from '../../shared/platform-host.ts';
 import { createDesktopDiagnosticZip, DesktopLogger } from './logger.ts';
 import { buildDesktopMenuTemplate } from './menu.ts';
@@ -135,6 +136,16 @@ function currentChromeState(): DesktopChromeInsets {
   });
 }
 
+function syncMacTrafficLights(win: BrowserWindow | null): void {
+  if (platform !== 'darwin' || !win || win.isDestroyed() || win.isFullScreen()) return;
+  if (typeof win.setWindowButtonPosition !== 'function') return;
+  try {
+    win.setWindowButtonPosition({ ...MACOS_TRAFFIC_LIGHT_POSITION });
+  } catch {
+    // Ignore on unsupported Electron window states.
+  }
+}
+
 function broadcastChromeState(): void {
   const win = mainWindow;
   if (!win || win.isDestroyed()) return;
@@ -225,6 +236,7 @@ function revealMainWindow(): void {
   if (!win.isVisible()) {
     win.show();
   }
+  syncMacTrafficLights(win);
   void splash?.playExitAndClose().catch(() => splash?.close());
   broadcastChromeState();
 }
@@ -375,9 +387,26 @@ async function startBackendAndOpenWindow(): Promise<void> {
         if (mainWindow === win) mainWindow = null;
       });
       win.on('enter-full-screen', broadcastChromeState);
-      win.on('leave-full-screen', broadcastChromeState);
+      win.on('leave-full-screen', () => {
+        syncMacTrafficLights(win);
+        broadcastChromeState();
+      });
+      win.on('enter-html-full-screen', broadcastChromeState);
+      win.on('leave-html-full-screen', () => {
+        syncMacTrafficLights(win);
+        broadcastChromeState();
+      });
+      win.on('show', () => {
+        syncMacTrafficLights(win);
+        broadcastChromeState();
+      });
+      win.on('restore', () => {
+        syncMacTrafficLights(win);
+        broadcastChromeState();
+      });
       win.on('maximize', broadcastChromeState);
       win.on('unmaximize', broadcastChromeState);
+      win.webContents.on('did-finish-load', broadcastChromeState);
 
       win.webContents.on('before-input-event', (event, input) => {
         if (input.type !== 'keyDown' || input.alt || input.shift) return;

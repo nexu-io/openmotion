@@ -61,10 +61,19 @@
 }
 
 /* Image picker popups live in a portal outside the composer. */
-:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) .om-image-form-popup [role="option"]:not(
+:root[data-motion-ui][data-motion-studio]:not([data-theme="paper"]) .om-media-form-popup [role="option"]:not(
   :disabled, [data-disabled], [aria-disabled="true"]
 ):is(:hover, :focus-visible, [data-highlighted], [aria-selected="true"]) {
   background-color: var(--motion-neutral-n11);
+}
+
+.om-media-form-popup .om-picker-provider-row:has(> .om-picker-setup),
+.om-picker-popover .om-picker-provider-row:has(> .om-picker-setup) {
+  border-radius: var(--motion-radius-xl);
+
+  &:is(:hover, :has(> [aria-selected="true"], > :focus-visible, > [data-highlighted])) {
+    background-color: light-dark(var(--motion-neutral-n3), var(--motion-neutral-n11));
+  }
 }
 
 [data-menu-panel] :is(button, [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"], [role="option"]):is(:disabled, [data-disabled], [aria-disabled="true"]) {

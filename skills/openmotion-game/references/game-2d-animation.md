@@ -2,12 +2,14 @@
 
 # 2D Sprite Animation (video-to-spritesheet pipeline)
 
-> **Asset reference for game-generation.** Use for ANY animated 2D asset —
+> **Asset reference for game-generation.** Use for animated 2D assets —
 > characters, objects, effects — delivered as a spritesheet. The pipeline:
-> key-pose image → `openmotion_generate_asset` (after discovery, stated cost and approval) (**`seedance1_5`**) → frame extraction
-> (ffmpeg) → frame selection → per-frame background removal → spritesheet
-> assembly. Style: the key-pose prompt embeds the STYLE FORMULA per
-> `game-stylization.md` — open it first, as for every asset.
+> key-pose image (discovered image model) → first-frame video (discovered
+> video model) → frame extraction → frame selection → per-frame keying →
+> spritesheet assembly. Every generation goes through `openmotion_assets_use`
+> `action=generate` after `openmotion_media_use` discovery, a stated plan and
+> spending approval, following the `openmotion-media` provider order. Style:
+> the key-pose prompt embeds the STYLE FORMULA per `game-stylization.md`.
 
 Why video instead of generating frames directly: an image model drawing N
 frames independently cannot hold the character identical across frames —
@@ -16,33 +18,17 @@ model animates ONE image, so every frame is the same character by
 construction. We then sample the video back into frames. This trades prompt
 control for temporal coherence — the right trade for game sprites.
 
-## Optional AutoSprite route (only if discovered)
+## Choosing a route
 
-Use `autosprite` when present in the live model catalog. It owns animation, frame
-selection, background removal, and sheet assembly:
+| Situation | Route |
+|---|---|
+| Image and video models listed, approval given | Full pipeline below |
+| Only an image model listed | Generate a few key poses (idle, action peak, hit) as separate edits of the same approved sprite with `references`, and animate between them in code (squash/stretch, bob, tween, flip). Fewer frames, no boiling. |
+| No media model, or the user declines | Code-drawn sprites (Canvas/SVG paths with outlines and two-tone shading) plus procedural motion (`game-procedural-animation.md`) |
 
-```text
-Parameter translation brief (not a shell command). Map only supported fields; do not forward historical flags blindly.
-DISCOVER/INSPECT available model using openmotion_media_use action=models: autosprite
-REGISTER supplied reference asset locally: ./character.png --json
-REQUEST via openmotion_generate_asset after supported-schema mapping, stated cost and approval: autosprite \
-  --image_url "<stable URL from upload output>" \
-  --kind walk \
-  --video_tier turbo \
-  --frame_count 12 \
-  --frame_size 256 \
-  --remove_bg default \
-  --with_sound false \
-  --is_humanoid true \
-  --wait \
-  --json
-
-```
-
-Supported standard kinds and isometric directions come from `openmotion_media_use action=models (inspect model)
-autosprite`. For `kind=custom`, pass both `--prompt` and `--name`; omit both for
-standard kinds. Use the manual pipeline below only when AutoSprite is unavailable or
-the project requires explicit control over extracted frames.
+A dedicated sprite-sheet model is not listed at review. If a later catalogue
+returns one, inspect its schema and use it through the same consent flow;
+otherwise do not search for unlisted names.
 
 ---
 
@@ -50,13 +36,13 @@ the project requires explicit control over extracted frames.
 
 | # | Stage | Tool | Output |
 |---|---|---|---|
-| 1 | Source image | manifest / user / `game-stylization.md` pipeline | character or object image |
-| 2 | Key-pose image | `openmotion_generate_asset` (after discovery, stated cost and approval) → `flux_2` | full-body pose at the action's mid/peak phase |
-| 3 | Animation video | `openmotion_generate_asset` (after discovery, stated cost and approval) → **`seedance1_5`** | 4 s, 720p, AR = key-pose ratio (explicit); loop: start = end frame |
-| 4 | Raw frames | ffmpeg | every frame of the video as PNG |
-| 5 | Frame selection | local script | `frame_count` frames (2–64, default 25), evenly spaced, first + last always kept |
-| 6 | Alpha | `image_background_remover`, per frame | transparent-background PNGs |
-| 7 | Spritesheet | local assembly | grid PNG, metadata encoded in the filename |
+| 1 | Source image | approved sprite from `game-stylization.md`, or a user asset | character or object image (library asset) |
+| 2 | Key-pose image | discovered image model with `supportsImageReference:true` (prefer OpenDesign `tier:"fast"` / `multi-ref-edit` or `flagship` from live `tier`/`bestFor`) | full-body pose at the action's mid/peak phase |
+| 3 | Animation video | discovered video model with `maxInputImages ≥ 1` (prefer OpenDesign `bestFor` matching `sprite-animation` / `short-i2v` from live discovery) | short clip from the key pose as first frame |
+| 4 | Raw frames | browser extraction (or local ffmpeg when available) | frames as canvases/PNGs |
+| 5 | Frame selection | game code | `frame_count` frames (2–64, default 25), evenly spaced, first + last kept |
+| 6 | Alpha | chroma key in code, per frame | transparent frames |
+| 7 | Spritesheet | game code (or local assembly) | grid canvas/PNG, metadata in the name |
 
 Hard rules (each one is a known failure when violated):
 
@@ -64,35 +50,31 @@ Hard rules (each one is a known failure when violated):
   visible empty margin above the head and below the feet. A key pose, a video
   frame, or a sheet cell that clips the subject is a rejected asset —
   regenerate, do not "fix in post".
-- **The video model is `seedance1_5` exactly.** Not `seedance_2_0`, not the
-  current default of `openmotion_generate_asset` (after discovery, stated cost and approval). Verify availability via
-  `openmotion_media_use action=models (discover models)` if a call errors, but do not silently substitute a model.
-- **start = end only for loops.** Looping actions pass the SAME image as both
-  start frame and end frame. One-shot actions (attack, death, hit, cast) pass
-  only the start frame — forcing them back to the start pose ruins the action.
-- **First and last extracted frames are always kept** in the selection. For
-  loops the last frame is then dropped at sheet assembly (see stage 7) —
-  kept during selection, excluded from the sheet.
-- **Background removal runs on FRAMES, one by one** — never on the video.
+- **Use only discovered models**, and do not silently substitute another
+  model after a failure; the approval names the model.
+- **Loops close in selection, not in the prompt.** The listed video models
+  accept one first frame only (last-frame input is rejected), so the clip
+  cannot be forced back to its start pose. Close loops in Stage 5 by picking
+  the cycle segment whose end frame best matches its start frame.
+- **First and last frames of the chosen segment are always kept** in the
+  selection. For loops the last frame is then dropped at sheet assembly.
+- **Keying runs on FRAMES, one by one** — never on the video as a whole.
 
 ---
 
 ## Stage 1 — Source image
 
 What goes in: the character/asset image from the manifest (generated per
-`game-stylization.md`, FORMULA embedded) or supplied by the user. Character,
-object, or both in one shot — the pipeline does not care what the subject is,
-only that it is fully visible.
+`game-stylization.md`, FORMULA embedded) or supplied by the user and imported
+as a library asset. If the source crops the subject (feet cut, head at the
+edge), regenerate it full-body first. A cropped input guarantees a cropped
+animation.
 
-If the source already crops the subject (feet cut by the canvas, head at the
-edge), it cannot enter stage 2 as-is — regenerate or outpaint it to full body
-first. A cropped input guarantees a cropped animation.
-
-## Stage 2 — Key-pose generation (`flux_2`)
+## Stage 2 — Key-pose generation
 
 **What:** produce the subject in the *mid/peak phase* of the requested action.
 The video model animates *around* the image it is given; starting from the
-action's characteristic phase is what makes 4 seconds of video read as that
+action's characteristic phase is what makes a short clip read as that
 action.
 
 - `idle` → slight lean / relaxed breathing stance
@@ -102,81 +84,55 @@ action.
 - `cast` / `effect` → energy gathered at the hands / pre-release
 - flames, water, props → the shape at its most typical, not its extreme
 
-**How:** `openmotion_generate_asset` (after discovery, stated cost and approval) with model `flux_2`, the source image as media
-reference, the STYLE FORMULA verbatim in the prompt, plus the pose
-instruction. The prompt MUST demand:
+**How:** an image edit with the source as reference, the STYLE FORMULA
+verbatim in the prompt, plus the pose instruction. The prompt MUST demand:
 
 - *full body / full object in frame* — head to feet visible;
 - *empty margin above and below the subject* — the motion needs headroom and
-  footroom (a jump goes up, a stride extends down; without reserve space the
-  video model crops);
-- a *clean, uniform, uncluttered background* — it is removed per-frame later,
-  and a busy background degrades the matte. **The background color must NOT
-  appear anywhere on the subject** — pick it by looking at the subject's
-  palette first (green character → magenta background, red/pink character →
-  green, neutral subject → any saturated key color per `game-stylization.md`).
-  A shared color is how the remover eats holes into the subject or leaves
-  background patches stuck to it.
+  footroom;
+- a *clean, uniform, uncluttered key-color background* — it is keyed out
+  per-frame later. **The key color must NOT appear anywhere on the subject**
+  (green character → magenta, red/pink character → green, neutral subject →
+  any saturated key per `game-stylization.md`). Video frames cannot carry
+  alpha, so do not request a transparent background here even if the image
+  model supports it.
 
-**Why a separate key pose at all:** feeding the neutral source straight into
-video gives generic swaying. The key pose is the steering wheel — it is the
-single biggest lever on what action the video actually performs.
+```json
+{"action":"generate","requestId":"hero-run-keypose-01","model":"<provider>:<discovered-image-edit-model>","modality":"image","prompt":"<STYLE FORMULA>. <single key-pose instruction>. Square centered composition, full body in frame with empty margin above the head and below the feet. Clean uniform bright magenta background.","references":[{"assetId":"<source asset>","versionId":"<source version>"}],"parameters":{}}
+```
+
+Pass only parameters declared in the chosen model's live `generationOptions` / provider reference (do not pass bare `aspect_ratio` or `output` unless the live entry accepts them, and pad/crop to a square cell in code if needed).
 
 Gate: subject fully inside the frame with visible margin top and bottom,
 nothing clipped, style matches the FORMULA. Cropped or off-style → reroll
-(regeneration budget per SKILL.md: 2 attempts, then best-of).
+within the approved budget (2 attempts, then best-of).
 
-```text
-Parameter translation brief (not a shell command). Map only supported fields; do not forward historical flags blindly.
-REQUEST via openmotion_generate_asset after supported-schema mapping, stated cost and approval: flux_2 \
-  --image ./source-character.png \
-  --prompt "<STYLE FORMULA>. <single key-pose instruction>. Full body in frame with empty margin above the head and below the feet. Clean uniform <key color> background." \
-  --aspect_ratio 1:1 \
-  --resolution 1k \
-  --wait \
-  --json
-
-```
-
-## Stage 3 — Video generation (`seedance1_5`)
-
-**Fixed parameters:**
+## Stage 3 — Video generation
 
 | Param | Value |
 |---|---|
-| model | `seedance1_5` |
-| duration | 4 s |
+| model | discovered first-frame video model (`maxInputImages ≥ 1`), selecting short/fast vs longer duration from live `tier`, `bestFor`, `description`, and the chosen provider reference |
+| duration | shortest listed value that holds one full action (usually 4–5 s) |
 | resolution | 720p |
-| aspect_ratio | **= the key-pose image's ratio, passed EXPLICITLY on every call** — never omitted |
-| start frame | the stage-2 key pose — always |
-| end frame | the SAME image — **looping actions only** |
+| ratio | omit or `"adaptive"`: a first-frame video follows the key pose's ratio; a fixed ratio is incompatible with a first frame |
+| first frame | the stage-2 key pose, as `references:[{assetId,versionId}]` |
+| audio | `generate_audio:false` where listed |
 
-**Aspect ratio is read off the key-pose file and passed explicitly** (a 1:1
-pose → `aspect_ratio: "1:1"`, and so on). "Auto" does not exist as a real
-parameter value: omitting the parameter does NOT mean "follow the input" —
-it silently falls back to the TOOL's default (shipped failure: an unset
-ratio on a 1:1 key pose came back as 3:4). A mismatched ratio reframes the
-input, eats the top/bottom margins the key pose was built with, and is the
-cheapest way to violate the "subject is never cropped" hard rule.
-
-**Why start = end for loops:** the video model is forced to return to the
-exact starting pose, so frame 1 and the final frame are identical and the
-cycle closes seamlessly. Without it the loop visibly "jumps" at the wrap
-point. **Why not for one-shots:** an attack that must end where it began
-turns the strike into a rubber-band; one-shot actions get only the start
-frame and play once (`once` in the filename, see stage 7).
+```json
+{"action":"generate","requestId":"hero-run-video-01","model":"<provider>:<discovered-i2v-model>","modality":"video","prompt":"<one action>. Camera locked, no camera movement, no zoom, subject stays fully in frame, plain static background. The character performs ONLY this action; nothing else happens. The subject keeps facing the same direction for the entire video.","references":[{"assetId":"<key pose asset>","versionId":"<key pose version>"}],"parameters":{"duration":5,"resolution":"720p","ratio":"adaptive"}}
+```
 
 **Prompt = ONE action + a mandatory negative block.** The positive part
 describes the MOTION and nothing else — not the subject (the image already
 is the subject), not the mood, not the scene: "smooth idle breathing cycle,
-subtle weight shift", "full walk cycle in place", "single sword slash, fast
-wind-up, sharp strike, follow-through". Exactly one action per video; any
-second verb in the prompt is a defect.
+subtle weight shift", "full walk cycle in place, repeating", "single sword
+slash, fast wind-up, sharp strike, follow-through". Exactly one action per
+video; any second verb in the prompt is a defect. For loops ask for a
+repeating cycle in place so Stage 5 has at least one full period to cut.
 
 **The negative block is NOT optional and is appended to EVERY animation
-prompt**, because the model fills the fixed 4 seconds with improvisation
-wherever the prompt leaves freedom — a positive instruction alone only says
-what to do and stays silent about everything else. Two parts:
+prompt**, because the model fills the clip with improvisation wherever the
+prompt leaves freedom:
 
 1. *Camera lock (always):* `camera locked, no camera movement, no zoom,
    subject stays fully in frame, plain static background` — camera drift and
@@ -184,71 +140,59 @@ what to do and stays silent about everything else. Two parts:
 2. *Prop & action inertia (always; expand when the subject holds anything):*
    `the character performs ONLY this action, nothing else happens`. If the
    subject carries a prop with an obvious action of its own (weapon, tool,
-   instrument), name the prop and freeze it explicitly: `the <prop> stays
-   inert and is never used — no firing, no muzzle flash, no swinging, no
-   raising it`. Props carry their own learned scenarios (a raised pistol
-   "wants" to fire, a bat "wants" to swing); an unfilled cycle duration plus
-   an unconstrained prop is exactly how a run cycle gains a gunshot
-   mid-video. Shipped failure: a 4 s "run cycle in place" where the model
-   fired the held pistol twice — the negative block above is what prevents
-   it.
+   instrument), name the prop and freeze it: `the <prop> stays inert and is
+   never used — no firing, no muzzle flash, no swinging`. Shipped failure: a
+   "run cycle in place" where the model fired the held pistol twice.
 3. *Facing lock (always):* `the subject keeps facing the SAME direction for
    the entire video — never turns around, never rotates toward or away from
-   the camera, no head turns past the shoulder`. Game sprites are generated
-   facing ONE direction (the engine mirrors them for the other side); a
-   mid-video turn poisons every frame after it — half the selected frames
-   face the wrong way and the sheet is garbage. Turning is the model's
-   favorite filler for loopable actions (idle "look around", walk "glance
-   back"), so the lock is mandatory even when the action seems
-direction-neutral. The ONLY exception: the requested action IS a turn —
-   then it is a one-shot (start frame only, `once`), never a loop.
+   the camera`. Game sprites face ONE direction (the engine mirrors them); a
+   mid-video turn poisons every frame after it. The ONLY exception: the
+   requested action IS a turn — then it is a one-shot.
 
-Loop example (omit `--end-image` for a one-shot):
+Gate before moving on: inspect the video with `action:"read"` passing explicit `timestamps` (default `read` returns only the first frame; each call inspects up to 4 timestamps, e.g. start, mid, and end) — subject never
+leaves the frame or gets clipped, no camera motion, facing never flips, and
+(for loops) at least one full cycle is present. Fail → regenerate within
+the approved budget, adjusting the motion prompt.
 
-```text
-Parameter translation brief (not a shell command). Map only supported fields; do not forward historical flags blindly.
-REQUEST via openmotion_generate_asset after supported-schema mapping, stated cost and approval: seedance1_5 \
-  --start-image ./key-pose.png \
-  --end-image ./key-pose.png \
-  --prompt "<one action>. Camera locked, no camera movement, no zoom, subject stays fully in frame, plain static background. The character performs ONLY this action; nothing else happens. The subject keeps facing the same direction for the entire video." \
-  --duration 4 \
-  --resolution 720p \
-  --aspect_ratio 1:1 \
-  --generate_audio false \
-  --wait \
-  --json
+## Stage 4 — Frame extraction
 
+Preferred, no external tools: extract in the browser from the library URL, **never blocking game startup indefinitely** and **never holding 5 s of full-res 720p frames in memory** (which consumes ~422 MiB of raw RGBA pixels). Always attach error and timeout exits, keep the approved static sprite ready as an immediate fallback, scan at low resolution first (e.g. `96×96`) to pick the loop segment if needed, and decode only the final selected `timestamps` at sprite size:
+
+```js
+async function extractSelectedFrames(url, timestamps, outW, outH, timeoutMs = 8000) {
+  const v = Object.assign(document.createElement('video'), { src: url, muted: true, playsInline: true, crossOrigin: 'anonymous', preload: 'auto' });
+  const wait = (ev) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error(`video ${ev} timeout`)); }, timeoutMs);
+    const ok = () => { cleanup(); resolve(); };
+    const fail = () => { cleanup(); reject(new Error('video load failed')); };
+    const cleanup = () => { clearTimeout(timer); v.removeEventListener(ev, ok); v.removeEventListener('error', fail); };
+    v.addEventListener(ev, ok, { once: true }); v.addEventListener('error', fail, { once: true });
+  });
+  if (v.readyState < 1) await wait('loadedmetadata');
+  const frames = [];
+  for (const t of timestamps) {
+    const target = Math.min(Math.max(0, t), Math.max(0, v.duration - 0.01));
+    v.currentTime = target; await wait('seeked');
+    const c = new OffscreenCanvas(outW, outH); c.getContext('2d').drawImage(v, 0, 0, outW, outH); frames.push(c);
+  }
+  return frames;
+}
 ```
 
-Gate before moving on: scrub the video — subject never leaves the frame or
-gets clipped, no camera motion, **facing direction is identical in the first
-and last frame and never flips in between**, loop wrap is invisible (for
-loops). Fail → regenerate the video (adjust the motion prompt) before
-burning time on frames.
-
-## Stage 4 — Frame extraction (ffmpeg)
-
-Download the result video into the workspace, then dump every frame:
-
-```bash
-ffmpeg -i anim.mp4 -vsync 0 raw/%04d.png
-```
-
-4 s at native fps yields ~96–120 PNGs. Extract ALL of them — selection
-happens in stage 5 on the full set, never via ffmpeg's own fps filter (it
-cannot guarantee the exact first/last frames are kept).
+When a local `ffmpeg` is already available and binary writes are authorized,
+`ffmpeg -i anim.mp4 -vsync 0 raw/%04d.png` extracts every frame offline instead.
+If video loading or seeking fails in-browser, fall back immediately to the approved static sprite so the game never hangs at launch.
 
 ## Stage 5 — Frame selection (`frame_count`)
 
-**What:** pick `frame_count` frames, evenly spaced across the full range,
-**always including the first and the last** extracted frame.
+**What:** pick `frame_count` frames, evenly spaced across the chosen
+segment, **always including its first and last** frame.
 
-```python
-import numpy as np
-idx = np.unique(np.round(np.linspace(1, total, frame_count)).astype(int))
+```js
+const idx = [...new Set(Array.from({ length: frameCount }, (_, i) => Math.round(start + i * (end - start) / (frameCount - 1))))];
 ```
 
-(`linspace` endpoints guarantee first + last; `unique` guards tiny counts.)
+(Endpoints guarantee first + last; the `Set` guards tiny counts.)
 
 **Range:** 2–64. **Default: 25** when nothing in the context says otherwise.
 
@@ -265,39 +209,35 @@ change per beat of this action":
 | unclear / no signal | 25 |
 
 **Why fewer is often better:** every frame is a sheet cell — memory, texture
-size, and background-removal calls all scale linearly with it. A walk cycle
+size, and keying work all scale linearly with it. A walk cycle
 reads perfectly at 8 frames (the entire 8/16-bit era proves it); 60 frames of
 walk is waste. Spend frames only where the silhouette genuinely changes fast.
 
-## Stage 6 — Background removal (per frame)
+**Loop segment (loops only):** before even spacing, find a true cycle on
+downscaled grayscale copies (e.g. `96×96`). First confirm the candidate window
+contains a full motion cycle (meaningful mid-segment silhouette change above
+a static-motion threshold, so you never select a nearly frozen slice); then
+among valid end frames after at least half a second, pick the lowest-difference
+start/end seam and sample `frameCount` timestamps evenly within that window.
 
-Each selected frame: pass its local path to `image_background_remover`; the CLI
-uploads it automatically and the completed job returns the transparent PNG:
+## Stage 6 — Keying (per frame)
 
-```text
-Parameter translation brief (not a shell command). Map only supported fields; do not forward historical flags blindly.
-REQUEST via openmotion_generate_asset after supported-schema mapping, stated cost and approval: image_background_remover \
-  --image ./selected/0001.png \
-  --wait \
-  --json
+No background-removal model is listed at review, so key in code. For each
+selected frame: read `getImageData`, set alpha to 0 where the pixel is
+within a tolerance of the key color (distance in RGB or, better, in
+chroma), soften a 1–2 px edge, and despill (pull the key hue out of edge
+pixels). Clear enclosed key-colored regions too, not only those connected
+to the corners.
 
-```
-
-**Why per-frame and not the whole video:** the per-image matte is computed
-independently and cleanly per frame; the video path optimizes for temporal
-smoothness and smears edges across frames — on sprites that shows up as a
-halo that flickers. Frames it is, accepting the N calls.
-
-Submit the frames in parallel, poll all to completion (fire-and-forget does
-NOT apply — the sheet needs every frame). Gate: spot-check 3–4 frames at
-2× zoom — no leftover background patches, no eaten thin parts (blades, hair,
-flame tips). A bad matte on the same spot across frames means the stage-2
-background was too busy or **shared a color with the subject** → fix there
-(change the key color), not by hand-editing mattes.
+Gate: spot-check 3–4 frames at 2× zoom — no leftover background patches, no
+eaten thin parts (blades, hair, flame tips). A bad matte in the same spot
+across frames means the stage-2 background was too busy or **shared a color
+with the subject** → fix there (change the key color), not by hand-editing
+mattes.
 
 ## Stage 7 — Spritesheet assembly
 
-All transparent frames are composed into ONE grid PNG:
+All transparent frames are composed into ONE grid (a canvas at runtime, or a PNG when assembled locally):
 
 1. **Union bounding box.** Compute the bounding box of non-transparent pixels
    across ALL frames, take the union, crop every frame to that SAME box. This
@@ -306,7 +246,7 @@ All transparent frames are composed into ONE grid PNG:
 2. **Uniform cell.** Pad the union box to a uniform cell size; anchor
    bottom-center (feet stay planted on the ground line across frames).
 3. **Loop de-duplication.** For looping animations drop the LAST frame from
-   the sheet — it is identical to frame 1 (start = end), and playing both
+   the sheet — it matches frame 1 (the loop segment closes on it), and playing both
    makes the loop stall for one beat at the wrap. One-shot animations keep
    every frame.
 4. **Grid, not strip.** Lay frames into a near-square grid (24 frames →
@@ -316,7 +256,7 @@ All transparent frames are composed into ONE grid PNG:
 5. **PNG with alpha**, no compression artifacts.
 
 **Metadata lives in the filename** — no sidecar JSON. The consumer (stage-3
-game code) parses everything it needs from the name:
+game code) parses everything it needs from the name (when the sheet is assembled at runtime, keep the same fields in a JS object):
 
 ```
 {asset}_{action}_f{count}_{cellW}x{cellH}_g{cols}x{rows}_fps{n}_{loop|once}.png
@@ -365,15 +305,15 @@ action to fit the envelope — that is a planning fix, not a generation fix.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Subject clipped in the video | key pose lacked top/bottom margin, or camera drifted | back to stage 2: more margin; add "camera locked" to the video prompt |
-| Loop visibly jumps at wrap | end frame not passed, or model ignored it | re-check start=end were both set; regenerate video |
-| One-shot looks rubber-banded | end frame was passed on a non-loop action | drop the end frame, regenerate |
+| Subject clipped in the video | key pose lacked top/bottom margin, or camera drifted | back to stage 2: more margin; strengthen the camera lock |
+| Loop visibly jumps at wrap | segment end does not match its start | re-run the loop-segment search; widen the candidate range or regenerate asking for a repeating cycle in place |
+| Request rejected for ratio | fixed ratio sent with a first frame | omit `ratio` or use `"adaptive"` |
 | Sprite jitters in-game | per-frame cropping instead of union bbox | reassemble the sheet with the union box |
-| Flickering halo around edges | busy key-pose background | back to stage 2: flat uniform background |
-| Holes in the subject / background patches stuck to it | background color also present on the subject | back to stage 2: pick a key color absent from the subject's palette |
-| Subject turns around / changes facing mid-video | facing lock missing from the negative block, or the action invites turning | regenerate with the facing lock; rephrase the action to be direction-neutral ("walk in place" not "walk around") |
-| Pixel sprite shimmers | too many frames / AA downscale | cut frame_count to 8–12; nearest-neighbor only |
+| Flickering halo around edges | busy key-pose background, no despill | back to stage 2: flat uniform background; add despill |
+| Holes in the subject / background patches stuck to it | key color also present on the subject | back to stage 2: pick a key color absent from the subject's palette |
+| Subject turns around mid-video | facing lock missing, or the action invites turning | regenerate with the facing lock; rephrase the action to be direction-neutral |
+| Pixel sprite shimmers | too many frames / smoothing on downscale | cut frame_count to 8–12; nearest-neighbor only |
 | Loop stalls one beat at wrap | duplicated last frame left in the sheet | drop the final frame (loops only) |
 
-Regeneration budget per SKILL.md: 2 attempts per stage, then take the best
-and compensate downstream.
+Regeneration budget: 2 attempts per stage within the approved spend, then
+take the best and compensate downstream.

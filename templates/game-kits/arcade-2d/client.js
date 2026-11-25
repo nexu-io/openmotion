@@ -1,16 +1,15 @@
-// arcade-2d starter client — full-screen canvas, local fixed-step loop over logic.js, input for keyboard/mouse/touch/one-tap,
-// juice (shake, particles, popups, hit-stop, synth SFX), best score, pause on blur, and the window.__omGame test hook.
-// Keep: game-first screen (the playfield fills the viewport; title/end cards are small overlays), first input works within 1 s.
+// Neutral graybox arcade-2d chassis — replace STRINGS, PALETTE, and draw() completely to match design/plan.md & design/style.md.
+// Keep: game-first screen (the playfield fills the viewport; title/end cards are small overlays), first input works within 1 s, and window.__omGame.
 import * as L from './logic.js';
 
 const ORIENTATION = 'portrait';            // 'portrait' (9:16, phone-first, playable ads) or 'landscape' (16:9)
 const ONE_BUTTON = false;                  // true: the whole game is one action (tap / click / Space / Enter)
 const STRINGS = {
-  en: { title: 'Spark Catcher', goal: 'Catch 45 sparks · dodge rocks', start: 'Tap to play', win: 'You win!', loss: 'Game over', again: 'Play again', best: 'Best', score: 'Score' },
-  'zh-CN': { title: '接住火花', goal: '接住 45 颗火花 · 躲开石头', start: '点一下开始', win: '赢了！', loss: '游戏结束', again: '再来一局', best: '最高', score: '得分' },
+  en: { title: '2D Starter', goal: 'Replace with your brief goal', start: 'Tap to play', win: 'You win!', loss: 'Game over', again: 'Play again', best: 'Best', score: 'Score' },
+  'zh-CN': { title: '2D 空白底盘', goal: '替换为你的游戏玩法目标', start: '点击开始', win: '过关！', loss: '游戏结束', again: '再来一局', best: '最高', score: '得分' },
 };
 const T = STRINGS[navigator.language?.startsWith('zh') ? 'zh-CN' : 'en'];
-const PALETTE = { bg: '#141826', bg2: '#1f2540', player: '#ffd166', spark: '#7ef0c8', rock: '#ef476f', text: '#f4f1de', dim: '#8d93b8' };
+const PALETTE = { bg: '#24272c', bg2: '#31353c', player: '#f2f4f7', spark: '#cbd5e1', rock: '#949ca8', text: '#eef0f3', dim: '#9aa3af' };
 
 const canvas = document.getElementById('game'), g = canvas.getContext('2d');
 const ui = { card: document.getElementById('card'), title: document.getElementById('card-title'), sub: document.getElementById('card-sub'), btn: document.getElementById('start'), hud: document.getElementById('hud'), mute: document.getElementById('mute') };

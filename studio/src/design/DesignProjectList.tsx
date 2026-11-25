@@ -10,6 +10,7 @@ import { IconButton } from 'open-design-ui/icon-button';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useToast } from '../hooks/useToast';
 import { useI18n } from '../i18n/I18n';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { designClient } from './designClient';
 import { ScaledPreviewThumb } from './ScaledPreviewThumb';
 import './design.css';
@@ -157,13 +158,20 @@ export function DesignProjectList({
   };
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return projects.filter(p => {
-      if (!scenario && filterScenario !== 'all' && p.scenario !== filterScenario) return false;
-      if (q && !p.title.toLowerCase().includes(q) && !p.scenario.includes(q)) return false;
-      return true;
-    }).slice(0, compact ? 6 : 200);
-  }, [projects, query, filterScenario, scenario, compact]);
+    const byScenario = projects.filter(p => scenario || filterScenario === 'all' || p.scenario === filterScenario);
+    const ranked = query.trim()
+      ? rankSearchResults(byScenario, query, p => {
+          const scenarioDef = findDesignScenario(p.scenario);
+          return {
+            id: p.id,
+            title: p.title,
+            subtitle: scenarioDef ? t(scenarioDef.label) : p.scenario,
+            aliases: [p.scenario, scenarioDef?.label ?? ''],
+          };
+        }).map(r => r.item)
+      : byScenario;
+    return ranked.slice(0, compact ? 6 : 200);
+  }, [projects, query, filterScenario, scenario, compact, t]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

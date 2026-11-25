@@ -48,7 +48,7 @@
 .om-gallery-header { container-type: inline-size; display: flex; align-items: center; gap: var(--motion-space-16); min-height: 76px; padding: 18px 32px 12px; }
 .om-gallery-wordmark { display: inline-flex; align-items: center; gap: var(--motion-space-16); flex: none; }
 .om-gallery-page-label { color: var(--color-template-muted); border-inline-start: 1px solid var(--color-template-line); padding-inline-start: var(--motion-space-16); font-size: var(--motion-text-md); white-space: nowrap; }
-[data-motion-studio] .om-gallery-header > .om-gallery-header-actions { flex: 0 1 448px; margin-inline-start: auto; }
+[data-motion-studio] .om-gallery-header > .om-gallery-header-actions { flex: 0 1 448px; margin-inline-start: auto; justify-content: flex-end; }
 [data-motion-studio] .om-gallery-header-actions { min-width: 0; flex-wrap: nowrap; gap: var(--motion-space-8); }
 .om-gallery-header-actions > .om-search-field { flex: 1; min-width: 0; }
 .om-gallery-header-actions > :is(a, button) { flex: none; }

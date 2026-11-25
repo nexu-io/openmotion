@@ -85,13 +85,22 @@ a.om-skill-source { color: var(--motion-strong); }
 .om-skill-credit { margin: 0; color: var(--motion-muted); font-size: var(--motion-text-xs); overflow-wrap: anywhere; }
 .om-skill-credit > span { margin-inline-end: var(--motion-space-8); }
 .om-skill-credit a { color: inherit; }
-.om-skill-form { display: grid; gap: var(--motion-space-16); }
+.om-skill-summary { display: grid; gap: var(--motion-space-6); }
+.om-skill-summary p { margin: 0; font-size: var(--motion-text-sm); line-height: var(--motion-leading-body); }
+.om-skill-output { display: flex; flex-wrap: wrap; gap: var(--motion-space-6); color: var(--motion-muted); }
+.om-skill-output strong { color: var(--motion-strong); font-weight: var(--motion-weight-medium); }
+.om-skill-form { display: grid; gap: var(--motion-space-12); }
 .om-skill-form label, .om-skill-form fieldset { display: grid; gap: var(--motion-space-8); margin: 0; padding: 0; border: 0; min-width: 0; }
 .om-skill-form :is(label > span:first-child, legend) { padding: 0; }
-[data-motion-studio] .om-skill-form .om-field textarea { height: 64px; min-height: 64px; max-height: 64px; resize: none; overflow-y: auto; }
+[data-motion-studio] .om-skill-form .om-field textarea { height: 52px; min-height: 52px; max-height: 96px; resize: vertical; overflow-y: auto; }
 .om-skill-form fieldset { display: block; }
 .om-skill-form legend.om-subtitle { margin-bottom: var(--motion-space-8); }
-.om-skill-prompt { display: grid; gap: var(--motion-space-6); }
+.om-skill-options, .om-skill-prompt { display: grid; gap: var(--motion-space-8); }
+.om-skill-options > summary, .om-skill-prompt > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; color: var(--motion-muted); user-select: none; }
+.om-skill-options > summary::-webkit-details-marker, .om-skill-prompt > summary::-webkit-details-marker { display: none; }
+.om-skill-options > summary::after, .om-skill-prompt > summary::after { content: "▾"; font-size: var(--motion-text-xs); transition: transform var(--motion-duration-fast); }
+.om-skill-options[open] > summary::after, .om-skill-prompt[open] > summary::after { transform: rotate(180deg); }
+.om-skill-options-body { display: grid; gap: var(--motion-space-12); padding-top: var(--motion-space-8); }
 .om-skill-prompt pre { max-height: 120px; overflow: auto; margin: 0; padding: var(--motion-space-12); white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--motion-font-mono); font-size: var(--motion-text-sm); line-height: 1.6; color: var(--motion-text); background: var(--motion-inset); border-radius: var(--motion-radius-md); user-select: text; }
 .om-skill-detail { padding-block: 0; }
 .om-collection-skill { display: flex; flex: none; width: 400px; max-width: 46%; min-height: 0; }

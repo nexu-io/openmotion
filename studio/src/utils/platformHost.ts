@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import type {
-  DesktopBridgeApi,
-  DesktopChromeInsets,
-  DesktopDiagnosticExportResult,
-  DesktopUpdateState,
+import {
+  resolveDesktopChrome,
+  type DesktopBridgeApi,
+  type DesktopChromeInsets,
+  type DesktopDiagnosticExportResult,
+  type DesktopPlatform,
+  type DesktopUpdateState,
 } from '../../../shared/platform-host';
 
 declare global {
@@ -11,6 +13,8 @@ declare global {
     __OPENMOTION_DESKTOP__?: DesktopBridgeApi;
   }
 }
+
+let latestDesktopChrome: DesktopChromeInsets | null = null;
 
 export function getDesktopBridge(): DesktopBridgeApi | undefined {
   if (typeof window === 'undefined') return undefined;
@@ -22,7 +26,22 @@ export function isDesktopApp(): boolean {
   return Boolean(bridge && typeof bridge.getChromeState === 'function');
 }
 
+export function inferNavigatorDesktopPlatform(): DesktopPlatform {
+  if (typeof navigator === 'undefined') return 'linux';
+  const hint = `${navigator.platform || ''} ${navigator.userAgent || ''}`;
+  if (/Mac/i.test(hint)) return 'darwin';
+  if (/Win/i.test(hint)) return 'win32';
+  return 'linux';
+}
+
+export function resolveInitialDesktopChrome(bridge?: DesktopBridgeApi): DesktopChromeInsets | null {
+  if (!bridge || typeof bridge.getChromeState !== 'function') return null;
+  if (bridge.initialChrome) return bridge.initialChrome;
+  return resolveDesktopChrome({ platform: inferNavigatorDesktopPlatform() });
+}
+
 export function applyDesktopDocumentAttributes(chrome: DesktopChromeInsets | null): void {
+  latestDesktopChrome = chrome;
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   if (!chrome) {
@@ -32,6 +51,7 @@ export function applyDesktopDocumentAttributes(chrome: DesktopChromeInsets | nul
     delete root.dataset.desktopFullscreen;
     root.style.removeProperty('--om-desktop-inset-left');
     root.style.removeProperty('--om-desktop-inset-right');
+    root.style.removeProperty('--om-desktop-titlebar-height');
     return;
   }
   root.dataset.desktop = 'true';
@@ -40,6 +60,7 @@ export function applyDesktopDocumentAttributes(chrome: DesktopChromeInsets | nul
   root.dataset.desktopFullscreen = chrome.fullscreen ? 'true' : 'false';
   root.style.setProperty('--om-desktop-inset-left', `${chrome.insetLeft}px`);
   root.style.setProperty('--om-desktop-inset-right', `${chrome.insetRight}px`);
+  root.style.setProperty('--om-desktop-titlebar-height', `${chrome.titleBarHeight}px`);
 }
 
 export function syncDesktopTheme(theme: 'light' | 'dark'): void {
@@ -73,6 +94,9 @@ export function bindDesktopHost(options?: { deferReady?: boolean }): () => void 
   desktopReadyGeneration += 1;
   const generation = desktopReadyGeneration;
 
+  const initial = resolveInitialDesktopChrome(bridge);
+  if (initial) applyDesktopDocumentAttributes(initial);
+
   void bridge
     .getChromeState()
     .then(chrome => {
@@ -102,12 +126,18 @@ export function bindDesktopHost(options?: { deferReady?: boolean }): () => void 
 }
 
 export function useDesktopChrome(): DesktopChromeInsets | null {
-  const [chrome, setChrome] = useState<DesktopChromeInsets | null>(null);
+  const [chrome, setChrome] = useState<DesktopChromeInsets | null>(
+    () => latestDesktopChrome ?? resolveInitialDesktopChrome(getDesktopBridge()),
+  );
 
   useEffect(() => {
     const bridge = getDesktopBridge();
     if (!bridge || typeof bridge.getChromeState !== 'function') return;
     let active = true;
+    const initial = resolveInitialDesktopChrome(bridge);
+    if (initial && !latestDesktopChrome) {
+      applyDesktopDocumentAttributes(initial);
+    }
     void bridge
       .getChromeState()
       .then(next => {

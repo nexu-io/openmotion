@@ -8,12 +8,52 @@ export type AgentDefinition = {
   discovery?: AgentDiscoveryKind;
   modelArgs?: string[]; acpArgs?: string[]; acpFallbacks?: string[][]; acpBin?: string; modelFlag?: string;
 };
-export type LocalAgent = AgentDefinition & { installed: boolean; version?: string; auth: AgentAuth; checkedAt?: string; models: AgentModel[]; modelFlag?: string; effortFlag?: string; discoveryError?: string };
+export type LocalAgent = AgentDefinition & { installed: boolean; version?: string; auth: AgentAuth; checkedAt?: string; connectedAt?: string; models: AgentModel[]; modelFlag?: string; effortFlag?: string; discoveryError?: string };
 export type AgentChoice = { agent: string; model: string; reasoning?: string };
 export type AgentDirectory = { agents: LocalAgent[]; default: AgentChoice | null };
 export type AgentLaunch = { command: string; instruction: string; modelInCommand: boolean; terminalAvailable: boolean };
 
+export function pickPreferredLocalAgent(
+  agents: readonly LocalAgent[],
+  explicitDefault?: AgentChoice | null,
+): LocalAgent | null {
+  if (explicitDefault?.agent) {
+    const chosen = agents.find(item => item.id === explicitDefault.agent && item.installed && item.auth !== 'signed-out');
+    if (chosen) return chosen;
+  }
+  const runnable = agents.filter(item => item.installed && item.auth !== 'signed-out');
+  if (!runnable.length) return null;
+
+  const timestampOf = (agent: LocalAgent): number => {
+    const raw = agent.connectedAt ?? (agent.auth === 'signed-in' || agent.models.length > 0 ? agent.checkedAt : undefined);
+    const parsed = raw ? Date.parse(raw) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const verified = runnable.filter(
+    item => !item.discoveryError && (Boolean(item.connectedAt) || item.auth === 'signed-in' || item.models.length > 0),
+  );
+  if (verified.length > 0) {
+    let best = verified[0];
+    let bestTs = timestampOf(best);
+    for (let i = 1; i < verified.length; i += 1) {
+      const candidate = verified[i];
+      const candidateTs = timestampOf(candidate);
+      if (candidateTs > bestTs) {
+        best = candidate;
+        bestTs = candidateTs;
+      } else if (candidateTs === bestTs && candidate.auth === 'signed-in' && best.auth !== 'signed-in') {
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
+  return runnable.find(item => !item.discoveryError) ?? runnable[0];
+}
+
 export const localAgents: AgentDefinition[] = [
+  { id: 'antigravity', label: 'Antigravity', bin: 'agy', binAliases: ['antigravity'], icon: 'antigravity', website: 'https://antigravity.google/cli', loginHint: 'Sign in on first launch', discovery: 'acp', acpArgs: ['acp'], modelArgs: ['models'], modelFlag: '--model' },
   { id: 'codex', label: 'Codex', bin: 'codex', icon: 'codex', website: 'https://github.com/openai/codex', loginArgs: ['login'], discovery: 'codex', modelFlag: '--model' },
   { id: 'claude', label: 'Claude Code', bin: 'claude', icon: 'claude-code', website: 'https://code.claude.com/docs/en/setup', loginArgs: ['auth', 'login'], discovery: 'claude', modelFlag: '--model' },
   { id: 'kimi', label: 'Kimi Code', bin: 'kimi', icon: 'kimi', website: 'https://github.com/MoonshotAI/kimi-code', loginHint: 'Run /login in the Agent', discovery: 'acp', acpArgs: ['acp'] },
@@ -25,7 +65,6 @@ export const localAgents: AgentDefinition[] = [
   { id: 'qwen', label: 'Qwen Code', bin: 'qwen', icon: 'qwencloud', website: 'https://github.com/QwenLM/qwen-code', loginHint: 'Sign in on first launch', discovery: 'qwen', acpArgs: ['--acp'], modelFlag: '--model' },
   { id: 'pi', label: 'Pi', bin: 'pi', icon: 'pi', website: 'https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent', loginHint: 'Run /login in the Agent', discovery: 'pi', modelArgs: ['--list-models'], modelFlag: '--model' },
   { id: 'hermes', label: 'Hermes Agent', bin: 'hermes', icon: 'hermes', website: 'https://hermes-agent.nousresearch.com/docs/', loginArgs: ['setup'], discovery: 'acp', acpArgs: ['acp'], modelFlag: '--model' },
-  { id: 'antigravity', label: 'Antigravity', bin: 'agy', binAliases: ['antigravity'], icon: 'antigravity', website: 'https://antigravity.google/cli', loginHint: 'Sign in on first launch', discovery: 'acp', acpArgs: ['acp'], modelArgs: ['models'], modelFlag: '--model' },
   { id: 'kiro', label: 'Kiro CLI', bin: 'kiro-cli', icon: 'kiro', website: 'https://kiro.dev/docs/cli/', loginArgs: ['login'], startArgs: ['chat'], discovery: 'acp', acpArgs: ['acp', '--agent-engine=v3', '--auth-method=cli'], acpFallbacks: [['acp', '--agent-engine=v3'], ['acp']] },
   { id: 'kilo', label: 'Kilo Code', bin: 'kilo', icon: 'kilo', website: 'https://kilo.ai/docs/cli', loginHint: 'Sign in on first launch', discovery: 'acp', acpArgs: ['acp'], modelArgs: ['models'] },
   { id: 'vibe', label: 'Mistral Vibe', bin: 'vibe', icon: 'mistral', website: 'https://github.com/mistralai/mistral-vibe', loginHint: 'Configure the Agent using its official guide', discovery: 'vibe', acpBin: 'vibe-acp', acpArgs: [] },

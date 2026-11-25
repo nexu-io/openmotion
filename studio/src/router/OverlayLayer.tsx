@@ -3,6 +3,7 @@ import type { GalleryTemplate } from '../../../shared/catalog';
 import { useI18n } from '../i18n/I18n';
 import { SettingsSurfaceBoundary } from '../motion/SettingsSurfaceBoundary';
 import { prepareTemplateProject, TemplatePreparationBlockedError } from '../motion/templateHandoff';
+import { peekCachedGateway } from '../motion/gatewayClient';
 import { workspacePageHref, type WorkspacePage } from '../motion/workspacePageRouting';
 import { writeWorkspaceHistory } from '../utils/workspaceHistory';
 import { LazyConnectionDialog, LazySkillsPage } from './lazyPages';
@@ -84,7 +85,7 @@ export function OverlayLayer({
               })
             }
             onOpenSkill={(skill, trigger) => {
-              if (!templatesPage) {
+              if (!templatesPage || page.templateCollection !== 'black-friday') {
                 openSkill(skill);
                 return;
               }
@@ -103,7 +104,7 @@ export function OverlayLayer({
             templateId={page.template}
             onTemplateChange={template => {
               if (!detailOnly) navigatePage({ template });
-              else if (template) writeWorkspaceHistory(workspacePageHref(location.href, { template }), true);
+              else if (template) writeWorkspaceHistory(workspacePageHref(location.href, { template }, peekCachedGateway()?.capabilities), true);
               else closeStandalonePreview();
             }}
             busy={libraryBusy}

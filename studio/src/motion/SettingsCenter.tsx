@@ -3,6 +3,7 @@ import * as tracking from './pageTracking';
 import type { McpEntry } from './pageTracking';
 import { useEffect, useState, type ReactNode } from 'react';
 import { modelKinds } from '../../../shared/provider-directory';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import { RemixIcon } from '../icons/RemixIcons';
 import { languages, useI18n, type Locale } from '../i18n/I18n';
 import { Select } from '../components/ui/Select';
@@ -22,6 +23,8 @@ import { GITHUB_REPOSITORY, repositorySupportLinks } from './githubRepository';
 import { useOptionalGrowthSurfaces } from './collab/GrowthSurfacesContext';
 import { SettingsSurfaceBoundary } from './SettingsSurfaceBoundary';
 import { getDesktopBridge, isDesktopApp, useDesktopUpdateState } from '../utils/platformHost';
+import { useFollowUpBehavior } from '../utils/superAgentPreferences';
+import type { SuperAgentFollowUpMode } from '../../../shared/super-agent';
 
 import type { SettingsSection } from './workspacePageRouting';
 export type { SettingsSection } from './workspacePageRouting';
@@ -30,7 +33,12 @@ import { settingsCenterSections as sections, settingsSectionLabel } from './sett
 export function SettingsCenter({ section, onSection: onSectionRaw, onBack, openConnections, providerId, onProviderChange, mcp, hasProject = false }: { hasProject?: boolean; section: SettingsSection; onSection: (section: SettingsSection) => void; onBack?: () => void; openConnections: (entry: McpEntry) => void; providerId?: string | null; onProviderChange?: (id: string | null) => void; mcp?: ReactNode }) {
   const { t } = useI18n();
   const [search, setSearch] = useState('');
-  const filtered = sections.filter(item => t(item.label).toLowerCase().includes(search.toLowerCase()));
+  const filtered = rankSearchResults(sections, search, item => ({
+    id: item.id,
+    title: t(item.label),
+    subtitle: t(item.group),
+    aliases: [item.label, item.group],
+  })).map(r => r.item);
   // One view per section shown; the section is remounted for each route.
   useEffect(() => { tracking.reportSettingsPageView(section, hasProject); }, [section]);
   const onSection = (next: SettingsSection) => { if (next !== section) tracking.reportSettingsClick('settings_nav', 'section_select', { settings_section: next }); onSectionRaw(next); };
@@ -71,7 +79,8 @@ function DefaultModels({ openProviders }: { openProviders: () => void }) {
 }
 function GeneralSettings({ openConnections }: { openConnections: () => void }) {
   const { t, locale, setLocale } = useI18n();
-  return <div className="om-settings-page"><h1 className="om-title">{t('General')}</h1><div className="om-card"><div className="om-preference-row"><div><h2 className="om-subtitle">{t('Language')}</h2><p className="om-muted">{t('Display language for the workspace')}</p></div><div className="om-preference-control"><Select label={t('Language')} value={locale} onCommit={value => { if (value !== locale) trackStudioClick('settings', 'language_change', undefined, undefined, clickOption(value)); setLocale(value as Locale); }} options={languages.map(item => ({ value: item.locale, label: item.label }))} /></div></div><div className="om-preference-row"><div><h2 className="om-subtitle">{t('Connect Agent')}</h2><p className="om-muted">{t('Connect your preferred Agent to this workspace.')}</p></div><Button variant="ghost" className="om-button h-auto" onClick={openConnections}>{t('Set up connection')}</Button></div></div><section className="om-card om-card-stack"><h2 className="om-subtitle">{t('Keyboard shortcuts')}</h2><div className="om-preference-row"><span>{t('Open settings')}</span><kbd>⌘ / Ctrl + ,</kbd></div><div className="om-preference-row"><span>{t('Toggle project list')}</span><kbd>Alt + B</kbd></div><div className="om-preference-row"><span>{t('Close menu or dialog')}</span><kbd>Esc</kbd></div></section></div>;
+  const [followUpBehavior, setFollowUpBehavior] = useFollowUpBehavior();
+  return <div className="om-settings-page"><h1 className="om-title">{t('General')}</h1><div className="om-card"><div className="om-preference-row"><div><h2 className="om-subtitle">{t('Language')}</h2><p className="om-muted">{t('Display language for the workspace')}</p></div><div className="om-preference-control"><Select label={t('Language')} value={locale} onCommit={value => { if (value !== locale) trackStudioClick('settings', 'language_change', undefined, undefined, clickOption(value)); setLocale(value as Locale); }} options={languages.map(item => ({ value: item.locale, label: item.label }))} /></div></div><div className="om-preference-row"><div><h2 className="om-subtitle">{t('Connect Agent')}</h2><p className="om-muted">{t('Connect your preferred Agent to this workspace.')}</p></div><Button variant="ghost" className="om-button h-auto" onClick={openConnections}>{t('Set up connection')}</Button></div></div><section className="om-card om-card-stack"><h2 className="om-subtitle">{t('Follow-ups')}</h2><div className="om-preference-row"><div><h3 className="om-subtitle">{t('Follow-up behavior')}</h3><p className="om-muted">{t('Queue follow-ups while the agent runs or steer the current run. Press ⌘ / Ctrl + Enter to do the opposite for one message.')}</p></div><div className="om-preference-control"><Select label={t('Follow-up behavior')} value={followUpBehavior} onCommit={value => setFollowUpBehavior(value as SuperAgentFollowUpMode)} options={[{ value: 'steer', label: t('Steer') }, { value: 'queue', label: t('Queue') }]} /></div></div></section><section className="om-card om-card-stack"><h2 className="om-subtitle">{t('Keyboard shortcuts')}</h2><div className="om-preference-row"><span>{t('Open settings')}</span><kbd>⌘ / Ctrl + ,</kbd></div><div className="om-preference-row"><span>{t('Toggle project list')}</span><kbd>Alt + B</kbd></div><div className="om-preference-row"><span>{t('Close menu or dialog')}</span><kbd>Esc</kbd></div></section></div>;
 }
 function ResourceSettings({ about, openConnections }: { about: boolean; openConnections: () => void }) {
   const { t, locale } = useI18n();

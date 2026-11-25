@@ -7,6 +7,7 @@ import { templateDiscoveryGuide, skillDiscoveryGuide } from './workflow-entry.js
 import { projectArchiveTool } from './project-archive.ts';
 import { projectManagementTool } from './project-management.ts';
 import { assetLibraryTool, workspaceAssetUseTool } from './asset-tools.ts';
+import { capabilityMetaTools } from './capability-tools.ts';
 import { designTools } from './design-tools.ts';
 import { providerSetupEntries } from './workspace-url.ts';
 import { canvasPresets } from './composition-canvas.ts';
@@ -21,12 +22,13 @@ const object = (properties: Record<string, unknown>, required: string[] = []) =>
 const review = object({ objectId: id, versionId: id, range: object({ start: { type: 'number', minimum: 0 }, end: { type: 'number', minimum: 0 } }, ['start', 'end']),
   conclusion: { enum: ['passed', 'failed', 'pending', 'unable_to_view'] }, evidence: text, source: { enum: ['agent', 'user'] } }, ['objectId', 'versionId', 'conclusion', 'evidence', 'source']);
 const display = object({ revision, versionId: id, previewUrl: { type: 'string', minLength: 1, maxLength: 4000 },
-  visibility: { enum: ['visible', 'queued', 'hidden', 'unavailable'], description: 'Observed native panel visibility. Use queued only when the host confirms the calling chat is inactive; a queued acknowledgment alone is insufficient. Otherwise use hidden or unavailable and report the display failure.' }, hostStatus: { type: 'string', minLength: 1, maxLength: 80, description: 'Host action acknowledgment, such as queued; independent of observed panel visibility.' }, hostTabId: { ...id, description: 'Actual native host Tab ID, such as providerTabId; never the CUA wrapper id. A reuse hint, not proof of current visibility.' }, contentVerified: { type: 'boolean' }, evidence: text },
+  visibility: { enum: ['visible', 'queued', 'hidden', 'unavailable'], description: 'Observed native panel visibility. Use queued only when the host confirms the calling chat is inactive; a queued acknowledgment alone is insufficient. Otherwise use hidden or unavailable and report the display failure.' }, hostStatus: { type: 'string', minLength: 1, maxLength: 80, description: 'Host action acknowledgment, such as queued; independent of observed panel visibility (optional; omit when unset).' }, hostTabId: { ...id, description: 'Actual native host Tab ID, such as providerTabId; never the CUA wrapper id. A reuse hint, not proof of current visibility (optional; omit when unset).' }, contentVerified: { type: 'boolean' }, evidence: text },
   ['revision', 'versionId', 'previewUrl', 'visibility', 'contentVerified', 'evidence']);
 const read = { readOnlyHint: true, openWorldHint: false };
 const write = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 export const phase1Tools = [
   ...gameTools,
+  ...capabilityMetaTools,
   workspaceAssetUseTool,
   assetLibraryTool,
   projectArchiveTool,
@@ -46,8 +48,8 @@ export const phase1Tools = [
   { name: 'openmotion_create_project', title: 'OpenMotion · Create Project', description: 'Create an independent editable native OpenMotion project from a prompt, an editable template ID or reference-video ID. The host Agent authors the film; creation does not generate a finished video. Persist requirements, namingLanguage and source, return project/session IDs and the initial content version. A requestId is required for safe retries.',
     inputSchema: object({ requestId: id, projectType: { enum: ['natural_language', 'template', 'reference_video'] }, title: { type: 'string', minLength: 1, maxLength: 100 }, requirements: text, namingLanguage: { type: 'string', minLength: 2, maxLength: 50, description: 'BCP 47 language for newly assigned asset names. Choose explicit user preference, otherwise initial brief language, otherwise interface language. Saved once; existing meaningful names remain unchanged.' },
       sessionId: projectId, templateId: id, guideDraft: { ...templateGuideDraftSchema, description: 'Optional title and accent for this catalog entry’s own authored motion-guide example. Creates that canvas example with native Variables, not a reconstruction of its reference film. Requires projectType=template and templateId.' }, referenceVideoId: id, referenceUrl: { type: 'string', maxLength: 2000 } }, ['requestId', 'projectType', 'title', 'requirements']), annotations: write },
-  { name: 'openmotion_open_preview', title: 'OpenMotion · Open Preview', description: 'For video production, action=begin with explicit projectId, stable requestId and mode=create|modify creates a business work round silently before authoring. No production or editor action mounts an inline component. Open the editor only after the final authored video is ready for preview; after MP4 verification, prefer the host-native video preview (Codex: one final-reply embed). Use the separately discovered openmotion_show_video only if the host cannot preview the video; never combine both players for the same export. Once the requested video artifact exists, call action=complete_generation with workId, expectedRevision and expectedVersionId. This independently validates the completed artifact and records generation once, including background work, without saving, opening preview or rendering. Carry its workId through saves and the final export; begin does not open Studio or render. Explicit editor-only requests, unchanged template browsing and review flows do not begin a round. Prepare the named project in the shared editable Studio; this Tool does not open the host browser. Use target=templates for the template library or target=providers for Settings > Model providers without creating/selecting a project; target=templates accepts only action=open, embedded and presentation, while target=providers also accepts optional entry, and both return a page handoff without a project/version identity. Without projectId use only an explicitly bound OpenMotion session, never the global most-recent project. Follow previewHandoff to present the native panel and verify visibility plus latest content for first delivery and continued edits. Default foreground shows the active calling chat panel without switching chats; wait for return only when the host confirms that chat is inactive. A queued acknowledgment, hidden automation tab or markDeliverable does not complete delivery. Only an explicit show-now request uses presentation=now to permit switching for this turn. action=record_display records the current revision/version observation; queued or unverified content stays pending. Report a still-hidden panel as a display failure. action=record_review records evidence about a previously viewed frozen version without changing source.',
-    inputSchema: object({ target: { enum: ['project', 'templates', 'providers'] }, action: { enum: ['open', 'record_review', 'record_display', 'begin', 'complete_generation'] }, mode: { enum: ['create', 'modify'] }, generation: { type: 'boolean', description: 'Begin defaults to a generation attempt. Set false only for export-only playback of already accepted content.' }, projectId, sessionId: projectId, workId, embedded: { type: 'boolean' }, presentation, entry: providerEntry, expectedRevision: revision, expectedVersionId: id, requestId: id, review, display }, []), annotations: write },
+  { name: 'openmotion_open_preview', title: 'OpenMotion · Open Preview', description: 'Manage preview handoff, authoring work rounds, and workspace pages. Required fields by action: open (default) with target=project requires projectId or sessionId (never pass target=templates|providers together with projectId/sessionId/workId/requestId/expectedRevision/expectedVersionId); begin requires projectId, requestId, mode=create|modify; complete_generation requires projectId, requestId, workId, expectedRevision, expectedVersionId; record_display requires projectId, requestId, display; record_review requires projectId, requestId, review. For video production, action=begin creates a business work round silently before authoring. No production or editor action mounts an inline component. Open the editor only after the final authored video is ready for preview; after MP4 verification, prefer the host-native video preview (Codex: one final-reply embed). Use the separately discovered openmotion_show_video only if the host cannot preview the video; never combine both players for the same export. Once the requested video artifact exists, call action=complete_generation with workId, expectedRevision and expectedVersionId. Carry its workId through saves and the final export; begin does not open Studio or render. Explicit editor-only requests, unchanged template browsing and review flows do not begin a round. Omit unused optional fields rather than sending null.',
+    inputSchema: object({ target: { enum: ['project', 'templates', 'providers'], description: 'Defaults to "project". Use "templates" or "providers" only with action="open" (no project/session/work/version/request fields).' }, action: { enum: ['open', 'record_review', 'record_display', 'begin', 'complete_generation'], description: 'Defaults to "open". Choose "begin" before authoring a video, "complete_generation" when finished, "open" to obtain previewUrl/handoff, "record_display" after verifying preview visibility, "record_review" to record playback inspection.' }, mode: { enum: ['create', 'modify'], description: 'Required when action="begin". Use "create" for new videos or "modify" after feedback/export.' }, generation: { type: 'boolean', description: 'Begin defaults to a generation attempt. Set false only for export-only playback of already accepted content.' }, projectId, sessionId: projectId, workId: { ...workId, description: 'Work round UUID returned by action="begin" (inlineWork.id).' }, embedded: { type: 'boolean' }, presentation, entry: providerEntry, expectedRevision: revision, expectedVersionId: id, requestId: id, review, display }, []), annotations: write },
   { name: 'openmotion_import_assets', title: 'OpenMotion · Import Assets', description: 'Persist a batch of real local attachments into this project, at most 500 MB (500000000 bytes) per file. Probe media or parse TTF/OTF/TTC/WOFF fonts and return per-item asset IDs, types, sizes, paths and errors. Fonts include actual family/weight/style and project-relative @font-face CSS; an optional licensePath is copied in the same version. Successful items survive other failures. Existing history is not overwritten. Import does not place media on the timeline. Reuse the same requestId/itemId to retry without duplicate assets.',
     inputSchema: object({ projectId, requestId: id, items: { type: 'array', minItems: 1, maxItems: 100, items: object({ itemId: id, sourcePath: { type: 'string', minLength: 1, maxLength: 4096 }, licensePath: { type: 'string', minLength: 1, maxLength: 4096, description: 'Optional absolute path to the font license text; it must sit in the same directory as the font file, otherwise the item fails with FONT_LICENSE_NOT_BESIDE_FONT. Copied with a font only.' }, name: { type: 'string', maxLength: 200, description: 'Readable display name. Preserve meaningful source names; name generated or unnamed assets by content and optional purpose in the project namingLanguage. Never use UUIDs or the full generation prompt.' } }, ['itemId', 'sourcePath']) } }, ['projectId', 'requestId', 'items']), annotations: write },
   { name: 'openmotion_get_project', title: 'OpenMotion · Get Project', description: 'Without projectId list projects in the current workspace, newest creation first, exactly five per page (except the last); use nextCursor. Set trashed=true to list projects in Trash instead. With projectId read that project, current revision/version, requirements, native file inventory, asset references and associated export state. file supports bounded UTF-8 reads; exportJobId reads a historical task. With workId read one fixed work round; includeVideo=true returns its verified media privately to the component. This does not switch Studio or create projects.',
@@ -76,13 +78,92 @@ export function phase1TransportTool(health: { mcp?: { protocol?: unknown; tools?
   const name = publicToolName(tool);
   if (typeof name !== 'string' || !phase1McpCapabilities.tools.includes(name)
     || health.mcp?.protocol !== phase1McpCapabilities.protocol || !Array.isArray(health.mcp.tools)) return;
-  // An older asset handler does not advertise the new read contract.
-  if (name === 'openmotion_assets_use') return health.mcp.tools.includes(name) ? name : undefined;
+  // Newer domain tools require explicit host/service advertisement rather than legacy aliases.
+  if (['openmotion_assets_use', 'openmotion_capability_discover', 'openmotion_capability_run', 'openmotion_job_manage', 'openmotion_asset_manage'].includes(name)) {
+    return health.mcp.tools.includes(name) ? name : undefined;
+  }
   return [name, legacyToolName(name)].find(candidate => (health.mcp!.tools as unknown[]).includes(candidate));
 }
 
 export function supportsPhase1Tool(health: { mcp?: { protocol?: unknown; tools?: unknown } }, tool?: string): boolean {
   return phase1TransportTool(health, tool) !== undefined;
+}
+
+function allowsNullValue(schema: any): boolean {
+  if (!schema || typeof schema !== 'object') return false;
+  if (schema.type === 'null') return true;
+  return Array.isArray(schema.type) && schema.type.includes('null');
+}
+
+export function normalizeToolInput<T = unknown>(schema: any, value: T): T {
+  if (!schema || typeof schema !== 'object' || value === null || value === undefined) return value;
+  if (schema.oneOf) {
+    if (typeof value !== 'object' || Array.isArray(value)) return value;
+    const variants: any[] = schema.oneOf;
+    const discriminator = ['action', 'command', 'operation'].find(key =>
+      variants.every(variant => variant.properties?.[key]?.enum?.length === 1));
+    if (!discriminator) return value;
+    const rawCommand = (value as Record<string, unknown>)[discriminator];
+    const command = typeof rawCommand === 'string' ? rawCommand.trim() : rawCommand;
+    const selected = variants.find(variant => variant.properties[discriminator].enum[0] === command);
+    if (!selected) return value;
+    const adjusted = typeof rawCommand === 'string' && command !== rawCommand
+      ? Object.defineProperty({ ...value }, discriminator, { value: command, enumerable: true, writable: true, configurable: true })
+      : value;
+    return normalizeToolInput(selected, adjusted) as T;
+  }
+  if (schema.type === 'string' || Array.isArray(schema.enum)) {
+    if (typeof value !== 'string') return value;
+    let next: string = value;
+    if (schema.enum || schema.pattern) next = next.trim();
+    if (typeof schema.pattern === 'string' && schema.pattern.includes('[a-f0-9]')) next = next.toLowerCase();
+    return next as unknown as T;
+  }
+  if (schema.type === 'array') {
+    if (!Array.isArray(value) || !schema.items) return value;
+    return value.map(item => normalizeToolInput(schema.items, item)) as unknown as T;
+  }
+  if (schema.type === 'object') {
+    if (typeof value !== 'object' || Array.isArray(value)) return value;
+    const required = new Set<string>(Array.isArray(schema.required) ? schema.required : []);
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      const hasKnown = Boolean(schema.properties && Object.hasOwn(schema.properties, key));
+      const propSchema = hasKnown
+        ? schema.properties[key]
+        : (schema.additionalProperties && typeof schema.additionalProperties === 'object' ? schema.additionalProperties : undefined);
+      if (!hasKnown && !propSchema) {
+        // Preserve unknown and prototype-named own keys so validateInput rejects them.
+        Object.defineProperty(out, key, { value: child, enumerable: true, writable: true, configurable: true });
+        continue;
+      }
+      const isRequired = required.has(key);
+      if ((child === null || child === undefined) && !isRequired && !allowsNullValue(propSchema)) continue;
+      if (!isRequired && typeof child === 'string' && child.trim() === ''
+        && ((propSchema?.type === 'string' && ((propSchema.minLength ?? 0) >= 1 || propSchema.pattern))
+          || (Array.isArray(propSchema?.enum) && !propSchema.enum.includes('')))) {
+        continue;
+      }
+      const normalized = normalizeToolInput(propSchema, child);
+      if (!isRequired && (normalized === null || normalized === undefined) && !allowsNullValue(propSchema)) continue;
+      Object.defineProperty(out, key, { value: normalized, enumerable: true, writable: true, configurable: true });
+    }
+    return out as T;
+  }
+  return value;
+}
+
+function describeExpectedPattern(pattern: string): string {
+  if (pattern === '^(project|[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12})$') {
+    return 'must be "project" or a lowercase UUID';
+  }
+  if (pattern === '^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$') {
+    return 'must be a UUID';
+  }
+  if (pattern === '^[a-f0-9]{64}$') {
+    return 'must be a 64-character lowercase hex revision hash';
+  }
+  return `must match ${pattern}`;
 }
 
 export function validateInput(schema: any, value: any, field = 'arguments', knownField = 'arguments'): void {
@@ -95,47 +176,71 @@ export function validateInput(schema: any, value: any, field = 'arguments', know
     });
     const valid = failures.filter(error => !error).length;
     if (valid !== 1) {
-      const message = field + ' must match one action and its required fields';
+      const discriminator = ['action', 'command', 'operation'].find(key =>
+        variants.every(variant => variant.properties?.[key]?.enum?.length === 1));
+      const allowedCommands = discriminator ? variants.map(v => v.properties[discriminator].enum[0]).join(', ') : '';
+      const message = allowedCommands
+        ? `${field} must match one ${discriminator} (${allowedCommands}) and its required fields`
+        : field + ' must match one action and its required fields';
       if (variants.every(variant => variant.type === 'object') && (!value || typeof value !== 'object' || Array.isArray(value))) {
         throw new ToolInputError(message, knownField, 'invalid_type');
       }
-      const discriminator = ['action', 'command', 'operation'].find(key =>
-        variants.every(variant => variant.properties?.[key]?.enum?.length === 1));
       if (!discriminator) throw new ToolInputError(message, knownField, 'invalid_combination');
       const command = value?.[discriminator];
-      if (command === undefined) throw new ToolInputError(message, childField(discriminator), 'missing');
+      if (command === undefined) throw new ToolInputError(`${field}.${discriminator} is required (${allowedCommands})`, childField(discriminator), 'missing');
       if (valid > 1) throw new ToolInputError(message, knownField, 'invalid_combination');
       const selected = variants.findIndex(variant => variant.properties[discriminator].enum[0] === command);
+      if (selected < 0) {
+        throw new ToolInputError(`${field}.${discriminator} must be one of [${allowedCommands}]`, childField(discriminator), 'invalid_enum');
+      }
       const failure = failures[selected];
-      throw new ToolInputError(message, failure?.invalid_field ?? childField(discriminator), failure?.validation_rule ?? 'invalid_enum');
+      const detailMessage = failure?.message ? failure.message.replace(/^INVALID_ARGUMENT:\s*/, '') : message;
+      throw new ToolInputError(detailMessage, failure?.invalid_field ?? childField(discriminator), failure?.validation_rule ?? 'invalid_enum');
     }
   }
-  if (schema.enum && !schema.enum.includes(value)) throw new ToolInputError(field, knownField, 'invalid_enum');
+  if (schema.enum && !schema.enum.includes(value)) {
+    throw new ToolInputError(`${field} must be one of [${schema.enum.join(', ')}]`, knownField, 'invalid_enum');
+  }
   if (schema.type === 'object') {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ToolInputError(field + ' must be an object', knownField, 'invalid_type');
     for (const key of schema.required ?? []) {
-      if (!Object.hasOwn(value, key)) throw new ToolInputError(field + '.' + key + ' is required', childField(key), 'missing');
+      if (!Object.hasOwn(value, key)) {
+        const enumHint = Array.isArray(schema.properties?.[key]?.enum) ? ` (${schema.properties[key].enum.join(', ')})` : '';
+        throw new ToolInputError(field + '.' + key + ' is required' + enumHint, childField(key), 'missing');
+      }
     }
+    const allowedKeys = Object.keys(schema.properties ?? {});
     for (const [key, child] of Object.entries(value)) {
       if (Object.hasOwn(schema.properties ?? {}, key)) validateInput(schema.properties[key], child, field + '.' + key, childField(key));
       else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
         validateInput(schema.additionalProperties, child, field + '.' + key, 'unknown_field');
       } else if (schema.additionalProperties !== true) {
-        throw new ToolInputError('unknown ' + field + '.' + key, 'unknown_field', 'unknown_field');
+        const hint = allowedKeys.length && allowedKeys.length <= 14 ? `; allowed keys: ${allowedKeys.join(', ')}` : '';
+        throw new ToolInputError('unknown ' + field + '.' + key + hint, 'unknown_field', 'unknown_field');
       }
     }
   } else if (schema.type === 'array') {
-    if (!Array.isArray(value)) throw new ToolInputError(field, knownField, 'invalid_type');
-    if (value.length < (schema.minItems ?? 0) || value.length > (schema.maxItems ?? Infinity)) throw new ToolInputError(field, knownField, 'out_of_range');
+    if (!Array.isArray(value)) throw new ToolInputError(field + ' must be an array', knownField, 'invalid_type');
+    if (value.length < (schema.minItems ?? 0) || value.length > (schema.maxItems ?? Infinity)) {
+      throw new ToolInputError(`${field} length must be ${schema.minItems ?? 0}..${schema.maxItems ?? 'unlimited'}`, knownField, 'out_of_range');
+    }
     value.forEach((item, i) => validateInput(schema.items, item, field + '[' + i + ']', knownField === 'unknown_field' ? knownField : knownField + '[]'));
   } else if (schema.type === 'string') {
-    if (typeof value !== 'string') throw new ToolInputError(field, knownField, 'invalid_type');
-    if (value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? Infinity)) throw new ToolInputError(field, knownField, 'out_of_range');
-    if (schema.pattern && !new RegExp(schema.pattern).test(value)) throw new ToolInputError(field, knownField, 'invalid_format');
-  } else if (schema.type === 'boolean' && typeof value !== 'boolean') throw new ToolInputError(field, knownField, 'invalid_type');
+    if (typeof value !== 'string') throw new ToolInputError(field + ' must be a string', knownField, 'invalid_type');
+    if (value.length < (schema.minLength ?? 0) || value.length > (schema.maxLength ?? Infinity)) {
+      throw new ToolInputError(`${field} length must be ${schema.minLength ?? 0}..${schema.maxLength ?? 'unlimited'}`, knownField, 'out_of_range');
+    }
+    if (schema.pattern && !new RegExp(schema.pattern).test(value)) {
+      throw new ToolInputError(`${field} ${describeExpectedPattern(schema.pattern)}`, knownField, 'invalid_format');
+    }
+  } else if (schema.type === 'boolean' && typeof value !== 'boolean') throw new ToolInputError(field + ' must be a boolean', knownField, 'invalid_type');
   else if (['number', 'integer'].includes(schema.type)) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || schema.type === 'integer' && !Number.isSafeInteger(value)) throw new ToolInputError(field, knownField, 'invalid_type');
-    if (value < (schema.minimum ?? -Infinity) || value > (schema.maximum ?? Infinity)) throw new ToolInputError(field, knownField, 'out_of_range');
+    if (typeof value !== 'number' || !Number.isFinite(value) || schema.type === 'integer' && !Number.isSafeInteger(value)) {
+      throw new ToolInputError(`${field} must be a${schema.type === 'integer' ? 'n integer' : ' finite number'}`, knownField, 'invalid_type');
+    }
+    if (value < (schema.minimum ?? -Infinity) || value > (schema.maximum ?? Infinity)) {
+      throw new ToolInputError(`${field} must be between ${schema.minimum ?? '-Infinity'} and ${schema.maximum ?? 'Infinity'}`, knownField, 'out_of_range');
+    }
   }
 }
 

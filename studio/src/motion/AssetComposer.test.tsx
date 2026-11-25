@@ -3,16 +3,21 @@ import { findMediaStudio, findTechniqueStudio } from '../../../shared/studio-cat
 import { act, useState, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { trackMotion } from './tracking';
+import { loadReportingTransport } from './reporting';
+import { validProperties, uuid } from '../../../tracking/core';
+import { studioEvents } from '../../../tracking/events';
 import { AssetComposer, type AssetDraft } from './AssetComposer';
 import type { Model } from '../../../shared/gateway';
-const { generate, loadGateway, gatewayRequest, chrome } = vi.hoisted(() => ({
-  generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(),
+const { generate, loadGateway, gatewayRequest, chrome, translate } = vi.hoisted(() => ({
+  generate: vi.fn(), loadGateway: vi.fn(), gatewayRequest: vi.fn(), translate: vi.fn((text: string, _values?: Record<string, unknown>) => text),
   chrome: { openModelSettings: vi.fn(), openProviderSettings: vi.fn(), openAccountSettings: vi.fn(), openSubscriptionSettings: vi.fn() },
 }));
+vi.mock('./tracking', () => ({ trackMotion: vi.fn(async () => 'queued') }));
 vi.mock('./assetClient', () => ({ assetRequest: generate }));
 vi.mock('./gatewayClient', () => ({ loadGateway, gatewayRequest, invalidateGatewayCache: vi.fn() }));
 vi.mock('./AssetConversation', () => ({ AssetConversation: () => null }));
-vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: (text: string) => text }) }));
+vi.mock('../i18n/I18n', () => ({ useI18n: () => ({ t: translate }) }));
 vi.mock('./WorkspaceFrame', () => ({ useWorkspaceChrome: () => chrome }));
 const model: Model = { id: 'codex:image', provider: 'codex', modelId: 'image', label: 'Codex Image', modality: 'image', source: 'builtin', mode: 'text-to-image' };
 let root: Root, container: HTMLDivElement;
@@ -23,7 +28,7 @@ const props: ComponentProps<typeof AssetComposer> = {
   history: { tasks: [], loading: false, onRetry: vi.fn(), onSelect: vi.fn() }, selectingTask: false,
   onNew: vi.fn(), onChatChanged: vi.fn(), onChatStarted: vi.fn(), onCancel: vi.fn(), onView: vi.fn(), onReference: vi.fn(), onCreated: created, onError: vi.fn(), onClose: vi.fn(),
 };
-beforeEach(() => { vi.clearAllMocks(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
+beforeEach(async () => { await loadReportingTransport(); vi.clearAllMocks(); loadGateway.mockResolvedValue({ models: [model], status: { providers: [{ id: 'codex', available: true }], routes: {} } }); container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 it('temporarily hides the Agent tab and keeps direct generation available when viewing a conversation', async () => {
   await act(async () => root.render(<AssetComposer {...props} mode="agent" />));
@@ -286,7 +291,7 @@ it('keeps the prompt and pinned reference while switching providers serving the 
   await act(async () => option('OpenDesign Cloud').click());
   expect(container.querySelector('button[aria-label="Generation model"]')!.textContent).toContain('Seedream 5.5');
   const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
-  expect(container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!.value).toBe(props.draft.prompt);
+  expect(container.querySelector<HTMLTextAreaElement>('.om-media-prompt')!.value).toBe(props.draft.prompt);
   expect(generate).not.toHaveBeenCalled();
   generate.mockResolvedValue({ job: { id: 'new' } });
   await act(async () => submit().click());
@@ -387,6 +392,31 @@ it('disables image generation and keeps setup actions in the provider picker', a
   await openSetup('OpenDesign');
   expect(chrome.openAccountSettings).toHaveBeenCalledTimes(1);
   expect(generate).not.toHaveBeenCalled();
+});
+
+it('disables video generation when the provider needs setup and keeps the provider action available', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const video: Model = {
+    id: 'opendesign:wan-2.7', provider: 'opendesign', modelId: 'wan-2.7', label: 'Wan 2.7',
+    modality: 'video', mode: 'text-to-video', source: 'live',
+  };
+  const catalog = { models: [video], status: { providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: false }], routes: {} } };
+  await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'video', prompt: 'A slow dolly in', references: [] }} studio={{
+    catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+    destination: mediaEditorDestination('text-to-video', video.id),
+  }} />));
+
+  const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  expect(submit.textContent).toBe('Generate video');
+  expect(submit.disabled).toBe(true);
+  expect(submit.querySelector('[data-remix-icon="sparkling-fill"]')).not.toBeNull();
+  await act(async () => submit.click());
+  expect(generate).not.toHaveBeenCalled();
+  expect(chrome.openProviderSettings).not.toHaveBeenCalled();
+
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
+  await act(async () => document.querySelector<HTMLButtonElement>('.om-picker-setup')!.click());
+  expect(chrome.openProviderSettings).toHaveBeenCalledExactlyOnceWith('opendesign');
 });
 
 it('defaults Shorts Studio to 9:16 on OpenDesign video models publishing ratios and filters paired image resolutions', async () => {
@@ -692,7 +722,7 @@ it('offers only OpenDesign providers for feature entries and keeps the prompt wh
   expect(submit.disabled).toBe(true);
   await act(async () => submit.click());
   expect(chrome.openProviderSettings).not.toHaveBeenCalled();
-  expect(container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!.value).toBe('Neon skyline');
+  expect(container.querySelector<HTMLTextAreaElement>('.om-media-prompt')!.value).toBe('Neon skyline');
   expect(generate).not.toHaveBeenCalled();
 });
 
@@ -717,7 +747,13 @@ const featureModels = () => {
     accountGpt: { ...base, id: 'account:gpt-image-2.6-sunburst', provider: 'account', modelId: 'gpt-image-2.6-sunburst', label: 'gpt-image-2.6-sunburst' } as Model,
   };
 };
-async function renderFeature(scene: 'remove-background' | 'relight' | 'character', draft: Partial<AssetDraft>) {
+// These models support reference images and transparent output, but their providers are outside this scene.
+const otherCutoutModels: Model[] = [
+  { provider: 'codex', modelId: 'image-generation', label: 'Codex Image' },
+  { provider: 'fal', modelId: 'cutout', label: 'Cutout' },
+].map(entry => ({ ...featureModels().sunburst, ...entry, id: entry.provider + ':' + entry.modelId,
+  nativeOptions: { background: ['transparent'] } }));
+async function renderFeature(scene: 'remove-background' | 'relight' | 'image-blend', draft: Partial<AssetDraft>) {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const models = Object.values(featureModels());
   const catalog = { models, status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }, { id: 'account', label: 'OpenDesign', available: true }] } };
@@ -731,7 +767,7 @@ const reference = (id: string) => ({ reference: { assetId: id, versionId: 'v1' }
 
 it('removes an image reference only when its remove button is activated', async () => {
   const references = [reference('first'), reference('second')];
-  await renderFeature('character', { references });
+  await renderFeature('image-blend', { references });
   const row = container.querySelector('.om-scene-source-file')!;
   await act(async () => row.querySelector('span')!.click());
   expect(props.setDraft).not.toHaveBeenCalled();
@@ -740,6 +776,294 @@ it('removes an image reference only when its remove button is activated', async 
   expect(props.setDraft).toHaveBeenCalledTimes(1);
   const [update] = vi.mocked(props.setDraft).mock.calls[0];
   expect(typeof update === 'function' ? update({ ...props.draft, references }).references : update.references).toEqual([references[1]]);
+});
+
+it.each(['free', 'plus', 'unavailable'])('resolves the %s plan on a direct visit with a restored sign-in', async plan => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { useMediaCatalog } = await import('./useMediaCatalog');
+  const { accountGpt } = featureModels();
+  let billingRead = false;
+  gatewayRequest.mockImplementation(async (route: string) => {
+    expect(route).toBe('settings/account?refresh=true');
+    billingRead = true;
+    if (plan === 'unavailable') throw new Error('offline');
+    return { state: 'signed-in', plan };
+  });
+  loadGateway.mockImplementation(async () => ({
+    models: plan === 'plus' && billingRead ? [accountGpt] : [],
+    status: { routes: {}, providers: [
+      { id: 'opendesign', label: 'OpenDesign Cloud', configured: false, available: false },
+      { id: 'account', label: 'OpenDesign', available: true,
+        mediaEntitlement: !billingRead || plan === 'unavailable' ? 'unknown' : plan === 'free' ? 'not-included' : 'included' },
+    ] },
+  }));
+  function Panel() {
+    const catalog = useMediaCatalog(true, true);
+    return <AssetComposer {...props} draft={{ modality: 'image', prompt: '', references: [] }}
+      studio={{ catalog, chooseModel: vi.fn(), remember: vi.fn(), destination: mediaEditorDestination('remove-background') }} />;
+  }
+  await act(async () => root.render(<Panel />));
+  expect(gatewayRequest).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[aria-label="Provider"] .om-picker-trigger-label')?.textContent)
+    .toBe(plan === 'unavailable' ? 'OpenDesign Cloud' : 'OpenDesign');
+  expect(Boolean(container.querySelector('[data-generation-offer="upgrade"]'))).toBe(plan === 'free');
+});
+
+it.each(['free', 'plus'])('keeps the background removal draft through sign-in and resolves the %s plan in place', async plan => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { useMediaCatalog } = await import('./useMediaCatalog');
+  const { accountGpt } = featureModels();
+  let signedIn = false, authorizing = false, billingRead = false;
+  gatewayRequest.mockImplementation(async (route: string) => {
+    if (route === 'settings/account/login') authorizing = true;
+    if (route === 'settings/account?refresh=true') billingRead = true;
+    return { state: signedIn ? 'signed-in' : authorizing ? 'authorizing' : 'signed-out', ...(signedIn && billingRead ? { plan } : {}) };
+  });
+  loadGateway.mockImplementation(async () => ({
+    models: [...otherCutoutModels, ...(signedIn && plan === 'plus' ? [accountGpt] : [])],
+    status: { routes: { image: otherCutoutModels[0].id }, providers: [
+      ...otherCutoutModels.map(model => ({ id: model.provider, label: model.provider, available: true })),
+      { id: 'opendesign', label: 'OpenDesign Cloud', available: false, configured: false },
+      { id: 'account', label: 'OpenDesign', available: signedIn, mediaEntitlement: signedIn && billingRead ? plan === 'plus' ? 'included' : 'not-included' : undefined },
+    ] },
+  }));
+  function Harness() {
+    const catalog = useMediaCatalog(true);
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: 'Keep the mug', references: [reference('mug')] });
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{ catalog, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('remove-background') }} />;
+  }
+  await act(async () => root.render(<Harness />));
+  const provider = container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!;
+  expect(provider.querySelector('.om-picker-trigger-label')?.textContent).toBe('OpenDesign');
+  expect(provider.querySelector('.om-badge')?.textContent).toBe('Signed out');
+  await act(async () => provider.click());
+  expect(optionNames()).toEqual(['OpenDesign', 'OpenDesign Cloud']);
+  await act(async () => provider.click());
+  expect(container.querySelector('[aria-label="Generation model"] .om-account-offer')?.textContent).toBe('Plus and above');
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  expect(submit().disabled).toBe(true);
+  const card = container.querySelector('[data-generation-offer="sign_in"]')!;
+  expect(card.querySelector('h3')?.textContent).toBe('7 days of unlimited flagship image generation');
+  expect(card.querySelector('p')?.textContent).toBe('Available with Plus or higher');
+  expect(provider.closest('.om-generation-picker')?.nextElementSibling).toBe(card);
+  expect(card.nextElementSibling?.querySelector('button[aria-label="Generation model"]')).toBeTruthy();
+  expect([...card.querySelectorAll('button')].map(button => button.textContent)).toEqual(['Sign in now']);
+  const login = card.querySelector<HTMLButtonElement>('button')!;
+  expect(login.hasAttribute('data-primary')).toBe(false);
+  await act(async () => login.click());
+  const cardClicks = vi.mocked(trackMotion).mock.calls.filter(([event, fields]) => event === 'ui_click' && (fields as Record<string, unknown>).element === 'sign_in');
+  expect(cardClicks).toHaveLength(1);
+  const packet = cardClicks[0][1];
+  expect(packet).toMatchObject({ page_name: 'creative_studio', area: 'asset_create', offer_kind: 'sign_in', studio_id: 'design', scene_id: 'remove-background',
+    offer_visit_id: expect.stringMatching(uuid), entry_id: expect.stringMatching(uuid) });
+  expect(validProperties(studioEvents, 'ui_click', packet)).toBe(true);
+  expect(gatewayRequest).toHaveBeenCalledWith('settings/account/login', 'POST', { hookId: 'studio_generate', entryId: (packet as Record<string, unknown>).entry_id });
+  expect(chrome.openAccountSettings).not.toHaveBeenCalled();
+  expect(container.textContent).toContain('Complete sign-in in your browser');
+  signedIn = true;
+  await act(async () => { window.dispatchEvent(new Event('motion:account-changed')); });
+  expect(billingRead).toBe(true);
+  expect(container.querySelector('[aria-label="Provider"]')?.textContent).toBe('OpenDesign');
+  expect(container.querySelector('[data-generation-offer="upgrade"] button')?.textContent === 'Upgrade').toBe(plan === 'free');
+  expect(submit().disabled).toBe(plan === 'free');
+  expect(container.querySelector<HTMLTextAreaElement>('.om-media-prompt')?.value).toBe('Keep the mug');
+  expect(container.querySelector('.om-scene-source-file')?.textContent).toContain('mug');
+  expect(generate).not.toHaveBeenCalled();
+});
+
+it.each([
+  'text-to-image', 'image-edit', 'remove-background', 'relight', 'image-blend',
+  'text-to-video', 'image-to-video', 'video-camera-control', 'video-multi-shot',
+] as const)('keeps the provider and model choices for %s when showing account guides', async sceneId => {
+  const { mediaEditorDestination, needsImage } = await import('./creativeStudios');
+  const destination = mediaEditorDestination(sceneId);
+  const { modality } = destination.scene;
+  const cloudVideo: Model = { provider: 'opendesign', modelId: 'wan-2.7', id: 'opendesign:wan-2.7',
+    label: 'Wan 2.7', source: 'live', modality: 'video', mode: 'text-to-video', maxInputImages: 1 };
+  const models = [...otherCutoutModels, featureModels().sunburst, cloudVideo];
+  const hasCodex = sceneId === 'text-to-image' || sceneId === 'image-edit';
+  const draft: AssetDraft = { modality, prompt: 'A sunlit forest', references: sceneId === 'image-blend' ? [reference('forest'), reference('lake')] : needsImage(destination.scene) ? [reference('forest')] : [] };
+  const picker = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  const click = (button: HTMLElement) => act(async () => button.click());
+  const render = (state: 'guest' | 'locked' | 'cloud', model?: string) => act(async () => root.render(<AssetComposer {...props} draft={draft} studio={{
+    catalog: { catalog: { models, status: { routes: {}, providers: [
+      { id: 'account', label: 'OpenDesign', available: state === 'locked', mediaEntitlement: state === 'locked' ? 'not-included' : undefined },
+      { id: 'opendesign', label: 'OpenDesign Cloud', available: state === 'cloud', configured: state === 'cloud' },
+      { id: 'codex', label: 'Codex', available: true }, { id: 'fal', label: 'fal.ai', available: true },
+    ] } }, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(), destination: { ...destination, model: model ?? null },
+  }} />));
+  gatewayRequest.mockResolvedValue({ state: 'signed-out' });
+  for (const state of ['guest', 'locked'] as const) {
+    await render(state);
+    if (hasCodex) {
+      expect(picker('Provider').textContent).toBe('Codex');
+      expect(picker('Generation model').textContent).toContain('Codex Image');
+      expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+      expect(container.querySelector('[data-generation-offer]')).toBeNull();
+      await render(state, featureModels().accountGpt.id);
+    }
+    expect(container.querySelector('.om-creation-prompt-footer, .om-creation-save-note, .om-creation-billing')).toBeNull();
+    expect(picker('Provider').querySelector('.om-picker-trigger-label')?.textContent).toBe('OpenDesign');
+    expect(picker('Generation model').textContent).toContain(state === 'guest' ? 'Plus and above' : 'Requires upgrade to Plus');
+    expect(container.querySelector('[data-generation-offer] button')?.textContent).toBe(state === 'guest' ? 'Sign in now' : 'Upgrade');
+    const offer = container.querySelector(`[data-generation-offer="${state === 'guest' ? 'sign_in' : 'upgrade'}"]`)!;
+    expect(offer.querySelector('h3')?.textContent)
+      .toBe(modality === 'image' ? '7 days of unlimited flagship image generation' : 'Black Friday: up to 50% off your first year');
+    const imageDetails = state === 'guest' ? 'Available with Plus or higher' : 'Black Friday: the year’s best deals, up to 50% off';
+    expect(offer.querySelector('p')?.textContent).toBe(modality === 'image' ? imageDetails : 'Enjoy this offer with Plus or higher');
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
+    await click(picker('Provider'));
+    expect(optionNames()).toEqual(['OpenDesign', 'OpenDesign Cloud', ...(hasCodex ? ['Codex'] : [])]);
+    await click(picker('Provider'));
+    await click(picker('Generation model'));
+    const names = optionNames();
+    expect(names).toContain(modality === 'video' ? 'Wan 2.7' : 'GPT Image 2.6 Sunburst');
+    expect(names.includes('Seedream 5.5')).toBe(modality === 'image' && sceneId !== 'remove-background' && sceneId !== 'image-blend');
+    expect(names.includes('Seedance 2.5')).toBe(modality === 'video');
+    await click(picker('Generation model'));
+  }
+  if (hasCodex) {
+    await render('locked', otherCutoutModels[0].id);
+    expect(picker('Provider').textContent).toBe('Codex');
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+    expect(container.querySelector('[data-generation-offer="upgrade"]')).toBeNull();
+  }
+  await render('cloud');
+  expect(picker('Provider').textContent).toBe('OpenDesign Cloud');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+  expect(container.querySelector('.om-account-offer')).toBeNull();
+});
+
+it('keeps both provider setup actions in guest background removal and uses an existing Cloud key while signed out', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { sunburst } = featureModels();
+  gatewayRequest.mockResolvedValue({ state: 'signed-out' });
+  const chooseModel = vi.fn();
+  const render = (hasKey: boolean) => act(async () => root.render(<AssetComposer {...props}
+    draft={{ modality: 'image', prompt: '', references: [reference('mug')] }} studio={{
+      catalog: { catalog: { models: hasKey ? [sunburst] : [], status: { routes: {}, providers: [
+        { id: 'account', label: 'OpenDesign', available: false },
+        { id: 'opendesign', label: 'OpenDesign Cloud', configured: hasKey, available: hasKey },
+      ] } }, failed: false, retry: vi.fn() }, chooseModel, remember: vi.fn(), destination: mediaEditorDestination('remove-background'),
+    }} />));
+  await render(false);
+  const openProviders = () => act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Provider"]')!.click());
+  const setupButton = (provider: string) => [...document.querySelectorAll('.om-picker-provider-row')]
+    .find(row => row.querySelector('strong')?.textContent === provider)!.querySelector<HTMLButtonElement>('.om-picker-setup')!;
+  await openProviders();
+  const signIn = setupButton('OpenDesign');
+  expect(signIn.textContent).toBe('Sign in');
+  await act(async () => signIn.click());
+  expect(chrome.openAccountSettings).toHaveBeenCalledExactlyOnceWith();
+  await openProviders();
+  const cloudSetup = setupButton('OpenDesign Cloud');
+  expect(cloudSetup.textContent).toBe('Setup');
+  await act(async () => cloudSetup.click());
+  expect(chooseModel).not.toHaveBeenCalled();
+  expect(chrome.openProviderSettings).toHaveBeenCalledExactlyOnceWith('opendesign');
+  expect(gatewayRequest).not.toHaveBeenCalledWith('settings/account/login', 'POST', {});
+  await render(true);
+  expect(container.querySelector('[aria-label="Provider"]')?.textContent).toBe('OpenDesign Cloud');
+  expect(container.querySelector('.om-account-offer, .om-provider-setup, [data-generation-offer="sign_in"]')).toBeNull();
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
+});
+
+it.each(['free', 'go'])('previews locked account models and lets a %s account switch background removal providers', async plan => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { sunburst } = featureModels();
+  const cloudReady = plan === 'go';
+  const catalog = { models: [sunburst, ...otherCutoutModels], status: { routes: { image: sunburst.id }, providers: [
+    { id: 'account', label: 'OpenDesign', available: true, mediaEntitlement: 'not-included' as const, plan },
+    { id: 'opendesign', label: 'OpenDesign Cloud', available: cloudReady }, { id: 'fal', label: 'fal.ai', available: true },
+    { id: 'codex', label: 'Codex', available: true },
+  ] } };
+  function Harness() {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: '', references: [reference('product')] });
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('remove-background'),
+    }} />;
+  }
+  await act(async () => root.render(<Harness />));
+  const picker = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  const click = (el: HTMLElement) => act(async () => el.click());
+  const choose = (name: string) => click([...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(el => el.querySelector('strong')?.textContent === name)!);
+  if (cloudReady) {
+    expect(picker('Provider').textContent).toBe('OpenDesign Cloud');
+    expect(submit().disabled).toBe(false);
+    expect(container.querySelector('[data-generation-offer]')).toBeNull();
+    await click(picker('Provider'));
+    await choose('OpenDesign');
+  }
+  expect(picker('Provider').textContent).toBe('OpenDesign');
+  const badge = 'Requires upgrade to Plus';
+  expect(picker('Generation model').querySelector('.om-account-offer-callout')?.textContent).toBe(badge);
+  expect(picker('Generation model').querySelector('[data-remix-icon="sparkling-fill"]')).not.toBeNull();
+  await click(picker('Generation model'));
+  expect(optionNames()).toContain('GPT Image 2.6 Flare');
+  expect([...document.querySelectorAll('[role="option"]')].every(el => el.querySelector('.om-account-offer-callout')?.textContent === badge)).toBe(true);
+  await choose('GPT Image 2.6 Flare');
+  const offer = container.querySelector('section[data-generation-offer="upgrade"]')!;
+  expect(offer.querySelector('h3')?.textContent).toBe('7 days of unlimited flagship image generation');
+  expect(offer.querySelector('p')?.textContent).toBe('Black Friday: the year’s best deals, up to 50% off');
+  expect(submit().disabled).toBe(true);
+  gatewayRequest.mockResolvedValue({ opened: true });
+  const upgrade = offer.querySelector<HTMLButtonElement>('button')!;
+  expect(upgrade.textContent).toBe('Upgrade');
+  expect(upgrade.querySelector('[data-remix-icon="arrow-right-up-line"]')).not.toBeNull();
+  await click(upgrade);
+  const cardClicks = vi.mocked(trackMotion).mock.calls.filter(([event, fields]) => event === 'ui_click' && (fields as Record<string, unknown>).element === 'view_plans');
+  expect(cardClicks).toHaveLength(1);
+  const packet = cardClicks[0][1];
+  expect(packet).toMatchObject({ page_name: 'creative_studio', area: 'asset_create', offer_kind: 'upgrade', studio_id: 'design', scene_id: 'remove-background',
+    offer_visit_id: expect.stringMatching(uuid), entry_id: expect.stringMatching(uuid) });
+  expect(validProperties(studioEvents, 'ui_click', packet)).toBe(true);
+  expect(gatewayRequest).toHaveBeenCalledWith('settings/account/subscription', 'POST', { hookId: 'studio_free_gate', entryId: (packet as Record<string, unknown>).entry_id });
+
+  await click(picker('Provider'));
+  expect(optionNames()).toEqual(['OpenDesign', 'OpenDesign Cloud']);
+  await choose('OpenDesign Cloud');
+  expect(picker('Generation model').textContent).not.toContain(badge);
+  expect(submit().disabled).toBe(!cloudReady);
+  if (!cloudReady) {
+    await click(container.querySelector<HTMLButtonElement>('.om-provider-setup button')!);
+    expect(chrome.openProviderSettings).toHaveBeenCalledWith('opendesign');
+    expect(generate).not.toHaveBeenCalled();
+    return;
+  }
+  generate.mockResolvedValue({ job: { id: 'cutout' } });
+  await click(submit());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    model: sunburst.id, parameters: expect.objectContaining({ background: 'transparent' }), references: [reference('product').reference],
+  }));
+});
+
+it('keeps the default background removal model on the account after returning from an upgrade', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const { sunburst, accountGpt } = featureModels();
+  function Harness({ upgraded }: { upgraded: boolean }) {
+    const [draft, setDraft] = useState<AssetDraft>({ modality: 'image', prompt: '', references: [reference('product')] });
+    const catalog = { models: upgraded ? [sunburst, accountGpt] : [sunburst], status: { routes: { image: sunburst.id }, providers: [
+      { id: 'opendesign', label: 'OpenDesign Cloud', available: upgraded },
+      { id: 'account', label: 'OpenDesign', available: true, mediaEntitlement: upgraded ? 'included' as const : 'not-included' as const },
+    ] } };
+    return <AssetComposer {...props} draft={draft} setDraft={setDraft} studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('remove-background'),
+    }} />;
+  }
+  await act(async () => root.render(<Harness upgraded={false} />));
+  gatewayRequest.mockResolvedValue({ opened: true });
+  await act(async () => container.querySelector<HTMLButtonElement>('section[data-generation-offer="upgrade"] button')!.click());
+  await act(async () => { window.dispatchEvent(new Event('focus')); });
+  expect(gatewayRequest).toHaveBeenCalledWith('settings/account?refresh=true');
+  await act(async () => root.render(<Harness upgraded />));
+  expect(container.querySelector('[aria-label="Provider"]')?.textContent).toBe('OpenDesign');
+  expect(container.textContent).not.toContain('Requires upgrade to Plus');
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(false);
+  expect(generate).not.toHaveBeenCalled();
 });
 
 it('removes a background with GPT Image 2.6 on either OpenDesign route, an optional prompt and a fixed transparent background', async () => {
@@ -760,7 +1084,7 @@ it('removes a background with GPT Image 2.6 on either OpenDesign route, an optio
   const submit = container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
   expect(settings.compareDocumentPosition(picker) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(picker.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(submit.parentElement).toBe(container.querySelector('.om-asset-direct-scroll > .om-image-submit:last-child'));
+  expect(submit.parentElement).toBe(container.querySelector('.om-asset-direct-scroll > .om-media-submit:last-child'));
   expect(submit.disabled).toBe(false);
   generate.mockResolvedValue({ job: { id: 'job' } });
   await act(async () => submit.click());
@@ -826,7 +1150,7 @@ it('relights one image with Seedream 5.5 by default and writes the chosen light 
   expect([...container.querySelectorAll('.om-relight-field .om-eyebrow')].map(node => node.textContent)).toEqual(['Light direction', 'Color temperature', 'Lighting mood']);
   expect(container.querySelectorAll('.om-relight-field [data-form-control="boxed"]')).toHaveLength(3);
   expect(container.querySelectorAll('.om-creation-model .om-picker-trigger[data-form-control="boxed"]')).toHaveLength(2);
-  const promptInput = container.querySelector<HTMLTextAreaElement>('.om-image-prompt')!;
+  const promptInput = container.querySelector<HTMLTextAreaElement>('.om-media-prompt')!;
   expect(promptInput.labels?.[0]?.textContent).toBe('Detailed description');
   expect(promptInput.parentElement?.getAttribute('data-form-field')).toBe('intrinsic');
   expect([...promptInput.parentElement!.children]).toEqual([promptInput]);
@@ -844,23 +1168,95 @@ it('relights one image with Seedream 5.5 by default and writes the chosen light 
   expect(prompt.endsWith('Keep the logo sharp.')).toBe(true);
 });
 
-it('keeps a character consistent across up to five references and drops Seedream 5.5 from two references', async () => {
-  await renderFeature('character', { references: [reference('one')] });
+it('blends 2 to 5 references: blocks submit below two with a hint, numbers each image and excludes single-reference models', async () => {
+  const { imageFeaturePrompt } = await import('../../../shared/image-features');
+  const submit = () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!;
+  const hint = () => container.querySelector('.om-scene-source-status');
+
+  // No references yet: the action stays disabled even with a prompt, and the hint states the count.
+  await renderFeature('image-blend', { prompt: 'Place the speaker on the table.', references: [] });
+  expect(submit().textContent).toBe('Blend images');
+  expect(submit().disabled).toBe(true);
+  expect(hint()?.getAttribute('role')).toBe('status');
+  expect(hint()?.textContent).toBe('Add at least {min} images to blend ({count}/{min}).');
+  expect(translate).toHaveBeenCalledWith('Add at least {min} images to blend ({count}/{min}).', { min: 2, count: 0 });
+  // Seedream 5.5 accepts one reference, so it is never offered for blending.
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
-  expect(optionNames()).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.5', 'Seedream 5.0 Flash']);
-  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled).toBe(true);
+  expect(optionNames()).not.toContain('Seedream 5.5');
+  expect(optionNames()).toContain('GPT Image 2.6 Sunburst');
   await act(async () => root.unmount()); root = createRoot(container);
-  await renderFeature('character', { prompt: 'Walk through a night market.', model: 'opendesign:seedream-5.5', references: [reference('one'), reference('two')] });
-  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
-  expect(optionNames()).toEqual(['GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Seedream 5.0 Flash']);
-  generate.mockResolvedValue({ job: { id: 'job' } });
-  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+
+  // One reference: still blocked, hint counts 1 of 2.
+  translate.mockClear();
+  await renderFeature('image-blend', { prompt: 'Place the speaker on the table.', references: [reference('one')] });
+  expect(submit().disabled).toBe(true);
+  expect(hint()).not.toBeNull();
+  expect(translate).toHaveBeenCalledWith('Add at least {min} images to blend ({count}/{min}).', { min: 2, count: 1 });
+  expect(container.querySelectorAll('.om-scene-source-index')).toHaveLength(1);
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // Two references without a prompt: the blend instruction is required.
+  await renderFeature('image-blend', { prompt: '  ', references: [reference('one'), reference('two')] });
+  expect(hint()).toBeNull();
+  expect(submit().disabled).toBe(true);
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // Two references and a prompt: numbered badges sit beside (not on) the remove control and the request is sent.
+  translate.mockClear();
+  await renderFeature('image-blend', { prompt: 'Place the speaker from Image 1 on the table in Image 2.', model: 'opendesign:seedream-5.5', references: [reference('one'), reference('two')] });
+  expect(hint()).toBeNull();
+  const tiles = [...container.querySelectorAll('.om-scene-source-file[data-layout="grid"]')];
+  expect(tiles).toHaveLength(2);
+  tiles.forEach(tile => {
+    const badge = tile.querySelector('.om-scene-source-index')!;
+    expect(badge).not.toBeNull();
+    expect(badge.closest('button')).toBeNull();
+    expect(tile.querySelector('.om-scene-source-remove')?.contains(badge)).toBe(false);
+  });
+  expect(translate).toHaveBeenCalledWith('Image {index}', { index: 1 });
+  expect(translate).toHaveBeenCalledWith('Image {index}', { index: 2 });
+  expect(translate).not.toHaveBeenCalledWith('Image {index}', { index: 3 });
+  expect(container.querySelector('.om-scene-source-count')?.textContent).toBe('2 / 5');
+  expect(submit().disabled).toBe(false);
+  generate.mockResolvedValue({ job: { id: 'blend-job' } });
+  await act(async () => submit().click());
   const request = generate.mock.calls[0][0];
   expect(request.model).toBe('opendesign:gpt-image-2.6-sunburst');
-  expect(request.prompt).toMatch(/^Keep the character from the reference images consistent.*Walk through a night market\.$/);
-  expect(request.references).toHaveLength(2);
+  expect(request.prompt).toBe(imageFeaturePrompt('image-blend', 'Place the speaker from Image 1 on the table in Image 2.'));
+  expect(request.references).toEqual([{ assetId: 'one', versionId: 'v1' }, { assetId: 'two', versionId: 'v1' }]);
 });
 
+it('shows the blend hint and image numbers only on Image blend', async () => {
+  for (const scene of ['remove-background', 'relight'] as const) {
+    await renderFeature(scene, { references: [] });
+    expect(container.querySelector('.om-scene-source-status'), scene).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled, scene).toBe(true);
+    await act(async () => root.unmount()); root = createRoot(container);
+    await renderFeature(scene, { references: [reference('one')] });
+    expect(container.querySelector('.om-scene-source-index'), scene).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.disabled, scene).toBe(false);
+    await act(async () => root.unmount()); root = createRoot(container);
+  }
+});
+
+it('shares one form layout across every Design Studio image scene without a scene intro header', async () => {
+  const { mediaEditorDestination } = await import('./creativeStudios');
+  const existing = featureModels();
+  const catalog = { models: [existing.sunburst, existing.seedream], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } };
+  for (const scene of ['text-to-image', 'image-edit', 'remove-background', 'image-blend', 'relight'] as const) {
+    await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'A product shot', references: [] }} studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination(scene),
+    }} />));
+    const composer = container.querySelector('.om-asset-composer')!;
+    expect(composer.getAttribute('data-form-surface'), scene).toBe('subtle');
+    expect(composer.querySelector('.om-studio-form-heading'), scene).toBeNull();
+    expect(composer.querySelector('.om-media-prompt'), scene).not.toBeNull();
+    expect(composer.querySelector('.om-media-parameters .om-creation-model'), scene).not.toBeNull();
+    expect(composer.querySelector('.om-media-submit .om-creation-submit-button'), scene).not.toBeNull();
+    await act(async () => root.unmount()); root = createRoot(container);
+  }
+});
 it('seeds 10s duration and composes camera/multi-shot prompts on video feature scenes', async () => {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const { generationOptions } = await import('../../../shared/generation-options');
@@ -876,6 +1272,12 @@ it('seeds 10s duration and composes camera/multi-shot prompts on video feature s
     destination: sceneDestination(studioScenes.find(item => item.id === 'video-multi-shot')!),
   }} />));
   expect([...container.querySelectorAll('.om-relight-field .om-eyebrow')].map(node => node.textContent)).toEqual(['Shot count', 'Shot progression']);
+  expect(container.querySelectorAll('.om-relight-field [data-form-control="boxed"]')).toHaveLength(2);
+  expect(container.querySelectorAll('.om-creation-model .om-picker-trigger[data-form-control="boxed"]')).toHaveLength(2);
+  expect(container.querySelector('button[aria-label="Duration"]')?.getAttribute('data-form-control')).toBe('boxed');
+  expect(container.querySelector<HTMLTextAreaElement>('.om-media-prompt')?.labels?.[0].textContent).toBe('Detailed description');
+  expect(container.querySelector('.om-media-submit .om-creation-submit-button')).not.toBeNull();
+  expect(container.querySelector('.om-creation-billing')).toBeNull();
   expect(container.querySelector('.om-scene-source')?.textContent).toContain('First frame');
   generate.mockResolvedValue({ job: { id: 'video-job' } });
   await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
@@ -907,6 +1309,27 @@ it('exposes the native audio toggle on Text to video and preserves user control 
   await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
   const request = generate.mock.calls[0][0];
   expect(request.prompt).toBe('Rain in a neon alley');
+});
+
+it.each(['guest', 'free'] as const)('opens an image or video model shortcut on its account guide for a %s user', async state => {
+  const { ImageMegaMenu } = await import('./ImageMegaMenu');
+  const { VideoMegaMenu } = await import('./VideoMegaMenu');
+  const catalog = { models: [], status: { routes: {}, providers: [
+    { id: 'account', label: 'OpenDesign', available: state === 'free', mediaEntitlement: state === 'free' ? 'not-included' as const : undefined },
+    { id: 'opendesign', label: 'OpenDesign Cloud', available: false },
+  ] } };
+  const navigate = vi.fn();
+  for (const [Menu, label, modelId] of [
+    [ImageMegaMenu, 'GPT Image 2.6 Flare', 'gpt-image-2.6-flare'],
+    [VideoMegaMenu, 'Wan 2.7', 'wan-2.7'],
+  ] as const) {
+    await act(async () => root.render(<Menu catalog={catalog} destination={null} onNavigate={navigate} />));
+    const option = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Models"] button')]
+      .find(button => button.textContent?.includes(label))!;
+    expect(option.disabled).toBe(false);
+    await act(async () => option.click());
+    expect(navigate).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'account:' + modelId }));
+  }
 });
 
 it('renders VideoMegaMenu with open video scenes, Omni reference, Soon items, and OpenDesign video models', async () => {
@@ -972,7 +1395,7 @@ it('automatically includes newly published capable OpenDesign models in feature 
   expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst', 'Future Studio Image v3']);
 });
 
-it('drops an unknown single-reference OpenDesign image model when two or more references are attached on Character consistency', async () => {
+it('never offers an unknown single-reference OpenDesign image model on Image blend, at one or two references', async () => {
   const { sceneDestination, studioScenes } = await import('./creativeStudios');
   const existing = featureModels();
   // Unknown OpenDesign model with supportsImageReference: true and no maxInputImages falls back to limit 1.
@@ -992,15 +1415,15 @@ it('drops an unknown single-reference OpenDesign image model when two or more re
   };
   await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Walk through the park', references: [reference('one')] }} studio={{
     catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: sceneDestination(studioScenes.find(item => item.id === 'character')!),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'image-blend')!),
   }} />));
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
-  expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst', 'Future Single Ref Image']);
+  expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst']);
 
   await act(async () => root.unmount()); root = createRoot(container);
   await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Walk through the park', references: [reference('one'), reference('two')] }} studio={{
     catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: sceneDestination(studioScenes.find(item => item.id === 'character')!),
+    destination: sceneDestination(studioScenes.find(item => item.id === 'image-blend')!),
   }} />));
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')!.click());
   expect(optionNames()).toEqual(['GPT Image 2.6 Sunburst']);
@@ -1038,7 +1461,7 @@ it('uses action-verb CTAs for remove-background and relight, exposes full picker
   for (const [sceneId, expectedAction] of [
     ['remove-background', 'Remove background'],
     ['relight', 'Relight'],
-    ['character', 'Generate image'],
+    ['image-blend', 'Blend images'],
   ] as const) {
     await act(async () => root.render(<AssetComposer {...props} draft={{ modality: 'image', prompt: 'Warm rim light', references: [reference('product')] }} studio={{
       catalog: { catalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
@@ -1065,7 +1488,7 @@ it('uses action-verb CTAs for remove-background and relight, exposes full picker
   expect(container.querySelector('.om-studio-form-heading')).toBeNull();
 });
 
-it('keeps Character reference upload actions available up to 5 images even with a 1-ref model selected or before setup', async () => {
+it('keeps Image blend upload actions available up to 5 images even with a 1-ref model pinned or before setup', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
   const existing = featureModels();
   const multiCatalog = {
@@ -1075,56 +1498,57 @@ it('keeps Character reference upload actions available up to 5 images even with 
   const oneRef = [reference('hero-1')];
   const fiveRefs = ['hero-1', 'hero-2', 'hero-3', 'hero-4', 'hero-5'].map(id => reference(id));
 
-  // Even when Seedream 5.5 (1-ref) is selected, Character reference keeps Upload/Choose open because Sunburst (multi-ref) is available.
+  // Even when Seedream 5.5 (1-ref) is pinned, Image blend keeps Upload/Choose open because Sunburst (multi-ref) is available.
   await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: oneRef }} studio={{
     catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   }} />));
   expect(container.querySelector('.om-source-actions')).not.toBeNull();
   await act(async () => root.unmount()); root = createRoot(container);
 
-  // Hides Upload/Choose once all 5 Character reference slots are filled.
+  // Hides Upload/Choose once all 5 Image blend slots are filled.
   await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: fiveRefs }} studio={{
     catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   }} />));
   expect(container.querySelector('.om-source-actions')).toBeNull();
   await act(async () => root.unmount()); root = createRoot(container);
 
-  // Before provider setup (!selected), Character reference still allows attaching up to 5 images.
+  // Before provider setup (!selected), Image blend still allows attaching up to 5 images.
   await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
     catalog: { catalog: { models: [], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: false }] } }, failed: false, retry: vi.fn() },
     chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   }} />));
   expect(container.querySelector('.om-source-actions')).not.toBeNull();
   await act(async () => root.unmount()); root = createRoot(container);
 
-  // While catalog is still loading (undefined), Character reference falls back to its 5-image limit.
+  // While catalog is still loading (undefined), Image blend falls back to its 5-image limit.
   await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
     catalog: { catalog: undefined, failed: false, retry: vi.fn() },
     chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   }} />));
   expect(container.querySelector('.om-source-actions')).not.toBeNull();
   await act(async () => root.unmount()); root = createRoot(container);
 
-  // Going from 1 -> 2 references with Seedream 5.5 selected switches the active model to Sunburst.
+  // A pinned Seedream 5.5 is never used for blending; Sunburst runs it instead.
   await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', model: existing.seedream.id, references: [reference('hero-1'), reference('hero-2')] }} studio={{
     catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() }, chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   }} />));
   expect(container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')?.textContent).toContain('GPT Image 2.6 Sunburst');
   expect(container.querySelector('.om-source-actions')).not.toBeNull();
   await act(async () => root.unmount()); root = createRoot(container);
 
-  // When only a 1-ref model is available on Character reference, Upload/Choose closes after 1 image.
+  // When only a 1-ref model exists, nothing can blend: attaching stays open to the feature's limit but generation is blocked.
   await act(async () => root.render(<AssetComposer {...props} onUploadReference={vi.fn()} draft={{ modality: 'image', prompt: 'Hero in Tokyo', references: oneRef }} studio={{
     catalog: { catalog: { models: [existing.seedream], status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] } }, failed: false, retry: vi.fn() },
     chooseModel: vi.fn(), remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   }} />));
-  expect(container.querySelector('.om-source-actions')).toBeNull();
+  expect(container.querySelector('.om-source-actions')).not.toBeNull();
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled ?? true).toBe(true);
   await act(async () => root.unmount()); root = createRoot(container);
 
   // Single-reference features (remove-background) still close after 1 image.
@@ -1137,7 +1561,7 @@ it('keeps Character reference upload actions available up to 5 images even with 
   expect(container.querySelector('.om-scene-source-files')?.getAttribute('data-layout')).toBeNull();
 });
 
-it('shows reference quota counter, compact thumbnail grid, drag/paste upload, stable uploading button, and auto-switch toast', async () => {
+it('shows reference quota counter, compact thumbnail grid, drag/paste upload, stable uploading button, and no model-switch notice on Image blend', async () => {
   const { mediaEditorDestination } = await import('./creativeStudios');
   const existing = featureModels();
   const multiCatalog = {
@@ -1150,7 +1574,7 @@ it('shows reference quota counter, compact thumbnail grid, drag/paste upload, st
     catalog: { catalog: multiCatalog, failed: false, retry: vi.fn() },
     chooseModel: vi.fn(),
     remember: vi.fn(),
-    destination: mediaEditorDestination('character'),
+    destination: mediaEditorDestination('image-blend'),
   };
 
   // 1 reference with Seedream 5.5 selected -> shows 1 / 5 counter and grid layout.
@@ -1226,7 +1650,7 @@ it('shows reference quota counter, compact thumbnail grid, drag/paste upload, st
   expect(uploadingBtn.textContent).toBe('Uploading…');
   expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(true);
 
-  // Growing from 1 -> 2 references triggers model switch from Seedream 5.5 to Sunburst and emits one info notice.
+  // Image blend never selects a 1-ref model, so growing from 1 -> 2 references keeps Sunburst without a switch notice.
   await act(async () => root.render(<AssetComposer
     {...props}
     onUploadReference={vi.fn()}
@@ -1236,10 +1660,10 @@ it('shows reference quota counter, compact thumbnail grid, drag/paste upload, st
     studio={studio}
   />));
   expect(container.querySelector('.om-scene-source-count')?.textContent).toBe('2 / 5');
-  expect(onInfo).toHaveBeenCalledTimes(1);
-  expect(onInfo).toHaveBeenCalledWith('{from} supports 1 reference image. Switched to {to}.');
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Generation model"]')?.textContent).toContain('GPT Image 2.6 Sunburst');
+  expect(onInfo).not.toHaveBeenCalled();
 
-  // Adding a 3rd reference does not repeat the switch notice.
+  // Adding a 3rd reference does not emit a notice either.
   onInfo.mockClear();
   await act(async () => root.render(<AssetComposer
     {...props}
@@ -1250,4 +1674,89 @@ it('shows reference quota counter, compact thumbnail grid, drag/paste upload, st
     studio={studio}
   />));
   expect(onInfo).not.toHaveBeenCalled();
+});
+
+it('drives relight and video feature prompts from runtime capability overrides and clamps dynamic capability maxReferences', async () => {
+  const { capabilityScene, mediaEditorDestination, sceneDestination } = await import('./creativeStudios');
+  const { defaultCapabilities, resolveCapabilityCatalog } = await import('../../../shared/capability-registry');
+  const existing = featureModels();
+  const seedance: Model = { id: 'opendesign:doubao-seedance-2-5-260628', provider: 'opendesign', modelId: 'doubao-seedance-2-5-260628', label: 'Seedance 2.5', modality: 'video', mode: 'text-to-video', source: 'live', maxInputImages: 1 };
+
+  const baseRelight = defaultCapabilities.find(c => c.id === 'relight')!;
+  const customRelightControls = baseRelight.input.controls!.map(control =>
+    control.key === 'direction'
+      ? { ...control, choices: [...control.choices, { value: 'neon-rim', label: 'Neon rim', prompt: 'crisp cyan neon rim light from behind' }] as typeof control.choices }
+      : control,
+  );
+  const baseCamera = defaultCapabilities.find(c => c.id === 'camera-control')!;
+  const customCameraControls = baseCamera.input.controls!.map(control =>
+    control.key === 'movement'
+      ? { ...control, choices: [...control.choices, { value: 'whip-pan', label: 'Whip pan', prompt: 'high-energy whip pan transition across the frame' }] as typeof control.choices }
+      : control,
+  );
+  const overriddenCapabilities = resolveCapabilityCatalog([
+    { id: 'relight', input: { ...baseRelight.input, controls: customRelightControls } },
+    { id: 'camera-control', input: { ...baseCamera.input, controls: customCameraControls } },
+    { id: 'upscale-4k', status: 'live', channels: { gui: true, mcp: true } },
+  ]);
+
+  const catalog = {
+    models: [existing.sunburst, seedance],
+    status: { routes: {}, providers: [{ id: 'opendesign', label: 'OpenDesign Cloud', available: true }] },
+    capabilities: overriddenCapabilities,
+  };
+
+  // 1. Relight runtime override choice submits the overridden prompt instead of falling back to legacy left-side light
+  generate.mockReset().mockResolvedValue({ job: { id: 'relight-override-job' } });
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    draft={{ modality: 'image', prompt: 'Keep metal reflections crisp.', relight: { direction: 'neon-rim' }, capabilityOptions: { direction: 'neon-rim' }, references: [reference('product-1')] }}
+    studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() },
+      chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('relight'),
+    }}
+  />));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    action: 'generate',
+    capabilityId: 'relight',
+    prompt: expect.stringContaining('crisp cyan neon rim light from behind'),
+  }));
+  expect(generate.mock.calls[0][0].prompt).not.toContain('key light from the left side');
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // 2. Video feature runtime override choice renders and submits the overridden movement prompt
+  generate.mockReset().mockResolvedValue({ job: { id: 'camera-override-job' } });
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    draft={{ modality: 'video', prompt: 'City skyline at dusk.', videoChoices: { movement: 'whip-pan' }, capabilityOptions: { movement: 'whip-pan' }, references: [] }}
+    studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() },
+      chooseModel: vi.fn(), remember: vi.fn(),
+      destination: mediaEditorDestination('video-camera-control'),
+    }}
+  />));
+  await act(async () => container.querySelector<HTMLButtonElement>('.om-creation-submit-button')!.click());
+  expect(generate).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    action: 'generate',
+    capabilityId: 'camera-control',
+    prompt: expect.stringContaining('high-energy whip pan transition across the frame'),
+  }));
+  await act(async () => root.unmount()); root = createRoot(container);
+
+  // 3. Dynamic capability (upscale-4k, maxReferences: 1) clamps references to 1 even on a 16-ref model
+  const upscaleCap = overriddenCapabilities.find(c => c.id === 'upscale-4k')!;
+  await act(async () => root.render(<AssetComposer
+    {...props}
+    onUploadReference={vi.fn()}
+    draft={{ modality: 'image', prompt: '', references: [reference('img-1'), reference('img-2')] }}
+    studio={{
+      catalog: { catalog, failed: false, retry: vi.fn() },
+      chooseModel: vi.fn(), remember: vi.fn(),
+      destination: sceneDestination(capabilityScene(upscaleCap)),
+    }}
+  />));
+  expect(container.querySelector('.om-source-actions')).toBeNull();
+  expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(true);
 });

@@ -8,17 +8,22 @@
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--motion-space-24) var(--motion-space-24) var(--motion-space-40);
+  scrollbar-gutter: stable;
+  padding: var(--om-library-pad-top) var(--om-library-pad-x) var(--motion-space-40);
   background: var(--motion-workspace);
 }
 
 [data-motion-studio] .om-projects-shell {
   width: 100%;
-  max-width: 1320px;
-  margin-inline: auto;
+  max-width: none;
+  margin-inline: 0;
   display: flex;
   flex-direction: column;
   gap: var(--motion-space-20);
+}
+
+[data-motion-studio] .om-projects-shell > .om-library-hub-nav {
+  margin-bottom: calc(var(--motion-space-4) * -1);
 }
 
 [data-motion-studio] .om-projects-header {
@@ -40,6 +45,7 @@
   margin: 0;
   font-size: var(--motion-text-section);
   font-weight: var(--motion-weight-semibold);
+  line-height: var(--motion-leading-tight);
   color: var(--motion-strong);
   letter-spacing: -0.02em;
 }
@@ -810,7 +816,7 @@
 
 @container projects-hub (max-width: 680px) {
   [data-motion-studio] .om-projects-page {
-    padding: var(--motion-space-16) var(--motion-space-14) var(--motion-space-32);
+    padding-bottom: var(--motion-space-32);
   }
 
   [data-motion-studio] .om-projects-filter-group {

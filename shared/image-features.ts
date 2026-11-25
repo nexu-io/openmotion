@@ -5,10 +5,11 @@ import { isOpenDesignProvider, modelCapabilities, type MediaCapabilities } from 
  * Image features composed from one edit request. Each feature declares the model capabilities it requires
  * (rather than a static model ID allowlist) so newly published models automatically participate once capable.
  */
-export type ImageFeatureId = 'remove-background' | 'relight' | 'character';
+export type ImageFeatureId = 'remove-background' | 'relight' | 'image-blend';
 export type ImageFeature = {
   requires: (capabilities: MediaCapabilities) => boolean;
   recommended: string;
+  minReferences?: number;
   maxReferences: number;
   parameters?: Record<string, unknown>;
   promptOptional: boolean;
@@ -19,6 +20,7 @@ export const imageFeatures: Record<ImageFeatureId, ImageFeature> = {
   'remove-background': {
     requires: capabilities => capabilities.image.edit && capabilities.image.maxReferences >= 1 && capabilities.image.transparentBackground,
     recommended: 'gpt-image-2.6-sunburst',
+    minReferences: 1,
     maxReferences: 1,
     parameters: { background: 'transparent' },
     promptOptional: true,
@@ -27,16 +29,19 @@ export const imageFeatures: Record<ImageFeatureId, ImageFeature> = {
   relight: {
     requires: capabilities => capabilities.image.edit && capabilities.image.maxReferences >= 1,
     recommended: 'seedream-5.5',
+    minReferences: 1,
     maxReferences: 1,
     promptOptional: true,
     actionLabel: 'Relight',
   },
-  // Seedream 5.5 stays eligible for 1 reference; creationModels drops models whose reference limit is below the attached count.
-  character: {
-    requires: capabilities => capabilities.image.edit && capabilities.image.maxReferences >= 1,
+  // Multi-image blending requires at least 2 reference inputs, so 1-reference models (e.g. Seedream 5.5) are excluded automatically.
+  'image-blend': {
+    requires: capabilities => capabilities.image.edit && capabilities.image.maxReferences >= 2,
     recommended: 'gpt-image-2.6-sunburst',
+    minReferences: 2,
     maxReferences: 5,
     promptOptional: false,
+    actionLabel: 'Blend images',
   },
 };
 
@@ -84,6 +89,6 @@ export function imageFeaturePrompt(feature: ImageFeatureId, prompt: string, reli
     return 'Relight this image. Keep the subject, composition, pose and every detail unchanged; change only the lighting, shadows and reflections. '
       + `Lighting: ${light}.` + (note ? ' ' + note : '');
   }
-  return 'Keep the character from the reference images consistent: the same face, hairstyle, body shape, skin tone, outfit and distinguishing features. '
+  return 'Combine the provided reference images (Image 1, Image 2, and any additional images in order) seamlessly into a single cohesive image with unified lighting, perspective, shadows, and color harmony. '
     + note;
 }

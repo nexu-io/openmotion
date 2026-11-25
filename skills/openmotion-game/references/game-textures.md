@@ -3,197 +3,92 @@
 # Texture Tile Factory
 
 > **Asset reference for game-generation.** Use for any seamless / tileable texture
-> with PBR maps (ground, walls, floors — from a reference image or a generated one).
-> The pipeline may be entered at any phase (only the seam fix, or only maps from an
-> existing tile). Generate through `openmotion_generate_asset` (after discovery, stated cost and approval); local image paths are
-> uploaded automatically. Embed the game's STYLE FORMULA
-> (see `game-stylization.md`) in every generation prompt.
+> (ground, walls, floors, track surfaces, skyboxes) and its PBR map set, from a
+> reference image or a generated one. Enter at any phase (only the seam fix, or
+> only maps from an existing tile). Generate through `openmotion_assets_use`
+> `action=generate` after `openmotion_media_use` discovery, a stated plan and
+> spending approval. Embed the game's STYLE FORMULA (see `game-stylization.md`)
+> in every generation prompt.
 >
-> **The upstream post-process scripts are optional external prerequisites, not bundled in this Skill.** Locate them once per run (see **Locating the scripts** below) and
-> address them as `scripts/pipeline.py`.
+> No external scripts are required. The post-process below runs in game code
+> (Canvas 2D or a small WebGL pass) at load time. A user-supplied local tool
+> may replace it, but its absence never blocks the pipeline.
 
-Turn a reference image into an engine-ready texture in one pass: a
-**seamless edit** with an available image-edit model (upstream preference: `gpt_image_2`) that keeps the reference's
-pixels (material, style and colors survive; only the edges are reconciled),
-then a **deterministic post-process** — one Python command that restores the
-reference's exact palette, guarantees the tiling mathematically and computes
-the PBR map set in code.
-
-The order matters: palette transfer and seam fix run **after** GPT, because
-gpt_image_2 always slightly blurs the outer border and drifts the palette —
-the upstream algorithm exists to cancel exactly those two artifacts.
+Turn a reference into an engine-ready texture: a **seamless edit** with an
+edit-capable image model that keeps the reference's material, style and
+colors, then a **deterministic post-process** in code that guarantees tiling
+and derives the PBR maps.
 
 Work language: mirror the user's language in chat; keep all generation
 prompts in English.
 
-The user may want only part of the pipeline — seam-fix an existing tile, or
-maps from an already-seamless texture. Enter at the matching phase; don't
-force the full chain.
-
 ## Prerequisites
 
-- An available OpenMotion media provider configured and authorized — for Phase 1.
-- Python with `numpy` and `pillow` — Phases 2–3 run fully offline
-  (report the missing dependencies if absent; install only when authorized).
-- The bundled scripts reachable on disk (next section). Never retype or
-  "improve" them inline — they are deterministic on purpose.
-
-## Locating the scripts
-
-The upstream scripts named below are not shipped in OpenMotion; a separately supplied local implementation is required:
-`pipeline.py` (the whole factory: seam fix, palette transfer, PBR maps,
-masked-inpaint composite) and `seamless.py` (legacy standalone seam fix).
-
-1. Run the separately supplied local scripts from this skill's directory; verify with
-   `python3 scripts/pipeline.py --help`.
-2. If the file is missing, **find the skill on disk before doing anything
-   else** — never fall back to rewriting the script from memory:
-
-   Use the path supplied by the active skill loader or search the agent's installed skills
-   directory for `openmotion-game/SKILL.md`, then export its parent directory.
-3. Still nothing → stop and report the exact path tried; a run without
-   the separately supplied local scripts is a blocker, not a license to improvise.
+- An image model discovered with `openmotion_capability_discover` (`action:"models" modality:"image" refresh:true`) or `openmotion_media_use action=models modality=image refresh=true`, following the `openmotion-media` provider order (`account` → `opendesign` → other configured providers). For reference-based seamless edits, pick a model reporting `supportsImageReference:true` (preferring `tier:"fast"` / `batch-tiles` or `tier:"flagship"` from live `tier`/`bestFor`/`description`). Use only returned IDs.
+- The reference as a library asset (`assetId` + `versionId`): a previous generation, or a user file imported with `openmotion_assets_use action=import`.
+- No generation model, or the user declines → skip Phase 1 and build the tile procedurally (value noise / fBm on a canvas with wrap-around sampling, which is seamless by construction), then run Phases 2–3.
 
 ## Phase 0 — Reference intake
 
-Get the reference as a real file (chat previews don't always reach the
-filesystem — if the file is missing, ask the user to drop it into the
-working folder). Then:
-
-- **Square-crop** to `textures/{id}_ref.png`. If the photo has perspective
-  or depth of field, crop the sharpest square region — tilted detail and
-  bokeh produce mush at the seam.
-- **Measure before generating.** Run the seam check (Phase 3). If the tile
-  is already seamless (ratio ≈ 1.0), skip Phase 1 and run Phase 2 with
-  `--trim 0`.
+- Use the sharpest square region of the reference; perspective or depth of field produces mush at the seam.
+- **Measure before generating** with the Phase 3 seam ratio. If the tile is already seamless (ratio ≈ 1.0), skip Phase 1.
 - Pick `{id}`: short, lowercase, one per material (`sand`, `brick_red`).
 
-## Phase 1 — Seamless edit (gpt_image_2)
+## Phase 1 — Seamless edit
 
-- Pass the crop directly with `--image`; the CLI uploads and confirms local paths.
-- Fill the EDIT prompt template from the **Prompt templates** section below.
-  `{MATERIAL}` = 3–6 concrete words from the
-  reference. For structured materials (bricks, planks, tiles) append the
-  alignment add-on; for references that are already tiled previews append
-  the anti-repetition add-on; for stock images append the watermark add-on.
-- Submit and wait:
-  ```text
-Parameter translation brief (not a shell command). Map only supported fields; do not forward historical flags blindly.
-  REQUEST via openmotion_generate_asset after supported-schema mapping, stated cost and approval: gpt_image_2 \
-    --prompt "<EDIT prompt with STYLE FORMULA>" \
-    --image textures/{id}_ref.png \
-    --aspect_ratio 1:1 \
-    --quality high \
-    --wait \
-    --json
-  
-```
-- Download the result and **look at it with the Read tool next to the
-  reference**. Check: same material, same colors, nothing added or removed,
-  no restyle. If GPT restyled — one retry with a stronger "do not restyle"
-  clause. If a structured seam survives the retry, switch to the
-  offset-inpaint pass (Prompt templates §2 below) instead of rolling
-  the seed again: two identical failures mean the approach is wrong, not
-  the seed.
+- Fill the EDIT prompt from **Prompt templates** below. `{MATERIAL}` = 3–6 concrete words from the reference. Append the alignment add-on for bricks/planks/tiles, the anti-repetition add-on for tiled previews and the watermark add-on for stock images.
+- Submit after approval:
 
-Don't fight the border blur or palette drift in the prompt — Phase 2
-cancels both deterministically.
-
-## Phase 2 — Post-process and PBR maps
-
-One command per material:
-
-```bash
-python3 "scripts/pipeline.py" gpt_output.png \
-    -o textures/{id} --ref textures/{id}_ref.png
+```json
+{"action":"generate","requestId":"tex-sand-01","model":"<provider>:<discovered-image-edit-model>","modality":"image","prompt":"<EDIT prompt>. <STYLE FORMULA>","references":[{"assetId":"<ref asset>","versionId":"<ref version>"}],"parameters":{}}
 ```
 
-In order: trims the blurred 4% border (`--trim`, set `0` for non-GPT
-input), transfers the reference's exact palette via per-channel histogram
-matching (`--ref` — the color-identity guarantee), fixes the seam
-mathematically (Moisan FFT periodic decomposition + 50% offset blend +
-luminance flatten against tile-grid banding), then computes the PBR set
-with wrap-around filters so tileability survives every map.
+  Pass only options declared in the model's live `generationOptions` / provider reference (do not send bare `aspect_ratio` or `output` unless the live profile supports them, and crop/scale to a power-of-two square in Phase 2).
+- Poll `action:"status"`, then `action:"read"` the result and **look at it next to the reference**: same material, same colors, nothing added or removed, no restyle. If it restyled, at most one retry within the approved asset/retry budget with a stronger "do not restyle" clause (extra attempts beyond the approved budget require fresh consent). If a structured seam survives, switch to the offset-inpaint pass (Prompt templates §2) instead of rerolling: two identical failures mean the approach is wrong, not the seed.
 
-Writes: `{id}_seamless.png`, `{id}_basecolor.png`, `{id}_normal.png`,
-`{id}_roughness.png`, `{id}_height.png`.
+Edit models tend to blur the outer border slightly and drift the palette. Do not fight that in the prompt; Phase 2 cancels both.
 
-The seam fix has two modes (`--blend`, default `cut`):
+## Phase 2 — Post-process and PBR maps (in code)
 
-- **`cut` (default)** — a hard minimal-error cut: the junction is covered
-  by a thin donor tube whose boundaries are cyclic min-cost paths that
-  dodge detailed features (stones, planks) and run through low-detail
-  zones (mortar, moss). Fully sharp — no averaging anywhere except a
-  3-px feather along the cut line itself. `--overlap` (default `0.25`)
-  is the corridor the paths may wander in; wider gives the cut more room
-  to avoid features at zero blur cost.
-- **`feather`** — the legacy cross-fade. Guarantees the wrap but averages
-  the band, which smears structured materials; if used there, narrow the
-  band with `--overlap 0.08`.
+Load the completed version from `/motion-api/assets/<assetId>/versions/<versionId>/media` into an offscreen canvas and run, in order:
 
-Partial-pipeline entries map to flags of the same command:
+1. **Trim** the blurred border (about 4% per side) and rescale back to a power-of-two size (256 or 512). Skip for non-generated input.
+2. **Palette lock** (when a reference exists): per-channel histogram matching of the output against the reference so the color identity survives.
+3. **Seam fix**: offset the tile by 50% on both axes, then cross-fade a narrow band (8–12% of the width, cosine weights) across the now-central seams with the unshifted tile. For structured materials keep the band narrow so units stay sharp. Repeat once if Phase 3 still flags a ratio above ~1.3.
+4. **Maps** with wrap-around sampling so tileability survives every map:
+   - height = luminance, lightly blurred;
+   - normal = Sobel on height (wrap at edges), packed to RGB;
+   - roughness = inverted, contrast-stretched height (stone/earth) or a constant (metal, plastic).
 
-- **Seam-fix an existing tile** (no GPT step): `--trim 0`.
-- **Maps only, from an already-seamless tile**: `--trim 0 --no-seam`
-  (the seam fix is skipped entirely so a verified tile is never touched).
-- **Residual interior line** (a faint tone step where a §2 inpaint cross
-  used to be, or a wrap ratio that stays above ~1.3): run the **double
-  pass** — `np.roll` the produced `{id}_seamless.png` by 50% on both axes
-  and run the same Phase 2 command again with `--trim 0`. The interior
-  line lands on the wrap junction and gets cut away; the already-clean
-  edges move to the interior. The script picks the donor strip
-  automatically from the cleanest region of the tile, so the pass is safe
-  to repeat.
+Use them as `map`, `normalMap` and `roughnessMap` on `MeshStandardMaterial` with `RepeatWrapping`, or as a repeating `CanvasPattern` in 2D. Cache the derived canvases; never recompute them per frame.
 
 ## Phase 3 — Verify and package
 
-For every produced material:
+- Render the basecolor tiled 2×2 and **inspect it**: features wrap, no grid banding, no brightness step at joints. Also inspect 1:1 crops of both wrap junctions and the tile center; downscaled previews hide smears and ghost elements.
+- Seam ratio (≈ 1.0 = seamless; flag anything above 1.3): mean absolute difference across the wrap edges divided by the mean neighbour difference inside the tile.
 
-- Tile the basecolor 2×2 and **inspect with the Read tool**: features wrap,
-  no grid banding, no brightness step at the joints.
-- **Inspect at 1:1**: full-resolution crops of both wrap junctions (paste
-  the two opposite edge strips side by side) and of the tile center.
-  Downscaled previews hide translucent smears and ghost elements.
-- Seam ratio (≈ 1.0 = seamless; flag anything above 1.3 and consider the
-  offset-inpaint pass):
-
-```bash
-python3 - <<'EOF'
-import numpy as np; from PIL import Image
-a = np.asarray(Image.open("textures/{id}_basecolor.png").convert("RGB")).astype(float)
-seam = abs(a[0]-a[-1]).mean() + abs(a[:,0]-a[:,-1]).mean()
-base = abs(np.diff(a,axis=0)).mean() + abs(np.diff(a,axis=1)).mean()
-print(round(seam/base, 2))
-EOF
+```js
+function seamRatio(img) { // img: ImageData
+  const { data: d, width: w, height: h } = img, px = (x, y, c) => d[(y * w + x) * 4 + c];
+  let seam = 0, base = 0, ns = 0, nb = 0;
+  for (let i = 0; i < w; i++) for (let c = 0; c < 3; c++) { seam += Math.abs(px(i, 0, c) - px(i, h - 1, c)); ns++; }
+  for (let j = 0; j < h; j++) for (let c = 0; c < 3; c++) { seam += Math.abs(px(0, j, c) - px(w - 1, j, c)); ns++; }
+  for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) for (let c = 0; c < 3; c++) {
+    base += Math.abs(px(x, y, c) - px(x + 1, y, c)) + Math.abs(px(x, y, c) - px(x, y + 1, c)); nb += 2;
+  }
+  return (seam / ns) / (base / nb);
+}
 ```
 
-Assemble the final structure and write `textures/texture_manifest.json`
-mapping each id → files produced:
-
-```
-textures/
-├── texture_manifest.json   # id → {ref, seamless, maps[], seam_ratio}
-├── {id}_ref.png            # square crop of the user's reference
-├── {id}_seamless.png       # the tile itself
-├── {id}_basecolor.png      # PBR set — drops into Unity/UE/Godot as-is
-├── {id}_normal.png
-├── {id}_roughness.png
-└── {id}_height.png
-```
-
-Finish with a short summary table for the user: material, seam ratio,
-files. Offer the natural next steps without launching them: more tile
-variants against visible repetition on large areas, transition tiles
-between two materials, or running the next reference through the same
-pipeline.
+Record each material in `design/assets.csv` (asset id/version, model, cost, seam ratio). Summarize for the user: material, seam ratio, where it is used. Offer next steps without launching them: tile variants against visible repetition, transition tiles between two materials.
 
 ---
 
 ## Prompt templates
 
-All prompts go to `gpt_image_2`, aspect `1:1`, quality `high`, with the
-reference attached as a media input (`media_id`, never a raw URL).
-
+All prompts go to the discovered edit-capable model, aspect `1:1`, high
+quality where listed, with the reference attached as a library reference
+(`references:[{assetId,versionId}]`), never a raw URL.
 ## 1. Seamless edit (Phase 1)
 
 ```
@@ -222,10 +117,10 @@ Add-ons, appended as extra sentences when they apply:
 
 ## 2. Offset-inpaint pass — structured seams that survive Phase 1
 
-Move the seam to the center and have GPT repaint only the cross:
+Move the seam to the center and have the model repaint only the cross:
 
-1. `np.roll` the tile by 50% on both axes (the seam becomes a center cross).
-2. Send to gpt_image_2:
+1. Offset the tile by 50% on both axes (the seam becomes a center cross). Save the offset PNG with authorized local file access and import it with `openmotion_assets_use action=import` to get a reference `assetId`/`versionId`. If no local file write is available, skip this pass and rely on the Phase 2 code seam fix.
+2. Send the rolled tile as an image reference to the same edit-capable model:
 
 ```
 This {MATERIAL} game texture is damaged along a vertical line and a
@@ -250,21 +145,11 @@ so the prompt also demands the whole output stay tileable.
 
 3. **Never trust the model's full output** — it repaints the whole image
    regardless of "keep the borders unchanged", and its repaint outside the
-   cross carries drift, ghosts and translucent smears (live failed runs of
-   this skill). Finish with the **masked composite** built into the
-   script — one command:
-
-```bash
-python3 "scripts/pipeline.py" {id}_rolled.png \
-    --inpaint gpt_cross_output.png -o textures/{id} --ref textures/{id}_ref.png
-```
-
-   It takes from the model's output **only the center cross**, bounded by
-   cyclic min-cut paths laid where original and repaint agree (the SD
-   seamless-tile extensions do the same with a real inpaint mask — this
-   emulates it for models without mask support); ~70% of the tile stays
-   the untouched original. The composite is unrolled (the repaired cross
-   becomes the wrap), then the normal post-process runs.
+   cross carries drift, ghosts and translucent smears. Composite in code:
+   take from the model output **only a band around the center cross**
+   (about 20% of the tile width, feathered a few pixels), keep the rest of
+   the rolled original, then roll back by 50% so the repaired cross becomes
+   the wrap and run the Phase 2 post-process.
 
 The edge-seam ratio alone can look perfect while an interior defect hides
 in the patched zone — Phase 3 inspection must include **1:1 (100% zoom)

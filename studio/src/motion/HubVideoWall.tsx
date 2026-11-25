@@ -8,6 +8,7 @@ import { MotionIcon } from './icons';
 import { TemplateHandoffSteps } from './TemplateHandoffInfo';
 import { templateSubmissionPrompt } from './templateContribution';
 import type { GalleryTemplate } from '../../../shared/catalog';
+import { rankSearchResults } from '../../../shared/fuzzy-search';
 import styles from './TemplateLibraryDialog.module.css';
 import { StudioToastViewport } from '../components/StudioToastViewport';
 import { useI18n } from '../i18n/I18n';
@@ -79,10 +80,20 @@ export function HubVideoWall({ hubId, signedIn, videos, title, query = '' }: { h
     for (const video of videos) counts.set(video.category, (counts.get(video.category) ?? 0) + 1);
     return [...counts].sort((a, b) => b[1] - a[1]).map(([scene]) => scene);
   }, [videos]);
-  const shown = useMemo(() => videos
-    .filter(video => filter === 'all' || video.category === filter)
-    .filter(video => { const q = query.trim().toLocaleLowerCase(); return !q || [video.title, t(video.title), video.author, video.authorName, t(video.category), video.notes, video.notesEn ?? "", video.variant].some(text => text.toLocaleLowerCase().includes(q)); })
-    .sort((a, b) => b.views - a.views), [videos, filter, query, t]);
+  const shown = useMemo(() => {
+    const byCategory = videos.filter(video => filter === 'all' || video.category === filter);
+    const trimmed = query.trim();
+    if (!trimmed) return [...byCategory].sort((a, b) => b.views - a.views);
+    return rankSearchResults(byCategory, trimmed, video => ({
+      id: video.id,
+      title: t(video.title),
+      subtitle: t(video.category),
+      description: video.notes,
+      tags: [video.variant, video.category],
+      aliases: [video.title, video.notesEn ?? ''],
+      author: video.authorName || video.author,
+    })).map(r => r.item);
+  }, [videos, filter, query, t]);
   const visible = shown;
   const columns = useGalleryColumns();
   const compact = useMemo(() => new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }), [locale]);

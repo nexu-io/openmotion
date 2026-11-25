@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invalidateGatewayCache, loadGateway } from './gatewayClient';
+import { gatewayRequest, invalidateGatewayCache, loadGateway } from './gatewayClient';
 import { peekCachedGateway } from './gatewayCache';
 
+let pendingAccountCatalog: ReturnType<typeof loadGateway> | undefined;
+function resolveAccountCatalog() {
+  // The navigation menu and the generation panel can open against the same cold account.
+  pendingAccountCatalog ??= gatewayRequest('settings/account?refresh=true')
+    .then(() => {
+      invalidateGatewayCache();
+      return loadGateway();
+    })
+    .finally(() => { pendingAccountCatalog = undefined; });
+  return pendingAccountCatalog;
+}
+
 /** Both navigation and generation read the executable gateway catalog. */
-export function useMediaCatalog(active: boolean) {
+export function useMediaCatalog(active: boolean, resolveAccountPlan = false) {
   const [catalog, setCatalog] = useState<Awaited<ReturnType<typeof loadGateway>> | undefined>(() =>
     active ? peekCachedGateway() : undefined,
   );
@@ -33,12 +45,19 @@ export function useMediaCatalog(active: boolean) {
       setCatalog(undefined);
     }
     const request = ++sequence.current;
-    void loadGateway()
-      .then(value => { if (sequence.current === request) setCatalog(value); })
+    void loadGateway().then(async value => {
+      if (sequence.current !== request) return;
+      const needsPlan = resolveAccountPlan && value.status.providers.some(provider =>
+        provider.id === 'account' && provider.available && provider.mediaEntitlement === 'unknown');
+      // Resolve a restored sign-in before choosing a default provider. If billing is
+      // unreachable, the original catalog still offers the available providers.
+      const resolved = needsPlan ? await resolveAccountCatalog().catch(() => value) : value;
+      if (sequence.current === request) setCatalog(resolved);
+    })
       .catch(() => {
         if (sequence.current === request && !cached) setFailed(true);
       });
     return () => { sequence.current++; };
-  }, [active, attempt]);
+  }, [active, attempt, resolveAccountPlan]);
   return { catalog, failed, retry };
 }

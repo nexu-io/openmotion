@@ -14,6 +14,7 @@ import { memo, useState, useCallback, useRef, useMemo, useEffect, useId } from "
 import { SearchInput } from "../ui/SearchInput";
 import { FilterChip } from "../ui/FilterChip";
 import { MEDIA_EXT, FONT_EXT } from "../../utils/mediaTypes";
+import { rankSearchResults } from "../../../../shared/fuzzy-search";
 import { copyTextToClipboard } from "../../utils/clipboard";
 import { usePlayerStore } from "../../player/store/playerStore";
 import {
@@ -217,14 +218,16 @@ export const AssetsTab = memo(function AssetsTab({
 
   const mediaAssets = useMemo(() => {
     const all = allMediaAssets;
-    if (!searchQuery) return all;
-    const q = searchQuery.toLowerCase();
-    return all.filter((a) => {
-      if ((assetNames?.[a] ?? filename(a)).toLowerCase().includes(q)) return true;
-      if (filename(a).toLowerCase().includes(q)) return true;
+    if (!searchQuery.trim()) return all;
+    return rankSearchResults(all, searchQuery, (a) => {
       const rec = manifest.get(a);
-      return rec?.description?.toLowerCase().includes(q);
-    });
+      return {
+        id: a,
+        title: assetNames?.[a] ?? filename(a),
+        subtitle: filename(a),
+        description: rec?.description,
+      };
+    }).map((r) => r.item);
   }, [allMediaAssets, searchQuery, manifest, assetNames]);
 
   const categorized = useMemo(() => {
