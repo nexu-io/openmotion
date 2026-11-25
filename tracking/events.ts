@@ -66,10 +66,11 @@ const generationOffer = { offer_kind: ['sign_in', 'upgrade'], offer_visit_id: 'u
 // hook_id identifies which product touchpoint triggered the flow; entry_id joins the click to sign-in, Pricing visit and payment.
 export const entitlementHookIds = [
   'header_signin', 'settings_signin', 'template_use', 'private_link_gate', 'assets_empty',
-  'studio_generate', 'cloud_export', 'session_expired_401', 'header_pricing', 'bf_banner',
+  'studio_generate', 'cloud_export', 'session_expired_401', 'header_pricing', 'bf_banner', 'bf_hero', 'bf_hub',
   'settings_subscription', 'studio_free_gate', 'model_picker_upgrade', 'studio_res_gate',
   'failure_card_topup', 'mcp_oauth',
   'model_hub_signin', 'model_hub_upgrade', 'game_publish_signin', 'cloud_share_signin',
+  'artifact_upgrade_banner',
 ] as const;
 export type EntitlementHookId = (typeof entitlementHookIds)[number];
 const campaign = { campaign_id: ['black_friday_2026'], entry_id: 'uuid', hook_id: entitlementHookIds } as const;
@@ -211,7 +212,7 @@ export const omEvents = {
       'community_tab', 'creators', 'media_filter', 'open_scene', 'open_skill', 'open_template', 'try_prompt', 'open_studio', 'slide_select', 'slide_toggle', 'slide_action',
       'load_more', 'view_all_templates', 'models_toggle', 'skill_category', 'open_brand_kit', 'open_assets', 'open_providers', 'open_mcp', 'open_skills',
       'back_to_explore', 'open_editor', 'scene_tab', 'open_in_studio', 'connect_key', 'manage_connection', 'view_plans',
-      'claim_offer', 'close_banner', 'open_pricing',
+      'claim_offer', 'close_banner', 'open_pricing', 'copy_prompt',
       'submit_game', 'game_option', 'open_game', 'remix_game', 'favorite_game', 'like_game', 'dislike_game', 'copy_game_link', 'edit_in_agent', 'continue_in_agent',
       'open_in_codex', 'open_external', 'reload_game', 'fullscreen_game', 'game_tab', 'open_publish', 'toggle_link_access', 'publish_link', 'new_link', 'copy_publish_link',
       'create_trailer', 'regenerate_trailer', 'open_trailer_project', 'open_game_studio', 'view_all_games',
@@ -225,7 +226,7 @@ export const omEvents = {
     interaction_method: ['pointer', 'keyboard'], ...project, ...template, ...templateSeries,
     chapter_index: 'integer', browse_method: ['arrow', 'drag'], direction: ['previous', 'next'],
     placement, position: 'integer', template_action: ['recreate', 'recreate_submit', 'open_edit'], target_agent: hosts,
-    copy_attempt_id: 'uuid', download_attempt_id: 'uuid', source_template_id: 'slug', operation_id: 'uuid',
+    copy_attempt_id: 'uuid', copy_status: ['clipboard_written', 'failed'], prompt_edited: 'boolean', download_attempt_id: 'uuid', source_template_id: 'slug', operation_id: 'uuid',
     filter_group: ['brand', 'uses', 'styles', 'industries', 'creationModels', 'colors', 'ratio', 'duration', 'editable'], filter_value: 'slug',
     selected: 'boolean', expanded: 'boolean', previous_sort: sortOrder, changed: 'boolean', ...templateDetail, ...templateList,
     ...skill, ...brand, brand_collection: brandCollection, ...mcp, entry_from: entryFrom, ...referenceEntry, ...referenceSource,
@@ -260,8 +261,8 @@ export const omEvents = {
     required: ['outcome', 'entry_point', 'requested_count', 'added_count', 'failed_count'] },
   // A surface that became visible: the library, a template card, one template's detail, or the instruction to copy.
   // A card counts once it is at least half visible for a second, once per result set.
-  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'command_palette', 'template_zero_result_skills', 'asset_create', 'account', 'entitlement_modal', 'entitlement_gate', 'game_detail', 'game_handoff'],
-    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'palette', 'skill_fallback', 'modal', 'gate_card', 'handoff'], ...generationOffer, settings_section: settingsSection, scene_id: creative.scene_id, ...campaign, placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
+  surface_view: { producers: ['studio'], fields: { page_name: pages, area: ['template_library', 'template_card', 'template_detail', 'template_instruction', 'template_discovery', 'template_related', 'template_guide', 'skill_detail', 'brand_detail', 'template_series_card', 'template_series_detail', 'template_series_work', 'campaign_banner', 'hub_videos', 'command_palette', 'template_zero_result_skills', 'asset_create', 'account', 'entitlement_modal', 'entitlement_gate', 'game_detail', 'game_handoff'],
+    element: ['library', 'card', 'detail', 'instruction', 'search_recovery', 'reference', 'related', 'guide', 'banner', 'palette', 'skill_fallback', 'modal', 'gate_card', 'handoff'], ...generationOffer, settings_section: settingsSection, scene_id: creative.scene_id, ...campaign, ...modelHub, filter_value: 'slug', placement, position: 'integer', source_template_id: 'slug', ...templateList, ...templateDetail, ...template, ...templateSeries,
     ...skill, ...brand, ...referenceEntry, brand_state: brandState, recovery_reason: ['no_results', 'unsuitable', 'catalog_empty'],
     studio_id: creative.studio_id, ...game, publish_target: webPublishTargets },
     required: ['page_name', 'area', 'element'] },
@@ -307,7 +308,8 @@ export const omEvents = {
     copy_status: ['clipboard_written', 'failed'], includes_setup: 'boolean' }, required: ['copy_kind', 'copy_status', 'mcp_client'] },
   // Workspace assets. A submitted generation is accepted work, not a finished asset; the worker reports the media result.
   asset_generation_submit_result: { producers: ['studio'], fields: { page_name: ['assets', 'creative_studio'], modality, outcome: ['success', 'failure'],
-    reference_count: 'integer', new_version: 'boolean', studio_id: creative.studio_id, scene_id: creative.scene_id, model_provider: creative.model_provider, model_id: creative.model_id }, required: ['modality', 'outcome', 'reference_count', 'new_version'] },
+    reference_count: 'integer', new_version: 'boolean', studio_id: creative.studio_id, scene_id: creative.scene_id, model_provider: creative.model_provider, model_id: creative.model_id,
+    hub_id: modelHub.hub_id, template_id: template.template_id, prompt_edited: 'boolean' }, required: ['modality', 'outcome', 'reference_count', 'new_version'] },
   asset_update_result: { producers: ['studio'], fields: { page_name: ['assets'], modality, action: ['rename', 'trash', 'restore', 'switch_version', 'other'],
     outcome: ['success', 'failure'] }, required: ['action', 'outcome'] },
   // Settings. One result per saved change; credentials, names, URLs and model ids never become fields.

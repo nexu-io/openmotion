@@ -101,8 +101,8 @@ export function useExploreCampaign(filters: ExploreFilters) {
 export type ExploreCampaign = ReturnType<typeof useExploreCampaign>;
 export const shouldShowBlackFridayBanner = () => blackFridayActive() && !bannerDismissedToday();
 
-/** Where the click happened: the top campaign banner, the header Pricing entry, or the post-artifact upgrade prompt. */
-export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_header_pricing' | 'openmotion_artifact_upgrade';
+/** Where the click happened: the top campaign banner, the Explore hero, a model hub promo pill, the header Pricing entry, or the post-artifact upgrade prompt. */
+export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_bf_hero' | 'openmotion_bf_hub' | 'openmotion_header_pricing' | 'openmotion_artifact_upgrade';
 /**
  * The `od_entry_source` sent for these entries. AMR keeps an attribution only for registered sources, and
  * `openmotion_manage_subscription` is the OpenMotion source it already accepts; an unregistered value would drop the
@@ -112,6 +112,8 @@ export type CampaignEntrySource = 'openmotion_bf_banner' | 'openmotion_header_pr
 const REGISTERED_ENTRY_SOURCE = 'openmotion_manage_subscription';
 const utmMedium: Record<CampaignEntrySource, string> = {
   openmotion_bf_banner: 'banner',
+  openmotion_bf_hero: 'hero',
+  openmotion_bf_hub: 'model_hub',
   openmotion_header_pricing: 'header',
   openmotion_artifact_upgrade: 'artifact_upgrade',
 };

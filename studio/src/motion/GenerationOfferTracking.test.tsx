@@ -5,6 +5,7 @@ import { expect, it, vi } from 'vitest';
 import { validProperties, uuid } from '../../../tracking/core';
 import { studioEvents } from '../../../tracking/events';
 import { AccountSettings } from './AccountSettings';
+import { BLACK_FRIDAY_CAMPAIGN, BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_STARTS_AT, blackFridayActive } from './campaignAttribution';
 import { mediaEditorDestination } from './creativeStudios';
 import { createOfferVisit, type OfferKind } from './offerTracking';
 import { gatewayRequest } from './gatewayClient';
@@ -59,8 +60,9 @@ it('qualifies each guide once per scene visit and links each real button click t
         advance(999);
         expect(packets()).toHaveLength(0);
         advance(1);
+        const campaignFields = blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {};
         const fields = { page_name: 'creative_studio', area: 'asset_create', studio_id: destination.studio.id, scene_id: sceneId,
-          offer_visit_id: visit.fields.offer_visit_id, offer_kind: kind };
+          offer_visit_id: visit.fields.offer_visit_id, offer_kind: kind, ...campaignFields };
         expect(packets()).toEqual([['surface_view', { ...fields, element: 'card' }]]);
         await act(async () => root.render(null));
         await renderCard(kind);
@@ -115,7 +117,8 @@ it('attributes settings impressions and handoffs to the section and counts each 
           await act(async () => window.dispatchEvent(new Event('motion:account-changed')));
         }
         const button = container.querySelector<HTMLButtonElement>(`[data-generation-offer="${kind}"] button`)!;
-        const fields = { page_name: 'settings', area: 'account', settings_section: section, offer_kind: kind };
+        const campaignFields = blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {};
+        const fields = { page_name: 'settings', area: 'account', settings_section: section, offer_kind: kind, ...campaignFields };
         act(() => vi.advanceTimersByTime(999));
         expect(events.mock.calls).toEqual([]);
         act(() => vi.advanceTimersByTime(1));
@@ -141,6 +144,46 @@ it('attributes settings impressions and handoffs to the section and counts each 
         events.mockClear();
       }
     }
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+});
+
+it('attaches black_friday_2026 campaign_id during the Black Friday window and omits it afterward', async () => {
+  const container = document.body.appendChild(document.createElement('div'));
+  const root = createRoot(container);
+  vi.useFakeTimers();
+  vi.stubGlobal('IntersectionObserver', class {
+    constructor(private callback: (entries: Partial<IntersectionObserverEntry>[]) => void) {}
+    observe(target: Element) { this.callback([{ target, isIntersecting: true, intersectionRatio: 1 }]); }
+    disconnect() {}
+  });
+  vi.mocked(gatewayRequest).mockImplementation(async () => ({ opened: true }));
+  await loadReportingTransport();
+  try {
+    const destination = mediaEditorDestination('remove-background');
+
+    vi.setSystemTime(BLACK_FRIDAY_STARTS_AT);
+    vi.mocked(trackMotion).mockClear();
+    const activeVisit = createOfferVisit({ studio: destination.studio.id, scene: 'remove-background' });
+    await act(async () => root.render(<GenerationSignInNotice destination={destination} visit={activeVisit} onSignIn={() => {}} />));
+    act(() => { vi.advanceTimersByTime(1000); });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-generation-offer] button')!.click());
+    expect(vi.mocked(trackMotion).mock.calls[0][1]).toMatchObject({ campaign_id: BLACK_FRIDAY_CAMPAIGN });
+    expect(vi.mocked(trackMotion).mock.calls[1][1]).toMatchObject({ campaign_id: BLACK_FRIDAY_CAMPAIGN });
+
+    await act(async () => root.render(null));
+    vi.setSystemTime(BLACK_FRIDAY_ENDS_AT);
+    vi.mocked(trackMotion).mockClear();
+    const expiredVisit = createOfferVisit({ studio: destination.studio.id, scene: 'remove-background' });
+    await act(async () => root.render(<GenerationSignInNotice destination={destination} visit={expiredVisit} onSignIn={() => {}} />));
+    act(() => { vi.advanceTimersByTime(1000); });
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-generation-offer] button')!.click());
+    expect(vi.mocked(trackMotion).mock.calls[0][1]).not.toHaveProperty('campaign_id');
+    expect(vi.mocked(trackMotion).mock.calls[1][1]).not.toHaveProperty('campaign_id');
   } finally {
     await act(async () => root.unmount());
     container.remove();

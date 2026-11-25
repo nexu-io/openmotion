@@ -18,6 +18,7 @@ import { createOfferVisit, reportOfferClick, useOfferImpression, type OfferVisit
 import { AccountOfferBadge } from './AccountOfferBadge';
 import { MultimodalUpgradeButton } from './MultimodalOfferCard';
 import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
+import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
 import { ModelAvatar, SettingsError, SettingsLoading } from './settingsPrimitives';
 import { WorkspaceSettingsSection } from './collab/WorkspaceSettingsSection';
 import { ReferralEntryCard } from './collab/ReferralEntryCard';
@@ -181,7 +182,11 @@ export function useAccountSignIn(area: GuideArea, showToast: ShowToast, provider
   }, [account, refresh, inGenerator]);
   const trackAction = (element: Parameters<typeof tracking.reportSettingsClick>[1], includeProvider = false, attribution?: EntryAttribution) => {
     if (inGenerator) reportCreativeClick('creative_studio', 'asset_create', element, destinationTarget(area));
-    else tracking.reportSettingsClick(area, element, { ...(includeProvider && provider ? { provider } : {}), ...(attribution && { hook_id: attribution.hookId, entry_id: attribution.entryId }) });
+    else tracking.reportSettingsClick(area, element, {
+      ...(includeProvider && provider ? { provider } : {}),
+      ...(attribution && { hook_id: attribution.hookId, entry_id: attribution.entryId }),
+      ...(element === 'view_plans' && blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } : {}),
+    });
   };
   const subscription = useSubscriptionOpener((element, attribution) => trackAction(element, false, attribution), message => showToast(message, 'error'), refreshBilling);
   // Order matters: the event below triggers a plain refresh, so the billing refresh must be issued after it to win.

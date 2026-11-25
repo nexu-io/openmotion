@@ -5,8 +5,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../i18n/I18n';
 import { studioEvents } from '../../../tracking/events.ts';
 import { validProperties } from '../../../tracking/core.ts';
+import { BlackFridayCollection } from './BlackFridayCollection';
 import { BlackFridayTopBanner, resetBlackFridayImpression } from './BlackFridayTopBanner';
-import { ExploreBlackFridayHero } from './ExploreBlackFridayHero';
+import { ExploreBlackFridayHero, resetBlackFridayHeroImpression } from './ExploreBlackFridayHero';
+import { createOfferVisit, reportOfferClick } from './offerTracking';
 import campaignUi from '../i18n/campaign-ui.json';
 import { BLACK_FRIDAY_ENDS_AT, BLACK_FRIDAY_HERO_ENDS_AT, BLACK_FRIDAY_HERO_STARTS_AT, BLACK_FRIDAY_STARTS_AT, bannerDismissedToday, blackFridayActive, blackFridayHeroActive, campaignPricingUrl, dismissBannerToday, readBlackFridayCountdown, resetBannerDismissal } from './campaignAttribution';
 import { PricingEntry } from './PricingEntry';
@@ -25,6 +27,7 @@ beforeEach(() => {
   vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
   vi.mocked(trackMotion).mockClear();
   resetBlackFridayImpression();
+  resetBlackFridayHeroImpression();
   container = document.createElement('div');
   document.body.append(container);
   root = createRoot(container);
@@ -43,6 +46,10 @@ it('builds a Pricing link that carries the OpenMotion entry the website keeps th
   });
   expect(new URL(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).pathname).toBe('/pricing/');
   expect(params(campaignPricingUrl('en', 'openmotion_header_pricing', 'x')).get('utm_medium')).toBe('header');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hero', 'x')).get('utm_medium')).toBe('hero');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hero', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hub', 'x')).get('utm_medium')).toBe('model_hub');
+  expect(params(campaignPricingUrl('en', 'openmotion_bf_hub', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
   expect(params(campaignPricingUrl('en', 'openmotion_artifact_upgrade', 'x')).get('utm_medium')).toBe('artifact_upgrade');
   expect(params(campaignPricingUrl('en', 'openmotion_artifact_upgrade', 'x')).get('od_entry_source')).toBe('openmotion_manage_subscription');
 });
@@ -292,5 +299,106 @@ it('navigates Pricing links in the same tab in a top-level browser and uses _bla
     expect(container.querySelector('a[href*="pricing"]')?.getAttribute('target')).toBe('_blank');
   } finally {
     delete (window as unknown as { __OPENMOTION_DESKTOP__?: unknown }).__OPENMOTION_DESKTOP__;
+  }
+});
+
+it('reports ExploreBlackFridayHero impression once per page load, bf_hero CTA click with utm_medium=hero, and checkout-return refresh', async () => {
+  await loadReportingTransport();
+  vi.setSystemTime(BLACK_FRIDAY_HERO_STARTS_AT);
+  const responses: Record<string, unknown>[] = [
+    { state: 'signed-in', plan: 'free' },
+    { state: 'signed-in', plan: 'pro' },
+  ];
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () =>
+    new Response(JSON.stringify(responses.shift() ?? { state: 'signed-out' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+  try {
+    render(<ExploreBlackFridayHero />);
+    render(<ExploreBlackFridayHero />);
+    expect(tracked().filter(row => row.event === 'surface_view')).toEqual([
+      { event: 'surface_view', properties: { page_name: 'explore', area: 'campaign_banner', element: 'banner', campaign_id: 'black_friday_2026', hook_id: 'bf_hero' } },
+    ]);
+
+    const cta = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;
+    cta.addEventListener('click', event => event.preventDefault());
+    const heroEntryId = params(cta.href).get('od_entry_id');
+    expect(params(cta.href).get('od_entry_source')).toBe('openmotion_manage_subscription');
+    expect(params(cta.href).get('utm_medium')).toBe('hero');
+
+    await act(async () => { cta.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(tracked().find(row => row.event === 'ui_click')?.properties).toMatchObject({
+      page_name: 'explore',
+      area: 'campaign_banner',
+      element: 'claim_offer',
+      campaign_id: 'black_friday_2026',
+      hook_id: 'bf_hero',
+      entry_id: heroEntryId,
+    });
+    expect(params(cta.href).get('od_entry_id')).not.toBe(heroEntryId);
+
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(tracked().filter(row => row.event === 'entitlement_refresh_result')).toEqual([
+      { event: 'entitlement_refresh_result', properties: { page_name: 'explore', hook_id: 'bf_hero', entry_id: heroEntryId, outcome: 'success', plan_changed: true } },
+    ]);
+
+    for (const row of tracked()) {
+      expect(validProperties(studioEvents, row.event, row.properties), JSON.stringify(row)).toBe(true);
+    }
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+it('attaches campaign_id to Studio/Settings offer cards during Black Friday only and tracks BlackFridayCollection workflow CTA', async () => {
+  await loadReportingTransport();
+  // Inside Black Friday window
+  const studioVisit = createOfferVisit({ studio: 'design', scene: 'text-to-image' });
+  reportOfferClick(studioVisit, 'sign_in', 'opendesign:gpt-image-2.6');
+  const settingsVisit = createOfferVisit({ settingsSection: 'account' });
+  reportOfferClick(settingsVisit, 'upgrade');
+  expect(tracked().slice(-2).map(row => row.properties)).toEqual([
+    expect.objectContaining({ page_name: 'creative_studio', area: 'asset_create', element: 'sign_in', offer_kind: 'sign_in', campaign_id: 'black_friday_2026' }),
+    expect.objectContaining({ page_name: 'settings', area: 'account', settings_section: 'account', element: 'view_plans', offer_kind: 'upgrade', campaign_id: 'black_friday_2026' }),
+  ]);
+
+  // Outside Black Friday window
+  vi.setSystemTime(BLACK_FRIDAY_ENDS_AT + 60_000);
+  reportOfferClick(studioVisit, 'upgrade');
+  expect(tracked().at(-1)?.properties).not.toHaveProperty('campaign_id');
+
+  // BlackFridayCollection Start Black Friday workflow button
+  vi.setSystemTime(Date.parse('2026-11-25T12:00:00+08:00'));
+  const onStartScenario = vi.fn();
+  render(
+    <BlackFridayCollection
+      templates={[]}
+      featuredPreviewsEnabled={false}
+      selectedFilter={null}
+      onFilterChange={() => {}}
+      searchField={null}
+      emptyResults={null}
+      active={new Set()}
+      onBack={() => {}}
+      onPreview={() => {}}
+      onPriority={() => {}}
+      onStartScenario={onStartScenario}
+    />,
+  );
+  const workflowBtn = [...container.querySelectorAll<HTMLButtonElement>('button')].find(btn => btn.textContent?.includes('黑五'))!;
+  await act(async () => { workflowBtn.click(); });
+  expect(onStartScenario).toHaveBeenCalledOnce();
+  expect(tracked().at(-1)).toEqual({
+    event: 'ui_click',
+    properties: {
+      page_name: 'studio',
+      area: 'template_discovery',
+      element: 'run_super_agent',
+      placement: 'black_friday',
+      campaign_id: 'black_friday_2026',
+    },
+  });
+
+  for (const row of tracked()) {
+    expect(validProperties(studioEvents, row.event, row.properties), JSON.stringify(row)).toBe(true);
   }
 });

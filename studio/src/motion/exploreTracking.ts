@@ -48,12 +48,32 @@ export function reportCreativePageView(page: ViewPage, hasProject: boolean, targ
 type HubArea = Extract<Click['area'], `hub_${string}`>;
 /** A model hub click. Video titles, creators and search text never become fields; a scene filter is sent as a stable id. */
 export function reportHubClick(hub: string, area: HubArea, element: Click['element'],
-  fields: { video?: string; position?: number; model?: string; signedIn?: boolean; filter?: string; action?: Click['template_action']; hookId?: Click['hook_id']; entryId?: string } = {}) {
-  const { video, position, model, signedIn, filter, action, hookId, entryId } = fields;
+  fields: {
+    video?: string; template?: string; position?: number; model?: string; signedIn?: boolean; filter?: string;
+    action?: Click['template_action']; hookId?: Click['hook_id']; entryId?: string;
+    campaignId?: Click['campaign_id']; promptEdited?: boolean; copyStatus?: Click['copy_status'];
+    interactionMethod?: Click['interaction_method'];
+  } = {}) {
+  const { video, template, position, model, signedIn, filter, action, hookId, entryId, campaignId, promptEdited, copyStatus, interactionMethod } = fields;
   const filterId = filter === undefined ? {} : optionId(filter);
-  send('ui_click', { page_name: 'model_hub', area, element, ...slugField('hub_id', hub), ...slugField('hub_video_id', video), ...modelFields(model),
+  send('ui_click', { page_name: 'model_hub', area, element, ...slugField('hub_id', hub), ...slugField('hub_video_id', video), ...slugField('template_id', template), ...modelFields(model),
     ...(position === undefined ? {} : { position }), ...(signedIn === undefined ? {} : { signed_in: signedIn }), ...filterId, ...(action ? { template_action: action } : {}),
-    ...(hookId ? { hook_id: hookId } : {}), ...(entryId ? { entry_id: entryId } : {}) });
+    ...(hookId ? { hook_id: hookId } : {}), ...(entryId ? { entry_id: entryId } : {}), ...(campaignId ? { campaign_id: campaignId } : {}),
+    ...(promptEdited === undefined ? {} : { prompt_edited: promptEdited }), ...(copyStatus ? { copy_status: copyStatus } : {}),
+    ...(interactionMethod ? { interaction_method: interactionMethod } : {}) });
+}
+export function reportHubCardImpression(hub: string, template: string, position: number, signedIn: boolean, filter?: string) {
+  const filterId = filter === undefined ? {} : optionId(filter);
+  send('surface_view', {
+    page_name: 'model_hub',
+    area: 'hub_videos',
+    element: 'card',
+    ...slugField('hub_id', hub),
+    ...slugField('template_id', template),
+    position,
+    signed_in: signedIn,
+    ...filterId,
+  });
 }
 export function reportHubPageView(hub: string, hasProject: boolean, signedIn: boolean) {
   send('page_view', { page_name: 'model_hub', view_id: newTrackingId(), embedded: embeddedView(), has_project: hasProject, ...slugField('hub_id', hub), signed_in: signedIn });

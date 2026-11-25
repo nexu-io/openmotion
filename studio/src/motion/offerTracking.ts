@@ -1,8 +1,11 @@
+import { BLACK_FRIDAY_CAMPAIGN, blackFridayActive } from './campaignAttribution';
 import { consumePendingAttribution } from './entitlementAttribution';
 import { useRef } from 'react';
 import { settingsEntryFrom } from './pageTracking';
 import { modelFields, newTrackingId, send, slugField, type Fields } from './reporting';
 import { useCardImpressions } from './useTemplateImpressions';
+
+const activeCampaignField = () => (blackFridayActive() ? { campaign_id: BLACK_FRIDAY_CAMPAIGN } as const : {});
 
 export type OfferKind = NonNullable<Fields<'ui_click'>['offer_kind']>;
 type OfferSource = { studio: string; scene: string } | { settingsSection: 'account' | 'subscription' };
@@ -20,7 +23,7 @@ export function useOfferImpression(visit: OfferVisit | undefined, kind: OfferKin
   useCardImpressions(card, kind, Boolean(visit && !visit.seen.has(kind)), visit?.fields.offer_visit_id ?? '', () => {
     if (visit && !visit.seen.has(kind)) {
       visit.seen.add(kind);
-      send('surface_view', { ...visit.fields, element: 'card', offer_kind: kind });
+      send('surface_view', { ...visit.fields, element: 'card', offer_kind: kind, ...activeCampaignField() });
     }
     return true;
   }, 'data-generation-offer');
@@ -35,6 +38,6 @@ export function reportOfferClick(visit: OfferVisit, kind: OfferKind, model?: str
     : { hookId: signingIn ? 'studio_generate' as const : 'studio_free_gate' as const, entryId: newTrackingId() };
   const entryFrom = visit.fields.page_name === 'settings' ? settingsEntryFrom() : undefined;
   send('ui_click', { ...visit.fields, element: kind === 'sign_in' ? 'sign_in' : 'view_plans', offer_kind: kind,
-    entry_id: attribution.entryId, hook_id: attribution.hookId, ...modelFields(model), ...(entryFrom ? { entry_from: entryFrom } : {}) });
+    entry_id: attribution.entryId, hook_id: attribution.hookId, ...activeCampaignField(), ...modelFields(model), ...(entryFrom ? { entry_from: entryFrom } : {}) });
   return attribution;
 }

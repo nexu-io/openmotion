@@ -33,3 +33,32 @@ it('admits Studio views and generations, splits real provider:model keys and lea
   ]);
   expectAdmitted();
 });
+
+it('admits hub template attribution fields on asset_generation_submit_result', () => {
+  pages.reportAssetGenerationSubmit(
+    'video',
+    'success',
+    0,
+    false,
+    { studio: 'cinema', scene: 'text-to-video', model: 'opendesign:seedance-2.5' },
+    { hubId: 'seedance-2-5', templateId: 'sd-pink-horizon', promptEdited: true },
+  );
+  expect(of('asset_generation_submit_result')).toEqual([
+    {
+      event: 'asset_generation_submit_result',
+      properties: expect.objectContaining({
+        page_name: 'creative_studio',
+        studio_id: 'cinema',
+        scene_id: 'text-to-video',
+        hub_id: 'seedance-2-5',
+        template_id: 'sd-pink-horizon',
+        prompt_edited: true,
+        modality: 'video',
+        outcome: 'success',
+      }),
+    },
+  ]);
+  for (const row of sent) {
+    expect(validProperties(studioEvents, row.event, row.properties), `${row.event} ${JSON.stringify(row.properties)}`).toBe(true);
+  }
+});
