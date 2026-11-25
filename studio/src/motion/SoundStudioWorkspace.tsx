@@ -264,7 +264,7 @@ function SoundFailedRow({
             </Button>
           )}
           {job.savePending && onRetrySave && (
-            <Tooltip label={t('Generated files are kept locally. Retry saving without generating again.')} wrap>
+            <Tooltip label={t('Retry saving without generating again.')} wrap>
               <Button
                 type="button"
                 variant="ghost"

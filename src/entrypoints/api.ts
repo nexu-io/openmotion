@@ -571,6 +571,7 @@ function createCloudMediaJobsPort(deps: {
       remoteId: row.remoteId ?? null,
       remoteTerminal: Boolean(row.remoteTerminal),
       savePending: row.savePending,
+      ...(row.failureStage ? { failureStage: row.failureStage } : {}),
       requestId: row.requestId ?? null,
       ...(row.resultJson ? { result } : {}),
       ...(typeof result.assetId === 'string' ? { assetId: result.assetId } : {}),
@@ -942,7 +943,7 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.remoteId || existing.remoteTerminal || existing.state !== 'failed') {
+    if (!existing.remoteId || existing.remoteTerminal || existing.savePending || existing.state !== 'failed') {
       throw new CloudError(
         'INVALID_ARGUMENT',
         'Only failed media jobs with an active upstream remoteId can be resumed without re-submitting.',
@@ -993,7 +994,7 @@ function createCloudMediaJobsPort(deps: {
     if (existing.projectId && auth.authMethod === 'oauth_bearer') {
       await loadProjectOrThrow(deps.db, auth.workspaceId, existing.projectId, { allowTrashed: true, auth });
     }
-    if (!existing.savePending) {
+    if (!existing.savePending || !existing.remoteId || existing.state !== 'failed') {
       throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
         status: 409,
         applied: false,

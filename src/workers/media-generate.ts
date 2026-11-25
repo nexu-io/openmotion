@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull } from 'drizzle-orm';
 import { MAX_MEDIA_BYTES, mediaType } from '../../gateway/network.ts';
 import type { AssetReference } from '../../shared/asset-library.ts';
 import type { Model } from '../../shared/gateway.ts';
@@ -313,7 +313,8 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
 ): Promise<Record<string, unknown>> {
   const { jobId, workspaceId } = payload;
   const claimToken = randomUUID();
-  const workDir = path.join(deps.tmpBaseDir ?? os.tmpdir(), `om-gen-${jobId}`);
+  const retrySave = name === 'retry_save_generation';
+  const workDir = path.join(deps.tmpBaseDir ?? os.tmpdir(), `om-gen-${jobId}-${claimToken}`);
   const abortController = new AbortController();
   const pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const maxPollMs = deps.maxPollMs ?? DEFAULT_MAX_POLL_MS;
@@ -322,6 +323,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
   let unsubscribeCancel: (() => Promise<void>) | null = null;
   let claimedJob: typeof jobs.$inferSelect | null = null;
   let terminalHandled = false;
+  let savePending = retrySave;
 
   const publishProgress = async (
     state: JobProgressEvent['state'],
@@ -355,15 +357,21 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           progress: 5,
           workerId: deps.workerId,
           claimToken,
+          ...(retrySave ? { failureStage: null, errorCode: null, errorMessage: null, terminalAt: null } : {}),
           startedAt: now,
           updatedAt: now,
         }),
       )
-      .where(and(eq(jobs.id, jobId), eq(jobs.workspaceId, workspaceId), eq(jobs.state, 'queued')))
+      .where(and(
+        eq(jobs.id, jobId),
+        eq(jobs.workspaceId, workspaceId),
+        eq(jobs.state, retrySave ? 'failed' : 'queued'),
+        retrySave ? and(eq(jobs.savePending, true), isNotNull(jobs.remoteId)) : undefined,
+      ))
       .returning();
 
     if (claimedRows.length === 0) {
-      deps.logger.info('Skipping media-generate job (not in queued state)', { jobId, workspaceId, name });
+      deps.logger.info('Skipping ineligible media-generate job', { jobId, workspaceId, name });
       return { skipped: true, jobId };
     }
     claimedJob = claimedRows[0];
@@ -386,7 +394,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
       idempotencyKey: jobId,
     };
 
-    // 2. Submit once (ONLY when remote_id is missing; resume_generation skips submit completely!).
+    // 2. Submit once. Save retries read the original result through the persisted remote ID.
     let remoteId: string | null =
       claimedJob.remoteId ??
       (name === 'resume_generation'
@@ -502,6 +510,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
               state: 'cancelled',
               stage: 'cancelled',
               remoteTerminal: !outcomeUnknown,
+              savePending: false,
               failureStage: 'generating',
               errorCode,
               errorMessage,
@@ -534,7 +543,8 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
               state: 'failed',
               stage: 'failed',
               remoteTerminal: !outcomeUnknown,
-              failureStage: 'generating',
+              savePending: outcomeUnknown && savePending,
+              failureStage: outcomeUnknown && savePending ? 'saving' : 'generating',
               errorCode,
               errorMessage,
               resultJson: pollResult.error ? { error: pollResult.error } : null,
@@ -567,7 +577,6 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
     if (outputs.length === 0) {
       throw new CloudError('STORAGE_ERROR', 'Upstream generation completed without media outputs', { status: 502 });
     }
-
     // 4. Download outputs into ephemeral /tmp, probe, normalize SDR PNG, generate thumbnails, upload to CAS BEFORE PG tx.
     await mkdir(workDir, { recursive: true, mode: 0o700 });
     await publishProgress('running', 'downloading', 85);
@@ -625,6 +634,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
       });
     }
 
+    savePending = true;
     await publishProgress('running', 'saving', 92);
 
     // Upload-Before-Reference invariant: put every output blob to S3 CAS BEFORE PG transaction.
@@ -667,6 +677,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
                 asUpdate(jobs, {
                   state: 'cancelled',
                   stage: 'cancelled',
+                  savePending: false,
                   terminalAt: cancelNow,
                   updatedAt: cancelNow,
                 }),
@@ -813,6 +824,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
               asUpdate(jobs, {
                 state: 'cancelled',
                 stage: 'cancelled',
+                savePending: false,
                 terminalAt: now,
                 updatedAt: now,
               }),
@@ -838,7 +850,8 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
               asUpdate(jobs, {
                 state: 'failed',
                 stage: 'failed',
-                failureStage: 'generate',
+                failureStage: savePending ? 'saving' : 'generate',
+                savePending,
                 errorCode,
                 errorMessage,
                 terminalAt: now,

@@ -45,6 +45,7 @@ import { createLogger } from '../../src/infra/logger.ts';
 import { InMemoryMcpSessionStore } from '../../src/mcp/index.ts';
 import { MockModelGateway } from '../../src/services/mock-model-adapter.ts';
 import type { WelcomeBootstrapService } from '../../src/services/welcome-bootstrap.ts';
+import { processMediaGenerateJob } from '../../src/workers/media-generate.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SILENT_LOGGER = createLogger({ level: 'error' });
@@ -689,7 +690,7 @@ function createFakeQueues(): { queues: ApiQueuesPort; enqueued: Array<{ queue: s
       enqueued.push({ queue: 'media-ingest', payload });
       return { id: randomUUID() } as never;
     },
-    async enqueueMediaGenerate(payload: unknown) {
+    async enqueueMediaGenerate(_name: string, payload: unknown) {
       enqueued.push({ queue: 'media-generate', payload });
       return { id: randomUUID() } as never;
     },
@@ -777,6 +778,9 @@ function createApiFixture(overrides: {
   return {
     app,
     services,
+    db,
+    queues,
+    gateway,
     config,
     pgClient,
     storage,
@@ -794,6 +798,90 @@ function createApiFixture(overrides: {
 // ---------------------------------------------------------------------------
 // 1. Unauthenticated Health Probes
 // ---------------------------------------------------------------------------
+
+describe('Cloud media generation and library save', () => {
+  for (const failFirstSave of [false, true]) {
+    it(failFirstSave ? 'OPEND-5749 retries a failed CAS save without resubmitting or duplicating assets' : 'commits one asset for one successful model submission', async (t) => {
+      const { app, db, queues, gateway, config, pgClient, storage, eventBus } = createApiFixture();
+      const enqueue = t.mock.method(queues, 'enqueueMediaGenerate');
+      const submitTask = t.mock.method(gateway, 'submitTask');
+      const pollTask = t.mock.method(gateway, 'pollTask');
+      if (failFirstSave) {
+        t.mock.method(storage, 'putBlobIfAbsent', async () => {
+          throw new Error('Injected CAS write failure');
+        }, { times: 1 });
+      }
+      const worker = {
+        db, storage, eventBus, gateway, logger: SILENT_LOGGER, workerId: 'media-test',
+        generateThumbnailBuffer: async () => null,
+      };
+      const submitted = await app.request('/motion-api/models/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modality: 'image', model: 'opendesign:mock-image-1', prompt: 'Yellow flower',
+          requestId: 'generate-image-1',
+        }),
+      });
+      assert.equal(submitted.status, 202);
+      const { job: { id: jobId } } = await submitted.json();
+      const payload = { jobId, workspaceId: config.DEV_WORKSPACE_ID };
+      assert.deepEqual(enqueue.mock.calls[0].arguments.slice(0, 2), ['generate_media', payload]);
+      const initial = processMediaGenerateJob(worker, 'generate_media', payload);
+
+      if (failFirstSave) {
+        await assert.rejects(initial, /Injected CAS write failure/);
+        const status = await app.request(`/motion-api/models/jobs/${jobId}`);
+        assert.equal(status.status, 200);
+        const { job } = await status.json();
+        assert.equal(job.state, 'failed');
+        assert.equal(job.savePending, true);
+        assert.equal(job.failureStage, 'saving');
+        assert.equal(job.remoteId, pollTask.mock.calls[0].arguments[1].remoteTaskId);
+        assert.equal(pgClient.rows('assets').length, 0);
+        assert.equal(pgClient.rows('asset_versions').length, 0);
+
+        for (const requestId of ['retry-image-save-1', 'retry-image-save-2']) {
+          const retried = await app.request('/motion-api/phase1/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: 'openmotion_assets_use',
+              arguments: { action: 'retry_save', jobId, requestId },
+            }),
+          });
+          assert.equal(retried.status, 200, await retried.text());
+        }
+
+        const results = await Promise.all(enqueue.mock.calls.slice(1).map(({ arguments: args }) => {
+          assert.deepEqual(args.slice(0, 2), ['retry_save_generation', payload]);
+          return processMediaGenerateJob(worker, args[0], args[1]);
+        }));
+        assert.equal(results.filter((result) => result.state === 'completed').length, 1);
+        assert.equal(results.filter((result) => result.skipped).length, 1);
+        assert.equal(pollTask.mock.calls[1].arguments[1].remoteTaskId, job.remoteId);
+      } else {
+        assert.equal((await initial).state, 'completed');
+      }
+
+      assert.equal(submitTask.mock.callCount(), 1);
+      assert.equal(pollTask.mock.callCount(), failFirstSave ? 2 : 1);
+      const completed = await app.request(`/motion-api/models/jobs/${jobId}`);
+      assert.equal(completed.status, 200);
+      const { job } = await completed.json();
+      assert.equal(job.state, 'completed');
+      assert.equal(job.savePending, false);
+      assert.equal(job.failureStage, undefined);
+      assert.equal(job.errorCode, undefined);
+      assert.equal(job.libraryAssets.length, 1);
+      assert.deepEqual(pgClient.rows('assets').map((asset) => asset.id), [job.libraryAssets[0].assetId]);
+      assert.deepEqual(pgClient.rows('asset_versions').map((version) => version.id), [job.libraryAssets[0].versionId]);
+      const [blob] = pgClient.rows('workspace_blobs');
+      assert.equal(blob.ref_count, 1);
+      assert.equal(storage.objects.has(String(blob.s3_key)), true);
+    });
+  }
+});
 
 describe('Cloud API Entrypoint — Health Probes', () => {
   it('serves /api/health/live (200), /api/health/ready (200 healthy, 503 degraded), and /api/health', async () => {
