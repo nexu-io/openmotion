@@ -243,7 +243,7 @@ export function McpConnectionPage({
   const page = useRef<HTMLElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const cloudWeb = useCloudWebMode();
-  const { account } = useAccountSummary();
+  const { account } = useAccountSummary({ eager: cloudWeb });
   const signedIn = account?.state === 'signed-in';
   const [galleryPosition] = useState(readMcpGalleryPosition);
   const example = (route ?? localRoute).mcpExample;
@@ -263,12 +263,6 @@ export function McpConnectionPage({
     const gallery = location.hash === '#gallery' && page.current?.querySelector<HTMLElement>('#mcp-templates');
     if (gallery) {
       gallery.scrollIntoView({ block: 'start' });
-      return;
-    }
-    const featuredCard = example && document.getElementById('mcp-featured-example-' + example);
-    if (featuredCard && page.current?.contains(featuredCard)) {
-      featuredCard.focus({ preventScroll: true });
-      featuredCard.scrollIntoView({ block: 'center' });
       return;
     }
     const card = example && document.getElementById('mcp-example-' + example);
@@ -698,9 +692,9 @@ export function McpConnectionPage({
       <div className="om-mcp-content">
         {matchedExample && (
           <section
-            id={`mcp-featured-example-${matchedExample.id}`}
+            id={`mcp-example-${matchedExample.id}`}
             tabIndex={-1}
-            className="om-card om-card-stack om-mcp-featured-example"
+            className="om-card om-card-stack"
             data-mcp-featured-example={matchedExample.id}
             aria-label={t(matchedExample.title)}
           >

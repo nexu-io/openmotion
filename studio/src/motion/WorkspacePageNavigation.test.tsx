@@ -284,7 +284,7 @@ it('offers one MCP entitlement action that opens account settings', async () => 
   await mount();
   await openMcp();
   expect(container.querySelectorAll('.om-mcp-entitlement-strip button')).toHaveLength(1);
-  await click('Claim now');
+  await click('Sign in');
   expect(page()).toMatchObject({ settings: 'account', provider: null });
 });
 

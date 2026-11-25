@@ -212,7 +212,7 @@ it('switches client-specific setup, copies example prompts and performs no mutat
   expect(feedback).toContain('Copied. Paste into Claude Code to finish setup.');
   expect(document.querySelector('.om-mcp-content [role=status]')).toBeNull();
   await act(async () => button('All 30+ templates').click()); expect(openLibrary).toHaveBeenCalledOnce();
-  expect([...document.querySelectorAll('.om-mcp-entitlement-strip button')].map(node => node.textContent)).toEqual(['Claim now']);
+  expect([...document.querySelectorAll('.om-mcp-entitlement-strip button')].map(node => node.textContent)).toEqual(['Sign in']);
   expect(tab('ChatGPT')).toBeUndefined();
   expect(document.querySelectorAll('#showcase .om-mcp-carousel-module')).toHaveLength(3);
   expect(document.querySelectorAll('#mcp-faq .om-mcp-faq-acc')).toHaveLength(6);

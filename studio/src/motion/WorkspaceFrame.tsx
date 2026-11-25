@@ -489,10 +489,9 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       }
     });
   }, [workspace.status, workspace.catalogLoaded, guestMode, workspace.busy, resumePendingDraft]);
-  const hasWorkspaceAccess = Boolean(workspace.status || workspace.catalogLoaded);
   const libraryBusy = workspace.busy || blocked || Boolean(editorState?.blocked);
-  const switchingDisabled = libraryBusy || (!hasWorkspaceAccess && !guestMode);
-  const motionEditorDisabled = libraryBusy || (!guestMode && (!hasWorkspaceAccess || workspace.projects.length === 0));
+  const switchingDisabled = libraryBusy || (!workspace.status && !guestMode);
+  const motionEditorDisabled = libraryBusy || (!guestMode && (!workspace.status || workspace.projects.length === 0));
   const openMotionEditor = async (selection: 'first' | 'last') => {
     if (motionEditorDisabled) return;
     if (guestMode) {
