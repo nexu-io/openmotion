@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { STUDIO_PREVIEW_ERRORS } from "@hyperframes/core/studio-preview-mark";
 import { onPreviewDocumentLoaded } from "../player/sceneSwap";
 import type { LintFinding } from "../components/LintModal";
@@ -11,13 +11,12 @@ export function useConsoleErrorCapture(previewIframe: HTMLIFrameElement | null) 
   const [consoleErrors, setConsoleErrors] = useState<LintFinding[] | null>(null);
   const consoleErrorsRef = useRef<LintFinding[]>([]);
 
-  const resetErrors = useCallback(() => {
-    consoleErrorsRef.current = [];
-    setConsoleErrors(null);
-  }, []);
-
   // eslint-disable-next-line no-restricted-syntax
   useEffect(() => {
+    const resetErrors = () => {
+      consoleErrorsRef.current = [];
+      setConsoleErrors(null);
+    };
     resetErrors();
     if (!previewIframe) return;
 
@@ -79,7 +78,7 @@ export function useConsoleErrorCapture(previewIframe: HTMLIFrameElement | null) 
       stopLoaded();
       detachErrorCapture();
     };
-  }, [previewIframe, resetErrors]);
+  }, [previewIframe]);
 
   return { consoleErrors, setConsoleErrors };
 }
