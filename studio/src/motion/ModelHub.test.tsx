@@ -34,11 +34,16 @@ it('guides guests to sign in on Open in Motion Studio and always surfaces Connec
   container.remove();
 
   account.state = 'signed-in';
-  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+  const fetchSpy = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({ connections: [{ activeTokenCount: 1 }] }),
-  }));
+  });
+  vi.stubGlobal('fetch', fetchSpy);
   view = await render();
+  expect(fetchSpy).toHaveBeenCalledWith(
+    '/motion-api/connections',
+    expect.objectContaining({ credentials: 'same-origin' }),
+  );
   expect(view.hero()).toContain('Open in Motion Studio');
   expect(view.hero()).toContain('Connected to Gemini · MCP');
   await act(async () => container.querySelector<HTMLButtonElement>('.om-model-hub-connected')!.click());

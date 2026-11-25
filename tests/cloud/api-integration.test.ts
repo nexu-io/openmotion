@@ -877,12 +877,32 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
       '/api/projects',
       `/api/media-jobs/${randomUUID()}/progress`,
       '/motion-api/models',
+      '/motion-api/models/defaults',
       '/motion-api/account/summary',
       '/motion-api/integration',
     ]) {
       const res = await app.request(url);
       assert.equal(res.status, 401, `expected 401 for unauthenticated ${url}`);
     }
+
+    // Public read-only model catalog & status for guest parameter preview (no defaults or billing leaked)
+    const publicCatalogRes = await app.request('/motion-api/models/catalog');
+    assert.equal(publicCatalogRes.status, 200);
+    const publicCatalog = (await publicCatalogRes.json()) as {
+      defaults?: Record<string, unknown>;
+      models?: unknown[];
+    };
+    assert.deepEqual(publicCatalog.defaults, {});
+    assert.ok(Array.isArray(publicCatalog.models));
+
+    const publicStatusRes = await app.request('/motion-api/models/status');
+    assert.equal(publicStatusRes.status, 200);
+    const publicStatus = (await publicStatusRes.json()) as {
+      providers?: Array<Record<string, unknown>>;
+    };
+    assert.ok(Array.isArray(publicStatus.providers) && publicStatus.providers.length >= 1);
+    assert.equal('plan' in publicStatus.providers[0]!, false);
+    assert.equal('hasBalance' in publicStatus.providers[0]!, false);
 
     // OAuth 2.1 discovery endpoints are public
     const prmRes = await app.request('/.well-known/oauth-protected-resource');

@@ -31,27 +31,33 @@ export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse,
   const { catalog, failed, retry } = useMediaCatalog(Boolean(hub));
   const account = useAccountSummary();
   const signedIn = account.account?.state === 'signed-in';
+  const activeWorkspaceId = account.account?.activeWorkspace?.id;
   useEffect(() => {
     if (!signedIn) {
       setMcpConnected(false);
       return;
     }
-    let cancelled = false;
-    void fetch('/motion-api/oauth/connections', { credentials: 'same-origin' })
+    const controller = new AbortController();
+    void fetch('/motion-api/connections', { credentials: 'same-origin', signal: controller.signal })
       .then(res => (res.ok ? res.json() : null))
-      .then((data: { connections?: Array<{ activeTokenCount?: number }> } | null) => {
-        if (cancelled) return;
+      .then((data: { connections?: Array<{ workspaceId?: string; activeTokenCount?: number }> } | null) => {
+        if (controller.signal.aborted) return;
         const connected = Boolean(
           Array.isArray(data?.connections) &&
-            data.connections.some(item => typeof item?.activeTokenCount === 'number' && item.activeTokenCount > 0),
+            data.connections.some(
+              item =>
+                (!activeWorkspaceId || !item?.workspaceId || item.workspaceId === activeWorkspaceId) &&
+                typeof item?.activeTokenCount === 'number' &&
+                item.activeTokenCount > 0,
+            ),
         );
         setMcpConnected(connected);
       })
       .catch(() => {
-        if (!cancelled) setMcpConnected(false);
+        if (!controller.signal.aborted) setMcpConnected(false);
       });
-    return () => { cancelled = true; };
-  }, [signedIn]);
+    return () => { controller.abort(); };
+  }, [signedIn, activeWorkspaceId]);
   const viewed = useRef(false);
   const accountKnown = account.account !== null || account.error;
   useEffect(() => {
