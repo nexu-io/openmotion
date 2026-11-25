@@ -8,6 +8,10 @@ import { stageStructurePreview } from "../peerTimingPreview";
 import { confirmedSource } from "../../utils/confirmedTextSources";
 import { displayAuthoredTimelineLanes } from "../components/timelineZones";
 import { applyAuthoredTimeline } from "./timelineHistoryRestore";
+import { getTimelineElementIdentity } from "./timelineDOM";
+import { seedSplitCompositionCaptureFallback } from "./clientCompositionCapture";
+import { encodePreviewPath } from "../components/thumbnailUtils";
+import { buildProjectApiPath } from "../../utils/projectRouting";
 
 type Projection = NonNullable<ReturnType<typeof parseAuthoredTimeline>>;
 // A baseline owns either the already-read source or the projected rows, never a DOM.
@@ -83,6 +87,44 @@ export function beginTimelineSourceRead(
   };
 }
 
+function seedSplitThumbnailsFromAuthoredDiff(
+  projectId: string,
+  path: string,
+  before: Projection,
+  after: Projection,
+): void {
+  const previewUrl =
+    path === "index.html"
+      ? buildProjectApiPath(projectId, "/preview")
+      : buildProjectApiPath(projectId, `/preview/comp/${encodePreviewPath(path)}`);
+  for (const added of after.elements) {
+    if (added.compositionSrc || !added.selector) continue;
+    const addedKey = getTimelineElementIdentity(added);
+    if (before.byKey.has(addedKey)) continue;
+    const addedEnd = added.start + added.duration;
+    const parent = before.elements.find((candidate) => {
+      if (candidate.compositionSrc || !candidate.selector) return false;
+      if ((candidate.sourceFile ?? path) !== (added.sourceFile ?? path)) return false;
+      const parentAfter = after.byKey.get(getTimelineElementIdentity(candidate));
+      if (!parentAfter || parentAfter.duration >= candidate.duration - 0.01) return false;
+      const splitMatchesStart = Math.abs(parentAfter.start + parentAfter.duration - added.start) < 0.05;
+      const endMatchesParent = Math.abs(candidate.start + candidate.duration - addedEnd) < 0.05;
+      return splitMatchesStart && endMatchesParent;
+    });
+    if (!parent?.selector) continue;
+    const splitFraction = parent.duration > 0 ? (added.start - parent.start) / parent.duration : 0.5;
+    seedSplitCompositionCaptureFallback({
+      projectId,
+      previewUrl,
+      fromSelector: parent.selector,
+      fromSelectorIndex: parent.selectorIndex,
+      toSelector: added.selector,
+      toSelectorIndex: added.selectorIndex,
+      splitFraction,
+    });
+  }
+}
+
 /** Display edit-core's structural result while its conditional write is in flight.
  * A newer confirmed projection takes ownership if another writer wins the race. */
 export function projectLocalTimelineEdit(
@@ -93,7 +135,9 @@ export function projectLocalTimelineEdit(
   const duration = usePlayerStore.getState().duration;
   const before = parseAuthoredTimeline(file.before, path, projectId, duration);
   const after = parseAuthoredTimeline(file.after, path, projectId, duration);
-  if (!before || !after || !applyAuthoredTimeline(before, after)) return;
+  if (!before || !after) return;
+  seedSplitThumbnailsFromAuthoredDiff(projectId, path, before, after);
+  if (!applyAuthoredTimeline(before, after)) return;
 
   const generation = ++scope.generation;
   const projected = { rows: after, generation, writeRevision: studioFileRevision() };

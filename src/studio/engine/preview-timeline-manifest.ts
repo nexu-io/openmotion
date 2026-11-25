@@ -32,9 +32,11 @@ export const PREVIEW_TIMELINE_MANIFEST = `
       const media = node.matches('audio,video,img,[data-composition-id],[data-composition-src],[data-composition-file]')
         ? node : node.querySelector('audio,video,img');
       const volume = Number.parseFloat(node.getAttribute('data-volume') ?? media?.getAttribute('data-volume'));
-      const isExternalSubComp = node.matches('[data-composition-src],[data-composition-file]');
+      const isRootComp = node === document.querySelector('[data-composition-id]');
+      const isExternalSubComp = !isRootComp && node.matches('[data-composition-src],[data-composition-file]');
+      const compositionSrc = clip.compositionSrc || (isExternalSubComp ? (node.getAttribute('data-composition-src') || node.getAttribute('data-composition-file')) : null) || null;
       const containsCanvas = !isExternalSubComp && (node.localName === 'canvas' || Boolean(node.querySelector('canvas')));
-      return { ...clip, authored: { domId, hfId, sourceFile,
+      return { ...clip, ...(compositionSrc ? { compositionSrc } : {}), authored: { domId, hfId, sourceFile,
         hidden: node.hasAttribute('data-hidden'), timelineLocked: node.hasAttribute('data-timeline-locked'),
         muted: node.hasAttribute('muted') || !!media?.hasAttribute('muted'),
         hasAudioAttr: node.getAttribute('data-has-audio'), volume: Number.isFinite(volume) ? volume : undefined,

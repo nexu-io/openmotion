@@ -357,10 +357,12 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     ? `${projectId}|${previewUrl}|${compCacheRev}|${desiredCaptureFrames}|${selector ?? ""}|${selectorIndex ?? 0}|${selectorCaptureWindowKey({ selector, seekTime: selectorStart, duration: selectorDuration }) ?? ""}`
     : null;
 
-  // Tier 0: synchronous in-memory hit (0ms across project/composition switches).
+  // Tier 0: synchronous in-memory hit (0ms across project/composition switches and splits).
+  // Whole-composition clips always use the canonical 8-frame strip regardless of measured
+  // width, so check memory immediately on mount without waiting for ResizeObserver.
   const syncCachedValue = useMemo(
     () =>
-      captureEnabled && captureMeasured
+      captureEnabled && (captureMeasured || !selector)
         ? peekCachedCompositionCapture({
             previewUrl,
             projectId,

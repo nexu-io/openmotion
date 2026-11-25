@@ -2113,6 +2113,7 @@ function putMemoryStripCache(
   for (const [oldKey, oldEntry] of memoryStripCache) {
     if (oldEntry.clipIdentityKey !== meta.clipIdentityKey) continue;
     const isSuperseded =
+      oldEntry.fallbackOnly ||
       oldEntry.contentRevision < meta.contentRevision ||
       (isCurrentRev && oldEntry.compRev !== meta.compRev);
     if (!isSuperseded) continue;
@@ -2280,6 +2281,108 @@ export function peekFallbackCompositionCapture(
     }
   }
   return fallbackRenderImage;
+}
+
+/**
+ * Seed a newly split right-half clip with the corresponding slice of its parent's
+ * already-cached filmstrip as a `fallbackOnly` entry so the right half mounts with
+ * immediate visual frames (zero text/skeleton flash) while its fresh capture runs.
+ */
+export function seedSplitCompositionCaptureFallback(params: {
+  projectId: string;
+  previewUrl: string;
+  fromSelector?: string;
+  fromSelectorIndex?: number;
+  toSelector?: string;
+  toSelectorIndex?: number;
+  splitFraction?: number;
+}): boolean {
+  if (!params.projectId || !params.previewUrl || !params.fromSelector || !params.toSelector) {
+    return false;
+  }
+  const fromIdentity = clipIdentityCacheKey({
+    projectId: params.projectId,
+    previewUrl: params.previewUrl,
+    selector: params.fromSelector,
+    selectorIndex: params.fromSelectorIndex,
+  });
+  const toIdentity = clipIdentityCacheKey({
+    projectId: params.projectId,
+    previewUrl: params.previewUrl,
+    selector: params.toSelector,
+    selectorIndex: params.toSelectorIndex,
+  });
+  if (fromIdentity === toIdentity) return false;
+
+  let source: MemoryStripEntry | null = null;
+  const entries = [...memoryStripCache.values()];
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i]!;
+    if (entry.revoked || entry.clipIdentityKey !== fromIdentity || entry.blobs.length === 0) continue;
+    if (entry.value.kind === "filmstrip" && entry.value.urls.length > 0) {
+      source = entry;
+      break;
+    }
+    if (!source && entry.value.kind === "image" && entry.value.representative === "render") {
+      source = entry;
+    }
+  }
+  if (!source) return false;
+
+  const fraction =
+    typeof params.splitFraction === "number" && Number.isFinite(params.splitFraction)
+      ? Math.max(0, Math.min(0.99, params.splitFraction))
+      : 0.5;
+  const startIdx =
+    source.blobs.length > 1
+      ? Math.min(source.blobs.length - 1, Math.floor(fraction * source.blobs.length))
+      : 0;
+  const slicedBlobs = source.blobs.slice(startIdx);
+  if (slicedBlobs.length === 0) return false;
+
+  const fallbackKey = `split-fallback:${toIdentity}`;
+  const prev = memoryStripCache.get(fallbackKey);
+  if (prev) {
+    memoryStripCache.delete(fallbackKey);
+    prev.inCache = false;
+    maybeRevokeEntry(prev);
+  }
+
+  const urls = slicedBlobs.map((blob) => URL.createObjectURL(blob));
+  const value: ThumbnailValue =
+    urls.length === 1
+      ? { kind: "image", url: urls[0]!, aspect: source.aspect, representative: "render" }
+      : { kind: "filmstrip", urls, aspect: source.aspect };
+  const coverUrl = urls[Math.min(urls.length - 1, Math.floor(urls.length / 2))]!;
+  const coverValue: ThumbnailValue =
+    value.kind === "image"
+      ? value
+      : { kind: "image", url: coverUrl, aspect: source.aspect, representative: "render" };
+  const entry: MemoryStripEntry = {
+    blobs: slicedBlobs,
+    value,
+    coverValue,
+    urls,
+    aspect: source.aspect,
+    width: source.width,
+    height: source.height,
+    weight: Math.max(1, urls.length) * source.width * source.height * 4,
+    baseCoverKey: fallbackKey,
+    compPathKey: source.compPathKey,
+    clipIdentityKey: toIdentity,
+    projectId: source.projectId,
+    compPath: source.compPath,
+    compRev: "__split_fallback__",
+    contentRevision: -1,
+    inCache: true,
+    refCount: 0,
+    revoked: false,
+    fallbackOnly: true,
+  };
+  entryByValue.set(value, entry);
+  if (coverValue !== value) entryByValue.set(coverValue, entry);
+  memoryStripCache.set(fallbackKey, entry);
+  return true;
 }
 
 /** Seed an in-memory cached capture strip in unit tests to exercise LRU/ownership semantics. */

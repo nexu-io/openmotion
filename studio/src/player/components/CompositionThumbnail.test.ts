@@ -10,6 +10,7 @@ import {
   clearClientCompositionCaptureCacheForTest,
   peekCachedCompositionCapture,
   seedClientCompositionCaptureForTest,
+  seedSplitCompositionCaptureFallback,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
   updateCachedCompositionRevisions,
@@ -936,5 +937,61 @@ describe("CompositionThumbnail retained filmstrip during refresh", () => {
       retrySpy.mockRestore();
       env.cleanup();
     }
+  });
+
+  it("renders a newly split right-half selector clip immediately from inherited parent frames without flashing text", async () => {
+    setCachedCloudDisklessMode(true);
+    setClientCompositionCaptureCapabilityForTest(true);
+    setCachedProjectRevision("demo", "rev-1", { "compositions/scene-a.html": "file-v1" });
+    const previewUrl = "/api/projects/demo/preview/comp/compositions/scene-a.html";
+    seedClientCompositionCaptureForTest(
+      {
+        projectId: "demo",
+        previewUrl,
+        contentRevision: 0,
+        frameCount: 4,
+        selector: "#hero",
+        seekTime: 0,
+        duration: 10,
+      },
+      [
+        new Blob(["f0"], { type: "image/jpeg" }),
+        new Blob(["f1"], { type: "image/jpeg" }),
+        new Blob(["f2"], { type: "image/jpeg" }),
+        new Blob(["f3"], { type: "image/jpeg" }),
+      ],
+    );
+
+    const seeded = seedSplitCompositionCaptureFallback({
+      projectId: "demo",
+      previewUrl,
+      fromSelector: "#hero",
+      toSelector: "#hero-split",
+      splitFraction: 0.5,
+    });
+    expect(seeded).toBe(true);
+
+    // Mounting the newly created right-half clip should render inherited filmstrip frames immediately
+    // with zero text-strip fallback and zero poster HTTP fetches while background capture is pending.
+    root = createRoot(host);
+    await act(async () => {
+      root!.render(
+        React.createElement(CompositionThumbnail, {
+          previewUrl,
+          label: "",
+          labelColor: "#fff",
+          selector: "#hero-split",
+          seekTime: 5,
+          duration: 5,
+          projectId: "demo",
+          contentRevision: 0,
+        }),
+      );
+      reportResize(host, 240, 48);
+    });
+
+    expect(host.querySelector('[data-composition-strip="text"]')).toBeNull();
+    expect(host.querySelectorAll("img").length).toBeGreaterThan(0);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });

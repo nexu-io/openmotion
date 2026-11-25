@@ -46,6 +46,8 @@ it("keeps authored identity across runtime notifications and only accepts it fro
       { ...clip, authored: { sourceFile: "parts/scene.html", hfId: "source-voice", hidden: true, timelineLocked: true, muted: true, volume: 0.42 } },
       { id: "magic-world", kind: "element", tagName: "div", start: 0, duration: 36.6, track: 0,
         authored: { sourceFile: "compositions/catalog-scene.html", domId: "magic-world", hfId: "hf-z4ka", hidden: false, timelineLocked: false, muted: false, containsCanvas: true } },
+      { id: "welcome-intro-split", kind: "composition", tagName: "div", compositionId: "welcome-intro__hf2", compositionSrc: "compositions/intro.html", start: 2.3, duration: 2.37, track: 0,
+        authored: { sourceFile: "index.html", domId: "welcome-intro-split", hfId: "hf-aofe", hidden: false, timelineLocked: false, muted: false } },
     ],
     durationInFrames: 60 };
   send({ ...payload, token: "older" });
@@ -60,6 +62,9 @@ it("keeps authored identity across runtime notifications and only accepts it fro
   });
   expect(built[1]).toMatchObject({
     domId: "magic-world", hfId: "hf-z4ka", tag: "div", containsCanvas: true,
+  });
+  expect(built[2]).toMatchObject({
+    domId: "welcome-intro-split", hfId: "hf-aofe", compositionSrc: "compositions/intro.html",
   });
   iframe.src = origin + "/api/projects/p/preview?pt=replacement";
   expect(isCurrentIsolatedManifest(iframe, clips)).toBe(false);
