@@ -133,11 +133,16 @@ export type BuiltinThirdPartyTemplate = {
   templateId: string;
   program: 'codex' | 'claude';
   mutating: boolean;
+  /** Optional bounded timeout override (ms) for interactive flows such as browser OAuth login. */
+  timeoutMs?: number;
   /** Argv tokens; `{paramName}` denotes a typed placeholder. Never passed to a shell. */
   argv: readonly string[];
   params: Record<string, { type: TemplatePlaceholderType; required?: boolean; defaultValue?: string }>;
   description: string;
 };
+
+/** Bounded timeout (3 min) for interactive browser OAuth sign-in flows (MFA / consent). */
+export const INTERACTIVE_OAUTH_TIMEOUT_MS = 180_000 as const;
 
 /**
  * Built-in third-party CLI allowlist (v1): codex and claude only,
@@ -180,6 +185,7 @@ export const BUILTIN_THIRD_PARTY_TEMPLATES: readonly BuiltinThirdPartyTemplate[]
     templateId: 'codex.mcp.login',
     program: 'codex',
     mutating: true,
+    timeoutMs: INTERACTIVE_OAUTH_TIMEOUT_MS,
     argv: ['mcp', 'login', '{serverName}'],
     params: {
       serverName: { type: 'identifier', required: false, defaultValue: DEFAULT_MCP_SERVER_NAME },

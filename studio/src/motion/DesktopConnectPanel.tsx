@@ -330,17 +330,21 @@ export function DesktopConnectPanel({
           HOST_CAPABILITIES.ATOM_DETECT,
           ['run', 'detect', 'scan'],
         );
+        const detectParams = {
+          serverName: resolvedServerName,
+          expectedMcpUrl: resolvedMcpUrl,
+        };
         let result = await invokeHostAtom<AtomDetectResult>(
           HOST_CAPABILITIES.ATOM_DETECT,
           primaryMethod,
-          undefined,
+          detectParams,
           { bridge: host.bridge },
         );
         if (!result.ok && result.error.code === 'UNSUPPORTED' && primaryMethod === 'run') {
           result = await invokeHostAtom<AtomDetectResult>(
             HOST_CAPABILITIES.ATOM_DETECT,
             'detect',
-            undefined,
+            detectParams,
             { bridge: host.bridge },
           );
         }
@@ -367,7 +371,16 @@ export function DesktopConnectPanel({
         setDetecting(false);
       }
     },
-    [host.bridge, host.capabilities, host.info?.shellVersion, canDetect, t, toast.showToast],
+    [
+      host.bridge,
+      host.capabilities,
+      host.info?.shellVersion,
+      canDetect,
+      resolvedServerName,
+      resolvedMcpUrl,
+      t,
+      toast.showToast,
+    ],
   );
 
   useEffect(() => {

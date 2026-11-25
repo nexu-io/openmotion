@@ -766,32 +766,75 @@ describe('DesktopConnectPanel', () => {
     });
   });
 
-  it('derives environment-specific default serverName for staging/test MCP URLs', async () => {
+  it('derives environment-specific default serverName for staging/test MCP URLs and passes it into detection on reopen', async () => {
+    const testMcpUrl = `${DEFAULT_STUDIO_URLS.test}/mcp`;
+    // Simulate real named MCP config entries: prod `openmotion` already exists alongside staging `openmotion-test`.
+    const configuredByName: Record<string, string> = {
+      openmotion: 'https://motion.open-design.ai/mcp',
+    };
+    const detectParamsSeen: Array<Record<string, unknown> | undefined> = [];
+
     const { bridge, invokeMock } = createDesktopBridgeMock({
       detectResult: () => ({
         platform: 'darwin',
         arch: 'arm64',
-        agents: [
-          { agentId: 'codex', installed: true, version: 'v0.31.0', mcpConfigured: false },
-          { agentId: 'claude', installed: false, mcpConfigured: false },
-        ],
+        agents: [],
         engine: { installed: false, running: false, port: 0, providerKind: 'none' },
         detectedAt: '2026-11-24T00:00:00Z',
       }),
-      onExec: () =>
-        hostOk({
+      onExec: params => {
+        const name = String((params?.args as { serverName?: string } | undefined)?.serverName ?? 'openmotion');
+        configuredByName[name] = testMcpUrl;
+        return hostOk({
           templateId: 'codex.mcp.add_remote',
           program: 'codex',
           exitCode: 0,
           stdout: 'added',
           stderr: '',
           durationMs: 12,
-        }),
+        });
+      },
     });
+    const origInvoke = bridge.invoke;
+    bridge.invoke = (async (capability, method, params) => {
+      if (capability === HOST_CAPABILITIES.ATOM_DETECT) {
+        detectParamsSeen.push(params);
+        const requestedName = String(params?.serverName ?? 'openmotion');
+        const expectedUrl = String(params?.expectedMcpUrl ?? '');
+        const existingUrl = configuredByName[requestedName];
+        return hostOk({
+          platform: 'darwin',
+          arch: 'arm64',
+          agents: [
+            {
+              agentId: 'codex',
+              installed: true,
+              version: 'v0.31.0',
+              mcpConfigured: Boolean(existingUrl),
+              mcpUrl: existingUrl,
+              mcpConflict: Boolean(existingUrl && expectedUrl && existingUrl !== expectedUrl),
+            },
+            { agentId: 'claude', installed: false, mcpConfigured: false },
+          ],
+          engine: { installed: false, running: false, port: 0, providerKind: 'none' },
+          detectedAt: '2026-11-24T00:00:00Z',
+        });
+      }
+      return origInvoke(capability, method, params);
+    }) as typeof bridge.invoke;
     window.__OPENMOTION_HOST__ = bridge;
 
-    await mount({ mcpUrl: `${DEFAULT_STUDIO_URLS.test}/mcp` });
+    await mount({ mcpUrl: testMcpUrl });
     await flushMicrotasks();
+
+    // Detection must query `openmotion-test`, NOT default `openmotion` (which points to prod).
+    expect(detectParamsSeen[0]).toEqual({
+      serverName: 'openmotion-test',
+      expectedMcpUrl: testMcpUrl,
+    });
+    expect(document.querySelector('[data-agent-id="codex"]')?.getAttribute('data-connection-state')).toBe(
+      'not-configured',
+    );
 
     const connectCodex = findButton('Connect Codex')!;
     await act(async () => connectCodex.click());
@@ -805,5 +848,21 @@ describe('DesktopConnectPanel', () => {
       },
       conflictPolicy: 'abort',
     });
+
+    // Reopen panel from scratch: detection queries `openmotion-test` and sees `configured` (not unconfigured/conflict).
+    act(() => root?.unmount());
+    root = undefined;
+    document.body.innerHTML = '';
+
+    await mount({ mcpUrl: testMcpUrl });
+    await flushMicrotasks();
+
+    expect(detectParamsSeen[detectParamsSeen.length - 1]).toEqual({
+      serverName: 'openmotion-test',
+      expectedMcpUrl: testMcpUrl,
+    });
+    expect(document.querySelector('[data-agent-id="codex"]')?.getAttribute('data-connection-state')).toBe(
+      'configured',
+    );
   });
 });
