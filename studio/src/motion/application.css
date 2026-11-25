@@ -241,6 +241,7 @@
 [data-motion-studio] .om-plan-usage[data-look="studio"] .om-plan-usage-console:hover { background: color-mix(in srgb, var(--motion-text) 20%, var(--motion-panel)); }
 .om-plan-usage[data-look="studio"] .om-plan-usage-quotas { display: grid; padding: var(--motion-space-20) var(--motion-space-24); }
 .om-plan-usage[data-look="studio"] .om-plan-usage-quota { gap: var(--motion-space-8); }
+.om-plan-usage[data-look="studio"] [data-quota="balance"] > .om-subtitle { font-weight: var(--motion-weight-medium); color: var(--motion-neutral-n5); }
 .om-account-code { display: block; margin-top: var(--motion-space-12); font-family: var(--motion-font-mono); font-size: var(--motion-text-heading); }
 .om-preference-row { display: flex; align-items: center; justify-content: space-between; gap: var(--motion-space-24); padding-block: var(--motion-space-20); }
 .om-preference-row + .om-preference-row { border-top: 1px solid var(--motion-border-subtle); }
