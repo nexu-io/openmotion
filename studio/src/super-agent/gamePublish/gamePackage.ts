@@ -309,7 +309,7 @@ export function splitInlineScripts(html: string): { html: string; scripts: Array
   return { html: `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`, scripts, inlineHandlers };
 }
 
-const PLATFORM_LIMIT_MB: Partial<Record<GamePackageTarget, number>> = { douyin: 8 };
+const PLATFORM_LIMIT_MB: Partial<Record<GamePackageTarget, number>> = { douyin: 8, xiaohongshu: 8 };
 
 export function buildPlatformZip(loaded: LoadedGameHtml, target: Exclude<GamePackageTarget, 'playable'>, slug: string): GamePackageResult {
   const checks: GamePackageCheck[] = [];

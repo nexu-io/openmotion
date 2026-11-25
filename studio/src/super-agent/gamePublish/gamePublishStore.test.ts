@@ -19,6 +19,8 @@ vi.mock('../../motion/superAgentHandoff', () => ({ queueSuperAgentHandoff: (payl
 
 const { WebPublishApiError } = await import('../../components/webPublishClient');
 const { gamePublishActions, gamePublishSessionFor, gamePublishThreadFor, copyGamePublishLink, resetGamePublishStore } = await import('./gamePublishStore');
+const { PLAYABLE_NETWORKS } = await import('./playableNetworks');
+const { gamePublishPlatform } = await import('./platforms');
 
 const GAME_HTML = '<!DOCTYPE html><html><head><title>Coin Jar</title><script src="game.js"></script></head><body><canvas></canvas><script>function openStore(id){window.open("https://example.com")}openStore("x")</script></body></html>';
 const input = {
@@ -258,6 +260,65 @@ describe('gamePublishStore', () => {
     expect(html).toContain('var game = 1;');
     expect(html).toContain('https://apps.apple.com/app/id1');
     expect(html).not.toMatch(/window\.open\(/);
+  });
+
+  it.each(PLAYABLE_NETWORKS)('passes the selected $name network and both store links to the real exporter', async network => {
+    gamePublishActions.open({ ...input, orientation: 'landscape' });
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, 'playable-ad');
+    gamePublishActions.pick(input.artifactId, network.name);
+    gamePublishActions.completeStep(input.artifactId);
+    gamePublishActions.setInput(input.artifactId, 'iOS App Store link', ' https://apps.apple.com/app/id1 ');
+    gamePublishActions.setInput(input.artifactId, 'Google Play link', ' https://play.google.com/store/apps/details?id=test ');
+    gamePublishActions.completeStep(input.artifactId);
+    await settle();
+    const session = gamePublishSessionFor(input.artifactId)!;
+    const result = session.package!.result!;
+    expect(session).toMatchObject({ stepIndex: 2, picked: network.name, package: { state: 'ready', target: 'playable' } });
+    expect(result.fileName).toBe(`coin-jar-${network.id}.${['google', 'tiktok'].includes(network.id) ? 'zip' : 'html'}`);
+    const content = await result.blob.text();
+    expect(content).toContain(network.ctaCode);
+    expect(content).toContain('"ios":"https://apps.apple.com/app/id1"');
+    expect(content).toContain('"android":"https://play.google.com/store/apps/details?id=test"');
+    if (network.id === 'google') expect(content).toContain('name="ad.orientation" content="landscape"');
+    if (network.id === 'tiktok') expect(content).toContain('"playable_orientation":2');
+    expect(publish).not.toHaveBeenCalled();
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)?.view).toBe('result');
+  });
+
+  it.each(['xiaohongshu', 'douyin', 'itch'] as const)('builds the package declared by the %s guide', async id => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, id);
+    await settle();
+    expect(gamePublishSessionFor(input.artifactId)?.package).toMatchObject({ state: 'ready', target: gamePublishPlatform(id)!.steps[0].packageTarget, result: { fileName: `coin-jar-${id}.zip` } });
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)?.stepIndex).toBe(1);
+  });
+
+  it.each(['douyin-minigame', 'qq'] as const)('keeps %s as a manual port and does not fabricate an export', async id => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, id);
+    expect(gamePublishSessionFor(input.artifactId)?.toolCheck?.state).toBe('missing');
+    gamePublishActions.confirmDevTool(input.artifactId);
+    for (let step = 0; step < gamePublishPlatform(id)!.steps.length; step++) gamePublishActions.completeStep(input.artifactId);
+    await settle();
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'result', package: undefined });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('requires a real OpenDesign link before proceeding to BotFather', async () => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, 'telegram');
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ stepIndex: 0, stepProblem: 'Publish the OpenDesign link first.', package: undefined });
+    await gamePublishActions.publishLink(input.artifactId);
+    gamePublishActions.completeStep(input.artifactId);
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ stepIndex: 1, linkUrl: 'https://play.opendesign.app/g/abc' });
+    expect(publish).toHaveBeenCalledWith('game', input.gameId, expect.objectContaining({ deployMode: 'publish' }));
   });
 
   it('controls left from another platform or step do nothing', () => {
