@@ -477,7 +477,7 @@ it('dismissing a write-blocking notice does not enable project creation', () => 
   act(() => close.click());
   expect(container.querySelector('.motion-error-notice')).toBeNull();
   openSidebar();
-  expect(document.querySelector<HTMLButtonElement>('.motion-session-heading button')?.disabled).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('.motion-session-heading button[aria-label="新建项目"]')?.disabled).toBe(true);
 });
 
 

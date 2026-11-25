@@ -2,12 +2,12 @@ import { Tooltip } from "../components/ui/Tooltip";
 import { useEffect, useState } from 'react';
 import { GitHubMark } from '../../../packages/design-system/react/GitHubMark';
 import { useI18n } from '../i18n/I18n';
-import { GITHUB_REPOSITORY, readRepositoryStars } from './githubRepository';
+import { GITHUB_REPOSITORY, peekCachedRepositoryStars, readRepositoryStars } from './githubRepository';
 import styles from './GitHubLink.module.css';
 
 export function GitHubLink({ className = '' }: { className?: string } = {}) {
   const { t, formatNumber } = useI18n();
-  const [stars, setStars] = useState<number | null>(null);
+  const [stars, setStars] = useState<number | null>(() => peekCachedRepositoryStars());
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
