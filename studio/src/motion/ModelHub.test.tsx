@@ -92,8 +92,8 @@ it('renders curated Seedance 2.5 and GPT Image 2.0 showcase galleries with light
     ));
 
     const promoPill = container.querySelector<HTMLAnchorElement>('.om-hub-promo-pill');
-    expect(promoPill?.getAttribute('target')).toBe('_blank');
-    expect(promoPill?.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(promoPill?.getAttribute('target')).toBeNull();
+    expect(promoPill?.getAttribute('rel')).toBeNull();
 
     const cards = container.querySelectorAll<HTMLElement>('.om-hub-showcase-card');
     expect(cards.length).toBe(hubId === 'seedance-2-5' ? 70 : 35);

@@ -72,8 +72,8 @@ it('reports one banner impression per page load and joins each claim click to it
 
   const cta = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;
   cta.addEventListener('click', event => event.preventDefault());
-  expect(cta.getAttribute('target')).toBe('_blank');
-  expect(cta.getAttribute('rel')).toBe('noopener noreferrer');
+  expect(cta.getAttribute('target')).toBeNull();
+  expect(cta.getAttribute('rel')).toBeNull();
   const firstEntry = params(cta.href).get('od_entry_id');
   expect(params(cta.href).get('od_entry_source')).toBe('openmotion_manage_subscription');
   expect(params(cta.href).get('utm_medium')).toBe('banner');
@@ -91,7 +91,7 @@ it('reports the header Pricing click with the entry id on its link', async () =>
   render(<PricingEntry trackingPage="studio" />);
   const link = container.querySelector<HTMLAnchorElement>('a')!;
   link.addEventListener('click', event => event.preventDefault());
-  expect(link.getAttribute('target')).toBe('_blank');
+  expect(link.getAttribute('target')).toBeNull();
   const entry = params(link.href).get('od_entry_id');
   expect(params(link.href).get('od_entry_source')).toBe('openmotion_manage_subscription');
   await act(async () => { link.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
@@ -237,8 +237,8 @@ it('activates the Explore Black Friday hero from 2026-11-25 20:00 +08:00 until 2
   const onExpire = vi.fn();
   render(<ExploreBlackFridayHero onExpire={onExpire} />);
   const cta = container.querySelector<HTMLAnchorElement>('a[href*="pricing"]')!;
-  expect(cta.getAttribute('target')).toBe('_blank');
-  expect(cta.getAttribute('rel')).toBe('noopener noreferrer');
+  expect(cta.getAttribute('target')).toBeNull();
+  expect(cta.getAttribute('rel')).toBeNull();
   const timeEl = container.querySelector('time')!;
   expect(timeEl.getAttribute('datetime')).toBe('PT00H00M01S');
 
@@ -294,5 +294,27 @@ it('reports ExploreBlackFridayHero impression once per page load, bf_hero CTA cl
 
   for (const row of tracked()) {
     expect(validProperties(studioEvents, row.event, row.properties), JSON.stringify(row)).toBe(true);
+  }
+});
+
+it('navigates Pricing links in the same tab in a top-level browser and uses _blank in the desktop app', () => {
+  render(<PricingEntry trackingPage="studio" />);
+  expect(container.querySelector('a')?.getAttribute('target')).toBeNull();
+  expect(container.querySelector('a')?.getAttribute('rel')).toBeNull();
+
+  const bridge = {
+    info: vi.fn(),
+    capabilities: vi.fn(),
+    invoke: vi.fn(),
+    subscribe: vi.fn(),
+  };
+  (window as unknown as { __OPENMOTION_HOST__?: unknown }).__OPENMOTION_HOST__ = bridge;
+  try {
+    render(<BlackFridayTopBanner trackingPage="explore" onClose={() => {}} />);
+    const bannerLink = container.querySelector('a[href*="pricing"]');
+    expect(bannerLink?.getAttribute('target')).toBe('_blank');
+    expect(bannerLink?.getAttribute('rel')).toBe('noopener noreferrer');
+  } finally {
+    delete (window as unknown as { __OPENMOTION_HOST__?: unknown }).__OPENMOTION_HOST__;
   }
 });

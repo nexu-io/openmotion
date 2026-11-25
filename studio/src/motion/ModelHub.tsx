@@ -20,7 +20,7 @@ import type { AssetDraft } from './AssetComposer';
 import { findModelHub, type HubShowcaseCase } from './modelHubs';
 import { HubVideoWall } from './HubVideoWall';
 import { reportHubCardImpression, reportHubClick, reportHubPageView } from './exploreTracking';
-import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, useBlackFridayActive } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, useBlackFridayActive } from './campaignAttribution';
 import { hasEntitlementModalListeners, markExternalCheckoutPending, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
 import { useTemplateImpressions } from './useTemplateImpressions';
 import { BackToExploreButton } from './BackToExploreButton';
@@ -442,8 +442,7 @@ export function ModelHub({ id, onExplore, onProvider, onOpenMcp, onModel, onUse,
                     <a
                       className="om-hub-promo-pill"
                       href={pricingHref}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                      {...pricingLinkTargetProps()}
                       onClick={claimPromo}
                       onAuxClick={event => {
                         if (event.button === 1) claimPromo(event);

@@ -10,6 +10,7 @@ import {
   blackFridayHeroActive,
   campaignPricingUrl,
   newCampaignEntryId,
+  pricingLinkTargetProps,
   readBlackFridayCountdown,
 } from './campaignAttribution';
 import { markExternalCheckoutPending } from './entitlementModalBus';
@@ -733,8 +734,7 @@ export function ExploreBlackFridayHero({ active = true, onExpire }: { active?: b
           <a
             className={styles.ctaBeam}
             href={pricingHref}
-            target="_blank"
-            rel="noopener noreferrer"
+            {...pricingLinkTargetProps()}
             onClick={claimOffer}
             onAuxClick={event => {
               if (event.button === 1) claimOffer(event);
