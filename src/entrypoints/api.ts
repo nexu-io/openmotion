@@ -1,3 +1,4 @@
+import { projectSourceReadUrl } from '../../shared/project-source-url.ts';
 import { formatFileVersion } from '../studio/etag.ts';
 import { readMcpProjectFile, type ProjectFileQuery } from '../mcp/project-file-read.ts';
 import {
@@ -2938,10 +2939,10 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const sessionId = requestUrl.searchParams.get('session');
       const projectHints = isEditorSpaPath(pathname, requestUrl.search) && isUuid(projectId)
         && (!sessionId || isUuid(sessionId)) && requestUrl.searchParams.get('templates') !== '1'
-        ? `<link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}?view=editor" fetchpriority="high"><link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}/files/index.html">`
+        ? `<link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="/api/projects/${projectId}?view=editor" fetchpriority="high"><link rel="preload" as="fetch" crossorigin data-editor-bootstrap href="${projectSourceReadUrl(projectId, 'index.html')}">`
         : '';
       const studioHtml = renderedHtml.replace('</head>',
-        `${preconnectHints}${projectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1">${previewOriginMeta}</head>`);
+        `${preconnectHints}${projectHints}<meta name="openmotion-runtime" content="cloud-diskless" data-editor-open="1" data-file-source="query">${previewOriginMeta}</head>`);
       const bytes = Buffer.from(studioHtml, 'utf8');
       const etag = `"sha256:${createHash('sha256').update(bytes).digest('hex')}"`;
       const originAgentClusterHeaders: Record<string, string> = previewHostIsolationEnabled

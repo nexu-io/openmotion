@@ -5,6 +5,8 @@ import { isUuid } from '../../../shared/project-validation.ts';
 import { commitProjectEdit } from '../../services/project-edit.ts';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
+import { routePath } from 'hono/route';
+import { PROJECT_SOURCE_ROUTE } from '../../../shared/project-source-url.ts';
 import { bodyLimit } from 'hono/body-limit';
 import { CloudError, isCloudError } from '../../contracts/errors.ts';
 import { AUDIO_EXT, IMAGE_EXT, VIDEO_EXT } from '../../../shared/asset-names.ts';
@@ -115,17 +117,18 @@ async function buildConflictPayload(
 export function createStudioFilesRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
 
-  // GET /api/projects/:id/files/* — Read one authorized file at its current version.
-  app.get('/api/projects/:id/files/*', async (c) => {
+  // A filename ending in .svg/.css/.js must not make the current project version an edge-cached asset.
+  app.on('GET', [PROJECT_SOURCE_ROUTE, '/api/projects/:id/files/*'], async (c) => {
+    c.header('Cache-Control', 'private, no-cache');
+    c.header('CDN-Cache-Control', 'no-store');
     const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
     const projectId = c.req.param('id');
-    const rawPath = extractWildcardPath(c.req.url, '/files/');
+    const rawPath = routePath(c) === PROJECT_SOURCE_ROUTE ? c.req.query('path') ?? '' : extractWildcardPath(c.req.url, '/files/');
     const safePath = normalizeSafeProjectPath(rawPath);
     if (deps.files.textPatchWrites) {
       c.header('X-OpenMotion-Text-Edits', '1');
     }
     c.header(ORDERED_TEXT_EDITS_HEADER, '1');
-    c.header('Cache-Control', 'private, no-cache');
     c.header('Vary', deps.files.textPatchWrites ? `Cookie, Authorization, ${TEXT_PATCH_BASE_HEADER}` : 'Cookie, Authorization');
     const optional = c.req.query('optional') === '1' || c.req.query('optional') === 'true';
 
