@@ -67,6 +67,16 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     const completionGuide = body.slice(body.indexOf('## Step 3:'));
     assert.doesNotMatch(completionGuide, /https?:\/\/\S+\/install\.md/);
     assert.match(completionGuide, /open a new Codex chat and send your creative request/i);
+    assert.ok(
+      completionGuide.includes(`${customOrigin}/api/onboarding/prepare?lang=zh-CN`),
+      'Mode A auto-handoff (zh) must preserve onboarding prepare URL bound to APP_PUBLIC_ORIGIN',
+    );
+    assert.ok(
+      completionGuide.includes(`${customOrigin}/api/onboarding/prepare?lang=en`),
+      'Mode A auto-handoff (en) must preserve onboarding prepare URL bound to APP_PUBLIC_ORIGIN',
+    );
+    assert.match(completionGuide, /3 张精选模板推荐卡片/);
+    assert.match(completionGuide, /3 template preview cards/);
     assert.match(body, /Never show .*install\.md.*user-facing/);
     assert.ok(!body.includes('Workbench'), 'Login guidance must avoid internal Workbench jargon');
     assert.ok(body.includes('/mcp'));

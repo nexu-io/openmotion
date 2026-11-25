@@ -3367,6 +3367,13 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     const workspaceId = config.DEV_WORKSPACE_ID;
     const clientId = 'oauth-client-codex';
     authStore.seedWorkspace({
+      userId: otherUserId,
+      workspaceId,
+      email: 'colleague@example.test',
+      displayName: 'Colleague',
+      role: 'editor',
+    });
+    authStore.seedWorkspace({
       userId,
       workspaceId,
       email: 'owner@example.test',
@@ -3497,6 +3504,13 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     const retried = await callTool(21, 'openmotion_project_archive', exportArgs);
     assert.deepEqual(retried.result?.structuredContent, { ...archive, replayed: true });
 
+    const archiveHeadResponse = await app.request(archive.downloadUrl, {
+      method: 'HEAD',
+      headers: { Authorization: mcpHeaders.Authorization },
+    });
+    assert.equal(archiveHeadResponse.status, 200);
+    assert.equal(archiveHeadResponse.headers.get('content-length'), String(archive.bytes));
+
     const archiveResponse = await app.request(archive.downloadUrl, {
       headers: { Authorization: mcpHeaders.Authorization },
     });
@@ -3505,6 +3519,100 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     const zip = await fixture.storage.getObjectBuffer(decodeURIComponent(storageUrl.pathname.slice(1)));
     assert.equal(zip.byteLength, archive.bytes);
     assert.equal(createHash('sha256').update(zip).digest('hex'), archive.sha256);
+
+    // Another OAuth user in the SAME workspace cannot download (GET/HEAD) or replay User A's archive.
+    const sameWorkspaceOtherToken = `om_oat_${'b'.repeat(40)}`;
+    await authStore.createOAuthToken({
+      clientId: 'oauth-client-other-user',
+      userId: otherUserId,
+      workspaceId,
+      accessTokenHash: createHash('sha256').update(sameWorkspaceOtherToken).digest('hex'),
+      refreshTokenHash: null,
+      scope: DEFAULT_PAT_SCOPES.join(' '),
+      resource: `${config.APP_PUBLIC_ORIGIN}/mcp`,
+      accessExpiresAt: new Date(Date.now() + 3600_000),
+      refreshExpiresAt: null,
+    });
+    const otherOAuthHeaders = {
+      Authorization: `Bearer ${sameWorkspaceOtherToken}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    };
+    assert.equal(
+      (await app.request(archive.downloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      404,
+    );
+    assert.equal(
+      (
+        await app.request(archive.downloadUrl, {
+          method: 'HEAD',
+          headers: { Authorization: otherOAuthHeaders.Authorization },
+        })
+      ).status,
+      404,
+    );
+    const otherInitRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: otherOAuthHeaders,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-06-18',
+          capabilities: {},
+          clientInfo: { name: 'codex-other-user-test', version: '1.0.0' },
+        },
+      }),
+    });
+    assert.equal(otherInitRes.status, 200);
+    const otherMcpSessionId = otherInitRes.headers.get('mcp-session-id');
+    assert.ok(otherMcpSessionId);
+    const otherReplayRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { ...otherOAuthHeaders, 'Mcp-Session-Id': otherMcpSessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 2,
+        method: 'tools/call',
+        params: { name: 'openmotion_project_archive', arguments: exportArgs },
+      }),
+    });
+    assert.equal(otherReplayRes.status, 200);
+    const otherReplayJson = (await otherReplayRes.json()) as {
+      result?: { isError?: boolean; structuredContent?: { error?: { code?: string } } };
+    };
+    assert.equal(otherReplayJson.result?.isError, true);
+    assert.equal(otherReplayJson.result?.structuredContent?.error?.code, 'PROJECT_NOT_FOUND');
+
+    // Confirm the same-workspace colleague OAuth token can export and download its own project archive.
+    const otherExportRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { ...otherOAuthHeaders, 'Mcp-Session-Id': otherMcpSessionId },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 3,
+        method: 'tools/call',
+        params: {
+          name: 'openmotion_project_archive',
+          arguments: { action: 'export', projectIds: [otherUserProject], requestId: 'archive-export-other-user' },
+        },
+      }),
+    });
+    assert.equal(otherExportRes.status, 200);
+    const otherExportJson = (await otherExportRes.json()) as {
+      result?: { isError?: boolean; structuredContent?: { downloadUrl?: string } };
+    };
+    assert.equal(otherExportJson.result?.isError, undefined, JSON.stringify(otherExportJson.result));
+    const otherDownloadUrl = otherExportJson.result?.structuredContent?.downloadUrl!;
+    assert.equal(
+      (await app.request(otherDownloadUrl, { headers: { Authorization: otherOAuthHeaders.Authorization } })).status,
+      302,
+    );
+    assert.equal(
+      (await app.request(otherDownloadUrl, { headers: { Authorization: mcpHeaders.Authorization } })).status,
+      404,
+    );
 
     const owner = { ...agent, role: 'owner' as const, authMethod: 'session_cookie' as const };
     const pat = await createPat(authStore, owner, { name: 'Archive download', scopes: ['projects:read'] });
@@ -3534,6 +3642,55 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
     const uploadRetry = await app.request(uploadUrl, uploadOptions);
     assert.equal(uploadRetry.status, 200);
     assert.deepEqual((await uploadRetry.json() as typeof imported).imported, imported.imported);
+    const otherImportReplay = await app.request(uploadUrl, {
+      ...uploadOptions,
+      headers: { Authorization: otherOAuthHeaders.Authorization, 'Content-Type': 'application/zip' },
+    });
+    assert.equal(otherImportReplay.status, 404);
+
+    // Overlapping ZIP upload retries with the same requestId must claim the receipt atomically and never create duplicate projects.
+    const projectsBeforeRace = pgClient.rows('projects').length;
+    const raceUploadUrl = `${config.APP_PUBLIC_ORIGIN}/motion-api/project-archives/import?requestId=archive-upload-race`;
+    const originalCreateProject = workspace.createProject.bind(workspace);
+    let releaseCreateProject!: () => void;
+    let markCreateProjectEntered!: () => void;
+    const createProjectEntered = new Promise<void>((resolve) => {
+      markCreateProjectEntered = resolve;
+    });
+    const createProjectGate = new Promise<void>((resolve) => {
+      releaseCreateProject = resolve;
+    });
+    let intercepted = false;
+    workspace.createProject = (async (...args: Parameters<typeof workspace.createProject>) => {
+      if (!intercepted) {
+        intercepted = true;
+        markCreateProjectEntered();
+        await createProjectGate;
+      }
+      return originalCreateProject(...args);
+    }) as typeof workspace.createProject;
+    try {
+      const firstUploadPromise = app.request(raceUploadUrl, uploadOptions);
+      await createProjectEntered;
+      const overlappingRetry = await app.request(raceUploadUrl, uploadOptions);
+      assert.equal(overlappingRetry.status, 409);
+      const conflictBody = (await overlappingRetry.json()) as { code?: string };
+      assert.equal(conflictBody.code, 'CONFLICT');
+      releaseCreateProject();
+      const firstUploadRes = await firstUploadPromise;
+      assert.equal(firstUploadRes.status, 201);
+      const firstImported = (await firstUploadRes.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+      assert.equal(firstImported.replayed, false);
+      assert.equal(firstImported.imported.length, 1);
+      assert.equal(pgClient.rows('projects').length, projectsBeforeRace + 1);
+      const settledRetry = await app.request(raceUploadUrl, uploadOptions);
+      assert.equal(settledRetry.status, 200);
+      const settledBody = (await settledRetry.json()) as { imported: Array<{ projectId: string }>; replayed: boolean };
+      assert.equal(settledBody.replayed, true);
+      assert.deepEqual(settledBody.imported, firstImported.imported);
+    } finally {
+      workspace.createProject = originalCreateProject;
+    }
 
     // 2. Accessing another user's project returns PROJECT_NOT_FOUND with environment diagnostics
     const readOther = await callTool(4, 'openmotion_get_project', { projectId: otherUserProject });

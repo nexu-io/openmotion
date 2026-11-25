@@ -250,6 +250,51 @@ export class ProjectArchiveService {
     return new URL(`/motion-api/project-archives/${archiveId}/file`, this.publicOrigin).href;
   }
 
+  private async assertArchiveProjectsAccess(ctx: AuthContext, projectIds: readonly string[]): Promise<void> {
+    if (ctx.authMethod !== 'oauth_bearer') return;
+    if (projectIds.length === 0) {
+      throw new CloudError('PROJECT_NOT_FOUND', 'Archive is not accessible to this OAuth session.', {
+        status: 404,
+        applied: false,
+      });
+    }
+    for (const pid of projectIds) {
+      await loadProjectOrThrow(this.db, ctx.workspaceId, pid, { allowTrashed: true, auth: ctx });
+    }
+  }
+
+  private async canReadArchive(ctx: AuthContext, archiveId: string): Promise<boolean> {
+    if (ctx.authMethod !== 'oauth_bearer') return true;
+    const receipts = await this.db
+      .select()
+      .from(idempotencyReceipts)
+      .where(
+        and(
+          eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+          eq(idempotencyReceipts.scope, 'archive:export'),
+          eq(idempotencyReceipts.resourceId, archiveId),
+          eq(idempotencyReceipts.state, 'completed'),
+        ),
+      );
+    const receipt = receipts[0];
+    if (!receipt?.responsePayload || typeof receipt.responsePayload !== 'object') {
+      return false;
+    }
+    const payload = receipt.responsePayload as Partial<ArchiveExportResult>;
+    const projectIds = Array.isArray(payload.projects)
+      ? payload.projects
+          .map((entry) => entry?.projectId)
+          .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
+      : [];
+    if (projectIds.length === 0) return false;
+    try {
+      await this.assertArchiveProjectsAccess(ctx, projectIds);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Export one or more workspace projects into a validated ZIP archive uploaded to S3
    * (`workspaces/{wid}/archives/{archiveId}.zip`), strictly in memory without local disk state.
@@ -292,6 +337,12 @@ export class ProjectArchiveService {
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
         const result = existingReceipt[0].responsePayload as unknown as ArchiveExportResult;
+        const exportedIds = Array.isArray(result.projects)
+          ? result.projects
+              .map((entry) => entry?.projectId)
+              .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
+          : [];
+        await this.assertArchiveProjectsAccess(ctx, exportedIds);
         return { ...result, downloadUrl: this.archiveDownloadUrl(result.archiveId), replayed: true };
       }
     }
@@ -525,10 +576,24 @@ export class ProjectArchiveService {
         });
       }
       if (existingReceipt[0].state === 'completed' && existingReceipt[0].responsePayload) {
+        const replayedResult = existingReceipt[0].responsePayload as unknown as ArchiveImportResult;
+        const importedIds = Array.isArray(replayedResult.imported)
+          ? replayedResult.imported
+              .map((entry) => entry?.projectId)
+              .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
+          : [];
+        await this.assertArchiveProjectsAccess(ctx, importedIds);
         return {
-          ...(existingReceipt[0].responsePayload as unknown as ArchiveImportResult),
+          ...replayedResult,
           replayed: true,
         };
+      }
+      if (existingReceipt[0].state === 'in_progress') {
+        throw new CloudError(
+          'CONFLICT',
+          `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
+          { status: 409, applied: false },
+        );
       }
     }
 
@@ -587,45 +652,9 @@ export class ProjectArchiveService {
       await validateZipProjectInMemory(proj.title, proj.files);
     }
 
-    // Create each project independently (never overwriting or auto-switching active project).
-    const imported: ArchiveImportedProjectEntry[] = [];
-    for (const proj of extractedProjects) {
-      const initialFiles: InitialProjectFile[] = [...proj.files.entries()].map(([filePath, buf]) => {
-        const isText = isTextProjectPath(filePath) && !isBinaryBuffer(buf);
-        return {
-          path: filePath,
-          data: buf,
-          mimeType: getMimeType(filePath),
-          isText,
-        };
-      });
-
-      const created = await this.workspace.createProject(ctx, {
-        title: proj.title,
-        templateId: proj.templateId,
-        namingLanguage: proj.namingLanguage,
-        initialFiles,
-        selectActive: false,
-      });
-
-      imported.push({
-        projectId: created.projectId,
-        sessionId: created.sessionId,
-        title: created.title,
-        revision: created.revision,
-        versionId: created.versionId,
-        fileCount: initialFiles.length,
-      });
-    }
-
-    const result: ArchiveImportResult = {
-      imported,
-      totalFiles,
-      totalBytes,
-      replayed: false,
-    };
-
-    await this.db
+    // Claim the idempotency receipt atomically before creating any projects so overlapping
+    // upload retries with the same requestId cannot create duplicate projects.
+    const claimed = await this.db
       .insert(idempotencyReceipts)
       .values(
         asInsert(idempotencyReceipts, {
@@ -633,23 +662,126 @@ export class ProjectArchiveService {
           scope,
           requestId,
           inputHash,
-          state: 'completed',
-          resourceId: imported[0]?.projectId ?? null,
-          responsePayload: result as unknown as Record<string, unknown>,
+          state: 'in_progress',
+          resourceId: null,
+          responsePayload: null,
           updatedAt: new Date(),
         }),
       )
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: [idempotencyReceipts.workspaceId, idempotencyReceipts.scope, idempotencyReceipts.requestId],
-        set: asUpdate(idempotencyReceipts, {
-          state: 'completed',
-          resourceId: imported[0]?.projectId ?? null,
-          responsePayload: result as unknown as Record<string, unknown>,
-          updatedAt: new Date(),
-        }),
-      });
+      })
+      .returning();
 
-    return result;
+    if (claimed.length === 0) {
+      const [current] = await this.db
+        .select()
+        .from(idempotencyReceipts)
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+          ),
+        );
+      if (current && current.inputHash.trim() !== inputHash) {
+        throw new CloudError('REQUEST_ID_CONFLICT', `requestId "${requestId}" was used for a different import.`, {
+          status: 409,
+          applied: false,
+        });
+      }
+      if (current && current.state === 'completed' && current.responsePayload) {
+        const replayedResult = current.responsePayload as unknown as ArchiveImportResult;
+        const importedIds = Array.isArray(replayedResult.imported)
+          ? replayedResult.imported
+              .map((entry) => entry?.projectId)
+              .filter((pid): pid is string => typeof pid === 'string' && pid.length > 0)
+          : [];
+        await this.assertArchiveProjectsAccess(ctx, importedIds);
+        return {
+          ...replayedResult,
+          replayed: true,
+        };
+      }
+      throw new CloudError(
+        'CONFLICT',
+        `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
+        { status: 409, applied: false },
+      );
+    }
+
+    // Create each project independently (never overwriting or auto-switching active project).
+    const imported: ArchiveImportedProjectEntry[] = [];
+    try {
+      for (const proj of extractedProjects) {
+        const initialFiles: InitialProjectFile[] = [...proj.files.entries()].map(([filePath, buf]) => {
+          const isText = isTextProjectPath(filePath) && !isBinaryBuffer(buf);
+          return {
+            path: filePath,
+            data: buf,
+            mimeType: getMimeType(filePath),
+            isText,
+          };
+        });
+
+        const created = await this.workspace.createProject(ctx, {
+          title: proj.title,
+          templateId: proj.templateId,
+          namingLanguage: proj.namingLanguage,
+          initialFiles,
+          selectActive: false,
+        });
+
+        imported.push({
+          projectId: created.projectId,
+          sessionId: created.sessionId,
+          title: created.title,
+          revision: created.revision,
+          versionId: created.versionId,
+          fileCount: initialFiles.length,
+        });
+      }
+
+      const result: ArchiveImportResult = {
+        imported,
+        totalFiles,
+        totalBytes,
+        replayed: false,
+      };
+
+      await this.db
+        .update(idempotencyReceipts)
+        .set(
+          asUpdate(idempotencyReceipts, {
+            state: 'completed',
+            resourceId: imported[0]?.projectId ?? null,
+            responsePayload: result as unknown as Record<string, unknown>,
+            updatedAt: new Date(),
+          }),
+        )
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+          ),
+        );
+
+      return result;
+    } catch (error) {
+      await this.db
+        .delete(idempotencyReceipts)
+        .where(
+          and(
+            eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
+            eq(idempotencyReceipts.scope, scope),
+            eq(idempotencyReceipts.requestId, requestId),
+            eq(idempotencyReceipts.state, 'in_progress'),
+          ),
+        )
+        .catch(() => {});
+      throw error;
+    }
   }
 
   /**
@@ -699,6 +831,7 @@ export class ProjectArchiveService {
   async headArchive(ctx: AuthContext, archiveId: string): Promise<HeadObjectResult | null> {
     assertValidUuid(ctx.workspaceId, 'workspaceId');
     assertValidUuid(archiveId, 'archiveId');
+    if (!(await this.canReadArchive(ctx, archiveId))) return null;
     const s3Key = assertTenantScopedKey(ctx.workspaceId, archiveKey(ctx.workspaceId, archiveId));
     return this.storage.headObject(s3Key);
   }
@@ -711,6 +844,7 @@ export class ProjectArchiveService {
   ): Promise<{ url: string; contentLength: number; filename: string } | null> {
     assertValidUuid(ctx.workspaceId, 'workspaceId');
     assertValidUuid(archiveId, 'archiveId');
+    if (!(await this.canReadArchive(ctx, archiveId))) return null;
     const s3Key = assertTenantScopedKey(ctx.workspaceId, archiveKey(ctx.workspaceId, archiveId));
     const head = await this.storage.headObject(s3Key);
     if (!head) return null;
