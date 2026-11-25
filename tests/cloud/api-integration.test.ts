@@ -3697,7 +3697,7 @@ describe('Cloud API Entrypoint — OAuth Agent Workspace Access & Cross-User Iso
       const overlappingRetry = await app.request(raceUploadUrl, uploadOptions);
       assert.equal(overlappingRetry.status, 409);
       const conflictBody = (await overlappingRetry.json()) as { code?: string };
-      assert.equal(conflictBody.code, 'CONFLICT');
+      assert.equal(conflictBody.code, 'REQUEST_ID_CONFLICT');
       releaseCreateProject();
       const firstUploadRes = await firstUploadPromise;
       assert.equal(firstUploadRes.status, 201);

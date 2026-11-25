@@ -588,11 +588,11 @@ export class ProjectArchiveService {
           replayed: true,
         };
       }
-      if (existingReceipt[0].state === 'in_progress') {
+      if (existingReceipt[0].state === 'pending') {
         throw new CloudError(
-          'CONFLICT',
+          'REQUEST_ID_CONFLICT',
           `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
-          { status: 409, applied: false },
+          { status: 409, applied: 'unknown' },
         );
       }
     }
@@ -662,7 +662,7 @@ export class ProjectArchiveService {
           scope,
           requestId,
           inputHash,
-          state: 'in_progress',
+          state: 'pending',
           resourceId: null,
           responsePayload: null,
           updatedAt: new Date(),
@@ -704,9 +704,9 @@ export class ProjectArchiveService {
         };
       }
       throw new CloudError(
-        'CONFLICT',
+        'REQUEST_ID_CONFLICT',
         `Import request "${requestId}" is already in progress. Retry shortly with the same requestId.`,
-        { status: 409, applied: false },
+        { status: 409, applied: 'unknown' },
       );
     }
 
@@ -776,7 +776,7 @@ export class ProjectArchiveService {
             eq(idempotencyReceipts.workspaceId, ctx.workspaceId),
             eq(idempotencyReceipts.scope, scope),
             eq(idempotencyReceipts.requestId, requestId),
-            eq(idempotencyReceipts.state, 'in_progress'),
+            eq(idempotencyReceipts.state, 'pending'),
           ),
         )
         .catch(() => {});
