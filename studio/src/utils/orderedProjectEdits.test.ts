@@ -7,7 +7,9 @@ import { orderedEditFixture } from '../../tests/orderedEditFixture';
 import { setCachedCloudDisklessMode } from './cloudRuntime';
 import { applyTextPatch } from '../../../shared/text-patch';
 import { getStudioSaveSnapshot, trackStudioProjectSave } from './studioSaveState';
-import { RejectedCanvasGesture } from './studioSaveDiagnostics';
+import { RejectedCanvasGesture, StudioFileConflictError } from './studioSaveDiagnostics';
+import { acknowledgeFileEdit } from './isolatedEditVersions';
+import { stageFileProjection, finishFileProjections } from './projectedTextEdits';
 
 function observe(project: string, path: string, content: string, version: string) {
   observeSourceRead(project, path, new Response(null, { headers: {
@@ -45,6 +47,41 @@ it('rejects an impossible drag before sending, keeps the save status honest and 
   await expect(trackStudioProjectSave(project, path, async () => { throw new Error('offline'); })).rejects.toThrow('offline');
   await expect(move('locked')).rejects.toBeInstanceOf(RejectedCanvasGesture);
   expect(getStudioSaveSnapshot(project).failed).toBe(true);
+});
+
+it.each([true, false])('distinguishes a local receipt from a peer move while preparing a projected drag (local %s)', async local => {
+  const project = 'drag-base-' + local, path = 'clip.html';
+  const original = '<div id="box" data-hf-id="box" style="position:absolute;left:0px"></div>';
+  const moved = original.replace('left:0px', 'left:10px');
+  observe(project, path, original, 'v0');
+  const pending = Promise.withResolvers<{ path: string; before: string; after: string; version: string }>();
+  const previous = stageFileProjection(project, path, Promise.resolve({ content: original, version: 'v0' }), pending.promise);
+  const post = vi.fn(async (_url: string, init: RequestInit) => {
+    const [op]: OrderedTextEditOperation[] = JSON.parse(String(init.body)).operations;
+    expect(op.files[0]!.baseVersion).toBe('v1');
+    return Response.json({ committed: [receipt(op.id, path, 'v2')] });
+  });
+  vi.stubGlobal('fetch', post);
+  try {
+    const next = tryStudioCommandPatches(project, [{
+      compositionPath: path, kind: 'moveCanvasElement', target: { id: 'box' }, delta: { x: 5, y: 0 },
+    }], { [path]: 'v0' });
+    // The projection still names v0 when the preceding change becomes authoritative.
+    observe(project, path, moved, 'v1');
+    if (local) acknowledgeFileEdit(project, path, 'v0', 'v1');
+    pending.resolve({ path, before: original, after: moved, version: 'v0' });
+    if (local) {
+      await expect(next).resolves.toMatchObject({ versions: { [path]: 'v2' } });
+      const content = confirmedSource(project, path)!.content;
+      expect(content).toMatch(/left:\s*10px/);
+      expect(content).toMatch(/translate:\s*5px 0px/);
+    } else {
+      await expect(next).rejects.toBeInstanceOf(StudioFileConflictError);
+      expect(post).not.toHaveBeenCalled();
+    }
+  } finally {
+    finishFileProjections(project, [previous]);
+  }
 });
 
 it('sends 100 completed edits in order and ties each patch to its predecessor', async () => {
