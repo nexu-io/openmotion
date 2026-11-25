@@ -38,6 +38,7 @@ import {
   SHADOW_IFRAME_STYLE,
 } from "./previewStage";
 import { usePreviewFirstFrameTelemetry } from "../../player/hooks/usePreviewFirstFrameTelemetry";
+import { useRetainedClipPlayers } from "./useRetainedClipPlayer";
 import { PreviewPoster, usePreviewPoster } from "./PreviewPoster";
 interface NLEPreviewProps extends Pick<
   NLEContextValue,
@@ -474,6 +475,51 @@ export const NLEPreview = memo(function NLEPreview({
 
   const initial = presentationMode ? DEFAULT_PREVIEW_ZOOM : zoomRef.current;
 
+  const players = previewSlots.map((slot) =>
+    slot.role === "live" ? (
+      <Player
+        key={`${activeKey}-${slot.gen}`}
+        ref={setPreviewIframeRef}
+        showInitialLoading
+        trackAssets
+        projectId={directUrl ? undefined : projectId}
+        directUrl={directUrl}
+        onLoad={() => {
+          updateCompositionSizeFromPreview();
+          onIframeLoad();
+          applyInitialZoom();
+        }}
+        onCompositionLoadingChange={onCompositionLoadingChange}
+        onReadyToShowChange={poster.onLiveReadyToShowChange}
+        onPreviewError={poster.onPreviewError}
+        onPainted={(details) => reportPreviewFirstFrame(slot, details)}
+        portrait={portrait}
+        suppressLoadingOverlay={suppressLoadingOverlay || poster.posterVisible}
+        loadingUi={loadingUi}
+        style={LIVE_IFRAME_STYLE}
+      />
+    ) : (
+      // Loads hidden behind the live slot until promoted.
+      <Player
+        key={`${activeKey}-${slot.gen}`}
+        ref={setShadowIframeNode}
+        directUrl={slot.url}
+        onLoad={() => onShadowIframeLoad(slot.gen)}
+        onReadyToShowChange={(ready) => onShadowReadyChange(slot.gen, ready)}
+        onPainted={(details) => reportPreviewFirstFrame(slot, details)}
+        onPreviewError={(message) => onShadowError(slot.gen, message)}
+        portrait={portrait}
+        suppressLoadingOverlay
+        noLoadTimeout
+        inert
+        style={SHADOW_IFRAME_STYLE}
+      />
+    ),
+  );
+
+  const renderedPlayers = useRetainedClipPlayers(projectId, directUrl, previewIframeRef, players,
+    players[previewSlots.findIndex(slot => slot.role === "live")]);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       <div
@@ -509,47 +555,7 @@ export const NLEPreview = memo(function NLEPreview({
                 style={{ position: "absolute", inset: 0, zIndex: 0 }}
               />
             )}
-            {previewSlots.map((slot) =>
-              slot.role === "live" ? (
-                <Player
-                  key={`${activeKey}-${slot.gen}`}
-                  ref={setPreviewIframeRef}
-                  showInitialLoading
-                  trackAssets
-                  projectId={directUrl ? undefined : projectId}
-                  directUrl={directUrl}
-                  onLoad={() => {
-                    updateCompositionSizeFromPreview();
-                    onIframeLoad();
-                    applyInitialZoom();
-                  }}
-                  onCompositionLoadingChange={onCompositionLoadingChange}
-                  onReadyToShowChange={poster.onLiveReadyToShowChange}
-                  onPreviewError={poster.onPreviewError}
-                  onPainted={(details) => reportPreviewFirstFrame(slot, details)}
-                  portrait={portrait}
-                  suppressLoadingOverlay={suppressLoadingOverlay || poster.posterVisible}
-                  loadingUi={loadingUi}
-                  style={LIVE_IFRAME_STYLE}
-                />
-              ) : (
-                // Loads hidden behind the live slot until promoted.
-                <Player
-                  key={`${activeKey}-${slot.gen}`}
-                  ref={setShadowIframeNode}
-                  directUrl={slot.url}
-                  onLoad={() => onShadowIframeLoad(slot.gen)}
-                  onReadyToShowChange={(ready) => onShadowReadyChange(slot.gen, ready)}
-                  onPainted={(details) => reportPreviewFirstFrame(slot, details)}
-                  onPreviewError={(message) => onShadowError(slot.gen, message)}
-                  portrait={portrait}
-                  suppressLoadingOverlay
-                  noLoadTimeout
-                  inert
-                  style={SHADOW_IFRAME_STYLE}
-                />
-              ),
-            )}
+            {renderedPlayers}
             {poster.mountPoster && (
               <PreviewPoster
                 key={activeKey}

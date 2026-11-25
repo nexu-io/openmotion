@@ -90,7 +90,7 @@ it('resolves a bookmark without switching another page globally', async () => {
   vi.stubGlobal('fetch', fetcher);
   await resolveWorkspaceProject(id, new AbortController().signal);
   expect(fetcher.mock.calls.map(call => call[0])).toEqual(['/motion-api/projects', `/motion-api/preview/open?projectId=${id}`]);
-  expect(fetcher.mock.calls[1][1]).toEqual({ method: 'POST', signal: expect.any(AbortSignal) });
+  expect(fetcher.mock.calls[1][1]).toEqual({ method: 'POST', signal: expect.any(AbortSignal), priority: 'high' });
 });
 
 it('mounts a cloud bookmark while the independent sidebar catalog is still pending', async () => {
@@ -111,6 +111,8 @@ it('mounts a cloud bookmark while the independent sidebar catalog is still pendi
   try {
     await act(async () => root.render(<I18nProvider><MotionApp /></I18nProvider>));
     expect(preloadMotionProjectEditor).toHaveBeenCalledOnce();
+    const openCall = fetcher.mock.calls.findIndex(([url]) => url.includes('/preview/open'));
+    expect(fetcher.mock.invocationCallOrder[openCall]).toBeLessThan(vi.mocked(preloadMotionProjectEditor).mock.invocationCallOrder[0]);
     expect(container.querySelector('[data-viewer-project]')).toBeNull();
     await act(async () => confirmProject(Response.json({ projectId: id, sessionId: session, artifact })));
     expect(container.querySelector('[data-viewer-project]')?.getAttribute('data-viewer-project')).toBe(id);
@@ -342,7 +344,7 @@ it('uses the authorized sidebar activation to mount its target without another p
     const urls = fetcher.mock.calls.map(([url]) => url);
     expect(urls).toContain('/motion-api/projects/' + other + '/open?view=editor&projectId=' + id);
     expect(urls.some(url => url.includes('/preview/open') || url.includes('/project/status?view=summary&projectId=' + id))).toBe(false);
-    expect(urls.filter(url => url === '/motion-api/projects')).toHaveLength(1);
+    expect(urls).not.toContain('/motion-api/projects');
   } finally {
     act(() => root.unmount());
     el.remove();

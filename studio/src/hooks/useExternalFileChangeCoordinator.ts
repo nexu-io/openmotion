@@ -1,3 +1,4 @@
+import { hasEditorOpeningPreload, leaveEditorOpening, noteOpeningConnection, noteOpeningFileChange } from "../utils/editorOpeningValidation";
 import { extractIndexHeadMarkup } from '../../../shared/preview-impact';
 import { orderedFileChange, projectOrderedFile } from './orderedFileChanges';
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
@@ -21,6 +22,7 @@ import { onRebasedFileEdit } from "../utils/rebasedFileEdit";
 import { studioContentHash, consumeStudioWriteToken, invalidateLatestSourceWrite, isLatestSourceWrite } from "../utils/studioFileVersion";
 import { useCloudDisklessMode } from "../utils/cloudRuntime";
 import { logReload } from "../utils/reloadDebug";
+import { invalidatePendingSourceReads } from "../utils/readCurrentProjectSource";
 import { ExternalPreviewUpdates } from "./externalPreviewUpdates";
 import { notifyProjectActivity } from "../motion/workspaceRefresh";
 import {
@@ -154,11 +156,15 @@ export function sseFileChangeChannel(
   onHistoryChanged: (delivery: unknown) => void = () => {},
 ): () => void {
   let needsCatchUp = false;
+  const url = studioProjectUrl('/api/events?orderedEdits=1');
+  const project = new URLSearchParams(url.split("?")[1]).get("projectId");
   function connect() {
     let revision: string | null = null;
-    const eventSource = new EventSource(studioProjectUrl('/api/events?orderedEdits=1'));
+    const bootstrap = project && hasEditorOpeningPreload(project);
+    const eventSource = new EventSource(bootstrap ? url + "&openingHead=1" : url);
     eventSource.addEventListener("file-change", delivery => {
       const payload = decodeFileChange(delivery);
+      if (bootstrap) noteOpeningFileChange(project);
       const ordered = orderedFileChange(payload);
       const next = readFileChangeField(payload, 'revision');
       if (ordered && revision && revision !== ordered.fromRevision) {
@@ -176,7 +182,13 @@ export function sseFileChangeChannel(
       onHistoryChanged(delivery);
     });
     eventSource.addEventListener("connected", event => {
-      const projectId = readFileChangeField(decodeFileChange(event), "projectId");
+      const connected = decodeFileChange(event);
+      const projectId = readFileChangeField(connected, "projectId");
+      if (bootstrap && project === projectId) {
+        const head = readFileChangeField(connected, "revision");
+        revision ??= head;
+        if (noteOpeningConnection(projectId, head)) onReconnect();
+      }
       if (projectId) notifyProjectActivity(projectId, "connected");
     });
     eventSource.addEventListener("catalog-changed", (event) => {
@@ -227,6 +239,7 @@ export function sseFileChangeChannel(
     globalThis.removeEventListener?.("offline", offline);
     globalThis.removeEventListener?.("online", online);
     stream?.close();
+    if (project) leaveEditorOpening(project);
   };
 }
 
@@ -576,6 +589,7 @@ export function useExternalFileChangeCoordinator({
         return;
       }
       lastEventIdentityRef.current = identity;
+      invalidatePendingSourceReads(projectId, changedFilePaths(payload), changedFileVersions(payload));
 
       // All steps in an ordered delivery came from one sender. Retire every echo token.
       for (const step of orderedFileChange(payload)?.steps ?? []) {

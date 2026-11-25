@@ -34,7 +34,7 @@ import {
   peekFallbackCompositionCapture,
   quantizeCompositionFrameCount,
   retainCachedCompositionCapture,
-  selectInitialGateCompositionPaths,
+  selectPriorityCompositionPaths,
   selectorCaptureWindowKey,
   subscribeCompositionCacheRevision,
   subscribeProgressiveCompositionCapture,
@@ -438,19 +438,12 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
   const cachedValue = syncCachedValue ?? idbValue;
   const idbPending = Boolean(captureCacheKey && !syncCachedValue && idbProbe?.key !== captureCacheKey);
 
-  const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
   const inPlayheadPrioritySet = usePlayerStore((s) => {
     if (!captureEnabled || selector || priority === "overscan") {
       return false;
     }
-    return selectInitialGateCompositionPaths(s.elements, s.currentTime).includes(compPath);
+    return selectPriorityCompositionPaths(s.elements, s.currentTime).includes(compPath);
   });
-  const timelinePreviewSettledInitial = usePlayerStore((s) => s.timelinePreviewSettledInitial);
-  const participatesInInitialGate =
-    Boolean(captureCacheKey) &&
-    !syncCachedValue &&
-    !timelinePreviewSettledInitial &&
-    inPlayheadPrioritySet;
   const boostCapturePriority =
     Boolean(captureCacheKey) && !syncCachedValue && inPlayheadPrioritySet;
 
@@ -566,28 +559,6 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     [progressiveTarget],
   );
   const progressiveValue = useSyncExternalStore(subscribeProgressive, getProgressiveSnapshot, () => null);
-  const gateTaskId = useMemo(
-    () => (participatesInInitialGate ? `comp:${projectId}:${previewUrl}:${compCacheRev}` : null),
-    [compCacheRev, participatesInInitialGate, previewUrl, projectId],
-  );
-  const captureSettled =
-    Boolean(cachedValue) ||
-    captureSnapshot.status === "ready" ||
-    captureSnapshot.status === "error";
-
-  useEffect(() => {
-    if (!gateTaskId) return;
-    usePlayerStore.getState().registerTimelinePreviewTask(gateTaskId, loadGeneration);
-    return () => {
-      usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-    };
-  }, [gateTaskId, loadGeneration]);
-
-  useEffect(() => {
-    if (!gateTaskId || !captureSettled) return;
-    usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-  }, [captureSettled, gateTaskId, loadGeneration]);
-
   const autoRetriedKeyRef = useRef<string | null>(null);
   const [autoRetryPending, setAutoRetryPending] = useState(false);
 

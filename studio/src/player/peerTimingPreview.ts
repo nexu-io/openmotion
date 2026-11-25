@@ -32,14 +32,19 @@ export async function refreshPeerScenes(frame: HTMLIFrameElement, files: [string
   if (!doc?.canRefreshParked || !isCurrent()) return false;
   const adapter = createPreviewAdapter({ iframe: frame });
   if (adapter.token !== doc.token) return false;
+  const bases = files.map(([path]) => doc.mountedVersions.get(path));
   const timeout = 5000;
   const applied = await adapter.request<boolean>("refresh-parked-scene", {
     ...(files.length === 1 ? {path: files[0]![0], fileVersion: files[0]![1]} : {files}),
     documentId: doc.id, expiresAt: Date.now() + timeout, ...(parkedOnly && { parkedOnly }),
   }, timeout).catch(() => false);
-  if (applied !== true || documents.get(frame) !== doc || !isCurrent()) return false;
-  for (const [path, version] of files) doc.mountedVersions.set(path, version);
-  return true;
+  if (applied !== true || documents.get(frame) !== doc) return false;
+  // A gesture may supersede the UI callback while the player is mounting this scene.
+  // Keep the version it accepted, unless newer evidence already replaced that base.
+  files.forEach(([path, version], index) => {
+    if (doc.mountedVersions.get(path) === bases[index]) doc.mountedVersions.set(path, version);
+  });
+  return isCurrent();
 }
 
 /** A scripted or older document can start rebuilding in parallel with the source read. */
@@ -95,14 +100,23 @@ function changedStyles(left: HTMLElement, right: HTMLElement): PreviewChange["st
     if (from === to) continue;
     if (!canPatchPresentationValue(name, to) || left.style.getPropertyPriority(name) || next.getPropertyPriority(name)) return null;
     styles.push([name, from, to]);
+  }
+  if (styles.length > 1) {
+    // Reproduce the author's declaration order, including a translate written before new dimensions.
+    const order = new Map(Array.from(next, (name, i) => [name, i] as const));
+    styles.sort(([a], [b]) => (order.get(a) ?? -1) - (order.get(b) ?? -1));
+  }
+  for (const [name, , to] of styles) {
     if (to) projected.style.setProperty(name, to);
     else projected.style.removeProperty(name);
   }
   return styles.length && projected.style.cssText === next.cssText ? styles : null;
 }
 
+type BoxCapabilities = { measured?: boolean; cssLayoutOffset?: boolean };
+
 /** Strip only supported changes, then compare the entire remaining document before touching the player. */
-export function diffPreviewChanges(previous: string, current: string, measured = false): PreviewChange[] | null {
+export function diffPreviewChanges(previous: string, current: string, box: BoxCapabilities = {}): PreviewChange[] | null {
   if (previous === current) return null;
   const parse = (html: string) => new DOMParser().parseFromString(html, "text/html");
   const before = parse(previous);
@@ -168,7 +182,8 @@ export function diffPreviewChanges(previous: string, current: string, measured =
     if (!hfId && !left.id && !compositionId) return null;
     const change = { hfId, id: left.id, compositionId, tag: left.localName, attributes, styles, text, captureOriginalTranslate };
     // Moving the canvas DOM box preserves its drawing buffer. Its content and dimensions are owned by the renderer.
-    if (!presentationTags.has(change.tag) && (styles || text) && !isPaintOnlyChange(change) && !(measured && isMediaBoxChange(change)) &&
+    if (!presentationTags.has(change.tag) && (styles || text) && !isPaintOnlyChange(change) && !(box.measured && isMediaBoxChange(change)) &&
+        !(box.cssLayoutOffset && isPixelBoxChange(change, true)) &&
         !(change.tag === "canvas" && isLivePositionEdit([change]))) return null;
     changes.push(change);
   }
@@ -177,11 +192,11 @@ export function diffPreviewChanges(previous: string, current: string, measured =
 }
 
 /** The first visual edit can persist the exact IDs already mounted by the compiler. */
-export async function diffMountedPreview(previous: string, current: string, measured = false) {
-  const changes = diffPreviewChanges(previous, current, measured);
+export async function diffMountedPreview(previous: string, current: string, box: BoxCapabilities = {}) {
+  const changes = diffPreviewChanges(previous, current, box);
   if (changes || current.split("data-hf-id=").length <= previous.split("data-hf-id=").length) return changes;
   const { ensureHfIds } = await import("@hyperframes/parsers/hf-ids");
-  return diffPreviewChanges(ensureHfIds(previous), current, measured);
+  return diffPreviewChanges(ensureHfIds(previous), current, box);
 }
 
 function onlyStyles(changes: PreviewChange[]) {
@@ -208,13 +223,15 @@ export async function tryApplyPeerChanges(
   // Several accepted toggles can bring the file back to the exact source already on screen.
   const sameContent = !options && document.canRebind && previous.content === current.content;
   const measured = typeof options === "object" && "gestureId" in options && !!options.gestureId;
+  const cssLayoutOffset = document.canRebind || document.liveEdits.cssLayoutOffset === true;
   const changes = sameContent ? [] : options === "temporary" ? await diffScriptedPreviewStyles(previous.content, current.content) :
-    await diffMountedPreview(previous.content, current.content, measured);
+    await diffMountedPreview(previous.content, current.content, { measured, cssLayoutOffset });
   if (!changes || !isCurrent() || (options === "paint-only" && !changes.every(isPaintOnlyChange))) return false;
   const nestedBox = document.mountedVersions.has(update.path) && changes.length > 0 &&
     changes.every(change => presentationTags.has(change.tag) && isPixelBoxChange(change));
   const grade = changes.length > 0 && changes.every(isGradeOnlyChange);
-  const canAdvance = grade || nestedBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
+  const cssBox = cssLayoutOffset && changes.length > 0 && changes.every(change => isPixelBoxChange(change, true));
+  const canAdvance = grade || nestedBox || cssBox || document.canRebind || (document.liveEdits.presentation && isAuthoredPresentation(changes)) || (measured && changes.length === 1 && isMediaBoxChange(changes[0]!)) || (document.liveEdits.position && (isLivePositionEdit(changes) || changes.every(isPaintOnlyChange))) ||
     (document.liveEdits.mediaTiming && isLiveMediaMove(changes));
   const temporary = options === "temporary" || (!canAdvance && options === "keep-visible");
   if (temporary && (document.canRebind || !onlyStyles(changes))) return false;

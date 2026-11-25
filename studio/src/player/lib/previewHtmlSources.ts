@@ -1,4 +1,4 @@
-type PreviewSources = { projectId: string; paths: Set<string> };
+type PreviewSources = { projectId: string; entry: string; paths: Set<string> };
 const frames = new WeakMap<HTMLIFrameElement, PreviewSources>();
 
 export function forgetPreviewHtmlSources(frame: HTMLIFrameElement | null) {
@@ -7,7 +7,7 @@ export function forgetPreviewHtmlSources(frame: HTMLIFrameElement | null) {
 
 export function rememberPreviewHtmlSources(frame: HTMLIFrameElement, projectId: string, paths: unknown) {
   if (Array.isArray(paths) && paths.length && paths.every(path => typeof path === "string") && paths.includes("index.html")) {
-    frames.set(frame, { projectId, paths: new Set(paths) });
+    frames.set(frame, { projectId, entry: paths[0], paths: new Set(paths) });
   } else {
     frames.delete(frame);
   }
@@ -19,6 +19,6 @@ export function isUnrelatedPreviewHtmlChange(
   changed: readonly string[] | null, treeChanged: boolean,
 ): boolean {
   const scope = frame && frames.get(frame);
-  return Boolean(scope && scope.projectId === projectId && activePath === "index.html" && !treeChanged &&
+  return Boolean(scope && scope.projectId === projectId && activePath === scope.entry && !treeChanged &&
     changed?.length && changed.every(path => /\.html?$/i.test(path) && !scope.paths.has(path)));
 }

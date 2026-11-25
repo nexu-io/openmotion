@@ -1,11 +1,11 @@
-import { readVersionedSource } from "./readVersionedSource";
-import { confirmedSource, observeSourceRead, type ConfirmedSource } from "./confirmedTextSources";
+import { buildProjectApiPath } from "./projectRouting";
+import { readCurrentProjectSource } from "./readCurrentProjectSource";
+import { confirmedSource, type ConfirmedSource } from "./confirmedTextSources";
 import { tryStudioTextEdit } from "./studioTextEdits";
 import type { RebasedFileEdit } from "./rebasedFileEdit";
 import type { ProjectEditCommand } from "../../../packages/edit-core/commands";
 import { getCachedCloudDisklessMode } from "./cloudRuntime";
 import type { HistoryTarget } from "@hyperframes/studio-server";
-import { buildProjectApiPath } from "./projectRouting";
 import type { MutableRefObject } from "react";
 import { serializeStudioFileMutations } from "./studioFileMutationCoordinator";
 import { createStudioSaveHttpError } from "./studioSaveDiagnostics";
@@ -90,18 +90,13 @@ interface SaveProjectFilesWithHistoryInput {
 }
 
 export async function readProjectFileContent(pid: string, path: string): Promise<string> {
-  const response = await readVersionedSource(
-    buildProjectApiPath(pid, `/files/${encodeURIComponent(path)}`),
-    confirmedSource(pid, path),
-  );
+  const { response, data } = await readCurrentProjectSource(pid, path, buildProjectApiPath(pid, `/files/${encodeURIComponent(path)}`));
   if (!response.ok) {
     throw await createStudioSaveHttpError(response, `Failed to read ${path}`);
   }
-  const data = (await response.json()) as { content?: string };
-  if (typeof data.content !== "string") {
+  if (typeof data?.content !== "string") {
     throw new Error(`Missing file contents for ${path}`);
   }
-  observeSourceRead(pid, path, response, data);
   return data.content;
 }
 

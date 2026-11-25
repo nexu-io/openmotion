@@ -267,6 +267,38 @@ it('only moves the existing canvas box when the project certifies a placement ch
   }
 });
 
+it('hot-resizes a nested CSS-animated canvas once on its verified revision, including the opposite-corner translation', () => {
+  const path = 'scenes/intro.html';
+  const changes = [{ id: 'drawing', tag: 'canvas', attributes: [], styles: [
+    ['translate', '', '12px -9px'], ['width', '', '92px'], ['height', '', '43px'],
+  ] }];
+  for (const [timing, cssOffset, accepted] of [[false, false, false], [true, false, true], [false, true, true]]) {
+    const { send, document, hooks } = preview(timing, cssOffset ? { cssLayoutOffset: true } : { position: true }, [path]);
+    const host = document.querySelector('main')!;
+    host.setAttribute('data-composition-file', path);
+    const node = document.createElement('canvas');
+    node.id = 'drawing';
+    node.setAttribute('width', '1920');
+    host.append(node);
+    const msg = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes };
+    assert.equal(send({...msg, changes: [{...changes[0], styles: [['translate', '', '50%'], ['width', '', '92px']]}]}), false);
+    assert.equal(send({...msg, before: etag(2)}), false);
+    assert.equal(send(msg), accepted);
+    assert.equal(node.style.getPropertyValue('translate') || '', accepted ? '12px -9px' : '');
+    assert.equal(node.style.getPropertyValue('width') || '', accepted ? '92px' : '');
+    assert.equal(node.getAttribute('width'), '1920');
+    assert.equal(document.getElementById('drawing'), node);
+    assert.deepEqual(hooks, []);
+    assert.equal(send(msg), false);
+    if (accepted) {
+      const undo = changes.map(c => ({...c, styles: c.styles.map(([name, from, to]) => [name, to, from])}));
+      assert.equal(send({...msg, before: etag(4), after: etag(5), changes: undo}), true);
+      assert.equal(node.style.getPropertyValue('translate') || '', '');
+      assert.equal(node.style.getPropertyValue('width') || '', '');
+    }
+  }
+});
+
 it('keeps a mounted scripted child and its runtime descendants through verified pixel moves and resizes', () => {
   const path = 'scenes/intro.html';
   const { send, document, hooks } = preview(false, undefined, [path]);

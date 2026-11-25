@@ -6,6 +6,7 @@ import { parseHTMLContent } from '@hyperframes/core/compiler';
 import { PREVIEW_SOURCE_IDENTITY } from '../../src/studio/engine/preview-bridge.ts';
 import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { PREVIEW_PARKED_SCENE } from '../../src/studio/engine/preview-parked-scene.ts';
+import { PREVIEW_SCENE_GESTURES } from '../../src/studio/engine/preview-scene-gestures.ts';
 import { previewSceneFragment } from '../../src/studio/engine/preview-scene-fragment.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 
@@ -61,7 +62,13 @@ function fixture(batch = false, separateReceipts = false) {
   let duringRead = () => {};
   const reads: (string | null)[] = [];
   const currentVersions = { ...oldVersions };
-  const refresh = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + '\nrefreshParkedScene;', {
+  let duringSwap: (() => Promise<void>) | undefined;
+  const siblingText = document.createElement('span');
+  const bridge = runInNewContext(PREVIEW_SOURCE_IDENTITY + PREVIEW_PARKED_SCENE + PREVIEW_SCENE_GESTURES + '\n({refreshParkedScene, sceneInlineText})', {
+    canvasPointHit: () => siblingText,
+    describe: () => ({sourceFile: other}),
+    inspectorElement: () => siblingText,
+    editInlineText: () => currentVersions[other],
     settings, compositionPath: 'index.html', styleDocumentId: 'frame-1', sourceVersions: currentVersions, projectId: 'p',
     document, location: {href: 'https://preview.example/current?pt=test'}, URL, AbortSignal,
     drag: null, pendingDrags: new Map(), inlineText: null,
@@ -80,10 +87,13 @@ function fixture(batch = false, separateReceipts = false) {
         assert.deepEqual(Array.from(swapped.querySelectorAll('section'), el => el.getAttribute('data-composition-file')), [file, other]);
       } else assert.equal(html, templ(null));
       counts.swaps++;
+      await duringSwap?.();
     } },
     confirmCanvasVersion: (path: string, value: string) => { assert.ok(path === file || batch && path === other); assert.equal(value, fresh.sourceVersions[path]); currentVersions[path] = value; counts.confirms++; },
   });
-  return { document, counts, request, fresh, nextParts, reads, run: (message = request) => refresh(message), onRead: (fn: () => void) => {duringRead = fn;} };
+  return { document, counts, request, fresh, nextParts, reads, run: (message = request) => bridge.refreshParkedScene(message),
+    pickSibling: () => bridge.sceneInlineText({phase: 'pick', editId: 'text-1', x: 0, y: 0}),
+    onSwap: (fn: () => Promise<void>) => { duringSwap = fn; }, onRead: (fn: () => void) => {duringRead = fn;} };
 }
 
 it('updates the parked template through the runtime only after validating the fresh file and all other scenes', async () => {
@@ -108,6 +118,22 @@ it('reuses both compact scene bodies when two independent saves arrive in adjace
   assert.deepEqual(await Promise.all([f.run(), f.run(sibling)]), [true, true]);
   assert.deepEqual(f.reads, [file, other]);
   assert.deepEqual(f.counts, {reads: 2, swaps: 1, confirms: 2});
+});
+
+it('binds an edit in a discovered sibling to the versions confirmed after the shared swap', async () => {
+  const f = fixture(true, true);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  f.onSwap(() => { entered.resolve(); return release.promise; });
+  const first = f.run();
+  await entered.promise;
+  const selection = f.pickSibling();
+  const sibling = f.run({ ...f.request, path: other, fileVersion: '"sha256:' + f.fresh.sourceVersions[other] + '"' });
+  assert.ok(selection && typeof selection.then === 'function');
+  assert.deepEqual(f.counts, { reads: 2, swaps: 1, confirms: 0 });
+  release.resolve();
+  assert.deepEqual(await Promise.all([first, sibling, selection]), [true, true, f.fresh.sourceVersions[other]]);
+  assert.deepEqual(f.counts, { reads: 2, swaps: 1, confirms: 2 });
 });
 
 it('leaves the original scene and its version intact if the sibling changes between compact reads', async () => {

@@ -89,12 +89,17 @@ export function isLivePositionEdit(changes: PreviewChange[]): boolean {
 }
 
 /** An identified DOM box can keep its descendants and handlers when only pixel geometry changes. */
-export function isPixelBoxChange(change: PreviewChange): boolean {
+export function isPixelBoxChange(change: PreviewChange, cssLayoutOffset = false): boolean {
   return !!change && !change.text && !change.insert && !change.group && !change.removeFromComposition &&
     change.captureOriginalTranslate === undefined && Array.isArray(change.attributes) && !change.attributes.length &&
-    Array.isArray(change.styles) && change.styles.length > 0 && change.styles.every(style =>
-      Array.isArray(style) && style.length === 3 && ["left", "top", "width", "height"].includes(style[0]) &&
-      [style[1], style[2]].every(value => typeof value === "string" && (value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value))));
+    Array.isArray(change.styles) && change.styles.length > 0 && change.styles.every(style => {
+      if (!Array.isArray(style) || style.length !== 3) return false;
+      const [name, from, to] = style;
+      if (cssLayoutOffset && name === "translate")
+        return [from, to].every(value => typeof value === "string" && canPatchPresentationValue(name, value));
+      return ["left", "top", "width", "height"].includes(name) &&
+        [from, to].every(value => typeof value === "string" && (value === "" || /^-?(?:\d+\.?\d*|\.\d+)px$/.test(value)));
+    });
 }
 
 /** These inline style changes leave the measured box, hierarchy and source coordinates intact. */

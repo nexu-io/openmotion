@@ -51,6 +51,8 @@ export interface PlayerProps {
   suppressLoadingOverlay?: boolean;
   loadingUi?: "studio" | "host";
   noLoadTimeout?: boolean;
+  /** Inactive retained clip. Its runtime must not drive Studio. */
+  parked?: boolean;
   /** Show the live preview’s loading indicator until its first displayable frame. */
   showInitialLoading?: boolean;
   /** Track all referenced composition assets for the unified editor readiness gate (live slot only). */

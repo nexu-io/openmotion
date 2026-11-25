@@ -86,7 +86,9 @@ export const PREVIEW_CANVAS_DRAG = `
     const resizes = [zero, horizontal, vertical].some(rect =>
       Math.abs(rect.width - before.width) > 1 || Math.abs(rect.height - before.height) > 1
     );
-    if (resizes || Math.abs(determinant) < 0.0001 ||
+    // A CSS translation does not change layout, but a perspective ancestor can
+    // change its projected size. Corner resizing corrects that projection live.
+    if ((resizes && !(translate && hasResizePerspective(element))) || Math.abs(determinant) < 0.0001 ||
         Math.abs(zero.x - before.x) > 1 || Math.abs(zero.y - before.y) > 1) return null;
     return { a, b, c, d, determinant };
   }
@@ -123,10 +125,10 @@ export const PREVIEW_CANVAS_DRAG = `
     return Math.abs(px - cx) <= 4 && Math.abs(py - cy) <= 4 ? node : null;
   }
 
-  function startDrag(message) {
+  function startDrag(message, knownTarget) {
     if (drag) return null;
     const corner = ['nw','ne','sw','se'].includes(message.corner) ? message.corner : null;
-    const element = canvasGestureTarget(message, corner);
+    const element = knownTarget || canvasGestureTarget(message, corner);
     if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement ||
         element.matches('[data-composition-id],[data-composition-src],[data-hf-scene]') ||
         element.closest('[data-timeline-locked]')) return null;
@@ -137,7 +139,9 @@ export const PREVIEW_CANVAS_DRAG = `
     const makeRelative = style.position === 'static';
     if (!canvasBase(selection.sourceFile, {corner, makeRelative, element})) return { waitingForSource: true };
     // A CSS animation owns its layout properties. Move its path using the independent translate instead.
-    const translate = !corner && message.cssLayoutOffset === true && animatedLayoutOffset(element, style);
+    // Older Studio clients can save translated moves but would drop the dimensions of a resize.
+    const allowTranslate = corner ? message.cssResizeOffset === true : message.cssLayoutOffset === true;
+    const translate = allowTranslate && animatedLayoutOffset(element, style);
     const properties = translate ? ['translate'] : makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
     const width = parseFloat(style.width), height = parseFloat(style.height);
     if (corner) {
@@ -151,13 +155,14 @@ export const PREVIEW_CANVAS_DRAG = `
     const left = translate ? translate[0] : makeRelative ? 0 : parseFloat(style.left) || 0;
     const top = translate ? translate[1] : makeRelative ? 0 : parseFloat(style.top) || 0;
     const axes = measureDragAxes(element, left, top, makeRelative, original, translate);
-    if (!axes) return null;
+    if (!axes && corner !== 'se') return null;
     const resize = corner && measureResize(element, width, height, corner, original, axes);
+    if (corner && !resize) return null;
 
     const localTime = window.__timelines?.[element.closest('[data-composition-id]')?.getAttribute('data-composition-id')]?.time?.();
     const time = Number.isFinite(localTime) ? localTime : (Number(window.__player?.getTime?.()) || 0);
     const pos = axis => parseFloat(window.gsap?.getProperty?.(element, axis)) || 0;
-    const startPosition = translate ? {time} : {time,x:pos('x'),y:pos('y')};
+    const startPosition = corner || translate ? {time} : {time,x:pos('x'),y:pos('y')};
     drag = { ordered: message.ordered === true, startPosition, id: message.gestureId, element, original, left, top, makeRelative, translate, axes, resize, selection, width, height, corner };
     return { geometry: selection.geometry, viewport: selection.viewport, ...(corner && { liveResizeBounds: true }), target: { sourceFile: selection.sourceFile, hfId: selection.hfId, elementId: selection.elementId, ...sourceIdentity(canvasBase(selection.sourceFile, drag)) } };
   }
@@ -227,11 +232,13 @@ export const PREVIEW_CANVAS_DRAG = `
     const writeTop = !corner || drag.resize.writeTop;
     const applied = {};
     const set = (key,value) => { drag.element.style[key] = value; applied[key] = drag.element.style[key]; };
-    if (drag.translate) set('translate', left + 'px ' + top + 'px');
-    else if (writeLeft || writeTop) {
-      if (drag.makeRelative) set('position','relative');
-      if (writeLeft) set('left',left + 'px');
-      if (writeTop) set('top',top + 'px');
+    if (writeLeft || writeTop) {
+      if (drag.translate) set('translate', left + 'px ' + top + 'px');
+      else {
+        if (drag.makeRelative) set('position','relative');
+        if (writeLeft) set('left',left + 'px');
+        if (writeTop) set('top',top + 'px');
+      }
     }
     if (corner) { set('width',width+'px'); set('height',height+'px'); }
     drag.applied = applied;

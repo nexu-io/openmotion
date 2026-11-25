@@ -383,9 +383,9 @@ it('waits for in-flight reads before reconciling a foreground event', async () =
   try {
     const original = fetcher.getMockImplementation()!;
     let finish!: () => void;
-    fetcher.mockImplementationOnce(() => new Promise<Response>(resolve => {
-      finish = () => resolve(Response.json(status));
-    }));
+    fetcher.mockImplementation((url: string, init?: RequestInit) => url.includes('/project/status?')
+      ? new Promise<Response>(resolve => { finish = () => resolve(Response.json(status)); })
+      : original(url, init));
     await mount(async () => {}, first);
     window.dispatchEvent(new Event('online'));
     await advance(1000);
@@ -443,6 +443,26 @@ it('refreshes only the catalog when the server reports a workspace change', asyn
     notifyProjectActivity(first, 'catalog-changed');
     await advance(0);
     expect(countReads()).toEqual({ status: 1, catalog: 2 });
+  } finally { vi.useRealTimers(); }
+});
+
+it('reuses the workspace list across known projects and refreshes it on a catalog event', async () => {
+  vi.useFakeTimers();
+  try {
+    const projects = [{ id: first, title: 'First' }, { id: second, title: 'Second' }];
+    fetcher.mockImplementation(async (url: string) => Response.json(url.endsWith('/projects')
+      ? { activeId: first, projects }
+      : { ...status, projectId: new URL(url, location.origin).searchParams.get('projectId') }));
+    const wait = async () => {};
+    function Editor({ id }: { id: string }) { workspace = useWorkspace(wait, id); return null; }
+    for (const id of [first, second, first]) {
+      await act(async () => root.render(<Editor id={id} />));
+      expect(workspace.status?.projectId).toBe(id);
+    }
+    expect(countReads()).toEqual({ status: 3, catalog: 1 });
+    notifyProjectActivity(first, 'catalog-changed');
+    await advance(0);
+    expect(countReads()).toEqual({ status: 3, catalog: 2 });
   } finally { vi.useRealTimers(); }
 });
 

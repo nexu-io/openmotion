@@ -9,6 +9,8 @@ type SwapWindow = Window & {
 
 const SCENES_SWAPPED = "hf-scenes-swapped";
 export const SCENE_SWAP_MS = 5000;
+// A gesture released during a scene swap can reply after that swap finishes.
+export const SCENE_GESTURE_REPLY_MS = SCENE_SWAP_MS + 1500;
 
 const PREVIEW_DOCUMENT_LOADED = "hf-preview-document-loaded";
 

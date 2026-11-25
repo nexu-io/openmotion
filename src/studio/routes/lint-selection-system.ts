@@ -335,10 +335,14 @@ export function createStudioSystemRoutes(deps: StudioSystemRouteDeps): Hono<{ Va
     await deps.workspace.getProject(auth, projectId, { allowTrashed: true });
 
     return streamSSE(c, async (stream) => {
-      const connected = () => stream.writeSSE({
-        event: 'connected',
-        data: JSON.stringify({ projectId, ts: Date.now() }),
-      });
+      const connected = async () => {
+        // Read after Redis subscriptions are installed. A head read before subscribing
+        // could miss a commit made while the connection was being established.
+        const head = c.req.query('openingHead') === '1'
+          ? await deps.workspace.getProject(auth, projectId, { allowTrashed: true }) : null;
+        await stream.writeSSE({ event: 'connected',
+          data: JSON.stringify({ projectId, ts: Date.now(), ...(head && { revision: head.revision }) }) });
+      };
 
       if (!deps.eventBus) {
         await connected();

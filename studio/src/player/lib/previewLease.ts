@@ -93,7 +93,7 @@ export function acquireSharedPreviewGrant(
   let flight = inFlightSharedGrants.get(flightKey);
   if (!flight) {
     const controller = new AbortController();
-    const requestPromise = requestPreviewLease(project, cached?.assetLease, controller.signal)
+    const requestPromise = requestPreviewLease(project, expectedOrigin, undefined, controller.signal)
       .then((response) => {
         if (!response.grant || !response.grant.token) {
           if (response.status === 401 || response.status === 403 || response.status === 404) {
@@ -156,11 +156,16 @@ export function clearSharedPreviewGrantsForTest(): void {
   inFlightSharedGrants.clear();
 }
 
-async function requestPreviewLease(project: string, assetLease: string | undefined, signal: AbortSignal): Promise<GrantResponse> {
+async function requestPreviewLease(project: string, origin: string, assetLease: string | undefined, signal: AbortSignal): Promise<GrantResponse> {
+  // A new visit still authenticates and obtains its own document grant. Asking the server
+  // to renew an existing asset lease preserves the browser cache of versioned project scripts.
+  const cached = sharedGrantsByProject.get(project);
+  const reusable = cached?.origin === normalizeOrigin(origin) && cached.expiresAt > Date.now() ? cached.assetLease : undefined;
   const response = await studioApiFetch(`/api/projects/${project}/preview-token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assetLease: assetLease ?? true }),
+    body: JSON.stringify({ assetLease: assetLease ?? reusable ?? true }),
+    priority: "high",
     cache: "no-store",
     signal,
   });
@@ -171,7 +176,7 @@ async function requestPreviewLease(project: string, assetLease: string | undefin
 export function preparePreviewLease(projectId: string, origin: string, route?: AbortSignal) {
   const project = encodeURIComponent(projectId);
   const signal = route && AbortSignal.any([route, AbortSignal.timeout(10_000)]);
-  let pending: Promise<GrantResponse | undefined> | undefined = signal && requestPreviewLease(project, undefined, signal)
+  let pending: Promise<GrantResponse | undefined> | undefined = signal && requestPreviewLease(project, origin, undefined, signal)
     .then((result) => {
       if (!signal.aborted && result.grant?.token && result.grant.previewOrigin === origin &&
           typeof result.grant.expiresAt === "string" && Date.parse(result.grant.expiresAt) > Date.now()) {
@@ -181,18 +186,31 @@ export function preparePreviewLease(projectId: string, origin: string, route?: A
     })
     .catch(() => undefined);
   signal?.addEventListener("abort", () => { pending = undefined; }, { once: true });
-  return {
+  const scope = {
     project, origin,
     assetLease: undefined as string | undefined,
-    takeInitial() {
+    takeInitial(): Promise<GrantResponse | undefined> | undefined {
       const response = pending;
       pending = undefined;
+      // A newly mounted clip can navigate with this open project's live grant.
+      // Match the asset lease as well as the origin so another visit cannot supply its credentials.
+      if (!response && !signal?.aborted && scope.assetLease) {
+        const cached = sharedGrantsByProject.get(project);
+        if (cached?.origin === origin && cached.assetLease === scope.assetLease &&
+            cached.expiresAt - Date.now() > SHARED_GRANT_MIN_TTL_MS) {
+          return Promise.resolve({ status: 200, grant: {
+            previewOrigin: origin, token: cached.token, assetLease: cached.assetLease,
+            expiresAt: new Date(cached.expiresAt).toISOString(),
+          } });
+        }
+      }
       return response?.then(result => {
         if (signal?.aborted || !result?.grant || !(Date.parse(result.grant.expiresAt ?? "") > Date.now())) return;
         return result;
       });
     },
   };
+  return scope;
 }
 export type PreparedPreviewLease = ReturnType<typeof preparePreviewLease>;
 
@@ -238,7 +256,7 @@ export function bindPreviewLease(
       const initial = !assetLease ? scope?.takeInitial() : undefined;
       const early = initial && await initial;
       if (controller.signal.aborted) return;
-      const response = early ?? await requestPreviewLease(project, assetLease ?? scope?.assetLease, controller.signal);
+      const response = early ?? await requestPreviewLease(project, origin, assetLease ?? scope?.assetLease, controller.signal);
       if (controller.signal.aborted) return;
       if (!response.grant) {
         if (response.status === 401 || response.status === 403 || response.status === 404) {

@@ -401,6 +401,14 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     assert.ok(!plainHtml.includes(RUNTIME_CONFIG_GLOBAL_KEY));
     assert.ok(!plainHtml.includes(RUNTIME_CONFIG_PLACEHOLDER));
 
+    const projectId = '10000000-0000-4000-8000-000000000001';
+    const editorHtml = await (await disabledApi.app.request(`/editor/${projectId}`)).text();
+    assert.ok(editorHtml.includes(`href="/api/projects/${projectId}?view=editor"`));
+    assert.ok(editorHtml.includes(`href="/api/projects/${projectId}/files/index.html"`));
+    for (const route of ['/explore?project=' + projectId, '/editor/not-an-id', '/editor/' + projectId + '?templates=1']) {
+      assert.ok(!(await (await disabledApi.app.request(route)).text()).includes('data-editor-bootstrap'), route);
+    }
+
     // Dev mode allows .map for local debugging
     const devMapRes = await disabledApi.app.request('/editor-assets/index.js.map');
     assert.equal(devMapRes.status, 200);

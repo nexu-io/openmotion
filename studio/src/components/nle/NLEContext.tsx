@@ -1,6 +1,5 @@
 import { beginTimelineSourceRead, openTimelineSource } from "../../player/lib/peerTimeline";
-import { parseAuthoredTimeline } from "../../player/lib/authoredTimeline";
-import { normalizeToZones } from "../../player/components/timelineZones";
+import { readCurrentProjectSource } from "../../utils/readCurrentProjectSource";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { useContext, useState, useCallback, useRef, useEffect, useLayoutEffect, type ReactNode } from "react";
 import { useTimelinePlayer } from "../../player/hooks/useTimelinePlayer";
@@ -12,7 +11,6 @@ import { setCompositionSourceMap } from "../editor/domEditingDom";
 import { ensureMotionPathPluginLoaded } from "../../utils/gsapSoftReload";
 import { useAssetPreviewStore } from "../../utils/assetPreviewStore";
 import { createStableContext } from "../../utils/hmrStableContext";
-import { studioApiFetch } from "../../utils/studioApiFetch";
 import { previewReloadBegun } from "../../player/previewReloading";
 
 export function shouldDisableTimelineWhileCompositionLoading(compositionLoading: boolean): boolean {
@@ -43,7 +41,6 @@ export interface NLEContextValue {
   handleNavigateComposition: (index: number) => void;
   handleDrillDown: (element: TimelineElement) => void;
   compIdToSrc: Map<string, string>;
-  initialTimelineElements?: TimelineElement[];
   // layout state
   // composition loading
   compositionLoading: boolean;
@@ -199,8 +196,6 @@ export function NLEProvider({
     [compIdToSrc, drillDown, iframeRef_],
   );
 
-  const [authoredTimeline, setAuthoredTimeline] = useState<{ projectId: string; elements: TimelineElement[] } | null>(null);
-
   // Composition ID → file path map from raw index.html
   const compIdToSrcRef = useRef(compIdToSrc);
   compIdToSrcRef.current = compIdToSrc;
@@ -209,23 +204,17 @@ export function NLEProvider({
 
   useEffect(() => {
     const controller = new AbortController();
-    let current = true;
     const emptyMap = new Map<string, string>();
     setCompIdToSrc(emptyMap);
     setCompositionSourceMap(emptyMap);
     onCompIdToSrcChangeRef.current?.(emptyMap);
 
     const rememberSource = beginTimelineSourceRead(projectId, "index.html");
-    studioApiFetch(buildProjectApiPath(projectId, `/files/index.html`), {
-      signal: controller.signal,
-    })
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data: { content?: string }) => {
-        if (!current) return;
-        const html = data.content || "";
+    readCurrentProjectSource(projectId, "index.html", buildProjectApiPath(projectId, "/files/index.html"), undefined, controller.signal)
+      .then(({ response, data }) => {
+        if (controller.signal.aborted) return;
+        if (!response.ok || typeof data?.content !== "string") throw new Error(`Invalid source response (${response.status})`);
+        const html = data.content;
         const map = new Map<string, string>();
         const re =
           /data-composition-id=["']([^"']+)["'][^>]*data-composition-src=["']([^"']+)["']|data-composition-src=["']([^"']+)["'][^>]*data-composition-id=["']([^"']+)["']/g;
@@ -240,23 +229,15 @@ export function NLEProvider({
         // (the runtime drops the linkage when inlining — see getSourceFileForElement).
         setCompositionSourceMap(map);
         onCompIdToSrcChangeRef.current?.(map);
-        const player = usePlayerStore.getState();
-        const needsInitialRows = player.timelineProjectId === projectId && !player.timelineReady &&
-          !player.elements.length && !player.clipManifest;
-        const source = needsInitialRows ? parseAuthoredTimeline(html, "index.html", projectId) : null;
-        rememberSource(html, source ?? undefined);
-        if (source?.elements.length) setAuthoredTimeline({ projectId, elements: normalizeToZones(source.elements) });
+        rememberSource(html, { version: data.version ?? response.headers?.get("etag") });
       })
       .catch((err: unknown) => {
-        if (!current || controller.signal.aborted) return;
+        if (controller.signal.aborted) return;
         // Non-fatal: drill-down still works via the iframe DOM scan; without
         // the map only source-file resolution for sub-comps degrades.
         console.warn("[studio] Couldn't load composition source map from index.html:", err);
       });
-    return () => {
-      current = false;
-      controller.abort();
-    };
+    return () => controller.abort();
   }, [projectId, setCompIdToSrc]);
 
   // Patch elements with compositionSrc whenever elements or compIdToSrc change.
@@ -346,7 +327,6 @@ export function NLEProvider({
     handleNavigateComposition,
     handleDrillDown,
     compIdToSrc,
-    initialTimelineElements: authoredTimeline?.projectId === projectId && compositionStack.length === 1 ? authoredTimeline.elements : undefined,
     compositionLoading,
     setCompositionLoading,
     timelineDisabled,

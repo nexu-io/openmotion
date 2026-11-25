@@ -74,6 +74,8 @@ interface PlayerState extends PlayerStoreSlices {
   /** Project owning the current timeline session; null outside a project-scoped reset. */
   timelineProjectId: string | null;
   timelineSourceProjected: boolean;
+  /** Path whose confirmed source supplied the editable rows before preview discovery. */
+  authoredTimelinePath: string | null;
   /** True while a beat dot is being dragged — hides the playhead guideline. */
   beatDragging: boolean;
   elements: TimelineElement[];
@@ -276,6 +278,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   timelineSessionEpoch: 0,
   timelineProjectId: null,
   timelineSourceProjected: false,
+  authoredTimelinePath: null,
   beatDragging: false,
   elements: [],
   pendingAssetDrops: [],

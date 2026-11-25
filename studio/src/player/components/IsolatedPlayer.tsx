@@ -7,7 +7,7 @@ import { buildProjectApiPath } from "../../utils/projectRouting";
 import { createPreviewAdapter } from "../lib/previewAdapter";
 import { rememberBridgeTimelineState } from "../lib/playbackAdapter";
 import { bindPreviewLease } from "../lib/previewLease";
-import { rememberPreviewPosition } from "../lib/previewReconnect";
+import { rememberPausedPreviewPosition, rememberPreviewPosition } from "../lib/previewReconnect";
 import { announcePreviewDocumentLoaded } from "../sceneSwap";
 import { forgetPreviewHtmlSources, rememberPreviewHtmlSources } from "../lib/previewHtmlSources";
 import { rememberPeerTimingDocument } from "../peerTimingPreview";
@@ -63,6 +63,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
     const tracksAssets = useRef(props.trackAssets === true).current;
     const assetReadinessGenRef = useRef(0);
     const lease = useRef<ReturnType<typeof bindPreviewLease> | null>(null);
+    const setParked = useRef<((parked: boolean) => void) | null>(null);
     const busyRetries = useRef(0);
     const [error, setError] = useState<string>();
     const [awaitingFirstFrame, setAwaitingFirstFrame] = useState(props.showInitialLoading === true);
@@ -84,6 +85,8 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       let timelineLoaded = false;
       let runtimeTime: number | undefined;
       let bridge: ReturnType<typeof createPreviewAdapter> | undefined;
+      let assets: PreviewAssetProgress | null = null;
+      let restoreRetry: (() => void) | undefined;
       let loadId = 0;
       let startedAt = performance.now();
       let deadline: ReturnType<typeof setTimeout>;
@@ -106,7 +109,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         });
       }
       function softUnlockPreview() {
-        if (ready || softUnlocked) return;
+        if (ready || softUnlocked || callbacks.current.parked) return;
         softUnlocked = true;
         clearTimeout(deadline);
         clearTimeout(softUnlockTimer);
@@ -124,6 +127,8 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
             })
           : null;
       function fail(message: string) {
+        delete iframe!.dataset.clipPainted;
+        if (callbacks.current.parked) return;
         ready = true;
         clearTimeout(busyTimer);
         clearTimeout(deadline);
@@ -144,6 +149,13 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
       }
       function message(event: MessageEvent) {
         if (!bridge?.accepts(event)) return;
+        if (callbacks.current.parked) {
+          // The pause acknowledgement may be more recent than the last live heartbeat.
+          if (event.data.type === "timeline-state" && !event.data.isPlaying && Number.isFinite(event.data.currentTime)) {
+            runtimeTime = event.data.currentTime;
+          }
+          return;
+        }
         if (event.data.type === "preview-ready") {
           if (!receivedHtmlSources) {
             rememberPreviewHtmlSources(iframe!, event.data.projectId, event.data.htmlSources);
@@ -157,6 +169,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           const parsed = parseBridgeAssetProgress(event.data);
           if (parsed && tracksAssets && !passive) {
             sawAssetReadiness = true;
+            assets = parsed;
             usePlayerStore.getState().updateAssetReadiness(parsed, assetReadinessGenRef.current);
           }
           return;
@@ -183,6 +196,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         const assetSnapshot = parseBridgeAssetProgress(event.data.assets);
         if (assetSnapshot && tracksAssets && !passive) {
           sawAssetReadiness = true;
+          assets = assetSnapshot;
           usePlayerStore.getState().updateAssetReadiness(assetSnapshot, assetReadinessGenRef.current);
         }
         if (ready || !(event.data.duration > 0)) return;
@@ -227,6 +241,8 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           return;
         }
         paintFrame = requestAnimationFrame(() => {
+          if (callbacks.current.parked) return;
+          iframe!.dataset.clipPainted = "true";
           setAwaitingFirstFrame(false);
           callbacks.current.onCompositionLoadingChange?.(false);
           callbacks.current.onPainted?.({ iframe: iframe!, startedAt, loadId });
@@ -240,15 +256,36 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           if (!passive) usePlayerStore.getState().markPreviewBooted();
         });
       }
+      setParked.current = (parked) => {
+        if (parked) {
+          bridge?.send("playback-control", { action: "pause" });
+          return;
+        }
+        if (!ready || iframe.dataset.clipPainted !== "true") return;
+        const store = usePlayerStore.getState();
+        assetReadinessGenRef.current = store.beginAssetReadinessLoad();
+        store.updateAssetReadiness(assets ?? { status: "ready", completed: 0, total: 0, failed: [] }, assetReadinessGenRef.current);
+        restoreRetry?.();
+        rememberPausedPreviewPosition(iframe, runtimeTime ?? 0);
+        resize();
+        callbacks.current.onLoad();
+        announcePreviewDocumentLoaded(iframe);
+        callbacks.current.onCompositionLoadingChange?.(false);
+        callbacks.current.onReadyToShowChange?.(true);
+        store.markPreviewBooted();
+      };
       const observer = new ResizeObserver(resize);
       observer.observe(stage);
       window.addEventListener("message", message);
       lease.current = bindPreviewLease(url, props.origin, (next) => {
+        delete iframe.dataset.clipPainted;
+        if (callbacks.current.parked) return;
         if (ready && !passive && !callbacks.current.noLoadTimeout) rememberPreviewPosition(iframe, runtimeTime);
         ready = false;
         timelineLoaded = false;
         softUnlocked = false;
         sawAssetReadiness = false;
+        assets = null;
         setAwaitingFirstFrame(callbacks.current.showInitialLoading === true);
         busyForLoad = false;
         clearTimeout(busyTimer);
@@ -273,29 +310,33 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         iframe.src = next.href;
         bridge = createPreviewAdapter({ iframe, expectedOrigin: props.origin });
         if (tracksAssets && !passive) {
-          const gen = assetReadinessGenRef.current;
           const activeBridge = bridge;
-          registerRetryFailedAssetsHandler(gen, async () => {
-            try {
-              const result = await activeBridge.request<unknown>("retry-failed-assets", {}, 15_000);
-              const parsed = parseBridgeAssetProgress(result);
-              if (parsed) {
-                usePlayerStore.getState().updateAssetReadiness(parsed, gen);
-                return parsed.failed;
+          restoreRetry = () => {
+            const gen = assetReadinessGenRef.current;
+            registerRetryFailedAssetsHandler(gen, async () => {
+              try {
+                const result = await activeBridge.request<unknown>("retry-failed-assets", {}, 15_000);
+                const parsed = parseBridgeAssetProgress(result);
+                if (parsed) {
+                  usePlayerStore.getState().updateAssetReadiness(parsed, gen);
+                  return parsed.failed;
+                }
+              } catch {
+                /* bridge unavailable */
               }
-            } catch {
-              /* bridge unavailable */
-            }
-            return usePlayerStore.getState().assetReadinessFailed;
-          });
+              return usePlayerStore.getState().assetReadinessFailed;
+            });
+          };
+          restoreRetry();
         }
         deadline = setTimeout(() => fail("The composition preview did not become ready."), 15_000);
       }, fail, initialLease.current);
       return () => {
+        setParked.current = null;
         unsubscribeSkip?.();
         if (tracksAssets && !passive) {
           registerRetryFailedAssetsHandler(assetReadinessGenRef.current, null);
-          usePlayerStore.getState().setMediaBuffering(false);
+          if (!callbacks.current.parked) usePlayerStore.getState().setMediaBuffering(false);
         }
         clearTimeout(busyTimer);
         clearTimeout(deadline);
@@ -314,6 +355,14 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         }
       };
     }, [props.origin, passive, tracksAssets]);
+
+    const previouslyParked = useRef(props.parked);
+    useEffect(() => {
+      if (Boolean(previouslyParked.current) !== Boolean(props.parked)) {
+        setParked.current?.(Boolean(props.parked));
+      }
+      previouslyParked.current = props.parked;
+    }, [props.parked]);
 
     return (
       <div className="relative h-full w-full overflow-hidden" style={props.style} ref={container} inert={props.inert || undefined}>

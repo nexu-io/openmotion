@@ -9,7 +9,7 @@ import { useStudioShellContext } from "../../contexts/StudioContext";
 import { useI18n } from "../../i18n/I18n";
 import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/previewAdapter";
 import { projectPreviewAdapter } from "../../player/lib/projectPreviewAdapter";
-import { onPreviewPromoted } from "../../player/sceneSwap";
+import { onPreviewPromoted, SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { usePlayerStore } from "../../player/store/playerStore";
 import { canvasBoxOperations, type CanvasBox, type MeasuredCanvasPosition } from "../../../../packages/edit-core/canvas-box";
 import { useCanvasClipVisibility } from "./useCanvasClipVisibility";
@@ -65,12 +65,10 @@ function validResult(result: DragResult | null): result is DragResult {
 function positionPatch(result: DragResult) {
   const { sourceFile, ifMatch, target } = isolatedPatchTarget(result);
   const {left, top, width, height, makeRelative, corner, extraAxes} = result;
-  if (result.translated) {
-    const operations = [{ type: "inline-style" as const, property: "translate", value: left + "px " + top + "px" }];
-    return { sourceFile, ifMatch, patches: [{ target, operations }] };
-  }
   const box = {left, top, width, height, makeRelative, corner, ...(extraAxes && {extraAxes})};
-  return { sourceFile, ifMatch, patches: [{ target, operations:canvasBoxOperations(box) }], box, ...(result.position && {position:result.position}) };
+  const operations = canvasBoxOperations(box, result.translated ? "translate" : "layout");
+  const patch = { sourceFile, ifMatch, patches: [{ target, operations }] };
+  return result.translated ? patch : { ...patch, box, ...(result.position && {position:result.position}) };
 }
 
 /** Input and persistence stay in Studio. The scoped frame only measures and previews layout. */
@@ -204,7 +202,7 @@ export function IsolatedCanvasOverlay() {
     drag.current = lastPick.current = active;
     // Keep the last visible bounds until the new hit has been measured.
     event.currentTarget.setPointerCapture(event.pointerId);
-    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, cssLayoutOffset: true, ...(event.shiftKey && { additive: true }), ...(active.optimistic && { ordered: true }),
+    void adapter.request<Pick | { waitingForSource: true } | null>("canvas-drag", { phase: "start", gestureId: active.gestureId, x, y, corner, cssLayoutOffset: true, ...(corner && { cssResizeOffset: true }), ...(event.shiftKey && { additive: true }), ...(active.optimistic && { ordered: true }),
       ...(target && { target: { sourceFile: target.sourceFile, elementId: target.elementId, hfId: target.hfId } }) })
       .then(pick => {
         if (lastPick.current !== active || !pick) return;
@@ -271,7 +269,7 @@ export function IsolatedCanvasOverlay() {
     const gestureSession = session.current;
     const issuedAtLoad = frameLoad.current;
     const wholePath = event.altKey || !usePlayerStore.getState().autoKeyframeEnabled;
-    void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }).then(async result => {
+    void active.adapter.request<DragResult | null>("canvas-drag", { ...payload, wholePath }, SCENE_GESTURE_REPLY_MS).then(async result => {
       if (gestureSession !== session.current) return;
       if (frameLoad.current !== issuedAtLoad || previewIframeRef.current !== active.adapter.iframe || createPreviewAdapter({ iframe: active.adapter.iframe }).token !== active.adapter.token) {
         reportUnapplied();

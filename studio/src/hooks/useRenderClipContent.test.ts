@@ -83,6 +83,7 @@ describe("useRenderClipContent", () => {
     activePreviewUrl: string | null = "/api/projects/my-project/preview",
     context?: TimelineClipRenderContext,
     mvpEditor = false,
+    fileTreeLoaded = true,
   ): ReactNode {
     const host = document.createElement("div");
     document.body.append(host);
@@ -91,6 +92,7 @@ describe("useRenderClipContent", () => {
 
     function Harness() {
       const render = useRenderClipContent({
+        fileTreeLoaded,
         projectIdRef: { current: "my-project" },
         compIdToSrc: new Map(),
         activePreviewUrl,
@@ -120,6 +122,7 @@ describe("useRenderClipContent", () => {
     function Harness() {
       renderers.push(
         useRenderClipContent({
+          fileTreeLoaded: true,
           projectIdRef,
           compIdToSrc,
           activePreviewUrl: null,
@@ -149,6 +152,7 @@ describe("useRenderClipContent", () => {
     let content: ReactNode = null;
     function Harness() {
       const render = useRenderClipContent({
+        fileTreeLoaded: true,
         projectIdRef: { current: "my-project" },
         compIdToSrc: new Map(),
         activePreviewUrl: null,
@@ -382,6 +386,14 @@ describe("useRenderClipContent", () => {
     expect(isValidElement(content) && content.type).toBe(TextClipContent);
   });
 
+  it("waits for the file listing before mounting a composition filmstrip", () => {
+    usePlayerStore.setState({ thumbnailMode: "adaptive" });
+    const clip = { id: "intro", tag: "div", start: 0, duration: 4, track: 0, compositionSrc: "compositions/intro.html" };
+    expect(renderClipContent(clip, null, undefined, false, false)).toBeNull();
+    const ready = renderClipContent(clip, null, undefined, false, true);
+    expect(isValidElement(ready) && ready.type).toBe(CompositionThumbnail);
+  });
+
   it("passes empty labels to thumbnail content so TimelineClip owns clip names", () => {
     usePlayerStore.setState({ thumbnailMode: "adaptive" });
 
@@ -487,6 +499,7 @@ describe("useRenderClipContent", () => {
     let content: ReactNode = null;
     function Harness() {
       const render = useRenderClipContent({
+        fileTreeLoaded: true,
         projectIdRef: { current: "my-project" }, compIdToSrc: new Map(),
         activePreviewUrl: null, effectiveTimelineDuration: 7,
       });

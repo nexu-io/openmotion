@@ -44,6 +44,7 @@ it("debounces first creation, advances the guarded version, and applies a peer g
   vi.stubGlobal("fetch", fetch);
   const store = usePlayerStore.getState();
   store.beginTimelineSession(project);
+  store.markPreviewBooted();
   store.setElements([{ id: "track", tag: "audio", start: 0, duration: 5, track: 1, src: asset }]);
 
   function Probe() { useMusicBeatAnalysis(); return null; }

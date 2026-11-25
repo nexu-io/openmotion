@@ -422,6 +422,7 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
     setRightCollapsed: panelLayout.setRightCollapsed,
   });
   const renderClipContent = useRenderClipContent({
+    fileTreeLoaded: fileManager.fileTreeLoaded,
     projectIdRef: fileManager.projectIdRef,
     compIdToSrc,
     activePreviewUrl:
@@ -584,7 +585,6 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
   const editorReadiness = useEditorAssetReadiness({
     projectId,
     fileTreeLoaded: fileManager.fileTreeLoaded,
-    compositionLoading,
     unreachableProject: Boolean(sdkHandle.unreachableProject),
     compositionMissing: Boolean(sdkHandle.compositionMissing && activeCompPath),
     showToast,

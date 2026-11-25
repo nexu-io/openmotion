@@ -37,10 +37,17 @@ export const PREVIEW_CANVAS_RESIZE = `
       };
     };
     const w = probe('width'), h = probe('height');
+    const perspective = hasResizePerspective(element);
+    // A bottom-right resize often needs no position write at all, even when an
+    // animation owns both positioning properties. Verify the opposite corner stays put.
+    if (!axes) {
+      if (perspective || !Math.hypot(w.w, w.h) || !Math.hypot(h.w, h.h) || Math.hypot(w.x, w.y, h.x, h.y) > 0.0001) return null;
+      return { width: w, height: h, writeLeft: false, writeTop: false, projection: null };
+    }
     const shiftW = localOffset(axes, w.x, w.y), shiftH = localOffset(axes, h.x, h.y);
     const writeLeft = corner.endsWith('w') || Math.abs(shiftW.x) + Math.abs(shiftH.x) > 0.0001;
     const writeTop = corner.startsWith('n') || Math.abs(shiftW.y) + Math.abs(shiftH.y) > 0.0001;
-    const projection = hasResizePerspective(element) ? { before, anchorX, anchorY } : null;
+    const projection = perspective ? { before, anchorX, anchorY } : null;
     return { width: w, height: h, writeLeft: writeLeft || !!projection, writeTop: writeTop || !!projection, projection };
   }
 
@@ -74,7 +81,7 @@ export const PREVIEW_CANVAS_RESIZE = `
       heightDelta = step.height * scale;
     }
     // Size changes can move the opposite corner when transforms rotate about their origin.
-    const correction = localOffset(step.axes, -w.x * widthDelta - h.x * heightDelta, -w.y * widthDelta - h.y * heightDelta);
+    const correction = step.axes ? localOffset(step.axes, -w.x * widthDelta - h.x * heightDelta, -w.y * widthDelta - h.y * heightDelta) : {x:0, y:0};
     return { width: step.width + widthDelta, height: step.height + heightDelta, ...correction };
   }
 
@@ -85,7 +92,7 @@ export const PREVIEW_CANVAS_RESIZE = `
     const signX = step.corner.endsWith('w') ? -1 : 1;
     const signY = step.corner.startsWith('n') ? -1 : 1;
     const style = step.element.style;
-    if (step.makeRelative) style.position = 'relative';
+    if (!step.translate && step.makeRelative) style.position = 'relative';
     let best = { width: step.width, height: step.height, x: 0, y: 0 };
     let bestError = Math.hypot(dx, dy);
     let inputX = dx, inputY = dy, biasX = 0, biasY = 0;
@@ -95,8 +102,11 @@ export const PREVIEW_CANVAS_RESIZE = `
       candidate.y += biasY;
       style.width = candidate.width + 'px';
       style.height = candidate.height + 'px';
-      style.left = (step.left + candidate.x) + 'px';
-      style.top = (step.top + candidate.y) + 'px';
+      if (step.translate) style.translate = (step.left + candidate.x) + 'px ' + (step.top + candidate.y) + 'px';
+      else {
+        style.left = (step.left + candidate.x) + 'px';
+        style.top = (step.top + candidate.y) + 'px';
+      }
       const rect = step.element.getBoundingClientRect();
       const widthError = dx - signX * (rect.width - before.width);
       const heightError = dy - signY * (rect.height - before.height);

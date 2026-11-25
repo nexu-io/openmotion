@@ -562,7 +562,7 @@ class MockStorage implements StoragePort {
   async ensureBucketAndCors(): Promise<void> {}
 }
 
-function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number }) {
+function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number; fontCatalog?: Parameters<typeof createDisklessStudioApp>[0]['fontCatalog'] }) {
   const pgClient = new StudioTestPgClient();
   const db = drizzle({ client: pgClient as never, schema }) as unknown as Database;
   const storage = new MockStorage();
@@ -645,6 +645,7 @@ function createStudioTestEnv(options?: { renderProgressKeepaliveMs?: number }) {
     workRounds,
     resolveAuth: () => auth,
     skipDeterministicFonts: true,
+    fontCatalog: options?.fontCatalog,
     ...(options?.renderProgressKeepaliveMs !== undefined
       ? { renderProgressKeepaliveMs: options.renderProgressKeepaliveMs }
       : {}),
@@ -721,11 +722,12 @@ describe('Zero Local ProjectDir Disk Writes Guard', () => {
 });
 
 describe('Pure In-Memory Hyperframes Engines (Bundle, Lint, Info, Timeline)', () => {
-  it('versions large interactive scripts while retaining inline scripts in standalone bundles', async () => {
+  it('shares versioned large scripts between interactive project and clip previews', async () => {
     const script = '/*' + 'v'.repeat(40 * 1024) + '*/window.vendorReady = true;';
     const sources = {
       'index.html': '<html><head><script src="vendor.js"></script></head><body></body></html>',
       'vendor.js': script,
+      'compositions/clip.html': '<div data-composition-id="clip">Clip</div>',
     };
     const project = new InMemoryVirtualProject({
       projectId: 'fixture', projectName: 'Fixture', revision: 'a'.repeat(64), textContents: sources,
@@ -737,7 +739,10 @@ describe('Pure In-Memory Hyperframes Engines (Bundle, Lint, Info, Timeline)', ()
     const options = { baseHref: 'https://preview.example/authorized/', skipDeterministicFonts: true };
     const interactive = await bundlePreviewInMemory(project, { ...options, cacheProjectScripts: true });
     assert.ok(interactive);
-    assert.ok(interactive.includes(options.baseHref + 'vendor.js?om-script=' + sha256Hex(script)));
+    const pinned = options.baseHref + 'vendor.js?om-script=' + sha256Hex(script);
+    assert.ok(interactive.includes(pinned));
+    const clip = await buildSubCompositionHtmlInMemory(project, 'compositions/clip.html', { ...options, cacheProjectScripts: true });
+    assert.ok(clip?.includes(pinned));
     assert.ok(!interactive.includes(script));
     assert.ok((await bundlePreviewInMemory(project, options))?.includes(script));
   });
@@ -1795,6 +1800,42 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.deepEqual(retryRenderJson.settings.variables, { theme: 'dark' });
   });
 
+  it('opens an editor listing without reading vendor code, media or fonts and resolves font details separately', async (t) => {
+    const font = { family: 'Test Font', weight: '500', style: 'normal' as const, postscriptName: 'TestFont' };
+    const env = createStudioTestEnv({ fontCatalog: {
+      inspectBuffer: () => font, listFamilies: async () => [], getFont: async () => null,
+      prepareBuffer: () => { throw new Error('unused'); }, fetchGoogleFontCss: async () => '',
+    } });
+    const source = '<main data-composition-id="root"></main>';
+    const { projectId } = await env.workspace.createProject(env.auth, {
+      title: 'Editor file tree', initialFiles: [
+        { path: 'index.html', content: source },
+        { path: 'vendor.js', content: '/*' + 'a'.repeat(256 * 1024) + '*/' },
+        { path: 'assets/font.woff', content: 'font bytes' },
+        { path: 'assets/clip.mp4', content: 'media bytes' },
+      ],
+    });
+    t.mock.method(env.hotTextCache, 'getText', async () => null);
+    const reads = t.mock.method(env.storage, 'getObjectBuffer');
+    const url = `/api/projects/${projectId}`;
+    const open = await env.studioApp.request(url + '?view=editor');
+    assert.equal(open.status, 200);
+    const listing = await open.json();
+    assert.deepEqual(listing.files.sort(), ['assets/clip.mp4', 'assets/font.woff', 'index.html', 'vendor.js']);
+    assert.equal(listing.entryVersion, fileContentVersion(source));
+    assert.equal(listing.fonts, undefined);
+    assert.deepEqual(reads.mock.calls.map(call => call.arguments[0].split('/').at(-1)), [sha256Hex(source)]);
+
+    const details = await (await env.studioApp.request(url + '?view=asset-details')).json();
+    assert.equal(details.assetDetailsKey, listing.assetDetailsKey);
+    assert.deepEqual(details.fonts, [{ ...font, path: 'assets/font.woff' }]);
+    assert.deepEqual(reads.mock.calls.slice(1).map(call => call.arguments[0].split('/').at(-1)), [sha256Hex('font bytes')]);
+    const full = await (await env.studioApp.request(url)).json();
+    assert.deepEqual(full.compositionRevisions, listing.compositionRevisions);
+    assert.deepEqual(full.assetNames, details.assetNames);
+    assert.deepEqual(full.fonts, details.fonts);
+  });
+
   it('caches only matching script versions on the project asset route', async () => {
     const env = createStudioTestEnv();
     const content = 'window.ready = true;';
@@ -1824,6 +1865,7 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
           content: '<!doctype html><html><head><script src="./vendor/gsap-3.14.2/dist/gsap.min.js"></script></head><body><div data-composition-id="main" data-width="1920" data-height="1080" data-duration="5" data-fps="30"></div></body></html>',
         },
         { path: 'vendor/gsap-3.14.2/dist/gsap.min.js', content: gsapContent },
+        { path: 'scene.html', content: '<div data-composition-id="scene">Scene</div>' },
       ],
     });
 
@@ -1831,6 +1873,10 @@ describe('Diskless Studio HTTP Routes (ETag, HEAD direct, 302 headers, DOM & GSA
     assert.equal(previewHtml.status, 200);
     const expectedQuery = `vendor/gsap-3.14.2/dist/gsap.min.js?om-script=${sha256Hex(gsapContent)}`;
     assert.ok((await previewHtml.text()).includes(expectedQuery));
+
+    const capture = await env.studioApp.request(`/api/projects/${projectId}/preview/comp/scene.html?capture=1`);
+    assert.equal(capture.status, 200);
+    assert.ok((await capture.text()).includes(expectedQuery));
 
     const previewScript = await env.studioApp.request(`/api/projects/${projectId}/preview/${expectedQuery}`);
     assert.equal(previewScript.status, 200);

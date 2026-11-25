@@ -9,6 +9,7 @@ import { PREVIEW_INLINE_TEXT } from './preview-inline-text.ts';
 import { PREVIEW_CANVAS_DRAG } from './preview-canvas-drag.ts';
 import { PREVIEW_TIMELINE_CONTROLS } from './preview-timeline-controls.ts';
 import { PREVIEW_PARKED_SCENE } from './preview-parked-scene.ts';
+import { PREVIEW_SCENE_GESTURES } from './preview-scene-gestures.ts';
 import { PREVIEW_PEER_TIMING } from './preview-peer-timing.ts';
 import type { PreviewLiveEdits } from '../../../shared/preview-timing.ts';
 import { PREVIEW_THUMBNAIL_CAPTURE } from './preview-thumbnail-capture.ts';
@@ -130,6 +131,7 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
   ${PREVIEW_TIMELINE_CONTROLS}
   ${PREVIEW_PEER_TIMING}
   ${PREVIEW_PARKED_SCENE}
+  ${PREVIEW_SCENE_GESTURES}
   ${PREVIEW_INSPECTOR}
   ${PREVIEW_INSPECTOR_STYLES}
   ${PREVIEW_LAYERS}
@@ -321,12 +323,12 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
       if(message.type==='layer-family'){ respond(requestId,previewLayerFamily(message)); return; }
       if(message.type==='layer-select'){ respond(requestId,selectPreviewLayer(message)); return; }
       if(message.type==='inline-text'){
-        var textTarget=editInlineText(message);
-        if(message.phase==='pick') respond(requestId,textTarget);
+        var textTarget=sceneInlineText(message);
+        if(message.phase==='pick') Promise.resolve(textTarget).then(value => respond(requestId,value), () => respond(requestId,null));
         return;
       }
       if(message.type==='canvas-drag'){
-        var result=canvasDrag(message);
+        var result=sceneCanvasDrag(message);
         if(message.phase==='move' && drag?.corner && drag.id===message.gestureId && !drag.boundsScheduled){
           const active=drag;
           active.boundsScheduled=true;
@@ -340,7 +342,8 @@ export const PREVIEW_BRIDGE_SCRIPT = scopedScript(`
           const hit=started?.element || (!message.corner && !message.target && canvasPointHit(message.x, message.y));
           if(hit && hit!==document.body && hit!==document.documentElement) reportLayerSelection(hit, started?.selection || describe(hit), message.additive);
         }
-        if(message.phase==='start' || message.phase==='finish') respond(requestId,result);
+        if(message.phase==='start') respond(requestId,result);
+        if(message.phase==='finish') Promise.resolve(result).then(value => respond(requestId,value), () => respond(requestId,null));
         return;
       }
       if(message.type==='pick-mode'){

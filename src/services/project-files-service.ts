@@ -772,7 +772,11 @@ export class ProjectFilesService {
    * Load an immutable in-memory snapshot (`InMemoryVirtualProject`) of a project's files and
    * text contents for `bundlePreviewInMemory`, `lintProjectInMemory`, `infoInMemory`, and `timelineInMemory`.
    */
-  async loadVirtualProject(ctx: AuthContext, projectId: string): Promise<InMemoryVirtualProject> {
+  async loadVirtualProject(
+    ctx: AuthContext,
+    projectId: string,
+    includeText?: (path: string) => boolean,
+  ): Promise<InMemoryVirtualProject> {
     const project = await loadProjectOrThrow(this.db, ctx.workspaceId, projectId, {
       allowTrashed: true,
       auth: ctx,
@@ -780,7 +784,7 @@ export class ProjectFilesService {
     const files = await this.listFilesForProject(ctx, project.id);
 
     const textContents = new Map<string, string>();
-    const textFiles = files.filter((f) => f.isText);
+    const textFiles = files.filter((f) => f.isText && (!includeText || includeText(f.path)));
 
     // Deduplicate blob fetches when multiple paths share the same SHA-256.
     const uniqueBlobs = new Map<string, { blobScope: BlobScope; sha256: string }>();

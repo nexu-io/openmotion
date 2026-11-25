@@ -14,7 +14,7 @@ export interface CanvasBox {
   height?: number;
 }
 
-export function canvasBoxOperations(result: CanvasBox) {
+export function canvasBoxOperations(result: CanvasBox, offset: "layout" | "translate" = "layout") {
   if (result.corner && !['nw', 'ne', 'sw', 'se'].includes(result.corner))
     throw new Error('Invalid resize corner.');
   if (
@@ -32,13 +32,17 @@ export function canvasBoxOperations(result: CanvasBox) {
   const { corner } = result;
   const writeLeft = !corner || corner.endsWith('w') || result.extraAxes?.includes('x');
   const writeTop = !corner || corner.startsWith('n') || result.extraAxes?.includes('y');
-  if (result.makeRelative === true && (writeLeft || writeTop)) {
-    operations.push({ type: 'inline-style', property: 'position', value: 'relative' });
+  if (offset === "translate") {
+    if (writeLeft || writeTop)
+      operations.push({ type: 'inline-style', property: 'translate', value: result.left + 'px ' + result.top + 'px' });
+  } else {
+    if (result.makeRelative === true && (writeLeft || writeTop))
+      operations.push({ type: 'inline-style', property: 'position', value: 'relative' });
+    if (writeLeft)
+      operations.push({ type: 'inline-style', property: 'left', value: result.left + 'px' });
+    if (writeTop)
+      operations.push({ type: 'inline-style', property: 'top', value: result.top + 'px' });
   }
-  if (writeLeft)
-    operations.push({ type: 'inline-style', property: 'left', value: result.left + 'px' });
-  if (writeTop)
-    operations.push({ type: 'inline-style', property: 'top', value: result.top + 'px' });
   if (corner) {
     operations.push(
       { type: 'inline-style', property: 'width', value: result.width + 'px' },

@@ -1,8 +1,9 @@
+import { readCurrentProjectSource } from "./readCurrentProjectSource";
 import { hasRelativeLutSource } from '../../../packages/edit-core/color-grading';
 import type { CompositionEdit } from '../../../packages/edit-core/commands';
 import { enqueueProjectEdit, runOrderedProjectBarrier } from './orderedProjectEdits';
 import { contentDependencies, isContentCommand } from '../../../packages/edit-core/content-schema';
-import { confirmedSource, observedEditAsset, forgetSource, observeSourceRead, pendingSourceRead, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits, type ConfirmedSource } from './confirmedTextSources';
+import { confirmedSource, observedEditAsset, forgetSource, pendingSourceRead, rememberSource, supportsOrderedTextEdits, supportsProjectTextEdits, type ConfirmedSource } from './confirmedTextSources';
 import { acknowledgeFileEdit, isolatedEditVersion } from './isolatedEditVersions';
 import { reconcileFileEdit } from './rebasedFileEdit';
 import type { StudioWriteHistory } from './studioFileHistory';
@@ -47,15 +48,14 @@ export async function resolveEditSource(project: string, path: string, matches: 
     source = confirmedSource(project, path);
     if (source && matches(source)) return source;
   }
-  const response = await studioApiFetch('/api/projects/' + encodeURIComponent(project) + '/files/' + encodeURIComponent(path));
+  const { response, data } = await readCurrentProjectSource(project, path);
   if (response.status === 404) {
     forgetSource(project, path);
     reconcileFileEdit(project, path);
     throw new StudioFileConflictError({ syncLatest: true, filePath: path, currentVersion: null, currentContent: null, attemptedContent });
   }
   if (!response.ok) throw await createStudioSaveHttpError(response, 'Could not read ' + path);
-  const data = await response.json();
-  observeSourceRead(project, path, response, data);
+  if (!data) throw new Error("Invalid source response");
   source = confirmedSource(project, path);
   if (source && !matches(source)) {
     reconcileFileEdit(project, path, source.version);
@@ -188,11 +188,9 @@ export async function placeCatalogComponent(project: string, path: string, name:
   return runOrderedProjectBarrier(project, async () => {
     let source = confirmedSource(project, path);
     if (!source) {
-      const response = await studioApiFetch('/api/projects/' + encodeURIComponent(project) + '/files/' + encodeURIComponent(path));
+      const { response, data } = await readCurrentProjectSource(project, path);
       if (!response.ok) throw await createStudioSaveHttpError(response, 'Could not read ' + path);
-      const data = await response.json();
-      if (typeof data.content !== 'string' || typeof data.version !== 'string') throw new Error('Missing composition source or version');
-      observeSourceRead(project, path, response, data);
+      if (typeof data?.content !== 'string' || typeof data.version !== 'string') throw new Error('Missing composition source or version');
       source = { content: data.content, version: data.version };
     }
     return commitTextEdits(project, [{ path, before: source.content, version: source.version, after: insertHost(source.content) }], { label, installComponent: name });

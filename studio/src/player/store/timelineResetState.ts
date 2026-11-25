@@ -13,6 +13,7 @@ export function createTimelineResetState() {
     beatDragging: false,
     elements: [],
     timelineSourceProjected: false,
+    authoredTimelinePath: null,
     pendingAssetDrops: [] as PendingAssetDrop[],
     selectedElementId: null,
     zEditVersion: 0,

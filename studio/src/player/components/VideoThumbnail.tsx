@@ -1,5 +1,5 @@
 import { useI18n } from "../../i18n/I18n";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import { useLocalUploadPreview } from "../../utils/localUploadPreviewStore";
@@ -52,20 +52,14 @@ function useVideoThumbnailSnapshot(
   poster: VideoThumbnailRequest | null,
   rich: VideoThumbnailRequest | null,
   media: string,
-): { snapshot: ThumbnailSnapshot; settled: boolean } {
+): ThumbnailSnapshot {
   const posterSnapshot = useThumbnailLease(poster);
   const richSnapshot = useThumbnailLease(rich);
   const [shown, setShown] = useState({ media, request: rich });
   const richSettled = richSnapshot.status === "ready" || rich === null;
   if (richSettled && (shown.media !== media || shown.request !== rich)) setShown({ media, request: rich });
   const shownSnapshot = useThumbnailLease(shown.media === media ? shown.request : null);
-  const snapshot = selectThumbnailSnapshot(posterSnapshot, richSnapshot, shownSnapshot);
-  const settled = rich
-    ? richSnapshot.status === "ready" || richSnapshot.status === "error"
-    : poster
-      ? posterSnapshot.status === "ready" || posterSnapshot.status === "error"
-      : false;
-  return { snapshot, settled };
+  return selectThumbnailSnapshot(posterSnapshot, richSnapshot, shownSnapshot);
 }
 
 function useRangeHeldDuringTrim(
@@ -142,34 +136,11 @@ export const VideoThumbnail = memo(function VideoThumbnail({
     () => createVideoThumbnailRequest(requestProps, requestFrameCount, true),
     [requestFrameCount, requestProps],
   );
-  const { snapshot, settled: videoStripSettled } = useVideoThumbnailSnapshot(
+  const snapshot = useVideoThumbnailSnapshot(
     measured ? posterRequest : null,
     measured && requestFrameCount > 1 ? richRequest : null,
     `${projectId}\0${videoSrc}`,
   );
-  const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
-  const timelinePreviewSettledInitial = usePlayerStore((s) => s.timelinePreviewSettledInitial);
-  const gateTaskId = useMemo(
-    () =>
-      measured && priority !== "overscan" && !localPreviewUrl && !timelinePreviewSettledInitial
-        ? `video:${projectId}:${videoSrc}`
-        : null,
-    [localPreviewUrl, measured, priority, projectId, timelinePreviewSettledInitial, videoSrc],
-  );
-
-  useEffect(() => {
-    if (!gateTaskId) return;
-    usePlayerStore.getState().registerTimelinePreviewTask(gateTaskId, loadGeneration);
-    return () => {
-      usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-    };
-  }, [gateTaskId, loadGeneration]);
-
-  useEffect(() => {
-    if (!gateTaskId || (!videoStripSettled && !localPreviewUrl)) return;
-    usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-  }, [gateTaskId, loadGeneration, localPreviewUrl, videoStripSettled]);
-
   const value = snapshot.status === "ready" ? snapshot.value : null;
   const urls = value?.kind === "filmstrip" ? value.urls : value?.kind === "image" ? [value.url] : [];
   const aspect = value && value.kind !== "waveform" ? value.aspect : 16 / 9;

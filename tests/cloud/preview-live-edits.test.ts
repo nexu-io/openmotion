@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { parseHTMLContent } from '@hyperframes/core/compiler/html-document';
 import { assembleBuiltinTemplate, BUILTIN_TEMPLATES } from '../../src/services/builtin-template-source.ts';
-import { bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
+import { buildSubCompositionHtmlInMemory, bundlePreviewInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { verifiedPreviewLiveEdits } from '../../src/studio/engine/preview-live-edits.ts';
 import { InMemoryVirtualProject } from '../../src/studio/virtual-project-store.ts';
 import { isLiveMediaMove } from '../../shared/preview-live-media.ts';
@@ -21,7 +21,7 @@ test('a media move can extend the root but cannot include another kind of edit',
   assert.equal(isLiveMediaMove([audio, {...root, styles:[['left','0px','20px']]}]), false);
 });
 
-test('only an author-reviewed script set opts into position and media timing updates', async () => {
+async function welcomeFixture() {
   const template = await assembleBuiltinTemplate(BUILTIN_TEMPLATES[0]!);
   const initial = Object.fromEntries(template.files.filter(f => f.isProjectFile).map(f => {
     assert.ok(f.bytes);
@@ -35,6 +35,11 @@ test('only an author-reviewed script set opts into position and media timing upd
       textContents: Object.fromEntries(Object.entries(contents).filter(([path]) => /\.(?:html|js|css)$/.test(path)).map(([path, bytes]) => [path, bytes.toString()])),
     });
   }
+  return {template, fixture};
+}
+
+test('only an author-reviewed script set opts into position and media timing updates', async () => {
+  const {template, fixture} = await welcomeFixture();
   const project = fixture();
   const capabilities = {mediaTiming:true, position:true};
   assert.deepEqual(await verifiedPreviewLiveEdits(project), capabilities);
@@ -80,4 +85,40 @@ test('preview silently stops recursive mounts while rendering each independent i
   assert.equal(doc.querySelectorAll('.scene-a').length, 2);
   assert.equal(doc.querySelectorAll('[data-composition-src]').length, 0);
   assert.equal(project.readText('intro.html'), textContents['intro.html']);
+});
+
+test('a separately opened Welcome clip certifies only its reviewed startup scripts and styles', async () => {
+  const { template, fixture } = await welcomeFixture();
+  const project = fixture();
+  const path = 'compositions/intro.html';
+  const text = project.readText(path)!;
+  const index = project.readText('index.html')!;
+  const oldIndex = index.replace(/ data-standalone-inputs="[^"]*"/, '');
+  const options = {bridgeOrigin: 'https://preview.test', skipDeterministicFonts: true};
+  async function sources(changes: Record<string, string>, clip = path) {
+    const project = fixture(changes, template.id);
+    const html = await buildSubCompositionHtmlInMemory(project, clip, options);
+    const meta = parseHTMLContent(html!).querySelector('script[data-openmotion-preview]')!;
+    return JSON.parse(meta.getAttribute('data-openmotion-preview')!).htmlSources;
+  }
+  for (const clip of template.files.filter(f => f.path.startsWith('compositions/') && f.path.endsWith('.html'))) {
+    assert.deepEqual(await sources({}, clip.path), [clip.path, 'index.html']);
+  }
+  // An old clone can change its title, position or color and still use the audited code.
+  const edited = text.replace('id="intro-headline"', 'id="intro-headline" style="left:50px;color:#234;font-size:42px"')
+    .replace('</h1>', ' edited</h1>');
+  assert.notEqual(edited, text);
+  assert.deepEqual(await sources({'index.html': oldIndex, [path]: edited, 'compositions/reel.html': '<script>fetch("another.html")</script>'}),
+    [path, 'index.html']);
+  assert.deepEqual(await sources({'index.html': oldIndex, [path]: '<template><p>New text</p></template>'}), [path, 'index.html']);
+  const changes: Record<string, string>[] = [
+    { 'index.html': oldIndex, 'assets/artwork.js': 'fetch("other.html")' },
+    { 'assets/film.css': '@import "other.html";' },
+    { [path]: text.replace('<script>', '<script>fetch("extra.html");') },
+    { [path]: text.replace('</h1>', '<iframe src="other.html"></iframe></h1>') },
+    { [path]: text.replace('</h1>', '<i style="background:url(other.html)"></i></h1>') },
+    { [path]: text.replace('</h1>', '<img src="other.html"></h1>') },
+    { [path]: text.replace('</h1>', '<div data-composition-src="extra.html"></div></h1>') },
+  ];
+  for (const change of changes) assert.equal(await sources(change), undefined);
 });

@@ -8,6 +8,11 @@ export interface StudioSaveSnapshot {
 }
 const EMPTY: StudioSaveSnapshot = { pending: 0, savedAt: null, failed: false };
 const projects = new Map<string, { snapshot: StudioSaveSnapshot; failures: Set<string> }>();
+// A retained preview can outlive edits to other files in the same project.
+const writingFiles = new Map<string, number>();
+export function hasStudioFileSave(projectId: string, path: string) {
+  return writingFiles.has(JSON.stringify([projectId, path]));
+}
 const listeners = new Set<() => void>();
 export const subscribeStudioSaves = (listener: () => void) => {
   listeners.add(listener);
@@ -34,6 +39,8 @@ export function clearStudioSaveFailures(projectId: string) {
   });
 }
 export async function trackStudioProjectSave<T>(projectId: string, path: string, save: () => Promise<T>): Promise<T> {
+  const key = JSON.stringify([projectId, path]);
+  writingFiles.set(key, (writingFiles.get(key) ?? 0) + 1);
   update(projectId, state => { state.snapshot = { ...state.snapshot, pending: state.snapshot.pending + 1 }; });
   try {
     const result = await save();
@@ -49,5 +56,9 @@ export async function trackStudioProjectSave<T>(projectId: string, path: string,
       state.snapshot = { ...state.snapshot, pending: state.snapshot.pending - 1, failed: state.failures.size > 0 };
     });
     throw error;
+  } finally {
+    const count = writingFiles.get(key)! - 1;
+    if (count) writingFiles.set(key, count);
+    else writingFiles.delete(key);
   }
 }

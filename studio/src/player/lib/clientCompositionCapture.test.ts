@@ -15,7 +15,7 @@ import {
   quantizeCompositionFrameCount,
   retainCachedCompositionCapture,
   seedClientCompositionCaptureForTest,
-  selectInitialGateCompositionPaths,
+  selectPriorityCompositionPaths,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
   subscribeCompositionCacheRevision,
@@ -127,14 +127,14 @@ describe("clientCompositionCapture", () => {
       duration: 5,
     }));
     // Playhead at t=22s sits inside s4 (20..25), next nearest are s3 (dist 2), s2 (dist 7), s6 (dist 8, s5 hidden).
-    expect(selectInitialGateCompositionPaths(elements, 22, 4)).toEqual([
+    expect(selectPriorityCompositionPaths(elements, 22, 4)).toEqual([
       "compositions/s4.html",
       "compositions/s3.html",
       "compositions/s2.html",
       "compositions/s6.html",
     ]);
     // At t=0, picks first 4 clips left-to-right.
-    expect(selectInitialGateCompositionPaths(elements, 0, 4)).toEqual([
+    expect(selectPriorityCompositionPaths(elements, 0, 4)).toEqual([
       "compositions/s0.html",
       "compositions/s1.html",
       "compositions/s2.html",

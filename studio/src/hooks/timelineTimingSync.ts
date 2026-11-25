@@ -1,5 +1,5 @@
-import { readVersionedSource } from "../utils/readVersionedSource";
-import { confirmedSource, observeSourceRead, type ConfirmedSource } from "../utils/confirmedTextSources";
+import { readCurrentProjectSource } from "../utils/readCurrentProjectSource";
+import type { ConfirmedSource } from "../utils/confirmedTextSources";
 // Soft-reload-first preview sync for timeline timing edits: server GSAP
 // position mutations (shift / scale), folding those rewrites into the timing
 // edit's undo history, and swapping the rewritten script into the live preview
@@ -39,18 +39,13 @@ export async function readFileContent(projectId: string, targetPath: string): Pr
   if (targetPath.includes("\0") || targetPath.includes("..")) {
     throw new Error(`Unsafe path: ${targetPath}`);
   }
-  const response = await readVersionedSource(
-    `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(targetPath)}`,
-    confirmedSource(projectId, targetPath),
-  );
+  const { response, data } = await readCurrentProjectSource(projectId, targetPath);
   if (!response.ok) {
     throw new Error(`Failed to read ${targetPath}`);
   }
-  const data = (await response.json()) as { content?: string };
-  if (typeof data.content !== "string") {
+  if (typeof data?.content !== "string") {
     throw new Error(`Missing file contents for ${targetPath}`);
   }
-  observeSourceRead(projectId, targetPath, response, data);
   return data.content;
 }
 

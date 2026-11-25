@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type MouseEvent, type RefObje
 import { useDomEditActionsContext } from "../../contexts/DomEditContext";
 import { createPreviewAdapter, type PreviewAdapter } from "../../player/lib/previewAdapter";
 import { isolatedPreviewOrigin } from "../../player/lib/previewLease";
+import { SCENE_GESTURE_REPLY_MS } from "../../player/sceneSwap";
 import { useLivePreviewIframe } from "../../player/store/previewIframeStore";
 import { useStudioShellContext } from "../../contexts/StudioContext";
 import { inlineTextBatches, isInlineTextTarget, type InlineTextTarget } from "./isolatedInlineTextPatch";
@@ -78,7 +79,7 @@ export function useIsolatedInlineText(
     const session: TextSession = { adapter, id: crypto.randomUUID() };
     active.current = session;
     try {
-      const target = await adapter.request<InlineTextTarget | null>("inline-text", { phase: "pick", editId: session.id, x, y });
+      const target = await adapter.request<InlineTextTarget | null>("inline-text", { phase: "pick", editId: session.id, x, y }, SCENE_GESTURE_REPLY_MS);
       if (active.current !== session || !isCurrentFrame(session, preview.current) || !isInlineTextTarget(target)) {
         close(session, false); return;
       }

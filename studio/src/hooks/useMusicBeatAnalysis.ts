@@ -156,13 +156,29 @@ export function useMusicBeatAnalysis(): void {
         beatStrengths: saved?.times.length ? saved.strengths : analysis.beatStrengths });
     };
     const refresh = (read?: RemoteFileRead) => { void loadGrid(read).catch(() => {}); };
-    refresh();
+    // Give the visible frame priority over the full audio download on opening.
+    let stopWaiting: (() => void) | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const start = (read?: RemoteFileRead) => {
+      stopWaiting?.();
+      clearTimeout(timeout);
+      refresh(read);
+    };
+    if (usePlayerStore.getState().previewBooted) start();
+    else {
+      stopWaiting = usePlayerStore.subscribe(state => {
+        if (state.timelineProjectId === projectId && state.previewBooted) start();
+      });
+      timeout = setTimeout(start, 8_000);
+    }
     const unsubscribe = addExternalFileReloadListener((changed, read) => {
-      if (changed === beatPath || changed === ".") refresh(read);
+      if (changed === beatPath || changed === ".") start(read);
     });
     return () => {
       generation++;
       unsubscribe();
+      stopWaiting?.();
+      clearTimeout(timeout);
       observed.current = null;
     };
   }, [musicSrc, projectId, assetVersion, isFallbackTrack, reload, setBeatAnalysis, setBeatEdits, resetBeatHistory]);
