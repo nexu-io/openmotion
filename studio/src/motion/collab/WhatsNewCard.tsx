@@ -5,6 +5,18 @@ import { useI18n } from '../../i18n/I18n';
 import { RemixIcon } from '../../icons/RemixIcons';
 import { useOptionalGrowthSurfaces } from './GrowthSurfacesContext';
 
+function splitHighlight(note: string): { lead: string; detail: string } | null {
+  const dashIdx = note.indexOf(' — ');
+  if (dashIdx > 0 && dashIdx <= 28) {
+    return { lead: note.slice(0, dashIdx).trim(), detail: note.slice(dashIdx + 3).trim() };
+  }
+  const zhColonIdx = note.indexOf('：');
+  if (zhColonIdx > 0 && zhColonIdx <= 18) {
+    return { lead: note.slice(0, zhColonIdx).trim(), detail: note.slice(zhColonIdx + 1).trim() };
+  }
+  return null;
+}
+
 export function WhatsNewCard() {
   const { t } = useI18n();
   const growth = useOptionalGrowthSurfaces();
@@ -27,14 +39,17 @@ export function WhatsNewCard() {
     >
       <header className="om-whats-new-head">
         <span className="om-whats-new-eyebrow">
-          <RemixIcon name="sparkling-fill" size={14} />
-          <span>{t("What's new")}</span>
-          <span className="om-collab-pill">v{card.version}</span>
+          <span className="om-whats-new-badge-icon" aria-hidden="true">
+            <RemixIcon name="sparkling-fill" size={13} />
+          </span>
+          <span className="om-whats-new-eyebrow-label">{t("What's new")}</span>
+          <span className="om-whats-new-version">v{card.version}</span>
         </span>
         <IconButton
           variant="ghost"
           size="sm"
           type="button"
+          className="om-whats-new-close"
           aria-label={t('Close')}
           data-testid="whats-new-close"
           onClick={growth.dismissWhatsNew}
@@ -52,15 +67,27 @@ export function WhatsNewCard() {
       )}
 
       <div className="om-whats-new-body">
-        <strong className="om-whats-new-title">{card.title}</strong>
+        <h3 className="om-whats-new-title">{card.title}</h3>
         {card.notes.length > 0 && (
           <ul className="om-whats-new-list">
-            {card.notes.map((note, index) => (
-              <li key={index} className="om-whats-new-list-item">
-                <RemixIcon name="check-line" size={13} />
-                <span>{note}</span>
-              </li>
-            ))}
+            {card.notes.map((note, index) => {
+              const split = splitHighlight(note);
+              return (
+                <li key={index} className="om-whats-new-list-item">
+                  <span className="om-whats-new-dot" aria-hidden="true" />
+                  <span className="om-whats-new-item-copy">
+                    {split ? (
+                      <>
+                        <strong className="om-whats-new-item-lead">{split.lead}</strong>
+                        <span className="om-whats-new-item-detail">{split.detail}</span>
+                      </>
+                    ) : (
+                      note
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -68,9 +95,8 @@ export function WhatsNewCard() {
       <footer className="om-whats-new-footer">
         <Button
           variant="plain"
-          size="sm"
           type="button"
-          className="om-collab-tonal-btn"
+          className="om-whats-new-dismiss"
           data-testid="whats-new-dismiss"
           onClick={growth.dismissWhatsNew}
         >
@@ -79,13 +105,13 @@ export function WhatsNewCard() {
         {card.linkUrl && (
           <Button
             variant="primary"
-            size="sm"
             type="button"
+            className="om-whats-new-cta"
             data-testid="whats-new-cta"
             onClick={growth.openWhatsNewLink}
           >
             <span>{card.ctaLabel || t('Learn more')}</span>
-            <RemixIcon name="external-link-line" size={13} />
+            <RemixIcon name="arrow-right-up-line" size={14} />
           </Button>
         )}
       </footer>

@@ -98,6 +98,76 @@ const collectorId = crypto.randomUUID();
 let lastQueueTelemetry = 0;
 let lastCodexSessionSync = 0;
 
+const LOCAL_AMR_GAME_COMMUNITY_URL = 'http://127.0.0.1:5179/games';
+let localCommunityProbeCache: { url: string | null; at: number } | null = null;
+
+function isLoopbackHostHeader(hostHeader?: string): boolean {
+  if (!hostHeader) return true;
+  const trimmed = hostHeader.trim().toLowerCase();
+  const host = trimmed.startsWith('[')
+    ? trimmed.slice(1, trimmed.indexOf(']') > 0 ? trimmed.indexOf(']') : trimmed.length)
+    : trimmed.split(':')[0];
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.localhost');
+}
+
+function normalizeServerCommunityUrl(raw?: string | null, allowLoopback = true): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (!allowLoopback && isLoopbackHostHeader(parsed.hostname)) return null;
+    const cleanPath = parsed.pathname.replace(/\/+$/, '').replace(/\/(?:dashboard|games)$/i, '');
+    return `${parsed.origin}${cleanPath}/games`;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveServerGameCommunityConfig(hostHeader?: string): Promise<{
+  url: string | null;
+  environment: 'local' | 'remote';
+  source: 'env' | 'local-probe' | 'default';
+}> {
+  const isLocal = isLoopbackHostHeader(hostHeader);
+  const envUrl = normalizeServerCommunityUrl(
+    process.env.OPENDESIGN_GAME_COMMUNITY_URL || process.env.OPENDESIGN_CONSOLE_URL,
+    isLocal,
+  );
+  if (envUrl) {
+    return { url: envUrl, environment: isLocal ? 'local' : 'remote', source: 'env' };
+  }
+  if (!isLocal) {
+    return { url: null, environment: 'remote', source: 'default' };
+  }
+  if (localCommunityProbeCache && Date.now() - localCommunityProbeCache.at < 15_000) {
+    return {
+      url: localCommunityProbeCache.url,
+      environment: 'local',
+      source: localCommunityProbeCache.url ? 'local-probe' : 'default',
+    };
+  }
+  let detected: string | null = null;
+  try {
+    const response = await fetch(LOCAL_AMR_GAME_COMMUNITY_URL, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(200),
+    });
+    const contentType = response.headers.get('content-type') || '';
+    if (response.ok && contentType.includes('text/html')) {
+      detected = LOCAL_AMR_GAME_COMMUNITY_URL;
+    }
+  } catch {
+    detected = null;
+  }
+  localCommunityProbeCache = { url: detected, at: Date.now() };
+  return {
+    url: detected,
+    environment: 'local',
+    source: detected ? 'local-probe' : 'default',
+  };
+}
+
 async function emitQueueTelemetry(store: WorkspaceStore, tracking?: OmTracking) {
   if (Date.now() - lastCodexSessionSync >= 60_000) {
     lastCodexSessionSync = Date.now();
@@ -1433,6 +1503,10 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
         return json(res, 200, await gateway.account.openSubscription(undefined, await accountAttribution(req)));
       }
       return json(res, 404, { error: 'Settings endpoint not found' });
+    }
+    if (motionRequest && url.pathname === '/api/game-community/config' && req.method === 'GET') {
+      const config = await resolveServerGameCommunityConfig(req.headers.host);
+      return json(res, 200, config);
     }
     if (motionRequest && url.pathname === '/api/workspace/projects' && req.method === 'GET') {
       const account = gatewayFor(store, context.tracking).account;

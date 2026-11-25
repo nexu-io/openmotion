@@ -50,7 +50,7 @@ import {
   rememberInstruction,
   storedInstruction,
 } from '../motion/game/gameCatalog';
-import { useGameCommunityUrl } from '../motion/game/gameCommunityUrl';
+import { openGameCommunityExternal, useGameCommunityUrl } from '../motion/game/gameCommunityUrl';
 import { isMultiplayerGameArtifact } from '../motion/game/gameSuperAgent';
 import { preloadableLazyWithChunkReload } from '../utils/chunkReload';
 import { releaseMediaElement } from '../utils/releaseMediaElement';
@@ -2209,8 +2209,7 @@ export function ArtifactBrowserPane({
   };
 
   const openGameCommunity = () => {
-    const popup = window.open(gameCommunityUrl, '_blank', 'noopener,noreferrer');
-    if (popup) popup.opener = null;
+    openGameCommunityExternal(gameCommunityUrl);
   };
 
   const webLoading = Boolean(pendingWebUrl) || Boolean(activeArtifact?.kind === 'web' && webState?.loading);

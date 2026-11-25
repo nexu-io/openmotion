@@ -20,7 +20,8 @@ import { groupBrandSeries, rankDiscoverySeries } from '../motion/brandStoryData'
 import { cinemaTemplates } from '../motion/cinemaTemplates';
 import { gptImageStory, seedanceStory } from '../motion/exploreModelStories';
 import { GameMasonry, interleavePortrait } from '../motion/game/GameMasonry';
-import { useGameCommunityUrl } from '../motion/game/gameCommunityUrl';
+import { openGameCommunityExternal, useGameCommunityUrl } from '../motion/game/gameCommunityUrl';
+import { getDesktopBridge } from '../utils/platformHost';
 import {
   bundledGames,
   communityGames,
@@ -1680,7 +1681,13 @@ export function ModeResourceShowcase({
                 className="om-sa-game-community-btn"
                 data-game-community-entry=""
                 title={t('Jump into a surprise community game — swipe for more')}
-                onClick={() => setConfettiBurst(prev => prev + 1)}
+                onClick={event => {
+                  setConfettiBurst(prev => prev + 1);
+                  if (getDesktopBridge()?.openExternal) {
+                    event.preventDefault();
+                    openGameCommunityExternal(gameCommunityUrl);
+                  }
+                }}
               >
                 {communityPreviewCovers.length > 0 && (
                   <span className="om-sa-game-community-covers" aria-hidden="true">

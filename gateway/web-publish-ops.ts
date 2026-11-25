@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DesignError, designProjectsFor } from '../design-projects.ts';
 import { GameError, GameProjects } from '../game-projects.ts';
+import { parseCloudShareUrl } from '../shared/cloud-comments.ts';
 import {
   webPublishTargetKinds,
   type WebPublishMode,
@@ -497,4 +498,75 @@ export async function webPublishOperation(
   }
 
   throw new Error('INVALID_ARGUMENT: webPublish.command must be publish, status, unpublish, or list');
+}
+
+export async function cloudDeployOperation(
+  store: WorkspaceStore,
+  rawInput: Record<string, unknown> | undefined,
+  origin: string,
+  serviceOverride?: WebPublishService,
+): Promise<unknown> {
+  const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
+  const hasTargetInput = Boolean(
+    input.targetKind || input.targetId || input.sourcePath || input.embedUrl,
+  );
+  const command =
+    typeof input.action === 'string' && input.action.trim()
+      ? input.action.trim()
+      : hasTargetInput
+        ? 'publish'
+        : 'list';
+  const targetKind =
+    typeof input.targetKind === 'string' && input.targetKind.trim()
+      ? input.targetKind.trim()
+      : typeof input.sourcePath === 'string' && input.sourcePath.trim()
+        ? 'html'
+        : undefined;
+
+  const result = await webPublishOperation(
+    store,
+    {
+      ...input,
+      command,
+      ...(targetKind ? { targetKind } : {}),
+    },
+    origin,
+    serviceOverride,
+  );
+
+  if (result && typeof result === 'object') {
+    const typed = result as {
+      url?: unknown;
+      communityUrl?: unknown;
+      publication?: { url?: unknown; communityUrl?: unknown; cloudProjectId?: unknown; projectId?: unknown };
+      active?: { url?: unknown; communityUrl?: unknown; cloudProjectId?: unknown; projectId?: unknown };
+    };
+    const pickUrl = (val: unknown) => (typeof val === 'string' && val.trim() ? val.trim() : undefined);
+    const candidateUrl =
+      pickUrl(typed.url) ??
+      pickUrl(typed.communityUrl) ??
+      pickUrl(typed.publication?.url) ??
+      pickUrl(typed.publication?.communityUrl) ??
+      pickUrl(typed.active?.url) ??
+      pickUrl(typed.active?.communityUrl);
+    if (candidateUrl) {
+      try {
+        const share = parseCloudShareUrl(candidateUrl);
+        if (!share.projectId) {
+          const fallbackProjectId =
+            pickUrl(typed.publication?.cloudProjectId) ??
+            pickUrl(typed.active?.cloudProjectId) ??
+            pickUrl(typed.publication?.projectId) ??
+            pickUrl(typed.active?.projectId);
+          if (fallbackProjectId) {
+            share.projectId = fallbackProjectId;
+          }
+        }
+        return { ...result, share };
+      } catch {
+        return result;
+      }
+    }
+  }
+  return result;
 }

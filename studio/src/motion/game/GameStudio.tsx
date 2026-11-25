@@ -19,7 +19,8 @@ import { projectHref } from '../workspaceRouting';
 import { Tooltip } from '../../components/ui/Tooltip';
 import { GameMasonry, interleavePortrait } from './GameMasonry';
 import { bundledGames, communityGames, communityRemixPrompt, composeBrief, coverUrl, formatPlays, gameApi, gameSource, storedInstruction, genreCovers, genreLabels, settingCovers, styleCovers, genrePlaceholders, isLocalOnly, playableUrl, rememberInstruction, settingLabels, styleLabels } from './gameCatalog';
-import { useGameCommunityUrl } from './gameCommunityUrl';
+import { openGameCommunityExternal, useGameCommunityUrl } from './gameCommunityUrl';
+import { getDesktopBridge } from '../../utils/platformHost';
 import { buildGameContextTags, buildGameHiddenInstructions, buildGameUserPrompt, toGameArtifact, toGameCapabilityRef } from './gameSuperAgent';
 import { optionId as optionFilter } from '../reporting';
 import { reportGameAction, reportGameClick, reportGameCreate, reportGameDetailShown, reportGameHandoffShown, reportGameSearch } from './gameTracking';
@@ -345,6 +346,12 @@ export function GameStudio({
               target="_blank"
               rel="noopener noreferrer"
               title={t('Jump into a surprise community game — swipe for more')}
+              onClick={event => {
+                if (getDesktopBridge()?.openExternal) {
+                  event.preventDefault();
+                  openGameCommunityExternal(gameCommunityUrl);
+                }
+              }}
             >
               <RemixIcon name="gamepad-line" size={15} />
               <span>{t('Surprise me')}</span>
