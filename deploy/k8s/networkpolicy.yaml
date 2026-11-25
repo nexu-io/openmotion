@@ -86,10 +86,15 @@ spec:
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: amr
+              kubernetes.io/metadata.name: nexu
           podSelector:
-            matchLabels:
-              app.kubernetes.io/name: amr-api
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - amr-api
+                  - vela-api
+                  - api
       ports:
         - protocol: TCP
           port: 18080

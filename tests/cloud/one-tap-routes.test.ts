@@ -1435,9 +1435,9 @@ describe('Same-Origin Google One Tap & Upgrade Handoff Routes', () => {
 
       // K8s ConfigMap & NetworkPolicy alignment for internal AMR One Tap service (port 18080)
       const configMapYaml = await readFile(path.resolve('deploy/k8s/configmap.yaml'), 'utf8');
-      assert.match(configMapYaml, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"http:\/\/amr-api\.amr\.svc\.cluster\.local:18080"/);
+      assert.match(configMapYaml, /OPENDESIGN_ONE_TAP_INTERNAL_URL:\s*"http:\/\/amr-api\.nexu\.svc\.cluster\.local:18080"/);
       const netPolYaml = await readFile(path.resolve('deploy/k8s/networkpolicy.yaml'), 'utf8');
-      assert.match(netPolYaml, /kubernetes\.io\/metadata\.name:\s*amr[\s\S]*?port:\s*18080/);
+      assert.match(netPolYaml, /kubernetes\.io\/metadata\.name:\s*nexu[\s\S]*?port:\s*18080/);
 
       // /motion-api/tracking consent gate: default false, explicit consent cookie enables deviceIdConsented=true
       const defaultTrackCfg = await app.request('/motion-api/tracking');
