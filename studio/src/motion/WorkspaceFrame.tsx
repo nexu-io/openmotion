@@ -239,6 +239,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     collectionSkillTrigger.current = null;
   }, [page.templateCollection, page.skill]);
   const [narrow, setNarrow] = useState(() => window.innerWidth < 768);
+  const [mobileViewport, setMobileViewport] = useState(() => window.innerWidth < 640);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth >= 768);
   // Shown inside the campaign window on non-Explore tabs unless dismissed today; re-checked each minute for the end and the next day.
   const [bfBannerShown, setBfBannerShown] = useMinuteCondition(shouldShowBlackFridayBanner);
@@ -279,7 +280,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     });
   }, [projectId, sessionId, settings, assetsOpen, skillsOpen, templatesPage, page.notFound, page.motion, page.explore, page.modelOverview, page.modelHub, page.designScene, page.studio]);
   const editorActive = editorRoute && !connectionsOpen;
-  const mobileEditorGate = narrow && editorRoute && !hostChrome;
+  const mobileEditorGate = mobileViewport && editorRoute && !hostChrome;
   const desktopEditorVisible = editorRoute && !mobileEditorGate;
   const motionTemplatesOpen = page.motion && !templatesPage && !settings;
   const previousOperationError = useRef('');
@@ -321,12 +322,19 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
   }, [openSettings]);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 767px)');
+    const mobileQuery = window.matchMedia('(max-width: 639px)');
     const update = () => {
       // Close the desktop list in the same render that enables the modal drawer.
       if (query.matches) setSidebarOpen(false);
       setNarrow(query.matches);
+      setMobileViewport(mobileQuery.matches);
     };
-    query.addEventListener('change', update); return () => query.removeEventListener('change', update);
+    query.addEventListener('change', update);
+    mobileQuery.addEventListener('change', update);
+    return () => {
+      query.removeEventListener('change', update);
+      mobileQuery.removeEventListener('change', update);
+    };
   }, []);
   useEffect(() => {
     const appEl = applicationRef.current;
