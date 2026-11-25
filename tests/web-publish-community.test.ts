@@ -643,16 +643,44 @@ test('setVisibility heals a missing listing via PUT /game-listing when PATCH /vi
       entryPath: 'index.html',
       sourceRevision: 'rev-1',
       sourcePath: gameDir,
+      gameMeta: {
+        title: 'Heal Game',
+        description: 'Preserve rich community metadata during visibility heal.',
+        genre: 'arcade',
+        style: 'pixel',
+        setting: 'nebula',
+        orientation: 'portrait' as const,
+        controls: 'Tap or Arrow keys',
+        coverPath: 'cover.webp',
+        i18n: { 'zh-CN': { title: '修复游戏', description: '完整保留社区元数据' } },
+        creatorName: 'Maker',
+        templateId: 'heal-template',
+      },
     };
 
     const published = await service.publish(target, { visibility: 'public' });
     assert.equal(published.publication.status, 'published');
     assert.equal(baseMock.listings.size, 0);
 
-    // PATCH /visibility hits 404 -> retries PUT /game-listing -> succeeds remotely and persists unlisted locally.
+    // PATCH /visibility hits 404 -> retries PUT /game-listing with full gameMeta -> succeeds remotely and persists unlisted locally.
     const toggled = await service.setVisibility(target, { visibility: 'unlisted' });
     assert.equal(toggled.publication.visibility, 'unlisted');
-    assert.equal(baseMock.listings.get(published.publication.slug)?.visibility, 'unlisted');
+    const healed = baseMock.listings.get(published.publication.slug);
+    assert.equal(healed?.visibility, 'unlisted');
+    assert.deepEqual(healed?.gameMeta, {
+      title: 'Heal Game',
+      description: 'Preserve rich community metadata during visibility heal.',
+      genre: 'arcade',
+      style: 'pixel',
+      setting: 'nebula',
+      orientation: 'portrait',
+      controls: 'Tap or Arrow keys',
+      coverPath: 'cover.webp',
+      i18n: { 'zh-CN': { title: '修复游戏', description: '完整保留社区元数据' } },
+      creatorName: 'Maker',
+      templateId: 'heal-template',
+      remixOfSlug: null,
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

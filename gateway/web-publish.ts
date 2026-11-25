@@ -800,7 +800,7 @@ export class WebPublishService {
   }
 
   private async syncGameListing(params: {
-    target: WebPublishTarget;
+    target: Pick<WebPublishTarget, 'kind' | 'gameMeta'>;
     cloudProjectId: string;
     workspaceId: string;
     slug: string;
@@ -849,7 +849,7 @@ export class WebPublishService {
   }
 
   async setVisibility(
-    target: Pick<WebPublishTarget, 'kind' | 'id' | 'entryPath'>,
+    target: Pick<WebPublishTarget, 'kind' | 'id' | 'entryPath'> & Partial<Pick<WebPublishTarget, 'title' | 'gameMeta'>>,
     options: { filePath?: string; visibility: WebPublishVisibility; allowRemix?: boolean },
   ): Promise<{ publication: WebPublicationRecord; deployment: WebPublicationRecord }> {
     if (target.kind !== 'game') {
@@ -887,23 +887,25 @@ export class WebPublishService {
         }
         // A 404 on PATCH /visibility can mean the listing row was never created
         // (for example after a transient post-publish sync failure). Retry once
-        // via PUT /game-listing so the remote control plane applies the change
-        // before we persist anything locally.
+        // via syncGameListing (PUT /game-listing) with full target.gameMeta so
+        // the remote control plane heals or updates the listing without
+        // overwriting cover, description, translations, or template attribution.
         try {
-          res = await this.account.controlApiJson<GameListingControlResponse>(
-            `/api/v1/collab/shares/${encodeURIComponent(current.slug)}/game-listing`,
-            {
-              method: 'PUT',
-              workspaceId: current.workspaceId,
-              body: {
-                projectId: remoteProjectId,
-                visibility: options.visibility,
-                allowRemix: options.allowRemix ?? current.allowRemix ?? true,
-                gameMeta: { title: current.name },
-              },
-              timeoutMs: 20_000,
-            },
-          );
+          const synced = await this.syncGameListing({
+            target,
+            cloudProjectId: remoteProjectId,
+            workspaceId: current.workspaceId,
+            slug: current.slug,
+            displayName: (target.gameMeta?.title || target.title || current.name).trim().slice(0, 120) || current.name,
+            visibility: options.visibility,
+            allowRemix: options.allowRemix ?? current.allowRemix ?? true,
+          });
+          if (!synced) {
+            throw new Error(
+              'DEPLOY_FAILED: OpenDesign Cloud did not apply the game visibility change because the visibility endpoint is unavailable.',
+            );
+          }
+          res = synced;
         } catch (putError) {
           if (!isUnsupportedGameListingEndpointError(putError)) {
             throw putError;
