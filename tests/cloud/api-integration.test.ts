@@ -914,6 +914,59 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     const asMetaRes = await app.request('/.well-known/oauth-authorization-server');
     assert.equal(asMetaRes.status, 200);
 
+    // /connect/guide is public: browsers redirect to interactive /settings/mcp, agents receive plain-text guide
+    const guideHtmlMcpRes = await app.request('/connect/guide?host=mcp', {
+      headers: { Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' },
+    });
+    assert.equal(guideHtmlMcpRes.status, 302);
+    assert.equal(guideHtmlMcpRes.headers.get('location'), '/settings/mcp');
+    assert.equal(guideHtmlMcpRes.headers.get('vary'), 'Accept');
+
+    const guideHtmlCodexRes = await app.request('/connect/guide?host=codex', {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+    });
+    assert.equal(guideHtmlCodexRes.status, 302);
+    assert.equal(guideHtmlCodexRes.headers.get('location'), '/settings/mcp?host=codex');
+
+    const guideTextRes = await app.request('/connect/guide?host=mcp', {
+      headers: { Accept: 'text/plain, */*' },
+    });
+    assert.equal(guideTextRes.status, 200);
+    assert.match(guideTextRes.headers.get('content-type') ?? '', /text\/plain/);
+    assert.equal(guideTextRes.headers.get('vary'), 'Accept');
+    const guideText = await guideTextRes.text();
+    assert.match(guideText, /https:\/\/motion\.example\.test\/mcp/);
+    assert.match(guideText, /https:\/\/motion\.example\.test\/settings\/mcp/);
+    assert.match(guideText, /https:\/\/motion\.example\.test\/install\.md/);
+    assert.match(guideText, /codex mcp add openmotion --url 'https:\/\/motion\.example\.test\/mcp'/);
+    assert.match(guideText, /codex mcp login openmotion/);
+    assert.match(guideText, /claude mcp add --transport http openmotion 'https:\/\/motion\.example\.test\/mcp'/);
+    assert.equal(guideText.match(/"mcpServers"/g)?.length, 1, 'must not duplicate mcpServers JSON block');
+    assert.doesNotMatch(guideText, /"Authorization": "Bearer \$\{OPENMOTION_TOKEN\}"/);
+
+    // Unauthenticated /mcp returns structured OAuth 2.1 authGuidance
+    const mcpUnauthRes = await app.request('/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    assert.equal(mcpUnauthRes.status, 401);
+    const mcpUnauthBody = (await mcpUnauthRes.json()) as {
+      authGuidance?: {
+        preferred?: string;
+        connectPageUrl?: string;
+        installGuideUrl?: string;
+        patSettingsUrl?: string;
+        commands?: { codex?: string[]; claude?: string[] };
+      };
+    };
+    assert.equal(mcpUnauthBody.authGuidance?.preferred, 'oauth2.1');
+    assert.equal(mcpUnauthBody.authGuidance?.connectPageUrl, 'https://motion.example.test/settings/mcp');
+    assert.equal(mcpUnauthBody.authGuidance?.installGuideUrl, 'https://motion.example.test/install.md');
+    assert.equal(mcpUnauthBody.authGuidance?.patSettingsUrl, 'https://motion.example.test/settings/account#tokens');
+    assert.ok(mcpUnauthBody.authGuidance?.commands?.codex?.some((cmd) => cmd.includes('codex mcp login openmotion')));
+    assert.ok(mcpUnauthBody.authGuidance?.commands?.claude?.some((cmd) => cmd.includes('claude mcp login openmotion')));
+
     // Provision an OIDC user + workspace
     const userId = randomUUID();
     const workspaceId = randomUUID();

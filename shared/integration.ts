@@ -392,10 +392,29 @@ export function templatePrompt(info: IntegrationInfo, _host: IntegrationHost, te
 
 export function agentGuide(info: IntegrationInfo, host: IntegrationHost) {
   if (isStreamableHttpTransport(info.transport)) {
-    const configSnippet =
+    const origin = info.previewUrl.replace(/\/+$/, '');
+    const configSnippet = (
       host === 'chatgpt' && !supportsChatgptCloud(info)
         ? manualConnection(info, host, 'en')
-        : integrationConfig(info, host).text;
+        : integrationConfig(info, host).text
+    ).trimEnd();
+    const primaryConnection = (
+      host === 'mcp'
+        ? [
+            '# Codex',
+            manualConnection(info, 'codex', 'en'),
+            '',
+            '# Claude Code',
+            manualConnection(info, 'claude', 'en'),
+          ].join('\n')
+        : manualConnection(info, host, 'en')
+    ).trimEnd();
+    const primaryLang = host === 'deepseek' ? 'yaml' : 'sh';
+    const snippetLang = host === 'deepseek' ? 'yaml' : host === 'codex' ? 'toml' : 'json';
+    const configBlock =
+      configSnippet && configSnippet !== primaryConnection
+        ? `\n\nConfiguration snippet:\n\n\`\`\`${snippetLang}\n${configSnippet}\n\`\`\``
+        : '';
     return `# OpenMotion · ${hostNames[host]} Cloud MCP Guide
 
 OpenMotion — Streamable HTTP MCP workspace for editable motion video projects.
@@ -404,21 +423,19 @@ OpenMotion — Streamable HTTP MCP workspace for editable motion video projects.
 
 - Studio URL: ${info.previewUrl}
 - MCP Endpoint (Streamable HTTP): ${info.transport.url}
+- Interactive MCP Setup Page: ${origin}/settings/mcp
+- Cloud Install & OAuth Guide: ${setupGuideUrl(info)}
+- Personal Access Token Page (fallback when OAuth 2.1 is unavailable): ${origin}/settings/account#tokens
 - Auth Mode: ${info.transport.auth.mode} (OAuth 2.1: ${info.transport.auth.oauth2 ? 'enabled' : 'disabled'}, PAT: ${info.transport.auth.pat ? 'enabled' : 'disabled'})
 - Version: ${info.version}
 
 ## Connect
 
-\`\`\`${host === 'deepseek' ? 'yaml' : host === 'mcp' ? 'json' : 'sh'}
-${manualConnection(info, host, 'en')}
-\`\`\`
+\`\`\`${primaryLang}
+${primaryConnection}
+\`\`\`${configBlock}
 
-Configuration snippet:
-
-\`\`\`${host === 'deepseek' ? 'yaml' : host === 'codex' ? 'toml' : 'json'}
-${configSnippet}\`\`\`
-
-Authenticate using OAuth 2.1 discovery (\`${info.transport.auth.resourceMetadataUrl ?? info.previewUrl + '/.well-known/oauth-protected-resource/mcp'}\`) or a workspace Personal Access Token in the \`Authorization: Bearer <token>\` header. Browser session cookies are never accepted on \`/mcp\`.
+Prefer OAuth 2.1 browser sign-in via auto-discovery (\`${info.transport.auth.resourceMetadataUrl ?? origin + '/.well-known/oauth-protected-resource/mcp'}\`): in Codex run \`codex mcp login openmotion\`, in Claude Code run \`claude mcp login openmotion\` (or \`/mcp\`). Do not install a local npm package or run \`docker exec\`. Only if your client does not support OAuth 2.1, create a workspace Personal Access Token at \`${origin}/settings/account#tokens\` and send it in the \`Authorization: Bearer <token>\` header. Browser session cookies are never accepted on \`/mcp\`.
 
 ## API Discovery
 

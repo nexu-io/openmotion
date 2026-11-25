@@ -21,6 +21,7 @@ import {
 import { imageFeaturePrompt } from '../shared/image-features.ts';
 import { videoFeatureParameters, videoFeaturePrompt } from '../shared/video-features.ts';
 import { findScenario, scenarioAgentPrompt, scenarioRecipeTools } from '../shared/scenarios.ts';
+import { projectAgentPrompt } from '../shared/project-agent-prompt.ts';
 
 test('MCP onboarding covers every public domain tool (22 registered) and scenarios only compose real tools', () => {
   const described = mcpCapabilities.flatMap(capability => [...capability.tools]);
@@ -411,4 +412,39 @@ test('Workflows capability, Black Friday recipe and design asset embedding stay 
       assert.notEqual(values[key], key, `${locale}: untranslated ${key}`);
     }
   }
+});
+
+test('cloud agentGuide for host=mcp avoids duplicate JSON blocks and includes OAuth commands, while projectAgentPrompt guides disconnected sessions', () => {
+  const cloudInfo = buildCloudIntegrationInfo({
+    publicOrigin: 'https://motion.open-design.ai',
+    version: '1.0.0',
+    workspaceId: 'ws-1',
+    authMode: 'oidc',
+    oauth2Enabled: true,
+    patEnabled: true,
+    tools: phase1Tools,
+  });
+
+  const mcpGuide = agentGuide(cloudInfo, 'mcp');
+  assert.equal(mcpGuide.match(/"mcpServers"/g)?.length, 1, 'host=mcp must emit mcpServers JSON only once');
+  assert.doesNotMatch(mcpGuide, /\}\`\`\`/, 'closing code fence must start on its own line');
+  assert.doesNotMatch(mcpGuide, /"Authorization": "Bearer \$\{OPENMOTION_TOKEN\}"/);
+  assert.match(mcpGuide, /codex mcp add openmotion --url 'https:\/\/motion\.open-design\.ai\/mcp'/);
+  assert.match(mcpGuide, /codex mcp login openmotion/);
+  assert.match(mcpGuide, /claude mcp add --transport http openmotion 'https:\/\/motion\.open-design\.ai\/mcp'/);
+  assert.match(mcpGuide, /Interactive MCP Setup Page: https:\/\/motion\.open-design\.ai\/settings\/mcp/);
+  assert.match(mcpGuide, /Cloud Install & OAuth Guide: https:\/\/motion\.open-design\.ai\/install\.md/);
+
+  const deepseekGuide = agentGuide(cloudInfo, 'deepseek');
+  assert.equal(deepseekGuide.match(/id: mcp-openmotion/g)?.length, 1, 'host=deepseek must not duplicate YAML snippet');
+
+  const zhPrompt = projectAgentPrompt(cloudInfo, { id: 'proj-1', title: 'Demo' }, 'zh-CN');
+  assert.match(zhPrompt, /接入指引：https:\/\/motion\.open-design\.ai\/connect\/guide\?host=mcp/);
+  assert.match(zhPrompt, /OAuth 2\.1/);
+  assert.match(zhPrompt, /不要安装本地运行时/);
+
+  const enPrompt = projectAgentPrompt(cloudInfo, { id: 'proj-1', title: 'Demo' }, 'en');
+  assert.match(enPrompt, /Connection guide: https:\/\/motion\.open-design\.ai\/connect\/guide\?host=mcp/);
+  assert.match(enPrompt, /OAuth 2\.1/);
+  assert.match(enPrompt, /do not install a local runtime/);
 });
