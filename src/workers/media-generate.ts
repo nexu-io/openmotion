@@ -365,7 +365,7 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
       .where(and(
         eq(jobs.id, jobId),
         eq(jobs.workspaceId, workspaceId),
-        eq(jobs.state, retrySave ? 'failed' : 'queued'),
+        eq(jobs.state, 'queued'),
         retrySave ? and(eq(jobs.savePending, true), isNotNull(jobs.remoteId)) : undefined,
       ))
       .returning();
@@ -843,8 +843,9 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
           typeof rawCode === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(rawCode) ? rawCode : null;
         const errorCode = isCloudError(error) ? error.code : (gatewayCode ?? 'MEDIA_GENERATE_FAILED');
         const errorMessage = error instanceof Error ? error.message : 'Media generation failed';
+        let finalizedState: 'failed' | 'cancelled' | null = null;
         try {
-          await deps.db
+          const updatedFailed = await deps.db
             .update(jobs)
             .set(
               asUpdate(jobs, {
@@ -865,15 +866,49 @@ export async function processMediaGenerateJob<K extends MediaGenerateJobName>(
                 eq(jobs.claimToken, claimToken),
                 eq(jobs.state, 'running'),
               ),
-            );
+            )
+            .returning();
+          if (updatedFailed.length > 0) {
+            finalizedState = 'failed';
+          } else {
+            const updatedCancelled = await deps.db
+              .update(jobs)
+              .set(
+                asUpdate(jobs, {
+                  state: 'cancelled',
+                  stage: 'cancelled',
+                  savePending: false,
+                  terminalAt: now,
+                  updatedAt: now,
+                }),
+              )
+              .where(
+                and(
+                  eq(jobs.id, jobId),
+                  eq(jobs.workspaceId, workspaceId),
+                  eq(jobs.claimToken, claimToken),
+                  eq(jobs.state, 'cancelling'),
+                ),
+              )
+              .returning();
+            if (updatedCancelled.length > 0) {
+              finalizedState = 'cancelled';
+            }
+          }
         } catch {
           // Best-effort terminal persistence during failure handling.
         }
-        await publishProgress('failed', 'failed', 0, {
-          errorCode,
-          errorMessage,
-          remoteTerminal: false,
-        });
+        if (finalizedState === 'cancelled') {
+          await publishProgress('cancelled', 'cancelled', 0);
+          return { jobId, state: 'cancelled' };
+        }
+        if (finalizedState === 'failed') {
+          await publishProgress('failed', 'failed', 0, {
+            errorCode,
+            errorMessage,
+            remoteTerminal: false,
+          });
+        }
       }
     }
     throw error;

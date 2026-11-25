@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { serve, type ServerType } from '@hono/node-server';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -908,7 +908,7 @@ function createCloudMediaJobsPort(deps: {
         asUpdate(jobs, {
           state: nextState,
           stage: nextState,
-          ...(nextState === 'cancelled' ? { terminalAt: sql`now()` } : {}),
+          ...(nextState === 'cancelled' ? { savePending: false, terminalAt: sql`now()` } : {}),
           updatedAt: sql`now()`,
         }),
       )
@@ -979,7 +979,12 @@ function createCloudMediaJobsPort(deps: {
     return { job: serializeJob(updated ?? existing) };
   };
 
-  const retrySaveJob = async (auth: AuthContext, jobId: string): Promise<Record<string, unknown>> => {
+  const retrySaveJob = async (
+    auth: AuthContext,
+    jobId: string,
+    requestId: string,
+  ): Promise<Record<string, unknown>> => {
+    validateStableRequestId(requestId);
     if (!isUuid(jobId)) {
       throw new CloudError('NOT_FOUND', `Media job '${jobId}' not found`, { status: 404, applied: false });
     }
@@ -1000,12 +1005,68 @@ function createCloudMediaJobsPort(deps: {
         applied: false,
       });
     }
-    await deps.queues.enqueueMediaGenerate(
-      'retry_save_generation',
-      { jobId, workspaceId: auth.workspaceId },
-      { jobId: `${jobId}__retry_save__${Date.now()}` },
-    );
-    return { job: serializeJob(existing) };
+    const [updated] = await deps.db
+      .update(jobs)
+      .set(
+        asUpdate(jobs, {
+          state: 'queued',
+          stage: 'saving',
+          failureStage: null,
+          errorCode: null,
+          errorMessage: null,
+          terminalAt: null,
+          updatedAt: sql`now()`,
+        }),
+      )
+      .where(
+        and(
+          eq(jobs.workspaceId, auth.workspaceId),
+          eq(jobs.id, jobId),
+          eq(jobs.kind, 'media_generate'),
+          eq(jobs.state, 'failed'),
+          eq(jobs.savePending, true),
+          isNotNull(jobs.remoteId),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      throw new CloudError('INVALID_ARGUMENT', 'Media job does not have a pending save to retry.', {
+        status: 409,
+        applied: false,
+      });
+    }
+    try {
+      await deps.queues.enqueueMediaGenerate(
+        'retry_save_generation',
+        { jobId, workspaceId: auth.workspaceId },
+        { jobId: `${jobId}__retry_save__${requestId}` },
+      );
+    } catch (error) {
+      await deps.db
+        .update(jobs)
+        .set(
+          asUpdate(jobs, {
+            state: 'failed',
+            stage: existing.stage ?? 'failed',
+            failureStage: existing.failureStage ?? 'saving',
+            savePending: true,
+            errorCode: existing.errorCode,
+            errorMessage: existing.errorMessage,
+            terminalAt: existing.terminalAt ?? sql`now()`,
+            updatedAt: sql`now()`,
+          }),
+        )
+        .where(
+          and(
+            eq(jobs.workspaceId, auth.workspaceId),
+            eq(jobs.id, jobId),
+            eq(jobs.state, 'queued'),
+          ),
+        )
+        .catch(() => {});
+      throw error;
+    }
+    return { job: serializeJob(updated) };
   };
 
   const handleMediaAction = async (
@@ -1029,7 +1090,7 @@ function createCloudMediaJobsPort(deps: {
       case 'resume':
         return resumeJob(auth, String(args.jobId ?? ''), String(args.requestId ?? ''));
       case 'retry_save':
-        return retrySaveJob(auth, String(args.jobId ?? ''));
+        return retrySaveJob(auth, String(args.jobId ?? ''), String(args.requestId ?? ''));
       default:
         throw new CloudError('INVALID_ARGUMENT', `Unsupported media action '${action}'`, {
           status: 400,
