@@ -166,6 +166,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
           },
         ),
       );
+    } else {
+      headers.append('Set-Cookie', clearCookie(AUTH_ATTR_COOKIE_NAME, secureCookie, '/auth'));
     }
     headers.set('Location', authorizationUrl);
     return new Response(null, { status: 302, headers });
@@ -202,13 +204,15 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
         ttlSec: DEFAULT_SESSION_TTL_SEC,
       });
 
-      deps.cloudTracking?.trackWebSignInResult({
-        outcome: 'success',
-        hookId: authAttribution.hookId,
-        entryId: authAttribution.entryId,
-        userId: membership.user.id,
-        durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
-      });
+      if (authAttribution.hookId || authAttribution.entryId) {
+        deps.cloudTracking?.trackWebSignInResult({
+          outcome: 'success',
+          hookId: authAttribution.hookId,
+          entryId: authAttribution.entryId,
+          userId: membership.user.id,
+          durationMs: authAttribution.startedAt ? Date.now() - authAttribution.startedAt : 0,
+        });
+      }
 
       const headers = new Headers();
       headers.append('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
@@ -227,7 +231,8 @@ export function createAuthRoutes(deps: AuthRoutesDeps): Hono<AuthEnv> {
       return new Response(null, { status: 302, headers });
     } catch (error) {
       if (isCloudError(error)) {
-        c.header('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'));
+        c.header('Set-Cookie', clearCookie(OIDC_TX_COOKIE_NAME, secureCookie, '/auth'), { append: true });
+        c.header('Set-Cookie', clearCookie(AUTH_ATTR_COOKIE_NAME, secureCookie, '/auth'), { append: true });
         return c.json(error.toJSON(), error.status as 400 | 401 | 403 | 500 | 502 | 503);
       }
       throw error;

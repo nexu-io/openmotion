@@ -534,3 +534,14 @@
     font-size: 13px;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .om-epm-mask,
+  .om-epm-modal,
+  .om-epm-modal::before,
+  .om-epm-track,
+  .om-epm-kb,
+  .om-epm-wave i {
+    animation: none !important;
+  }
+}

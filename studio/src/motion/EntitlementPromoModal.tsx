@@ -83,6 +83,13 @@ export function EntitlementPromoModal({
   if (!open) return null;
 
   const isGuest = mode === 'guest';
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const videoPlaybackProps = prefersReducedMotion
+    ? { autoPlay: false, muted: true, loop: false, playsInline: true, preload: 'metadata' as const }
+    : { autoPlay: true, muted: true, loop: true, playsInline: true };
 
   const handleClose = () => {
     void trackMotion('ui_click', {
@@ -123,7 +130,7 @@ export function EntitlementPromoModal({
         {[...list, ...list].map((item, idx) => (
           <div className="om-epm-tile" key={`${side}-${idx}`}>
             {item.v ? (
-              <video src={mediaUrl(item.v)} autoPlay muted loop playsInline />
+              <video src={mediaUrl(item.v)} {...videoPlaybackProps} />
             ) : (
               <img src={mediaUrl(item.i!)} alt="" />
             )}
@@ -181,7 +188,7 @@ export function EntitlementPromoModal({
 
                 <div className="om-epm-grid">
                   <div className="om-epm-card">
-                    <div className="om-epm-vis"><video src={mediaUrl('hadal-play.mp4')} autoPlay muted loop playsInline /></div>
+                    <div className="om-epm-vis"><video src={mediaUrl('hadal-play.mp4')} {...videoPlaybackProps} /></div>
                     <h4>{t('Playable games')}</h4>
                     <p>{t('One prompt, playable on mobile')}</p>
                   </div>
@@ -191,12 +198,12 @@ export function EntitlementPromoModal({
                     <p>{t('Covers, characters, promos & music')}</p>
                   </div>
                   <div className="om-epm-card">
-                    <div className="om-epm-vis"><video src={mediaUrl('top1-figma.mp4')} autoPlay muted loop playsInline /></div>
+                    <div className="om-epm-vis"><video src={mediaUrl('top1-figma.mp4')} {...videoPlaybackProps} /></div>
                     <h4>{t('Remix viral videos')}</h4>
                     <p>{t('Paste a link to recreate & export MP4')}</p>
                   </div>
                   <div className="om-epm-card">
-                    <div className="om-epm-vis is-crop"><video src={mediaUrl('happy-faces-landing-page.webm')} autoPlay muted loop playsInline /></div>
+                    <div className="om-epm-vis is-crop"><video src={mediaUrl('happy-faces-landing-page.webm')} {...videoPlaybackProps} /></div>
                     <h4>{t('Prototypes & websites')}</h4>
                     <p>{t('Build and share with one click')}</p>
                   </div>
@@ -212,7 +219,7 @@ export function EntitlementPromoModal({
                         <span>{t('Image')}</span>
                       </div>
                       <div className="om-epm-strip-cell">
-                        <video src={mediaUrl('spotify-next-level.mp4')} autoPlay muted loop playsInline />
+                        <video src={mediaUrl('spotify-next-level.mp4')} {...videoPlaybackProps} />
                         <span>{t('Video')}</span>
                       </div>
                       <div className="om-epm-strip-cell om-epm-strip-audio">
@@ -235,23 +242,23 @@ export function EntitlementPromoModal({
                   </div>
 
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('themes-animated-gallery.webm')} autoPlay muted loop playsInline /></div>
+                    <div className="om-epm-vis"><video src={mediaUrl('themes-animated-gallery.webm')} {...videoPlaybackProps} /></div>
                     <h4><span className="om-epm-num">291</span> {t('Motion templates')}</h4>
                     <p>{t('Ready to edit & export')}</p>
                   </div>
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('blurry-text-spin.webm')} autoPlay muted loop playsInline /></div>
-                    <h4><span className="om-epm-num">104</span> Skills</h4>
+                    <div className="om-epm-vis"><video src={mediaUrl('blurry-text-spin.webm')} {...videoPlaybackProps} /></div>
+                    <h4><span className="om-epm-num">104</span> {t('Skills')}</h4>
                     <p>{t('Guided Agent workflows')}</p>
                   </div>
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('animated-ui-kit.webm')} autoPlay muted loop playsInline /></div>
+                    <div className="om-epm-vis"><video src={mediaUrl('animated-ui-kit.webm')} {...videoPlaybackProps} /></div>
                     <h4><span className="om-epm-num">890+</span> {t('Creative assets')}</h4>
                     <p>{t('Motion components & clips')}</p>
                   </div>
                   <div className="om-epm-card is-res">
-                    <div className="om-epm-vis"><video src={mediaUrl('type-trail.webm')} autoPlay muted loop playsInline /></div>
-                    <h4><span className="om-epm-num">100+</span> Brand Kit</h4>
+                    <div className="om-epm-vis"><video src={mediaUrl('type-trail.webm')} {...videoPlaybackProps} /></div>
+                    <h4><span className="om-epm-num">100+</span> {t('Brand Kit')}</h4>
                     <p>{t('Colors, typography & logos')}</p>
                   </div>
                 </div>

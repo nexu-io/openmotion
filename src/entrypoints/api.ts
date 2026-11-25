@@ -2478,11 +2478,56 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
     });
   });
 
+  const localTrackingHits = new Map<string, { count: number; resetAt: number }>();
+  const TRACKING_RATE_LIMIT_PER_MIN = 60;
+  const checkTrackingRateLimit = async (rawIp: string): Promise<boolean> => {
+    const ip = rawIp.trim() || 'unknown';
+    const ipHash = createHash('sha256').update(ip).digest('hex').slice(0, 24);
+    if (deps.rateLimiter) {
+      try {
+        const res = await deps.rateLimiter.consume(`tracking:${ipHash}`, TRACKING_RATE_LIMIT_PER_MIN, 60_000);
+        return res.allowed;
+      } catch {
+        // Fall through to process-local bounded counter if Redis is briefly unavailable.
+      }
+    }
+    const now = Date.now();
+    if (localTrackingHits.size > 4096) {
+      for (const [k, v] of localTrackingHits) {
+        if (now >= v.resetAt) localTrackingHits.delete(k);
+      }
+      if (localTrackingHits.size > 4096) localTrackingHits.clear();
+    }
+    const entry = localTrackingHits.get(ipHash);
+    if (!entry || now >= entry.resetAt) {
+      localTrackingHits.set(ipHash, { count: 1, resetAt: now + 60_000 });
+      return true;
+    }
+    if (entry.count >= TRACKING_RATE_LIMIT_PER_MIN) return false;
+    entry.count += 1;
+    return true;
+  };
+
   app.get('/motion-api/tracking', (c) => {
     const enabled = cloudTracking.isEnabled();
     return c.json({ enabled, locked: true, reason: cloudTracking.lockReason() ?? 'cloud' });
   });
   app.post('/motion-api/tracking', async (c) => {
+    const originHeader = c.req.header('origin');
+    if (originHeader) {
+      const requestOrigin = new URL(c.req.url).origin;
+      const expectedOrigin = config.APP_PUBLIC_ORIGIN ? new URL(config.APP_PUBLIC_ORIGIN).origin : requestOrigin;
+      if (originHeader !== expectedOrigin && originHeader !== requestOrigin) {
+        return c.json({ error: 'Cross-origin tracking rejected' }, 403);
+      }
+    }
+    const clientIp =
+      c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+      c.req.header('x-real-ip')?.trim() ||
+      'unknown';
+    if (!(await checkTrackingRateLimit(clientIp))) {
+      return c.json({ error: 'Too many tracking requests' }, 429);
+    }
     if (!cloudTracking.isEnabled()) {
       return c.json({ ok: true, accepted: false }, 202);
     }

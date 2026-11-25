@@ -283,8 +283,10 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     </div>
   </div>;
 
+  const cloudWeb = useCloudWebMode();
+  const { account } = useAccountSummary({ eager: cloudWeb });
   const configureProvider = (providerId: string) => providerId === 'account'
-    ? (hasEntitlementModalListeners()
+    ? (cloudWeb && hasEntitlementModalListeners()
       ? openEntitlementModal({ mode: 'guest', hookId: 'studio_generate' })
       : (openAccountSettings ?? openModelSettings)())
     : openProviderSettings ? openProviderSettings(providerId) : openModelSettings();
@@ -312,8 +314,6 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     {modelHeading}
     {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : openDesignMissing ? openDesignSetup : manageProvidersNotice}
   </>;
-  const cloudWeb = useCloudWebMode();
-  const { account } = useAccountSummary({ eager: cloudWeb });
   const cloudGuestSubmit = cloudWeb && account?.state === 'signed-out';
   const isHostedSelected = Boolean(selected && (cloudWeb || isOpenDesignProvider(selected.provider) || selected.provider === 'account'));
   const hostedPlanUpgrade = isHostedSelected ? upgradePlan(account) : undefined;
@@ -322,7 +322,19 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     try { return requestParameters(parameters, selected, draft.references.length > 0, activeDefaultValues); }
     catch { return undefined; }
   })();
-  const activeResolution = effectiveParameters?.resolution ?? parameters.values.resolution ?? draft.parameters?.resolution ?? selected?.defaults?.resolution;
+  const resolutionFieldKey: 'resolution' | 'size' = (() => {
+    const fields = selected?.generationOptions?.fields ?? [];
+    if (fields.some(field => field.key === 'resolution')) return 'resolution';
+    if (fields.some(field => field.key === 'size')) return 'size';
+    if (selected?.defaults && 'size' in selected.defaults && !('resolution' in selected.defaults)) return 'size';
+    if (effectiveParameters && 'size' in effectiveParameters && !('resolution' in effectiveParameters)) return 'size';
+    return 'resolution';
+  })();
+  const activeResolution =
+    effectiveParameters?.[resolutionFieldKey] ??
+    parameters.values[resolutionFieldKey] ??
+    draft.parameters?.[resolutionFieldKey] ??
+    selected?.defaults?.[resolutionFieldKey];
   const planResCap = isHostedSelected && !hostedPlanUpgrade && draft.modality === 'image'
     ? imageResolutionCap(account, selected?.modelId)
     : undefined;
@@ -331,7 +343,7 @@ export function AssetComposer({ active, studio, draft, setDraft, promptAppliedTo
     if (!parameterModel || !planResCap) return;
     const nextDraft: ParameterDraft = {
       ...parameters,
-      values: { ...parameters.values, resolution: planResCap },
+      values: { ...parameters.values, [resolutionFieldKey]: planResCap },
     };
     setParameterDrafts(current => ({ ...current, [parameterKey]: nextDraft }));
     try {

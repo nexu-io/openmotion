@@ -1330,3 +1330,75 @@ it('focuses and pulses the prompt field when promptAppliedToken increments in vi
     vi.useRealTimers();
   }
 });
+
+it('gates Plus 2K on size-based hosted models and downgrades the size field to 1K', async () => {
+  const { setCachedCloudDisklessMode } = await import('../utils/cloudRuntime');
+  setCachedCloudDisklessMode(true);
+  gatewayRequest.mockImplementation(async (path: string) => {
+    if (path.startsWith('account/summary')) {
+      return {
+        state: 'signed-in',
+        plan: 'plus',
+        billingUnavailable: false,
+        email: 'plus@example.com',
+        name: 'Plus User',
+      };
+    }
+    return {};
+  });
+  try {
+    const seedream: Model = {
+      id: 'account:seedream-5.5',
+      provider: 'account',
+      modelId: 'seedream-5.5',
+      label: 'Seedream 5.5',
+      modality: 'image',
+      source: 'live',
+      mode: 'text-to-image',
+      defaults: { size: '1K' },
+      generationOptions: {
+        fields: [
+          {
+            key: 'size',
+            label: 'Resolution',
+            kind: 'choice',
+            defaultValue: '1K',
+            choices: [{ value: '1K', label: '1K' }, { value: '2K', label: '2K' }],
+          },
+        ],
+      },
+    };
+    loadGateway.mockResolvedValue({
+      models: [seedream],
+      status: { providers: [{ id: 'account', available: true }], routes: {} },
+    });
+    let latestDraft: AssetDraft = {
+      modality: 'image',
+      model: seedream.id,
+      prompt: 'Studio lighting bottle',
+      parameters: { size: '2K' },
+      references: [],
+    };
+    function Harness() {
+      const [draft, setDraft] = useState<AssetDraft>(latestDraft);
+      latestDraft = draft;
+      return <AssetComposer {...props} draft={draft} setDraft={setDraft} />;
+    }
+    await act(async () => root.render(<Harness />));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('.om-entitlement-gate')).not.toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(true);
+
+    const downgradeBtn = container.querySelector<HTMLButtonElement>('.om-entitlement-gate button[data-primary="true"]')
+      ?? container.querySelector<HTMLButtonElement>('.om-entitlement-gate button');
+    expect(downgradeBtn).not.toBeNull();
+    await act(async () => downgradeBtn!.click());
+
+    expect(latestDraft.parameters?.size).toBe('1K');
+    expect(latestDraft.parameters?.resolution).toBeUndefined();
+    expect(container.querySelector('.om-entitlement-gate')).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('.om-creation-submit-button')?.disabled).toBe(false);
+  } finally {
+    setCachedCloudDisklessMode(null);
+  }
+});
