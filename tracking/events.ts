@@ -307,7 +307,9 @@ export const omEvents = {
     copy_status: ['clipboard_written', 'failed'], includes_setup: 'boolean' }, required: ['copy_kind', 'copy_status', 'mcp_client'] },
   // Workspace assets. A submitted generation is accepted work, not a finished asset; the worker reports the media result.
   asset_generation_submit_result: { producers: ['studio'], fields: { page_name: ['assets', 'creative_studio'], modality, outcome: ['success', 'failure'],
-    reference_count: 'integer', new_version: 'boolean', studio_id: creative.studio_id, scene_id: creative.scene_id, model_provider: creative.model_provider, model_id: creative.model_id }, required: ['modality', 'outcome', 'reference_count', 'new_version'] },
+    reference_count: 'integer', new_version: 'boolean', studio_id: creative.studio_id, scene_id: creative.scene_id, model_provider: creative.model_provider, model_id: creative.model_id,
+    // Workflows only: which Generate control started it, and why it was not accepted.
+    generate_origin: ['step', 'quick', 'retry'], error_kind: ['provider_unavailable', 'conflict', 'invalid', 'other'] }, required: ['modality', 'outcome', 'reference_count', 'new_version'] },
   asset_update_result: { producers: ['studio'], fields: { page_name: ['assets'], modality, action: ['rename', 'trash', 'restore', 'switch_version', 'other'],
     outcome: ['success', 'failure'] }, required: ['action', 'outcome'] },
   // Settings. One result per saved change; credentials, names, URLs and model ids never become fields.
@@ -344,6 +346,16 @@ export const omEvents = {
     outcome: ['success', 'failure', 'cancelled'], copied: 'boolean', error_kind: ['auth_required', 'conflict', 'other'], publish_attempt_id: 'uuid',
     hook_id: entitlementHookIds, entry_id: 'uuid' },
     required: ['publish_target', 'action', 'outcome', 'publish_attempt_id'] },
+  // One per Super Agent send or stop, after the local service answered. `success` on send means the turn started (or was queued), not that it finished.
+  // Prompts, attachments, file paths and titles never leave the browser; only the mode, the Agent engine id, counts and fixed categories do.
+  super_agent_turn_result: { producers: ['studio'], fields: { page_name: ['creative_studio'], studio_id: creative.studio_id, scene_id: creative.scene_id,
+    action: ['send', 'stop'], turn_kind: ['new_chat', 'follow_up', 'steer', 'queue'], outcome: ['success', 'failure'], chat_id: 'uuid',
+    agent_engine: 'slug', model_id: 'code', permission_mode: ['on_request', 'auto'], attachment_count: 'integer', context_tag_count: 'integer', handoff: 'boolean' },
+    required: ['page_name', 'action', 'outcome'] },
+  // One per review comment write in the editor's comments panel, after the workspace answered. Comment text and annotations are never sent.
+  review_comment_result: { producers: ['studio'], fields: { page_name: ['studio'], action: ['create', 'edit', 'resolve', 'reopen', 'delete'],
+    outcome: ['success', 'failure'], comment_scope: ['project', 'frame', 'element'], has_annotation: 'boolean',
+    error_kind: ['conflict', 'not_found', 'other'], ...project }, required: ['page_name', 'action', 'outcome'] },
   // Reported when the user returns from an external Pricing / subscription checkout and Studio refreshes their billing entitlement.
   entitlement_refresh_result: { producers: ['studio'], fields: { page_name: pages, hook_id: entitlementHookIds, entry_id: 'uuid',
     outcome: ['success', 'failure'], plan_changed: 'boolean' },

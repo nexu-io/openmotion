@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReviewComment, ReviewCommentsInput, ReviewCommentsResult } from '../../../shared/review-comments';
 import { requestComments } from './reviewCommentsClient';
+import { reportReviewComment } from './reviewCommentTracking';
 
 /** Abort old reads; stale polling responses never overwrite a newer mutation. */
 export function useReviewComments(projectId: string, active: boolean) {
@@ -49,9 +50,11 @@ export function useReviewComments(projectId: string, active: boolean) {
   async function mutate(input: Omit<ReviewCommentsInput, 'action' | 'projectId'>) {
     try {
       const result = await requestComments({ ...input, action: 'comments', projectId });
+      if (!result.replayed) reportReviewComment(projectId, input, 'success');
       if (mounted.current) { sequence.current++; setData(result); setError(''); }
       return result;
     } catch (cause) {
+      reportReviewComment(projectId, input, 'failure', cause);
       if (cause instanceof Error && /^COMMENT_(CONFLICT|NOT_FOUND):/.test(cause.message)) await refresh().catch(() => {});
       throw cause;
     }

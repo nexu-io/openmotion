@@ -12,6 +12,7 @@ import type {
   ScenarioStepState,
 } from '../../../shared/scenario-runs';
 import { ScenarioApiError, scenarioClient, scenarioRequest } from './scenarioClient';
+import { reportWorkflowGenerate } from './workflowTracking';
 import type { BriefSaveRef, ScenarioRunApi } from './stepContract';
 import type { useToast } from '../hooks/useToast';
 
@@ -374,6 +375,7 @@ export function useScenarioRun({
 
         const result = await scenarioRequest<T>(command, payload);
         intentRequestsRef.current.delete(intent);
+        if (command === 'generate') reportWorkflowGenerate(scenario.id, intent, args, 'success');
         if (result && typeof result === 'object' && 'run' in result) {
           const nextRun = (result as { run?: ScenarioRun }).run;
           if (nextRun && nextRun.id === current.id && nextRun.id === runRef.current?.id && nextRun.revision >= runRef.current.revision) {
@@ -382,6 +384,7 @@ export function useScenarioRun({
         }
         return result;
       } catch (err) {
+        if (command === 'generate') reportWorkflowGenerate(scenario.id, intent, args, 'failure', err);
         if (err instanceof ScenarioApiError && err.code === 'SCENARIO_CONFLICT') {
           const current = runRef.current;
           if (current) {
@@ -407,7 +410,7 @@ export function useScenarioRun({
         endBusy(intent);
       }
     },
-    [applyRun, beginBusy, endBusy, ensureRun],
+    [applyRun, beginBusy, endBusy, ensureRun, scenario.id],
   );
 
   const pendingJobs = useMemo(() => countPendingJobs(run), [run]);
