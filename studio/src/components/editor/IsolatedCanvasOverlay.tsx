@@ -20,10 +20,12 @@ import { beginStudioManualEditGesture, endStudioManualEditGesture, scopeStudioMa
 import { supportsOrderedTextEdits, supportsProjectTextEdits } from "../../utils/confirmedTextSources";
 import { watchCanvasTarget } from "./remoteCanvasTargets";
 import { saveCanvasDrag } from "./saveCanvasDrag";
+import type { DomEditSelection } from "./domEditingTypes";
 
 interface Drag {
   pointer: number;
   gestureId: string;
+  selectionAtStart: DomEditSelection | null;
   batchWrites: boolean;
   optimistic: boolean;
   hold?: string;
@@ -88,11 +90,15 @@ export function IsolatedCanvasOverlay() {
   const [menu, setMenu] = useState<CanvasMenuPick | null>(null);
   const { domEditSelection, domEditSelectionRef } = useDomEditSelectionContext();
   const inFrame = useCanvasClipVisibility(domEditSelection);
-  const [draft, setDraft] = useState<{ frame: HTMLIFrameElement; bounds: LayerBounds; target?: IsolatedSourceTarget } | null>(null);
+  const [draft, setDraft] = useState<{ gesture: Drag; bounds: LayerBounds; target?: IsolatedSourceTarget } | null>(null);
   const selected = domEditSelection?.isolatedTarget;
-  const matchesDraft = !draft?.target || !selected || (draft.target.sourceFile === selected.sourceFile &&
+  // The frame measures its hit before Studio finishes inspecting the new selection.
+  const awaitingSelection = draft && draft.gesture === lastPick.current && draft.gesture.selectionAtStart === domEditSelection;
+  const matchesDraft = !draft?.target || (selected && draft.target.sourceFile === selected.sourceFile &&
     (draft.target.hfId || draft.target.elementId) === (selected.hfId || selected.elementId));
-  const box = draft && draft.frame === previewIframeRef.current && matchesDraft ? draft.bounds : domEditSelection?.isolatedBounds;
+  const visibleDraft = draft?.gesture.adapter.iframe === previewIframeRef.current && (awaitingSelection || matchesDraft) ? draft : null;
+  const box = visibleDraft?.bounds ?? domEditSelection?.isolatedBounds;
+  const outlineVisible = inFrame || (visibleDraft && !matchesDraft);
   const { state: { compositionRect } } = usePreviewOverlayContext();
   const pickGeneration = useRef(0);
   const frame = previewIframeRef.current;
@@ -124,7 +130,7 @@ export function IsolatedCanvasOverlay() {
       if ((!active?.corner && !active?.liveResizeBounds) || event.data?.type !== "canvas-drag" || event.data.phase !== "bounds" ||
           event.data.gestureId !== active.gestureId || !active.adapter.accepts(event)) return;
       const bounds = relativeLayerBounds(event.data);
-      if (bounds) setDraft({ frame: active.adapter.iframe, bounds, target: active.target });
+      if (bounds) setDraft({ gesture: active, bounds, target: active.target });
     }
     window.addEventListener("message", updateBounds);
     return () => window.removeEventListener("message", updateBounds);
@@ -184,7 +190,7 @@ export function IsolatedCanvasOverlay() {
     const y = (active.offset?.y ?? 0) / active.frame.height;
     const rect = active.bounds, corner = active.corner;
     const west = corner?.endsWith("w"), north = corner?.startsWith("n");
-    setDraft({ frame: active.adapter.iframe, target: active.target, bounds: { x: rect.x + (corner && !west ? 0 : x), y: rect.y + (corner && !north ? 0 : y),
+    setDraft({ gesture: active, target: active.target, bounds: { x: rect.x + (corner && !west ? 0 : x), y: rect.y + (corner && !north ? 0 : y),
       width: Math.max(1 / active.frame.width, rect.width + (corner ? west ? -x : x : 0)),
       height: Math.max(1 / active.frame.height, rect.height + (corner ? north ? -y : y : 0)) } });
   }
@@ -201,7 +207,7 @@ export function IsolatedCanvasOverlay() {
     const hit = event.target as HTMLElement;
     const handle = hit.closest<HTMLElement>("[data-resize-corner]");
     const corner = handle?.dataset.resizeCorner as Corner | undefined;
-    const target = (corner || !insideFrame) ? domEditSelection?.isolatedTarget : undefined;
+    const target = (corner || !insideFrame) ? visibleDraft?.target ?? selected : undefined;
     if (!insideFrame && (writeBlockedReason || !target || !hit.closest("[data-isolated-selection]"))) return;
     // The whole handle is clickable, even where it straddles the frame edge.
     const x = corner && box ? box.x + (corner.endsWith("e") ? box.width : 0) : (startX - frame.left) / frame.width;
@@ -219,6 +225,7 @@ export function IsolatedCanvasOverlay() {
       corner,
       pointer: event.pointerId,
       gestureId: crypto.randomUUID(),
+      selectionAtStart: domEditSelection,
       batchWrites,
       // Single-edit servers can render every gesture locally too. Only their writes need a receipt chain.
       optimistic: batchWrites || (!!projectId && supportsProjectTextEdits(projectId)),
@@ -263,7 +270,8 @@ export function IsolatedCanvasOverlay() {
         if (!bounds) return;
         active.bounds = bounds;
         active.liveResizeBounds = pick.liveResizeBounds;
-        if (!active.liveResizeBounds) showBounds(active);
+        if (active.liveResizeBounds) setDraft(current => current?.gesture === active ? current : { gesture: active, target: pick.target, bounds });
+        else showBounds(active);
       }).catch(() => { if (drag.current === active) setDraft(null); })
       .finally(() => {
         active.pickSettled = true;
@@ -319,8 +327,8 @@ export function IsolatedCanvasOverlay() {
       active.scope = { frame, paths: [result.sourceFile] };
       if (active.hold) scopeStudioManualEditGesture(frame, active.hold, active.scope.paths);
       trackStudioPendingEdit(finished, active.scope);
-      const finalBounds = (active.corner || active.liveResizeBounds) && relativeLayerBounds(result);
-      if (lastPick.current === active && finalBounds) setDraft({ frame, bounds: finalBounds, target: result });
+      const finalBounds = relativeLayerBounds(result);
+      if (lastPick.current === active && finalBounds) setDraft({ gesture: active, bounds: finalBounds, target: result });
       const write = async (version?: string) => {
         const patch = positionPatch(result);
         // The authenticated measurement is complete. A preview swap while a prior
@@ -392,7 +400,7 @@ export function IsolatedCanvasOverlay() {
     onPointerUp={event => update(event, "finish")} onPointerCancel={event => update(event, "cancel")}
     onLostPointerCapture={lostCapture}>
     {menu && <IsolatedCanvasContextMenu pick={menu} close={() => setMenu(null)} />}
-    {inFrame && box && compositionRect.width > 0 && compositionRect.height > 0 && <div data-isolated-selection="" className="absolute will-change-transform border border-studio-accent"
+    {outlineVisible && box && compositionRect.width > 0 && compositionRect.height > 0 && <div data-isolated-selection="" className="absolute will-change-transform border border-studio-accent"
       style={{ left: compositionRect.left + box.x * compositionRect.width,
         top: compositionRect.top + box.y * compositionRect.height,
         width: box.width * compositionRect.width, height: box.height * compositionRect.height }}>

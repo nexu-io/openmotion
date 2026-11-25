@@ -539,11 +539,87 @@ it.each(["resize", "projected move"])("outlines the rendered size during a %s an
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
 });
 
+function selectLayer(elementId: string | null, x = 0) {
+  state.domEditSelection = elementId === null ? null : {
+    isolatedTarget: { ...result, elementId }, isolatedBounds: { x, y: 0, width: .1, height: .2 },
+  };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+}
+
+function layerPick(elementId: string, x: number) {
+  return { target: { ...result, elementId }, geometry: { x, y: 2, width: 20, height: 10 }, viewport: { width: 200, height: 100 } };
+}
+
+const outlineLeft = () => canvas.querySelector<HTMLElement>("[data-isolated-selection]")?.style.left;
+
+it("draws the picked layer through movement and release while inspection still reports the previous layer", async () => {
+  selectLayer("A");
+  pointer("pointerdown", 60);
+  await reply("start", layerPick("B", 40));
+  expect(outlineLeft()).toBe("50px");
+  pointer("pointermove", 80);
+  expect(outlineLeft()).toBe("70px");
+  pointer("pointerup", 90);
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  expect(outlineLeft()).toBe("80px");
+  selectLayer("B", .2);
+  expect(outlineLeft()).toBe("80px");
+  await reply("finish", { ...result, elementId: "B" });
+  selectLayer("A");
+  expect(outlineLeft()).toBe("10px");
+});
+
+it("resizes the visible draft if its projected move is released before inspection", async () => {
+  selectLayer("A");
+  pointer("pointerdown", 60);
+  const b = layerPick("B", 40);
+  await reply("start", { ...b, liveResizeBounds: true });
+  expect(outlineLeft()).toBe("50px");
+  pointer("pointerup", 80);
+  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="se"]')!;
+  act(() => handle.dispatchEvent(new PointerEvent("pointerdown", {
+    bubbles: true, pointerId: 1, isPrimary: true, button: 0, clientX: 70, clientY: 22,
+  })));
+  expect(messages.at(-1)).toMatchObject({ phase: "start", corner: "se", target: { elementId: "B" } });
+  await reply("finish", b.target);
+  pointer("pointercancel", 70);
+});
+
+it.each(["D", null])("keeps the latest hit through older replies and yields to a new selection (%s)", async next => {
+  selectLayer("A");
+  const undo = Promise.withResolvers<SelectionPaintReply>();
+  const paint = paintWithIsolatedSelection(frame, result.sourceFile, false, () => true, () => undo.promise);
+  const save = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(save.promise);
+  pointer("pointerdown", 60);
+  const b = messages.at(-1)!.gestureId;
+  pointer("pointerup", 80);
+  await reply("finish", { ...result, elementId: "B" }, b);
+  pointer("pointerdown", 80);
+  pointer("pointermove", 90);
+  const c = layerPick("C", 100);
+  await reply("start", c);
+  expect(outlineLeft()).toBe("120px");
+  await reply("start", layerPick("B", 40), b);
+  await act(async () => {
+    save.resolve({ durable: true, changed: true });
+    undo.resolve({ applied: true, geometry: c.geometry, viewport: c.viewport });
+    await paint;
+  });
+  expect(state.applyDomSelection).not.toHaveBeenCalled();
+  expect(outlineLeft()).toBe("120px");
+  selectLayer(next, .25);
+  pointer("pointermove", 100);
+  expect(outlineLeft()).toBe(next ? "60px" : undefined);
+  pointer("pointercancel", 100);
+});
+
 it("shows the released bounds even when the initial pick arrives after pointerup", async () => {
+  selectLayer("A");
   pointer("pointerdown", 60);
   pointer("pointermove", 72);
   pointer("pointerup", 90);
-  await reply("start", { geometry: { x: 1, y: 2, width: 20, height: 10 }, viewport: { width: 200, height: 100 } });
+  await reply("start", layerPick(result.elementId, 1));
   expect((canvas.firstElementChild as HTMLElement).style.left).toBe("41px");
   await reply("finish", result);
 });
