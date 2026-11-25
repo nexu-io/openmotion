@@ -291,3 +291,14 @@ test('library handbook capability documents single maxEdge and batch contact-she
   assert.match(library.prompt, /action=read.*maxEdge 128–1024/);
   assert.match(library.prompt, /contact sheet.*action=read items=/);
 });
+
+test('game web publishing waits for account identity while media generation keeps its entitlement flow', () => {
+  const skill = readFileSync(new URL('../skills/openmotion-game/SKILL.md', import.meta.url), 'utf8');
+  const publication = skill.split('6. **Online sharing')[1].split('\n7. ')[0];
+  assert.match(publication, /action:"sign_in", waitFor:"account"/);
+  assert.match(publication, /action:"wait_sign_in", waitFor:"account"/);
+  assert.match(publication, /Free\/Go can continue.*without a media subscription/);
+  const mediaRouting = skill.split('**Art / character / voice-led game with no usable model**')[1];
+  assert.match(mediaRouting, /Free\/Go checkout opens automatically/);
+  assert.doesNotMatch(mediaRouting, /waitFor:"account"/);
+});

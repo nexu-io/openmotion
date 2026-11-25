@@ -60,7 +60,7 @@ const invalidFields = [
   'brandKit.style.surface', 'brandKit.url', 'changes', 'changes.currentVersionId', 'changes.name',
   'changes.trashed', 'compositionPath', 'conversationId', 'cursor', 'display', 'display.contentVerified',
   'display.evidence', 'display.hostStatus', 'display.hostTabId', 'display.previewUrl', 'display.revision',
-  'display.versionId', 'display.visibility', 'duration', 'embedded', 'entry', 'entryId', 'timeoutSeconds', 'expectedRevision',
+  'display.versionId', 'display.visibility', 'duration', 'embedded', 'entry', 'entryId', 'timeoutSeconds', 'waitFor', 'expectedRevision',
   'expectedRevisions', 'expectedTitle', 'expectedVersionId', 'exportJobId', 'file', 'file.length',
   'file.offset', 'file.path', 'files', 'files[]', 'files[].content', 'files[].path', 'generation',
   'includeVideo', 'items', 'items[]', 'items[].itemId', 'items[].licensePath', 'items[].name',

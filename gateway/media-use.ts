@@ -13,6 +13,7 @@ import { accountMediaState } from './account-media.ts';
 import { openSystemBrowser } from './account.ts';
 
 type Account = ReturnType<typeof gatewayFor>['account'];
+type SignInWaitFor = 'media' | 'account';
 type Upgrade = { url: string; entryId: string; plan: 'plus'; opened: boolean };
 type UpgradeLinkResult = { entry_from: 'agent_sign_in_upgrade'; outcome: 'success' | 'failure'; entry_id: string; browser_opened: boolean };
 export type SignInView = {
@@ -29,14 +30,17 @@ export type MediaSignInOptions = {
   openBrowser?: (url: string) => Promise<void>;
 };
 const upgradeWindowMs = 30 * 60_000;
-type UpgradeAttempt = { at: number; result: Promise<{ upgrade?: Upgrade; tracking: UpgradeLinkResult }>; billingAt: number };
+type UpgradeAttempt = {
+  at: number; result: ReturnType<typeof openMediaUpgrade>; billingAt: number;
+  tracking?: UpgradeLinkResult; reported: boolean;
+};
 // Account IDs stay inside the service. Shared accounts across workspaces share this browser-open guard.
 const upgradeAttempts = new Map<string | Account, UpgradeAttempt>();
 
-function signInView(summary: AccountSummary, upgrade?: Upgrade): SignInView {
+function signInView(summary: AccountSummary, upgrade?: Upgrade, waitFor: SignInWaitFor = 'media'): SignInView {
   const { plan, mediaEntitlement } = accountMediaState(summary);
   const base = { ...(plan ? { plan } : {}), ...(mediaEntitlement ? { mediaEntitlement } : {}) };
-  if (summary.syncing || summary.state === 'authorizing' || summary.state === 'signed-in' && !plan && summary.billingUnavailable !== true) {
+  if (summary.syncing || summary.state === 'authorizing' || waitFor === 'media' && summary.state === 'signed-in' && !plan && summary.billingUnavailable !== true) {
     return { ...base, state: 'authorizing',
       ...(summary.authorizationUrl ? { authorizationUrl: summary.authorizationUrl } : {}),
       ...(summary.userCode ? { userCode: summary.userCode } : {}),
@@ -50,6 +54,8 @@ function signInView(summary: AccountSummary, upgrade?: Upgrade): SignInView {
       instruction: 'Explain the sign-in failure and available connector recovery, then retry sign_in when appropriate.' }
       : { state: 'signed_out', instruction: 'Call sign_in to start browser authorization; do not ask the user to open Settings or confirm in chat.' };
   }
+  if (waitFor === 'account') return { ...base, state: 'ready',
+    instruction: 'Account sign-in is ready. Continue the original request without requiring a media subscription. Before any media generation, still state the model and cost and get consent.' };
   if (mediaEntitlement === 'not-included') return { ...base, state: 'awaiting_payment', ...(upgrade ? { upgrade } : {}),
     instruction: upgrade
       ? `Tell the user the Plus checkout page ${upgrade.opened ? 'is open in the browser' : 'could not be opened automatically'} (Plus includes image and video generation), show upgrade.url as a fallback link, then call wait_sign_in again for up to 15 minutes; after ready, state the model and cost and get consent before generating.`
@@ -57,52 +63,75 @@ function signInView(summary: AccountSummary, upgrade?: Upgrade): SignInView {
   return { ...base, state: 'ready', instruction: 'Continue the original request with inspect/models. State the model and cost and get consent before generating.' };
 }
 
-function signInResult(signIn: SignInView, tracking?: UpgradeLinkResult) {
-  const action = signIn.state === 'signed_out' ? 'sign_in' : signIn.state === 'ready' ? 'inspect'
+function signInResult(signIn: SignInView, tracking?: UpgradeLinkResult, waitFor?: SignInWaitFor) {
+  const action = signIn.state === 'signed_out' ? 'sign_in' : signIn.state === 'ready' ? waitFor === 'account' ? undefined : 'inspect'
     : signIn.state === 'failed' ? undefined : 'wait_sign_in';
-  return { signIn, next: action ? { tool: 'openmotion_media_use', arguments: { action } } : null,
+  return { signIn, next: action ? { tool: 'openmotion_media_use', arguments: { action, ...(waitFor ? { waitFor } : {}) } } : null,
     ...(tracking ? { _upgradeLinkResult: tracking } : {}) };
 }
 
-async function openMediaUpgrade(account: Account, openBrowser: (url: string) => Promise<void>, canOpen = () => true) {
+async function openMediaUpgrade(account: Account, openBrowser: (url: string) => Promise<void>, canOpen: () => boolean = () => true) {
   const entryId = randomUUID();
   let upgrade: Upgrade | undefined;
-  let opened = false;
+  let opened = false, skipped = false;
   try {
     // Only this shareable URL may cross the Agent boundary. The intent URL is discarded locally.
     const { url } = await account.openCloudUrl('/dashboard?billing=plan', OPENMOTION_CLOUD_ENTRY_SOURCE, false,
       { utmMedium: 'agent', entryId, accountIntent: false });
     upgrade = { url, entryId, plan: 'plus', opened: false };
-    if (!canOpen()) return { upgrade, tracking: { entry_from: 'agent_sign_in_upgrade' as const,
+    if (!canOpen()) return { upgrade, skipped: true, tracking: { entry_from: 'agent_sign_in_upgrade' as const,
       outcome: 'success' as const, entry_id: entryId, browser_opened: false } };
     const result = await account.openCloudUrl('/dashboard?billing=plan', OPENMOTION_CLOUD_ENTRY_SOURCE, async url => {
-      if (!canOpen()) throw new Error('Sign-in wait ended before checkout could open');
+      if (!canOpen()) {
+        skipped = true;
+        throw new Error('Sign-in wait ended before checkout could open');
+      }
       await openBrowser(url);
     },
       { utmMedium: 'agent', entryId });
     opened = result.opened;
     upgrade.opened = opened;
   } catch { /* Preserve a safe fallback link if launching fails; never expose account errors or intent URLs. */ }
-  return { ...(upgrade ? { upgrade } : {}), tracking: { entry_from: 'agent_sign_in_upgrade' as const,
+  return { ...(upgrade ? { upgrade } : {}), skipped, tracking: { entry_from: 'agent_sign_in_upgrade' as const,
     outcome: upgrade ? 'success' as const : 'failure' as const, entry_id: entryId, browser_opened: opened } };
 }
 
-async function reserveUpgrade(account: Account, now: () => number, openBrowser: (url: string) => Promise<void>, force = false, canOpen = () => true) {
+async function reserveUpgrade(account: Account, now: () => number, openBrowser: (url: string) => Promise<void>,
+  { force = false, create = true, canOpen = () => true }: { force?: boolean; create?: boolean; canOpen?: () => boolean } = {}) {
   const session = await account.getControlSession();
   if (!canOpen()) return undefined;
   const key = session?.controlKeyId ?? account;
   for (const [id, item] of upgradeAttempts) if (now() - item.at >= upgradeWindowMs) upgradeAttempts.delete(id);
   let attempt = force ? undefined : upgradeAttempts.get(key);
-  const created = !attempt;
   if (!attempt) {
+    if (!create) return undefined;
     // Reserve before awaiting the launch, including concurrent calls across workspaces.
-    attempt = { at: now(), billingAt: -Infinity, result: openMediaUpgrade(account, openBrowser, canOpen) };
+    const pending: UpgradeAttempt = { at: now(), billingAt: -Infinity, reported: force,
+      result: openMediaUpgrade(account, openBrowser, canOpen).then(result => {
+        pending.tracking = result.tracking;
+        // A deadline that prevented launch must not consume the next call's automatic attempt.
+        if (result.skipped && upgradeAttempts.get(key) === pending) upgradeAttempts.delete(key);
+        return result;
+      }) };
+    attempt = pending;
     upgradeAttempts.set(key, attempt);
   }
-  return { attempt, created };
+  return attempt;
+}
+
+function claimUpgradeTracking(attempt: UpgradeAttempt): UpgradeLinkResult | undefined {
+  if (attempt.reported || !attempt.tracking) return undefined;
+  attempt.reported = true;
+  return attempt.tracking;
 }
 
 async function mediaSignIn(account: Account, args: any, options: MediaSignInOptions) {
+  if (args.waitFor !== undefined && !['media', 'account'].includes(args.waitFor)) {
+    throw new ToolInputError('waitFor must be media or account', 'waitFor', 'invalid_enum');
+  }
+  const waitFor: SignInWaitFor = args.action === 'open_upgrade' ? 'media' : args.waitFor ?? 'media';
+  const viewFor = (summary: AccountSummary, upgrade?: Upgrade) => signInView(summary, upgrade, waitFor);
+  const resultFor = (view: SignInView, tracking?: UpgradeLinkResult) => signInResult(view, tracking, args.waitFor);
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   const pollMs = Math.max(1, options.pollMs ?? 1000);
@@ -117,13 +146,14 @@ async function mediaSignIn(account: Account, args: any, options: MediaSignInOpti
       await sleep(Math.min(pollMs, deadline - now()));
       summary = await account.summary();
     }
-    return signInResult(signInView(summary));
+    return resultFor(viewFor(summary));
   }
   if (args.action === 'open_upgrade') {
     if (summary.state === 'signed-in' && !summary.syncing) summary = await account.summary(true);
     const view = signInView(summary);
     if (view.state !== 'awaiting_payment') return { state: view.state, instruction: view.instruction };
-    const { attempt } = (await reserveUpgrade(account, now, openBrowser, true))!;
+    // Explicit checkout owns its event; subsequent waits must not report it again.
+    const attempt = (await reserveUpgrade(account, now, openBrowser, { force: true }))!;
     const result = await attempt.result;
     return { ...(result.upgrade ? { upgrade: result.upgrade } : { state: 'awaiting_payment', instruction: 'Unable to create the Plus checkout link. Retry open_upgrade or open Settings > Model providers > OpenDesign.' }), _upgradeLinkResult: result.tracking };
   }
@@ -135,7 +165,7 @@ async function mediaSignIn(account: Account, args: any, options: MediaSignInOpti
   let billingAt = -Infinity;
   let attempt: UpgradeAttempt | undefined;
   let active = true;
-  let latest = signInResult(signInView(summary));
+  let latest = resultFor(viewFor(summary));
   // Bound slow account I/O too, not only sleeps between reads. Late reads must not start another browser action.
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<typeof latest>(resolve => {
@@ -144,34 +174,42 @@ async function mediaSignIn(account: Account, args: any, options: MediaSignInOpti
   const poll = async () => {
     summary = await account.summary();
     while (active) {
-      let view = signInView(summary, upgrade);
-      latest = signInResult(view, tracking);
-      if (view.state === 'ready' || view.state === 'failed' || view.state === 'signed_out') return signInResult(view, tracking);
-      if (now() >= deadline) return signInResult(view, tracking);
-      if (summary.state === 'signed-in' && !summary.syncing) {
-        if (!attempt && view.state === 'awaiting_payment') {
-          const reserved = await reserveUpgrade(account, now, openBrowser, false, () => active && now() < deadline);
-          if (!reserved) return latest;
-          attempt = reserved.attempt;
-          const result = await attempt.result;
-          if (reserved.created) tracking = result.tracking;
-          upgrade = result.upgrade;
-          if (!active) return latest;
-          view = signInView(summary, upgrade);
-          latest = signInResult(view, tracking);
+      let view = viewFor(summary, upgrade);
+      latest = resultFor(view, tracking);
+      if (view.state === 'failed' || view.state === 'signed_out' || now() >= deadline) return latest;
+      if (waitFor === 'media' && summary.state === 'signed-in' && !summary.syncing) {
+        // Even a now-entitled account may have an unreported launch from an earlier timed-out call.
+        if (!attempt && (view.state === 'awaiting_payment' || upgradeAttempts.size)) {
+          while (!attempt && active && now() < deadline) {
+            const pending = await reserveUpgrade(account, now, openBrowser, {
+              create: view.state === 'awaiting_payment', canOpen: () => active && now() < deadline,
+            });
+            if (!pending) break;
+            const result = await pending.result;
+            if (!active || now() >= deadline) return latest;
+            // Another caller may have reserved this launch and expired before it could open.
+            if (result.skipped) continue;
+            attempt = pending;
+            tracking = claimUpgradeTracking(attempt);
+            upgrade = result.upgrade;
+          }
+          view = viewFor(summary, upgrade);
+          latest = resultFor(view, tracking);
         }
+        if (!active || view.state === 'ready' || now() >= deadline) return latest;
         const lastRefresh = attempt?.billingAt ?? billingAt;
         if (now() - lastRefresh >= billingPollMs) {
           billingAt = now();
           if (attempt) attempt.billingAt = billingAt;
           summary = await account.summary(true);
           if (!active) return latest;
-          view = signInView(summary, upgrade);
-          latest = signInResult(view, tracking);
+          view = viewFor(summary, upgrade);
+          latest = resultFor(view, tracking);
           if (view.state === 'ready' || view.state === 'failed' || view.state === 'signed_out') return latest;
         }
       }
-      latest = signInResult(signInView(summary, upgrade), tracking);
+      latest = resultFor(viewFor(summary, upgrade), tracking);
+      if (latest.signIn.state === 'ready') return latest;
       if (now() >= deadline) return latest;
       await sleep(Math.min(pollMs, deadline - now()));
       if (!active) return latest;

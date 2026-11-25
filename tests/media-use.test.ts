@@ -404,3 +404,103 @@ test('capability discovery forwards the direct signed-out Agent handoff', t => f
     assert.deepEqual(result.settingsHandoff, { tool: 'openmotion_media_use', arguments: { action: 'sign_in' } });
   }
 }));
+
+for (const plan of ['free', 'go']) {
+  test(`waitFor=account accepts ${plan} without checkout, billing refresh or upgrade telemetry`, t => fixture(async store => {
+    const gateway = gatewayFor(store), time = clock();
+    t.after(() => gateway.close());
+    let syncing = true;
+    const summary = t.mock.method(gateway.account, 'summary', async () => ({ ...signedIn(plan), syncing: syncing && time.now() < 1000 }));
+    const open = t.mock.method(gateway.account, 'openCloudUrl', async () => { throw new Error('Account sign-in must not open checkout'); });
+    const result = await mediaUse(store, { action: 'wait_sign_in', waitFor: 'account' }, undefined, time);
+    assert.equal(time.now(), 1000, 'account mode still waits for model synchronization');
+    assert.equal(result.signIn.state, 'ready');
+    assert.equal(result.signIn.plan, plan);
+    assert.equal(result.signIn.mediaEntitlement, 'not-included');
+    assert.equal(Object.hasOwn(result, '_upgradeLinkResult'), false);
+    assert.equal(open.mock.callCount(), 0);
+    assert.ok(summary.mock.calls.every(call => call.arguments[0] !== true));
+    syncing = false;
+    summary.mock.restore();
+    t.mock.method(gateway.account, 'summary', async () => ({ state: 'signed-in' }));
+    assert.equal((await mediaUse(store, { action: 'wait_sign_in', waitFor: 'account' }, undefined, time)).signIn.state, 'ready', 'account mode does not require billing to be loaded');
+  }));
+}
+
+test('sign_in and repeated waits preserve an explicit waitFor in the next arguments', t => fixture(async store => {
+  const gateway = gatewayFor(store);
+  t.after(() => gateway.close());
+  let state: any = { state: 'signed-out' };
+  t.mock.method(gateway.account, 'summary', async () => state);
+  t.mock.method(gateway.account, 'login', async () => ({ state: 'authorizing', authorizationUrl: 'https://example.com/activate' }));
+  for (const waitFor of ['account', 'media']) {
+    const result = await mediaUse(store, { action: 'sign_in', waitFor }, undefined, clock());
+    assert.deepEqual(result.next.arguments, { action: 'wait_sign_in', waitFor });
+    const signedOut = await mediaUse(store, { action: 'wait_sign_in', waitFor }, undefined, clock());
+    assert.deepEqual(signedOut.next.arguments, { action: 'sign_in', waitFor });
+  }
+  state = { state: 'authorizing' };
+  const pending = await mediaUse(store, { action: 'wait_sign_in', waitFor: 'account', timeoutSeconds: 1 }, undefined, clock());
+  assert.deepEqual(pending.next.arguments, { action: 'wait_sign_in', waitFor: 'account' });
+  await assert.rejects(mediaUse(store, { action: 'wait_sign_in', waitFor: 'invalid' }, undefined, clock()), /INVALID_ARGUMENT/);
+}));
+
+test('an intent that resolves after timeout does not consume the automatic checkout retry', t => fixture(async store => {
+  const gateway = gatewayFor(store), opened: string[] = [];
+  t.after(() => gateway.close());
+  await signedInCredentials(store);
+  t.mock.method(gateway.account, 'summary', async () => signedIn('free'));
+  let release!: () => void;
+  const slowIntent = new Promise<void>(resolve => { release = resolve; });
+  let intentStarted!: () => void;
+  const started = new Promise<void>(resolve => { intentStarted = resolve; });
+  let requests = 0;
+  gateway.account.options.fetcher = async () => {
+    if (++requests === 1) { intentStarted(); await slowIntent; }
+    return Response.json({ intentId: 'browser-only-intent' });
+  };
+  const openBrowser = async (url: string) => { opened.push(url); };
+  const firstCall = mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 0.1 }, undefined, { openBrowser });
+  await started;
+  const first = await firstCall;
+  assert.equal(opened.length, 0);
+  assert.equal(Object.hasOwn(first, '_upgradeLinkResult'), false);
+  // Retry while the first intent is still pending; completion must evict the skipped reservation.
+  const retry = mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 1 }, undefined, { ...clock(Date.now()), openBrowser });
+  release();
+  const second = await retry;
+  assert.equal(opened.length, 1);
+  assert.equal(requests, 2);
+  assert.equal(second.signIn.upgrade.opened, true);
+  assert.equal(second._upgradeLinkResult.browser_opened, true);
+  assert.doesNotMatch(JSON.stringify(second), /intentId|browser-only-intent/);
+}));
+
+for (const planAfterTimeout of ['free', 'plus']) {
+  test(`a later ${planAfterTimeout} wait claims a completed checkout result once after the creator timed out`, t => fixture(async store => {
+    const gateway = gatewayFor(store), opened: string[] = [];
+    t.after(() => gateway.close());
+    await signedInCredentials(store);
+    let plan = 'free';
+    t.mock.method(gateway.account, 'summary', async () => signedIn(plan));
+    gateway.account.options.fetcher = async () => Response.json({ intentId: 'browser-only-intent' });
+    let release!: () => void, didOpen!: () => void;
+    const launchPending = new Promise<void>(resolve => { release = resolve; });
+    const launched = new Promise<void>(resolve => { didOpen = resolve; });
+    const openBrowser = async (url: string) => { opened.push(url); didOpen(); await launchPending; };
+    const firstCall = mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 0.1 }, undefined, { openBrowser });
+    await launched;
+    const first = await firstCall;
+    assert.equal(Object.hasOwn(first, '_upgradeLinkResult'), false);
+    assert.equal(opened.length, 1);
+    plan = planAfterTimeout;
+    release();
+    const options = { ...clock(Date.now()), openBrowser };
+    const second = await mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 1 }, undefined, options);
+    assert.equal(second._upgradeLinkResult?.entry_from, 'agent_sign_in_upgrade');
+    assert.equal(second._upgradeLinkResult?.browser_opened, true);
+    const third = await mediaUse(store, { action: 'wait_sign_in', timeoutSeconds: 1 }, undefined, options);
+    assert.equal(Object.hasOwn(third, '_upgradeLinkResult'), false);
+    assert.equal(opened.length, 1);
+  }));
+}
