@@ -11,7 +11,7 @@ Turn a reference, template or creative brief into an editable video project in O
 
 Discover the current host's OpenMotion MCP tools first. If connected, call `openmotion_get_project` to identify the workspace and verify that the connected MCP server origin (`previewUrl` / `serverOrigin`) matches any target project or session URL the user supplied. Preserve projects, credentials, project/version identities and unrelated host settings. Do not reinstall a working connection.
 
-When the user supplies a cloud URL (for example `https://motion.open-design.ai/...` or `https://openmotion.powerformer.net/...`) and the currently connected MCP server points to a different origin (such as local `http://127.0.0.1:4173`), or `openmotion_get_project` returns `PROJECT_NOT_FOUND` with a mismatched `serverOrigin`:
+When the user supplies a cloud URL (for example `https://motion.open-design.ai/...` or another hosted OpenMotion origin) and the currently connected MCP server points to a different origin (such as local `http://127.0.0.1:4173`), or `openmotion_get_project` returns `PROJECT_NOT_FOUND` with a mismatched `serverOrigin`:
 
 1. Treat it as an **environment mismatch**, not a missing project.
 2. Prefer **OAuth 2.1** over manual tokens: guide the user to register the matching `<origin>/mcp` endpoint in their host and complete browser OAuth sign-in (for Codex: `codex mcp add <serverName> --url <origin>/mcp` then `codex mcp login <serverName>`; for Claude Code: `claude mcp add --scope user --transport http <serverName> <origin>/mcp` then run `/mcp`), or open `<origin>/settings/mcp`. Use distinct server names across environments (`openmotion` for production, `openmotion-test` for test/staging, `openmotion-local` for local dev).

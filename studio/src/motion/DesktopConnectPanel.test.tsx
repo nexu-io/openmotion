@@ -14,6 +14,7 @@ import {
   CONNECT_SCRIPT_ENDPOINTS,
   CONNECT_SCRIPT_TOKEN_HEADER,
 } from '../../../shared/connect-script-protocol';
+import { DEFAULT_STUDIO_URLS } from '../../../shared/desktop-builtin-rules';
 import { I18nProvider } from '../i18n/I18n';
 import { disconnectLocalConnectBridge } from '../utils/localConnectBridge';
 import {
@@ -789,7 +790,7 @@ describe('DesktopConnectPanel', () => {
     });
     window.__OPENMOTION_HOST__ = bridge;
 
-    await mount({ mcpUrl: 'https://openmotion.powerformer.net/mcp' });
+    await mount({ mcpUrl: `${DEFAULT_STUDIO_URLS.test}/mcp` });
     await flushMicrotasks();
 
     const connectCodex = findButton('Connect Codex')!;

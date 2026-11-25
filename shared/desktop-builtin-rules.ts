@@ -32,7 +32,9 @@ export function defaultMcpServerNameForOrigin(originOrUrl: string): string {
     if (host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]') {
       return DEFAULT_MCP_SERVER_NAMES.dev;
     }
-    if (host === 'openmotion.powerformer.net' || host.endsWith('.powerformer.net')) {
+    const testHost = new URL(DEFAULT_STUDIO_URLS.test).hostname.toLowerCase();
+    const testParentDomain = testHost.split('.').slice(-2).join('.');
+    if (host === testHost || (testParentDomain && host.endsWith(`.${testParentDomain}`))) {
       return DEFAULT_MCP_SERVER_NAMES.test;
     }
   } catch {

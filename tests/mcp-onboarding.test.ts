@@ -19,6 +19,7 @@ import {
   type IntegrationInfo,
 } from '../shared/integration.ts';
 import { imageFeaturePrompt } from '../shared/image-features.ts';
+import { DEFAULT_STUDIO_URLS } from '../shared/desktop-builtin-rules.ts';
 import { videoFeatureParameters, videoFeaturePrompt } from '../shared/video-features.ts';
 import { findScenario, scenarioAgentPrompt, scenarioRecipeTools } from '../shared/scenarios.ts';
 
@@ -50,8 +51,9 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
   assert.doesNotMatch(setupPrompt(localHttp, 'codex', 'en'), /docker exec -i/);
   assert.match(setupPrompt(localHttp, 'codex', 'en'), /upload_ticket/);
 
+  const testOrigin = DEFAULT_STUDIO_URLS.test;
   const testCloud = buildCloudIntegrationInfo({
-    publicOrigin: 'https://openmotion.powerformer.net',
+    publicOrigin: testOrigin,
     version: '1.0.0',
     workspaceId: 'ws-test',
     authMode: 'oidc',
@@ -59,9 +61,9 @@ test('Streamable HTTP /mcp integration info validates and configures all clients
     patEnabled: true,
     tools: phase1Tools,
   });
-  assert.match(manualConnection(testCloud, 'codex', 'en'), /codex mcp add openmotion-test --url 'https:\/\/openmotion\.powerformer\.net\/mcp'/);
+  assert.ok(manualConnection(testCloud, 'codex', 'en').includes(`codex mcp add openmotion-test --url '${testOrigin}/mcp'`));
   assert.match(manualConnection(testCloud, 'codex', 'en'), /codex mcp login openmotion-test/);
-  assert.match(manualConnection(testCloud, 'claude', 'en'), /claude mcp add --scope user --transport http openmotion-test 'https:\/\/openmotion\.powerformer\.net\/mcp'/);
+  assert.ok(manualConnection(testCloud, 'claude', 'en').includes(`claude mcp add --scope user --transport http openmotion-test '${testOrigin}/mcp'`));
   assert.match(manualConnection(testCloud, 'claude', 'en'), /\/mcp/);
 
   const cloudHttps = buildCloudIntegrationInfo({

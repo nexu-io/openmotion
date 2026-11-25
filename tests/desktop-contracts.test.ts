@@ -4,6 +4,7 @@ import {
   BUILTIN_PUBLISHERS,
   BUILTIN_TEMPLATE_MAP,
   BUILTIN_THIRD_PARTY_PROGRAMS,
+  DEFAULT_STUDIO_URLS,
   defaultMcpServerNameForChannel,
   defaultMcpServerNameForOrigin,
   isUrlInAllowedDomainScope,
@@ -36,7 +37,7 @@ test('Q1 built-in third-party allowlist contains codex and claude with 3 templat
   assert.equal(defaultMcpServerNameForChannel('test'), 'openmotion-test');
   assert.equal(defaultMcpServerNameForChannel('dev'), 'openmotion-local');
   assert.equal(defaultMcpServerNameForOrigin('https://motion.open-design.ai/mcp'), 'openmotion');
-  assert.equal(defaultMcpServerNameForOrigin('https://openmotion.powerformer.net/mcp'), 'openmotion-test');
+  assert.equal(defaultMcpServerNameForOrigin(`${DEFAULT_STUDIO_URLS.test}/mcp`), 'openmotion-test');
   assert.equal(defaultMcpServerNameForOrigin('http://127.0.0.1:4173/mcp'), 'openmotion-local');
   const claudeAdd = BUILTIN_TEMPLATE_MAP.get('claude.mcp.add_remote')!;
   assert.ok(claudeAdd.argv.includes('--scope') && claudeAdd.argv.includes('user'));
