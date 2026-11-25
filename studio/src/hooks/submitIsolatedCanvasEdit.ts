@@ -75,7 +75,8 @@ export async function submitIsolatedCanvasEdit(
   if (frame && frame === frameRef.current && !result.divergent.length && result.changedPaths.length) {
     const changes = result.changedPaths.map(file => {
       const current = confirmedSource(project, file);
-      const previous = path === file && group ? group.state.previous : bases.get(file);
+      // A first edit can resolve its displayed source while preparing the patch. Reuse those bytes to present its receipt.
+      const previous = (path === file && group ? group.state.previous : bases.get(file)) ?? result.observedSources?.get(file);
       return { path: file, previous, current: result.versions[file] === current?.version ? current : undefined };
     });
     scheduleCommittedPreview(frame, project, changes, refresh, { gestureId });
