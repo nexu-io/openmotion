@@ -12,7 +12,10 @@
     "1 asset failed · Retry": "1 项素材失败 · 重试",
     "{count} assets failed · Retry": "{count} 项素材失败 · 重试",
     "Could not load project files": "项目文件加载失败",
-    "Refresh thumbnail": "重新生成缩略图"
+    "Refresh thumbnail": "重新生成缩略图",
+    "Downloading this file for playback. You can keep editing.": "正在下载此文件以供播放，你可以继续编辑。",
+    "Downloading this file for playback.": "正在下载此文件以供播放。",
+    "The preview will appear when it is ready.": "预览就绪后会自动显示。"
   },
   "ja": {
     "Preparing project assets": "プロジェクト素材を準備中",
@@ -27,7 +30,10 @@
     "1 asset failed · Retry": "素材 1 件が失敗 · 再試行",
     "{count} assets failed · Retry": "素材 {count} 件が失敗 · 再試行",
     "Could not load project files": "プロジェクトファイルを読み込めませんでした",
-    "Refresh thumbnail": "サムネイルを再生成"
+    "Refresh thumbnail": "サムネイルを再生成",
+    "Downloading this file for playback. You can keep editing.": "再生用のファイルをダウンロードしています。そのまま編集を続けられます。",
+    "Downloading this file for playback.": "再生用のファイルをダウンロードしています。",
+    "The preview will appear when it is ready.": "準備ができるとプレビューが表示されます。"
   },
   "ko": {
     "Preparing project assets": "프로젝트 에셋 준비 중",
@@ -42,7 +48,10 @@
     "1 asset failed · Retry": "에셋 1개 실패 · 다시 시도",
     "{count} assets failed · Retry": "에셋 {count}개 실패 · 다시 시도",
     "Could not load project files": "프로젝트 파일을 불러올 수 없습니다",
-    "Refresh thumbnail": "썸네일 새로고침"
+    "Refresh thumbnail": "썸네일 새로고침",
+    "Downloading this file for playback. You can keep editing.": "재생을 위해 이 파일을 다운로드하고 있습니다. 편집을 계속할 수 있습니다.",
+    "Downloading this file for playback.": "재생을 위해 이 파일을 다운로드하고 있습니다.",
+    "The preview will appear when it is ready.": "준비가 되면 미리보기가 표시됩니다."
   },
   "de": {
     "Preparing project assets": "Projektmedien werden vorbereitet",
@@ -57,7 +66,10 @@
     "1 asset failed · Retry": "1 Medium fehlgeschlagen · Erneut versuchen",
     "{count} assets failed · Retry": "{count} Medien fehlgeschlagen · Erneut versuchen",
     "Could not load project files": "Projektdateien konnten nicht geladen werden",
-    "Refresh thumbnail": "Vorschaubild aktualisieren"
+    "Refresh thumbnail": "Vorschaubild aktualisieren",
+    "Downloading this file for playback. You can keep editing.": "Diese Datei wird zur Wiedergabe heruntergeladen. Du kannst weiter bearbeiten.",
+    "Downloading this file for playback.": "Diese Datei wird zur Wiedergabe heruntergeladen.",
+    "The preview will appear when it is ready.": "Die Vorschau erscheint, sobald sie bereit ist."
   },
   "fr": {
     "Preparing project assets": "Préparation des médias du projet",
@@ -72,7 +84,10 @@
     "1 asset failed · Retry": "1 média en échec · Réessayer",
     "{count} assets failed · Retry": "{count} médias en échec · Réessayer",
     "Could not load project files": "Impossible de charger les fichiers du projet",
-    "Refresh thumbnail": "Actualiser la miniature"
+    "Refresh thumbnail": "Actualiser la miniature",
+    "Downloading this file for playback. You can keep editing.": "Téléchargement du fichier pour la lecture. Vous pouvez continuer le montage.",
+    "Downloading this file for playback.": "Téléchargement du fichier pour la lecture.",
+    "The preview will appear when it is ready.": "L’aperçu s’affichera dès qu’il sera prêt."
   },
   "ru": {
     "Preparing project assets": "Подготовка материалов проекта",
@@ -87,7 +102,10 @@
     "1 asset failed · Retry": "1 материал не загружен · Повторить",
     "{count} assets failed · Retry": "Не загружено материалов: {count} · Повторить",
     "Could not load project files": "Не удалось загрузить файлы проекта",
-    "Refresh thumbnail": "Обновить миниатюру"
+    "Refresh thumbnail": "Обновить миниатюру",
+    "Downloading this file for playback. You can keep editing.": "Файл загружается для воспроизведения. Можно продолжать редактирование.",
+    "Downloading this file for playback.": "Файл загружается для воспроизведения.",
+    "The preview will appear when it is ready.": "Предпросмотр появится, когда будет готов."
   },
   "es": {
     "Preparing project assets": "Preparando los recursos del proyecto",
@@ -102,7 +120,10 @@
     "1 asset failed · Retry": "1 recurso falló · Reintentar",
     "{count} assets failed · Retry": "{count} recursos fallaron · Reintentar",
     "Could not load project files": "No se pudieron cargar los archivos del proyecto",
-    "Refresh thumbnail": "Actualizar miniatura"
+    "Refresh thumbnail": "Actualizar miniatura",
+    "Downloading this file for playback. You can keep editing.": "Descargando este archivo para reproducirlo. Puedes seguir editando.",
+    "Downloading this file for playback.": "Descargando este archivo para reproducirlo.",
+    "The preview will appear when it is ready.": "La vista previa aparecerá cuando esté lista."
   },
   "pt-BR": {
     "Preparing project assets": "Preparando os recursos do projeto",
@@ -117,7 +138,10 @@
     "1 asset failed · Retry": "1 recurso falhou · Tentar novamente",
     "{count} assets failed · Retry": "{count} recursos falharam · Tentar novamente",
     "Could not load project files": "Não foi possível carregar os arquivos do projeto",
-    "Refresh thumbnail": "Atualizar miniatura"
+    "Refresh thumbnail": "Atualizar miniatura",
+    "Downloading this file for playback. You can keep editing.": "Baixando este arquivo para reprodução. Você pode continuar editando.",
+    "Downloading this file for playback.": "Baixando este arquivo para reprodução.",
+    "The preview will appear when it is ready.": "A prévia aparecerá quando estiver pronta."
   },
   "it": {
     "Preparing project assets": "Preparazione delle risorse del progetto",
@@ -132,7 +156,10 @@
     "1 asset failed · Retry": "1 risorsa non riuscita · Riprova",
     "{count} assets failed · Retry": "{count} risorse non riuscite · Riprova",
     "Could not load project files": "Impossibile caricare i file del progetto",
-    "Refresh thumbnail": "Aggiorna miniatura"
+    "Refresh thumbnail": "Aggiorna miniatura",
+    "Downloading this file for playback. You can keep editing.": "Download del file per la riproduzione. Puoi continuare a modificare il progetto.",
+    "Downloading this file for playback.": "Download del file per la riproduzione.",
+    "The preview will appear when it is ready.": "L’anteprima apparirà quando sarà pronta."
   },
   "tr": {
     "Preparing project assets": "Proje varlıkları hazırlanıyor",
@@ -147,6 +174,9 @@
     "1 asset failed · Retry": "1 varlık başarısız · Yeniden dene",
     "{count} assets failed · Retry": "{count} varlık başarısız · Yeniden dene",
     "Could not load project files": "Proje dosyaları yüklenemedi",
-    "Refresh thumbnail": "Küçük resmi yenile"
+    "Refresh thumbnail": "Küçük resmi yenile",
+    "Downloading this file for playback. You can keep editing.": "Bu dosya oynatılmak üzere indiriliyor. Düzenlemeye devam edebilirsiniz.",
+    "Downloading this file for playback.": "Bu dosya oynatılmak üzere indiriliyor.",
+    "The preview will appear when it is ready.": "Önizleme hazır olduğunda gösterilecek."
   }
 }

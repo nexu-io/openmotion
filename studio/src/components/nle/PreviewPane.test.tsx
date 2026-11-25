@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewPane } from "./PreviewPane";
 import { StudioHostContext } from "../../motion/StudioHost";
+import { PreviewReadOnlyProvider } from "../editor/previewReadOnlyContext";
+import { usePlayerStore } from "../../player/store/playerStore";
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -12,7 +14,12 @@ vi.mock("../editor/PreviewGuides", () => ({ PreviewGuides: () => <i data-testid=
 const emptyState = vi.hoisted(() => ({ empty: false }));
 vi.mock("./useEmptyPreview", () => ({ useEmptyPreview: () => emptyState.empty }));
 vi.mock("../../player", () => ({ PlayerControls: ({ onToggleFullscreen, isFullscreen }: { onToggleFullscreen: () => void; isFullscreen: boolean }) => <button data-testid="transport" onClick={onToggleFullscreen}>{isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}</button> }));
-vi.mock("./NLEPreview", () => ({ NLEPreview: () => <i data-testid="preview" /> }));
+vi.mock("./NLEPreview", () => ({ NLEPreview: ({ canEditWhileLoading }: { canEditWhileLoading: boolean }) => <i data-testid="preview" data-can-edit={canEditWhileLoading} /> }));
+const session = { shell: null as { projectId: string; activeCompPath: string; writeBlockedReason: string | null; renderQueue: { isRendering: boolean } } | null, timelineDisabled: false };
+vi.mock("../../contexts/StudioContext", async original => ({
+  ...(await original<typeof import("../../contexts/StudioContext")>()),
+  useStudioShellContextOptional: () => session.shell,
+}));
 vi.mock("./CompositionBreadcrumb", () => ({ CompositionBreadcrumb: () => <nav data-testid="breadcrumb" /> }));
 vi.mock("./AssetPreviewOverlay", () => ({ AssetPreviewOverlay: () => null }));
 vi.mock("../../motion/ReviewComposerOverlay", () => ({ ReviewComposerOverlay: () => null }));
@@ -36,7 +43,7 @@ vi.mock("./NLEContext", () => ({
     compositionStack: [{ id: "master", previewUrl: undefined }, { id: "first.html", previewUrl: "/first.html" }],
     handleNavigateComposition: vi.fn(),
     setCompositionLoading: vi.fn(),
-    timelineDisabled: false,
+    timelineDisabled: session.timelineDisabled,
     hasLoadedOnceRef: { current: false },
     previewCompositionSize: null,
     setPreviewCompositionSize: vi.fn(),
@@ -48,6 +55,39 @@ afterEach(() => {
 });
 
 describe("PreviewPane", () => {
+  it("offers continued editing only for the writable current timeline while its first frame is pending", () => {
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const render = (readOnly = false) => act(() => root.render(<PreviewReadOnlyProvider readOnly={readOnly}><PreviewPane /></PreviewReadOnlyProvider>));
+    const canEdit = () => host.querySelector('[data-testid="preview"]')?.getAttribute("data-can-edit");
+    try {
+      session.timelineDisabled = true;
+      usePlayerStore.setState({ timelineProjectId: "p", authoredTimelinePath: "first.html", timelineReady: false });
+      render();
+      expect(canEdit()).toBe("false");
+      session.shell = { projectId: "p", activeCompPath: "first.html", writeBlockedReason: null, renderQueue: { isRendering: false } };
+      render();
+      expect(canEdit()).toBe("true");
+      render(true);
+      expect(canEdit()).toBe("false");
+      act(() => usePlayerStore.getState().setEditorInputLocked(true));
+      render();
+      expect(canEdit()).toBe("false");
+      act(() => usePlayerStore.getState().setEditorInputLocked(false));
+      session.shell.writeBlockedReason = "Source changed";
+      render();
+      expect(canEdit()).toBe("false");
+      session.shell.writeBlockedReason = null;
+      act(() => usePlayerStore.setState({ authoredTimelinePath: "previous.html" }));
+      render();
+      expect(canEdit()).toBe("false");
+    } finally {
+      act(() => root.unmount());
+      session.timelineDisabled = false;
+      session.shell = null;
+      usePlayerStore.getState().reset();
+    }
+  });
   it("draws the guides in the pane itself, not through the previewOverlay slot", () => {
     const host = document.createElement("div");
     document.body.append(host);

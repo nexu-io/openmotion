@@ -580,7 +580,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `audio-${index}`,
       label: assetLabelFromUrl(originalSrc, `audio-${index + 1}`),
-      pendingAsset: readyNow ? undefined : pendingAssetName(audio.currentSrc || originalSrc),
+      pendingAsset: readyNow ? undefined : pendingAssetName(audio.currentSrc || originalSrc) ?? pendingAssetName(audio.getAttribute("src") ?? ""),
       kind: "audio",
       settled: readyNow,
       failedReason: null,
@@ -615,7 +615,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `video-${index}`,
       label: assetLabelFromUrl(originalSrc, `video-${index + 1}`),
-      pendingAsset: readyNow ? undefined : pendingAssetName(video.currentSrc || originalSrc),
+      pendingAsset: readyNow ? undefined : pendingAssetName(video.currentSrc || originalSrc) ?? pendingAssetName(video.getAttribute("src") ?? ""),
       kind: "video",
       settled: readyNow,
       failedReason: null,

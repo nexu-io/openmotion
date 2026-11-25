@@ -14,7 +14,6 @@ import { usePlayerStore } from "./player";
 import { StudioOverlays } from "./components/StudioOverlays";
 import {
   EditorAssetLoadingOverlay,
-  EditorAssetProgressBar,
   useEditorAssetReadiness,
 } from "./components/EditorAssetLoadingOverlay";
 import { ExternalFileConflictBanner } from "./components/ExternalFileConflictBanner";
@@ -630,12 +629,6 @@ export function StudioApp({ readOnlyPreview = false, readOnlyPreviewReason, reso
                     <CompositionMissingBanner path={activeCompPath} />
                   )}
                   <div className="relative flex-1 min-h-0 flex flex-col">
-                    <EditorAssetProgressBar
-                      loading={editorReadiness.backgroundLoading}
-                      completed={editorReadiness.completed}
-                      total={editorReadiness.total}
-                      indeterminate={editorReadiness.indeterminate}
-                    />
                     <EditorFrame><EditorShell
                     readOnlyPreview={readOnlyPreview}
                     readOnlyPreviewReason={readOnlyPreviewReason}

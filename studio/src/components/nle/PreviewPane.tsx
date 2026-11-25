@@ -14,6 +14,9 @@ import { NLEPreview } from "./NLEPreview";
 import { CompositionBreadcrumb } from "./CompositionBreadcrumb";
 import { usePreviewBlockDrop } from "./usePreviewBlockDrop";
 import { useNLEContext } from "./NLEContext";
+import { useTimelineContentReady } from "./useTimelineContentReady";
+import { usePreviewReadOnly } from "../editor/previewReadOnlyContext";
+import { useStudioShellContextOptional } from "../../contexts/StudioContext";
 import { AssetPreviewOverlay } from "./AssetPreviewOverlay";
 import { PreviewGuides } from "../editor/PreviewGuides";
 import { PreviewOverlayProvider } from "../editor/PreviewOverlayProvider";
@@ -78,6 +81,11 @@ export function PreviewPane({
   const reviewCommentsEnabled = useCloudFeatureEnabled('reviewComments');
   const { t } = useI18n(), toast = useToast();
   const previewHeader = useDockHeaderSlot("preview");
+  const context = useNLEContext();
+  const { activeSource, ready } = useTimelineContentReady(context);
+  const shell = useStudioShellContextOptional();
+  const readOnly = usePreviewReadOnly();
+  const inputLocked = usePlayerStore(state => state.editorInputLocked);
   const {
     projectId,
     iframeRef,
@@ -99,7 +107,7 @@ export function PreviewPane({
     hasLoadedOnceRef,
     previewCompositionSize,
     setPreviewCompositionSize,
-  } = useNLEContext();
+  } = context;
   const onLivePainted = useWarmStudioFeatures(projectId, mvp);
 
   const stageRefForDrop = useRef<HTMLDivElement | null>(null);
@@ -131,6 +139,9 @@ export function PreviewPane({
   // browser shows only the preview (sidebars + timeline are excluded naturally).
   const containerRef = useRef<HTMLDivElement>(null);
   const { fullscreen: isFullscreen, controlsHidden } = useFullscreenPlayback(containerRef);
+  const canEditWhileLoading = ready && !readOnly && !inputLocked && !isFullscreen &&
+    shell?.projectId === projectId && (shell.activeCompPath ?? "index.html") === activeSource &&
+    !shell.writeBlockedReason && !shell.renderQueue.isRendering;
   const toggleFullscreen = () => { void togglePreviewFullscreen(containerRef.current, message => toast.showToast(t(message), 'error')); };
 
   const currentLevel = compositionStack[compositionStack.length - 1];
@@ -162,6 +173,7 @@ export function PreviewPane({
       >
         <div className="absolute inset-0 overflow-hidden">
           <NLEPreview
+            canEditWhileLoading={canEditWhileLoading}
             presentationMode={isFullscreen}
             fillBox={isFullscreen}
             zoomControlsTarget={mvp && !isFullscreen ? previewHeader : null}

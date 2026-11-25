@@ -135,6 +135,23 @@ describe("previewAssetReadiness helpers", () => {
       }
     }
   });
+
+  it.each(["audio", "video"] as const)("uses the project %s filename when the resolved URL is opaque", tag => {
+    const doc = makeDocument();
+    const name = tag === "audio" ? "片头音乐.m4a" : "片头动画.mp4";
+    const { el } = makeMedia(doc, tag, `/assets/${encodeURIComponent(name)}`);
+    Object.defineProperty(el, "currentSrc", { value: "https://storage.test/objects/abcdef0123456789?sig=private" });
+    let progress: PreviewAssetProgress | undefined;
+    const tracker = trackDocumentAssetReadiness(doc, window, next => { progress = next; });
+    const embedded = new Function("document", "window", `${PREVIEW_ASSET_READINESS}\nreturn createAssetTracker();`)(doc, window);
+    try {
+      expect(progress?.pendingAsset).toBe(name);
+      expect(embedded.snapshot()).toEqual(progress);
+    } finally {
+      tracker.dispose();
+      embedded.dispose();
+    }
+  });
 });
 
 describe("trackDocumentAssetReadiness", () => {

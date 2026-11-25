@@ -56,6 +56,7 @@ interface NLEPreviewProps extends Pick<
   portrait?: boolean;
   directUrl?: string;
   suppressLoadingOverlay?: boolean;
+  canEditWhileLoading?: boolean;
   loadingUi?: "studio" | "host";
   onStageRef?: (ref: React.RefObject<HTMLDivElement | null>) => void;
   onLivePainted?: () => void;
@@ -96,6 +97,7 @@ export const NLEPreview = memo(function NLEPreview({
   portrait,
   directUrl,
   suppressLoadingOverlay,
+  canEditWhileLoading,
   loadingUi,
   onStageRef,
   onLivePainted,
@@ -486,6 +488,7 @@ export const NLEPreview = memo(function NLEPreview({
         key={`${activeKey}-${slot.gen}`}
         ref={setPreviewIframeRef}
         showInitialLoading
+        canEditWhileLoading={canEditWhileLoading}
         trackAssets
         projectId={directUrl ? undefined : projectId}
         directUrl={directUrl}

@@ -239,7 +239,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
     }).forEach(function(el,idx){
       var orig=assetSource(el), ok=!el.error && el.readyState>=3;
       var it={id:'audio-'+idx,label:assetLabel(orig,'audio-'+(idx+1)),kind:'audio',settled:ok,failedReason:null,retry:null};
-      if(!ok) it.pendingAsset=pendingAssetName(el.currentSrc || orig);
+      if(!ok) it.pendingAsset=pendingAssetName(el.currentSrc || orig) || pendingAssetName(el.getAttribute('src') || '');
       items.push(it);
       if(!ok) watchMedia(el,it,orig,3);
     });
@@ -248,7 +248,7 @@ export const PREVIEW_ASSET_READINESS = String.raw`
     }).forEach(function(el,idx){
       var orig=assetSource(el), ok=!el.error && el.readyState>=2;
       var it={id:'video-'+idx,label:assetLabel(orig,'video-'+(idx+1)),kind:'video',settled:ok,failedReason:null,retry:null};
-      if(!ok) it.pendingAsset=pendingAssetName(el.currentSrc || orig);
+      if(!ok) it.pendingAsset=pendingAssetName(el.currentSrc || orig) || pendingAssetName(el.getAttribute('src') || '');
       items.push(it);
       if(!ok) videoQueue.push(function(){ watchMedia(el,it,orig,2,function(){ activeVideos=Math.max(0,activeVideos-1); pumpVideos(); }); });
     });

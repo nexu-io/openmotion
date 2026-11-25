@@ -56,6 +56,7 @@ export interface PlayerProps {
   parked?: boolean;
   /** Show the live preview’s loading indicator until its first displayable frame. */
   showInitialLoading?: boolean;
+  canEditWhileLoading?: boolean;
   /** Track all referenced composition assets for the unified editor readiness gate (live slot only). */
   trackAssets?: boolean;
   /** Keeps a hidden shadow preview out of focus order and the accessibility tree while still rasterizing. */
@@ -198,6 +199,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
       suppressLoadingOverlay,
       noLoadTimeout,
       showInitialLoading,
+      canEditWhileLoading,
       trackAssets,
       inert,
       ...host
@@ -684,7 +686,10 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         inert={inert || undefined}
       >
         <div ref={containerRef} className="w-full h-full" />
-        {showCompositionOverlay && <PreviewCompositionLoading assetGeneration={tracksAssets ? assetReadinessGenRef : undefined} />}
+        {showCompositionOverlay && <PreviewCompositionLoading
+          canEditWhileLoading={canEditWhileLoading}
+          assetGeneration={tracksAssets ? assetReadinessGenRef : undefined}
+        />}
         {showAssetOverlay && (
           <div
             className="absolute inset-0 bg-black flex items-center justify-center z-20 select-none"

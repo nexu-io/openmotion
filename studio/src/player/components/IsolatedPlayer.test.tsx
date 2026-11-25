@@ -194,6 +194,7 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
         onLoad={vi.fn()}
         showInitialLoading
         trackAssets
+        canEditWhileLoading
       />,
     ),
   );
@@ -224,7 +225,8 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
     expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
     expect(usePlayerStore.getState().assetReadinessCompleted).toBe(3);
     expect(usePlayerStore.getState().assetReadinessTotal).toBe(10);
-    expect(host.querySelector('[data-testid="composition-loading-overlay"]')?.textContent).toContain("intro.mp4");
+    expect(host.querySelector('[data-testid="composition-loading-overlay"]')?.textContent)
+      .toContain("intro.mp4Downloading this file for playback. You can keep editing.");
 
     act(() => {
       window.dispatchEvent(

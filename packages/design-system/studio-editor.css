@@ -31,40 +31,6 @@
 .motion-placement-label strong { font-family: var(--motion-font-mono); font-weight: var(--motion-weight-medium); font-variant-numeric: tabular-nums; }
 .motion-placement-label[data-snapped] { border-color: var(--motion-accent); }
 
-/* Non-blocking editor asset progress hairline (bundled into hashed studio CSS). */
-.motion-editor-asset-bar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  z-index: 60;
-  pointer-events: none;
-  overflow: hidden;
-  background: var(--motion-accent-soft);
-  opacity: 0;
-  transition: opacity var(--motion-duration-normal) var(--motion-ease-out);
-}
-.motion-editor-asset-bar[data-visible="true"] {
-  opacity: 1;
-}
-.motion-editor-asset-bar-fill {
-  height: 100%;
-  width: 100%;
-  background: var(--motion-accent);
-  transform-origin: left center;
-  transition: transform var(--motion-duration-normal) var(--motion-ease-out);
-}
-.motion-editor-asset-bar-fill[data-indeterminate="true"] {
-  width: 42%;
-  background: linear-gradient(90deg, transparent 0%, var(--motion-accent) 50%, transparent 100%);
-  animation: motion-asset-bar-sweep var(--motion-duration-loading) var(--motion-ease-standard) infinite;
-}
-@keyframes motion-asset-bar-sweep {
-  0% { transform: translateX(-110%); }
-  100% { transform: translateX(340%); }
-}
-
 /* Frameless preview-stage breathing brand mark (also bundled so deploy cache never drops it). */
 .motion-preview-loading {
   position: absolute;
@@ -126,15 +92,6 @@
   opacity: 0.65;
 }
 @media (prefers-reduced-motion: reduce) {
-  .motion-editor-asset-bar,
-  .motion-editor-asset-bar-fill {
-    transition: none;
-  }
-  .motion-editor-asset-bar-fill[data-indeterminate="true"] {
-    width: 100%;
-    opacity: 0.55;
-    animation: none;
-  }
   .motion-preview-loading {
     opacity: 1;
     animation: none;

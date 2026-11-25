@@ -6,6 +6,8 @@ import { usePlayerStore } from "../store/playerStore";
 import { PreviewCompositionLoading } from "./PreviewCompositionLoading";
 
 const filename = "夜の街 — opening shot.mp4";
+const genericHint = "The preview will appear when it is ready.";
+const downloadHint = "Downloading this file for playback.";
 
 afterEach(() => {
   cleanupMounted();
@@ -32,7 +34,7 @@ it("updates the same live status when the player starts a generation after mount
   expect(label.nextElementSibling?.closest(".sr-only")).toBeNull();
 
   act(() => usePlayerStore.getState().skipAssetReadiness());
-  expect(status.textContent).toBe("Loading preview…");
+  expect(status.textContent).toBe(`Loading preview…${genericHint}`);
 });
 
 it.each([
@@ -42,14 +44,36 @@ it.each([
   { current: 1, phase: "loading", name: "   " },
 ] as const)("uses the generic status for $current, $phase, '$name'", ({ current, phase, name }) => {
   usePlayerStore.setState({ assetReadinessGeneration: 1, assetReadinessPhase: phase, assetReadinessPendingAsset: name });
-  const host = mountHost(<PreviewCompositionLoading assetGeneration={current === undefined ? undefined : { current }} />);
-  expect(host.textContent).toBe("Loading preview…");
+  const host = mountHost(<PreviewCompositionLoading canEditWhileLoading assetGeneration={current === undefined ? undefined : { current }} />);
+  expect(host.textContent).toBe(`Loading preview…${genericHint}`);
 });
 
-it("keeps both status lines screen-reader-only during a quiet switch", () => {
+it("keeps the status and download hint screen-reader-only during a quiet switch", () => {
   usePlayerStore.setState({ assetReadinessGeneration: 1, assetReadinessPendingAsset: filename });
   const host = mountHost(<PreviewCompositionLoading showMark={false} assetGeneration={{ current: 1 }} />);
   const status = host.querySelector('[role="status"]')!;
   expect(status.querySelector(".motion-preview-loading-mark")).toBeNull();
-  expect(status.querySelector(".sr-only")?.textContent).toBe(`Preparing preview assets${filename}`);
+  expect(status.querySelector(".sr-only")?.textContent).toBe(`Preparing preview assets${filename}${downloadHint}`);
+});
+
+it.each([true, false])("uses Studio theme tokens for the entire cover with showMark=%s", showMark => {
+  const host = mountHost(<PreviewCompositionLoading showMark={showMark} />);
+  const status = host.querySelector('[role="status"]')!;
+  expect(status.classList.contains("inset-0")).toBe(true);
+  expect(status.classList.contains("bg-[var(--motion-panel)]")).toBe(true);
+  expect(status.classList.contains("text-[color:var(--motion-strong)]")).toBe(true);
+  const file = status.querySelector('[dir="auto"]')!;
+  expect(file.classList.contains("text-[color:var(--motion-text)]")).toBe(true);
+  expect(file.nextElementSibling?.classList.contains("text-[color:var(--motion-muted)]")).toBe(true);
+});
+
+it.each([true, false, undefined])("describes the download when edit eligibility is %s", canEditWhileLoading => {
+  const longName = "很长的文件名".repeat(50) + ".mp4";
+  usePlayerStore.setState({ assetReadinessGeneration: 1, assetReadinessPendingAsset: longName });
+  const host = mountHost(<PreviewCompositionLoading canEditWhileLoading={canEditWhileLoading} assetGeneration={{ current: 1 }} />);
+  const file = host.querySelector('[dir="auto"]')!;
+  expect(file.textContent).toBe(longName);
+  expect(file.getAttribute("title")).toBe(longName);
+  expect(file.classList.contains("truncate")).toBe(true);
+  expect(file.nextElementSibling?.textContent).toBe(canEditWhileLoading ? `${downloadHint} You can keep editing.` : downloadHint);
 });

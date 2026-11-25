@@ -384,7 +384,11 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           allow={passive ? "autoplay 'none'" : "autoplay; fullscreen"}
           className="absolute left-1/2 top-1/2 max-w-none border-0" />
         {awaitingFirstFrame && !error && !passive && props.loadingUi !== "host" && (
-          <PreviewCompositionLoading showMark={!props.suppressLoadingOverlay} assetGeneration={tracksAssets ? assetReadinessGenRef : undefined} />
+          <PreviewCompositionLoading
+            showMark={!props.suppressLoadingOverlay}
+            canEditWhileLoading={props.canEditWhileLoading}
+            assetGeneration={tracksAssets ? assetReadinessGenRef : undefined}
+          />
         )}
         {error && !passive && <div data-testid="composition-preview-error" className="absolute inset-0 flex flex-col items-center justify-center bg-studio-surface text-center">
           <p>{t(error)}</p>

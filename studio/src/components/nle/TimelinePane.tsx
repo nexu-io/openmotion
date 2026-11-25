@@ -9,7 +9,7 @@ import { useTimelineEditContext } from "../../contexts/TimelineEditContext";
 import { useNLEContext } from "./NLEContext";
 import { useTimelineDockSizing } from "./useTimelineDockSizing";
 import { MotionTimelineMedia } from "../../motion/MotionTimelineMedia";
-import { isCurrentIsolatedManifest } from "../../player/lib/isolatedTimelineManifest";
+import { useTimelineContentReady } from "./useTimelineContentReady";
 import { TimelineCompositionNavigation } from "./TimelineCompositionNavigation";
 
 export interface TimelinePaneProps {
@@ -78,33 +78,21 @@ export function TimelinePane({
   splitShortcut,
 }: TimelinePaneProps) {
   const { t } = useI18n();
+  const context = useNLEContext();
   const {
     projectId,
     seek,
-    iframeRef,
     handleDrillDown,
     compositionStack,
     handleNavigateComposition,
     updateCompositionStack,
-    timelineDisabled: compositionLoading,
     timelineSessionEpoch,
-  } = useNLEContext();
+  } = context;
 
   const isCurrentProject = usePlayerStore(state => state.timelineProjectId === projectId);
-  const timelineReady = usePlayerStore(state => state.timelineProjectId === projectId && state.timelineReady);
-  // A verified clip list can be edited while this scene's first visual frame is buffering.
-  // During navigation the outgoing frame may still own the store's manifest.
-  const previewUrl = compositionStack.at(-1)?.previewUrl;
-  const currentManifestReady = usePlayerStore(state => {
-    const frame = iframeRef?.current;
-    return compositionLoading && !!frame?.src && !!previewUrl &&
-      isCurrentIsolatedManifest(frame, state.clipManifest) &&
-      new URL(frame.src).pathname === new URL(previewUrl, window.location.href).pathname;
-  });
-  const activeSource = compositionStack.length > 1 ? compositionStack.at(-1)!.id : "index.html";
+  const { activeSource, ready } = useTimelineContentReady(context);
   const sizing = useTimelineDockSizing(activeSource);
-  const authoredReady = usePlayerStore(state => state.timelineProjectId === projectId && state.authoredTimelinePath === activeSource);
-  const timelineDisabled = !authoredReady && (!timelineReady || (compositionLoading && !currentManifestReady));
+  const timelineDisabled = !ready;
 
   // Move/resize/split come from the timeline edit context, not props.
   const { onMoveElement, onMoveElements, onResizeElement, onResizeElements, onSplitElement } =
