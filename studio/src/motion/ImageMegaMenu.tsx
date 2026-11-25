@@ -6,7 +6,7 @@ import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { capabilityScene, sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
 import { sceneExamples } from './sceneShowcase';
-import { editImageScene, imageMenuModels, imageModelBadge, imageScene, type ModelFamily } from './imageMenuModels';
+import { editImageScene, generationMenuModels, imageModelBadge, imageScene, type ModelFamily } from './imageMenuModels';
 import { ModelAvatar } from './settingsPrimitives';
 import type { useMediaCatalog } from './useMediaCatalog';
 import lunarStill from './scene-art/lunar-shot-still.webp';
@@ -87,7 +87,7 @@ export function ImageMegaMenu({ catalog, destination, onNavigate }: {
 }) {
   const { t } = useI18n();
   const capabilities = catalog?.capabilities ?? defaultCapabilities;
-  const rows = imageMenuModels(catalog?.models ?? [], catalog?.status.providers ?? []);
+  const rows = generationMenuModels(catalog?.models ?? [], catalog?.status.providers ?? [], imageScene);
   const pinned = catalog?.models.find(model => model.id === destination?.model);
   // Non-feature image scenes keep a compatible pinned model; feature scenes open without a pin so OpenDesign defaults apply.
   const openScene = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, pinned && supportsScene(pinned, scene) ? pinned.id : null));

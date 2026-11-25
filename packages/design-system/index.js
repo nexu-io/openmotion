@@ -28,6 +28,7 @@ export const publicDesignFiles = Object.freeze([
   'brand/loading-mark.svg', 'brand/loading-wordmark.svg', 'brand/favicon.svg', 'brand/favicon-32.png', 'brand/apple-touch-icon.png',
   'brand/community-feishu.svg',
   'fonts/AlbertSans-VariableFont_wght.ttf', 'fonts/IBMPlexMono-Regular.ttf',
+  'fonts/instrument-serif-latin-400-normal.woff2', 'fonts/instrument-serif-latin-400-italic.woff2', 'fonts/Instrument-Serif-OFL.txt',
   'fonts/Albert-Sans-OFL.txt', 'fonts/IBM-Plex-Mono-OFL.txt', 'fonts/NOTICES.txt',
   'remix-icon-LICENSE.txt', 'remix-icon-NOTICE.txt',
   ...providerIconFiles, 'providers/sources.json', 'providers/NOTICE.md',

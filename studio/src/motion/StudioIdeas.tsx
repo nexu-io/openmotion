@@ -92,7 +92,7 @@ function ExampleMedia({ example, enabled, videoGuide }: { example: SceneExample;
     ? { '--poster-aspect': String(example.posterAspect) } as CSSProperties
     : undefined;
   return <div ref={stage} className="om-scene-example-media" style={mediaStyle}>
-    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
+    {clip && !failed ? <video ref={video} controls playsInline muted={videoGuide} loop={autoplay} autoPlay={!videoGuide && archivedClip} preload="none" poster={example.poster} src={clip} aria-label={t(example.title)} onError={() => setFailed(true)} /> : !example.audio && <img src={example.poster} alt="" />}
     {enabled && !videoGuide && archivedClip && !clip && !failed && <Button variant="plain" type="button" className="om-button om-scene-preview-action"
       disabled={requestedClip === example.clip} onClick={() => setRequestedClip(example.clip)}>
       {requestedClip !== example.clip && <RemixIcon name="play-fill" size={14} />}
@@ -152,7 +152,7 @@ export function StudioIdeas({ destination, onPrompt, active = true, modelName }:
     <div className="om-scene-hero-stage">
       {scene.id === 'speech'
         ? <blockquote className="om-speech-script"><RemixIcon name="voiceprint-line" size={28} /><p>{t(idea.prompt)}</p></blockquote>
-        : <ExampleMedia key={idea.title} example={idea} enabled={active} videoGuide={destination.studio.id === 'cinema'} />}
+        : <ExampleMedia key={idea.title} example={idea} enabled={active} videoGuide={destination.studio.id === 'cinema' && scene.modality === 'video'} />}
     </div>
     {options.length > 1 && <div className="om-scene-hero-examples" role="group" aria-label={t('Try an idea')}>{options.map((item, index) =>
       <Button variant="plain" key={item.title} aria-label={t(item.title)} aria-pressed={index === selected} onClick={() => setSelected(index)}>

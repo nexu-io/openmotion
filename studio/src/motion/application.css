@@ -709,7 +709,15 @@
 .om-account-offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--motion-space-6); margin: 0; font-size: var(--motion-text-sm); }
 .om-account-offer svg, .om-account-offer strong { color: var(--motion-accent); }
 .om-account-offer-callout { position: relative; min-width: 0; padding: var(--motion-space-8) var(--motion-space-12); }
-.om-account-offer-callout::before {
+.om-account-offer-callout[data-size="compact"] {
+  flex: none;
+  flex-wrap: nowrap;
+  gap: var(--motion-space-4);
+  padding: var(--motion-space-2) var(--motion-space-6);
+  font-size: var(--motion-text-xs);
+  white-space: nowrap;
+}
+.om-account-offer-callout:not([data-size="compact"])::before {
   content: "";
   position: absolute;
   inset-block-start: 50%;

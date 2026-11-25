@@ -1,7 +1,7 @@
 import { Button } from 'open-design-ui/button';
 import * as tracking from './pageTracking';
 import { Tooltip } from "../components/ui/Tooltip";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ComponentProps, type Dispatch, type DragEvent, type SetStateAction } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type Dispatch, type DragEvent, type SetStateAction } from 'react';
 import { assetMediaUrl, type AssetReference, type LibraryAsset } from '../../../shared/asset-library';
 import { modelReferenceLimit, type GenerationJob } from '../../../shared/gateway';
 import { useI18n } from '../i18n/I18n';
@@ -30,7 +30,8 @@ import { Select } from '../components/ui/Select';
 import { attachableReferenceLimit, creationModels } from './creationModels';
 import { isOpenDesignProvider, modelFamilyLabel, providerDisplayName } from './imageMenuModels';
 import { registeredProvider } from '../../../shared/provider-registry';
-import { ProviderSetupNotice } from './ProviderSetupNotice';
+import { createOfferVisit } from './offerTracking';
+import { ProviderSetupNotice, GenerationSignInNotice, GenerationUpgradeNotice } from './ProviderSetupNotice';
 import { setPendingAttribution } from './entitlementAttribution';
 import { send } from './reporting';
 
@@ -48,6 +49,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const { t } = useI18n(), { openModelSettings, openProviderSettings, openAccountSettings, openSubscriptionSettings } = useWorkspaceChrome();
   const scene = studio?.destination.scene;
   const imageWorkspace = studio?.destination.studio.id === 'design' && scene?.modality === 'image';
+  const offerWorkspace = imageWorkspace || studio?.destination.studio.id === 'cinema';
+  const offerStudio = active && offerWorkspace ? studio?.destination.studio.id : undefined;
+  const sceneId = scene?.id;
+  const offerVisit = useMemo(() => offerStudio && sceneId ? createOfferVisit({ studio: offerStudio, scene: sceneId }) : undefined, [offerStudio, sceneId]);
   const videoLanding = Boolean(studio?.destination.landing && scene?.modality === 'video');
   const mediaWorkspace = imageWorkspace || videoLanding;
   const formAppearance = mediaWorkspace ? 'boxed' : 'standard';
@@ -83,9 +88,9 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
   const selectedTask = history.tasks.find(task => task.key === history.selectedKey);
   const switching = busy || agentSending || selectingTask;
   const resolvedModels = creationModels(
-    gateway, draft.modality, modelId, scene, featureMode, draft.references.length, draft.preferredModel,
+    gateway, draft.modality, modelId, studio?.destination, draft.references.length, draft.preferredModel,
   );
-  const { available, selected, choices, compatible, preferred } = resolvedModels;
+  const { available, selected, choices, compatible, preferred, accountPrompt } = resolvedModels;
   const preferredProvider = preferred && gateway?.status.providers.find(provider => provider.id === preferred.provider);
   const unconfiguredPreferred = Boolean(studio && gateway && preferred && !selected && preferredProvider && !preferredProvider.available);
   const providerLabel = preferredProvider?.label ?? (preferred && registeredProvider(preferred.provider)?.label) ?? preferred?.provider ?? '';
@@ -297,10 +302,10 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     <label className="om-eyebrow" htmlFor={promptId}><RemixIcon name="pen-nib-line" size={14} />{t(speechPrompt ? 'Speech text' : 'Your idea')}</label>
     <textarea {...promptInput} />
     {!scene && (maximumReferences > 0 || draft.references.length > 0) && references}
-    <div className="om-creation-prompt-footer">
+    {!mediaWorkspace && <div className="om-creation-prompt-footer">
       <span className="om-eyebrow">{t(draft.references.length ? 'References stay linked to their versions' : 'Start with a few words. Make it your own.')}</span>
       <span className="om-eyebrow">{draft.prompt.length.toLocaleString()} / 20k</span>
-    </div>
+    </div>}
   </div>;
 
   const trackingPage = studio ? 'creative_studio' as const : 'assets' as const;
@@ -348,14 +353,17 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
     setDraft(current => ({ ...current, model, parameters: undefined }));
     if (studio) studio.chooseModel(model);
   };
-  const modelPicker = gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
-    ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={formAppearance}
-      providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={formPopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
-    : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
-    {modelHeading}
-    {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : openDesignMissing ? openDesignSetup : manageProvidersNotice}
-  </>;
-  const setup = <>
+  const rememberAccountModel = () => {
+    if (preferred && modelId !== preferred.id) setDraft(current => ({ ...current, model: preferred.id }));
+  };
+  let providerNotice;
+  let setup;
+  const accountGuide = preferred?.provider === 'account' ? accountPrompt : undefined;
+  if (studio && accountGuide === 'sign-in') {
+    providerNotice = <GenerationSignInNotice visit={offerVisit} destination={studio.destination} onSignIn={rememberAccountModel} />;
+  } else if (studio && accountGuide === 'upgrade') {
+    setup = <GenerationUpgradeNotice visit={offerVisit} destination={studio.destination} onError={onError} onUpgrade={rememberAccountModel} />;
+  } else setup = <>
       {unconfiguredPreferred && (imageWorkspace
         ? <ProviderSetupNotice message={t('{provider} needs setup before generating.', { provider: providerLabel })}>
           <Button variant="ghost" className="om-button h-auto" onClick={() => configureProvider(preferred!.provider)}>
@@ -380,6 +388,13 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       </div>}
       {gateway && modelId && !selected && !unconfiguredPreferred && !openDesignMissing && <p className="om-muted" role="status">{scene && <strong>{gateway.models.find(model => model.id === modelId)?.label ?? modelId} · </strong>}{t('This task’s model is unavailable. Choose a model to continue.')}</p>}
   </>;
+  const modelPicker = gateway && !failed && (studio ? compatible.length > 0 : choices.length > 0) ? (studio
+    ? <CreationModelPicker models={compatible} providers={gateway.status.providers} selected={preferred} appearance={formAppearance}
+      accountPrompt={accountPrompt} providerNotice={providerNotice} providerHeading={providerHeading} modelHeading={studioModelHeading} disabled={busy} onChoose={chooseModel} popupClassName={formPopupClass} onManageProviders={openModelSettings} onConfigureProvider={configureProvider} />
+    : <GenerationModelPickers models={choices} preferred={preferred} modelHeading={modelHeading} disabled={busy} onChoose={chooseModel} />) : <>
+    {modelHeading}
+    {failed ? <Button variant="ghost" className="om-button h-auto" onClick={retry}><RemixIcon name="refresh-line" size={16} />{t('Retry loading models')}</Button> : !gateway ? <Skeleton className="om-asset-model-skeleton" /> : openDesignMissing ? openDesignSetup : manageProvidersNotice}
+  </>;
   const modelNotice = unknownReferences || cloudModelMissing ? <p className="om-muted" role="status">{unknownReferences && t('Image editing capability is unknown. Sync models to check reference support.')} <Button variant="ghost" className="om-button h-auto" disabled={syncing} onClick={() => void syncModels()}>{t(syncing ? 'Working…' : 'Sync models')}</Button></p> : selected && draft.references.length > 0 && <p className="om-muted">{t(maximumReferences ? draft.modality === 'video' ? 'This video model uses one image as its first frame.' : 'This model edits up to {count} image references.' : 'This model cannot use asset references. Choose an image model that supports editing, or remove the references.', { count: maximumReferences })}</p>;
   const generationSettings = parameterModel && <GenerationParameters key={parameterKey} model={parameterModel} draft={parameters}
     defaultValues={activeDefaultValues} appearance={formAppearance} popupClassName={formPopupClass}
@@ -388,7 +403,7 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       try { setDraft({ ...draft, model: parameterModel.id, parameters: requestParameters(value, parameterModel, draft.references.length > 0, activeDefaultValues) }); }
       catch { /* Keep invalid JSON or conflicting parameters in the local editor until corrected. */ }
     }} />;
-  const generate = !mediaWorkspace && setupProvider ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>
+  const generate = !mediaWorkspace && setupProvider && !accountGuide ? <Button variant="plain" className="om-button om-creation-submit-button" data-primary onClick={() => configureProvider(setupProvider)}>
     <RemixIcon name="plug-line" size={19} />{t('Set up to generate')}<RemixIcon name="arrow-right-line" size={18} />
   </Button> : <Button variant="plain" className="om-button om-creation-submit-button" data-primary
     disabled={busy || uploadingReferences || !selected || !promptReady || invalidReferences || capabilityBlocked} onClick={() => void submit()}>
@@ -507,7 +522,13 @@ export function AssetComposer({ active, studio, draft, setDraft, agentReferences
       <div className="om-media-submit">{generate}</div>
     </>}
     </div>
-    {!mediaWorkspace && <div className="om-creation-submit">{generate}<p className="om-creation-save-note"><RemixIcon name="stack-line" size={13} />{t('Saved automatically to your library')}</p><p className="om-eyebrow om-creation-billing">{t('Model usage is billed to your configured account.')}</p></div>}
+    {!mediaWorkspace && <div className="om-creation-submit" data-video={scene?.modality === 'video' || undefined}>
+      {generate}
+      {!offerWorkspace && <>
+        <p className="om-creation-save-note"><RemixIcon name="stack-line" size={13} />{t('Saved automatically to your library')}</p>
+        <p className="om-eyebrow om-creation-billing">{t('Model usage is billed to your configured account.')}</p>
+      </>}
+    </div>}
     </>}
   </aside>;
 }

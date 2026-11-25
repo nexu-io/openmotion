@@ -108,11 +108,13 @@
 .om-creation-chat-input > textarea { min-height: 56px; max-height: 140px; }
 .om-creation-ideas { display: flex; flex-wrap: wrap; gap: var(--motion-space-8); margin-top: calc(var(--motion-space-8) * -1); }
 .om-creation-options > label { margin-top: var(--motion-space-12); }
+.om-creation-submit[data-video] { border-top: 0; }
 .om-creation-submit { flex: none; display: grid; gap: var(--motion-space-8); padding-top: var(--motion-space-12); padding-bottom: var(--motion-space-4); border-top: 1px solid var(--motion-border-subtle); }
 .om-asset-composer[data-form-surface="subtle"] .om-media-parameters { gap: var(--motion-space-16); padding-block: 0; border-block-start: 0; }
 .om-asset-composer[data-form-surface="subtle"] :is(.om-asset-direct-scroll, .om-asset-direct, .om-creation-submit, .om-generation-pickers, .om-relight-controls) {
   gap: var(--motion-space-16);
 }
+.om-asset-composer .om-generation-pickers[data-account-guide],
 .om-asset-composer[data-form-surface="subtle"] .om-generation-pickers[data-paired] {
   grid-template-columns: minmax(0, 1fr);
 }

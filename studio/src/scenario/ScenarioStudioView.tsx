@@ -104,6 +104,7 @@ const AGENT_POLL_MS = 4000;
 const AGENT_READ_ATTEMPTS = 3;
 const AGENT_RETRY_MS = 10_000;
 const AGENT_TASK_KEY = 'om-studio-agent-task:';
+const AGENT_TASK_STATES: readonly AgentTask['state'][] = ['idle', 'running', 'waiting', 'failed', 'cancelled'];
 const agentTaskMessages: Record<AgentTask['state'], string> = {
   running: 'Super Agent is making the kit in the background. Each output appears here as soon as it is ready.',
   waiting: 'Super Agent is waiting for you to approve a step.',
@@ -111,11 +112,18 @@ const agentTaskMessages: Record<AgentTask['state'], string> = {
   failed: 'Super Agent stopped before the kit was finished.',
   cancelled: 'Super Agent stopped before the kit was finished.',
 };
-function readAgentTask(runId: string | undefined | null): AgentTask | null {
+export function readAgentTask(runId: string | undefined | null): AgentTask | null {
   if (!runId) return null;
   try {
-    const value = JSON.parse(window.localStorage.getItem(AGENT_TASK_KEY + runId) ?? 'null');
-    return value && typeof value.chatId === 'string' && typeof value.state === 'string' ? { ...value, runId } as AgentTask : null;
+    const raw = window.localStorage.getItem(AGENT_TASK_KEY + runId);
+    if (raw === null) return null;
+    const value = JSON.parse(raw);
+    if (value && typeof value.chatId === 'string' && AGENT_TASK_STATES.includes(value.state)) {
+      return { chatId: value.chatId, runId, state: value.state };
+    }
+    // An unknown or partial entry is dropped so it cannot break this page.
+    window.localStorage.removeItem(AGENT_TASK_KEY + runId);
+    return null;
   } catch {
     return null;
   }

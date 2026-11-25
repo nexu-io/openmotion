@@ -6,7 +6,7 @@ import { embeddedView, modelFields, newTrackingId, optionId, send, slugField, ty
 
 type Click = Fields<'ui_click'>;
 export type CreativePage = NonNullable<Click['page_name']>;
-type CreativeArea = Extract<Click['area'], 'creative_nav' | 'explore_tabs' | 'explore_spotlight' | 'explore_featured' | 'explore_feed' | 'explore_collection' | 'capability_index' | 'studio_bar' | 'model_overview'>;
+type CreativeArea = Extract<Click['area'], 'asset_create' | 'creative_nav' | 'explore_tabs' | 'explore_spotlight' | 'explore_featured' | 'explore_feed' | 'explore_collection' | 'capability_index' | 'studio_bar' | 'model_overview'>;
 type Medium = NonNullable<Click['medium']>;
 
 /** What a click or view is about, as catalogue ids. Values that are not bounded slugs are left out. */

@@ -3,7 +3,7 @@ import type { Model, ProviderState } from '../../../shared/gateway';
 import { providerRegistry, registeredProvider } from '../../../shared/provider-registry';
 import { openDesignImageReferenceCap, openDesignModelLabel, openDesignModels } from '../../../shared/opendesign-models';
 import { videoModelBadge } from '../../../shared/video-features';
-import { supportsScene, studioScenes } from './creativeStudios';
+import { supportsScene, studioScenes, type StudioScene } from './creativeStudios';
 
 export const imageScene = studioScenes.find(scene => scene.id === 'text-to-image')!;
 export const editImageScene = studioScenes.find(scene => scene.id === 'image-edit')!;
@@ -60,6 +60,14 @@ export function providerRank(providerId: string) {
 }
 export const providerReady = (providers: ProviderState[], providerId: string) => providers.some(provider => provider.id === providerId && provider.available);
 
+export function generationAccountPrompt(providers: ProviderState[]): 'sign-in' | 'upgrade' | undefined {
+  const account = providers.find(provider => provider.id === 'account');
+  if (!account) return;
+  if (account.available) return account.mediaEntitlement === 'not-included' ? 'upgrade' : undefined;
+  const cloud = providers.find(provider => provider.id === 'opendesign');
+  if (cloud && !cloud.configured && !cloud.available) return 'sign-in';
+}
+
 /** The same model served by several providers is one choice; providers are picked after the model. */
 export type ModelFamily = { key: string; label: string; variants: Model[]; representative: Model; ready: boolean };
 export const modelFamilyLabel = (model: Model) => (isOpenDesignProvider(model.provider) && openDesignModelLabel(model.modelId))
@@ -89,9 +97,9 @@ export function modelFamilies(models: Model[], providers: ProviderState[]): Mode
 }
 
 /** Before the OpenDesign key or sign-in is set up its models still open and ask for setup; afterwards the live catalogue decides. */
-export function withOpenDesignModels(models: Model[], providers: ProviderState[]): Model[] {
+export function withOpenDesignModels(models: Model[], providers: ProviderState[], previewLockedAccount = false): Model[] {
   const known = new Set(models.map(model => model.id));
-  const missing = (['opendesign', 'account'] as const).filter(provider => !providerReady(providers, provider)).flatMap(provider =>
+  const missing = (['opendesign', 'account'] as const).filter(provider => !providerReady(providers, provider) || (previewLockedAccount && provider === 'account')).flatMap(provider =>
     openDesignModels.filter(model => !known.has(provider + ':' + model.modelId)).map((model): Model => {
       const placeholder: Model = { id: provider + ':' + model.modelId, provider, modelId: model.modelId, label: model.label, modality: model.modality, mode: model.mode, source: 'builtin' };
       // Image entries can edit and OpenDesign video entries accept a first frame, so reference-based scenes list them before setup too.
@@ -112,7 +120,16 @@ export function menuFamilies(models: Model[], providers: ProviderState[]) {
     .sort((a, b) => Math.min(...a.variants.map(menuRank)) - Math.min(...b.variants.map(menuRank)));
 }
 
-export function imageMenuModels(models: Model[], providers: ProviderState[]) {
-  const listed = withOpenDesignModels(models, providers);
-  return menuFamilies(listed.filter(model => supportsScene(model, imageScene)), providers);
+export function generationMenuModels(models: Model[], providers: ProviderState[], scene: StudioScene) {
+  const prompt = generationAccountPrompt(providers);
+  const listed = withOpenDesignModels(models, providers, prompt === 'upgrade');
+  const families = menuFamilies(listed.filter(model => supportsScene(model, scene)), providers);
+  if (!prompt) return families;
+  // A model shortcut has no explicit provider. Prefer a working route, then its account guide.
+  return families.map(family => {
+    const account = family.variants.find(model => model.provider === 'account');
+    if (!account) return family;
+    const ready = family.variants.find(model => model.provider !== 'account' && providerReady(providers, model.provider));
+    return { ...family, representative: ready ?? account, ready: Boolean(ready) };
+  });
 }

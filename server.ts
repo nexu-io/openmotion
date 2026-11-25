@@ -324,6 +324,14 @@ async function invokePhase1WithTracking(
   return result;
 }
 
+// Legacy callers can send an empty POST. The gateway validates both optional attribution fields.
+async function accountAttribution(req: IncomingMessage) {
+  if (!req.headers['content-type']?.startsWith('application/json')
+    || (!req.headers['transfer-encoding'] && !Number(req.headers['content-length']))) return {};
+  const body = await input(req, 4096);
+  return { hookId: body?.hookId, entryId: body?.entryId };
+}
+
 function revision(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new Error('需要 openmotion_get_project 返回的 expectedRevision');
 }
@@ -827,11 +835,14 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
     if (motionRequest && url.pathname.startsWith('/api/super-agent')) {
       const superAgent = superAgentConversations(store);
       if (url.pathname === '/api/super-agent/resources' && req.method === 'GET') {
+        const modality = url.searchParams.get('modality');
         return json(res, 200, await collectWorkspaceResources(store.workspaceStore ?? store, {
           kind: url.searchParams.get('kind') ?? undefined,
           query: url.searchParams.get('query') ?? undefined,
           limit: url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : undefined,
           locale: url.searchParams.get('locale') ?? undefined,
+          modality: modality === 'image' || modality === 'video' || modality === 'audio' ? modality : undefined,
+          offset: url.searchParams.has('offset') ? Number(url.searchParams.get('offset')) : undefined,
         }));
       }
       if (url.pathname === '/api/super-agent/uploads' && req.method === 'POST') {
@@ -1301,14 +1312,12 @@ export async function handler(req: IncomingMessage, res: ServerResponse, store =
       }
       if (url.pathname === '/api/settings/account' && req.method === 'GET') return json(res, 200, await gateway.account.summary(url.searchParams.get('refresh') === 'true'));
       if (url.pathname === '/api/settings/account/login' && req.method === 'POST') {
-        const body = await input(req).catch(() => ({}));
-        return json(res, 200, await gateway.account.login({ hookId: body.hookId, entryId: body.entryId }));
+        return json(res, 200, await gateway.account.login(await accountAttribution(req)));
       }
       if (url.pathname === '/api/settings/account/cancel' && req.method === 'POST') return json(res, 200, await gateway.account.cancel());
       if (url.pathname === '/api/settings/account/logout' && req.method === 'POST') return json(res, 200, await gateway.account.logout());
       if (url.pathname === '/api/settings/account/subscription' && req.method === 'POST') {
-        const body = await input(req).catch(() => ({}));
-        return json(res, 200, await gateway.account.openSubscription(undefined, { hookId: body.hookId, entryId: body.entryId }));
+        return json(res, 200, await gateway.account.openSubscription(undefined, await accountAttribution(req)));
       }
       return json(res, 404, { error: 'Settings endpoint not found' });
     }

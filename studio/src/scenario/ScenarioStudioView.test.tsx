@@ -1,7 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { scenarioDefinitions } from '../../../shared/scenarios';
 import type { ScenarioStepState } from '../../../shared/scenario-runs';
-import { deliverableState, studioInputFields } from './ScenarioStudioView';
+import { deliverableState, readAgentTask, studioInputFields } from './ScenarioStudioView';
 import { scenarioStudios, studioDeliverables, studioScenes, studiosForScene } from './scenarioStudios';
 
 const step = (patch: Partial<ScenarioStepState>): ScenarioStepState => ({
@@ -35,5 +36,18 @@ describe('scene studios', () => {
     expect(deliverableState(step({ iterations: [iteration('failed')], activeIterationId: 'i' }))).toBe('failed');
     expect(deliverableState(step({ iterations: [iteration('completed', [{ type: 'pool', poolItemId: 'p' }])] }))).toBe('ready');
     expect(deliverableState(step({ status: 'done' }))).toBe('ready');
+  });
+});
+
+describe('background Agent task memory', () => {
+  it('keeps a known state and drops an unknown or partial entry', () => {
+    window.localStorage.setItem('om-studio-agent-task:run-a', JSON.stringify({ chatId: 'chat-1', state: 'running' }));
+    expect(readAgentTask('run-a')).toEqual({ chatId: 'chat-1', runId: 'run-a', state: 'running' });
+    window.localStorage.setItem('om-studio-agent-task:run-b', JSON.stringify({ chatId: 'chat-2', state: 'paused' }));
+    expect(readAgentTask('run-b')).toBeNull();
+    expect(window.localStorage.getItem('om-studio-agent-task:run-b')).toBeNull();
+    window.localStorage.setItem('om-studio-agent-task:run-c', JSON.stringify({ state: 'idle' }));
+    expect(readAgentTask('run-c')).toBeNull();
+    expect(readAgentTask(null)).toBeNull();
   });
 });

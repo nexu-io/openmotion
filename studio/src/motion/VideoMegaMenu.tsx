@@ -4,7 +4,7 @@ import { openDesignVideoModels } from '../../../shared/video-features';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { capabilityScene, sceneDestination, studioScenes, supportsScene, type StudioDestination, type StudioScene } from './creativeStudios';
-import { imageModelBadge, isOpenDesignProvider, menuFamilies, withOpenDesignModels } from './imageMenuModels';
+import { generationMenuModels, imageModelBadge, isOpenDesignProvider } from './imageMenuModels';
 import { MegaMenuColumn } from './ImageMegaMenu';
 import { sceneExamples } from './sceneShowcase';
 import { ModelAvatar } from './settingsPrimitives';
@@ -55,10 +55,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
   const capabilities = catalog?.capabilities ?? defaultCapabilities;
   const models = catalog?.models ?? [];
   const providers = catalog?.status.providers ?? [];
-  const families = menuFamilies(
-    withOpenDesignModels(models, providers).filter(model => supportsScene(model, textVideoScene)),
-    providers,
-  );
+  const families = generationMenuModels(models, providers, textVideoScene);
   const pinned = models.find(model => model.id === destination?.model);
   // Non-feature scenes keep a compatible pinned model; feature scenes open without a pin so OpenDesign defaults apply.
   const openScene = (scene: StudioScene) => onNavigate(sceneDestination(scene, destination, pinned && supportsScene(pinned, scene) ? pinned.id : null));
@@ -74,7 +71,7 @@ export function VideoMegaMenu({ catalog, destination, onNavigate }: {
   const liveVideoCaps = videoFeatureCaps.filter(cap => cap.status === 'live');
   const upcomingVideoCaps = videoFeatureCaps.filter(cap => cap.status === 'coming_soon');
 
-  const anyOpenDesignReady = providers.some(provider => isOpenDesignProvider(provider.id) && provider.available);
+  const anyOpenDesignReady = providers.some(provider => isOpenDesignProvider(provider.id) && provider.available && provider.mediaEntitlement !== 'not-included');
   const presentModelIds = new Set(families.flatMap(family => family.variants.map(variant => variant.modelId)));
   const pendingOpenDesign = openDesignVideoModels.filter(entry => !presentModelIds.has(entry.modelId));
   const modelItems = [

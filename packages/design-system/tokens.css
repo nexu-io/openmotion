@@ -6,11 +6,15 @@
   --motion-font-display: "Albert Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   --motion-black-friday-artwork: #821833;
   --motion-black-friday-night: #0b0605;
+  --motion-black-friday-stage-black: #050303;
   --motion-black-friday-ember: #120703;
+  --motion-black-friday-crimson: #d90f00;
+  --motion-black-friday-vermilion: #ff1e00;
   --motion-black-friday-orange: #ff8d00;
   --motion-black-friday-flame: #ff781f;
   --motion-black-friday-peach: #ff8a2e;
   --motion-black-friday-amber: #ffb86b;
+  --motion-black-friday-headline-gradient: linear-gradient(98deg, #ff6200, #ff9900 85%, #ffa210);
   --motion-black-friday-glow: #ff7a1f;
   --motion-black-friday-focus: #F97316;
   --motion-black-friday-cream: #ffd9bd;
@@ -109,6 +113,7 @@
   --motion-on-signature-band: #121212;
   --motion-signature-band-muted: #4a5810;
   --motion-signature-band-hover: #bde61f;
+  --motion-font-campaign-display: "Instrument Serif", Georgia, serif;
   --motion-font-editorial: "Times New Roman", Times, serif;
   --motion-collection-title-gradient: linear-gradient(120deg, var(--motion-brand) 0%, var(--motion-strong) 40%);
   --motion-neutral-n0: #ffffff;

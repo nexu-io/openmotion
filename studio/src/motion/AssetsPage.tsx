@@ -402,7 +402,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const soundCapability = soundWorkbench && soundTabId !== 'sfx'
     ? findCapability(soundTabId, studio?.catalog.catalog?.capabilities)
     : undefined;
-  const studioModels = studioForm ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination.scene, isFeatureScene(studioForm.destination.scene), draft.references.length, draft.preferredModel) : undefined;
+  const studioModels = studioForm ? creationModels(studioForm.catalog.catalog, draft.modality, studioForm.destination.model ?? draft.model, studioForm.destination, draft.references.length, draft.preferredModel) : undefined;
   const studioAttachableReferences = soundWorkbench
     ? (soundCapability?.input.maxReferences ?? 0)
     : studioForm && studioModels
