@@ -126,7 +126,7 @@ it('switches once through the workspace dropdown and updates the active workspac
 
   const [other, active] = await workspaceOptions(trigger);
   expect(other.textContent).toContain('Studio B');
-  expect(other.textContent).toContain('studio-b · editor');
+  expect(other.textContent).toContain('studio-b · member');
   expect(active.getAttribute('aria-selected')).toBe('true');
   await act(async () => active.click());
   expect(hooks.request.mock.calls.some(([path]) => path === 'account/workspaces/switch')).toBe(false);
@@ -151,7 +151,7 @@ it('switches once through the workspace dropdown and updates the active workspac
   expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'motion:account-changed' }));
   expect(trigger.disabled).toBe(false);
   expect(trigger.textContent).toBe('Studio B');
-  expect(section.textContent).toContain('studio-b · editor');
+  expect(section.textContent).toContain('studio-b · member');
   expect(document.querySelector('.hf-toast-viewport [role="status"]')?.textContent).toBe('Workspace switched');
 });
 
