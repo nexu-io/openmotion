@@ -6,7 +6,7 @@ import { AssetsPage } from './AssetsPage';
 import type { AssetDraft } from './AssetComposer';
 import { assetRequest, uploadLibraryAsset } from './assetClient';
 import { AssetUploadError } from './assetUploadError';
-import type { LibraryAsset } from '../../../shared/asset-library';
+import { assetMediaUrl, type LibraryAsset } from '../../../shared/asset-library';
 import type { GameCard } from '../../../shared/game-contract';
 import { gameApi } from './game/gameCatalog';
 
@@ -784,6 +784,52 @@ it('transitions completed placeholders in place without duplicating assets and l
   expect(studio.remember.mock.lastCall?.[0].prompt).toBe('Neon alley rain scene');
   await act(async () => { container.querySelector<HTMLButtonElement>('[aria-label="Dismiss"]')!.click(); }); await flush();
   expect(container.querySelectorAll('.om-placeholder-stage')).toHaveLength(0);
+});
+
+it.each([
+  { current: 2, viewing: 1, prompt: 'Red square' },
+  { current: 1, viewing: 2, prompt: 'Blue square' },
+])('opens image details on V$viewing when V$current is current', async ({ current, viewing, prompt }) => {
+  const { sceneDestination, studioScenes } = await import('./creativeStudios');
+  const asset = fixture('squares');
+  const baseVersion = asset.versions[0];
+  asset.versions = [
+    { ...baseVersion, source: 'generated', prompt: 'Red square' },
+    { ...baseVersion, source: 'generated', id: 'squares-v2', prompt: 'Blue square' },
+  ];
+  asset.currentVersionId = asset.versions[current - 1].id;
+  records = new Map([[asset.id, asset]]);
+  const studio = {
+    destination: sceneDestination(studioScenes.find(scene => scene.id === 'text-to-image')!),
+    catalog: { catalog: undefined, failed: false, retry: vi.fn() },
+    remember: vi.fn(),
+    chooseModel: vi.fn(),
+    useAsFirstFrame: vi.fn(),
+  };
+  await act(async () => root.render(<AssetsPage active studio={studio} />));
+  await flush();
+  await click('Generations');
+  await click(asset.name);
+  await click(`V${viewing}`);
+
+  const versionId = asset.versions[viewing - 1].id;
+  const url = assetMediaUrl(asset.id, versionId);
+  const lightbox = container.querySelector('.om-gen-lightbox')!;
+  expect(lightbox.querySelector('img')?.getAttribute('src')).toBe(url);
+  expect(lightbox.textContent).toContain(prompt);
+  expect(lightbox.querySelector('a[download]')?.getAttribute('href')).toBe(url);
+
+  await click('Asset details');
+  const details = container.querySelector('.om-asset-workspace')!;
+  expect(details.querySelector('.om-asset-viewer-stage img')?.getAttribute('src')).toBe(url);
+  expect(details.querySelector('.om-asset-provenance p')?.textContent).toBe(prompt);
+  expect(details.querySelector('a[download]')?.getAttribute('href')).toBe(`${url}?download=1`);
+  expect(details.querySelector('.om-asset-version[aria-pressed="true"] strong')?.textContent).toBe(`V${viewing}`);
+  expect(details.querySelector('.om-asset-version .om-badge')?.parentElement?.textContent).toBe(`V${current}Current`);
+  await click('Use as first frame');
+  expect(studio.useAsFirstFrame).toHaveBeenCalledWith({ name: asset.name, reference: { assetId: asset.id, versionId } });
+  await click('Edit as new version');
+  expect(container.querySelector('[aria-label="Creation draft"]')?.getAttribute('data-prompt')).toBe(prompt);
 });
 
 it('renders justified equal-height Generations flows for both Image and Video with human model names and unclipped Cinema Lightbox', async () => {

@@ -644,8 +644,9 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
   const editSoundAsset = () => {
     if (!selected || !version || !studio) return;
     tracking.reportAssetsClick('asset_detail', 'edit_version', { modality: selected.modality });
+    const currentTab = studio.soundTab ?? (studio.destination.scene.id === 'speech' ? 'speech' : 'music');
     const classified = classifyAudioTrackTab(version.model, detailModels, version.source, version.audioKind);
-    const targetTab = classified === 'upload' ? (studio.soundTab === 'sfx' || studio.soundTab === 'speech' ? studio.soundTab : 'music') : classified;
+    const targetTab = classified === 'upload' ? (currentTab === 'sfx' || currentTab === 'speech' ? currentTab : 'music') : classified;
     const nextDraft: AssetDraft = {
       modality: 'audio',
       prompt: version.prompt ?? '',
@@ -655,6 +656,8 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     };
     closePreview();
     if (studio.selectSoundTab) {
+      // Same-tab navigation keeps the draft key, so it cannot reload the cached draft.
+      if (targetTab === currentTab) setDraft(nextDraft);
       studio.selectSoundTab(targetTab, nextDraft, version.model ?? null);
     } else if (studio.reuseInScene) {
       studio.reuseInScene(targetTab === 'speech' ? 'speech' : 'music', nextDraft, version.model ?? null);
@@ -726,7 +729,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
           placeholderJobs={placeholderJobs}
           emptyContent={studioEmpty}
           blankCanvas={blankCanvas}
-          onOpenDetail={asset => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset); }}
+          onOpenDetail={(asset, id) => { tracking.reportAssetsClick('assets_library', 'open_asset', { modality: asset.modality }); open(asset, id); }}
           onReusePrompt={applyPrompt}
           onUseReference={studio.destination.scene.modality === 'image' ? attachReference : undefined}
           onUseFirstFrame={studio.useAsFirstFrame}
