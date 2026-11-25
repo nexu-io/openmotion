@@ -6,6 +6,7 @@ import { PREVIEW_THUMBNAIL_CAPTURE } from '../../src/studio/engine/preview-thumb
 import { PREVIEW_BRIDGE_SCRIPT } from '../../src/studio/engine/preview-bridge.ts';
 import { buildSubCompositionHtmlInMemory } from '../../src/studio/engine/preview-bundler.ts';
 import { createStudioPreviewRoutes, SNAPDOM_VENDOR_PATH } from '../../src/studio/routes/preview.ts';
+import { computePreviewImpact } from '../../shared/preview-impact.ts';
 import { computeCompositionRevisions } from '../../src/studio/routes/projects.ts';
 
 describe('preview-thumbnail-capture embedded bridge script', () => {
@@ -358,6 +359,13 @@ describe('preview-thumbnail-capture embedded bridge script', () => {
     const filesMetaEdited = baseFiles.map((f) =>
       f.path === 'motion-project.json' ? { ...f, sha256: 'meta-2' } : f,
     );
+    // Timeline beat edits notify peer timelines without invalidating every composition preview.
+    const beatPath = 'beats/assets/music.wav.json';
+    assert.deepEqual(computePreviewImpact([beatPath]), { affectsPreview: false, affectedCompositions: [] });
+    assert.equal(computePreviewImpact([beatPath, 'assets/theme.json']).affectsPreview, true);
+    assert.equal(computePreviewImpact(['beats/palette.json']).affectsPreview, true);
+    const withBeatGrid = computeCompositionRevisions([...baseFiles, { path: beatPath, sha256: '9'.repeat(64) }], comps, baseIndexHtml, 'proj-rev-beat', readText);
+    assert.deepEqual(withBeatGrid, rev1);
     const revMeta = computeCompositionRevisions(filesMetaEdited, comps, baseIndexHtml, 'proj-rev-meta', readText);
     assert.equal(revMeta['index.html'], rev1['index.html']);
     assert.equal(revMeta['compositions/s1.html'], rev1['compositions/s1.html']);

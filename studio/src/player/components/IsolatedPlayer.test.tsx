@@ -33,7 +33,8 @@ function mountPlayer(showInitialLoading = true) {
   const root = createRoot(host);
   const ready = vi.fn();
   const error = vi.fn();
-  act(() => root.render(<IsolatedPlayer projectId="p" origin={origin} onLoad={ready} onPreviewError={error} showInitialLoading={showInitialLoading} />));
+  const render = (parked = false) => act(() => root.render(<IsolatedPlayer parked={parked} projectId="p" origin={origin} onLoad={ready} onPreviewError={error} showInitialLoading={showInitialLoading} />));
+  render();
   const frame = host.querySelector("iframe")!;
   Object.defineProperty(frame, "contentWindow", { value: window });
   const notify = (type: string, token = "grant-" + grant, firstFrame?: string) => act(() => {
@@ -41,10 +42,33 @@ function mountPlayer(showInitialLoading = true) {
       data: { source: PREVIEW_BRIDGE_SOURCE, version: PREVIEW_BRIDGE_VERSION, projectId: "p", token,
         type, firstFrame, duration: 5, retryAfterMs: 1000 } }));
   });
-  return { retry, ready, error, notify, host, unmount: () => act(() => root.unmount()) };
+  return { retry, ready, error, notify, host, render, unmount: () => act(() => root.unmount()) };
 }
 
 const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+it("reattaches the same painted document without renewing or letting parked events update Studio", () => {
+  const player = mountPlayer();
+  try {
+    player.notify("timeline-state", "grant-1", "ready");
+    advance(30);
+    const frame = player.host.querySelector("iframe")!;
+    expect(frame.dataset.clipPainted).toBe("true");
+    const binds = vi.mocked(bindPreviewLease).mock.calls.length;
+    const send = vi.spyOn(window, "postMessage").mockImplementation(() => {});
+    player.render(true);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ action: "pause" }), "https://preview.test");
+    player.notify("timeline-state", "grant-1", "loading");
+    player.notify("preview-build-busy");
+    advance(5000);
+    expect(player.ready).toHaveBeenCalledTimes(1);
+    player.render(false);
+    expect(player.host.querySelector("iframe")).toBe(frame);
+    expect(bindPreviewLease).toHaveBeenCalledTimes(binds);
+    expect(player.ready).toHaveBeenCalledTimes(2);
+    expect(player.host.querySelector('[data-testid="composition-loading-overlay"]')).toBeNull();
+  } finally { player.unmount(); }
+});
 
 it("retries only authenticated busy documents and stops retrying when ready", () => {
   const player = mountPlayer();
@@ -263,6 +287,143 @@ it("keeps an inert shadow preview out of focus order and clears inert on promoti
     expect(frameAfter).toBe(frameBefore);
     expect(container.hasAttribute("inert")).toBe(false);
     expect(frameAfter.getAttribute("tabindex")).toBeNull();
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it("soft-unlocks the editor after 3s when trackAssets is enabled and firstFrame stays loading, and syncs live media buffering", () => {
+  const origin = "https://preview.test";
+  let grant = 0;
+  vi.mocked(bindPreviewLease).mockImplementation((source, _, navigate) => {
+    navigate(new URL(source.pathname + "?pt=grant-" + ++grant, origin));
+    return { retry: vi.fn(async () => {}), dispose: vi.fn() };
+  });
+  const host = document.createElement("main");
+  const root = createRoot(host);
+  const onCompositionLoadingChange = vi.fn();
+  const onPreviewError = vi.fn();
+  usePlayerStore.getState().reset();
+  act(() =>
+    root.render(
+      <IsolatedPlayer
+        projectId="p"
+        origin={origin}
+        onLoad={vi.fn()}
+        onCompositionLoadingChange={onCompositionLoadingChange}
+        onPreviewError={onPreviewError}
+        showInitialLoading
+        trackAssets
+      />,
+    ),
+  );
+  const frame = host.querySelector("iframe")!;
+  Object.defineProperty(frame, "contentWindow", { value: window });
+  try {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: frame.contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            projectId: "p",
+            token: "grant-" + grant,
+            type: "timeline-state",
+            duration: 10,
+            firstFrame: "loading",
+            buffering: true,
+          },
+        }),
+      );
+    });
+    expect(usePlayerStore.getState().mediaBuffering).toBe(true);
+    expect(host.querySelector('[data-testid="composition-loading-overlay"]')).not.toBeNull();
+
+    // Soft-unlock after 3s clears compositionLoading & first-frame cover without fatal error.
+    advance(3_050);
+    expect(onCompositionLoadingChange).toHaveBeenLastCalledWith(false);
+    expect(host.querySelector('[data-testid="composition-loading-overlay"]')).toBeNull();
+    expect(usePlayerStore.getState().previewBooted).toBe(true);
+    expect(onPreviewError).not.toHaveBeenCalled();
+
+    // Buffering clears as soon as bridge reports buffering: false.
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: frame.contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            projectId: "p",
+            token: "grant-" + grant,
+            type: "timeline-state",
+            duration: 10,
+            firstFrame: "ready",
+            buffering: false,
+          },
+        }),
+      );
+    });
+    expect(usePlayerStore.getState().mediaBuffering).toBe(false);
+  } finally {
+    act(() => root.unmount());
+  }
+});
+
+it("immediately unlocks compositionLoading and previewBooted when skipAssetReadiness is triggered", () => {
+  const origin = "https://preview.test";
+  let grant = 0;
+  vi.mocked(bindPreviewLease).mockImplementation((source, _, navigate) => {
+    navigate(new URL(source.pathname + "?pt=grant-" + ++grant, origin));
+    return { retry: vi.fn(async () => {}), dispose: vi.fn() };
+  });
+  const host = document.createElement("main");
+  const root = createRoot(host);
+  const onCompositionLoadingChange = vi.fn();
+  usePlayerStore.getState().reset();
+  act(() =>
+    root.render(
+      <IsolatedPlayer
+        projectId="p"
+        origin={origin}
+        onLoad={vi.fn()}
+        onCompositionLoadingChange={onCompositionLoadingChange}
+        showInitialLoading
+        trackAssets
+      />,
+    ),
+  );
+  const frame = host.querySelector("iframe")!;
+  Object.defineProperty(frame, "contentWindow", { value: window });
+  try {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          origin,
+          source: frame.contentWindow,
+          data: {
+            source: PREVIEW_BRIDGE_SOURCE,
+            version: PREVIEW_BRIDGE_VERSION,
+            projectId: "p",
+            token: "grant-" + grant,
+            type: "timeline-state",
+            duration: 10,
+            firstFrame: "loading",
+          },
+        }),
+      );
+    });
+    expect(host.querySelector('[data-testid="composition-loading-overlay"]')).not.toBeNull();
+    expect(usePlayerStore.getState().previewBooted).toBe(false);
+
+    // User clicks "Enter editor now" before the 3s timer -> immediately unlocks canvas & timeline.
+    act(() => usePlayerStore.getState().skipAssetReadiness());
+    expect(onCompositionLoadingChange).toHaveBeenLastCalledWith(false);
+    expect(host.querySelector('[data-testid="composition-loading-overlay"]')).toBeNull();
+    expect(usePlayerStore.getState().previewBooted).toBe(true);
   } finally {
     act(() => root.unmount());
   }

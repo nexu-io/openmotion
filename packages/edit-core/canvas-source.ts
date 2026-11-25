@@ -156,7 +156,7 @@ export function unwrapGroupWithGsapCleanup(
   source: string,
   groupTarget: SourceMutationTarget,
   childTracks?: UnwrapChildTrack[],
-): { html: string; unwrapped: boolean; changed: boolean } {
+): { html: string; unwrapped: boolean; changed: boolean; memberIds?: string[] } {
   checkCanvasTargets(source, [groupTarget], { subtree: true });
   const result = unwrapElementsFromHtml(source, groupTarget, childTracks);
   if (!result.unwrapped) {
@@ -174,5 +174,5 @@ export function unwrapGroupWithGsapCleanup(
   if (result.unwrappedGroupId) {
     cleaned = stripGsapAnimationsForSelector(cleaned, `#${result.unwrappedGroupId}`);
   }
-  return { html: cleaned, unwrapped: true, changed: cleaned !== source };
+  return { html: cleaned, unwrapped: true, changed: cleaned !== source, memberIds: result.members?.map(member => member.id) };
 }

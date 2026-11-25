@@ -10,11 +10,11 @@ const etag = (n: number) => '"sha256:' + sha(n) + '"';
 const root = { compositionId: 'root', tag: 'main', attributes: [['data-duration', '15', '14']] };
 const clip = { id: 'clip', tag: 'audio', attributes: [['data-start', '2', '3'], ['data-media-start', null, '1']] };
 
-function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits) {
+function preview(canRebindTiming = true, liveEdits?: PreviewLiveEdits, smallMountedSources?: string[]) {
   const document = parseHTMLContent('<html><body><main data-composition-id="root" data-hf-authored-duration="15"><audio id="clip" data-start="2"></audio><div id="title" style="left:10px">Hello</div></main></body></html>');
   const script = document.createElement('script');
   script.setAttribute('data-openmotion-preview', JSON.stringify({
-    projectId: 'p', compositionPath: 'index.html', sourceVersions: { 'index.html': sha(1), 'scenes/intro.html': sha(3) }, studioOrigin: 'https://studio.test', canRebindTiming, liveEdits,
+    projectId: 'p', compositionPath: 'index.html', sourceVersions: { 'index.html': sha(1), 'scenes/intro.html': sha(3) }, studioOrigin: 'https://studio.test', canRebindTiming, liveEdits, smallMountedSources,
   }));
   Object.defineProperty(document, 'currentScript', { value: script });
   const replies: { result?: unknown; type?: string; timelineVersion?: string }[] = [];
@@ -210,7 +210,7 @@ it('applies a solid fill without installing a new image URL through the live bri
   assert.equal(tile.style.getPropertyValue('background-image'), 'none');
 });
 
-it('updates a font and a pixel translation with text only on a declarative document', () => {
+it('updates font, verified pixel translation and text in the active file of a live document', () => {
   const message = (offset: string) => ({ type: 'peer-presentation', changes: [{ id: 'title', tag: 'div', attributes: [],
     text: ['Hello', 'Changed'], styles: [['font-family', '', 'Sample'], ['translate', '', offset]], captureOriginalTranslate: true }] });
   const { document, send, hooks } = preview();
@@ -223,7 +223,7 @@ it('updates a font and a pixel translation with text only on a declarative docum
     attributes: [], styles: [['translate', '30px 12px', '']], captureOriginalTranslate: false }] }), true);
   assert.equal(document.getElementById('title')!.getAttribute('data-hf-studio-original-inline-translate'), null);
   assert.deepEqual(hooks, []);
-  assert.equal(preview(false, { position: true }).send(message('30px 12px')), false);
+  assert.equal(preview(false, { position: true }).send(message('30px 12px')), true);
 });
 
 it('shows a confirmed nested style on the old scripted document while keeping its loaded revision for rebuild', () => {
@@ -265,6 +265,70 @@ it('only moves the existing canvas box when the project certifies a placement ch
     assert.equal(document.getElementById('reel'), canvas);
     assert.deepEqual(hooks, []);
   }
+});
+
+it('hot-resizes a nested CSS-animated canvas once on its verified revision, including the opposite-corner translation', () => {
+  const path = 'scenes/intro.html';
+  const changes = [{ id: 'drawing', tag: 'canvas', attributes: [], styles: [
+    ['translate', '', '12px -9px'], ['width', '', '92px'], ['height', '', '43px'],
+  ] }];
+  for (const [timing, cssOffset, accepted] of [[false, false, false], [true, false, true], [false, true, true]]) {
+    const { send, document, hooks } = preview(timing, cssOffset ? { cssLayoutOffset: true } : { position: true }, [path]);
+    const host = document.querySelector('main')!;
+    host.setAttribute('data-composition-file', path);
+    const node = document.createElement('canvas');
+    node.id = 'drawing';
+    node.setAttribute('width', '1920');
+    host.append(node);
+    const msg = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes };
+    assert.equal(send({...msg, changes: [{...changes[0], styles: [['translate', '', '50%'], ['width', '', '92px']]}]}), false);
+    assert.equal(send({...msg, before: etag(2)}), false);
+    assert.equal(send(msg), accepted);
+    assert.equal(node.style.getPropertyValue('translate') || '', accepted ? '12px -9px' : '');
+    assert.equal(node.style.getPropertyValue('width') || '', accepted ? '92px' : '');
+    assert.equal(node.getAttribute('width'), '1920');
+    assert.equal(document.getElementById('drawing'), node);
+    assert.deepEqual(hooks, []);
+    assert.equal(send(msg), false);
+    if (accepted) {
+      const undo = changes.map(c => ({...c, styles: c.styles.map(([name, from, to]) => [name, to, from])}));
+      assert.equal(send({...msg, before: etag(4), after: etag(5), changes: undo}), true);
+      assert.equal(node.style.getPropertyValue('translate') || '', '');
+      assert.equal(node.style.getPropertyValue('width') || '', '');
+    }
+  }
+});
+
+it('keeps a mounted scripted child and its runtime descendants through verified pixel moves and resizes', () => {
+  const path = 'scenes/intro.html';
+  const { send, document, hooks } = preview(false, undefined, [path]);
+  const host = document.querySelector('main')!;
+  host.setAttribute('data-composition-file', path);
+  const node = document.getElementById('title')!;
+  const glyph = document.createElement('span');
+  node.replaceChildren(glyph);
+  const change = { id: 'title', tag: 'div', attributes: [], styles: [['left', '10px', '20px'], ['width', '', '84px']] };
+  const message = { type: 'peer-presentation', path, before: etag(3), after: etag(4), changes: [change] };
+  const overridden = preview(false);
+  overridden.document.querySelector('main')!.setAttribute('data-composition-file', path);
+  assert.equal(overridden.send(message), false);
+  const duplicate = node.cloneNode(true);
+  host.appendChild(duplicate);
+  assert.equal(send(message), false);
+  host.removeChild(duplicate);
+  host.setAttribute('data-hf-parked-scene', '');
+  assert.equal(send(message), false);
+  host.removeAttribute('data-hf-parked-scene');
+  node.style.width = '19px'; // A running script owns a different live value.
+  assert.equal(send(message), false);
+  assert.equal(node.style.left, '10px');
+  node.style.removeProperty('width');
+  assert.equal(send({ ...message, changes: [{ ...change, styles: [['width', '', '50%']] }] }), false);
+  assert.equal(send(message), true);
+  assert.equal(document.getElementById('title'), node);
+  assert.equal(node.firstChild, glyph);
+  assert.equal(node.style.width, '84px');
+  assert.deepEqual(hooks, []);
 });
 
 it('advances a certified child placement through consecutive versions without restarting its animations', () => {
@@ -366,6 +430,13 @@ it('enables the fast path only for declarative documents with no user startup co
     assert.equal(title.textContent, String(start));
   }
   assert.equal((await build(2)).allowed, true);
+  for (const script of ['window.__projectTitle = "hello";', "globalThis.__buildNumber = 17; window.__enabled = true;"]) {
+    assert.equal((await build(2, '<script>' + script + '</script>')).allowed, true, script);
+  }
+  for (const script of ['window.__title = document.title', 'window.__player = "broken"', 'window.__proto__ = null',
+    'window.location = "/other"', 'window.__x = 1; setTimeout(render)', 'window[key] = 1', 'window.__x = Math.random()']) {
+    assert.equal((await build(2, '<script>' + script + '</script>')).allowed, false, script);
+  }
   assert.equal((await build(2, '<canvas id="decoration"></canvas>')).allowed, true);
   assert.equal((await build(2, '<canvas id="decoration"></canvas>' + startup)).allowed, false);
   assert.equal((await build(2, '<canvas onclick="paint()"></canvas>')).allowed, false);
@@ -404,4 +475,48 @@ it('displays the latest control while earlier file versions settle, preserving p
   assert.equal(confirm(2, 3, '', null), true);
   project(true, true); // A receipt alone cannot start a gesture in a replacement document.
   assert.equal(title.hasAttribute('data-hidden'), false);
+});
+
+it('paints an entire verified bulk edit on the existing nodes or leaves them all unchanged', () => {
+  const { send, document } = preview();
+  const owner = document.querySelector('main')!;
+  const nodes = Array.from({length: 100}, (_, i) => {
+    const node = document.createElement('div');
+    node.id = 'bulk-' + i;
+    node.textContent = 'old';
+    owner.appendChild(node);
+    return node;
+  });
+  const changes = nodes.map(node => ({ id: node.id, tag: 'div', attributes: [], text: ['old', 'new'] }));
+  const duplicate = nodes.at(-1)!.cloneNode(true);
+  owner.appendChild(duplicate);
+  assert.equal(send({ type: 'peer-presentation', changes }), false);
+  assert.ok(nodes.every(node => node.textContent === 'old'));
+  owner.removeChild(duplicate);
+  assert.equal(send({ type: 'peer-presentation', changes }), true);
+  assert.ok(nodes.every(node => document.getElementById(node.id) === node && node.textContent === 'new'));
+});
+
+it('keeps unrelated live handlers and reports the real root baseline in a scripted document', () => {
+  const { send, document, replies, hooks } = preview(false);
+  send({type: 'handshake'});
+  const ready = replies.find(message => message.type === 'preview-ready') as
+    {mountedVersions: Record<string, string>; liveEdits: PreviewLiveEdits} | undefined;
+  assert.equal(ready?.mountedVersions['index.html'], etag(1));
+  assert.equal(ready?.liveEdits.presentation, true);
+  const title = document.getElementById('title')!;
+  let events = 0;
+  title.addEventListener('edit-check', () => events++);
+  const message = { type: 'peer-presentation', changes: [{id: 'title', tag: 'div', attributes: [], text: ['Hello', 'Hi']}] };
+  assert.equal(send(message), true);
+  assert.equal(document.getElementById('title'), title);
+  title.dispatchEvent(new document.defaultView!.Event('edit-check'));
+  assert.equal(events, 1);
+  assert.equal(title.textContent, 'Hi');
+  assert.deepEqual(hooks, []);
+  title.textContent = 'Owned by a script';
+  const next = {...message, before: etag(2), after: etag(3), changes: [{...message.changes[0]!, text: ['Hi', 'Next']}]};
+  assert.equal(send(next), false);
+  assert.equal(title.textContent, 'Owned by a script');
+  assert.equal(send({...next, changes:[root]}), false);
 });

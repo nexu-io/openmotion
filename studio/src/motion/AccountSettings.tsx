@@ -12,7 +12,7 @@ import { StudioToastViewport } from '../components/StudioToastViewport';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
 import { notifyProvidersChanged } from './useProviderDirectory';
 import { clearPrivateSwrCache, setPrivateSwrIdentity } from './swrCache';
-import { activeAccountOffer, MULTIMODAL_CAPABILITIES } from './accountOffer';
+import { activeAccountOffer, buildSubscriptionUrl, DEFAULT_CONSOLE_URL, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { SettingsError, SettingsLoading } from './settingsPrimitives';
 import {
   isDesktopApp,
@@ -38,6 +38,7 @@ export interface CloudAccountSummary extends AccountSummary {
   modelGateway?: {
     provider: string;
     mode: 'opendesign' | 'mock';
+    availableModelCount?: number;
   };
 }
 
@@ -89,6 +90,7 @@ interface CloudSummaryApiResponse {
   modelGateway?: {
     provider: string;
     mode: 'opendesign' | 'mock';
+    availableModelCount?: number;
   };
   // Legacy AccountSummary fields (accepted for mocked unit tests)
   state?: AccountSummary['state'];
@@ -100,7 +102,6 @@ interface CloudSummaryApiResponse {
   errorCode?: AccountSummary['errorCode'];
 }
 
-const DEFAULT_CONSOLE_URL = 'https://open-design.ai';
 const DEFAULT_PAT_SCOPES = [
   'projects:read',
   'projects:write',
@@ -110,18 +111,6 @@ const DEFAULT_PAT_SCOPES = [
   'media:generate',
   'mcp:tools',
 ] as const;
-
-function subscriptionUrl(consoleUrl: string, entrySource = 'openmotion_manage_subscription') {
-  const url = new URL((consoleUrl || DEFAULT_CONSOLE_URL).replace(/\/+$/, '') + '/dashboard');
-  url.search = new URLSearchParams({
-    billing: 'plan',
-    od_origin: 'openmotion',
-    od_entry_source: entrySource,
-    od_entry_id: crypto.randomUUID(),
-    od_entry_at: new Date().toISOString(),
-  }).toString();
-  return url.href;
-}
 
 function normalizeBalance(value: string | number | null | undefined): string | null | undefined {
   if (value === undefined || value === null) return value;
@@ -295,7 +284,7 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   function subscriptionLink(source: string, element: 'manage_subscription' | 'view_plans') {
     const consoleUrl = state.account!.consoleUrl;
     const open = (event: MouseEvent<HTMLAnchorElement>) => {
-      const targetUrl = subscriptionUrl(consoleUrl, source);
+      const targetUrl = buildSubscriptionUrl(consoleUrl, source);
       if (event.detail === 0 && event.button === 0) event.currentTarget.href = targetUrl;
       tracking.reportSettingsClick('account', element);
       if (isDesktopApp() && (event.button === 0 || event.button === 1)) {
@@ -306,10 +295,10 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
       }
     };
     return {
-      href: subscriptionUrl(consoleUrl, source),
+      href: buildSubscriptionUrl(consoleUrl, source),
       target: '_blank',
       rel: 'noreferrer',
-      onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = subscriptionUrl(consoleUrl, source); },
+      onPointerDown: (event: MouseEvent<HTMLAnchorElement>) => { event.currentTarget.href = buildSubscriptionUrl(consoleUrl, source); },
       onClick: open,
       onAuxClick: (event: MouseEvent<HTMLAnchorElement>) => { if (event.button === 1) open(event); },
     };
@@ -356,7 +345,12 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
   async function refreshBilling() {
     tracking.reportSettingsClick('account', 'refresh_billing');
     setRefreshing(true);
-    try { await state.refresh(true); } finally { setRefreshing(false); }
+    try {
+      await state.refresh(true);
+      notifyProvidersChanged();
+    } finally {
+      setRefreshing(false);
+    }
   }
   async function switchWorkspace(workspaceId: string) {
     if (workspaceId === account?.activeWorkspace?.id) return;
@@ -452,7 +446,8 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
 
   const signedOutGuide = !signedIn;
   const plan = signedIn && !account?.billingUnavailable ? account?.plan?.trim().toLowerCase() : undefined;
-  const upgradeGuide = plan === 'free' || plan === 'go';
+  const noAvailableModels = signedIn && !isDevMode && account?.modelGateway?.availableModelCount === 0;
+  const upgradeGuide = plan === 'free' || plan === 'go' || noAvailableModels;
   const offer = activeAccountOffer();
   const capabilities = (
     <ul className="om-account-capabilities" aria-label={t('Multimodal')}>
@@ -722,8 +717,12 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
           {upgradeGuide && (
             <section className="om-card om-plan-guide" data-guide="upgrade">
               <div className="om-plan-guide-head">
-                <h2 className="om-title om-plan-name">{plan === 'free' ? t('Free plan') : 'Go'}</h2>
-                <span className="om-badge">{t('Current plan')}</span>
+                <h2 className={plan === 'free' || plan === 'go' ? 'om-title om-plan-name' : 'om-title'}>
+                  {plan === 'free' ? t('Free plan') : plan === 'go' ? 'Go' : t('No media models available yet')}
+                </h2>
+                <span className="om-badge" data-active={plan !== 'free' && plan !== 'go' ? 'true' : undefined}>
+                  {plan === 'free' || plan === 'go' ? t('Current plan') : t('Plus and above')}
+                </span>
               </div>
               <p className="om-muted">{t('Upgrade to Plus to generate images, video, voiceovers and music. Pro and Max include them too.')}</p>
               {capabilities}
@@ -787,7 +786,9 @@ export function AccountSettings({ subscription = false, openProviders }: { subsc
                 <p className="om-muted">
                   {t(account.billingError?.status === 403
                     ? 'The billing service declined this request. Open Manage subscription to check your plan in OpenDesign.'
-                    : "Couldn't load your plan and balance. Account models are unaffected and can be used as usual.")}
+                    : noAvailableModels
+                      ? "Couldn't load your plan and balance. No media models are currently available for this workspace — check or upgrade your plan in OpenDesign."
+                      : "Couldn't load your plan and balance. Account models are unaffected and can be used as usual.")}
                 </p>
                 <Button variant="ghost" className="om-button h-auto" disabled={refreshing} aria-busy={refreshing} onClick={() => void refreshBilling()}>
                   <RemixIcon name={refreshing ? 'loader-4-line' : 'refresh-line'} size={15} className={refreshing ? 'animate-spin motion-reduce:animate-none' : undefined} />

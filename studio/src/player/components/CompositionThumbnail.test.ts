@@ -363,10 +363,8 @@ describe("CompositionThumbnail retained filmstrip during refresh", () => {
     Object.defineProperty(host, "clientHeight", { configurable: true, value: 40 });
     usePlayerStore.setState({
       assetReadinessPhase: "ready",
-      assetReadinessSkipped: false,
-      editorInputLocked: false,
+      previewBooted: true,
       isPlaying: false,
-      timelinePreviewSettledInitial: true,
     });
 
     let urlSeq = 0;
@@ -892,6 +890,50 @@ describe("CompositionThumbnail retained filmstrip during refresh", () => {
     } finally {
       clearClientCompositionCaptureCacheForTest();
       globalThis.indexedDB = prevIndexedDb;
+      env.cleanup();
+    }
+  });
+
+  it("automatically retries a failed composition capture once after 2s backoff and recovers", async () => {
+    const env = setupIsolatedCaptureEnv();
+    const retrySpy = vi.spyOn(thumbnailScheduler, "retryFailed");
+    try {
+      root = createRoot(host);
+      await act(async () => {
+        root!.render(
+          React.createElement(CompositionThumbnail, {
+            previewUrl: "/api/projects/demo/preview/comp/compositions/scene-a.html",
+            label: "",
+            labelColor: "#fff",
+            projectId: "demo",
+            contentRevision: 0,
+            clipDuration: 6,
+          }),
+        );
+      });
+
+      const firstReqId = await env.waitForCaptureRequest();
+      await act(async () => {
+        env.failCapture(firstReqId);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(retrySpy).not.toHaveBeenCalled();
+
+      // After the 2s backoff window, CompositionThumbnail automatically calls retryFailed once.
+      await vi.waitFor(
+        () => expect(retrySpy).toHaveBeenCalledWith("demo", "compositions/scene-a.html"),
+        { timeout: 3_500 },
+      );
+      expect(retrySpy).toHaveBeenCalledTimes(1);
+
+      const secondReqId = await env.waitForCaptureRequest();
+      await act(async () => {
+        env.resolveCapture(secondReqId, 4);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      expect(host.querySelectorAll("img").length).toBeGreaterThan(0);
+    } finally {
+      retrySpy.mockRestore();
       env.cleanup();
     }
   });

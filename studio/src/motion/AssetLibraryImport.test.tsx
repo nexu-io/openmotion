@@ -47,7 +47,7 @@ beforeEach(() => {
   files = [...original]; treeFailure = false; pendingImport = undefined; pendingTree = undefined;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
     if (String(url).endsWith('manifest.jsonl')) return new Response('', { status: 404 });
-    if (String(url) === '/api/projects/project-b') return Response.json({ files: ['assets/other.png'], compositions: [] });
+    if (new URL(String(url), 'http://studio.test').pathname === '/api/projects/project-b') return Response.json({ files: ['assets/other.png'], compositions: [] });
     if (treeFailure) throw new Error('Offline');
     if (pendingTree) await pendingTree.promise;
     return Response.json({ files: [...files], compositions: [] });

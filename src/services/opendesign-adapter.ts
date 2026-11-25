@@ -35,21 +35,20 @@ const MAX_METADATA_BYTES = 2_000_000;
 const MODEL_CACHE_TTL_SEC = 300;
 const DEFAULT_MAX_REF_IMAGE_BYTES = 20 * 1024 * 1024;
 
-const FALLBACK_AUDIO_MODELS: readonly Model[] = [
-  {
-    id: 'opendesign:elevenlabs-music-v2',
-    provider: 'opendesign',
-    modelId: 'elevenlabs-music-v2',
-    label: 'ElevenLabs Music',
-    modality: 'audio',
-    mode: 'text-to-audio',
-    source: 'builtin',
-  },
-];
-
 export interface ModelCatalogCache {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttlSec: number): Promise<void>;
+  del?(key: string): Promise<void>;
+}
+
+export function modelCatalogCacheKey(
+  ctx: Pick<
+    GatewayCallContext,
+    'externalWorkspaceId' | 'appUserId' | 'amrWorkspaceMemberId' | 'externalUserId'
+  >,
+): string {
+  const actorScope = ctx.appUserId || ctx.amrWorkspaceMemberId || ctx.externalUserId || 'anon';
+  return `om:gateway:models:${ctx.externalWorkspaceId || 'global'}:${actorScope}`;
 }
 
 export interface OpenDesignGatewayOptions {
@@ -277,12 +276,15 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
     ctx: GatewayCallContext,
     options: { refresh?: boolean } = {},
   ): Promise<Model[]> {
-    const cacheKey = `om:gateway:models:${ctx.externalWorkspaceId || 'global'}`;
+    const cacheKey = modelCatalogCacheKey(ctx);
     if (this.cache && !options.refresh) {
       const cached = await this.cache.get(cacheKey);
       if (cached) {
         try {
-          return JSON.parse(cached) as Model[];
+          const parsed = JSON.parse(cached) as Model[];
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return parsed;
+          }
         } catch {
           // Cache corrupt; fall through to live fetch.
         }
@@ -292,7 +294,7 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
     const signal = ctx.signal ?? new AbortController().signal;
     const body = await retryRead(
       () =>
-        this.requestJson(`${this.apiUrl}/api/v1/media/models`, {
+        this.requestJson(`${this.apiUrl}/api/v1/media/models?include_audio=true`, {
           method: 'GET',
           headers: this.buildHeaders(ctx),
           signal,
@@ -320,6 +322,9 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
         continue;
       }
 
+      const id = `opendesign:${row.model}`;
+      if (seen.has(id)) continue;
+
       const modality: Modality = row.kind.startsWith('audio')
         ? 'audio'
         : (row.kind as 'image' | 'video');
@@ -331,7 +336,7 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
             : `text-to-${row.kind}`;
 
       const model: Model = {
-        id: `opendesign:${row.model}`,
+        id,
         provider: 'opendesign',
         modelId: row.model,
         label: typeof row.label === 'string' && row.label.trim() ? row.label.trim() : row.model,
@@ -343,19 +348,16 @@ export class OpenDesignModelGateway implements PlatformModelGateway {
       const opts = generationOptions(model);
       if (opts) model.generationOptions = opts;
 
-      seen.add(model.id);
+      seen.add(id);
       liveModels.push(model);
     }
 
-    // Preserve fallback music entry if absent from live catalog.
-    for (const fallback of FALLBACK_AUDIO_MODELS) {
-      if (!seen.has(fallback.id)) {
-        liveModels.push({ ...fallback });
-      }
-    }
-
     if (this.cache) {
-      await this.cache.set(cacheKey, JSON.stringify(liveModels), MODEL_CACHE_TTL_SEC);
+      if (liveModels.length > 0) {
+        await this.cache.set(cacheKey, JSON.stringify(liveModels), MODEL_CACHE_TTL_SEC);
+      } else {
+        await this.cache.del?.(cacheKey);
+      }
     }
 
     return liveModels;

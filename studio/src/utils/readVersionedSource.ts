@@ -1,3 +1,4 @@
+import { ORDERED_TEXT_EDITS_HEADER } from '../../../shared/ordered-text-edits';
 import { applyTextPatch, TEXT_PATCH_BASE_HEADER } from '../../../shared/text-patch';
 import { studioApiFetch } from './studioApiFetch';
 
@@ -5,15 +6,18 @@ export interface SourceVersion { content: string; version: string }
 
 function sourceResponse(source: SourceVersion, received: Headers): Response {
   const headers = new Headers({ ETag: source.version });
-  if (received.get('X-OpenMotion-Text-Edits') === '1') headers.set('X-OpenMotion-Text-Edits', '1');
+  for (const capability of ['X-OpenMotion-Text-Edits', ORDERED_TEXT_EDITS_HEADER]) {
+    if (received.get(capability) === '1') headers.set(capability, '1');
+  }
   return Response.json({ ...source, missing: false }, { headers });
 }
 
 // A delta is meaningful only to a reader holding exactly the revision it names.
 // Preserve the ordinary Response for status handling and old hosts' full reads.
-export async function readVersionedSource(url: string, base?: SourceVersion): Promise<Response> {
-  if (!base) return studioApiFetch(url);
-  const response = await studioApiFetch(url, { headers: {
+export async function readVersionedSource(url: string, base?: SourceVersion, signal?: AbortSignal): Promise<Response> {
+  const readFull = () => studioApiFetch(url, signal ? { signal } : undefined);
+  if (!base) return readFull();
+  const response = await studioApiFetch(url, { signal, headers: {
     'If-None-Match': base.version,
     [TEXT_PATCH_BASE_HEADER]: base.version,
   } });
@@ -21,7 +25,7 @@ export async function readVersionedSource(url: string, base?: SourceVersion): Pr
   // Compare the opaque read tag; keep the authoritative source version for subsequent writes.
   const readTag = response.headers.get('etag')?.replace(/^W\//, '');
   if (response.status === 304) {
-    return readTag === base.version ? sourceResponse(base, response.headers) : studioApiFetch(url);
+    return readTag === base.version ? sourceResponse(base, response.headers) : readFull();
   }
   if (!response.ok || response.headers.get('X-OpenMotion-Representation') !== 'text-patch') return response;
   try {
@@ -33,5 +37,5 @@ export async function readVersionedSource(url: string, base?: SourceVersion): Pr
   } catch {
     // A bad or truncated delta is recoverable with an ordinary full-source read.
   }
-  return studioApiFetch(url);
+  return readFull();
 }

@@ -1,3 +1,4 @@
+import { orderedEditFixture } from "../../tests/orderedEditFixture";
 import { describe, expect, it, vi } from "vitest";
 import { setCachedCloudDisklessMode } from "./cloudRuntime";
 import { saveProjectFilesWithHistory, saveServerRewriteWithHistory, type StudioWriteHistory } from "./studioFileHistory";
@@ -295,28 +296,27 @@ describe("saveProjectFilesWithHistory", () => {
     );
   });
   it("keeps the same undo window when a repeated gesture batches two compositions", async () => {
-    const windows: string[] = [];
-    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
-      const windowId = new Headers(init?.headers).get("X-OpenMotion-Edit-Window");
-      expect(windowId).toBeTruthy();
-      windows.push(windowId!);
-      return Response.json({ versions: {} });
-    });
+    const source = '<main data-composition-id="scene" data-duration="12" data-hf-id="root"><div data-hf-id="hf-clip" data-start="0" data-duration="2"></div></main>';
+    const server = orderedEditFixture("p", {"index.html": source, "child.html": source});
     const writeFile = vi.fn();
-    const save = () => saveProjectFilesWithHistory({
-      projectId: "p", label: "Move clips", coalesceKey: "drag", writeFile,
-      files: { "index.html": () => "after", "child.html": () => "after" },
-      commandForWrite: () => ({ kind: "moveClip", hfId: "hf-clip", start: 2 }),
-      readFile: async () => "before", recordEdit: vi.fn(),
+    const save = (start: number) => saveProjectFilesWithHistory({
+      projectId: "p", label: "Move clips", coalesceKey: "drag", continuous: true, writeFile,
+      files: Object.fromEntries(Object.keys(server.files).map(path => [path, (html: string) => html.replace(/data-start="\d+"/, 'data-start="' + start + '"')])),
+      commandForWrite: () => ({ kind: "moveClip", hfId: "hf-clip", start }),
+      readFile: async path => server.files[path]!, recordEdit: vi.fn(),
     });
     setCachedCloudDisklessMode(true);
     try {
-      await save();
-      await save();
-      expect(windows).toEqual([expect.any(String), windows[0]]);
+      await save(1);
+      await save(2);
+      const operations = server.packets.flat();
+      expect(operations).toHaveLength(2);
+      expect(operations[0]?.undoGroup).toEqual(expect.any(String));
+      expect(operations[1]?.undoGroup).toBe(operations[0]?.undoGroup);
+      expect(operations.every(operation => operation.files.length === 2)).toBe(true);
       expect(writeFile).not.toHaveBeenCalled();
     } finally {
-      fetch.mockRestore();
+      vi.unstubAllGlobals();
       setCachedCloudDisklessMode(null);
     }
   });

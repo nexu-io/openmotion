@@ -30,6 +30,7 @@ import {
   type ColorGradingPreviewOptions,
 } from "./useColorGradingPreviews";
 import { studioApiFetch } from "../../utils/studioApiFetch";
+import { supportsOrderedTextEdits } from "../../utils/confirmedTextSources";
 import { authoredSrcPath } from "../../player/components/thumbnailUtils";
 
 export type { ColorGradingPresetPreviews, ColorGradingPreviewOptions };
@@ -225,6 +226,7 @@ export function useColorGradingController({
   const pendingPersistIdentityRef = useRef<string | null>(null);
   // Keep a confirmed value so an optimistic edit can be reverted on failure.
   const confirmedGradingRef = useRef(grading);
+  const confirmedAttemptRef = useRef(0);
   // Prevent an older same-element write from settling over a newer edit.
   const gradingVersionRef = useRef(0);
   const statusTimersRef = useRef<number[]>([]);
@@ -241,6 +243,7 @@ export function useColorGradingController({
     const freshGrading = readColorGradingFromElement(element);
     latestGradingRef.current = freshGrading;
     confirmedGradingRef.current = freshGrading;
+    confirmedAttemptRef.current = gradingVersionRef.current;
     setGrading(freshGrading);
     setCompareEnabled(false);
     compareEnabledRef.current = false;
@@ -342,13 +345,17 @@ export function useColorGradingController({
         onSettled?: (ok: boolean) => void,
       ) => void | Promise<void>,
     ) => {
+      const attempt = gradingVersionRef.current;
       const applySettled = (ok: boolean) => {
         if (identityKeyRef.current !== attemptIdentityKey) return;
-        if (!isLatestAttempt()) return;
         if (ok) {
-          confirmedGradingRef.current = attemptedGrading;
+          if (attempt > confirmedAttemptRef.current) {
+            confirmedAttemptRef.current = attempt;
+            confirmedGradingRef.current = attemptedGrading;
+          }
           return;
         }
+        if (!isLatestAttempt() || attempt <= confirmedAttemptRef.current) return;
         const reverted = confirmedGradingRef.current;
         latestGradingRef.current = reverted;
         setGrading(reverted);
@@ -483,14 +490,19 @@ export function useColorGradingController({
         if (!active) setCompareEnabled(false);
       }
       scheduleRuntimeStatusRefresh();
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-      pendingPersistValueRef.current = hasHfColorGradingAuthoredValues(nextGrading)
+      const value = hasHfColorGradingAuthoredValues(nextGrading)
         ? serializeHfColorGrading(nextGrading)
         : null;
-      pendingPersistGradingRef.current = nextGrading;
-      pendingPersistIdentityRef.current = identityKeyRef.current;
       const attemptIdentityKey = identityKeyRef.current;
       const isLatestAttempt = bumpDomEditCommitVersion(gradingVersionRef);
+      if (supportsOrderedTextEdits(projectId)) {
+        void persistColorGradingValue(value, nextGrading, attemptIdentityKey, isLatestAttempt, onSetAttributeLive);
+        return;
+      }
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      pendingPersistValueRef.current = value;
+      pendingPersistGradingRef.current = nextGrading;
+      pendingPersistIdentityRef.current = attemptIdentityKey;
       persistTimerRef.current = setTimeout(() => {
         const value = pendingPersistValueRef.current;
         const attemptedGrading = pendingPersistGradingRef.current ?? nextGrading;
@@ -512,6 +524,7 @@ export function useColorGradingController({
       persistColorGradingValue,
       postColorGrading,
       postCompare,
+      projectId,
       scheduleRuntimeStatusRefresh,
     ],
   );
@@ -529,16 +542,18 @@ export function useColorGradingController({
 
   const applyToScope = useCallback(async () => {
     if (!onApplyScope || applyBusy) return;
+    const value = hasHfColorGradingAuthoredValues(grading) ? serializeHfColorGrading(grading) : null;
+    if (supportsOrderedTextEdits(projectId)) {
+      await onApplyScope(applyScope, value);
+      return;
+    }
     setApplyBusy(true);
     try {
-      const value = hasHfColorGradingAuthoredValues(grading)
-        ? serializeHfColorGrading(grading)
-        : null;
       await onApplyScope(applyScope, value);
     } finally {
       setApplyBusy(false);
     }
-  }, [applyBusy, applyScope, grading, onApplyScope]);
+  }, [applyBusy, applyScope, grading, onApplyScope, projectId]);
 
   return {
     grading,

@@ -625,7 +625,7 @@ export function AssetsPage({ active, hasProject = false, studio, routeId, routeV
     </div></div>}
     <div className="om-assets-library">
     {creating && studio && <ResizablePane className="om-creator-pane" storageKey="motion-studio-controls-width" initial={378} min={310} max={650} edge="right" label={t('Resize creator')}>{composer}</ResizablePane>}
-    <main ref={gallery} className="om-assets-main" onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
+    <main ref={gallery} className="om-assets-main" hidden={!active} role={active ? undefined : 'none'} onDragOver={e => { if (!mediaGenerations && e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={e => { if (!mediaGenerations && e.dataTransfer.files.length) { e.preventDefault(); void importFiles(Array.from(e.dataTransfer.files), false, 'library_drop'); } }}>
       {audioStudio?.openCreate ? <AudioStudioLanding destination={audioStudio.destination} active={active} onPrompt={audioStudio.openCreate} onCreate={() => audioStudio.openCreate?.()} /> : <>
       {studio ? <header className="om-assets-heading">{hasGuide ? <div className="om-choice-tabs" role="group" aria-label={t('Guide & assets')}>
         <Button variant="plain" className="om-nav-item" aria-pressed={guide} onClick={() => setStudioTab('guide')}>{t('How it works')}</Button>

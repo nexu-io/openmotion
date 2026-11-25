@@ -1,3 +1,6 @@
+import { projectPendingStructure } from "../player/lib/peerTimeline";
+import { refreshCommittedTimeline } from "./timelineTimingSync";
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
 import { type TimelineFileEdit, saveCloudTimeline } from "../utils/cloudTimelineEdit";
 import { useCallback, type MutableRefObject } from "react";
@@ -12,6 +15,7 @@ import { clipsToUnlink, planLinkEdit } from "./timelineLinkEditPlan";
 
 interface UseTimelineLinkEditingOptions {
   projectIdRef: MutableRefObject<string | null>;
+  previewIframeRef?: MutableRefObject<HTMLIFrameElement | null>;
   activeCompPath: string | null;
   editQueueRef: MutableRefObject<Promise<void>>;
   pendingTimelineEditPathRef: MutableRefObject<Set<string>>;
@@ -19,7 +23,7 @@ interface UseTimelineLinkEditingOptions {
   showToast: (message: string, tone?: "error" | "info") => void;
   writeProjectFile: (path: string, content: string, expectedContent?: string) => Promise<void>;
   recordEdit: (input: RecordEditInput) => Promise<void>;
-  reloadPreview: () => void;
+  reloadPreview: (path?: string | readonly string[]) => void;
   forceReloadSdkSession?: () => void;
   handleTimelineElementsDelete: (
     selection: TimelineElement[],
@@ -57,6 +61,7 @@ function clearSelectionOnUnlink(edit: TimelineLinkEdit): void {
 
 export function useTimelineLinkEditing({
   projectIdRef,
+  previewIframeRef,
   activeCompPath,
   editQueueRef,
   pendingTimelineEditPathRef,
@@ -89,9 +94,16 @@ export function useTimelineLinkEditing({
           case "move-into-sync": case "slip-into-sync": return {kind:edit.kind === "move-into-sync" ? "moveIntoSync" : "slipIntoSync",hfId:resolve(edit.element)};
         }
       } : undefined;
-      const queued = editQueueRef.current.then(() =>
-        command ? saveCloudTimeline(pid, [{ path, command }], writeProjectFile, recordEdit, plan.label)
-          : saveProjectFilesWithHistory({
+      const ordered = Boolean(command && supportsOrderedTextEdits(pid));
+      const visiblePath = activeCompPath ?? "index.html";
+      const persist = () => {
+        if (command) {
+          const frame = previewIframeRef?.current ?? null;
+          return saveCloudTimeline(pid, [{ path, command }], writeProjectFile, recordEdit, plan.label,
+            ordered ? refreshCommittedTimeline(frame, visiblePath, pid, reloadPreview) : undefined,
+            ordered ? { projectPending: files => projectPendingStructure(pid, visiblePath, frame, files) } : undefined);
+        }
+        return saveProjectFilesWithHistory({
           projectId: pid,
           label: plan.label,
           files: {
@@ -106,16 +118,19 @@ export function useTimelineLinkEditing({
           readFile: (filePath) => readFileContent(pid, filePath),
           writeFile: writeProjectFile,
           recordEdit,
-        }),
-      );
+        });
+      };
+      const queued = ordered ? persist() : editQueueRef.current.then(persist);
       editQueueRef.current = queued.then(
         () => undefined,
         () => undefined,
       );
       try {
         await queued;
-        forceReloadSdkSession?.();
-        reloadPreview();
+        if (!ordered) {
+          forceReloadSdkSession?.();
+          reloadPreview(path);
+        }
       } catch (error) {
         showToast(getStudioSaveErrorMessage(error), "error");
       }
@@ -126,6 +141,7 @@ export function useTimelineLinkEditing({
       forceReloadSdkSession,
       isRecordingRef,
       pendingTimelineEditPathRef,
+      previewIframeRef,
       projectIdRef,
       recordEdit,
       reloadPreview,

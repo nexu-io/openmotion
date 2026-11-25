@@ -134,14 +134,26 @@ export function HubVideoWall({ hubId, signedIn, videos, title, query = '' }: { h
   </section>;
 }
 
+import { getCachedCloudDisklessMode } from '../utils/cloudRuntime';
+
 /** Recreation brief in the same shape as template handoffs, pointing at the public post instead of a catalog resource. */
 export function hubVideoPrompt(video: HubVideo, model: string, locale: string) {
-  return locale === 'zh-CN' ? `使用说明：请使用已连接的 OpenMotion 插件；未安装时先按 https://github.com/nexu-io/openmotion 安装并验证连接。
+  const cloudSetupUrl = getCachedCloudDisklessMode() && typeof window !== 'undefined'
+    ? `${window.location.origin.replace(/\/+$/, '')}/mcp-setup`
+    : null;
+  const lead = cloudSetupUrl
+    ? (locale === 'zh-CN'
+      ? `使用说明：请使用已连接的 OpenMotion 云端 MCP；如未接入，请先按 ${cloudSetupUrl} 接入云端 MCP 并验证连接（不要按本地 GitHub 仓库重新部署）。`
+      : `Instructions: Use the connected OpenMotion Cloud MCP. If not connected yet, follow ${cloudSetupUrl} to connect Cloud MCP and verify the connection (do not install or self-host locally from GitHub).`)
+    : (locale === 'zh-CN'
+      ? '使用说明：请使用已连接的 OpenMotion 插件；未安装时先按 https://github.com/nexu-io/openmotion 安装并验证连接。'
+      : 'Instructions: Use the connected OpenMotion plugin. If needed, install it from https://github.com/nexu-io/openmotion and verify the connection.');
+  return locale === 'zh-CN' ? `${lead}
 参考视频：${video.author} ${video.platform === 'x' ? '在 X 上发布' : '在网页上发布'}的「${video.notes}」（${video.post}，视频直链 ${video.source}）；资源类型：参考创作，仅有公开参考视频，没有原片工程。
 制作方式：原片由 ${model} ${video.variant} ${video.code ? '用代码直接生成' : '生成的交互页面录屏'}，请在 OpenMotion 中用可编辑的动画工程重做同类效果。
 创作要求：先看参考视频，根据参考和我的内容创建独立作品，不承诺精确复刻，不直接使用原视频画面；保留已有工程。先核对产品名、功能文案；缺必要材料先说明。未提供音频时静音。交付时返回准确工程链接，后续在同一工程接着改。
 我的要求：
-` : `Instructions: Use the connected OpenMotion plugin. If needed, install it from https://github.com/nexu-io/openmotion and verify the connection.
+` : `${lead}
 Reference video: posted ${video.platform === 'x' ? 'on X' : 'on the web'} by ${video.author} (${video.post}; direct video ${video.source}). Resource: public reference video only; no original editable project.
 How it was made: ${model} ${video.variant} ${video.code ? 'generated it directly in code' : 'built the interactive page shown in this recording'}. Rebuild a similar effect as an editable OpenMotion project.
 Creation requirements: Watch the reference first. Create an independent work from the reference and my content; do not promise an exact reconstruction or reuse the original footage. Preserve existing projects. Check product name and copy; ask for missing essential inputs. Use silence if no audio is supplied. Return the exact project link and continue in that same project.

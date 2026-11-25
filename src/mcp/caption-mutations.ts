@@ -1,13 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { loadCaptionSourceOperations } from '../../shared/transcript-captions.ts';
-import type { TranscriptSegment } from '../../shared/transcript.ts';
-import type { CaptionSettings } from '../../shared/caption-style.ts';
+import type { CaptionSourceCommand } from '../../packages/edit-core/captions.ts';
 import type { AuthContext } from '../contracts/auth.ts';
 import { CloudError } from '../contracts/errors.ts';
 import type { ProjectFilesService } from '../services/project-files-service.ts';
 
 type CaptionOps = Awaited<ReturnType<typeof loadCaptionSourceOperations>>;
-type Command = 'caption_add' | 'caption_update' | 'caption_toggle';
 
 function requestHash(request: Record<string, unknown>): string {
   // JSON object key order may change across MCP clients; cue array order is significant.
@@ -18,25 +16,9 @@ function requestHash(request: Record<string, unknown>): string {
   return createHash('sha256').update(json).digest('hex');
 }
 
-function editCaptions(ops: CaptionOps, html: string, command: Command, args: Record<string, unknown>) {
-  const trackId = typeof args.transcriptId === 'string' ? args.transcriptId : randomUUID();
-  if (command === 'caption_toggle') return ops.toggleCaptionSource(html, trackId, Boolean(args.visible));
-  if (command === 'caption_update') {
-    return { ...ops.updateCaptionTrackSource(html, trackId, args.captionSettings ?? {}, args.remove === true), trackId };
-  }
-  const added = ops.manualCaptionSource(html, trackId, {
-    segments: args.segments as TranscriptSegment[] | undefined,
-    subtitles: args.subtitles as string | undefined,
-    timelineStart: args.timelineStart as number | undefined,
-    textKind: args.textKind === 'text' ? 'text' : 'caption',
-    captionSettings: args.captionSettings as Partial<CaptionSettings> | undefined,
-  });
-  return { ...added, trackId };
-}
-
 export async function commitCaptionCommand(
   files: ProjectFilesService, auth: AuthContext, ops: CaptionOps, projectId: string,
-  compositionPath: string, command: Command, args: Record<string, unknown>,
+  compositionPath: string, command: CaptionSourceCommand, args: Record<string, unknown>,
 ) {
   const requestId = String(args.requestId ?? '');
   const expectedRevision = String(args.expectedRevision ?? '');
@@ -50,9 +32,10 @@ export async function commitCaptionCommand(
   if (current.kind === 'replay') {
     return { projectId, compositionPath, ...current.commit.commandResult, revision: current.commit.revision };
   }
-  let edited: ReturnType<typeof editCaptions>;
+  let edited: ReturnType<CaptionOps['editCaptionSource']>;
   try {
-    edited = editCaptions(ops, current.content, command, args);
+    const id = typeof args.transcriptId === 'string' ? args.transcriptId : randomUUID();
+    edited = ops.editCaptionSource(current.content, command, id, args);
   } catch (error) {
     throw new CloudError('INVALID_ARGUMENT', error instanceof Error ? error.message : 'Invalid caption edit', {status: 400, applied: false});
   }

@@ -1,11 +1,13 @@
 import { Button } from 'open-design-ui/button';
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 import type { DirectoryModel, ProviderConnection } from '../../../shared/provider-directory';
 import { useI18n } from '../i18n/I18n';
 import { RemixIcon } from '../icons/RemixIcons';
 import { useToast } from '../hooks/useToast';
 import { StudioToastViewport } from '../components/StudioToastViewport';
+import { activeAccountOffer, buildSubscriptionUrl, MULTIMODAL_CAPABILITIES } from './accountOffer';
 import { gatewayRequest, type CloudApiError } from './gatewayClient';
+import * as tracking from './pageTracking';
 import { notifyProvidersChanged, useProviderDirectory, type CloudProviderDirectory } from './useProviderDirectory';
 import { ProviderAvatar, ModelAvatar, SettingsError, SettingsLoading } from './settingsPrimitives';
 import { kindLabels, modelKindLabel } from './ModelEditor';
@@ -23,9 +25,11 @@ export function providerListStatus(provider: { configured: boolean; enabled: boo
 export function ModelSettings({
   onClose,
   openAccount,
+  openSubscription,
 }: {
   onClose?: () => void;
   openAccount?: () => void;
+  openSubscription?: () => void;
   initialCategory?: string;
   providerId?: string | null;
   onProviderChange?: (id: string | null) => void;
@@ -115,25 +119,29 @@ export function ModelSettings({
             </section>
           )}
 
-          <GatewayStatusCard provider={provider} data={data} openAccount={openAccount} />
+          <GatewayStatusCard provider={provider} data={data} openAccount={models.length > 0 ? openAccount : undefined} />
 
           <section className="om-model-section" aria-label={t('Models')}>
             <div className="om-settings-row">
               <h2 className="om-subtitle">{t('Available models')} <span className="om-muted">{models.length}</span></h2>
             </div>
-            <ModelCatalog
-              models={models}
-              render={model => (
-                <ModelRow
-                  key={model.id}
-                  model={model}
-                  provider={provider}
-                  selected={data.defaults[model.kind] === model.id}
-                  busy={busy}
-                  onSelect={selected => void setDefaultModel(model, selected)}
-                />
-              )}
-            />
+            {models.length > 0 ? (
+              <ModelCatalog
+                models={models}
+                render={model => (
+                  <ModelRow
+                    key={model.id}
+                    model={model}
+                    provider={provider}
+                    selected={data.defaults[model.kind] === model.id}
+                    busy={busy}
+                    onSelect={selected => void setDefaultModel(model, selected)}
+                  />
+                )}
+              />
+            ) : (
+              <EmptyModelCatalogCard consoleUrl={data.consoleUrl} openAccount={openSubscription ?? openAccount} />
+            )}
           </section>
 
           {onClose && (
@@ -179,6 +187,67 @@ function GatewayStatusCard({
         {t(provider.reason || 'All media models are provisioned and billed centrally through your OpenDesign workspace.')}
       </p>
     </div>
+  );
+}
+
+function EmptyModelCatalogCard({
+  consoleUrl,
+  openAccount,
+}: {
+  consoleUrl?: string;
+  openAccount?: () => void;
+}) {
+  const { t } = useI18n();
+  const offer = activeAccountOffer();
+  const openUpgrade = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (event.detail === 0 && event.button === 0) {
+      event.currentTarget.href = buildSubscriptionUrl(consoleUrl, 'openmotion_manage_subscription');
+    }
+    tracking.reportSettingsClick('provider_detail', 'view_plans');
+  };
+  return (
+    <section className="om-card om-plan-guide" data-empty-models="true">
+      <div className="om-plan-guide-head">
+        <h3 className="om-title">{t('No media models available yet')}</h3>
+        <span className="om-badge" data-active="true">{t('Plus and above')}</span>
+      </div>
+      <p className="om-muted">
+        {t('Your OpenDesign workspace currently has no available image, video or audio models. Upgrade to Plus to unlock multimodal generation, then sync models.')}
+      </p>
+      <ul className="om-account-capabilities" aria-label={t('Multimodal')}>
+        {MULTIMODAL_CAPABILITIES.map(item => (
+          <li key={item.label}><RemixIcon name={item.icon} size={16} />{t(item.label)}</li>
+        ))}
+      </ul>
+      {offer && (
+        <p className="om-account-offer">
+          <RemixIcon name="sparkling-fill" size={15} />
+          <strong>{t(offer.title)}</strong>
+          {offer.detail && <span>{t(offer.detail)}</span>}
+        </p>
+      )}
+      <div className="om-settings-actions">
+        <a
+          className="om-button"
+          data-primary
+          href={buildSubscriptionUrl(consoleUrl, 'openmotion_manage_subscription')}
+          target="_blank"
+          rel="noreferrer"
+          onPointerDown={event => {
+            event.currentTarget.href = buildSubscriptionUrl(consoleUrl, 'openmotion_manage_subscription');
+          }}
+          onClick={openUpgrade}
+          onAuxClick={event => { if (event.button === 1) openUpgrade(event); }}
+        >
+          <RemixIcon name="sparkling-line" size={16} />{t('Upgrade to Plus')}<RemixIcon name="external-link-line" size={15} />
+        </a>
+        {openAccount && (
+          <Button variant="ghost" className="om-button h-auto" onClick={openAccount}>
+            {t('Check account & plan')}
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 

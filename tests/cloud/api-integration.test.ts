@@ -1,3 +1,4 @@
+import { applyProjectEdit } from '../../packages/edit-core/commands.ts';
 import { TEXT_PATCH_BASE_HEADER } from '../../shared/text-patch.ts';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
@@ -1369,7 +1370,7 @@ describe('Cloud API Entrypoint — Models, Account, Catalog, Integration & P2 Ro
     // Regression: createApiApp wires authCache into OpenDesignModelGateway when MODEL_GATEWAY_MODE=opendesign
     const cachedAuthCache = new InMemoryAuthCache();
     await cachedAuthCache.set(
-      'om:gateway:models:global',
+      'om:gateway:models:global:anon',
       JSON.stringify([
         {
           id: 'opendesign:cached-image-1',
@@ -1507,8 +1508,8 @@ describe('Cloud API Entrypoint — Static Assets, Read-Only GSAP & API 404 vs SP
       assert.equal(body.code, 'NOT_FOUND');
     }
 
-    // SPA client-side route serves studio/build/index.html (200) or clean 503 if unbuilt
-    const spaRes = await app.request('/projects/client-route');
+    // Valid SPA client-side route serves studio/build/index.html (200) or clean 503 if unbuilt
+    const spaRes = await app.request('/editor/client-route');
     const studioBuilt = existsSync(path.join(REPO_ROOT, 'studio/build/index.html'));
     assert.equal(spaRes.status, studioBuilt ? 200 : 503);
     if (studioBuilt) {
@@ -1516,11 +1517,23 @@ describe('Cloud API Entrypoint — Static Assets, Read-Only GSAP & API 404 vs SP
       assert.match(spaHtml, /<link rel="preconnect" href="https:\/\/r\.open-design\.ai" crossorigin>/);
       const spaEtag = spaRes.headers.get('etag') ?? '';
       assert.match(spaEtag, /^"sha256:[a-f0-9]{64}"$/);
-      const spaNotModified = await app.request('/projects/client-route', {
+      const spaNotModified = await app.request('/editor/client-route', {
         headers: { 'If-None-Match': spaEtag },
       });
       assert.equal(spaNotModified.status, 304);
       assert.equal(spaNotModified.headers.get('etag'), spaEtag);
+
+      // Unknown SPA paths and /404 return HTTP 404 with the Studio HTML shell (never 200 or 304)
+      for (const unknownPath of ['/brand-kits', '/projects/client-route', '/404']) {
+        const missingRes = await app.request(unknownPath, {
+          headers: { 'If-None-Match': spaEtag },
+        });
+        assert.equal(missingRes.status, 404, `expected 404 for ${unknownPath}`);
+        assert.match(missingRes.headers.get('content-type') ?? '', /^text\/html/);
+        assert.equal(missingRes.headers.get('cache-control'), 'no-store');
+        const missingHtml = await missingRes.text();
+        assert.match(missingHtml, /<meta name="openmotion-runtime" content="cloud-diskless"/);
+      }
 
       const isolated = createApiFixture({
         config: {
@@ -1634,21 +1647,24 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const base = `/api/projects/${projectId}`;
     const file = base + '/files/scene.html';
     await json(file, { method: 'PUT', headers: { 'If-None-Match': '*' }, body:
-      '<html><body><main data-composition-id="main" data-duration="6"><div id="first" data-start="0" data-duration="2"></div><div id="middle" data-start="2" data-duration="2"></div><div id="tail" data-start="4" data-duration="2"></div></main></body></html>' });
+      '<html><body><main data-composition-id="main" data-duration="6"><div id="first" data-track-index="0" data-start="0" data-duration="2"></div><div id="middle" data-track-index="0" data-start="2" data-duration="2"></div><div id="tail" data-track-index="0" data-start="4" data-duration="2"></div></main></body></html>' });
     const before = await json(file);
     const { currentSeq } = await json(base + '/history');
     const label = 'Delete timeline clip';
-    const gesture = { 'X-OpenMotion-Edit-Window': randomUUID(), 'X-OpenMotion-Edit-Label': encodeURIComponent(label) };
-    const removed = await json(base + '/file-mutations/remove-elements/scene.html', {
-      method: 'POST', headers: { ...gesture, 'Content-Type': 'application/json', 'If-Match': before.version },
-      body: JSON.stringify({ targets: [{ id: 'middle' }] }),
+    const middle = before.content.match(/<div [^>]*id="middle"[^>]*>/)?.[0].match(/data-hf-id="([^"]+)"/)?.[1];
+    assert.ok(middle);
+    const deleted = await applyProjectEdit(before.content, {
+      kind: 'deleteClips', hfIds: [middle], rippleTrack: 0, compositionPath: 'scene.html',
+    }, new Map());
+    const saved = await json(base + '/text-edits/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({operations: [{id: 'delete-and-ripple', label,
+        files: [{path: 'scene.html', baseVersion: before.version, content: deleted.content}]}]}),
     });
-    assert.doesNotMatch(removed.content, /id="middle"/);
-    assert.match(removed.content, /data-duration="6"/);
-    const shrunk = removed.content.replace('data-start="4"', 'data-start="2"').replace('data-duration="6"', 'data-duration="4"');
-    assert.doesNotMatch(shrunk, /data-start="4"|data-duration="6"/);
-    await json(file, { method: 'PUT', headers: { ...gesture, 'If-Match': removed.version }, body: shrunk });
-    assert.equal((await json(file)).content, shrunk);
+    assert.equal(saved.committed.length, 1);
+    const shrunk = (await json(file)).content;
+    assert.doesNotMatch(shrunk, /id="middle"|data-start="4"/);
+    assert.match(shrunk, /id="tail"/);
     const after = await json(base + '/history');
     assert.equal(after.currentSeq, currentSeq + 1);
     assert.equal(after.back.label, label);
@@ -1720,7 +1736,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     assert.equal((await read({ path, mode: 'download', offset: 1 })).isError, true);
   });
 
-  it('persists the same clip and animation through Studio and headless MCP, once per request', async () => {
+  it('persists the same clip and animation through programmatic HTTP and remote MCP, once per request', async () => {
     const { app, config, services } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
       app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -1736,7 +1752,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const base = original.version;
     const command = { kind: 'moveClip', hfId: 'hf-title', start: 5 };
     const studio = (key: string) => post(`/api/projects/${projectId}/edits/ui.html`, command,
-      { 'If-Match': base, 'Idempotency-Key': key });
+      { 'If-Match': base, 'Idempotency-Key': key, Authorization: 'Bearer ' + config.DEV_PAT });
     const first = await studio('drag');
     assert.equal(first.status, 200, await first.clone().text());
     assert.equal((await (await studio('drag')).json()).version, (await first.json()).version);
@@ -1799,9 +1815,9 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
   });
 
   it('reapplies a competing audio trim to the current file and replays the original acknowledgements', async () => {
-    const { app, services } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config, services } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
-      app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
+      app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.DEV_PAT, ...headers }, body: JSON.stringify(body) });
     const { projectId } = await (await post('/motion-api/projects', { title: 'Concurrent audio trims' })).json();
     const base = '/api/projects/' + projectId;
     const path = 'scene.html';
@@ -1870,9 +1886,9 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
   });
 
   it('creates, replays and updates beat grids over HTTP while rejecting invalid project media', async () => {
-    const { app, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) => app.request(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.DEV_PAT, ...headers }, body: JSON.stringify(body),
     });
     const { projectId } = await (await post('/motion-api/projects', { title: 'Beat markers' })).json();
     const base = '/api/projects/' + projectId;
@@ -1919,7 +1935,93 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     assert.deepEqual((await read()).beats, changed);
   });
 
-  it('commits canvas properties and timeline edits as one undoable gesture through Studio or remote MCP', async () => {
+  it('commits locally prepared MCP edits with Agent attribution and guarded, atomic history', {
+    skip: !process.env.OPENMOTION_TEST_DATABASE_URL,
+  }, async () => {
+    const { createDbHandle } = await import('../../src/db/client.ts');
+    const { runMigrations } = await import('../../src/db/migrate.ts');
+    const connectionString = process.env.OPENMOTION_TEST_DATABASE_URL!;
+    await runMigrations({ connectionString });
+    const handle = createDbHandle({ connectionString });
+    const userId = randomUUID(), workspaceId = randomUUID();
+    try {
+      await handle.pool.query('INSERT INTO users(id,oidc_sub,display_name) VALUES ($1,$2,$2)', [userId, userId]);
+      await handle.pool.query('INSERT INTO workspaces(id,slug,name,owner_user_id) VALUES ($1,$2,$2,$3)', [workspaceId, workspaceId, userId]);
+      const storage = new InMemoryStorage();
+      const { TextRevisionStorage } = await import('../../src/infra/text-revisions.ts');
+      const revisions = new TextRevisionStorage(handle.db, storage);
+      const readPhysical = storage.getObjectBuffer.bind(storage);
+      storage.getObjectBuffer = key => key.startsWith('workspaces/' + workspaceId + '/text-revisions/')
+        ? revisions.read(workspaceId, key.split('/').at(-1)!) : readPhysical(key);
+      const { app, config, services } = createApiFixture({ deps: { db: handle.db, storage }, config: {
+        DEV_WORKSPACE_ID: workspaceId, DEV_USER_ID: userId, TEXT_PATCH_WRITES: 'true',
+      } });
+      const post = (url: string, body: unknown, headers: Record<string, string> = {}) => app.request(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body),
+      });
+      const { projectId } = await (await post('/motion-api/projects', { title: 'CLI edits' })).json();
+      const base = '/api/projects/' + projectId;
+      const headers: Record<string,string> = {Authorization: 'Bearer ' + config.DEV_PAT, Accept: 'application/json, text/event-stream'};
+      const rpc = (method: string, params: unknown) => post('/mcp', {jsonrpc:'2.0', id:1, method, params}, headers);
+      headers['Mcp-Session-Id'] = (await rpc('initialize', {protocolVersion:'2025-06-18', capabilities:{}, clientInfo:{name:'edit-cli',version:'1'}})).headers.get('mcp-session-id')!;
+      const tool = async (name: string, args: unknown) => (await (await rpc('tools/call', {name, arguments:args})).json()).result;
+      const asset = 'media/music.mp3', grid = 'beats/' + asset + '.json';
+      const upload = new FormData();
+      upload.set('file', new File([new Uint8Array([73,68,51,0])], 'music.mp3', {type:'audio/mpeg'}));
+      upload.set('path', asset);
+      assert.equal((await app.request(base + '/upload', { method:'POST', body:upload })).status, 201);
+      const path = 'graded.html';
+      const seed = '<main data-hf-id="stage"><img data-hf-id="photo" src="pic.png"></main>';
+      assert.equal((await app.request(base + '/files/' + path,{method:'PUT',headers:{'If-None-Match':'*'},body:seed})).status, 200);
+      const inventory = (await tool('openmotion_get_project', {projectId})).structuredContent;
+      if (existsSync(new URL('../../studio/build/edit-core-sha256', import.meta.url))) {
+        const response = await app.request(new URL(inventory.localEditCli.url).pathname);
+        assert.equal(response.status, 200);
+        assert.equal(createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex'), inventory.localEditCli.sha256);
+      }
+      const audio = inventory.files.find((f: {path:string}) => f.path === asset);
+      const source = (await tool('openmotion_get_project', {projectId, file:{path, atProjectVersion:inventory.currentVersionId}})).structuredContent.file;
+      const { prepareFileEdits } = await import('../../packages/edit-core/prepare-file-edits.ts');
+      const textEdits = await prepareFileEdits({kind:'batch', commands:[
+        {kind:'gradeMedia', compositionPath:path, value:'warm'},
+        {kind:'setBeatGrid', assetPath:asset, beats:[{time:0.5,strength:1}]},
+      ]}, [source, audio, {path:grid, fileVersion:null}]);
+      assert.ok(textEdits.files.some(f => 'patch' in f), 'small grade changes travel as a patch');
+      const args = {projectId, requestId:'prepared-grade-and-grid', expectedRevision:inventory.revision, expectedVersionId:inventory.currentVersionId, textEdits};
+      await app.request(base + '/files/unrelated.txt',{method:'PUT',headers:{'If-None-Match':'*'},body:'peer edit'});
+      const count = async () => Number((await handle.pool.query('SELECT count(*) FROM project_history_entries WHERE project_id=$1',[projectId])).rows[0].count);
+      const initial = await count();
+      const semantic = services.files.readEditInputs;
+      services.files.readEditInputs = () => { throw Error('Prepared edits must not run a server command'); };
+      const saved = await tool('openmotion_edit_project', args);
+      assert.equal(saved.isError, undefined, JSON.stringify(saved));
+      assert.deepEqual(new Set(saved.structuredContent.changedFiles), new Set([path,grid]));
+      const replay = await tool('openmotion_edit_project', args);
+      assert.equal(replay.structuredContent.replayed, true);
+      assert.deepEqual(replay.structuredContent.version, saved.structuredContent.version);
+      assert.equal((await tool('openmotion_edit_project', {...args, requestId:'stale-grid'})).isError, true);
+      assert.equal(await count(), initial + 1);
+      const entry = await handle.pool.query('SELECT actor_kind FROM project_history_entries WHERE project_id=$1 ORDER BY seq DESC LIMIT 1',[projectId]);
+      assert.equal(entry.rows[0].actor_kind,'agent');
+      const read = async (p: string) => (await (await app.request(base + '/files/' + encodeURIComponent(p))).json()).content;
+      assert.match(await read(path), /data-color-grading="warm"/);
+      assert.equal(JSON.parse(await read(grid)).beats[0].time, 0.5);
+      assert.equal(await read('unrelated.txt'), 'peer edit');
+      assert.equal((await post(base + '/history/step', {direction:'back'})).status, 200);
+      assert.equal(await read(path), source.content);
+      assert.equal((await app.request(base + '/files/' + encodeURIComponent(grid))).status, 404);
+      assert.equal(await read('unrelated.txt'), 'peer edit');
+      assert.equal((await post(base + '/history/step', {direction:'forward'})).status, 200);
+      assert.equal(JSON.parse(await read(grid)).beats[0].time, 0.5);
+      services.files.readEditInputs = semantic;
+    } finally {
+      await handle.pool.query('DELETE FROM workspaces WHERE id=$1', [workspaceId]);
+      await handle.pool.query('DELETE FROM users WHERE id=$1', [userId]);
+      await handle.close();
+    }
+  });
+
+  it('commits canvas properties and timeline edits as one undoable gesture through programmatic HTTP or remote MCP', async () => {
     const { app, config, pgClient } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (url: string, body: unknown, headers: Record<string, string> = {}) =>
       app.request(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -1945,7 +2047,7 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const versions = { 'ui.html': version, 'ui-track.html': version };
     const historyCount = () => pgClient.tables.get('project_history_entries')!.length;
     const count = historyCount();
-    const studio = (body: unknown, key: string) => post(base + '/edits', body, { 'Idempotency-Key': key });
+    const studio = (body: unknown, key: string) => post(base + '/edits', body, { 'Idempotency-Key': key, Authorization: 'Bearer ' + config.DEV_PAT });
     const bad = edit(paths[0]!, paths[1]!);
     Object.assign(bad.commands[2]!, { hfIds: ['missing'] });
     assert.equal((await studio({ edit: bad, versions }, 'invalid-batch')).status, 400);
@@ -2000,8 +2102,14 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
     const animationId = before.animations[0].id;
     const at = {time:2};
     const values = {x:44,y:28};
-    const studio = await post(base+'/gsap-mutations/studio.html',{type:'set-animated-values',animationId,at,values});
+    const ui = await (await app.request(base + '/files/studio.html')).json();
+    const local = await applyProjectEdit(ui.content, {kind:'editAnimation', compositionPath:'studio.html',
+      mutations:[{type:'set-animated-values', animationId, at, values}]}, new Map());
+    const studio = await post(base + '/text-edits/batch', {operations:[{
+      id:'local-keyframe', label:local.label, files:[{path:'studio.html', baseVersion:ui.version, content:local.content}],
+    }]});
     assert.equal(studio.status,200,await studio.clone().text());
+    assert.equal((await studio.json()).committed.length, 1);
     const headers: Record<string,string> = {Authorization:'Bearer '+config.DEV_PAT,Accept:'application/json, text/event-stream'};
     const rpc = (method:string,params:unknown) => post('/mcp',{jsonrpc:'2.0',id:1,method,params},headers);
     const init = await rpc('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'canvas',version:'1'}});
@@ -2022,9 +2130,9 @@ describe('Cloud API Entrypoint — Studio UI Wiring Parity (/preview/open, Works
   });
 
   it('replays caption commands with the original track and guards both project versions', async () => {
-    const { app } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
+    const { app, config } = createApiFixture({ config: { AUTH_MODE: 'dev' } });
     const post = (path: string, data: unknown) => app.request('/motion-api/' + path, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + config.DEV_PAT }, body: JSON.stringify(data),
     });
     const { projectId } = await (await post('projects', { title: 'Caption retries' })).json();
     const call = (name: string, args: unknown) => post('phase1/call', { name, arguments: args });

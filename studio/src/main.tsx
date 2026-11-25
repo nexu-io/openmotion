@@ -30,7 +30,7 @@ import { bindEmbeddedStudioTheme } from './utils/studioTheme';
 import { bindDesktopHost } from './utils/platformHost';
 import { bootstrapStudioPairingFromHash } from './utils/localConnectBridge';
 import { warmCloudDisklessMode } from './utils/cloudRuntime';
-import { bindVitePreloadErrorReload, lazyWithChunkReload } from './utils/chunkReload';
+import { lazyWithChunkReload } from './utils/chunkReload';
 import { ensureLocaleLoaded, isLocaleLoaded, readLocale } from './i18n/I18n';
 
 warmCloudDisklessMode();
@@ -40,9 +40,6 @@ initBrowserObservability();
 const ComponentInspector = new URLSearchParams(location.search).get('debug') === 'ui'
   ? lazyWithChunkReload(() => import('./components/ComponentInspector'))
   : null;
-
-const unbindPreloadErrorReload = bindVitePreloadErrorReload();
-import.meta.hot?.dispose(unbindPreloadErrorReload);
 
 const unbindHostTheme = bindEmbeddedStudioTheme();
 import.meta.hot?.dispose(unbindHostTheme);

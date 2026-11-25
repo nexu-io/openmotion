@@ -77,10 +77,10 @@ export const PREVIEW_LAYERS = `
     sendRows();
   }
 
-  function reportLayerSelection(element, detail) {
+  function reportLayerSelection(element, detail, additive = false) {
     const key = layerHandles.get(element);
     picked = element;
-    post('select-element', { inspect: true, layerKey: layerElements.has(key) ? key : undefined, subscription: layerSubscription, selection: detail });
+    post('select-element', { inspect: true, ...(additive === true && { additive: true }), layerKey: layerElements.has(key) ? key : undefined, subscription: layerSubscription, selection: detail });
   }
 
   function resolvePreviewLayer(message) {
@@ -113,7 +113,7 @@ export const PREVIEW_LAYERS = `
   function selectPreviewLayer(message) {
     const element = resolvePreviewLayer(message);
     if (!element?.isConnected) return false;
-    reportLayerSelection(element, describe(element));
+    reportLayerSelection(element, describe(element), message.additive);
     return true;
   }
 `;

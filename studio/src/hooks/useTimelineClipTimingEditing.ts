@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "../utils/confirmedTextSources";
 import { holdIsolatedTimelineChanges } from "../player/lib/isolatedTimelineEdits";
 import { previewTimelinePaint } from "./timelinePaintPreview";
 import { saveCloudTimeline, timelineTimingEdits } from "../utils/cloudTimelineEdit";
@@ -250,7 +251,9 @@ export function useTimelineClipTimingEditing({
             throw error;
           });
       };
-      return updates.stackingReorder ? serializeZLaneGesture(commitMove) : commitMove();
+      // In ordered mode the lane and its paint order form one edit, so no previous receipt is needed.
+      const ordered = projectIdRef.current && supportsOrderedTextEdits(projectIdRef.current);
+      return updates.stackingReorder && !ordered ? serializeZLaneGesture(commitMove) : commitMove();
     },
     [
       previewIframeRef,

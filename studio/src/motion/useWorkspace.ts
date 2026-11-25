@@ -3,7 +3,7 @@ import { useI18n } from '../i18n/I18n';
 import { confirmedRoute, projectHref, requestedProject, sessionHref, type OpenedPreview, type WorkspaceRoute } from './workspaceRouting';
 import { availableSession, type CreativeSession, type CreationMode } from '../../../shared/session';
 import { preservePresentation } from '../../../shared/workspace-url';
-import { isStandaloneSpaPath } from '../../../shared/spa-routes';
+import { isNotFoundSpaPath, isStandaloneSpaPath } from '../../../shared/spa-routes';
 import { activeWorkspaceInterval, subscribeProjectActivity, watchWorkspaceRead } from './workspaceRefresh';
 import { getStudioSaveSnapshot, subscribeStudioSaves } from '../utils/studioSaveState';
 import { diagnosticFetch } from './diagnosticRequests';
@@ -93,10 +93,14 @@ export function useWorkspace(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [navigationError, setNavigationError] = useState<{ message: string } | null>(null);
-  const [connectionError, setConnectionError] = useState('');
   const [connectionCheck, setConnectionCheck] = useState(0);
-  const [checkingConnection, setCheckingConnection] = useState(false);
-  const retryConnection = useCallback(() => { setCheckingConnection(true); setConnectionCheck(value => value + 1); }, []);
+  const [statusRead, setStatusRead] = useState({ attempt: 0, error: '' });
+  const [catalogRead, setCatalogRead] = useState({ attempt: 0, error: '' });
+  const connectionError = statusRead.error || catalogRead.error;
+  const checkingConnection = statusRead.attempt < connectionCheck || catalogRead.attempt < connectionCheck;
+  const retryConnection = useCallback(() => setConnectionCheck(value => value + 1), []);
+  const refreshWorkspaceCatalog = useRef<((delay: number) => void) | null>(null);
+  const knownCatalog = useRef<readonly SavedProject[] | null>(null);
   const acting = useRef(false);
   const pendingSession = useRef<{ key: string; id: string } | null>(null);
   // Once a project is known, resolving its session does not change the read scope.
@@ -107,12 +111,16 @@ export function useWorkspace(
     setStatus(null);
     setError('');
     setNavigationError(null);
-    setConnectionError('');
+    setStatusRead(previous => previous.error ? { ...previous, error: '' } : previous);
+    if (projectId && knownCatalog.current && !knownCatalog.current.some(project => project.id === projectId)) {
+      refreshWorkspaceCatalog.current?.(0);
+    }
   }, [projectId, sessionWithoutProject]);
   const request = useCallback(<T,>(path: string, init?: RequestInit) => motionApi<T>(path, init, projectId), [projectId]);
   const updateCatalog = useCallback((catalog: ProjectCatalog) => {
     // The catalog keeps project order; opening a project must not move its sidebar row.
     const ordered = catalog.projects;
+    knownCatalog.current = ordered;
     setActiveProjectId(catalog.activeId);
     setProjects(previous => JSON.stringify(previous) === JSON.stringify(ordered) ? previous : ordered);
     const nextSessions = [...(catalog.sessions ?? [])].sort((a, b) => (b.openedAt ?? b.createdAt ?? 0) - (a.openedAt ?? a.createdAt ?? 0));
@@ -166,32 +174,19 @@ export function useWorkspace(
     window.addEventListener('popstate', restore);
     return () => { cancelled = true; window.removeEventListener(WORKSPACE_LOCATION_CHANGED, accepted); window.removeEventListener('popstate', restore); };
   }, [navigate, projectId, sessionId, waitForSaves, externalHistoryGuard]);
+  // The project list belongs to the workspace. Keep its in-flight read and refresh
+  // schedule when switching between projects in the same mounted workspace.
+  const editingProject = Boolean(projectId);
   useEffect(() => {
     const controller = new AbortController();
-    let statusError: string | undefined, catalogError: string | undefined;
-    const settled = () => {
-      setConnectionError(statusError || catalogError || '');
-      if (statusError !== undefined && catalogError !== undefined) setCheckingConnection(false);
-    };
     const openedAt = Date.now();
-    const refreshStatus = watchWorkspaceRead(controller.signal, async () => {
-      const data = await request<WorkspaceStatus>(workspaceStatusPath, { signal: controller.signal });
-      if (controller.signal.aborted) return Infinity;
-      if (projectId && data.projectId !== projectId && !acting.current) {
-        throw new Error('项目状态与当前页面不匹配，请重新打开对应项目。');
-      }
-      setStatus(data);
-      const exporting = data.exportJob?.state === 'pending' || data.exportJob?.state === 'running';
-      // Save notifications and render events handle changes in the active editor.
-      // Keep a bounded reconciliation for missed events and non-editor views.
-      return exporting ? activeWorkspaceInterval : 120_000;
-    }, error => { statusError = error; settled(); });
-
     const refreshCatalog = watchWorkspaceRead(controller.signal, async () => {
-      const catalog = await motionApi<ProjectCatalog>('/projects', { signal: controller.signal });
+      const catalog = await motionApi<ProjectCatalog>('/projects', { signal: controller.signal, priority: editingProject ? 'low' : 'auto' });
       if (controller.signal.aborted) return Infinity;
       updateCatalog(catalog);
-      const awaitingArtifact = sessionWithoutProject && !isStandaloneSpaPath(location.pathname, location.search, location.hash);
+      const awaitingArtifact = sessionWithoutProject
+        && !isStandaloneSpaPath(location.pathname, location.search, location.hash)
+        && !isNotFoundSpaPath(location.pathname, location.search, location.hash);
       if (awaitingArtifact) {
         const saved = catalog.sessions?.find(item => item.id === sessionWithoutProject);
         const session = saved && availableSession(saved, new Set(catalog.projects.filter(project => project.trashedAt).map(project => project.id)));
@@ -204,7 +199,29 @@ export function useWorkspace(
         return Date.now() - openedAt < 30_000 ? activeWorkspaceInterval : 15_000;
       }
       return 60_000;
-    }, error => { catalogError = error; settled(); });
+    }, error => setCatalogRead({ attempt: connectionCheck, error }));
+
+    refreshWorkspaceCatalog.current = refreshCatalog;
+    return () => {
+      controller.abort();
+      refreshWorkspaceCatalog.current = null;
+    };
+  }, [editingProject, sessionWithoutProject, updateCatalog, connectionCheck, navigate]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const refreshStatus = watchWorkspaceRead(controller.signal, async () => {
+      const data = await request<WorkspaceStatus>(workspaceStatusPath, { signal: controller.signal });
+      if (controller.signal.aborted) return Infinity;
+      if (projectId && data.projectId !== projectId && !acting.current) {
+        throw new Error('项目状态与当前页面不匹配，请重新打开对应项目。');
+      }
+      setStatus(data);
+      const exporting = data.exportJob?.state === 'pending' || data.exportJob?.state === 'running';
+      // Save notifications and render events handle changes in the active editor.
+      // Keep a bounded reconciliation for missed events and non-editor views.
+      return exporting ? activeWorkspaceInterval : 120_000;
+    }, error => setStatusRead({ attempt: connectionCheck, error }));
 
     // Local writes and server-backed history both update the project save store.
     let savedAt = getStudioSaveSnapshot(projectId ?? null).savedAt;
@@ -216,10 +233,10 @@ export function useWorkspace(
     });
     const unsubscribeActivity = subscribeProjectActivity((id, event) => {
       if (id !== projectId) return;
-      if (event === 'catalog-changed') { refreshCatalog(0); return; }
+      if (event === 'catalog-changed') { refreshWorkspaceCatalog.current?.(0); return; }
       if (event === 'reconnected') {
         refreshStatus(0);
-        refreshCatalog(0);
+        refreshWorkspaceCatalog.current?.(0);
       } else if (event === 'render-updated') refreshStatus(activeWorkspaceInterval);
     });
     const handleAccountChanged = () => {
@@ -227,7 +244,7 @@ export function useWorkspace(
       setActiveProjectId(null);
       setSessions([]);
       refreshStatus(0);
-      refreshCatalog(0);
+      refreshWorkspaceCatalog.current?.(0);
     };
     window.addEventListener('motion:account-changed', handleAccountChanged);
     return () => {
@@ -236,7 +253,7 @@ export function useWorkspace(
       unsubscribeActivity();
       window.removeEventListener('motion:account-changed', handleAccountChanged);
     };
-  }, [projectId, sessionWithoutProject, updateCatalog, request, connectionCheck, navigate]);
+  }, [projectId, request, connectionCheck, sessionWithoutProject]);
 
   const transition = useCallback(async (path?: string, options?: { instruction?: string; mode?: string; templateId?: string; projectId?: string }, route: { session?: boolean; revealArtifact?: boolean; existing?: OpenTarget } = {}) => {
     if (acting.current) return false;
@@ -259,6 +276,7 @@ export function useWorkspace(
           ? sessionHref(opened.sessionId, opened.projectId, Boolean(route.session && opened.projectId && (route.revealArtifact ?? true)))
           : projectHref(opened.projectId!);
         clearAuthPendingDraft();
+        if (opened.projectId) setActiveProjectId(opened.projectId);
         navigate(href, false, resolved ?? undefined);
         return true;
       }

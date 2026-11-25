@@ -25,6 +25,9 @@ interface StudioContextInput {
   };
   handleUndo: StudioContextValue["handleUndo"];
   handleRedo: StudioContextValue["handleRedo"];
+  writeProjectFile: StudioContextValue["writeProjectFile"];
+  recordEdit: StudioContextValue["recordEdit"];
+  reloadPreview: StudioContextValue["reloadPreview"];
   // Was a second copy of the same shape, which meant every field added to the
   // context had to be added here too or the build broke. Same idiom as the
   // fields around it: the context type owns it.
@@ -62,6 +65,9 @@ export function buildStudioContextValue(input: StudioContextInput): StudioContex
       : input.domEditSaveQueuePaused,
     handleUndo: input.handleUndo,
     handleRedo: input.handleRedo,
+    writeProjectFile: input.writeProjectFile,
+    recordEdit: input.recordEdit,
+    reloadPreview: input.reloadPreview,
     renderQueue: input.renderQueue,
     compositionDimensions: input.compositionDimensions,
     waitForPendingDomEditSaves: input.waitForPendingDomEditSaves,

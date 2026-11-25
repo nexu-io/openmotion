@@ -101,20 +101,23 @@ function isAtomicElementPatchFile(value: unknown): value is AtomicElementPatchFi
   );
 }
 
-/** Isolated frames report their source hash alongside the gesture. */
-export function isolatedCanvasCommands(batches: DomEditPatchBatch[]) {
+/** Keep every command in gesture order; an isolated frame also supplies its displayed revision. */
+export function canvasBatchCommands(batches: DomEditPatchBatch[]) {
   const commands: CompositionEdit[] = [];
   const versions: Record<string, string> = {};
   for (const {sourceFile, ifMatch, patches, box, position} of batches) {
-    if (!ifMatch || !patches.length || Object.hasOwn(versions, sourceFile)) return null;
-    versions[sourceFile] = ifMatch;
+    if (!patches.length) throw new Error("The canvas edit has no targets.");
+    if (ifMatch) {
+      if (versions[sourceFile] && versions[sourceFile] !== ifMatch) throw new Error("The selection spans different versions of the same file.");
+      versions[sourceFile] = ifMatch;
+    }
     const target = patches[0]!.target;
-    if (box && patches.length !== 1) return null;
+    if (box && patches.length !== 1) throw new Error("A canvas box requires one target.");
     if (!box) commands.push({ kind: "editElements", compositionPath: sourceFile, patches });
     else if (!position) commands.push({ kind: "setCanvasBox", compositionPath: sourceFile, target, box });
     else commands.push({ kind: "moveCanvasElement", compositionPath: sourceFile, target, staticBox: box, ...position });
   }
-  return commands.length ? { commands, versions } : null;
+  return { commands, versions };
 }
 
 // This is the single client owner for dispatching and validating the aggregate

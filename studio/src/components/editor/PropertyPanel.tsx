@@ -64,10 +64,6 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
     projectId,
     assets,
     element,
-    multiSelectCount = 0,
-    multiSelectedElements,
-    onGroupSelection,
-    onHideAllSelected,
     copiedAgentPrompt: _copiedAgentPrompt,
     onClearSelection,
     onUngroup,
@@ -176,16 +172,7 @@ export const PropertyPanel = memo(function PropertyPanel(props: PropertyPanelPro
     useManualEditDisabledFlags(element?.capabilities, manualOffset);
 
   if (!element) {
-    return (
-      <PropertyPanelEmptyState
-        flat={mvp || STUDIO_FLAT_INSPECTOR_ENABLED}
-        multiSelectCount={multiSelectCount}
-        multiSelectedElements={multiSelectedElements}
-        onGroupSelection={onGroupSelection}
-        onHideAllSelected={onHideAllSelected}
-        onClearSelection={onClearSelection}
-      />
-    );
+    return <PropertyPanelEmptyState {...props} />;
   }
 
   const sourceLabel = element.id ? `#${element.id}` : (element.selector ?? "");

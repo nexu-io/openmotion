@@ -2,15 +2,11 @@ import { useCallback, useMemo, useRef } from "react";
 import { findUnsafeMutationValues } from "@hyperframes/core/studio-api/finite-mutation";
 import { readProjectFileContent as readSharedProjectFileContent } from "../utils/studioFileHistory";
 import type { DomEditSelection } from "../components/editor/domEditingTypes";
-import { usePlayerStore } from "../player/store/playerStore";
 import {
-  applySoftReload,
   extractGsapScriptText,
   readNestedFiles,
   settleNestedReads,
 } from "../utils/gsapSoftReload";
-import type { SoftReloadResult } from "../utils/gsapSoftReload";
-import { trackStudioEvent } from "../utils/studioTelemetry";
 import { trackKeyframeCommit } from "../utils/keyframeUsage";
 import { serializeStudioFileMutation } from "../utils/studioFileMutationCoordinator";
 import { trackedStudioEdit } from "../utils/studioPendingEdits";
@@ -21,7 +17,8 @@ import {
 } from "../utils/studioSaveDiagnostics";
 import type { CutoverDeps } from "../utils/sdkCutover";
 import { updateKeyframeCacheFromParsed } from "./gsapKeyframeCacheHelpers";
-import { patchRuntimeTweenInPlace } from "./gsapRuntimePatch";
+import { applyPreviewSync, finishUnchangedMutation, redrawUnlessPaintedBack, refreshMutationPreview, softReloadOrEscalate } from "./gsapPreviewSync";
+export { applyPreviewSync } from "./gsapPreviewSync";
 import { createKeyedSerializer } from "./serializeByKey";
 import {
   GsapMutationHttpError,
@@ -46,6 +43,12 @@ import {
 } from "./useSafeGsapCommitMutation";
 import { requestGsapMutation } from "./gsapMutationClient";
 import { cloudHistoryForWrite, type StudioWriteHistory } from "../utils/studioFileHistory";
+import { saveOrderedGsapEdit } from "./orderedGsapEdits";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import { scheduleCommittedPreview } from "../player/committedPreview";
+import { confirmedSource } from "../utils/confirmedTextSources";
+import { projectedTimelineText } from "../utils/orderedTimelineEdits";
+import { readStudioEditSource } from "../utils/studioTextEdits";
 import { whileScriptWrites } from "../player/previewReloading";
 
 async function mutateGsapScript(
@@ -105,44 +108,6 @@ async function runMutationRequest(
   }
 }
 
-function finishUnchangedMutation(
-  iframe: HTMLIFrameElement | null,
-  result: MutationResult,
-  options: CommitMutationOptions,
-  reloadPreview: () => void,
-): boolean {
-  if (result.changed !== false) return false;
-  if (
-    !options.skipReload &&
-    (instantPatchesFor(options).length > 0 || options.previewFallbackLatch?.pending)
-  ) {
-    redrawUnlessPaintedBack(options, () =>
-      applyPreviewSync(iframe, result, options, reloadPreview),
-    );
-  }
-  return true;
-}
-
-function redrawUnlessPaintedBack(options: CommitMutationOptions, redraw: () => void): void {
-  if (options.pendingEdit) options.pendingEdit.drawUnlessUndone(redraw);
-  else redraw();
-}
-
-function refreshMutationPreview(
-  iframe: HTMLIFrameElement | null,
-  result: MutationResult,
-  options: CommitMutationOptions,
-  reloadPreview: () => void,
-  onCacheInvalidate: () => void,
-  nestedFiles?: Map<string, string> | null,
-): void {
-  redrawUnlessPaintedBack(options, () => {
-    options.beforeReload?.();
-    applyPreviewSync(iframe, result, options, reloadPreview, nestedFiles);
-  });
-  onCacheInvalidate();
-}
-
 function isActiveCommitTarget(
   projectIdRef: { current: string | null },
   activeCompPathRef: { current: string | null },
@@ -196,122 +161,11 @@ function syncCommittedGsapMutation({
   refreshMutationPreview(iframe, result, options, reloadPreview, onCacheInvalidate, nestedFiles);
 }
 
-/**
- * Apply a soft reload and enforce the U4 invariant via the richer
- * `SoftReloadResult`, with telemetry on every non-success path so the invariant
- * is observable in production, not just asserted in tests:
- *
- * - `"cannot-soft-reload"` (PERMANENT/STRUCTURAL: no gsap runtime, no rebind
- *   hook, no scopable key, no script element, or the sync re-run threw) →
- *   escalate to a full `reloadPreview()`; the preview is genuinely stale/broken.
- * - `"verify-failed"` (TRANSIENT: re-run happened, `__timelines` momentarily
- *   empty) → do NOT escalate; the live `gsap.set` already shows the correct value
- *   and a remount would re-flash the WebGL context + revert subcomp keyframes.
- * - `"applied"` → success (or deferred to async plugin load; `onAsyncFailure`
- *   covers the CDN-error escalation).
- */
-function softReloadOrEscalate(
-  iframe: HTMLIFrameElement | null,
-  scriptText: string,
-  reloadPreview: () => void,
-  origin: "preview_sync" | "sdk_refresh",
-  authoredHtml?: string,
-  nestedFiles?: Map<string, string> | null,
-): void {
-  // Seek the rebuilt timeline to the studio's own authoritative scrub position,
-  // not the iframe's raw `__player.getTime()` — see the comment in
-  // applySoftReload for why the two can desync after a keyframe-node drag.
-  const currentTime = usePlayerStore.getState().currentTime;
-  const result: SoftReloadResult = applySoftReload(iframe, scriptText, {
-    onAsyncFailure: reloadPreview,
-    currentTimeOverride: currentTime,
-    authoredHtml,
-    nestedFiles,
-  });
-  if (result === "applied") return;
-  trackStudioEvent("gsap_soft_reload_outcome", {
-    origin,
-    result,
-    escalated: result === "cannot-soft-reload",
-  });
-  // PERMANENT failure: the preview can't be soft-updated → full reload. TRANSIENT
-  // "verify-failed" is suppressed (live state is correct).
-  if (result === "cannot-soft-reload") reloadPreview();
-}
-
-/**
- * Sync the preview after a persisted commit. For a value-only edit
- * (`options.instantPatch`), try the in-place runtime patch first: on success the
- * preview is already correct, so we skip the reload entirely (instant). On `false`
- * — or when no `instantPatch` is supplied — fall back to the existing soft/full
- * reload. Pure (no React) so `runCommit`'s preview-sync decision is unit-testable.
- */
-export function applyPreviewSync(
-  iframe: HTMLIFrameElement | null,
-  result: MutationResult,
-  options: CommitMutationOptions,
-  reloadPreview: () => void,
-  nestedFiles?: Map<string, string> | null,
-): void {
-  const patches = instantPatchesFor(options);
-  const writtenWithoutPatch = patches.length === 0;
-  let needsFallback = options.previewFallbackLatch?.pending === true || writtenWithoutPatch;
-  if (patches.length > 0) {
-    const deferSeek = options.deferPreviewSync === true;
-    const missed = patches.find(
-      (patch, index) =>
-        !patchRuntimeTweenInPlace(
-          iframe,
-          patch.selector,
-          patch.change,
-          undefined,
-          deferSeek || index < patches.length - 1,
-        ),
-    );
-    if (missed) {
-      // The instant path couldn't patch in place — record the fallback so we can
-      // track how often the fast path misses before the soft/full reload below.
-      trackStudioEvent("gsap_instant_patch_fallback", { selector: missed.selector });
-      needsFallback = true;
-    }
-    // Patched in place — elements are already correct on screen; no reload needed
-    // unless an earlier deferred batch left one member unpatched.
-    if (!needsFallback) return;
-  }
-  // Written, but the caller has more writes to make and will render after the last.
-  if (options.deferPreviewSync && options.previewFallbackLatch) {
-    options.previewFallbackLatch.pending = needsFallback;
-    return;
-  }
-  if (options.deferPreviewSync && !needsFallback) return;
-  if (options.previewFallbackLatch) options.previewFallbackLatch.pending = false;
-  if (options.softReload && result.scriptText) {
-    // A soft-reloadable edit escalates to a full iframe remount ONLY on the
-    // PERMANENT "cannot-soft-reload" result (the preview is genuinely stale/
-    // broken). The TRANSIENT "verify-failed" does NOT escalate — the value is
-    // already correct on screen, and a remount re-flashes the WebGL context AND
-    // re-inlines subcomps (reverting their keyframes). The async MotionPath-plugin
-    // load failure escalates separately via `onAsyncFailure`.
-    softReloadOrEscalate(
-      iframe,
-      result.scriptText,
-      reloadPreview,
-      "preview_sync",
-      result.after ?? undefined,
-      nestedFiles,
-    );
-  } else {
-    reloadPreview();
-  }
-}
-
-function instantPatchesFor(
-  options: CommitMutationOptions,
-): NonNullable<CommitMutationOptions["instantPatches"]> {
-  return [
-    ...(options.instantPatches ?? []),
-    ...(options.instantPatch ? [options.instantPatch] : []),
-  ];
+/** Apply batched deltas directly only when every member has an in-place change. */
+function batchPreviewOptions(calls: CommitMutationCall[], options: CommitMutationOptions): CommitMutationOptions {
+  const patches = calls.flatMap(call => call.options.instantPatch ? [call.options.instantPatch] : []);
+  const { instantPatch: _single, ...rest } = options;
+  return patches.length === calls.length ? { ...rest, instantPatches: patches } : rest;
 }
 
 // oxfmt-ignore
@@ -325,6 +179,7 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
   // the same animationId so their POSTs can't interleave. Held in a ref so the
   // chain survives re-renders.
   const serializerRef = useRef(createKeyedSerializer());
+  const newestPaint = useRef<symbol | null>(null);
   const recordMutationEdit = useCallback(async (targetPath: string, result: MutationResult, options: CommitMutationOptions) => {
     if (result.before == null || result.after == null) return;
     await editHistory.recordEdit({
@@ -397,15 +252,75 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
     if (!result) return;
     trackKeyframeCommit(mutations, result, options, calls.map((call) => call.options));
     options.onResult?.(result);
-    // The batch wrote every call, so patch in place only when every call brought a patch; one
-    // without (a resize's size write) needs the reload, or the preview keeps the old value.
-    const instantPatches = calls.flatMap(({ options: callOptions }) =>
-      callOptions.instantPatch ? [callOptions.instantPatch] : [],
-    );
-    const { instantPatch: _instantPatch, ...batchOptions } = options;
-    const allPatched = instantPatches.length === calls.length;
-    await finalizeSuccessfulMutation(pid, compositionPath, last.selection, last.mutation, targetPath, result, allPatched ? { ...batchOptions, instantPatches } : batchOptions);
+    await finalizeSuccessfulMutation(pid, compositionPath, last.selection, last.mutation, targetPath, result, batchPreviewOptions(calls, options));
   }), [showToast, finalizeSuccessfulMutation, writeProjectFile]);
+
+  const runOrderedCommit = useCallback(async (pid: string, compositionPath: string | null, path: string, calls: CommitMutationCall[], options: CommitMutationOptions) => {
+    const last = calls.at(-1);
+    if (!last) return;
+    const mutations = calls.map(call => call.mutation);
+    const display = calls.length > 1 ? batchPreviewOptions(calls, options) : options;
+    const active = () => isActiveCommitTarget(projectIdRef, activeCompPathRef, pid, compositionPath);
+    const gesture = Symbol();
+    let painted: MutationResult | undefined;
+    let fallback = false;
+    let saved = false;
+    const requestFallback = () => {
+      fallback = true;
+      if (saved && active() && newestPaint.current === gesture) reloadPreview();
+    };
+    const present = (result: MutationResult, paintOptions = display) => {
+      if (!active() || paintOptions.skipReload) return;
+      painted = result;
+      newestPaint.current = gesture;
+      const frame = previewIframeRef.current;
+      if (finishUnchangedMutation(frame, result, paintOptions, requestFallback)) return;
+      if (result.parsed) updateKeyframeCacheFromParsed(result.parsed.animations, path,
+        last.selection.id ?? undefined, last.mutation, frame?.contentDocument);
+      if (!frame?.contentDocument) {
+        fallback = true;
+        return;
+      }
+      redrawUnlessPaintedBack(paintOptions, () => {
+        paintOptions.beforeReload?.();
+        // Replaying the parent timeline can reset styles owned by a nested composition.
+        // Read only those children, taking an outstanding edit's projection when available.
+        const reads = paintOptions.softReload && result.scriptText && !paintOptions.instantPatch && !paintOptions.instantPatches?.length
+          ? readNestedFiles(frame, result.scriptText, child => projectedTimelineText(pid, child)
+              ?? readStudioEditSource(pid, child).then(file => file.content)) : null;
+        if (!reads) applyPreviewSync(frame, result, paintOptions, requestFallback);
+        else void settleNestedReads(reads).then(files => {
+          if (active() && newestPaint.current === gesture && frame === previewIframeRef.current)
+            redrawUnlessPaintedBack(paintOptions, () => applyPreviewSync(frame, result, paintOptions, requestFallback, files));
+        });
+      });
+    };
+    const result = await runMutationRequest(mutations, options, showToast, () => saveOrderedGsapEdit(
+      pid, path, last.selection, mutations, options, options.history ?? cloudHistoryForWrite(writeProjectFile, options),
+      editHistory.recordEdit, present, (accepted, previous) => {
+        if (!active()) return;
+        const frame = previewIframeRef.current;
+        if (accepted.after != null) onFileContentChanged?.(path, accepted.after);
+        forceReloadSdkSession?.();
+        if (display.skipReload) return;
+        if (!painted || painted.scriptText !== accepted.scriptText) {
+          // Another entry point may have confirmed a newer script. Bind that script
+          // instead of applying this older gesture's runtime values over it.
+          present(accepted, { ...display, instantPatch: undefined, instantPatches: undefined });
+        }
+        saved = true;
+        if (fallback && !display.deferPreviewSync) {
+          if (frame) scheduleCommittedPreview(frame, pid, [{ path, previous, current: confirmedSource(pid, path) }], reloadPreview);
+          else reloadPreview();
+        }
+        onCacheInvalidate();
+      },
+    ));
+    if (result) {
+      trackKeyframeCommit(mutations, result, options, calls.map(call => call.options));
+      options.onResult?.(result);
+    }
+  }, [projectIdRef, previewIframeRef, editHistory.recordEdit, showToast, onFileContentChanged, forceReloadSdkSession, onCacheInvalidate, reloadPreview, writeProjectFile]);
 
   // Every GSAP-script commit is a read-modify-write of one file. Overlapping
   // commits to the SAME file (any op type, any animation) interleave server-side,
@@ -433,6 +348,9 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
     const commit: CommitMutation = trackedStudioEdit((selection, mutation, options) => {
       if (!activeProjectId) return Promise.resolve();
       const file = gsapWriteFile(selection, activeCompPath);
+      if (getCachedCloudDisklessMode()) {
+        return runOrderedCommit(activeProjectId, activeCompPath, file, [{ selection, mutation, options }], options);
+      }
       return serializeCommit(file, options.serializeKey, () =>
         runCommit(activeProjectId, activeCompPath, file, selection, mutation, options),
       );
@@ -440,12 +358,13 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
     commit.batch = trackedStudioEdit((calls: CommitMutationCall[], options: CommitMutationOptions) => {
       if (!activeProjectId) return Promise.resolve();
       const file = calls[0] ? gsapWriteFile(calls[0].selection, activeCompPath) : "index.html";
+      if (getCachedCloudDisklessMode()) return runOrderedCommit(activeProjectId, activeCompPath, file, calls, options);
       return serializeCommit(file, options.serializeKey, () =>
         runBatchCommit(activeProjectId, activeCompPath, file, calls, options),
       );
     });
     return commit;
-  }, [runCommit, runBatchCommit, activeCompPath, activeProjectId, writeProjectFile]);
+  }, [runCommit, runBatchCommit, runOrderedCommit, activeCompPath, activeProjectId, writeProjectFile]);
   const trackGsapSaveFailure = useGsapSaveFailureTelemetry(activeCompPath);
   const handleGsapSaveFailure = useCallback(
     (
@@ -501,7 +420,7 @@ export function useGsapScriptCommits({ projectIdRef, activeCompPath, previewIfra
   );
   const sdkDeps = useMemo<CutoverDeps | null>(
     () =>
-      writeProjectFile
+      writeProjectFile && !getCachedCloudDisklessMode()
         ? {
             editHistory: { recordEdit: editHistory.recordEdit },
             writeProjectFile,

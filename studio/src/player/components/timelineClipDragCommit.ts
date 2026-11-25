@@ -543,6 +543,7 @@ export function commitZMirrorLaneMove(
   move: NonNullable<ZMirrorLaneMove>,
   deps: DragCommitDeps,
   coalesceKey: string,
+  onNoLaneMove = () => Promise.resolve(false),
 ): Promise<boolean> {
   if (move.kind === "move") {
     const edit: TimelineMoveEdit = {
@@ -556,7 +557,7 @@ export function commitZMirrorLaneMove(
     );
   }
   const built = buildTrackInsertEdits(element, element.start, move.insertRow, null, deps);
-  if (!built || built.edits.length === 0) return Promise.resolve(false);
+  if (!built || built.edits.length === 0) return onNoLaneMove();
   return refreshAfterDurableLaneMove(
     persistMoveEdits(built.edits, deps, coalesceKey, "track-insert"),
     deps,

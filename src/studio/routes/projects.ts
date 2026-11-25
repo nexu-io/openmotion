@@ -4,9 +4,10 @@ import { decodedUrlPath } from '@hyperframes/parsers/asset-paths';
 import { and, desc, eq, gt, inArray } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { FONT_EXT } from '../../../shared/asset-names.ts';
-import { extractIndexHeadMarkup, NON_PREVIEW_FILES } from '../../../shared/preview-impact.ts';
+import { extractIndexHeadMarkup, isNonPreviewFile } from '../../../shared/preview-impact.ts';
 import { uploadTickets } from '../../db/schema/blobs-assets.ts';
 import { jobs } from '../../db/schema/jobs.ts';
+import type { AuthContext } from '../../contracts/auth.ts';
 import type { FontMetadataEntry } from '../../services/asset-names-service.ts';
 import {
   getAuthContext,
@@ -16,6 +17,7 @@ import {
 import { infoInMemory } from '../engine/inspect.ts';
 import { formatFileVersion, hashIndexHeadMarkup } from '../etag.ts';
 import {
+  type VirtualFileRecord,
   listVirtualCompositions,
   resolveVirtualPath,
   virtualDirname,
@@ -136,7 +138,7 @@ export function computeCompositionRevisions(
         : 'workspace';
     const version = formatFileVersion(scope, file.sha256);
     byPath.set(file.path, version);
-    if (file.path !== 'index.html' && !compSet.has(file.path) && !NON_PREVIEW_FILES.has(file.path)) {
+    if (file.path !== 'index.html' && !compSet.has(file.path) && !isNonPreviewFile(file.path)) {
       sharedHash.update(file.path);
       sharedHash.update(':');
       sharedHash.update(version);
@@ -183,6 +185,43 @@ export function computeCompositionRevisions(
   return revisions;
 }
 
+// Captions depend on paths, the two naming manifests and font contents. Other
+// content edits leave these details unchanged when an editor refreshes its tree.
+function assetDetailsKey(files: readonly VirtualFileRecord[], language: string | null): string {
+  const hash = createHash('sha256').update(JSON.stringify(language));
+  for (const file of [...files].sort((a, b) => a.path.localeCompare(b.path))) {
+    const includeContent = FONT_EXT.test(file.path) || file.path === 'motion-assets.json' || file.path === 'motion-project.json';
+    hash.update(JSON.stringify([file.path, includeContent ? file.sha256 : null]));
+  }
+  return hash.digest('hex');
+}
+
+async function readAssetDetails(
+  deps: DisklessStudioDeps, auth: AuthContext, projectId: string, fileList: readonly VirtualFileRecord[],
+) {
+  const projectFonts: Array<FontMetadataEntry & { postscriptName?: string }> = [];
+  if (deps.fontCatalog) {
+    for (const file of fileList) {
+      if (!FONT_EXT.test(file.path)) continue;
+      try {
+        const bytes = await deps.files.readBinaryBlob(auth.workspaceId, file.blobScope, file.sha256);
+        const meta = deps.fontCatalog.inspectBuffer(bytes);
+        if (meta) {
+          projectFonts.push({ ...meta, path: file.path });
+        }
+      } catch {
+        // Invalid font assets remain listed in files but are skipped from selectable fonts.
+      }
+    }
+  }
+
+  const assetNameInfo = await deps.assetNames.readAssetNames(auth, projectId, {
+    paths: fileList.map(file => file.path),
+    fonts: projectFonts,
+  });
+  return { fonts: projectFonts, assetNames: assetNameInfo.assetNames, namingLanguage: assetNameInfo.namingLanguage };
+}
+
 export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Variables: StudioVariables }> {
   const app = new Hono<{ Variables: StudioVariables }>();
 
@@ -209,44 +248,36 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     const auth = await getAuthContext(c, deps, { scope: 'projects:read' });
     const projectId = c.req.param('id');
     const detail = await deps.workspace.getProject(auth, projectId, { allowTrashed: true });
-    const virtual = await deps.files.loadVirtualProject(auth, projectId);
+    const view = c.req.query('view');
+    if (view === 'asset-details') {
+      const files = await deps.files.listFiles(auth, projectId);
+      return c.json({ assetDetailsKey: assetDetailsKey(files, detail.namingLanguage), ...await readAssetDetails(deps, auth, projectId, files) });
+    }
+    const editor = view === 'editor';
+    const virtual = await deps.files.loadVirtualProject(auth, projectId, editor ? path => /\.html?$/i.test(path) : undefined);
     const fileList = virtual.listFiles();
     const filePaths = fileList.map((f) => f.path);
     const compositions = listVirtualCompositions(fileList);
+    const revision = editor ? virtual.revision : detail.revision;
     const compositionRevisions = computeCompositionRevisions(
       fileList,
       compositions,
       virtual.readText('index.html'),
-      detail.revision,
+      revision,
       (filePath) => virtual.readText(filePath),
     );
-    const info = infoInMemory(virtual);
+    const info = editor ? null : infoInMemory(virtual);
 
-    const projectFonts: Array<FontMetadataEntry & { postscriptName?: string }> = [];
-    if (deps.fontCatalog) {
-      for (const file of fileList) {
-        if (!FONT_EXT.test(file.path)) continue;
-        try {
-          const bin = await deps.files.readBinaryFile(auth, projectId, file.path);
-          if (!bin) continue;
-          const meta = deps.fontCatalog.inspectBuffer(bin.buffer);
-          if (meta) {
-            projectFonts.push({ ...meta, path: file.path });
-          }
-        } catch {
-          // Invalid font assets remain listed in files but are skipped from selectable fonts.
-        }
-      }
-    }
-
-    const assetNameInfo = await deps.assetNames.readAssetNames(auth, projectId, {
-      paths: filePaths,
-      fonts: projectFonts,
-    });
+    const deferredDetails = editor && deps.fontCatalog && fileList.some(file => FONT_EXT.test(file.path));
+    const assetDetails = deferredDetails
+      ? { assetDetailsKey: assetDetailsKey(fileList, detail.namingLanguage) }
+      : await readAssetDetails(deps, auth, projectId, fileList);
 
     const assetMetadata: Record<
       string,
       {
+        version?: string;
+        mimeType?: string;
         duration?: number;
         width?: number;
         height?: number;
@@ -260,11 +291,12 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
       }
     > = {};
     for (const file of fileList) {
-      const meta = file.metadata;
-      if (!meta) continue;
+      const binaryInput = deps.files.textPatchWrites && !file.isText;
+      if (!file.metadata && !binaryInput) continue;
+      const meta = file.metadata ?? {};
       const previewProxy = (meta as { previewProxy?: { status?: 'ready' | 'failed' } }).previewProxy;
       let optimizationStatus: 'optimizing' | 'ready' | undefined;
-      if (file.blobScope === 'workspace') {
+      if (file.metadata && file.blobScope === 'workspace') {
         const mime = (meta.mimeType ?? file.mimeType ?? '').toLowerCase();
         const proxyTarget = classifyPreviewProxyTarget({
           mimeType: mime,
@@ -286,6 +318,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
         }
       }
       const entry: (typeof assetMetadata)[string] = {
+        ...(binaryInput && { version: formatFileVersion(file.blobScope, file.sha256), mimeType: file.mimeType }),
         ...(typeof meta.durationSec === 'number' && Number.isFinite(meta.durationSec)
           ? { duration: meta.durationSec }
           : {}),
@@ -327,6 +360,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
     }> = [];
     try {
       const now = new Date();
+      const freshIngestCutoff = new Date(now.getTime() - 15 * 60_000);
       const [activeTickets, activeJobs] = await Promise.all([
         deps.db
           .select()
@@ -350,6 +384,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
               eq(jobs.projectId, projectId),
               eq(jobs.kind, 'media_ingest'),
               inArray(jobs.state, ['queued', 'running']),
+              gt(jobs.updatedAt, freshIngestCutoff),
             ),
           )
           .orderBy(desc(jobs.createdAt))
@@ -390,6 +425,15 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
         if (seenJobIds.has(job.id)) continue;
         const payload = (job.inputPayload ?? {}) as Record<string, unknown>;
         const kind = typeof payload.kind === 'string' ? payload.kind : typeof payload.operation === 'string' ? payload.operation : '';
+        const explicitSource = payload.source;
+        const source: 'mcp_upload' | 'mcp_url' | 'web_upload' =
+          explicitSource === 'mcp_upload' || explicitSource === 'mcp_url' || explicitSource === 'web_upload'
+            ? explicitSource
+            : kind === 'url' || kind === 'url_fetch'
+              ? 'mcp_url'
+              : kind === 'upload_commit'
+                ? 'web_upload'
+                : 'mcp_upload';
         const filename =
           (typeof payload.name === 'string' && payload.name) ||
           (typeof payload.targetPath === 'string' && payload.targetPath.split('/').pop()) ||
@@ -399,7 +443,7 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
           jobId: job.id,
           filename,
           ...(typeof payload.targetPath === 'string' ? { targetPath: payload.targetPath } : {}),
-          source: kind === 'url' || kind === 'url_fetch' ? 'mcp_url' : 'mcp_upload',
+          source,
           state: 'processing',
           ...(job.stage ? { stage: job.stage } : {}),
           progress: Number(job.progress ?? 0),
@@ -415,23 +459,18 @@ export function createStudioProjectsRoutes(deps: DisklessStudioDeps): Hono<{ Var
       name: detail.title,
       title: detail.title,
       dir: `/virtual/${detail.id}`,
-      revision: detail.revision,
+      revision,
+      ...(editor ? { entryVersion: virtual.getFileVersion('index.html') } : {}),
       compositionRevisions,
       versionId: detail.currentVersionId,
       versionNumber: detail.currentVersionNumber,
       historySeq: detail.currentHistorySeq,
       files: filePaths,
       compositions,
-      fonts: projectFonts,
-      assetNames: assetNameInfo.assetNames,
+      ...assetDetails,
       assetMetadata,
       pendingImports,
-      namingLanguage: assetNameInfo.namingLanguage,
-      width: info.width,
-      height: info.height,
-      fps: info.fps,
-      duration: info.duration,
-      resolution: info.resolution,
+      ...(info ? { width: info.width, height: info.height, fps: info.fps, duration: info.duration, resolution: info.resolution } : {}),
     });
   });
 

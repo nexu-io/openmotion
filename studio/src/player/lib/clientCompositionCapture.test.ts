@@ -15,7 +15,7 @@ import {
   quantizeCompositionFrameCount,
   retainCachedCompositionCapture,
   seedClientCompositionCaptureForTest,
-  selectInitialGateCompositionPaths,
+  selectPriorityCompositionPaths,
   setCachedProjectRevision,
   setClientCompositionCaptureCapabilityForTest,
   subscribeCompositionCacheRevision,
@@ -127,14 +127,14 @@ describe("clientCompositionCapture", () => {
       duration: 5,
     }));
     // Playhead at t=22s sits inside s4 (20..25), next nearest are s3 (dist 2), s2 (dist 7), s6 (dist 8, s5 hidden).
-    expect(selectInitialGateCompositionPaths(elements, 22, 4)).toEqual([
+    expect(selectPriorityCompositionPaths(elements, 22, 4)).toEqual([
       "compositions/s4.html",
       "compositions/s3.html",
       "compositions/s2.html",
       "compositions/s6.html",
     ]);
     // At t=0, picks first 4 clips left-to-right.
-    expect(selectInitialGateCompositionPaths(elements, 0, 4)).toEqual([
+    expect(selectPriorityCompositionPaths(elements, 0, 4)).toEqual([
       "compositions/s0.html",
       "compositions/s1.html",
       "compositions/s2.html",
@@ -1558,5 +1558,68 @@ describe("clientCompositionCapture", () => {
     );
     expect(peekCachedCompositionCapture(baseInput)).toBe(v2Val);
     for (const url of v1Urls) expect(activeUrls.has(url)).toBe(false);
+  });
+
+  it("keeps three deferred sidebar captures queued out of scheduler slots while a gated timeline clip runs", async () => {
+    vi.spyOn(URL, "createObjectURL").mockImplementation(() => "blob:test/gated-slot");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+
+    const projectId = "proj-gate-slots";
+    const gatedInput = {
+      previewUrl: `/api/projects/${projectId}/preview/comp/compositions/intro.html`,
+      projectId,
+      contentRevision: 0,
+      frameCount: 2,
+    };
+    seedClientCompositionCaptureForTest(gatedInput, [new Blob(["g1"]), new Blob(["g2"])]);
+
+    usePlayerStore.setState({
+      editorInputLocked: true,
+      assetReadinessPhase: "ready",
+      assetReadinessSkipped: false,
+      isPlaying: false,
+    });
+
+    const sidebarReqs = ["index.html", "compositions/a.html", "compositions/b.html"].map((comp) =>
+      createClientCompositionCaptureRequest({
+        previewUrl: `/api/projects/${projectId}/preview/comp/${comp}`,
+        projectId,
+        sessionEpoch: 1,
+        contentRevision: 0,
+        frameCount: 1,
+        priority: "overscan",
+      }),
+    );
+    const sidebarLeases = sidebarReqs.map((req) => thumbnailScheduler.acquire(req, () => {}));
+
+    // All three sidebar requests must stay queued without claiming client-capture scheduler slots.
+    for (const req of sidebarReqs) {
+      expect(thumbnailScheduler.getSnapshot(req).status).toBe("queued");
+    }
+    expect(thumbnailScheduler.getDiagnostics().active).toBe(0);
+
+    // Gated timeline capture arrives afterwards and resolves immediately instead of starving behind sidebar jobs.
+    const gatedReq = createClientCompositionCaptureRequest({
+      ...gatedInput,
+      sessionEpoch: 1,
+      priority: "interaction",
+      gatePriority: true,
+    });
+    const gatedLease = thumbnailScheduler.acquire(gatedReq, () => {});
+    await vi.waitFor(() => {
+      expect(thumbnailScheduler.getSnapshot(gatedReq).status).toBe("ready");
+    });
+
+    // Clearing editorInputLocked releases the opening-gate hold so queued sidebar captures can start.
+    usePlayerStore.setState({ editorInputLocked: false });
+    await vi.waitFor(() => {
+      expect(
+        sidebarReqs.some((req) => thumbnailScheduler.getSnapshot(req).status !== "queued"),
+      ).toBe(true);
+    });
+
+    gatedLease.release();
+    for (const lease of sidebarLeases) lease.release();
+    thumbnailScheduler.invalidateProject(projectId);
   });
 });

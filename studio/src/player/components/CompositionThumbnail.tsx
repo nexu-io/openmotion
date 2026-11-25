@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useThumbnailLease } from "../../hooks/useThumbnailLease";
 import { useThumbnailStripSize } from "../../hooks/useThumbnailStripSize";
 import {
   createThumbnailKey,
+  thumbnailScheduler,
   type ThumbnailPriority,
   type ThumbnailRequest,
   type ThumbnailValue,
@@ -33,7 +34,7 @@ import {
   peekFallbackCompositionCapture,
   quantizeCompositionFrameCount,
   retainCachedCompositionCapture,
-  selectInitialGateCompositionPaths,
+  selectPriorityCompositionPaths,
   selectorCaptureWindowKey,
   subscribeCompositionCacheRevision,
   subscribeProgressiveCompositionCapture,
@@ -437,15 +438,14 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
   const cachedValue = syncCachedValue ?? idbValue;
   const idbPending = Boolean(captureCacheKey && !syncCachedValue && idbProbe?.key !== captureCacheKey);
 
-  const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
-  const inInitialGateSet = usePlayerStore((s) => {
-    if (!captureEnabled || selector || priority === "overscan" || s.timelinePreviewSettledInitial) {
+  const inPlayheadPrioritySet = usePlayerStore((s) => {
+    if (!captureEnabled || selector || priority === "overscan") {
       return false;
     }
-    return selectInitialGateCompositionPaths(s.elements, s.currentTime).includes(compPath);
+    return selectPriorityCompositionPaths(s.elements, s.currentTime).includes(compPath);
   });
-  const participatesInInitialGate =
-    Boolean(captureCacheKey) && !syncCachedValue && inInitialGateSet;
+  const boostCapturePriority =
+    Boolean(captureCacheKey) && !syncCachedValue && inPlayheadPrioritySet;
 
   // Tier 2: priority-queued offscreen browser capture (cold misses only).
   const captureRequest = useMemo(
@@ -461,8 +461,8 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
             seekTime: selectorStart,
             selector,
             selectorIndex,
-            priority: participatesInInitialGate ? "interaction" : priority,
-            gatePriority: participatesInInitialGate,
+            priority: boostCapturePriority ? "interaction" : priority,
+            gatePriority: boostCapturePriority,
             rich: true,
           })
         : null,
@@ -474,7 +474,7 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
       compCacheRev,
       desiredCaptureFrames,
       idbPending,
-      participatesInInitialGate,
+      boostCapturePriority,
       previewUrl,
       priority,
       projectId,
@@ -559,29 +559,42 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
     [progressiveTarget],
   );
   const progressiveValue = useSyncExternalStore(subscribeProgressive, getProgressiveSnapshot, () => null);
-  const gateTaskId = useMemo(
-    () => (participatesInInitialGate ? `${projectId}:${previewUrl}:${compCacheRev}` : null),
-    [compCacheRev, participatesInInitialGate, previewUrl, projectId],
-  );
-  const captureSettled =
-    Boolean(cachedValue) ||
-    Boolean(progressiveValue) ||
-    captureSnapshot.status === "ready" ||
-    captureSnapshot.status === "error";
+  const autoRetriedKeyRef = useRef<string | null>(null);
+  const [autoRetryPending, setAutoRetryPending] = useState(false);
 
+  // Bounded 1x quiet automatic backoff retry when a transient capture error occurs.
   useEffect(() => {
-    if (!gateTaskId) return;
-    const store = usePlayerStore.getState();
-    store.registerTimelinePreviewTask(gateTaskId, loadGeneration);
-    return () => {
-      usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-    };
-  }, [gateTaskId, loadGeneration]);
-
-  useEffect(() => {
-    if (!gateTaskId || !captureSettled) return;
-    usePlayerStore.getState().settleTimelinePreviewTask(gateTaskId, loadGeneration);
-  }, [captureSettled, gateTaskId, loadGeneration]);
+    if (
+      !captureEnabled ||
+      !captureCacheKey ||
+      !projectId ||
+      Boolean(cachedValue) ||
+      Boolean(progressiveValue) ||
+      captureSnapshot.status !== "error"
+    ) {
+      setAutoRetryPending(false);
+      return;
+    }
+    if (autoRetriedKeyRef.current === captureCacheKey) {
+      setAutoRetryPending(false);
+      return;
+    }
+    setAutoRetryPending(true);
+    const timer = setTimeout(() => {
+      autoRetriedKeyRef.current = captureCacheKey;
+      setAutoRetryPending(false);
+      thumbnailScheduler.retryFailed(projectId, compPath);
+    }, 2_000);
+    return () => clearTimeout(timer);
+  }, [
+    cachedValue,
+    captureCacheKey,
+    captureEnabled,
+    captureSnapshot.status,
+    compPath,
+    progressiveValue,
+    projectId,
+  ]);
 
   const snapshot = captureSnapshot.status === "ready" ? captureSnapshot : posterSnapshot;
   const resolvedValue =
@@ -725,8 +738,8 @@ export const CompositionThumbnail = memo(function CompositionThumbnail({
           </div>
         </div>
       )}
-      {!value && snapshot.status !== "error" && (
-        <Skeleton animated={false} style={{ position: "absolute", inset: 0 }} />
+      {!value && (snapshot.status !== "error" || autoRetryPending) && (
+        <Skeleton style={{ position: "absolute", inset: 0 }} />
       )}
       {showOverlayLabel && (
         <div className="absolute inset-y-0 left-3 z-10 flex items-center">

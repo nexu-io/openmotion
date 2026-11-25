@@ -350,7 +350,7 @@ describe.each(["classic", "flat"] as const)("shared %s input telemetry", (ui) =>
     const host = render(
       section(<ColorField label="Color" value="#FF0000" onCommit={vi.fn()} />),
     );
-    const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Pick color color"]');
+    const trigger = host.querySelector<HTMLButtonElement>('[aria-label="Pick color"]');
     act(() => trigger?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const picker = document.querySelector<HTMLElement>('.motion-color-picker[data-open]')!;
     act(() => picker.querySelector<HTMLButtonElement>('[role="combobox"]')!.click());

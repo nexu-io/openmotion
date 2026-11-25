@@ -273,12 +273,15 @@ export function useGsapCacheVersion() {
  */
 
 export function usePopulateKeyframeCacheForFile(
-  projectId: string | null,
+  requestedProjectId: string | null,
   sourceFile: string,
   version: number,
   iframeRef?: React.RefObject<HTMLIFrameElement | null>,
   changedPath?: string | readonly string[],
 ): void {
+  // On navigation the route can switch before the timeline replaces its rows.
+  // Read files only once both refer to the same project.
+  const projectId = usePlayerStore(s => s.timelineProjectId === requestedProjectId ? requestedProjectId : null);
   const elementCount = usePlayerStore((s) => s.elements.length);
   // Every sub-composition file the timeline shows rows for. The cache is loaded
   // for all of them up front, so keyframe lanes are populated on open instead of

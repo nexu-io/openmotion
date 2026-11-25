@@ -1,4 +1,4 @@
-import { NON_PREVIEW_FILES } from "../../../../shared/preview-impact";
+import { isNonPreviewFile } from "../../../../shared/preview-impact";
 import { getCachedCloudDisklessMode } from "../../utils/cloudRuntime";
 import { usePlayerStore } from "../store/playerStore";
 import { thumbnailRevisionOf } from "../store/thumbnailSlice";
@@ -24,10 +24,8 @@ import {
 } from "./thumbnailScheduler";
 
 export const MAX_CLIENT_COMPOSITION_FRAMES = 8;
-/** Cap how many uncached composition clips can block initial editor unlock. */
-export const MAX_INITIAL_TIMELINE_PREVIEW_GATE = 4;
-/** Maximum extra wait after primary assets settle before releasing to background capture. */
-export const TIMELINE_PREVIEW_GATE_TIMEOUT_MS = 4_500;
+/** Prioritize a bounded set of compositions nearest the playhead. */
+const MAX_PRIORITY_COMPOSITIONS = 4;
 
 const CAPTURE_TARGET_WIDTH = 160;
 const CAPTURE_MAX_HEIGHT = 480;
@@ -289,6 +287,7 @@ export function clearClientCompositionCaptureCacheForTest(): void {
   progressiveListeners.clear();
   clearRemoteCompositionFilmstripStateForTest();
   clearSharedPreviewGrantsForTest();
+  thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
 }
 
 function normalizeCompositionPathForGate(raw: string): string {
@@ -314,10 +313,9 @@ function normalizeCompositionPathForGate(raw: string): string {
 
 /**
  * Pick at most `maxCount` unique visible composition paths closest to `currentTime`
- * to participate in the initial unified loading gate. Remaining clips capture
- * progressively in the background so long projects (20–30+ scenes) never stall.
+ * for prioritized capture. Remaining clips generate progressively in the background.
  */
-export function selectInitialGateCompositionPaths(
+export function selectPriorityCompositionPaths(
   elements: ReadonlyArray<{
     compositionSrc?: string;
     hidden?: boolean;
@@ -325,7 +323,7 @@ export function selectInitialGateCompositionPaths(
     duration: number;
   }>,
   currentTime: number,
-  maxCount: number = MAX_INITIAL_TIMELINE_PREVIEW_GATE,
+  maxCount: number = MAX_PRIORITY_COMPOSITIONS,
 ): string[] {
   if (maxCount <= 0) return [];
   const safeTime = Number.isFinite(currentTime) ? currentTime : 0;
@@ -584,7 +582,7 @@ export function updateCachedCompositionRevisions(
   const isPreviewSharedNonHtml = (rawPath: string): boolean => {
     const key = normalizeCompositionPathForGate(rawPath);
     if (!key || key === "." || HTML_FILE_RE.test(key)) return false;
-    return !NON_PREVIEW_FILES.has(key);
+    return !isNonPreviewFile(key);
   };
 
   const projectRev = projectRevisionByProjectId.get(projectId) ?? "";
@@ -886,15 +884,17 @@ function nextAnimationFrames(win: Window, count: number, signal: AbortSignal): P
   });
 }
 
-async function waitUntilInteractiveIdle(signal: AbortSignal): Promise<void> {
+async function waitUntilInteractiveIdle(signal: AbortSignal, gatePriority = false): Promise<void> {
   // Wait for primary composition assets to finish so capture hits the warm HTTP cache
   // without competing with initial preview loads, and yield while playing or hidden.
-  // Do NOT block on editorInputLocked: initial timeline captures complete inside the unified loader.
+  // While the opening gate is up (`editorInputLocked`), only gated timeline clips may run
+  // so non-gated sidebar cards never spawn SnapDOM iframes or contend for sockets.
   while (!signal.aborted) {
     const state = usePlayerStore.getState();
+    const gateAllowed = gatePriority || !state.editorInputLocked;
     const assetsSettled =
       state.assetReadinessPhase === "ready" || state.assetReadinessSkipped || !state.editorInputLocked;
-    if (assetsSettled && !state.isPlaying && (typeof document === "undefined" || !document.hidden)) {
+    if (gateAllowed && assetsSettled && !state.isPlaying && (typeof document === "undefined" || !document.hidden)) {
       return;
     }
     await sleepAbortable(60, signal);
@@ -1637,7 +1637,7 @@ async function captureSameOrigin(
     try {
       for (const frameIdx of order) {
         const t = times[frameIdx]!;
-        await waitUntilInteractiveIdle(signal);
+        await waitUntilInteractiveIdle(signal, Boolean(input.gatePriority));
         if (observer) {
           observer.takeRecords();
           observedMutated = false;
@@ -2226,20 +2226,6 @@ export function seedClientCompositionCaptureForTest(
   return putMemoryStripCache(idbKey, baseCoverKey, compPathKey, meta, blobs, aspect, width, height).value;
 }
 
-/** True when any frame count for this composition is already cached in RAM (no blocking gate needed). */
-export function hasAnyCachedCompositionCapture(
-  projectId: string,
-  compPath: string,
-  contentRevision = 0,
-): boolean {
-  const { rev: compRev, hasFileVersion } = resolveCompositionRevision(projectId, compPath);
-  const target = compPathCacheTag(projectId, compPath, compRev, hasFileVersion ? 0 : contentRevision);
-  for (const entry of memoryStripCache.values()) {
-    if (!entry.fallbackOnly && entry.compPathKey === target) return true;
-  }
-  return false;
-}
-
 /** Subscribe to mid-capture progressive frame updates for a composition strip. */
 export function subscribeProgressiveCompositionCapture(
   input: StripCacheInput,
@@ -2540,9 +2526,12 @@ async function runClientCompositionCapture(
   const docKey = buildCaptureDocumentKey(input, previewOrigin);
   const isEditRefresh = input.contentRevision > 0;
 
+  const gatePriority = Boolean(input.gatePriority);
   try {
+    await waitUntilInteractiveIdle(signal, gatePriority);
+    if (signal.aborted) throw abortError();
     const result = await enqueueSerializedCapture(queuePriority, docKey, isEditRefresh, signal, async () => {
-      await waitUntilInteractiveIdle(signal);
+      await waitUntilInteractiveIdle(signal, gatePriority);
       if (signal.aborted) throw abortError();
       return previewOrigin
         ? captureIsolatedOrigin(input, previewOrigin, docKey, signal, onProgressiveFrame)
@@ -2617,6 +2606,21 @@ async function runClientCompositionCapture(
   }
 }
 
+/** Keep ThumbnailScheduler's opening-gate hold synced with `editorInputLocked` so deferred captures never occupy slots. */
+function syncOpeningGateHold(): void {
+  thumbnailScheduler.setOpeningGateActive(usePlayerStore.getState().editorInputLocked);
+}
+syncOpeningGateHold();
+const unbindOpeningGateHold = usePlayerStore.subscribe((state) => {
+  thumbnailScheduler.setOpeningGateActive(state.editorInputLocked);
+});
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    unbindOpeningGateHold();
+    thumbnailScheduler.setOpeningGateActive(false);
+  });
+}
+
 /** Build a scheduler-managed request that captures real composition frames in the browser. */
 export function createClientCompositionCaptureRequest(input: ClientCaptureInput): ThumbnailRequest {
   const { rev: compRev, hasFileVersion } = resolveCompositionRevision(input.projectId, input.previewUrl);
@@ -2637,6 +2641,7 @@ export function createClientCompositionCaptureRequest(input: ClientCaptureInput)
     concurrencyBucket: "client-capture",
     priority: input.priority ?? "visible",
     rich: input.rich ?? true,
+    gatePriority: Boolean(input.gatePriority),
     compositionPath: normalizeCompositionPathForGate(input.previewUrl),
     contentRevision: hasFileVersion ? 0 : input.contentRevision,
     compositionRevision: compRev,

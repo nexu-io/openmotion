@@ -10,6 +10,7 @@ import { getBuiltinCompositionFilmstrip } from '../../services/builtin-filmstrip
 import { normalizeSafeProjectPath } from '../../services/project-files-service.ts';
 import type { VirtualFileRecord } from '../virtual-project-store.ts';
 import {
+  COMPOSITION_FILMSTRIP_VERSION,
   computeCompositionFilmstripDepsDigest,
   computeCompositionFilmstripRenderKey,
   embedFilmstripComment,
@@ -201,7 +202,7 @@ export function createStudioCompositionFilmstripsRoutes(
       if (identity.allDepsCatalog) {
         const catalogKey = assertTenantScopedKey(
           workspaceId,
-          catalogCompFilmstripKey(identity.fileSha),
+          catalogCompFilmstripKey(identity.fileSha, identity.depsSha256, COMPOSITION_FILMSTRIP_VERSION),
           { allowCatalog: true },
         );
         const catalogHit = await readValidatedS3Filmstrip(deps, catalogKey);
@@ -245,7 +246,7 @@ export function createStudioCompositionFilmstripsRoutes(
       return c.body(null, 204);
     }
 
-    const etag = `"omfs-v1:${projectId}:${file.blobScope}:${renderKey}:${hit.meta.frameCount}"`;
+    const etag = `"omfs-v${COMPOSITION_FILMSTRIP_VERSION}:${projectId}:${file.blobScope}:${renderKey}:${hit.meta.frameCount}"`;
     c.header('Content-Type', 'image/jpeg');
     c.header('Content-Length', String(hit.bytes.byteLength));
     c.header('ETag', etag);
@@ -367,7 +368,7 @@ export function createStudioCompositionFilmstripsRoutes(
       if (allDepsCatalog) {
         const catalogKey = assertTenantScopedKey(
           auth.workspaceId,
-          catalogCompFilmstripKey(fileSha),
+          catalogCompFilmstripKey(fileSha, depsSha256, COMPOSITION_FILMSTRIP_VERSION),
           { allowCatalog: true },
         );
         const catalogHit = await readValidatedS3Filmstrip(deps, catalogKey);

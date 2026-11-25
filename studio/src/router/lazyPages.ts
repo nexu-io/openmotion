@@ -24,6 +24,7 @@ export const LAZY_PAGE_MODULE_PATHS = [
   'motion/McpConnectionPage.tsx',
   'motion/BrandKitPage.tsx',
   'motion/ConnectionDialog.tsx',
+  'motion/NotFoundPage.tsx',
 ] as const;
 
 export type LazyPageKey =
@@ -43,7 +44,8 @@ export type LazyPageKey =
   | 'settings'
   | 'mcp'
   | 'brandKit'
-  | 'connectionDialog';
+  | 'connectionDialog'
+  | 'notFound';
 
 const preloaders = new Map<LazyPageKey, () => Promise<unknown>>();
 
@@ -162,4 +164,8 @@ export const LazyBrandKitPage = lazyPage('brandKit', () =>
 
 export const LazyConnectionDialog = lazyPage('connectionDialog', () =>
   import('../motion/ConnectionDialog').then(module => ({ default: module.ConnectionDialog })),
+);
+
+export const LazyNotFoundPage = lazyPage('notFound', () =>
+  import('../motion/NotFoundPage').then(module => ({ default: module.NotFoundPage })),
 );

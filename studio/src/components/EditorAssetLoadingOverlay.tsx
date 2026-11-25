@@ -1,71 +1,139 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "open-design-ui/button";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n/I18n";
+import {
+  EDITOR_ASSET_AUTO_RELEASE_MS,
+  EDITOR_ASSET_ESCAPE_HATCH_MS,
+  UnifiedEditorOpeningCover,
+  useEditorOpeningGate,
+} from "../motion/editorOpeningGate";
 import { usePlayerStore } from "../player/store/playerStore";
-import { retryFailedPreviewAssets } from "../player/store/readinessSlice";
-import { thumbnailRevisionOf } from "../player/store/thumbnailSlice";
 import {
-  EDITOR_LOADING_OVERLAY_DEBOUNCE_MS,
-  EDITOR_LOADING_SLOW_ESCAPE_MS,
-  type PreviewAssetFailure,
-} from "../player/lib/previewAssetReadiness";
-import {
-  canCaptureCompositionInBrowser,
-  hasAnyCachedCompositionCapture,
-  selectInitialGateCompositionPaths,
-  TIMELINE_PREVIEW_GATE_TIMEOUT_MS,
-} from "../player/lib/clientCompositionCapture";
-import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
+  hasRetryFailedAssetsHandler,
+  retryFailedPreviewAssets,
+} from "../player/store/readinessSlice";
+import { thumbnailScheduler } from "../player/lib/thumbnailScheduler";
+import type { PreviewAssetFailure } from "../player/lib/previewAssetReadiness";
 import type { AppToast } from "../utils/studioHelpers";
 
-export interface EditorAssetLoadingOverlayProps {
-  loading: boolean;
-  completed: number;
-  total: number;
-  loadGeneration: number;
-  /** Override visual fade-in debounce (revisits use a longer threshold to avoid flash). */
-  debounceMs?: number;
-  onSkip: () => void;
-}
-
+export { EDITOR_ASSET_AUTO_RELEASE_MS, EDITOR_ASSET_ESCAPE_HATCH_MS };
+export const EDITOR_ASSET_PROGRESS_DEBOUNCE_MS = 120;
+export const EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS = 300;
 const EXIT_FADE_MS = 200;
-export const EDITOR_LOADING_REVISIT_DEBOUNCE_MS = 350;
 
-const visitedReadyScopes = new Set<string>();
-
-/** Clear session-level visited scope memory between unit tests. */
-export function clearVisitedEditorLoadingScopesForTest(): void {
-  visitedReadyScopes.clear();
+export interface EditorAssetLoadingOverlayProps {
+  visible: boolean;
+  onSkip: () => void;
+  escapeDelayMs?: number;
+  autoReleaseMs?: number;
 }
 
 /**
- * Unified editor-level loading scrim shown over the workspace while composition
- * assets finish loading. Warm cache hits (<150ms, or <350ms on revisits) never
- * paint the overlay; slow loads (>8s) expose a non-destructive escape hatch.
+ * Seamless solid full-cover opening gate shared with `MotionApp`'s shell loading
+ * boundary. When mounted inside `EditorOpeningGateHost`, delegates state to the
+ * single host cover so shell resolution -> Suspense -> editor readiness stay on
+ * one unbroken DOM node without resetting copy or animation; renders directly
+ * when mounted standalone.
  */
 export function EditorAssetLoadingOverlay({
+  visible,
+  onSkip,
+  escapeDelayMs = EDITOR_ASSET_ESCAPE_HATCH_MS,
+  autoReleaseMs = EDITOR_ASSET_AUTO_RELEASE_MS,
+}: EditorAssetLoadingOverlayProps) {
+  const openingGate = useEditorOpeningGate();
+  const ownerRef = useRef<symbol | null>(null);
+  if (!ownerRef.current) ownerRef.current = Symbol("editor-opening-gate");
+  const onSkipRef = useRef(onSkip);
+  onSkipRef.current = onSkip;
+  const stableSkip = useCallback(() => onSkipRef.current(), []);
+
+  useLayoutEffect(() => {
+    if (!openingGate) return;
+    openingGate.setDelegation({
+      owner: ownerRef.current!,
+      visible,
+      onSkip: stableSkip,
+      escapeDelayMs,
+      autoReleaseMs,
+    });
+  }, [autoReleaseMs, escapeDelayMs, openingGate, stableSkip, visible]);
+
+  useLayoutEffect(() => {
+    if (!openingGate) return;
+    const owner = ownerRef.current!;
+    return () => {
+      openingGate.clearDelegation(owner);
+    };
+  }, [openingGate]);
+
+  if (openingGate) return null;
+
+  return (
+    <UnifiedEditorOpeningCover
+      visible={visible}
+      onSkip={onSkip}
+      escapeDelayMs={escapeDelayMs}
+      autoReleaseMs={autoReleaseMs}
+      fadeOnExit
+    />
+  );
+}
+
+export interface EditorAssetProgressBarProps {
+  loading: boolean;
+  completed: number;
+  total: number;
+  indeterminate?: boolean;
+  debounceMs?: number;
+}
+
+/**
+ * Non-blocking slim progress bar pinned directly beneath the editor header
+ * while composition assets preload or retry in the background. Appears after
+ * a brief debounce, holds long enough to read once shown, and never blocks input.
+ */
+export function EditorAssetProgressBar({
   loading,
   completed,
   total,
-  loadGeneration,
-  debounceMs = EDITOR_LOADING_OVERLAY_DEBOUNCE_MS,
-  onSkip,
-}: EditorAssetLoadingOverlayProps) {
+  indeterminate = false,
+  debounceMs = EDITOR_ASSET_PROGRESS_DEBOUNCE_MS,
+}: EditorAssetProgressBarProps) {
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [slow, setSlow] = useState(false);
+  const shownAtRef = useRef<number>(0);
 
   useEffect(() => {
     if (!loading) {
-      setVisible(false);
-      setSlow(false);
-      const unmountTimer = setTimeout(() => setMounted(false), EXIT_FADE_MS);
-      return () => clearTimeout(unmountTimer);
+      if (!mounted) {
+        setVisible(false);
+        return;
+      }
+      const elapsed = shownAtRef.current > 0 ? Date.now() - shownAtRef.current : EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS;
+      const holdMs = Math.max(0, EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS - elapsed);
+      let unmountTimer: ReturnType<typeof setTimeout> | undefined;
+      const fadeTimer = setTimeout(() => {
+        setVisible(false);
+        unmountTimer = setTimeout(() => {
+          shownAtRef.current = 0;
+          setMounted(false);
+        }, EXIT_FADE_MS);
+      }, holdMs);
+      return () => {
+        clearTimeout(fadeTimer);
+        if (unmountTimer) clearTimeout(unmountTimer);
+      };
+    }
+
+    if (mounted) {
+      setVisible(true);
+      return;
     }
 
     let rafId = 0;
     const showTimer = setTimeout(() => {
+      shownAtRef.current = Date.now();
       setMounted(true);
       rafId = requestAnimationFrame(() => setVisible(true));
     }, debounceMs);
@@ -73,82 +141,32 @@ export function EditorAssetLoadingOverlay({
       clearTimeout(showTimer);
       cancelAnimationFrame(rafId);
     };
-  }, [debounceMs, loading]);
-
-  useEffect(() => {
-    if (!loading) {
-      setSlow(false);
-      return;
-    }
-    setSlow(false);
-    const slowTimer = setTimeout(() => setSlow(true), EDITOR_LOADING_SLOW_ESCAPE_MS);
-    return () => clearTimeout(slowTimer);
-  }, [loading, loadGeneration]);
+  }, [debounceMs, loading, mounted]);
 
   if (!mounted) return null;
 
-  const hasCount = total > 0;
-  const boundedCompleted = hasCount ? Math.min(total, Math.max(0, completed)) : 0;
-  const ratio = hasCount ? boundedCompleted / total : 0;
+  const hasDeterminateCount = !indeterminate && total > 0;
+  const boundedCompleted = hasDeterminateCount ? Math.min(total, Math.max(0, completed)) : 0;
+  const ratio = hasDeterminateCount ? boundedCompleted / total : 0;
+  const displayRatio = hasDeterminateCount ? Math.max(loading ? 0.06 : 1, ratio) : 0;
   const percent = Math.round(ratio * 100);
 
   return (
     <div
-      className="motion-editor-asset-loading"
+      className="motion-editor-asset-bar"
       data-visible={visible ? "true" : "false"}
-      data-testid="editor-asset-loading-overlay"
-      role="status"
-      aria-live="polite"
-      style={{ pointerEvents: loading ? "auto" : "none" }}
-      onDragStart={(event) => event.preventDefault()}
+      data-testid="editor-asset-progress-bar"
+      role="progressbar"
+      aria-label={t("Preparing project assets")}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={hasDeterminateCount ? percent : undefined}
     >
-      <div className="motion-editor-asset-loading-card">
-        <span className="motion-editor-asset-loading-mark" aria-hidden="true" />
-        <p className="motion-editor-asset-loading-title">
-          {hasCount ? t("Preparing project assets") : t("Loading composition")}
-        </p>
-        <p className="motion-editor-asset-loading-detail">
-          {slow
-            ? t(
-                "Loading is taking longer than expected. You can enter the editor now while remaining assets finish in the background.",
-              )
-            : t("Editing and preview will unlock once assets finish loading.")}
-        </p>
-        <div className="motion-editor-asset-loading-progress">
-          <div
-            className="motion-editor-asset-loading-track"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={hasCount ? percent : undefined}
-          >
-            <div
-              className="motion-editor-asset-loading-fill"
-              data-indeterminate={hasCount ? undefined : "true"}
-              style={hasCount ? { transform: `scaleX(${ratio})` } : undefined}
-            />
-          </div>
-          {hasCount && (
-            <div className="motion-editor-asset-loading-meta">
-              <span>{t("{completed} / {total} assets", { completed: boundedCompleted, total })}</span>
-              <span>{percent}%</span>
-            </div>
-          )}
-        </div>
-        {slow && (
-          <div className="motion-editor-asset-loading-escape">
-            <Button
-              variant="secondary"
-              size="sm"
-              type="button"
-              data-testid="editor-asset-loading-skip"
-              onClick={onSkip}
-            >
-              {t("Skip waiting, enter editor")}
-            </Button>
-          </div>
-        )}
-      </div>
+      <div
+        className="motion-editor-asset-bar-fill"
+        data-indeterminate={hasDeterminateCount ? undefined : "true"}
+        style={hasDeterminateCount ? { transform: `scaleX(${displayRatio})` } : undefined}
+      />
     </div>
   );
 }
@@ -170,135 +188,121 @@ export function formatAssetFailureMessage(
   return t("{count} assets failed to load", { count: failed.length });
 }
 
-/**
- * Coordinates the single editor-ready gate (file tree + timeline + composition
- * assets), mirrors the interaction lock to global hotkey handlers, and reports
- * partial asset failures via a non-blocking Toast with in-place Retry.
- */
-const TIMELINE_PREVIEW_REGISTER_GRACE_MS = 400;
+function hasNonDomRetryableFailure(failed: readonly PreviewAssetFailure[]): boolean {
+  return failed.some((item) => item.kind === "font" || item.kind === "lottie");
+}
 
-export function useEditorAssetReadinessGate({
+let activeRetryRunner: (() => Promise<void>) | null = null;
+
+/**
+ * Trigger the active editor's asset retry flow (used by both the failure toast and
+ * the persistent PlayerControls retry pill). Falls back to calling the registered
+ * preview retry handler directly when invoked outside a mounted StudioApp (e.g. unit tests).
+ */
+export async function triggerEditorAssetRetry(): Promise<void> {
+  if (activeRetryRunner) {
+    await activeRetryRunner();
+    return;
+  }
+  const store = usePlayerStore.getState();
+  if (store.assetReadinessRetrying) return;
+  store.setAssetReadinessRetrying(true);
+  try {
+    await retryFailedPreviewAssets();
+    if (store.timelineProjectId) {
+      thumbnailScheduler.retryFailed(store.timelineProjectId);
+    }
+  } finally {
+    usePlayerStore.getState().setAssetReadinessRetrying(false);
+  }
+}
+
+/** Keep the project cover until its file tree arrives; report media progress and failures independently. */
+export function useEditorAssetReadiness({
   projectId,
-  activeCompPath,
   fileTreeLoaded,
-  compositionLoading = false,
   unreachableProject,
   compositionMissing,
   showToast,
+  onReloadPreview,
 }: {
   projectId: string | null;
-  activeCompPath?: string | null;
   fileTreeLoaded: boolean;
-  compositionLoading?: boolean;
   unreachableProject: boolean;
   compositionMissing: boolean;
   showToast: ShowToastFn;
+  onReloadPreview?: () => void;
 }) {
   const { t } = useI18n();
-  const scopeKey = projectId ? `${projectId}::${activeCompPath || "index.html"}` : null;
-  const isRevisit = Boolean(scopeKey && visitedReadyScopes.has(scopeKey));
-  const timelineReady = usePlayerStore(
-    (s) => Boolean(projectId) && s.timelineProjectId === projectId && s.timelineReady,
-  );
   const assetPhase = usePlayerStore((s) => s.assetReadinessPhase);
-  const assetCompleted = usePlayerStore((s) => s.assetReadinessCompleted);
-  const assetTotal = usePlayerStore((s) => s.assetReadinessTotal);
+  const completed = usePlayerStore((s) => s.assetReadinessCompleted);
+  const total = usePlayerStore((s) => s.assetReadinessTotal);
   const failed = usePlayerStore((s) => s.assetReadinessFailed);
   const skipped = usePlayerStore((s) => s.assetReadinessSkipped);
+  const retrying = usePlayerStore((s) => s.assetReadinessRetrying);
   const loadGeneration = usePlayerStore((s) => s.assetReadinessGeneration);
   const previewLoadError = usePlayerStore((s) => s.previewLoadError);
-  const timelinePreviewCompleted = usePlayerStore((s) => s.timelinePreviewCompleted);
-  const timelinePreviewTotal = usePlayerStore((s) => s.timelinePreviewTotal);
-  const timelinePreviewSettledInitial = usePlayerStore((s) => s.timelinePreviewSettledInitial);
-  const expectedTimelinePreviewCount = usePlayerStore((s) => {
-    if (
-      !projectId ||
-      !getCachedCloudDisklessMode() ||
-      !canCaptureCompositionInBrowser() ||
-      s.thumbnailMode === "hidden"
-    ) {
-      return 0;
-    }
-    const gatePaths = selectInitialGateCompositionPaths(s.elements, s.currentTime);
-    let uncached = 0;
-    for (const compPath of gatePaths) {
-      const rev = thumbnailRevisionOf(s.thumbnailRevisions, compPath);
-      if (!hasAnyCachedCompositionCapture(projectId, compPath, rev)) {
-        uncached += 1;
-      }
-    }
-    return uncached;
-  });
-  const hasPendingTimelinePreviewGate = expectedTimelinePreviewCount > 0 || timelinePreviewTotal > 0;
-  const skip = usePlayerStore((s) => s.skipAssetReadiness);
-
-  const [graceElapsedGen, setGraceElapsedGen] = useState<number>(-1);
-  const coreReady = timelineReady && assetPhase === "ready";
-  // TimelinePane only mounts CompositionThumbnail once compositionLoading clears,
-  // so only start the registration grace and max-wait ceiling after !compositionLoading.
-  const awaitingTimelinePreviews =
-    hasPendingTimelinePreviewGate && !timelinePreviewSettledInitial && coreReady && !compositionLoading;
+  const suppress = !projectId || previewLoadError || unreachableProject || compositionMissing;
+  // The file tree belongs to this project. Each panel owns readiness of its own contents.
+  const blocking = !suppress && !skipped && !fileTreeLoaded;
+  const backgroundLoading = !suppress && !blocking && (assetPhase === "loading" || retrying);
 
   useEffect(() => {
-    if (!awaitingTimelinePreviews || timelinePreviewTotal > 0) return;
-    const timer = setTimeout(() => setGraceElapsedGen(loadGeneration), TIMELINE_PREVIEW_REGISTER_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [awaitingTimelinePreviews, loadGeneration, timelinePreviewTotal]);
-
-  // Hard ceiling on blocking for timeline thumbnails: slow or heavy scenes release cleanly
-  // after TIMELINE_PREVIEW_GATE_TIMEOUT_MS and finish capturing progressively in the background.
-  useEffect(() => {
-    if (!awaitingTimelinePreviews) return;
-    const timer = setTimeout(() => {
-      usePlayerStore.getState().markInitialTimelinePreviewGateSettled(loadGeneration);
-    }, TIMELINE_PREVIEW_GATE_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [awaitingTimelinePreviews, loadGeneration]);
-
-  const timelinePreviewsReady =
-    !hasPendingTimelinePreviewGate ||
-    timelinePreviewSettledInitial ||
-    (!compositionLoading &&
-      (timelinePreviewTotal > 0
-        ? timelinePreviewCompleted >= timelinePreviewTotal
-        : graceElapsedGen === loadGeneration));
-
-  const bypassGate =
-    previewLoadError || unreachableProject || compositionMissing || skipped;
-  const ready =
-    Boolean(projectId) &&
-    fileTreeLoaded &&
-    (bypassGate || (coreReady && timelinePreviewsReady));
-  const locked = Boolean(projectId) && !ready;
-
-  useEffect(() => {
-    if (ready) {
-      usePlayerStore.getState().markInitialTimelinePreviewGateSettled(loadGeneration);
-      if (scopeKey && !bypassGate) {
-        visitedReadyScopes.add(scopeKey);
-      }
-    }
-  }, [bypassGate, loadGeneration, ready, scopeKey]);
-
-  useEffect(() => {
-    usePlayerStore.getState().setEditorInputLocked(locked);
+    usePlayerStore.getState().setEditorInputLocked(blocking);
     return () => {
       usePlayerStore.getState().setEditorInputLocked(false);
     };
-  }, [locked]);
+  }, [blocking]);
 
-  // Pre-reserve uncached gated composition slots in the unified total before
-  // CompositionThumbnail mounts so the progress bar rises monotonically instead
-  // of hitting 100% on primary assets and then jumping backwards.
-  const effectiveTimelineTotal =
-    hasPendingTimelinePreviewGate && !timelinePreviewSettledInitial && !ready
-      ? Math.max(timelinePreviewTotal, expectedTimelinePreviewCount)
-      : timelinePreviewTotal;
-  const completed = assetCompleted + timelinePreviewCompleted;
-  const total = assetTotal + effectiveTimelineTotal;
+  const skip = useCallback(() => {
+    usePlayerStore.getState().skipAssetReadiness();
+  }, []);
 
   const reportedGenRef = useRef<number>(-1);
   const retrySequenceRef = useRef(0);
+  const onReloadPreviewRef = useRef(onReloadPreview);
+  onReloadPreviewRef.current = onReloadPreview;
+
+  const notifyFailuresRef = useRef<(failures: readonly PreviewAssetFailure[], generation: number) => void>(
+    () => {},
+  );
+
+  const retryFailedAssets = useCallback(async () => {
+    const store = usePlayerStore.getState();
+    if (store.assetReadinessRetrying) return;
+    const currentFailed = store.assetReadinessFailed;
+    const gen = store.assetReadinessGeneration;
+    store.setAssetReadinessRetrying(true);
+    try {
+      if (projectId) {
+        thumbnailScheduler.retryFailed(projectId);
+      }
+      if (!hasRetryFailedAssetsHandler() || hasNonDomRetryableFailure(currentFailed)) {
+        if (hasRetryFailedAssetsHandler()) {
+          await retryFailedPreviewAssets();
+        }
+        const remainingAfterDomRetry = usePlayerStore.getState().assetReadinessFailed;
+        if (remainingAfterDomRetry.length === 0) {
+          showToast(t("Assets reloaded"), "info", "feedback");
+          return;
+        }
+        if (onReloadPreviewRef.current && hasNonDomRetryableFailure(remainingAfterDomRetry)) {
+          onReloadPreviewRef.current();
+          return;
+        }
+        notifyFailuresRef.current(remainingAfterDomRetry, gen);
+        return;
+      }
+      const remaining = await retryFailedPreviewAssets();
+      if (remaining.length === 0) {
+        showToast(t("Assets reloaded"), "info", "feedback");
+        return;
+      }
+      notifyFailuresRef.current(remaining, gen);
+    } finally {
+      usePlayerStore.getState().setAssetReadinessRetrying(false);
+    }
+  }, [projectId, showToast, t]);
 
   const notifyFailures = useCallback(
     (failures: readonly PreviewAssetFailure[], generation: number) => {
@@ -307,33 +311,46 @@ export function useEditorAssetReadinessGate({
       showToast(formatAssetFailureMessage(failures, t), "error", "feedback", {
         key: attemptKey,
         label: t("Retry"),
-        onClick: async () => {
-          const remaining = await retryFailedPreviewAssets();
-          if (remaining.length === 0) {
-            showToast(t("Assets reloaded"), "info", "feedback");
-            return;
-          }
-          notifyFailures(remaining, generation);
-        },
+        onClick: retryFailedAssets,
       });
     },
-    [showToast, t],
+    [retryFailedAssets, showToast, t],
   );
+  notifyFailuresRef.current = notifyFailures;
 
   useEffect(() => {
-    if (!ready || failed.length === 0 || reportedGenRef.current === loadGeneration) return;
+    activeRetryRunner = retryFailedAssets;
+    return () => {
+      if (activeRetryRunner === retryFailedAssets) {
+        activeRetryRunner = null;
+      }
+    };
+  }, [retryFailedAssets]);
+
+  useEffect(() => {
+    if (
+      suppress ||
+      blocking ||
+      assetPhase !== "ready" ||
+      failed.length === 0 ||
+      reportedGenRef.current === loadGeneration
+    ) {
+      return;
+    }
     reportedGenRef.current = loadGeneration;
     notifyFailures(failed, loadGeneration);
-  }, [ready, failed, loadGeneration, notifyFailures]);
+  }, [suppress, blocking, assetPhase, failed, loadGeneration, notifyFailures]);
 
   return {
-    locked,
+    blocking,
+    backgroundLoading,
+    loading: backgroundLoading,
     completed,
     total,
-    loadGeneration,
-    debounceMs: isRevisit
-      ? EDITOR_LOADING_REVISIT_DEBOUNCE_MS
-      : EDITOR_LOADING_OVERLAY_DEBOUNCE_MS,
+    indeterminate: retrying || total === 0,
+    failed,
+    retrying,
     skip,
+    retryFailedAssets,
   };
 }

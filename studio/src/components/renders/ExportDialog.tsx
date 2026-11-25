@@ -1,12 +1,19 @@
 import { Popover } from "@base-ui/react/popover";
-import type { RefObject } from "react";
+import { Suspense, type RefObject } from "react";
+import { RenderQueuePanel } from "../studioPanelImports";
+import { preloadableComponent } from "../../utils/preloadableComponent";
+import { warmModule } from "../../utils/chunkLoadRecovery";
 import { useI18n } from "../../i18n/I18n";
 import { RemixIcon } from "../../icons/RemixIcons";
 import { IconButton } from "open-design-ui/icon-button";
-import { RenderQueuePanel } from "./RenderQueuePanel";
 import { Tabs, TabsList, Tab, TabPanel } from "../ui/Tabs";
-import { CaptionExportPanel } from "./CaptionExportPanel";
-import { PlatformExportPanel } from "./PlatformExportPanel";
+
+const { Component: CaptionExportPanel, load: loadCaptionExport } = preloadableComponent(
+  () => import("./CaptionExportPanel").then(m => ({ default: m.CaptionExportPanel })),
+);
+const { Component: PlatformExportPanel, load: loadPlatformExport } = preloadableComponent(
+  () => import("./PlatformExportPanel").then(m => ({ default: m.PlatformExportPanel })),
+);
 
 /** Export settings and history share the native queue; closing does not cancel jobs. */
 export function ExportDialog({ open, onOpenChange, triggerRef }: {
@@ -29,12 +36,14 @@ export function ExportDialog({ open, onOpenChange, triggerRef }: {
         <Tabs defaultValue="file" className="flex min-h-0 flex-1 flex-col overflow-hidden" onKeyDown={event => event.stopPropagation()}>
           <TabsList aria-label={t("Export method")} className="mx-3 mb-3 flex shrink-0">
             <Tab value="file" className="flex-1 gap-1.5"><RemixIcon name="download-2-line" size={14} />{t("Video")}</Tab>
-            <Tab value="captions" className="flex-1 gap-1.5"><RemixIcon name="closed-captioning-line" size={14} />{t("Captions")}</Tab>
-            <Tab value="platform" className="flex-1 gap-1.5"><RemixIcon name="global-line" size={14} />{t("Platform export")}</Tab>
+            <Tab value="captions" onPointerEnter={() => void warmModule(loadCaptionExport)} onFocus={() => void warmModule(loadCaptionExport)} className="flex-1 gap-1.5"><RemixIcon name="closed-captioning-line" size={14} />{t("Captions")}</Tab>
+            <Tab value="platform" onPointerEnter={() => void warmModule(loadPlatformExport)} onFocus={() => void warmModule(loadPlatformExport)} className="flex-1 gap-1.5"><RemixIcon name="global-line" size={14} />{t("Platform export")}</Tab>
           </TabsList>
-          <TabPanel value="file" className="min-h-0 overflow-y-auto"><RenderQueuePanel /></TabPanel>
-          <TabPanel value="captions" className="flex min-h-0 flex-1 flex-col overflow-hidden"><CaptionExportPanel onClose={() => onOpenChange(false)} /></TabPanel>
-          <TabPanel value="platform" className="flex min-h-0 flex-1 flex-col overflow-hidden"><PlatformExportPanel onClose={() => onOpenChange(false)} /></TabPanel>
+          <Suspense fallback={<span role="status">{t("Loading…")}</span>}>
+            <TabPanel value="file" className="min-h-0 overflow-y-auto"><RenderQueuePanel /></TabPanel>
+            <TabPanel value="captions" className="flex min-h-0 flex-1 flex-col overflow-hidden"><CaptionExportPanel onClose={() => onOpenChange(false)} /></TabPanel>
+            <TabPanel value="platform" className="flex min-h-0 flex-1 flex-col overflow-hidden"><PlatformExportPanel onClose={() => onOpenChange(false)} /></TabPanel>
+          </Suspense>
         </Tabs>
       </Popover.Popup>
       </Popover.Positioner>

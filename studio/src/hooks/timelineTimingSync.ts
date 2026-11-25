@@ -1,5 +1,5 @@
-import { readVersionedSource } from "../utils/readVersionedSource";
-import { confirmedSource, observeSourceRead, type ConfirmedSource } from "../utils/confirmedTextSources";
+import { readCurrentProjectSource } from "../utils/readCurrentProjectSource";
+import type { ConfirmedSource } from "../utils/confirmedTextSources";
 // Soft-reload-first preview sync for timeline timing edits: server GSAP
 // position mutations (shift / scale), folding those rewrites into the timing
 // edit's undo history, and swapping the rewritten script into the live preview
@@ -39,18 +39,13 @@ export async function readFileContent(projectId: string, targetPath: string): Pr
   if (targetPath.includes("\0") || targetPath.includes("..")) {
     throw new Error(`Unsafe path: ${targetPath}`);
   }
-  const response = await readVersionedSource(
-    `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(targetPath)}`,
-    confirmedSource(projectId, targetPath),
-  );
+  const { response, data } = await readCurrentProjectSource(projectId, targetPath);
   if (!response.ok) {
     throw new Error(`Failed to read ${targetPath}`);
   }
-  const data = (await response.json()) as { content?: string };
-  if (typeof data.content !== "string") {
+  if (typeof data?.content !== "string") {
     throw new Error(`Missing file contents for ${targetPath}`);
   }
-  observeSourceRead(projectId, targetPath, response, data);
   return data.content;
 }
 
@@ -416,23 +411,23 @@ async function scaleGsapPositions(
 }
 
 /** Rebind the optimistic clip timing or swap the animation script produced by the shared edit. */
-export function refreshCommittedTimeline(iframe: HTMLIFrameElement | null, path: string, projectId: string | null, reloadPreview: () => void) {
+export function refreshCommittedTimeline(iframe: HTMLIFrameElement | null, path: string, projectId: string | null, reloadPreview: (paths?: string | readonly string[]) => void) {
   const isolatedSrc = iframe && !createPreviewAdapter({ iframe }).sameOrigin ? iframe.src : undefined;
-  return async (files: Record<string, {before: string; after: string}>, previous?: ConfirmedSource) => {
+  return async (files: Record<string, {before: string; after: string}>, previous?: ConfirmedSource, bases?: ReadonlyMap<string, ConfirmedSource>) => {
     if (iframe && projectId && isolatedSrc !== undefined) {
       if (!iframe.isConnected || iframe.src !== isolatedSrc) return;
-      scheduleCommittedTimelinePreview(iframe, projectId, path, files, previous, reloadPreview);
+      scheduleCommittedTimelinePreview(iframe, projectId, path, files, previous, reloadPreview, bases);
       return;
     }
     const file = files[path];
-    if (!file) { reloadPreview(); return; }
+    if (!file) { reloadPreview(Object.keys(files)); return; }
     const status = sdkTimingGsapSync({status: "committed", version:"", ...file});
-    await syncTimingEditPreview(iframe, status ?? UNMUTATED, projectId, reloadPreview, true);
+    await syncTimingEditPreview(iframe, status ?? UNMUTATED, projectId, () => reloadPreview(path), true);
   };
 }
 
 /** Only the isolated cloud player consumes versioned file receipts for structural edits. */
-export function isolatedStructureRefresh(frame: HTMLIFrameElement | null | undefined, path: string, projectId: string, reload: () => void) {
+export function isolatedStructureRefresh(frame: HTMLIFrameElement | null | undefined, path: string, projectId: string, reload: (paths?: string | readonly string[]) => void) {
   return frame && !createPreviewAdapter({ iframe: frame }).sameOrigin
     ? refreshCommittedTimeline(frame, path, projectId, reload) : undefined;
 }

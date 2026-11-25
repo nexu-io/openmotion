@@ -8,11 +8,13 @@ export interface CanvasBox {
   top: number;
   makeRelative: boolean;
   corner?: 'nw' | 'ne' | 'sw' | 'se';
+  /** Additional CSS offsets needed to keep the opposite corner of a transformed box fixed. */
+  extraAxes?: 'x' | 'y' | 'xy';
   width?: number;
   height?: number;
 }
 
-export function canvasBoxOperations(result: CanvasBox) {
+export function canvasBoxOperations(result: CanvasBox, offset: "layout" | "translate" = "layout") {
   if (result.corner && !['nw', 'ne', 'sw', 'se'].includes(result.corner))
     throw new Error('Invalid resize corner.');
   if (
@@ -28,13 +30,19 @@ export function canvasBoxOperations(result: CanvasBox) {
     throw new Error('Invalid canvas dimensions.');
   const operations: Array<{ type: 'inline-style'; property: string; value: string }> = [];
   const { corner } = result;
-  if (result.makeRelative === true && (!corner || corner !== 'se')) {
-    operations.push({ type: 'inline-style', property: 'position', value: 'relative' });
+  const writeLeft = !corner || corner.endsWith('w') || result.extraAxes?.includes('x');
+  const writeTop = !corner || corner.startsWith('n') || result.extraAxes?.includes('y');
+  if (offset === "translate") {
+    if (writeLeft || writeTop)
+      operations.push({ type: 'inline-style', property: 'translate', value: result.left + 'px ' + result.top + 'px' });
+  } else {
+    if (result.makeRelative === true && (writeLeft || writeTop))
+      operations.push({ type: 'inline-style', property: 'position', value: 'relative' });
+    if (writeLeft)
+      operations.push({ type: 'inline-style', property: 'left', value: result.left + 'px' });
+    if (writeTop)
+      operations.push({ type: 'inline-style', property: 'top', value: result.top + 'px' });
   }
-  if (!corner || corner.endsWith('w'))
-    operations.push({ type: 'inline-style', property: 'left', value: result.left + 'px' });
-  if (!corner || corner.startsWith('n'))
-    operations.push({ type: 'inline-style', property: 'top', value: result.top + 'px' });
   if (corner) {
     operations.push(
       { type: 'inline-style', property: 'width', value: result.width + 'px' },

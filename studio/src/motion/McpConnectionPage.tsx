@@ -324,6 +324,7 @@ export function McpConnectionPage({
   const supported = supportsConnection(client, info);
   const language = locale === 'zh-CN' ? 'zh-CN' : 'en';
   const prompt = setupPrompt(info, client.host, language, t).replace('MCP / CLI', agent);
+  const examplePrompt = supported ? prompt : setupPrompt(info, 'mcp', language, t).replace('MCP / CLI', t('your Agent'));
   const manual = info ? manualConnection(info, client.host, language) : '';
   const cursorDeeplink = client.id === 'cursor' ? buildCursorDeeplink(info) : null;
   const cloudConfig = info && httpTransport && supported ? integrationConfig(info, client.host) : null;
@@ -353,34 +354,34 @@ export function McpConnectionPage({
   }
 
   const copyCreation = (text: string, includeSetup: boolean, kind: 'starter' | 'capability_example', capability: string) =>
-    copy(includeSetup ? `${prompt}\n\n${t(text)}` : t(text), { kind, capability, includesSetup: includeSetup });
+    copy(includeSetup ? `${examplePrompt}\n\n${t(text)}` : t(text), { kind, capability, includesSetup: includeSetup });
 
   const copyCapability = async (item: (typeof mcpCapabilities)[number] | (typeof mcpScenarios)[number]) => {
     let instruction: string;
     const studio = findTechniqueStudio(item.id === 'spatial-scene' ? '3d' : item.id);
     if (studio) {
       const skill = motionSkills.find(entryItem => entryItem.id === studio.techniques[0])!;
-      instruction = localizedSkillPrompt(skill, studioSkillDefaults(studio.id), locale, setupGuideUrl(info), t) + '\n\n' + t(item.prompt);
+      instruction = localizedSkillPrompt(skill, studioSkillDefaults(studio.id), locale, setupGuideUrl(info), t, Boolean(httpTransport)) + '\n\n' + t(item.prompt);
     } else if (item.id === 'studio-shot') {
       const explainer = findTechniqueStudio('explainer')!;
       const starterSkill = motionSkills.find(entryItem => entryItem.id === explainer.techniques[0])!;
-      instruction = [prompt, t(item.prompt), skillShotPrompt(starterSkill, studioSkillDefaults(explainer.id), t)].join('\n\n');
+      instruction = [examplePrompt, t(item.prompt), skillShotPrompt(starterSkill, studioSkillDefaults(explainer.id), t)].join('\n\n');
     } else if (item.id === 'review-comments') {
       instruction = reviewCommentsPrompt({ projectId, dataDirectory: info?.dataDirectory, previewUrl: info?.previewUrl });
     } else if (item.id === 'project-file') {
-      instruction = [prompt, t(item.prompt), projectFileExample(projectId)].join('\n\n');
+      instruction = [examplePrompt, t(item.prompt), projectFileExample(projectId)].join('\n\n');
     } else if (item.id === 'clip-move' || item.id === 'project-edit') {
-      instruction = [prompt, t(item.prompt), item.id === 'clip-move' ? clipMoveExample : projectEditExample].join('\n\n');
+      instruction = [examplePrompt, t(item.prompt), item.id === 'clip-move' ? clipMoveExample : projectEditExample].join('\n\n');
     } else if (item.id === 'transcript') {
-      instruction = `${prompt}\n\n${transcriptExamplePrompt(info, locale)}`;
+      instruction = `${examplePrompt}\n\n${transcriptExamplePrompt(info, locale)}`;
     } else if (item.id === 'scenario-black-friday') {
-      instruction = `${prompt}\n\n${scenarioAgentPrompt(findScenario('black-friday')!, { locale, integration: info })}`;
+      instruction = `${examplePrompt}\n\n${scenarioAgentPrompt(findScenario('black-friday')!, { locale, integration: info })}`;
     } else if (item.id === 'scenario-workflows' || item.id === 'scenario-agent-writeback') {
-      instruction = `${prompt}\n\n${t(item.prompt)}`;
+      instruction = `${examplePrompt}\n\n${t(item.prompt)}`;
     } else if (item.id === 'anime-opening') {
-      instruction = [prompt, t(item.prompt)].join('\n\n');
+      instruction = [examplePrompt, t(item.prompt)].join('\n\n');
     } else if (item.id === 'search-recovery') {
-      instruction = `${prompt}\n\n${searchRecoveryExample(t)}`;
+      instruction = `${examplePrompt}\n\n${searchRecoveryExample(t)}`;
     } else if (item.id === 'platform-export') {
       instruction = platformExportExample(locale, info ?? undefined);
     } else {
@@ -430,7 +431,9 @@ export function McpConnectionPage({
       toast.showToast(t('Cursor install prompt triggered. If Cursor did not open, click Manual setup to copy the JSON.'), 'info', 'feedback');
       return;
     }
-    const copyMessage = t('Copied. Paste into {agent} to finish setup.', { agent: client.id === 'mcp' ? t('your Agent') : agent });
+    const copyMessage = client.id === 'mcp'
+      ? t('Copied. Paste into your Agent to finish setup.')
+      : t('Copied. Paste into {agent} to finish setup.', { agent });
     const copied = await copy(prompt, { kind: 'connection_instruction' }, copyMessage);
     setSetupResult({ clientId: client.id, copied, fallbackPrompt: copied ? undefined : prompt });
   }

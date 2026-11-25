@@ -30,3 +30,117 @@
 }
 .motion-placement-label strong { font-family: var(--motion-font-mono); font-weight: var(--motion-weight-medium); font-variant-numeric: tabular-nums; }
 .motion-placement-label[data-snapped] { border-color: var(--motion-accent); }
+
+/* Non-blocking editor asset progress hairline (bundled into hashed studio CSS). */
+.motion-editor-asset-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 60;
+  pointer-events: none;
+  overflow: hidden;
+  background: var(--motion-accent-soft);
+  opacity: 0;
+  transition: opacity var(--motion-duration-normal) var(--motion-ease-out);
+}
+.motion-editor-asset-bar[data-visible="true"] {
+  opacity: 1;
+}
+.motion-editor-asset-bar-fill {
+  height: 100%;
+  width: 100%;
+  background: var(--motion-accent);
+  transform-origin: left center;
+  transition: transform var(--motion-duration-normal) var(--motion-ease-out);
+}
+.motion-editor-asset-bar-fill[data-indeterminate="true"] {
+  width: 42%;
+  background: linear-gradient(90deg, transparent 0%, var(--motion-accent) 50%, transparent 100%);
+  animation: motion-asset-bar-sweep var(--motion-duration-loading) var(--motion-ease-standard) infinite;
+}
+@keyframes motion-asset-bar-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(340%); }
+}
+
+/* Frameless preview-stage breathing brand mark (also bundled so deploy cache never drops it). */
+.motion-preview-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  animation: motion-preview-loading-enter var(--motion-duration-fast) var(--motion-ease-out) 60ms forwards;
+}
+.motion-preview-loading-mark {
+  display: block;
+  width: var(--motion-space-40);
+  height: var(--motion-space-40);
+  background: var(--motion-accent);
+  -webkit-mask: url('./brand/loading-mark.svg') center / contain no-repeat;
+  mask: url('./brand/loading-mark.svg') center / contain no-repeat;
+  animation: motion-preview-mark-breathe var(--motion-duration-loading) var(--motion-ease-standard) infinite alternate;
+}
+@keyframes motion-preview-loading-enter {
+  to { opacity: 1; }
+}
+@keyframes motion-preview-mark-breathe {
+  from { opacity: 0.92; transform: scale(1); }
+  to { opacity: 0.42; transform: scale(0.92); }
+}
+
+/* Compact transport status indicators: media buffering hint & persistent asset-retry pill. */
+.motion-player-buffering {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-4);
+  min-width: 0;
+  white-space: nowrap;
+  color: var(--motion-muted);
+  font: var(--motion-weight-medium) var(--motion-text-xs)/1 var(--motion-font-sans);
+}
+.motion-player-asset-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--motion-space-4);
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--motion-space-2) var(--motion-space-8);
+  border-radius: var(--motion-radius-full);
+  background: var(--motion-warning-soft);
+  color: var(--motion-warning);
+  font: var(--motion-weight-medium) var(--motion-text-xs)/1.3 var(--motion-font-sans);
+  cursor: pointer;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-out);
+}
+.motion-player-asset-pill:hover:not(:disabled) {
+  opacity: 0.88;
+}
+.motion-player-asset-pill:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-editor-asset-bar,
+  .motion-editor-asset-bar-fill {
+    transition: none;
+  }
+  .motion-editor-asset-bar-fill[data-indeterminate="true"] {
+    width: 100%;
+    opacity: 0.55;
+    animation: none;
+  }
+  .motion-preview-loading {
+    opacity: 1;
+    animation: none;
+  }
+  .motion-preview-loading-mark {
+    opacity: 0.85;
+    animation: none;
+  }
+}

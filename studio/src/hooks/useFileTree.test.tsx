@@ -26,19 +26,80 @@ afterEach(() => {
 interface Handle {
   compositions: string[];
   fonts: ReturnType<typeof useFileTree>["fontAssets"];
+  assetNames: ReturnType<typeof useFileTree>["assetNames"];
   refresh: ReturnType<typeof useFileTree>["refreshFileTree"];
 }
 
 const Harness = forwardRef<Handle, { projectId: string }>(function Harness({ projectId }, ref) {
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
-  const { compositions, refreshFileTree, fontAssets } = useFileTree({ projectId, projectIdRef });
-  useImperativeHandle(ref, () => ({ compositions, fonts: fontAssets, refresh: refreshFileTree }), [
+  const { compositions, refreshFileTree, fontAssets, assetNames } = useFileTree({ projectId, projectIdRef });
+  useImperativeHandle(ref, () => ({ compositions, fonts: fontAssets, assetNames, refresh: refreshFileTree }), [
     compositions,
     fontAssets,
+    assetNames,
     refreshFileTree,
   ]);
   return null;
+});
+
+it.each([false, true])("renders the directory before font inspection and reuses matching details (legacy response %s)", async (legacy) => {
+  let finish!: (response: Response) => void;
+  const details = new Promise<Response>(resolve => { finish = resolve; });
+  const urls: string[] = [];
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = String(input);
+    urls.push(url);
+    return url.endsWith("?view=asset-details") ? details : Response.json({
+      files: ["index.html", "assets/font.woff"], compositions: ["index.html"], assetDetailsKey: "font-v1", revision: "r1",
+    });
+  });
+  try {
+    const handle = await renderHarness("font-project");
+    expect(handle.current?.compositions).toEqual(["index.html"]);
+    expect(handle.current?.fonts).toEqual([]);
+    await act(async () => finish(Response.json({
+      ...(legacy ? { revision: "r1" } : { assetDetailsKey: "font-v1" }), fonts: [{ path: "assets/font.woff", family: "The Real Family" }],
+    })));
+    expect(handle.current?.fonts[0]?.family).toBe("The Real Family");
+    await act(async () => { await handle.current?.refresh(); });
+    expect(handle.current?.fonts[0]?.family).toBe("The Real Family");
+    expect(urls.filter(url => url.endsWith("?view=asset-details"))).toHaveLength(1);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+it.each([1, 2])("recovers fonts and asset names after %i failed details reads without reopening the project", async (failures) => {
+  vi.useFakeTimers();
+  const font = "assets/Display.ttf";
+  const names = { [font]: "Brand font" };
+  let attempts = 0;
+  const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async input => {
+    if (!String(input).endsWith("?view=asset-details")) {
+      return Response.json({ files: ["index.html", font], compositions: ["index.html"], assetDetailsKey: "same" });
+    }
+    if (++attempts <= failures) return new Response(null, { status: 503 });
+    return Response.json({ assetDetailsKey: "same", fonts: [{ path: font, family: "Brand" }], assetNames: names });
+  });
+  try {
+    const handle = await renderHarness("font-recovery");
+    expect(handle.current?.compositions).toEqual(["index.html"]);
+    expect(attempts).toBe(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(attempts).toBe(2);
+    if (failures === 2) {
+      expect(handle.current?.fonts[0]?.family).toBe("Display");
+      await act(async () => { await handle.current?.refresh(); });
+    }
+    expect(handle.current?.fonts[0]?.family).toBe("Brand");
+    expect(handle.current?.assetNames).toEqual(names);
+    await act(async () => { await handle.current?.refresh(); });
+    expect(attempts).toBe(failures + 1);
+  } finally {
+    fetchSpy.mockRestore();
+    vi.useRealTimers();
+  }
 });
 
 it("keeps the server's real family and weight instead of deriving them from the asset filename", async () => {
@@ -367,7 +428,7 @@ it('serves previously loaded project trees immediately via stale-while-revalidat
   let deferReturnA: ((res: Response) => void) | null = null;
   let callsA = 0;
   const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((url) => {
-    const id = String(url).split('/').pop()!;
+    const id = new URL(String(url), 'http://studio.test').pathname.split('/').pop()!;
     if (id === 'proj-swr-a') {
       callsA += 1;
       if (callsA === 2) {
@@ -421,6 +482,49 @@ it('serves previously loaded project trees immediately via stale-while-revalidat
       await Promise.resolve();
     });
     expect(latestComps).toEqual(['index.html', 'compositions/a.html', 'compositions/a2.html']);
+  } finally {
+    fetchSpy.mockRestore();
+  }
+});
+
+it('tracks fileTreeError on initial load failure and clears it after refreshFileTree recovers', async () => {
+  let attempt = 0;
+  const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    attempt += 1;
+    if (attempt === 1) {
+      return new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 });
+    }
+    return Response.json({ files: ['index.html', 'assets/bg.png'], compositions: ['index.html'] });
+  });
+  let latestError = false;
+  let latestFiles: string[] = [];
+  let refreshFn: (() => Promise<void>) | null = null;
+  function ErrorHarness({ projectId }: { projectId: string }) {
+    const projectIdRef = useRef(projectId);
+    projectIdRef.current = projectId;
+    const tree = useFileTree({ projectId, projectIdRef });
+    latestError = tree.fileTreeError;
+    latestFiles = tree.fileTree;
+    refreshFn = tree.refreshFileTree;
+    return null;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  root = createRoot(host);
+  try {
+    await act(async () => {
+      root!.render(<ErrorHarness projectId="proj-err-retry" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(latestError).toBe(true);
+    expect(latestFiles).toEqual([]);
+
+    await act(async () => {
+      await refreshFn?.();
+    });
+    expect(latestError).toBe(false);
+    expect(latestFiles).toEqual(['index.html', 'assets/bg.png']);
   } finally {
     fetchSpy.mockRestore();
   }

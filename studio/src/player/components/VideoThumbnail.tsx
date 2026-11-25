@@ -56,8 +56,8 @@ function useVideoThumbnailSnapshot(
   const posterSnapshot = useThumbnailLease(poster);
   const richSnapshot = useThumbnailLease(rich);
   const [shown, setShown] = useState({ media, request: rich });
-  const settled = richSnapshot.status === "ready" || rich === null;
-  if (settled && (shown.media !== media || shown.request !== rich)) setShown({ media, request: rich });
+  const richSettled = richSnapshot.status === "ready" || rich === null;
+  if (richSettled && (shown.media !== media || shown.request !== rich)) setShown({ media, request: rich });
   const shownSnapshot = useThumbnailLease(shown.media === media ? shown.request : null);
   return selectThumbnailSnapshot(posterSnapshot, richSnapshot, shownSnapshot);
 }
@@ -141,7 +141,6 @@ export const VideoThumbnail = memo(function VideoThumbnail({
     measured && requestFrameCount > 1 ? richRequest : null,
     `${projectId}\0${videoSrc}`,
   );
-
   const value = snapshot.status === "ready" ? snapshot.value : null;
   const urls = value?.kind === "filmstrip" ? value.urls : value?.kind === "image" ? [value.url] : [];
   const aspect = value && value.kind !== "waveform" ? value.aspect : 16 / 9;

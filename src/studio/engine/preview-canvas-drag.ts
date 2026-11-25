@@ -1,8 +1,15 @@
+import { PREVIEW_CANVAS_RESIZE } from './preview-canvas-resize.ts';
+
 /** Runs inside the scoped project frame alongside describe() and sourceVersions.
  * Studio owns pointer capture and authorizes the final source write. */
 export const PREVIEW_CANVAS_DRAG = `
   let drag = null;
   const pendingDrags = new Map();
+  ${PREVIEW_CANVAS_RESIZE}
+
+  function localOffset({ a, b, c, d, determinant }, dx, dy) {
+    return { x: (d * dx - c * dy) / determinant, y: (a * dy - b * dx) / determinant };
+  }
 
   function pendingForSource(path) {
     return Array.from(pendingDrags.values()).filter(step => step.selection.sourceFile === path);
@@ -11,7 +18,7 @@ export const PREVIEW_CANVAS_DRAG = `
   function canvasBase(path, gesture) {
     if (sourceVersions[path]) return sourceVersions[path];
     const steps = pendingForSource(path);
-    const plainMove = step => !step.corner && !step.makeRelative;
+    const plainMove = step => !step.corner && (!step.makeRelative || step.element.childElementCount === 0);
     const canChain = (timingDocumentId && path === compositionPath) ||
       (settings.liveEdits?.position === true && plainMove(gesture) && steps.every(plainMove));
     const latest = canChain && steps.at(-1);
@@ -21,7 +28,7 @@ export const PREVIEW_CANVAS_DRAG = `
   function confirmCanvasVersion(path, version) {
     const steps = pendingForSource(path);
     if (steps.length) steps.forEach(step => { step.confirmedVersion = version; });
-    else {
+    if (steps.every(step => step.ordered)) {
       sourceVersions[path] = version;
       notifyInspectorSourceReady(path);
     }
@@ -42,19 +49,33 @@ export const PREVIEW_CANVAS_DRAG = `
     }
   }
 
-  function measureDragAxes(element, left, top, makeRelative, original) {
-    // Measure the effect of 32 CSS pixels on each axis. The inverse of that
-    // matrix accounts for transformed ancestors as well as scaled compositions.
+  function animatedLayoutOffset(element, style) {
+    // GSAP may absorb a CSS translate into its own transform on the next load.
+    // Use this coordinate system only when compilation proved the scene has no authored script.
+    if (!(settings.canRebindTiming || settings.liveEdits?.cssLayoutOffset)) return null;
+    if (!style.animationName || style.animationName === 'none') return null;
+    const frames = element.getAnimations().flatMap(({effect}) =>
+      effect?.target === element && !effect.pseudoElement ? effect.getKeyframes() : []);
+    if (!frames.some(frame => 'left' in frame || 'top' in frame) || frames.some(frame => 'translate' in frame)) return null;
+    if (style.translate === 'none') return [0, 0];
+    const parts = style.translate?.split(' ');
+    if (!parts?.length || parts.length > 2 || !parts.every(value => /^-?(?:\\d+\\.?\\d*|\\.\\d+)px$/.test(value))) return null;
+    return [parseFloat(parts[0]), parseFloat(parts[1] || '0')];
+  }
+
+  function measureDragAxes(element, x, y, makeRelative, original, translate) {
+    // Measure the authored coordinate system, including transformed ancestors.
     const before = element.getBoundingClientRect();
-    if (makeRelative) element.style.position = 'relative';
-    element.style.left = left + 'px';
-    element.style.top = top + 'px';
-    const zero = element.getBoundingClientRect();
-    element.style.left = (left + 32) + 'px';
-    const horizontal = element.getBoundingClientRect();
-    element.style.left = left + 'px';
-    element.style.top = (top + 32) + 'px';
-    const vertical = element.getBoundingClientRect();
+    function probe(dx, dy) {
+      if (translate) element.style.translate = (x + dx) + 'px ' + (y + dy) + 'px';
+      else {
+        if (makeRelative) element.style.position = 'relative';
+        element.style.left = (x + dx) + 'px';
+        element.style.top = (y + dy) + 'px';
+      }
+      return element.getBoundingClientRect();
+    }
+    const zero = probe(0, 0), horizontal = probe(32, 0), vertical = probe(0, 32);
     restoreStyles(element, original);
 
     const a = (horizontal.x - zero.x) / 32;
@@ -65,7 +86,9 @@ export const PREVIEW_CANVAS_DRAG = `
     const resizes = [zero, horizontal, vertical].some(rect =>
       Math.abs(rect.width - before.width) > 1 || Math.abs(rect.height - before.height) > 1
     );
-    if (resizes || Math.abs(determinant) < 0.0001 ||
+    // A CSS translation does not change layout, but a perspective ancestor can
+    // change its projected size. Corner resizing corrects that projection live.
+    if ((resizes && !(translate && hasResizePerspective(element))) || Math.abs(determinant) < 0.0001 ||
         Math.abs(zero.x - before.x) > 1 || Math.abs(zero.y - before.y) > 1) return null;
     return { a, b, c, d, determinant };
   }
@@ -76,11 +99,36 @@ export const PREVIEW_CANVAS_DRAG = `
     return rect.width > 0 && rect.height > 0;
   }
 
-  function startDrag(message) {
+  function canvasPointHit(x, y) {
+    if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+    return document.elementFromPoint(x * innerWidth, y * innerHeight)?.closest('[id],[data-hf-id]');
+  }
+
+  function canvasGestureTarget(message, corner) {
+    const { x, y, target } = message;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const insideFrame = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+    if (insideFrame && !target) return corner ? picked : canvasPointHit(x, y);
+    if (!target?.sourceFile) return null;
+    const node = inspectorElement(target);
+    if (!node || node.closest('[data-hf-parked-scene]')) return null;
+    if (insideFrame && corner) return node;
+    if (picked?.isConnected && node !== picked) return null;
+
+    // The selected box can extend beyond the clipped iframe. Validate the actual live
+    // bounds instead of redirecting the pointer to a different layer at the frame edge.
+    const rect = node.getBoundingClientRect();
+    const px = x * innerWidth, py = y * innerHeight;
+    if (!corner) return px >= rect.left && px <= rect.right && py >= rect.top && py <= rect.bottom ? node : null;
+    const cx = corner.endsWith('w') ? rect.left : rect.right;
+    const cy = corner.startsWith('n') ? rect.top : rect.bottom;
+    return Math.abs(px - cx) <= 4 && Math.abs(py - cy) <= 4 ? node : null;
+  }
+
+  function startDrag(message, knownTarget) {
     if (drag) return null;
-    const hit = document.elementFromPoint(message.x * innerWidth, message.y * innerHeight);
     const corner = ['nw','ne','sw','se'].includes(message.corner) ? message.corner : null;
-    const element = corner ? (message.target ? inspectorElement(message.target) : picked) : hit?.closest('[id],[data-hf-id]');
+    const element = knownTarget || canvasGestureTarget(message, corner);
     if (!(element instanceof HTMLElement) || element === document.body || element === document.documentElement ||
         element.matches('[data-composition-id],[data-composition-src],[data-hf-scene]') ||
         element.closest('[data-timeline-locked]')) return null;
@@ -89,36 +137,59 @@ export const PREVIEW_CANVAS_DRAG = `
     const style = getComputedStyle(element);
     if (!canvasTargetVisible(element, style)) return null;
     const makeRelative = style.position === 'static';
-    if (!canvasBase(selection.sourceFile, {corner, makeRelative})) return { waitingForSource: true };
-    const properties = makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
+    if (!canvasBase(selection.sourceFile, {corner, makeRelative, element})) return { waitingForSource: true };
+    // A CSS animation owns its layout properties. Move its path using the independent translate instead.
+    // Older Studio clients can save translated moves but would drop the dimensions of a resize.
+    const allowTranslate = corner ? message.cssResizeOffset === true : message.cssLayoutOffset === true;
+    const translate = allowTranslate && animatedLayoutOffset(element, style);
+    const properties = translate ? ['translate'] : makeRelative ? ['left', 'top', 'position'] : ['left', 'top'];
     const width = parseFloat(style.width), height = parseFloat(style.height);
     if (corner) {
-      if (!(width > 0 && height > 0) || style.display === 'inline' || style.transform !== 'none') return null;
+      // Inline replaced media honor CSS width and height, unlike an inline text span.
+      if (!(width > 0 && height > 0) || (style.display === 'inline' && !element.matches('canvas,img,video'))) return null;
       properties.push('width','height');
     }
     const original = Object.fromEntries(properties.map(property => [property, {
       value: element.style[property], priority: element.style.getPropertyPriority(property)
     }]));
-    const left = makeRelative ? 0 : parseFloat(style.left) || 0;
-    const top = makeRelative ? 0 : parseFloat(style.top) || 0;
-    const axes = measureDragAxes(element, left, top, makeRelative, original);
-    if (!axes || (corner && (axes.a <= 0 || axes.d <= 0 || Math.abs(axes.b) + Math.abs(axes.c) > 0.001))) return null;
+    const left = translate ? translate[0] : makeRelative ? 0 : parseFloat(style.left) || 0;
+    const top = translate ? translate[1] : makeRelative ? 0 : parseFloat(style.top) || 0;
+    const axes = measureDragAxes(element, left, top, makeRelative, original, translate);
+    if (!axes && corner !== 'se') return null;
+    const resize = corner && measureResize(element, width, height, corner, original, axes);
+    if (corner && !resize) return null;
 
     const localTime = window.__timelines?.[element.closest('[data-composition-id]')?.getAttribute('data-composition-id')]?.time?.();
     const time = Number.isFinite(localTime) ? localTime : (Number(window.__player?.getTime?.()) || 0);
     const pos = axis => parseFloat(window.gsap?.getProperty?.(element, axis)) || 0;
-    const startPosition = {time,x:pos('x'),y:pos('y')};
-    drag = { startPosition, id: message.gestureId, element, original, left, top, makeRelative, axes, selection, width, height, corner };
-    return { geometry: selection.geometry, viewport: selection.viewport };
+    const startPosition = corner || translate ? {time} : {time,x:pos('x'),y:pos('y')};
+    drag = { ordered: message.ordered === true, startPosition, id: message.gestureId, element, original, left, top, makeRelative, translate, axes, resize, selection, width, height, corner };
+    return { geometry: selection.geometry, viewport: selection.viewport, ...(corner && { liveResizeBounds: true }), target: { sourceFile: selection.sourceFile, hfId: selection.hfId, elementId: selection.elementId, ...sourceIdentity(canvasBase(selection.sourceFile, drag)) } };
   }
 
   function canvasDrag(message) {
     if (message.phase === 'start') return startDrag(message);
     const pending = pendingDrags.get(message.gestureId);
+    if (message.phase === 'removed') {
+      const step = pending || (drag?.id === message.gestureId && drag);
+      if (!step?.ordered) return null;
+      step.element.remove();
+      pendingDrags.delete(step.id);
+      if (drag === step) drag = null;
+      return null;
+    }
     if (pending && (message.phase === 'commit' || message.phase === 'cancel')) {
       const path = pending.selection.sourceFile;
-      const requiresFreshFrame = message.phase === 'commit' && message.changed && !pending.verifiedVersion;
-      if (message.phase === 'cancel' || requiresFreshFrame) {
+      const requiresFreshFrame = !pending.ordered && message.phase === 'commit' && message.changed && !pending.verifiedVersion;
+      if (pending.ordered && message.phase === 'cancel') {
+        // Other queued operations own their own outcome, including edits to a different layer in this file.
+        const later = [...pendingForSource(path).slice(pendingForSource(path).indexOf(pending) + 1), drag];
+        for (const key of Object.keys(pending.applied || {})) {
+          const next = later.find(step => step?.element === pending.element && step.original[key]);
+          if (next) next.original[key] = pending.original[key];
+          else restoreStyles(pending.element, { [key]: pending.original[key] }, pending.applied);
+        }
+      } else if (message.phase === 'cancel' || requiresFreshFrame) {
         // Later measurements include this gesture. Unwind newest first.
         if (drag?.selection.sourceFile === path) {
           if (drag.applied && !requiresFreshFrame) restoreStyles(drag.element, drag.original, drag.applied);
@@ -131,7 +202,7 @@ export const PREVIEW_CANVAS_DRAG = `
         }
       }
       pendingDrags.delete(message.gestureId);
-      const confirmed = !requiresFreshFrame && (pending.confirmedVersion || pending.sha256);
+      const confirmed = !pending.ordered && !requiresFreshFrame && (pending.confirmedVersion || pending.sha256);
       if (confirmed) confirmCanvasVersion(path, confirmed);
       return null;
     }
@@ -150,36 +221,42 @@ export const PREVIEW_CANVAS_DRAG = `
         !Number.isFinite(message.dx) || !Number.isFinite(message.dy)) return null;
 
     const dx = message.dx * innerWidth, dy = message.dy * innerHeight;
-    const { a, b, c, d, determinant } = drag.axes;
     const round = n => Math.round(n * 1000) / 1000;
-    const offsetX = (d * dx - c * dy) / determinant, offsetY = (a * dy - b * dx) / determinant;
     const { corner } = drag;
-    const west = corner?.endsWith('w'), north = corner?.startsWith('n');
-    const width = round(Math.max(1, drag.width + (west ? -offsetX : offsetX)));
-    const height = round(Math.max(1, drag.height + (north ? -offsetY : offsetY)));
-    const left = round(drag.left + (corner ? (west ? drag.width - width : 0) : offsetX));
-    const top = round(drag.top + (corner ? (north ? drag.height - height : 0) : offsetY));
+    let size = corner && resizedBox(drag, dx, dy);
+    if (drag.resize?.projection) size = projectedResize(drag, dx, dy, size);
+    const { x: offsetX, y: offsetY } = size || localOffset(drag.axes, dx, dy);
+    const left = round(drag.left + offsetX), top = round(drag.top + offsetY);
+    const width = size && round(size.width), height = size && round(size.height);
+    const writeLeft = !corner || drag.resize.writeLeft;
+    const writeTop = !corner || drag.resize.writeTop;
     const applied = {};
     const set = (key,value) => { drag.element.style[key] = value; applied[key] = drag.element.style[key]; };
-    if (!corner || west || north) {
-      if (drag.makeRelative) set('position','relative');
-      if (!corner || west) set('left',left + 'px');
-      if (!corner || north) set('top',top + 'px');
+    if (writeLeft || writeTop) {
+      if (drag.translate) set('translate', left + 'px ' + top + 'px');
+      else {
+        if (drag.makeRelative) set('position','relative');
+        if (writeLeft) set('left',left + 'px');
+        if (writeTop) set('top',top + 'px');
+      }
     }
     if (corner) { set('width',width+'px'); set('height',height+'px'); }
     drag.applied = applied;
     if (message.phase !== 'finish') return null;
     const { sourceFile, elementId, hfId } = drag.selection;
     const { makeRelative, startPosition } = drag;
-    const position = message.wholePath
+    const translated = Boolean(drag.translate);
+    const position = !corner && !translated && (message.wholePath
       ? { time:startPosition.time, delta:{x:round(offsetX), y:round(offsetY)} }
-      : { time:startPosition.time, x:round(startPosition.x + offsetX), y:round(startPosition.y + offsetY) };
+      : { time:startPosition.time, x:round(startPosition.x + offsetX), y:round(startPosition.y + offsetY) });
     const sha256 = canvasBase(sourceFile, drag);
     const predecessor = pendingForSource(sourceFile).at(-1)?.id;
+    const finalBounds = corner && resizeFrameBounds(drag.element);
     // Keep general inspectors pinned to the last fully settled document.
-    delete sourceVersions[sourceFile];
+    if (!drag.ordered) delete sourceVersions[sourceFile];
     pendingDrags.set(drag.id, { ...drag, sha256 });
     drag = null;
-    return { sourceFile, elementId, hfId, ...sourceIdentity(sha256), ...(predecessor && {predecessor}), left, top, makeRelative, ...(!corner && {position}), ...(corner && {corner,width,height}) };
+    const extraAxes = (writeLeft && !corner?.endsWith('w') ? 'x' : '') + (writeTop && !corner?.startsWith('n') ? 'y' : '');
+    return { sourceFile, elementId, hfId, ...sourceIdentity(sha256), ...(predecessor && {predecessor}), left, top, makeRelative, ...(translated && {translated}), ...(position && {position}), ...(corner && {corner,width,height,...(extraAxes && {extraAxes}),...finalBounds}) };
   }
 `;

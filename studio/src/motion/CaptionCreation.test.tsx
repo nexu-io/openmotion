@@ -8,10 +8,18 @@ import { ManualTextPanel } from './ManualTextPanel';
 import { useCaptionWorkspace } from './captionWorkspace';
 import { usePlayerStore } from '../player/store/playerStore';
 import { useDockLayoutStore } from '../components/dock/dockLayoutStore';
-const state = vi.hoisted(() => ({ composition: 'index.html', model: true, fail: false, wait: vi.fn(), refresh: vi.fn(), toast: vi.fn(), calls: [] as any[] }));
+const state = vi.hoisted(() => ({ composition: 'index.html', model: true, fail: false, wait: vi.fn(), receipt: vi.fn(), refresh: vi.fn(), toast: vi.fn(), calls: [] as any[] }));
 vi.mock('../contexts/StudioContext', () => ({ useStudioShellContext: () => ({ projectId: 'project', activeCompPath: state.composition, waitForPendingDomEditSaves: state.wait, showToast: state.toast, renderQueue: { isRendering: false } }) }));
 vi.mock('../contexts/FileManagerContext', () => ({ useFileManagerContext: () => ({ refreshFileTree: state.refresh }) }));
 vi.mock('./gatewayClient', () => ({ gatewayRequest: vi.fn(async () => ({ revision: 'revision', currentVersionId: 'version' })) }));
+vi.mock('./studioCaptionEdits', () => ({
+  editStudioCaptions: async (shell: { activeCompPath: string }, input: unknown, onProjected?: (id: string) => void) => {
+    state.calls.push({ ...(input as object), compositionPath: shell.activeCompPath });
+    useCaptionWorkspace.getState().changed();
+    onProjected?.('manual-track');
+    await state.receipt();
+  },
+}));
 vi.mock('./transcriptClient', () => ({ transcriptRequest: vi.fn(async input => {
   state.calls.push(input);
   if (input.command === 'sources') return { sources: [{ path: 'speech.wav' }] };
@@ -26,12 +34,12 @@ let root: Root;
 const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.trim() === label)!;
 const render = async (node: React.ReactNode) => act(async () => root.render(<I18nProvider initialLocale="en">{node}</I18nProvider>));
 beforeEach(() => useDockLayoutStore.setState({ visiblePanels: new Set(['captions', 'timeline']) }));
-beforeEach(() => { useCaptionWorkspace.setState({ selections: {}, requests: {}, epoch: 0 }); state.composition = 'index.html'; state.model = true; state.fail = false; state.calls = []; state.wait.mockReset().mockResolvedValue(undefined); state.refresh.mockReset().mockResolvedValue(undefined); state.toast.mockReset(); usePlayerStore.setState({ currentTime: 4, selectedElementId: null, elements: [] }); const host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
+beforeEach(() => { useCaptionWorkspace.setState({ selections: {}, requests: {}, epoch: 0 }); state.composition = 'index.html'; state.model = true; state.fail = false; state.calls = []; state.receipt.mockReset().mockResolvedValue(undefined); state.wait.mockReset().mockResolvedValue(undefined); state.refresh.mockReset().mockResolvedValue(undefined); state.toast.mockReset(); usePlayerStore.setState({ currentTime: 4, selectedElementId: null, elements: [] }); const host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); document.body.innerHTML = ''; vi.useRealTimers(); });
 it('adds plain editable text at the playhead without requiring speech or a model', async () => {
   state.model = false; await render(<ManualTextPanel />); await act(async () => button('Add text').click());
   expect(state.calls).toHaveLength(1);
-  expect(state.calls[0]).toMatchObject({ command: 'caption_add', textKind: 'text', timelineStart: 4, compositionPath: 'index.html', segments: [{ id: 'cue-1', text: 'Default text', start: 0, end: 3 }], expectedRevision: 'revision', expectedVersionId: 'version' });
+  expect(state.calls[0]).toMatchObject({ command: 'caption_add', textKind: 'text', timelineStart: 4, compositionPath: 'index.html', segments: [{ id: 'cue-1', text: 'Default text', start: 0, end: 3 }] });
 });
 it('creates consecutive manual captions from pasted lines', async () => {
   await render(<ManualTextPanel kind="caption" />);
@@ -50,11 +58,12 @@ it('finishes a saved caption without waiting for unrelated file inventory work',
   expect(button('Add text').disabled).toBe(false);
   expect(state.toast).toHaveBeenCalledWith('Text added to the timeline', 'info');
 });
-it('does not write into a different composition after pending saves', async () => {
-  let finish!: () => void; state.wait.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+it('an accepted caption stays in its original composition while the save is pending', async () => {
+  let finish!: () => void; state.receipt.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
   await render(<ManualTextPanel />); await act(async () => button('Add text').click());
   state.composition = 'other.html'; await render(<ManualTextPanel />); await act(async () => finish());
-  expect(state.calls).toHaveLength(0);
+  expect(state.calls).toMatchObject([{ command: 'caption_add', compositionPath: 'index.html' }]);
+  expect(state.wait).not.toHaveBeenCalled();
 });
 it('auto captions use the selected trimmed and retimed source and add completed cues directly', async () => {
   vi.useFakeTimers();

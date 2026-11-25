@@ -1,10 +1,11 @@
 // The player owns the markup and scripts from which a parked scene will mount.
 // A DOM edit to the empty placeholder would be lost on the next seek.
 export const PREVIEW_PARKED_SCENE = `
-  function parkedHost(path) {
-    const hosts = Array.from(document.querySelectorAll('[data-hf-scene][data-composition-file]'))
+  let applyingSceneUpdate = null;
+  function uniqueSceneHost(path, root = document) {
+    const hosts = Array.from(root.querySelectorAll('[data-hf-scene][data-composition-file]'))
       .filter(el => el.getAttribute('data-composition-file') === path);
-    return hosts.length === 1 && hosts[0].hasAttribute('data-hf-parked-scene') ? hosts[0] : null;
+    return hosts.length === 1 ? hosts[0] : null;
   }
 
   // The runtime keeps the compiled HTML in a private cache and replaces the scene host
@@ -37,7 +38,9 @@ export const PREVIEW_PARKED_SCENE = `
         for (const [selector, {tag, styles}] of file.targets) {
           const nodes = Array.from(host.querySelectorAll(selector)).filter(node =>
             node.localName === tag && sourceFileForElement(node) === path);
-          for (const node of nodes) for (const [name, [from, to]] of styles) {
+          if (nodes.length !== 1) continue;
+          const node = nodes[0];
+          for (const [name, [from, to]] of styles) {
             const style = node.style;
             if (style.getPropertyValue(name) !== from || (typeof style.getPropertyPriority === 'function' && style.getPropertyPriority(name))) continue;
             if (to) style.setProperty(name, to);
@@ -73,45 +76,124 @@ export const PREVIEW_PARKED_SCENE = `
   }
 
   function sameOtherEntries(before, after, changed) {
-    return !!before && !!after && Object.hasOwn(before, changed) && Object.hasOwn(after, changed) &&
-      Object.keys(before).length === Object.keys(after).length &&
-      Object.keys(before).every(key => key === changed || before[key] === after[key]);
+    return !!before && !!after && Object.keys(before).length === Object.keys(after).length &&
+      Object.keys(before).every(key => Object.hasOwn(after, key) && (changed.has(key) || before[key] === after[key]));
   }
 
-  async function refreshParkedScene(message) {
-    const { path, fileVersion: version, expiresAt } = message;
-    if (compositionPath !== 'index.html' || message.documentId !== styleDocumentId ||
-        typeof path !== 'string' || !Object.hasOwn(sourceVersions, path) || typeof version !== 'string' ||
-        !Number.isFinite(expiresAt) || expiresAt <= Date.now() || typeof window.__hfSwapScenes !== 'function') return false;
-    const host = parkedHost(path), base = sourceVersions[path];
-    if (!host || !base) return false;
-    const scene = host.getAttribute('data-hf-scene');
-    const current = () => parkedHost(path) === host && sourceVersions[path] === base &&
-      !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt;
-    if (!current()) return false;
-
-    const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
+  async function readSceneSnapshot(file, signal) {
     const url = new URL(location.href);
-    url.searchParams.set('sceneFile', path);
-    const response = await fetch(url.href, { cache: 'no-cache', redirect: 'error', signal });
-    if (!response.ok) return false;
+    url.searchParams.delete('sceneFile');
+    if (file) url.searchParams.set('sceneFile', file);
+    const response = await fetch(url.href, {cache:'no-cache', redirect:'error', signal});
+    if (!response.ok) return null;
     const html = await response.text();
-    const next = new DOMParser().parseFromString(html, 'text/html');
-    const bridges = next.querySelectorAll('script[data-openmotion-preview]');
-    if (bridges.length !== 1) return false;
-    const incoming = JSON.parse(bridges[0].getAttribute('data-openmotion-preview'));
-    const versions = incoming?.sourceVersions;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const bridges = doc.querySelectorAll('script[data-openmotion-preview]');
+    if (bridges.length !== 1) return null;
+    const config = bridges[0].getAttribute('data-openmotion-preview');
+    return { html, doc, config, settings: JSON.parse(config), parts: sceneParts(doc) };
+  }
+
+  // A separate receipt can arrive while its sibling's swap still owns the player.
+  let sceneTail = Promise.resolve();
+  const appliedSceneVersions = new Map();
+  function refreshParkedScene(message) {
+    const result = sceneTail.then(() => applySceneReceipt(message));
+    sceneTail = result.catch(() => false);
+    return result;
+  }
+
+  async function applySceneReceipt(message) {
+    const {expiresAt} = message;
+    if (compositionPath !== 'index.html' || !styleDocumentId || message.documentId !== styleDocumentId ||
+        !Number.isFinite(expiresAt) || expiresAt <= Date.now() || typeof window.__hfSwapScenes !== 'function') return false;
+    const files = message.files ?? [[message.path, message.fileVersion]];
+    if (!Array.isArray(files) || !files.length) return false;
+    const targets = new Map(), scenes = new Set();
+    function addTarget(path, version) {
+      if (typeof path !== 'string' || typeof version !== 'string' || targets.has(path) ||
+          !Object.hasOwn(sourceVersions, path) || !sourceVersions[path]) return false;
+      const host = uniqueSceneHost(path), scene = host?.getAttribute('data-hf-scene');
+      if (!scene || scenes.has(scene) || (message.parkedOnly && !host.hasAttribute('data-hf-parked-scene'))) return false;
+      targets.set(path, {base:sourceVersions[path], host, version, scene});
+      scenes.add(scene);
+      return true;
+    }
+    for (const entry of files) {
+      if (!Array.isArray(entry) || entry.length !== 2 || !addTarget(entry[0], entry[1])) return false;
+    }
+    const current = () => !drag && !pendingDrags.size && !inlineText && Date.now() < expiresAt &&
+      Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base && uniqueSceneHost(path) === target.host);
+    if (!current()) return false;
+    if (files.every(([path, version]) => appliedSceneVersions.get(path) === sourceVersions[path] &&
+        sourceIdentity(sourceVersions[path]).fileVersion === version)) return true;
+    const signal = AbortSignal.timeout(Math.min(5000, expiresAt - Date.now()));
+    const compact = files.length === 1;
+    const snapshot = await readSceneSnapshot(compact ? files[0][0] : null, signal);
+    const incoming = snapshot?.settings, versions = incoming?.sourceVersions;
     if (incoming?.projectId !== projectId || incoming.compositionPath !== compositionPath ||
         incoming.canRebindTiming !== settings.canRebindTiming || JSON.stringify(incoming.liveEdits) !== JSON.stringify(settings.liveEdits) ||
-        JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) ||
-        !sameOtherEntries(sourceVersions, versions, path) || sourceIdentity(versions[path]).fileVersion !== version) return false;
-    const oldParts = sceneParts(document), newParts = sceneParts(next);
-    if (!oldParts || !newParts || oldParts.shared !== newParts.shared ||
-        !sameOtherEntries(oldParts.scenes, newParts.scenes, scene) || !current()) return false;
+        JSON.stringify(incoming.htmlSources) !== JSON.stringify(settings.htmlSources) || !versions ||
+        !files.every(([path, version]) => sourceIdentity(versions[path]).fileVersion === version)) return false;
+    const oldParts = sceneParts(document), newParts = snapshot.parts;
+    if (!oldParts || !newParts || oldParts.shared !== newParts.shared || !current()) return false;
 
-    if (newParts.scenes[scene] !== oldParts.scenes[scene]) await window.__hfSwapScenes(html, signal);
-    forgetScenePlacement(path);
-    confirmCanvasVersion(path, versions[path]);
-    return true;
+    // A newer independent scene may already be in this compilation before its own SSE arrives.
+    const siblings = Object.keys(versions).filter(path => !targets.has(path) && sourceVersions[path] !== versions[path]);
+    for (const path of siblings) {
+      if (path === compositionPath || typeof versions[path] !== 'string' ||
+          !addTarget(path, sourceIdentity(versions[path]).fileVersion)) return false;
+    }
+    if (!sameOtherEntries(sourceVersions, versions, targets) || !sameOtherEntries(oldParts.scenes, newParts.scenes, scenes) ||
+        !Array.from(scenes).every(key => Object.hasOwn(oldParts.scenes, key))) return false;
+    let html = snapshot.html;
+    if (siblings.length) {
+      // A nested scene cannot be swapped independently of its parent.
+      if (Array.from(targets.values()).some(t => t.host.parentElement?.closest('[data-hf-scene]'))) return false;
+      let complete = snapshot.doc;
+      if (compact) {
+        const sibling = siblings.length === 1 ? siblings[0] : null;
+        const extra = await readSceneSnapshot(sibling, signal);
+        // Never combine scene bodies from different revisions or compilations.
+        if (!extra || extra.config !== snapshot.config || JSON.stringify(extra.parts) !== JSON.stringify(newParts)) return false;
+        if (sibling) {
+          for (const el of Array.from(extra.doc.body.children)) {
+            if (el.getAttribute('data-hf-scene') === targets.get(sibling).scene) complete.body.append(complete.importNode(el, true));
+          }
+          html = '<!doctype html>' + complete.documentElement.outerHTML;
+        } else {
+          complete = extra.doc;
+          html = extra.html;
+        }
+      }
+      for (const [path, target] of targets) {
+        const host = uniqueSceneHost(path, complete);
+        if (host?.getAttribute('data-hf-scene') !== target.scene || host.parentElement?.closest('[data-hf-scene]')) return false;
+      }
+    }
+    if (!current()) return false;
+    const confirm = () => {
+      if (!Array.from(targets).every(([path, target]) => sourceVersions[path] === target.base)) return false;
+      for (const path of targets.keys()) {
+        appliedSceneVersions.set(path, versions[path]);
+        forgetScenePlacement(path);
+        confirmCanvasVersion(path, versions[path]);
+      }
+      return true;
+    };
+    if (!Array.from(scenes).some(key => newParts.scenes[key] !== oldParts.scenes[key])) return confirm();
+    const update = {targets, versions, ready: null};
+    applyingSceneUpdate = update;
+    let expire;
+    const expired = new Promise(resolve => { expire = () => resolve(false); });
+    signal.addEventListener('abort', expire, { once: true });
+    try {
+      const swapped = Promise.resolve(window.__hfSwapScenes(html, signal)).then(() => !signal.aborted && confirm());
+      update.ready = Promise.race([swapped, expired]).catch(() => false);
+      return await update.ready;
+    } finally {
+      signal.removeEventListener('abort', expire);
+      applyingSceneUpdate = null;
+    }
   }
 `;

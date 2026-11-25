@@ -1,3 +1,4 @@
+import { warmStudioPanel } from "../studioPanelImports";
 import type { DockviewApi } from "dockview-react";
 
 const SASH_STEP = 16;
@@ -90,8 +91,17 @@ export function installDockAccessibility(api: DockviewApi, root: HTMLElement, t:
     if (event.target.classList.contains("dv-sash")) onSashKeyDown(event, event.target);
     else if (event.target.getAttribute("role") === "tab") onTabKeyDown(event, event.target, api);
   };
+  const warmTab = (event: Event) => {
+    const tab = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-tab-panel-id]") : null;
+    if (event instanceof MouseEvent && event.relatedTarget instanceof Node && tab?.contains(event.relatedTarget)) return;
+    if (tab) void warmStudioPanel(tab.dataset.tabPanelId);
+  };
+  root.addEventListener("focusin", warmTab);
+  root.addEventListener("pointerover", warmTab);
   root.addEventListener("keydown", onKeyDown, true);
   return () => {
+    root.removeEventListener("focusin", warmTab);
+    root.removeEventListener("pointerover", warmTab);
     root.removeEventListener("keydown", onKeyDown, true);
     for (const subscription of subscriptions) subscription.dispose();
   };

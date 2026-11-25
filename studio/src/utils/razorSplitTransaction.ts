@@ -1,3 +1,4 @@
+import { supportsOrderedTextEdits } from "./confirmedTextSources";
 import { getCachedCloudDisklessMode } from "./cloudRuntime";
 import { type TimelineFileEdit, saveCloudTimeline } from "./cloudTimelineEdit";
 import type { TimelineElement } from "../player";
@@ -204,7 +205,10 @@ export function runAtomicCutTransaction(input: RunAtomicCutInput): Promise<Atomi
       }),
     }).then(() => {
       let syncFailed = false;
-      try { input.synchronize(previewScheduled); } catch { syncFailed = true; }
+      // A later ordered operation already owns the preview update for this file.
+      if (!(input.onSaved && !previewScheduled && supportsOrderedTextEdits(input.projectId))) {
+        try { input.synchronize(previewScheduled); } catch { syncFailed = true; }
+      }
       return { splitCount: input.intents.reduce((sum, edit) => sum + edit.targets.length, 0), skippedSelectors: [...skipped], syncFailed };
     }, error => {
       // An uncertain response or failed history read still needs the authoritative file and preview.

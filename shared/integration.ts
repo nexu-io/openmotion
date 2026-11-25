@@ -383,8 +383,11 @@ Follow the installation guide: {guide}
 3. 在当前 Agent 中发现 OpenMotion 工具，调用 openmotion_get_project 验证工作区。仅写入配置不代表连接成功；遇到阻碍请说明。
 4. 在本轮完成引导：准备共享欢迎语和三张视频推荐卡片，打开模板库并展示；只有当前宿主不支持卡片或展示失败时，才改为同一批模板的文字推荐。不把内部指令发成新的用户消息。等我给出创作要求后再创建或修改工程。`;
 }
-export function templatePrompt(_info: IntegrationInfo, _host: IntegrationHost, template: { id: string; title: string }, locale = 'zh-CN') {
-  return formatTemplatePrompt(template, locale);
+export function templatePrompt(info: IntegrationInfo, _host: IntegrationHost, template: { id: string; title: string }, locale = 'zh-CN') {
+  const installUrl = isStreamableHttpTransport(info?.transport)
+    ? `${info.previewUrl.replace(/\/+$/, '')}/mcp-setup`
+    : undefined;
+  return formatTemplatePrompt(template, locale, installUrl);
 }
 
 export function agentGuide(info: IntegrationInfo, host: IntegrationHost) {

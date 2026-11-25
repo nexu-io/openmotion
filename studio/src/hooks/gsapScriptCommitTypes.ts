@@ -26,6 +26,8 @@ export interface MutationResult {
 }
 
 export interface CommitMutationOptions {
+  /** Assign a durable DOM id and create its first tween in the same source edit. */
+  ensureTargetId?: string;
   /** When a preceding write belongs to this same gesture. */
   history?: StudioWriteHistory;
   label: string;

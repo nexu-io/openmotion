@@ -192,7 +192,10 @@ describe('Cloud Phase 1 feature gates', () => {
     const searchTrigger = container.querySelector<HTMLButtonElement>('button[aria-label="Search workspace"]')!;
     await act(async () => searchTrigger.click());
     const searchPanel = document.querySelector('.om-workspace-search')!;
-    expect(searchPanel.textContent).toContain('Motion Studio');
+    expect(searchPanel.querySelector('input[type="search"]')).not.toBeNull();
+    await act(() => vi.dynamicImportSettled());
+    const studios = searchPanel.querySelector('[aria-label="Studios"]')!;
+    expect(studios.querySelector('button[aria-label="Motion Studio"]')).not.toBeNull();
     expect(searchPanel.textContent).not.toContain('Design Studio');
     expect(searchPanel.textContent).not.toContain('Game Studio');
   });

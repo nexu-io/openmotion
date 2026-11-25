@@ -1858,5 +1858,7 @@
   "Moves with the selected main track clip": "Si sposta con la clip selezionata della traccia principale",
   "Trim left to playhead": "Taglia a sinistra fino al cursore",
   "Trim right to playhead": "Taglia a destra fino al cursore",
-  "Screen too small to expand this panel": "Lo schermo è troppo piccolo per espandere questo pannello"
+  "Screen too small to expand this panel": "Lo schermo è troppo piccolo per espandere questo pannello",
+  "{label} picker": "Selettore {label}",
+  "Pick {value0}": "Scegli {value0}"
 }

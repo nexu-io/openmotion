@@ -4,7 +4,7 @@ OpenMotion is a standalone container-first application at the repository root (s
 
 ## Project editing
 
-Follow the [project editing contract](docs/product/edit-core.md) for changes to persisted edits. Keep action semantics in edit-core, route Studio HTTP and remote MCP through the same cloud executor, and verify identical saved results and project undo behavior.
+Follow the [project editing contract](docs/product/edit-core.md) for changes to persisted edits. Hosted Studio runs edit-core locally and submits prepared changes through the ordered project queue. Keep subsequent edits responsive while earlier receipts are outstanding. Remote MCP can run the same edit-core in the cloud. Verify identical saved results and project undo behavior.
 
 ## Local validation
 

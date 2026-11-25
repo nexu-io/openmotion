@@ -69,6 +69,17 @@ describe("studioApiFetch", () => {
     });
   });
 
+  it("uses the same credentials as the cloud shell's project preload on loopback", async () => {
+    vi.stubGlobal("location", new URL("http://127.0.0.1:5190/editor"));
+    vi.stubGlobal("document", { head: { querySelector: (selector: string) => selector.includes("cloud-diskless") ? {} : null } });
+    const fetchMock = vi.fn(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+    const { studioApiFetch } = await loadWithEnv({});
+
+    await studioApiFetch("/api/projects/demo/files/index.html");
+    expect(fetchMock).toHaveBeenCalledWith("/api/projects/demo/files/index.html", { credentials: "same-origin" });
+  });
+
   it("sends same-origin credentials on loopback for a host that opted out", async () => {
     vi.stubGlobal("location", new URL("http://localhost:5190/"));
     const fetchMock = vi.fn(async () => new Response("ok"));

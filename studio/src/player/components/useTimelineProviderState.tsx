@@ -122,7 +122,7 @@ export function useTimelineProviderState({
   const adjustedBeatAnalysis = useAdjustedBeatAnalysis();
   const duration = usePlayerStore((s) => s.duration);
   const timeDisplayMode = usePlayerStore((s) => s.timeDisplayMode);
-  const timelineReady = usePlayerStore((s) => s.timelineReady);
+  const timelineReady = usePlayerStore((s) => s.timelineReady || !!s.authoredTimelinePath);
   const selectedElementId = usePlayerStore((s) => s.selectedElementId);
   const selectedElementIds = usePlayerStore((s) => s.selectedElementIds);
   const focusedEaseSegment = usePlayerStore((s) => s.focusedEaseSegment);

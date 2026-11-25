@@ -401,6 +401,14 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     assert.ok(!plainHtml.includes(RUNTIME_CONFIG_GLOBAL_KEY));
     assert.ok(!plainHtml.includes(RUNTIME_CONFIG_PLACEHOLDER));
 
+    const projectId = '10000000-0000-4000-8000-000000000001';
+    const editorHtml = await (await disabledApi.app.request(`/editor/${projectId}`)).text();
+    assert.ok(editorHtml.includes(`href="/api/projects/${projectId}?view=editor"`));
+    assert.ok(editorHtml.includes(`href="/api/projects/${projectId}/files/index.html"`));
+    for (const route of ['/explore?project=' + projectId, '/editor/not-an-id', '/editor/' + projectId + '?templates=1']) {
+      assert.ok(!(await (await disabledApi.app.request(route)).text()).includes('data-editor-bootstrap'), route);
+    }
+
     // Dev mode allows .map for local debugging
     const devMapRes = await disabledApi.app.request('/editor-assets/index.js.map');
     assert.equal(devMapRes.status, 200);
@@ -413,7 +421,7 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
       SENTRY_TRACES_SAMPLE_RATE: '0.2',
       PREVIEW_PUBLIC_ORIGIN: 'https://preview.openmotion.example.com',
     });
-    const injectedRes = await enabledApi.app.request('/projects/test-route');
+    const injectedRes = await enabledApi.app.request('/editor/test-route');
     assert.equal(injectedRes.status, 200);
     const injectedHtml = await injectedRes.text();
     assert.ok(injectedHtml.includes(`window.${RUNTIME_CONFIG_GLOBAL_KEY}=Object.freeze(`));
@@ -421,6 +429,10 @@ describe('Cloud infra config & API runtime injection + production sourcemap guar
     assert.ok(injectedHtml.includes('"environment":"staging"'));
     assert.ok(injectedHtml.includes('"release":"openmotion@test-rel"'));
     assert.ok(injectedHtml.includes('"previewOrigin":"https://preview.openmotion.example.com"'));
+
+    const unknownInjectedRes = await enabledApi.app.request('/projects/test-route');
+    assert.equal(unknownInjectedRes.status, 404);
+    assert.ok((await unknownInjectedRes.text()).includes(`window.${RUNTIME_CONFIG_GLOBAL_KEY}=Object.freeze(`));
 
     const headRes = await enabledApi.app.request('/', { method: 'HEAD' });
     assert.equal(headRes.status, 200);

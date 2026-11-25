@@ -1,6 +1,6 @@
 import { useI18n } from "../../i18n/I18n";
-import { HyperframesLoader } from "../../components/ui";
 
+/** Frameless preview-stage first-frame indicator: a gentle breathing brand mark with no modal box or text. */
 export function PreviewCompositionLoading() {
   const { t } = useI18n();
   return (
@@ -8,12 +8,12 @@ export function PreviewCompositionLoading() {
       className="motion-preview-loading"
       data-hyperframes-ignore=""
       data-testid="composition-loading-overlay"
+      role="status"
+      aria-live="polite"
       onDragStart={(event) => event.preventDefault()}
-      onPointerDown={(event) => event.preventDefault()}
     >
-      <div className="motion-preview-loading-card">
-        <HyperframesLoader title={t("Loading composition")} size={56} />
-      </div>
+      <span className="motion-preview-loading-mark" aria-hidden="true" />
+      <span className="sr-only">{t("Loading composition")}</span>
     </div>
   );
 }

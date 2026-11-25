@@ -1,6 +1,8 @@
+import { isBeatMedia } from '../../shared/asset-names.ts';
+import type { OrderedEditEvents } from './ordered-edit-events.ts';
 import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { z } from 'zod';
+import { textEditSchema } from './text-edit-input.ts';
 import { componentOverlaySource } from '../../shared/registry-material-compat.ts';
 import type { TextPatch } from '../../shared/text-patch.ts';
 import type { AuthContext } from '../contracts/auth.ts';
@@ -20,21 +22,6 @@ import { validateTextPatch } from './text-patch-boundaries.ts';
 
 // Existing callers may use the patch form even for very short files.
 const SMALL_TEXT_PATCH_BYTES = 64 * 1024;
-const version = z.string().regex(/^"(?:sha256|patch):[a-f0-9]{64}"$/);
-const splice = z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative(), z.string()])
-  .transform(([offset, removed, insert]) => [offset, removed, insert] as const);
-const file = {path: z.string(), baseVersion: version.nullable()};
-const batchSchema = z.strictObject({
-  files: z.array(z.union([
-    z.strictObject({...file, baseVersion: version, patch: z.array(splice).max(4096)}),
-    z.strictObject({...file, content: z.string()}),
-  ])).min(1).max(256),
-  dependencies: z.record(z.string(), version.nullable()).optional(),
-  label: z.string().trim().min(1).max(256).optional(),
-  undoGroup: z.uuid().optional(),
-  installComponent: z.string().min(1).max(200).optional(),
-});
-
 function invalid(message: string) {
   return new CloudError('INVALID_ARGUMENT', message, {status: 400, applied: false});
 }
@@ -43,6 +30,8 @@ export interface PendingTextRevision {
   mimeType: string; depth: number; chainPatchBytes: number; checkpointDue: boolean; patch: TextPatch;
 }
 export interface TextEditIdentity {
+  events?: OrderedEditEvents;
+  observedProject?: { expectedRevision: string; expectedVersionId: string };
   requestId: string; writeToken?: string; source: 'studio'|'agent';
   // Semantic MCP requests retain their original identity before generating bytes.
   command?: {scope: string; hash: string; result: Record<string, unknown>};
@@ -72,7 +61,7 @@ function canPatchBeSmaller(patch: TextPatch, baseBytes: number): boolean {
 
 export async function commitTextEdits(files: ProjectFilesService, db: Database, storage: StoragePort,
   ctx: AuthContext, projectId: string, body: unknown, identity: TextEditIdentity): Promise<CommitProjectFilesResult> {
-  const parsed = batchSchema.safeParse(body);
+  const parsed = textEditSchema.safeParse(body);
   if (!parsed.success || !identity.requestId || identity.requestId.length > 100) throw invalid('Supply a valid text edit and request ID');
   const input = parsed.data;
   if (input.installComponent && (input.files.length !== 1 || input.files[0].baseVersion === null ||
@@ -92,7 +81,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   for (const path of guards.keys()) if (path !== normalizeSafeProjectPath(path)) throw invalid('Invalid dependency path');
 
   const scope = identity.command?.scope ?? `project:${projectId}:${identity.source}:text-edits`;
-  const hash = identity.command?.hash ?? canonicalInputHash(input);
+  const hash = identity.command?.hash ?? canonicalInputHash(identity.observedProject ? [input, identity.observedProject] : input);
   await loadProjectOrThrow(db, ctx.workspaceId, projectId, {auth: ctx, allowTrashed: false});
   const item = input.installComponent ? getMotionComponent(input.installComponent) : undefined;
   const catalogPaths = item?.files.map(file => file.target) ?? [];
@@ -103,6 +92,7 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
     eq(projectFiles.projectId, projectId), inArray(projectFiles.path, [...guards.keys(), ...catalogPaths])));
   const replay = await readCommitReceipt(db, ctx.workspaceId, scope, identity.requestId, hash);
   if (replay) return replay;
+  if (identity.observedProject) await files.checkObservedFiles(ctx, projectId, identity.observedProject, guards);
   const rows = new Map(observed.map(row => [row.path, row]));
   for (const [path, expected] of guards) {
     const row = rows.get(path);
@@ -110,6 +100,11 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
     if (expected !== currentVersion) throw new CloudError('VERSION_CONFLICT', 'File changed before this edit', {
       status: 409, applied: false, details: {path, currentVersion, code: 'VERSION_MISMATCH'},
     });
+  }
+  for (const asset of input.beatAssets ?? []) {
+    if (!guards.get(asset) || !targets.has('beats/' + asset + '.json') || !isBeatMedia(asset, rows.get(asset))) {
+      throw invalid('Beat edits require a versioned project audio or video asset');
+    }
   }
   const revisions: PendingTextRevision[] = [];
   const ops: ProjectFileOp[] = [];
@@ -162,6 +157,8 @@ export async function commitTextEdits(files: ProjectFilesService, db: Database, 
   }
   return files.commitChanges(ctx, {
     projectId, requestId: identity.requestId, idempotencyScope: scope, source: identity.source,
+    orderedEvents: identity.events,
+    ...(identity.source === 'agent' && { actorKind: 'agent' }),
     commandReceipt: {inputHash: hash, result: identity.command?.result ?? {}},
     summary: input.label, writeToken: identity.writeToken, ops, textRevisions: revisions,
     undoGroup: input.undoGroup && `${ctx.userId}:${input.undoGroup}`,

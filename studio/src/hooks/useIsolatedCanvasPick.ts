@@ -10,13 +10,13 @@ type Props = Pick<UseDomSelectionParams,
   "projectId" | "activeCompPath" | "isMasterView" | "captionEditMode" | "previewIframe" | "previewIframeRef"
 > & {
   selectionSequence: MutableRefObject<number>;
-  apply: (selection: DomEditSelection | null) => void;
+  apply: (selection: DomEditSelection | null, options?: { additive: boolean }) => void;
 };
 
 export function useIsolatedCanvasPick({
   projectId, activeCompPath, isMasterView, captionEditMode, previewIframe, previewIframeRef, selectionSequence, apply,
 }: Props) {
-  const pending = useRef<{ identity: PickIdentity; sequence: number } | null>(null);
+  const pending = useRef<{ identity: PickIdentity; sequence: number; additive: boolean } | null>(null);
   useEffect(() => { pending.current = null; }, [projectId, activeCompPath, captionEditMode, isMasterView]);
 
   useEffect(() => {
@@ -36,7 +36,8 @@ export function useIsolatedCanvasPick({
       if (disposed || next === undefined || pending.current !== pick || pick.sequence !== selectionSequence.current ||
           frame !== previewIframeRef.current || previewContentGeneration(frame) !== generation) return;
       pending.current = null;
-      apply(next);
+      if (pick.additive && next) apply(next, { additive: true });
+      else apply(next);
     }
 
     function receive(event: MessageEvent) {
@@ -49,7 +50,7 @@ export function useIsolatedCanvasPick({
       }
       if (message.inspect !== true || !message.selection) return;
       const { elementId, hfId, sourceFile } = message.selection;
-      pending.current = { identity: { elementId, hfId, sourceFile }, sequence: ++selectionSequence.current };
+      pending.current = { identity: { elementId, hfId, sourceFile }, additive: message.additive === true, sequence: ++selectionSequence.current };
       void resolvePick();
     }
 

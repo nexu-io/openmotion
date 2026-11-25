@@ -13,7 +13,7 @@ export function useApplyColorGradingScope(
   recordEdit: StudioRightPanelsProps["recordEdit"],
   reloadPreview: StudioRightPanelsProps["reloadPreview"],
 ) {
-  const { projectId, activeCompPath, showToast, waitForPendingDomEditSaves } =
+  const { projectId, activeCompPath, previewIframeRef, showToast, waitForPendingDomEditSaves } =
     useStudioShellContext();
   const { domEditSelection } = useDomEditContext();
   const { readProjectFile, writeProjectFile, compositions } = useFileManagerContext();
@@ -25,6 +25,8 @@ export function useApplyColorGradingScope(
         selectedSourceFile: domEditSelection?.sourceFile || activeCompPath || "index.html",
         compositionPaths: compositions,
         projectId,
+        frame: previewIframeRef.current,
+        activePath: activeCompPath ?? "index.html",
         waitForPendingDomEditSaves,
         readProjectFile,
         writeProjectFile,
@@ -41,6 +43,7 @@ export function useApplyColorGradingScope(
     [
       activeCompPath,
       compositions,
+      previewIframeRef,
       domEditSelection?.sourceFile,
       projectId,
       readProjectFile,

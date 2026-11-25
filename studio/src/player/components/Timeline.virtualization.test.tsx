@@ -304,7 +304,7 @@ describe("Timeline row virtualization", { timeout: 30_000 }, () => {
     usePlayerStore.getState().beginTimelineSession(project);
     const close = openTimelineSource(project, path);
     const source = parseAuthoredTimeline(html, path, project)!;
-    beginTimelineSourceRead(project, path)(html, source);
+    beginTimelineSourceRead(project, path)(html, { rows: source });
     const { host, root } = await mountTimeline(<Timeline initialElements={source.elements} readOnly />);
     expect(host.querySelector(`[data-el-id="${source.elements[0].key}"]`)).not.toBeNull();
     await act(async () => { beginPeerTimelineUpdate(project, path)!(page(""), null); });

@@ -24,6 +24,7 @@
     "Export current version as a new task": "将当前版本导出为新任务",
     "No active worker is attached. A new export keeps this unknown record.": "原任务当前未运行。新导出会保留这条待核对记录。",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "未找到对应任务。请先复制诊断，再刷新编辑器后重新导出。",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "未找到对应任务。可复制诊断、移除该记录或直接发起新导出。",
     "Reload editor": "刷新编辑器"
   },
   "ja": {
@@ -51,6 +52,7 @@
     "Export current version as a new task": "現在のバージョンを新規タスクで書き出す",
     "No active worker is attached. A new export keeps this unknown record.": "元のタスクは現在実行されていません。新しく書き出しても、この未確認の記録は保持されます。",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "対応するタスクが見つかりません。診断情報をコピーし、エディターを再読み込みしてから再度書き出してください。",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "対応するタスクが見つかりません。診断情報をコピーするか、この記録を削除して新しい書き出しを開始してください。",
     "Reload editor": "エディターを再読み込み"
   },
   "ko": {
@@ -78,6 +80,7 @@
     "Export current version as a new task": "현재 버전을 새 작업으로 내보내기",
     "No active worker is attached. A new export keeps this unknown record.": "원래 작업은 현재 실행 중이 아닙니다. 새로 내보내도 이 미확인 기록은 유지됩니다.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "일치하는 작업을 찾지 못했습니다. 진단 정보를 복사한 다음 편집기를 새로고침하고 다시 내보내세요.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "일치하는 작업을 찾지 못했습니다. 진단 정보를 복사하거나 이 기록을 제거하고 새 내보내기를 시작하세요.",
     "Reload editor": "편집기 새로고침"
   },
   "de": {
@@ -105,6 +108,7 @@
     "Export current version as a new task": "Aktuelle Version neu exportieren",
     "No active worker is attached. A new export keeps this unknown record.": "Der ursprüngliche Auftrag läuft derzeit nicht. Ein neuer Export behält diesen ungeklärten Eintrag bei.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "Kein passender Auftrag gefunden. Kopieren Sie die Diagnosedaten und laden Sie den Editor vor einem neuen Export neu.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "Kein passender Auftrag gefunden. Kopieren Sie die Diagnosedaten, entfernen Sie diesen Eintrag oder starten Sie einen neuen Export.",
     "Reload editor": "Editor neu laden"
   },
   "fr": {
@@ -132,6 +136,7 @@
     "Export current version as a new task": "Exporter cette version comme nouvelle tâche",
     "No active worker is attached. A new export keeps this unknown record.": "La tâche initiale ne s’exécute plus. Une nouvelle exportation conserve cet enregistrement au résultat inconnu.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "Aucune tâche correspondante trouvée. Copiez les diagnostics, puis rechargez l’éditeur avant de réexporter.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "Aucune tâche correspondante trouvée. Copiez les diagnostics, supprimez cet enregistrement ou lancez une nouvelle exportation.",
     "Reload editor": "Recharger l’éditeur"
   },
   "ru": {
@@ -159,6 +164,7 @@
     "Export current version as a new task": "Экспортировать текущую версию новой задачей",
     "No active worker is attached. A new export keeps this unknown record.": "Исходная задача сейчас не выполняется. Новый экспорт сохранит эту запись с неизвестным результатом.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "Соответствующая задача не найдена. Скопируйте диагностику и перезагрузите редактор перед повторным экспортом.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "Соответствующая задача не найдена. Скопируйте диагностику, удалите эту запись или запустите новый экспорт.",
     "Reload editor": "Перезагрузить редактор"
   },
   "es": {
@@ -186,6 +192,7 @@
     "Export current version as a new task": "Exportar esta versión como nueva tarea",
     "No active worker is attached. A new export keeps this unknown record.": "La tarea original no está en ejecución. Una nueva exportación conserva este registro de resultado desconocido.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "No se encontró la tarea correspondiente. Copia el diagnóstico y recarga el editor antes de volver a exportar.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "No se encontró la tarea correspondiente. Copia el diagnóstico, elimina este registro o inicia una nueva exportación.",
     "Reload editor": "Recargar editor"
   },
   "pt-BR": {
@@ -213,6 +220,7 @@
     "Export current version as a new task": "Exportar versão atual como nova tarefa",
     "No active worker is attached. A new export keeps this unknown record.": "A tarefa original não está em execução. Uma nova exportação mantém este registro com resultado desconhecido.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "Nenhuma tarefa correspondente foi encontrada. Copie o diagnóstico e recarregue o editor antes de exportar novamente.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "Nenhuma tarefa correspondente foi encontrada. Copie o diagnóstico, remova este registro ou inicie uma nova exportação.",
     "Reload editor": "Recarregar editor"
   },
   "it": {
@@ -240,6 +248,7 @@
     "Export current version as a new task": "Esporta questa versione come nuovo lavoro",
     "No active worker is attached. A new export keeps this unknown record.": "Il lavoro originale non è attualmente in esecuzione. Una nuova esportazione conserva questo risultato non confermato.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "Nessun lavoro corrispondente trovato. Copia la diagnostica e ricarica l’editor prima di esportare di nuovo.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "Nessun lavoro corrispondente trovato. Copia la diagnostica, rimuovi questo elemento o avvia una nuova esportazione.",
     "Reload editor": "Ricarica editor"
   },
   "tr": {
@@ -267,6 +276,7 @@
     "Export current version as a new task": "Geçerli sürümü yeni görevle dışa aktar",
     "No active worker is attached. A new export keeps this unknown record.": "Önceki görev şu anda çalışmıyor. Yeni bir dışa aktarma, sonucu belirsiz bu kaydı korur.",
     "No matching task was found. Copy diagnostics, then reload the editor before exporting again.": "Eşleşen görev bulunamadı. Tanılama bilgilerini kopyalayın, ardından yeniden dışa aktarmadan önce düzenleyiciyi yenileyin.",
+    "No matching task was found. Copy diagnostics, remove this record, or start a new export.": "Eşleşen görev bulunamadı. Tanılama bilgilerini kopyalayın, bu kaydı kaldırın veya yeni bir dışa aktarma başlatın.",
     "Reload editor": "Düzenleyiciyi yenile"
   }
 }

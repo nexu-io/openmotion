@@ -13,6 +13,7 @@ vi.mock("../contexts/StudioContext", () => ({
   useStudioShellContext: () => ({
     projectId: "demo",
     activeCompPath: "index.html",
+    previewIframeRef: { current: null },
     showToast: vi.fn(),
     waitForPendingDomEditSaves: async () => {},
   }),

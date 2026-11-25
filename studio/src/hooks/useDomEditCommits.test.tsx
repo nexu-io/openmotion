@@ -260,49 +260,53 @@ function renderDomEditCommits(
   } satisfies RenderedDomEditCommits;
 }
 
-it("submits the isolated frame's position intent with its displayed source version", async () => {
+it("chains a displayed canvas move and property edit in one ordered patch packet", async () => {
   const { setCachedCloudDisklessMode } = await import("../utils/cloudRuntime");
-  const { iframe, element } = createPreviewElement('<div data-hf-id="hf-card" id="title">Title</div>');
+  const { observeSourceRead, forgetSource, confirmedSource } = await import("../utils/confirmedTextSources");
+  const { applyTextPatch } = await import("../../../shared/text-patch");
+  const path = "intro.html";
+  const hash = "c".repeat(64);
+  const version = '"sha256:' + hash + '"';
+  let content = '<div data-hf-id="hf-card" id="title" style="position:absolute">Title</div>';
+  const { iframe, element } = createPreviewElement(content);
   const selection = createSelection(element);
-  selection.sourceFile = "intro.html";
-  selection.isolatedTarget = { sourceFile: "intro.html", sha256: "c".repeat(64), hfId: "hf-card", elementId: "title" };
+  selection.sourceFile = path;
+  selection.isolatedTarget = { sourceFile: path, sha256: hash, hfId: "hf-card", elementId: "title" };
+  observeSourceRead("p1", path, new Response(null, { headers: {
+    "X-OpenMotion-Text-Edits": "1", "X-OpenMotion-Ordered-Edits": "1",
+  } }), {content, version});
   const rendered = renderDomEditCommits(selection, iframe);
-  const seen: Array<{ url: string; init?: RequestInit }> = [];
-  vi.stubGlobal("fetch", async (input: RequestInfo, init?: RequestInit) => {
-    seen.push({ url: requestUrl(input), init });
-    return jsonResponse({ versions: { "intro.html": "new-version" }, changedPaths: ["intro.html"] });
+  const post = vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+    expect(requestUrl(input)).toMatch(/\/text-edits\/batch$/);
+    const steps: import("../../../shared/ordered-text-edits").OrderedTextEditOperation[] = JSON.parse(String(init?.body)).operations;
+    expect(steps).toHaveLength(2);
+    return Response.json({committed: steps.map(({id, files}, i) => {
+      const file = files[0]!;
+      expect(file.baseVersion).toEqual(i ? {after: steps[0]!.id} : version);
+      content = "patch" in file ? applyTextPatch(content, file.patch) : file.content;
+      return {id, changedPaths: [path], versions: {[path]: "v" + (i+1)}};
+    })});
   });
+  vi.stubGlobal("fetch", post);
   setCachedCloudDisklessMode(true);
   try {
-    const target = { hfId: "hf-title", id: "title" };
-    const box = { top: 25, left: 50, makeRelative: false };
     await act(async () => {
-      const receipt = await rendered.hook.commitDomEditPatchBatches([{
-        sourceFile: "intro.html", ifMatch: "displayed", box,
+      const move = rendered.hook.commitDomEditPatchBatches([{
+        sourceFile: path, ifMatch: version, box: { top: 25, left: 50, makeRelative: false },
         position: { time: 0.967, delta: { x: 5, y: 8 } },
-        patches: [{target, operations: [{ type: "inline-style", property: "top", value: "25px" }]}],
+        patches: [{target: {hfId: "hf-card", id: "title"}, operations: [{ type: "inline-style", property: "top", value: "25px" }]}],
       }], { label: "Move title" });
-      expect(receipt).toMatchObject({ durable: true, changed: true, savedCanvasVersion: "new-version" });
+      const paint = rendered.hook.handleDomStyleCommit("color", "blue");
+      await expect(move).resolves.toMatchObject({ durable: true, changed: true, savedCanvasVersion: "v1" });
+      await paint;
     });
-    expect(rendered.reloadPreview).toHaveBeenCalledWith(["intro.html"]);
-    expect(seen).toHaveLength(1);
-    expect(seen[0]?.url).toMatch(/\/edits$/);
-    expect(new Headers(seen[0]?.init?.headers).get("Idempotency-Key")).toBeTruthy();
-    expect(JSON.parse(String(seen[0]?.init?.body))).toEqual({
-      versions: { "intro.html": "displayed" },
-      edit: { kind: "batch", commands: [{ compositionPath: "intro.html", kind: "moveCanvasElement",
-        target, staticBox: box, time: 0.967, delta: {x: 5, y: 8} }] },
-    });
-    await act(async () => { await rendered.hook.handleDomStyleCommit("color", "blue"); });
-    expect(seen).toHaveLength(2);
-    expect(seen[1]?.url).toMatch(/\/edits$/);
-    expect(JSON.parse(String(seen[1]?.init?.body))).toMatchObject({
-      versions: { "intro.html": '"sha256:' + "c".repeat(64) + '"' },
-      edit: { commands: [{ kind: "editElements", compositionPath: "intro.html",
-        patches: [{ operations: [{ type: "inline-style", property: "color", value: "blue" }] }] }] },
-    });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(content).toMatch(/top:\s*25px/);
+    expect(content).toMatch(/color:\s*blue/);
+    expect(confirmedSource("p1", path)?.content).toBe(content);
   } finally {
     setCachedCloudDisklessMode(null);
+    forgetSource("p1", path);
     rendered.cleanup();
     vi.unstubAllGlobals();
   }
@@ -736,7 +740,7 @@ describe("useDomEditCommits z-index reorder persistence", () => {
         hasExplicitZIndex: true,
       });
       expect(rendered.recordEdit).not.toHaveBeenCalled();
-      expect(rendered.reloadPreview).toHaveBeenCalledWith();
+      expect(rendered.reloadPreview).toHaveBeenCalledWith(["index.html"]);
       expect(
         fetchMock.mock.calls.filter(([input]) =>
           requestUrl(input).endsWith("/file-mutations/patch-element-batches"),
@@ -1238,7 +1242,9 @@ describe("useDomEditCommits style persist handling", () => {
 
     try {
       const first = rendered.hook.handleDomStyleCommit("color", "blue");
-      await flushAsyncWork();
+      await vi.waitFor(() => expect(fetchMock.mock.calls.some(([input]) =>
+        requestUrl(input).includes("/p1/file-mutations/patch-element/"),
+      )).toBe(true));
       const second = rendered.hook.handleDomStyleCommit("color", "green");
       projectIdRef.current = "p2";
       firstPatch.resolve(
@@ -1319,11 +1325,10 @@ describe("useDomEditCommits style persist handling", () => {
 
     try {
       const firstCommit = rendered.hook.handleDomStyleCommit("color", "blue");
-      await flushAsyncWork();
-      expect(patchCount).toBe(1);
+      await vi.waitFor(() => expect(patchCount).toBe(1));
 
       const secondCommit = rendered.hook.handleDomStyleCommit("color", "green");
-      await flushAsyncWork();
+      expect(element.style.getPropertyValue("color")).toBe("green");
       // The newer commit waits for the older one in the file's queue.
       expect(patchCount).toBe(1);
 
@@ -1331,8 +1336,7 @@ describe("useDomEditCommits style persist handling", () => {
       await firstCommit;
       expect(element.style.getPropertyValue("color")).toBe("green");
 
-      await flushAsyncWork();
-      expect(patchCount).toBe(2);
+      await vi.waitFor(() => expect(patchCount).toBe(2));
       secondPatch.resolve(
         jsonResponse({
           ok: true,

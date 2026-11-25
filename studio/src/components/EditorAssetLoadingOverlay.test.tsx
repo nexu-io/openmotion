@@ -3,20 +3,18 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  clearVisitedEditorLoadingScopesForTest,
-  EDITOR_LOADING_REVISIT_DEBOUNCE_MS,
+  EDITOR_ASSET_AUTO_RELEASE_MS,
+  EDITOR_ASSET_ESCAPE_HATCH_MS,
+  EDITOR_ASSET_PROGRESS_DEBOUNCE_MS,
+  EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS,
   EditorAssetLoadingOverlay,
-  useEditorAssetReadinessGate,
+  EditorAssetProgressBar,
+  triggerEditorAssetRetry,
+  useEditorAssetReadiness,
 } from "./EditorAssetLoadingOverlay";
 import { usePlayerStore } from "../player/store/playerStore";
 import { registerRetryFailedAssetsHandler } from "../player/store/readinessSlice";
-import { setCachedCloudDisklessMode } from "../utils/cloudRuntime";
-import {
-  clearClientCompositionCaptureCacheForTest,
-  MAX_INITIAL_TIMELINE_PREVIEW_GATE,
-  setClientCompositionCaptureCapabilityForTest,
-  TIMELINE_PREVIEW_GATE_TIMEOUT_MS,
-} from "../player/lib/clientCompositionCapture";
+import { thumbnailScheduler } from "../player/lib/thumbnailScheduler";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -36,77 +34,131 @@ afterEach(() => {
   root = null;
   host?.remove();
   host = null;
-  setCachedCloudDisklessMode(null);
-  setClientCompositionCaptureCapabilityForTest(null);
-  clearClientCompositionCaptureCacheForTest();
-  clearVisitedEditorLoadingScopesForTest();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe("EditorAssetLoadingOverlay", () => {
-  it("debounces for 150ms so warm cache hits never flash the overlay", () => {
+  it("renders a seamless solid cover with breathing mark, 4s escape hatch, and 12s auto-release", () => {
     const onSkip = vi.fn();
     act(() => {
-      root!.render(
-        <EditorAssetLoadingOverlay loading={true} completed={0} total={19} loadGeneration={1} onSkip={onSkip} />,
-      );
+      root!.render(<EditorAssetLoadingOverlay visible={true} onSkip={onSkip} />);
     });
-    act(() => {
-      vi.advanceTimersByTime(100);
-    });
-    expect(host!.querySelector('[data-testid="editor-asset-loading-overlay"]')).toBeNull();
 
-    // Finishes before 150ms -> still never mounted.
-    act(() => {
-      root!.render(
-        <EditorAssetLoadingOverlay loading={false} completed={19} total={19} loadGeneration={1} onSkip={onSkip} />,
-      );
-    });
-    act(() => {
-      vi.advanceTimersByTime(200);
-    });
-    expect(host!.querySelector('[data-testid="editor-asset-loading-overlay"]')).toBeNull();
-  });
-
-  it("renders asset progress after 150ms and exposes skip escape hatch after 8s", () => {
-    const onSkip = vi.fn();
-    act(() => {
-      root!.render(
-        <EditorAssetLoadingOverlay loading={true} completed={14} total={19} loadGeneration={1} onSkip={onSkip} />,
-      );
-    });
-    act(() => {
-      vi.advanceTimersByTime(160);
-    });
     const overlay = host!.querySelector('[data-testid="editor-asset-loading-overlay"]');
     expect(overlay).not.toBeNull();
-    expect(overlay?.textContent).toContain("14 / 19 assets");
-    expect(overlay?.textContent).toContain("74%");
+    expect(overlay?.getAttribute("data-visible")).toBe("true");
+    expect(overlay?.textContent).toContain("Opening project…");
     expect(host!.querySelector('[data-testid="editor-asset-loading-skip"]')).toBeNull();
 
+    // After 4s, the escape button appears cleanly and invokes onSkip when clicked.
     act(() => {
-      vi.advanceTimersByTime(8_000);
+      vi.advanceTimersByTime(EDITOR_ASSET_ESCAPE_HATCH_MS + 20);
     });
+    expect(overlay?.textContent).toContain("Opening project…");
     const skipBtn = host!.querySelector<HTMLButtonElement>('[data-testid="editor-asset-loading-skip"]');
     expect(skipBtn).not.toBeNull();
+    expect(skipBtn?.textContent).toContain("Enter editor now");
     act(() => skipBtn!.click());
     expect(onSkip).toHaveBeenCalledTimes(1);
+
+    // Auto-releases at 12s if the user never clicked Skip.
+    act(() => {
+      vi.advanceTimersByTime(EDITOR_ASSET_AUTO_RELEASE_MS);
+    });
+    expect(onSkip).toHaveBeenCalledTimes(2);
+  });
+
+  it("fades out cleanly and unmounts once visible becomes false", () => {
+    const onSkip = vi.fn();
+    act(() => {
+      root!.render(<EditorAssetLoadingOverlay visible={true} onSkip={onSkip} />);
+    });
+    act(() => {
+      root!.render(<EditorAssetLoadingOverlay visible={false} onSkip={onSkip} />);
+    });
+    const overlay = host!.querySelector('[data-testid="editor-asset-loading-overlay"]');
+    expect(overlay?.getAttribute("data-visible")).toBe("false");
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+    expect(host!.querySelector('[data-testid="editor-asset-loading-overlay"]')).toBeNull();
   });
 });
 
-describe("useEditorAssetReadinessGate", () => {
-  it("locks editor and hotkeys until fileTree + timeline + assets are ready, then toasts partial failures with retry", async () => {
-    const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadinessGate>;
+describe("EditorAssetProgressBar", () => {
+  it("debounces briefly so instant cache hits never paint the hairline", () => {
+    act(() => {
+      root!.render(
+        <EditorAssetProgressBar loading={true} completed={0} total={9} />,
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(EDITOR_ASSET_PROGRESS_DEBOUNCE_MS - 40);
+    });
+    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).toBeNull();
 
-    function Harness({ fileTreeLoaded }: { fileTreeLoaded: boolean }) {
-      latest = useEditorAssetReadinessGate({
+    act(() => {
+      root!.render(
+        <EditorAssetProgressBar loading={false} completed={9} total={9} />,
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).toBeNull();
+  });
+
+  it("renders a non-blocking hairline progress bar and holds it briefly once shown", () => {
+    act(() => {
+      root!.render(
+        <EditorAssetProgressBar loading={true} completed={4} total={9} />,
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(EDITOR_ASSET_PROGRESS_DEBOUNCE_MS + 20);
+    });
+    const bar = host!.querySelector('[data-testid="editor-asset-progress-bar"]');
+    expect(bar).not.toBeNull();
+    expect(bar?.getAttribute("role")).toBe("progressbar");
+    expect(bar?.getAttribute("aria-valuenow")).toBe("44");
+    expect(host!.querySelector('[data-testid="editor-asset-loading-overlay"]')).toBeNull();
+    expect(host!.querySelector('[data-testid="editor-asset-loading-skip"]')).toBeNull();
+
+    // Completing immediately after mount still holds the bar for the minimum dwell time.
+    act(() => {
+      root!.render(
+        <EditorAssetProgressBar loading={false} completed={9} total={9} />,
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(EDITOR_ASSET_PROGRESS_MIN_VISIBLE_MS - 100);
+    });
+    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).not.toBeNull();
+
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(host!.querySelector('[data-testid="editor-asset-progress-bar"]')).toBeNull();
+  });
+});
+
+describe("useEditorAssetReadiness", () => {
+  it("unlocks when the file tree arrives with the preview and media pending, and retries failures in the background", async () => {
+    const showToast = vi.fn(() => 1);
+    const onReloadPreview = vi.fn();
+    const retryThumbSpy = vi.spyOn(thumbnailScheduler, "retryFailed");
+    let latest!: ReturnType<typeof useEditorAssetReadiness>;
+
+    function Harness({ fileTreeLoaded = false }: { fileTreeLoaded?: boolean }) {
+      latest = useEditorAssetReadiness({
         projectId: "proj-1",
         fileTreeLoaded,
         unreachableProject: false,
         compositionMissing: false,
         showToast,
+        onReloadPreview,
       });
       return null;
     }
@@ -115,21 +167,25 @@ describe("useEditorAssetReadinessGate", () => {
     const gen = usePlayerStore.getState().beginAssetReadinessLoad();
 
     act(() => root!.render(<Harness fileTreeLoaded={false} />));
-    expect(latest.locked).toBe(true);
+    expect(latest.blocking).toBe(true);
+    expect(latest.backgroundLoading).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(true);
 
-    act(() => root!.render(<Harness fileTreeLoaded={true} />));
-    expect(latest.locked).toBe(true);
+    act(() => root!.render(<Harness fileTreeLoaded />));
+    expect(latest.blocking).toBe(false);
+    expect(latest.backgroundLoading).toBe(true);
+    expect(usePlayerStore.getState().editorInputLocked).toBe(false);
 
-    act(() => {
-      usePlayerStore.getState().setTimelineReady(true);
+    const retrySpy = vi.fn(async () => {
+      usePlayerStore.getState().updateAssetReadiness(
+        { status: "ready", completed: 5, total: 5, failed: [] },
+        gen,
+      );
+      return [];
     });
-    // Still locked while composition assets are loading.
-    expect(latest.locked).toBe(true);
-
-    const retrySpy = vi.fn(async () => []);
     registerRetryFailedAssetsHandler(gen, retrySpy);
 
+    // Media finishes independently, reporting its failure in the open editor.
     act(() => {
       usePlayerStore.getState().updateAssetReadiness(
         {
@@ -142,7 +198,7 @@ describe("useEditorAssetReadinessGate", () => {
       );
     });
 
-    expect(latest.locked).toBe(false);
+    expect(latest.blocking).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(false);
     expect(showToast).toHaveBeenCalledTimes(1);
     const [message, tone, presentation, action] = showToast.mock.calls[0] as unknown as [
@@ -156,21 +212,94 @@ describe("useEditorAssetReadinessGate", () => {
     expect(presentation).toBe("feedback");
     expect(action.label).toBe("Retry");
 
+    // Subsequent in-place retry uses background hairline and never re-blocks the full cover.
     await act(async () => {
       await action.onClick();
     });
+    expect(latest.blocking).toBe(false);
     expect(retrySpy).toHaveBeenCalledTimes(1);
+    expect(retryThumbSpy).toHaveBeenCalledWith("proj-1");
+    expect(onReloadPreview).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenLastCalledWith("Assets reloaded", "info", "feedback");
   });
 
-  it("releases the lock immediately when previewLoadError occurs", () => {
+  it("hands off to the non-blocking background hairline when the user skips the initial cover", () => {
     const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadinessGate>;
+    let latest!: ReturnType<typeof useEditorAssetReadiness>;
 
     function Harness() {
-      latest = useEditorAssetReadinessGate({
-        projectId: "proj-err",
+      latest = useEditorAssetReadiness({
+        projectId: "proj-skip",
+        fileTreeLoaded: false,
+        unreachableProject: false,
+        compositionMissing: false,
+        showToast,
+      });
+      return null;
+    }
+
+    usePlayerStore.getState().beginTimelineSession("proj-skip");
+    usePlayerStore.getState().beginAssetReadinessLoad();
+
+    act(() => root!.render(<Harness />));
+    expect(latest.blocking).toBe(true);
+    expect(latest.backgroundLoading).toBe(false);
+    expect(usePlayerStore.getState().editorInputLocked).toBe(true);
+
+    act(() => latest.skip());
+    expect(latest.blocking).toBe(false);
+    expect(latest.backgroundLoading).toBe(true);
+    expect(usePlayerStore.getState().editorInputLocked).toBe(false);
+  });
+
+  it("falls back to reloading preview when retrying non-DOM-retryable failures such as fonts", async () => {
+    const showToast = vi.fn(() => 1);
+    const onReloadPreview = vi.fn();
+
+    function Harness() {
+      useEditorAssetReadiness({
+        projectId: "proj-font",
         fileTreeLoaded: true,
+        unreachableProject: false,
+        compositionMissing: false,
+        showToast,
+        onReloadPreview,
+      });
+      return null;
+    }
+
+    usePlayerStore.getState().beginTimelineSession("proj-font");
+    usePlayerStore.getState().markPreviewBooted();
+    const gen = usePlayerStore.getState().beginAssetReadinessLoad();
+    registerRetryFailedAssetsHandler(gen, async () => usePlayerStore.getState().assetReadinessFailed);
+
+    act(() => root!.render(<Harness />));
+    act(() => {
+      usePlayerStore.getState().updateAssetReadiness(
+        {
+          status: "ready",
+          completed: 1,
+          total: 1,
+          failed: [{ id: "fonts", label: "Fonts", kind: "font", reason: "timeout" }],
+        },
+        gen,
+      );
+    });
+
+    await act(async () => {
+      await triggerEditorAssetRetry();
+    });
+    expect(onReloadPreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the cover and hides the hairline when previewLoadError occurs", () => {
+    const showToast = vi.fn(() => 1);
+    let latest!: ReturnType<typeof useEditorAssetReadiness>;
+
+    function Harness() {
+      latest = useEditorAssetReadiness({
+        projectId: "proj-err",
+        fileTreeLoaded: false,
         unreachableProject: false,
         compositionMissing: false,
         showToast,
@@ -180,175 +309,14 @@ describe("useEditorAssetReadinessGate", () => {
 
     usePlayerStore.getState().beginTimelineSession("proj-err");
     act(() => root!.render(<Harness />));
-    expect(latest.locked).toBe(true);
+    expect(latest.blocking).toBe(true);
 
     act(() => {
       usePlayerStore.getState().setPreviewLoadError(true);
     });
-    expect(latest.locked).toBe(false);
+    expect(latest.blocking).toBe(false);
+    expect(latest.backgroundLoading).toBe(false);
     expect(usePlayerStore.getState().editorInputLocked).toBe(false);
   });
 
-  it("includes initial cloud timeline composition preview captures in the unified loading gate and never re-locks after unlock", () => {
-    setCachedCloudDisklessMode(true);
-    setClientCompositionCaptureCapabilityForTest(true);
-    const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadinessGate>;
-
-    function Harness() {
-      latest = useEditorAssetReadinessGate({
-        projectId: "proj-cloud",
-        fileTreeLoaded: true,
-        unreachableProject: false,
-        compositionMissing: false,
-        showToast,
-      });
-      return null;
-    }
-
-    usePlayerStore.getState().beginTimelineSession("proj-cloud");
-    usePlayerStore.setState({
-      thumbnailMode: "adaptive",
-      elements: [
-        {
-          id: "scene-1",
-          tag: "div",
-          compositionSrc: "compositions/scene-1.html",
-          start: 0,
-          duration: 5,
-          track: 0,
-        },
-      ],
-    });
-    const gen = usePlayerStore.getState().beginAssetReadinessLoad();
-
-    act(() => root!.render(<Harness />));
-    act(() => {
-      usePlayerStore.getState().setTimelineReady(true);
-      usePlayerStore.getState().updateAssetReadiness(
-        { status: "ready", completed: 3, total: 3, failed: [] },
-        gen,
-      );
-    });
-
-    // Even before CompositionThumbnail mounts and registers its capture task,
-    // the expected composition slot is reserved so progress never hits 100% and reverses.
-    expect(latest.locked).toBe(true);
-    expect(latest.completed).toBe(3);
-    expect(latest.total).toBe(4);
-
-    act(() => {
-      usePlayerStore.getState().registerTimelinePreviewTask("proj-cloud:scene-1:0", gen);
-    });
-
-    // Gate stays locked while initial timeline preview capture is running, with combined progress.
-    expect(latest.locked).toBe(true);
-    expect(latest.completed).toBe(3);
-    expect(latest.total).toBe(4);
-
-    act(() => {
-      usePlayerStore.getState().settleTimelinePreviewTask("proj-cloud:scene-1:0", gen);
-    });
-    expect(latest.locked).toBe(false);
-    expect(latest.completed).toBe(4);
-    expect(latest.total).toBe(4);
-
-    // Later zoom/clip mounts in the same generation must never re-lock the editor.
-    act(() => {
-      usePlayerStore.getState().registerTimelinePreviewTask("proj-cloud:scene-2:0", gen);
-    });
-    expect(latest.locked).toBe(false);
-  });
-
-  it("caps blocking timeline preview slots on large projects and releases to background after timeout", () => {
-    setCachedCloudDisklessMode(true);
-    setClientCompositionCaptureCapabilityForTest(true);
-    const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadinessGate>;
-
-    function Harness() {
-      latest = useEditorAssetReadinessGate({
-        projectId: "proj-large",
-        activeCompPath: "index.html",
-        fileTreeLoaded: true,
-        unreachableProject: false,
-        compositionMissing: false,
-        showToast,
-      });
-      return null;
-    }
-
-    usePlayerStore.getState().beginTimelineSession("proj-large");
-    usePlayerStore.setState({
-      thumbnailMode: "adaptive",
-      elements: Array.from({ length: 12 }, (_, idx) => ({
-        id: `scene-${idx}`,
-        tag: "div",
-        compositionSrc: `compositions/scene-${idx}.html`,
-        start: idx * 5,
-        duration: 5,
-        track: 0,
-      })),
-    });
-    const gen = usePlayerStore.getState().beginAssetReadinessLoad();
-
-    act(() => root!.render(<Harness />));
-    act(() => {
-      usePlayerStore.getState().setTimelineReady(true);
-      usePlayerStore.getState().updateAssetReadiness(
-        { status: "ready", completed: 2, total: 2, failed: [] },
-        gen,
-      );
-      usePlayerStore.getState().registerTimelinePreviewTask("proj-large:scene-0:0", gen);
-    });
-
-    // Only MAX_INITIAL_TIMELINE_PREVIEW_GATE (4) clips reserve unified gate slots, not all 12.
-    expect(latest.locked).toBe(true);
-    expect(latest.completed).toBe(2);
-    expect(latest.total).toBe(2 + MAX_INITIAL_TIMELINE_PREVIEW_GATE);
-
-    // If a slow capture stalls past the timeline-preview ceiling, unlock cleanly to background capture.
-    act(() => {
-      vi.advanceTimersByTime(TIMELINE_PREVIEW_GATE_TIMEOUT_MS + 50);
-    });
-    expect(latest.locked).toBe(false);
-  });
-
-  it("raises visual overlay debounce on revisit to a previously loaded scope", () => {
-    const showToast = vi.fn(() => 1);
-    let latest!: ReturnType<typeof useEditorAssetReadinessGate>;
-
-    function Harness({ projectId }: { projectId: string }) {
-      latest = useEditorAssetReadinessGate({
-        projectId,
-        activeCompPath: "index.html",
-        fileTreeLoaded: true,
-        unreachableProject: false,
-        compositionMissing: false,
-        showToast,
-      });
-      return null;
-    }
-
-    usePlayerStore.getState().beginTimelineSession("proj-revisit");
-    const gen1 = usePlayerStore.getState().beginAssetReadinessLoad();
-    act(() => root!.render(<Harness projectId="proj-revisit" />));
-    expect(latest.debounceMs).toBe(150);
-
-    act(() => {
-      usePlayerStore.getState().setTimelineReady(true);
-      usePlayerStore.getState().updateAssetReadiness(
-        { status: "ready", completed: 1, total: 1, failed: [] },
-        gen1,
-      );
-    });
-    expect(latest.locked).toBe(false);
-
-    // Revisiting the same scope uses the longer revisit anti-flash debounce.
-    act(() => {
-      usePlayerStore.getState().beginAssetReadinessLoad();
-    });
-    expect(latest.locked).toBe(true);
-    expect(latest.debounceMs).toBe(EDITOR_LOADING_REVISIT_DEBOUNCE_MS);
-  });
 });

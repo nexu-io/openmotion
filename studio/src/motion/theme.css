@@ -21,7 +21,8 @@ button, input, select, textarea { font-family: inherit; }
 :root[data-motion-ui] .motion-header-history-actions button:disabled { color: color-mix(in srgb, var(--motion-strong) 30%, var(--motion-panel)); opacity: 1; cursor: not-allowed; }
 :root[data-motion-ui] .motion-player-controls button:not(.hf-od-primary):enabled:hover { color: var(--motion-strong); }
 :root[data-motion-ui] .motion-player-controls button:not(.hf-od-primary)[aria-pressed="true"]:not([data-studio-control="mute"]):enabled { color: var(--motion-strong); background: var(--motion-inset); }
-.hf-dock .dv-tab { border-radius: 0; height: 34px; padding: 0 8px; }
+.hf-dock .dv-tab { border-radius: 0; height: 34px; padding: 0 6px; min-width: 0; }
+:root[data-motion-ui] .hf-dock .dv-tabs-container .hf-dock-tab { gap: 4px; font-size: 11.5px; }
 .hf-dock .dv-scrollable { height: 34px; }
 .hf-dock-tab-fill { height: 34px; border-radius: 0; background: transparent; }
 .hf-dock .dv-right-actions-container { align-self: center; }
@@ -262,8 +263,8 @@ button, input, select, textarea { font-family: inherit; }
 .motion-workspace-actions .motion-icon { color: var(--motion-strong); }
 /* Measure the editor host, including when it sits beside an open sidebar. */
 @container (max-width: 700px) {
-  .motion-studio-header-compact .motion-header-history-actions,
   .motion-studio-header-compact .motion-template-label { display: none; }
+  .motion-studio-header-compact .motion-header-history-actions::after { display: none; }
   .motion-studio-header-compact .motion-workspace-actions .motion-button {
     width: 28px;
     padding: 0;

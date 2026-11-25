@@ -1,3 +1,4 @@
+import { OrderedEditEvents } from './ordered-edit-events.ts';
 import { prepareFullBaseline } from './text-patch-boundaries.ts';
 import { appendTextRevisions, commitTextEdits, type PendingTextRevision, type TextEditIdentity } from './project-text-edits.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -112,6 +113,7 @@ export interface FilePrecondition {
 }
 
 export interface CommitProjectFilesInput {
+  readonly orderedEvents?: OrderedEditEvents;
   readonly projectId: string;
   readonly ops: readonly ProjectFileOp[];
   readonly textRevisions?: readonly PendingTextRevision[];
@@ -141,6 +143,7 @@ export interface CommitProjectFilesInput {
 }
 
 export interface CommitProjectFilesResult {
+  readonly previousRevision?: string;
   readonly projectId: string;
   readonly revision: string;
   readonly versionId: string | null;
@@ -769,7 +772,11 @@ export class ProjectFilesService {
    * Load an immutable in-memory snapshot (`InMemoryVirtualProject`) of a project's files and
    * text contents for `bundlePreviewInMemory`, `lintProjectInMemory`, `infoInMemory`, and `timelineInMemory`.
    */
-  async loadVirtualProject(ctx: AuthContext, projectId: string): Promise<InMemoryVirtualProject> {
+  async loadVirtualProject(
+    ctx: AuthContext,
+    projectId: string,
+    includeText?: (path: string) => boolean,
+  ): Promise<InMemoryVirtualProject> {
     const project = await loadProjectOrThrow(this.db, ctx.workspaceId, projectId, {
       allowTrashed: true,
       auth: ctx,
@@ -777,7 +784,7 @@ export class ProjectFilesService {
     const files = await this.listFilesForProject(ctx, project.id);
 
     const textContents = new Map<string, string>();
-    const textFiles = files.filter((f) => f.isText);
+    const textFiles = files.filter((f) => f.isText && (!includeText || includeText(f.path)));
 
     // Deduplicate blob fetches when multiple paths share the same SHA-256.
     const uniqueBlobs = new Map<string, { blobScope: BlobScope; sha256: string }>();
@@ -824,6 +831,18 @@ export class ProjectFilesService {
    * 6. Canonical SHA-256 `revision` recomputation + unified PG version & history append
    * 7. Post-commit `HotTextCache` warm + `RedisEventBus` notification (`om:project:{wid}:{pid}`).
    */
+  async withOrderedEditEvents<T>(ctx: AuthContext, projectId: string, run: (events: OrderedEditEvents) => Promise<T>): Promise<T> {
+    const events = new OrderedEditEvents(ctx.workspaceId, projectId);
+    try {
+      return await run(events);
+    } finally {
+      const bus = this.eventBus;
+      if (bus) {
+        await events.publish(event => bus.publish(projectChannel(ctx.workspaceId, projectId), event)).catch(() => {});
+      }
+    }
+  }
+
   async commitTextEdits(ctx: AuthContext, projectId: string, body: unknown, identity: TextEditIdentity) {
     return commitTextEdits(this, this.db, this.storage, ctx, projectId, body, identity);
   }
@@ -885,23 +904,20 @@ export class ProjectFilesService {
         void this.eventBus.publish(workspaceCatalogChannel(ctx.workspaceId), { type: 'catalog-changed' }).catch(() => {});
       }
       const eventPaths = [...new Set([...result.changedPaths, ...result.deletedPaths])];
+      // Patch commits have no source bytes here. Computing thumbnail metadata must never
+      // materialize a file or make saving depend on object storage.
+      let indexHeadHash: string | undefined;
+      if (this.eventBus && eventPaths.includes('index.html')) {
+        const indexOp = preparedOps.find(op => op.path === 'index.html');
+        const text = indexOp?.op === 'upsert' ? uploads.get(indexOp.sha256)?.textContent : undefined;
+        if (text !== undefined) indexHeadHash = hashIndexHeadMarkup(text);
+        else if (result.deletedPaths.includes('index.html')) indexHeadHash = hashIndexHeadMarkup('');
+      }
+      if (input.orderedEvents) {
+        input.orderedEvents.record(result, input.textRevisions ?? [], indexHeadHash);
+        return result;
+      }
       if (this.eventBus && eventPaths.length > 0) {
-        let indexHeadHash: string | undefined;
-        if (eventPaths.includes('index.html')) {
-          const indexOp = preparedOps.find(
-            (op): op is Extract<(typeof preparedOps)[number], { op: 'upsert' }> =>
-              op.op === 'upsert' && op.path === 'index.html',
-          );
-          const uploadedText = indexOp ? uploads.get(indexOp.sha256)?.textContent : undefined;
-          if (uploadedText !== undefined) {
-            indexHeadHash = hashIndexHeadMarkup(uploadedText);
-          } else if (result.deletedPaths.includes('index.html')) {
-            indexHeadHash = hashIndexHeadMarkup('');
-          } else {
-            const read = await this.readTextFile(ctx, input.projectId, 'index.html').catch(() => null);
-            if (read) indexHeadHash = hashIndexHeadMarkup(read.content);
-          }
-        }
         const event: ProjectEvent = {
           type: 'file-change',
           workspaceId: ctx.workspaceId,
@@ -1725,6 +1741,7 @@ export class ProjectFilesService {
       }
 
       const commitResult: CommitProjectFilesResult = {
+        ...(input.orderedEvents && { previousRevision: project.revision.trim() }),
         projectId: project.id,
         revision: nextRevision,
         versionId: nextVersionId,

@@ -1,16 +1,14 @@
 import { createTextPatch } from '../../shared/create-text-patch.ts';
 import { stampHfIdsInPlace, walkCompositionDescendants } from '@hyperframes/parsers/hf-ids';
 import { parseSourceDocument, type SourceMutationTarget } from '@hyperframes/studio-server/source-mutation';
-import { hasRelativeLutSource } from '../../packages/edit-core/color-grading.ts';
-import { applyProjectEdit, locateEdit, type CompositionEdit, type EditRequest } from '../../packages/edit-core/commands.ts';
-import { contentDependencies, isContentCommand } from '../../packages/edit-core/content-schema.ts';
+import { projectEditInputs } from '../../packages/edit-core/project-inputs.ts';
+import { applyProjectEdit, type CompositionEdit, type EditRequest } from '../../packages/edit-core/commands.ts';
 import { editRequestSchema, editSchemaDefinitions } from '../../packages/edit-core/schema.ts';
 import { validateInput } from '../../shared/phase1-tools.ts';
-import { AUDIO_EXT, VIDEO_EXT } from '../../shared/asset-names.ts';
+import { isBeatMedia } from '../../shared/asset-names.ts';
 import { ToolInputError } from '../../shared/tool-input-error.ts';
-import type { AuthContext } from '../contracts/auth.ts';
+import { requireProgrammaticEdit, type AuthContext } from '../contracts/auth.ts';
 import { CloudError, isCloudError } from '../contracts/errors.ts';
-import { readCompositionDependencies } from '../studio/engine/composition-dependencies.ts';
 import { sha256Hex } from '../studio/etag.ts';
 import { normalizeSafeProjectPath, type ProjectFilesService } from './project-files-service.ts';
 
@@ -35,10 +33,6 @@ function commandPath(path: string, writable = false) {
   const normalized = normalizeSafeProjectPath(path, writable);
   if (normalized !== path) throw invalid('Use canonical project-relative paths');
   return normalized;
-}
-
-function dependencies(command: CompositionEdit) {
-  return isContentCommand(command) ? contentDependencies(command) : [];
 }
 
 // On a newer base, address the same element. A selector or positional fallback
@@ -101,37 +95,19 @@ function onNewBase(command: CompositionEdit): CompositionEdit | undefined {
 
 export async function commitProjectEdit(files: ProjectFilesService, auth: AuthContext, projectId: string,
   input: unknown, requestId: string, guard: EditGuard) {
+  requireProgrammaticEdit(auth);
   validateEdit(input);
   if (!requestId || requestId.length > 100 ||
       (guard.source === 'agent' && (!guard.expectedRevision || !guard.expectedVersionId))) {
     throw invalid('Project edits require a request ID and a base version');
   }
-  let commands: CompositionEdit[];
-  try { commands = (input.kind === 'batch' ? input.commands : [input]).map(locateEdit); }
-  catch (error) { throw invalid(error instanceof Error ? error.message : 'Invalid project path'); }
-  const targets = new Set<string>();
-  const requested = new Map<string, 'text' | 'asset' | 'optional-text'>();
-  const requireInput = (path: string, kind: 'text' | 'asset' | 'optional-text') => {
-    const existing = requested.get(path);
-    // A required dependency on an optional sidecar requires an existing text file.
-    requested.set(path, existing && existing !== kind ? 'text' : kind);
-  };
-  const plan = commands.map(command => ({ command, inputs: dependencies(command), rebasedCommand: onNewBase(command) }));
+  let inputs: ReturnType<typeof projectEditInputs>;
+  try { inputs = projectEditInputs(input); }
+  catch (error) { throw invalid(error instanceof Error ? error.message : 'Invalid editing command'); }
+  const { commands, targets, requested } = inputs;
+  for (const path of requested.keys()) commandPath(path, targets.has(path));
+  const plan = commands.map(command => ({ command, rebasedCommand: onNewBase(command) }));
   const canRebase = !files.textPatchWrites && plan.every(item => item.rebasedCommand !== undefined);
-  for (const { command, inputs } of plan) {
-    const path = commandPath(command.compositionPath, true);
-    if (command.kind !== 'setBeatGrid' && !/\.html?$/i.test(path)) throw invalid('A composition must be an HTML file');
-    targets.add(path);
-    requireInput(path, command.kind === 'setBeatGrid' ? 'optional-text' : 'text');
-    if (command.kind === 'setBeatGrid') requireInput(commandPath(command.assetPath), 'asset');
-    for (const dependency of inputs) {
-      const path = commandPath(dependency.path);
-      requireInput(path, dependency.type);
-    }
-  }
-  if (targets.size > 1 && commands.some(command => command.kind === 'gradeMedia' && hasRelativeLutSource(command.value))) {
-    throw invalid('Use an absolute LUT source when grading multiple compositions');
-  }
   if (guard.source === 'studio' && ([...targets].some(path => !Object.hasOwn(guard.versions, path) ||
       (guard.versions[path] === null ? requested.get(path) !== 'optional-text' : typeof guard.versions[path] !== 'string' || !guard.versions[path])) ||
       Object.keys(guard.versions).some(path => !requested.has(path)))) {
@@ -157,9 +133,7 @@ export async function commitProjectEdit(files: ProjectFilesService, auth: AuthCo
     if (snapshot.kind === 'replay') return snapshot.commit;
     for (const command of commands) {
       if (command.kind !== 'setBeatGrid') continue;
-      const source = snapshot.filesByPath.get(command.assetPath);
-      const genericMedia = source?.mimeType === 'application/octet-stream' && (AUDIO_EXT.test(command.assetPath) || VIDEO_EXT.test(command.assetPath));
-      if (!source || source.isText || (!/^(?:audio|video)\//i.test(source.mimeType) && !genericMedia)) {
+      if (!isBeatMedia(command.assetPath, snapshot.filesByPath.get(command.assetPath))) {
         throw invalid('Beat markers require a project audio or video asset');
       }
     }
@@ -179,21 +153,8 @@ export async function commitProjectEdit(files: ProjectFilesService, auth: AuthCo
     const changed = new Map<string, string>();
     const labels = new Set<string>();
     for (const item of plan) {
-      const { inputs } = item;
       const command = rebased ? item.rebasedCommand! : item.command;
       const path = command.compositionPath;
-      for (const dependency of inputs) {
-        if (dependency.type !== 'text') continue;
-        await readCompositionDependencies(path, dependency.path, async child => {
-          if (!sources.has(child)) {
-            const read = await files.readTextFile(auth, projectId, child);
-            if (!read) return null;
-            sources.set(child, read.content);
-            versions.set(child, read.version);
-          }
-          return { content: sources.get(child)!, version: versions.get(child)! };
-        });
-      }
       try {
         const before = sources.get(path)!;
         if (rebased) {

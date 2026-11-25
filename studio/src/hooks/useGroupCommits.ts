@@ -1,15 +1,22 @@
-import { useCallback } from "react";
+import { useCallback, type RefObject } from "react";
 import {
   readProjectFileContent,
   saveProjectFilesWithHistory,
-  type DomEditCommitBaseParams,
+  type DomEditCommitBaseParams, type RecordEditInput,
 } from "../utils/studioFileHistory";
 import {
   buildDomEditPatchTarget,
   readHfId,
   type DomEditSelection,
 } from "../components/editor/domEditing";
-import { confirmedSource } from "../utils/confirmedTextSources";
+import { scheduleCommittedPreview } from "../player/committedPreview";
+import { stageStructurePreview } from "../player/peerTimingPreview";
+import { projectLocalTimelineEdit } from "../player/lib/peerTimeline";
+import type { GroupSelectionResult, followGroupSelection } from "./groupResultSelection";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import { saveOrderedTimeline } from "../utils/orderedTimelineEdits";
+import { isolatedSourceVersion, mountedCanvasVersion } from "../components/editor/isolatedSourceTarget";
+import { confirmedSource, type ConfirmedSource } from "../utils/confirmedTextSources";
 import {
   findMatchingTimelineElementId,
   resolveElementTrack,
@@ -21,6 +28,8 @@ interface UseGroupCommitsParams extends DomEditCommitBaseParams {
   /** Refresh the SDK after the document hierarchy changes. */
   forceReloadSdkSession?: () => void;
   timelineElements: TimelineElement[];
+  previewIframeRef?: RefObject<HTMLIFrameElement | null>;
+  followSelection?: (frame: HTMLIFrameElement, path: string, group: GroupSelectionResult) => ReturnType<typeof followGroupSelection> | undefined;
 }
 
 interface PatchTarget {
@@ -112,20 +121,55 @@ async function saveGroupEdit(
   projectId: string,
   path: string,
   label: string,
-  transform: (source: string) => string,
+  transform: Promise<(source: string) => {html: string; selection: GroupSelectionResult}>,
   deps: UseGroupCommitsParams,
+  shown: DomEditSelection,
 ): Promise<void> {
-  await saveProjectFilesWithHistory({
-    projectId,
-    label,
-    files: { [path]: transform },
-    readFile: async (file) => confirmedSource(projectId, file)?.content ?? readProjectFileContent(projectId, file),
-    writeFile: deps.writeProjectFile,
+  let result: GroupSelectionResult;
+  let selection: ReturnType<typeof followGroupSelection> | undefined;
+  const apply = (source: string, fn: Awaited<typeof transform>) => {
+    const edit = fn(source);
+    result = edit.selection;
+    return edit.html;
+  };
+  const projection = {
+    projectPending(files: RecordEditInput["files"]) {
+      const frame = deps.previewIframeRef?.current;
+      const base = confirmedSource(projectId, path);
+      const file = files[path];
+      if (!frame || !file) return;
+      selection = deps.followSelection?.(frame, path, result);
+      if (base?.content !== file.before) return selection?.rollback;
+      const undoTimeline = projectLocalTimelineEdit(projectId, path, file, frame);
+      const undoPreview = stageStructurePreview(frame, path, base, file.after, group => {
+        result.members = group.members;
+        selection?.ready();
+      });
+      return () => { undoPreview?.(); undoTimeline?.(); selection?.rollback(); };
+    },
+    onSaved: async (_files: RecordEditInput["files"], previous?: ConfirmedSource) => {
+      selection?.saved();
+      const frame = deps.previewIframeRef?.current;
+      if (!frame || deps.projectIdRef.current !== projectId) return;
+      scheduleCommittedPreview(frame, projectId, [{path, previous, current: confirmedSource(projectId, path)}], deps.reloadPreview);
+    },
     recordEdit: deps.editHistory.recordEdit,
-  });
-  deps.clearDomSelection();
+  };
+  if (getCachedCloudDisklessMode()) {
+    const shownVersion = shown.isolatedTarget ? isolatedSourceVersion(shown.isolatedTarget)
+      : mountedCanvasVersion(shown.element.ownerDocument, projectId, path);
+    await saveOrderedTimeline(projectId, [{path, shownVersion, apply: async source => apply(source, await transform)}], label, projection);
+  } else {
+    const fn = await transform;
+    await saveProjectFilesWithHistory({projectId, label, ...projection, files: { [path]: source => apply(source, fn) },
+      readFile: file => Promise.resolve(confirmedSource(projectId, file)?.content ?? readProjectFileContent(projectId, file)),
+      writeFile: deps.writeProjectFile});
+  }
+  if (!deps.previewIframeRef?.current) {
+    deps.clearDomSelection();
+    deps.reloadPreview();
+  }
   deps.forceReloadSdkSession?.();
-  deps.reloadPreview();
 }
 
 export function useGroupCommits(params: UseGroupCommitsParams) {
@@ -149,15 +193,21 @@ export function useGroupCommits(params: UseGroupCommitsParams) {
       const groupId = `Group ${doc.querySelectorAll("[data-hf-group]").length + 1}`;
       try {
         const { bbox, targets, rebases } = computeGroupGeometry(members, timelineElements);
-        const { groupCanvasElements } = await import("../../../packages/edit-core/canvas-source");
-        let wrapperId = groupId;
-        await saveGroupEdit(pid, targetPath, "Group elements", (source) => {
+        let label = groupId;
+        const group = Promise.all([import("../../../packages/edit-core/canvas-source"), import("@hyperframes/studio-server/source-mutation")])
+          .then(([{ groupCanvasElements }, { findTargetElement, parseSourceDocument }]) => (source: string) => {
           const result = groupCanvasElements(source, targets, groupId, bbox, rebases);
           if (!result.matched) throw new Error(result.error || "Cannot group the selected elements.");
-          wrapperId = result.groupId ?? groupId;
-          return result.html;
-        }, params);
-        return wrapperId;
+          label = result.groupId ?? groupId;
+          // The upstream groupId is a display label. The emitted DOM id accounts
+          // for collisions in the file, so get it from an actual wrapped member.
+          const first = targets[0];
+          const parent = first && findTargetElement(parseSourceDocument(result.html).document, first)?.parentElement;
+          const id = parent?.getAttribute("data-hf-group") === label ? parent.id : undefined;
+          return { html: result.html, selection: { wrap: true, wrapper: { id }, members: targets } };
+        });
+        await saveGroupEdit(pid, targetPath, "Group elements", group, params, members[0]!);
+        return label;
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Failed to group elements", "error");
         return null;
@@ -174,10 +224,13 @@ export function useGroupCommits(params: UseGroupCommitsParams) {
       const childTracks = resolveGroupChildTracks(group, timelineElements);
 
       try {
-        const { applyCanvasCommand } = await import("../../../packages/edit-core/canvas-commands");
         const target = buildDomEditPatchTarget(group);
-        await saveGroupEdit(pid, targetPath, "Ungroup elements", (source) =>
-          applyCanvasCommand(source, { kind: "ungroupElements", target, childTracks }), params);
+        const ungroup = import("../../../packages/edit-core/canvas-source").then(({ unwrapGroupWithGsapCleanup }) => (source: string) => {
+          const result = unwrapGroupWithGsapCleanup(source, target, childTracks);
+          if (!result.unwrapped) throw new Error("Group was not found.");
+          return {html: result.html, selection: {wrap:false, wrapper:target, members:result.memberIds?.map(id => ({id})) ?? []}};
+        });
+        await saveGroupEdit(pid, targetPath, "Ungroup elements", ungroup, params, group);
       } catch (error) {
         showToast(error instanceof Error ? error.message : "Failed to ungroup elements", "error");
       }

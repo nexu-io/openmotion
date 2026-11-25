@@ -794,6 +794,30 @@ it('retains a usable poster and supports retry after detail video failure', asyn
   expect(detail.textContent).not.toContain('Loading preview…');
 });
 
+it.each([
+  ['Orbit｜大会预告', 'motion-3b955ba8-2f6f-47ef-910c-79115843bd6b'],
+  ['Custom Agents.', 'motion-c74e1725-6fd2-4885-be7f-f1f705e9af66'],
+])('shows and copies the public recreation instruction for %s as a guest', async (title, id) => {
+  const runtime = document.createElement('meta');
+  runtime.name = 'openmotion-runtime';
+  runtime.content = 'cloud-diskless';
+  document.head.append(runtime);
+  sessionStorage.removeItem('motion.template-handoff.preview');
+  const request = vi.fn(async (url: string) => url.endsWith('/integration')
+    ? new Response('', { status: 401 })
+    : Response.json({ items: [{ ...items[1], title, id }], catalogVersion: 'v1', next: null }));
+  vi.stubGlobal('fetch', request);
+  try {
+    await mount();
+    await act(async () => preview(title));
+    expect(host.querySelector('[aria-label="Template recreation instruction"]')?.textContent).toContain(id);
+    await act(async () => button('Recreate this template').click());
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(title));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining(location.origin + '/mcp-setup'));
+    expect(request.mock.calls.some(([url]) => url.endsWith('/integration'))).toBe(false);
+  } finally { runtime.remove(); }
+});
+
 it('shows a recoverable instruction error and copies only after a successful retry', async () => {
   vi.stubGlobal('fetch', vi.fn(async (url: string) => { if (url.endsWith('/integration')) throw new Error('Offline'); return Response.json({ items, next: null, catalogVersion: 'v1' }); }));
   await mount();

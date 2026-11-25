@@ -23,6 +23,7 @@ import { ReviewPlayerControls } from '../../motion/ReviewPlayerControls';
 
 import { useFullscreenPlayback } from './useFullscreenPlayback';
 import { togglePreviewFullscreen } from '../../player/lib/previewFullscreen';
+import { useWarmStudioFeatures } from "../../hooks/useWarmStudioFeatures";
 import { useToast } from '../../hooks/useToast';
 import { StudioToastViewport } from '../StudioToastViewport';
 import { useI18n } from '../../i18n/I18n';
@@ -99,6 +100,7 @@ export function PreviewPane({
     previewCompositionSize,
     setPreviewCompositionSize,
   } = useNLEContext();
+  const onLivePainted = useWarmStudioFeatures(projectId, mvp);
 
   const stageRefForDrop = useRef<HTMLDivElement | null>(null);
   const handleStageRef = useCallback((ref: React.RefObject<HTMLDivElement | null>) => {
@@ -166,6 +168,7 @@ export function PreviewPane({
             projectId={projectId}
             iframeRef={iframeRef}
             onIframeLoad={onIframeLoad}
+            onLivePainted={onLivePainted}
             previewSlots={previewSlots}
             onShadowIframeLoad={onShadowIframeLoad}
             onShadowReadyChange={onShadowReadyChange}
@@ -176,7 +179,6 @@ export function PreviewPane({
             portrait={portrait}
             directUrl={directUrl}
             suppressLoadingOverlay={hasLoadedOnceRef.current}
-            loadingUi="host"
             onStageRef={handleStageRef}
             onCompositionSizeChange={setPreviewCompositionSize}
           />

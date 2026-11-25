@@ -8,7 +8,7 @@
 
 import { useCallback } from "react";
 import { usePlayerStore, type TimelineElement } from "../player";
-import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
+import { saveTimelineFiles } from "../utils/orderedTimelineEdits";
 import { HF_AUDIO_GROUP_ATTR, HF_AUDIO_GROUP_TAG } from "@hyperframes/core/audio-groups";
 import { runtimeAudioId } from "../player/lib/timelineElementHelpers";
 import { invalidateGroupInfoCache } from "../player/lib/timelineGroupInfo";
@@ -214,7 +214,7 @@ export async function createAudioGroupAndAssignMembers({
   }
 
   try {
-    const changedPaths = await saveProjectFilesWithHistory({
+    const changedPaths = await saveTimelineFiles({
       projectId,
       label: groupLabel
         ? `Group ${elements.length} clips as ${groupLabel}`
@@ -223,7 +223,7 @@ export async function createAudioGroupAndAssignMembers({
       readFile: (path) => readFileContent(projectId, path),
       writeFile: writeProjectFile,
       recordEdit,
-    });
+    }, true);
     for (const element of elements) {
       usePlayerStore.getState().updateElement(element.key ?? element.id, { audioGroup: groupId });
     }

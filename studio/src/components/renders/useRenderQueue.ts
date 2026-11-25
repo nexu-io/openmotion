@@ -1,5 +1,6 @@
 import { useEmptyPreview } from "../nle/useEmptyPreview";
 import { useMvpEditor } from "../../motion/StudioHost";
+import { useOptionalWorkspaceChrome } from "../../motion/WorkspaceChromeContext";
 import { buildProjectApiPath } from "../../utils/projectRouting";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { CanvasResolution } from "@hyperframes/parsers";
@@ -22,8 +23,6 @@ import {
   isIsolatedPreviewIframe,
   isPreviewExportBlockedByIsolation,
 } from "../../render/browserExportPreflight";
-import { runBrowserExport } from "../../render/browserExport";
-import { runIsolatedBrowserExport } from "../../render/isolatedBrowserExport";
 import { isolatedPreviewOrigin } from "../../player/lib/previewLease";
 import { getBrowserExportEnabled } from "./renderSettings";
 import { durationBucket, exportRejection, exportSettings, openTemplateFields, projectScaleFields, projectFields,
@@ -105,6 +104,15 @@ function writeHiddenIds(projectId: string, ids: Set<string>): void {
 }
 
 
+function sanitizeExportFilename(title: string | null | undefined): string {
+  if (!title) return "";
+  return title
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s.-]+|[\s.-]+$/g, "")
+    .slice(0, 80);
+}
+
 export function useRenderQueue(
   projectId: string | null,
   // A ref, not the value: the render target has to be read at click time, and
@@ -113,6 +121,12 @@ export function useRenderQueue(
   activeCompPathRef: { current: string | null },
 ) {
   const mvp = useMvpEditor();
+  const workspaceChrome = useOptionalWorkspaceChrome();
+  const projectTitleRef = useRef<string | undefined>(undefined);
+  projectTitleRef.current =
+    workspaceChrome?.workspace.projects.find((item) => item.id === projectId)?.title ||
+    workspaceChrome?.workspace.status?.projectTitle ||
+    undefined;
   const emptyComposition = useEmptyPreview(projectId ?? "", mvp);
   const currentProject = useRef(projectId);
   currentProject.current = projectId;
@@ -240,8 +254,8 @@ export function useRenderQueue(
       const target = jobId ? incoming?.find(job => job.id === jobId || Boolean(requestId && requestId === job.requestId))
         : incoming?.toSorted((a, b) => b.createdAt - a.createdAt)[0];
       if (incoming && jobId && !target) {
-        setJobs(previous => previous.map(job => job.id === jobId && job.status === "unknown" && !job.nativeJobId
-          ? { ...job, requestNotFound: true } : job));
+        setJobs(previous => previous.map(job => job.id === jobId && job.status === "unknown"
+          ? { ...job, workerActive: false, requestNotFound: true, lastCheckedAt: Date.now() } : job));
       }
       finish({ outcome: incoming ? "success" : "unknown", ...(target ? { state_after: target.status } : {}) });
     } finally { rechecking.current = false; }
@@ -405,7 +419,8 @@ export function useRenderQueue(
         const controller = new AbortController();
         browserExportsRef.current.set(jobId, controller);
         requestResult("accepted");
-        const filename = `OpenMotion-${jobId.slice(0, 8)}.${format}`;
+        const baseName = sanitizeExportFilename(projectTitleRef.current);
+        const filename = `${baseName || `OpenMotion-${jobId.slice(0, 8)}`}.${format}`;
         addSessionJob(
           {
             id: jobId,
@@ -442,12 +457,12 @@ export function useRenderQueue(
             };
             const useIsolatedBridge = Boolean(previewOrigin && (!iframe || isIsolatedPreviewIframe(iframe)));
             const result = useIsolatedBridge
-              ? await runIsolatedBrowserExport({
+              ? await import("../../render/isolatedBrowserExport").then(({ runIsolatedBrowserExport }) => runIsolatedBrowserExport({
                   ...commonOptions,
                   previewOrigin: previewOrigin!,
                   activeCompPath: activeCompPathRef.current,
-                })
-              : await runBrowserExport(commonOptions);
+                }))
+              : await import("../../render/browserExport").then(({ runBrowserExport }) => runBrowserExport(commonOptions));
             blobUrlsRef.current.add(result.blobUrl);
             if (currentProject.current !== projectId) return;
             const fpsInfo = result.stats
@@ -638,12 +653,24 @@ export function useRenderQueue(
     try {
       const res = await studioApiFetch(studioProjectUrl(`/api/render/${encodeURIComponent(job.nativeJobId)}/cancel`, projectId), { method: "POST" });
       if (currentProject.current !== projectId) return;
+      if (res.status === 404) {
+        closeActiveEventSource(jobId);
+        setJobs(previous => previous.map(candidate => candidate.id === jobId && isPendingRender(candidate)
+          ? { ...candidate, status: "unknown", workerActive: false, requestNotFound: true, lastCheckedAt: Date.now() } : candidate));
+        return;
+      }
       if (!res.ok) throw new Error("Couldn't confirm cancellation. Check the original export.");
       const data = await res.json();
       const status = readRenderStatus(data.status);
       if (!status) throw new Error("Couldn't confirm cancellation. Check the original export.");
+      if (status === "cancelled" || status === "complete" || status === "failed") closeActiveEventSource(jobId);
       setJobs(previous => previous.map(candidate => candidate.id === jobId && isPendingRender(candidate)
-        ? { ...candidate, status, lastCheckedAt: Date.now() } : candidate));
+        ? {
+            ...candidate,
+            status,
+            ...(typeof data.workerActive === "boolean" ? { workerActive: data.workerActive } : {}),
+            lastCheckedAt: Date.now(),
+          } : candidate));
     } catch (error) {
       if (currentProject.current !== projectId) return;
       const message = error instanceof Error ? error.message : "Couldn't confirm cancellation. Check the original export.";
@@ -651,7 +678,7 @@ export function useRenderQueue(
         ? { ...candidate, status: "unknown", error: message } : candidate));
       setActionError(message);
     }
-  }, [projectId, setJobs]);
+  }, [closeActiveEventSource, projectId, setJobs]);
 
   const deleteRender = useCallback(
     async (jobId: string) => {
@@ -668,9 +695,13 @@ export function useRenderQueue(
         return;
       }
       closeActiveEventSource(jobId);
+      if (target?.status === "unknown" && target.requestNotFound) {
+        setJobs((prev) => prev.filter((j) => j.id !== jobId));
+        return;
+      }
       try {
         const res = await studioApiFetch(studioProjectUrl(`/api/render/${encodeURIComponent(jobId)}`, projectId), { method: "DELETE" });
-        if (!res.ok) {
+        if (!res.ok && res.status !== 404) {
           setActionError("Couldn't delete the render. It's still on disk.");
           return;
         }

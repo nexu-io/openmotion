@@ -43,6 +43,20 @@ describe("fetchParsedAnimations — in-flight sharing", () => {
     expect(fetchStub.calls()).toBe(0);
   });
 
+  it("defers background GSAP parses while editorInputLocked holds the opening cover", async () => {
+    usePlayerStore.setState({ previewBooted: true, editorInputLocked: true });
+    const fetchStub = stubFetch();
+
+    const parsed = fetchParsedAnimations("p", "locked.html");
+    await Promise.resolve();
+    expect(fetchStub.calls()).toBe(0);
+
+    usePlayerStore.getState().setEditorInputLocked(false);
+    await vi.waitFor(() => expect(fetchStub.calls()).toBe(1));
+    fetchStub.settle();
+    expect((await parsed)?.animations).toHaveLength(1);
+  });
+
   function stubFetch(): { calls: () => number; settle: () => void } {
     let calls = 0;
     const pending: Array<() => void> = [];

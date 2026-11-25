@@ -1,5 +1,9 @@
+import { projectPreviewAdapter } from "../player/lib/projectPreviewAdapter";
+import { inspectIsolatedElement } from "../components/editor/isolatedInspector";
 import { useCloudGroupMove } from "./cloudGroupMove";
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { followGroupSelection, type GroupTarget } from "./groupResultSelection";
+import { findElementForSelection } from "../components/editor/domEditing";
 import { trackStudioEvent } from "../utils/studioTelemetry";
 import { isAudioDomElement } from "../utils/timelineInspector";
 import type { TimelineElement } from "../player";
@@ -293,7 +297,35 @@ export function useDomEditSession({
   });
 
   // ── Element groups (wrap selected elements in a data-hf-group div) ──
+  const groupSelectionCleanup = useRef<() => void>(undefined);
+  useEffect(() => () => groupSelectionCleanup.current?.(), [projectId, activeCompPath]);
   const { groupSelection, ungroupSelection } = useGroupCommits({
+    previewIframeRef,
+    followSelection(frame, path, group) {
+      groupSelectionCleanup.current?.();
+      const old = group.wrap ? group.members : [group.wrapper];
+      const prior = domEditSelectionRef.current;
+      const previous = (target: GroupTarget) => prior && (target.id && target.id === prior.id || target.hfId && target.hfId === prior.hfId);
+      if (!old.some(previous)) return;
+      const pending = followGroupSelection(frame, group, async (live, result, current) => {
+        const adapter = projectPreviewAdapter(live, projectId);
+        const inspect = async (t: GroupTarget) => {
+          if (adapter) return inspectIsolatedElement(adapter, {sourceFile:path, elementId:t.id, hfId:t.hfId}, isMasterView);
+          const doc = live.contentDocument;
+          if (!doc) return;
+          const element = findElementForSelection(doc, {sourceFile:path, id:t.id ?? undefined, hfId:t.hfId ?? undefined}, activeCompPath);
+          return element && buildDomSelectionFromTarget(element);
+        };
+        if (!result.wrap && await inspect(result.wrapper) !== null) return false;
+        const targets = result.wrap ? [result.wrapper] : result.members;
+        const resolved = await Promise.all(targets.map(inspect));
+        if (!current() || !resolved.length || !resolved.every(s => s != null)) return false;
+        applyMarqueeSelection(resolved, false);
+        return true;
+      });
+      groupSelectionCleanup.current = pending.cancel;
+      return pending;
+    },
     activeCompPath,
     showToast,
     writeProjectFile,

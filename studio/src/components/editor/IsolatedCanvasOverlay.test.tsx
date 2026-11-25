@@ -3,6 +3,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import * as sources from "../../utils/confirmedTextSources";
 import { IsolatedCanvasOverlay } from "./IsolatedCanvasOverlay";
 import { PREVIEW_BRIDGE_SOURCE, type PreviewBridgeMessage } from "../../player/lib/previewAdapter";
 import { liveTime, usePlayerStore } from "../../player/store/playerStore";
@@ -64,9 +65,9 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-function pointer(type: string, x: number) {
+function pointer(type: string, x: number, buttons = 0) {
   act(() => canvas.dispatchEvent(new PointerEvent(type, {
-    bubbles: true, pointerId: 1, isPrimary: true, button: 0, clientX: x, clientY: 60,
+    bubbles: true, pointerId: 1, isPrimary: true, button: 0, buttons, clientX: x, clientY: 60,
   })));
 }
 
@@ -83,8 +84,8 @@ it("allows inspecting another layer while a write conflict blocks dragging and r
   expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
 });
 
-async function reply(phase: string, result: unknown) {
-  const request = messages.findLast(message => message.phase === phase)!;
+async function reply(phase: string, result: unknown, gestureId?: unknown) {
+  const request = messages.findLast(message => message.phase === phase && (!gestureId || message.gestureId === gestureId))!;
   expect(request).toBeDefined();
   await act(async () => {
     const event = new MessageEvent("message", { origin, source: frame.contentWindow,
@@ -119,6 +120,51 @@ it("captures a scaled drag, commits once on release and uses the shown file vers
   expect(messages.at(-1)).toMatchObject({ phase: "commit", gestureId: messages[0]?.gestureId, changed: true });
 });
 
+it("persists a measured CSS translation without assigning layout coordinates", async () => {
+  pointer("pointerdown", 60);
+  pointer("pointermove", 90);
+  pointer("pointerup", 90);
+  await reply("start", null);
+  await reply("finish", { ...result, translated: true, left: 12, top: 34 });
+  const [batches] = state.commitDomEditPatchBatches.mock.calls[0]!;
+  expect(batches[0]).toMatchObject({ patches: [{ target: { id: "title" },
+    operations: [{ type: "inline-style", property: "translate", value: "12px 34px" }] }] });
+  expect(batches[0]).not.toHaveProperty("box");
+  expect(batches[0]).not.toHaveProperty("position");
+});
+
+it.each(["finish", "pick"])("accepts a delayed %s reply while the child scene settles", async phase => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    if (phase === "finish") {
+      pointer("pointerdown", 60);
+      await reply("start", null);
+      pointer("pointerup", 90);
+    } else {
+      act(() => canvas.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 60, clientY: 60 })));
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
+    await reply(phase, result);
+    expect(messages.at(-1)?.phase).toBe(phase === "finish" ? "commit" : "open");
+    expect(state.showToast).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("keeps the first move when capture drops over the canvas with the button still held", async () => {
+  vi.spyOn(document, "elementFromPoint").mockReturnValue(canvas);
+  pointer("pointerdown", 60, 1);
+  pointer("lostpointercapture", 90, 1);
+  pointer("pointermove", 90, 1);
+  pointer("pointerup", 90);
+  expect(messages.map(message => message.phase)).toEqual(["start", "move", "finish"]);
+  expect(canvas.setPointerCapture).toHaveBeenCalledTimes(2);
+  await reply("start", null);
+  await reply("finish", result);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+});
+
 it.each(["pointercancel", "lostpointercapture"])("cancels before release on %s", async type => {
   pointer("pointerdown", 60);
   pointer("pointermove", 90);
@@ -139,7 +185,85 @@ it.each(["replacement", "navigation"])("ignores a late finish after frame %s", a
   expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
 });
 
-it("saves a completed second drag against its stored predecessor after a preview replacement", async () => {
+it.each([false, true])("accepts a second pointerdown before the first measurement returns (batch %s)", async batch => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(batch);
+  state.commitDomEditPatchBatches.mockResolvedValue({ durable: true, changed: true, savedCanvasVersion: '"patch:next"' });
+  pointer("pointerdown", 60);
+  pointer("pointerup", 80);
+  pointer("pointerdown", 80);
+  pointer("pointerup", 100);
+  expect(messages.map(m => m.phase)).toEqual(["start", "finish", "start", "finish"]);
+  const first = messages[0]!.gestureId;
+  const second = messages[2]!.gestureId;
+  await reply("finish", result, first);
+  await reply("finish", { ...result, predecessor: first, left: 88 }, second);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
+  expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{ ifMatch: batch ? '"sha256:' + result.sha256 + '"' : '"patch:next"', box: { left: 88 } }]);
+});
+
+it("keeps nested canvas input open on a server with single versioned writes", async () => {
+  vi.spyOn(sources, "supportsProjectTextEdits").mockReturnValue(true);
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(false);
+  const first = Promise.withResolvers<{durable: boolean; changed: boolean; savedCanvasVersion: string}>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [100, 130]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(m => m.phase === "start");
+    expect(starts.at(-1)).toMatchObject({ordered:true});
+    await reply("finish", {...result, left, predecessor:starts.at(-2)?.gestureId}, starts.at(-1)!.gestureId);
+  }
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+  await act(async () => first.resolve({durable:true, changed:true, savedCanvasVersion:'"patch:next"'}));
+  expect(state.commitDomEditPatchBatches.mock.calls[1]?.[0]).toMatchObject([{ifMatch:'"patch:next"', box:{left:130}}]);
+  expect(state.showToast).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("does not replace a reported conflict with a preview warning on dependent gestures (batch %s)", async batch => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(batch);
+  vi.spyOn(sources, "supportsProjectTextEdits").mockReturnValue(true);
+  const first = Promise.withResolvers<{durable: boolean; changed: boolean}>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  if (batch) state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [100, 130]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(m => m.phase === "start");
+    await reply("finish", {...result, left, predecessor:starts.at(-2)?.gestureId}, starts.at(-1)!.gestureId);
+  }
+  await act(async () => first.reject(new Error("Version conflict")));
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(batch ? 2 : 1);
+  expect(messages.filter(m => m.phase === "cancel")).toHaveLength(2);
+  expect(state.showToast).not.toHaveBeenCalled();
+});
+
+it("hands consecutive ordered gestures to the project transport before any save acknowledgement", async () => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(true);
+  const first = Promise.withResolvers<{ durable: boolean; changed: boolean }>();
+  state.commitDomEditPatchBatches.mockReturnValueOnce(first.promise);
+  for (const left of [120, 150, 180]) {
+    pointer("pointerdown", 60);
+    pointer("pointerup", 90);
+    const starts = messages.filter(message => message.phase === "start");
+    expect(starts.at(-1)).toMatchObject({ ordered: true });
+    await reply("finish", { ...result, left, predecessor: starts.at(-2)?.gestureId }, starts.at(-1)!.gestureId);
+  }
+  expect(state.commitDomEditPatchBatches.mock.calls.map(call => call[0][0].box.left)).toEqual([120, 150, 180]);
+  expect(state.showToast).not.toHaveBeenCalled();
+  await act(async () => first.resolve({ durable: true, changed: true }));
+});
+
+it("rejects a measurement returned after a same-URL document load", async () => {
+  pointer("pointerdown", 60);
+  pointer("pointerup", 90);
+  act(() => frame.dispatchEvent(new Event("load")));
+  await reply("finish", result);
+  expect(state.commitDomEditPatchBatches).not.toHaveBeenCalled();
+  expect(state.showToast).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])("retains both completed drags across preview replacement (batch %s)", async batch => {
+  vi.spyOn(sources, "supportsOrderedTextEdits").mockReturnValue(batch);
   const receipt = Promise.withResolvers<{ durable: boolean; savedCanvasVersion: string }>();
   state.commitDomEditPatchBatches.mockReturnValueOnce(receipt.promise);
   pointer("pointerdown", 60);
@@ -151,12 +275,12 @@ it("saves a completed second drag against its stored predecessor after a preview
   pointer("pointerup", 98);
   await reply("start", null);
   await reply("finish", { ...result, predecessor, left: 110 });
-  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(batch ? 2 : 1);
   state.previewIframeRef.current = document.createElement("iframe");
   await act(async () => receipt.resolve({ durable: true, savedCanvasVersion: '"patch:latest"' }));
   expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(2);
   expect(state.commitDomEditPatchBatches.mock.calls[1]![0]).toMatchObject([{
-    sourceFile: result.sourceFile, ifMatch: '"patch:latest"', box: { left: 110 },
+    sourceFile: result.sourceFile, ifMatch: batch ? '"sha256:' + result.sha256 + '"' : '"patch:latest"', box: { left: 110 },
     patches: [{ target: { id: result.elementId } }],
   }]);
 });
@@ -264,6 +388,75 @@ it("resizes the selected source target after a replacement frame has forgotten i
   const corner = canvas.querySelector('[data-resize-corner="ne"]')!;
   act(() => corner.dispatchEvent(new PointerEvent("pointerdown", {bubbles:true, button:0, isPrimary:true, pointerId:1, clientX:110, clientY:20})));
   expect(messages[0]).toMatchObject({ type:"canvas-drag", phase:"start", corner:"ne", target });
+});
+
+it("starts at an exposed selection or handle outside the frame and preserves in-frame picking", () => {
+  const target = { sourceFile: "compositions/gallery.html", elementId: "gallery-wall" };
+  state.domEditSelection = { isolatedTarget: target, isolatedBounds: { x: -.25, y: .1, width: 1.5, height: .6 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const selected = canvas.querySelector<HTMLElement>("[data-isolated-selection]")!;
+  function press(node: HTMLElement, clientX: number, clientY: number) {
+    act(() => node.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX, clientY })));
+  }
+  press(canvas, -50, 60);
+  expect(messages).toHaveLength(0);
+  press(selected, -10, 60);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", x: -.1, y: .5, target });
+  pointer("pointercancel", -10);
+  press(selected.querySelector<HTMLElement>('[data-resize-corner="se"]')!, 261, 82);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", corner: "se", x: 1.25, y: .7, target });
+  pointer("pointermove", 271);
+  expect(messages.at(-1)).toMatchObject({ phase: "move", dx: .05 });
+  pointer("pointercancel", 271);
+  press(selected, 60, 60);
+  expect(messages.at(-1)).toMatchObject({ phase: "start", x: .25, y: .5 });
+  expect(messages.at(-1)).not.toHaveProperty("target");
+});
+
+it("submits a compensated CSS resize as one edit with both dimensions", async () => {
+  state.domEditSelection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="nw"]')!;
+  act(() => handle.dispatchEvent(new PointerEvent("pointerdown", {
+    bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX: 30, clientY: 20,
+  })));
+  expect(messages[0]).toMatchObject({phase:"start", corner:"nw", cssResizeOffset:true});
+  pointer("pointerup", 15);
+  await reply("finish", {...result, corner:"nw", translated:true, width:100, height:70});
+  const [batch] = state.commitDomEditPatchBatches.mock.calls[0]![0];
+  expect(batch.box).toBeUndefined();
+  expect(batch.patches[0].operations).toEqual([
+    {type:"inline-style", property:"translate", value:"12px 34px"},
+    {type:"inline-style", property:"width", value:"100px"},
+    {type:"inline-style", property:"height", value:"70px"},
+  ]);
+});
+
+it("outlines the rendered size during a constrained resize and ignores late geometry", async () => {
+  state.domEditSelection = { isolatedTarget: result, isolatedBounds: { x: .1, y: .1, width: .4, height: .4 } };
+  act(() => root.render(<IsolatedCanvasOverlay />));
+  const handle = canvas.querySelector<HTMLElement>('[data-resize-corner="se"]')!;
+  act(() => handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, isPrimary: true, pointerId: 1, clientX: 110, clientY: 60 })));
+  const start = messages[0]!;
+  const viewport = { width: 200, height: 100 };
+  const geometry = { x: 20, y: 10, width: 80, height: 40 };
+  await reply("start", { geometry, viewport, liveResizeBounds: true });
+  pointer("pointermove", 145);
+  function bounds(width: number, gestureId = start.gestureId) {
+    act(() => window.dispatchEvent(new MessageEvent("message", { origin, source: frame.contentWindow, data: {
+      ...start, source: PREVIEW_BRIDGE_SOURCE, phase: "bounds", gestureId, geometry: { ...geometry, width }, viewport,
+    } })));
+  }
+  const outline = canvas.querySelector<HTMLElement>("[data-isolated-selection]")!;
+  bounds(98, "an-older-gesture");
+  expect(outline.style.width).toBe("80px");
+  bounds(97);
+  expect(outline.style.width).toBe("97px");
+  pointer("pointerup", 145);
+  await reply("finish", { ...result, corner: "se", width: 120, height: 70, geometry: { ...geometry, width: 99 }, viewport });
+  bounds(92);
+  expect(outline.style.width).toBe("99px");
+  expect(state.commitDomEditPatchBatches).toHaveBeenCalledTimes(1);
 });
 
 it("shows the released bounds even when the initial pick arrives after pointerup", async () => {

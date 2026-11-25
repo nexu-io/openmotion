@@ -16,7 +16,7 @@
     "test": "node --experimental-strip-types --test tests/cloud/*.test.ts",
     "test:cloud": "node --experimental-strip-types --test tests/cloud/*.test.ts",
     "check": "node --experimental-strip-types scripts/check.ts",
-    "build:studio": "npm run build:inline && npm run build:template-cards && vite build --config studio/vite.config.ts && node scripts/build-browser-export.mjs && node scripts/build-template-guide.mjs",
+    "build:studio": "npm run build:inline && npm run build:template-cards && vite build --config studio/vite.config.ts && node scripts/build-browser-export.mjs && node scripts/build-template-guide.mjs && node scripts/build-local-edit.mjs",
     "build:tracking": "tsc -p tracking/tsconfig.json",
     "build:observability": "tsc -p packages/observability/tsconfig.json",
     "typecheck:studio": "tsc -p studio/tsconfig.json",

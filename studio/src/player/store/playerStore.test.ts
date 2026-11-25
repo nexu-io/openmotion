@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { usePlayerStore, liveTime, whenPreviewBooted, type TimelineElement } from "./playerStore";
+import {
+  usePlayerStore,
+  liveTime,
+  whenEditorInteractive,
+  whenPreviewBooted,
+  type TimelineElement,
+} from "./playerStore";
 import { thumbnailRevisionOf } from "./thumbnailSlice";
 
 /** The playback/selection state `reset()` restores (persistent prefs asserted separately). */
@@ -780,5 +786,42 @@ describe("whenPreviewBooted", () => {
     usePlayerStore.getState().markPreviewBooted();
 
     await expect(waitB).resolves.toBe(true);
+  });
+});
+
+describe("whenEditorInteractive", () => {
+  it("waits until both previewBooted is true and editorInputLocked clears", async () => {
+    usePlayerStore.setState({
+      timelineProjectId: "project-a",
+      previewBooted: true,
+      editorInputLocked: true,
+    });
+    let resolved: boolean | null = null;
+    const waitA = whenEditorInteractive("project-a").then((value) => {
+      resolved = value;
+      return value;
+    });
+
+    await Promise.resolve();
+    expect(resolved).toBeNull();
+
+    usePlayerStore.getState().setEditorInputLocked(false);
+    await expect(waitA).resolves.toBe(true);
+  });
+
+  it("resolves false when another project replaces it while input is still locked", async () => {
+    usePlayerStore.setState({
+      timelineProjectId: "project-a",
+      previewBooted: true,
+      editorInputLocked: true,
+    });
+    const waitA = whenEditorInteractive("project-a");
+
+    usePlayerStore.getState().beginTimelineSession("project-b");
+    usePlayerStore.getState().markPreviewBooted();
+    usePlayerStore.getState().setEditorInputLocked(false);
+
+    await expect(waitA).resolves.toBe(false);
+    await expect(whenEditorInteractive("project-b")).resolves.toBe(true);
   });
 });

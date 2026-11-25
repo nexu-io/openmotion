@@ -24,7 +24,7 @@ import {
   isStudioFontFaceCss,
   unwrapGroupWithGsapCleanup,
 } from "./canvas-source.ts";
-import { writePlainMove } from "./canvas-position.ts";
+import { authoredLayerBox, writePlainMove } from "./canvas-position.ts";
 import type { CanvasCommand, CanvasElementPatch } from "./canvas-schema.ts";
 export type { CanvasCommand } from "./canvas-schema.ts";
 
@@ -139,6 +139,7 @@ export function applyCanvasCommand(source: string, command: CanvasCommand): stri
       if (!el?.style || el.closest("[data-timeline-locked]"))
         throw new Error("Choose an unlocked canvas element.");
       const animations = /<script\b/i.test(source) ? parseGsapAnimationsFromHtml(source).animations : [];
+      let sharedPosition = false;
       const candidates = animations.filter((anim) => {
         if (anim.properties?.data === "hf-hold") return false;
         const channels = [
@@ -167,19 +168,29 @@ export function applyCanvasCommand(source: string, command: CanvasCommand): stri
           throw new Error("Cannot resolve the animated position selector.");
         }
         if (!hits.includes(el)) return false;
-        if (anim.hasPartialSelector || hits.length !== 1)
-          throw new Error(
-            "The position tween targets multiple elements. Choose the shared animation explicitly.",
-          );
+        if (anim.hasPartialSelector || hits.length !== 1) sharedPosition = true;
         return true;
       });
+      if (delta && (sharedPosition || candidates.length > 1)) {
+        // A layer offset moves the entrance, the hold, and the exit together. Each GSAP
+        // tween keeps its own inherited start values, easing, and lifecycle callbacks.
+        const box = command.staticBox ?? authoredLayerBox(el, delta);
+        if (!box) throw new Error("Supply a measured layer box to move this responsive layout.");
+        const { left, top, makeRelative } = box;
+        return applyCanvasCommand(source, { kind: "setCanvasBox", target: command.target, box: { left, top, makeRelative } });
+      }
+      if (sharedPosition) throw new Error("The position tween targets multiple elements. Choose the shared animation explicitly.");
       if (candidates.length) {
         if (command.time === undefined && !(delta && candidates.length === 1))
           throw new Error("Specify the composition time for the animated layer.");
+        // GSAP rounds timeline time to seven decimals. A literal duration can retain
+        // more precision in the file, including the last frame of the welcome editor.
+        const tick = (time: number) => Math.round(time * 1e7);
         const active = candidates.filter((anim) => {
           const start = resolveTweenStart(anim);
           return (
-            start != null && start <= command.time! && command.time! <= start + resolveTweenDuration(anim)
+            start != null && tick(start) <= tick(command.time!) &&
+            tick(command.time!) <= tick(start + resolveTweenDuration(anim))
           );
         });
         const owner = active.length === 1 ? active[0] : candidates.length === 1 ? candidates[0] : undefined;

@@ -1,8 +1,11 @@
+import { saveLayerOrder } from "./orderedLayerReorder";
+import { getCachedCloudDisklessMode } from "../utils/cloudRuntime";
+import { trackStudioPendingEdit } from "../utils/studioPendingEdits";
 import { submitIsolatedCanvasEdit } from "./submitIsolatedCanvasEdit";
 import type { SdkSessionHandle } from "./useSdkSession";
 import { cloudHistoryForWrite } from "../utils/studioFileHistory";
 import { buildProjectApiPath } from "../utils/projectRouting";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { findUnsafeDomPatchValues } from "@hyperframes/core/studio-api/finite-mutation";
 import { FONT_EXT } from "../utils/mediaTypes";
 import { primaryFontFamilyValue } from "../utils/studioFontHelpers";
@@ -24,7 +27,7 @@ import {
   batchesAreInlineStyleOnly,
   formatUnsafeFieldList,
   patchElementBatches,
-  isolatedCanvasCommands,
+  canvasBatchCommands,
 } from "./useDomEditCommitsHelpers";
 import type { CutoverResult } from "../utils/sdkCutover";
 import { serializeStudioFileMutations } from "../utils/studioFileMutationCoordinator";
@@ -148,98 +151,102 @@ export function useDomEditCommits({
     (batches, options) => {
       const expectedProjectId = projectIdRef.current;
       if (!expectedProjectId) return Promise.reject(new Error("No active project"));
-      return queueDomEditSave(
-        // One queued transaction owns validation, persistence, history, reload,
-        // and its durable result; splitting those phases risks partial commits.
-        // fallow-ignore-next-line complexity
-        async () => {
-          if (projectIdRef.current !== expectedProjectId) {
-            throw new Error("Active project changed before the edit could be saved");
-          }
-          const pid = expectedProjectId;
-          const unsafeFields = batches.flatMap((batch) =>
-            batch.patches.flatMap((patch) => findUnsafeDomPatchValues(patch)),
+      const history = cloudHistoryForWrite(writeProjectFile, options);
+      if (!batches.length) return Promise.resolve({ durable: true, allMatched: true, changed: false });
+      const ordered = getCachedCloudDisklessMode();
+      // The ordered transport serializes preparation and commits; older hosts use the file locks.
+      // fallow-ignore-next-line complexity
+      const perform = async () => {
+        if (projectIdRef.current !== expectedProjectId) {
+          throw new Error("Active project changed before the edit could be saved");
+        }
+        const pid = expectedProjectId;
+        const unsafeFields = batches.flatMap((batch) =>
+          batch.patches.flatMap((patch) => findUnsafeDomPatchValues(patch)),
+        );
+        if (unsafeFields.length > 0) {
+          showToast("Couldn't save edit because it contains invalid layout values", "error");
+          throw new DomEditPersistUnsafeValueError(
+            `DOM patch contains unsafe values: ${formatUnsafeFieldList(unsafeFields)}`,
+            { alreadyToasted: true },
           );
-          if (unsafeFields.length > 0) {
-            showToast("Couldn't save edit because it contains invalid layout values", "error");
-            throw new DomEditPersistUnsafeValueError(
-              `DOM patch contains unsafe values: ${formatUnsafeFieldList(unsafeFields)}`,
-              { alreadyToasted: true },
-            );
-          }
+        }
 
-          const sourceFiles = batches.map((batch) => batch.sourceFile);
-          // The server patch and its history entry hold every touched file's queue.
-          const { allMatched, changedPaths, reconcileFromServer, previewApplied, savedVersions } = await serializeStudioFileMutations(
-            writeProjectFile,
-            sourceFiles,
-            async () => {
-              const history = cloudHistoryForWrite(writeProjectFile, options);
-              const intent = history && isolatedCanvasCommands(batches);
-              if (intent) {
-                const result = await submitIsolatedCanvasEdit(pid, intent.commands, intent.versions, history, previewIframeRef, options.coalesceKey);
-                const changed = result.changedPaths.length > 0;
-                if (changed) await editHistory.recordEdit({ ...options, files: {} });
-                return { allMatched: true, changedPaths: result.changedPaths, reconcileFromServer: result.divergent.length > 0, previewApplied: result.previewApplied, savedVersions: result.versions };
-              }
-              const atomicResult = await patchElementBatches(pid, batches, history);
-              const files = Object.fromEntries(
-                atomicResult.files
-                  .filter((result) => result.changed)
-                  .map((result) => [
-                    result.sourceFile,
-                    { before: result.before, after: result.after },
-                  ]),
-              );
-              const anyChanged = Object.keys(files).length > 0;
-              if (anyChanged) {
-                await editHistory.recordEdit({
-                  label: options.label,
-                  coalesceKey: options.coalesceKey,
-                  coalesceMs: options.coalesceMs,
-                  files,
-                  targets: batches
-                    .filter((batch) => Object.hasOwn(files, batch.sourceFile))
-                    .flatMap((batch) =>
-                      batch.patches.map(({ target }) => ({
-                        file: batch.sourceFile,
-                        ...(target.id && { id: target.id }),
-                        ...(target.hfId && { hfId: target.hfId }),
-                        ...(target.selector && { selector: target.selector }),
-                        ...(target.selectorIndex !== undefined && {
-                          selectorIndex: target.selectorIndex,
-                        }),
-                      })),
-                    ),
-                });
-              }
-              return {
-                allMatched:
-                  atomicResult.durable && atomicResult.files.every((result) => result.allMatched),
-                changedPaths: Object.keys(files),
-                reconcileFromServer: false, previewApplied: false, savedVersions: undefined,
-              };
-            },
+        const sourceFiles = batches.map((batch) => batch.sourceFile);
+        async function saveFiles() {
+          if (ordered) {
+            const intent = canvasBatchCommands(batches);
+            if (options.linkedLanes?.length) {
+              const result = await saveLayerOrder(pid, intent.commands, intent.versions, options.linkedLanes, activeCompPath, {
+                ...options, recordEdit: editHistory.recordEdit, frame: previewIframeRef, refresh: reloadPreview,
+              });
+              return { ...result, allMatched: true, reconcileFromServer: false, previewScheduled: true, presentPaths: result.changedPaths };
+            }
+            const result = await submitIsolatedCanvasEdit(pid, intent.commands, intent.versions, history, previewIframeRef, reloadPreview, options.coalesceKey);
+            const changed = result.changedPaths.length > 0;
+            if (changed) await editHistory.recordEdit({ ...options, files: {} });
+            return { allMatched: true, changedPaths: result.changedPaths, reconcileFromServer: result.divergent.length > 0, previewScheduled: true, presentPaths: result.presentChanged && !result.deferPresentation ? sourceFiles : [], savedVersions: result.versions };
+          }
+          const atomicResult = await patchElementBatches(pid, batches, history);
+          const files = Object.fromEntries(
+            atomicResult.files
+              .filter((result) => result.changed)
+              .map((result) => [
+                result.sourceFile,
+                { before: result.before, after: result.after },
+              ]),
           );
-          const changed = changedPaths.length > 0;
-          if (reconcileFromServer) return { durable: true, allMatched, changed };
-          if (changed) forceReloadSdkSession?.(savedVersions ? { projectId: pid, versions: savedVersions } : undefined);
-          const durable = allMatched;
-          // A z-only reorder already applied its inline styles to the live iframe
-          // DOM (and the store) synchronously, so remounting the iframe here only
-          // produces a visible blink. Skip the reload when the caller asked for it
-          // AND the persist is provably in sync: style-only ops, every target
-          // matched. Any unmatched patch means the live DOM now shows state disk
-          // doesn't hold — reload so the preview reconverges.
-          const skipSafe =
-            options.skipReload === true && batchesAreInlineStyleOnly(batches) && durable;
-          if (!durable) reloadPreview();
-          else if (changed && !skipSafe && !previewApplied) reloadPreview(changedPaths);
-          const savedCanvasVersion = batches.length === 1 ? savedVersions?.[batches[0]!.sourceFile] : undefined;
-          return { durable, allMatched, changed, ...(savedCanvasVersion && { savedCanvasVersion }) };
-        },
-      ).catch((error) => {
-        if (error instanceof AtomicElementPatchConvergenceError) reloadPreview();
+          const anyChanged = Object.keys(files).length > 0;
+          if (anyChanged) {
+            await editHistory.recordEdit({
+              label: options.label,
+              coalesceKey: options.coalesceKey,
+              coalesceMs: options.coalesceMs,
+              files,
+              targets: batches
+                .filter((batch) => Object.hasOwn(files, batch.sourceFile))
+                .flatMap((batch) =>
+                  batch.patches.map(({ target }) => ({
+                    file: batch.sourceFile,
+                    ...(target.id && { id: target.id }),
+                    ...(target.hfId && { hfId: target.hfId }),
+                    ...(target.selector && { selector: target.selector }),
+                    ...(target.selectorIndex !== undefined && {
+                      selectorIndex: target.selectorIndex,
+                    }),
+                  })),
+                ),
+            });
+          }
+          return {
+            allMatched:
+              atomicResult.durable && atomicResult.files.every((result) => result.allMatched),
+            changedPaths: Object.keys(files),
+            reconcileFromServer: false, previewScheduled: false, presentPaths: Object.keys(files), savedVersions: undefined,
+          };
+        }
+        const { allMatched, changedPaths, reconcileFromServer, previewScheduled, presentPaths, savedVersions } = ordered
+          ? await saveFiles()
+          : await serializeStudioFileMutations(writeProjectFile, sourceFiles, saveFiles);
+        const changed = changedPaths.length > 0;
+        if (reconcileFromServer) return { durable: true, allMatched, changed };
+        if (presentPaths.length) forceReloadSdkSession?.(savedVersions ? { projectId: pid, versions: savedVersions } : undefined);
+        const durable = allMatched;
+        // A z-only reorder already applied its inline styles to the live iframe
+        // DOM (and the store) synchronously, so remounting the iframe here only
+        // produces a visible blink. Skip the reload when the caller asked for it
+        // AND the persist is provably in sync: style-only ops, every target
+        // matched. Any unmatched patch means the live DOM now shows state disk
+        // doesn't hold — reload so the preview reconverges.
+        const skipSafe =
+          options.skipReload === true && batchesAreInlineStyleOnly(batches) && durable;
+        if (!durable) reloadPreview(sourceFiles);
+        else if (presentPaths.length && !skipSafe && !previewScheduled) reloadPreview(presentPaths);
+        const savedCanvasVersion = batches.length === 1 ? savedVersions?.[batches[0]!.sourceFile] : undefined;
+        return { durable, allMatched, changed, ...(savedCanvasVersion && { savedCanvasVersion }) };
+      };
+      const saved = (ordered ? perform() : queueDomEditSave(perform)).catch((error) => {
+        if (error instanceof AtomicElementPatchConvergenceError) reloadPreview(batches.map(batch => batch.sourceFile));
         const alreadyToasted =
           (error instanceof StudioSaveHttpError ||
             error instanceof DomEditPersistUnsafeValueError) &&
@@ -256,8 +263,11 @@ export function useDomEditCommits({
         });
         throw error;
       });
+      if (ordered) trackStudioPendingEdit(saved);
+      return saved;
     },
     [
+      activeCompPath,
       editHistory,
       forceReloadSdkSession,
       previewIframeRef,
@@ -337,6 +347,9 @@ export function useDomEditCommits({
 
   // ── Element lifecycle (delete, z-index reorder) ──
 
+  const selectedRef = useRef(domEditSelection);
+  selectedRef.current = domEditSelection;
+  const currentSelection = useCallback(() => selectedRef.current, []);
   const { handleDomEditElementsDelete, handleDomZIndexReorderCommit } = useElementLifecycleOps({
     activeCompPath,
     showToast,
@@ -345,6 +358,8 @@ export function useDomEditCommits({
     projectIdRef,
     reloadPreview,
     clearDomSelection,
+    currentSelection,
+    previewIframeRef,
     onTrySdkDelete,
     onReorderShadow,
     forceReloadSdkSession,

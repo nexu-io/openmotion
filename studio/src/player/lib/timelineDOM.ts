@@ -71,6 +71,19 @@ export {
 // TimelineElement factories
 // ---------------------------------------------------------------------------
 
+function hasOwnDocumentBase(doc: Document | null | undefined): boolean {
+  return Boolean(doc?.defaultView || doc?.querySelector("base[href]"));
+}
+
+function resolveLiveDocumentSrc(rawSrc: string | null | undefined, baseURI: string | undefined): string | undefined {
+  if (!rawSrc || !baseURI) return undefined;
+  try {
+    return new URL(rawSrc, baseURI).href;
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveClipTag(clip: ClipManifestClip): string {
   return clip.tagName || clip.kind || "div";
 }
@@ -154,9 +167,11 @@ export function createTimelineElementFromManifestClip(params: {
 
   if (hostEl) {
     applyMediaMetadataFromElement(entry, hostEl);
-    if (!entry.src) {
-      const rawSrc = hostEl.getAttribute("src");
-      if (rawSrc) entry.src = new URL(rawSrc, hostEl.baseURI).href;
+    if (hasOwnDocumentBase(doc ?? hostEl.ownerDocument)) {
+      const mediaEl = resolveMediaElement(hostEl);
+      const rawSrc = mediaEl?.getAttribute("src") ?? hostEl.getAttribute("src");
+      const resolvedSrc = resolveLiveDocumentSrc(rawSrc, mediaEl?.baseURI ?? hostEl.baseURI);
+      if (resolvedSrc) entry.src = resolvedSrc;
     }
     if (hostEl.hasAttribute("data-hidden")) entry.hidden = true;
     if (hostEl.hasAttribute("data-timeline-locked")) entry.timelineLocked = true;
@@ -361,11 +376,14 @@ function scanTimelineFromDOM(
       if (mediaEl.tagName === "IMG") {
         entry.tag = "img";
       }
-      // Override AFTER the helper (which sets the raw relative attribute) so the
-      // resolved absolute URL wins — the Studio can then fetch the asset
-      // regardless of whether the attribute value was relative or absolute.
-      const resolvedSrc = (mediaEl as HTMLMediaElement | HTMLImageElement).src || undefined;
-      if (resolvedSrc) entry.src = resolvedSrc;
+      // Override AFTER the helper (which sets the raw relative attribute) when the
+      // document owns its own browsing context or <base>, so a live preview iframe
+      // resolves against its preview base while a detached DOMParser document never
+      // inherits the Studio parent route (e.g. /editor/<id>).
+      if (hasOwnDocumentBase(doc)) {
+        const resolvedSrc = (mediaEl as HTMLMediaElement | HTMLImageElement).src || undefined;
+        if (resolvedSrc) entry.src = resolvedSrc;
+      }
     }
 
     // Read from the element, like the manifest path does: without these an audio

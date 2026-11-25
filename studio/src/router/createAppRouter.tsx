@@ -82,7 +82,8 @@ export function createAppRouteObjects(shellElement: ReactNode): RouteObject[] {
         leaf('templates', 'templates'),
         leaf('editor', 'editor'),
         leaf('editor/:projectId', 'editor'),
-        leaf('*', 'explore'),
+        leaf('404', 'not-found'),
+        leaf('*', 'not-found'),
       ],
     },
   ];

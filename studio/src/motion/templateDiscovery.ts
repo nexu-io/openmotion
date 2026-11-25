@@ -1,4 +1,5 @@
 import type { GalleryTemplate } from '../../../shared/catalog';
+import { formatAspectTag } from './generationLabels';
 import { discoveryIndustries, discoveryPurposes } from './templateDiscoveryTaxonomy';
 import { sourceMessage } from '../i18n/messages';
 
@@ -69,7 +70,5 @@ export function randomTemplate(items: GalleryTemplate[], previousId?: string, ra
 export function templateRatio(template: GalleryTemplate): string {
   const [width, height] = template.width && template.height ? [template.width, template.height] : (template.ratio ?? '').split(/[:/]/).map(Number);
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) return template.ratio ?? '—';
-  const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
-  const divisor = gcd(width, height);
-  return `${width / divisor}:${height / divisor}`;
+  return formatAspectTag(width, height) ?? `${width}:${height}`;
 }
