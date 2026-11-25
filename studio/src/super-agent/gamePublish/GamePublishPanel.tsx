@@ -54,16 +54,14 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
     </header>
   );
 
-  // Same tiles as the video export panel: one square per destination with its mark. The OpenDesign link is a
-  // destination like the others (a play link anyone can open), not a setting attached to them.
-  const OPENDESIGN = 'opendesign' as const;
+  // Same tiles as the video export panel: one square per platform with its mark. OpenDesign is not a tile: it is the
+  // selected-by-default choice at the top (OpenDesignChoice), and every platform picked below also gets its link.
   const tiles = (list: readonly GamePublishPlatform[]) => (
-    <ChoiceTiles<GamePublishPlatformId | typeof OPENDESIGN | ''>
+    <ChoiceTiles<GamePublishPlatformId | ''>
       label={t('Choose a platform')}
-      value={session.linkUrl ? OPENDESIGN : ''}
+      value=''
       className="om-gp-platforms"
       options={[
-        { value: OPENDESIGN, label: 'OpenDesign', icon: <span className="om-platform-icon om-gp-od-icon" aria-hidden="true"><RemixIcon name="global-line" size={18} /></span> },
         ...list.map(item => ({
           value: item.id,
           label: t(item.name),
@@ -73,8 +71,7 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
         })),
       ]}
       onChange={id => {
-        if (id === OPENDESIGN) void gamePublishActions.publishLink(artifactId);
-        else if (id) gamePublishActions.choose(artifactId, id);
+        if (id) gamePublishActions.choose(artifactId, id);
       }}
     />
   );
@@ -108,8 +105,9 @@ export function GamePublishPanel({ artifactId, coverUrl, onNotify }: {
             <p>{t('Pick one to start. Steps are shown one at a time.')}</p>
           </div>
         </div>
+        <OpenDesignChoice session={session} onNotify={onNotify} />
+        <h3 className="om-gp-group">{session.linkToo || session.linkUrl ? t('Also publish to') : t('Publish to')}</h3>
         {tiles(enabled)}
-        <OpenDesignLinkOption session={session} onNotify={onNotify} />
       </>
     );
     showStatus = false;
@@ -304,15 +302,19 @@ function LinkStep({ session, onNotify }: { session: GamePublishSession; onNotify
   );
 }
 
-/** Default-on option: publishing to any platform also publishes the game on OpenDesign. */
-function OpenDesignLinkOption({ session, onNotify }: { session: GamePublishSession; onNotify?: Notify }) {
+/**
+ * OpenDesign, at the top of the platform list and selected by default: a play link anyone can open. Every platform
+ * picked below also publishes it; "Publish only to OpenDesign" publishes it on its own.
+ */
+function OpenDesignChoice({ session, onNotify }: { session: GamePublishSession; onNotify?: Notify }) {
   const { t } = useI18n();
+  const icon = <span className="om-platform-icon om-gp-od-icon" aria-hidden="true"><RemixIcon name="global-line" size={18} /></span>;
   if (session.linkUrl) {
     return (
-      <div className="om-gp-option" data-done>
-        <RemixIcon name="checkbox-circle-fill" size={16} className="om-gp-result-icon" />
+      <div className="om-gp-option om-gp-od-choice" data-done>
+        {icon}
         <span className="om-gp-option-text">
-          <strong>{t('Live on OpenDesign')}</strong>
+          <strong>OpenDesign · {t('Live on OpenDesign')}</strong>
           <small>{session.linkUrl}</small>
         </span>
         <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void copyGamePublishLink(session.linkUrl, onNotify, t)}>{t('Copy link')}</Button>
@@ -320,27 +322,31 @@ function OpenDesignLinkOption({ session, onNotify }: { session: GamePublishSessi
       </div>
     );
   }
-  if (session.linkError) {
-    return (
-      <div className="om-gp-option" data-failed>
-        <RemixIcon name="alert-fill" size={16} className="om-gp-result-icon" />
-        <span className="om-gp-option-text">
-          <strong>{t('Publishing on OpenDesign failed')}</strong>
-          <small>{session.linkError.authRequired ? t('Sign in to OpenDesign first, then try again.') : session.linkError.message}</small>
-        </span>
-        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void gamePublishActions.publishLink(session.artifactId)}>{t('Try again')}</Button>
-      </div>
-    );
-  }
-  if (session.linkPublishing) {
-    return (
-      <div className="om-gp-option">
-        <RemixIcon name="loader-4-line" size={16} className="om-gp-spin" />
-        <span className="om-gp-option-text"><strong>{t('Publishing on OpenDesign…')}</strong></span>
-      </div>
-    );
-  }
-  return null;
+  return (
+    <div className="om-gp-option om-gp-od-choice" data-selected={session.linkToo || undefined} data-failed={session.linkError ? true : undefined}>
+      <input
+        type="checkbox"
+        checked={session.linkToo}
+        disabled={session.linkPublishing}
+        aria-label={t('Publish on OpenDesign too')}
+        onChange={event => gamePublishActions.setLinkToo(session.artifactId, event.target.checked)}
+      />
+      {icon}
+      <span className="om-gp-option-text">
+        <strong>OpenDesign</strong>
+        <small>
+          {session.linkPublishing ? t('Publishing on OpenDesign…')
+            : session.linkError ? (session.linkError.authRequired ? t('Sign in to OpenDesign first, then try again.') : t('Publishing failed: {message}', { message: session.linkError.message }))
+              : session.linkToo ? t('Selected: a play link anyone can open. Platforms you pick below get it too.') : t('A play link anyone can open.')}
+        </small>
+      </span>
+      {!session.linkPublishing && (
+        <Button variant="plain" type="button" className="om-gp-secondary" onClick={() => void gamePublishActions.publishLink(session.artifactId)}>
+          {session.linkError ? t('Try again') : t('Publish only to OpenDesign')}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 /**

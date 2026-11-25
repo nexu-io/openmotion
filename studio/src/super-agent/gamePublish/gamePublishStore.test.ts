@@ -62,12 +62,25 @@ describe('gamePublishStore', () => {
   });
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  it('choosing a platform does not publish the OpenDesign link by itself', async () => {
+  it('OpenDesign is selected by default: picking a platform also publishes its link and tells the Agent', async () => {
     gamePublishActions.open(input);
-    gamePublishActions.choose(input.artifactId, 'telegram');
+    expect(gamePublishSessionFor(input.artifactId)?.linkToo).toBe(true);
+    gamePublishActions.choose(input.artifactId, 'wechat');
+    expect(publish).toHaveBeenCalledWith('game', 'abc12345', expect.objectContaining({ filePath: 'index.html', deployMode: 'publish' }));
+    expect(handoff.mock.calls[0][0].hiddenInstructions).toContain('OpenDesign is selected too');
+    await settle();
+    expect(gamePublishSessionFor(input.artifactId)?.linkUrl).toBe('https://play.opendesign.app/g/abc');
+  });
+
+  it('with OpenDesign unselected, picking a platform does not publish the link', async () => {
+    gamePublishActions.open(input);
+    gamePublishActions.setLinkToo(input.artifactId, false);
+    gamePublishActions.choose(input.artifactId, 'wechat');
     await settle();
     expect(publish).not.toHaveBeenCalled();
-    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'step', platformId: 'telegram' });
+    expect(handoff.mock.calls[0][0].hiddenInstructions).not.toContain('OpenDesign is selected too');
+    expect(gamePublishSessionFor(input.artifactId)).toMatchObject({ view: 'step', platformId: 'wechat' });
+    expect(gamePublishSessionFor(input.artifactId)?.linkUrl).toBeUndefined();
   });
 
   it('the OpenDesign link is published when the user picks it', async () => {
@@ -93,6 +106,8 @@ describe('gamePublishStore', () => {
 
   it('WeChat goes to the Agent in this conversation and adds no cards of its own', async () => {
     gamePublishActions.open(input);
+    // OpenDesign off, so only WeChat's own entries would show (the link logs its own publishing).
+    gamePublishActions.setLinkToo(input.artifactId, false);
     gamePublishActions.choose(input.artifactId, 'wechat');
     await settle();
     expect(handoff).toHaveBeenCalledTimes(1);

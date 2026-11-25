@@ -74,11 +74,29 @@ export function WechatProgress({ session }: { session: GamePublishSession }) {
         <strong>{line}</strong>
         <span className="om-gp-muted"> · {t('The Agent guides you in the conversation')}</span>
       </p>
+      <OpenDesignProgress session={session} />
       <ol className="om-gp-overview-list">{main.map((step, index) => item(step, index + 1))}</ol>
 
       <h3 className="om-gp-group">{mainDone ? t('Going live') : t('Going live (optional)')}</h3>
       <ol className="om-gp-overview-list">{optional.map(step => item(step))}</ol>
     </div>
+  );
+}
+
+/** The OpenDesign link (selected by default on the platform list), above the platform's steps. */
+export function OpenDesignProgress({ session }: { session: GamePublishSession }) {
+  const { t } = useI18n();
+  if (!session.linkToo && !session.linkUrl && !session.linkPublishing && !session.linkError) return null;
+  const state: ShownState = session.linkUrl ? 'done' : session.linkError ? 'blocked' : session.linkPublishing ? 'current' : 'todo';
+  const icon = session.linkPublishing ? 'loader-4-line' : STATE_ICON[state];
+  return (
+    <ol className="om-gp-overview-list">
+      <li className="om-gp-overview-item" data-state={state}>
+        {icon ? <RemixIcon name={icon} size={14} className={session.linkPublishing ? 'om-gp-spin' : undefined} /> : <span className="om-gp-overview-dot" aria-hidden="true" />}
+        <span className="om-gp-overview-name">OpenDesign · {t('Play link')}</span>
+        <span className="om-gp-overview-state">{session.linkUrl ? t('Done') : session.linkError ? t('Needs a fix') : session.linkPublishing ? t('Publishing…') : t('Not started')}</span>
+      </li>
+    </ol>
   );
 }
 
