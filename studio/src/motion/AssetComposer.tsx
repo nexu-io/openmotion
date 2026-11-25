@@ -35,7 +35,8 @@ import { ProviderSetupNotice, GenerationSignInNotice, GenerationUpgradeNotice } 
 import { setPendingAttribution } from './entitlementAttribution';
 import { send } from './reporting';
 
-export interface AssetDraft { modality: Modality; prompt: string; capabilityOptions?: Record<string, string>; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; references: { reference: AssetReference; name: string }[] }
+export interface AssetGuideExample { title: string; prompt: string; poster: string; clip?: string; posterAspect?: number }
+export interface AssetDraft { modality: Modality; prompt: string; capabilityOptions?: Record<string, string>; relight?: RelightChoices; videoChoices?: Record<string, string>; shotPreferences?: { aspect: string; duration?: number }; preferredModel?: string; model?: string; parameters?: Record<string, unknown>; target?: { asset: LibraryAsset; versionId: string }; guideExample?: AssetGuideExample; references: { reference: AssetReference; name: string }[] }
 export function AssetComposer({ active, studio, draft, setDraft, agentReferences, setAgentReferences, jobs, showCurrentJob = true, mode, onMode, taskIds, history, selectingTask, onNew, onChatChanged, onChatStarted, onCancel, onView, onRetrySave, onResume, onReference, onUploadReference, onUploadFiles, uploadingReferences = false, onCreated, onError, onInfo, onClose }: {
   active: boolean; studio?: StudioCreation; draft: AssetDraft; setDraft: Dispatch<SetStateAction<AssetDraft>>; jobs: GenerationJob[]; showCurrentJob?: boolean;
   agentReferences: AssetDraft['references']; setAgentReferences: (references: AssetDraft['references']) => void;

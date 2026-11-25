@@ -3,7 +3,7 @@ import { Button } from 'open-design-ui/button';
 import { useI18n } from '../i18n/I18n';
 import flameArtUrl from './bf-dusk-flame.jpg';
 import styles from './BlackFridayTopBanner.module.css';
-import { BLACK_FRIDAY_CAMPAIGN, COUNTDOWN_CYCLE_SECONDS, blackFridayActive, campaignPricingUrl, newCampaignEntryId, readBlackFridayCountdown } from './campaignAttribution';
+import { BLACK_FRIDAY_CAMPAIGN, COUNTDOWN_CYCLE_SECONDS, blackFridayActive, campaignPricingUrl, newCampaignEntryId, pricingLinkTargetProps, readBlackFridayCountdown } from './campaignAttribution';
 import { useCheckoutReturnRefresh } from './entitlementAttribution';
 import type { CreativePage } from './exploreTracking';
 import { trackMotion } from './tracking';
@@ -83,9 +83,9 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
   const copy = {
     aria: t('Black Friday campaign banner'),
     timerLabel: t('Ends in'),
-    offerBefore: t('Black Friday lowest of the year! DeepSeek V4.1 Flash & Eco '),
-    offerHighlight: t('7-day unlimited'),
-    offerAfter: t(', up to 50% off annual'),
+    offerBefore: t('Black Friday lowest of the year! '),
+    offerHighlight: t('7-day unlimited image gen'),
+    offerAfter: t(' · Unlimited top models · Up to 50% off'),
     bfCta: t('Claim offer'),
     closeLabel: t('Close campaign banner'),
   };
@@ -108,7 +108,7 @@ export function BlackFridayTopBanner({ onClose, onExpire, trackingPage }: { onCl
           <b>{copy.offerHighlight}</b>
           {copy.offerAfter}
         </p>
-        <a className={styles.cta} href={pricingHref} target="_blank" rel="noopener noreferrer" onClick={claimOffer} onAuxClick={event => { if (event.button === 1) claimOffer(event); }}>
+        <a className={styles.cta} href={pricingHref} {...pricingLinkTargetProps()} onClick={claimOffer} onAuxClick={event => { if (event.button === 1) claimOffer(event); }}>
           {copy.bfCta}
         </a>
       </div>
