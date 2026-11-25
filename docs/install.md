@@ -59,7 +59,7 @@ Use **only** the row matching the current host (skip if `openmotion` already poi
 
 ## Step 3: Verify connection & Continue (Mode A Onboarding / Mode B Task)
 
-Run this section **only after authorization is complete** (already `"o_auth"` / `Connected`, `mcp login` exited `0`, or the user confirmed authorization). **Run verification, `/api/onboarding/prepare`, template-library opening, and card preparation silently**—do not send progress commentary announcing "I will open the template library", "I will show three onboarding templates", or "I will use a visualization skill to make preview cards".
+Run this section **only after authorization is complete** (already `"o_auth"` / `Connected`, `mcp login` exited `0`, or the user confirmed authorization). In **Mode A (pure setup)**, run verification, `/api/onboarding/prepare`, template-library opening, and card preparation silently—do not send progress commentary announcing "I will open the template library", "I will show three onboarding templates", or "I will use a visualization skill to make preview cards". In **Mode B (task-driven handoff)**, skip onboarding completely and resume the user's task directly.
 
 1. **If `openmotion_get_project` is already available in this session**:
    - **Mode A (pure setup)**: call `openmotion_get_project({})` once to verify workspace access (an authorized OAuth client can access all of your projects in the selected workspace), then proceed directly to [Installation-success reply](#installation-success-reply) in this conversation.
@@ -83,7 +83,7 @@ Run this section **only after authorization is complete** (already `"o_auth"` / 
 <!-- installation-onboarding:start -->
 ## Installation-success reply
 
-Run this section **only after authorization is complete** (never combine it with a pending login request). Once authorized, accept onboarding presentation and current-chat MCP tool hot-reload independently.
+Run this section **only in Mode A (pure setup)** and **only after authorization is complete** (skip this entire section in **Mode B**, and never combine it with a pending login request). Once authorized, accept onboarding presentation and current-chat MCP tool hot-reload independently.
 
 > **Output purity rule**: Emit the exact maintained welcome copy returned by `/api/onboarding/prepare` **verbatim**—do **NOT** rewrite or summarize it, do **NOT** prepend technical status reports (such as "OAuth 授权成功 / 已验证可以读取工作区 / 当前可见项目为 0 个"), and do **NOT** append a disclaimer telling the user that tools are not loaded yet or asking them to open a new conversation.
 

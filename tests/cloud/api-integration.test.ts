@@ -920,6 +920,7 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     const publicGuideAgentRes = await app.request('/connect/guide?host=mcp');
     assert.equal(publicGuideAgentRes.status, 200);
     assert.match(publicGuideAgentRes.headers.get('content-type') ?? '', /^text\/markdown/);
+    assert.match(publicGuideAgentRes.headers.get('vary') ?? '', /\bAccept\b/i);
     const publicGuideAgentBody = await publicGuideAgentRes.text();
     assert.ok(publicGuideAgentBody.includes('https://motion.example.test/mcp'));
     assert.ok(publicGuideAgentBody.includes('Mode B (task-driven handoff)'));
@@ -929,6 +930,8 @@ describe('Cloud API Entrypoint — Auth Isolation & First-Access Welcome Bootstr
     });
     assert.equal(publicGuideBrowserRes.status, 302);
     assert.equal(publicGuideBrowserRes.headers.get('location'), '/mcp-setup?host=codex');
+    assert.match(publicGuideBrowserRes.headers.get('vary') ?? '', /\bAccept\b/i);
+    assert.equal(publicGuideBrowserRes.headers.get('cache-control'), 'no-store');
 
     const publicConfigRes = await app.request('/connect/config?host=codex');
     assert.equal(publicConfigRes.status, 200);

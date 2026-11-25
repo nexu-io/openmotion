@@ -512,7 +512,6 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     beforeViewChange,
     switchingDisabled,
     () => { if (narrow) setSidebarOpen(false); },
-    () => openSettings('mcp'),
   );
   const reconnecting = Boolean(workspace.connectionError && isConnectionFailure(workspace.connectionError));
   const workspaceNotice = workspace.errorSource === 'connection' && reconnecting ? '' : workspace.error;

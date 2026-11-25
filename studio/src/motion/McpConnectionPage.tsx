@@ -1,6 +1,6 @@
 import { Collapsible } from '@base-ui/react/collapsible';
 import { Button } from 'open-design-ui/button';
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { claudeDesktopManualConnection, integrationConfig, isStreamableHttpTransport, manualConnection, setupGuideUrl, setupPrompt, transcriptExamplePrompt, type IntegrationInfo } from '../../../shared/integration';
 import { clipMoveExample, projectEditExample } from '../../../shared/clip-move-guide';
 import { projectFileExample } from '../../../shared/project-file-guide';
@@ -35,84 +35,10 @@ import { localizedSkillPrompt, motionSkills, skillShotPrompt, studioSkillDefault
 import { useIntegrationInfo } from './useIntegrationInfo';
 import { readWorkspacePage, type WorkspacePage } from './workspacePageRouting';
 import type { WorkspaceChrome } from './WorkspaceChromeContext';
-import { DesktopConnectPanel, type DesktopConnectAgentId } from './DesktopConnectPanel';
 import { useAccountSummary } from './AccountSettings';
 import { hasEntitlementModalListeners, openEntitlementModal, useCloudWebMode } from './entitlementModalBus';
-import { isDesktopApp, useHostCapabilities } from '../utils/platformHost';
+import { isDesktopApp } from '../utils/platformHost';
 import './McpConnectionPage.css';
-
-type ConnectedAppEvidence = {
-  clientName?: string;
-  workspaceId?: string;
-  activeTokenCount?: number;
-  lastUsedAt?: string | null;
-};
-
-type AuthorizedAgentsState = Partial<Record<DesktopConnectAgentId, boolean>>;
-type AgentAuthorizationStatus = {
-  authorized: AuthorizedAgentsState;
-  tokenWithoutCall: AuthorizedAgentsState;
-};
-
-const KNOWN_OAUTH_AGENT_PATTERNS: ReadonlyArray<{ id: DesktopConnectAgentId; match: (lower: string) => boolean }> = [
-  { id: 'codex', match: lower => lower.includes('codex') },
-  { id: 'claude', match: lower => lower.includes('claude') },
-  { id: 'cursor', match: lower => lower.includes('cursor') },
-  { id: 'windsurf', match: lower => lower.includes('windsurf') || lower.includes('codeium') },
-  { id: 'opencode', match: lower => lower.includes('opencode') },
-  { id: 'antigravity', match: lower => lower.includes('antigravity') || lower.includes('agy') },
-];
-
-const EMPTY_AUTHORIZED_AGENTS: AuthorizedAgentsState = {
-  codex: false,
-  claude: false,
-  cursor: false,
-  windsurf: false,
-  opencode: false,
-  antigravity: false,
-};
-const EMPTY_AGENT_AUTH_STATUS: AgentAuthorizationStatus = {
-  authorized: { ...EMPTY_AUTHORIZED_AGENTS },
-  tokenWithoutCall: { ...EMPTY_AUTHORIZED_AGENTS },
-};
-
-function isValidUsageTimestamp(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  return Number.isFinite(Date.parse(trimmed));
-}
-
-function deriveAgentAuthorizationStatus(
-  connections: readonly ConnectedAppEvidence[] | undefined,
-  workspaceId?: string,
-): AgentAuthorizationStatus {
-  const authorized: AuthorizedAgentsState = { ...EMPTY_AUTHORIZED_AGENTS };
-  const tokenIssued: AuthorizedAgentsState = { ...EMPTY_AUTHORIZED_AGENTS };
-  if (!Array.isArray(connections)) {
-    return { authorized, tokenWithoutCall: { ...EMPTY_AUTHORIZED_AGENTS } };
-  }
-  for (const item of connections) {
-    if (!item || typeof item !== 'object') continue;
-    if (workspaceId && item.workspaceId !== workspaceId) continue;
-    const hasActiveToken = typeof item.activeTokenCount === 'number' && item.activeTokenCount > 0;
-    if (!hasActiveToken) continue;
-
-    const hasUsedTool = isValidUsageTimestamp(item.lastUsedAt);
-    const name = typeof item.clientName === 'string' ? item.clientName.toLowerCase() : '';
-    for (const pattern of KNOWN_OAUTH_AGENT_PATTERNS) {
-      if (pattern.match(name)) {
-        if (hasUsedTool) authorized[pattern.id] = true;
-        else tokenIssued[pattern.id] = true;
-      }
-    }
-  }
-  const tokenWithoutCall: AuthorizedAgentsState = {};
-  for (const pattern of KNOWN_OAUTH_AGENT_PATTERNS) {
-    tokenWithoutCall[pattern.id] = Boolean(tokenIssued[pattern.id] && !authorized[pattern.id]);
-  }
-  return { authorized, tokenWithoutCall };
-}
 
 const cloudFaqQuestions = new Set<string>([
   'Which Agents are supported?',
@@ -284,54 +210,6 @@ export function McpConnectionPage({
     section.scrollIntoView({ block: 'start' });
   };
 
-  const isHttp = isStreamableHttpTransport(info?.transport);
-  const host = useHostCapabilities();
-  const hasLocalHostBridge = Boolean(host.bridge);
-  const workspaceId = info?.workspaceId;
-  const [agentAuthStatus, setAgentAuthStatus] = useState<AgentAuthorizationStatus>(EMPTY_AGENT_AUTH_STATUS);
-  const authCheckController = useRef<AbortController | null>(null);
-
-  const refreshAuthorizedAgents = useCallback(async () => {
-    authCheckController.current?.abort();
-    if (!isHttp || !hasLocalHostBridge) {
-      setAgentAuthStatus(EMPTY_AGENT_AUTH_STATUS);
-      return;
-    }
-    const controller = new AbortController();
-    authCheckController.current = controller;
-    try {
-      const response = await fetch('/motion-api/connections', {
-        credentials: 'same-origin',
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      if (!response.ok) {
-        setAgentAuthStatus(EMPTY_AGENT_AUTH_STATUS);
-        return;
-      }
-      const data = (await response.json().catch(() => null)) as {
-        connections?: ConnectedAppEvidence[];
-      } | null;
-      if (controller.signal.aborted) return;
-      setAgentAuthStatus(deriveAgentAuthorizationStatus(data?.connections, workspaceId));
-    } catch {
-      if (!controller.signal.aborted) {
-        setAgentAuthStatus(EMPTY_AGENT_AUTH_STATUS);
-      }
-    } finally {
-      if (authCheckController.current === controller) {
-        authCheckController.current = null;
-      }
-    }
-  }, [isHttp, hasLocalHostBridge, workspaceId]);
-
-  useEffect(() => {
-    void refreshAuthorizedAgents();
-    return () => {
-      authCheckController.current?.abort();
-      authCheckController.current = null;
-    };
-  }, [refreshAuthorizedAgents]);
   const supported = supportsConnection(client, info);
   const language = locale === 'zh-CN' ? 'zh-CN' : 'en';
   const prompt = setupPrompt(info, client.host, language, t).replace('MCP / CLI', agent);
@@ -688,15 +566,6 @@ export function McpConnectionPage({
                     </div>
                   </Collapsible.Panel>
                 </Collapsible.Root>
-
-                {info && isStreamableHttpTransport(info.transport) && hasLocalHostBridge && (client.host === 'codex' || client.host === 'claude') && (
-                  <DesktopConnectPanel
-                    mcpUrl={info.transport.url}
-                    hasAuthorizedConnection={agentAuthStatus.authorized}
-                    hasTokenWithoutCall={agentAuthStatus.tokenWithoutCall}
-                    onCheckAuthorization={refreshAuthorizedAgents}
-                  />
-                )}
               </>
             )}
           </section>

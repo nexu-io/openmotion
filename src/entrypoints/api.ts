@@ -2496,6 +2496,8 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       const target = rawHost
         ? `/mcp-setup?host=${encodeURIComponent(integrationHost(rawHost))}`
         : '/mcp-setup';
+      c.header('Vary', 'Accept');
+      c.header('Cache-Control', 'no-store');
       return c.redirect(target, 302);
     }
     const markdown = await renderCloudInstallGuide({
@@ -2507,6 +2509,7 @@ export function createApiApp(deps: CreateApiAppDeps): { app: Hono<AuthEnv>; serv
       headers: {
         'Content-Type': 'text/markdown; charset=utf-8',
         'Cache-Control': 'public, max-age=60',
+        Vary: 'Accept',
         'X-Content-Type-Options': 'nosniff',
       },
     });

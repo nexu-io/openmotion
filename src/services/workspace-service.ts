@@ -17,7 +17,6 @@ import {
   projectVersions,
 } from '../db/schema/project-files.ts';
 import {
-  projectGrants,
   projects,
   sessionMessages,
   sessions,
@@ -551,30 +550,6 @@ export class WorkspaceService {
           }),
         )
         .returning({ id: projects.id });
-
-      // Spec: when an OAuth agent creates a new project, automatically grant that connection access.
-      if (ctx.authMethod === 'oauth_bearer' && ctx.clientId) {
-        await tx
-          .insert(projectGrants)
-          .values(
-            asInsert(projectGrants, {
-              projectId: createdProject.id,
-              userId: ctx.userId,
-              workspaceId: ctx.workspaceId,
-              clientId: ctx.clientId,
-              grantedAt: now,
-              revokedAt: null,
-            }),
-          )
-          .onConflictDoUpdate({
-            target: [projectGrants.projectId, projectGrants.userId, projectGrants.clientId],
-            set: asUpdate(projectGrants, {
-              workspaceId: ctx.workspaceId,
-              grantedAt: now,
-              revokedAt: null,
-            }),
-          });
-      }
 
       if (this.textPatchWrites) {
         for (const [id, upload] of toUpload) {

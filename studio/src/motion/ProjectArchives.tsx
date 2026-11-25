@@ -36,7 +36,6 @@ export function useProjectArchives(
   waitForSaves: () => Promise<void>,
   disabled: boolean,
   onManagerOpen: () => void,
-  _onOpenMcpSetup?: () => void,
 ) {
   const { t } = useI18n();
   const archiveErrorMessage = (error: unknown) => {
