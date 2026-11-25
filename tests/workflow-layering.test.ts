@@ -403,3 +403,18 @@ test('surgical editing, readable source formatting and template adaptation stay 
   assert.match(adaptation.content, /Hard cap[\s\S]*Approximate target|Approximate target[\s\S]*Hard cap/);
   assert.match(adaptation.content, /Narration\/TTS precedence/);
 });
+
+test('built-in browser OAuth preference and silent cookie-isolation context stay aligned across entry, onboarding, and native Skills', async () => {
+  const bootstrap = await readFile(new URL('openmotion/SKILL.md', skillRoot), 'utf8');
+  assert.match(bootstrap, /built-in browser[\s\S]*OAuth login and workspace consent inside that built-in browser/);
+  assert.match(bootstrap, /Keep built-in vs\. system browser cookie separation silent unless the user asks/);
+
+  const onboardingSkill = await readFile(new URL('../.codex-plugin/onboarding/SKILL.md', import.meta.url), 'utf8');
+  assert.match(onboardingSkill, /prefer opening `authorizationUrl` in that built-in browser/);
+  assert.match(onboardingSkill, /keep built-in vs\. system browser session isolation silent unless the user asks/);
+
+  const native = await getWorkflow('native');
+  assert.match(native.content, /Auth\/workspace gate in built-in browser/);
+  assert.match(native.content, /do not misreport the project as broken or loop on retries/);
+  assert.match(native.content, /Never volunteer this cookie-isolation detail unprompted/);
+});

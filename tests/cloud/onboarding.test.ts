@@ -68,6 +68,18 @@ describe('Cloud install guide and stateless onboarding endpoints', () => {
     assert.ok(body.includes('/mcp'));
     assert.ok(body.includes('Mode A (pure setup)'));
     assert.ok(body.includes('Mode B (task-driven handoff)'));
+    assert.ok(
+      body.includes('prefer opening `authorizationUrl` directly inside the host\'s built-in browser'),
+      'Cloud install.md must instruct hosts with a built-in browser to prefer OAuth inside that built-in browser',
+    );
+    assert.ok(
+      body.includes('Silent browser-session context (do NOT mention proactively to the user)'),
+      'Cloud install.md must document built-in vs. system browser cookie isolation as silent agent context only',
+    );
+    assert.ok(
+      body.includes('Never bring this up unprompted'),
+      'Cloud install.md must forbid volunteering browser cookie-isolation notes proactively',
+    );
     assert.ok(!body.includes('Project → Agent access'), 'Workspace-level OAuth must not instruct per-project Agent access grants');
     assert.ok(body.includes('🎉 OpenMotion 连接好啦，右侧就是模板库！'));
 

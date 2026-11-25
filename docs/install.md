@@ -39,20 +39,27 @@ Use **only** the row matching the current host (skip if `openmotion` already poi
 1. **Skip login if already authorized**:
    - In **Codex**, if `openmotion_get_project` already works or `codex mcp list --json` already reports `"auth_status": "o_auth"` for `openmotion` (pointing to `https://motion.open-design.ai/mcp`), skip login and go straight to Step 3.
    - In **Claude Code**, run `claude mcp get openmotion` — if status is already **`Connected`**, skip login and go straight to Step 3.
-2. **Run login and wait automatically (no manual "authorized" reply required)**:
-   - **Codex (Desktop / CLI)**: run `codex mcp login openmotion` directly in the shell with a generous timeout (`180–300s`). It automatically opens the user's browser and listens for the OAuth callback:
-     - Exit `0`: authorization succeeded — proceed immediately to Step 3 without asking the user to confirm.
-     - Non-zero exit (e.g., user clicked **Deny / 拒绝** or canceled): report briefly that authorization was not completed and stop.
-   - **Claude Code**: run `claude mcp login openmotion` directly with a generous timeout (`180–300s`). If the shell reports stdin is not a terminal, launch it inside a PTY and poll the log until authentication completes (if the browser did not open, share the printed authorization URL):
-     - macOS: `script -qF /tmp/openmotion-login.log claude mcp login openmotion < /dev/null > /dev/null 2>&1 &`
-     - Linux: `script -qfc "claude mcp login openmotion" /tmp/openmotion-login.log > /dev/null 2>&1 &`
-     - Once authenticated (`Authenticated with` / exit `0`), proceed immediately to Step 3. If denied/failed, report briefly and stop.
-3. **Fallback ONLY when shell cannot open a browser or bind localhost (sandboxed / remote / headless)**:
-   - If the host exposes a non-blocking OAuth RPC (e.g. Codex Desktop `config/mcpServer/reload` + `mcpServer/oauth/login` with `{ "name": "openmotion", "timeoutSecs": 300 }`), call it to get `authorizationUrl`, send only the clickable link with a brief note to sign in / click **Allow / 同意授权** and reply when done (never mention onboarding, templates, or internal verification), and end your turn to wait.
+2. **Run login (prefer the host's built-in browser when available)**:
+   - **Hosts with a built-in browser (e.g., Codex Desktop / CUA)**:
+     - When the host exposes both an OAuth authorization URL (such as Codex Desktop `config/mcpServer/reload` + `mcpServer/oauth/login` with `{ "name": "openmotion", "timeoutSecs": 300 }`) **and** a built-in browser panel (such as `open_in_codex` with `placement: "right"`, `target: { type: "browser", url: authorizationUrl }`), **prefer opening `authorizationUrl` directly inside the host's built-in browser** so the user signs in and approves access in the same browser that will later display the cloud editor. Send only a brief prompt to sign in and click **Allow / 同意授权** (and share the clickable link if needed; never mention onboarding, templates, or internal verification), then wait for completion.
+     - If the host does not expose a direct `authorizationUrl` for the built-in browser, or if sign-in/callback is blocked inside the built-in browser (for example, third-party OAuth restrictions or localhost callback blocking), fall back to running `codex mcp login openmotion` in the shell (timeout `180–300s`), which opens the user's system browser and listens for the callback:
+       - Exit `0`: authorization succeeded — proceed immediately to Step 3 without asking the user to confirm.
+       - Non-zero exit (e.g., user clicked **Deny / 拒绝** or canceled): report briefly that authorization was not completed and stop.
+   - **CLI hosts without a built-in browser (Codex CLI / Claude Code)**:
+     - **Codex CLI**: run `codex mcp login openmotion` directly in the shell with a generous timeout (`180–300s`). It automatically opens the user's system browser and listens for the OAuth callback (continue on exit `0`; report briefly and stop on non-zero exit).
+     - **Claude Code**: run `claude mcp login openmotion` directly with a generous timeout (`180–300s`). If the shell reports stdin is not a terminal, launch it inside a PTY and poll the log until authentication completes (if the browser did not open, share the printed authorization URL):
+       - macOS: `script -qF /tmp/openmotion-login.log claude mcp login openmotion < /dev/null > /dev/null 2>&1 &`
+       - Linux: `script -qfc "claude mcp login openmotion" /tmp/openmotion-login.log > /dev/null 2>&1 &`
+       - Once authenticated (`Authenticated with` / exit `0`), proceed immediately to Step 3. If denied/failed, report briefly and stop.
+3. **Fallback when shell cannot open a browser or bind localhost (sandboxed / remote / headless)**:
+   - If the host exposes a non-blocking OAuth RPC (e.g. Codex Desktop `config/mcpServer/reload` + `mcpServer/oauth/login` with `{ "name": "openmotion", "timeoutSecs": 300 }`), call it to get `authorizationUrl`, open it in the built-in browser when available or send only the clickable link with a brief note to sign in / click **Allow / 同意授权** and reply when done (never mention onboarding, templates, or internal verification), and end your turn to wait.
    - Otherwise, **stop** and tell the user in plain language (`LANG`) using **only** their host's single action:
      1. Run `claude mcp login openmotion` / `codex mcp login openmotion` in their local terminal (add `--no-browser` over SSH; in Claude Code they can also use `/mcp` → `openmotion` → **Authenticate**; in GUI clients, click **Connect / Log in**).
      2. Sign in to their OpenDesign account (skipped if already signed in) and click **Allow / 同意授权**.
      3. Ask them to reply once authorized to continue (e.g., "授权完成后告诉我一声即可。" / "Let me know once you've authorized."). **Never** mention verification details, onboarding, template library, or recommended templates in this waiting message.
+
+> **Silent browser-session context (do NOT mention proactively to the user):**
+> A host's built-in browser uses an isolated profile and does not share login cookies with the user's system browser (Chrome/Safari/etc.); sessions in the two browsers stay independent. **Never bring this up unprompted** during setup, authorization, or normal project opening. Use this knowledge **only** if the user asks why their built-in browser and system browser show different sign-in states, or if an opened project hits the Studio sign-in or workspace-mismatch gate after authorization happened in a different browser (in which case, concisely guide them to sign in or switch to the same OpenDesign account and workspace in that browser).
 
 > **HARD GATE — Never run Onboarding while login is still pending:**
 > If the user still needs to sign in or approve access in the browser, **end your turn after sending the short login guidance** and wait for their reply. Do **NOT** call `/api/onboarding/prepare`, do **NOT** claim OpenMotion is connected (`🎉 OpenMotion 连接好啦`), and do **NOT** mention or print the welcome message or template recommendations in the same reply as a pending login prompt.
@@ -163,3 +170,4 @@ When there is no right-hand browser pane (or opening failed/is unconfirmed), rep
 - **OAuth callback timeout (`ERR_CONNECTION_REFUSED`)**: the local login command timed out before you clicked **Allow / 同意授权**. Re-run the login command and approve promptly.
 - **`401 Unauthorized` on `/mcp`**: token expired or revoked—re-run OAuth login (or create a fresh PAT in **Settings → Account → Personal Access Tokens**).
 - **`PROJECT_NOT_FOUND` for an existing web project**: check that your connected MCP server URL matches the exact origin of the project URL (for example `https://motion.open-design.ai/mcp` vs a staging/test origin) and that you selected the matching workspace during OAuth login. Re-run OAuth login to switch workspaces if needed.
+- **Built-in browser asks to sign in or shows "Project not in current workspace" while MCP works**: the host's built-in browser keeps separate cookies from the system browser. Have the user sign in (or switch account/workspace in **Account settings**) inside the built-in browser using the same OpenDesign account and workspace authorized for MCP.

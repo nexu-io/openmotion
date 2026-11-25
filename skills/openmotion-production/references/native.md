@@ -67,6 +67,7 @@ An explicit user instruction to keep work in the background skips opening/focusi
 - Presentation (step 2): call `open_in_codex` with `placement:"right"` in the calling chat; omit `threadId` unless the user asked for another chat.
 - Visibility (step 3): in Codex IAB, after binding the native tab, call the browser's `visibility.set(true)` once and observe `visibility.get()`.
 - Show-now recovery: take the verified calling-chat `threadId` from `open_in_codex` and call `navigate_to_codex_page({threadId})` once.
+- Auth/workspace gate in built-in browser: an embedded host browser has an isolated cookie store separate from the user's external OS browser. If an opened cloud editor tab shows a sign-in prompt or a workspace-not-found screen while MCP calls succeed, do not misreport the project as broken or loop on retries—leave `record_display` pending and ask the user to sign in or switch to the same OpenDesign account/workspace inside that panel. Never volunteer this cookie-isolation detail unprompted unless the user asks why the embedded pane's login differs from their desktop browser.
 
 ## Native composition contract
 
