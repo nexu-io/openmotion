@@ -132,7 +132,7 @@ it("keeps loading local through a timeout and manual retry, then uncovers the fi
   const player = mountPlayer();
   const loading = () => player.host.querySelector('[data-testid="composition-loading-overlay"]');
   try {
-    expect(loading()?.textContent).toContain("Loading composition");
+    expect(loading()?.textContent).toContain("Loading preview…");
     player.notify("timeline-state", "wrong-grant");
     expect(loading()).not.toBeNull();
     advance(15_001);
@@ -194,7 +194,6 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
         onLoad={vi.fn()}
         showInitialLoading
         trackAssets
-        loadingUi="host"
       />,
     ),
   );
@@ -217,6 +216,7 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
             completed: 3,
             total: 10,
             failed: [],
+            pendingAsset: "intro.mp4",
           },
         }),
       );
@@ -224,6 +224,7 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
     expect(usePlayerStore.getState().assetReadinessPhase).toBe("loading");
     expect(usePlayerStore.getState().assetReadinessCompleted).toBe(3);
     expect(usePlayerStore.getState().assetReadinessTotal).toBe(10);
+    expect(host.querySelector('[data-testid="composition-loading-overlay"]')?.textContent).toContain("intro.mp4");
 
     act(() => {
       window.dispatchEvent(
@@ -245,6 +246,7 @@ it("tracks bridge asset-readiness updates when trackAssets is enabled", () => {
       );
     });
     expect(usePlayerStore.getState().assetReadinessPhase).toBe("ready");
+    expect(host.textContent).not.toContain("intro.mp4");
     expect(usePlayerStore.getState().assetReadinessCompleted).toBe(10);
     expect(usePlayerStore.getState().assetReadinessFailed).toEqual([
       { id: "img-1", label: "hero.png", kind: "image", reason: "error" },

@@ -1,7 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PREVIEW_ASSET_READINESS } from "../../../../src/studio/engine/preview-asset-readiness";
 import {
   assetLabelFromUrl,
+  isDisplayablePreviewAssetName,
   isNonRetryableHttpStatus,
   trackDocumentAssetReadiness,
   withRetryQueryParam,
@@ -95,6 +97,44 @@ describe("previewAssetReadiness helpers", () => {
     );
     expect(assetLabelFromUrl("data:image/png;base64,abc", "image-1")).toBe("image-1");
   });
+
+  it("emits the same safe pending filename through both trackers", () => {
+    const sources = [
+      ["https://assets.test/private/湖边%20sunset.jpg?sig=test#fragment", "湖边 sunset.jpg"],
+      ["/images/scene.png/", undefined],
+      ["data:image/png;base64,abc", undefined],
+      ["blob:https://assets.test/cover.png", undefined],
+      ["/api/a7dc6126-f1bf-464b-aafb-a4376ef483af.png", undefined],
+      ["/assets/77c19dfb544025ba562c61caf71bf43d.mp3", undefined],
+      ["/assets/Kg917SBkGLYrfk5VxM4q.png", undefined],
+      ["/assets/image-1.png", undefined],
+      ["/download?filename=cover.png", undefined],
+      ["/assets/private%2Fcover.png", undefined],
+      ["/assets/private%252Fcover.png", undefined],
+      ["/assets/cover%3Fsignature%3Dsecret.jpg", undefined],
+      ["/assets/leaves%E2%80%AEgnp.jpg", undefined],
+      ["/assets/private%255Ccover.png", undefined],
+      ["/assets/private%3Fsig%3Dsecret.png", undefined],
+      ["/assets/cover%E2%80%AEgpj.png", undefined],
+    ] as const;
+    const embeddedTracker = new Function("document", "window", `${PREVIEW_ASSET_READINESS}\nreturn createAssetTracker();`);
+    for (const [src, expected] of sources) {
+      const doc = makeDocument();
+      makeImg(doc, src);
+      let snapshot: PreviewAssetProgress | undefined;
+      const tracker = trackDocumentAssetReadiness(doc, window, progress => { snapshot = progress; });
+      const embedded = embeddedTracker(doc, window);
+      try {
+        expect(snapshot?.pendingAsset, src).toBe(expected);
+        expect(embedded.snapshot(), src).toEqual(snapshot);
+        expect(isDisplayablePreviewAssetName(src), src).toBe(false);
+        if (expected) expect(isDisplayablePreviewAssetName(expected)).toBe(true);
+      } finally {
+        tracker.dispose();
+        embedded.dispose();
+      }
+    }
+  });
 });
 
 describe("trackDocumentAssetReadiness", () => {
@@ -138,10 +178,12 @@ describe("trackDocumentAssetReadiness", () => {
       expect(videos[1].el.preload).toBe("auto");
       expect(videos[2].el.preload).toBe("none");
       expect(videos[3].el.preload).toBe("none");
-      expect(updates.at(-1)).toMatchObject({ status: "loading", completed: 0, total: 6 });
+      expect(updates.at(-1)).toMatchObject({ status: "loading", completed: 0, total: 6, pendingAsset: "hero.png" });
 
       lazyImg.succeed();
+      expect(updates.at(-1)?.pendingAsset).toBe("bgm.mp3");
       audio.resolve(4);
+      expect(updates.at(-1)?.pendingAsset).toBe("clip-1.mp4");
       videos[0].resolve(2);
       // Finishing video 0 starts video 2.
       expect(videos[2].el.preload).toBe("auto");
@@ -201,6 +243,7 @@ describe("trackDocumentAssetReadiness", () => {
         status: "loading",
         completed: 1,
         total: 2,
+        pendingAsset: "ok.jpg",
         failed: [{ label: "missing.jpg", kind: "image", reason: "error" }],
       });
 
@@ -252,6 +295,7 @@ describe("trackDocumentAssetReadiness", () => {
       expect(updates.at(-1)?.status).toBe("loading");
       tracker.skip();
       expect(updates.at(-1)).toMatchObject({ status: "ready", skipped: true });
+      expect(updates.at(-1)).not.toHaveProperty("pendingAsset");
     } finally {
       tracker.dispose();
     }

@@ -684,7 +684,7 @@ const SameOriginPlayer = forwardRef<HTMLIFrameElement, PlayerProps>(
         inert={inert || undefined}
       >
         <div ref={containerRef} className="w-full h-full" />
-        {showCompositionOverlay && <PreviewCompositionLoading />}
+        {showCompositionOverlay && <PreviewCompositionLoading assetGeneration={tracksAssets ? assetReadinessGenRef : undefined} />}
         {showAssetOverlay && (
           <div
             className="absolute inset-0 bg-black flex items-center justify-center z-20 select-none"

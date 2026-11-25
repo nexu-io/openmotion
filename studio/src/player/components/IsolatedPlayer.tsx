@@ -13,7 +13,7 @@ import { forgetPreviewHtmlSources, rememberPreviewHtmlSources } from "../lib/pre
 import { rememberPeerTimingDocument } from "../peerTimingPreview";
 import { usePlayerStore } from "../store/playerStore";
 import { registerRetryFailedAssetsHandler } from "../store/readinessSlice";
-import type { PreviewAssetFailure, PreviewAssetProgress } from "../lib/previewAssetReadiness";
+import { isDisplayablePreviewAssetName, type PreviewAssetFailure, type PreviewAssetProgress } from "../lib/previewAssetReadiness";
 import { PreviewCompositionLoading } from "./PreviewCompositionLoading";
 import type { PlayerProps } from "./Player";
 
@@ -41,7 +41,9 @@ function parseBridgeAssetProgress(raw: unknown): PreviewAssetProgress | null {
           reason: item.reason === "timeout" ? "timeout" : "error",
         }))
     : [];
-  return { status, completed, total, failed };
+  const pendingAsset = status === "loading" && completed < total && isDisplayablePreviewAssetName(record.pendingAsset)
+    ? record.pendingAsset : undefined;
+  return { status, completed, total, failed, pendingAsset };
 }
 
 const FIRST_FRAME_SOFT_UNLOCK_MS = 3_000;
@@ -307,6 +309,7 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
         loadId++;
         if (tracksAssets && !passive) {
           const store = usePlayerStore.getState();
+          store.updateAssetReadiness({ status: "loading", completed: 0, total: 0, failed: [] }, assetReadinessGenRef.current);
           store.setPreviewLoadError(false);
           store.setMediaBuffering(false);
         }
@@ -380,7 +383,9 @@ export const IsolatedPlayer = forwardRef<HTMLIFrameElement, PlayerProps & { orig
           referrerPolicy="no-referrer" tabIndex={passive || props.inert ? -1 : undefined}
           allow={passive ? "autoplay 'none'" : "autoplay; fullscreen"}
           className="absolute left-1/2 top-1/2 max-w-none border-0" />
-        {awaitingFirstFrame && !error && !passive && props.loadingUi !== "host" && <PreviewCompositionLoading showMark={!props.suppressLoadingOverlay} />}
+        {awaitingFirstFrame && !error && !passive && props.loadingUi !== "host" && (
+          <PreviewCompositionLoading showMark={!props.suppressLoadingOverlay} assetGeneration={tracksAssets ? assetReadinessGenRef : undefined} />
+        )}
         {error && !passive && <div data-testid="composition-preview-error" className="absolute inset-0 flex flex-col items-center justify-center bg-studio-surface text-center">
           <p>{t(error)}</p>
           <Button variant="plain" onClick={() => {

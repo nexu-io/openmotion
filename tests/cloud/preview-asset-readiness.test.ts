@@ -112,7 +112,7 @@ it('promotes lazy images, caps concurrent video preloads, and settles once ready
     assert.equal(videos[1].preload, 'auto');
     assert.equal(videos[2].preload, 'auto');
     assert.equal(videos[3].preload, 'none');
-    assert.deepEqual(snapshots.at(-1), { status: 'loading', completed: 0, total: 5, failed: [] });
+    assert.deepEqual(snapshots.at(-1), { status: 'loading', completed: 0, total: 5, failed: [], pendingAsset: 'slide.png' });
 
     img.triggerLoad();
     videos[0].triggerLoaded();

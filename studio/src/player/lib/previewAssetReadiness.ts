@@ -14,6 +14,7 @@ export interface PreviewAssetProgress {
   completed: number;
   total: number;
   failed: PreviewAssetFailure[];
+  pendingAsset?: string;
   skipped?: boolean;
 }
 
@@ -83,6 +84,29 @@ export function assetLabelFromUrl(rawUrl: string | null | undefined, fallback: s
   }
 }
 
+/** Accept a readable media filename after URL decoding, including at the iframe boundary. */
+export function isDisplayablePreviewAssetName(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 120 || !/^[\p{L}\p{M}\p{N} _.'()’-]+$/u.test(value)) return false;
+  const match = /^(.+)\.(?:png|jpe?g|webp|gif|svg|avif|ico|bmp|tiff?|heic|mp4|mov|webm|mkv|m4v|ogv|mp3|wav|m4a|aac|ogg|oga|opus|flac|aiff?)$/i.exec(value);
+  if (!match || !/^[\p{L}\p{N}]/u.test(match[1])) return false;
+  const stem = match[1];
+  return !/(?:[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}|[a-f\d]{12,}|(?=[a-z\d]*\d)[a-z\d]{16,}|[a-z\d]{24,})/i.test(stem) &&
+    !/^(?:\d+|(?:untitled|unnamed|temp|tmp|file|asset|image|img|audio|video|download)(?:[ _-]?\d+)?)$/i.test(stem);
+}
+
+function pendingAssetName(raw: string): string | undefined {
+  const source = raw.trim();
+  if (!source || /^(?:[?#]|data:|blob:)/i.test(source)) return undefined;
+  try {
+    const url = new URL(source, "http://localhost/");
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    const name = decodeURIComponent(url.pathname.split("/").pop() || "");
+    return isDisplayablePreviewAssetName(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveSourceUrl(el: Element): string {
   if (el.tagName === "IMG") {
     const img = el as HTMLImageElement;
@@ -145,6 +169,7 @@ async function isUrlRetryable(
 interface TrackedAssetItem {
   id: string;
   label: string;
+  pendingAsset?: string;
   kind: PreviewAssetKind;
   settled: boolean;
   failedReason: "error" | "timeout" | null;
@@ -191,9 +216,11 @@ export function trackDocumentAssetReadiness(
   const buildSnapshot = (): PreviewAssetProgress => {
     const total = items.length;
     let completed = 0;
+    let pendingAsset: string | undefined;
     const failed: PreviewAssetFailure[] = [];
     for (const item of items) {
       if (item.settled) completed += 1;
+      else pendingAsset ??= item.pendingAsset;
       if (item.failedReason) {
         failed.push({
           id: item.id,
@@ -209,6 +236,7 @@ export function trackDocumentAssetReadiness(
       completed,
       total,
       failed,
+      ...(!done && pendingAsset ? { pendingAsset } : {}),
       ...(skipped ? { skipped: true } : {}),
     };
   };
@@ -217,7 +245,7 @@ export function trackDocumentAssetReadiness(
   const emit = (force = false) => {
     if (disposed) return;
     const snap = buildSnapshot();
-    const signature = `${snap.status}:${snap.completed}:${snap.total}:${snap.skipped ? 1 : 0}:${snap.failed.map((f) => `${f.id}:${f.reason}`).join(",")}`;
+    const signature = `${snap.status}:${snap.completed}:${snap.total}:${snap.skipped ? 1 : 0}:${snap.pendingAsset ?? ""}:${snap.failed.map((f) => `${f.id}:${f.reason}`).join(",")}`;
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
     onProgress(snap);
@@ -276,6 +304,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `img-${index}`,
       label: assetLabelFromUrl(originalSrc, `image-${index + 1}`),
+      pendingAsset: readyNow ? undefined : pendingAssetName(img.currentSrc || originalSrc),
       kind: "image",
       settled: readyNow,
       failedReason: null,
@@ -551,6 +580,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `audio-${index}`,
       label: assetLabelFromUrl(originalSrc, `audio-${index + 1}`),
+      pendingAsset: readyNow ? undefined : pendingAssetName(audio.currentSrc || originalSrc),
       kind: "audio",
       settled: readyNow,
       failedReason: null,
@@ -585,6 +615,7 @@ export function trackDocumentAssetReadiness(
     const item: TrackedAssetItem = {
       id: `video-${index}`,
       label: assetLabelFromUrl(originalSrc, `video-${index + 1}`),
+      pendingAsset: readyNow ? undefined : pendingAssetName(video.currentSrc || originalSrc),
       kind: "video",
       settled: readyNow,
       failedReason: null,
