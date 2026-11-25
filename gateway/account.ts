@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { AccountAttempt, AccountErrorCode, AccountSummary, DirectoryModel } from '../shared/provider-directory.ts';
 import type { GenerationJob, Model } from '../shared/gateway.ts';
+import { attributedEntryId, PRODUCT_UTM_SOURCE } from '../shared/product-identity.ts';
 import { validField, type EventFields } from '../tracking/core.ts';
 import { accountErrorKinds, accountStages, entitlementHookIds, type EntitlementHookId, type omEvents } from '../tracking/events.ts';
 import { readSettings, writeSettings } from './settings-storage.ts';
@@ -775,10 +776,10 @@ export class OpenDesignAccount {
     const params = new URLSearchParams(rawQuery);
     params.set('od_origin', 'openmotion');
     params.set('od_entry_source', entrySource);
-    params.set('od_entry_id', validEntryId(attribution?.entryId) ?? randomUUID());
+    params.set('od_entry_id', attributedEntryId(validEntryId(attribution?.entryId) ?? randomUUID()));
     params.set('od_entry_at', new Date().toISOString());
     if (attribution?.utmMedium) {
-      params.set('utm_source', 'openmotion');
+      params.set('utm_source', PRODUCT_UTM_SOURCE);
       params.set('utm_medium', attribution.utmMedium);
     }
     const target = `${pathname}?${params.toString()}`;
