@@ -862,6 +862,39 @@ it("rejects duplicating a deleted split half instead of falling back to its sibl
   expect(view.showToast).toHaveBeenCalledWith(expect.any(String), "error");
 });
 
+it("rejects copying and cutting a deleted split half instead of falling back to its sibling via stale hfId", async () => {
+  const media = '<main data-composition-id="main" data-duration="20"><video id="film" src="film.mp4" data-start="1.5" data-duration="12.5" data-track-index="1"></video></main>';
+  const cut = applyAtomicCutsToHtml(media, [{
+    target: { id: "film" }, splitTime: 10.037, elementStart: 1.5, elementDuration: 12.5, track: 1,
+  }]);
+  const path = "index.html";
+  const elements = parseAuthoredTimeline(cut.after, path, "p")!.elements;
+  const left = elements.find(row => row.domId === "film")!;
+  const right = elements.find(row => row.domId === cut.rightHalfIds[0])!;
+  const corruptedRight = { ...right, hfId: left.hfId };
+  const savedDoc = new DOMParser().parseFromString(cut.after, "text/html");
+  savedDoc.getElementById(right.domId!)!.remove();
+  const view = mountClipboard(null, SUB, () => {}, cut.after);
+  view.files[path] = savedDoc.documentElement.outerHTML;
+  usePlayerStore.setState({
+    elements: [left, corruptedRight],
+    duration: 20,
+    selectedElementId: corruptedRight.key!,
+    selectedElementIds: new Set([corruptedRight.key!]),
+  });
+
+  view.clipboard().handleCopy();
+  await view.clipboard().handlePaste();
+  expect(view.writes).toEqual([]);
+  expect(view.showToast).toHaveBeenCalledWith("Cannot copy an element that is missing from its source file.", "error");
+
+  view.showToast.mockClear();
+  expect(await view.clipboard().handleCut()).toBe(false);
+  expect(view.writes).toEqual([]);
+  expect(view.recordEdit).not.toHaveBeenCalled();
+  expect(view.showToast).toHaveBeenCalledWith("Cannot copy an element that is missing from its source file.", "error");
+});
+
 it("extends root composition duration at millisecond precision so split duplicates are not clamped", async () => {
   const media = '<main data-composition-id="main" data-duration="15"><video id="film" src="film.mp4" data-start="1.5" data-duration="12.5" data-track-index="1"></video></main>';
   const cut = applyAtomicCutsToHtml(media, [{

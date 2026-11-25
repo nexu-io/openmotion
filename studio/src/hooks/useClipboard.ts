@@ -119,14 +119,19 @@ function clipboardMarkup(
   if (selected) return authoredMarkup(selected, live, sourceFile, files);
   if (live) {
     const liveHfId = live.getAttribute("data-hf-id") ?? undefined;
-    if (action === "copy") {
-      const authored = findAuthoredIdentity(saved, { id: live.id || undefined, hfId: liveHfId });
-      return authored ? authoredMarkup(authored, live, sourceFile, files) : liveMarkupWithoutPreviewMarks(live);
-    }
-    // On duplicate, never re-resolve a deleted authored clip to a sibling element via a stale preview node.
-    // Only materialize genuinely live-only clips generated at runtime (no authored data-hf-id stamp).
-    if (!target.hfId && !liveHfId && (!target.id || live.id === target.id)) {
-      return liveMarkupWithoutPreviewMarks(live);
+    const identityMismatch =
+      (Boolean(target.id) && live.id !== target.id) ||
+      (Boolean(target.hfId) && Boolean(liveHfId) && liveHfId !== target.hfId);
+    if (!identityMismatch) {
+      if (action === "copy" && !target.id) {
+        const authored = findAuthoredIdentity(saved, { id: live.id || undefined, hfId: liveHfId });
+        return authored ? authoredMarkup(authored, live, sourceFile, files) : liveMarkupWithoutPreviewMarks(live);
+      }
+      // Never re-resolve a removed authored clip to a sibling element via a stale preview node.
+      // Only materialize genuinely live-only clips generated at runtime (no authored data-hf-id stamp).
+      if (!target.hfId && !liveHfId) {
+        return liveMarkupWithoutPreviewMarks(live);
+      }
     }
   }
   if (action === "duplicate") throw new Error("The selected clip is no longer available. Select it again in the timeline.");
