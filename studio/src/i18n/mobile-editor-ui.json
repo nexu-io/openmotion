@@ -1,0 +1,72 @@
+{
+  "zh-CN": {
+    "Edit on desktop": "请在电脑端网页中编辑",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "OpenMotion 编辑器需要更宽的桌面屏幕操作。复制当前链接到电脑网页端打开，或返回探索页继续浏览。",
+    "Link copied": "链接已复制",
+    "Link copied. Open it on your computer.": "链接已复制，请在电脑浏览器中打开。",
+    "Could not copy link. Copy the address from your browser bar.": "复制失败，请从浏览器地址栏手动复制链接。"
+  },
+  "ja": {
+    "Edit on desktop": "デスクトップで編集",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "OpenMotion エディターはデスクトップブラウザーでの操作に最適化されています。このリンクをコピーしてパソコンで開くか、探索ページへ戻ってください。",
+    "Link copied": "リンクをコピーしました",
+    "Link copied. Open it on your computer.": "リンクをコピーしました。パソコンのブラウザーで開いてください。",
+    "Could not copy link. Copy the address from your browser bar.": "リンクをコピーできませんでした。ブラウザーのアドレスバーからコピーしてください。"
+  },
+  "ko": {
+    "Edit on desktop": "데스크톱에서 편집",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "OpenMotion 편집기는 데스크톱 브라우저 환경에 최적화되어 있습니다. 링크를 복사해 컴퓨터에서 열거나 탐색 페이지로 돌아가세요.",
+    "Link copied": "링크가 복사됨",
+    "Link copied. Open it on your computer.": "링크가 복사되었습니다. 컴퓨터 브라우저에서 열어 주세요.",
+    "Could not copy link. Copy the address from your browser bar.": "링크를 복사하지 못했습니다. 브라우저 주소창에서 직접 복사해 주세요."
+  },
+  "de": {
+    "Edit on desktop": "Auf dem Desktop bearbeiten",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "Der OpenMotion-Editor funktioniert am besten in einem Desktop-Browser. Kopiere diesen Link, um ihn auf deinem Computer zu öffnen, oder kehre zur Übersicht zurück.",
+    "Link copied": "Link kopiert",
+    "Link copied. Open it on your computer.": "Link kopiert. Öffne ihn auf deinem Computer.",
+    "Could not copy link. Copy the address from your browser bar.": "Link konnte nicht kopiert werden. Kopiere die Adresse aus der Browserleiste."
+  },
+  "fr": {
+    "Edit on desktop": "Modifier sur ordinateur",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "L’éditeur OpenMotion fonctionne mieux sur un navigateur de bureau. Copiez ce lien pour l’ouvrir sur votre ordinateur ou revenez à Explorer.",
+    "Link copied": "Lien copié",
+    "Link copied. Open it on your computer.": "Lien copié. Ouvrez-le sur votre ordinateur.",
+    "Could not copy link. Copy the address from your browser bar.": "Impossible de copier le lien. Copiez l’adresse depuis la barre de votre navigateur."
+  },
+  "ru": {
+    "Edit on desktop": "Редактируйте на компьютере",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "Редактор OpenMotion лучше всего работает в браузере на компьютере. Скопируйте ссылку, чтобы открыть её на ПК, или вернитесь в обзор.",
+    "Link copied": "Ссылка скопирована",
+    "Link copied. Open it on your computer.": "Ссылка скопирована. Откройте её на компьютере.",
+    "Could not copy link. Copy the address from your browser bar.": "Не удалось скопировать ссылку. Скопируйте адрес из строки браузера."
+  },
+  "es": {
+    "Edit on desktop": "Edita en escritorio",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "El editor de OpenMotion funciona mejor en un navegador de escritorio. Copia este enlace para abrirlo en tu computadora o vuelve a Explorar.",
+    "Link copied": "Enlace copiado",
+    "Link copied. Open it on your computer.": "Enlace copiado. Ábrelo en tu computadora.",
+    "Could not copy link. Copy the address from your browser bar.": "No se pudo copiar el enlace. Copia la dirección desde la barra de tu navegador."
+  },
+  "pt-BR": {
+    "Edit on desktop": "Edite no computador",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "O editor do OpenMotion funciona melhor em um navegador de computador. Copie este link para abrir no seu computador ou volte para Explorar.",
+    "Link copied": "Link copiado",
+    "Link copied. Open it on your computer.": "Link copiado. Abra-o no seu computador.",
+    "Could not copy link. Copy the address from your browser bar.": "Não foi possível copiar o link. Copie o endereço na barra do navegador."
+  },
+  "it": {
+    "Edit on desktop": "Modifica su desktop",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "L’editor OpenMotion funziona al meglio su un browser desktop. Copia questo link per aprirlo sul tuo computer oppure torna a Esplora.",
+    "Link copied": "Link copiato",
+    "Link copied. Open it on your computer.": "Link copiato. Aprilo sul tuo computer.",
+    "Could not copy link. Copy the address from your browser bar.": "Impossibile copiare il link. Copia l’indirizzo dalla barra del browser."
+  },
+  "tr": {
+    "Edit on desktop": "Masaüstünde düzenle",
+    "The OpenMotion editor works best on a desktop browser. Copy this link to open it on your computer, or return to Explore.": "OpenMotion editörü en iyi masaüstü tarayıcıda çalışır. Bilgisayarınızda açmak için bu bağlantıyı kopyalayın veya Keşfet sayfasına dönün.",
+    "Link copied": "Bağlantı kopyalandı",
+    "Link copied. Open it on your computer.": "Bağlantı kopyalandı. Bilgisayarınızda açın.",
+    "Could not copy link. Copy the address from your browser bar.": "Bağlantı kopyalanamadı. Adresi tarayıcı çubuğundan kopyalayın."
+  }
+}

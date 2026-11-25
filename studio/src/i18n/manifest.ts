@@ -59,6 +59,7 @@ export const I18N_EXTENSION_SOURCES: readonly I18nExtensionSource[] = [
   { kind: 'multi-locale-json', path: 'studio/src/i18n/fullscreen-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/timeline-hover-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/editor-loading-ui.json' },
+  { kind: 'multi-locale-json', path: 'studio/src/i18n/mobile-editor-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/model-hub-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/design-ui.json' },
   { kind: 'multi-locale-json', path: 'studio/src/i18n/design-editor-ui.json' },

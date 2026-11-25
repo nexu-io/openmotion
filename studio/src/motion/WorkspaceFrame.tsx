@@ -43,6 +43,7 @@ import { DesktopUpdatePrompt } from './DesktopUpdatePrompt';
 import { dismissBannerToday, shouldShowBlackFridayBanner, useMinuteCondition } from './campaignAttribution';
 import type { McpEntry } from './pageTracking';
 import { WorkspaceProjectsButton } from './WorkspaceProjectsButton';
+import { MobileEditorDesktopGuide } from './MobileEditorDesktopGuide';
 import { Skeleton } from '../components/ui/Skeleton';
 import { AuthRecoveryNotice } from './authRecovery';
 import { changesWorkspaceDestination, defaultDesignScene, isLegacyWorkspaceHref, readWorkspacePage, workspacePageHref, type SettingsSection, type WorkspacePage } from './workspacePageRouting';
@@ -278,6 +279,8 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     });
   }, [projectId, sessionId, settings, assetsOpen, skillsOpen, templatesPage, page.notFound, page.motion, page.explore, page.modelOverview, page.modelHub, page.designScene, page.studio]);
   const editorActive = editorRoute && !connectionsOpen;
+  const mobileEditorGate = narrow && editorRoute && !hostChrome;
+  const desktopEditorVisible = editorRoute && !mobileEditorGate;
   const motionTemplatesOpen = page.motion && !templatesPage && !settings;
   const previousOperationError = useRef('');
   useEffect(() => {
@@ -403,7 +406,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     openAccountSettings: () => openSettings('account'),
     openSubscriptionSettings: () => openSettings('subscription'),
     openHome, openAssets, assetsOpen: assetsOpen && !settings && !templatesPage, openSkills, skillsOpen: skillsOpen && !settings, toggleSidebar, sidebarOpen, navigationCollapsed,
-    projectNavigation: !hostChrome && editorActive ? <span className="motion-project-navigation-trigger" hidden={sidebarOpen && !narrow}>
+    projectNavigation: !hostChrome && editorActive && !mobileEditorGate ? <span className="motion-project-navigation-trigger" hidden={sidebarOpen && !narrow}>
       <WorkspaceProjectsButton applicationRef={applicationRef} expanded={sidebarOpen} previewEnabled={!narrow && !sidebarOpen} onToggle={toggleSidebar}>
         {close => <WorkspaceSidebar archives={archives} currentId={projectId} close={close} expand={() => { close(); toggleSidebar(); }} onNavigate={close} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} openTemplates={openMotionTemplates} />}
       </WorkspaceProjectsButton>
@@ -562,7 +565,7 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
     <StudioConnectionToast reconnecting={reconnecting} />
     <DesktopUpdatePrompt />
     {archives.manager}
-    <Dialog.Root open={sidebarOpen && narrow && editorActive} onOpenChange={setSidebarOpen}>
+    <Dialog.Root open={sidebarOpen && narrow && editorActive && !mobileEditorGate} onOpenChange={setSidebarOpen}>
     <div ref={applicationRef} className="om-application" data-embedded={presentation.embedded} data-host-chrome={hostChrome} data-has-bf-banner={bfBannerVisible || undefined} data-navigation-collapsed={navigationCollapsed}>
       {bfBannerVisible && <BlackFridayTopBanner trackingPage={navTrackingPage} onClose={closeBfBanner} onExpire={expireBfBanner} />}
       <ApplicationHeader atExploreHome={page.explore && !page.community && !page.medium && !connectionsOpen}
@@ -599,11 +602,20 @@ function WorkspaceFrameInner({ children, waitForSaves, projectId, sessionId, blo
       {!narrow && editorRoute && <div id="om-project-navigation" className="om-project-navigation om-collapsible" data-collapsed={!sidebarOpen || navigationCollapsed} aria-hidden={!sidebarOpen || navigationCollapsed} inert={!sidebarOpen || navigationCollapsed}>
         <WorkspaceSidebar archives={archives} currentId={projectId} close={() => setSidebarOpen(false)} query={projectQuery} setQuery={setProjectQuery} openSettings={openSettings} openTemplates={openMotionTemplates} />
       </div>}
-      <div className="motion-workspace-content" hidden={!editorRoute} aria-hidden={!editorRoute} inert={!editorRoute}>
+      <div className="motion-workspace-content" hidden={!desktopEditorVisible} aria-hidden={!desktopEditorVisible} inert={!desktopEditorVisible}>
         {visibleNotice && <ErrorNotice key={noticeKey} message={notice}
           onDismiss={() => { setDismissedNotice(noticeKey); if (workspaceNotice) workspace.clearError(); }} />}
         {children}
       </div>
+      {mobileEditorGate && (
+        <div className="om-explore-host">
+          <MobileEditorDesktopGuide
+            href={location.href}
+            onExplore={openHome}
+            onCopyFeedback={(feedbackMessage, tone) => navigationToast.showToast(feedbackMessage, tone, 'feedback')}
+          />
+        </div>
+      )}
       <RouteViewport
         page={page}
         projectId={projectId}
